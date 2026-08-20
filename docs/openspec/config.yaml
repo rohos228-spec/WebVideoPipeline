@@ -1,0 +1,46 @@
+schema: spec-driven
+
+# Project context — shown to AI when creating artifacts.
+context: |
+  Project: video-pipeline — автоматический конвейер генерации коротких
+  вертикальных роликов (сценарий → сцены → промпты кадров → картинки →
+  видео → озвучка → сборка). Single repo, ~131k строк Python в app/.
+
+  Стек: FastAPI + SQLAlchemy 2.0 + SQLite (data/state.db), Pydantic v2
+  (только web-DTO; на LLM-путях вводится этапом contracts), httpx →
+  OpenAI-совместимые релеи (kie / vibecode / свой VPS-relay), Next.js 15
+  студия (web/). Оркестратор самописный: poll Project.status + if/elif в
+  app/orchestrator/pipeline.py. LangGraph/Temporal НЕТ и не вводим —
+  вся работа ложится в существующий стек.
+
+  Ключевые точки врезки (не переписывать, врезаться):
+    - app/services/gpt_api.py::chat() — единая точка текстовых LLM (41 call-site)
+    - app/services/gpt_operator_client.py::run_operator_api — операторские вызовы
+    - app/services/db_apply.py — apply-ops в БД (SoT)
+    - app/services/vision_check_loop.py — петля проверок/регенераций
+    - NodeRun / Attempt — готовые места под input_hash и счётчики стоимости
+    - app/services/llm_override.py — contextvar project/node/model
+
+  Правда о тестах: 1736 тестов, но центральный harness-гейт выключен
+  autouse-фикстурой (tests/conftest.py) — зелёный прогон НЕ означает
+  рабочую систему. Приёмка любого изменения — живой прогон ролика.
+
+  OpenSpec philosophy:
+    - Brownfield: существующие доки (docs/*.md) — фон, не source of truth.
+    - Вся НОВАЯ работа — через changes (proposal → tasks → delta → archive).
+    - Архивирование change — часть приёмки этапа, не «потом».
+    - Спекуются только затрагиваемые capability, не весь репозиторий.
+
+# Per-artifact rules
+rules:
+  proposal:
+    - Ссылаться на WORK_PLAN.md (корень репо) и аудит как основание
+    - Каждое утверждение о поведении кода — с file:line
+    - «Why» — до 300 слов
+  tasks:
+    - Чанки максимум 2 часа, каждый обратим (бэкап/rollback-шаг для рискованных)
+    - Приёмка этапа — живой прогон, юнит-тесты только как дым
+  spec:
+    - WHEN/THEN сценарии, не нарратив
+    - Один Requirement = одно проверяемое поведение
+    - Указывать точку врезки (file:line) в implementation-notes
