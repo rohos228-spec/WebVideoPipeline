@@ -102,6 +102,94 @@ class GptChatResult:
     raw: dict[str, Any] = field(default_factory=dict)
     # kie Codex / OpenAI Responses: id вида resp_… (в UI kie = Task ID)
     response_id: str = ""
+    # Фактическая модель из payload ответа (поле model провайдера).
+    # model выше — ЗАПРОШЕННАЯ; расхождение = fallback релея/шлюза.
+    served_model: str = ""
+
+
+@dataclass(frozen=True)
+class ResponseSchema:
+    """Контракт structured output для chat() (этап 5, llm-contracts).
+
+    Транспорт не знает про Pydantic: реестр app/contracts/ отдаёт сюда
+    уже готовую json_schema. Наличие контракта переводит вызов в
+    «контрактный режим»: CF-continuation выключен (строковая склейка
+    несовместима со strict-JSON), ответ от подменённой модели — ошибка.
+    Прикрепляется ли схема к body — решает _structured_outputs_active()
+    (per-relay вердикт enforces); валидация на клиенте идёт всегда.
+    """
+
+    name: str
+    schema: dict[str, Any]
+
+
+def _structured_outputs_active(url: str) -> bool:
+    mode = (settings.gpt_structured_outputs or "auto").strip().lower()
+    if mode == "off":
+        return False
+    if mode == "on":
+        return True
+    hosts = [
+        h.strip().lower()
+        for h in (settings.gpt_structured_relays or "").split(",")
+        if h.strip()
+    ]
+    low = (url or "").lower()
+    return any(h in low for h in hosts)
+
+
+def _schema_into_body(
+    body: dict[str, Any], schema: ResponseSchema, *, responses_mode: bool
+) -> None:
+    if responses_mode:
+        body["text"] = {
+            "format": {
+                "type": "json_schema",
+                "name": schema.name,
+                "strict": True,
+                "schema": schema.schema,
+            }
+        }
+    else:
+        body["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema.name,
+                "strict": True,
+                "schema": schema.schema,
+            },
+        }
+
+
+def _norm_model_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+def _check_served_model(
+    result: GptChatResult, *, use_model: str, contract_active: bool
+) -> None:
+    """Контрактный путь: ответ от другой модели = ошибка транспорта.
+
+    LiteLLM default_fallbacks (silent downgrade) отдаёт 200 от подменённой
+    модели — такой ответ нельзя пускать в валидацию контракта.
+    """
+    if not contract_active:
+        return
+    served = (result.served_model or "").strip()
+    if not served:
+        return
+    a, b = _norm_model_name(use_model), _norm_model_name(served)
+    if a and b and a not in b and b not in a:
+        raise GptApiError(
+            f"GPT: ответ от другой модели (запрошена {use_model}, "
+            f"ответила {served}) — fallback релея",
+            context={
+                "retryable": True,
+                "error_kind": "model_mismatch",
+                "model": use_model,
+                "served_model": served,
+            },
+        )
 
 
 def gpt_api_enabled() -> bool:
@@ -1624,6 +1712,7 @@ async def _chat_responses_stream(
         usage=usage,
         raw=raw,
         response_id=response_id,
+        served_model=str((final_payload or {}).get("model") or ""),
     )
 
 
@@ -1748,6 +1837,7 @@ async def _chat_completions_stream(
         usage=usage,
         raw=raw,
         response_id=str(last.get("id") or ""),
+        served_model=str(last.get("model") or ""),
     )
 
 
@@ -1791,6 +1881,7 @@ async def _maybe_volume_complete_chat_result(
     timeout: float,
     xlsx_write_contract: str,
     volume_complete: bool | None,
+    response_schema: ResponseSchema | None = None,
 ) -> GptChatResult:
     """Если apply-ops/db_frames покрыты частично — добор батчами (~80%)."""
     if volume_complete is not True:
@@ -1818,6 +1909,7 @@ async def _maybe_volume_complete_chat_result(
             model=model,
             temperature=temperature,
             timeout=timeout,
+            response_schema=response_schema,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("gpt_api.chat volume_complete failed: {}", e)
@@ -1949,6 +2041,7 @@ async def _chat_adaptive_1_2_4(
     xlsx_write_contract: str,
     pack_kind: str | None,
     level: int = 1,
+    response_schema: ResponseSchema | None = None,
 ) -> GptChatResult:
     """Сначала один вызов. Ошибка/обрез → этот кусок пополам (2). Снова → 4."""
     from app.services.adaptive_llm_batches import next_split_level
@@ -1969,6 +2062,7 @@ async def _chat_adaptive_1_2_4(
         volume_complete=False,
         auto_pack=False,
         pack_kind=pack_kind,
+        response_schema=response_schema,
     )
     try:
         result = await chat(**kwargs)
@@ -2030,6 +2124,7 @@ async def _chat_adaptive_1_2_4(
                 xlsx_write_contract=xlsx_write_contract,
                 pack_kind=pack_kind,
                 level=nxt,
+                response_schema=response_schema,
             )
             parts.append(part)
         merged = _merge_packed_apply_ops([p.text for p in parts])
@@ -2064,6 +2159,7 @@ async def chat(
     volume_complete: bool | None = None,
     auto_pack: bool = True,
     pack_kind: str | None = None,
+    response_schema: ResponseSchema | None = None,
 ) -> GptChatResult:
     """Вызвать текстовый LLM (kie GPT / TokenRouter Kimi) с ретраями.
 
@@ -2072,6 +2168,8 @@ async def chat(
     ``auto_pack``: схема 1→2→4: сначала один вызов на все кадры;
     ошибка/обрез → этот кусок пополам; снова ошибка → ещё раз пополам (4).
     ``pack_kind``: явный ``img_pr`` | ``vo`` при force-split db_frames.
+    ``response_schema``: контракт structured output (этап 5) — см.
+    :class:`ResponseSchema`; включает контрактный режим вызова.
     """
     if auto_pack:
         return await _chat_adaptive_1_2_4(
@@ -2086,6 +2184,7 @@ async def chat(
             max_retries=max_retries,
             xlsx_write_contract=xlsx_write_contract,
             pack_kind=pack_kind,
+            response_schema=response_schema,
         )
 
     headers = _headers()
@@ -2141,6 +2240,13 @@ async def chat(
         }
     if temperature is not None:
         body["temperature"] = temperature
+    if response_schema is not None and _structured_outputs_active(url):
+        _schema_into_body(body, response_schema, responses_mode=responses_mode)
+        logger.info(
+            "gpt_api.chat structured output attached schema={} mode={}",
+            response_schema.name,
+            "responses" if responses_mode else "chat",
+        )
 
     attempt = 0
     last_exc: Exception | None = None
@@ -2157,8 +2263,15 @@ async def chat(
                 )
                 # Cloudflare/kie рвёт длинный SSE: дельты уже есть, но JSON
                 # незакрыт — добираем хвост коротким continue (без тяжёлых файлов).
+                # Контрактный режим: continuation выключен — строковая склейка
+                # stitch_llm_continuation несовместима со strict-JSON; обрыв
+                # ниже превращается в retryable-ошибку (ретрай целого вызова).
                 cont_round = 0
-                while cont_round < 2 and looks_truncated_llm_text(result.text):
+                while (
+                    response_schema is None
+                    and cont_round < 2
+                    and looks_truncated_llm_text(result.text)
+                ):
                     cont_round += 1
                     tail = (result.text or "")[-4000:]
                     cont_prompt = (
@@ -2227,6 +2340,23 @@ async def chat(
                         },
                         response_id=result.response_id or cont.response_id,
                     )
+                if response_schema is not None and looks_truncated_llm_text(
+                    result.text or ""
+                ):
+                    raise GptApiError(
+                        "GPT: ответ обрезан в контрактном режиме — "
+                        "continuation отключён, нужен ретрай целого вызова",
+                        context={
+                            "retryable": True,
+                            "error_kind": "truncated_contract",
+                            "model": use_model,
+                        },
+                    )
+                _check_served_model(
+                    result,
+                    use_model=use_model,
+                    contract_active=response_schema is not None,
+                )
                 result = await _maybe_volume_complete_chat_result(
                     result,
                     prompt=prompt,
@@ -2239,6 +2369,7 @@ async def chat(
                     timeout=use_timeout,
                     xlsx_write_contract=xlsx_write_contract,
                     volume_complete=volume_complete,
+                    response_schema=response_schema,
                 )
                 _log_chat_finished(
                     provider_label=provider_label,
@@ -2256,8 +2387,13 @@ async def chat(
                     timeout=use_timeout,
                     use_model=use_model,
                 )
+                # Контрактный режим: continuation выключен (см. responses-ветку).
                 cont_round = 0
-                while cont_round < 2 and looks_truncated_llm_text(result.text):
+                while (
+                    response_schema is None
+                    and cont_round < 2
+                    and looks_truncated_llm_text(result.text)
+                ):
                     cont_round += 1
                     tail = (result.text or "")[-4000:]
                     cont_prompt = (
@@ -2309,6 +2445,23 @@ async def chat(
                         },
                         response_id=result.response_id or cont.response_id,
                     )
+                if response_schema is not None and looks_truncated_llm_text(
+                    result.text or ""
+                ):
+                    raise GptApiError(
+                        "GPT: ответ обрезан в контрактном режиме — "
+                        "continuation отключён, нужен ретрай целого вызова",
+                        context={
+                            "retryable": True,
+                            "error_kind": "truncated_contract",
+                            "model": use_model,
+                        },
+                    )
+                _check_served_model(
+                    result,
+                    use_model=use_model,
+                    contract_active=response_schema is not None,
+                )
                 result = await _maybe_volume_complete_chat_result(
                     result,
                     prompt=prompt,
@@ -2321,6 +2474,7 @@ async def chat(
                     timeout=use_timeout,
                     xlsx_write_contract=xlsx_write_contract,
                     volume_complete=volume_complete,
+                    response_schema=response_schema,
                 )
                 _log_chat_finished(
                     provider_label=provider_label,
@@ -2344,7 +2498,17 @@ async def chat(
             text, finish = _parse_choice(payload)
             usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
             result = GptChatResult(
-                text=text, model=use_model, finish_reason=finish, usage=usage, raw=payload
+                text=text,
+                model=use_model,
+                finish_reason=finish,
+                usage=usage,
+                raw=payload,
+                served_model=str(payload.get("model") or ""),
+            )
+            _check_served_model(
+                result,
+                use_model=use_model,
+                contract_active=response_schema is not None,
             )
             result = await _maybe_volume_complete_chat_result(
                 result,
@@ -2358,6 +2522,7 @@ async def chat(
                 timeout=use_timeout,
                 xlsx_write_contract=xlsx_write_contract,
                 volume_complete=volume_complete,
+                response_schema=response_schema,
             )
             _log_chat_finished(
                 provider_label=provider_label,
@@ -2453,8 +2618,13 @@ async def chat_pdf_in_chunks(
     max_retries: int | None = None,
     chunk_chars: int = _PDF_PROVIDER_SAFE_CHARS,
     on_chunk: Any | None = None,
+    response_schema: ResponseSchema | None = None,
 ) -> GptChatResult:
     """Перевод/обработка PDF по частям — обход kie code=500 / hang на полном тексте.
+
+    ``response_schema``: контракт на КАЖДЫЙ кусок отдельно; склейка кусков —
+    текстовая (### заголовки), так что валидировать итог схемой должен
+    вызывающий по-кусочно, не целиком.
 
     Текст извлекается локально (pypdf); в API уходит только текущий кусок без
     повторной отправки всего PDF. История чата — только на первом куске.
@@ -2524,6 +2694,7 @@ async def chat_pdf_in_chunks(
                 temperature=temperature,
                 timeout=chunk_timeout,
                 max_retries=chunk_retries,
+                response_schema=response_schema,
             )
             body = (last.text or "").strip() or "[пустой ответ модели]"
             ok_n += 1

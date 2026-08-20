@@ -240,8 +240,12 @@ async def volume_complete_apply_ops_reply(
     model: str | None = None,
     temperature: float | None = None,
     timeout: float | None = None,
+    response_schema: Any | None = None,
 ) -> tuple[str, bool]:
     """Добрать недостающие frame ops после частичного ответа kie.
+
+    ``response_schema``: контракт вызова-родителя (gpt_api.ResponseSchema) —
+    добор наследует его, иначе strict-путь получал бы не-strict хвост.
 
     Returns:
         (text, did_continue)
@@ -294,6 +298,7 @@ async def volume_complete_apply_ops_reply(
                 max_retries=0,
                 xlsx_write_contract="apply_ops",
                 volume_complete=False,
+                response_schema=response_schema,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(

@@ -77,6 +77,7 @@ class ApiGptClient:
         system: str | None = None,
         max_retries: int | None = None,
         auto_pack: bool = True,
+        response_schema: Any | None = None,
     ) -> str:
         require_gpt_api()
         from app.services.gpt_api import (
@@ -172,6 +173,7 @@ class ApiGptClient:
                 system=system,
                 # Не пробрасываем max_retries=1 из workspace — внутри ≥3.
                 max_retries=None,
+                response_schema=response_schema,
             )
         else:
             pack_kind = None
@@ -188,6 +190,7 @@ class ApiGptClient:
                     max_retries=max_retries,
                     pack_kind=pack_kind,
                     auto_pack=auto_pack,
+                    response_schema=response_schema,
                 )
             except Exception as e:  # noqa: BLE001
                 if pdfs and is_pdf_provider_failure(e):
@@ -204,6 +207,7 @@ class ApiGptClient:
                         history=hist or None,
                         system=system,
                         max_retries=None,
+                        response_schema=response_schema,
                     )
                 elif isinstance(e, GptApiError):
                     raise

@@ -123,6 +123,15 @@ class Settings(BaseSettings):
     # Плейсхолдер {model} подставляется слагом модели.
     # TokenRouter: /chat/completions (база уже с /v1).
     gpt_chat_path: str = Field("/codex/v1/responses", alias="GPT_CHAT_PATH")
+    # Этап 5 (llm-contracts): structured outputs (response_format json_schema
+    # strict). auto — включать только на релеях из gpt_structured_relays
+    # (вердикт enforces по эмпирической пробе); on — всегда; off — никогда
+    # (клиентская валидация + repair-retry работают в любом режиме).
+    gpt_structured_outputs: str = Field("auto", alias="GPT_STRUCTURED_OUTPUTS")
+    # Подстроки хостов релеев с подтверждённым вердиктом enforces.
+    # kie/vibecode сюда добавлять только после положительной пробы
+    # (docs/openspec/changes/stage-5-llm-contracts/proposal.md).
+    gpt_structured_relays: str = Field("chattiq.ru", alias="GPT_STRUCTURED_RELAYS")
     # Формат API: chat (messages/choices) | responses (input/output) | auto.
     # auto → responses, если в пути есть "responses" (kie.ai gpt-5.6/5.5/5.4 codex).
     gpt_api_mode: str = Field("auto", alias="GPT_API_MODE")
