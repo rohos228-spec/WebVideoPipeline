@@ -428,3 +428,39 @@ db_apply.repair_near_miss_frame_uuids:290.
 `stage-0-security-hygiene`), лимит 20 регенераций, 2 оси из 9(10) в промпте
 регенерации, отсутствие media_probe перед vision, STYLE-lock no-op, 110
 алиасов, лизинги без TTL, usage выбрасывается.
+
+---
+
+## 10. Онбординг разработчика (минимум, чтобы работать без автора)
+
+**Окружение (Linux/dev):** Python 3.11-3.12 (`pyproject.toml`), venv +
+`pip install -e '.[dev]'` (или uv). Прод у заказчика — Windows,
+`STUDIO.cmd` → `scripts/studio.ps1` (меню [1] запуск, [5]/[6]/[7] —
+ветка/починка/диагностика; SoT меню — `studio.ps1:983-990`).
+
+**Каноническая точка входа:** `python -m app.main` (бот + воркер + web в
+одном процессе; воркер-синглтон — `pipeline_worker.py:12-21`). FastAPI
+lifespan (`web/api.py:171-188`) поднимает то же самое. `app/worker.py` —
+legacy, НЕ запускать (см. [[cache-resume]] «один канонический воркер»).
+
+**Тесты:** `.venv/bin/python -m pytest tests/ -q`; помнить: harness-гейт в
+тестах выключен autouse-фикстурой — зелёные тесты ≠ рабочая система;
+приёмка — живой прогон. Известный предсуществующий фейл:
+`test_check_fix_writeback_applies_tsv`.
+
+**Промпты:** `prompts/*` под .gitignore (в git только `prompts/scene_design/`
+и `prompts/05_excel_gpt/`); формат и слоты — `prompt_library.py` (STEP_DIRS),
+`gpt_text_builder.get_effective_text`; вшитые хвосты-контракты — в коде
+(`_*_DB_HINT` в `xlsx_step_runners.py`, футеры батчей). На чистом клоне
+контуры К2/К3 не работают — их промпты не в git.
+
+**Как добавить шаг конвейера (полный чек-лист мест):** enum в
+`models.py:19-73` (пара running/ready) → `_STATUS_ORDER` в `menu.py:99-147`
+(и НЕ создать коллизию ord) → `StepDef.requires` в `menu.py:212-271` →
+ветка в `pipeline.py:132-186` → `TRANSITIONS` в `auto_advance.py:103-206`
+→ реестр нод `node_registry.py` → ACTIVE_STATUSES в `main.py:300-321`
+(про это место забыли для sfx — см. §9#1) → при необходимости harness-гейт
+(`agent_harness.py`) и валидатор (`post_step_validate.py`).
+
+**Конфиг:** все env — `app/settings.py` (pydantic-settings, alias = имя
+переменной); секреты только через `.env` (шаблон `.env.example`).
