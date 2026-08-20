@@ -1,0 +1,690 @@
+"""TSV/xlsx write-back из текстового ответа GPT API."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from openpyxl import Workbook, load_workbook
+
+from app.services.xlsx_text_writeback import (
+    apply_sheet_blocks_to_xlsx,
+    extract_sheet_blocks,
+    merge_xlsx_nonempty_overlay,
+    writeback_project_xlsx,
+    _writeback_project_xlsx_legacy_disabled,
+)
+
+
+def test_writeback_project_xlsx_public_api_disabled(tmp_path: Path) -> None:
+    target = tmp_path / "project.xlsx"
+    wb = Workbook()
+    wb.save(target)
+    wb.close()
+    try:
+        writeback_project_xlsx(project_xlsx=target, reply_text="# Лист: план\nA\n1\n")
+        raise AssertionError("expected RuntimeError")
+    except RuntimeError as e:
+        assert "отключён" in str(e).lower() or "disabled" in str(e).lower() or "Excel writeback" in str(e)
+
+
+def test_extract_sheet_blocks_tsv() -> None:
+    text = (
+        "# Лист: план\n"
+        "A\tB\tC\n"
+        "1\t2\t3\n"
+        "# Лист: Кадры\n"
+        "n\ttext\n"
+        "1\thello\n"
+    )
+    blocks = extract_sheet_blocks(text)
+    assert list(blocks.keys()) == ["план", "Кадры"]
+    assert blocks["план"][0] == ["A", "B", "C"]
+    assert blocks["Кадры"][1] == ["1", "hello"]
+
+
+def test_writeback_incomplete_and_merge(tmp_path: Path) -> None:
+    from app.services.xlsx_text_writeback import (
+        WRITEBACK_HINT,
+        merge_writeback_texts,
+        writeback_looks_incomplete,
+    )
+
+    assert "ПОЛНОЕ ЗАПОЛНЕНИЕ" in WRITEBACK_HINT
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Общий план"
+    for i in range(1, 41):
+        ws.cell(row=i, column=1, value=f"row{i}")
+        ws.cell(row=i, column=2, value="")
+    wb.save(src)
+    wb.close()
+
+    partial = "\n".join(
+        ["# Лист: Общий план"]
+        + [f"@row={i}\trow{i}\tonly-part" for i in range(1, 9)]
+    )
+    incomplete, reason, sheet, nxt = writeback_looks_incomplete(
+        reply_text=partial, template_xlsx=src
+    )
+    assert incomplete is True
+    assert sheet == "Общий план"
+    assert nxt == 9
+
+    more = "\n".join(
+        ["# Лист: Общий план"]
+        + [f"@row={i}\trow{i}\trest" for i in range(9, 41)]
+    )
+    merged = merge_writeback_texts(partial, more)
+    incomplete2, _, _, _ = writeback_looks_incomplete(
+        reply_text=merged, template_xlsx=src
+    )
+    assert incomplete2 is False
+    assert merged.count("@row=") == 40
+
+
+def test_merge_writeback_last_wins_same_row() -> None:
+    from app.services.xlsx_text_writeback import merge_writeback_texts
+
+    a = "# Лист: план\n@row=5\tlabel\tOLD\n"
+    b = "# Лист: план\n@row=5\tlabel\tNEW\n@row=6\tlabel2\tx\n"
+    merged = merge_writeback_texts(a, b)
+    assert "OLD" not in merged
+    assert "@row=5\tlabel\tNEW" in merged
+    assert "@row=6\tlabel2\tx" in merged
+
+
+def test_unmarked_junk_not_sequential_overwrite(tmp_path: Path) -> None:
+    """Мусор без @row= рядом с @row= не должен затирать A1."""
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A1"] = "номер кадра"
+    ws["A2"] = "предыдущий кадр"
+    ws["B10"] = "keep"
+    wb.create_sheet("Общий план")
+    wb.save(src)
+    wb.close()
+
+    reply = (
+        "# Лист: план\n"
+        "CONTINUE_XLSX: план @row=55\n"
+        "мусор без таба\n"
+        "@row=10\tфон\tNEW\n"
+    )
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=src, reply_text=reply, downloaded_paths=[]
+    )
+    assert out == src
+    wb2 = load_workbook(src, data_only=True)
+    assert wb2["план"]["A1"].value == "номер кадра"
+    assert wb2["план"]["A2"].value == "предыдущий кадр"
+    assert "CONTINUE" not in str(wb2["план"]["A1"].value or "")
+    assert wb2["план"]["B10"].value == "NEW"
+    wb2.close()
+
+
+def test_row_marked_continue_cannot_shift_plan_labels(tmp_path: Path) -> None:
+    """Даже `@row=1\\tCONTINUE…` не двигает подписи A и не пишет CONTINUE."""
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A1"] = "номер кадра"
+    ws["A2"] = "предыдущий кадр"
+    ws["A3"] = "следующий кадр"
+    ws["A4"] = "фон"
+    ws["C1"] = "1"
+    ws["D1"] = "2"
+    wb.create_sheet("Общий план")
+    wb.save(src)
+    wb.close()
+
+    reply = (
+        "# Лист: план\n"
+        "@row=1\tCONTINUE_XLSX: план @row=55\t9\t9\n"
+        "@row=2\tCONTINUE_XLSX: план @row=56\n"
+        "@row=3\tCONTINUE_XLSX: план @row=56\n"
+        "@row=4\tномер кадра\t1\t2\n"
+        "@row=10\tфон\tOK\n"
+    )
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=src, reply_text=reply, downloaded_paths=[]
+    )
+    assert out == src
+    wb2 = load_workbook(src, data_only=True)
+    assert wb2["план"]["A1"].value == "номер кадра"
+    assert wb2["план"]["A2"].value == "предыдущий кадр"
+    assert wb2["план"]["A3"].value == "следующий кадр"
+    assert wb2["план"]["A4"].value == "фон"
+    assert "CONTINUE" not in str(wb2["план"]["A1"].value or "")
+    assert wb2["план"]["B10"].value == "OK"
+    wb2.close()
+
+
+def test_writeback_rejects_if_plan_labels_would_shift(tmp_path: Path) -> None:
+    """Fail-closed: если подписи A съехали — live не трогаем."""
+    from app.services.xlsx_text_writeback import assert_frame_plan_labels_intact
+
+    ref = tmp_path / "ref.xlsx"
+    bad = tmp_path / "bad.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A1"] = "номер кадра"
+    wb.save(ref)
+    wb.close()
+    wb2 = Workbook()
+    ws2 = wb2.active
+    assert ws2 is not None
+    ws2.title = "план"
+    ws2["A1"] = "CONTINUE_XLSX: план @row=55"
+    ws2["A4"] = "номер кадра"
+    wb2.save(bad)
+    wb2.close()
+    try:
+        assert_frame_plan_labels_intact(bad, reference_xlsx=ref)
+        raise AssertionError("expected ValueError")
+    except ValueError as e:
+        assert "отказ" in str(e).lower() or "CONTINUE" in str(e)
+
+
+def test_writeback_creates_pre_write_backup(tmp_path: Path) -> None:
+    """Перед мутацией live — копия в old/<ts>_project.xlsx (не только result)."""
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A1"] = "номер кадра"
+    ws["B10"] = "BEFORE"
+    wb.save(src)
+    wb.close()
+
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=src,
+        reply_text="# Лист: план\n@row=10\tфон\tAFTER\n",
+        downloaded_paths=[],
+    )
+    assert out == src
+    old_dir = tmp_path / "old"
+    assert old_dir.is_dir()
+    backups = sorted(old_dir.glob("*_project.xlsx"))
+    assert backups, "expected pre-write backup in old/"
+    # result-снимки ноды имеют суффикс _result_project — их тут быть не должно
+    assert not list(old_dir.glob("*_result_project.xlsx"))
+    wb_b = load_workbook(backups[-1], data_only=True)
+    assert wb_b["план"]["B10"].value == "BEFORE"
+    wb_b.close()
+    wb_live = load_workbook(src, data_only=True)
+    assert wb_live["план"]["B10"].value == "AFTER"
+    wb_live.close()
+
+
+def test_continue_marker_not_written_into_cells(tmp_path: Path) -> None:
+    """CONTINUE_XLSX — сигнал дозапроса, не значение ячейки A1."""
+    from app.services.xlsx_text_writeback import extract_sheet_blocks
+
+    text = (
+        "# Лист: план\n"
+        "@row=4\tномер кадра\tx\n"
+        "CONTINUE_XLSX: план @row=55\n"
+        "@row=5\tпредыдущий кадр\ty\n"
+    )
+    blocks = extract_sheet_blocks(text)
+    assert "план" in blocks
+    flat = ["\t".join(r) for r in blocks["план"]]
+    assert all("CONTINUE_XLSX" not in x for x in flat)
+    assert any("@row=4" in x or x.startswith("номер") for x in flat)
+
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A1"] = "номер кадра"
+    ws["A2"] = "предыдущий кадр"
+    ws["A3"] = "следующий кадр"
+    wb.create_sheet("Общий план")
+    wb.save(src)
+    wb.close()
+
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=src,
+        reply_text=text,
+        downloaded_paths=[],
+    )
+    assert out == src
+    wb2 = load_workbook(src, data_only=True)
+    assert "CONTINUE_XLSX" not in str(wb2["план"]["A1"].value or "")
+    assert wb2["план"]["A1"].value == "номер кадра"
+    wb2.close()
+
+
+def test_continue_marker_ignored_when_coverage_ok(tmp_path: Path) -> None:
+    from app.services.xlsx_text_writeback import writeback_looks_incomplete
+
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    for i in range(1, 41):
+        ws.cell(row=i, column=1, value=f"row{i}")
+    wb.save(src)
+    wb.close()
+
+    body = "\n".join(
+        ["# Лист: план"]
+        + [f"@row={i}\trow{i}\tok" for i in range(1, 41)]
+        + ["CONTINUE_XLSX: план @row=56"]
+    )
+    incomplete, reason, _, _ = writeback_looks_incomplete(
+        reply_text=body, template_xlsx=src
+    )
+    assert incomplete is False
+    assert reason == "ok"
+
+
+def test_merge_orphan_tabs_inherit_sheet() -> None:
+    from app.services.xlsx_text_writeback import extract_sheet_blocks, merge_writeback_texts
+
+    first = "# Лист: план\n@row=1\ta\tb\n"
+    # CONTINUE без `# Лист:` — раньше уезжало в «Данные» и skip на v8.
+    cont = "@row=2\tc\td\n"
+    merged = merge_writeback_texts(first, cont, default_sheet="план")
+    blocks = extract_sheet_blocks(merged)
+    assert "Данные" not in blocks
+    assert len(blocks["план"]) == 2
+
+
+def test_writeback_remaps_dannye_and_keeps_plan_labels(tmp_path: Path) -> None:
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A5"] = "закадровый текст"
+    ws["B5"] = "старое"
+    wb.create_sheet("Общий план")
+    wb.save(src)
+    wb.close()
+
+    reply = (
+        "# Лист: Данные\n"
+        "@row=5\tЛОМАЙ ПОДПИСЬ\tновое значение\n"
+    )
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=src,
+        reply_text=reply,
+        downloaded_paths=[],
+    )
+    assert out == src
+    wb2 = load_workbook(src, data_only=True)
+    assert wb2["план"]["A5"].value == "закадровый текст"
+    assert wb2["план"]["B5"].value == "новое значение"
+    wb2.close()
+
+
+def test_extract_from_fenced_block() -> None:
+    text = "вот результат:\n```tsv\n# Лист: Данные\nx\ty\n10\t20\n```\nконец"
+    blocks = extract_sheet_blocks(text)
+    assert "Данные" in blocks
+    assert blocks["Данные"] == [["x", "y"], ["10", "20"]]
+
+
+def test_apply_and_writeback(tmp_path: Path) -> None:
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A1"] = "old"
+    ws["A5"] = "keep-me"
+    wb.create_sheet("Кадры")
+    wb.save(src)
+    wb.close()
+
+    reply = (
+        "# Лист: план\n"
+        "@row=1\tname\tval\n"
+        "@row=2\tfoo\tbar\n"
+        "# Лист: Кадры\n"
+        "@row=1\tid\n"
+        "@row=2\t1\n"
+    )
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=src,
+        reply_text=reply,
+        downloaded_paths=[],
+    )
+    assert out == src
+    wb2 = load_workbook(src)
+    # Лист «план»: колонка A заморожена (подписи шаблона).
+    assert wb2["план"]["A1"].value == "old"
+    assert wb2["план"]["B1"].value == "val"
+    assert wb2["план"]["A2"].value is None  # foo — подпись, не пишем
+    assert wb2["план"]["B2"].value == "bar"
+    # Overlay: строки вне TSV не стираем
+    assert wb2["план"]["A5"].value == "keep-me"
+    assert wb2["Кадры"]["A2"].value == "1"
+    wb2.close()
+
+
+def test_apply_row_marks_preserve_sparse_plan_rows(tmp_path: Path) -> None:
+    """@row=N пишет в абсолютные строки — R45/R49 не съезжают вниз."""
+    src = tmp_path / "project.xlsx"
+    dest = tmp_path / "out.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A1"] = "заголовок"
+    ws["A15"] = "таймкод"
+    ws["C15"] = "0:00-0:05"
+    ws["A45"] = "промт картинки"
+    ws["C45"] = "old prompt"
+    ws["A49"] = "закадровый текст"
+    ws["C49"] = "old vo"
+    ws["A2"] = "enrich keep"
+    ws["C2"] = "enrich value"
+    wb.create_sheet("Общий план")
+    wb.save(src)
+    wb.close()
+
+    blocks = extract_sheet_blocks(
+        "# Лист: план\n"
+        "@row=45\tпромт картинки\t\tnew prompt\n"
+        "@row=49\tзакадровый текст\t\tnew vo\n"
+    )
+    apply_sheet_blocks_to_xlsx(src, blocks, dest)
+    wb2 = load_workbook(dest)
+    assert wb2["план"]["C45"].value == "new prompt"
+    assert wb2["план"]["C49"].value == "new vo"
+    assert wb2["план"]["C15"].value == "0:00-0:05"
+    assert wb2["план"]["C2"].value == "enrich value"
+    assert wb2["план"]["A2"].value == "enrich keep"
+    wb2.close()
+
+
+def test_apply_label_fallback_without_row_marks(tmp_path: Path) -> None:
+    """Legacy TSV без @row=: сопоставляем по подписи A на листе «план»."""
+    src = tmp_path / "project.xlsx"
+    dest = tmp_path / "out.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A2"] = "enrich"
+    ws["C2"] = "keep"
+    ws["A45"] = "промт для картинки 1"
+    ws["C45"] = "old"
+    ws["A49"] = "закадровый текст"
+    ws["C49"] = "old vo"
+    wb.create_sheet("Общий план")
+    wb.save(src)
+    wb.close()
+
+    # Уплотнённый ответ без пустых рядов — раньше писал в R1/R2.
+    apply_sheet_blocks_to_xlsx(
+        src,
+        {
+            "план": [
+                ["промт для картинки 1", "", "fresh prompt"],
+                ["закадровый текст", "", "fresh vo"],
+            ]
+        },
+        dest,
+    )
+    wb2 = load_workbook(dest)
+    assert wb2["план"]["C45"].value == "fresh prompt"
+    assert wb2["план"]["C49"].value == "fresh vo"
+    assert wb2["план"]["C2"].value == "keep"
+    wb2.close()
+
+
+def test_binary_writeback_overlays_not_wipes(tmp_path: Path) -> None:
+    project = tmp_path / "project.xlsx"
+    dl = tmp_path / "gpt.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A2"] = "enrich"
+    ws["C2"] = "must-keep"
+    ws["A49"] = "закадровый текст"
+    ws["C49"] = "old"
+    wb.create_sheet("Общий план")
+    wb.save(project)
+    wb.close()
+
+    wb2 = Workbook()
+    ws2 = wb2.active
+    assert ws2 is not None
+    ws2.title = "план"
+    ws2["C49"] = "from_download"
+    # enrich отсутствует в ответе GPT — не должен затереться
+    wb2.save(dl)
+    wb2.close()
+
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=project,
+        reply_text="",
+        downloaded_paths=[dl],
+    )
+    assert out == project
+    got = load_workbook(project)
+    assert got["план"]["C49"].value == "from_download"
+    assert got["план"]["C2"].value == "must-keep"
+    got.close()
+
+
+def test_merge_xlsx_nonempty_overlay(tmp_path: Path) -> None:
+    proj = tmp_path / "p.xlsx"
+    gpt = tmp_path / "g.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A1"] = "label"
+    ws["B1"] = "keep"
+    wb.create_sheet("Общий план")
+    wb.save(proj)
+    wb.close()
+
+    wb2 = Workbook()
+    ws2 = wb2.active
+    assert ws2 is not None
+    ws2.title = "план"
+    ws2["B1"] = "updated"
+    ws2["C1"] = "new"
+    wb2.save(gpt)
+    wb2.close()
+
+    merge_xlsx_nonempty_overlay(proj, gpt, proj)
+    got = load_workbook(proj)
+    assert got["план"]["A1"].value == "label"
+    assert got["план"]["B1"].value == "updated"
+    assert got["план"]["C1"].value == "new"
+    got.close()
+
+
+def test_apply_does_not_add_foreign_sheets_on_v8_workbook(tmp_path: Path) -> None:
+    src = tmp_path / "project.xlsx"
+    dest = tmp_path / "out.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Общий план"
+    ws["A1"] = "label"
+    wb.create_sheet("план")
+    wb.save(src)
+    wb.close()
+
+    apply_sheet_blocks_to_xlsx(
+        src,
+        {
+            "Общий план": [["@row=1", "label", "длинный текст"]],
+            "ЧужойЛист": [["x"]],
+        },
+        dest,
+    )
+    wb2 = load_workbook(dest)
+    assert "ЧужойЛист" not in wb2.sheetnames
+    assert wb2["Общий план"]["A1"].value == "label"
+    assert wb2["Общий план"]["B1"].value == "длинный текст"
+    assert "план" in wb2.sheetnames
+    wb2.close()
+
+
+def test_writeback_prefers_downloaded_xlsx(tmp_path: Path) -> None:
+    project = tmp_path / "project.xlsx"
+    dl = tmp_path / "content_1.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws["A1"] = "from_download"
+    wb.save(dl)
+    wb.close()
+    # Нет v8-листов → полный copy как раньше
+    Workbook().save(project)
+
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=project,
+        reply_text="# Лист: X\na\tb\n",
+        downloaded_paths=[dl],
+    )
+    assert out == project
+    wb2 = load_workbook(project)
+    assert wb2.active["A1"].value == "from_download"
+    wb2.close()
+
+
+def test_writeback_prose_fallback_into_general_plan(tmp_path: Path) -> None:
+    from app.services.plan_validation import is_meaningful_general_plan
+    from app.services.xlsx_v8_import import _read_general_plan
+
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Общий план"
+    ws["A1"] = "Хук"
+    ws["A2"] = "Основная тема"
+    ws.merge_cells("B2:D2")
+    # Без листа «план» — prose fallback разрешён (простая книга плана).
+    wb.save(src)
+    wb.close()
+
+    prose = "А" * 250 + "\n\nРим был велик: армия, право, дороги."
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=src,
+        reply_text=prose,
+        downloaded_paths=[],
+    )
+    assert out == src
+    wb2 = load_workbook(src, data_only=True)
+    # Структура строк не сломана: подпись A2 на месте, текст в B2
+    assert wb2["Общий план"]["A1"].value == "Хук"
+    assert wb2["Общий план"]["A2"].value == "Основная тема"
+    assert "Рим был велик" in str(wb2["Общий план"]["B2"].value or "")
+    text = _read_general_plan(wb2) or ""
+    wb2.close()
+    assert is_meaningful_general_plan(text)
+    assert "Рим был велик" in text
+
+
+def test_writeback_refuses_prose_on_frame_plan_workbook(tmp_path: Path) -> None:
+    """Полный project.xlsx с листом «план»: проза не должна заливать B2."""
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Общий план"
+    ws["A2"] = "Основная тема"
+    ws["B2"] = "оригинал плана не трогать"
+    plan = wb.create_sheet("план")
+    plan["A1"] = "кадр"
+    plan["B1"] = "текст"
+    wb.save(src)
+    wb.close()
+
+    prose = "А" * 250 + "\n\nМодель ответила болтовнёй без TSV."
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=src,
+        reply_text=prose,
+        downloaded_paths=[],
+    )
+    assert out is None
+    wb2 = load_workbook(src, data_only=True)
+    assert wb2["Общий план"]["B2"].value == "оригинал плана не трогать"
+    assert wb2["план"]["B1"].value == "текст"
+    wb2.close()
+
+
+def test_writeback_skips_check_report_json(tmp_path: Path) -> None:
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Общий план"
+    ws["A2"] = "Тема"
+    ws["B2"] = "оригинал плана"
+    wb.save(src)
+    wb.close()
+
+    report = (
+        '{"decision":"regen","confidence":0.99,'
+        '"criteria":{"flow_continuity":{"verdict":"pass"}},'
+        '"fix_hints":["убери мета"],"issues":["x"]}'
+    )
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=src,
+        reply_text=report,
+        downloaded_paths=[],
+    )
+    assert out is None
+    wb2 = load_workbook(src, data_only=True)
+    assert wb2["Общий план"]["B2"].value == "оригинал плана"
+    wb2.close()
+
+
+def test_apply_creates_missing_sheet(tmp_path: Path) -> None:
+    src = tmp_path / "a.xlsx"
+    dest = tmp_path / "b.xlsx"
+    Workbook().save(src)
+    apply_sheet_blocks_to_xlsx(src, {"Новый": [["a", "b"]]}, dest)
+    wb = load_workbook(dest)
+    assert "Новый" in wb.sheetnames
+    assert wb["Новый"]["B1"].value == "b"
+    wb.close()
+def test_writeback_skips_html_named_xlsx_uses_tsv(tmp_path: Path) -> None:
+    """HTML с расширением .xlsx не должен затирать книгу — берём TSV."""
+    src = tmp_path / "project.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "план"
+    ws["A1"] = "номер кадра"
+    ws["A10"] = "фон"
+    ws["B10"] = "OLD"
+    wb.create_sheet("Общий план")
+    wb.save(src)
+    wb.close()
+
+    fake = tmp_path / "fake.xlsx"
+    fake.write_bytes(b"<!DOCTYPE html><html><body>login</body></html>")
+
+    reply = "# Лист: план\n@row=10\tфон\tFROM_TSV\n"
+    out = _writeback_project_xlsx_legacy_disabled(
+        project_xlsx=src, reply_text=reply, downloaded_paths=[fake]
+    )
+    assert out == src
+    wb2 = load_workbook(src, data_only=True)
+    assert wb2["план"]["B10"].value == "FROM_TSV"
+    wb2.close()

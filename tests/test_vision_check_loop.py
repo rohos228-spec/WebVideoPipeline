@@ -1,0 +1,758 @@
+"""DB-aware vision check: parsers + loop meta (hero/scenes)."""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from app import settings as app_settings
+from app.models import Project, ProjectStatus
+from app.services.check_analysis import (
+    append_vision_check_hint,
+    extract_critical_frame_regen_targets,
+    extract_critical_hero_regen_ids,
+    extract_db_patch,
+    extract_frame_regen_targets,
+    extract_hero_regen_ids,
+    parse_check_analysis,
+    resolve_vision_check_gate,
+)
+from app.services import vision_check_loop as vcl
+from app.services.excel_gpt_node import upload_dir
+
+
+def test_extract_frame_regen_line() -> None:
+    text = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+
+## summary
+плохо
+
+frames: 3, 7s2, 12
+"""
+    got = extract_frame_regen_targets(text)
+    assert got == [
+        {"number": 3, "shot": 1},
+        {"number": 7, "shot": 2},
+        {"number": 12, "shot": 1},
+    ]
+
+
+def test_extract_frame_from_findings() -> None:
+    text = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+
+## findings
+- [error] frame_003_abcd.png не тот персонаж
+- [ok] frame_001_x.png ок
+
+## actions
+нужен переген
+"""
+    ids = extract_frame_regen_targets(text)
+    assert {"number": 3, "shot": 1} in ids
+    assert all(t["number"] != 1 for t in ids)
+
+
+def test_extract_db_patch_fenced() -> None:
+    text = """
+verdict: fail
+regen: c02
+
+## db_patch
+```json
+{
+  "characters": [{"id": "c02", "внешность": "длинные волосы"}],
+  "ops": [{"frame_uuid": "u-1", "fields": {"промт_картинки": "new"}}]
+}
+```
+"""
+    patch = extract_db_patch(text)
+    assert patch is not None
+    assert patch["characters"][0]["id"] == "c02"
+    assert patch["ops"][0]["target"] == "frame"
+    assert patch["ops"][0]["frame_uuid"] == "u-1"
+
+
+def test_append_vision_hint_idempotent() -> None:
+    once = append_vision_check_hint("проверь")
+    assert "db_patch" in once
+    assert "## scores" in once
+    assert "critical" in once
+    assert "0.70" in once
+    twice = append_vision_check_hint(once)
+    assert twice.count("vision_check") == once.count("vision_check")
+
+
+def test_vision_gate_pass_on_scores_despite_model_fail() -> None:
+    text = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+
+## summary
+мелочи
+
+## scores
+style: 0.85
+character: 0.85
+format: 0.90
+pose: 0.85
+clones: 1.0
+text: 0.80
+angles: 0.75
+quality: 0.85
+hands: 0.80
+overall: 0.82
+
+## issues
+- [warning] c01: лёгкий шум
+- [minor] c02: чуть плотный кроп
+"""
+    assert resolve_vision_check_gate(text) == "pass"
+    assert parse_check_analysis(text).verdict == "pass"
+    assert extract_critical_hero_regen_ids(text) == []
+
+
+def test_vision_gate_fail_on_critical_even_high_overall() -> None:
+    text = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: pass
+
+## summary
+брак
+
+## scores
+style: 0.90
+character: 0.90
+format: 0.90
+pose: 0.90
+clones: 0.90
+text: 0.90
+angles: 0.90
+quality: 0.90
+hands: 0.90
+overall: 0.90
+
+## issues
+- [critical] c01: нет вида со спины
+- [warning] c02: шум
+
+regen: c01, c02
+"""
+    assert resolve_vision_check_gate(text) == "fail"
+    assert parse_check_analysis(text).verdict == "fail"
+    assert extract_critical_hero_regen_ids(text) == ["c01"]
+
+
+def test_vision_gate_fail_low_overall_no_regen() -> None:
+    text = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+
+## scores
+style: 0.50
+character: 0.50
+format: 0.60
+pose: 0.55
+clones: 1.0
+text: 0.55
+angles: 0.50
+quality: 0.50
+hands: 0.50
+overall: 0.54
+
+## issues
+- [warning] frame_003_x.png: слабая композиция
+
+frames: 3
+"""
+    assert resolve_vision_check_gate(text) == "fail"
+    assert extract_critical_frame_regen_targets(text) == []
+
+
+def test_extract_extended_score_axes() -> None:
+    from app.services.check_analysis import extract_vision_scores
+
+    scores = extract_vision_scores(
+        "## scores\nstyle: 0.7\nhands: 0.4\noverall: 0.6\n"
+    )
+    assert scores["style"] == 0.7
+    assert scores["hands"] == 0.4
+    assert scores["overall"] == 0.6
+
+
+def test_error_findings_are_critical_not_legacy_all_frames() -> None:
+    """Модель часто пишет [error] в findings без ## scores — не тащить frames: 1..N."""
+    from app.services.check_analysis import (
+        has_critical_vision_issues,
+        looks_like_scored_vision_report,
+    )
+
+    text = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+mode: fix
+
+## findings
+- [error] `frame_005_5d5b52a3.png`: нет c02
+- [error] `frame_006_69026b39.png`: лишние двойники
+- [error] вход: отсутствует TSV-экспорт листа «Общий план»
+- [ok] `frame_001_ec15f244.png`: ок
+
+## regen_frames
+frames: 5, 6, 7, 3, 4, 8, 2, 1, 9, 11, 12, 10
+"""
+    assert looks_like_scored_vision_report(text)
+    assert has_critical_vision_issues(text)
+    assert resolve_vision_check_gate(text) == "fail"
+    got = extract_critical_frame_regen_targets(text)
+    nums = {t["number"] for t in got}
+    assert nums == {5, 6}
+    assert 1 not in nums
+    assert 12 not in nums
+
+
+def test_vision_assemble_forces_report_only_for_images(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services.gpt_operator import assemble_check_master_prompt_with_hero_hint
+
+    p = _project(tmp_path, monkeypatch, "vfix")
+    check_key = "n_check"
+    p.meta = {
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_img", "type": "images"},
+                {"id": check_key, "type": "excel_gpt", "data": {"checkMode": True}},
+            ],
+            "edges": [{"source": "n_img", "target": check_key}],
+        }
+    }
+    text = assemble_check_master_prompt_with_hero_hint(
+        p,
+        check_key,
+        [{"ok": True, "nodeKey": "n_img", "text": "agent"}],
+        check_fix=True,
+    )
+    assert "mode: report_only" in text
+    assert "ОБЯЗАТЕЛЕН блок --- XLSX_WRITEBACK" not in text
+    assert "db_patch" in text
+    assert "VISION OVERRIDE" in text
+
+
+def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slug: str) -> Project:
+    monkeypatch.setattr(app_settings.settings, "data_dir", tmp_path / "data")
+    p = Project(
+        slug=slug,
+        topic="t",
+        status=ProjectStatus.enrich_1_ready,
+        hero_mode="no_hero",
+        meta={},
+    )
+    p.data_dir.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def test_start_hero_loop_via_vision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    p = _project(tmp_path, monkeypatch, "vh")
+    check_key = "n_check"
+    p.meta = {
+        "excel_gpt_nodes": {
+            check_key: {"checkMode": True, "checkFix": False, "slotIndex": 1},
+        },
+        "gpt_operator_results": {check_key: {"gateStatus": "fail"}},
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_hero", "type": "hero"},
+                {
+                    "id": check_key,
+                    "type": "excel_gpt",
+                    "data": {"slotIndex": 1, "checkMode": True},
+                },
+            ],
+            "edges": [
+                {
+                    "source": "n_hero",
+                    "target": check_key,
+                    "data": {"kind": "after"},
+                }
+            ],
+        },
+    }
+    out = upload_dir(p, check_key)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "check_report.txt").write_text(
+        "# ОТЧЁТ ПРОВЕРКИ\nverdict: fail\n\nregen: c01, c02\n",
+        encoding="utf-8",
+    )
+
+    async def _fake_prepare(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(
+        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
+    )
+
+    class _Sess:
+        async def flush(self):
+            return None
+
+    started = asyncio.run(
+        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
+    )
+    assert started is True
+    assert p.status is ProjectStatus.generating_hero
+    assert p.meta["hero_check_regen_ids"] == ["c01", "c02"]
+    assert p.meta["vision_check_kind"] == "hero"
+    assert p.meta["vision_check_return_node"] == check_key
+
+
+def test_pass_gate_not_overridden_by_warn_as_error_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Регресс #58: gate=pass + findings [error] из warn — без hero regen."""
+    from app.services.check_analysis import (
+        extract_critical_hero_regen_ids,
+        has_critical_vision_issues,
+        resolve_vision_check_gate,
+    )
+
+    bad_report = """# ОТЧЁТ ПРОВЕРКИ
+verdict: pass
+
+## summary
+ок, предупреждения без регена
+
+## findings
+- [ok] c01.png: ок
+- [error] c06.png: лёгкое отклонение причёски
+- [error] c07.png: куртка чуть иначе
+- [ok] c08.png: ок
+
+## actions
+Критических замечаний, требующих регенерации, нет.
+"""
+    assert has_critical_vision_issues(bad_report) is False
+    assert resolve_vision_check_gate(bad_report) == "pass"
+    assert extract_critical_hero_regen_ids(bad_report) == []
+
+    p = _project(tmp_path, monkeypatch, "vh-pass")
+    check_key = "n_excel_gpt_1"
+    p.meta = {
+        "excel_gpt_nodes": {
+            check_key: {"checkMode": True, "checkFix": False, "slotIndex": 1},
+        },
+        "gpt_operator_results": {
+            check_key: {
+                "gateStatus": "pass",
+                "analysis": {"schema": "vp.check.v1", "verdict": "pass"},
+            }
+        },
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_hero", "type": "hero"},
+                {
+                    "id": check_key,
+                    "type": "excel_gpt",
+                    "data": {"slotIndex": 1, "checkMode": True},
+                },
+            ],
+            "edges": [
+                {
+                    "source": "n_hero",
+                    "target": check_key,
+                    "data": {"kind": "after"},
+                }
+            ],
+        },
+    }
+    out = upload_dir(p, check_key)
+    out.mkdir(parents=True, exist_ok=True)
+    # Как старый render_check_report_txt: warn схлопнут в [error]
+    (out / "check_report.txt").write_text(bad_report, encoding="utf-8")
+
+    class _Sess:
+        async def flush(self):
+            return None
+
+    started = asyncio.run(
+        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
+    )
+    assert started is False
+    assert p.status is ProjectStatus.enrich_1_ready
+    assert not p.meta.get("hero_check_regen_ids")
+
+
+def test_start_scenes_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    p = _project(tmp_path, monkeypatch, "vs")
+    check_key = "n_check_img"
+    p.meta = {
+        "excel_gpt_nodes": {
+            check_key: {"checkMode": True, "checkFix": False, "slotIndex": 2},
+        },
+        "gpt_operator_results": {check_key: {"gateStatus": "fail"}},
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_img", "type": "images"},
+                {
+                    "id": check_key,
+                    "type": "excel_gpt",
+                    "data": {"slotIndex": 2, "checkMode": True},
+                },
+            ],
+            "edges": [
+                {
+                    "source": "n_img",
+                    "target": check_key,
+                    "data": {"kind": "after"},
+                }
+            ],
+        },
+    }
+    scenes = p.data_dir / "scenes"
+    scenes.mkdir(parents=True, exist_ok=True)
+    png = scenes / "frame_003_abcd1234.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 80)
+
+    out = upload_dir(p, check_key)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "check_report.txt").write_text(
+        "# ОТЧЁТ ПРОВЕРКИ\nverdict: fail\n\nframes: 3, 5s2\n",
+        encoding="utf-8",
+    )
+
+    async def _fake_prepare(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(
+        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
+    )
+
+    class _Sess:
+        async def flush(self):
+            return None
+
+        async def execute(self, *_a, **_k):
+            class _R:
+                def scalars(self):
+                    return SimpleNamespace(all=lambda: [])
+
+            return _R()
+
+        async def delete(self, *_a, **_k):
+            return None
+
+    started = asyncio.run(
+        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
+    )
+    assert started is True
+    assert p.status is ProjectStatus.generating_images
+    assert vcl.get_scene_check_regen(p) == [
+        {"number": 3, "shot": 1},
+        {"number": 5, "shot": 2},
+    ]
+    assert not png.exists()
+
+
+def test_scene_regen_allows() -> None:
+    p = Project(slug="x", topic="t", status=ProjectStatus.generating_images, meta={})
+    assert vcl.scene_regen_allows(p, 1, 1) is None
+    p.meta = {
+        "scene_check_regen": [{"number": 3, "shot": 1}],
+        "vision_check_passed": ["f1"],
+    }
+    assert vcl.scene_regen_allows(p, 3, 1) is True
+    # Утверждённые — skip
+    assert vcl.scene_regen_allows(p, 1, 1) is False
+    # Дырка вне regen (нет PNG / не passed) — НЕ блокировать
+    assert vcl.scene_regen_allows(p, 9, 1) is True
+
+
+def test_prose_reject_not_negated_pass_batch() -> None:
+    from app.services.check_analysis import (
+        extract_critical_frame_regen_targets,
+        extract_prose_reject_frame_targets,
+        resolve_vision_check_gate,
+    )
+
+    batch1 = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+## summary
+`frame_009_a2fc4f85.png` не утверждён: несколько копий c02.
+## findings
+- [ok] frame_001_x.png: ок
+## actions
+На перегенерацию направлен только `frame_009_a2fc4f85.png`.
+"""
+    batch2 = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: pass
+## summary
+frame_010_2c9cefe1.png утверждён.
+## findings
+- [ok] frame_010_2c9cefe1.png: принято
+## actions
+перегенерация и правки промта не требуются.
+"""
+    assert extract_prose_reject_frame_targets(batch1) == [{"number": 9, "shot": 1}]
+    assert extract_critical_frame_regen_targets(batch1) == [{"number": 9, "shot": 1}]
+    assert resolve_vision_check_gate(batch1) == "fail"
+    assert extract_prose_reject_frame_targets(batch2) == []
+    assert extract_critical_frame_regen_targets(batch2) == []
+    assert resolve_vision_check_gate(batch2) == "pass"
+
+
+def test_prose_critical_without_severity_tags() -> None:
+    """Модель описала брак в summary/actions, но не поставила [critical]."""
+    from app.services.check_analysis import (
+        extract_critical_frame_regen_targets,
+        extract_prose_reject_frame_targets,
+    )
+
+    report = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+## summary
+Critical обнаружены в `frame_003`: скачок камеры, и в `frame_007`: текст.
+## findings
+- [ok] `video_sheet_001_clip_001_x.png`: ок
+- [ok] `video_sheet_008_clip_008_x.png`: критических дефектов нет
+## actions
+на регенерацию направлены только `frame_003` и `frame_007`.
+`frame_018` требует регенерации.
+"""
+    prose = extract_prose_reject_frame_targets(report)
+    nums = {t["number"] for t in prose}
+    assert nums == {3, 7, 18}
+    assert extract_critical_frame_regen_targets(report) == [
+        {"number": 3, "shot": 1},
+        {"number": 7, "shot": 1},
+        {"number": 18, "shot": 1},
+    ]
+
+
+def test_clone_fix_prepended_and_hard() -> None:
+    from types import SimpleNamespace
+
+    from app.services.vision_regen_fix import (
+        merge_prompt_with_fix,
+        plan_vision_prompt_fixes,
+    )
+
+    fr = SimpleNamespace(
+        number=9,
+        uuid="uuid-9",
+        image_prompt="c02 in archive hall, many shelves",
+        attrs={"персонажи": "c02"},
+    )
+    reply = """
+## summary
+frame_009_e28b8eab.png не принят из-за пяти лишних двойников c02
+## actions
+на перегенерацию направлен только frame_009_e28b8eab.png
+"""
+    ops = plan_vision_prompt_fixes(
+        reply,
+        frames_by_num={9: fr},  # type: ignore[arg-type]
+        char_rows=[{"id": "c02", "name": "архивариус", "look": "усы", "clothes": "халат"}],
+        frame_targets=[{"number": 9, "shot": 1}],
+        clone_hard=True,
+    )
+    assert len(ops) == 1
+    p = ops[0]["fields"]["промт_картинки"]
+    assert p.startswith("[VISION_FIX]")
+    assert "SINGLE HERO RULE" in p
+    assert "CLONE RETRY" in p
+    assert "c02 in archive hall" in p
+    assert merge_prompt_with_fix("base", "[VISION_FIX]\nx\n[/VISION_FIX]").startswith(
+        "[VISION_FIX]"
+    )
+
+
+def test_auto_vision_fix_missing_c02() -> None:
+    from types import SimpleNamespace
+
+    from app.services.vision_regen_fix import (
+        merge_db_patches,
+        plan_vision_prompt_fixes,
+    )
+
+    fr = SimpleNamespace(
+        number=5,
+        uuid="uuid-5",
+        image_prompt="archive books on table, noir watercolor",
+        attrs={"персонажи": "c02"},
+    )
+    reply = """
+## issues
+- [critical] frame_005_abc.png: по Базе должен быть c02, но видны только книги
+- [critical] frame_006_x.png: лишний двойник похожих мужских фигур
+"""
+    fr6 = SimpleNamespace(
+        number=6,
+        uuid="uuid-6",
+        image_prompt="two men in archive",
+        attrs={"персонажи": "—"},
+    )
+    ops = plan_vision_prompt_fixes(
+        reply,
+        frames_by_num={5: fr, 6: fr6},  # type: ignore[arg-type]
+        char_rows=[{"id": "c02", "name": "архивариус", "look": "усы", "clothes": "халат"}],
+        frame_targets=[{"number": 5, "shot": 1}, {"number": 6, "shot": 1}],
+    )
+    by_u = {o["frame_uuid"]: o["fields"]["промт_картинки"] for o in ops}
+    assert "uuid-5" in by_u
+    assert by_u["uuid-5"].startswith("[VISION_FIX]")
+    assert "c02" in by_u["uuid-5"]
+    assert "MUST show" in by_u["uuid-5"] or "SINGLE HERO" in by_u["uuid-5"]
+    assert "uuid-6" in by_u
+    assert "NO CLONES" in by_u["uuid-6"] or "FORBIDDEN" in by_u["uuid-6"]
+
+    merged = merge_db_patches(
+        {"ops": [{"frame_uuid": "uuid-5", "fields": {"промт_картинки": "from-model"}}]},
+        ops,
+    )
+    assert merged is not None
+    # модель + VISION_FIX в начале
+    p5 = next(o["fields"]["промт_картинки"] for o in merged["ops"] if o["frame_uuid"] == "uuid-5")
+    assert p5.startswith("[VISION_FIX]")
+    assert "from-model" in p5
+    assert any(o["frame_uuid"] == "uuid-6" for o in merged["ops"])
+
+
+def test_extract_ok_vision_tokens() -> None:
+    from app.services.check_analysis import extract_ok_vision_tokens
+
+    text = """
+## findings
+- [ok] `frame_001_ec15f244.png`: один персонаж
+- [critical] frame_005_x.png: нет c02
+- [ok] c01.png: принято
+- [ok] замечаний нет
+"""
+    toks = extract_ok_vision_tokens(text)
+    assert "f1" in toks
+    assert "c01" in toks
+    assert "f5" not in toks
+
+
+def test_mark_ok_keeps_passed_across_rounds() -> None:
+    p = Project(
+        slug="x",
+        topic="t",
+        status=ProjectStatus.enrich_1_ready,
+        meta={"vision_check_passed": ["f2"]},
+    )
+    vcl.mark_ok_tokens_from_reply(
+        p,
+        "## findings\n- [ok] frame_001_aaa.png: ок\n- [critical] frame_003_b.png: брак\n",
+    )
+    assert "f1" in vcl.get_vision_passed(p)
+    assert "f2" in vcl.get_vision_passed(p)
+    assert "f3" not in vcl.get_vision_passed(p)
+
+
+def test_recheck_filters_only_regen_targets(tmp_path: Path) -> None:
+    p = Project(
+        slug="x",
+        topic="t",
+        status=ProjectStatus.enrich_1_ready,
+        meta={
+            "vision_check_return_node": "n_check",
+            "vision_check_kind": "scenes",
+            "scene_check_regen": [{"number": 3, "shot": 1}, {"number": 7, "shot": 2}],
+        },
+    )
+    paths = [
+        tmp_path / "frame_001_aaa.png",
+        tmp_path / "frame_003_bbb.png",
+        tmp_path / "frame_007_s2_ccc.png",
+        tmp_path / "frame_009_ddd.png",
+    ]
+    for path in paths:
+        path.write_bytes(b"x")
+    got = vcl.filter_image_paths_for_recheck(p, paths)
+    names = {x.name for x in got}
+    assert names == {"frame_003_bbb.png", "frame_007_s2_ccc.png"}
+
+
+def test_first_check_keeps_all_images(tmp_path: Path) -> None:
+    p = Project(slug="x", topic="t", status=ProjectStatus.enrich_1_ready, meta={})
+    paths = [tmp_path / "frame_001_a.png", tmp_path / "frame_002_b.png"]
+    for path in paths:
+        path.write_bytes(b"x")
+    assert vcl.filter_image_paths_for_recheck(p, paths) == paths
+
+
+def test_hero_compat_extract_still_works() -> None:
+    assert extract_hero_regen_ids("regen: c01, c3") == ["c01", "c03"]
+
+
+def test_scored_warn_only_does_not_start_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    p = _project(tmp_path, monkeypatch, "vw")
+    check_key = "n_check"
+    p.meta = {
+        "excel_gpt_nodes": {
+            check_key: {"checkMode": True, "checkFix": False, "slotIndex": 1},
+        },
+        "gpt_operator_results": {check_key: {"gateStatus": "fail"}},
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_hero", "type": "hero"},
+                {
+                    "id": check_key,
+                    "type": "excel_gpt",
+                    "data": {"slotIndex": 1, "checkMode": True},
+                },
+            ],
+            "edges": [
+                {
+                    "source": "n_hero",
+                    "target": check_key,
+                    "data": {"kind": "after"},
+                }
+            ],
+        },
+    }
+    out = upload_dir(p, check_key)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "check_report.txt").write_text(
+        """# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+
+## scores
+character: 0.55
+format: 0.60
+text: 0.50
+angles: 0.55
+overall: 0.55
+
+## issues
+- [warning] c01: мелочь
+
+regen: c01
+""",
+        encoding="utf-8",
+    )
+
+    class _Sess:
+        async def flush(self):
+            return None
+
+    started = asyncio.run(
+        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
+    )
+    assert started is False
+    assert "vision_check_return_node" not in (p.meta or {})

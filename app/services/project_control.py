@@ -1,0 +1,398 @@
+"""Управление проектом: стоп, пауза, продолжение (как в Telegram-боте)."""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
+
+from app.models import Project, ProjectStatus
+from app.services.mass_factory import (
+    is_mass_factory_parent,
+    list_mass_children,
+    mass_parent_id,
+)
+from app.services.project_state import is_running_status
+from app.services.gen_queue_run import is_user_stopped
+from app.services.step_cancel import clear_stop, is_generation_active, is_stop_requested, request_stop
+from app.services.xlsx_flow_locks import clear_xlsx_flow_locks
+from app.telegram.menu import step_by_running_status
+
+MASS_FAMILY_HALTED_KEY = "mass_family_halted"
+
+
+def _set_user_stop_gate(project: Project) -> None:
+    """Железный STOP: блок worker + auto_advance до ручного ▶."""
+    meta = dict(project.meta or {})
+    meta["user_stop"] = True
+    if mass_parent_id(project) is not None:
+        meta["mass_lane_user_stop"] = True
+        logger.info(
+            "[#{}] STOP: mass_lane_user_stop до ручного запуска",
+            project.id,
+        )
+    project.meta = meta
+    flag_modified(project, "meta")
+
+
+def clear_user_stop_gate(project: Project) -> list[str]:
+    """Снять user_stop (например при постановке в gen_queue / ручной ▶)."""
+    meta = dict(project.meta or {})
+    cleared: list[str] = []
+    if meta.pop("user_stop", None) is not None:
+        cleared.append("user_stop")
+    if meta.pop("mass_lane_user_stop", None) is not None:
+        cleared.append("mass_lane_user_stop")
+    if cleared:
+        project.meta = meta
+        flag_modified(project, "meta")
+        logger.info("[#{}] cleared {}", project.id, ", ".join(cleared))
+    return cleared
+
+
+def clear_mass_family_halt(parent: Project) -> bool:
+    """Снять family-halt с родителя (после явного ▶ на дочернем)."""
+    meta = dict(parent.meta or {})
+    if meta.pop(MASS_FAMILY_HALTED_KEY, None) is None:
+        return False
+    parent.meta = meta
+    flag_modified(parent, "meta")
+    logger.info("[#{}] mass_family_halted снят (ручной ▶)", parent.id)
+    return True
+
+
+def is_mass_family_halted(parent: Project) -> bool:
+    meta = parent.meta if isinstance(parent.meta, dict) else {}
+    return bool(meta.get(MASS_FAMILY_HALTED_KEY))
+
+
+async def _gate_idle_project(project: Project) -> None:
+    meta = dict(project.meta or {})
+    meta["user_stop"] = True
+    if mass_parent_id(project) is not None:
+        meta["mass_lane_user_stop"] = True
+    project.meta = meta
+    flag_modified(project, "meta")
+
+
+async def halt_all_related_generation(
+    session: AsyncSession,
+    project: Project,
+) -> None:
+    """⏹ STOP = стоп всего: mass-family + вся gen_queue, без автостарта следующего."""
+    from app.services.sidebar_layout import get_gen_queue, set_gen_queue_halted
+
+    set_gen_queue_halted(True, reason=f"STOP #{project.id}")
+
+    parent_id = mass_parent_id(project)
+    parent: Project | None = None
+    if parent_id is not None:
+        parent = await session.get(Project, parent_id)
+    elif is_mass_factory_parent(project):
+        parent = project
+        parent_id = project.id
+
+    if parent is not None and parent_id is not None:
+        pmeta = dict(parent.meta or {})
+        pmeta[MASS_FAMILY_HALTED_KEY] = True
+        parent.meta = pmeta
+        flag_modified(parent, "meta")
+        logger.info(
+            "[#{}] STOP: mass_family_halted на родителе #{} — serial lanes не стартуют",
+            project.id,
+            parent_id,
+        )
+        for child in await list_mass_children(session, parent_id):
+            if child.id == project.id:
+                continue
+            # Уже крутящиеся соседи НЕ трогаем: ⏹ в одном дочернем
+            # раньше hard-cancel'ил video/anim_pr у остальных (#54→#55/#56).
+            if is_running_status(child.status):
+                logger.info(
+                    "[#{}] STOP: sibling #{} generating — оставляю (без cascade cancel)",
+                    project.id,
+                    child.id,
+                )
+                continue
+            await _gate_idle_project(child)
+            logger.info(
+                "[#{}] STOP cascade: sibling #{} user_stop (status={})",
+                project.id,
+                child.id,
+                child.status.value,
+            )
+
+    queue = get_gen_queue()
+    for pid in queue:
+        if pid == project.id:
+            continue
+        peer = await session.get(Project, pid)
+        if peer is None:
+            continue
+        # Бегущие слоты очереди не hard-cancel'им — ⏹ только текущий проект.
+        # Idle соседей гейтим, чтобы tick не стартанул следующий сам.
+        if is_running_status(peer.status):
+            logger.info(
+                "[#{}] STOP: gen_queue #{} generating — оставляю (без cascade cancel)",
+                project.id,
+                peer.id,
+            )
+            continue
+        if not is_user_stopped(peer):
+            await _gate_idle_project(peer)
+            logger.info(
+                "[#{}] STOP cascade: gen_queue #{} user_stop (status={})",
+                project.id,
+                peer.id,
+                peer.status.value,
+            )
+
+
+# Включение auto_mode само по себе НЕ должно стартовать шаги с *_ready /
+# new. Флаг снимается только ручным ▶ (start_step).
+_AUTO_AWAIT_MANUAL_KEY = "auto_await_manual_start"
+
+
+def auto_awaits_manual_start(project: Project) -> bool:
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    return bool(meta.get(_AUTO_AWAIT_MANUAL_KEY))
+
+
+def arm_auto_await_manual_start(project: Project) -> bool:
+    """После включения auto_mode на idle/*_ready — ждать ручной ▶."""
+    if is_running_status(project.status):
+        return False
+    meta = dict(project.meta or {})
+    if meta.get(_AUTO_AWAIT_MANUAL_KEY):
+        return False
+    meta[_AUTO_AWAIT_MANUAL_KEY] = True
+    project.meta = meta
+    flag_modified(project, "meta")
+    logger.info(
+        "[#{}] auto_mode: ждём ручной ▶ (status={}) — без автостарта",
+        project.id,
+        project.status.value,
+    )
+    return True
+
+
+def clear_auto_await_manual_start(project: Project) -> bool:
+    meta = dict(project.meta or {})
+    if meta.pop(_AUTO_AWAIT_MANUAL_KEY, None) is None:
+        return False
+    project.meta = meta
+    flag_modified(project, "meta")
+    logger.info("[#{}] auto_await_manual_start снят (ручной ▶)", project.id)
+    return True
+
+
+def on_auto_mode_changed(project: Project, *, was_auto: bool, now_auto: bool) -> None:
+    """Реакция на переключение auto_mode в PATCH / UI."""
+    if now_auto and not was_auto:
+        arm_auto_await_manual_start(project)
+    elif not now_auto and was_auto:
+        clear_auto_await_manual_start(project)
+
+
+async def stop_project_running(
+    session: AsyncSession,
+    project: Project,
+    *,
+    cascade: bool = False,
+) -> dict[str, str | bool | list[str] | None]:
+    """⏹ STOP: откат running-шага и/или блок автопродвижения (user_stop).
+
+    Без cascade=True дополнительно гасит всю mass-family и gen_queue —
+    следующий слот/lane сам не стартует.
+    """
+    request_stop(project.id)
+    from app.services.montage_board_apply_job import cancel_all_montage_jobs
+
+    await cancel_all_montage_jobs(project.id)
+    xlsx_stopped = clear_xlsx_flow_locks(project.id)
+
+    from app.services.run_sync import stop_active_running_node
+
+    ok = False
+    stopped_kind: str | None = None
+    step_title: str | None = None
+    rollback_from: str | None = None
+    rollback_to_val: str | None = None
+    msg = ""
+
+    if is_running_status(project.status):
+        ok = True
+        stopped_kind = "running"
+        cur = project.status
+        rollback_from = cur.value
+        step = step_by_running_status(cur)
+        rollback_to = (
+            step.requires
+            if step is not None and step.requires is not None
+            else ProjectStatus.new
+        )
+        # excel_gpt до split: enriching_2 → enrich_1_ready ложный (слот 1
+        # мог не существовать) → recompute откатывает в script_ready и
+        # auto_advance снова жмёт ту же ноду. Откат только на реально
+        # завершённый слот / script_ready.
+        from app.services.excel_gpt_node import (
+            ready_status_for_slot,
+            slot_from_running_status,
+        )
+
+        enrich_slot = slot_from_running_status(cur)
+        if enrich_slot is not None:
+            meta_now = project.meta if isinstance(project.meta, dict) else {}
+            done_slots: list[int] = []
+            for raw in meta_now.get("enrich_completed_slots") or []:
+                try:
+                    s = int(raw)
+                except (TypeError, ValueError):
+                    continue
+                if s < enrich_slot:
+                    done_slots.append(s)
+            if done_slots:
+                rollback_to = ready_status_for_slot(max(done_slots))
+            else:
+                # Нет завершённых enrich до текущего — как после script.
+                rollback_to = ProjectStatus.script_ready
+        rollback_to_val = rollback_to.value
+        await stop_active_running_node(session, project)
+        project.status = rollback_to
+        meta = dict(project.meta or {})
+        chain_to = meta.pop("enrich_auto_chain_to", None)
+        if chain_to is not None:
+            project.meta = meta
+            logger.info(
+                "[#{}] STOP: cleared enrich_auto_chain_to=#{}",
+                project.id,
+                chain_to,
+            )
+        step_title = step.title if step is not None else cur.value
+        clear_stop(project.id)
+        msg = f"остановлен шаг «{step_title}» → {rollback_to.value}"
+        logger.info(
+            "[#{}] STOP: rolled back {} -> {} (auto_mode={} сохранён)",
+            project.id,
+            cur.value,
+            rollback_to.value,
+            project.auto_mode,
+        )
+    elif xlsx_stopped:
+        ok = True
+        stopped_kind = "xlsx"
+        msg = f"остановлен xlsx-flow ({', '.join(xlsx_stopped)})"
+        await stop_active_running_node(session, project)
+        clear_stop(project.id)
+    else:
+        ok = True
+        stopped_kind = "gate"
+        msg = (
+            f"автопродвижение остановлено (статус: {project.status.value})"
+        )
+        await stop_active_running_node(session, project)
+        # Иначе stop-файл блокирует Outsee при «Применить правки» (abort_if_cancelled).
+        clear_stop(project.id)
+
+    _set_user_stop_gate(project)
+    # После отката running→*_ready auto_mode иначе снова жмёт ту же ноду
+    # (stale HITL approved / visual auto-approve), даже если user_stop
+    # на мгновение не виден другой сессии. Снимается только ручным ▶.
+    if not is_running_status(project.status):
+        armed = arm_auto_await_manual_start(project)
+        if armed:
+            logger.info(
+                "[#{}] STOP: auto_await_manual_start — без автозапуска до ▶",
+                project.id,
+            )
+    # Снять sleep soft-retry — иначе после ⏹ может «проснуться» и снова крутить
+    from app.services.step_failure_policy import clear_failure_sleep
+
+    if clear_failure_sleep(project):
+        logger.info("[#{}] STOP: cleared step_failure.sleep_until", project.id)
+
+    project.updated_at = datetime.utcnow()
+    await session.flush()
+
+    if not cascade:
+        await halt_all_related_generation(session, project)
+        await session.flush()
+
+    logger.info(
+        "[#{}] STOP: user_stop активен — воркер/auto_advance/gen_queue заблокированы до ▶"
+        + (" (cascade)" if cascade else " (+ halt all related)"),
+        project.id,
+    )
+    still_active = is_generation_active(project.id)
+    return {
+        "ok": ok,
+        "message": msg,
+        "stopped_kind": stopped_kind,
+        "step_title": step_title,
+        "rollback_from": rollback_from,
+        "rollback_to": rollback_to_val,
+        "generation_still_active": still_active,
+        "xlsx_stopped": xlsx_stopped,
+    }
+
+
+async def pause_project(session: AsyncSession, project: Project) -> None:
+    if project.status is ProjectStatus.paused:
+        return
+    meta = dict(project.meta or {})
+    meta["paused_from_status"] = project.status.value
+    project.meta = meta
+    project.status = ProjectStatus.paused
+    project.updated_at = datetime.utcnow()
+    await session.flush()
+
+
+async def resume_project(session: AsyncSession, project: Project) -> str:
+    if project.status is not ProjectStatus.paused:
+        return project.status.value
+    meta = dict(project.meta or {})
+    from_status = meta.pop("paused_from_status", None)
+    project.meta = meta
+    try:
+        project.status = ProjectStatus(from_status) if from_status else ProjectStatus.new
+    except ValueError:
+        project.status = ProjectStatus.new
+    project.updated_at = datetime.utcnow()
+    await session.flush()
+    return project.status.value
+
+
+async def rollback_running_for_queue(
+    session: AsyncSession,
+    project: Project,
+    *,
+    reason: str,
+) -> bool:
+    """Откат running-шага для gen_queue (request_stop + FSM нод, без user_stop)."""
+    if not is_running_status(project.status):
+        return False
+    from app.services.step_cancel import request_stop
+    from app.services.run_sync import stop_active_running_node
+
+    request_stop(project.id)
+    await stop_active_running_node(session, project)
+    step = step_by_running_status(project.status)
+    rollback = (
+        step.requires
+        if step is not None and step.requires is not None
+        else ProjectStatus.new
+    )
+    cur = project.status.value
+    project.status = rollback
+    project.updated_at = datetime.utcnow()
+    await session.flush()
+    logger.warning(
+        "[#{}] gen_queue rollback ({}): {} → {}",
+        project.id,
+        reason,
+        cur,
+        rollback.value,
+    )
+    return True

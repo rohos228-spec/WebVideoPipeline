@@ -1,0 +1,440 @@
+"""Тесты GPT-сжатия / rewrite в outsee_retry."""
+
+from __future__ import annotations
+
+import pytest
+
+from pathlib import Path
+
+from app.bots.outsee import (
+    OutseeContentRejectedError,
+    OutseeDownloadError,
+    OutseeImageError,
+    GenerationResult,
+)
+from app.generation_options import OUTSEE_PROMPT_MAX_CHARS
+from app.services import outsee_retry as mod
+
+
+def test_is_concurrency_limit_error() -> None:
+    err = OutseeImageError(
+        "Outsee API /api/v1/videos/generate: Достигнут лимит одновременных "
+        "генераций (4). Дождитесь завершения текущих задач."
+    )
+    assert mod._is_concurrency_limit_error(err) is True
+    assert mod._is_concurrency_limit_error(OutseeImageError("контент отклонён")) is False
+    assert mod._concurrency_backoff_s(1) == 45.0
+    assert mod._concurrency_backoff_s(99) == 180.0
+
+
+def test_is_start_frame_content_policy_error() -> None:
+    err = OutseeImageError(
+        "Outsee generation failed: {'code': 'CONTENT_POLICY', 'message': "
+        "'Загруженное изображение отклонено — модель определила на нём "
+        "известную личность. Попробуйте использовать другое изображение'}"
+    )
+    assert mod._is_start_frame_content_policy_error(err) is True
+    assert (
+        mod._is_start_frame_content_policy_error(
+            OutseeImageError("Аудиодорожка видео не прошла модерацию")
+        )
+        is False
+    )
+
+
+def test_soften_start_frame_for_policy(tmp_path: Path) -> None:
+    from PIL import Image
+
+    src = tmp_path / "frame.png"
+    # Шумная картинка — иначе JPEG сплошного цвета слишком мелкий.
+    img = Image.new("RGB", (1600, 900), (40, 80, 120))
+    px = img.load()
+    for y in range(0, 900, 3):
+        for x in range(0, 1600, 3):
+            px[x, y] = ((x * 17) % 255, (y * 13) % 255, 90)
+    img.save(src)
+    out = mod._soften_start_frame_for_policy(src, strength=1)
+    assert out is not None
+    assert out.is_file()
+    assert out.suffix == ".jpg"
+    assert src.read_bytes() != out.read_bytes()
+    # Не давим в «мыло»: s1 должен оставаться относительно крупным.
+    assert out.stat().st_size >= 80_000
+    with Image.open(out) as soft:
+        assert max(soft.size) >= 1600
+
+
+@pytest.mark.asyncio
+async def test_video_content_policy_keeps_start_frame(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """CONTENT_POLICY celebrity: soften + retry, НЕ снимать start_frame."""
+    from PIL import Image
+
+    frame = tmp_path / "start.png"
+    Image.new("RGB", (640, 960), (10, 20, 30)).save(frame)
+    seen_frames: list[Path | None] = []
+    calls = 0
+
+    class FakeOutsee:
+        async def generate_video(self, prompt: str, out_path, **kwargs):
+            nonlocal calls
+            calls += 1
+            seen_frames.append(kwargs.get("start_frame"))
+            if calls == 1:
+                raise OutseeImageError(
+                    "Outsee generation failed: {'code': 'CONTENT_POLICY', "
+                    "'message': 'Загруженное изображение отклонено — модель "
+                    "определила на нём известную личность.'}"
+                )
+            out_path.write_bytes(b"mp4" * 40)
+            return GenerationResult(
+                file_path=out_path, raw_url="https://x/v.mp4", gen_id="g1"
+            )
+
+    async def fake_prepare(gpt, body, prefix, *, project_id=None, max_full=None):
+        return body
+
+    async def no_sleep(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
+    monkeypatch.setattr(mod, "sleep_cancellable", no_sleep)
+    monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
+    monkeypatch.setattr(
+        "app.bots.outsee_http.outsee_api_configured", lambda: False
+    )
+
+    result = await mod.generate_video_with_retries(
+        FakeOutsee(),
+        None,
+        prompt="silent archival noir scene",
+        out_path=tmp_path / "out.mp4",
+        max_attempts_per_prompt=3,
+        gpt_rewrite=False,
+        project_id=1,
+        start_frame=frame,
+    )
+    assert result.file_path.exists()
+    assert calls == 2
+    assert seen_frames[0] == frame
+    assert seen_frames[1] is not None
+    assert seen_frames[1] != frame
+    assert Path(seen_frames[1]).is_file()
+    # кадр ни разу не снят
+    assert all(f is not None for f in seen_frames)
+
+
+def test_is_audio_content_policy_error() -> None:
+    err = OutseeImageError(
+        "Outsee generation failed: {'code': 'CONTENT_POLICY', 'message': "
+        "'Аудиодорожка видео не прошла модерацию. Попробуйте выбрать другую "
+        "модель или дать более аккуратное описание'}"
+    )
+    assert mod._is_audio_content_policy_error(err) is True
+    assert mod._is_start_frame_content_policy_error(err) is False
+    assert (
+        mod._is_audio_content_policy_error(OutseeImageError("известную личность"))
+        is False
+    )
+
+
+def test_is_transient_network_error() -> None:
+    assert (
+        mod._is_transient_network_error(
+            OutseeImageError("Outsee API network /api/v1/videos/generate: "
+                             "All connection attempts failed")
+        )
+        is True
+    )
+    assert (
+        mod._is_transient_network_error(
+            OutseeImageError("frame upload failed: uguu: All connection attempts failed")
+        )
+        is True
+    )
+    assert mod._is_transient_network_error(OutseeImageError("контент отклонён")) is False
+
+
+
+def test_is_prompt_related_error_truncation() -> None:
+    err = OutseeImageError(
+        "outsee: промт обрезан outsee (3200 из 4800 симв)",
+        context={"actual_len": 3200, "expected_len": 4800},
+    )
+    assert mod._is_prompt_related_error(err) is True
+
+
+def test_is_prompt_related_error_moderation_false() -> None:
+    err = OutseeContentRejectedError(
+        "outsee image: контент отклонён модерацией",
+        context={"kind": "moderation"},
+    )
+    assert mod._is_prompt_related_error(err) is False
+
+
+def test_target_body_from_truncation_error() -> None:
+    err = OutseeImageError(
+        "outsee: промт обрезан outsee (3100 из 4500 симв)",
+        context={"actual_len": 3100, "expected_len": 4500},
+    )
+    prefix = "[ID: P12-F3-a7f2b01c r2a1]"
+    target = mod._target_body_chars_from_error(err, prefix)
+    assert target is not None
+    assert target < OUTSEE_PROMPT_MAX_CHARS - mod._prefix_reserve(prefix)
+
+
+def test_prefix_reserve_includes_uniquify_suffix() -> None:
+    base = "[ID: P12-F3-a7f2b01c]"
+    assert mod._prefix_reserve(base) < mod._prefix_reserve(f"{base[:-1]} r9a9]")
+
+
+@pytest.mark.asyncio
+async def test_prepare_prompt_compresses_when_over_limit(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class FakeGpt:
+        async def ask_fresh(self, ask: str, *, timeout: float = 300, project_id=None) -> str:
+            calls.append(ask)
+            return "x" * 4000
+
+    body = "y" * 5100
+    prefix = "[ID: P1-F1-abc]"
+    out = await mod._prepare_prompt_for_outsee(
+        FakeGpt(), body, prefix, project_id=1
+    )
+    assert len(out) == 4000
+    assert calls
+
+
+@pytest.mark.asyncio
+async def test_generate_image_rewrite_after_moderation_stops_duplicate_retries(
+    monkeypatch,
+) -> None:
+    """Модерация: GPT-rewrite после первой ошибки; без нового текста — не 3× тот же промт."""
+    attempts: list[str] = []
+    rewrite_calls: list[str] = []
+
+    class FakeOutsee:
+        async def generate_image(self, prompt: str, out_path, **kwargs):
+            attempts.append(prompt)
+            raise OutseeContentRejectedError(
+                "outsee image: контент отклонён модерацией",
+                context={"kind": "moderation"},
+            )
+
+    class FakeGpt:
+        async def ask_fresh(self, ask: str, *, timeout: float = 300, project_id=None) -> str:
+            if "триггерные слова" in ask or "сохрани смысл картины" in ask:
+                rewrite_calls.append(ask)
+                if len(rewrite_calls) == 1:
+                    return "rewritten prompt without triggers " * 3
+                return "rewritten prompt without triggers " * 3
+            return ask
+
+    async def fake_prepare(gpt, body, prefix, *, project_id=None):
+        return body
+
+    monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
+    monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
+
+    with pytest.raises(OutseeContentRejectedError):
+        await mod.generate_image_with_retries(
+            FakeOutsee(),
+            FakeGpt(),
+            prompt="original bad prompt " * 20,
+            out_path=__import__("pathlib").Path("out.png"),
+            max_attempts_per_prompt=3,
+            gpt_rewrite=True,
+            project_id=1,
+            model_slug="nano-banana",
+        )
+
+    # 2× original (второй без лишних retry) + 1× rewritten
+    assert len(attempts) == 3
+    assert rewrite_calls
+
+
+@pytest.mark.asyncio
+async def test_plain_image_error_moderation_banner_failfast(monkeypatch) -> None:
+    """Плашка «содержит запрещённы…» как OutseeImageError — не 3× тот же промт.
+
+    Регрессия: `_wait_button_enabled` раньше кидал голый OutseeImageError
+    без kind=moderation, и retry жег original 3 раза до GPT-rewrite.
+    """
+    attempts: list[str] = []
+    rewrite_calls: list[str] = []
+
+    class FakeOutsee:
+        async def generate_image(self, prompt: str, out_path, **kwargs):
+            attempts.append(prompt)
+            raise OutseeImageError(
+                "outsee: Ваш текстовый запрос содержит запрещённы...",
+                context={
+                    "failure": "Ваш текстовый запрос содержит запрещённы..."
+                },
+            )
+
+    class FakeGpt:
+        async def ask_fresh(self, ask: str, *, timeout: float = 300, project_id=None) -> str:
+            if "сохрани смысл картины" in ask or "триггерные слова" in ask:
+                rewrite_calls.append(ask)
+                return "neutral rewritten scene prompt " * 4
+            return ask
+
+    async def fake_prepare(gpt, body, prefix, *, project_id=None):
+        return body
+
+    monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
+    monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
+
+    with pytest.raises(OutseeImageError):
+        await mod.generate_image_with_retries(
+            FakeOutsee(),
+            FakeGpt(),
+            prompt="banned original prompt " * 20,
+            out_path=__import__("pathlib").Path("out.png"),
+            max_attempts_per_prompt=3,
+            gpt_rewrite=True,
+            project_id=1,
+            model_slug="nano-banana",
+        )
+
+    # Не 3× original: rewrite после 1-й модерации, затем ещё попытки с новым текстом.
+    assert len(attempts) >= 2
+    assert attempts.count("banned original prompt " * 20) == 1
+    assert rewrite_calls
+    assert any("neutral rewritten" in a for a in attempts)
+
+
+@pytest.mark.asyncio
+async def test_ask_gpt_rewrite_moderation_never_calls_compress(monkeypatch) -> None:
+    """После модерации любой overrun — hard-truncate, GPT-сжатие не зовём.
+
+    Иначе очередь img (последовательная) висит минутами без генераций.
+    """
+    compress_calls: list[str] = []
+    ask_timeouts: list[float] = []
+
+    class FakeGpt:
+        async def ask_fresh(self, ask: str, *, timeout: float = 300, project_id=None) -> str:
+            ask_timeouts.append(timeout)
+            return "x" * 5500
+
+    async def fake_compress(*args, **kwargs):
+        compress_calls.append("called")
+        return None
+
+    monkeypatch.setattr(mod, "_compress_prompt_for_outsee", fake_compress)
+
+    prefix = "[ID: P47-F43-ce5cd469]"
+    body_limit = mod._max_body_for_prefix(prefix)
+    err = OutseeContentRejectedError(
+        "outsee image: контент отклонён модерацией",
+        context={"kind": "moderation"},
+    )
+    out = await mod._ask_gpt_to_rewrite(
+        FakeGpt(),
+        "y" * 4800,
+        project_id=1,
+        last_error=err,
+        prefix=prefix,
+    )
+    assert out is not None
+    assert len(out) <= body_limit
+    assert compress_calls == []
+    assert ask_timeouts == [mod._GPT_MODERATION_REWRITE_ASK_TIMEOUT_S]
+
+
+@pytest.mark.asyncio
+async def test_image_download_error_retries_download_only(monkeypatch, tmp_path: Path) -> None:
+    """После успешного Generate download-ошибка → retry_image_download, не новый Generate."""
+    gen_calls: list[str] = []
+    dl_calls: list[str] = []
+    out = tmp_path / "frame.png"
+
+    class FakeOutsee:
+        async def generate_image(self, prompt: str, out_path, **kwargs):
+            gen_calls.append(prompt)
+            raise OutseeDownloadError(
+                "outsee image: скачивание результата упало",
+                context={
+                    "gen_id": "abc12345deadbeef",
+                    "img_url": "https://cdn.example/result.png",
+                },
+            )
+
+        async def retry_image_download(self, *, img_url, out_path, gen_id, **kwargs):
+            dl_calls.append(img_url)
+            out_path.write_bytes(b"x" * 100)
+            return GenerationResult(
+                file_path=out_path, raw_url=img_url, gen_id=gen_id
+            )
+
+    async def fake_prepare(gpt, body, prefix, *, project_id=None):
+        return body
+
+    monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
+    monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
+
+    result = await mod.generate_image_with_retries(
+        FakeOutsee(),
+        None,
+        prompt="scene prompt for download retry test",
+        out_path=out,
+        max_attempts_per_prompt=3,
+        gpt_rewrite=False,
+        project_id=1,
+        model_slug="nano-banana",
+    )
+    assert result.file_path == out
+    assert len(gen_calls) == 1
+    assert dl_calls == ["https://cdn.example/result.png"]
+
+
+@pytest.mark.asyncio
+async def test_image_download_exhaustion_does_not_regenerate(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """После исчерпания download-only — raise, без второго Generate."""
+    gen_calls: list[str] = []
+    dl_calls = 0
+
+    class FakeOutsee:
+        async def generate_image(self, prompt: str, out_path, **kwargs):
+            gen_calls.append(prompt)
+            raise OutseeDownloadError(
+                "outsee image: скачивание результата упало",
+                context={
+                    "gen_id": "abc12345deadbeef",
+                    "img_url": "https://cdn.example/result.png",
+                },
+            )
+
+        async def retry_image_download(self, *, img_url, out_path, gen_id, **kwargs):
+            nonlocal dl_calls
+            dl_calls += 1
+            raise OutseeDownloadError(
+                "still failing",
+                context={"gen_id": gen_id, "img_url": img_url},
+            )
+
+    async def fake_prepare(gpt, body, prefix, *, project_id=None):
+        return body
+
+    monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
+    monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
+
+    with pytest.raises(OutseeDownloadError):
+        await mod.generate_image_with_retries(
+            FakeOutsee(),
+            None,
+            prompt="scene prompt",
+            out_path=tmp_path / "x.png",
+            max_attempts_per_prompt=3,
+            gpt_rewrite=False,
+            project_id=1,
+            model_slug="nano-banana",
+        )
+    assert len(gen_calls) == 1
+    assert dl_calls == 2

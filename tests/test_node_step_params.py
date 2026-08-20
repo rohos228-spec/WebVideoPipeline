@@ -1,0 +1,156 @@
+"""node_step_params: блок параметров в GPT-сообщении."""
+
+from __future__ import annotations
+
+from app.models import Project
+from app.services import gpt_text_builder as gtb
+from app.services.node_step_params import (
+    append_step_params_to_gpt_text,
+    assemble_bgm_level_from_meta,
+    build_step_params_block,
+    duration_seconds_for_step,
+    post_voiceover_tail_seconds_for_project,
+    subtitles_enabled_for_project,
+)
+
+
+def test_script_inherits_plan_duration() -> None:
+    p = Project(topic="t")
+    p.meta = {
+        "node_step_params": {
+            "plan": {"duration_seconds": 60},
+            "script": {},
+        }
+    }
+    assert duration_seconds_for_step(p, "script") == 60
+
+
+def test_plan_params_block_with_blanks() -> None:
+    p = Project(topic="t")
+    p.meta = {"node_step_params": {"plan": {}}}
+    block = build_step_params_block(p, "plan")
+    assert "Длина ____ секунд" in block
+    assert "× 14) = ____" in block
+
+
+def test_plan_params_block_with_values() -> None:
+    p = Project(topic="t")
+    p.meta = {"node_step_params": {"plan": {"duration_seconds": 65}}}
+    block = build_step_params_block(p, "plan")
+    assert "Длина 65 секунд" in block
+    assert "= 910" in block
+
+
+def test_split_params_block() -> None:
+    p = Project(topic="t")
+    p.meta = {
+        "node_step_params": {
+            "split": {
+                "cell_min_chars": 40,
+                "cell_max_chars": 110,
+                "cell_avg_min": 55,
+                "cell_avg_max": 90,
+            }
+        }
+    }
+    block = build_step_params_block(p, "split")
+    assert "Минимальное количество символов в ячейке 40" in block
+    assert "от 55 до 90" in block
+
+
+def test_get_effective_text_appends_params() -> None:
+    p = Project(topic="test topic")
+    p.meta = {"node_step_params": {"plan": {"duration_seconds": 60}}}
+    text = gtb.get_effective_text(p, "plan")
+    assert "Тема ролика" in text
+    assert "---" in text
+    assert "Сценарий" in text
+    assert "840" in text
+
+
+def test_get_display_text_skips_params_block() -> None:
+    p = Project(topic="test topic")
+    p.meta = {"node_step_params": {"plan": {"duration_seconds": 60}}}
+    text = gtb.get_display_text(p, "plan")
+    assert "Тема ролика" in text
+    assert "---" not in text
+    assert "840" not in text
+
+
+def test_append_preserves_override_body() -> None:
+    p = Project(topic="t")
+    p.gpt_text_overrides = {"plan": "Мой текст"}
+    p.meta = {"node_step_params": {"plan": {"duration_seconds": 50}}}
+    text = append_step_params_to_gpt_text(p, "plan", "Мой текст")
+    assert text.startswith("Мой текст")
+    assert "700" in text
+
+
+def test_send_to_main_pc_default_off() -> None:
+    from app.services.node_step_params import send_to_main_pc_for_project
+
+    p = Project(topic="t")
+    p.meta = {}
+    assert send_to_main_pc_for_project(p) is False
+    p.meta = {"node_step_params": {"assemble": {"send_to_main_pc": True}}}
+    assert send_to_main_pc_for_project(p) is True
+
+
+def test_subtitles_enabled_default_off() -> None:
+    p = Project(topic="t")
+    p.meta = {}
+    assert subtitles_enabled_for_project(p) is False
+
+
+def test_subtitles_enabled_on() -> None:
+    p = Project(topic="t")
+    p.meta = {"node_step_params": {"assemble": {"subtitles_enabled": True}}}
+    assert subtitles_enabled_for_project(p) is True
+
+
+def test_post_voiceover_tail_default_zero() -> None:
+    p = Project(topic="t")
+    p.meta = {}
+    assert post_voiceover_tail_seconds_for_project(p) == 0.0
+
+
+def test_post_voiceover_tail_from_assemble_params() -> None:
+    p = Project(topic="t")
+    p.meta = {"node_step_params": {"assemble": {"post_voiceover_tail_seconds": 5}}}
+    assert post_voiceover_tail_seconds_for_project(p) == 5.0
+
+
+def test_skip_intro_default_off() -> None:
+    from app.services.node_step_params import (
+        skip_intro_enabled_for_project,
+        skip_intro_seconds_for_project,
+    )
+
+    p = Project(topic="t")
+    p.meta = {}
+    assert skip_intro_enabled_for_project(p) is False
+    assert skip_intro_seconds_for_project(p) == 0.0
+
+
+def test_skip_intro_when_enabled() -> None:
+    from app.services.node_step_params import (
+        skip_intro_enabled_for_project,
+        skip_intro_seconds_for_project,
+    )
+
+    p = Project(topic="t")
+    p.meta = {
+        "node_step_params": {
+            "assemble": {"skip_intro_enabled": True, "skip_intro_seconds": 1.25}
+        }
+    }
+    assert skip_intro_enabled_for_project(p) is True
+    assert skip_intro_seconds_for_project(p) == 1.25
+    p.meta["node_step_params"]["assemble"]["skip_intro_seconds"] = 9
+    assert skip_intro_seconds_for_project(p) == 2.0
+
+
+def test_assemble_bgm_level_from_meta() -> None:
+    assert assemble_bgm_level_from_meta({}) is None
+    meta = {"node_step_params": {"assemble": {"bgm_level": 42}}}
+    assert assemble_bgm_level_from_meta(meta) == 42

@@ -1,0 +1,767 @@
+"""Перевычисление `project.status` из реальных данных в БД.
+
+Зачем: status в БД хранится отдельно от собственно данных. Когда-то был
+старый failed-bypass в bot.py (юзер тыкал шаг 5 из status=failed —
+status молча подменялся на step.requires=hero_ready, при том что план/
+скрипт/frames не были выполнены). Менюшка красила ✅ по status_order,
+не валидируя данные. После шага клик 5 падал на «нет кадров».
+
+Этот модуль — единая правда: что реально лежит в БД, тот status и есть.
+
+Использование:
+    from app.services.project_state import compute_actual_status, recompute_status
+
+    # На каждом старте, для всех проектов:
+    new_status = await compute_actual_status(session, project)
+    if new_status != project.status:
+        project.status = new_status
+
+    # Или через recompute_status — он логирует diff:
+    await recompute_status(session, project)
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from sqlalchemy import func, select
+
+from app.models import (
+    Artifact,
+    ArtifactKind,
+    Frame,
+    Project,
+    ProjectStatus,
+)
+from app.services.plan_validation import is_meaningful_general_plan
+
+# Промежуточные «running» статусы — их при перевычислении не учитываем
+# (не зафиксированы в БД). Если статус сейчас `generating_X` — мы вернём
+# либо его prerequisite, либо его ready_status (зависит от данных).
+_RUNNING_STATUSES = {
+    ProjectStatus.planning,
+    ProjectStatus.scripting,
+    ProjectStatus.splitting,
+    ProjectStatus.scene_designing,
+    ProjectStatus.scene_assembling,
+    ProjectStatus.generating_hero,
+    ProjectStatus.generating_items,
+    ProjectStatus.enriching_1,
+    ProjectStatus.enriching_2,
+    ProjectStatus.enriching_3,
+    ProjectStatus.enriching_4,
+    ProjectStatus.enriching_5,
+    ProjectStatus.generating_image_prompts,
+    ProjectStatus.generating_images,
+    ProjectStatus.generating_animation_prompts,
+    ProjectStatus.generating_videos,
+    ProjectStatus.generating_audio,
+    ProjectStatus.generating_music,
+    ProjectStatus.sfx_planning,
+    ProjectStatus.generating_sfx,
+    ProjectStatus.assembling,
+    ProjectStatus.publishing,
+}
+
+
+def is_running_status(status: ProjectStatus) -> bool:
+    """True если статус — «running» (шаг сейчас выполняется воркером)."""
+    return status in _RUNNING_STATUSES
+
+
+def _nonempty_item_descriptions(project: Project) -> list[str]:
+    raw = project.item_descriptions or []
+    return [d.strip() for d in raw if isinstance(d, str) and d.strip()]
+
+
+def _nonempty_hero_descriptions(project: Project) -> list[str]:
+    raw = project.hero_descriptions or []
+    return [d.strip() for d in raw if isinstance(d, str) and d.strip()]
+
+
+def _hero_step_required(project: Project) -> bool:
+    """Нужен ли шаг персонажей (не путать с hero_count=0 в xlsx-flow)."""
+    if project.hero_mode == "no_hero":
+        return False
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    # Явный skip пустого hero (см. generate_hero) — не требовать шаг снова.
+    if meta.get("hero_skipped_empty"):
+        return False
+    if (project.hero_count or 0) > 0:
+        return True
+    if _nonempty_hero_descriptions(project):
+        return True
+    if (project.hero_description or "").strip():
+        return True
+    if _excel_hero_expected_count(project) > 0:
+        return True
+    return False
+
+
+def _items_step_required(project: Project) -> bool:
+    return len(_nonempty_item_descriptions(project)) > 0
+
+
+def _enrich_ready_from_meta(project: Project) -> ProjectStatus | None:
+    """Максимальный enrich_*_ready по ``meta.enrich_completed_slots``."""
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    slots: list[int] = []
+    for raw in meta.get("enrich_completed_slots") or []:
+        try:
+            slots.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    if not slots:
+        return None
+    by_slot = {
+        1: ProjectStatus.enrich_1_ready,
+        2: ProjectStatus.enrich_2_ready,
+        3: ProjectStatus.enrich_3_ready,
+        4: ProjectStatus.enrich_4_ready,
+        5: ProjectStatus.enrich_5_ready,
+    }
+    return by_slot.get(max(slots))
+
+
+def _status_ord(status: ProjectStatus | None) -> int:
+    from app.telegram.menu import status_order
+
+    if status is None:
+        return status_order(ProjectStatus.new)
+    return status_order(status)
+
+
+_DOWNSTREAM_META_KEYS: tuple[str, ...] = (
+    "enrich_completed_slots",
+    "excel_gpt_completed_keys",
+    "active_excel_gpt_node_key",
+    "split_completed",
+)
+
+
+def clear_pipeline_progress_meta(project: Project) -> list[str]:
+    """Принудительно сбросить флаги прогресса (ручной старт plan/script/split)."""
+    meta = dict(project.meta or {})
+    cleared: list[str] = []
+    for key in _DOWNSTREAM_META_KEYS:
+        if key in meta:
+            meta.pop(key, None)
+            cleared.append(key)
+    if cleared:
+        project.meta = meta
+    return cleared
+
+
+def clear_stale_downstream_meta(project: Project) -> list[str]:
+    """Сбросить stale meta, который ломает порядок нод.
+
+    1) Статус ещё до frames_ready — чистим всё downstream.
+       Исключение: уже на enrich_* (excel_gpt до split на канвасе) — meta
+       enrich_completed_slots / excel_gpt_completed_keys не трогаем.
+    2) frames_ready без ``split_completed`` — кадры/enrich meta с прошлого
+       прогона; иначе planner прыгает сразу на excel_gpt #3.
+    """
+    from app.services.gen_queue_run import is_user_stopped
+
+    # После ⏹ не сносить прогресс — иначе auto_advance снова стартует GPT.
+    if is_user_stopped(project):
+        return []
+
+    cur = getattr(project, "status", None)
+    meta = dict(project.meta or {})
+    cleared: list[str] = []
+
+    if _status_ord(cur) < _status_ord(ProjectStatus.frames_ready):
+        # enrich_*_ready / enriching_* имеют order > frames_ready в меню,
+        # но на всякий случай: если когда-нибудь order поменяют — не сносим.
+        if _enrich_meta_allowed_for_status(project):
+            return []
+        # НЕ вызываем clear_pipeline_progress_meta отсюда: она убивает
+        # split_completed. Полный сброс — только явный start_step/reset_step.
+        # Здесь чистим только enrich-хвосты, чтобы не прыгать на excel_gpt #3.
+        for key in (
+            "enrich_completed_slots",
+            "excel_gpt_completed_keys",
+            "active_excel_gpt_node_key",
+        ):
+            if key in meta:
+                meta.pop(key, None)
+                cleared.append(key)
+        if cleared:
+            project.meta = meta
+        return cleared
+
+    if (
+        cur is ProjectStatus.frames_ready
+        and not meta.get("split_completed")
+    ):
+        for key in (
+            "enrich_completed_slots",
+            "excel_gpt_completed_keys",
+            "active_excel_gpt_node_key",
+        ):
+            if key in meta:
+                meta.pop(key, None)
+                cleared.append(key)
+        if cleared:
+            project.meta = meta
+    return cleared
+
+
+async def _split_noderun_done(session, project: Project) -> bool | None:
+    """True/False если есть NodeRun для split; None — FSM ещё нет."""
+    from app.models import NodeRun, NodeRunStatus, WorkflowRun
+
+    try:
+        run = (
+            await session.execute(
+                select(WorkflowRun).where(WorkflowRun.project_id == project.id)
+            )
+        ).scalar_one_or_none()
+    except Exception:  # noqa: BLE001 — mock-сессии в unit-тестах
+        return None
+    if run is None or not isinstance(run, WorkflowRun):
+        return None
+    try:
+        rows = (
+            await session.execute(
+                select(NodeRun).where(
+                    NodeRun.workflow_run_id == run.id,
+                    NodeRun.node_type == "split",
+                )
+            )
+        ).scalars().all()
+    except Exception:  # noqa: BLE001
+        return None
+    real = [nr for nr in rows if isinstance(nr, NodeRun)]
+    if not real:
+        return None
+    return any(nr.status is NodeRunStatus.done for nr in real)
+
+
+def _enrich_meta_allowed_for_status(project: Project) -> bool:
+    """meta.enrich_completed_slots — только сохранить уже достигнутый enrich.
+
+    Нельзя поднимать frames_ready/script_ready → enrich_N_ready по stale meta:
+    auto_advance тогда стартует excel_gpt #3, минуя split и первые GPT-ноды.
+    """
+    cur = getattr(project, "status", None)
+    return _status_ord(cur) >= _status_ord(ProjectStatus.enriching_1)
+
+
+def _shot_index_from_attrs(attrs: object) -> int:
+    """shot_index из attrs.camera_subdivide (SET); без метки = 1 (primary)."""
+    if not isinstance(attrs, dict):
+        return 1
+    cs = attrs.get("camera_subdivide")
+    if isinstance(cs, dict):
+        try:
+            return max(1, int(cs.get("shot_index") or 1))
+        except (TypeError, ValueError):
+            return 1
+    try:
+        return max(1, int(attrs.get("shot_index") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+async def _primary_image_prompt_counts(
+    session, project_id: int
+) -> tuple[int, int, int]:
+    """(primary_total, primary_with_img_prompt, all_with_img_prompt).
+
+    После camera_subdivide SET-дети часто без своего image_prompt — gate
+    «промты готовы» смотрит на primary (shot_index=1), иначе recompute
+    вечно видит fr_with < fr_total → enrich_1_ready → auto hero loop.
+    """
+    rows = (
+        await session.execute(select(Frame).where(Frame.project_id == project_id))
+    ).scalars().all()
+    primary_total = 0
+    primary_with = 0
+    all_with = 0
+    for fr in rows:
+        has = bool((getattr(fr, "image_prompt", None) or "").strip())
+        if has:
+            all_with += 1
+        if _shot_index_from_attrs(getattr(fr, "attrs", None)) <= 1:
+            primary_total += 1
+            if has:
+                primary_with += 1
+    if primary_total == 0:
+        # Нет SET-меток — все кадры primary.
+        primary_total = len(rows)
+        primary_with = all_with
+    return primary_total, primary_with, all_with
+
+
+def _excel_hero_expected_count(project: Project) -> int:
+    """Сколько персонажей в meta.excel_hero с данными для генерации.
+
+    ID-заглушки шаблона (c01 без имени/внешности) не считаем — иначе
+    expected>0 при пустом листе и пайплайн крутит hero вхолостую.
+    """
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    cfg = meta.get("excel_hero") or {}
+    chars = cfg.get("characters") or []
+    n = 0
+    for c in chars:
+        if not isinstance(c, dict) or not str((c.get("id") or "")).strip():
+            continue
+        if any(
+            str((c.get(k) or "")).strip()
+            for k in ("name", "look", "clothes", "char", "rules")
+        ):
+            n += 1
+    return n
+
+
+async def _count_excel_hero_artifacts(session, project_id: int) -> int:
+    """Число уникальных excel_id среди hero_reference с файлом."""
+    rows = (
+        await session.execute(
+            select(Artifact).where(
+                Artifact.project_id == project_id,
+                Artifact.kind == ArtifactKind.hero_reference,
+            )
+        )
+    ).scalars().all()
+    seen: set[str] = set()
+    for a in rows:
+        xid = (a.meta or {}).get("excel_id")
+        if not isinstance(xid, str) or not xid or xid in seen:
+            continue
+        if a.path and Path(a.path).is_file():
+            seen.add(xid)
+    return len(seen)
+
+
+async def compute_actual_status(session, project: Project) -> ProjectStatus:
+    """Вернуть наивысший status, который подтверждён данными в БД.
+
+    Логика «снизу вверх»: смотрим сначала самый ранний прогресс
+    (general_plan), потом всё дальше. Если данных нет — возвращаем
+    предыдущий уровень.
+
+    Никогда не возвращает `paused`/`failed`/`*ing` (running) — только
+    «контрольные точки» (ready / new / assembled / published).
+    """
+    # Диск → Artifact: иначе PNG/MP4 на диске без строк в БД откатывают статус.
+    try:
+        from app.services.artifact_recovery import (
+            recover_scene_images_from_disk,
+            recover_scene_videos_from_disk,
+        )
+
+        await recover_scene_images_from_disk(session, project)
+        await recover_scene_videos_from_disk(session, project)
+    except Exception:  # noqa: BLE001
+        from loguru import logger as _logger
+
+        _logger.debug(
+            "[#{}] compute_actual_status: artifact recover skipped",
+            project.id,
+            exc_info=True,
+        )
+
+    pid = project.id
+    meta0 = project.meta if isinstance(project.meta, dict) else {}
+    # План: колонка ИЛИ meta (DB-first / дочерние без длинного general_plan).
+    has_plan = is_meaningful_general_plan(project.general_plan) or is_meaningful_general_plan(
+        meta0.get("general_plan") if isinstance(meta0.get("general_plan"), str) else None
+    )
+    has_script = bool((project.script_text or "").strip())
+    has_hero_descr = bool(project.hero_description)
+
+    fr_total = (
+        await session.execute(
+            select(func.count(Frame.id)).where(Frame.project_id == pid)
+        )
+    ).scalar_one()
+    (
+        fr_primary_total,
+        fr_primary_with_img_prompt,
+        fr_with_img_prompt,
+    ) = await _primary_image_prompt_counts(session, pid)
+    fr_with_anim_prompt = (
+        await session.execute(
+            select(func.count(Frame.id)).where(
+                Frame.project_id == pid,
+                Frame.animation_prompt.isnot(None),
+                Frame.animation_prompt != "",
+            )
+        )
+    ).scalar_one()
+
+    hero_arts = (
+        await session.execute(
+            select(func.count(Artifact.id)).where(
+                Artifact.project_id == pid,
+                Artifact.kind == ArtifactKind.hero_reference,
+            )
+        )
+    ).scalar_one()
+    item_arts = (
+        await session.execute(
+            select(func.count(Artifact.id)).where(
+                Artifact.project_id == pid,
+                Artifact.kind == ArtifactKind.item_reference,
+            )
+        )
+    ).scalar_one()
+    scene_image_arts = (
+        await session.execute(
+            select(func.count(Artifact.id)).where(
+                Artifact.project_id == pid,
+                Artifact.kind == ArtifactKind.scene_image,
+            )
+        )
+    ).scalar_one()
+    scene_video_arts = (
+        await session.execute(
+            select(func.count(Artifact.id)).where(
+                Artifact.project_id == pid,
+                Artifact.kind == ArtifactKind.scene_video,
+            )
+        )
+    ).scalar_one()
+    audio_arts = (
+        await session.execute(
+            select(func.count(Artifact.id)).where(
+                Artifact.project_id == pid,
+                Artifact.kind == ArtifactKind.audio,
+            )
+        )
+    ).scalar_one()
+    music_arts = (
+        await session.execute(
+            select(func.count(Artifact.id)).where(
+                Artifact.project_id == pid,
+                Artifact.kind == ArtifactKind.music,
+            )
+        )
+    ).scalar_one()
+    final_arts = (
+        await session.execute(
+            select(func.count(Artifact.id)).where(
+                Artifact.project_id == pid,
+                Artifact.kind == ArtifactKind.final_video,
+            )
+        )
+    ).scalar_one()
+
+    # Идём снизу вверх. Каждый уровень — это AND условие: для уровня N
+    # все prerequisite N-1 тоже должны быть выполнены.
+    #
+    # Пустой/короткий general_plan при живом script/кадрах НЕ роняет в `new`:
+    # иначе сразу после split recompute делает frames_ready→new, сносит
+    # split_completed и auto_advance по связи никогда не стартует.
+    if not has_plan and not has_script and fr_total == 0:
+        return ProjectStatus.new
+    if has_plan and not has_script and fr_total == 0:
+        return ProjectStatus.plan_ready
+    if not has_script and fr_total == 0:
+        return ProjectStatus.plan_ready if has_plan else ProjectStatus.new
+    # script ✓ (или кадры уже есть)
+    if fr_total == 0:
+        # Canvas: excel_gpt часто до split — кадров ещё нет. Не откатывать
+        # enrich_*_ready в script_ready (иначе auto_advance снова жмёт ту же GPT-ноду).
+        if _enrich_meta_allowed_for_status(project):
+            enrich_st = _enrich_ready_from_meta(project)
+            if enrich_st is not None:
+                return enrich_st
+            cur = getattr(project, "status", None)
+            if (
+                cur is not None
+                and _status_ord(cur) >= _status_ord(ProjectStatus.enrich_1_ready)
+                and str(getattr(cur, "value", "")).endswith("_ready")
+            ):
+                return cur
+        return ProjectStatus.script_ready
+    # Кадры в БД есть, но split ещё не подтверждён — не поднимаем status
+    # выше script_ready. Источник правды — meta.split_completed текущего
+    # прогона: stale NodeRun.done с прошлого круга НЕ должен пропускать split
+    # (иначе plan_ready → frames_ready и «прыжок через ноды»).
+    if _status_ord(getattr(project, "status", None)) < _status_ord(
+        ProjectStatus.frames_ready
+    ):
+        meta_now = project.meta if isinstance(project.meta, dict) else {}
+        # Только meta.split_completed текущего прогона. NodeRun.done со
+        # прошлого круга НЕ поднимает в frames_ready (прыжок через ноды).
+        if not bool(meta_now.get("split_completed")):
+            # Уже на enrich до split (canvas) — не сбрасывать в script_ready.
+            if _enrich_meta_allowed_for_status(project):
+                enrich_st = _enrich_ready_from_meta(project)
+                if enrich_st is not None:
+                    return enrich_st
+                cur = getattr(project, "status", None)
+                if (
+                    cur is not None
+                    and _status_ord(cur) >= _status_ord(ProjectStatus.enrich_1_ready)
+                    and str(getattr(cur, "value", "")).endswith("_ready")
+                ):
+                    return cur
+            return ProjectStatus.script_ready
+    # frames ✓
+    hero_required = _hero_step_required(project)
+    meta_now = project.meta if isinstance(project.meta, dict) else {}
+    # scene_design выполнен (meta.scene_design.status=done) — не откатывать
+    # в frames_ready: recompute иначе зациклил бы auto_advance на повторный
+    # запуск ноды. Данные ноды — attrs кадров, отдельного счётчика нет.
+    # Промежуточная фаза agents_done → scene_agents_ready (сборка впереди).
+    _sd = meta_now.get("scene_design")
+    _sd_status = _sd.get("status") if isinstance(_sd, dict) else None
+    if _sd_status == "done":
+        frames_exit = ProjectStatus.scene_design_ready
+    elif _sd_status == "agents_done":
+        frames_exit = ProjectStatus.scene_agents_ready
+    else:
+        frames_exit = ProjectStatus.frames_ready
+    # SET: gate по primary (shot_index=1), не по всем Frame после subdivide.
+    img_prompts_incomplete = fr_primary_with_img_prompt < fr_primary_total
+    images_needed = max(int(fr_with_img_prompt or 0), int(fr_primary_total or 0))
+
+    # 1. Наивысшие готовые стадии (видео, анимационные промпты, картинки).
+    # Готовые артефакты на диске/БД никогда не должны откатываться в frames_ready.
+    if images_needed > 0:
+        if scene_video_arts >= images_needed:
+            # videos ✓
+            if audio_arts == 0:
+                return ProjectStatus.videos_ready
+            # audio ✓
+            if final_arts == 0:
+                if music_arts > 0:
+                    return ProjectStatus.music_ready
+                return ProjectStatus.audio_ready
+            # final ✓
+            return ProjectStatus.assembled
+
+        if scene_image_arts >= images_needed:
+            # images ✓
+            if fr_with_anim_prompt >= images_needed:
+                return ProjectStatus.animation_prompts_ready
+            return ProjectStatus.images_ready
+
+    # 2. Картинки ещё не готовы (scene_image_arts < images_needed).
+    # Если промпты картинок полностью готовы — image_prompts_ready.
+    if not img_prompts_incomplete:
+        return ProjectStatus.image_prompts_ready
+
+    # 3. Промпты картинок не готовы — проверяем ранние стадии (hero, items, enrich, frames).
+    if meta_now.get("hero_skipped_empty") and hero_arts == 0 and not has_hero_descr:
+        # Пустой skip зафиксирован — не откатывать в frames_ready (цикл auto).
+        if _enrich_meta_allowed_for_status(project):
+            enrich_st = _enrich_ready_from_meta(project)
+            cur = getattr(project, "status", None)
+            # Не откатывать image_prompts_ready/hero_ready → enrich_1
+            # из‑за stale enrich_completed_slots (цикл auto → hero).
+            if enrich_st is not None and _status_ord(cur) <= _status_ord(enrich_st):
+                return enrich_st
+        if _items_step_required(project):
+            item_descs = _nonempty_item_descriptions(project)
+            if item_arts < len(item_descs):
+                return ProjectStatus.hero_ready
+            return ProjectStatus.items_ready
+        return ProjectStatus.hero_ready
+    elif hero_required:
+        n_excel = _excel_hero_expected_count(project)
+        if hero_arts == 0 and not has_hero_descr:
+            if n_excel > 0:
+                n_excel_done = await _count_excel_hero_artifacts(session, pid)
+                if n_excel_done == 0:
+                    return frames_exit
+                if n_excel_done < n_excel:
+                    return ProjectStatus.hero_ready
+            return frames_exit
+        if hero_arts == 0:
+            if n_excel > 0:
+                n_excel_done = await _count_excel_hero_artifacts(session, pid)
+                if n_excel_done < n_excel:
+                    return ProjectStatus.hero_ready
+            return frames_exit
+
+    # Excel-hero / items / enrich — пока нет image_prompt на primary-кадрах.
+    if _enrich_meta_allowed_for_status(project):
+        enrich_st = _enrich_ready_from_meta(project)
+        cur = getattr(project, "status", None)
+        if enrich_st is not None and _status_ord(cur) <= _status_ord(enrich_st):
+            return enrich_st
+    if hero_required:
+        n_excel = _excel_hero_expected_count(project)
+        if n_excel > 0:
+            n_excel_done = await _count_excel_hero_artifacts(session, pid)
+            if n_excel_done < n_excel:
+                return ProjectStatus.hero_ready
+    if _items_step_required(project):
+        item_descs = _nonempty_item_descriptions(project)
+        if item_arts < len(item_descs):
+            return ProjectStatus.hero_ready
+        return ProjectStatus.items_ready
+    if hero_required:
+        return ProjectStatus.hero_ready
+    return frames_exit
+
+
+async def recompute_status(
+    session,
+    project: Project,
+    *,
+    dry_run: bool = False,
+    log_prefix: str = "recompute",
+) -> tuple[ProjectStatus, ProjectStatus, bool]:
+    """Перевычислить и (если не dry_run) обновить project.status.
+
+    Если проект сейчас в running-статусе (`generating_*`), его НЕ трогаем —
+    он реально выполняется, рекомпьют ему может помешать. Идемпотентный
+    рекомпьют для running-проектов делает воркер-loop при ошибках шага.
+
+    Возвращает (old_status, new_status, changed).
+    """
+    from loguru import logger
+
+    from app.services.gen_queue_run import is_user_stopped
+
+    # Свежий meta/status: иначе concurrent ⏹ user_stop затирается stale commit.
+    try:
+        await session.refresh(project)
+    except Exception:  # noqa: BLE001
+        pass
+
+    old = project.status
+    if old in _RUNNING_STATUSES:
+        # Бежит шаг — не вмешиваемся. Если шаг упадёт, воркер сам
+        # откатит status (см. _run_worker_loop в app/main.py).
+        return old, old, False
+    if old in (ProjectStatus.paused, ProjectStatus.failed):
+        # `paused` — пользователь руками приостановил. `failed` —
+        # legacy, _init_db уже сбросил в `new`, но защитимся тут тоже.
+        return old, old, False
+
+    if is_user_stopped(project):
+        return old, old, False
+
+    stale_cleared = clear_stale_downstream_meta(project)
+    if stale_cleared:
+        from loguru import logger as _logger
+
+        _logger.info(
+            "[#{}] {}: cleared stale meta before compute: {}",
+            project.id,
+            log_prefix,
+            stale_cleared,
+        )
+
+    new = await compute_actual_status(session, project)
+    from app.telegram.menu import status_order as _ord
+
+    # ЖЕЛЕЗО: никогда не сбрасывать прогресс в `new`, если уже есть script
+    # или кадры. Именно это месяцами ломало auto_advance после разбивки
+    # (frames_ready → new из‑за пустого general_plan / гонки web_get).
+    if new is ProjectStatus.new and old is not ProjectStatus.new:
+        fr_n = (
+            await session.execute(
+                select(func.count(Frame.id)).where(Frame.project_id == project.id)
+            )
+        ).scalar_one()
+        has_script = bool((project.script_text or "").strip())
+        if int(fr_n or 0) >= 1 or has_script:
+            logger.warning(
+                "[#{}] {}: BLOCKED {} → new (есть {} кадров / script={}) — "
+                "оставляем {}, иначе ноды не идут по связи",
+                project.id,
+                log_prefix,
+                old.value,
+                int(fr_n or 0),
+                has_script,
+                old.value,
+            )
+            return old, old, False
+
+    # Откат разрешён, если текущий *_ready не подтверждён данными (ложный plan_ready).
+    if _ord(new) < _ord(old):
+        from app.services.step_data_guard import ready_status_confirmed_by_data
+
+        if await ready_status_confirmed_by_data(session, project, old):
+            logger.debug(
+                "[#{}] {}: keep {} (computed {} — no downgrade)",
+                project.id,
+                log_prefix,
+                old.value,
+                new.value,
+            )
+            return old, old, False
+        logger.warning(
+            "[#{}] {}: {} → {} (статус опережал данные — откат)",
+            project.id,
+            log_prefix,
+            old.value,
+            new.value,
+        )
+
+    # Последовательный пайплайн: из *_ready НЕ прыгаем вперёд по stale данным
+    # (в т.ч. frames_ready → assembled). Вперёд — только шаг / auto_advance
+    # по связям канваса.
+    if _ord(new) > _ord(old) and str(old.value).endswith("_ready"):
+        logger.info(
+            "[#{}] {}: keep {} (no upgrade to {} — sequential, edges/auto_advance)",
+            project.id,
+            log_prefix,
+            old.value,
+            new.value,
+        )
+        return old, old, False
+
+    if old == new:
+        return old, new, False
+
+    if dry_run:
+        logger.info(
+            "[#{}] {}: {} → {} [dry-run]",
+            project.id, log_prefix, old.value, new.value,
+        )
+        return old, new, True
+
+    # Перед записью — ещё раз: ⏹ мог успеть между compute и commit.
+    try:
+        await session.refresh(project)
+    except Exception:  # noqa: BLE001
+        pass
+    if is_user_stopped(project):
+        logger.info(
+            "[#{}] {}: skip write {}→{} (user_stop)",
+            project.id,
+            log_prefix,
+            old.value,
+            new.value,
+        )
+        return project.status, project.status, False
+    if project.status != old:
+        logger.info(
+            "[#{}] {}: skip write {}→{} (status already {})",
+            project.id,
+            log_prefix,
+            old.value,
+            new.value,
+            project.status.value,
+        )
+        return project.status, project.status, False
+
+    project.status = new
+    logger.info(
+        "[#{}] {}: {} → {}",
+        project.id, log_prefix, old.value, new.value,
+    )
+    return old, new, True
+
+
+async def recompute_all(session, *, dry_run: bool = False) -> dict[int, tuple[str, str]]:
+    """Прогон рекомпьюта по всем проектам. Возвращает {pid: (old, new)}
+    только для тех, у кого статус изменился.
+    """
+    rows = (await session.execute(select(Project))).scalars().all()
+    changes: dict[int, tuple[str, str]] = {}
+    for p in rows:
+        old, new, changed = await recompute_status(session, p, dry_run=dry_run)
+        if changed:
+            changes[p.id] = (old.value, new.value)
+    return changes

@@ -1,0 +1,156 @@
+"""Граф канваса проекта: nodes/edges/positions в project.meta.canvas_graph."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+
+from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.models import NodeRun, Project, WorkflowRun
+from app.services.excel_gpt_node import effective_node_type
+
+
+def canvas_graph_from_meta(meta: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(meta, dict):
+        return None
+    raw = meta.get("canvas_graph")
+    if not isinstance(raw, dict):
+        return None
+    nodes = raw.get("nodes")
+    if not isinstance(nodes, list) or not nodes:
+        return None
+    edges = raw.get("edges")
+    if not isinstance(edges, list):
+        edges = []
+    return {"nodes": nodes, "edges": edges, "workflow_id": raw.get("workflow_id")}
+
+
+def find_canvas_node_key_by_type(
+    meta: dict[str, Any] | None, node_type: str
+) -> str | None:
+    """Первый node id данного type из project.meta.canvas_graph (без WorkflowRun)."""
+    want = str(node_type or "").strip()
+    if not want:
+        return None
+    cg = canvas_graph_from_meta(meta)
+    if not cg:
+        return None
+    for n in cg.get("nodes") or []:
+        if not isinstance(n, dict):
+            continue
+        if str(n.get("type") or "").strip() != want:
+            continue
+        nid = str(n.get("id") or "").strip()
+        if nid:
+            return nid
+    return None
+
+
+def build_canvas_graph_payload(
+    *,
+    workflow_id: int,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "workflow_id": workflow_id,
+        "nodes": nodes,
+        "edges": edges,
+        "saved_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def canvas_topology_key(
+    nodes: list[dict[str, Any]] | None,
+    edges: list[dict[str, Any]] | None,
+) -> str:
+    """Сигнатура графа без позиций — для пропуска sync при drag нод."""
+    import json
+
+    nkeys = sorted(
+        (str(n.get("id") or ""), str(n.get("type") or ""))
+        for n in (nodes or [])
+        if isinstance(n, dict) and n.get("id")
+    )
+    ekeys = sorted(
+        (
+            str(e.get("source") or ""),
+            str(e.get("target") or ""),
+            str(
+                (e.get("data") or {}).get("kind")
+                if isinstance(e.get("data"), dict)
+                else "after"
+            )
+            or "after",
+        )
+        for e in (edges or [])
+        if isinstance(e, dict) and e.get("source") and e.get("target")
+    )
+    return json.dumps({"n": nkeys, "e": ekeys}, ensure_ascii=False, separators=(",", ":"))
+
+
+async def sync_run_snapshot_from_canvas_graph(
+    session: AsyncSession,
+    project: Project,
+    *,
+    force: bool = False,
+) -> bool:
+    """Копирует canvas_graph проекта в WorkflowRun.nodes_snapshot (для graph planner).
+
+    При неизменной топологии (только позиции нод) — no-op: не трогаем snapshot
+    и не держим SQLite write дольше необходимого.
+    """
+    cg = canvas_graph_from_meta(project.meta if isinstance(project.meta, dict) else {})
+    if not cg:
+        return False
+    nodes = list(cg["nodes"])
+    edges = list(cg["edges"])
+    with session.no_autoflush:
+        run = (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.project_id == project.id)
+                .options(selectinload(WorkflowRun.node_runs))
+            )
+        ).scalar_one_or_none()
+    if run is None:
+        return False
+    if not force:
+        old_n = list(run.nodes_snapshot or []) if isinstance(run.nodes_snapshot, list) else []
+        old_e = list(run.edges_snapshot or []) if isinstance(run.edges_snapshot, list) else []
+        if canvas_topology_key(old_n, old_e) == canvas_topology_key(nodes, edges):
+            logger.debug(
+                "canvas_graph: skip snapshot sync run #{} (topology unchanged)",
+                run.id,
+            )
+            return False
+    run.nodes_snapshot = nodes
+    run.edges_snapshot = edges
+    node_ids = {str(n.get("id")) for n in nodes if n.get("id")}
+    existing = {nr.node_key for nr in run.node_runs}
+    for n in nodes:
+        nid = n.get("id")
+        if not nid or nid in existing:
+            continue
+        session.add(
+            NodeRun(
+                workflow_run_id=run.id,
+                node_key=str(nid),
+                node_type=effective_node_type(n),
+            )
+        )
+    for nr in list(run.node_runs):
+        if nr.node_key not in node_ids:
+            await session.delete(nr)
+    await session.flush()
+    logger.debug(
+        "canvas_graph: synced run #{} snapshot ({} nodes, {} edges)",
+        run.id,
+        len(nodes),
+        len(edges),
+    )
+    return True

@@ -1,0 +1,329 @@
+"""Чтение листа «Персонажи» из project.xlsx (v8-шаблон).
+
+Формат листа:
+    R1   ID персонажа       — c01, c02, c03, ... (по 1 столбцу на персонажа)
+    R3   имя
+    R4   внешность
+    R5   одежда
+    R6   характер
+    R7   правила            — если содержит ID других персонажей, это
+                              делает персонажа реф-вариацией тех
+
+Каждый персонаж — это один столбец (B..N). Колонка A — подписи строк
+(служебные).
+
+Если в R7 встречаются ID других персонажей (например `c01`, `c02`) — все
+они становятся `ref_ids`: их картинки будут использованы как референсы
+при генерации этого персонажа (без вызова ChatGPT).
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+# Какие строки на листе «Персонажи» какому полю соответствуют.
+# (1-based, как в openpyxl).
+ROW_ID = 1
+ROW_NAME = 3
+ROW_LOOK = 4
+ROW_CLOTHES = 5
+ROW_CHAR = 6
+ROW_RULES = 7
+
+SHEET_PERSONS = "Персонажи"
+
+# Шаблон допустимого ID персонажа в R1 (для отсеивания «мусорных» столбцов).
+# Поддерживаем латиницу, кириллицу, цифры, `_`, `-`. Должен начинаться
+# с буквы (любой). Без пробелов и спецсимволов — чтобы безопасно класть
+# в имя файла (`<id>.png`) и в callback_data Telegram-инлайн-кнопок.
+_ID_RE = re.compile(r"^[^\W\d_][\w-]*$", re.UNICODE)
+
+# Имя/поля, куда агент слил служебный текст вместо персонажа.
+_POLLUTED_PERSON_FIELD_RE = re.compile(
+    r"(оставь\s+формат|формат\s+неизмен|не\s+выдумывай|нет\s+исходных\s+данных|"
+    r"apply-ops|промт_картинки|frame_uuid|characters\s*\[)",
+    re.IGNORECASE,
+)
+
+
+def is_polluted_character_field(text: str) -> bool:
+    """True если в ячейке инструкции агента, а не данные персонажа."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    return bool(_POLLUTED_PERSON_FIELD_RE.search(t))
+
+
+def build_ref_variation_sheet_prompt(
+    ch: "ExcelCharacter",
+    *,
+    style: str = "",
+    max_chars: int = 4900,
+) -> str:
+    """Промт Outsee для реф-вариации: реф-картинка + изменения.
+
+    Changes на английском (кириллические «Имя:/Внешность:» часто
+    рисуются текстом на листе и ослабляют identity lock).
+    """
+    changes = ch.changes_text_en().strip()
+    style_bit = (style or "").strip()
+    if len(style_bit) > 500:
+        style_bit = style_bit[:500].rstrip() + "…"
+
+    parts: list[str] = [
+        (
+            "Same exact character as the reference image(s). "
+            "Produce a dense 16:9 character model sheet / turnaround on "
+            "pure white background (#FFFFFF): full-body front, 3/4, side, back "
+            "+ head turnaround. No environment, no room, no text, no labels."
+        ),
+        f"Character id: {ch.id}.",
+    ]
+    if changes:
+        parts.append("Changes (keep face/identity from reference):\n" + changes)
+    else:
+        parts.append(
+            "Different turnaround sheet composition; keep identity from reference."
+        )
+    if style_bit:
+        parts.append("Visual style:\n" + style_bit)
+    text = "\n\n".join(parts)
+    if len(text) > max_chars:
+        return text[:max_chars]
+    return text
+
+
+@dataclass
+class ExcelCharacter:
+    """Одна запись из листа «Персонажи»."""
+
+    id: str
+    name: str = ""
+    look: str = ""
+    clothes: str = ""
+    char: str = ""
+    rules: str = ""
+    # ID других персонажей, упомянутых в `rules` (в порядке появления).
+    ref_ids: list[str] = field(default_factory=list)
+    # Выбранный пользователем в TG промт (имя файла в prompts/04_hero_style/
+    # или null если ещё не выбран). Для реф-вариаций промт всё равно
+    # запрашивается, но при генерации не используется (выбор только для
+    # консистентного UI).
+    prompt_name: str | None = None
+
+    @property
+    def has_refs(self) -> bool:
+        return bool(self.ref_ids)
+
+    def changes_text(self) -> str:
+        """Текст «изменений» для outsee-вариации: 4 поля с подписями,
+        без «правил» (по требованию пользователя)."""
+        parts: list[str] = []
+        if self.name:
+            parts.append(f"Имя: {self.name}")
+        if self.look:
+            parts.append(f"Внешность: {self.look}")
+        if self.clothes:
+            parts.append(f"Одежда: {self.clothes}")
+        if self.char:
+            parts.append(f"Характер: {self.char}")
+        return "\n".join(parts)
+
+    def changes_text_en(self) -> str:
+        """То же для Outsee REF-промта — английские ключи, без кириллицы-лейблов."""
+        parts: list[str] = []
+        if self.name:
+            parts.append(f"Name: {self.name}")
+        if self.look:
+            parts.append(f"Appearance: {self.look}")
+        if self.clothes:
+            parts.append(f"Clothes: {self.clothes}")
+        if self.char:
+            parts.append(f"Personality mood: {self.char}")
+        return "\n".join(parts)
+
+    def brief_for_gpt(self) -> str:
+        """Объединённый brief для GPT (не-реф персонажи): все поля
+        с подписями, включая правила — это полное описание персонажа."""
+        parts: list[str] = []
+        if self.name:
+            parts.append(f"Имя: {self.name}")
+        if self.look:
+            parts.append(f"Внешность: {self.look}")
+        if self.clothes:
+            parts.append(f"Одежда: {self.clothes}")
+        if self.char:
+            parts.append(f"Характер: {self.char}")
+        if self.rules:
+            parts.append(f"Правила: {self.rules}")
+        return "\n".join(parts)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "look": self.look,
+            "clothes": self.clothes,
+            "char": self.char,
+            "rules": self.rules,
+            "ref_ids": list(self.ref_ids),
+            "prompt_name": self.prompt_name,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> ExcelCharacter:
+        return cls(
+            id=str(d.get("id") or "").strip(),
+            name=str(d.get("name") or "").strip(),
+            look=str(d.get("look") or "").strip(),
+            clothes=str(d.get("clothes") or "").strip(),
+            char=str(d.get("char") or "").strip(),
+            rules=str(d.get("rules") or "").strip(),
+            ref_ids=[str(x).strip() for x in (d.get("ref_ids") or []) if str(x).strip()],
+            prompt_name=(d.get("prompt_name") or None),
+        )
+
+
+def _cell_text(ws, row: int, col: int) -> str:
+    """Безопасное извлечение текста из ячейки (строка, без переводов
+    нач/конца)."""
+    v = ws.cell(row=row, column=col).value
+    if v is None:
+        return ""
+    return str(v).strip()
+
+
+def characters_from_entities(entities: list[Any]) -> list[ExcelCharacter]:
+    """Entity(type=character) → ExcelCharacter (тот же shape, что лист «Персонажи»)."""
+    rows: list[Any] = []
+    for e in entities or []:
+        code = str(getattr(e, "code", None) or "").strip()
+        etype = str(getattr(e, "type", None) or "").strip()
+        if etype != "character" or not code or not _ID_RE.match(code):
+            continue
+        rows.append(e)
+    rows.sort(
+        key=lambda e: (
+            float(getattr(e, "sort_key", 0) or 0),
+            str(getattr(e, "code", "") or ""),
+        )
+    )
+    known_ids = {str(e.code).strip() for e in rows}
+    out: list[ExcelCharacter] = []
+    for e in rows:
+        cid = str(e.code).strip()
+        attrs = e.attrs if isinstance(getattr(e, "attrs", None), dict) else {}
+        name = str(getattr(e, "name", None) or "").strip()
+        look = str(attrs.get("look") or attrs.get("внешность") or "").strip()
+        clothes = str(attrs.get("clothes") or attrs.get("одежда") or "").strip()
+        char = str(attrs.get("char") or attrs.get("характер") or "").strip()
+        rules = str(attrs.get("rules") or attrs.get("правила") or "").strip()
+        if not any([name, look, clothes, char, rules]):
+            continue
+        out.append(
+            ExcelCharacter(
+                id=cid,
+                name=name,
+                look=look,
+                clothes=clothes,
+                char=char,
+                rules=rules,
+                ref_ids=_extract_refs(rules, known_ids, exclude=cid),
+            )
+        )
+    return out
+
+
+def entity_cards_for_gpt(entities: list[Any]) -> list[dict[str, str]]:
+    """Карточки Entity → JSON shape агента персонажей (id/имя/внешность/…)."""
+    cards: list[dict[str, str]] = []
+    for ch in characters_from_entities(entities):
+        cards.append(
+            {
+                "id": ch.id,
+                "имя": ch.name,
+                "внешность": ch.look,
+                "одежда": ch.clothes,
+                "характер": ch.char,
+                "правила": ch.rules,
+            }
+        )
+    return cards
+
+
+def parse_persons_sheet(xlsx_path: Path) -> list[ExcelCharacter]:
+    """Парсит лист «Персонажи» project.xlsx и возвращает список персонажей
+    (только тех, у кого заполнен ID в R1 и хотя бы одно из имя/внешность).
+
+    Бросает `FileNotFoundError` если файла нет, `RuntimeError` если в
+    книге нет листа «Персонажи».
+    """
+    from openpyxl import load_workbook
+
+    if not xlsx_path.exists():
+        raise FileNotFoundError(f"project.xlsx не найден: {xlsx_path}")
+
+    wb = load_workbook(filename=str(xlsx_path), data_only=True)
+    if SHEET_PERSONS not in wb.sheetnames:
+        raise RuntimeError(
+            f"в xlsx нет листа «{SHEET_PERSONS}» — это не v8-шаблон?"
+        )
+
+    ws = wb[SHEET_PERSONS]
+    # Сначала собираем IDs из R1 (столбцы B.. = col 2..max_col).
+    # Это даёт нам список ID, по которому потом будем матчить ref_ids в R7.
+    max_col = max(ws.max_column or 0, 2)
+    raw: list[tuple[int, str]] = []  # (column, id)
+    for c in range(2, max_col + 1):
+        cid = _cell_text(ws, ROW_ID, c)
+        if cid and _ID_RE.match(cid):
+            raw.append((c, cid))
+
+    known_ids = {cid for _, cid in raw}
+    out: list[ExcelCharacter] = []
+    for col, cid in raw:
+        name = _cell_text(ws, ROW_NAME, col)
+        look = _cell_text(ws, ROW_LOOK, col)
+        clothes = _cell_text(ws, ROW_CLOTHES, col)
+        char = _cell_text(ws, ROW_CHAR, col)
+        rules = _cell_text(ws, ROW_RULES, col)
+
+        # Требуем хотя бы одно непустое описательное поле — иначе колонка
+        # реально пустая, ID = «c01» это просто заглушка шаблона.
+        if not any([name, look, clothes, char, rules]):
+            continue
+
+        ref_ids = _extract_refs(rules, known_ids, exclude=cid)
+        out.append(
+            ExcelCharacter(
+                id=cid,
+                name=name,
+                look=look,
+                clothes=clothes,
+                char=char,
+                rules=rules,
+                ref_ids=ref_ids,
+            )
+        )
+    return out
+
+
+def _extract_refs(rules_text: str, known_ids: set[str], *, exclude: str) -> list[str]:
+    """Находит в `rules_text` упоминания других ID персонажей.
+    Возвращает их в порядке первого появления, без дубликатов.
+    `exclude` — собственный ID персонажа (на себя ссылаться не считаем)."""
+    if not rules_text or not known_ids:
+        return []
+    # Ищем «слова» из букв/цифр/подчёркивания/дефиса (UNICODE — кириллица
+    # тоже допускается). Это покрывает форматы вида c01, p_02, hero-3,
+    # пав1, нико-2 и т.п.
+    found: list[str] = []
+    for tok in re.findall(r"[^\W\d_][\w-]*", rules_text, flags=re.UNICODE):
+        if tok == exclude:
+            continue
+        if tok in known_ids and tok not in found:
+            found.append(tok)
+    return found
