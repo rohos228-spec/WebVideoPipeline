@@ -121,6 +121,11 @@ class ResponseSchema:
 
     name: str
     schema: dict[str, Any]
+    # strict=False — для схем с динамическими ключами (generic apply-ops
+    # fields): OpenAI strict-режим требует additionalProperties=false и
+    # полный required, что для словаря алиасов невыразимо. Адгеренция
+    # best-effort, гарантия — клиентская валидация.
+    strict: bool = True
 
 
 def _structured_outputs_active(url: str) -> bool:
@@ -146,7 +151,7 @@ def _schema_into_body(
             "format": {
                 "type": "json_schema",
                 "name": schema.name,
-                "strict": True,
+                "strict": schema.strict,
                 "schema": schema.schema,
             }
         }
@@ -155,7 +160,7 @@ def _schema_into_body(
             "type": "json_schema",
             "json_schema": {
                 "name": schema.name,
-                "strict": True,
+                "strict": schema.strict,
                 "schema": schema.schema,
             },
         }
