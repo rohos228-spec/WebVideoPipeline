@@ -1,10 +1,10 @@
 # DB v2 — гибкая модель данных (карточки · дробный порядок · связи)
 
 > **Статус:** DB v2 — **источник правды** для правок через чат/GPT и кнопку
-> «База». Excel (`project.xlsx`) — **производный view**: обновляется кнопкой
-> «Экспорт в Excel» и автоматически после любых правок в «Базе»/через
-> `apply-ops` (write-through). Расхождение «в Excel одно, в DB другое»
-> недопустимо: писатель всегда один — DB.
+> «База». Excel (`project.xlsx`) — **только Import / Export**: явная кнопка
+> «Экспорт в Excel» и явный «Импорт» (`excel_io`). Авто write-through после
+> `apply-ops` и mid-pipeline запись в xlsx **отключены**. Писатель рантайма —
+> всегда DB.
 >
 > **Читать первым** любому агенту, который трогает хранение кадров, вставку
 > кадров между сценами, версии промтов или кнопку «База» в Studio.
@@ -124,7 +124,7 @@ legacy-данных проекта:
 | POST/DELETE | `/api/db/frames/{fid}/edges`, `/api/db/edges/{id}` | Связи между кадрами (между проектами запрещено — 400) |
 | POST | `/api/db/projects/{pid}/scenes` | Новая сцена (дробный sort_key, `after_scene_id`) |
 | POST | `/api/db/projects/{pid}/export-xlsx` | **Экспорт DB → project.xlsx** (R45/R46/R48/R64/R49 + R50/R15, backup в `old/`) |
-| POST | `/api/db/projects/{pid}/apply-ops` | **Fail-closed запись от GPT**: JSON `{ops:[{frame_uuid, fields:{...}}]}`; неизвестный uuid/пустые fields → 400, откат; после записи — авто-экспорт в xlsx (`export_xlsx=false` отключает) |
+| POST | `/api/db/projects/{pid}/apply-ops` | **Fail-closed запись от GPT**: JSON `{ops:[{frame_uuid, fields:{...}}]}`; неизвестный uuid/пустые fields → 400, откат; авто-экспорта в xlsx нет (`export_xlsx=true` — legacy opt-in) |
 
 Бизнес-логика вставки/версий/графа — в `app/services/db_v2.py`
 (`insert_frame_after`, `add_prompt_version`, `project_graph`).
@@ -139,9 +139,9 @@ legacy-данных проекта:
   (иконка `Database`, event `studio-open-baza`).
 - В header «Базы» — кнопка **«Экспорт в Excel»** (`api.dbExportXlsx`):
   пишет DB в `project.xlsx` и показывает, сколько кадров/ячеек записано.
-  Любая правка в «Базе» (статус, закадр, промты, тексты, сцены, вставка
-  кадра) после сохранения автоматически делает тот же экспорт
-  (write-through), поэтому `project.xlsx` не отстаёт от DB.
+  Авто write-through после правок **отключён** (см. шапку дока;
+  `db_apply.apply_ops`, `export_xlsx=False` по умолчанию) — `project.xlsx`
+  обновляется явной кнопкой «Экспорт в Excel».
 - Listener + state: `web/src/app/page.tsx` (паттерн как у `GptWorkspace`);
   в `BazaWorkspace` передаётся **текущий выбранный проект пайплайна**
   (`selectedProjectId`) — отдельного выбора проекта слева нет.
@@ -215,7 +215,7 @@ GPT/чат **не пишет в Excel напрямую**. Запись идёт 
       "fields": { "общий_план": "Эпизод 1 …" }
     }
   ],
-  "export_xlsx": true
+  "export_xlsx": false
 }
 ```
 
@@ -230,9 +230,10 @@ GPT/чат **не пишет в Excel напрямую**. Запись идёт 
 1. **Адрес = `frame_uuid`**, не «строка 48». uuid не плывёт при вставках.
 2. **Fail-closed**: неизвестный `frame_uuid`, пустой `ops`, пустые `fields`
    у операции → `400`, вся транзакция откатывается, DB не тронута.
-3. **`export_xlsx: true` (по умолчанию)** — после записи DB сразу
-   экспортируется в `project.xlsx`, поэтому Excel-зависимые шаги (монтаж,
-   озвучка) видят те же данные. Расхождения DB/Excel нет по построению.
+3. **`export_xlsx: false` (по умолчанию)** — запись идёт только в DB;
+   `project.xlsx` обновляется явным экспортом (кнопка/эндпоинт).
+   `export_xlsx: true` — legacy opt-in, в обычной работе не нужен
+   (`app/services/db_apply.py::apply_ops`).
 4. Поля `image_prompt`/`animation_prompt` дополнительно создают активную
    `prompt_versions` (история не затирается); `Frame.image_prompt` /
    `Frame.animation_prompt` всегда равны активной версии (синк в
@@ -279,8 +280,9 @@ animation_prompt, meaning, duration_seconds, attrs + excel_rows (что
 {"ops":[{"frame_uuid":"a1b2c3d4e5f6a7b8c9d0e1f2","fields":{"закадр":"Новый закадр","промт_картинки":"knitted style, …"}}]}
 ```
 
-После записи backend сам экспортирует DB → `project.xlsx`
-(`export_xlsx=true` по умолчанию) — Excel остаётся синхронным view.
+После записи backend НЕ экспортирует в `project.xlsx` автоматически
+(`export_xlsx=false` по умолчанию) — Excel обновляется явной кнопкой
+«Экспорт в Excel»; `export_xlsx=true` — legacy opt-in.
 
 ### 7.2. Глоссарий: что где означает и кто какой нодой пишется
 
@@ -401,8 +403,8 @@ curl -X POST http://127.0.0.1:8765/api/db/projects/<ID>/apply-ops \
 ```
 
 - Ошибка (неизвестный uuid/поле, пустые fields) → `400`, ничего не запишется.
-- После записи backend сам экспортирует в Excel (`"export_xlsx":false`
-  отключает, не нужно для обычной работы).
+- По умолчанию запись только в DB (`export_xlsx=false`); экспорт в Excel —
+  явной кнопкой. `"export_xlsx":true` — legacy opt-in.
 
 ### Сценарий C. Оркестратор (чат снизу главного экрана)
 

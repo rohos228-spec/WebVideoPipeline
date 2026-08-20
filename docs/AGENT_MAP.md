@@ -63,6 +63,10 @@ docs/                     # human/agent docs
 
 ## 5. Pipeline steps & statuses
 
+> ⚠️ Таблица ниже отстала от SoT (сверка 2026-08-20): канон scene_design —
+> веер `sd_agent`×5 + `sd_assemble` (`node_registry.py:143-148`), ноды
+> `sfx_plan`/`sfx_gen` (`node_registry.py:107-112`) в таблице отсутствуют.
+
 **SoT:** [`app/orchestrator/node_registry.py`](../app/orchestrator/node_registry.py),
 [`pipeline.py`](../app/orchestrator/pipeline.py),
 [`steps/`](../app/orchestrator/steps/),

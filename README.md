@@ -28,6 +28,10 @@
 
 ## 📐 Схема Пайплайна
 
+> Схема упрощена: дизайн сцен в коде — веер `sd_agent`×5 + `sd_assemble`,
+> между музыкой и сборкой есть шаги SFX (`sfx_plan`/`sfx_gen`). Точный
+> реестр — `app/orchestrator/node_registry.py`.
+
 ```mermaid
 flowchart TD
     A["1. 💡 Тема ролика"] --> B["2. 📝 Общий план"]

@@ -20,6 +20,7 @@
 | [`NODE_SYSTEM.md`](NODE_SYSTEM.md) | Система нод оркестратора: доноры, контракты, harness-гейты, каталог нод/действий |
 | [`DB_V2.md`](DB_V2.md) | DB v2 = SoT: apply-ops контракт, алиасы, экспорт в Excel, руководство оператора |
 | [`PROMPT_CONTRACT.md`](PROMPT_CONTRACT.md) | Контракт промптов GPT↔DB: apply-ops / artifact / staging; стоп-лист Excel/TSV |
+| [`NODE_MODELS.md`](NODE_MODELS.md) | Пикер модели на ноде: vibecode vs kie vs Grsai/Outsee, какие ключи |
 
 ---
 
@@ -61,6 +62,10 @@ docs/                     # human/agent docs
 ---
 
 ## 5. Pipeline steps & statuses
+
+> ⚠️ Таблица ниже отстала от SoT (сверка 2026-08-20): канон scene_design —
+> веер `sd_agent`×5 + `sd_assemble` (`node_registry.py:143-148`), ноды
+> `sfx_plan`/`sfx_gen` (`node_registry.py:107-112`) в таблице отсутствуют.
 
 **SoT:** [`app/orchestrator/node_registry.py`](../app/orchestrator/node_registry.py),
 [`pipeline.py`](../app/orchestrator/pipeline.py),
@@ -241,4 +246,5 @@ SoT по тексту GPT: `AGENTS.md` + этот map §8.
 | Soft retry steps | `step_failure_policy.py` |
 | Image style Cursor skills | `.cursor/skills/README.md` (opt-in, не пайплайн) |
 | Knowledge search | `scripts/build_knowledge_index.py`, `/api/knowledge/search` |
+| **GPT VPS-relay (только прокладка)** | [`../deploy/gpt-relay/README.md`](../deploy/gpt-relay/README.md) |
 | **Группы нод («+ Группа»)** | `app/services/node_groups.py` (каталог+вставка), `app/web/routers/node_groups.py`, веер scene_design = группа `scene_design_fanout` |

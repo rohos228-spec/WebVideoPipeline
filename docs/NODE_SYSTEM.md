@@ -53,6 +53,12 @@
 
 ## 4. Каталог нод
 
+> ⚠️ Каталог ниже отстал от кода (сверка 2026-08-20). SoT —
+> `app/orchestrator/node_registry.py:33-181`: канон scene_design — веер
+> `sd_agent`×5 + `sd_assemble` (не монолит `scene_design`; `sd_style` снят с
+> волн), плюс есть ноды `sfx_plan`/`sfx_gen` (статусы `sfx_planning` /
+> `generating_sfx`), не описанные ниже.
+
 ### plan (`plan`) — `planning → plan_ready`
 - **Назначение:** общий план эпизода.
 - **Читает:** `project.topic`, настройки генерации.
