@@ -153,6 +153,7 @@ async def run_operator_api(
     """
     from app.services.check_streams import clamp_check_streams, default_check_streams
     from app.services.gpt_api import gpt_api_enabled, is_image_path
+    from app.settings import settings
 
     streams = (
         clamp_check_streams(check_streams)
@@ -197,6 +198,13 @@ async def run_operator_api(
             source_prompt_keys=source_prompt_keys,
             db_sot_check=db_sot_check,
             auto_pack=auto_pack,
+        )
+
+    # Fail-closed: без ключа проверка не имеет права зеленеть stub-вердиктом.
+    if _is_check(role=role, check_mode=check_mode) and not settings.allow_stub_checks:
+        raise RuntimeError(
+            "gpt-operator/api: нет API-ключа — проверка не выполнена "
+            "(fail-closed). Для dev/tests явный опт-ин: VP_ALLOW_STUB_CHECKS=1."
         )
 
     out_dir = project_dir / "excel_gpt_uploads" / node_key

@@ -99,6 +99,10 @@ class Settings(BaseSettings):
         "https://vibecode.moe/v1", alias="VIBECODE_BASE_URL"
     )
 
+    # Только dev/tests: без API-ключа check-роли получают stub-вердикт
+    # (fail-open). В проде False → отсутствие ключа роняет проверку ошибкой.
+    allow_stub_checks: bool = Field(False, alias="VP_ALLOW_STUB_CHECKS")
+
     # GPT / kie.ai — основной текстовый стек (не удалять при добавлении Kimi)
     gpt_api_key: str = Field("", alias="GPT_API_KEY")
     gpt_base_url: str = Field("", alias="GPT_BASE_URL")

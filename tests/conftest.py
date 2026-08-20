@@ -24,6 +24,9 @@ _ORIG_SQLITE_PATH = Path(settings.sqlite_path)
 @pytest.fixture(autouse=True)
 def _isolate_settings_paths(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(settings, "harness_gate_disabled", True)
+    # Stub-вердикты проверок без API-ключа: в проде fail-closed (RuntimeError),
+    # тестам stub-путь нужен явно.
+    monkeypatch.setattr(settings, "allow_stub_checks", True)
     root = tmp_path_factory.mktemp("vp-isol")
     monkeypatch.setattr(settings, "data_dir", root)
     monkeypatch.setattr(settings, "sqlite_path", root / "state.db")
