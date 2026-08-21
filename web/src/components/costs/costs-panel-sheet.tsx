@@ -62,7 +62,8 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 function Bar({ value, max, className }: { value: number; max: number; className?: string }) {
-  const pct = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0;
+  // Клэмп: spent > budget не должен вылезать за контейнер.
+  const pct = max > 0 ? Math.min(100, Math.max(2, Math.round((value / max) * 100))) : 0;
   return (
     <div className="h-2 w-full rounded-sm bg-white/[0.06]">
       <div className={cn("h-2 rounded-sm bg-primary/70", className)} style={{ width: `${pct}%` }} />

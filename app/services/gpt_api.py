@@ -2822,7 +2822,19 @@ async def chat_pdf_in_chunks(**kwargs: Any) -> GptChatResult:
     """
     from app.services import llm_ledger
 
-    with llm_ledger.logical_call_scope():
+    # Fallback prompt-hash уровня документа — иначе куски хэшировались бы
+    # каждый по своему piece_prompt внутри одного logical_call_id.
+    fallback_hash = ""
+    if llm_ledger.current_prompt_hash() == "":
+        try:
+            from app.services.input_hash import prompt_version_hash
+
+            fallback_hash = prompt_version_hash(str(kwargs.get("prompt") or ""))
+        except Exception:  # noqa: BLE001
+            fallback_hash = ""
+    with llm_ledger.logical_call_scope(), llm_ledger.bind_prompt_hash(
+        fallback_hash, fallback=True
+    ):
         return await _chat_pdf_in_chunks_unscoped(**kwargs)
 
 

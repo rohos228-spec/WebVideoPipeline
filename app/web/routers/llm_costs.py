@@ -74,16 +74,15 @@ async def project_llm_costs(
             .order_by(func.sum(LlmCall.cost_usd).desc())
         )
     ).all()
+    # Фактическая модель ответа (served), fallback — запрошенная. GROUP BY
+    # по выражению, не по строке "model": строку SQLite резолвит во
+    # входную колонку llm_calls.model и сливает разные served в одну группу.
+    model_expr = func.coalesce(func.nullif(LlmCall.served_model, ""), LlmCall.model)
     by_model = (
         await session.execute(
-            select(
-                func.coalesce(
-                    func.nullif(LlmCall.served_model, ""), LlmCall.model
-                ).label("model"),
-                *_agg_columns(),
-            )
+            select(model_expr.label("model"), *_agg_columns())
             .where(where)
-            .group_by("model")
+            .group_by(model_expr)
             .order_by(func.sum(LlmCall.cost_usd).desc())
         )
     ).all()

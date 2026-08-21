@@ -263,6 +263,15 @@ async def test_policy_pauses_with_reason(db):
     assert "sleep_until" not in fs and not fs.get("total_fails")
 
 
+def test_budget_error_code_in_catalog():
+    """mark_running_node_failed перезаписывает error_code через describe_error —
+    код ноды/события должен быть budget_exhausted, не unknown (ревью)."""
+    from app.services.error_catalog import describe_error
+
+    code, msg = describe_error(BudgetExhausted(project_id=1, spent_usd=2, budget_usd=1))
+    assert code == "budget_exhausted" and "бюджет" in msg.lower()
+
+
 # ── API дашборда + поднятие бюджета ──────────────────────────────────────
 
 
@@ -302,6 +311,18 @@ async def test_costs_api_aggregates(client, db, monkeypatch):
     assert nodes["check_1"]["calls"] == 2 and nodes["plan"]["contract_rejected"] == 1
     assert {m["model"] for m in d["models"]} == {"gpt-5.6-sol", "kimi-k3"}
     assert d["budget"]["budget_usd"] == 1.0 and d["budget"]["exhausted"] is False
+
+    # Ревью: группировка по ФАКТИЧЕСКОЙ модели (served), не по запрошенной —
+    # две served одной запрошенной модели не сливаются в одну строку.
+    async with db() as s:
+        for served in ("gw/served-a", "gw/served-b"):
+            s.add(LlmCall(project_id=pid, node_key="n", logical_call_id="l",
+                          model="req", served_model=served, cost_usd=1.0))
+        await s.commit()
+    d = (await client.get(f"/api/projects/{pid}/llm-costs")).json()
+    served_rows = {m["model"]: m for m in d["models"] if m["model"].startswith("gw/")}
+    assert set(served_rows) == {"gw/served-a", "gw/served-b"}
+    assert all(m["calls"] == 1 for m in served_rows.values())
 
     r = await client.get("/api/llm-costs/projects")
     d = r.json()

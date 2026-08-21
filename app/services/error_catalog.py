@@ -123,6 +123,12 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
     "pipeline_cancelled": ErrorSpec("pipeline_cancelled", "Остановлено пользователем", "Шаг снят через ⏹."),
     # ── Инфраструктура ──
     "infra_db_locked": ErrorSpec("infra_db_locked", "БД занята", "Параллельная запись — повтор."),
+    # Этап 3: бюджет LLM прогона исчерпан — paused с meta.pause_reason.
+    "budget_exhausted": ErrorSpec(
+        "budget_exhausted",
+        "Бюджет LLM прогона исчерпан",
+        "Подними бюджет проекта (дашборд «Стоимость» / POST llm-budget) и ▶.",
+    ),
     "unknown": ErrorSpec("unknown", "Неизвестная ошибка", "См. логи data/backend.log."),
 }
 
@@ -141,6 +147,9 @@ def _match_code(exc: Exception) -> str:  # noqa: C901
     name = type(exc).__name__
     msg = str(exc)
     low = msg.lower()
+
+    if name == "BudgetExhausted":
+        return "budget_exhausted"
 
     # GptApiError / OutseeImageError несут context — используем его.
     ctx = getattr(exc, "context", None)
