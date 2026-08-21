@@ -1319,8 +1319,30 @@ def write_check_report_txt(
     return path
 
 
-def parse_check_analysis(text: str, *, require_schema: bool = False) -> CheckAnalysis:
-    """Разобрать ответ GPT: JSON vp.check.v1 или TXT-отчёт. Битый → fail."""
+def parse_check_analysis(
+    text: str, *, require_schema: bool = False, strict_contract: bool = False
+) -> CheckAnalysis:
+    """Разобрать ответ GPT: JSON vp.check.v1 или TXT-отчёт. Битый → fail.
+
+    ``strict_contract`` (этап 5, C.5): битый ФОРМАТ поднимается как
+    ``LlmContractError`` (repair-retry у вызывающего), а не молчаливый
+    ``verdict: fail``, неотличимый от реального брака и запускающий
+    платный regen-цикл (спека «Битый ответ проверки ≠ вердикт fail»).
+    Реальный ``verdict: fail`` из распарсенного отчёта проходит как есть.
+    Немигрированные вызовы (default False) сохраняют старое поведение.
+    """
+
+    def _format_fail(reason: str, *, kind: str = "validate") -> CheckAnalysis:
+        if strict_contract:
+            from app.contracts import LlmContractError
+
+            raise LlmContractError(
+                f"отчёт проверки не распознан: {reason}",
+                kind=kind,
+                contract="vp_check_report",
+            )
+        return fail_analysis(reason)
+
     report_text, _wb = split_check_reply_and_writeback(text or "")
     probe = report_text or (text or "")
     obj = extract_json_object(probe)
@@ -1331,7 +1353,9 @@ def parse_check_analysis(text: str, *, require_schema: bool = False) -> CheckAna
         if require_schema:
             sid = str(obj.get("schema") or "").strip()
             if sid and sid != SCHEMA_ID:
-                return fail_analysis(f"неверная schema: {sid!r}, ожидается {SCHEMA_ID}")
+                return _format_fail(
+                    f"неверная schema: {sid!r}, ожидается {SCHEMA_ID}"
+                )
         if "verdict" not in obj:
             decision = str(obj.get("decision") or "").strip().lower()
             if decision in ("approved", "approve", "ok"):
@@ -1343,12 +1367,14 @@ def parse_check_analysis(text: str, *, require_schema: bool = False) -> CheckAna
                 txt = parse_check_report_txt(probe)
                 if txt is not None:
                     return apply_vision_score_gate(txt, probe)
-                return fail_analysis("в JSON нет поля verdict")
+                return _format_fail("в JSON нет поля verdict")
         return apply_vision_score_gate(analysis_from_dict(obj), probe)
     txt = parse_check_report_txt(probe)
     if txt is not None:
         return apply_vision_score_gate(txt, probe)
-    return fail_analysis("нет TXT-отчёта и нет JSON vp.check.v1 в ответе")
+    return _format_fail(
+        "нет TXT-отчёта и нет JSON vp.check.v1 в ответе", kind="parse"
+    )
 
 
 def parse_gate_status(text: str) -> str:

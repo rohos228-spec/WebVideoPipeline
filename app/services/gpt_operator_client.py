@@ -481,8 +481,48 @@ async def _run_operator_api_real(
         logger.warning("gpt_operator/api: не записал gpt_reply_raw.txt")
 
     if is_check:
+        # Этап 5 (C.5): битый формат отчёта = repair-retry с текстом ошибки,
+        # НЕ молчаливый verdict:fail (закрывает check_analysis 3 тихих пути).
+        # Остальные вызовы parse_check_analysis (planner, save_operator_result
+        # и т.д.) не тронуты — strict только на этом мигрированном пути.
+        from app.contracts import LlmContractError
+
         report_part, wb_part = split_check_reply_and_writeback(result.text)
-        analysis = parse_check_analysis(report_part or result.text)
+        check_repairs = 0
+        while True:
+            try:
+                analysis = parse_check_analysis(
+                    report_part or result.text, strict_contract=True
+                )
+                break
+            except LlmContractError as ce:
+                check_repairs += 1
+                if check_repairs > 2:
+                    raise
+                logger.warning(
+                    "gpt_operator/api: node={} битый отчёт проверки "
+                    "(repair {}/2): {}",
+                    node_key,
+                    check_repairs,
+                    str(ce)[:200],
+                )
+                retry_prompt = (
+                    f"{prompt_for_model}\n\n"
+                    "# ОШИБКИ ПРОШЛОЙ ПОПЫТКИ (исправь и верни ПОЛНЫЙ "
+                    f"отчёт заново)\n{ce}"
+                )
+                result = await chat(
+                    prompt=retry_prompt,
+                    accompanying=accomp,
+                    input_paths=chat_paths,
+                    temperature=0.0,
+                    xlsx_write_contract=xlsx_contract,
+                    auto_pack=auto_pack,
+                )
+                reply_text = result.text
+                report_part, wb_part = split_check_reply_and_writeback(
+                    result.text
+                )
         if mode == "report_only":
             analysis.fix.rewrite_file = None
             analysis.forward.mode = "inherit"
