@@ -109,6 +109,32 @@ class GptChatResult:
     served_model: str = ""
 
 
+_USAGE_KEYS = (
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "input_tokens",
+    "output_tokens",
+)
+
+
+def sum_usage(*usages: dict[str, Any] | None) -> dict[str, Any]:
+    """Сумма usage частей склейки (этап 3, блок B).
+
+    Покомпонентно по известным ключам обеих веток API; отсутствующие = 0;
+    если ни в одной части ничего нет — {} (usage неизвестен, не «0»).
+    """
+    out: dict[str, Any] = {}
+    for u in usages:
+        if not isinstance(u, dict):
+            continue
+        for k in _USAGE_KEYS:
+            v = u.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                out[k] = out.get(k, 0) + int(v)
+    return out
+
+
 @dataclass(frozen=True)
 class ResponseSchema:
     """Контракт structured output для chat() (этап 5, llm-contracts).
@@ -2042,6 +2068,7 @@ async def _maybe_volume_complete_chat_result(
     if volume_complete is None:
         if xlsx_write_contract != "apply_ops" and not has_db_frames:
             return result
+    volume_usage: dict[str, Any] = {}
     try:
         new_text, did = await volume_complete_apply_ops_reply(
             result.text or "",
@@ -2054,6 +2081,7 @@ async def _maybe_volume_complete_chat_result(
             temperature=temperature,
             timeout=timeout,
             response_schema=response_schema,
+            usage_acc=volume_usage,
         )
     except Exception as e:  # noqa: BLE001
         # Контрактный путь: недобор/провал добора = ошибка вызова, не
@@ -2070,7 +2098,7 @@ async def _maybe_volume_complete_chat_result(
         text=new_text,
         model=result.model or model,
         finish_reason="volume_continued",
-        usage=result.usage,
+        usage=sum_usage(result.usage, volume_usage),
         raw={
             **(result.raw or {}),
             "volume_continued": True,
@@ -2167,7 +2195,7 @@ async def _chat_packed_parallel(
         text=merged,
         model=first.model,
         finish_reason="packed",
-        usage=first.usage,
+        usage=sum_usage(*(p.usage for p in parts)),
         raw={
             **(first.raw or {}),
             "packed_slices": len(parts),
@@ -2283,7 +2311,7 @@ async def _chat_adaptive_1_2_4(
             text=merged,
             model=first.model,
             finish_reason="packed",
-            usage=first.usage,
+            usage=sum_usage(*(p.usage for p in parts)),
             raw={
                 **(first.raw or {}),
                 "packed_slices": len(parts),
@@ -2494,7 +2522,7 @@ async def _chat_unscoped(
                         text=merged,
                         model=use_model,
                         finish_reason="stream_continued",
-                        usage=result.usage,
+                        usage=sum_usage(result.usage, cont.usage),
                         raw={
                             **(result.raw or {}),
                             "cf_continued": True,
@@ -2600,7 +2628,7 @@ async def _chat_unscoped(
                         text=merged,
                         model=use_model,
                         finish_reason="stream_continued",
-                        usage=result.usage,
+                        usage=sum_usage(result.usage, cont.usage),
                         raw={
                             **(result.raw or {}),
                             "cf_continued": True,
@@ -2824,6 +2852,7 @@ async def _chat_pdf_in_chunks_unscoped(
         user_ask = f"{user_ask}\n\n{accompanying.strip()}".strip()
     outs: list[str] = []
     last: GptChatResult | None = None
+    usage_acc: dict[str, Any] = {}
     ok_n = 0
     fail_n = 0
     chunk_timeout = float(timeout if timeout is not None else 120.0)
@@ -2840,7 +2869,7 @@ async def _chat_pdf_in_chunks_unscoped(
         use_system: bool,
         use_history: bool,
     ) -> str:
-        nonlocal last, ok_n, fail_n
+        nonlocal last, usage_acc, ok_n, fail_n
         piece_prompt = (
             f"{user_ask}\n\n"
             f"[Это фрагмент {idx} из {len(jobs)} документа «{label}». "
@@ -2862,6 +2891,7 @@ async def _chat_pdf_in_chunks_unscoped(
                 max_retries=chunk_retries,
                 response_schema=response_schema,
             )
+            usage_acc = sum_usage(usage_acc, last.usage)
             body = (last.text or "").strip() or "[пустой ответ модели]"
             ok_n += 1
             return f"### {label}\n\n{body}"
@@ -2950,7 +2980,7 @@ async def _chat_pdf_in_chunks_unscoped(
         text=joined,
         model=(last.model if last else (model or settings.gpt_model or "")),
         finish_reason="chunked_partial" if fail_n else "chunked",
-        usage=(last.usage if last else {}),
+        usage=usage_acc,
         raw={
             "chunked": True,
             "parts": len(jobs),

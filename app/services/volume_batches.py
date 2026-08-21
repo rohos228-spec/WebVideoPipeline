@@ -241,11 +241,15 @@ async def volume_complete_apply_ops_reply(
     temperature: float | None = None,
     timeout: float | None = None,
     response_schema: Any | None = None,
+    usage_acc: dict[str, Any] | None = None,
 ) -> tuple[str, bool]:
     """Добрать недостающие frame ops после частичного ответа kie.
 
     ``response_schema``: контракт вызова-родителя (gpt_api.ResponseSchema) —
     добор наследует его, иначе strict-путь получал бы не-strict хвост.
+    ``usage_acc``: этап 3 — если передан, сюда дописывается сумма usage
+    всех вызовов добора (раньше usage доборов выбрасывался, родитель
+    нёс только свой).
 
     Returns:
         (text, did_continue)
@@ -319,6 +323,10 @@ async def volume_complete_apply_ops_reply(
                 e,
             )
             break
+        if usage_acc is not None:
+            from app.services.gpt_api import sum_usage
+
+            usage_acc.update(sum_usage(usage_acc, getattr(cont, "usage", None)))
         part = extract_apply_ops_json(cont.text or "")
         if not isinstance(part, dict) or not (part.get("ops") or []):
             if response_schema is not None:
