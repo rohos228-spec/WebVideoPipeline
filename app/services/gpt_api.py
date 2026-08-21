@@ -16,9 +16,11 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
@@ -1547,7 +1549,86 @@ async def fetch_completed_response(
     return "", last_status, last_raw
 
 
+async def _record_transport_call(
+    coro_factory: Any, *, url: str, use_model: str, endpoint: str
+) -> GptChatResult:
+    """Этап 3: запись llm_calls вокруг ВСЕГО тела транспортной функции.
+
+    Строка пишется и на успехе, и на исключении (best effort — сбой
+    записи не валит вызов). Обёртка всего тела, не одного POST: догрузка
+    fetch_completed_response и классификация ошибок происходят внутри —
+    их usage/error_kind попадают в ту же строку.
+    """
+    from app.services import llm_ledger
+    from app.services.llm_override import current_accounting
+
+    t0 = time.monotonic()
+    result: GptChatResult | None = None
+    err_kind = ""
+    try:
+        result = await coro_factory()
+        return result
+    except GptApiError as e:
+        err_kind = str(
+            e.context.get("error_kind")
+            or (
+                f"http_{e.context.get('status_code')}"
+                if e.context.get("status_code")
+                else ""
+            )
+            or "gpt_api_error"
+        )
+        raise
+    except httpx.TimeoutException:
+        err_kind = "timeout"
+        raise
+    except httpx.HTTPError:
+        err_kind = "network"
+        raise
+    except BaseException:
+        err_kind = "exception"
+        raise
+    finally:
+        acct = current_accounting()
+        await llm_ledger.record(
+            project_id=acct.project_id if acct else None,
+            node_key=acct.node_key if acct else "adhoc",
+            logical_call_id=llm_ledger.current_logical_call_id(),
+            model=use_model,
+            served_model=(result.served_model if result else ""),
+            relay=urlparse(url).netloc,
+            endpoint=endpoint,
+            usage=(result.usage if result else None),
+            result="ok" if result is not None else "error",
+            error_kind=err_kind,
+            response_id=(result.response_id if result else ""),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+
 async def _chat_responses_stream(
+    *,
+    url: str,
+    headers: dict[str, str],
+    body: dict[str, Any],
+    timeout: float,
+    use_model: str,
+) -> GptChatResult:
+    return await _record_transport_call(
+        lambda: _chat_responses_stream_impl(
+            url=url,
+            headers=headers,
+            body=body,
+            timeout=timeout,
+            use_model=use_model,
+        ),
+        url=url,
+        use_model=use_model,
+        endpoint="responses",
+    )
+
+
+async def _chat_responses_stream_impl(
     *,
     url: str,
     headers: dict[str, str],
@@ -1778,6 +1859,28 @@ async def _chat_completions_stream(
     timeout: float,
     use_model: str,
 ) -> GptChatResult:
+    return await _record_transport_call(
+        lambda: _chat_completions_stream_impl(
+            url=url,
+            headers=headers,
+            body=body,
+            timeout=timeout,
+            use_model=use_model,
+        ),
+        url=url,
+        use_model=use_model,
+        endpoint="chat",
+    )
+
+
+async def _chat_completions_stream_impl(
+    *,
+    url: str,
+    headers: dict[str, str],
+    body: dict[str, Any],
+    timeout: float,
+    use_model: str,
+) -> GptChatResult:
     """POST chat/completions с stream=true (длинные ответы vibecode / OpenAI)."""
     stream_body = {**body, "stream": True}
     sto = _stream_timeout(timeout)
@@ -1847,6 +1950,38 @@ async def _chat_completions_stream(
         raw=raw,
         response_id=str(last.get("id") or ""),
         served_model=str(last.get("model") or ""),
+    )
+
+
+async def _chat_completions_plain(
+    *,
+    url: str,
+    headers: dict[str, str],
+    body: dict[str, Any],
+    timeout: float,
+    use_model: str,
+) -> GptChatResult:
+    """Non-stream POST chat/completions (kie/TokenRouter путь chat())."""
+    async with _async_client(timeout=_http_timeout(timeout)) as client:
+        resp = await client.post(url, headers=headers, json=body)
+    _raise_http_status(resp.status_code, resp.text, use_model=use_model)
+    try:
+        payload = resp.json()
+    except Exception as e:  # noqa: BLE001
+        raise GptApiError(
+            f"GPT: ответ не JSON: {resp.text[:300]}",
+            context={"retryable": True, "model": use_model},
+        ) from e
+    text, finish = _parse_choice(payload)
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    return GptChatResult(
+        text=text,
+        model=use_model,
+        finish_reason=finish,
+        usage=usage,
+        raw=payload,
+        response_id=str(payload.get("id") or ""),
+        served_model=str(payload.get("model") or ""),
     )
 
 
@@ -2159,7 +2294,20 @@ async def _chat_adaptive_1_2_4(
         )
 
 
-async def chat(
+async def chat(**kwargs: Any) -> GptChatResult:
+    """Публичная точка вызова текстового LLM — см. :func:`_chat_unscoped`.
+
+    Этап 3: ставит logical_call_id-скоуп (guard: вложенные вызовы —
+    adaptive/packed/continuation/volume-добор — наследуют id родителя,
+    последовательные внешние операции получают разные id).
+    """
+    from app.services import llm_ledger
+
+    with llm_ledger.logical_call_scope():
+        return await _chat_unscoped(**kwargs)
+
+
+async def _chat_unscoped(
     *,
     prompt: str,
     accompanying: str = "",
@@ -2499,26 +2647,17 @@ async def chat(
                 )
                 return result
 
-            async with _async_client(timeout=_http_timeout(use_timeout)) as client:
-                resp = await client.post(url, headers=headers, json=body)
-            status = resp.status_code
-            _raise_http_status(status, resp.text, use_model=use_model)
-            try:
-                payload = resp.json()
-            except Exception as e:  # noqa: BLE001
-                raise GptApiError(
-                    f"GPT: ответ не JSON: {resp.text[:300]}",
-                    context={"retryable": True, "model": use_model},
-                ) from e
-            text, finish = _parse_choice(payload)
-            usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
-            result = GptChatResult(
-                text=text,
-                model=use_model,
-                finish_reason=finish,
-                usage=usage,
-                raw=payload,
-                served_model=str(payload.get("model") or ""),
+            result = await _record_transport_call(
+                lambda: _chat_completions_plain(
+                    url=url,
+                    headers=headers,
+                    body=body,
+                    timeout=use_timeout,
+                    use_model=use_model,
+                ),
+                url=url,
+                use_model=use_model,
+                endpoint="chat",
             )
             _check_served_model(
                 result,
@@ -2619,7 +2758,19 @@ def is_pdf_provider_failure(exc: BaseException) -> bool:
     )
 
 
-async def chat_pdf_in_chunks(
+async def chat_pdf_in_chunks(**kwargs: Any) -> GptChatResult:
+    """Публичная точка PDF-обработки — см. :func:`_chat_pdf_in_chunks_unscoped`.
+
+    Этап 3: один logical_call_id на ВЕСЬ документ (куски — физические
+    вызовы одной логической единицы).
+    """
+    from app.services import llm_ledger
+
+    with llm_ledger.logical_call_scope():
+        return await _chat_pdf_in_chunks_unscoped(**kwargs)
+
+
+async def _chat_pdf_in_chunks_unscoped(
     *,
     prompt: str,
     accompanying: str = "",

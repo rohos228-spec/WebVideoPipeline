@@ -20,10 +20,13 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from collections import defaultdict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from loguru import logger
 
@@ -31,6 +34,35 @@ from app.db import session_scope
 from app.models import LlmCall
 
 _PRICES_PATH = Path(__file__).resolve().parent / "llm_prices.json"
+
+# ── logical_call_id (A.1) ────────────────────────────────────────────────
+# Один id на ВНЕШНИЙ chat()/chat_pdf_in_chunks; вложенные слои (adaptive
+# 1→2→4, packed parallel, continuation, volume-добор) зовут тот же
+# публичный chat() и наследуют id родителя — в т.ч. дочерние задачи
+# asyncio.gather (копия контекста). Guard [панель 3/3]: set только если
+# contextvar пуст, reset(token) в finally — иначе рекурсия перетёрла бы
+# id родителя, а последовательные операции слиплись бы в один.
+_logical_call: ContextVar[str | None] = ContextVar(
+    "llm_logical_call_id", default=None
+)
+
+
+@contextmanager
+def logical_call_scope() -> Iterator[str]:
+    existing = _logical_call.get()
+    if existing is not None:
+        yield existing
+        return
+    token = _logical_call.set(uuid.uuid4().hex)
+    try:
+        yield _logical_call.get() or ""
+    finally:
+        _logical_call.reset(token)
+
+
+def current_logical_call_id() -> str:
+    """Для хука записи; вне скоупа — одноразовый id (защитный путь)."""
+    return _logical_call.get() or uuid.uuid4().hex
 
 # Отказы записи учёта: видимы в API дашборда; стоимость незаписанных
 # строк входит в spent бюджет-проверки (project_id=None — adhoc).

@@ -25,6 +25,39 @@ _current: ContextVar[NodeLlmOverride | None] = ContextVar(
 )
 
 
+@dataclass(frozen=True)
+class LlmAccountingContext:
+    """Этап 3: контекст учёта llm_calls — кто и из какой ноды зовёт LLM.
+
+    Ставится ВСЕГДА в ``bind_project_llm`` (обвязка шага), не только при
+    vibecode-override — хук учёта в gpt_api берёт project/node отсюда,
+    41 call-site не трогается. Вне обвязки (workspace, test_prompt, чат
+    оркестратора) контекста нет — учёт пишет project_id=NULL,
+    node_key="adhoc".
+    """
+
+    project_id: int | None
+    node_key: str
+
+
+_accounting: ContextVar[LlmAccountingContext | None] = ContextVar(
+    "llm_accounting_context", default=None
+)
+
+
+def current_accounting() -> LlmAccountingContext | None:
+    return _accounting.get()
+
+
+@contextmanager
+def use_accounting(ctx: LlmAccountingContext | None) -> Iterator[None]:
+    token = _accounting.set(ctx)
+    try:
+        yield
+    finally:
+        _accounting.reset(token)
+
+
 def current_override() -> NodeLlmOverride | None:
     return _current.get()
 
@@ -89,5 +122,15 @@ def bind_project_llm(project: Any, status: Any | None = None) -> Iterator[NodeLl
             ov.label,
             ov.model_id,
         )
-    with use_override(ov) as bound:
+    # Этап 3: учёт получает project/node для ВСЕХ шагов, независимо от
+    # наличия model-override.
+    acct = LlmAccountingContext(
+        project_id=getattr(project, "id", None),
+        node_key=str(
+            node_key
+            or node_type
+            or (getattr(status, "value", None) or "step")
+        ),
+    )
+    with use_accounting(acct), use_override(ov) as bound:
         yield bound
