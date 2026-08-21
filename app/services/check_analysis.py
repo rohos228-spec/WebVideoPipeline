@@ -1175,14 +1175,33 @@ def _section_bodies(text: str) -> dict[str, str]:
     return bodies
 
 
-def parse_check_report_txt(text: str) -> CheckAnalysis | None:
-    """Разобрать TXT-отчёт. None — если текст не похож на шаблон."""
+def parse_check_report_txt(
+    text: str, *, strict_contract: bool = False
+) -> CheckAnalysis | None:
+    """Разобрать TXT-отчёт. None — если текст не похож на шаблон.
+
+    ``strict_contract`` — формат-брак (нет verdict / пустой отчёт)
+    поднимается LlmContractError, не превращается в verdict:fail
+    (этап 5, C.5; дыра TXT-пути — находка панели 2026-08-21).
+    """
+
+    def _txt_format_fail(reason: str) -> CheckAnalysis:
+        if strict_contract:
+            from app.contracts import LlmContractError
+
+            raise LlmContractError(
+                f"отчёт проверки не распознан: {reason}",
+                kind="validate",
+                contract="vp_check_report",
+            )
+        return fail_analysis(reason)
+
     raw = (text or "").strip()
     if not looks_like_check_report_txt(raw):
         return None
     vm = _HEADER_VERDICT_RE.search(raw)
     if not vm:
-        return fail_analysis("в TXT-отчёте нет поля verdict")
+        return _txt_format_fail("в TXT-отчёте нет поля verdict")
     verdict = _norm_verdict(vm.group(1))
     bodies = _section_bodies(raw)
     summary = bodies.get("summary") or ""
@@ -1216,6 +1235,9 @@ def parse_check_report_txt(text: str) -> CheckAnalysis | None:
         instructions=actions[:1000],
         rewrite_file=rewrite,
     )
+    # verdict есть, но секции пустые: legacy fail в обоих режимах —
+    # это не «нет вердикта» (строгий кейс панели), минимальные отчёты
+    # report_only-контуров с одним verdict легитимны.
     if not summary and not checks:
         return fail_analysis("TXT-отчёт пустой (нет summary/findings)")
     return CheckAnalysis(
@@ -1364,12 +1386,12 @@ def parse_check_analysis(
                 obj = {**obj, "verdict": "fail"}
             else:
                 # возможно это не check-JSON — пробуем TXT
-                txt = parse_check_report_txt(probe)
+                txt = parse_check_report_txt(probe, strict_contract=strict_contract)
                 if txt is not None:
                     return apply_vision_score_gate(txt, probe)
                 return _format_fail("в JSON нет поля verdict")
         return apply_vision_score_gate(analysis_from_dict(obj), probe)
-    txt = parse_check_report_txt(probe)
+    txt = parse_check_report_txt(probe, strict_contract=strict_contract)
     if txt is not None:
         return apply_vision_score_gate(txt, probe)
     return _format_fail(

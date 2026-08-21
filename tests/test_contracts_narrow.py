@@ -118,6 +118,27 @@ def test_img_pr_strict_schema_override() -> None:
     assert rs.schema["additionalProperties"] is False
     item = rs.schema["properties"]["ops"]["items"]
     assert set(item["required"]) == {"frame_uuid", "fields"}
+    # Панель: strict-схема обязана уметь shot2 (иначе enforced-релей
+    # физически не вернёт промт второго шота — тихая потеря)
+    fields = item["properties"]["fields"]
+    assert "image_prompt_shot2" in fields["properties"]
+    assert set(fields["required"]) == set(fields["properties"])
+
+
+def test_img_pr_shot2_only_op_with_nulls() -> None:
+    # Ответ enforced-релея: неиспользуемые поля = null (required-all)
+    raw = (
+        '{"ops":[{"frame_uuid":"u1","fields":{"image_prompt":null,'
+        '"image_prompt_shot2":"второй шот","characters":null}}]}'
+    )
+    op = IMG_PR.parse(raw).payload.ops[0]
+    assert op.fields == {"image_prompt_shot2": "второй шот"}
+
+
+def test_anim_pr_strict_schema_has_shot2() -> None:
+    rs = ANIM_PR.response_schema()
+    fields = rs.schema["properties"]["ops"]["items"]["properties"]["fields"]
+    assert "animation_prompt_shot2" in fields["properties"]
 
 
 # ── ANIM_PR ──────────────────────────────────────────────────────────────

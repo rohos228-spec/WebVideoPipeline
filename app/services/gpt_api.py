@@ -167,7 +167,9 @@ def _schema_into_body(
 
 
 def _norm_model_name(name: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+    # Провайдер-префикс шлюза (openai/gpt-5.6-sol) не значим для сравнения.
+    tail = (name or "").rsplit("/", 1)[-1]
+    return re.sub(r"[^a-z0-9]", "", tail.lower())
 
 
 def _check_served_model(
@@ -183,8 +185,10 @@ def _check_served_model(
     served = (result.served_model or "").strip()
     if not served:
         return
+    # Точное равенство нормализованных имён: подстрочное сравнение
+    # пропускало суффикс-даунгрейд (gpt-4.1 → gpt-4.1-mini) — панель.
     a, b = _norm_model_name(use_model), _norm_model_name(served)
-    if a and b and a not in b and b not in a:
+    if a and b and a != b:
         raise GptApiError(
             f"GPT: ответ от другой модели (запрошена {use_model}, "
             f"ответила {served}) — fallback релея",

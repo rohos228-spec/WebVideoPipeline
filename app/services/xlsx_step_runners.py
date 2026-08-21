@@ -1016,6 +1016,14 @@ async def run_img_pr_xlsx(
             any_ok = False
             for item, (batch, level) in zip(gathered, wave):
                 if isinstance(item, BaseException):
+                    # Отмена шага — не «провал батча»: наверх как отмена,
+                    # не в failed_notes/гейт покрытия (edge панели).
+                    from app.services.step_cancel import StepCancelledError
+
+                    if isinstance(
+                        item, (StepCancelledError, asyncio.CancelledError)
+                    ):
+                        raise item
                     logger.error(
                         "img_pr_db: parallel batch L{} frames={} raised: {}",
                         level,

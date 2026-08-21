@@ -103,6 +103,25 @@ async def test_limits_are_separate() -> None:
 
 
 @pytest.mark.asyncio
+async def test_contract_error_from_call_is_repaired() -> None:
+    """LlmContractError из глубины вызова (volume-добор внутри chat)
+    попадает в repair-петлю, а не пролетает мимо (панель)."""
+    calls = {"n": 0}
+
+    async def call(feedback):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise LlmContractError(
+                "volume-добор: недобор 3/10", kind="validate", contract="x"
+            )
+        assert feedback and "недобор" in feedback
+        return OK
+
+    res = await run_with_contract(contract=APPLY_OPS, call=call)
+    assert res.attempts == 2 and res.validate_fails == 1
+
+
+@pytest.mark.asyncio
 async def test_transport_errors_pass_through() -> None:
     async def call(feedback):
         raise TimeoutError("сеть упала")

@@ -188,10 +188,14 @@ async def run_with_contract(
 
     while True:
         attempts += 1
-        reply = await call(
-            f"{FEEDBACK_HEADER}\n{feedback}" if feedback else None
-        )
+        reply = ""
         try:
+            # call ВНУТРИ try: LlmContractError может прийти из глубины
+            # вызова (volume-добор внутри chat) — она тоже repair'ится,
+            # а не пролетает мимо петли (баг панели 2026-08-21).
+            reply = await call(
+                f"{FEEDBACK_HEADER}\n{feedback}" if feedback else None
+            )
             parsed = contract.parse(reply)
             problems = validate(parsed.payload) if validate else []
             if problems:

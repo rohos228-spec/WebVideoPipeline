@@ -40,6 +40,16 @@ def test_default_mode_keeps_legacy_fail() -> None:
     assert parse_check_analysis("просто проза").verdict == "fail"
 
 
+def test_strict_txt_without_verdict_raises() -> None:
+    # Дыра TXT-пути (панель): шаблонный заголовок без verdict раньше
+    # превращался в тихий fail внутри parse_check_report_txt
+    broken = "# ОТЧЁТ ПРОВЕРКИ\nмусор без вердикта\n\n## summary\nчто-то\n"
+    with pytest.raises(LlmContractError):
+        parse_check_analysis(broken, strict_contract=True)
+    # legacy-режим — прежнее поведение
+    assert parse_check_analysis(broken).verdict == "fail"
+
+
 @pytest.mark.asyncio
 async def test_operator_check_repairs_broken_report(tmp_path, monkeypatch) -> None:
     calls: list[str] = []

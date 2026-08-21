@@ -523,6 +523,26 @@ async def _run_operator_api_real(
                 report_part, wb_part = split_check_reply_and_writeback(
                     result.text
                 )
+        if check_repairs:
+            # После repair первый (битый) ответ уже неактуален: обновить
+            # raw-дамп и пере-извлечь apply-ops для DB SoT — иначе фикс из
+            # repair-ответа не применится (баг панели 2026-08-21).
+            try:
+                (out_dir / "gpt_reply_raw.txt").write_text(
+                    result.text or "", encoding="utf-8"
+                )
+            except OSError:
+                logger.warning(
+                    "gpt_operator/api: не обновил gpt_reply_raw.txt после repair"
+                )
+            if check_mode and check_fix and db_sot_check:
+                from app.services.db_apply import extract_apply_ops_json
+
+                apply_ops = extract_apply_ops_json(result.text or "")
+                if apply_ops is not None and not _apply_ops_has_payload(
+                    apply_ops
+                ):
+                    apply_ops = None
         if mode == "report_only":
             analysis.fix.rewrite_file = None
             analysis.forward.mode = "inherit"

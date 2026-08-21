@@ -264,6 +264,97 @@ async def test_truncated_without_contract_still_continues(monkeypatch) -> None:
     assert result.finish_reason == "stream_continued"
 
 
+@pytest.mark.asyncio
+async def test_truncated_contract_retry_then_success(monkeypatch) -> None:
+    """Обрыв в контрактном режиме → ретрай целого вызова → успех."""
+    from app.settings import settings
+
+    _enable_vibecode(monkeypatch)
+    monkeypatch.setattr(settings, "gpt_max_retries", 1)
+    calls: list[httpx.Request] = []
+    truncated = '{"ops":[{"frame_uuid":"a1","fields":{"x":"незакрытый'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        text = truncated if len(calls) == 1 else '{"ops":[]}'
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            text=_sse_completions(text),
+        )
+
+    _mock_httpx(monkeypatch, handler)
+    result = await chat(
+        prompt="p", auto_pack=False, model="gpt-5.6-sol", response_schema=SCHEMA
+    )
+    assert len(calls) == 2
+    assert result.text == '{"ops":[]}'
+
+
+def _sse_responses(text: str, *, model: str = "gpt-5-6-sol") -> str:
+    done = {"type": "response.output_text.done", "text": text}
+    completed = {
+        "type": "response.completed",
+        "response": {
+            "id": "resp_1",
+            "status": "completed",
+            "model": model,
+            "usage": {"total_tokens": 7},
+            "output": [
+                {"content": [{"type": "output_text", "text": text}]}
+            ],
+        },
+    }
+    return (
+        f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+        f"data: {json.dumps(completed, ensure_ascii=False)}\n\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_responses_mode_attaches_text_format(monkeypatch) -> None:
+    """responses-ветка: схема уходит в text.format (не response_format)."""
+    from app.settings import settings
+
+    _enable(monkeypatch, relays="gw.test")
+    monkeypatch.setattr(settings, "gpt_chat_path", "/codex/v1/responses")
+    monkeypatch.setattr(settings, "gpt_api_mode", "auto")
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            text=_sse_responses('{"ops":[]}'),
+        )
+
+    _mock_httpx(monkeypatch, handler)
+    result = await chat(
+        prompt="p", auto_pack=False, model="gpt-5-6-sol", response_schema=SCHEMA
+    )
+    fmt = bodies[0]["text"]["format"]
+    assert fmt["type"] == "json_schema"
+    assert fmt["schema"] == SCHEMA.schema
+    assert "response_format" not in bodies[0]
+    assert result.text == '{"ops":[]}'
+    assert result.served_model == "gpt-5-6-sol"
+
+
+def test_served_model_suffix_downgrade_detected() -> None:
+    # Подстрочное сравнение пропускало суффикс-вариант (панель)
+    r = GptChatResult(text="", model="gpt-4.1", served_model="gpt-4.1-mini")
+    with pytest.raises(GptApiError):
+        _check_served_model(r, use_model="gpt-4.1", contract_active=True)
+
+
+def test_served_model_provider_prefix_ok() -> None:
+    r = GptChatResult(
+        text="", model="gpt-5.6-sol", served_model="openai/gpt-5.6-sol"
+    )
+    _check_served_model(r, use_model="gpt-5.6-sol", contract_active=True)
+
+
 # ── наследование схемы: volume-добор и адаптивное дробление ──────────────
 
 

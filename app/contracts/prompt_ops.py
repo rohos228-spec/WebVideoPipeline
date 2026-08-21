@@ -63,10 +63,13 @@ class ImgPrEnvelope(ApplyOpsEnvelope):
 
     @model_validator(mode="after")
     def _img_pr_allowlist(self) -> "ImgPrEnvelope":
-        # characters=null от strict-схемы (required-all) — убрать до проверки.
+        # null-значения от strict-схемы (required-all: неиспользуемое поле
+        # модель обязана прислать как null) — убрать до allowlist-проверки.
         for op in self.ops:
-            if op.fields and op.fields.get("characters") is None:
-                op.fields.pop("characters", None)
+            if op.fields:
+                op.fields = {
+                    k: v for k, v in op.fields.items() if v is not None
+                }
         _check_ops_allowlist(
             self,
             allowed=_IMG_PR_FIELDS,
@@ -81,6 +84,11 @@ class AnimPrEnvelope(ApplyOpsEnvelope):
 
     @model_validator(mode="after")
     def _anim_pr_allowlist(self) -> "AnimPrEnvelope":
+        for op in self.ops:
+            if op.fields:
+                op.fields = {
+                    k: v for k, v in op.fields.items() if v is not None
+                }
         _check_ops_allowlist(
             self,
             allowed=_ANIM_PR_FIELDS,
@@ -134,9 +142,17 @@ _IMG_PR_STRICT_SCHEMA: dict = {
                     "fields": {
                         "type": "object",
                         "additionalProperties": False,
-                        "required": ["image_prompt", "characters"],
+                        # strict: required-all, неиспользуемые поля — null
+                        # (баг панели 2026-08-21: без shot2-полей в схеме
+                        # enforced-релей физически не мог их вернуть).
+                        "required": [
+                            "image_prompt",
+                            "image_prompt_shot2",
+                            "characters",
+                        ],
                         "properties": {
-                            "image_prompt": {"type": "string"},
+                            "image_prompt": {"type": ["string", "null"]},
+                            "image_prompt_shot2": {"type": ["string", "null"]},
                             "characters": {"type": ["string", "null"]},
                         },
                     },
@@ -162,9 +178,12 @@ _ANIM_PR_STRICT_SCHEMA: dict = {
                     "fields": {
                         "type": "object",
                         "additionalProperties": False,
-                        "required": ["animation_prompt"],
+                        "required": ["animation_prompt", "animation_prompt_shot2"],
                         "properties": {
-                            "animation_prompt": {"type": "string"},
+                            "animation_prompt": {"type": ["string", "null"]},
+                            "animation_prompt_shot2": {
+                                "type": ["string", "null"]
+                            },
                         },
                     },
                 },
