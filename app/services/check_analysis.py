@@ -819,8 +819,12 @@ def resolve_vision_check_gate(
         return "fail"
     overall = scores.get("overall")
     if overall is None:
-        # severity-only report: no critical → pass
-        return "pass"
+        # Этап 4 (D.5): severity-only отчёт (нет scores, нет critical)
+        # больше НЕ «pass автоматом» (§9#9) — и не fail: None = «нечем
+        # переопределять», verdict из parse остаётся как есть. Полный
+        # запрет неполных vision-отчётов — vision_strict в
+        # parse_check_analysis (repair-retry на мигрированном пути).
+        return None
     return "pass" if float(overall) >= float(threshold) else "fail"
 
 
@@ -903,16 +907,22 @@ def extract_critical_frame_regen_targets(text: str) -> list[dict[str, Any]]:
                 re.IGNORECASE,
             ):
                 _add(m.group(0))
+            # Этап 4 (D.6): голое число «в радиусе строки» — больше не
+            # цель (Req 8: «на фоне 3 фигуры» у f7 не рожает кадр 3).
+            # Явные токены: 7s2 / f7 / «кадр 7» / frame 7 — число
+            # вплотную к слову либо с s2-суффиксом.
             for m in re.finditer(
-                r"\b(\d{1,4})(?:[_-]?(?:s2|shot2))\b|\b(\d{1,4})\b",
-                body,
-                re.IGNORECASE,
+                r"\b(\d{1,4})[_-]?(?:s2|shot2)\b", body, re.IGNORECASE
             ):
-                token = m.group(0)
-                if "s2" in token.lower() or "shot" in token.lower():
-                    _add(token)
-                elif re.search(r"(?i)frame|video_sheet|clip|кадр|клип", body):
-                    _add(token)
+                _add(f"{m.group(1)}s2")
+            for m in re.finditer(r"\bf(\d{1,4})(s2)?\b", body, re.IGNORECASE):
+                _add(m.group(1) + ("s2" if m.group(2) else ""))
+            for m in re.finditer(
+                r"(?iu)\b(?:кадр\w{0,2}|frame|клип\w{0,2}|clip|video_sheet)"
+                r"[\s#_-]*№?\s*(\d{1,4})(?:[_-]?(s2|shot2))?\b",
+                body,
+            ):
+                _add(m.group(1) + ("s2" if m.group(2) else ""))
     # Prose «не утверждён» / «на перегенерацию только frame_X» — даже без [critical]
     for t in prose:
         _add(
@@ -1342,7 +1352,11 @@ def write_check_report_txt(
 
 
 def parse_check_analysis(
-    text: str, *, require_schema: bool = False, strict_contract: bool = False
+    text: str,
+    *,
+    require_schema: bool = False,
+    strict_contract: bool = False,
+    vision_strict: bool = False,
 ) -> CheckAnalysis:
     """Разобрать ответ GPT: JSON vp.check.v1 или TXT-отчёт. Битый → fail.
 
@@ -1352,6 +1366,12 @@ def parse_check_analysis(
     платный regen-цикл (спека «Битый ответ проверки ≠ вердикт fail»).
     Реальный ``verdict: fail`` из распарсенного отчёта проходит как есть.
     Немигрированные вызовы (default False) сохраняют старое поведение.
+
+    ``vision_strict`` (этап 4, D.5): для vision-проверки (checkMode +
+    изображения во входе) отчёт без ``## scores``/overall И без critical
+    — неполный: ``LlmContractError(kind="validate")`` → repair-retry с
+    требованием формата (спека «Отчёт без оценок не проходит автоматом»,
+    §9#9). Только parse-слой — пост-фактум вызовы гейта в петле не бросают.
     """
 
     def _format_fail(reason: str, *, kind: str = "validate") -> CheckAnalysis:
@@ -1367,6 +1387,23 @@ def parse_check_analysis(
 
     report_text, _wb = split_check_reply_and_writeback(text or "")
     probe = report_text or (text or "")
+
+    def _finish(analysis: CheckAnalysis) -> CheckAnalysis:
+        analysis = apply_vision_score_gate(analysis, probe)
+        if vision_strict:
+            scores = extract_vision_scores(probe)
+            if "overall" not in scores and not has_critical_vision_issues(probe):
+                from app.contracts import LlmContractError
+
+                raise LlmContractError(
+                    "vision-отчёт без секции ## scores (overall) и без "
+                    "[critical] — неполный; верни ПОЛНЫЙ отчёт с ## scores "
+                    "по всем осям шаблона vision_check",
+                    kind="validate",
+                    contract="vp_check_report",
+                )
+        return analysis
+
     obj = extract_json_object(probe)
     if obj is not None and not _json_looks_like_check(obj):
         # Модель эхом вернула db_check.json / apply-ops — это не отчёт проверки.
@@ -1388,12 +1425,12 @@ def parse_check_analysis(
                 # возможно это не check-JSON — пробуем TXT
                 txt = parse_check_report_txt(probe, strict_contract=strict_contract)
                 if txt is not None:
-                    return apply_vision_score_gate(txt, probe)
+                    return _finish(txt)
                 return _format_fail("в JSON нет поля verdict")
-        return apply_vision_score_gate(analysis_from_dict(obj), probe)
+        return _finish(analysis_from_dict(obj))
     txt = parse_check_report_txt(probe, strict_contract=strict_contract)
     if txt is not None:
-        return apply_vision_score_gate(txt, probe)
+        return _finish(txt)
     return _format_fail(
         "нет TXT-отчёта и нет JSON vp.check.v1 в ответе", kind="parse"
     )

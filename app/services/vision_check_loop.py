@@ -8,7 +8,13 @@ Meta keys:
   hero_check_return_node   — зеркало return для старого hero_check_regen
   hero_check_round         — зеркало round
   scene_check_regen        — list[{number, shot}] (scenes и videos)
-  vision_check_passed      — list[str] уже pass (c01 / f3 / f7s2)
+  vision_check_passed      — list[str] принято pass-гейтом (c01 / f3 / f7s2)
+  vision_check_soft_ok     — list[str] [ok] последнего fail-отчёта:
+                             не регенерим в этом круге, но кадр остаётся
+                             в recheck (Этап 4: [ok] не навсегда)
+  vision_accepted_by_operator — list[str] принято оператором, токены с
+                             kind-namespace (scenes:f3 / videos:f3 /
+                             hero:c01); переживает pass/сброс петли
 """
 
 from __future__ import annotations
@@ -29,6 +35,8 @@ META_KIND = "vision_check_kind"
 META_ROUND = "vision_check_round"
 META_SCENE = "scene_check_regen"
 META_PASSED = "vision_check_passed"
+META_SOFT_OK = "vision_check_soft_ok"
+META_OPERATOR_ACCEPTED = "vision_accepted_by_operator"
 
 # Совместимость с hero_check_regen / generate_hero
 META_HERO_IDS = "hero_check_regen_ids"
@@ -102,33 +110,76 @@ def get_vision_passed(project: Project) -> set[str]:
     return {str(x).strip() for x in raw if str(x).strip()}
 
 
+def get_vision_operator_accepted(
+    project: Project, kind: VisionKind | None = None
+) -> set[str]:
+    """Токены, принятые оператором («принять как есть», Этап 4 A.4).
+
+    Хранятся с kind-namespace (``scenes:f3`` / ``videos:f3`` / ``hero:c01``)
+    — иначе принятие f3 на scenes исключало бы одноимённый клип из recheck
+    videos-ноды. Возвращаются БЕЗ namespace, отфильтрованные по kind.
+    """
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    raw = meta.get(META_OPERATOR_ACCEPTED) or []
+    if not isinstance(raw, list):
+        return set()
+    out: set[str] = set()
+    for x in raw:
+        s = str(x).strip()
+        if not s:
+            continue
+        if ":" in s:
+            ns, tok = s.split(":", 1)
+            if kind is None or ns == kind:
+                out.add(tok.strip())
+        else:
+            out.add(s)
+    return out
+
+
 def drop_vision_passed_for_frame(project: Project, frame_number: int) -> bool:
     """Этап 2 (C.6a): инвалидация кадра снимает его [ok]-токены (f3 / f3s2).
 
     Иначе перегенерённый кадр никогда не попадёт на recheck —
     filter_image_paths_for_recheck исключает passed навсегда (§5.2 карты).
+
+    Этап 4 (D.3): токены кадра снимаются и из vision_accepted_by_operator
+    (оба kind-namespace) — принятый оператором, но перегенерённый кадр
+    обязан попасть на recheck.
     """
-    passed = get_vision_passed(project)
     prefix = f"f{int(frame_number)}"
-    keep = {
+
+    def _is_frame_token(tok: str) -> bool:
+        return tok == prefix or tok.startswith(prefix + "s")
+
+    passed = get_vision_passed(project)
+    keep = {t for t in passed if not _is_frame_token(t)}
+
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    op_raw = [str(x).strip() for x in (meta.get(META_OPERATOR_ACCEPTED) or [])]
+    op_keep = [
         t
-        for t in passed
-        if not (t == prefix or t.startswith(prefix + "s"))
-    }
-    if keep == passed:
+        for t in op_raw
+        if t and not _is_frame_token(t.split(":", 1)[1] if ":" in t else t)
+    ]
+
+    if keep == passed and len(op_keep) == len([t for t in op_raw if t]):
         return False
     meta = dict(project.meta or {})
     meta[META_PASSED] = sorted(keep)
+    meta[META_OPERATOR_ACCEPTED] = sorted(op_keep)
     project.meta = meta
     try:
         flag_modified(project, "meta")
     except Exception:  # noqa: BLE001 — не-ORM объект (тесты/stub)
         pass
     logger.info(
-        "[#{}] vision_check_loop: кадр {} инвалидирован — снято {} passed-токенов",
+        "[#{}] vision_check_loop: кадр {} инвалидирован — снято {} passed "
+        "и {} operator-accepted токенов",
         project.id,
         frame_number,
         len(passed) - len(keep),
+        len([t for t in op_raw if t]) - len(op_keep),
     )
     return True
 
@@ -136,12 +187,15 @@ def drop_vision_passed_for_frame(project: Project, frame_number: int) -> bool:
 def clear_vision_check_meta(project: Project) -> None:
     meta = dict(project.meta or {})
     changed = False
+    # META_OPERATOR_ACCEPTED сознательно НЕ чистится — решение оператора
+    # переживает петлю; снимается только инвалидацией кадра (Этап 4).
     for key in (
         META_RETURN,
         META_KIND,
         META_ROUND,
         META_SCENE,
         META_PASSED,
+        META_SOFT_OK,
         META_HERO_IDS,
         META_HERO_ROUND,
         META_HERO_RETURN,
@@ -188,10 +242,17 @@ def _check_input_image_paths(project: Project, node_key: str) -> list[Path]:
 
 
 def _check_reply_text(project: Project, node_key: str) -> str:
+    """Текст отчёта для разбора петли.
+
+    Этап 4 (D.0): сначала СЫРОЙ ответ модели (gpt_reply_raw.txt) —
+    check_report.txt/gpt_reply.txt на api-пути пишутся рендером из
+    CheckAnalysis и теряют секции ## scores / ## issues / ## db_patch /
+    ## regen_frames; без raw до петли не доезжали ни scores, ни db_patch.
+    """
     from app.services.excel_gpt_node import upload_dir
 
     out_dir = upload_dir(project, node_key)
-    for name in ("check_report.txt", "gpt_reply.txt"):
+    for name in ("gpt_reply_raw.txt", "check_report.txt", "gpt_reply.txt"):
         path = out_dir / name
         if path.is_file():
             try:
@@ -541,22 +602,29 @@ async def maybe_start_vision_check_loop_after_check(
     resolved = resolve_vision_check_gate(reply)
     gate = (_gate_status(project, key) or "").strip().lower()
     if resolved in ("pass", "fail"):
-        # Meta/analysis уже pass (модель: verdict:pass + [warn]) — не даём
-        # переписанному check_report ([warn]→[error]) крутить regen.
-        if gate == "pass" and resolved == "fail":
-            logger.info(
-                "[#{}] vision_check_loop: keep gate=pass на {} "
-                "(meta pass, resolve=fail — warn/не critical)",
+        # Этап 4 (D.1): при расхождении сохранённого гейта и свежего
+        # разбора отчёта побеждает fail (спека «Конфликт гейта решается
+        # в пользу fail»; §9#5 — раньше meta pass перебивал свежий fail).
+        # Причина старой ветки — схлопывание warn→[error] при пересборке
+        # отчёта — устранена этапом 5 (_finding_tag_for_check).
+        if gate in ("pass", "fail") and gate != resolved:
+            logger.warning(
+                "[#{}] vision_check_loop: конфликт гейта на {} "
+                "(meta={}, resolve={}) → работаем по fail",
                 project.id,
                 key,
+                gate,
+                resolved,
             )
+            gate = "fail"
         else:
             gate = resolved
 
-    # [ok] из отчёта сразу в passed — больше не проверяем/не регенерим.
-    mark_ok_tokens_from_reply(project, reply)
-
     if gate == "pass":
+        # Этап 4 (D.2): [ok] фиксируется в passed только из
+        # непротиворечивого pass-гейта (ниже петля при полном pass всё
+        # равно сбрасывается; ветка нужна частичным pass-отчётам).
+        mark_ok_tokens_from_reply(project, reply)
         if vision_check_loop_active(project):
             clear_vision_check_meta(project)
             logger.info(
@@ -567,6 +635,18 @@ async def maybe_start_vision_check_loop_after_check(
         return False
     if gate != "fail":
         return False
+
+    # Этап 4 (D.2): [ok] в fail-отчёте — soft-ok ТОЛЬКО текущего круга:
+    # кадр не регенерится (он и так не в critical-целях), но остаётся в
+    # recheck. В passed НЕ пишется — галлюцинация [ok] больше не
+    # принимает брак навсегда (§9#6).
+    from app.services.check_analysis import extract_ok_vision_tokens
+
+    soft_ok = extract_ok_vision_tokens(reply)
+    meta_so = dict(project.meta or {})
+    meta_so[META_SOFT_OK] = sorted(set(soft_ok))
+    project.meta = meta_so
+    flag_modified(project, "meta")
 
     hero_ids = extract_critical_hero_regen_ids(reply) if kind == "hero" else []
     frame_tgts = (
@@ -656,15 +736,9 @@ async def maybe_start_vision_check_loop_after_check(
 
     await _apply_db_patch(session, project, patch)
 
-    # Ок остаются; не-ок (critical/pending) → regen → recheck только их.
-    all_paths = _check_input_image_paths(project, key)
-    mark_passed_except_regen(
-        project,
-        kind=kind,
-        all_image_paths=all_paths,
-        regen_hero_ids=hero_ids if kind == "hero" else None,
-        regen_frames=frame_tgts if kind in _FRAME_KINDS else None,
-    )
+    # Этап 4 (D.3): mark_passed_except_regen удалён — неупомянутый кадр
+    # больше не «принят»: он unverified и идёт в следующий recheck вместе
+    # с regen-целями (спека «Принятие кадра пересматриваемо»).
 
     meta = dict(project.meta or {})
     meta[META_RETURN] = key
@@ -834,89 +908,38 @@ def filter_image_paths_for_recheck(
     project: Project,
     paths: list[Path],
 ) -> list[Path]:
-    """Первый проход — все PNG. Recheck — только переделанные (regen targets)."""
+    """Первый проход — все PNG. Recheck — все, кроме принятых (accepted).
+
+    Этап 4 (D.4): recheck-набор = все кадры минус accepted (pass-гейт ∪
+    оператор). Раньше слались ТОЛЬКО regen-цели — модель физически не
+    могла пересмотреть остальные кадры, «[ok] навсегда» (§5.2 карты).
+    Unverified и soft-ok кадры пересматриваются каждый круг; цена
+    ограничена сквозным лимитом кругов (блок A).
+    """
     if not vision_check_loop_active(project):
         return paths
 
     kind = get_vision_kind(project)
-    # Явный список на переген: шлём ТОЛЬКО их (остальные уже приняты).
-    if kind in _FRAME_KINDS:
-        targets = get_scene_check_regen(project)
-        if targets:
-            want = {
-                _token_frame(int(t["number"]), int(t.get("shot") or 1))
-                for t in targets
-            }
-            out = [p for p in paths if _parse_image_token(p) in want]
-            if out:
-                logger.info(
-                    "[#{}] vision_check_loop: recheck только {} PNG (из {})",
-                    project.id,
-                    len(out),
-                    len(paths),
-                )
-                return out
-    if kind == "hero":
-        meta = project.meta if isinstance(project.meta, dict) else {}
-        raw_ids = meta.get(META_HERO_IDS) or []
-        want = {
-            str(x).strip().lower()
-            for x in raw_ids
-            if str(x).strip()
-        }
-        if want:
-            out = [p for p in paths if (_parse_image_token(p) or "") in want]
-            if out:
-                logger.info(
-                    "[#{}] vision_check_loop: recheck только {} hero PNG",
-                    project.id,
-                    len(out),
-                )
-                return out
-
-    passed = get_vision_passed(project)
-    if not passed:
+    accepted = get_vision_passed(project) | get_vision_operator_accepted(
+        project, kind
+    )
+    if not accepted:
         return paths
     out = []
     for p in paths:
         tok = _parse_image_token(p)
-        if tok and tok in passed:
+        if tok and tok in accepted:
             continue
         out.append(p)
+    if len(out) != len(paths):
+        logger.info(
+            "[#{}] vision_check_loop: recheck {} из {} PNG "
+            "(accepted исключены)",
+            project.id,
+            len(out),
+            len(paths),
+        )
     return out or paths
-
-
-def mark_passed_except_regen(
-    project: Project,
-    *,
-    kind: VisionKind,
-    all_image_paths: list[Path] | None,
-    regen_hero_ids: list[str] | None = None,
-    regen_frames: list[dict[str, Any]] | None = None,
-) -> None:
-    """После check: ок/не-critical → passed; не-ок (regen) снимаем с passed."""
-    passed = get_vision_passed(project)
-    regen_tokens: set[str] = set()
-    if kind == "hero":
-        for cid in regen_hero_ids or []:
-            regen_tokens.add(_token_hero(cid))
-    elif kind in _FRAME_KINDS:
-        for t in regen_frames or []:
-            regen_tokens.add(
-                _token_frame(int(t["number"]), int(t.get("shot") or 1))
-            )
-    for p in all_image_paths or []:
-        tok = _parse_image_token(p)
-        if not tok:
-            continue
-        if tok in regen_tokens:
-            passed.discard(tok)
-        else:
-            passed.add(tok)
-    meta = dict(project.meta or {})
-    meta[META_PASSED] = sorted(passed)
-    project.meta = meta
-    flag_modified(project, "meta")
 
 
 def mark_ok_tokens_from_reply(project: Project, reply: str) -> None:
@@ -961,7 +984,10 @@ def scene_regen_allows(project: Project, frame_number: int, shot: int = 1) -> bo
     if (num, sh) in want:
         return True
     tok = _token_frame(num, sh)
-    if tok in get_vision_passed(project):
+    kind = get_vision_kind(project) or "scenes"
+    if tok in get_vision_passed(project) or tok in get_vision_operator_accepted(
+        project, kind
+    ):
         return False
     # Не в regen и не passed — разрешаем (claim сам отсеет «уже есть PNG»).
     return True

@@ -487,12 +487,22 @@ async def _run_operator_api_real(
         # и т.д.) не тронуты — strict только на этом мигрированном пути.
         from app.contracts import LlmContractError
 
+        # Этап 4 (D.5): vision-проверка (checkMode + изображения во входе)
+        # обязана вернуть ## scores либо critical — severity-only отчёт
+        # не проходит автоматом (§9#9), а уходит в repair-retry ниже.
+        from app.services.gpt_api import is_image_path as _is_img
+
+        vision_strict = bool(check_mode) and any(
+            _is_img(p) for p in (chat_paths or [])
+        )
         report_part, wb_part = split_check_reply_and_writeback(result.text)
         check_repairs = 0
         while True:
             try:
                 analysis = parse_check_analysis(
-                    report_part or result.text, strict_contract=True
+                    report_part or result.text,
+                    strict_contract=True,
+                    vision_strict=vision_strict,
                 )
                 break
             except LlmContractError as ce:

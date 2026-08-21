@@ -117,7 +117,10 @@ mode: report_only
     rendered = render_check_report_txt(parsed, mode="report_only")
     assert "- [warn] c07.png:" in rendered
     assert "- [error] c07.png:" not in rendered
-    assert resolve_vision_check_gate(rendered) == "pass"
+    # Этап 4 (D.5): без scores resolve не переопределяет (None) —
+    # verdict: pass остаётся из parse, авто-pass severity-only убран.
+    assert resolve_vision_check_gate(rendered) is None
+    assert parse_check_analysis(rendered).verdict == "pass"
     assert extract_critical_hero_regen_ids(rendered) == []
     assert parse_check_analysis(rendered).verdict == "pass"
 

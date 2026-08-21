@@ -340,7 +340,10 @@ verdict: pass
 Критических замечаний, требующих регенерации, нет.
 """
     assert has_critical_vision_issues(bad_report) is False
-    assert resolve_vision_check_gate(bad_report) == "pass"
+    # Этап 4 (D.5): severity-only отчёт (нет scores) больше не даёт
+    # авто-pass — resolve возвращает None (verdict из parse остаётся).
+    assert resolve_vision_check_gate(bad_report) is None
+    assert parse_check_analysis(bad_report).verdict == "pass"
     assert extract_critical_hero_regen_ids(bad_report) == []
 
     p = _project(tmp_path, monkeypatch, "vh-pass")
@@ -509,7 +512,10 @@ frame_010_2c9cefe1.png утверждён.
     assert resolve_vision_check_gate(batch1) == "fail"
     assert extract_prose_reject_frame_targets(batch2) == []
     assert extract_critical_frame_regen_targets(batch2) == []
-    assert resolve_vision_check_gate(batch2) == "pass"
+    # Этап 4 (D.5): без scores resolve не переопределяет — None;
+    # verdict: pass отчёта остаётся из parse.
+    assert resolve_vision_check_gate(batch2) is None
+    assert parse_check_analysis(batch2).verdict == "pass"
 
 
 def test_prose_critical_without_severity_tags() -> None:
@@ -662,7 +668,12 @@ def test_mark_ok_keeps_passed_across_rounds() -> None:
     assert "f3" not in vcl.get_vision_passed(p)
 
 
-def test_recheck_filters_only_regen_targets(tmp_path: Path) -> None:
+def test_recheck_sends_all_but_accepted(tmp_path: Path) -> None:
+    """Этап 4 (D.4): recheck = все кадры минус accepted (не только regen-цели).
+
+    Раньше слались только regen-цели — модель не могла пересмотреть
+    неупомянутые кадры («[ok] навсегда», §5.2 карты).
+    """
     p = Project(
         slug="x",
         topic="t",
@@ -671,10 +682,14 @@ def test_recheck_filters_only_regen_targets(tmp_path: Path) -> None:
             "vision_check_return_node": "n_check",
             "vision_check_kind": "scenes",
             "scene_check_regen": [{"number": 3, "shot": 1}, {"number": 7, "shot": 2}],
+            "vision_check_passed": ["f1"],
+            # kind-namespace: videos:f9 не должен исключать scenes-кадр f9
+            "vision_accepted_by_operator": ["scenes:f2", "videos:f9"],
         },
     )
     paths = [
         tmp_path / "frame_001_aaa.png",
+        tmp_path / "frame_002_eee.png",
         tmp_path / "frame_003_bbb.png",
         tmp_path / "frame_007_s2_ccc.png",
         tmp_path / "frame_009_ddd.png",
@@ -683,7 +698,11 @@ def test_recheck_filters_only_regen_targets(tmp_path: Path) -> None:
         path.write_bytes(b"x")
     got = vcl.filter_image_paths_for_recheck(p, paths)
     names = {x.name for x in got}
-    assert names == {"frame_003_bbb.png", "frame_007_s2_ccc.png"}
+    assert names == {
+        "frame_003_bbb.png",
+        "frame_007_s2_ccc.png",
+        "frame_009_ddd.png",
+    }
 
 
 def test_first_check_keeps_all_images(tmp_path: Path) -> None:
@@ -756,3 +775,236 @@ regen: c01
     )
     assert started is False
     assert "vision_check_return_node" not in (p.meta or {})
+
+
+# ---------------------------------------------------------------- Этап 4 (D)
+
+
+def test_gate_conflict_resolves_to_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Этап 4 (D.1): meta pass + свежий resolve fail → работаем по fail (§9#5)."""
+    p = _project(tmp_path, monkeypatch, "vconf")
+    check_key = "n_check_img"
+    p.meta = {
+        "excel_gpt_nodes": {
+            check_key: {"checkMode": True, "checkFix": False, "slotIndex": 2},
+        },
+        "gpt_operator_results": {check_key: {"gateStatus": "pass"}},
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_img", "type": "images"},
+                {
+                    "id": check_key,
+                    "type": "excel_gpt",
+                    "data": {"slotIndex": 2, "checkMode": True},
+                },
+            ],
+            "edges": [
+                {"source": "n_img", "target": check_key, "data": {"kind": "after"}}
+            ],
+        },
+    }
+    out = upload_dir(p, check_key)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "gpt_reply_raw.txt").write_text(
+        """# ОТЧЁТ ПРОВЕРКИ
+verdict: pass
+
+## scores
+style: 0.9
+overall: 0.9
+
+## issues
+- [critical] frame_003_bbb.png: шесть пальцев
+""",
+        encoding="utf-8",
+    )
+
+    async def _fake_prepare(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(
+        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
+    )
+
+    class _Sess:
+        async def flush(self):
+            return None
+
+        async def execute(self, *_a, **_k):
+            class _R:
+                def scalars(self):
+                    return SimpleNamespace(all=lambda: [])
+
+            return _R()
+
+        async def delete(self, *_a, **_k):
+            return None
+
+    started = asyncio.run(
+        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
+    )
+    assert started is True
+    assert p.status is ProjectStatus.generating_images
+    assert vcl.get_scene_check_regen(p) == [{"number": 3, "shot": 1}]
+
+
+def test_ok_in_fail_report_is_soft_not_permanent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Этап 4 (D.2): [ok] из fail-отчёта не пишется в passed — только soft-ok."""
+    p = _project(tmp_path, monkeypatch, "vsoft")
+    check_key = "n_check_img"
+    p.meta = {
+        "excel_gpt_nodes": {
+            check_key: {"checkMode": True, "checkFix": False, "slotIndex": 2},
+        },
+        "gpt_operator_results": {check_key: {"gateStatus": "fail"}},
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_img", "type": "images"},
+                {
+                    "id": check_key,
+                    "type": "excel_gpt",
+                    "data": {"slotIndex": 2, "checkMode": True},
+                },
+            ],
+            "edges": [
+                {"source": "n_img", "target": check_key, "data": {"kind": "after"}}
+            ],
+        },
+    }
+    out = upload_dir(p, check_key)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "gpt_reply_raw.txt").write_text(
+        """# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+
+## issues
+- [ok] frame_001_aaa.png: ок
+- [critical] frame_003_bbb.png: нет c02
+""",
+        encoding="utf-8",
+    )
+
+    async def _fake_prepare(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(
+        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
+    )
+
+    class _Sess:
+        async def flush(self):
+            return None
+
+        async def execute(self, *_a, **_k):
+            class _R:
+                def scalars(self):
+                    return SimpleNamespace(all=lambda: [])
+
+            return _R()
+
+        async def delete(self, *_a, **_k):
+            return None
+
+    started = asyncio.run(
+        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
+    )
+    assert started is True
+    # f1 НЕ принят навсегда — попадёт в следующий recheck
+    assert "f1" not in vcl.get_vision_passed(p)
+    assert "f1" in (p.meta.get("vision_check_soft_ok") or [])
+    # неупомянутый f9 тоже не принят (mark_passed_except_regen удалён)
+    assert "f9" not in vcl.get_vision_passed(p)
+
+
+def test_drop_vision_passed_cleans_operator_accepted() -> None:
+    """Этап 4 (D.3): инвалидация кадра чистит и operator-accepted (блокер панели)."""
+    p = Project(
+        slug="x",
+        topic="t",
+        status=ProjectStatus.enrich_1_ready,
+        meta={
+            "vision_check_passed": ["f3", "f4"],
+            "vision_accepted_by_operator": ["scenes:f3", "videos:f3", "scenes:f5"],
+        },
+    )
+    changed = vcl.drop_vision_passed_for_frame(p, 3)
+    assert changed is True
+    assert vcl.get_vision_passed(p) == {"f4"}
+    assert p.meta["vision_accepted_by_operator"] == ["scenes:f5"]
+
+
+def test_critical_number_in_prose_not_a_target() -> None:
+    """Этап 4 (D.6): «на фоне 3 фигуры» у f7 не рожает цель «кадр 3» (Req 8)."""
+    text = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+
+## scores
+overall: 0.5
+
+## issues
+- [critical] frame_007_aaa.png: на фоне 3 фигуры вместо одной
+"""
+    got = extract_critical_frame_regen_targets(text)
+    assert got == [{"number": 7, "shot": 1}]
+
+
+def test_critical_explicit_tokens_still_extracted() -> None:
+    """Этап 4 (D.6): явные токены f7 / 7s2 / «кадр 12» работают."""
+    text = """
+# ОТЧЁТ ПРОВЕРКИ
+verdict: fail
+
+## scores
+overall: 0.4
+
+## issues
+- [critical] f7: руки — шесть пальцев
+- [critical] клип 5s2: чёрный кадр
+- [critical] кадр 12: watermark в воздухе
+"""
+    got = extract_critical_frame_regen_targets(text)
+    nums = {(t["number"], t["shot"]) for t in got}
+    assert nums == {(7, 1), (5, 2), (12, 1)}
+
+
+def test_vision_strict_severity_only_raises() -> None:
+    """Этап 4 (D.5): vision-отчёт без scores и без critical → LlmContractError."""
+    from app.contracts import LlmContractError
+
+    report = """# ОТЧЁТ ПРОВЕРКИ
+verdict: pass
+
+## summary
+всё ок
+
+## findings
+- [ok] frame_001_a.png: ок
+"""
+    with pytest.raises(LlmContractError):
+        parse_check_analysis(report, strict_contract=True, vision_strict=True)
+    # без флага — прежнее поведение (verdict из parse)
+    assert parse_check_analysis(report).verdict == "pass"
+
+
+def test_vision_strict_full_report_passes() -> None:
+    """Этап 4 (D.5): полный отчёт со scores проходит vision_strict без raise."""
+    report = """# ОТЧЁТ ПРОВЕРКИ
+verdict: pass
+
+## summary
+ок
+
+## scores
+style: 0.9
+overall: 0.9
+
+## findings
+- [ok] frame_001_a.png: ок
+"""
+    got = parse_check_analysis(report, strict_contract=True, vision_strict=True)
+    assert got.verdict == "pass"
