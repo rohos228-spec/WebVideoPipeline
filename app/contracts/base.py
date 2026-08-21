@@ -46,12 +46,20 @@ def _format_validation_error(e: ValidationError, *, contract: str) -> str:
 
 @dataclass(frozen=True)
 class LlmContract(Generic[TModel]):
-    """Именованный контракт: извлечение JSON + валидация моделью."""
+    """Именованный контракт: извлечение JSON + валидация моделью.
+
+    ``strict`` по умолчанию False: OpenAI strict-режим требует
+    additionalProperties=false и полный required — pydantic-генерённая
+    схема этого не гарантирует, а невалидная strict-схема = HTTP 400 на
+    каждом вызове. Узкий контракт задаёт ``schema_override`` — ручную
+    strict-валидную схему (канонические ключи) — и strict=True; валидация
+    ответа всё равно идёт Pydantic-моделью (с алиасами).
+    """
 
     name: str
     model: type[TModel]
-    # strict-совместимость json_schema (см. gpt_api.ResponseSchema.strict).
-    strict: bool = True
+    strict: bool = False
+    schema_override: dict[str, Any] | None = None
 
     def parse(self, text: str) -> ParsedReply[TModel]:
         data = extract_json_payload(text, contract=self.name)
@@ -68,6 +76,8 @@ class LlmContract(Generic[TModel]):
         return ParsedReply(payload=payload, meta=meta)
 
     def json_schema(self) -> dict[str, Any]:
+        if self.schema_override is not None:
+            return self.schema_override
         return self.model.model_json_schema()
 
     def response_schema(self) -> Any:

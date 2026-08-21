@@ -17,9 +17,44 @@ from app.contracts.apply_ops import APPLY_OPS, ApplyOp, ApplyOpsEnvelope
 from app.contracts.base import LlmContract, ParsedReply
 from app.contracts.errors import LlmContractError
 from app.contracts.extract import extract_json_payload
+from app.contracts.check_report import CHECK_REPORT, CheckReport
+from app.contracts.prompt_ops import (
+    ANIM_PR,
+    IMG_PR,
+    VOICEOVER,
+    AnimPrEnvelope,
+    ImgPrEnvelope,
+    VoiceoverEnvelope,
+)
+from app.contracts.scene_design import (
+    SD_ACTION,
+    SD_ASSEMBLE,
+    SD_CAMERA,
+    SD_CHARACTERS,
+    SD_SKELETON,
+    SD_WORLD,
+    SLICE_CONTRACTS,
+    AssemblePayload,
+    SkeletonPayload,
+)
+from app.contracts.split import FRAME_SPLIT, FrameSpecItem, FrameSplitEnvelope
 
 _REGISTRY: dict[str, LlmContract] = {
-    APPLY_OPS.name: APPLY_OPS,
+    c.name: c
+    for c in (
+        APPLY_OPS,
+        FRAME_SPLIT,
+        IMG_PR,
+        ANIM_PR,
+        VOICEOVER,
+        SD_SKELETON,
+        SD_CHARACTERS,
+        SD_WORLD,
+        SD_CAMERA,
+        SD_ACTION,
+        SD_ASSEMBLE,
+        CHECK_REPORT,
+    )
 }
 
 
@@ -39,12 +74,32 @@ def register(contract: LlmContract) -> LlmContract:
 
 
 __all__ = [
+    "ANIM_PR",
     "APPLY_OPS",
+    "CHECK_REPORT",
+    "FRAME_SPLIT",
+    "IMG_PR",
+    "SD_ACTION",
+    "SD_ASSEMBLE",
+    "SD_CAMERA",
+    "SD_CHARACTERS",
+    "SD_SKELETON",
+    "SD_WORLD",
+    "SLICE_CONTRACTS",
+    "VOICEOVER",
+    "AnimPrEnvelope",
     "ApplyOp",
     "ApplyOpsEnvelope",
+    "AssemblePayload",
+    "CheckReport",
+    "FrameSpecItem",
+    "FrameSplitEnvelope",
+    "ImgPrEnvelope",
     "LlmContract",
     "LlmContractError",
     "ParsedReply",
+    "SkeletonPayload",
+    "VoiceoverEnvelope",
     "extract_json_payload",
     "get_contract",
     "register",
