@@ -406,15 +406,18 @@ async def run_script_xlsx(
                 break
     if not voiceover_text:
         voiceover_text = (extract_voiceover_block(reply) or "").strip()
-    if not voiceover_text:
-        # Последний шанс: весь ответ, если это не голый JSON
-        raw = (reply or "").strip()
-        if raw and '"ops"' not in raw[:40] and len(raw) >= 200:
-            voiceover_text = raw
+    # Этап 5 (D.3): fallback «весь ответ целиком» убран (карта §9 #14) —
+    # он записывал в закадр отчёты/извинения модели. Невалидный ответ =
+    # LlmContractError (fail-closed).
     if len(voiceover_text) < 200:
-        raise RuntimeError(
-            "GPT не вернул закадр (apply-ops закадровый_текст или "
-            f"<<<VOICEOVER>>>, len={len(voiceover_text)})"
+        from app.contracts import LlmContractError
+
+        raise LlmContractError(
+            "script: модель не вернула закадр — нужен apply-ops "
+            '{"ops":[{"target":"project","fields":{"закадровый_текст":"…"}}]} '
+            f"или блок <<<VOICEOVER>>>…<<<END>>> (получено len={len(voiceover_text)})",
+            kind="validate",
+            contract="vp_voiceover",
         )
 
     voiceover_text = cx.save_voiceover_text(

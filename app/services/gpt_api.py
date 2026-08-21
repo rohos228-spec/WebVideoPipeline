@@ -1917,6 +1917,12 @@ async def _maybe_volume_complete_chat_result(
             response_schema=response_schema,
         )
     except Exception as e:  # noqa: BLE001
+        # Контрактный путь: недобор/провал добора = ошибка вызова, не
+        # «warning + частичный результат» (этап 5, D.2).
+        from app.contracts.errors import LlmContractError
+
+        if isinstance(e, LlmContractError):
+            raise
         logger.warning("gpt_api.chat volume_complete failed: {}", e)
         return result
     if not did:

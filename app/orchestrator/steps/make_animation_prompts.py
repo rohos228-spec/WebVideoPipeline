@@ -114,10 +114,15 @@ async def _fill_remaining_local(
     if not ops:
         return 0
     logger.warning(
-        "[#{}] anim_pr: local fallback — заполняю {} кадров без GPT",
+        "[#{}] anim_pr: ПРОМТЫ БЕЗ LLM (локальный композер, {} кадров) — "
+        "маркер degraded_no_llm в project.meta (этап 5, спека «Запрет "
+        "тихого частичного успеха»)",
         project.id,
         len(ops),
     )
+    meta = dict(project.meta or {})
+    meta["anim_pr_degraded_no_llm"] = True
+    project.meta = meta
     saved = 0
     for i in range(0, len(ops), 40):
         part = ops[i : i + 40]
@@ -156,6 +161,13 @@ async def fill_animation_prompts(
         finalize_status,
     )
     stats = {"batches": 0, "saved_ops": 0}
+
+    # Свежий прогон: маркер деградации прошлого прогона снимаем — если
+    # fallback сработает снова, он выставит его заново.
+    if (project.meta or {}).get("anim_pr_degraded_no_llm"):
+        meta = dict(project.meta or {})
+        meta.pop("anim_pr_degraded_no_llm", None)
+        project.meta = meta
 
     # Не синкаем из R48 в DB — Excel только экспорт после apply-ops.
     await db_v2.backfill_project_v2(session, project)

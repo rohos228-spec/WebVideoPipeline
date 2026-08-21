@@ -301,6 +301,17 @@ async def volume_complete_apply_ops_reply(
                 response_schema=response_schema,
             )
         except Exception as e:  # noqa: BLE001
+            # Этап 5 (D.2): на контрактном пути провал добора = ошибка,
+            # не тихая потеря части ops (карта §9 #16). Легаси-пути
+            # (без response_schema) сохраняют старое поведение.
+            if response_schema is not None:
+                from app.contracts import LlmContractError
+
+                raise LlmContractError(
+                    f"volume-добор: батч {bi}/{len(batches)} упал: {e}",
+                    kind="validate",
+                    contract="vp_apply_ops",
+                ) from e
             logger.warning(
                 "volume_batches: continue batch {}/{} failed: {}",
                 bi,
@@ -310,6 +321,15 @@ async def volume_complete_apply_ops_reply(
             break
         part = extract_apply_ops_json(cont.text or "")
         if not isinstance(part, dict) or not (part.get("ops") or []):
+            if response_schema is not None:
+                from app.contracts import LlmContractError
+
+                raise LlmContractError(
+                    f"volume-добор: батч {bi}/{len(batches)} без ops "
+                    f"(chars={len(cont.text or '')})",
+                    kind="validate",
+                    contract="vp_apply_ops",
+                )
             logger.warning(
                 "volume_batches: continue batch {}/{} — нет ops (chars={})",
                 bi,
@@ -333,4 +353,17 @@ async def volume_complete_apply_ops_reply(
             break
 
     final_text = json.dumps(merged, ensure_ascii=False, indent=2)
+    if response_schema is not None:
+        still, _, _ = missing_frame_uuids_for_volume(final_text, expected)
+        if still:
+            from app.contracts import LlmContractError
+
+            raise LlmContractError(
+                f"volume-добор: недобор {len(still)}/{len(expected)} uuid "
+                f"после {len(batches)} батчей — частичный результат не "
+                "принимается",
+                kind="validate",
+                contract="vp_apply_ops",
+                detail={"missing_uuids": list(still)[:50]},
+            )
     return final_text, True
