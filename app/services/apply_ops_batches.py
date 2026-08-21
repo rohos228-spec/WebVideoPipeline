@@ -325,6 +325,12 @@ async def run_apply_ops_batched(
         try:
             missing = await _one_chunk(chunk, level)
         except Exception as exc:
+            from app.services.llm_ledger import BudgetExhausted
+
+            # Этап 3: бюджет исчерпан — дробить чанк бессмысленно (каждая
+            # половина упрётся в тот же предохранитель), сразу наверх.
+            if isinstance(exc, BudgetExhausted):
+                raise
             nxt = next_split_level(level)
             if nxt is None or len(chunk) <= 1:
                 raise

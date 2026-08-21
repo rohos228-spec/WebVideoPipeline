@@ -454,6 +454,19 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                                     f"paused. Start-Chrome.cmd + ▶"
                                 )[:3800],
                             )
+                        elif action == "pause_budget":
+                            # Этап 3: причина уже в meta.pause_reason.
+                            pr = (p.meta or {}).get("pause_reason") or {}
+                            await bot.send_message(
+                                settings.telegram_owner_chat_id,
+                                (
+                                    f"⏸ #{p.id}: бюджет LLM исчерпан — "
+                                    f"${float(pr.get('spent_usd') or 0):.2f} из "
+                                    f"${float(pr.get('budget_usd') or 0):.2f}. "
+                                    "Подними бюджет проекта (дашборд "
+                                    "«Стоимость») и ▶"
+                                )[:3800],
+                            )
                 fail_counts.pop(key, None)
             except Exception:  # noqa: BLE001
                 logger.warning(

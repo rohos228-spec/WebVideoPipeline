@@ -213,7 +213,7 @@ async def record_step_failure(
 ) -> str:
     """Обработать ошибку advance_project.
 
-    Returns: retry | sleep | abandon | pause_infra | stopped
+    Returns: retry | sleep | abandon | pause_infra | pause_budget | stopped
     """
     if is_chrome_infra_error(error):
         return await handle_chrome_step_failure(session, project, error)
@@ -222,6 +222,46 @@ async def record_step_failure(
     from app.services.gen_queue_run import is_user_stopped
     from app.services.project_state import is_running_status
     from app.services.step_cancel import is_stop_requested
+
+    # Этап 3 (E.3): бюджет прогона исчерпан — сразу paused с машиночитаемой
+    # причиной (паттерн vision-паузы этапа 4), БЕЗ sleep-циклов и счёта
+    # фейлов: ретраи ничего не починят, первый же вызов снова упрётся.
+    from app.services.llm_ledger import BUDGET_CODE, BudgetExhausted
+
+    if isinstance(error, BudgetExhausted):
+        from app.services.project_control import pause_project as pause_project_svc
+        from app.services.run_sync import mark_running_node_failed
+
+        running = project.status
+        meta = dict(project.meta or {})
+        meta["pause_reason"] = {
+            "code": BUDGET_CODE,
+            "spent_usd": round(float(error.spent_usd), 4),
+            "budget_usd": round(float(error.budget_usd), 4),
+            "node": running.value,
+        }
+        project.meta = meta
+        fs = _failure_state(project)
+        fs["last_error"] = str(error)
+        fs["last_error_code"] = BUDGET_CODE
+        fs["last_running"] = running.value
+        fs.pop("sleep_until", None)
+        _save_failure_state(project, fs)
+        await mark_running_node_failed(
+            session,
+            project,
+            error,
+            initiator="worker",
+            error_code=BUDGET_CODE,
+        )
+        await pause_project_svc(session, project)
+        await session.flush()
+        logger.error(
+            "[#{}] LLM budget exhausted — pause, no retry: {}",
+            project.id,
+            error,
+        )
+        return "pause_budget"
 
     # SQLite busy / PendingRollback при parallel projects — не копить к 30-мин sleep.
     err_code_early, err_msg_early = describe_error(error)

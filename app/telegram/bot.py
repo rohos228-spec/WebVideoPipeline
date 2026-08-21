@@ -6928,7 +6928,24 @@ async def notify_step_done(
             and isinstance(pr, dict)
             and pr.get("code") == "vision_rounds_exhausted"
         )
-        if vision_pause:
+        budget_pause = (
+            status_val == "paused"
+            and isinstance(pr, dict)
+            and pr.get("code") == "budget_exhausted"
+        )
+        if budget_pause:
+            # Этап 3 (E.3): бюджет прогона исчерпан — тот же канал, что
+            # vision-пауза этапа 4, второй не заводим.
+            text = (
+                f"⏸ Проект #{project_id}: бюджет LLM исчерпан — "
+                f"${float(pr.get('spent_usd') or 0):.2f} из "
+                f"${float(pr.get('budget_usd') or 0):.2f} "
+                f"(нода {pr.get('node') or '?'}).\n"
+                "Решение: поднять бюджет проекта (дашборд «Стоимость» / "
+                "POST llm-budget) и ▶; перезапуск без поднятия снова паузит "
+                "на первом же вызове."
+            )
+        elif vision_pause:
             regen = ", ".join(str(x) for x in (pr.get("regen_pending") or [])[:12])
             unv = ", ".join(str(x) for x in (pr.get("unverified") or [])[:12])
             text = (

@@ -23,6 +23,9 @@ from app.web.routers import (
     artifacts as artifacts_router,
 )
 from app.web.routers import (
+    llm_costs as llm_costs_router,
+)
+from app.web.routers import (
     auth as auth_router,
 )
 from app.web.routers import (
@@ -245,6 +248,7 @@ def create_app() -> FastAPI:
     app.include_router(sidebar_layout_router.router, prefix=API_PREFIX)
     app.include_router(runtime_streams_router.router, prefix=API_PREFIX)
     app.include_router(runs_router.router, prefix=API_PREFIX)
+    app.include_router(llm_costs_router.router, prefix=API_PREFIX)
     app.include_router(prompts_router.router, prefix=API_PREFIX)
     app.include_router(prompt_studio_router.router, prefix=API_PREFIX)
     app.include_router(prompt_files_router.router, prefix=API_PREFIX)

@@ -284,6 +284,7 @@ async def record(
         collector = _attempt_rows.get()
         if collector is not None and row_id:
             collector.append(int(row_id))
+        _bump_spent(project_id, cost)
     except Exception as e:  # noqa: BLE001 — учёт не валит платный вызов
         _failed_inserts += 1
         _unpersisted_spent[project_id] += cost
@@ -307,3 +308,135 @@ def failed_insert_count() -> int:
 def unpersisted_spent(project_id: int | None) -> float:
     """Оценочная стоимость строк, не доехавших до БД (входит в spent)."""
     return _unpersisted_spent.get(project_id, 0.0)
+
+
+# ── Бюджет-предохранитель (E.2) ──────────────────────────────────────────
+# Проверка ДО платного вызова (вход chat()) и перед каждой retry-попыткой.
+# spent = SUM(cost_usd) по project_id из БД — кэш с TTL (чужие процессы)
+# + собственные записи (инкремент на record) + unpersisted_spent.
+# Допустимый перерасход параллельных задач одного вызова — N_parallel ×
+# цена вызова (зафиксировано в proposal); атомарная резервация — роадмап.
+
+BUDGET_CODE = "budget_exhausted"
+_SPENT_TTL_S = 10.0
+_spent_cache: dict[int, tuple[float, float]] = {}  # project_id → (spent, ts)
+_budget_cache: dict[int, tuple[float | None, float]] = {}  # → (override, ts)
+
+
+class BudgetExhausted(Exception):
+    """Бюджет прогона исчерпан — не-retryable; шаг обязан уйти в паузу.
+
+    Контуры с широким except Exception вокруг LLM-вызовов обязаны
+    re-raise это исключение (иначе шаг «успешно» доедет с мусором).
+    """
+
+    def __init__(self, *, project_id: int, spent_usd: float, budget_usd: float):
+        self.project_id = project_id
+        self.spent_usd = spent_usd
+        self.budget_usd = budget_usd
+        super().__init__(
+            f"бюджет исчерпан: ${spent_usd:.2f} из ${budget_usd:.2f} "
+            f"(проект #{project_id})"
+        )
+
+
+def _now() -> float:
+    import time
+
+    return time.monotonic()
+
+
+async def _sum_spent_db(project_id: int) -> float:
+    from sqlalchemy import func, select
+
+    async with session_scope() as session:
+        total = (
+            await session.execute(
+                select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(
+                    LlmCall.project_id == project_id
+                )
+            )
+        ).scalar_one()
+    return float(total or 0.0)
+
+
+async def spent_usd(project_id: int, *, fresh: bool = False) -> float:
+    """Потрачено по проекту: БД (кэш TTL) + незаписанные строки."""
+    cached = _spent_cache.get(project_id)
+    if fresh or cached is None or _now() - cached[1] > _SPENT_TTL_S:
+        try:
+            db_sum = await _sum_spent_db(project_id)
+        except Exception as e:  # noqa: BLE001 — БД больна: считаем по кэшу
+            logger.warning("llm_ledger: SUM llm_calls недоступен: {}", e)
+            db_sum = cached[0] if cached else 0.0
+        _spent_cache[project_id] = (db_sum, _now())
+        cached = _spent_cache[project_id]
+    return cached[0] + unpersisted_spent(project_id)
+
+
+def _bump_spent(project_id: int | None, cost: float) -> None:
+    """Собственная запись — инкремент кэша без перечитывания SUM."""
+    if project_id is None or cost <= 0:
+        return
+    cached = _spent_cache.get(project_id)
+    if cached is not None:
+        _spent_cache[project_id] = (cached[0] + cost, cached[1])
+
+
+def budget_from_meta(meta: Any, default: float | None = None) -> float:
+    """Бюджет проекта: meta["llm_budget_usd"] (0 = выключен для проекта),
+    ключа нет → settings.llm_budget_usd (0 = выключен глобально)."""
+    from app.settings import settings
+
+    if isinstance(meta, dict) and "llm_budget_usd" in meta:
+        try:
+            return max(0.0, float(meta.get("llm_budget_usd") or 0.0))
+        except (TypeError, ValueError):
+            pass
+    if default is not None:
+        return float(default)
+    return float(getattr(settings, "llm_budget_usd", 0.0) or 0.0)
+
+
+async def budget_usd(project_id: int, *, fresh: bool = False) -> float:
+    cached = _budget_cache.get(project_id)
+    if fresh or cached is None or _now() - cached[1] > _SPENT_TTL_S:
+        override: float | None = None
+        try:
+            from sqlalchemy import select
+
+            from app.models import Project
+
+            async with session_scope() as session:
+                meta = (
+                    await session.execute(
+                        select(Project.meta).where(Project.id == project_id)
+                    )
+                ).scalar_one_or_none()
+            if isinstance(meta, dict) and "llm_budget_usd" in meta:
+                override = budget_from_meta(meta)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("llm_ledger: meta бюджета недоступна: {}", e)
+            override = cached[0] if cached else None
+        _budget_cache[project_id] = (override, _now())
+        cached = _budget_cache[project_id]
+    return cached[0] if cached[0] is not None else budget_from_meta(None)
+
+
+def invalidate_budget_cache(project_id: int) -> None:
+    _budget_cache.pop(project_id, None)
+    _spent_cache.pop(project_id, None)
+
+
+async def check_budget(project_id: int | None) -> None:
+    """Raise BudgetExhausted, если spent ≥ budget (budget 0 = выключен)."""
+    if project_id is None:
+        return
+    budget = await budget_usd(project_id)
+    if budget <= 0:
+        return
+    spent = await spent_usd(project_id)
+    if spent >= budget:
+        raise BudgetExhausted(
+            project_id=project_id, spent_usd=spent, budget_usd=budget
+        )

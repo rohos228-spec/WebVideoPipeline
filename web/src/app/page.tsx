@@ -7,6 +7,7 @@ import { ProjectSidebar } from "@/components/sidebar/project-sidebar";
 import { Inspector } from "@/components/inspector/inspector";
 import { StudioWorkspace } from "@/components/studio/studio-workspace";
 import { FleetPanelSheet } from "@/components/fleet/fleet-panel-sheet";
+import { CostsPanelSheet } from "@/components/costs/costs-panel-sheet";
 import { FleetTransferBanner } from "@/components/fleet/fleet-transfer-banner";
 import { OutseeCreateWorkspace } from "@/components/outsee/outsee-create-workspace";
 import { GptWorkspace } from "@/components/gpt/gpt-workspace";
@@ -30,6 +31,7 @@ export default function HomePage() {
   );
   const [studioOpen, setStudioOpen] = useState(false);
   const [fleetOpen, setFleetOpen] = useState(false);
+  const [costsOpen, setCostsOpen] = useState(false);
   const [outseeOpen, setOutseeOpen] = useState(false);
   const [gptOpen, setGptOpen] = useState(false);
   const [bazaOpen, setBazaOpen] = useState(false);
@@ -47,6 +49,13 @@ export default function HomePage() {
     const openFleet = () => setFleetOpen(true);
     window.addEventListener("studio-open-fleet", openFleet);
     return () => window.removeEventListener("studio-open-fleet", openFleet);
+  }, []);
+
+  // Этап 3: дашборд стоимости LLM (кнопка «Стоимость» в topbar).
+  useEffect(() => {
+    const openCosts = () => setCostsOpen(true);
+    window.addEventListener("studio-open-costs", openCosts);
+    return () => window.removeEventListener("studio-open-costs", openCosts);
   }, []);
 
   useEffect(() => {
@@ -153,6 +162,11 @@ export default function HomePage() {
             setSelectedNodeKey(null);
             setStudioOpen(false);
           }}
+        />
+        <CostsPanelSheet
+          open={costsOpen}
+          onOpenChange={setCostsOpen}
+          selectedProjectId={selectedProjectId}
         />
         <Inspector
           projectId={selectedProjectId}

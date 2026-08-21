@@ -2087,8 +2087,10 @@ async def _maybe_volume_complete_chat_result(
         # Контрактный путь: недобор/провал добора = ошибка вызова, не
         # «warning + частичный результат» (этап 5, D.2).
         from app.contracts.errors import LlmContractError
+        from app.services.llm_ledger import BudgetExhausted
 
-        if isinstance(e, LlmContractError):
+        # Этап 3: бюджет исчерпан — не глотать, иначе паузы не будет.
+        if isinstance(e, (LlmContractError, BudgetExhausted)):
             raise
         logger.warning("gpt_api.chat volume_complete failed: {}", e)
         return result
@@ -2344,7 +2346,18 @@ async def chat(**kwargs: Any) -> GptChatResult:
     with llm_ledger.logical_call_scope(), llm_ledger.bind_prompt_hash(
         fallback_hash, fallback=True
     ):
+        # Бюджет-предохранитель: ДО платного вызова (вложенные вызовы
+        # проверяют тоже — дёшево, по кэшу).
+        await _check_budget_before_call()
         return await _chat_unscoped(**kwargs)
+
+
+async def _check_budget_before_call() -> None:
+    from app.services import llm_ledger
+    from app.services.llm_override import current_accounting
+
+    acct = current_accounting()
+    await llm_ledger.check_budget(acct.project_id if acct else None)
 
 
 async def _chat_unscoped(
@@ -2455,6 +2468,9 @@ async def _chat_unscoped(
     last_exc: Exception | None = None
     while attempt <= retries:
         attempt += 1
+        if attempt > 1:
+            # Этап 3: ретраи одного вызова не пробивают бюджет.
+            await _check_budget_before_call()
         try:
             if responses_mode:
                 result = await _chat_responses_stream(
@@ -2908,6 +2924,12 @@ async def _chat_pdf_in_chunks_unscoped(
             ok_n += 1
             return f"### {label}\n\n{body}"
         except Exception as e:  # noqa: BLE001
+            from app.services.llm_ledger import BudgetExhausted
+
+            # Этап 3: бюджет исчерпан — фрагмент не «пропускается», шаг
+            # обязан упасть в паузу с причиной.
+            if isinstance(e, BudgetExhausted):
+                raise
             if is_pdf_provider_failure(e) and depth < 2 and len(part) > 1_200:
                 cut = len(part) // 2
                 for sep in ("\n\n", "\n", " "):

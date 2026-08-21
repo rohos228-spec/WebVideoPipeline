@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     # владельца (HANDOVER); порог калибруется живыми прогонами, решением
     # заказчика — не кодом.
     vision_check_max_rounds: int = Field(2, alias="VISION_CHECK_MAX_ROUNDS")
+    # Этап 3 (E.1): бюджет текстовых LLM на прогон (= проект), USD; SUM по
+    # llm_calls ≥ бюджета → paused с причиной budget_exhausted. 0 = выключен.
+    # Per-project override — project.meta["llm_budget_usd"] (0 = выключен
+    # для проекта; ключа нет = этот default). Калибровка — решение заказчика.
+    llm_budget_usd: float = Field(10.0, alias="LLM_BUDGET_USD")
 
     # Grsai API (https://grsai.com / https://grsaiapi.com) — image/video без CDP
     grsai_api_key: str = Field("", alias="GRSAI_API_KEY")

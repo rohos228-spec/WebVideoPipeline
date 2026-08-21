@@ -312,6 +312,11 @@ async def fill_animation_prompts(
                         project.id,
                     )
             except Exception as e:  # noqa: BLE001
+                from app.services.llm_ledger import BudgetExhausted
+
+                # Этап 3: бюджет исчерпан — не продолжать пачками молча.
+                if isinstance(e, BudgetExhausted):
+                    raise
                 # kie 500 / maintenance — не валим шаг: system=master на пачках.
                 logger.warning(
                     "[#{}] anim_pr: ФАЗА 1 упала ({}) — продолжаю пачки shot_01",

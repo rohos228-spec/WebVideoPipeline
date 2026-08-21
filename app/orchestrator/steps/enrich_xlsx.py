@@ -1576,6 +1576,14 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 )
             break  # успех
         except Exception as e:  # noqa: BLE001
+            from app.services.llm_ledger import BudgetExhausted
+
+            # Этап 3: бюджет исчерпан — повторы бессмысленны, сразу наверх
+            # (step_failure_policy → paused с причиной).
+            if isinstance(e, BudgetExhausted):
+                project.status = running_status
+                await session.flush()
+                raise
             last_err = e
             if not want_xlsx:
                 logger.warning(
