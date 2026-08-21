@@ -960,6 +960,45 @@ _RESET_SKIP_DOWNSTREAM: dict[str, frozenset[str]] = {
 }
 
 
+def _cascade_level_keys(project: Project, step_code: str) -> list[str] | None:
+    """Этап 2 (C.7): конус сброса по STEP_DEPENDENCIES, не по позиции в списке.
+
+    Отличия от линейного каскада: независимые шаги не сносятся (сброс audio
+    не трогает music — раньше через skip-set, теперь структурно); шаги,
+    выключенные у проекта (scene_*, sfx, лишние enrich-слоты), не сбрасываются;
+    конус доходит до assemble. None → код вне DAG (excel_gpt-нода) —
+    legacy-каскад по индексу.
+    """
+    from app.orchestrator.step_dependencies import canonical_codes, project_cone
+
+    if not canonical_codes(step_code):
+        return None
+    cone = set(project_cone(project, step_code, include_self=True))
+    point_sd_agent = step_code in _SD_AGENT_CODES
+    keys: list[str] = []
+    for key, _handler in _PIPELINE_RESET_LEVELS:
+        if key == step_code:
+            keys.append(key)
+            continue
+        if key in _SD_AGENT_CODES:
+            # Точечный сброс одного агента соседей не трогает (бывший
+            # skip-set); каскад сверху (split и выше) сносит всех.
+            if not point_sd_agent and "scene_d" in cone:
+                keys.append(key)
+            continue
+        if key == "excel_gpt":
+            # Check-ноды живут в enrich-контуре.
+            if any(c.startswith("enrich_") for c in cone):
+                keys.append(key)
+            continue
+        if point_sd_agent and key == "scene_d":
+            # Полный wipe scene_design при точечном агенте не нужен.
+            continue
+        if key in cone:
+            keys.append(key)
+    return keys
+
+
 def _resolve_start_index(step_code: str) -> int | None:
     """Найти стартовый индекс каскада в _PIPELINE_RESET_LEVELS для step_code.
     Возвращает None если код неизвестен."""
@@ -1076,9 +1115,17 @@ async def reset_step(
     Возвращает summary: {step_key: {details}, ..., "__project_status":
     "<новый_статус>", "__steps_wiped": [step_keys]}.
     """
-    start_idx = _resolve_start_index(step_code)
-    if start_idx is None:
-        return {"error": f"unknown step: {step_code}"}
+    # Этап 2 (C.7): конус по STEP_DEPENDENCIES; legacy-каскад по индексу —
+    # только для кодов вне DAG (точечный сброс excel_gpt-ноды).
+    cone_keys = _cascade_level_keys(project, step_code)
+    if cone_keys is not None:
+        wanted: set[str] | None = set(cone_keys)
+        start_idx = 0
+    else:
+        wanted = None
+        start_idx = _resolve_start_index(step_code)
+        if start_idx is None:
+            return {"error": f"unknown step: {step_code}"}
 
     summary: dict[str, Any] = {}
     steps_wiped: list[str] = []
@@ -1086,7 +1133,10 @@ async def reset_step(
     # Идём с самого глубокого downstream к самому верхнему шагу — это
     # делает каскад FK-безопасным (если бы у нас были не-CASCADE'ные FK).
     for key, handler in reversed(_PIPELINE_RESET_LEVELS[start_idx:]):
-        if key in skip:
+        if wanted is not None:
+            if key not in wanted:
+                continue
+        elif key in skip:
             continue
         try:
             details = await handler(session, project)

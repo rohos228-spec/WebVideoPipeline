@@ -89,6 +89,52 @@ from app.services.step_cancel import (
 from app.settings import settings
 from app.storage import for_project as _sheet_for_project
 
+def _frame_image_input_hash(frame: Frame) -> str | None:
+    """Этап 2 (C.6): hash входа генерации кадра — промпт + провайдер.
+
+    Смена референсов героя/предметов инвалидируется каскадом STEP_DEPENDENCIES
+    (img ← hero/items), сюда не хэшируется. GPT/moderation-rewrite
+    провайдерного слоя — ретрай-механика того же входа, не в hash.
+    """
+    try:
+        from app.services.img_streams import image_provider_key
+        from app.services.input_hash import (
+            compute_input_hash,
+            media_fingerprint,
+            normalize_text,
+        )
+
+        prompt = (frame.image_prompt or "").strip()
+        if not prompt:
+            return None
+        return compute_input_hash(
+            unit_input={"prompt": normalize_text(prompt)},
+            fingerprint=media_fingerprint(image_provider_key(), "img"),
+        )
+    except Exception:  # noqa: BLE001 — hash недоступен → legacy-поведение
+        return None
+
+
+def _stash_stale_frame_images(out_dir: Path, frame_number: int) -> int:
+    """Протухшие shot1-PNG кадра → scenes/stale/ (не удаляем: форензика)."""
+    stale_dir = out_dir / "stale"
+    n = 0
+    try:
+        candidates = list(out_dir.glob(f"frame_{frame_number:03d}_*.png"))
+    except OSError:
+        return 0
+    for p in candidates:
+        if "_s2_" in p.name:
+            continue
+        try:
+            stale_dir.mkdir(parents=True, exist_ok=True)
+            p.rename(stale_dir / p.name)
+            n += 1
+        except OSError:
+            pass
+    return n
+
+
 def _img_http_primary() -> bool:
     """Outsee/Grsai HTTP — без Chrome CDP (как excel_hero)."""
     from app.bots.grsai import grsai_enabled
@@ -542,9 +588,38 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     # Очередь: источник истины — валидный PNG на диске, не статус в БД.
     # Иначе image_generated без файла / без outsee → шаг «завершён», кадры
     # так и не генерировались.
+    # Этап 2 (C.6): PNG переиспользуется только если input_hash кадра не
+    # изменился (промпт тот же). Mismatch → регенерация + снятие
+    # vision-passed токенов (C.6a). Legacy PNG без hash в attrs принимается
+    # как раньше — массовая регенерация чужих проектов дороже риска.
+    from app.services.vision_check_loop import drop_vision_passed_for_frame
+
     queued = 0
     for fr in frames:
         if disk_has_valid_frame_image(out_dir, fr.number):
+            current_hash = _frame_image_input_hash(fr)
+            stored_hash = (fr.attrs or {}).get("img_input_hash")
+            if (
+                current_hash is not None
+                and isinstance(stored_hash, str)
+                and stored_hash
+                and stored_hash != current_hash
+            ):
+                logger.info(
+                    "[#{}] frame {}: PNG протух (input changed, was={}, "
+                    "now={}) — регенерация",
+                    project.id,
+                    fr.number,
+                    stored_hash[:24],
+                    current_hash[:24],
+                )
+                # Протухшие PNG — в scenes/stale/: «диск = истина» во всех
+                # остальных проверках перестаёт считать кадр готовым.
+                _stash_stale_frame_images(out_dir, fr.number)
+                drop_vision_passed_for_frame(project, fr.number)
+                fr.status = FrameStatus.image_prompt_ready
+                queued += 1
+                continue
             if fr.status not in (
                 FrameStatus.image_approved,
                 FrameStatus.image_generated,
@@ -1642,6 +1717,13 @@ async def _generate_and_send(
         frame.attrs = attrs
     else:
         frame.status = FrameStatus.image_generated
+        # Этап 2 (C.6): результат привязан к входу — hash только после
+        # того, как файл принят (Artifact создан).
+        gen_hash = _frame_image_input_hash(frame)
+        if gen_hash is not None:
+            attrs = dict(frame.attrs or {})
+            attrs["img_input_hash"] = gen_hash
+            frame.attrs = attrs
     await session.flush()
 
     try:

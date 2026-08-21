@@ -102,6 +102,34 @@ def get_vision_passed(project: Project) -> set[str]:
     return {str(x).strip() for x in raw if str(x).strip()}
 
 
+def drop_vision_passed_for_frame(project: Project, frame_number: int) -> bool:
+    """Этап 2 (C.6a): инвалидация кадра снимает его [ok]-токены (f3 / f3s2).
+
+    Иначе перегенерённый кадр никогда не попадёт на recheck —
+    filter_image_paths_for_recheck исключает passed навсегда (§5.2 карты).
+    """
+    passed = get_vision_passed(project)
+    prefix = f"f{int(frame_number)}"
+    keep = {
+        t
+        for t in passed
+        if not (t == prefix or t.startswith(prefix + "s"))
+    }
+    if keep == passed:
+        return False
+    meta = dict(project.meta or {})
+    meta[META_PASSED] = sorted(keep)
+    project.meta = meta
+    flag_modified(project, "meta")
+    logger.info(
+        "[#{}] vision_check_loop: кадр {} инвалидирован — снято {} passed-токенов",
+        project.id,
+        frame_number,
+        len(passed) - len(keep),
+    )
+    return True
+
+
 def clear_vision_check_meta(project: Project) -> None:
     meta = dict(project.meta or {})
     changed = False

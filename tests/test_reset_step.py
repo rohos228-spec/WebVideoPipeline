@@ -240,10 +240,12 @@ async def test_reset_img_pr_cascades_to_img_and_below(
     assert fr.image_prompt is None
     # animation_prompt тоже очищен (downstream)
     assert fr.animation_prompt is None
-    # все артефакты scene_image / scene_video / audio / final удалены
+    # Этап 2 (C.7): конус по STEP_DEPENDENCIES — img/video/final сносятся,
+    # audio от img_pr НЕ зависит и переживает сброс (раньше линейный
+    # каскад уничтожал и озвучку).
     for kind in (
         ArtifactKind.scene_image, ArtifactKind.scene_video,
-        ArtifactKind.audio, ArtifactKind.final_video,
+        ArtifactKind.final_video,
     ):
         arts = (await session.execute(
             select(Artifact).where(
@@ -251,7 +253,13 @@ async def test_reset_img_pr_cascades_to_img_and_below(
             )
         )).scalars().all()
         assert not arts, f"{kind} should be wiped"
-    # все файлы удалены
+    audio_arts = (await session.execute(
+        select(Artifact).where(
+            Artifact.project_id == p.id, Artifact.kind == ArtifactKind.audio
+        )
+    )).scalars().all()
+    assert audio_arts, "audio вне конуса img_pr — не сносится"
+    # файлы конуса удалены
     assert not img_p.exists()
     assert not vid_p.exists()
     assert aud_p.exists()  # озвучка на диске не удаляется при reset

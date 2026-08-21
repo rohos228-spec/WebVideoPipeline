@@ -246,6 +246,66 @@ async def _shot1_start_frame(
     return start
 
 
+def _frame_video_input_hash(fr: Frame) -> str | None:
+    """Этап 2 (C.6): hash входа видео-генерации кадра.
+
+    Вход = animation_prompt + идентичность исходного PNG (его
+    img_input_hash из attrs — сам файл не читаем на каждом тике).
+    Провайдер/модель в v1 не хэшируются (меняются редко; смена модели —
+    осознанный пересчёт оператором).
+    """
+    try:
+        from app.services.input_hash import (
+            compute_input_hash,
+            media_fingerprint,
+            normalize_text,
+        )
+
+        prompt = (fr.animation_prompt or "").strip()
+        if not prompt:
+            return None
+        attrs = fr.attrs or {}
+        return compute_input_hash(
+            unit_input={
+                "anim_prompt": normalize_text(prompt),
+                "img_hash": str(attrs.get("img_input_hash") or ""),
+            },
+            fingerprint=media_fingerprint("video"),
+        )
+    except Exception:  # noqa: BLE001 — hash недоступен → legacy-поведение
+        return None
+
+
+def _set_video_input_hash(fr: Frame) -> None:
+    """Hash — только после принятого клипа (Artifact создан)."""
+    vhash = _frame_video_input_hash(fr)
+    if vhash is None:
+        return
+    attrs = dict(fr.attrs or {})
+    attrs["video_input_hash"] = vhash
+    fr.attrs = attrs
+
+
+def _stash_stale_frame_videos(out_dir: Path, frame_number: int) -> int:
+    """Протухшие shot1-клипы кадра → videos/stale/ (не удаляем)."""
+    stale_dir = out_dir / "stale"
+    n = 0
+    try:
+        candidates = list(out_dir.glob(f"clip_{frame_number:03d}_*.mp4"))
+    except OSError:
+        return 0
+    for p in candidates:
+        if "_s2_" in p.name:
+            continue
+        try:
+            stale_dir.mkdir(parents=True, exist_ok=True)
+            p.rename(stale_dir / p.name)
+            n += 1
+        except OSError:
+            pass
+    return n
+
+
 def _dup_paths(out_dir: Path, frame_number: int, extra: list[Path]) -> list[Path]:
     paths: list[Path] = []
     if frame_number > 1:
@@ -296,6 +356,32 @@ async def _claim_shot1_video_batch(
                 or _disk_has_frame_video_shot1(videos_dir, fr.number)
             )
         )
+        # Этап 2 (C.6): клип переиспользуется только при том же входе
+        # (anim_prompt + PNG). Mismatch → клип в stale/, регенерация,
+        # снятие vision-passed токенов (C.6a). Legacy без hash — как раньше.
+        if (clip is not None or has_disk) and videos_dir is not None:
+            current_vhash = _frame_video_input_hash(fr)
+            stored_vhash = attrs.get("video_input_hash")
+            if (
+                current_vhash is not None
+                and isinstance(stored_vhash, str)
+                and stored_vhash
+                and stored_vhash != current_vhash
+            ):
+                logger.info(
+                    "[#{}] frame {}: клип протух (input changed) — регенерация",
+                    project_id,
+                    fr.number,
+                )
+                _stash_stale_frame_videos(videos_dir, fr.number)
+                if project is not None:
+                    from app.services.vision_check_loop import (
+                        drop_vision_passed_for_frame,
+                    )
+
+                    drop_vision_passed_for_frame(project, fr.number)
+                clip = None
+                has_disk = False
         if _skip_frame_video_generation(fr, clip is not None or has_disk):
             if (clip is not None or has_disk) and fr.status not in (
                 FrameStatus.video_generated,
@@ -420,6 +506,7 @@ async def _generate_shot1_one(
         )
     )
     fr.status = FrameStatus.video_generated
+    _set_video_input_hash(fr)
     await session.flush()
     out = Path(result.file_path)
     archive_older_frame_clips(out_dir, fr.number, shot=1, keep=out)
@@ -630,6 +717,7 @@ async def _shot1_job(
                 )
             )
             fr.status = FrameStatus.video_generated
+            _set_video_input_hash(fr)
             _clear_video_inflight(fr)
             await session.commit()
         await _reset_video_fail_db(project_id, frame_id)
