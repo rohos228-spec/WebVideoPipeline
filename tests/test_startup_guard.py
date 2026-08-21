@@ -50,12 +50,17 @@ async def test_startup_guard_keeps_auto_mode_and_awaits_manual(
     assert stats["auto_await_manual_armed"] >= 1
     assert stats["batches_paused"] == 1
     assert stats["mass_pause_enabled"] is True
-    assert running_project.status is ProjectStatus.plan_ready
+    # Этап 2 (E.1): статус НЕ откатывается — resume с курсора по ▶;
+    # проект помечен осиротевшим.
+    assert running_project.status is ProjectStatus.scripting
+    assert (running_project.meta or {}).get("orphaned_running") is True
+    assert (running_project.meta or {}).get("orphaned_running_status") == "scripting"
     # Пользовательский auto_mode НЕ сбрасываем при рестарте.
     assert running_project.auto_mode is True
     assert auto_ready_project.status is ProjectStatus.plan_ready
     assert auto_ready_project.auto_mode is True
-    assert auto_awaits_manual_start(running_project) is True
+    # У running-проекта роль «ждём ▶» играет метка orphaned_running
+    # (воркер-фильтр); auto_await армируется только на ready-статусах.
     assert auto_awaits_manual_start(auto_ready_project) is True
     assert batch.status is BatchStatus.paused
     assert mass_pause_active() is True

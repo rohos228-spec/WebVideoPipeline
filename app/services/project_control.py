@@ -180,7 +180,13 @@ def arm_auto_await_manual_start(project: Project) -> bool:
 
 def clear_auto_await_manual_start(project: Project) -> bool:
     meta = dict(project.meta or {})
-    if meta.pop(_AUTO_AWAIT_MANUAL_KEY, None) is None:
+    # Этап 2 (E.1): ручной ▶ снимает и осиротевшую метку рестарта —
+    # воркер снова подхватывает running-проект (resume с курсора).
+    orphan_cleared = meta.pop("orphaned_running", None) is not None
+    if orphan_cleared:
+        meta.pop("orphaned_running_at", None)
+        meta.pop("orphaned_running_status", None)
+    if meta.pop(_AUTO_AWAIT_MANUAL_KEY, None) is None and not orphan_cleared:
         return False
     project.meta = meta
     flag_modified(project, "meta")

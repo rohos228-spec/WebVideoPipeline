@@ -537,6 +537,14 @@ async def start_step(
         strict=require_node_fsm,
         explicit_ui_start=explicit_ui_start,
     )
+    # Этап 2 (E.1): ▶ оператора снимает осиротевшую метку рестарта —
+    # воркер снова подхватывает проект (resume с курсора).
+    meta = dict(project.meta or {})
+    if meta.pop("orphaned_running", None) is not None:
+        meta.pop("orphaned_running_at", None)
+        meta.pop("orphaned_running_status", None)
+        project.meta = meta
+        logger.info("[#{}] start_step: orphaned_running снят (▶)", project.id)
     project.status = running_status
     project.updated_at = datetime.utcnow()
     await session.flush()

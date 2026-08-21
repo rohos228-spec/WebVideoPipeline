@@ -193,6 +193,44 @@ async def release(project_id: int, unit_key: str, *, owner: str | None = None) -
         return False
 
 
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # PermissionError и т.п. — процесс есть
+    return True
+
+
+async def expire_dead_local_leases() -> int:
+    """Lease'ы мёртвых pid ЭТОЙ машины → просроченные (startup: перехват
+    осиротевших единиц без ожидания полного TTL)."""
+    from sqlalchemy import select
+
+    now = time.time()
+    expired = 0
+    async with session_scope() as session:
+        rows = (await session.execute(select(WorkLease))).scalars().all()
+        for lease_row in rows:
+            if float(lease_row.expires_at) <= now:
+                continue
+            parts = (lease_row.owner or "").split(":")
+            if len(parts) < 3 or parts[0] != _HOST:
+                continue
+            try:
+                pid = int(parts[1])
+            except ValueError:
+                continue
+            if pid == os.getpid() or _pid_alive(pid):
+                continue
+            lease_row.expires_at = 0.0
+            expired += 1
+    if expired:
+        logger.info("work_lease: {} lease мёртвых pid просрочены", expired)
+    return expired
+
+
 async def is_held(project_id: int, unit_key: str) -> bool:
     """Есть ли живой lease на единицу (для реконсайлеров: «шаг живой»)."""
     from sqlalchemy import select

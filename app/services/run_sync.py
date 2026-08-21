@@ -1405,6 +1405,30 @@ async def _reconcile_stale_node_runs(
             if project is None:
                 continue
             live = is_generation_active(run.project_id)
+            # Этап 2 (E.3): «шаг живой» видно и из БД — step-lease другого
+            # процесса. Критерий осиротевшести: нет ни живой задачи
+            # in-process, ни живого lease.
+            if not live:
+                try:
+                    from app.orchestrator.node_registry import (
+                        NODE_TYPE_TO_STEP_CODE,
+                        RUNNING_TO_NODE_TYPE,
+                    )
+                    from app.services.work_lease import is_held
+
+                    _code = NODE_TYPE_TO_STEP_CODE.get(
+                        RUNNING_TO_NODE_TYPE.get(project.status, ""), ""
+                    )
+                    if _code and await is_held(
+                        run.project_id, f"step:{_code}"
+                    ):
+                        live = True
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "[#{}] step-lease check failed",
+                        run.project_id,
+                        exc_info=True,
+                    )
             for nr in run.node_runs:
                 # Ложный failed после успеха: sd_* веер + линейные media-ноды
                 # (img/anim_pr/video…), когда Project уже доказывает ready/дальше.

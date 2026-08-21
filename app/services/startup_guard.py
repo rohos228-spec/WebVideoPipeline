@@ -11,60 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import BatchProject, BatchStatus, Project, ProjectStatus
 from app.services.project_state import is_running_status
-from app.telegram.menu import step_by_running_status
 
-
-def _rollback_running_status(status: ProjectStatus) -> ProjectStatus:
-    step = step_by_running_status(status)
-    if step is not None and step.requires is not None:
-        return step.requires
-    return ProjectStatus.new
-
-
-async def _reset_matching_noderuns_after_rollback(
-    session: AsyncSession,
-    project: Project,
-    previous_running: ProjectStatus,
-) -> int:
-    """Project rolled back from running → reset matching NodeRun to pending."""
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-
-    from app.models import NodeRunStatus, WorkflowRun
-    from app.orchestrator.node_registry import RUNNING_TO_NODE_TYPE
-    from app.services.node_status_machine import reset_node_to_pending
-
-    want = RUNNING_TO_NODE_TYPE.get(previous_running)
-    if not want:
-        return 0
-    run = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.project_id == project.id)
-            .options(selectinload(WorkflowRun.node_runs))
-            .order_by(WorkflowRun.id.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if run is None:
-        return 0
-    n = 0
-    for nr in run.node_runs:
-        if nr.node_type != want:
-            continue
-        if nr.status not in (NodeRunStatus.running, NodeRunStatus.queued):
-            continue
-        if reset_node_to_pending(
-            nr, project_id=project.id, initiator="auto_unstick"
-        ):
-            n += 1
-            logger.info(
-                "[#{}] STARTUP GUARD: NodeRun {}/{} → pending (parity with Project)",
-                project.id,
-                nr.node_type,
-                nr.node_key,
-            )
-    return n
 
 
 async def block_pipeline_autorun_on_startup(session: AsyncSession) -> dict[str, Any]:
@@ -87,6 +34,15 @@ async def block_pipeline_autorun_on_startup(session: AsyncSession) -> dict[str, 
         "mass_pause_enabled": False,
     }
 
+    # Этап 2 (E.1): lease мёртвых pid этой машины → просроченные, чтобы
+    # resume не ждал полного TTL.
+    try:
+        from app.services.work_lease import expire_dead_local_leases
+
+        await expire_dead_local_leases()
+    except Exception:  # noqa: BLE001
+        logger.debug("STARTUP GUARD: expire_dead_local_leases failed", exc_info=True)
+
     projects = (await session.execute(select(Project))).scalars().all()
     ready_statuses = set(TRANSITIONS.keys())
 
@@ -95,13 +51,20 @@ async def block_pipeline_autorun_on_startup(session: AsyncSession) -> dict[str, 
         changed = False
 
         if is_running_status(project.status):
-            previous = project.status
-            rollback_to = _rollback_running_status(previous)
-            project.status = rollback_to
+            # Этап 2 (E.1): рестарт БОЛЬШЕ НЕ откатывает статус и не
+            # сбрасывает NodeRun («рестарт = откат» закрыт). Проект
+            # помечается осиротевшим; политика «не продолжать старую
+            # работу автоматически» сохраняется через auto_await — по ▶
+            # шаг стартует с ТОГО ЖЕ running-статуса и доезжает с курсора
+            # (чекпоинты C.*); recovery-скан диск→БД идёт до продолжения.
+            meta["orphaned_running"] = True
+            meta["orphaned_running_at"] = now
+            meta["orphaned_running_status"] = project.status.value
             meta["startup_autorun_blocked"] = True
             meta["startup_blocked_at"] = now
-            meta["startup_blocked_running_status"] = previous.value
-            meta["startup_rollback_to"] = rollback_to.value
+            # Legacy-метки отката больше не пишутся.
+            meta.pop("startup_blocked_running_status", None)
+            meta.pop("startup_rollback_to", None)
             meta.pop("enrich_auto_chain_to", None)
             # Не гасим auto_mode — только ждём ручной ▶.
             meta.pop("startup_auto_mode_disabled", None)
@@ -111,23 +74,11 @@ async def block_pipeline_autorun_on_startup(session: AsyncSession) -> dict[str, 
             meta = dict(project.meta or {})
             stats["running_projects_rolled_back"] += 1
             changed = True
-            # Parity: NodeRun running/queued того же шага → pending,
-            # иначе reconcile пометит ложный failed.
-            try:
-                await _reset_matching_noderuns_after_rollback(
-                    session, project, previous
-                )
-            except Exception:  # noqa: BLE001
-                logger.debug(
-                    "[#{}] STARTUP GUARD: NodeRun reset after rollback failed",
-                    project.id,
-                    exc_info=True,
-                )
             logger.warning(
-                "[#{}] STARTUP GUARD: rolled back {} -> {} (auto_mode={} сохранён)",
+                "[#{}] STARTUP GUARD: {} осиротел (статус сохранён, "
+                "resume с курсора по ▶; auto_mode={} сохранён)",
                 project.id,
-                previous.value,
-                rollback_to.value,
+                project.status.value,
                 project.auto_mode,
             )
 

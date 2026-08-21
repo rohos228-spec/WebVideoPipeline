@@ -543,6 +543,16 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                             p.status.value,
                         )
                         continue
+                    # Этап 2 (E.1): осиротевший running после рестарта не
+                    # подхватывается автоматически — resume по ▶ оператора
+                    # (start_step снимает метку). Статус при этом сохранён.
+                    if isinstance(p.meta, dict) and p.meta.get("orphaned_running"):
+                        logger.debug(
+                            "worker: #{} {} — orphaned_running, ждём ▶",
+                            p.id,
+                            p.status.value,
+                        )
+                        continue
                     if project_gated_by_gen_queue(p.id):
                         logger.debug(
                             "worker: #{} {} — не в gen_queue, пропуск тика",
