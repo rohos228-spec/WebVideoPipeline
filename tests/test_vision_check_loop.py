@@ -1008,3 +1008,159 @@ overall: 0.9
 """
     got = parse_check_analysis(report, strict_contract=True, vision_strict=True)
     assert got.verdict == "pass"
+
+
+# ---------------------------------------------------------------- Этап 4 (B)
+
+
+def test_classify_issue_axis_tag_and_fallback() -> None:
+    from app.services.check_analysis import classify_issue_axis
+
+    assert classify_issue_axis("f3: (hands) шесть пальцев") == "hands"
+    assert classify_issue_axis("f3: шесть пальцев на руке") == "hands"
+    assert classify_issue_axis("f7: watermark в углу") == "text"
+    assert classify_issue_axis("c01: нет вида со спины") == "angles"
+    assert classify_issue_axis("f2: сильный уход стиля в фотореализм") == "style"
+    assert classify_issue_axis("просто плохо") == "quality"
+    assert classify_issue_axis("непонятное замечание без слов-маркеров") is None
+
+
+def test_axis_fix_reaches_prompt_every_axis() -> None:
+    """Этап 4 (B.3): critical по любой оси меняет промпт регенерации."""
+    from app.services.vision_regen_fix import AXIS_FIX_LINES, plan_vision_prompt_fixes
+
+    for axis in ("style", "logic", "format", "pose", "text", "angles", "quality", "hands"):
+        fr = SimpleNamespace(
+            number=7,
+            uuid="uuid-7",
+            image_prompt="hero in archive",
+            attrs={},
+        )
+        reply = f"## issues\n- [critical] frame_007_x.png: ({axis}) брак по оси\n"
+        ops = plan_vision_prompt_fixes(
+            reply,
+            frames_by_num={7: fr},  # type: ignore[arg-type]
+            char_rows=[],
+            frame_targets=[{"number": 7, "shot": 1}],
+        )
+        assert len(ops) == 1, axis
+        new_prompt = ops[0]["fields"]["промт_картинки"]
+        assert new_prompt != fr.image_prompt, axis
+        assert AXIS_FIX_LINES[axis].split(":")[0] in new_prompt, axis
+
+
+def test_shot2_target_gets_fix_in_shot2_field() -> None:
+    """Этап 4 (B.4): фильтр shot != 1 снят — shot2 получает фикс в своё поле."""
+    from app.services.vision_regen_fix import plan_vision_prompt_fixes
+
+    fr = SimpleNamespace(
+        number=7,
+        uuid="uuid-7",
+        image_prompt="shot1 prompt",
+        attrs={"image_prompt_shot2": "shot2 prompt"},
+    )
+    reply = "## issues\n- [critical] frame_007_s2_x.png: (hands) шесть пальцев\n"
+    ops = plan_vision_prompt_fixes(
+        reply,
+        frames_by_num={7: fr},  # type: ignore[arg-type]
+        char_rows=[],
+        frame_targets=[{"number": 7, "shot": 2}],
+    )
+    assert len(ops) == 1
+    assert "промт_картинки_2" in ops[0]["fields"]
+    assert "shot2 prompt" in ops[0]["fields"]["промт_картинки_2"]
+    assert ops[0]["fields"]["промт_картинки_2"].startswith("[VISION_FIX]")
+
+
+def test_videos_target_gets_fix_in_animation_prompt() -> None:
+    """Этап 4 (B.4): kind=videos — фикс в промт анимации, без MUST/NO CLONES."""
+    from app.services.vision_regen_fix import plan_vision_prompt_fixes
+
+    fr = SimpleNamespace(
+        number=3,
+        uuid="uuid-3",
+        image_prompt="img prompt",
+        animation_prompt="camera pans over archive",
+        attrs={"персонажи": "c02"},
+    )
+    reply = "## issues\n- [critical] video_sheet_003_x.png: (quality) артефакты\n"
+    ops = plan_vision_prompt_fixes(
+        reply,
+        frames_by_num={3: fr},  # type: ignore[arg-type]
+        char_rows=[],
+        frame_targets=[{"number": 3, "shot": 1}],
+        kind="videos",
+    )
+    assert len(ops) == 1
+    p = ops[0]["fields"]["промт_анимации"]
+    assert p.startswith("[VISION_FIX]")
+    assert "camera pans over archive" in p
+    assert "MUST show" not in p
+    assert "NO CLONES" not in p
+
+
+def test_plan_hero_vision_fixes() -> None:
+    """Этап 4 (B.4): hero-фикс строится по critical-осям для своего cid."""
+    from app.services.vision_regen_fix import plan_hero_vision_fixes
+
+    reply = """## issues
+- [critical] c01: (angles) нет вида со спины
+- [critical] c01: (hands) шесть пальцев
+- [warning] c02: шум
+"""
+    fixes = plan_hero_vision_fixes(reply, ["c01", "c02"])
+    assert set(fixes) == {"c01"}
+    assert "ANGLES" in fixes["c01"]
+    assert "HANDS" in fixes["c01"]
+    assert fixes["c01"].startswith("[VISION_FIX]")
+
+
+def test_merge_db_patches_multi_field() -> None:
+    """Этап 4 (B): merge фиксов по всем полям промптов, не только shot1."""
+    from app.services.vision_regen_fix import merge_db_patches
+
+    auto = [
+        {
+            "target": "frame",
+            "frame_uuid": "u1",
+            "fields": {"промт_анимации": "[VISION_FIX]\nQUALITY: x\n[/VISION_FIX]\n\nbase"},
+        }
+    ]
+    merged = merge_db_patches(
+        {"ops": [{"frame_uuid": "u1", "fields": {"animation_prompt": "from-model"}}]},
+        auto,
+    )
+    assert merged is not None
+    p = merged["ops"][0]["fields"]["animation_prompt"]
+    assert p.startswith("[VISION_FIX]")
+    assert "from-model" in p
+
+
+def test_noop_regen_snapshot_detects_unchanged_prompt() -> None:
+    """Этап 4 (B.5): байт-в-байт промпт на следующем круге — noop-событие."""
+    fr = SimpleNamespace(number=3, uuid="u3", image_prompt="same", attrs={})
+    p = Project(slug="x", topic="t", status=ProjectStatus.enrich_1_ready, meta={})
+    first = vcl.update_regen_prompt_snapshot(
+        p, "scenes", [{"number": 3, "shot": 1}], {3: fr}  # type: ignore[arg-type]
+    )
+    assert first == []
+    second = vcl.update_regen_prompt_snapshot(
+        p, "scenes", [{"number": 3, "shot": 1}], {3: fr}  # type: ignore[arg-type]
+    )
+    assert second == ["f3"]
+    assert p.meta["vision_noop_regen"] == 1
+    # промпт изменился → не noop
+    fr.image_prompt = "changed"
+    third = vcl.update_regen_prompt_snapshot(
+        p, "scenes", [{"number": 3, "shot": 1}], {3: fr}  # type: ignore[arg-type]
+    )
+    assert third == []
+
+
+def test_scores_template_has_logic_axis() -> None:
+    """Этап 4 (B.1): ось logic в шаблоне ## scores — overall не плавает (§9#8)."""
+    from app.services.check_analysis import VISION_CHECK_REPORT_HINT, VISION_SCORE_AXES
+
+    scores_part = VISION_CHECK_REPORT_HINT.split("## scores")[1].split("##")[0]
+    for axis in VISION_SCORE_AXES:
+        assert f"{axis}:" in scores_part, axis

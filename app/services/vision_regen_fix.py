@@ -1,7 +1,10 @@
-"""Авто-правки промта перед vision-regen (нет c0X / двойники).
+"""Авто-правки промта перед vision-regen.
 
 Если агент не дал ## db_patch, система сама вставляет жёсткий VISION_FIX
-в НАЧАЛО промт_картинки — особенно против клонов/двойников c0X.
+в НАЧАЛО промпта регенерации. Этап 4 (B): вердикт КАЖДОЙ оси брака
+доезжает до промпта — для всех kind (scenes/videos) и обоих shot;
+character/clones сохраняют исторические, более специфичные билдеры
+(MUST show / NO CLONES), остальные оси — AXIS_FIX_LINES.
 """
 
 from __future__ import annotations
@@ -37,6 +40,65 @@ _VISION_FIX_RE = re.compile(
     r"\n?\[VISION_FIX\][\s\S]*?\[/VISION_FIX\]\s*",
     re.IGNORECASE,
 )
+
+# Этап 4 (B.3): ось брака → корректирующая инструкция в [VISION_FIX].
+# character/clones НЕ здесь — у них специфичные билдеры (_fix_block).
+AXIS_FIX_LINES: dict[str, str] = {
+    "style": (
+        "STYLE LOCK: match the project's established visual style exactly "
+        "as described in the base prompt; no style drift, no switching "
+        "between photo-realism / anime / 3D."
+    ),
+    "logic": (
+        "SCENE LOGIC: depict exactly what the base prompt describes — no "
+        "invented scene, extra props, actions or settings beyond it."
+    ),
+    "format": (
+        "FORMAT: keep the required aspect ratio and composition of the "
+        "target format; no letterboxing, no collage, no split panels."
+    ),
+    "pose": (
+        "POSE/LAYOUT: follow the pose and layout required by the base "
+        "prompt; poses must be natural and anatomically plausible."
+    ),
+    "text": (
+        "NO STRAY TEXT: no captions, watermarks, UI labels, panel "
+        "signatures or floating text; text only on in-world objects "
+        "explicitly named in the base prompt."
+    ),
+    "angles": (
+        "ANGLES: show the required distinct sides/angles; do not repeat "
+        "the same angle where different views are required."
+    ),
+    "quality": (
+        "QUALITY: clean render — no artifacts, smears, broken faces or "
+        "eyes, duplicated or missing limbs, no visible seams."
+    ),
+    "hands": (
+        "HANDS: exactly five fingers per hand, anatomically correct hands "
+        "and limbs; no extra, missing or fused fingers."
+    ),
+}
+
+# Поле apply-ops для (kind, shot) — алиасы уже в db_apply.FIELD_ALIASES.
+_FIELD_BY_KIND_SHOT: dict[tuple[str, int], str] = {
+    ("scenes", 1): "промт_картинки",
+    ("scenes", 2): "промт_картинки_2",
+    ("videos", 1): "промт_анимации",
+    ("videos", 2): "промт_видео_2",
+}
+
+
+def base_prompt_for(fr: Frame, kind: str, shot: int) -> str:
+    """Текущий промпт единицы регенерации (scenes/videos × shot 1/2)."""
+    attrs = fr.attrs if isinstance(fr.attrs, dict) else {}
+    if kind == "videos":
+        if int(shot) == 2:
+            return str(attrs.get("animation_prompt_shot2") or "")
+        return str(fr.animation_prompt or "")
+    if int(shot) == 2:
+        return str(attrs.get("image_prompt_shot2") or "")
+    return str(fr.image_prompt or "")
 
 
 def _norm_cid(raw: str) -> str:
@@ -111,8 +173,14 @@ def _fix_block(
     char_rows: list[dict[str, str]],
     reason: str,
     clone_hard: bool = False,
+    axes: list[str] | None = None,
 ) -> str:
     lines = ["[VISION_FIX]", f"Reason: {reason[:220]}"]
+    # Этап 4 (B.3): агрегация осей per-frame — все оси кадра в ОДИН блок.
+    for ax in axes or []:
+        axis_line = AXIS_FIX_LINES.get(ax)
+        if axis_line:
+            lines.append(axis_line)
     if must:
         lines.append(
             "MUST show exactly these character ids, clearly recognizable: "
@@ -173,8 +241,14 @@ def plan_vision_prompt_fixes(
     char_rows: list[dict[str, str]],
     frame_targets: list[dict[str, Any]] | None = None,
     clone_hard: bool = False,
+    kind: str = "scenes",
 ) -> list[dict[str, Any]]:
-    """ops для apply_ops: VISION_FIX в промт critical/regen-кадров."""
+    """ops для apply_ops: VISION_FIX в промт critical/regen-кадров.
+
+    Этап 4 (B): все оси, оба shot (поле по (kind, shot)), kind
+    scenes|videos. Для videos фикс идёт в промт анимации (character/clones
+    MUST-блоки не подмешиваются — это семантика генерации картинки).
+    """
     targets = frame_targets or extract_critical_frame_regen_targets(reply)
     if not targets:
         return []
@@ -191,74 +265,147 @@ def plan_vision_prompt_fixes(
         missing = [_norm_cid(m.group(1)) for m in _MISSING_RE.finditer(body)]
         missing = [c for c in missing if c]
         clone = bool(_CLONE_RE.search(body))
+        axis = str(issue.get("axis") or "").strip()
         for n in nums:
-            slot = per.setdefault(n, {"must": set(), "clone": False, "reasons": []})
+            slot = per.setdefault(
+                n, {"must": set(), "clone": False, "reasons": [], "axes": set()}
+            )
             slot["must"].update(missing)
             if clone:
                 slot["clone"] = True
+            if axis:
+                slot["axes"].add(axis)
             slot["reasons"].append(body[:160])
 
     # prose / summary без [critical] — всё равно ловим «двойников» у кадра
     for t in targets:
         num = int(t["number"])
         if _reply_marks_clones(reply, num):
-            slot = per.setdefault(num, {"must": set(), "clone": False, "reasons": []})
+            slot = per.setdefault(
+                num, {"must": set(), "clone": False, "reasons": [], "axes": set()}
+            )
             slot["clone"] = True
             if not slot["reasons"]:
                 slot["reasons"].append(f"clone/double mentioned for frame {num}")
 
     ops: list[dict[str, Any]] = []
-    seen_uuid: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     for t in targets:
-        if int(t.get("shot") or 1) != 1:
-            continue
         num = int(t["number"])
+        shot = int(t.get("shot") or 1)
+        if shot not in (1, 2):
+            shot = 1
+        field = _FIELD_BY_KIND_SHOT.get((kind, shot))
+        if field is None:
+            continue
         fr = frames_by_num.get(num)
         if fr is None or not (fr.uuid or "").strip():
             continue
         uuid = str(fr.uuid).strip()
-        if uuid in seen_uuid:
+        if (uuid, field) in seen:
             continue
         info = per.get(num) or {}
+        axes = set(info.get("axes") or [])
         must = set(info.get("must") or [])
-        must.update(_persons_list(fr))
-        # c02 рядом с упоминанием кадра / двойников → в MUST
-        for m in re.finditer(
-            rf"(?is)frame[_-]?0*{num}\b.{{0,140}}(c\d{{1,3}})|"
-            rf"(c\d{{1,3}}).{{0,100}}frame[_-]?0*{num}\b",
-            reply or "",
-        ):
-            cid = _norm_cid(m.group(1) or m.group(2) or "")
-            if cid:
-                must.add(cid)
-        reason = "; ".join(info.get("reasons") or []) or f"vision regen frame {num}"
+        if kind == "scenes":
+            must.update(_persons_list(fr))
+            # c02 рядом с упоминанием кадра / двойников → в MUST
+            for m in re.finditer(
+                rf"(?is)frame[_-]?0*{num}\b.{{0,140}}(c\d{{1,3}})|"
+                rf"(c\d{{1,3}}).{{0,100}}frame[_-]?0*{num}\b",
+                reply or "",
+            ):
+                cid = _norm_cid(m.group(1) or m.group(2) or "")
+                if cid:
+                    must.add(cid)
+        reason = "; ".join(info.get("reasons") or []) or (
+            f"vision regen frame {num}" + ("s2" if shot == 2 else "")
+        )
         hard = clone_hard or bool(info.get("clone"))
         fix = _fix_block(
-            must=sorted(must),
-            forbid_clones=True,
+            must=sorted(must) if kind == "scenes" else [],
+            forbid_clones=kind == "scenes",
             char_rows=char_rows,
             reason=reason,
-            clone_hard=hard,
+            clone_hard=hard and kind == "scenes",
+            axes=sorted(axes),
         )
-        new_prompt = merge_prompt_with_fix(fr.image_prompt or "", fix)
-        if new_prompt.strip() == (fr.image_prompt or "").strip():
+        base = base_prompt_for(fr, kind, shot)
+        new_prompt = merge_prompt_with_fix(base, fix)
+        if new_prompt.strip() == base.strip():
             continue
-        seen_uuid.add(uuid)
+        seen.add((uuid, field))
         ops.append(
             {
                 "target": "frame",
                 "frame_uuid": uuid,
-                "fields": {"промт_картинки": new_prompt},
+                "fields": {field: new_prompt},
             }
         )
     return ops
+
+
+def plan_hero_vision_fixes(reply: str, hero_ids: list[str]) -> dict[str, str]:
+    """Этап 4 (B.4): фикс промпта hero-референса по critical-осям.
+
+    Возвращает {cid: VISION_FIX-текст}. Кладётся в
+    ``project.meta["vision_fix_hero"]`` и подмешивается generate_hero при
+    сборке промпта — карточка персонажа (данные оператора) не мутируется.
+    """
+    ids = {c for c in (_norm_cid(x) for x in hero_ids or []) if c}
+    if not ids:
+        return {}
+    out: dict[str, str] = {}
+    for cid in sorted(ids):
+        axes: set[str] = set()
+        reasons: list[str] = []
+        clone = False
+        for issue in extract_vision_issues(reply):
+            if issue.get("severity") != "critical":
+                continue
+            body = str(issue.get("text") or "")
+            body_cids = {
+                c for c in (_norm_cid(m.group(0)) for m in _CID_RE.finditer(body)) if c
+            }
+            if cid not in body_cids:
+                continue
+            axis = str(issue.get("axis") or "").strip()
+            if axis:
+                axes.add(axis)
+            if _CLONE_RE.search(body):
+                clone = True
+            reasons.append(body[:160])
+        if not reasons:
+            continue
+        out[cid] = _fix_block(
+            must=[],
+            forbid_clones=clone,
+            char_rows=[],
+            reason="; ".join(reasons),
+            clone_hard=clone,
+            axes=sorted(axes),
+        )
+    return out
+
+
+# Синонимы поля промпта: модельный db_patch может писать в англ. алиас.
+_FIELD_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "промт_картинки": ("промт_картинки", "image_prompt"),
+    "промт_картинки_2": ("промт_картинки_2", "image_prompt_shot2"),
+    "промт_анимации": ("промт_анимации", "animation_prompt"),
+    "промт_видео_2": ("промт_видео_2", "animation_prompt_shot2"),
+}
 
 
 def merge_db_patches(
     primary: dict[str, Any] | None,
     auto_ops: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    """Модельный db_patch + вшить VISION_FIX в те же uuid (клоны важнее)."""
+    """Модельный db_patch + вшить VISION_FIX в те же uuid (клоны важнее).
+
+    Этап 4 (B): merge по всем полям промптов (shot1/shot2, img/anim), не
+    только промт_картинки.
+    """
     if not auto_ops and not primary:
         return None
     out: dict[str, Any] = {}
@@ -279,22 +426,22 @@ def merge_db_patches(
         auto = auto_by_u.get(u)
         if auto and isinstance(op2.get("fields"), dict):
             fields = dict(op2["fields"])
-            model_p = str(
-                fields.get("промт_картинки")
-                or fields.get("image_prompt")
-                or ""
-            )
-            auto_p = str(
-                (auto.get("fields") or {}).get("промт_картинки")
-                or ""
-            )
-            # вытащить VISION_FIX из auto и поставить в начало model prompt
-            mfix = _VISION_FIX_RE.search(auto_p)
-            if mfix:
-                fields["промт_картинки"] = merge_prompt_with_fix(
-                    model_p, mfix.group(0).strip()
-                )
-                op2["fields"] = fields
+            for canon, aliases in _FIELD_SYNONYMS.items():
+                auto_p = str((auto.get("fields") or {}).get(canon) or "")
+                if not auto_p:
+                    continue
+                mfix = _VISION_FIX_RE.search(auto_p)
+                if not mfix:
+                    continue
+                model_key = next((a for a in aliases if a in fields), None)
+                if model_key is not None:
+                    # вытащить VISION_FIX из auto → в начало model prompt
+                    fields[model_key] = merge_prompt_with_fix(
+                        str(fields.get(model_key) or ""), mfix.group(0).strip()
+                    )
+                else:
+                    fields[canon] = auto_p
+            op2["fields"] = fields
             have.add(u)
         elif u:
             have.add(u)
@@ -313,6 +460,8 @@ async def build_auto_vision_db_patch(
     project: Project,
     reply: str,
     frame_targets: list[dict[str, Any]] | None = None,
+    *,
+    kind: str = "scenes",
 ) -> list[dict[str, Any]]:
     from app.services.vision_check_db import load_character_rows
 
@@ -333,4 +482,5 @@ async def build_auto_vision_db_patch(
         char_rows=chars,
         frame_targets=frame_targets,
         clone_hard=round_n >= 1,
+        kind=kind,
     )

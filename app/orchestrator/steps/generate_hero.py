@@ -675,6 +675,21 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                     "Different pose, camera angle, or outfit for the same "
                     "character shown in the reference image."
                 )
+        # Этап 4 (B.4): фикс vision-вердикта (cid = c<hero_idx>) — в начало.
+        from app.services.vision_regen_fix import merge_prompt_with_fix
+
+        _pair_cid = f"c{int(hero_idx):02d}"
+        _pair_vfix = str(
+            ((project.meta or {}).get("vision_fix_hero") or {}).get(_pair_cid)
+            or ""
+        )
+        if _pair_vfix:
+            prompt_text = merge_prompt_with_fix(prompt_text, _pair_vfix)
+            logger.info(
+                "[#{}] hero pair=({}, v{}): VISION_FIX подмешан ({} симв)",
+                project.id, hero_idx, v_idx, len(_pair_vfix),
+            )
+
         logger.info(
             "[#{}] hero pair=({}, v{}): prompt {} симв "
             "(style='{}', regen={})",
@@ -1271,6 +1286,22 @@ async def _generate_one_excel_character(
                     f"персонажа {ch.id} после 3 попыток"
                 )
 
+        # Этап 4 (B.4): фикс vision-вердикта для этого cid — в начало
+        # промпта (карточка персонажа не мутируется, фикс живёт в meta).
+        from app.services.vision_regen_fix import merge_prompt_with_fix
+
+        _vfix = str(
+            ((project.meta or {}).get("vision_fix_hero") or {}).get(ch.id) or ""
+        )
+        if _vfix:
+            prompt_text = merge_prompt_with_fix(prompt_text, _vfix)
+            logger.info(
+                "[#{}] excel_hero {}: VISION_FIX подмешан ({} симв)",
+                project.id,
+                ch.id,
+                len(_vfix),
+            )
+
         # Генератор / разрешение — с ноды hero; aspect/Relax как в обычном hero.
         from app.services.vibecode_catalog import resolve_node_media_settings
 
@@ -1284,7 +1315,9 @@ async def _generate_one_excel_character(
 
         result = None
         # regenerate_image — только CDP UI; при HTTP делаем свежий generate.
-        if not used_refs and is_regen and outsee is not None:
+        # Этап 4 (B.4): при VISION_FIX «Повторить» пропускаем — UI-повтор
+        # регенерит СТАРЫМ промптом, фикс бы не применился.
+        if not used_refs and is_regen and outsee is not None and not _vfix:
             try:
                 async with acquire_image_slot():
                     result = await outsee.regenerate_image(out_path)

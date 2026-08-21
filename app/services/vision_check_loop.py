@@ -37,6 +37,9 @@ META_SCENE = "scene_check_regen"
 META_PASSED = "vision_check_passed"
 META_SOFT_OK = "vision_check_soft_ok"
 META_OPERATOR_ACCEPTED = "vision_accepted_by_operator"
+META_HERO_FIX = "vision_fix_hero"
+META_PROMPT_SNAP = "vision_regen_prompt_snap"
+META_NOOP_REGEN = "vision_noop_regen"
 
 # Совместимость с hero_check_regen / generate_hero
 META_HERO_IDS = "hero_check_regen_ids"
@@ -199,6 +202,8 @@ def clear_vision_check_meta(project: Project) -> None:
         META_HERO_IDS,
         META_HERO_ROUND,
         META_HERO_RETURN,
+        META_HERO_FIX,
+        META_PROMPT_SNAP,
     ):
         if key in meta:
             meta.pop(key, None)
@@ -678,8 +683,9 @@ async def maybe_start_vision_check_loop_after_check(
             )
             return False
 
-    # Авто-фикс промтов (нет c02 / двойники), если агент не дал db_patch.
-    if kind == "scenes" and frame_tgts:
+    # Авто-фикс промтов по всем осям вердикта, если агент не дал db_patch.
+    # Этап 4 (B.4): scenes И videos, оба shot (раньше — только scenes/shot1).
+    if kind in _FRAME_KINDS and frame_tgts:
         from app.services.vision_regen_fix import (
             build_auto_vision_db_patch,
             merge_db_patches,
@@ -687,7 +693,7 @@ async def maybe_start_vision_check_loop_after_check(
 
         try:
             auto_ops = await build_auto_vision_db_patch(
-                session, project, reply, frame_tgts
+                session, project, reply, frame_tgts, kind=kind
             )
             merged = merge_db_patches(patch, auto_ops)
             if merged is not patch:
@@ -703,6 +709,31 @@ async def maybe_start_vision_check_loop_after_check(
             logger.exception(
                 "[#{}] vision_check_loop: auto prompt fix failed",
                 project.id,
+            )
+
+    # Этап 4 (B.4): фикс hero-референса — в meta (карточку персонажа не
+    # мутируем); generate_hero подмешает при сборке промпта.
+    if kind == "hero" and hero_ids:
+        from app.services.vision_regen_fix import plan_hero_vision_fixes
+
+        try:
+            hero_fixes = plan_hero_vision_fixes(reply, hero_ids)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "[#{}] vision_check_loop: hero prompt fix failed", project.id
+            )
+            hero_fixes = {}
+        if hero_fixes:
+            meta_h = dict(project.meta or {})
+            cur = dict(meta_h.get(META_HERO_FIX) or {})
+            cur.update(hero_fixes)
+            meta_h[META_HERO_FIX] = cur
+            project.meta = meta_h
+            flag_modified(project, "meta")
+            logger.info(
+                "[#{}] vision_check_loop: hero prompt fixes для {}",
+                project.id,
+                sorted(hero_fixes),
             )
 
     if kind == "hero" and not hero_ids and not patch:
@@ -739,6 +770,29 @@ async def maybe_start_vision_check_loop_after_check(
     # Этап 4 (D.3): mark_passed_except_regen удалён — неупомянутый кадр
     # больше не «принят»: он unverified и идёт в следующий recheck вместе
     # с regen-целями (спека «Принятие кадра пересматриваемо»).
+
+    # Этап 4 (B.5): регенерация байт-в-байт тем же промптом — громкое
+    # событие (метрика несходимости), но выполняется (блокировка =
+    # deadlock петли). Снимок — ПОСЛЕ db_patch/авто-фиксов.
+    if kind in _FRAME_KINDS and frame_tgts:
+        frames_all = (
+            await session.execute(
+                select(Frame).where(Frame.project_id == project.id)
+            )
+        ).scalars().all()
+        noop_toks = update_regen_prompt_snapshot(
+            project, kind, frame_tgts, {fr.number: fr for fr in frames_all}
+        )
+        if noop_toks:
+            logger.error(
+                "[#{}] vision_check_loop: noop-regen на {} — промпт целей "
+                "{} не изменился с прошлого круга (ось без фикса?); "
+                "vision_noop_regen={}",
+                project.id,
+                key,
+                noop_toks,
+                (project.meta or {}).get(META_NOOP_REGEN),
+            )
 
     meta = dict(project.meta or {})
     meta[META_RETURN] = key
@@ -964,6 +1018,53 @@ def mark_ok_tokens_from_reply(project: Project, reply: str) -> None:
         len(passed) - before,
         len(passed),
     )
+
+
+def update_regen_prompt_snapshot(
+    project: Project,
+    kind: str,
+    targets: list[dict[str, Any]],
+    frames_by_num: dict[int, Frame],
+) -> list[str]:
+    """Этап 4 (B.5): снимок промптов regen-целей + детект noop-regen.
+
+    Возвращает токены целей, чей промпт байт-в-байт совпал со снимком
+    прошлого круга (регенерация без изменений — ошибка петли, метрика
+    несходимости ``vision_noop_regen``).
+    """
+    import hashlib
+
+    from app.services.vision_regen_fix import base_prompt_for
+
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    prev = meta.get(META_PROMPT_SNAP)
+    if not isinstance(prev, dict):
+        prev = {}
+    new_snap: dict[str, str] = {}
+    noop: list[str] = []
+    for t in targets:
+        num = int(t["number"])
+        shot = int(t.get("shot") or 1)
+        fr = frames_by_num.get(num)
+        if fr is None:
+            continue
+        tok = _token_frame(num, shot)
+        digest = hashlib.sha256(
+            base_prompt_for(fr, kind, shot).encode("utf-8")
+        ).hexdigest()
+        if prev.get(tok) == digest:
+            noop.append(tok)
+        new_snap[tok] = digest
+    meta2 = dict(project.meta or {})
+    meta2[META_PROMPT_SNAP] = new_snap
+    if noop:
+        meta2[META_NOOP_REGEN] = int(meta2.get(META_NOOP_REGEN) or 0) + len(noop)
+    project.meta = meta2
+    try:
+        flag_modified(project, "meta")
+    except Exception:  # noqa: BLE001 — не-ORM объект (тесты/stub)
+        pass
+    return noop
 
 
 def scene_regen_allows(project: Project, frame_number: int, shot: int = 1) -> bool | None:

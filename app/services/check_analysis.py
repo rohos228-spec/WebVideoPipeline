@@ -235,6 +235,7 @@ pass = overall >= 0.70 И нет critical.
 ## scores
 style: 0.85
 character: 0.90
+logic: 0.90
 format: 0.90
 pose: 0.85
 clones: 0.80
@@ -245,8 +246,13 @@ hands: 0.80
 overall: 0.85
 
 ## issues
-- [critical] c01: …
-- [warning] frame_003_xxx.png: …
+- [critical] f3: (hands) шесть пальцев на левой руке
+- [critical] c01: (angles) нет вида со спины
+- [warning] f7s2: (text) watermark в углу
+
+Каждое замечание: явный токен кадра/файла (f3 / f7s2 / c01 /
+frame_003_….png) + ось брака в скобках. Числа без токена кадра
+(«3 фигуры на фоне») кадром НЕ считаются.
 
 ## regen_heroes
 regen: c01
@@ -672,6 +678,40 @@ _VISION_SEV_TAG_RE = re.compile(
     r"(?i)\[(critical|warning|minor|warn|error|fail|ok)\]"
 )
 
+# Этап 4 (B.2): атрибуция оси брака у issue. Явный тег «(axis)» из
+# шаблона; fallback — ключевые слова, порядок = приоритет (специфичные
+# оси раньше широких: hands раньше pose, text раньше style, quality —
+# последней).
+_AXIS_TAG_RE = re.compile(
+    r"\((style|character|logic|format|pose|clones|text|angles|quality|hands)\)",
+    re.IGNORECASE,
+)
+_AXIS_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("hands", ("рук", "палец", "пальц", "кист", "конечност", "finger", "hand", "limb")),
+    ("clones", ("клон", "двойник", "копи", "twin", "clone", "duplicate", "одинаков")),
+    ("text", ("watermark", "надпис", "подпис", "caption", "субтитр", "текст")),
+    ("angles", ("ракурс", "angle", "turnaround", "со спины", "сбоку")),
+    ("format", ("формат", "aspect", "соотношени", "letterbox", "коллаж", "панел")),
+    ("pose", ("поза", "позы", "pose", "раскладк", "layout")),
+    ("character", ("персонаж", "identity", "внешност", "не тот", "лицо не")),
+    ("style", ("стил", "style", "фотореал", "аниме")),
+    ("logic", ("логик", "не соответств", "выдуман", "смысл", "промту")),
+    ("quality", ("артефакт", "размыт", "шум", "склейк", "глаз", "брак", "лицо", "плохо")),
+)
+
+
+def classify_issue_axis(body: str) -> str | None:
+    """Ось брака из текста issue: явный тег «(axis)» либо ключевые слова."""
+    raw = body or ""
+    m = _AXIS_TAG_RE.search(raw)
+    if m:
+        return m.group(1).lower()
+    low = raw.lower()
+    for axis, words in _AXIS_KEYWORDS:
+        if any(w in low for w in words):
+            return axis
+    return None
+
 
 def extract_vision_issues(text: str) -> list[dict[str, Any]]:
     """Список ``{severity, text}`` из ``## issues`` (и findings с severity-тегами)."""
@@ -710,7 +750,9 @@ def extract_vision_issues(text: str) -> list[dict[str, Any]]:
             if key in seen:
                 continue
             seen.add(key)
-            out.append({"severity": sev, "text": body})
+            out.append(
+                {"severity": sev, "text": body, "axis": classify_issue_axis(body)}
+            )
     return out
 
 
