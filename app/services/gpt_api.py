@@ -2331,7 +2331,19 @@ async def chat(**kwargs: Any) -> GptChatResult:
     """
     from app.services import llm_ledger
 
-    with llm_ledger.logical_call_scope():
+    # Fallback prompt_version_hash: если call-site ничего не забиндил —
+    # хэш prompt-аргумента внешнего вызова тем же модулем input_hash.
+    fallback_hash = ""
+    if llm_ledger.current_prompt_hash() == "":
+        try:
+            from app.services.input_hash import prompt_version_hash
+
+            fallback_hash = prompt_version_hash(str(kwargs.get("prompt") or ""))
+        except Exception:  # noqa: BLE001 — учёт без хэша лучше, чем без вызова
+            fallback_hash = ""
+    with llm_ledger.logical_call_scope(), llm_ledger.bind_prompt_hash(
+        fallback_hash, fallback=True
+    ):
         return await _chat_unscoped(**kwargs)
 
 

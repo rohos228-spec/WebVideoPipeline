@@ -495,16 +495,22 @@ async def _run_one_agent(
         parsed_holder["data"] = data
         return []
 
+    # Этап 3: учёт llm_calls несёт тот же prompt_version_hash, что
+    # agent_input_hash чекпоинта (один источник — input_hash).
+    from app.services import llm_ledger
+    from app.services.input_hash import prompt_version_hash
+
     try:
-        await run_with_contract(
-            contract=contract,
-            call=_call,
-            validate=_semantic,
-            reject_dir=project.data_dir / "llm_rejects",
-            label=f"scene_design_{name}",
-            parse_limit=1,
-            validate_limit=1,
-        )
+        with llm_ledger.bind_prompt_hash(prompt_version_hash(prompt)):
+            await run_with_contract(
+                contract=contract,
+                call=_call,
+                validate=_semantic,
+                reject_dir=project.data_dir / "llm_rejects",
+                label=f"scene_design_{name}",
+                parse_limit=1,
+                validate_limit=1,
+            )
     except LlmContractError as e:
         # Вызывающие ловят SceneDesignAgentError — сохраняем тип наружу,
         # контрактная причина внутри.
@@ -996,16 +1002,20 @@ async def run_assembler(
             return [str(e)]
         return []
 
+    from app.services import llm_ledger
+    from app.services.input_hash import prompt_version_hash
+
     try:
-        await run_with_contract(
-            contract=SD_ASSEMBLE,
-            call=_call,
-            validate=_semantic,
-            reject_dir=project.data_dir / "llm_rejects",
-            label="scene_design_assemble",
-            parse_limit=1,
-            validate_limit=1,
-        )
+        with llm_ledger.bind_prompt_hash(prompt_version_hash(prompt)):
+            await run_with_contract(
+                contract=SD_ASSEMBLE,
+                call=_call,
+                validate=_semantic,
+                reject_dir=project.data_dir / "llm_rejects",
+                label="scene_design_assemble",
+                parse_limit=1,
+                validate_limit=1,
+            )
     except LlmContractError as e:
         raise ag.SceneDesignAgentError(str(e)) from e
     return holder["data"]

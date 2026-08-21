@@ -186,16 +186,23 @@ async def run_with_contract(
     feedback: str | None = None
     last_err: LlmContractError | None = None
 
+    # Этап 3: строки llm_calls попытки собираются скоупом учёта; при
+    # отказе контракта (HTTP успешен, ответ отвергнут) они помечаются
+    # contract_rejected — «доля неуспешных» видит и такие вызовы.
+    from app.services import llm_ledger
+
     while True:
         attempts += 1
         reply = ""
+        attempt_rows: list[int] = []
         try:
             # call ВНУТРИ try: LlmContractError может прийти из глубины
             # вызова (volume-добор внутри chat) — она тоже repair'ится,
             # а не пролетает мимо петли (баг панели 2026-08-21).
-            reply = await call(
-                f"{FEEDBACK_HEADER}\n{feedback}" if feedback else None
-            )
+            with llm_ledger.capture_attempt() as attempt_rows:
+                reply = await call(
+                    f"{FEEDBACK_HEADER}\n{feedback}" if feedback else None
+                )
             parsed = contract.parse(reply)
             problems = validate(parsed.payload) if validate else []
             if problems:
@@ -208,6 +215,7 @@ async def run_with_contract(
                 )
         except LlmContractError as e:
             last_err = e
+            await llm_ledger.mark_contract_rejected(attempt_rows)
             if e.kind == "parse":
                 parse_fails += 1
                 exhausted = parse_fails > parse_limit

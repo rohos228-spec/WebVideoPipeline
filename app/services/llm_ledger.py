@@ -64,6 +64,78 @@ def current_logical_call_id() -> str:
     """Для хука записи; вне скоупа — одноразовый id (защитный путь)."""
     return _logical_call.get() or uuid.uuid4().hex
 
+
+# ── prompt_version_hash (D.1) ────────────────────────────────────────────
+# Основной источник — биндинг из call-site'ов, уже считающих хэш для
+# чекпоинтов этапа 2 (text_job, scene_design, img_pr, split): учёт и кэш
+# несут ОДИН хэш. Fallback — хэш prompt-аргумента внешнего chat()
+# (ставится в gpt_api.chat, если ничего не забиндено).
+_prompt_hash: ContextVar[str | None] = ContextVar(
+    "llm_prompt_version_hash", default=None
+)
+
+
+@contextmanager
+def bind_prompt_hash(value: str | None, *, fallback: bool = False) -> Iterator[None]:
+    """Привязать prompt_version_hash к вложенным LLM-вызовам.
+
+    ``fallback=True`` — ставить только если ничего не забиндено (путь
+    gpt_api.chat); явный биндинг call-site'а всегда побеждает.
+    """
+    if not value or (fallback and _prompt_hash.get() is not None):
+        yield
+        return
+    token = _prompt_hash.set(value)
+    try:
+        yield
+    finally:
+        _prompt_hash.reset(token)
+
+
+def current_prompt_hash() -> str:
+    return _prompt_hash.get() or ""
+
+
+# ── contract_rejected (D.2) ──────────────────────────────────────────────
+# Скоуп попытки repair-политики: contextvar держит MUTABLE-коллектор
+# (list) — дочерние задачи gather получают копию контекста на тот же
+# объект, append'ы видны родителю. record() дописывает id строки, если
+# коллектор установлен; set/reset строго в try/finally.
+_attempt_rows: ContextVar[list[int] | None] = ContextVar(
+    "llm_attempt_rows", default=None
+)
+
+
+@contextmanager
+def capture_attempt() -> Iterator[list[int]]:
+    rows: list[int] = []
+    token = _attempt_rows.set(rows)
+    try:
+        yield rows
+    finally:
+        _attempt_rows.reset(token)
+
+
+async def mark_contract_rejected(row_ids: list[int]) -> None:
+    """HTTP был успешен, контракт этапа 5 отверг ответ — пометить строки
+    попытки. Best effort: сбой UPDATE не валит repair-цикл."""
+    ids = [int(i) for i in row_ids if i]
+    if not ids:
+        return
+    try:
+        from sqlalchemy import update
+
+        async with session_scope() as session:
+            await session.execute(
+                update(LlmCall)
+                .where(LlmCall.id.in_(ids))
+                .values(contract_rejected=True)
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "llm_ledger: contract_rejected не записан для {}: {}", ids, e
+        )
+
 # Отказы записи учёта: видимы в API дашборда; стоимость незаписанных
 # строк входит в spent бюджет-проверки (project_id=None — adhoc).
 _failed_inserts: int = 0
@@ -183,6 +255,8 @@ async def record(
     cost, pt, ct, tt, unbilled = compute_cost(
         usage, model=model, served_model=served_model
     )
+    if not prompt_version_hash:
+        prompt_version_hash = current_prompt_hash()
     try:
         async with session_scope() as session:
             row = LlmCall(
@@ -207,6 +281,9 @@ async def record(
             session.add(row)
             await session.flush()
             row_id = row.id
+        collector = _attempt_rows.get()
+        if collector is not None and row_id:
+            collector.append(int(row_id))
     except Exception as e:  # noqa: BLE001 — учёт не валит платный вызов
         _failed_inserts += 1
         _unpersisted_spent[project_id] += cost

@@ -173,7 +173,15 @@ async def text_job(
         logger.info("[#{}] ai_job {}: checkpoint — без GPT", getattr(project, "id", "?"), name)
         return TextJobResult(payload=cached, attempts=0)
 
-    from app.services import gpt_client
+    from app.services import gpt_client, llm_ledger
+
+    # Этап 3: учёт llm_calls несёт тот же prompt_version_hash, что чекпоинт.
+    try:
+        from app.services.input_hash import prompt_version_hash as _pvh
+
+        ledger_prompt_hash: str | None = _pvh(prompt)
+    except Exception:  # noqa: BLE001 — учёт возьмёт fallback из gpt_api
+        ledger_prompt_hash = None
 
     problems_log: list[list[str]] = []
     feedback: str | None = None
@@ -181,9 +189,10 @@ async def text_job(
         text = prompt
         if feedback:
             text = f"{prompt}\n\n# ОШИБКИ ПРОШЛОЙ ПОПЫТКИ (исправь)\n{feedback}"
-        reply = await gpt_client.gpt_ask_fresh(
-            text, timeout=timeout, project_id=getattr(project, "id", None)
-        )
+        with llm_ledger.bind_prompt_hash(ledger_prompt_hash):
+            reply = await gpt_client.gpt_ask_fresh(
+                text, timeout=timeout, project_id=getattr(project, "id", None)
+            )
         try:
             payload = parse(reply)
         except ValueError as e:

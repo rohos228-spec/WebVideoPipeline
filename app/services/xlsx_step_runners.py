@@ -530,14 +530,28 @@ async def run_split_xlsx(
 
         return await xgf.run_under_xlsx_lock(project.id, "split", _gpt)
 
+    # Этап 3: учёт llm_calls несёт тот же prompt_version_hash, что
+    # split_input_hash (split_frames.py) — один источник.
+    from app.services import llm_ledger
+
+    try:
+        from app.services.input_hash import step_prompt_hash
+
+        split_prompt_hash: str | None = step_prompt_hash(
+            project, "split", hints=[_SPLIT_DB_HINT]
+        )
+    except Exception:  # noqa: BLE001 — учёт возьмёт fallback из gpt_api
+        split_prompt_hash = None
+
     degraded = False
     try:
-        policy_res = await run_with_contract(
-            contract=FRAME_SPLIT,
-            call=_call,
-            reject_dir=project.data_dir / "llm_rejects",
-            label="split",
-        )
+        with llm_ledger.bind_prompt_hash(split_prompt_hash):
+            policy_res = await run_with_contract(
+                contract=FRAME_SPLIT,
+                call=_call,
+                reject_dir=project.data_dir / "llm_rejects",
+                label="split",
+            )
         reply = policy_res.reply_text
         frames_spec = [
             item.model_dump(exclude_none=True)
@@ -803,6 +817,10 @@ async def run_img_pr_xlsx(
         prompt_hash=prompt_version_hash(master_text, hints=[img_pr_hint]),
         model=effective_text_model(),
     )
+    # Этап 3: тот же хэш — в учёт llm_calls батчей ниже.
+    from app.services import llm_ledger
+
+    ledger_prompt_hash = prompt_version_hash(master_text, hints=[img_pr_hint])
 
     ckpt = ipb.load_checkpoint(project.data_dir, input_hash=step_hash)
     done_uuids = list(ckpt.get("done_uuids") or [])
@@ -961,16 +979,17 @@ async def run_img_pr_xlsx(
             )
             from app.contracts import IMG_PR, LlmContractError as _LCE
 
-            last_reply = await gpt_local.ask_with_files(
-                chat_msg,
-                attach,
-                project_id=project_id or project.id,
-                expect_file_download=False,
-                history=None,
-                treat_txt_as_prompt=True,
-                auto_pack=False,
-                response_schema=IMG_PR.response_schema(),
-            )
+            with llm_ledger.bind_prompt_hash(ledger_prompt_hash):
+                last_reply = await gpt_local.ask_with_files(
+                    chat_msg,
+                    attach,
+                    project_id=project_id or project.id,
+                    expect_file_download=False,
+                    history=None,
+                    treat_txt_as_prompt=True,
+                    auto_pack=False,
+                    response_schema=IMG_PR.response_schema(),
+                )
             batch_ops = ipb.parse_img_pr_ops(
                 last_reply or "",
                 wrap_style=not plastilin,
