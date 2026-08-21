@@ -333,63 +333,78 @@ async def _run_one_agent(
     max_retries: int | None = None,
     expected_frame_numbers: list[int] | None = None,
 ) -> dict[str, Any]:
+    """Этап 5 (C.3): единая контрактная политика для всех агентов веера.
+
+    Было: skeleton — 1 repair-pass с текстом ошибки, A7-A10 — ноль repair
+    (карта §4.2). Теперь у всех run_with_contract: форма — контракт
+    SLICE_CONTRACTS (Pydantic-фидбек), семантика — существующий
+    ag.parse_agent_slice (нормализаторы/V-правила не переписываем);
+    лимиты 1+1 — контексты у scene_design сотни КБ, платные повторы
+    ограничиваем как у прежнего skeleton-repair.
+    """
+    from app.contracts import SLICE_CONTRACTS, LlmContractError
+    from app.contracts.policy import run_with_contract
     from app.services import gpt_client
 
     prompt = ag.load_prompt(name, project)
     text = f"{prompt}\n\n---\n\n{context}"
-    reply = await gpt_client.gpt_ask_fresh(
-        text,
-        timeout=timeout,
-        project_id=project.id,
-        max_retries=max_retries,
+    contract = SLICE_CONTRACTS[name]
+    n_vo = len(expected_frame_numbers or [])
+    skeleton_hint = (
+        "Исправь JSON скелета scene_design. Нужен ОДИН валидный JSON-объект "
+        f"с ровно {n_vo or 'N'} сценами: 1 ячейка закадра = 1 сцена, "
+        "у каждой scenes[i].кадры = ровно [один number], без склейки VO. "
+        "Без markdown, без комментариев /* */. Только JSON.\n"
+        if name == ag.SKELETON
+        else ""
     )
-    try:
-        data = ag.parse_agent_slice(
-            name,
-            reply,
-            validate=validate,
-            expected_frame_numbers=expected_frame_numbers,
-        )
-        return _finalize_agent_slice(project, name, data)
-    except ag.SceneDesignAgentError as e:
-        dump = _dump_agent_fail(project, name, reply, e)
-        # Скелет: один repair-pass — модель часто копирует stub scenes: [].
-        if name != ag.SKELETON:
-            if dump is not None:
-                raise ag.SceneDesignAgentError(f"{e} | dump={dump}") from e
-            raise
-        n_vo = len(expected_frame_numbers or [])
-        repair_prompt = (
-            "Исправь JSON скелета scene_design. Нужен ОДИН валидный JSON-объект "
-            f"с ровно {n_vo or 'N'} сценами: 1 ячейка закадра = 1 сцена, "
-            "у каждой scenes[i].кадры = ровно [один number], без склейки VO. "
-            "Без markdown, без комментариев /* */. Только JSON.\n\n"
-            f"Ошибка парсера: {e}\n\nБыло:\n{(reply or '')[:14000]}"
-        )
-        logger.info(
-            "[#{}] scene_design/skeleton: repair-pass после parse fail (dump={})",
-            project.id,
-            dump,
-        )
-        repaired = await gpt_client.gpt_ask_fresh(
-            repair_prompt,
-            timeout=min(float(timeout), 300.0),
+
+    last_reply = {"text": ""}
+    parsed_holder: dict[str, Any] = {}
+
+    async def _call(feedback: str | None) -> str:
+        msg = text
+        if feedback:
+            msg = f"{text}\n\n{skeleton_hint}{feedback}"
+        reply = await gpt_client.gpt_ask_fresh(
+            msg,
+            timeout=timeout,
             project_id=project.id,
-            max_retries=2,
+            max_retries=max_retries,
+            response_schema=contract.response_schema(),
         )
+        last_reply["text"] = reply or ""
+        return reply or ""
+
+    def _semantic(_payload: Any) -> list[str]:
         try:
             data = ag.parse_agent_slice(
                 name,
-                repaired,
+                last_reply["text"],
                 validate=validate,
                 expected_frame_numbers=expected_frame_numbers,
             )
-            return _finalize_agent_slice(project, name, data)
-        except ag.SceneDesignAgentError as e2:
-            dump2 = _dump_agent_fail(project, name, repaired, e2)
-            raise ag.SceneDesignAgentError(
-                f"{e2} | dump={dump2}" if dump2 else str(e2)
-            ) from e2
+        except ag.SceneDesignAgentError as e:
+            _dump_agent_fail(project, name, last_reply["text"], e)
+            return [str(e)]
+        parsed_holder["data"] = data
+        return []
+
+    try:
+        await run_with_contract(
+            contract=contract,
+            call=_call,
+            validate=_semantic,
+            reject_dir=project.data_dir / "llm_rejects",
+            label=f"scene_design_{name}",
+            parse_limit=1,
+            validate_limit=1,
+        )
+    except LlmContractError as e:
+        # Вызывающие ловят SceneDesignAgentError — сохраняем тип наружу,
+        # контрактная причина внутри.
+        raise ag.SceneDesignAgentError(str(e)) from e
+    return _finalize_agent_slice(project, name, parsed_holder["data"])
 
 
 def _append_slice_context(
@@ -815,6 +830,8 @@ async def run_assembler(
     шоты и этапы стиля уже в хронологии закадра, кадры привязаны к сценам.
     Для больших роликов вызывай ``run_assembler_chunked``.
     """
+    from app.contracts import SD_ASSEMBLE, LlmContractError
+    from app.contracts.policy import run_with_contract
     from app.services import gpt_client
 
     prompt = ag.load_prompt(ag.ASSEMBLER, project)
@@ -827,13 +844,45 @@ async def run_assembler(
     ]
     if feedback:
         parts.append(f"# ОШИБКИ ПРОШЛОЙ СБОРКИ (исправь)\n{feedback}")
-    reply = await gpt_client.gpt_ask_fresh(
-        "\n\n".join(parts),
-        timeout=timeout,
-        project_id=project.id,
-        max_retries=max_retries,
-    )
-    return ag.parse_assembler_payload(reply)
+    base = "\n\n".join(parts)
+
+    # Этап 5 (C.3): repair с текстом ошибки внутри вызова (было: parse →
+    # raise без повтора; feedback умел только внешний step-цикл).
+    last_reply = {"text": ""}
+    holder: dict[str, Any] = {}
+
+    async def _call(fb: str | None) -> str:
+        msg = base if not fb else f"{base}\n\n{fb}"
+        reply = await gpt_client.gpt_ask_fresh(
+            msg,
+            timeout=timeout,
+            project_id=project.id,
+            max_retries=max_retries,
+            response_schema=SD_ASSEMBLE.response_schema(),
+        )
+        last_reply["text"] = reply or ""
+        return reply or ""
+
+    def _semantic(_payload: Any) -> list[str]:
+        try:
+            holder["data"] = ag.parse_assembler_payload(last_reply["text"])
+        except ag.SceneDesignAgentError as e:
+            return [str(e)]
+        return []
+
+    try:
+        await run_with_contract(
+            contract=SD_ASSEMBLE,
+            call=_call,
+            validate=_semantic,
+            reject_dir=project.data_dir / "llm_rejects",
+            label="scene_design_assemble",
+            parse_limit=1,
+            validate_limit=1,
+        )
+    except LlmContractError as e:
+        raise ag.SceneDesignAgentError(str(e)) from e
+    return holder["data"]
 
 
 async def run_assembler_chunked(
