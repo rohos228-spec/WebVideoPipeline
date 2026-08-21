@@ -90,6 +90,58 @@ async def test_lease_unit_context(lease_db):
 
 
 @pytest.mark.asyncio
+async def test_expire_dead_local_leases(lease_db, monkeypatch):
+    import os
+
+    # Живой pid (наш) — не трогается; мёртвый локальный — просрочивается;
+    # чужой хост — не трогается.
+    await wl.acquire(1, "img:alive", owner=f"{wl._HOST}:{os.getpid()}:aaa", ttl_s=600)
+    await wl.acquire(1, "img:dead", owner=f"{wl._HOST}:999999999:bbb", ttl_s=600)
+    await wl.acquire(1, "img:remote", owner="other-host:1:ccc", ttl_s=600)
+    n = await wl.expire_dead_local_leases()
+    assert n == 1
+    assert await wl.is_held(1, "img:alive") is True
+    assert await wl.is_held(1, "img:dead") is False
+    assert await wl.is_held(1, "img:remote") is True
+
+
+@pytest.mark.asyncio
+async def test_lease_unit_second_task_busy(lease_db):
+    # Две конкурентные задачи на одну единицу: одна работает, вторая busy.
+    started = asyncio.Event()
+    release_holder = asyncio.Event()
+    outcomes: list[bool] = []
+
+    async def holder():
+        async with wl.lease_unit(1, "img:42", ttl_s=60) as got:
+            outcomes.append(got)
+            started.set()
+            await release_holder.wait()
+
+    async def contender():
+        await started.wait()
+        async with wl.lease_unit(1, "img:42", ttl_s=60) as got:
+            outcomes.append(got)
+        release_holder.set()
+
+    await asyncio.gather(holder(), contender())
+    assert outcomes == [True, False]
+    # После выхода держателя единица свободна.
+    assert await wl.is_held(1, "img:42") is False
+
+
+@pytest.mark.asyncio
+async def test_task_owner_map_cleaned_after_task(lease_db):
+    async def one():
+        return wl.current_owner()
+
+    task = asyncio.create_task(one())
+    await task
+    await asyncio.sleep(0)  # done-callback отрабатывает
+    assert id(task) not in wl._task_owner
+
+
+@pytest.mark.asyncio
 async def test_task_owners_differ(lease_db):
     async def owner_of() -> str:
         return wl.current_owner()

@@ -37,10 +37,15 @@ HASH_VERSION = "ih1"
 def normalize_text(text: str) -> str:
     """Семантически-нейтральная нормализация текста для хэширования.
 
-    Промпт-файлы правятся вне git (CRLF/BOM от редакторов Windows) —
-    перевод строки не должен менять input_hash.
+    Промпт-файлы правятся вне git (CRLF/BOM от редакторов Windows,
+    NFC/NFD от разных редакторов) — ни перевод строки, ни Unicode-форма
+    не должны менять input_hash (ложная инвалидация = платный пересчёт).
     """
-    return text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
+    import unicodedata
+
+    return unicodedata.normalize(
+        "NFC", text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
+    )
 
 
 def canonical_json(value: Any) -> str:

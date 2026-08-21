@@ -126,21 +126,25 @@ async def text_job(
     проблем (пустой = ок). При полном провале — RuntimeError с проблемами.
     """
     # Этап 2 (C.4): вход text_job = сам промпт + модель — hash считается
-    # здесь же; чекпоинт от другого промпта не переиспользуется.
+    # здесь же; чекпоинт от другого промпта не переиспользуется. Промпт —
+    # через prompt_version_hash (ревью [3/4]: единый источник с учётом
+    # этапа 3, а не сырой текст в unit_input).
     job_hash: str | None = None
     try:
         from app.services.input_hash import (
             compute_input_hash,
             effective_text_model,
-            normalize_text,
+            prompt_version_hash,
         )
 
         job_hash = compute_input_hash(
-            unit_input={"prompt": normalize_text(prompt)},
+            unit_input={"job": name},
             fingerprint=f"text_job:{name}",
+            prompt_hash=prompt_version_hash(prompt),
             model=effective_text_model(),
         )
     except Exception:  # noqa: BLE001 — hash недоступен → legacy-чекпоинт
+        logger.debug("text_job {}: input_hash не собрать", name, exc_info=True)
         job_hash = None
 
     cached = (
@@ -148,6 +152,23 @@ async def text_job(
         if use_checkpoint
         else None
     )
+    if cached is not None:
+        # Ревью [3/4]: кэш-хит обязан пройти ТЕКУЩИЙ validate — ужесточение
+        # валидатора не должно пропускать старый payload по хэшу.
+        try:
+            cached_problems = validate(cached)
+        except Exception as e:  # noqa: BLE001
+            cached_problems = [f"validate чекпоинта упал: {e}"]
+        if cached_problems:
+            logger.info(
+                "[#{}] ai_job {}: чекпоинт не проходит текущий validate "
+                "({}) — пересчёт",
+                getattr(project, "id", "?"),
+                name,
+                cached_problems[:3],
+            )
+            drop_ai_job_checkpoint(project, name)
+            cached = None
     if cached is not None:
         logger.info("[#{}] ai_job {}: checkpoint — без GPT", getattr(project, "id", "?"), name)
         return TextJobResult(payload=cached, attempts=0)

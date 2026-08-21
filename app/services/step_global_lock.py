@@ -37,14 +37,34 @@ async def acquire_step_lock(code: str | None) -> AsyncIterator[None]:
     """
     if code == "split":
         async with _SPLIT_LOCK:
-            from app.services.work_lease import acquire, current_owner, release
+            from app.services.work_lease import (
+                acquire,
+                current_owner,
+                release,
+                renew,
+            )
 
             me = current_owner()
             while not await acquire(0, "step:split", owner=me, ttl_s=3600):
                 await asyncio.sleep(1)
+
+            async def _renew_loop() -> None:
+                # Ревью [2/4]: split дольше часа терял lease — второй
+                # процесс перехватывал и гонял split параллельно.
+                while True:
+                    await asyncio.sleep(600)
+                    if not await renew(0, "step:split", owner=me, ttl_s=3600):
+                        return
+
+            renewer = asyncio.create_task(_renew_loop())
             try:
                 yield
             finally:
+                renewer.cancel()
+                try:
+                    await renewer
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
                 await release(0, "step:split", owner=me)
     else:
         yield

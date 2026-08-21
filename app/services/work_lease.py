@@ -63,11 +63,18 @@ def current_owner() -> str:
         task = asyncio.current_task()
         key = id(task) if task is not None else 0
     except RuntimeError:
+        task = None
         key = 0
     owner = _task_owner.get(key)
     if owner is None:
         owner = f"{_HOST}:{os.getpid()}:{_uuid.uuid4().hex[:12]}"
         _task_owner[key] = owner
+        # Ревью [4/4]: без чистки словарь растёт вечно, а переиспользование
+        # id() после GC отдавало бы owner мёртвой задачи новой.
+        if task is not None:
+            task.add_done_callback(
+                lambda t: _task_owner.pop(id(t), None)
+            )
     return owner
 
 

@@ -51,6 +51,32 @@ async def block_pipeline_autorun_on_startup(session: AsyncSession) -> dict[str, 
         changed = False
 
         if is_running_status(project.status):
+            # Ревью [1/4]: rolling restart при живом втором процессе —
+            # шаг с живым step-lease НЕ сирота (критерий спеки — lease).
+            try:
+                from app.orchestrator.node_registry import (
+                    NODE_TYPE_TO_STEP_CODE,
+                    RUNNING_TO_NODE_TYPE,
+                )
+                from app.services.work_lease import is_held
+
+                _code = NODE_TYPE_TO_STEP_CODE.get(
+                    RUNNING_TO_NODE_TYPE.get(project.status, ""), ""
+                )
+                if _code and await is_held(project.id, f"step:{_code}"):
+                    logger.info(
+                        "[#{}] STARTUP GUARD: {} — живой step-lease "
+                        "(другой процесс), не помечаем осиротевшим",
+                        project.id,
+                        project.status.value,
+                    )
+                    continue
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "[#{}] STARTUP GUARD: step-lease check failed",
+                    project.id,
+                    exc_info=True,
+                )
             # Этап 2 (E.1): рестарт БОЛЬШЕ НЕ откатывает статус и не
             # сбрасывает NodeRun («рестарт = откат» закрыт). Проект
             # помечается осиротевшим; политика «не продолжать старую

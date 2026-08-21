@@ -273,6 +273,11 @@ def _frame_video_input_hash(fr: Frame) -> str | None:
             fingerprint=media_fingerprint("video"),
         )
     except Exception:  # noqa: BLE001 — hash недоступен → legacy-поведение
+        logger.debug(
+            "video input_hash не собрать (frame {})",
+            getattr(fr, "number", "?"),
+            exc_info=True,
+        )
         return None
 
 
@@ -292,7 +297,8 @@ def _stash_stale_frame_videos(out_dir: Path, frame_number: int) -> int:
     n = 0
     try:
         candidates = list(out_dir.glob(f"clip_{frame_number:03d}_*.mp4"))
-    except OSError:
+    except OSError as e:
+        logger.warning("stale-скан клипов кадра {} не удался: {}", frame_number, e)
         return 0
     for p in candidates:
         if "_s2_" in p.name:
@@ -301,8 +307,13 @@ def _stash_stale_frame_videos(out_dir: Path, frame_number: int) -> int:
             stale_dir.mkdir(parents=True, exist_ok=True)
             p.rename(stale_dir / p.name)
             n += 1
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning(
+                "перенос {} в stale/ не удался: {} — клип останется "
+                "«истиной на диске», регенерации не будет",
+                p.name,
+                e,
+            )
     return n
 
 
@@ -644,19 +655,21 @@ async def _shot1_job(
     Returns True если клип записан, False если кадр пропущен после ошибки.
     """
     from app.db import SessionLocal
-    from app.services.work_lease import lease_unit
+    from app.services.work_lease import lease_unit, renew
 
     # Этап 2 (D.3): lease с TTL/owner вместо video_gen_inflight; acquire —
-    # после слота провайдера, внутри задачи генерации.
+    # после слота провайдера, внутри задачи генерации. TTL покрывает
+    # лестницу генерации (3×1200с + rewrite) — ревью [2/3]: дефолтные
+    # 30 мин легально истекали в полёте.
     async with acquire_outsee_slot():
-      async with lease_unit(project_id, f"video:{frame_id}") as got:
+      async with lease_unit(project_id, f"video:{frame_id}", ttl_s=4500) as got:
         if not got:
             logger.info(
                 "[#{}] frame_id={}: занят живым video-lease — пропуск",
                 project_id,
                 frame_id,
             )
-            return False
+            return "busy"
         async with SessionLocal() as session:
             project = await session.get(Project, project_id)
             fr = await session.get(Frame, frame_id)
@@ -668,6 +681,10 @@ async def _shot1_job(
             prompt = fr.animation_prompt
             frame_number = fr.number
             model_slug, res_slug, aspect, relax = _video_opts(project)
+            # Ревью [1/3]: hash — от входа, ИСПОЛЬЗОВАННОГО для генерации
+            # (снимок до вызова), а не от свежего Frame после 20-60 мин:
+            # правка промпта в полёте не должна помечать старый клип новым.
+            pre_video_hash = _frame_video_input_hash(fr)
             # session закрывается здесь — до Outsee
 
         short_uuid = uuid.uuid4().hex[:8]
@@ -712,6 +729,31 @@ async def _shot1_job(
                     await session.commit()
             return False
 
+        # Fencing перед публикацией (ревью [2/3]): lease потерян → результат
+        # НЕ публикуем (другой владелец мог сгенерить свой клип).
+        if not await renew(project_id, f"video:{frame_id}", ttl_s=600):
+            logger.warning(
+                "[#{}] frame {}: video-lease потерян после генерации — "
+                "клип {} в stale/, не публикуем",
+                project_id,
+                frame_number,
+                Path(result.file_path).name,
+            )
+            try:
+                stale_dir = out_dir / "stale"
+                stale_dir.mkdir(parents=True, exist_ok=True)
+                Path(result.file_path).rename(
+                    stale_dir / Path(result.file_path).name
+                )
+            except OSError as e:
+                logger.warning(
+                    "[#{}] frame {}: перенос в stale/ не удался: {}",
+                    project_id,
+                    frame_number,
+                    e,
+                )
+            return "busy"
+
         async with SessionLocal() as session:
             fr = await session.get(Frame, frame_id)
             if fr is None:
@@ -727,7 +769,10 @@ async def _shot1_job(
                 )
             )
             fr.status = FrameStatus.video_generated
-            _set_video_input_hash(fr)
+            if pre_video_hash is not None:
+                attrs = dict(fr.attrs or {})
+                attrs["video_input_hash"] = pre_video_hash
+                fr.attrs = attrs
             _clear_video_inflight(fr)
             await session.commit()
         await _reset_video_fail_db(project_id, frame_id)
@@ -893,15 +938,34 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
 
     if streams == 0:
         missing = []
+        stale = []
         for fr in frames:
             clip = await _scene_video_file_on_disk(session, project.id, fr.id, shot=1)
             if clip is None and (fr.animation_prompt or "").strip():
                 missing.append(fr.number)
-        if missing:
+                continue
+            # Ревью этапа 2 [1/3]: протухший клип (input changed) при
+            # выключенном провайдере — ошибка, не тихий videos_ready.
+            if clip is not None:
+                cur = _frame_video_input_hash(fr)
+                stored = (fr.attrs or {}).get("video_input_hash")
+                if (
+                    cur is not None
+                    and isinstance(stored, str)
+                    and stored
+                    and stored != cur
+                ):
+                    stale.append(fr.number)
+        if missing or stale:
             raise RuntimeError(
-                f"outsee_streams/img_streams=0: провайдер выкл, нет клипов "
-                f"{missing[:12]}{'…' if len(missing) > 12 else ''}. "
-                f"Поставь meta.img_streams 1..4."
+                f"outsee_streams/img_streams=0: провайдер выкл, но нет клипов "
+                f"{missing[:12]}{'…' if len(missing) > 12 else ''}"
+                + (
+                    f"; протухшие (вход изменился) {stale[:12]}"
+                    if stale
+                    else ""
+                )
+                + ". Поставь meta.img_streams 1..4."
             )
         logger.info(
             "[#{}] generate_videos: streams=0 — все клипы на диске, outsee не нужен",
@@ -961,6 +1025,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                     # PK project.id после expire нельзя трогать — lazy-load → MissingGreenlet.
                     session.expire_all()
                     fail_n = 0
+                    busy_n = 0
                     for r in results:
                         if isinstance(r, StepCancelledError):
                             raise r
@@ -975,8 +1040,19 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                             )
                         elif r is True:
                             generated += 1
+                        elif r == "busy":
+                            # Ревью [2/3]: чужой живой lease — не фейл кадра;
+                            # без паузы claim крутил бы горячий цикл.
+                            busy_n += 1
                         else:
                             fail_n += 1
+                    if busy_n and busy_n >= len(results):
+                        logger.info(
+                            "[#{}] generate_videos: вся пачка занята чужими "
+                            "lease — пауза 30с",
+                            project_id,
+                        )
+                        await asyncio.sleep(30)
                     # После массового fail (часто «лимит 4» из-за ghost jobs)
                     # дать Outsee освободить слоты, прежде чем claim следующей пачки.
                     if fail_n and fail_n >= len(results):

@@ -233,7 +233,13 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
             await _sync_storage_after_advance(session, project, ran_status)
     finally:
         if _lease_renewer is not None:
+            # Ревью [3/4]: без await renew в полёте доигрывал после release
+            # и писал ложный «lease потерян» WARNING.
             _lease_renewer.cancel()
+            try:
+                await _lease_renewer
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         if _step_lease is not None:
             try:
                 from app.services import work_lease as _wl_fin

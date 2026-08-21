@@ -69,9 +69,24 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
     if len(existing_frames) >= 2 and meta.get("split_completed"):
         # Этап 2 (C.0): короткое замыкание валидно только при том же входе
         # (закадр/промпт/модель) — иначе разбивка протухла, пересчёт.
-        # Без собранного входа (нет voiceover) — legacy-пропуск.
+        # Legacy-проект БЕЗ сохранённого hash — принять как раньше и
+        # дозаписать текущий hash (ревью [1/3]: mismatch для legacy дал бы
+        # платный пересплит с replace_frames, рвущим downstream; политика
+        # как у медиа C.6). Без собранного входа — тоже legacy-пропуск.
+        stored_split_hash = meta.get("split_input_hash")
+        if (
+            current_split_hash is not None
+            and stored_split_hash is None
+        ):
+            meta["split_input_hash"] = current_split_hash
+            project.meta = meta
+            logger.info(
+                "[#{}] split_frames: legacy-чекпоинт — hash дозаписан",
+                project.id,
+            )
+            stored_split_hash = current_split_hash
         if current_split_hash is None or hashes_match(
-            meta.get("split_input_hash"), current_split_hash
+            stored_split_hash, current_split_hash
         ):
             logger.info(
                 "[#{}] split_frames: split_completed + {} кадров — пропуск GPT",

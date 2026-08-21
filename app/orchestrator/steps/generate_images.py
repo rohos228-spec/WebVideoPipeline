@@ -112,26 +112,45 @@ def _frame_image_input_hash(frame: Frame) -> str | None:
             fingerprint=media_fingerprint(image_provider_key(), "img"),
         )
     except Exception:  # noqa: BLE001 — hash недоступен → legacy-поведение
+        logger.debug(
+            "img input_hash не собрать (frame {})",
+            getattr(frame, "number", "?"),
+            exc_info=True,
+        )
         return None
 
 
-def _stash_stale_frame_images(out_dir: Path, frame_number: int) -> int:
-    """Протухшие shot1-PNG кадра → scenes/stale/ (не удаляем: форензика)."""
+def _stash_stale_frame_images(
+    out_dir: Path, frame_number: int, *, include_shot2: bool = False
+) -> int:
+    """Протухшие PNG кадра → scenes/stale/ (не удаляем: форензика).
+
+    Ревью этапа 2: сбой переноса — WARNING, не тишина (файл остался бы
+    «истиной на диске» и mismatch детектился бы вечно без регенерации).
+    """
     stale_dir = out_dir / "stale"
     n = 0
     try:
         candidates = list(out_dir.glob(f"frame_{frame_number:03d}_*.png"))
-    except OSError:
+    except OSError as e:
+        logger.warning(
+            "stale-скан кадра {} не удался: {}", frame_number, e
+        )
         return 0
     for p in candidates:
-        if "_s2_" in p.name:
+        if "_s2_" in p.name and not include_shot2:
             continue
         try:
             stale_dir.mkdir(parents=True, exist_ok=True)
             p.rename(stale_dir / p.name)
             n += 1
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning(
+                "перенос {} в stale/ не удался: {} — файл останется "
+                "«истиной на диске», регенерации не будет",
+                p.name,
+                e,
+            )
     return n
 
 
@@ -615,8 +634,15 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 )
                 # Протухшие PNG — в scenes/stale/: «диск = истина» во всех
                 # остальных проверках перестаёт считать кадр готовым.
-                _stash_stale_frame_images(out_dir, fr.number)
+                # Ревью [2/3]: включая shot2 — он снят со старого
+                # shot1-референса и после регенерации shot1 тоже протух.
+                _stash_stale_frame_images(
+                    out_dir, fr.number, include_shot2=True
+                )
                 drop_vision_passed_for_frame(project, fr.number)
+                attrs = dict(fr.attrs or {})
+                if attrs.pop(SHOT2_STATUS_ATTR, None) is not None:
+                    fr.attrs = attrs
                 fr.status = FrameStatus.image_prompt_ready
                 queued += 1
                 continue
@@ -1230,18 +1256,34 @@ async def _run_claimed_batch(
                 fr.attrs = attrs
                 await session.flush()
                 return
+            # Ревью этапа 2 [3/3]: serial-путь (streams<=1) был без захвата
+            # кадра — тот же lease, что в _generate_frame_job.
+            from app.services.work_lease import lease_unit
+
             async with acquire_image_slot():
-                await _generate_and_send(
-                    session,
-                    bot,
-                    outsee,
-                    gpt,
-                    project,
-                    fr,
-                    out_dir,
-                    shot=shot,
-                    shot1_reference=ref,
-                )
+                async with lease_unit(
+                    project.id, f"img:{fr.id}" + (":s2" if shot == 2 else "")
+                ) as got:
+                    if not got:
+                        logger.info(
+                            "[#{}] frame {} shot={}: занят живым lease — "
+                            "пропуск (serial)",
+                            project.id,
+                            fr.number,
+                            shot,
+                        )
+                        return
+                    await _generate_and_send(
+                        session,
+                        bot,
+                        outsee,
+                        gpt,
+                        project,
+                        fr,
+                        out_dir,
+                        shot=shot,
+                        shot1_reference=ref,
+                    )
         finally:
             try:
                 await session.refresh(fr)
