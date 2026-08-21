@@ -1144,7 +1144,17 @@ async def preflight_media_for_check(
     )
     from app.services.video_sheet import is_video_path
 
-    aspect = (getattr(project, "aspect_ratio", None) or "").strip() or None
+    # aspect — как у генерации (нода перекрывает проект; ревью: сверка с
+    # project.aspect_ratio отбраковывала бы корректные файлы при override).
+    aspect: str | None
+    try:
+        from app.services.vibecode_catalog import resolve_node_media_settings
+
+        node_type = "videos" if kind == "videos" else "images"
+        media = resolve_node_media_settings(project, node_type=node_type)
+        aspect = (media.get("aspect_slug") or "").strip() or None
+    except Exception:  # noqa: BLE001 — fallback на проектный aspect
+        aspect = (getattr(project, "aspect_ratio", None) or "").strip() or None
     ok_paths: list[Path] = []
     bad: list[dict[str, str]] = []
     for p in paths:
@@ -1270,9 +1280,24 @@ def apply_vision_decision(project: Project, action: str) -> dict[str, Any]:
 
     if act == "more_rounds":
         _clear_vision_pause_state(project, node)
+        # Ревью этапа 4: total_n = max(totals+1, META_ROUND+1) — без сброса
+        # per-loop счётчиков первый же fail снова упирался бы в лимит и
+        # оператор не получал НИ ОДНОГО нового круга.
+        meta_r = dict(project.meta or {})
+        changed = False
+        for k in (META_ROUND, META_HERO_ROUND):
+            if meta_r.get(k):
+                meta_r[k] = 0
+                changed = True
+        if changed:
+            project.meta = meta_r
+            try:
+                flag_modified(project, "meta")
+            except Exception:  # noqa: BLE001
+                pass
         logger.warning(
             "[#{}] vision_check_loop: решение оператора more_rounds на {} — "
-            "сквозной счётчик сброшен",
+            "счётчики кругов сброшены",
             project.id,
             node,
         )

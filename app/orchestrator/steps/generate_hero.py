@@ -739,7 +739,9 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         )
 
         result = None
-        if v_idx == 1 and is_regen:
+        # Этап 4 (B.4, ревью): при VISION_FIX «Повторить» пропускаем —
+        # UI-повтор регенерит СТАРЫМ промптом, фикс бы не применился.
+        if v_idx == 1 and is_regen and not _pair_vfix:
             logger.info(
                 "[#{}] regenerate hero {}/{} v1: пробую кнопку «Повторить»",
                 project.id, hero_idx, n_total,

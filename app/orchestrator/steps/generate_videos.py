@@ -467,12 +467,16 @@ async def _claim_shot2_video_batch(
     return claimed
 
 
-async def _accept_video_or_raise(project: Project, fr: Frame, clip: Path) -> None:
+async def _accept_video_or_raise(
+    aspect: str | None, project_id: int, frame_number: int, clip: Path
+) -> None:
     """Этап 4 (C.4): проба mp4 ДО Artifact — брак не принимается.
 
-    Отклонённый файл — в stale/ (не остаётся «истиной на диске»);
-    исключение уходит в существующий счёт видео-фейлов кадра (лестница
-    Veo→Kling / video_gen_skip).
+    ``aspect`` — тот, которым ГЕНЕРИРОВАЛИ (нода перекрывает проект,
+    `_video_opts` — ревью: сверка с project.aspect_ratio отбраковывала бы
+    корректные файлы при node-override). Отклонённый файл — в stale/;
+    MediaProbeError уходит в существующий счёт видео-фейлов кадра
+    (лестница Veo→Kling / video_gen_skip).
     """
     from app.services.media_probe import (
         MediaProbeError,
@@ -481,17 +485,17 @@ async def _accept_video_or_raise(project: Project, fr: Frame, clip: Path) -> Non
     )
 
     try:
-        await probe_video(clip, expect_aspect=(project.aspect_ratio or None))
+        await probe_video(clip, expect_aspect=aspect)
     except MediaProbeError as pe:
         logger.warning(
             "[#{}] frame {}: приёмка отклонила клип — {} ({})",
-            project.id,
-            fr.number,
+            project_id,
+            frame_number,
             pe.reason,
             pe,
         )
         stash_rejected_file(clip)
-        raise RuntimeError(f"{pe.reason}: {pe}") from pe
+        raise
 
 
 async def _generate_shot1_one(
@@ -532,7 +536,7 @@ async def _generate_shot1_one(
         prompt_id_prefix=build_gen_id_prefix(project.id, fr.number, short_uuid),
         duplicate_check_paths=dups,
     )
-    await _accept_video_or_raise(project, fr, Path(result.file_path))
+    await _accept_video_or_raise(aspect, project.id, fr.number, Path(result.file_path))
     session.add(
         Artifact(
             project_id=project.id,
@@ -601,7 +605,7 @@ async def _generate_shot2_one(
         + "-S2",
         duplicate_check_paths=dups,
     )
-    await _accept_video_or_raise(project, fr, Path(result.file_path))
+    await _accept_video_or_raise(aspect, project.id, fr.number, Path(result.file_path))
     session.add(
         Artifact(
             project_id=project.id,
@@ -758,6 +762,23 @@ async def _shot1_job(
                     await session.commit()
             return False
 
+        # Этап 4 (C.4, ревью): проба mp4 и в ПАРАЛЛЕЛЬНОМ пути — до
+        # fencing/Artifact; брак = фейл кадра (лестница), не публикация.
+        from app.services.media_probe import MediaProbeError
+
+        try:
+            await _accept_video_or_raise(
+                aspect, project_id, frame_number, Path(result.file_path)
+            )
+        except MediaProbeError as pe:
+            await _note_video_fail_db(project_id, frame_id, pe)
+            async with SessionLocal() as session:
+                fr = await session.get(Frame, frame_id)
+                if fr is not None:
+                    _clear_video_inflight(fr)
+                    await session.commit()
+            return False
+
         # Fencing перед публикацией (ревью [2/3]): lease потерян → результат
         # НЕ публикуем (другой владелец мог сгенерить свой клип).
         if not await renew(project_id, f"video:{frame_id}", ttl_s=600):
@@ -884,6 +905,22 @@ async def _shot2_job(
                         await session.commit()
                 raise
             await _note_video_fail_db(project_id, frame_id, e)
+            async with SessionLocal() as session:
+                fr = await session.get(Frame, frame_id)
+                if fr is not None:
+                    _clear_video_inflight(fr)
+                    await session.commit()
+            return False
+
+        # Этап 4 (C.4, ревью): проба mp4 и в параллельном shot2-пути.
+        from app.services.media_probe import MediaProbeError
+
+        try:
+            await _accept_video_or_raise(
+                aspect, project_id, frame_number, Path(result.file_path)
+            )
+        except MediaProbeError as pe:
+            await _note_video_fail_db(project_id, frame_id, pe)
             async with SessionLocal() as session:
                 fr = await session.get(Frame, frame_id)
                 if fr is not None:
@@ -1120,6 +1157,8 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         [f.number for f, _, _ in batch2],
                     )
                     if streams <= 1:
+                        from app.services.media_probe import MediaProbeError
+
                         fr, prompt2, s2_img = batch2[0]
                         try:
                             async with acquire_outsee_slot():
@@ -1136,6 +1175,11 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                                     clips_lock=clips_lock,
                                 )
                             shot2_generated += 1
+                        except MediaProbeError as pe:
+                            # Этап 4 (C.4, ревью): брак одного клипа — фейл
+                            # КАДРА (счётчик/лестница), не краш всего шага.
+                            await _note_video_fail_db(project.id, fr.id, pe)
+                            await session.refresh(project)
                         finally:
                             _clear_video_inflight(fr)
                             await session.flush()

@@ -1761,9 +1761,12 @@ async def _generate_and_send(
     )
 
     try:
+        # aspect — тот, которым генерировали (нода перекрывает проект;
+        # ревью: сверка с project.aspect_ratio отбраковывала бы корректные
+        # файлы при node-override).
         await _probe_accept_image(
             result.file_path,
-            expect_aspect=(project.aspect_ratio or None),
+            expect_aspect=(aspect_slug or None),
         )
     except MediaProbeError as pe:
         logger.warning(

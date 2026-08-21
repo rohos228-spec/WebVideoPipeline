@@ -1329,3 +1329,118 @@ def test_vision_decision_requires_pause() -> None:
         vcl.apply_vision_decision(p, "more_rounds")
     with pytest.raises(ValueError):
         vcl.apply_vision_decision(p, "unknown")
+
+
+# ------------------------------------------------- Этап 4 (ревью code-critic)
+
+
+def test_more_rounds_grants_new_rounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ревью: more_rounds обязан дать новые круги, не мгновенную повторную паузу."""
+    p = _project(tmp_path, monkeypatch, "mr")
+    check_key = "n_check_img"
+    # Состояние ПОСЛЕ исчерпания: META_ROUND остался (пауза не чистит петлю)
+    p.meta = _scenes_check_meta(
+        check_key,
+        {
+            "vision_check_round": 2,
+            "vision_rounds_total": {check_key: 2},
+            "pause_reason": {
+                "code": "vision_rounds_exhausted",
+                "node": check_key,
+                "kind": "scenes",
+                "regen_pending": ["f3"],
+                "unverified": [],
+            },
+        },
+    )
+    p.status = ProjectStatus.paused
+    vcl.apply_vision_decision(p, "more_rounds")
+    assert "pause_reason" not in p.meta
+
+    out = upload_dir(p, check_key)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "gpt_reply_raw.txt").write_text(
+        "# ОТЧЁТ ПРОВЕРКИ\nverdict: fail\n\n## scores\noverall: 0.3\n\n"
+        "## issues\n- [critical] f3: (hands) брак\n",
+        encoding="utf-8",
+    )
+
+    async def _fake_prepare(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(
+        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
+    )
+    started = asyncio.run(
+        vcl.maybe_start_vision_check_loop_after_check(_SessEmpty(), p, check_key)
+    )
+    assert started is True
+    assert p.status is not ProjectStatus.paused
+    assert p.status is ProjectStatus.generating_images
+
+
+def test_axis_fix_for_canonical_fN_token() -> None:
+    """Ревью: канонический токен шаблона `f3: (hands)` доезжает до фикса."""
+    from app.services.vision_regen_fix import AXIS_FIX_LINES, plan_vision_prompt_fixes
+
+    fr = SimpleNamespace(
+        number=3, uuid="uuid-3", image_prompt="hero at desk", attrs={}
+    )
+    reply = "## issues\n- [critical] f3: (hands) шесть пальцев на левой руке\n"
+    ops = plan_vision_prompt_fixes(
+        reply,
+        frames_by_num={3: fr},  # type: ignore[arg-type]
+        char_rows=[],
+        frame_targets=[{"number": 3, "shot": 1}],
+    )
+    assert len(ops) == 1
+    prompt = ops[0]["fields"]["промт_картинки"]
+    assert AXIS_FIX_LINES["hands"].split(":")[0] in prompt
+    assert "шесть пальцев" in prompt  # текст issue в Reason
+
+
+def test_videos_clones_axis_has_instruction() -> None:
+    """Ревью: для videos оси clones/character дают инструкцию (generic)."""
+    from app.services.vision_regen_fix import plan_vision_prompt_fixes
+
+    fr = SimpleNamespace(
+        number=3,
+        uuid="uuid-3",
+        image_prompt="img",
+        animation_prompt="pan over room",
+        attrs={},
+    )
+    reply = "## issues\n- [critical] f3: (clones) в движении появился двойник\n"
+    ops = plan_vision_prompt_fixes(
+        reply,
+        frames_by_num={3: fr},  # type: ignore[arg-type]
+        char_rows=[],
+        frame_targets=[{"number": 3, "shot": 1}],
+        kind="videos",
+    )
+    assert len(ops) == 1
+    prompt = ops[0]["fields"]["промт_анимации"]
+    assert "NO DUPLICATES" in prompt
+    # спец-билдеры сцен не подмешиваются
+    assert "MUST show" not in prompt
+
+
+def test_scenes_clones_axis_not_duplicated() -> None:
+    """Ревью: для scenes clones закрыт спец-билдером, generic-строка не дублируется."""
+    from app.services.vision_regen_fix import AXIS_FIX_LINES, plan_vision_prompt_fixes
+
+    fr = SimpleNamespace(
+        number=3, uuid="uuid-3", image_prompt="hero", attrs={"персонажи": "c02"}
+    )
+    reply = "## issues\n- [critical] f3: (clones) двойники c02\n"
+    ops = plan_vision_prompt_fixes(
+        reply,
+        frames_by_num={3: fr},  # type: ignore[arg-type]
+        char_rows=[],
+        frame_targets=[{"number": 3, "shot": 1}],
+    )
+    prompt = ops[0]["fields"]["промт_картинки"]
+    assert "NO CLONES" in prompt  # спец-билдер
+    assert AXIS_FIX_LINES["clones"].split(":")[0] + ":" not in prompt

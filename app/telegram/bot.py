@@ -6936,8 +6936,9 @@ async def notify_step_done(
                 f"({pr.get('rounds')}/{pr.get('limit')} кругов, "
                 f"нода {pr.get('node')}).\n"
                 f"На переген: {regen or '—'}\nНепроверенные: {unv or '—'}\n"
-                "Решение: «ещё N кругов» (vision-decision more_rounds + ▶) "
-                "или «принять как есть» (accept_pending)."
+                "Решение: «ещё N кругов» (vision-decision more_rounds + ▶ "
+                "check-ноды) или «принять как есть» (accept_pending + ▶ "
+                "следующего шага) — статус paused снимается кнопкой ▶."
             )
         else:
             text = f"✅ Шаг завершён: статус <b>{status_val}</b>"

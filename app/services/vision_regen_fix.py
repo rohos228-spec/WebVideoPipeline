@@ -78,6 +78,17 @@ AXIS_FIX_LINES: dict[str, str] = {
         "HANDS: exactly five fingers per hand, anatomically correct hands "
         "and limbs; no extra, missing or fused fingers."
     ),
+    # Для scenes эти две оси закрывают спец-билдеры (MUST show / NO CLONES)
+    # — generic-строки идут только в не-scenes фиксы (videos), где
+    # спец-билдеры выключены (ревью этапа 4: оси без инструкции).
+    "clones": (
+        "NO DUPLICATES: the motion must not introduce or reveal duplicate "
+        "copies of the same character; a single hero stays single."
+    ),
+    "character": (
+        "CHARACTER IDENTITY: keep the character exactly as in the source "
+        "image; do not morph face, clothes or body during motion."
+    ),
 }
 
 # Поле apply-ops для (kind, shot) — алиасы уже в db_apply.FIELD_ALIASES.
@@ -116,6 +127,14 @@ def _frame_nums_from_issue(body: str) -> set[int]:
         re.IGNORECASE,
     ):
         out.add(int(m.group(1)))
+    # Ревью этапа 4: канонические токены шаблона issues — f3 / f7s2 /
+    # video_sheet_003 / clip_003 (без них оси не доезжали до фикса).
+    for m in re.finditer(
+        r"\bf(\d{1,4})(?:s2)?\b|\b(?:video_sheet|clip)[_-]?(\d{1,4})",
+        body or "",
+        re.IGNORECASE,
+    ):
+        out.add(int(m.group(1) or m.group(2)))
     tok = normalize_frame_regen_token(body or "")
     if tok:
         out.add(int(tok["number"]))
@@ -322,13 +341,18 @@ def plan_vision_prompt_fixes(
             f"vision regen frame {num}" + ("s2" if shot == 2 else "")
         )
         hard = clone_hard or bool(info.get("clone"))
+        # scenes: clones/character закрыты спец-билдерами — generic-строки
+        # этих осей не дублируем; для videos они единственная инструкция.
+        axes_for_block = (
+            axes - {"clones", "character"} if kind == "scenes" else axes
+        )
         fix = _fix_block(
             must=sorted(must) if kind == "scenes" else [],
             forbid_clones=kind == "scenes",
             char_rows=char_rows,
             reason=reason,
             clone_hard=hard and kind == "scenes",
-            axes=sorted(axes),
+            axes=sorted(axes_for_block),
         )
         base = base_prompt_for(fr, kind, shot)
         new_prompt = merge_prompt_with_fix(base, fix)
@@ -383,7 +407,10 @@ def plan_hero_vision_fixes(reply: str, hero_ids: list[str]) -> dict[str, str]:
             char_rows=[],
             reason="; ".join(reasons),
             clone_hard=clone,
-            axes=sorted(axes),
+            # clones закрывает NO CLONES-билдер; generic character-строка
+            # (про motion) для hero-референса нерелевантна — issue уходит
+            # текстом в Reason.
+            axes=sorted(axes - {"clones", "character"}),
         )
     return out
 
