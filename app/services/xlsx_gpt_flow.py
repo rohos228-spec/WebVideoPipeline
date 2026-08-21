@@ -31,6 +31,7 @@ async def telegram_style_ask_with_files(
     *,
     timeout: float = XLSX_GPT_TIMEOUT_S,
     project_id: int | None = None,
+    response_schema: object | None = None,
 ) -> str:
     """API: ask_with_files (как раньше bot.py через CDP)."""
     from app.services.gpt_client import get_gpt_client
@@ -55,6 +56,7 @@ async def telegram_style_ask_with_files(
         timeout=timeout,
         project_id=project_id,
         expect_file_download=False,
+        response_schema=response_schema,
     )
     logger.info("xlsx-gpt-flow/api: GPT reply len={}", len(reply or ""))
     return reply

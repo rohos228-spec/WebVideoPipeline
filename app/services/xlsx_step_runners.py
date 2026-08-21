@@ -210,6 +210,9 @@ class XlsxRoundtripResult:
     apply_ops: list[dict] | None = None
     # True = ops уже записаны в DB по батчам внутри runner (не apply повторно).
     ops_applied_inline: bool = False
+    # Этап 5: результат получен локальным fallback БЕЗ LLM (спека «Запрет
+    # тихого частичного успеха» — деградация только с явным маркером).
+    degraded_no_llm: bool = False
 
 
 def _ts() -> str:
@@ -505,24 +508,58 @@ async def run_split_xlsx(
         len(chat_msg),
     )
 
-    async def _gpt() -> str:
-        return await xgf.telegram_style_ask_with_files(
-            chat_msg,
-            [prompt_file, voiceover],
-            project_id=project_id or project.id,
-        )
+    # Этап 5 (C.2): контрактная политика вместо «extract → RuntimeError».
+    # Repair получает текст ошибки; тихая подмена локальной разбивкой убрана —
+    # деградация только явная, с маркером degraded_no_llm (спека).
+    from app.contracts import FRAME_SPLIT, LlmContractError
+    from app.contracts.policy import run_with_contract
 
-    reply = await xgf.run_under_xlsx_lock(project.id, "split", _gpt)
-    frames_spec = extract_frames_spec_from_gpt_reply(reply, voiceover_path=voiceover)
-    if len(frames_spec) < 2:
-        raise RuntimeError(
-            "GPT не вернул разбивку в apply-ops replace_frames "
-            f"(кадров={len(frames_spec)}). Нужен JSON "
-            '{"ops":[{"target":"replace_frames","frames":[...]}]}'
-        )
+    async def _call(feedback: str | None) -> str:
+        msg = chat_msg if not feedback else f"{chat_msg}\n\n{feedback}"
 
-    # GPT as-is → DB (≥2 кадров). Лимиты символов — только в prompt settings.
-    logger.info("split_db: кадров из GPT/fallback={}", len(frames_spec))
+        async def _gpt() -> str:
+            return await xgf.telegram_style_ask_with_files(
+                msg,
+                [prompt_file, voiceover],
+                project_id=project_id or project.id,
+                response_schema=FRAME_SPLIT.response_schema(),
+            )
+
+        return await xgf.run_under_xlsx_lock(project.id, "split", _gpt)
+
+    degraded = False
+    try:
+        policy_res = await run_with_contract(
+            contract=FRAME_SPLIT,
+            call=_call,
+            reject_dir=project.data_dir / "llm_rejects",
+            label="split",
+        )
+        reply = policy_res.reply_text
+        frames_spec = [
+            item.model_dump(exclude_none=True)
+            for item in policy_res.payload.frames
+        ]
+    except LlmContractError as e:
+        blocks = split_voiceover_locally(
+            voiceover.read_text(encoding="utf-8", errors="replace")
+        )
+        blocks = [b.strip() for b in blocks if b.strip()]
+        if len(blocks) < 2:
+            raise
+        degraded = True
+        logger.warning(
+            "split_db: LLM-разбивка не прошла контракт ({}) — деградация "
+            "split_voiceover_locally, кадров={}, маркер degraded_no_llm",
+            str(e)[:200],
+            len(blocks),
+        )
+        reply = f"[degraded_no_llm] {e}"
+        frames_spec = [{"закадр": b} for b in blocks]
+
+    logger.info(
+        "split_db: кадров={} degraded_no_llm={}", len(frames_spec), degraded
+    )
     return XlsxRoundtripResult(
         reply_text=reply,
         downloaded_path=proj_xlsx,
@@ -530,6 +567,7 @@ async def run_split_xlsx(
         backup_path=None,
         frames_spec=frames_spec,
         apply_ops=[{"target": "replace_frames", "frames": frames_spec}],
+        degraded_no_llm=degraded,
     )
 
 

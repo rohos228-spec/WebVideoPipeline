@@ -36,6 +36,17 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
         return
 
     result = await xsr.run_split_xlsx(project)
+    if result.degraded_no_llm:
+        # Спека этапа 5: деградация без LLM — только с явным маркером и
+        # предупреждением оператору (harness-гейт вправе не пропустить).
+        logger.warning(
+            "[#{}] split_frames: РАЗБИВКА БЕЗ LLM (локальная эвристика) — "
+            "маркер degraded_no_llm в project.meta",
+            project.id,
+        )
+        meta = dict(project.meta or {})
+        meta["split_degraded_no_llm"] = True
+        project.meta = meta
     ops = list(result.apply_ops or [])
     if not ops and result.frames_spec:
         ops = [{"target": "replace_frames", "frames": result.frames_spec}]
@@ -115,6 +126,8 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
         "scene_registry",
     ):
         meta.pop(key, None)
+    if not result.degraded_no_llm:
+        meta.pop("split_degraded_no_llm", None)
     meta["split_completed"] = True
     from app.services.node_step_params import split_params_fingerprint
 
