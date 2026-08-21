@@ -345,6 +345,13 @@ async def _run_operator_api_real(
             for p in chat_paths
             if p.suffix.lower() not in {".xlsx", ".xlsm", ".xls"}
         ] or chat_paths
+    # Контракт apply-ops (этап 5): схема в response_format на главном вызове
+    # project_file-ветки; check-ветки мигрируются отдельно (C.5).
+    apply_ops_contract = None
+    if effective_output == "project_file" and not is_check:
+        from app.contracts import APPLY_OPS
+
+        apply_ops_contract = APPLY_OPS
     result = await chat(
         prompt=prompt_for_model,
         accompanying=accomp,
@@ -352,6 +359,9 @@ async def _run_operator_api_real(
         temperature=0.0 if is_check else None,
         xlsx_write_contract=xlsx_contract,
         auto_pack=auto_pack,
+        response_schema=(
+            apply_ops_contract.response_schema() if apply_ops_contract else None
+        ),
     )
     reply_text = result.text
 
@@ -389,11 +399,10 @@ async def _run_operator_api_real(
 
             result = SimpleNamespace(text=reply_text)
 
-    # DB SoT: project_file / check DB → apply-ops JSON.
+    # DB SoT: check DB → apply-ops JSON (project_file-ветка — ниже, через
+    # контрактную политику repair-retry).
     apply_ops: dict | None = None
-    if (effective_output == "project_file" and not is_check) or (
-        check_mode and check_fix and db_sot_check
-    ):
+    if check_mode and check_fix and db_sot_check:
         from app.services.db_apply import extract_apply_ops_json
 
         apply_ops = extract_apply_ops_json(reply_text or "")
@@ -509,103 +518,95 @@ async def _run_operator_api_real(
             analysis, mode=mode, source_prompts=source_keys
         )
 
-    # project_file (не check): только apply-ops. Без TSV-fallback — иначе
-    # модель пишет Excel-диалект, а enrich_xlsx его отвергает.
-    if effective_output == "project_file" and not is_check and apply_ops is None:
+    # project_file (не check): только apply-ops — контрактная политика
+    # repair-retry (этап 5, C.1). Первая попытка политики = уже полученный
+    # ответ (без нового вызова); repair — повтор с фидбеком ошибки и схемой.
+    # Salvage из pre-retry убран сознательно: частичный JSON без добора =
+    # тихая потеря (спека «Запрет тихого частичного успеха»).
+    if effective_output == "project_file" and not is_check:
         from dataclasses import replace
 
-        from app.services.db_apply import extract_apply_ops_json
+        from app.contracts import APPLY_OPS, extract_json_payload
+        from app.contracts.policy import run_with_contract
 
-        # Первый ответ часто почти верный, но extract не взял (обрезанный JSON).
-        # Сохраняем до overwrite — иначе диагностика «модель же ответила» теряется.
-        pre_retry_text = reply_text or ""
-        pre_retry_path = out_dir / "gpt_reply_pre_retry.txt"
-        try:
-            pre_retry_path.write_text(pre_retry_text, encoding="utf-8")
-            output_paths.append(pre_retry_path)
-            logger.warning(
-                "gpt_operator/api: project_file без apply-ops node={} — "
-                "JSON retry; pre-retry reply chars={} → {}",
-                node_key,
-                len(pre_retry_text),
-                pre_retry_path.name,
-            )
-        except OSError as e:
-            logger.warning(
-                "gpt_operator/api: не сохранил pre-retry reply node={}: {}",
-                node_key,
-                e,
-            )
-            logger.warning(
-                "gpt_operator/api: project_file без apply-ops node={} — JSON retry",
-                node_key,
-            )
-        retry_prompt = (
-            f"{prompt_for_model}\n\n"
-            "# КОНТРАКТ ЗАПИСИ В БАЗУ (повтор, обязателен)\n"
-            "Предыдущий ответ ОТКЛОНЁН. Нужен JSON apply-ops с данными.\n"
-            "Источник: db_frames.json + закадр во вложении/accompanying. "
-            "Пайплайн запишет JSON в DB сам.\n"
-            "Верни ТОЛЬКО один JSON-объект с непустыми полями:\n"
-            '{"characters":[...],"scenes":[...],"ops":[...],"report":"..."}\n'
-            "или минимум:\n"
-            '{"ops":[{"frame_uuid":"<uuid>","fields":{"место":"…"}}]}\n'
-            "Без markdown, без TSV, без поля error, без просьб о вложениях."
-        )
+        first_reply = reply_text or ""
+        state = {"first_used": False}
         # Retry без xlsx — иначе модель снова упирается в «нет файла».
         retry_paths = [
             p
             for p in input_paths
             if p.suffix.lower() not in {".xlsx", ".xlsm", ".xls"}
         ]
-        retry = await chat(
-            prompt=retry_prompt,
-            accompanying=accomp,
-            input_paths=retry_paths or list(input_paths),
-            temperature=0.0,
-            xlsx_write_contract="apply_ops",
-            auto_pack=auto_pack,
+
+        async def _call(feedback: str | None) -> str:
+            if not state["first_used"]:
+                state["first_used"] = True
+                return first_reply
+            retry_prompt = (
+                f"{prompt_for_model}\n\n"
+                "# КОНТРАКТ ЗАПИСИ В БАЗУ (повтор, обязателен)\n"
+                "Предыдущий ответ ОТКЛОНЁН. Нужен JSON apply-ops с данными.\n"
+                "Источник: db_frames.json + закадр во вложении/accompanying. "
+                "Пайплайн запишет JSON в DB сам.\n"
+                "Верни ТОЛЬКО один JSON-объект с непустыми полями:\n"
+                '{"characters":[...],"scenes":[...],"ops":[...],"report":"..."}\n'
+                "или минимум:\n"
+                '{"ops":[{"frame_uuid":"<uuid>","fields":{"место":"…"}}]}\n'
+                "Без markdown, без TSV, без поля error, без просьб о вложениях."
+            )
+            if feedback:
+                retry_prompt = f"{retry_prompt}\n\n{feedback}"
+            retry = await chat(
+                prompt=retry_prompt,
+                accompanying=accomp,
+                input_paths=retry_paths or list(input_paths),
+                temperature=0.0,
+                xlsx_write_contract="apply_ops",
+                auto_pack=auto_pack,
+                response_schema=APPLY_OPS.response_schema(),
+            )
+            return retry.text or ""
+
+        policy_res = await run_with_contract(
+            contract=APPLY_OPS,
+            call=_call,
+            reject_dir=project_dir / "llm_rejects",
+            label=f"apply_ops_{node_key}",
         )
-        reply_text = retry.text or ""
-        try:
-            result = replace(result, text=reply_text)
-        except TypeError:
-            # тесты / моки могут отдавать SimpleNamespace, не dataclass
-            from types import SimpleNamespace
-
-            result = SimpleNamespace(text=reply_text)
-        apply_ops = extract_apply_ops_json(reply_text or "")
-        if apply_ops is not None and not _apply_ops_has_payload(apply_ops):
-            apply_ops = None
-        # Retry тоже пуст — последний шанс: salvage из pre-retry (частичные ops).
-        if apply_ops is None and pre_retry_text:
-            apply_ops = extract_apply_ops_json(pre_retry_text)
-            if apply_ops is not None and not _apply_ops_has_payload(apply_ops):
-                apply_ops = None
-            elif apply_ops is not None:
+        # Наверх — сырой parsed dict (алиасы как прислала модель):
+        # канонизация остаётся в db_apply.normalize_fields, как до миграции.
+        apply_ops = extract_json_payload(policy_res.reply_text)
+        apply_ops.pop("_salvaged_partial", None)
+        if policy_res.repairs:
+            # Диагностика «модель же ответила»: первый (отклонённый) ответ.
+            pre_retry_path = out_dir / "gpt_reply_pre_retry.txt"
+            try:
+                pre_retry_path.write_text(first_reply, encoding="utf-8")
+                output_paths.append(pre_retry_path)
+            except OSError as e:
                 logger.warning(
-                    "gpt_operator/api: node={} — apply-ops из pre-retry salvage "
-                    "(ops={})",
+                    "gpt_operator/api: не сохранил pre-retry reply node={}: {}",
                     node_key,
-                    len(apply_ops.get("ops") or []),
+                    e,
                 )
-                reply_text = pre_retry_text
-                try:
-                    result = replace(result, text=reply_text)
-                except TypeError:
-                    from types import SimpleNamespace
+            reply_text = policy_res.reply_text
+            try:
+                result = replace(result, text=reply_text)
+            except TypeError:
+                # тесты / моки могут отдавать SimpleNamespace, не dataclass
+                from types import SimpleNamespace
 
-                    result = SimpleNamespace(text=reply_text)
-        if apply_ops is None:
-            logger.warning(
-                "gpt_operator/api: project_file всё ещё без apply-ops node={}",
-                node_key,
-            )
-            raise RuntimeError(
-                "project_file: модель не вернула apply-ops JSON "
-                '{"ops":[…]} / {"characters":[…]} / {"scenes":[…]}. '
-                "TSV `# Лист:` и отказ «нет xlsx» больше не принимаются."
-            )
+                result = SimpleNamespace(text=reply_text)
+        logger.info(
+            "gpt_operator/api: node={} — apply-ops JSON (ops={}, characters={}, "
+            "scenes={}), attempts={} repairs={}",
+            node_key,
+            len(apply_ops.get("ops") or []),
+            len(apply_ops.get("characters") or []),
+            len(apply_ops.get("scenes") or []),
+            policy_res.attempts,
+            policy_res.repairs,
+        )
 
     if effective_output == "sidecar":
         sidecar = out_dir / "operator_transform.txt"

@@ -139,6 +139,10 @@ async def test_project_file_empty_ops_refusal_retries(tmp_path, monkeypatch) -> 
 
 @pytest.mark.asyncio
 async def test_project_file_without_apply_ops_fails(tmp_path, monkeypatch) -> None:
+    """Этап 5: исчерпание repair-лимита = LlmContractError (fail-closed),
+    отклонённые ответы — на диске в llm_rejects/."""
+    from app.contracts import LlmContractError
+
     wb = Workbook()
     ws = wb.active
     ws.title = "план"
@@ -153,7 +157,7 @@ async def test_project_file_without_apply_ops_fails(tmp_path, monkeypatch) -> No
     monkeypatch.setattr("app.services.gpt_api.chat", fake_chat)
     monkeypatch.setattr("app.services.gpt_api.collect_result_urls", lambda text: [])
 
-    with pytest.raises(RuntimeError, match="apply-ops JSON"):
+    with pytest.raises(LlmContractError, match="repair-лимит исчерпан"):
         await goc.run_operator_api(
             project_dir=tmp_path,
             node_key="n_excel_gpt_1",
@@ -163,6 +167,8 @@ async def test_project_file_without_apply_ops_fails(tmp_path, monkeypatch) -> No
             accompanying="",
             input_paths=[tmp_path / "project.xlsx"],
         )
+    rejects = list((tmp_path / "llm_rejects").glob("*.txt"))
+    assert rejects, "отклонённые ответы должны лежать на диске"
 
 
 @pytest.mark.asyncio
