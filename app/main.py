@@ -297,28 +297,11 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
     # ВАЖНО: список должен содержать ВСЕ running-статусы из ProjectStatus,
     # иначе воркер не подхватит шаг и юзер увидит «бесконечно выполняется».
     # Маппинг running-статус → handler смотри в `pipeline.advance_project`.
-    active = [
-        ProjectStatus.planning,
-            ProjectStatus.scripting,
-            ProjectStatus.splitting,
-            ProjectStatus.scene_designing,
-            ProjectStatus.scene_assembling,
-            ProjectStatus.generating_hero,
-        ProjectStatus.generating_items,
-        ProjectStatus.enriching_1,
-        ProjectStatus.enriching_2,
-        ProjectStatus.enriching_3,
-        ProjectStatus.enriching_4,
-        ProjectStatus.enriching_5,
-        ProjectStatus.generating_image_prompts,
-        ProjectStatus.generating_images,
-        ProjectStatus.generating_animation_prompts,
-        ProjectStatus.generating_videos,
-        ProjectStatus.generating_music,
-        ProjectStatus.generating_audio,
-        ProjectStatus.assembling,
-        ProjectStatus.publishing,
-    ]
+    # Этап 2 (F.2): SoT — node_registry.WORKER_ACTIVE_STATUSES (включая
+    # sfx-статусы, потерянные прежним локальным списком, §9#1).
+    from app.orchestrator.node_registry import WORKER_ACTIVE_STATUSES
+
+    active = list(WORKER_ACTIVE_STATUSES)
     from app.services.mass_pause import is_active as _mass_pause_active
     from app.services.step_cancel import active_advance_count, is_stop_requested
     from app.telegram.bot import notify_step_done

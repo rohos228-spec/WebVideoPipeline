@@ -148,6 +148,11 @@ RUNNING_TO_NODE_TYPE[ProjectStatus.scene_designing] = "sd_agent"
 RUNNING_TO_NODE_TYPE[ProjectStatus.scene_assembling] = "sd_assemble"
 READY_TO_NODE_TYPE[ProjectStatus.scene_agents_ready] = "sd_agent"
 READY_TO_NODE_TYPE[ProjectStatus.scene_design_ready] = "sd_assemble"
+# Этап 2 (F.2): единый SoT списка running-статусов для poll-воркера.
+# Содержит ВСЕ running-статусы реестра нод — включая sfx_planning /
+# generating_sfx, потерянные в прежнем списке main.py (§9#1 карты).
+WORKER_ACTIVE_STATUSES: tuple[ProjectStatus, ...] = tuple(RUNNING_TO_NODE_TYPE)
+
 NODE_TYPE_TO_RUNNING: dict[str, ProjectStatus] = {
     s.node_type: s.running_status for s in WORK_NODES.values()
 }
