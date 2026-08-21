@@ -1751,6 +1751,45 @@ async def _generate_and_send(
         await session.commit()
         return
 
+    # Этап 4 (C.4): дешёвая проба принятого PNG ДО Artifact — битый/чёрный/
+    # чужой-aspect файл не принимается; файл в stale/ (иначе «диск = истина»
+    # скипнет кадр и брак примется recovery), кадр failed → retry-политика.
+    from app.services.media_probe import (
+        MediaProbeError,
+        probe_image as _probe_accept_image,
+        stash_rejected_file,
+    )
+
+    try:
+        await _probe_accept_image(
+            result.file_path,
+            expect_aspect=(project.aspect_ratio or None),
+        )
+    except MediaProbeError as pe:
+        logger.warning(
+            "[#{}] frame {}: приёмка отклонила PNG — {} ({})",
+            project.id,
+            frame.number,
+            pe.reason,
+            pe,
+        )
+        stash_rejected_file(result.file_path)
+        frame.status = FrameStatus.failed
+        if is_shot2:
+            attrs = dict(frame.attrs or {})
+            attrs[SHOT2_STATUS_ATTR] = "failed"
+            frame.attrs = attrs
+        try:
+            sheet.write_frame(
+                frame.number,
+                frame_status=frame.status.value,
+                last_error=f"{pe.reason}: {pe}"[:1500],
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        await session.commit()
+        return
+
     art = Artifact(
         project_id=project.id,
         frame_id=frame.id,

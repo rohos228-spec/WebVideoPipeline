@@ -788,6 +788,28 @@ async def _await_background_tasks(tasks: list[asyncio.Task]) -> None:
 
 async def _startup_maintenance() -> None:
     """Тяжёлая инициализация в фоне — не блокирует /api/health."""
+    # Этап 4 (H.1, §9#19): промпты контуров К2 (auto_review) и К3
+    # (gpt_verdict_review) живут под .gitignore — на чистом клоне контуры
+    # молча мертвы. Не чиним (вне сметы), но делаем видимым.
+    try:
+        from app.project_root import find_project_root
+
+        _proots = find_project_root() / "prompts"
+        _missing = [
+            d
+            for d in ("check_plan", "check_script", "check_hero",
+                      "check_images", "check_videos", "check_final")
+            if not (_proots / d).is_dir()
+        ]
+        if _missing:
+            logger.warning(
+                "prompts/: нет каталогов {} — контуры проверок К2/К3 "
+                "(auto_review / verdict-review) не будут работать "
+                "(промпты вне git, чистый клон)",
+                _missing,
+            )
+    except Exception:  # noqa: BLE001
+        pass
     try:
         # Safe recover: aside backup (LOCALAPPDATA/TEMP) + studio git stash → prompts/.
         # Idempotent; does not clobber non-stock local edits. No data/ overlay.

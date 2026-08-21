@@ -517,6 +517,20 @@ async def synthesize_per_frame_audio(
         project_id=project.id,
     )
 
+    # Этап 4 (C.4): озвучка известного текста не бывает тишиной — тихий/
+    # битый файл от TTS отбраковывается ДО whisper/нарезки (файл в stale/).
+    from app.services.media_probe import (
+        MediaProbeError,
+        probe_audio_silence,
+        stash_rejected_file,
+    )
+
+    try:
+        await probe_audio_silence(full_path)
+    except MediaProbeError as pe:
+        stash_rejected_file(full_path)
+        raise RuntimeError(f"{pe.reason}: {pe}") from pe
+
     master = await probe_duration(full_path)
     words = transcribe_words(
         full_path,

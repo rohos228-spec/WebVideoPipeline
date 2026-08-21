@@ -88,6 +88,89 @@ _CHARACTER_REGISTRY_PROMPT_MARKERS = (
 )
 
 
+def _is_image_or_video_input(path: Path) -> bool:
+    from app.services.gpt_api import is_image_path
+    from app.services.video_sheet import is_video_path
+
+    return is_image_path(path) or is_video_path(path)
+
+
+def _synthetic_probe_fail_result(
+    project: Project,
+    node_key: str | None,
+    probe_bad: list[dict[str, str]],
+    *,
+    source_prompt_keys: list[str] | None = None,
+):
+    """Этап 4 (C.3): fail-отчёт без vision-вызова — все файлы отбракованы.
+
+    Пишет gpt_reply_raw.txt / analysis.json / check_report.txt в
+    upload_dir ноды (петля читает raw) и возвращает OperatorApiResult,
+    совместимый с обычным путём run_operator_api.
+    """
+    from app.services.check_analysis import (
+        parse_check_analysis,
+        write_analysis_json,
+        write_check_report_txt,
+    )
+    from app.services.excel_gpt_node import upload_dir
+    from app.services.gpt_operator_client import OperatorApiResult
+
+    lines = [
+        f"- [critical] {t['token']}: (quality) {t.get('reason') or 'media_probe'}"
+        for t in probe_bad
+        if t.get("token")
+    ]
+    issues = "\n".join(lines) or "- [critical] media_probe: битые входные файлы"
+    reply = (
+        "# ОТЧЁТ ПРОВЕРКИ\n"
+        "verdict: fail\n"
+        "mode: report_only\n"
+        "source_prompts: media_probe\n"
+        "\n## summary\n"
+        "media_probe: все входные файлы отбракованы дешёвыми пробами — "
+        "vision-вызов не выполнялся.\n"
+        "\n## analysis\n"
+        "ffprobe/PIL пре-чеки (битый файл / нулевая длительность / aspect / "
+        "чёрный кадр) до платного LLM-vision.\n"
+        "\n## findings\n"
+        f"{issues}\n"
+        "\n## related\n—\n"
+        "\n## logic\n—\n"
+        "\n## actions\nregen отбракованных файлов\n"
+        "\n## forward\nfile: original\npath: —\n"
+        "\n## scores\noverall: 0.0\n"
+        "\n## issues\n"
+        f"{issues}\n"
+    )
+    out_dir = upload_dir(project, node_key)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "gpt_reply_raw.txt").write_text(reply, encoding="utf-8")
+    analysis = parse_check_analysis(reply)
+    output_paths = [
+        write_analysis_json(out_dir, analysis),
+        write_check_report_txt(
+            out_dir,
+            analysis,
+            mode="report_only",
+            source_prompts=source_prompt_keys,
+        ),
+    ]
+    logger.warning(
+        "[#{}] enrich_xlsx node={!r}: synthetic media_probe fail-отчёт "
+        "({} целей, vision-вызова не было)",
+        project.id,
+        node_key,
+        len(probe_bad),
+    )
+    return OperatorApiResult(
+        reply_text=reply,
+        output_paths=output_paths,
+        gate_status=analysis.verdict,
+        analysis=analysis,
+    )
+
+
 def _is_scene_grammar_prompt(variant: str | None, master: str | None) -> bool:
     blob = f"{variant or ''}\n{(master or '')[:400]}".casefold()
     return any(m in blob for m in _SCENE_GRAMMAR_PROMPT_MARKERS)
@@ -725,11 +808,13 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 [p.name for p in data_paths],
             )
 
+        probe_bad_targets: list[dict[str, str]] = []
         if check_mode and node_key:
             from app.services.vision_check_db import build_vision_db_snapshot
             from app.services.vision_check_loop import (
                 filter_image_paths_for_recheck,
                 get_vision_kind,
+                preflight_media_for_check,
             )
 
             data_paths = filter_image_paths_for_recheck(project, data_paths)
@@ -745,6 +830,22 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         kind_hint = "scenes"
                     elif up in ("videos", "hitl_videos", "animation_prompts"):
                         kind_hint = "videos"
+                # Этап 4 (C.3): дешёвые пробы ДО платного vision — брак
+                # (битый mp4, чёрный PNG) исключается из входа, цели с
+                # причиной media_probe:* уходят в regen (mp4 пробуем ДО
+                # нарезки в стиллы, §5.3 карты).
+                data_paths, probe_bad_targets = await preflight_media_for_check(
+                    project, data_paths, kind_hint
+                )
+                if probe_bad_targets:
+                    logger.warning(
+                        "[#{}] enrich_xlsx node={!r}: media_probe отбраковал "
+                        "{} файлов до vision: {}",
+                        project.id,
+                        node_key,
+                        len(probe_bad_targets),
+                        [t["token"] for t in probe_bad_targets],
+                    )
                 # videos/*.mp4 → сетка 3×2 (6 stills) для GPT vision
                 if kind_hint == "videos" or up in (
                     "videos",
@@ -990,7 +1091,19 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             from app.services.check_streams import get_check_streams
 
             check_streams_n = get_check_streams(project)
-        if scene_grammar and output_mode == "project_file" and not check_mode:
+        if check_mode and probe_bad_targets and not any(
+            _p.is_file() and _is_image_or_video_input(_p) for _p in data_paths
+        ):
+            # Этап 4 (C.3, сценарий «все файлы битые»): платный vision-вызов
+            # не выполняется вовсе — синтезируем fail-отчёт с целями
+            # media_probe:*, дальше обычный путь regen-петли.
+            api_res = _synthetic_probe_fail_result(
+                project,
+                node_key,
+                probe_bad_targets,
+                source_prompt_keys=source_prompt_keys,
+            )
+        elif scene_grammar and output_mode == "project_file" and not check_mode:
             from app.services.scene_grammar_batches import run_scene_grammar_batched
 
             logger.info(

@@ -467,6 +467,33 @@ async def _claim_shot2_video_batch(
     return claimed
 
 
+async def _accept_video_or_raise(project: Project, fr: Frame, clip: Path) -> None:
+    """Этап 4 (C.4): проба mp4 ДО Artifact — брак не принимается.
+
+    Отклонённый файл — в stale/ (не остаётся «истиной на диске»);
+    исключение уходит в существующий счёт видео-фейлов кадра (лестница
+    Veo→Kling / video_gen_skip).
+    """
+    from app.services.media_probe import (
+        MediaProbeError,
+        probe_video,
+        stash_rejected_file,
+    )
+
+    try:
+        await probe_video(clip, expect_aspect=(project.aspect_ratio or None))
+    except MediaProbeError as pe:
+        logger.warning(
+            "[#{}] frame {}: приёмка отклонила клип — {} ({})",
+            project.id,
+            fr.number,
+            pe.reason,
+            pe,
+        )
+        stash_rejected_file(clip)
+        raise RuntimeError(f"{pe.reason}: {pe}") from pe
+
+
 async def _generate_shot1_one(
     *,
     session: AsyncSession,
@@ -505,6 +532,7 @@ async def _generate_shot1_one(
         prompt_id_prefix=build_gen_id_prefix(project.id, fr.number, short_uuid),
         duplicate_check_paths=dups,
     )
+    await _accept_video_or_raise(project, fr, Path(result.file_path))
     session.add(
         Artifact(
             project_id=project.id,
@@ -573,6 +601,7 @@ async def _generate_shot2_one(
         + "-S2",
         duplicate_check_paths=dups,
     )
+    await _accept_video_or_raise(project, fr, Path(result.file_path))
     session.add(
         Artifact(
             project_id=project.id,

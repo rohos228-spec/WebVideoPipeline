@@ -45,6 +45,9 @@ META_NOOP_REGEN = "vision_noop_regen"
 # оператора (vision-decision).
 META_ROUNDS_TOTAL = "vision_rounds_total"
 META_PAUSE_REASON = "pause_reason"
+# Этап 4 (C.3): цели регенерации от дешёвых проб (до/вместо vision):
+# list[{token, reason}] — потребляются maybe_start_… и вливаются в regen.
+META_PROBE_REGEN = "media_probe_regen"
 
 # Совместимость с hero_check_regen / generate_hero
 META_HERO_IDS = "hero_check_regen_ids"
@@ -219,6 +222,7 @@ def clear_vision_check_meta(project: Project) -> None:
         META_HERO_RETURN,
         META_HERO_FIX,
         META_PROMPT_SNAP,
+        META_PROBE_REGEN,
     ):
         if key in meta:
             meta.pop(key, None)
@@ -640,6 +644,21 @@ async def maybe_start_vision_check_loop_after_check(
         else:
             gate = resolved
 
+    # Этап 4 (C.3): отбраковка дешёвых проб — regen независимо от гейта
+    # (vision битые файлы не видел: они исключены из его входа).
+    probe_frames, probe_heroes, probe_reasons = probe_targets_from_meta(
+        project, kind
+    )
+    if (probe_frames or probe_heroes) and gate == "pass":
+        logger.warning(
+            "[#{}] vision_check_loop: media_probe цели на {} ({}) — "
+            "гейт pass переопределён в fail",
+            project.id,
+            key,
+            probe_reasons,
+        )
+        gate = "fail"
+
     if gate == "pass":
         # Этап 4 (D.2): [ok] фиксируется в passed только из
         # непротиворечивого pass-гейта (ниже петля при полном pass всё
@@ -675,6 +694,19 @@ async def maybe_start_vision_check_loop_after_check(
     frame_tgts = (
         extract_critical_frame_regen_targets(reply) if kind in _FRAME_KINDS else []
     )
+    # Этап 4 (C.3): цели проб вливаются тем же механизмом, что critical.
+    if probe_frames:
+        have_keys = {
+            (int(t["number"]), int(t.get("shot") or 1)) for t in frame_tgts
+        }
+        for t in probe_frames:
+            k = (int(t["number"]), int(t["shot"]))
+            if k not in have_keys:
+                have_keys.add(k)
+                frame_tgts.append(t)
+    for cid in probe_heroes:
+        if cid not in hero_ids:
+            hero_ids.append(cid)
     patch = extract_db_patch(reply)
 
     # Scores/severity: auto-regen при critical. Если цикл уже идёт, а critical
@@ -868,6 +900,8 @@ async def maybe_start_vision_check_loop_after_check(
     meta[META_RETURN] = key
     meta[META_KIND] = kind
     meta[META_ROUND] = round_n
+    # Этап 4 (C.3): probe-цели потреблены (влиты в regen этого круга).
+    meta[META_PROBE_REGEN] = []
     if kind == "hero":
         meta[META_HERO_IDS] = hero_ids
         meta[META_HERO_ROUND] = round_n
@@ -1088,6 +1122,101 @@ def mark_ok_tokens_from_reply(project: Project, reply: str) -> None:
         len(passed) - before,
         len(passed),
     )
+
+
+async def preflight_media_for_check(
+    project: Project,
+    paths: list[Path],
+    kind: VisionKind | None,
+) -> tuple[list[Path], list[dict[str, str]]]:
+    """Этап 4 (C.3): дешёвые пробы входных файлов ДО платного vision.
+
+    Возвращает (годные пути, отбраковка [{token, reason}]). Брак исключён
+    из vision-входа; цели записаны в ``meta[META_PROBE_REGEN]`` — их
+    вольёт в regen ``maybe_start_vision_check_loop_after_check``.
+    Не-медиа вложения (xlsx/txt/json) проходят без проверки.
+    """
+    from app.services.gpt_api import is_image_path
+    from app.services.media_probe import (
+        MediaProbeError,
+        probe_image,
+        probe_video,
+    )
+    from app.services.video_sheet import is_video_path
+
+    aspect = (getattr(project, "aspect_ratio", None) or "").strip() or None
+    ok_paths: list[Path] = []
+    bad: list[dict[str, str]] = []
+    for p in paths:
+        is_img = p.is_file() and is_image_path(p)
+        is_vid = is_video_path(p)
+        if not (is_img or is_vid):
+            ok_paths.append(p)
+            continue
+        tok = _parse_image_token(p)
+        try:
+            if is_vid:
+                await probe_video(p, expect_aspect=aspect)
+            else:
+                # hero-листы (turnaround 16:9) с проектным aspect не сверяем
+                await probe_image(
+                    p, expect_aspect=None if kind == "hero" else aspect
+                )
+            ok_paths.append(p)
+        except MediaProbeError as e:
+            if tok:
+                bad.append({"token": tok, "reason": e.reason})
+            logger.warning(
+                "[#{}] vision_check_loop: preflight отбраковал {} — {} ({})",
+                project.id,
+                p.name,
+                e.reason,
+                e,
+            )
+    if bad:
+        meta = dict(project.meta or {})
+        cur = [
+            t
+            for t in (meta.get(META_PROBE_REGEN) or [])
+            if isinstance(t, dict) and t.get("token")
+        ]
+        seen_toks = {str(t["token"]) for t in cur}
+        for t in bad:
+            if t["token"] not in seen_toks:
+                cur.append(t)
+                seen_toks.add(t["token"])
+        meta[META_PROBE_REGEN] = cur
+        project.meta = meta
+        try:
+            flag_modified(project, "meta")
+        except Exception:  # noqa: BLE001 — не-ORM объект (тесты/stub)
+            pass
+    return ok_paths, bad
+
+
+def probe_targets_from_meta(
+    project: Project, kind: VisionKind | None
+) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+    """Цели из META_PROBE_REGEN: (frame_targets, hero_cids, reasons)."""
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    frame_tgts: list[dict[str, Any]] = []
+    hero_ids: list[str] = []
+    reasons: list[str] = []
+    for t in meta.get(META_PROBE_REGEN) or []:
+        if not isinstance(t, dict):
+            continue
+        tok = str(t.get("token") or "").strip().lower()
+        if not tok:
+            continue
+        reasons.append(f"{tok}: {t.get('reason') or 'media_probe'}")
+        m = re.match(r"^f(\d{1,4})(s2)?$", tok)
+        if m and kind in _FRAME_KINDS:
+            frame_tgts.append(
+                {"number": int(m.group(1)), "shot": 2 if m.group(2) else 1}
+            )
+        elif tok.startswith("c") and kind == "hero":
+            hero_ids.append(tok)
+    return frame_tgts, hero_ids, reasons
 
 
 def _clear_vision_pause_state(project: Project, node_key: str) -> None:

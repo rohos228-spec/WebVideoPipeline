@@ -61,31 +61,6 @@ def find_shot2_video(videos_dir: Path, frame_number: int) -> Path | None:
     return candidates[0]
 
 
-async def _probe_duration_sec(video: Path) -> float:
-    proc = await asyncio.create_subprocess_exec(
-        "ffprobe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
-        str(video),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _stderr = await proc.communicate()
-    if proc.returncode != 0:
-        return 8.0
-    try:
-        dur = float((stdout or b"").decode(errors="ignore").strip())
-    except ValueError:
-        return 8.0
-    if dur <= 0.05:
-        return 8.0
-    return dur
-
-
 def _sample_times(duration: float, n: int = FRAMES_PER_CLIP) -> list[float]:
     """Центры n равных долей хронометража [0, duration).
 
@@ -143,7 +118,11 @@ async def build_video_sheet(
     if num < 1:
         raise ValueError(f"build_video_sheet: не удалось взять номер из {video_path.name}")
 
-    dur = await _probe_duration_sec(video_path)
+    # Этап 4 (C.2, §9#10): единый media_probe.probe_duration; ошибка пробы
+    # = ошибка (битый клип не превращается в сетку «как будто 8 секунд»).
+    from app.services.media_probe import probe_duration
+
+    dur = await probe_duration(video_path)
     times = _sample_times(dur, FRAMES_PER_CLIP)
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"video_sheet_{num:03d}" + ("_s2" if sh == 2 else "")
