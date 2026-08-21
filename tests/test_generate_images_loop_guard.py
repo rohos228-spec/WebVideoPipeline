@@ -54,16 +54,14 @@ async def test_clear_stale_inflight_frees_stuck_frames(db_session, tmp_path) -> 
     scenes_dir = tmp_path / "scenes"
     scenes_dir.mkdir(parents=True, exist_ok=True)
 
-    # Prior to clearing, _claim_shot1_batch sees inflight and cannot claim
+    # Этап 2 (D.3): legacy-маркер INFLIGHT_ATTR больше не блокирует claim —
+    # двойное исполнение отсекает lease в _generate_frame_job. Застрявший
+    # маркер прерванного прогона не «замораживает» кадр навсегда.
     claimed = await _claim_shot1_batch(db_session, project.id, scenes_dir, limit=1)
-    assert len(claimed) == 0
+    assert len(claimed) == 1
+    assert claimed[0].number == 1
 
-    # Clear stale inflight
+    # Чистка legacy-маркеров по-прежнему работает (одноразовая гигиена).
     cleared_count = await _clear_stale_inflight(db_session, project.id)
     await db_session.commit()
     assert cleared_count == 1
-
-    # After clearing, _claim_shot1_batch successfully claims the frame!
-    claimed_after = await _claim_shot1_batch(db_session, project.id, scenes_dir, limit=1)
-    assert len(claimed_after) == 1
-    assert claimed_after[0].number == 1

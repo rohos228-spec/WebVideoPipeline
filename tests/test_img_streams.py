@@ -122,13 +122,10 @@ def test_claim_shot1_batch_marks_inflight(tmp_path: Path, monkeypatch: pytest.Mo
         lambda *_a, **_k: None,
     )
 
+    # Этап 2 (D.3): claim маркер INFLIGHT_ATTR больше не пишет — захват
+    # решает lease в _generate_frame_job (TTL/owner в БД).
     batch = asyncio.run(
         gi._claim_shot1_batch(_Sess(), 1, out, project=p, limit=2)
     )
     assert len(batch) == 2
-    assert all((f.attrs or {}).get(INFLIGHT_ATTR) for f in batch)
-
-    batch2 = asyncio.run(
-        gi._claim_shot1_batch(_Sess(), 1, out, project=p, limit=2)
-    )
-    assert batch2 == []
+    assert all(not (f.attrs or {}).get(INFLIGHT_ATTR) for f in batch)

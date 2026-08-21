@@ -1085,11 +1085,8 @@ async def _claim_shot1_batch(
                 continue
         if not frame_needs_shot1_image(fr, out_dir):
             continue
-        attrs = dict(fr.attrs or {})
-        if attrs.get(INFLIGHT_ATTR):
-            continue
-        attrs[INFLIGHT_ATTR] = True
-        fr.attrs = attrs
+        # Этап 2 (D.3): захват — lease в _generate_frame_job, маркер
+        # img_gen_inflight больше не пишется (legacy чистится в finally).
         if fr.status is not FrameStatus.image_prompt_ready:
             fr.status = FrameStatus.image_prompt_ready
         claimed.append(fr)
@@ -1127,12 +1124,9 @@ async def _claim_shot2_batch(
         attrs = dict(fr.attrs or {})
         if attrs.get(SHOT2_STATUS_ATTR) != "image_prompt_ready":
             continue
-        if attrs.get(INFLIGHT_ATTR):
-            continue
         if is_skippable_empty_prompt(attrs.get(SHOT2_PROMPT_ATTR) or ""):
             continue
-        attrs[INFLIGHT_ATTR] = True
-        fr.attrs = attrs
+        # Этап 2 (D.3): захват — lease в _generate_frame_job.
         claimed.append(fr)
         if len(claimed) >= limit:
             break
@@ -1154,36 +1148,53 @@ async def _generate_frame_job(
 ) -> None:
     """Один кадр в отдельной DB-сессии + слот провайдера (для streams>1)."""
     from app.db import SessionLocal
+    from app.services.work_lease import lease_unit
 
+    # Этап 2 (D.3): захват кадра — lease с TTL/owner в БД (замена
+    # img_gen_inflight): упавший процесс отдаёт кадр по TTL, два
+    # процесса/задачи не генерят дважды. Acquire — после слота провайдера
+    # (не жечь TTL в очереди), внутри задачи генерации (owner = задача).
     async with acquire_image_slot():
-        async with SessionLocal() as session:
-            project = await session.get(Project, project_id)
-            frame = await session.get(Frame, frame_id)
-            if project is None or frame is None:
-                return
-            try:
-                await _generate_and_send(
-                    session,
-                    bot,
-                    outsee,
-                    gpt,
-                    project,
-                    frame,
-                    out_dir,
-                    shot=shot,
-                    shot1_reference=shot1_reference,
+        async with lease_unit(
+            project_id, f"img:{frame_id}" + (":s2" if shot == 2 else "")
+        ) as got:
+            if not got:
+                logger.info(
+                    "[#{}] frame_id={} shot={}: занят живым lease — пропуск",
+                    project_id,
+                    frame_id,
+                    shot,
                 )
-            finally:
-                # _generate_and_send уже commit'ит; освежим и снимем lease
+                return
+            async with SessionLocal() as session:
+                project = await session.get(Project, project_id)
+                frame = await session.get(Frame, frame_id)
+                if project is None or frame is None:
+                    return
                 try:
-                    await session.refresh(frame)
-                except Exception:  # noqa: BLE001
-                    pass
-                _clear_inflight(frame)
-                try:
-                    await session.commit()
-                except Exception:  # noqa: BLE001
-                    pass
+                    await _generate_and_send(
+                        session,
+                        bot,
+                        outsee,
+                        gpt,
+                        project,
+                        frame,
+                        out_dir,
+                        shot=shot,
+                        shot1_reference=shot1_reference,
+                    )
+                finally:
+                    # _generate_and_send уже commit'ит; освежим и снимем
+                    # legacy-маркер (одноразовая чистка).
+                    try:
+                        await session.refresh(frame)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    _clear_inflight(frame)
+                    try:
+                        await session.commit()
+                    except Exception:  # noqa: BLE001
+                        pass
 
 
 async def _run_claimed_batch(

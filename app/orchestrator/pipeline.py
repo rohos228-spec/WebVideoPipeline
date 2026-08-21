@@ -97,6 +97,8 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
         register_advance_task(project.id, task)
     ran_status: ProjectStatus | None = None
     _step_lock_cm = None
+    _step_lease: tuple[str, str] | None = None
+    _lease_renewer: asyncio.Task | None = None
     try:
         abort_if_cancelled(project.id)
         status = project.status
@@ -113,6 +115,48 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
 
         _step_lock_cm = acquire_step_lock(step_code_from_status(status))
         await _step_lock_cm.__aenter__()
+
+        # Этап 2 (D.2a): step-level lease — БД-видимый признак «шаг живой»
+        # для ВСЕХ шагов (критерий осиротевшести реконсайлеров/startup_guard).
+        # Занят живым lease (другой процесс) → пропуск такта, не второй запуск.
+        from app.orchestrator.node_registry import (
+            NODE_TYPE_TO_STEP_CODE,
+            RUNNING_TO_NODE_TYPE,
+        )
+        from app.services import work_lease as _wl
+
+        _step_code = NODE_TYPE_TO_STEP_CODE.get(
+            RUNNING_TO_NODE_TYPE.get(status, ""), ""
+        )
+        if _step_code:
+            _lease_key = f"step:{_step_code}"
+            _lease_me = _wl.current_owner()
+            if not await _wl.acquire(
+                project.id, _lease_key, owner=_lease_me, ttl_s=3600
+            ):
+                logger.info(
+                    "[#{}] advance: {} занят живым step-lease (другой "
+                    "процесс) — пропуск такта",
+                    project.id,
+                    status.value,
+                )
+                return
+            _step_lease = (_lease_key, _lease_me)
+
+            async def _renew_loop() -> None:
+                while True:
+                    await asyncio.sleep(600)
+                    if not await _wl.renew(
+                        project.id, _lease_key, owner=_lease_me, ttl_s=3600
+                    ):
+                        logger.warning(
+                            "[#{}] advance: step-lease {} потерян",
+                            project.id,
+                            _lease_key,
+                        )
+                        return
+
+            _lease_renewer = asyncio.create_task(_renew_loop())
 
         # UI SSoT: NodeRun → running, иначе на ноде нет «в работе».
         try:
@@ -188,6 +232,17 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
         if ran_status is not None:
             await _sync_storage_after_advance(session, project, ran_status)
     finally:
+        if _lease_renewer is not None:
+            _lease_renewer.cancel()
+        if _step_lease is not None:
+            try:
+                from app.services import work_lease as _wl_fin
+
+                await _wl_fin.release(
+                    project.id, _step_lease[0], owner=_step_lease[1]
+                )
+            except Exception:  # noqa: BLE001
+                pass
         if _step_lock_cm is not None:
             try:
                 await _step_lock_cm.__aexit__(None, None, None)

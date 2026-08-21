@@ -816,6 +816,31 @@ class NodeRun(Base):
         return value
 
 
+class WorkLease(Base):
+    """Лизинг единицы работы с TTL и владельцем (этап 2, cache-resume).
+
+    Захват — ОДИН атомарный UPSERT с проверкой rowcount (никаких
+    read-then-write), см. ``app/services/work_lease.py``. ``owner`` =
+    host:pid:task_uuid (per-asyncio-task). ``expires_at`` — unix epoch
+    (float): сравнение в SQL без тонкостей формата дат. ``project_id=0``
+    — глобальные лизинги (например step:split между проектами).
+    """
+
+    __tablename__ = "work_leases"
+    __table_args__ = (
+        UniqueConstraint("project_id", "unit_key", name="uq_work_leases_unit"),
+        Index("ix_work_leases_expires_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(index=True)
+    unit_key: Mapped[str] = mapped_column(String(120))
+    owner: Mapped[str] = mapped_column(String(120))
+    expires_at: Mapped[float] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Локальная библиотека промтов / блоков / конфигураций
 # ────────────────────────────────────────────────────────────────────────────

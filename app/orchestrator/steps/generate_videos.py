@@ -343,8 +343,8 @@ async def _claim_shot1_video_batch(
     dirty = False
     for fr in frames:
         attrs = dict(fr.attrs or {})
-        if attrs.get(VIDEO_INFLIGHT_ATTR):
-            continue
+        # Этап 2 (D.3): legacy-маркер video_gen_inflight игнорируется —
+        # захват решает lease в _shot1_job.
         if attrs.get(VIDEO_SKIP_ATTR):
             # ≥5 ошибок подряд — кадр пропущен (ручной reset снимет).
             continue
@@ -393,10 +393,9 @@ async def _claim_shot1_video_batch(
             continue
         if not (fr.animation_prompt or "").strip():
             continue
-        attrs[VIDEO_INFLIGHT_ATTR] = True
-        fr.attrs = attrs
+        # Этап 2 (D.3): захват — lease в _shot1_job; маркер
+        # video_gen_inflight больше не пишется (legacy чистится в finally).
         claimed.append(fr)
-        dirty = True
         if len(claimed) >= limit:
             break
     if dirty:
@@ -645,8 +644,19 @@ async def _shot1_job(
     Returns True если клип записан, False если кадр пропущен после ошибки.
     """
     from app.db import SessionLocal
+    from app.services.work_lease import lease_unit
 
+    # Этап 2 (D.3): lease с TTL/owner вместо video_gen_inflight; acquire —
+    # после слота провайдера, внутри задачи генерации.
     async with acquire_outsee_slot():
+      async with lease_unit(project_id, f"video:{frame_id}") as got:
+        if not got:
+            logger.info(
+                "[#{}] frame_id={}: занят живым video-lease — пропуск",
+                project_id,
+                frame_id,
+            )
+            return False
         async with SessionLocal() as session:
             project = await session.get(Project, project_id)
             fr = await session.get(Frame, frame_id)

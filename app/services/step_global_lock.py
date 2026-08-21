@@ -28,9 +28,23 @@ def step_code_from_status(status) -> str | None:
 
 @asynccontextmanager
 async def acquire_step_lock(code: str | None) -> AsyncIterator[None]:
-    """Сериализовать шаг между проектами. None/неизвестный код — без lock."""
+    """Сериализовать шаг между проектами. None/неизвестный код — без lock.
+
+    Этап 2 (D.4): поверх in-process asyncio.Lock — межпроцессный lease
+    (project_id=0, unit_key="step:split"): вторая копия процесса больше
+    не гоняет split параллельно. In-process Lock остаётся первым рубежом
+    (без busy-wait между задачами одного процесса).
+    """
     if code == "split":
         async with _SPLIT_LOCK:
-            yield
+            from app.services.work_lease import acquire, current_owner, release
+
+            me = current_owner()
+            while not await acquire(0, "step:split", owner=me, ttl_s=3600):
+                await asyncio.sleep(1)
+            try:
+                yield
+            finally:
+                await release(0, "step:split", owner=me)
     else:
         yield

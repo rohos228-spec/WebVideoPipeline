@@ -148,11 +148,12 @@ async def test_recovery_from_stale_inflight_under_failure(db_session, tmp_path) 
         db_session.add(f)
     await db_session.commit()
 
-    # Step 1: Batch cannot be claimed because all are inflight
+    # Этап 2 (D.3): legacy-маркер после краша НЕ замораживает кадры —
+    # claim работает сразу, двойное исполнение отсекает lease.
     batch = await _claim_shot1_batch(db_session, project.id, scenes_dir, limit=5)
-    assert len(batch) == 0
+    assert len(batch) == 5
 
-    # Step 2: Pending finds all 10
+    # Pending finds all 10
     pending = await _pending_shot1_numbers(db_session, project.id, scenes_dir)
     assert len(pending) == 10
 
