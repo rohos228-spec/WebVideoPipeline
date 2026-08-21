@@ -120,7 +120,10 @@ def drop_vision_passed_for_frame(project: Project, frame_number: int) -> bool:
     meta = dict(project.meta or {})
     meta[META_PASSED] = sorted(keep)
     project.meta = meta
-    flag_modified(project, "meta")
+    try:
+        flag_modified(project, "meta")
+    except Exception:  # noqa: BLE001 — не-ORM объект (тесты/stub)
+        pass
     logger.info(
         "[#{}] vision_check_loop: кадр {} инвалидирован — снято {} passed-токенов",
         project.id,
