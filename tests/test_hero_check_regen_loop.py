@@ -176,9 +176,10 @@ def test_start_regen_skips_non_hero_upstream(
     assert started is False
 
 
-def test_max_rounds_gives_up(
+def test_max_rounds_pauses_with_reason(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Этап 4 (A.3): исчерпание лимита — громкая пауза, не тихий сброс (§9#11)."""
     check_key = "n_check"
     p = _project(tmp_path, monkeypatch, "t3")
     p.meta = {
@@ -221,8 +222,15 @@ def test_max_rounds_gives_up(
     started = asyncio.run(
         hcr.maybe_start_hero_check_regen_after_check(_sess(), p, check_key)
     )
-    assert started is False
-    assert hcr.META_RETURN not in (p.meta or {})
+    # Этап 4: caller не auto-chain'ит дальше; проект paused с причиной,
+    # состояние петли сохранено для решения оператора.
+    assert started is True
+    assert p.status is ProjectStatus.paused
+    reason = (p.meta or {}).get("pause_reason") or {}
+    assert reason.get("code") == "vision_rounds_exhausted"
+    assert reason.get("node") == check_key
+    assert "c01" in (reason.get("regen_pending") or [])
+    assert hcr.META_RETURN in (p.meta or {})
 
 
 def test_return_to_check_after_hero(

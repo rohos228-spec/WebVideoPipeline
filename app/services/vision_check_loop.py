@@ -40,14 +40,29 @@ META_OPERATOR_ACCEPTED = "vision_accepted_by_operator"
 META_HERO_FIX = "vision_fix_hero"
 META_PROMPT_SNAP = "vision_regen_prompt_snap"
 META_NOOP_REGEN = "vision_noop_regen"
+# Этап 4 (A.2): сквозной счётчик кругов по check-нодам — переживает
+# рестарты и исчерпание; сброс только на полном pass ноды либо решением
+# оператора (vision-decision).
+META_ROUNDS_TOTAL = "vision_rounds_total"
+META_PAUSE_REASON = "pause_reason"
 
 # Совместимость с hero_check_regen / generate_hero
 META_HERO_IDS = "hero_check_regen_ids"
 META_HERO_ROUND = "hero_check_round"
 META_HERO_RETURN = "hero_check_return_node"
 
-# Крутим ok/не-ok → regen → recheck, пока все не pass (не сдаёмся на 3-м круге).
-MAX_VISION_CHECK_ROUNDS = 20
+# Этап 4 (A.1): лимит кругов — из конфига (VISION_CHECK_MAX_ROUNDS,
+# default 2 — запрет владельца); хардкод 20 удалён (§9#11).
+PAUSE_CODE_VISION_ROUNDS = "vision_rounds_exhausted"
+
+
+def vision_check_max_rounds() -> int:
+    from app.settings import settings
+
+    try:
+        return max(1, int(getattr(settings, "vision_check_max_rounds", 2)))
+    except (TypeError, ValueError):
+        return 2
 
 VisionKind = Literal["hero", "scenes", "videos"]
 _FRAME_KINDS = frozenset({"scenes", "videos"})
@@ -637,6 +652,9 @@ async def maybe_start_vision_check_loop_after_check(
                 project.id,
                 key,
             )
+        # Этап 4 (A.2): полный pass ноды — единственный авто-сброс
+        # сквозного счётчика (и связанной vision-паузы).
+        _clear_vision_pause_state(project, key)
         return False
     if gate != "fail":
         return False
@@ -754,16 +772,68 @@ async def maybe_start_vision_check_loop_after_check(
 
     meta = dict(project.meta or {})
     round_n = int(meta.get(META_ROUND) or meta.get(META_HERO_ROUND) or 0) + 1
-    if round_n > MAX_VISION_CHECK_ROUNDS:
-        logger.warning(
-            "[#{}] vision_check_loop: лимит {} раундов на {} — сдаёмся "
-            "(всё ещё не утверждено)",
-            project.id,
-            MAX_VISION_CHECK_ROUNDS,
-            key,
+    totals_raw = meta.get(META_ROUNDS_TOTAL)
+    totals = dict(totals_raw) if isinstance(totals_raw, dict) else {}
+    # max(): в живой петле счётчики идут в ногу; после рестарта/легаси
+    # берём худший — сквозной лимит не обходится обнулением одного из них.
+    total_n = max(int(totals.get(key) or 0) + 1, round_n)
+    limit = vision_check_max_rounds()
+    if total_n > limit:
+        # Этап 4 (A.3): громкая пауза вместо тихого return False (§9#11).
+        # Состояние петли НЕ чистится — цели/счётчик ждут решения
+        # оператора (vision-decision: more_rounds | accept_pending).
+        regen_toks: list[str] = sorted(
+            {_token_hero(c) for c in hero_ids}
+            if kind == "hero"
+            else {
+                _token_frame(int(t["number"]), int(t.get("shot") or 1))
+                for t in frame_tgts
+            }
         )
-        clear_vision_check_meta(project)
-        return False
+        accepted = get_vision_passed(project) | get_vision_operator_accepted(
+            project, kind
+        )
+        all_toks: set[str] = set()
+        for pth in _check_input_image_paths(project, key):
+            tok = _parse_image_token(pth)
+            if tok:
+                all_toks.add(tok)
+        unverified = sorted(all_toks - accepted - set(regen_toks))
+        from datetime import datetime, timezone
+
+        reason = {
+            "code": PAUSE_CODE_VISION_ROUNDS,
+            "node": key,
+            "kind": kind,
+            "rounds": total_n - 1,
+            "limit": limit,
+            "regen_pending": regen_toks,
+            "unverified": unverified,
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+        totals[key] = total_n - 1
+        meta[META_ROUNDS_TOTAL] = totals
+        meta[META_PAUSE_REASON] = reason
+        project.meta = meta
+        flag_modified(project, "meta")
+        project.status = ProjectStatus.paused
+        await session.flush()
+        logger.error(
+            "[#{}] vision_check_loop: лимит {} кругов на {} исчерпан — "
+            "paused (regen_pending={}, unverified={}); решение оператора: "
+            "vision-decision more_rounds|accept_pending",
+            project.id,
+            limit,
+            key,
+            regen_toks,
+            unverified,
+        )
+        return True
+    totals[key] = total_n
+    meta[META_ROUNDS_TOTAL] = totals
+    # Сразу в project.meta: ниже meta пересобирается из project.meta заново.
+    project.meta = meta
+    flag_modified(project, "meta")
 
     await _apply_db_patch(session, project, patch)
 
@@ -1018,6 +1088,96 @@ def mark_ok_tokens_from_reply(project: Project, reply: str) -> None:
         len(passed) - before,
         len(passed),
     )
+
+
+def _clear_vision_pause_state(project: Project, node_key: str) -> None:
+    """Сброс сквозного счётчика ноды + vision-паузы (полный pass / оператор)."""
+    meta = dict(project.meta or {})
+    changed = False
+    totals = meta.get(META_ROUNDS_TOTAL)
+    if isinstance(totals, dict) and node_key in totals:
+        totals = dict(totals)
+        totals.pop(node_key, None)
+        meta[META_ROUNDS_TOTAL] = totals
+        changed = True
+    pr = meta.get(META_PAUSE_REASON)
+    if (
+        isinstance(pr, dict)
+        and pr.get("code") == PAUSE_CODE_VISION_ROUNDS
+        and str(pr.get("node") or "") in ("", node_key)
+    ):
+        meta.pop(META_PAUSE_REASON, None)
+        changed = True
+    if changed:
+        project.meta = meta
+        try:
+            flag_modified(project, "meta")
+        except Exception:  # noqa: BLE001 — не-ORM объект (тесты/stub)
+            pass
+
+
+def apply_vision_decision(project: Project, action: str) -> dict[str, Any]:
+    """Этап 4 (A.4): явное решение оператора после vision-паузы.
+
+    ``more_rounds`` — сброс сквозного счётчика ноды + снятие pause_reason;
+    рестарт check-ноды оператор делает существующим ▶ (run_step).
+    ``accept_pending`` — «принять как есть»: regen-цели, unverified и
+    soft-ok из pause_reason → ``vision_accepted_by_operator``
+    (kind-namespace, НЕ vision_check_passed), петля и пауза чистятся.
+    Ручной перезапуск ноды БЕЗ решения счётчик не сбрасывает.
+    """
+    act = (action or "").strip().lower()
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    pr = meta.get(META_PAUSE_REASON)
+    if not (
+        isinstance(pr, dict) and pr.get("code") == PAUSE_CODE_VISION_ROUNDS
+    ):
+        raise ValueError(
+            "нет активной vision-паузы (pause_reason.code != "
+            f"{PAUSE_CODE_VISION_ROUNDS})"
+        )
+    node = str(pr.get("node") or "") or get_vision_return_node(project)
+    kind = str(pr.get("kind") or "") or (get_vision_kind(project) or "scenes")
+
+    if act == "more_rounds":
+        _clear_vision_pause_state(project, node)
+        logger.warning(
+            "[#{}] vision_check_loop: решение оператора more_rounds на {} — "
+            "сквозной счётчик сброшен",
+            project.id,
+            node,
+        )
+        return {"action": "more_rounds", "node": node}
+
+    if act == "accept_pending":
+        tokens = {
+            str(t).strip()
+            for src in ("regen_pending", "unverified", "soft_ok")
+            for t in (pr.get(src) or [])
+            if str(t).strip()
+        }
+        ns_tokens = sorted(f"{kind}:{t}" for t in tokens)
+        meta2 = dict(project.meta or {})
+        cur = [str(x) for x in (meta2.get(META_OPERATOR_ACCEPTED) or [])]
+        meta2[META_OPERATOR_ACCEPTED] = sorted(set(cur) | set(ns_tokens))
+        project.meta = meta2
+        try:
+            flag_modified(project, "meta")
+        except Exception:  # noqa: BLE001
+            pass
+        clear_vision_check_meta(project)
+        _clear_vision_pause_state(project, node)
+        logger.warning(
+            "[#{}] vision_check_loop: решение оператора accept_pending на {} "
+            "— принято как есть {} токенов: {}",
+            project.id,
+            node,
+            len(ns_tokens),
+            ns_tokens,
+        )
+        return {"action": "accept_pending", "node": node, "accepted": ns_tokens}
+
+    raise ValueError(f"неизвестное действие vision-decision: {action!r}")
 
 
 def update_regen_prompt_snapshot(

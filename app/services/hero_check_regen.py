@@ -13,7 +13,8 @@ from app.services import vision_check_loop as vcl
 META_IDS = vcl.META_HERO_IDS
 META_ROUND = vcl.META_HERO_ROUND
 META_RETURN = vcl.META_HERO_RETURN
-MAX_HERO_CHECK_REGEN_ROUNDS = vcl.MAX_VISION_CHECK_ROUNDS
+# Этап 4 (A.1): лимит теперь из конфига (VISION_CHECK_MAX_ROUNDS).
+MAX_HERO_CHECK_REGEN_ROUNDS = vcl.vision_check_max_rounds()
 
 
 def get_hero_check_regen_ids(project: Project) -> list[str]:

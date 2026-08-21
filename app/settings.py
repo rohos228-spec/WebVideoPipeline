@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     img_max_streams: int = Field(2, alias="IMG_MAX_STREAMS")
     # Vision checkMode: параллельные GPT-батчи 0..10 (каждый батч ≤8 PNG).
     check_max_streams: int = Field(2, alias="CHECK_MAX_STREAMS")
+    # Этап 4 (A.1): лимит кругов vision-регенерации; исчерпание = paused с
+    # машиночитаемой причиной (vision_rounds_exhausted). Default 2 — запрет
+    # владельца (HANDOVER); порог калибруется живыми прогонами, решением
+    # заказчика — не кодом.
+    vision_check_max_rounds: int = Field(2, alias="VISION_CHECK_MAX_ROUNDS")
 
     # Grsai API (https://grsai.com / https://grsaiapi.com) — image/video без CDP
     grsai_api_key: str = Field("", alias="GRSAI_API_KEY")

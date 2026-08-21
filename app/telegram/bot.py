@@ -6919,10 +6919,32 @@ async def notify_step_done(
             )
             return
         status_val = project.status.value
+        # Этап 4 (A.3): vision-лимит исчерпан — конкретика вместо
+        # «шаг завершён» (машиночитаемая причина уже в meta.pause_reason).
+        meta = project.meta if isinstance(project.meta, dict) else {}
+        pr = meta.get("pause_reason")
+        vision_pause = (
+            status_val == "paused"
+            and isinstance(pr, dict)
+            and pr.get("code") == "vision_rounds_exhausted"
+        )
+        if vision_pause:
+            regen = ", ".join(str(x) for x in (pr.get("regen_pending") or [])[:12])
+            unv = ", ".join(str(x) for x in (pr.get("unverified") or [])[:12])
+            text = (
+                f"⏸ Проект #{project_id}: vision-лимит исчерпан "
+                f"({pr.get('rounds')}/{pr.get('limit')} кругов, "
+                f"нода {pr.get('node')}).\n"
+                f"На переген: {regen or '—'}\nНепроверенные: {unv or '—'}\n"
+                "Решение: «ещё N кругов» (vision-decision more_rounds + ▶) "
+                "или «принять как есть» (accept_pending)."
+            )
+        else:
+            text = f"✅ Шаг завершён: статус <b>{status_val}</b>"
         try:
             await bot.send_message(
                 settings.telegram_owner_chat_id,
-                f"✅ Шаг завершён: статус <b>{status_val}</b>",
+                text,
                 parse_mode="HTML",
             )
             logger.info(

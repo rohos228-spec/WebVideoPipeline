@@ -493,3 +493,36 @@ async def run_project_step(
         payload={"step": step_code, "status": p.status.value},
     )
     return p
+
+
+@router.post("/{project_id}/vision-decision", response_model=ProjectDetail)
+async def vision_decision(
+    project_id: int,
+    action: Annotated[str, Body(embed=True)],
+    session: AsyncSession = Depends(get_session),
+) -> Project:
+    """Этап 4 (A.4): явное решение оператора после vision-паузы.
+
+    ``more_rounds`` — «ещё N кругов»: сброс сквозного счётчика + снятие
+    pause_reason (рестарт check-ноды — существующим run_step).
+    ``accept_pending`` — «принять как есть»: pending-кадры →
+    vision_accepted_by_operator. Ручной перезапуск ноды без решения
+    счётчик НЕ сбрасывает.
+    """
+    from app.services.vision_check_loop import apply_vision_decision
+
+    p = await session.get(Project, project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        result = apply_vision_decision(p, action)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await session.commit()
+    await session.refresh(p)
+    await publish_project_event(
+        project_id,
+        event_type="vision_decision",
+        payload=result,
+    )
+    return p

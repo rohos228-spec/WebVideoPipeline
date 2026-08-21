@@ -1164,3 +1164,168 @@ def test_scores_template_has_logic_axis() -> None:
     scores_part = VISION_CHECK_REPORT_HINT.split("## scores")[1].split("##")[0]
     for axis in VISION_SCORE_AXES:
         assert f"{axis}:" in scores_part, axis
+
+
+# ---------------------------------------------------------------- Этап 4 (A)
+
+
+def _scenes_check_meta(check_key: str, extra: dict | None = None) -> dict:
+    meta = {
+        "excel_gpt_nodes": {
+            check_key: {"checkMode": True, "checkFix": False, "slotIndex": 2},
+        },
+        "gpt_operator_results": {check_key: {"gateStatus": "fail"}},
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_img", "type": "images"},
+                {
+                    "id": check_key,
+                    "type": "excel_gpt",
+                    "data": {"slotIndex": 2, "checkMode": True},
+                },
+            ],
+            "edges": [
+                {"source": "n_img", "target": check_key, "data": {"kind": "after"}}
+            ],
+        },
+    }
+    meta.update(extra or {})
+    return meta
+
+
+class _SessEmpty:
+    async def flush(self):
+        return None
+
+    async def execute(self, *_a, **_k):
+        class _R:
+            def scalars(self):
+                return SimpleNamespace(all=lambda: [])
+
+        return _R()
+
+    async def delete(self, *_a, **_k):
+        return None
+
+
+def test_rounds_total_survives_and_pauses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Этап 4 (A.2/A.3): сквозной счётчик (переживает сброс META_ROUND) → pause."""
+    p = _project(tmp_path, monkeypatch, "vlim")
+    check_key = "n_check_img"
+    # Рестарт стер per-loop round, но vision_rounds_total хранит 2 круга
+    p.meta = _scenes_check_meta(
+        check_key, {"vision_rounds_total": {check_key: 2}}
+    )
+    out = upload_dir(p, check_key)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "gpt_reply_raw.txt").write_text(
+        "# ОТЧЁТ ПРОВЕРКИ\nverdict: fail\n\nframes: 3\n",
+        encoding="utf-8",
+    )
+
+    async def _fake_prepare(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(
+        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
+    )
+    started = asyncio.run(
+        vcl.maybe_start_vision_check_loop_after_check(_SessEmpty(), p, check_key)
+    )
+    assert started is True
+    assert p.status is ProjectStatus.paused
+    reason = p.meta["pause_reason"]
+    assert reason["code"] == "vision_rounds_exhausted"
+    assert reason["regen_pending"] == ["f3"]
+    assert reason["limit"] == 2
+    # счётчик НЕ обнулён (решение только за оператором)
+    assert p.meta["vision_rounds_total"][check_key] == 2
+
+
+def test_rounds_below_limit_proceeds_and_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    p = _project(tmp_path, monkeypatch, "vcnt")
+    check_key = "n_check_img"
+    p.meta = _scenes_check_meta(check_key)
+    out = upload_dir(p, check_key)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "gpt_reply_raw.txt").write_text(
+        "# ОТЧЁТ ПРОВЕРКИ\nverdict: fail\n\nframes: 3\n",
+        encoding="utf-8",
+    )
+
+    async def _fake_prepare(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(
+        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
+    )
+    started = asyncio.run(
+        vcl.maybe_start_vision_check_loop_after_check(_SessEmpty(), p, check_key)
+    )
+    assert started is True
+    assert p.status is ProjectStatus.generating_images
+    assert p.meta["vision_rounds_total"][check_key] == 1
+
+
+def test_vision_decision_more_rounds() -> None:
+    p = Project(
+        slug="x",
+        topic="t",
+        status=ProjectStatus.paused,
+        meta={
+            "pause_reason": {
+                "code": "vision_rounds_exhausted",
+                "node": "n_check",
+                "kind": "scenes",
+                "regen_pending": ["f3"],
+                "unverified": ["f9"],
+            },
+            "vision_rounds_total": {"n_check": 2},
+        },
+    )
+    got = vcl.apply_vision_decision(p, "more_rounds")
+    assert got["action"] == "more_rounds"
+    assert "pause_reason" not in p.meta
+    assert "n_check" not in (p.meta.get("vision_rounds_total") or {})
+
+
+def test_vision_decision_accept_pending() -> None:
+    p = Project(
+        slug="x",
+        topic="t",
+        status=ProjectStatus.paused,
+        meta={
+            "pause_reason": {
+                "code": "vision_rounds_exhausted",
+                "node": "n_check",
+                "kind": "scenes",
+                "regen_pending": ["f3"],
+                "unverified": ["f9"],
+                "soft_ok": ["f1"],
+            },
+            "vision_rounds_total": {"n_check": 2},
+            "vision_check_return_node": "n_check",
+            "vision_check_kind": "scenes",
+            "scene_check_regen": [{"number": 3, "shot": 1}],
+        },
+    )
+    got = vcl.apply_vision_decision(p, "accept_pending")
+    assert set(got["accepted"]) == {"scenes:f1", "scenes:f3", "scenes:f9"}
+    # accepted у оператора, НЕ в vision_check_passed
+    assert vcl.get_vision_passed(p) == set()
+    assert vcl.get_vision_operator_accepted(p, "scenes") == {"f1", "f3", "f9"}
+    # петля и пауза сброшены
+    assert "vision_check_return_node" not in p.meta
+    assert "pause_reason" not in p.meta
+
+
+def test_vision_decision_requires_pause() -> None:
+    p = Project(slug="x", topic="t", status=ProjectStatus.enrich_1_ready, meta={})
+    with pytest.raises(ValueError):
+        vcl.apply_vision_decision(p, "more_rounds")
+    with pytest.raises(ValueError):
+        vcl.apply_vision_decision(p, "unknown")
