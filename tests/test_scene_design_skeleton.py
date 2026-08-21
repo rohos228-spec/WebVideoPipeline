@@ -567,12 +567,44 @@ async def test_run_skeleton_editor_fail_twice(sk_session, monkeypatch):
 async def test_run_skeleton_checkpoint_skips_gpt(sk_session, monkeypatch):
     session, project, texts = sk_session
     draft = _draft_ok(texts)
-    runner.save_checkpoint(project, "skeleton", draft)
+    frames = (
+        await session.execute(
+            select(Frame)
+            .where(Frame.project_id == project.id)
+            .order_by(Frame.number)
+        )
+    ).scalars().all()
+    # Этап 2 (C.3): чекпоинт валиден только с input_hash того же входа —
+    # сохраняем тем же рецептом, что run_skeleton.
+    sk_hash = runner.agent_input_hash(
+        project,
+        "skeleton",
+        frame_list=[f for f in frames if getattr(f, "uuid", None)],
+    )
+    runner.save_checkpoint(project, "skeleton", draft, input_hash=sk_hash)
 
     async def boom(*a, **k):
         raise AssertionError("GPT не должен вызываться")
 
     monkeypatch.setattr(gpt_client, "gpt_ask_fresh", boom)
+    p = await session.get(Project, project.id)
+    out = await sk.run_skeleton(session, p, list(frames))
+    assert out["scenes"][0]["id_scene"] == "scene_01"
+
+
+@pytest.mark.asyncio
+async def test_run_skeleton_stale_checkpoint_reruns_gpt(sk_session, monkeypatch):
+    """Чекпоинт от другого входа (legacy без hash) не короткозамыкает."""
+    session, project, texts = sk_session
+    runner.save_checkpoint(project, "skeleton", _draft_ok(texts))  # без hash
+
+    called = {"n": 0}
+
+    async def fake_ask(text, **kwargs):
+        called["n"] += 1
+        return json.dumps(_draft_ok(texts))
+
+    monkeypatch.setattr(gpt_client, "gpt_ask_fresh", fake_ask)
     frames = (
         await session.execute(
             select(Frame)
@@ -581,8 +613,8 @@ async def test_run_skeleton_checkpoint_skips_gpt(sk_session, monkeypatch):
         )
     ).scalars().all()
     p = await session.get(Project, project.id)
-    out = await sk.run_skeleton(session, p, list(frames))
-    assert out["scenes"][0]["id_scene"] == "scene_01"
+    await sk.run_skeleton(session, p, list(frames))
+    assert called["n"] >= 1
 
 
 # ── слоты: 1 бит = 1 слот ────────────────────────────────────────────

@@ -12,10 +12,51 @@ from app.services import xlsx_step_runners as xsr
 from app.storage import for_project as _sheet_for_project
 
 
+def _split_input_hash(project: Project) -> str | None:
+    """input_hash шага split: закадр + эффективный промпт (+params) + модель.
+
+    None — вход не собрать (нет voiceover.txt); поведение тогда legacy.
+    """
+    from app.services import chatgpt_xlsx as cx
+    from app.services.input_hash import (
+        compute_input_hash,
+        contract_fingerprint,
+        effective_text_model,
+        normalize_text,
+        step_prompt_hash,
+    )
+    from app.services.xlsx_step_runners import _SPLIT_DB_HINT
+
+    try:
+        vo = cx.ensure_current_voiceover(project)
+        if vo is None:
+            return None
+        vo_text = vo.read_text(encoding="utf-8")
+        return compute_input_hash(
+            unit_input={"voiceover": normalize_text(vo_text)},
+            fingerprint=contract_fingerprint("vp_frame_split"),
+            prompt_hash=step_prompt_hash(
+                project, "split", hints=[_SPLIT_DB_HINT]
+            ),
+            model=effective_text_model(),
+        )
+    except Exception as e:  # noqa: BLE001 — hash недоступен → legacy-пропуск
+        logger.warning(
+            "[#{}] split_frames: input_hash не собрать ({}) — legacy-поведение",
+            getattr(project, "id", "?"),
+            e,
+        )
+        return None
+
+
 async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -> None:
     if project.status is not ProjectStatus.splitting:
         return
     logger.info("[#{}] split_frames (db-first) starting", project.id)
+
+    from app.services.input_hash import hashes_match
+
+    current_split_hash = _split_input_hash(project)
 
     existing_frames = (
         await session.execute(
@@ -26,14 +67,27 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
     ).scalars().all()
     meta = dict(project.meta or {})
     if len(existing_frames) >= 2 and meta.get("split_completed"):
+        # Этап 2 (C.0): короткое замыкание валидно только при том же входе
+        # (закадр/промпт/модель) — иначе разбивка протухла, пересчёт.
+        # Без собранного входа (нет voiceover) — legacy-пропуск.
+        if current_split_hash is None or hashes_match(
+            meta.get("split_input_hash"), current_split_hash
+        ):
+            logger.info(
+                "[#{}] split_frames: split_completed + {} кадров — пропуск GPT",
+                project.id,
+                len(existing_frames),
+            )
+            project.status = ProjectStatus.frames_ready
+            await session.flush()
+            return
         logger.info(
-            "[#{}] split_frames: split_completed + {} кадров — пропуск GPT",
+            "[#{}] split_frames: split_completed, но вход изменился "
+            "(was={}, now={}) — пересчёт разбивки",
             project.id,
-            len(existing_frames),
+            str(meta.get("split_input_hash"))[:24],
+            current_split_hash[:24],
         )
-        project.status = ProjectStatus.frames_ready
-        await session.flush()
-        return
 
     result = await xsr.run_split_xlsx(project)
     if result.degraded_no_llm:
@@ -129,6 +183,10 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
     if not result.degraded_no_llm:
         meta.pop("split_degraded_no_llm", None)
     meta["split_completed"] = True
+    if current_split_hash is not None:
+        meta["split_input_hash"] = current_split_hash
+    else:
+        meta.pop("split_input_hash", None)
     from app.services.node_step_params import split_params_fingerprint
 
     meta["split_params_applied"] = split_params_fingerprint(project)

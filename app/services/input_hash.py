@@ -96,6 +96,14 @@ def contract_fingerprint(contract_name: str) -> str:
     return f"{contract.name}:{_sha256(canonical_json(contract.json_schema()))}"
 
 
+def effective_text_model() -> str:
+    """Модель текстового вызова «как уйдёт»: per-node override либо настройка."""
+    from app.services.llm_override import current_text_model_id
+    from app.settings import settings
+
+    return current_text_model_id() or (settings.gpt_model or "").strip()
+
+
 def media_fingerprint(provider: str, endpoint: str = "") -> str:
     """Отпечаток медиа-единицы (генерация img/video/audio) — вместо контракта."""
     return f"media:{provider}:{endpoint}"

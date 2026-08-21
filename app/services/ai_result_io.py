@@ -26,18 +26,40 @@ from loguru import logger
 # ── Чекпоинты ИИ-задач в project.meta["ai_jobs"] ──────────────────────────
 
 
-def ai_job_checkpoint(project: Any, name: str) -> Any | None:
-    """Сохранённый результат ИИ-задачи или None."""
+def ai_job_checkpoint(
+    project: Any, name: str, *, input_hash: str | None = None
+) -> Any | None:
+    """Сохранённый результат ИИ-задачи или None.
+
+    С ``input_hash`` (этап 2, C.4): чекпоинт валиден только для того же
+    входа; mismatch или legacy-запись без hash → None (пересчёт).
+    """
     meta = getattr(project, "meta", None)
     if not isinstance(meta, dict):
         return None
     jobs = meta.get("ai_jobs")
     if not isinstance(jobs, dict):
         return None
-    return jobs.get(name)
+    payload = jobs.get(name)
+    if payload is not None and input_hash is not None:
+        hashes = meta.get("ai_jobs_hash")
+        stored = hashes.get(name) if isinstance(hashes, dict) else None
+        if stored != input_hash:
+            logger.info(
+                "[#{}] ai_job {}: чекпоинт invalidated: input changed "
+                "(was={}, now={})",
+                getattr(project, "id", "?"),
+                name,
+                str(stored)[:24],
+                input_hash[:24],
+            )
+            return None
+    return payload
 
 
-def save_ai_job_checkpoint(project: Any, name: str, payload: Any) -> None:
+def save_ai_job_checkpoint(
+    project: Any, name: str, payload: Any, *, input_hash: str | None = None
+) -> None:
     meta = getattr(project, "meta", None)
     if not isinstance(meta, dict):
         return
@@ -48,6 +70,13 @@ def save_ai_job_checkpoint(project: Any, name: str, payload: Any) -> None:
     jobs = dict(jobs) if isinstance(jobs, dict) else {}
     jobs[name] = payload
     meta["ai_jobs"] = jobs
+    hashes = meta.get("ai_jobs_hash")
+    hashes = dict(hashes) if isinstance(hashes, dict) else {}
+    if input_hash is not None:
+        hashes[name] = input_hash
+    else:
+        hashes.pop(name, None)
+    meta["ai_jobs_hash"] = hashes
     project.meta = meta
 
 
@@ -61,6 +90,11 @@ def drop_ai_job_checkpoint(project: Any, name: str) -> None:
         jobs = dict(jobs)
         jobs.pop(name)
         meta["ai_jobs"] = jobs
+        hashes = meta.get("ai_jobs_hash")
+        if isinstance(hashes, dict) and name in hashes:
+            hashes = dict(hashes)
+            hashes.pop(name)
+            meta["ai_jobs_hash"] = hashes
         project.meta = meta
 
 
@@ -91,7 +125,29 @@ async def text_job(
     ``parse`` бросает ValueError при не-JSON; ``validate`` возвращает список
     проблем (пустой = ок). При полном провале — RuntimeError с проблемами.
     """
-    cached = ai_job_checkpoint(project, name) if use_checkpoint else None
+    # Этап 2 (C.4): вход text_job = сам промпт + модель — hash считается
+    # здесь же; чекпоинт от другого промпта не переиспользуется.
+    job_hash: str | None = None
+    try:
+        from app.services.input_hash import (
+            compute_input_hash,
+            effective_text_model,
+            normalize_text,
+        )
+
+        job_hash = compute_input_hash(
+            unit_input={"prompt": normalize_text(prompt)},
+            fingerprint=f"text_job:{name}",
+            model=effective_text_model(),
+        )
+    except Exception:  # noqa: BLE001 — hash недоступен → legacy-чекпоинт
+        job_hash = None
+
+    cached = (
+        ai_job_checkpoint(project, name, input_hash=job_hash)
+        if use_checkpoint
+        else None
+    )
     if cached is not None:
         logger.info("[#{}] ai_job {}: checkpoint — без GPT", getattr(project, "id", "?"), name)
         return TextJobResult(payload=cached, attempts=0)
@@ -125,7 +181,9 @@ async def text_job(
         problems = validate(payload)
         if not problems:
             if use_checkpoint:
-                save_ai_job_checkpoint(project, name, payload)
+                save_ai_job_checkpoint(
+                    project, name, payload, input_hash=job_hash
+                )
             return TextJobResult(
                 payload=payload, attempts=attempt, problems_log=problems_log
             )

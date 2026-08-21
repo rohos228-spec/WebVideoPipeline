@@ -754,11 +754,12 @@ async def run_img_pr_xlsx(
     prompt_file = cx.write_img_pr_prompt_file(project, tmp_dir, ts=_ts())
     from app.services.img_pr_style import is_plastilin_master, resolve_project_img_style
 
-    master_head = ""
+    master_text = ""
     try:
-        master_head = prompt_file.read_text(encoding="utf-8")[:2000]
+        master_text = prompt_file.read_text(encoding="utf-8")
     except OSError:
-        master_head = ""
+        master_text = ""
+    master_head = master_text[:2000]
     plastilin = is_plastilin_master(prompt_file.name, master_head)
     style_id = resolve_project_img_style(
         project, variant=prompt_file.name, master=master_head
@@ -768,15 +769,49 @@ async def run_img_pr_xlsx(
     if plastilin:
         logger.info("img_pr_db: plastilin master — keep clay style in prompt, no watercolor wrap")
 
-    ckpt = ipb.load_checkpoint(project.data_dir)
+    # НЕ пишем в DB по батчам (SQLite lock). Чекпоинт на диске → apply один раз в конце.
+    frames_full, cards, general_plan = await _load_img_pr_context(project)
+
+    # Этап 2 (C.2): чекпоинт привязан к входу шага — кадры (uuid+закадр),
+    # карточки, мастер-промпт+хинт, стиль, контракт, модель. Смена любого
+    # компонента (например правка мастер-промпта) сбрасывает done_uuids.
+    from app.services.input_hash import (
+        compute_input_hash,
+        contract_fingerprint,
+        effective_text_model,
+        prompt_version_hash,
+    )
+
+    step_hash = compute_input_hash(
+        unit_input={
+            "frames": sorted(
+                (
+                    {
+                        "uuid": (fr.uuid or "").strip(),
+                        "voiceover": fr.voiceover_text or "",
+                    }
+                    for fr in frames_full
+                ),
+                key=lambda d: d["uuid"],
+            ),
+            "cards": cards,
+            "general_plan": general_plan,
+            "style_id": style_id,
+            "plastilin": plastilin,
+        },
+        fingerprint=contract_fingerprint("vp_img_pr"),
+        prompt_hash=prompt_version_hash(master_text, hints=[img_pr_hint]),
+        model=effective_text_model(),
+    )
+
+    ckpt = ipb.load_checkpoint(project.data_dir, input_hash=step_hash)
     done_uuids = list(ckpt.get("done_uuids") or [])
     all_ops: list[dict] = list(ckpt.get("ops") or [])
     done_set = set(done_uuids)
 
-    # НЕ пишем в DB по батчам (SQLite lock). Чекпоинт на диске → apply один раз в конце.
-    frames, cards, general_plan = await _load_img_pr_context(
-        project, skip_uuids=done_set or None
-    )
+    frames = [
+        fr for fr in frames_full if (fr.uuid or "").strip() not in done_set
+    ]
     if not frames:
         if all_ops:
             logger.info(
@@ -792,8 +827,7 @@ async def run_img_pr_xlsx(
                 ops_applied_inline=False,
             )
         # Уже всё в DB с прошлого успешного прогона.
-        frames_db, _, _ = await _load_img_pr_context(project)
-        if not frames_db:
+        if not frames_full:
             logger.info("img_pr_db: nothing to do — all frames already have prompts")
             return XlsxRoundtripResult(
                 reply_text="(already in DB)",
@@ -1121,7 +1155,10 @@ async def run_img_pr_xlsx(
                             level,
                         )
             ipb.save_checkpoint(
-                project.data_dir, done_uuids=done_uuids, ops=all_ops
+                project.data_dir,
+                done_uuids=done_uuids,
+                ops=all_ops,
+                input_hash=step_hash,
             )
             if not any_ok and not work and not all_ops:
                 raise RuntimeError(

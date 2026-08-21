@@ -214,18 +214,12 @@ async def test_scene_design_pass_through_when_disabled(sd_session, monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_scene_design_checkpoints_skip_gpt_on_retry(sd_session, monkeypatch) -> None:
-    """Повторная фаза агентов: все из чекпоинтов, GPT не дёргается вообще."""
-    session, project = sd_session
-    from app.services.scene_design import runner
+    """Повторная фаза агентов: все из чекпоинтов, GPT не дёргается вообще.
 
-    for name, payload in (
-        ("characters", {"characters": [{"id": "c01"}]}),
-        ("world", {"locations": [{"id": "loc01"}]}),
-        ("camera", {"shot_plan": [{"x": 1}]}),
-        ("action", {"scenes": [{"x": 1}]}),
-    ):
-        runner.save_checkpoint(project, name, payload)
-    await session.commit()
+    Этап 2 (C.3): чекпоинт валиден только с input_hash того же входа —
+    чекпоинты создаёт первый прогон (с hash), повтор их переиспользует.
+    """
+    session, project = sd_session
 
     calls: list[str] = []
     _mock_gpt(monkeypatch, calls)
@@ -233,6 +227,14 @@ async def test_scene_design_checkpoints_skip_gpt_on_retry(sd_session, monkeypatc
 
     from app.orchestrator.steps import scene_design
 
+    await scene_design.run(session, project)
+    assert project.status is ProjectStatus.scene_agents_ready
+    assert len(calls) == 4
+
+    # Повтор фазы агентов: тот же вход → чекпоинты, ноль GPT.
+    calls.clear()
+    project.status = ProjectStatus.scene_designing
+    await session.commit()
     await scene_design.run(session, project)
 
     assert project.status is ProjectStatus.scene_agents_ready

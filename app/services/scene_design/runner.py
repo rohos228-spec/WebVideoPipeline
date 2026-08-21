@@ -53,9 +53,13 @@ def _chunk_file(project: Project, name: str, label: str) -> Path:
 
 
 def load_chunk_checkpoint(
-    project: Project, name: str, label: str
+    project: Project, name: str, label: str, *, input_hash: str | None = None
 ) -> dict[str, Any] | None:
-    """Готовый JSON одного proactive-чанка (не дёргать GPT повторно)."""
+    """Готовый JSON одного proactive-чанка (не дёргать GPT повторно).
+
+    С ``input_hash`` (этап 2, C.3): чанк валиден только для того же входа
+    агента; mismatch/legacy без hash → None (перегенерация чанка).
+    """
     path = _chunk_file(project, name, label)
     if not path.is_file():
         return None
@@ -64,6 +68,15 @@ def load_chunk_checkpoint(
     except Exception:  # noqa: BLE001
         return None
     if not isinstance(data, dict):
+        return None
+    stored_hash = data.pop("_input_hash", None)
+    if input_hash is not None and stored_hash != input_hash:
+        logger.info(
+            "[#{}] scene_design/{}: chunk {} invalidated: input changed",
+            project.id,
+            name,
+            label,
+        )
         return None
     # assemble: нужны и scenes[], и ops[] (не один LIST_KEY).
     if name == ag.ASSEMBLER:
@@ -85,12 +98,20 @@ def load_chunk_checkpoint(
 
 
 def save_chunk_checkpoint(
-    project: Project, name: str, label: str, data: dict[str, Any]
+    project: Project,
+    name: str,
+    label: str,
+    data: dict[str, Any],
+    *,
+    input_hash: str | None = None,
 ) -> None:
     d = _chunks_dir(project, name)
     d.mkdir(parents=True, exist_ok=True)
+    payload = dict(data)
+    if input_hash is not None:
+        payload["_input_hash"] = input_hash
     _chunk_file(project, name, label).write_text(
-        json.dumps(data, ensure_ascii=False, indent=0), encoding="utf-8"
+        json.dumps(payload, ensure_ascii=False, indent=0), encoding="utf-8"
     )
 
 
@@ -157,12 +178,30 @@ def resolve_sd_node_key(project: Project, agent: str) -> str | None:
     return None
 
 
-def load_checkpoint(project: Project, name: str) -> dict[str, Any] | None:
-    """Готовый срез агента с прошлого прогона (soft retry без повторного GPT)."""
+def load_checkpoint(
+    project: Project, name: str, *, input_hash: str | None = None
+) -> dict[str, Any] | None:
+    """Готовый срез агента с прошлого прогона (soft retry без повторного GPT).
+
+    С ``input_hash`` (этап 2, C.3): срез валиден только для того же входа
+    (закадр/промпт/апстрим-срезы/модель); mismatch → None, пересчёт.
+    Без параметра — чтение принятого среза как раньше (потребители
+    apply/assembler/cells после завершения шага).
+    """
     sd = _meta_state(project)
     agents_meta = sd.get("agents") if isinstance(sd.get("agents"), dict) else {}
     info = agents_meta.get(name)
     if not isinstance(info, dict) or info.get("status") != "done":
+        return None
+    if input_hash is not None and info.get("input_hash") != input_hash:
+        logger.info(
+            "[#{}] scene_design/{}: чекпоинт invalidated: input changed "
+            "(was={}, now={})",
+            project.id,
+            name,
+            str(info.get("input_hash"))[:24],
+            input_hash[:24],
+        )
         return None
     path = _agent_file(project, name)
     if not path.is_file():
@@ -181,7 +220,13 @@ def load_checkpoint(project: Project, name: str) -> dict[str, Any] | None:
     return data
 
 
-def save_checkpoint(project: Project, name: str, data: dict[str, Any]) -> None:
+def save_checkpoint(
+    project: Project,
+    name: str,
+    data: dict[str, Any],
+    *,
+    input_hash: str | None = None,
+) -> None:
     _state_dir(project).mkdir(parents=True, exist_ok=True)
     _agent_file(project, name).write_text(
         json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8"
@@ -190,11 +235,14 @@ def save_checkpoint(project: Project, name: str, data: dict[str, Any]) -> None:
     clear_chunk_checkpoints(project, name)
     sd = _meta_state(project)
     agents_meta = dict(sd.get("agents") or {})
-    agents_meta[name] = {
+    entry: dict[str, Any] = {
         "status": "done",
         "at": datetime.now(UTC).isoformat(),
         "path": f"scene_design/{name}.json",
     }
+    if input_hash is not None:
+        entry["input_hash"] = input_hash
+    agents_meta[name] = entry
     sd["agents"] = agents_meta
     _save_state(project, sd)
 
@@ -310,6 +358,63 @@ def _dump_agent_fail(
             exc_info=True,
         )
         return path
+
+
+def agent_input_hash(
+    project: Project,
+    name: str,
+    *,
+    ctx: str = "",
+    slice_extras: list[tuple[str, dict[str, Any]]] | None = None,
+    frame_list: list[Any] | None = None,
+) -> str | None:
+    """input_hash агента веера: закадр + контекст/срезы + промпт + модель.
+
+    ctx включает срезы апстрим-агентов (скелет и т.п.) — их смена меняет
+    hash даунстрима. None — вход не собрать; чекпоинт тогда legacy.
+    """
+    try:
+        from app.contracts import SLICE_CONTRACTS
+        from app.services.input_hash import (
+            compute_input_hash,
+            contract_fingerprint,
+            effective_text_model,
+            normalize_text,
+            prompt_version_hash,
+        )
+
+        prompt = ag.load_prompt(name, project)
+        contract = SLICE_CONTRACTS.get(name)
+        fingerprint = (
+            contract_fingerprint(contract.name) if contract else f"sd:{name}"
+        )
+        return compute_input_hash(
+            unit_input={
+                "frames": sorted(
+                    (
+                        {
+                            "uuid": str(getattr(f, "uuid", "") or ""),
+                            "vo": getattr(f, "voiceover_text", "") or "",
+                        }
+                        for f in frame_list or []
+                    ),
+                    key=lambda d: d["uuid"],
+                ),
+                "ctx": normalize_text(ctx or ""),
+                "extras": [[t, p] for t, p in (slice_extras or [])],
+            },
+            fingerprint=fingerprint,
+            prompt_hash=prompt_version_hash(prompt),
+            model=effective_text_model(),
+        )
+    except Exception:  # noqa: BLE001 — hash недоступен → legacy-чекпоинт
+        logger.debug(
+            "[#{}] scene_design/{}: input_hash не собрать",
+            getattr(project, "id", "?"),
+            name,
+            exc_info=True,
+        )
+        return None
 
 
 def _finalize_agent_slice(
@@ -430,6 +535,7 @@ async def _run_one_agent_adaptive(
     timeout: float,
     depth: int = 0,
     label: str = "full",
+    input_hash: str | None = None,
 ) -> dict[str, Any]:
     """action/camera: сразу куски ≤N кадров (параллель), иначе 524→/2→/4."""
     from app.services.scene_design import agent_chunks as ach
@@ -450,7 +556,9 @@ async def _run_one_agent_adaptive(
             part_label = f"{prefix}{i}"
             # Proactive-чанки: переживают soft-retry / 500 / рестарт.
             if prefix == "p":
-                cached = load_chunk_checkpoint(project, name, part_label)
+                cached = load_chunk_checkpoint(
+                    project, name, part_label, input_hash=input_hash
+                )
                 if cached is not None:
                     logger.info(
                         "[#{}] scene_design/{}: chunk {} — checkpoint, skip GPT",
@@ -470,10 +578,13 @@ async def _run_one_agent_adaptive(
                     timeout=timeout,
                     depth=child_depth,
                     label=part_label,
+                    input_hash=input_hash,
                 )
             if prefix == "p":
                 try:
-                    save_chunk_checkpoint(project, name, part_label, data)
+                    save_chunk_checkpoint(
+                        project, name, part_label, data, input_hash=input_hash
+                    )
                 except Exception:  # noqa: BLE001
                     logger.debug(
                         "[#{}] scene_design/{}: chunk ckpt save failed {}",
@@ -670,7 +781,21 @@ async def run_category_agents(
         slice_extras: list[tuple[str, dict[str, Any]]] | None = None,
         action_scenes: list[Any] | None = None,
     ) -> None:
-        cached = load_checkpoint(project, name)
+        # Скелет: тот же рецепт hash, что в skeleton.run_skeleton (второй
+        # путь исполнения) — иначе пути инвалидировали бы чекпоинты друг
+        # друга. Для остальных агентов ctx несёт срезы апстрима.
+        agent_hash = (
+            agent_input_hash(project, name, frame_list=frame_list)
+            if name == ag.SKELETON
+            else agent_input_hash(
+                project,
+                name,
+                ctx=ctx,
+                slice_extras=slice_extras,
+                frame_list=frame_list,
+            )
+        )
+        cached = load_checkpoint(project, name, input_hash=agent_hash)
         if cached is not None:
             logger.info(
                 "[#{}] scene_design/{}: checkpoint — пропуск GPT", project.id, name
@@ -696,6 +821,7 @@ async def run_category_agents(
                         slice_extras=list(slice_extras or []),
                         action_scenes=action_scenes,
                         timeout=timeout,
+                        input_hash=agent_hash,
                     )
                 else:
                     data = await _run_one_agent(project, name, ctx, timeout=timeout)
@@ -715,7 +841,7 @@ async def run_category_agents(
                             exc_info=True,
                         )
                 return
-        save_checkpoint(project, name, data)
+        save_checkpoint(project, name, data, input_hash=agent_hash)
         results[name] = data
         logger.info("[#{}] scene_design/{}: ok", project.id, name)
 

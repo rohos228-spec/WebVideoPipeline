@@ -92,33 +92,56 @@ def _checkpoint_path(project_dir: Path) -> Path:
     return project_dir / "tmp_gpt" / _CHECKPOINT_NAME
 
 
-def load_checkpoint(project_dir: Path) -> dict[str, Any]:
+def load_checkpoint(
+    project_dir: Path, *, input_hash: str | None = None
+) -> dict[str, Any]:
+    empty: dict[str, Any] = {"done_uuids": [], "ops": []}
     path = _checkpoint_path(project_dir)
     if not path.is_file():
-        return {"done_uuids": [], "ops": []}
+        return empty
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
-        return {"done_uuids": [], "ops": []}
+        return empty
     if not isinstance(data, dict):
-        return {"done_uuids": [], "ops": []}
+        return empty
     done = data.get("done_uuids") or []
     ops = data.get("ops") or []
+    # Этап 2 (C.2): чекпоинт валиден только для того же входа; legacy без
+    # hash = mismatch — «протухший результат не подтягивается».
+    if input_hash is not None and data.get("input_hash") != input_hash:
+        if done or ops:
+            from loguru import logger
+
+            logger.info(
+                "img_pr checkpoint invalidated: input changed "
+                "(was={}, now={}, дропнуто done={} ops={})",
+                str(data.get("input_hash"))[:24],
+                input_hash[:24],
+                len(done),
+                len(ops),
+            )
+        return empty
     return {
         "done_uuids": [str(u) for u in done if str(u).strip()],
         "ops": [o for o in ops if isinstance(o, dict)],
     }
 
 
-def save_checkpoint(project_dir: Path, *, done_uuids: list[str], ops: list[dict]) -> None:
+def save_checkpoint(
+    project_dir: Path,
+    *,
+    done_uuids: list[str],
+    ops: list[dict],
+    input_hash: str | None = None,
+) -> None:
     path = _checkpoint_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {"done_uuids": done_uuids, "ops": ops}
+    if input_hash is not None:
+        payload["input_hash"] = input_hash
     path.write_text(
-        json.dumps(
-            {"done_uuids": done_uuids, "ops": ops},
-            ensure_ascii=False,
-            indent=2,
-        ),
+        json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 

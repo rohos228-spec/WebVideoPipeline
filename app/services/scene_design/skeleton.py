@@ -1546,7 +1546,15 @@ async def run_skeleton(
     frames: list[Frame],
 ) -> dict[str, Any]:
     """Черновик → validate → editor (≤2) → ячейки + checkpoint."""
-    cached = runner.load_checkpoint(project, ag.SKELETON)
+    # Этап 2 (C.3): чекпоинт скелета валиден только для того же входа.
+    skeleton_hash = runner.agent_input_hash(
+        project,
+        ag.SKELETON,
+        frame_list=[f for f in frames if getattr(f, "uuid", None)],
+    )
+    cached = runner.load_checkpoint(
+        project, ag.SKELETON, input_hash=skeleton_hash
+    )
     if isinstance(cached, dict) and (cached.get("scenes") or cached.get("cells")):
         normalize_skeleton_draft(cached)
         logger.info("[#{}] skeleton: checkpoint hit — GPT skip", project.id)
@@ -1637,7 +1645,7 @@ async def run_skeleton(
     validate_skeleton_slots(draft.get("scenes") or [])
 
     stats = await store_skeleton_cells(session, project, draft, full_vo)
-    runner.save_checkpoint(project, ag.SKELETON, draft)
+    runner.save_checkpoint(project, ag.SKELETON, draft, input_hash=skeleton_hash)
     await session.commit()
     logger.info("[#{}] skeleton: stored cells={} checkpoint ok", project.id, stats)
     return draft
