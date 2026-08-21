@@ -125,6 +125,36 @@ async def test_metrics_shape() -> None:
 
 
 @pytest.mark.asyncio
+async def test_metrics_jsonl_written(tmp_path) -> None:
+    import json as _json
+
+    reject_dir = tmp_path / "llm_rejects"
+    await run_with_contract(
+        contract=APPLY_OPS,
+        call=_seq_call([BAD_JSON, OK], []),
+        reject_dir=reject_dir,
+        label="unit1",
+    )
+    with pytest.raises(LlmContractError):
+        await run_with_contract(
+            contract=APPLY_OPS,
+            call=_seq_call([BAD_JSON], []),
+            reject_dir=reject_dir,
+            parse_limit=0,
+            label="unit2",
+        )
+    rows = [
+        _json.loads(line)
+        for line in (tmp_path / "llm_metrics.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert len(rows) == 2
+    assert rows[0]["ok"] is True and rows[0]["repairs"] == 1
+    assert rows[1]["ok"] is False and rows[1]["label"] == "unit2"
+
+
+@pytest.mark.asyncio
 async def test_rejects_retention(tmp_path, monkeypatch) -> None:
     from app.contracts import policy as pol
 

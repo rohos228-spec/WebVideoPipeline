@@ -18,8 +18,10 @@ Repair-попытка НЕ перезапускает адаптивное др�
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Generic
 
@@ -73,6 +75,53 @@ def _prune_rejects(reject_dir: Path) -> None:
             p.unlink(missing_ok=True)
     except OSError:  # retention — best effort, не валить политику
         pass
+
+
+METRICS_FILE = "llm_metrics.jsonl"
+
+
+def _write_metrics(
+    reject_dir: Path | None,
+    *,
+    contract: str,
+    label: str,
+    attempts: int,
+    parse_fails: int,
+    validate_fails: int,
+    ok: bool,
+) -> None:
+    """Метрика repair-rate (tasks D.5) — JSONL рядом с llm_rejects.
+
+    Одна строка = одна логическая единица работы политики (знаменатель
+    метрики). Файл на проект, переживает рестарты и failed-runs; сбор —
+    scripts/llm_repair_rate.py. Best effort: сбой записи не валит вызов.
+    """
+    if reject_dir is None:
+        return
+    try:
+        path = reject_dir.parent / METRICS_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "ts": datetime.now(timezone.utc).isoformat(
+                            timespec="seconds"
+                        ),
+                        "contract": contract,
+                        "label": label,
+                        "attempts": attempts,
+                        "repairs": max(0, attempts - 1),
+                        "parse_fails": parse_fails,
+                        "validate_fails": validate_fails,
+                        "ok": ok,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except OSError as e:
+        logger.warning("contracts/policy: метрика не записана: {}", e)
 
 
 def _write_reject(
@@ -177,6 +226,15 @@ async def run_with_contract(
                 str(e)[:300],
             )
             if exhausted:
+                _write_metrics(
+                    reject_dir,
+                    contract=contract.name,
+                    label=label or contract.name,
+                    attempts=attempts,
+                    parse_fails=parse_fails,
+                    validate_fails=validate_fails,
+                    ok=False,
+                )
                 raise LlmContractError(
                     f"{label or contract.name}: repair-лимит исчерпан "
                     f"(attempts={attempts}, parse_fails={parse_fails}, "
@@ -194,6 +252,15 @@ async def run_with_contract(
             feedback = e.feedback
             continue
 
+        _write_metrics(
+            reject_dir,
+            contract=contract.name,
+            label=label or contract.name,
+            attempts=attempts,
+            parse_fails=parse_fails,
+            validate_fails=validate_fails,
+            ok=True,
+        )
         result = RepairResult(
             payload=parsed.payload,
             reply_text=reply,
