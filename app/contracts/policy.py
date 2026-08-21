@@ -1,0 +1,214 @@
+"""Единая repair-retry политика контрактного пути (этап 5, блок D).
+
+По образцу эталона ``ai_result_io.text_job:87-140``, чего эталону не
+хватало (карта §4.4): типизация Pydantic, отклонённые ответы на диск,
+раздельные лимиты parse-fail / validate-fail.
+
+Схема цикла: вызов LLM → contract.parse (форма) → validate (семантика:
+coverage N/N, доменные правила) → успех | LlmContractError → фидбек
+«ошибки прошлой попытки» в следующий вызов → исчерпание лимита →
+fail-closed raise (наверх до step_failure_policy; никаких тихих None
+и частичных результатов — спека «Запрет тихого частичного успеха»).
+
+Repair-попытка НЕ перезапускает адаптивное дробление chat() заново —
+политика повторяет только СВОЮ единицу работы (батч/агент-вызов);
+транспортные ретраи (gpt_max_retries) живут внутри вызова и repair'ом
+не считаются (определение метрики — tasks D.5).
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Generic
+
+from loguru import logger
+
+from app.contracts.base import LlmContract, TModel
+from app.contracts.errors import LlmContractError
+
+# Retention llm_rejects: последние N файлов на директорию + возраст.
+_REJECTS_KEEP = 20
+_REJECTS_MAX_AGE_DAYS = 14
+
+FEEDBACK_HEADER = "# ОШИБКИ ПРОШЛОЙ ПОПЫТКИ (исправь и верни ПОЛНЫЙ ответ заново)"
+
+
+@dataclass
+class RepairResult(Generic[TModel]):
+    payload: TModel
+    reply_text: str
+    meta: dict[str, Any] = field(default_factory=dict)
+    attempts: int = 1  # всего вызовов LLM в этой единице работы
+    parse_fails: int = 0
+    validate_fails: int = 0
+    rejected_paths: list[Path] = field(default_factory=list)
+
+    @property
+    def repairs(self) -> int:
+        return self.attempts - 1
+
+    def metrics(self) -> dict[str, int]:
+        """Счётчики для NodeRun.meta (метрика приёмки, tasks D.5)."""
+        return {
+            "attempts": self.attempts,
+            "repairs": self.repairs,
+            "parse_fails": self.parse_fails,
+            "validate_fails": self.validate_fails,
+        }
+
+
+def _prune_rejects(reject_dir: Path) -> None:
+    try:
+        files = sorted(
+            (p for p in reject_dir.glob("*.txt") if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+        )
+        cutoff = time.time() - _REJECTS_MAX_AGE_DAYS * 86400
+        drop = [p for p in files if p.stat().st_mtime < cutoff]
+        if len(files) - len(drop) > _REJECTS_KEEP:
+            drop.extend(files[: len(files) - _REJECTS_KEEP])
+        for p in dict.fromkeys(drop):
+            p.unlink(missing_ok=True)
+    except OSError:  # retention — best effort, не валить политику
+        pass
+
+
+def _write_reject(
+    reject_dir: Path | None,
+    *,
+    label: str,
+    attempt: int,
+    reply: str,
+    error: LlmContractError,
+) -> Path | None:
+    if reject_dir is None:
+        return None
+    try:
+        reject_dir.mkdir(parents=True, exist_ok=True)
+        safe_label = "".join(
+            ch if ch.isalnum() or ch in "-_." else "_" for ch in (label or "reply")
+        )
+        path = reject_dir / f"{safe_label}_a{attempt}_{error.kind}.txt"
+        path.write_text(
+            f"# contract: {error.contract or '-'}\n"
+            f"# kind: {error.kind}\n"
+            f"# error: {error}\n"
+            f"# reply_len: {len(reply or '')}\n\n{reply or ''}",
+            encoding="utf-8",
+        )
+        _prune_rejects(reject_dir)
+        return path
+    except OSError as e:
+        logger.warning("contracts/policy: не записал reject на диск: {}", e)
+        return None
+
+
+async def run_with_contract(
+    *,
+    contract: LlmContract[TModel],
+    call: Callable[[str | None], Awaitable[str]],
+    validate: Callable[[TModel], list[str]] | None = None,
+    reject_dir: Path | None = None,
+    label: str = "",
+    parse_limit: int = 2,
+    validate_limit: int = 2,
+) -> RepairResult[TModel]:
+    """Выполнить единицу работы LLM под контрактом с repair-retry.
+
+    ``call(feedback)`` — вызов модели; при repair получает текст фидбека
+    (секция FEEDBACK_HEADER) и обязан включить его в промпт. Схему в
+    транспорт (``chat(response_schema=contract.response_schema())``)
+    прикрепляет сам вызывающий — политика транспорт-агностична.
+
+    ``validate`` — семантика поверх схемы (coverage N/N после склейки,
+    доменные проверки): список проблем, пустой = ок.
+
+    Raises:
+        LlmContractError: лимит исчерпан (fail-closed). Транспортные
+        ошибки (GptApiError и пр.) пролетают наверх без изменений —
+        это не брак формата, их ретраит транспорт/step_failure_policy.
+    """
+    parse_fails = 0
+    validate_fails = 0
+    attempts = 0
+    rejected: list[Path] = []
+    feedback: str | None = None
+    last_err: LlmContractError | None = None
+
+    while True:
+        attempts += 1
+        reply = await call(
+            f"{FEEDBACK_HEADER}\n{feedback}" if feedback else None
+        )
+        try:
+            parsed = contract.parse(reply)
+            problems = validate(parsed.payload) if validate else []
+            if problems:
+                raise LlmContractError(
+                    "ответ прошёл схему, но не прошёл проверку:\n- "
+                    + "\n- ".join(str(p) for p in problems[:12]),
+                    kind="validate",
+                    contract=contract.name,
+                    detail={"problems": problems[:20]},
+                )
+        except LlmContractError as e:
+            last_err = e
+            if e.kind == "parse":
+                parse_fails += 1
+                exhausted = parse_fails > parse_limit
+            else:
+                validate_fails += 1
+                exhausted = validate_fails > validate_limit
+            rp = _write_reject(
+                reject_dir, label=label or contract.name,
+                attempt=attempts, reply=reply, error=e,
+            )
+            if rp is not None:
+                rejected.append(rp)
+            logger.warning(
+                "contracts/policy {} attempt {} {}-fail ({}/{}): {}",
+                label or contract.name,
+                attempts,
+                e.kind,
+                parse_fails if e.kind == "parse" else validate_fails,
+                parse_limit if e.kind == "parse" else validate_limit,
+                str(e)[:300],
+            )
+            if exhausted:
+                raise LlmContractError(
+                    f"{label or contract.name}: repair-лимит исчерпан "
+                    f"(attempts={attempts}, parse_fails={parse_fails}, "
+                    f"validate_fails={validate_fails}); последняя ошибка: {e}",
+                    kind=e.kind,
+                    contract=contract.name,
+                    detail={
+                        **e.detail,
+                        "attempts": attempts,
+                        "parse_fails": parse_fails,
+                        "validate_fails": validate_fails,
+                        "rejected_paths": [str(p) for p in rejected],
+                    },
+                ) from e
+            feedback = e.feedback
+            continue
+
+        result = RepairResult(
+            payload=parsed.payload,
+            reply_text=reply,
+            meta=parsed.meta,
+            attempts=attempts,
+            parse_fails=parse_fails,
+            validate_fails=validate_fails,
+            rejected_paths=rejected,
+        )
+        if result.repairs:
+            logger.info(
+                "contracts/policy {} ok после {} repair (parse={}, validate={})",
+                label or contract.name,
+                result.repairs,
+                parse_fails,
+                validate_fails,
+            )
+        return result

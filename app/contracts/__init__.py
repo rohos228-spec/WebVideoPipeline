@@ -18,6 +18,7 @@ from app.contracts.base import LlmContract, ParsedReply
 from app.contracts.errors import LlmContractError
 from app.contracts.extract import extract_json_payload
 from app.contracts.check_report import CHECK_REPORT, CheckReport
+from app.contracts.policy import RepairResult, run_with_contract
 from app.contracts.prompt_ops import (
     ANIM_PR,
     IMG_PR,
@@ -98,9 +99,11 @@ __all__ = [
     "LlmContract",
     "LlmContractError",
     "ParsedReply",
+    "RepairResult",
     "SkeletonPayload",
     "VoiceoverEnvelope",
     "extract_json_payload",
     "get_contract",
     "register",
+    "run_with_contract",
 ]
