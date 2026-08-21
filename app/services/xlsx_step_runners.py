@@ -828,6 +828,9 @@ async def run_img_pr_xlsx(
     vo = cx.ensure_current_voiceover(project)
     replies: list[str] = []
     api_batches = 0
+    # Этап 5 (C.4): провал батча больше не глотается — копим и валим шаг
+    # в конце гейтом покрытия N/N (прогресс других батчей уже в чекпоинте).
+    failed_notes: list[str] = []
 
     async def _ask_batch_ops(
         *,
@@ -877,6 +880,7 @@ async def run_img_pr_xlsx(
         )
         batch_ops: list[dict] = []
         last_reply = ""
+        last_error_text = ""
         for attempt in range(1, ipb._GPT_ATTEMPTS + 1):
             if attempt > 1:
                 await gpt_local.new_conversation()
@@ -897,6 +901,13 @@ async def run_img_pr_xlsx(
                         else "Полный промт: сцена + STYLE LOCK / Negative.\n"
                     )
                 )
+                # Этап 5: repair с текстом ошибки прошлой попытки (было —
+                # свежая сессия без фидбека, карта A15).
+                if last_error_text:
+                    chat_msg = (
+                        f"{chat_msg}\n# ОШИБКИ ПРОШЛОЙ ПОПЫТКИ (исправь)\n"
+                        f"{last_error_text}\n"
+                    )
                 logger.info(
                     "img_pr_db: batch {}/{} fresh session retry", bi, batch_n
                 )
@@ -911,6 +922,8 @@ async def run_img_pr_xlsx(
                 _IMG_PR_LIVE_STREAMS,
                 db_path.stat().st_size,
             )
+            from app.contracts import IMG_PR, LlmContractError as _LCE
+
             last_reply = await gpt_local.ask_with_files(
                 chat_msg,
                 attach,
@@ -919,6 +932,7 @@ async def run_img_pr_xlsx(
                 history=None,
                 treat_txt_as_prompt=True,
                 auto_pack=False,
+                response_schema=IMG_PR.response_schema(),
             )
             batch_ops = ipb.parse_img_pr_ops(
                 last_reply or "",
@@ -927,6 +941,12 @@ async def run_img_pr_xlsx(
             )
             if batch_ops:
                 break
+            # Текст ошибки контракта — фидбек следующей попытке.
+            try:
+                IMG_PR.parse(last_reply or "")
+                last_error_text = "ответ без ops с промт_картинки"
+            except _LCE as ce:
+                last_error_text = str(ce)[:600]
             empty_stub = ipb.is_empty_ops_reply(last_reply or "")
             reason = "empty_ops_stub" if empty_stub else "no_prompt_ops"
             rej = ipb.write_rejected_reply(
@@ -1004,9 +1024,12 @@ async def run_img_pr_xlsx(
                         for half in split_in_half(batch):
                             work.append((half, nxt))
                         continue
-                    if all_ops:
-                        continue
-                    raise item
+                    # Было: if all_ops: continue — тихая потеря батча
+                    # (карта §9 #13). Теперь копим и валим в конце.
+                    failed_notes.append(
+                        f"batch L{level} frames={len(batch)}: {item}"
+                    )
+                    continue
                 bi, batch, level, batch_ops, last_reply = item
                 replies.append(last_reply)
                 if not batch_ops:
@@ -1023,19 +1046,14 @@ async def run_img_pr_xlsx(
                             len(work),
                         )
                         continue
-                    if all_ops:
-                        logger.error(
-                            "img_pr_db: batch {} L{} failed — partial ops={}",
-                            bi,
-                            level,
-                            len(all_ops),
-                        )
-                        continue
-                    raise RuntimeError(
-                        f"img_pr batch {bi} L{level}: нет apply-ops "
-                        f"(reply_len={len(last_reply)}). "
-                        f"Смотри tmp_gpt/img_pr_rejected_b{bi}_*.txt"
+                    # Было: if all_ops: continue / raise — теперь единый
+                    # учёт: батч провален, шаг завалится гейтом покрытия.
+                    failed_notes.append(
+                        f"batch {bi} L{level}: нет apply-ops "
+                        f"(reply_len={len(last_reply)}), "
+                        f"tmp_gpt/img_pr_rejected_b{bi}_*.txt"
                     )
+                    continue
                 api_batches += 1
                 any_ok = True
                 expected = {
@@ -1082,6 +1100,10 @@ async def run_img_pr_xlsx(
                             len(work),
                         )
                     else:
+                        failed_notes.append(
+                            f"batch {bi} L{level}: недобор "
+                            f"{len(missing_uuids)} uuid, split исчерпан"
+                        )
                         logger.warning(
                             "img_pr_db: still missing {} uuid L{} — stop split",
                             len(missing_uuids),
@@ -1101,6 +1123,30 @@ async def run_img_pr_xlsx(
         raise RuntimeError(
             "GPT не вернул apply-ops с промт_картинки по frame_uuid. "
             'Нужен {"ops":[{"frame_uuid":"…","fields":{"промт_картинки":"…"}}]}'
+        )
+
+    # Этап 5 (C.4): гейт покрытия N/N — частичный успех не зеленеет
+    # (спека «Запрет тихого частичного успеха»). Прогресс в чекпоинте,
+    # повтор шага добирает только недостающие uuid.
+    expected_all = {
+        (fr.uuid or "").strip() for fr in frames if (fr.uuid or "").strip()
+    }
+    missing_all = sorted(expected_all - done_set)
+    if failed_notes or missing_all:
+        from app.contracts import LlmContractError
+
+        raise LlmContractError(
+            f"img_pr: покрытие {len(expected_all) - len(missing_all)}/"
+            f"{len(expected_all)} кадров; провалы: "
+            + ("; ".join(failed_notes[:6]) or "-")
+            + ". Прогресс сохранён в чекпоинте — повтор шага доберёт "
+            "только недостающее",
+            kind="validate",
+            contract="vp_img_pr",
+            detail={
+                "missing_uuids": missing_all[:50],
+                "failed_notes": failed_notes[:20],
+            },
         )
 
     logger.info(
