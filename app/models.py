@@ -841,6 +841,46 @@ class WorkLease(Base):
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
 
+class LlmCall(Base):
+    """Одна строка = один фактический HTTP-вызов текстового LLM (этап 3).
+
+    Пишется хуком ``app/services/llm_ledger.py`` в самом нижнем
+    HTTP-слое транспорта — включая ретраи, доборы, continuation и
+    НЕуспешные вызовы. Стоимость логического вызова / ноды / прогона —
+    всегда агрегат SUM (по logical_call_id / node_key / project_id),
+    строк-сумм нет. Таблица ``Attempt`` (мёртвая, §9#4 карты) учётом
+    не используется.
+    """
+
+    __tablename__ = "llm_calls"
+    __table_args__ = (
+        Index("ix_llm_calls_project_created", "project_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
+    project_id: Mapped[int | None] = mapped_column(index=True, default=None)
+    node_key: Mapped[str] = mapped_column(String(120), default="adhoc")
+    logical_call_id: Mapped[str] = mapped_column(String(36), index=True)
+    model: Mapped[str] = mapped_column(String(120))  # запрошенная
+    served_model: Mapped[str] = mapped_column(String(120), default="")
+    relay: Mapped[str] = mapped_column(String(120), default="")  # хост URL
+    endpoint: Mapped[str] = mapped_column(String(20), default="chat")
+    prompt_tokens: Mapped[int | None] = mapped_column(default=None)
+    completion_tokens: Mapped[int | None] = mapped_column(default=None)
+    total_tokens: Mapped[int | None] = mapped_column(default=None)
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    result: Mapped[str] = mapped_column(String(10), default="ok")  # ok|error
+    error_kind: Mapped[str] = mapped_column(String(60), default="")
+    # usage не вернулся вовсе (обрыв без тела) — токены неизвестны.
+    unbilled: Mapped[bool] = mapped_column(default=False)
+    # HTTP успешен, но контракт этапа 5 отверг ответ (колбэк политики).
+    contract_rejected: Mapped[bool] = mapped_column(default=False)
+    prompt_version_hash: Mapped[str] = mapped_column(String(64), default="")
+    response_id: Mapped[str] = mapped_column(String(120), default="")
+    duration_ms: Mapped[int] = mapped_column(default=0)
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Локальная библиотека промтов / блоков / конфигураций
 # ────────────────────────────────────────────────────────────────────────────

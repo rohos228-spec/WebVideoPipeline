@@ -1,0 +1,93 @@
+{
+  "_comment": "Прайс учёта llm_calls (этап 3): СЫРЫЕ цены релея за 1M токенов, НЕ x3 markup UI (vibecode_models_snapshot — концерн UI). Единый прайс v1 под релей приёмки (Chattiq); per-relay тарифы — роадмап. Неизвестная модель = цена 0 + WARNING.",
+  "models": {
+    "gpt-5.6-sol": {
+      "input_usd_per_m": 0.426462,
+      "output_usd_per_m": 2.558774
+    },
+    "gpt-5.6-terra": {
+      "input_usd_per_m": 0.170585,
+      "output_usd_per_m": 1.02351
+    },
+    "gpt-5.6-luna": {
+      "input_usd_per_m": 0.026244,
+      "output_usd_per_m": 0.157463
+    },
+    "gpt-5.5": {
+      "input_usd_per_m": 0.426462,
+      "output_usd_per_m": 2.558774
+    },
+    "gpt-5.5-openai-compact": {
+      "input_usd_per_m": 0.656096,
+      "output_usd_per_m": 3.936576
+    },
+    "gpt-5.4-mini": {
+      "input_usd_per_m": 0.063969,
+      "output_usd_per_m": 0.383816
+    },
+    "codex-auto-review": {
+      "input_usd_per_m": 0.213231,
+      "output_usd_per_m": 1.279387
+    },
+    "claude-fable-5": {
+      "input_usd_per_m": 4.705535,
+      "output_usd_per_m": 23.527676
+    },
+    "claude-haiku-4-5": {
+      "input_usd_per_m": 0.470554,
+      "output_usd_per_m": 2.352768
+    },
+    "claude-sonnet-4-6": {
+      "input_usd_per_m": 0.295243,
+      "output_usd_per_m": 1.476216
+    },
+    "claude-sonnet-5": {
+      "input_usd_per_m": 0.196829,
+      "output_usd_per_m": 0.984144
+    },
+    "claude-opus-4-6": {
+      "input_usd_per_m": 0.492072,
+      "output_usd_per_m": 2.46036
+    },
+    "claude-opus-4-7": {
+      "input_usd_per_m": 0.492072,
+      "output_usd_per_m": 2.46036
+    },
+    "claude-opus-4-8": {
+      "input_usd_per_m": 0.492072,
+      "output_usd_per_m": 2.46036
+    },
+    "claude-opus-5": {
+      "input_usd_per_m": 0.492072,
+      "output_usd_per_m": 2.46036
+    },
+    "grok-4-5": {
+      "input_usd_per_m": 0.06561,
+      "output_usd_per_m": 0.196829
+    },
+    "grok-4-6": {
+      "input_usd_per_m": 0.06561,
+      "output_usd_per_m": 0.196829
+    },
+    "kimi-k3": {
+      "input_usd_per_m": 0.164024,
+      "output_usd_per_m": 0.590486
+    },
+    "gemini-3-flash-preview": {
+      "input_usd_per_m": 0.098414,
+      "output_usd_per_m": 0.590486
+    },
+    "gemini-3.1-pro-preview": {
+      "input_usd_per_m": 0.393658,
+      "output_usd_per_m": 2.361946
+    },
+    "gemini-3.5-flash": {
+      "input_usd_per_m": 0.295243,
+      "output_usd_per_m": 1.771459
+    },
+    "gemini-3.6-flash": {
+      "input_usd_per_m": 0.295243,
+      "output_usd_per_m": 1.476216
+    }
+  }
+}
