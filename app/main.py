@@ -21,8 +21,7 @@ import contextlib
 
 from loguru import logger
 
-from app.db import engine
-from app.models import Base, Project, ProjectStatus
+from app.models import Project, ProjectStatus
 from app.prompts_loader import sync_prompts_from_files
 from app.settings import settings
 from app.telegram.bot import build_bot, dp
@@ -34,66 +33,17 @@ if (settings.asr_backend or "").strip().lower() == "nvidia":
 
 
 async def _init_db() -> None:
-    from sqlalchemy import text
+    """Догнать схему до head — вся механика в `app/db_migrations.py`.
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    Раньше здесь жили `create_all` + два ad-hoc блока `ALTER TABLE`
+    (22 колонки projects, миграция статуса failed→new) и ещё один в
+    `db_v2.migrate_db_v2_schema`. Всё это перенесено в ревизии 0001-0003;
+    поведение для существующих баз то же (те же идемпотентные ALTER),
+    но теперь оно версионируется и видно в `alembic history`.
+    """
+    from app.db_migrations import upgrade_to_head
 
-        from app.services.db_v2 import migrate_db_v2_schema
-
-        await migrate_db_v2_schema(conn)
-
-        # Лёгкая миграция: добавляем новые колонки в projects, если их ещё
-        # нет (create_all не умеет ALTER). SQLite поддерживает IF NOT EXISTS
-        # через PRAGMA table_info, но проще — try/except на ADD COLUMN.
-        _new_cols = [
-            ("image_generator", "VARCHAR(40)"),
-            ("aspect_ratio", "VARCHAR(10)"),
-            ("image_resolution", "VARCHAR(10)"),
-            ("image_quality", "VARCHAR(10)"),
-            ("image_relax", "BOOLEAN DEFAULT 0"),
-            ("video_generator", "VARCHAR(40)"),
-            ("video_resolution", "VARCHAR(10)"),
-            ("video_relax", "BOOLEAN DEFAULT 0"),
-            ("hero_count", "INTEGER"),
-            ("hero_descriptions", "JSON"),
-            ("hero_variations", "JSON"),
-            ("hero_variation_modifiers", "JSON"),
-            ("prompt_overrides", "JSON"),
-            ("gpt_text_overrides", "JSON"),
-            # Pipeline-redesign: «Объекты» (Персонажи+Предметы) и слоты
-            # «Доп работа с EXCEL».
-            ("enrich_slots_count", "INTEGER DEFAULT 3"),
-            ("item_descriptions", "JSON"),
-            ("item_variations", "JSON"),
-            # Массовое создание: каждая запись projects может принадлежать
-            # массовому проекту (BatchProject). batch_slug дублирован для
-            # быстрого построения data_dir без join к batch_projects.
-            ("batch_id", "INTEGER"),
-            ("batch_position", "INTEGER"),
-            ("batch_slug", "VARCHAR(120)"),
-            ("auto_mode", "BOOLEAN DEFAULT 0"),
-            ("title", "VARCHAR(240)"),
-        ]
-        cols_rows = (await conn.exec_driver_sql("PRAGMA table_info(projects)")).fetchall()
-        existing = {row[1] for row in cols_rows}
-        for col, ctype in _new_cols:
-            if col in existing:
-                continue
-            try:
-                await conn.exec_driver_sql(f"ALTER TABLE projects ADD COLUMN {col} {ctype}")
-                logger.info("migrate: projects.{} added", col)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("migrate: add column {} failed: {}", col, e)
-        _ = text  # keep import usage neutral
-
-        # Миграция со статуса `failed` (его больше не используем): просто
-        # сбрасываем в `new`, дальше recompute_all поднимет до правильного
-        # уровня по данным.
-        try:
-            await conn.exec_driver_sql("UPDATE projects SET status = 'new' WHERE status = 'failed'")
-        except Exception as e:  # noqa: BLE001
-            logger.warning("migrate failed→new: {}", e)
+    await upgrade_to_head()
 
 
 async def _backfill_from_disk() -> None:

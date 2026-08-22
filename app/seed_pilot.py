@@ -18,8 +18,8 @@ import re
 from loguru import logger
 from sqlalchemy import select
 
-from app.db import engine, session_scope
-from app.models import Base, Project, ProjectStatus
+from app.db import session_scope
+from app.models import Project, ProjectStatus
 from app.storage import ProjectSheet
 
 DEFAULT_TOPIC = "5 фактов о рачках в стиле киберпанк"
@@ -75,8 +75,12 @@ def _slugify(text: str) -> str:
 
 
 async def _init_db() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Через тот же runner, что и приложение: seed на пустой data/state.db
+    # раньше делал create_all и оставлял базу без alembic_version, то есть
+    # засеянный пилот приезжал как «унаследованная база».
+    from app.db_migrations import upgrade_to_head
+
+    await upgrade_to_head()
 
 
 async def seed(topic: str = DEFAULT_TOPIC, hero_mode: str = DEFAULT_HERO_MODE) -> int:

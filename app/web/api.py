@@ -111,23 +111,21 @@ API_PREFIX = "/api"
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Идемпотентная инициализация:
-    1) create_all таблиц (в т.ч. новых: workflows, workflow_runs, node_runs);
+    1) миграции до head (схема, в т.ч. новые таблицы и колонки);
     2) seed дефолтного Workflow.
 
     Безопасно повторно вызывается. В дев-режиме (uvicorn `--reload` без app.main)
-    этот lifespan единственный гарантирует наличие новых таблиц.
+    этот lifespan единственный гарантирует актуальную схему.
     """
     try:
-        from app.db import engine
-        from app.models import Base
+        from app.db_migrations import upgrade_to_head
 
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            from app.services.db_v2 import migrate_db_v2_schema
-
-            await migrate_db_v2_schema(conn)
+        await upgrade_to_head()
     except Exception:  # noqa: BLE001
-        logger.exception("create_all failed (non-fatal — possibly already exists)")
+        # Не глушим смысл: без схемы приложение всё равно нерабочее, но
+        # падать в lifespan значит не показать пользователю ни одной страницы
+        # с причиной. Логируем и продолжаем — роуты отдадут ошибку сами.
+        logger.exception("миграции не прошли — схема может быть неактуальной")
     try:
         from app.db import session_scope
         from app.services.local_library import ensure_library_dirs, import_existing_prompts
