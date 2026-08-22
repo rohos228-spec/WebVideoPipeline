@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,8 +26,8 @@ from app.services.audio_align_methods import (
 )
 from app.services.frame_audio import (
     FrameAudioClip,
-    find_voice_full_on_disk,
     _voiceover_cells_for_frames,
+    find_voice_full_on_disk,
 )
 from app.services.media_probe import probe_duration
 from app.services.project_state import compute_actual_status
@@ -46,16 +46,20 @@ async def _latest_words_artifact(
 ) -> Artifact | None:
     """Кэш слов: full-file NeMo общий для direct/contiguous/auto; chunks — отдельно."""
     rows = (
-        await session.execute(
-            select(Artifact)
-            .where(
-                Artifact.project_id == project_id,
-                Artifact.kind == ArtifactKind.whisper_words,
+        (
+            await session.execute(
+                select(Artifact)
+                .where(
+                    Artifact.project_id == project_id,
+                    Artifact.kind == ArtifactKind.whisper_words,
+                )
+                .order_by(Artifact.id.desc())
+                .limit(24)
             )
-            .order_by(Artifact.id.desc())
-            .limit(24)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for art in rows:
         meta = art.meta if isinstance(art.meta, dict) else {}
         if meta.get("engine") != "nemo":
@@ -81,12 +85,14 @@ async def _load_align_inputs(
     force_asr: bool,
 ) -> dict[str, Any]:
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number.asc())
+        (
+            await session.execute(
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.number.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not frames:
         raise RuntimeError("нет кадров в БД")
 
@@ -138,7 +144,7 @@ async def _persist_align_db(
     engine: str,
 ) -> None:
     """Короткий write: bulk UPDATE кадров + meta + artifact + asr_words."""
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     for clip in clips:
         await session.execute(
             update(Frame)
@@ -287,9 +293,7 @@ async def run_audio_align_for_project(
             summary["error"] = "проект не найден"
             return summary
         try:
-            inputs = await _load_align_inputs(
-                session, project, method_id=method_id, force_asr=force_asr
-            )
+            inputs = await _load_align_inputs(session, project, method_id=method_id, force_asr=force_asr)
         except Exception as exc:  # noqa: BLE001
             summary["error"] = str(exc)
             return summary

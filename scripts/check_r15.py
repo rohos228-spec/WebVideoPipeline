@@ -3,6 +3,7 @@
 Usage:
   python scripts/check_r15.py 15
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,10 +29,14 @@ async def main() -> None:
             return
 
         frames = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         frame_numbers = [f.number for f in frames]
         xlsx = project.data_dir / "project.xlsx"
         print(f"#{project.id} {project.slug}")

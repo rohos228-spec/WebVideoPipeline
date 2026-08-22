@@ -29,9 +29,7 @@ async def session(tmp_path, monkeypatch) -> AsyncSession:
 
 
 @pytest.mark.asyncio
-async def test_remount_calls_audio_and_assemble(
-    session: AsyncSession, tmp_path, monkeypatch
-) -> None:
+async def test_remount_calls_audio_and_assemble(session: AsyncSession, tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     from app import settings as app_settings
 
@@ -64,7 +62,9 @@ async def test_remount_calls_audio_and_assemble(
     )
     await session.commit()
 
-    audio_run = AsyncMock(side_effect=lambda s, proj, b, **kw: setattr(proj, "status", ProjectStatus.audio_ready))
+    audio_run = AsyncMock(
+        side_effect=lambda s, proj, b, **kw: setattr(proj, "status", ProjectStatus.audio_ready)
+    )
     assemble_run = AsyncMock(side_effect=lambda s, proj, b: setattr(proj, "status", ProjectStatus.assembled))
 
     with (
@@ -86,9 +86,7 @@ async def test_remount_calls_audio_and_assemble(
 
 
 @pytest.mark.asyncio
-async def test_remount_bootstraps_frames_from_disk(
-    session: AsyncSession, tmp_path, monkeypatch
-) -> None:
+async def test_remount_bootstraps_frames_from_disk(session: AsyncSession, tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     from app import settings as app_settings
 
@@ -111,7 +109,9 @@ async def test_remount_bootstraps_frames_from_disk(
     voice.write_bytes(b"\xff" * 4096)
     await session.commit()
 
-    audio_run = AsyncMock(side_effect=lambda s, proj, b, **kw: setattr(proj, "status", ProjectStatus.audio_ready))
+    audio_run = AsyncMock(
+        side_effect=lambda s, proj, b, **kw: setattr(proj, "status", ProjectStatus.audio_ready)
+    )
     assemble_run = AsyncMock(side_effect=lambda s, proj, b: setattr(proj, "status", ProjectStatus.assembled))
 
     with (

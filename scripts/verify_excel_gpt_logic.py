@@ -69,8 +69,10 @@ def test_attachments(tmp: Path) -> None:
     p = Project(id=99, slug="verify", topic="t", status=ProjectStatus.new)
     base = Path(__file__).resolve().parents[1]
     import os
+
     os.environ.setdefault("DATA_DIR", str(tmp / "data"))
     from app.settings import settings
+
     settings.data_dir = str(tmp / "data")
     p.data_dir.mkdir(parents=True, exist_ok=True)
     (p.data_dir / "project.xlsx").write_bytes(b"x" * 2048)
@@ -152,6 +154,7 @@ async def test_attachments_api_shape(tmp: Path) -> None:
     async with Session() as session:
         p = Project(id=1, slug="api", topic="t", status=ProjectStatus.new)
         from app.settings import settings
+
         settings.data_dir = str(tmp / "data")
         p.data_dir.mkdir(parents=True, exist_ok=True)
         (p.data_dir / "project.xlsx").write_bytes(b"x" * 2048)

@@ -19,7 +19,7 @@ from app.models import HITLDecision, HITLRequest
 from app.services.event_bus import publish_hitl_event
 from app.services.hitl_apply import apply_hitl_side_effects
 from app.web.deps import get_session
-from app.web.schemas import HITLDecisionRequest, HITLDTO
+from app.web.schemas import HITLDTO, HITLDecisionRequest
 
 router = APIRouter(prefix="/hitl", tags=["hitl"])
 
@@ -29,12 +29,16 @@ async def list_pending(
     session: AsyncSession = Depends(get_session),
 ) -> list[HITLRequest]:
     rows = (
-        await session.execute(
-            select(HITLRequest)
-            .where(HITLRequest.decision == HITLDecision.pending)
-            .order_by(HITLRequest.id.desc())
+        (
+            await session.execute(
+                select(HITLRequest)
+                .where(HITLRequest.decision == HITLDecision.pending)
+                .order_by(HITLRequest.id.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -43,12 +47,16 @@ async def list_for_project(
     project_id: int, session: AsyncSession = Depends(get_session)
 ) -> list[HITLRequest]:
     rows = (
-        await session.execute(
-            select(HITLRequest)
-            .where(HITLRequest.project_id == project_id)
-            .order_by(HITLRequest.id.desc())
+        (
+            await session.execute(
+                select(HITLRequest)
+                .where(HITLRequest.project_id == project_id)
+                .order_by(HITLRequest.id.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -88,7 +96,8 @@ async def submit_decision(
     await session.refresh(req)
 
     await publish_hitl_event(
-        req.project_id, req.id,
+        req.project_id,
+        req.id,
         event_type="hitl_decided",
         payload={"decision": new_decision.value, "kind": req.kind.value},
     )

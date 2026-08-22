@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.services.generation_storage import (
@@ -31,16 +31,14 @@ def test_elapsed_from_iso_done_without_end_does_not_use_now() -> None:
 
 
 def test_resolve_done_item_freezes_via_mtime(tmp_path: Path) -> None:
-    start = datetime(2026, 7, 27, 10, 0, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 7, 27, 10, 0, 0, tzinfo=UTC)
     end = start + timedelta(seconds=67)
     meta = {
         "created_at": start.astimezone().isoformat(timespec="seconds"),
         "status": "done",
         # нет finished_at / elapsed_sec — старый sidecar
     }
-    sec, label, persist = resolve_item_elapsed(
-        meta, status="done", mtime=end.timestamp()
-    )
+    sec, label, persist = resolve_item_elapsed(meta, status="done", mtime=end.timestamp())
     assert persist is True
     assert sec == 67
     assert label == "1 мин 7 сек"
@@ -66,7 +64,7 @@ def test_backfill_writes_elapsed_once(tmp_path: Path, monkeypatch) -> None:
     media.mkdir(parents=True)
     mp4 = media / "100000_abc.mp4"
     mp4.write_bytes(b"\x00" * 64)
-    start = datetime.now(timezone.utc) - timedelta(hours=10)
+    start = datetime.now(UTC) - timedelta(hours=10)
     # файл «создан» 67 сек после старта
     finished = start + timedelta(seconds=67)
     side = mp4.with_suffix(".json")

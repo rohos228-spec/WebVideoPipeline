@@ -63,11 +63,7 @@ async def replace_project_asr_words(
 
     frame_ids: dict[int, int] = {}
     if frame_segments:
-        nums = {
-            int(s["frame_number"])
-            for s in frame_segments
-            if s.get("frame_number") is not None
-        }
+        nums = {int(s["frame_number"]) for s in frame_segments if s.get("frame_number") is not None}
         if nums:
             rows = (
                 await session.execute(
@@ -116,9 +112,7 @@ async def load_project_asr_words(
     project_id: int,
 ) -> list[AsrWord]:
     result = await session.execute(
-        select(AsrWord)
-        .where(AsrWord.project_id == project_id)
-        .order_by(AsrWord.idx.asc())
+        select(AsrWord).where(AsrWord.project_id == project_id).order_by(AsrWord.idx.asc())
     )
     return list(result.scalars().all())
 

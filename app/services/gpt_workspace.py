@@ -10,7 +10,7 @@ import json
 import re
 import shutil
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -85,9 +85,7 @@ _NEEDS_WORK_RE = re.compile(
 )
 
 _DOCX_RE = re.compile(r"(?i)(\.docx|\bdocx\b|word|ворд)")
-_XLSX_RE = re.compile(
-    r"(?i)(\.xlsx|\.xls|\bxlsx\b|\bexcel\b|эксел[ьяю]|таблиц[аеуы])"
-)
+_XLSX_RE = re.compile(r"(?i)(\.xlsx|\.xls|\bxlsx\b|\bexcel\b|эксел[ьяю]|таблиц[аеуы])")
 _IMAGE_ASK_RE = re.compile(
     r"(?i)("
     r"картин?к|"  # картинка/картинку + опечатка «картику»
@@ -274,9 +272,7 @@ def _explicit_text_doc_ask(message: str) -> bool:
     )
 
 
-def _should_pack_text_document(
-    user_text: str, reply: str, *, media_count: int
-) -> bool:
+def _should_pack_text_document(user_text: str, reply: str, *, media_count: int) -> bool:
     """Паковать .txt/.docx только для явных документных запросов."""
     if _wants_image_file(user_text) and not _explicit_text_doc_ask(user_text):
         return False
@@ -321,11 +317,7 @@ def _write_simple_xlsx(path: Path, text: str) -> None:
     else:
         ws = wb.active
         ws.title = "Данные"
-        lines = [
-            ln
-            for ln in _strip_media_payloads(text or "").splitlines()
-            if ln.strip()
-        ]
+        lines = [ln for ln in _strip_media_payloads(text or "").splitlines() if ln.strip()]
         if not lines:
             ws.cell(1, 1, "")
         else:
@@ -359,9 +351,7 @@ def _reply_fails_file_delivery(reply: str, *, user_text: str) -> bool:
     if not cleaned:
         return True
     # Короткая мета-отписка вместо документа при явном «пришли файлом».
-    if len(cleaned) < 120 and (
-        _asks_file(user_text) or _needs_work(user_text)
-    ):
+    if len(cleaned) < 120 and (_asks_file(user_text) or _needs_work(user_text)):
         if re.search(
             r"(?i)инструмент|прикрепить|вложен|следующ|исправляю|подготов",
             t,
@@ -481,9 +471,7 @@ def _image_query_variants(message_or_query: str) -> list[str]:
         add(f"{base} official")
     else:
         add(f"{base} art")
-        if "dota" not in low and re.search(
-            r"(?i)assassin|phantom|invoker|pudge", low
-        ):
+        if "dota" not in low and re.search(r"(?i)assassin|phantom|invoker|pudge", low):
             add(f"{base} Dota 2")
     if "бел" in low or "white" in low:
         add((variants[0] if variants else base) + " white background")
@@ -537,9 +525,10 @@ def _filter_placeholder_images(out_dir: Path, names: list[str]) -> list[str]:
 def _wants_blank_file(message: str) -> bool:
     """Просят пустой файл — контент от GPT может быть пустым."""
     text = (message or "").strip()
-    return bool(text) and bool(_BLANK_FILE_RE.search(text)) and (
-        _asks_file(text)
-        or bool(re.search(r"(?i)(\.txt|\.docx|\.md|\btxt\b|файл)", text))
+    return (
+        bool(text)
+        and bool(_BLANK_FILE_RE.search(text))
+        and (_asks_file(text) or bool(re.search(r"(?i)(\.txt|\.docx|\.md|\btxt\b|файл)", text)))
     )
 
 
@@ -604,8 +593,7 @@ def _pure_file_return(message: str) -> bool:
 
 def _wants_deliverable_file(message: str) -> bool:
     return _asks_file(message) or bool(
-        re.search(r"(?i)(договор|контракт|соглашени)", message or "")
-        and _needs_work(message)
+        re.search(r"(?i)(договор|контракт|соглашени)", message or "") and _needs_work(message)
     )
 
 
@@ -617,11 +605,7 @@ def _write_simple_docx(path: Path, text: str) -> None:
     lines = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     body_parts: list[str] = []
     for line in lines:
-        body_parts.append(
-            "<w:p><w:r><w:t xml:space=\"preserve\">"
-            f"{escape(line)}"
-            "</w:t></w:r></w:p>"
-        )
+        body_parts.append(f'<w:p><w:r><w:t xml:space="preserve">{escape(line)}</w:t></w:r></w:p>')
     if not body_parts:
         body_parts.append("<w:p><w:r><w:t></w:t></w:r></w:p>")
     document_xml = (
@@ -754,7 +738,7 @@ def _session_dir(session_id: str) -> Path:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -841,8 +825,7 @@ def reset_running_sessions_on_startup() -> dict[str, Any]:
         _append_message(
             d.name,
             "system",
-            "Ошибка: бэкенд перезапущен во время ответа GPT. Статус сброшен — "
-            "отправь сообщение ещё раз.",
+            "Ошибка: бэкенд перезапущен во время ответа GPT. Статус сброшен — отправь сообщение ещё раз.",
         )
         reset += 1
         logger.warning("gpt_workspace: reset orphan running session={}", d.name)
@@ -862,16 +845,15 @@ def _maybe_reset_stale_running(session_id: str, meta: dict[str, Any]) -> dict[st
     try:
         ts = datetime.fromisoformat(updated.replace("Z", "+00:00"))
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-        age = (datetime.now(timezone.utc) - ts).total_seconds()
+            ts = ts.replace(tzinfo=UTC)
+        age = (datetime.now(UTC) - ts).total_seconds()
     except Exception:  # noqa: BLE001
         return meta
     if age < _STALE_RUNNING_SEC:
         return meta
     meta = dict(meta)
     detail = (
-        f"GPT не ответил за {int(age // 60)} мин (таймаут/зависание провайдера). "
-        "Отправь сообщение ещё раз."
+        f"GPT не ответил за {int(age // 60)} мин (таймаут/зависание провайдера). Отправь сообщение ещё раз."
     )
     meta["status"] = "error"
     meta["phase"] = "error"
@@ -950,9 +932,7 @@ def _normalize_session_files(d: Path) -> dict[str, str]:
     return renames
 
 
-def _rewrite_message_filenames(
-    messages: list[Any], renames: dict[str, str]
-) -> list[Any]:
+def _rewrite_message_filenames(messages: list[Any], renames: dict[str, str]) -> list[Any]:
     out: list[Any] = []
     for m in messages:
         if not isinstance(m, dict):
@@ -1174,9 +1154,7 @@ def _verify_ready_files(out_dir: Path, names: list[str], *, min_size: int = 0) -
         if suf in junk:
             continue
         # генерация: предпочитаем обещанные типы; исходники «верни» — любой не-junk
-        if suf and suf not in _READY_SUFFIXES and not re.search(
-            r"[a-zA-Z0-9]", suf[1:] or ""
-        ):
+        if suf and suf not in _READY_SUFFIXES and not re.search(r"[a-zA-Z0-9]", suf[1:] or ""):
             continue
         seen.add(name)
         ok.append(name)
@@ -1195,10 +1173,7 @@ def _ready_files_notice(names: list[str]) -> str:
 
 def _studio_return_reply(returned: list[str]) -> str:
     if not returned:
-        return (
-            "Нет вложений в этой сессии. Прикрепи файл(ы) скрепкой, "
-            "затем снова попроси вернуть."
-        )
+        return "Нет вложений в этой сессии. Прикрепи файл(ы) скрепкой, затем снова попроси вернуть."
     return _ready_files_notice(returned)
 
 
@@ -1284,11 +1259,9 @@ async def ask(
 
     out_dir = d / "outputs"
     out_dir.mkdir(exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     saved_files: list[str] = []
-    last_doc = _last_assistant_document(
-        prior_raw if isinstance(prior_raw, list) else []
-    )
+    last_doc = _last_assistant_document(prior_raw if isinstance(prior_raw, list) else [])
     intent = resolve_file_intent(
         text,
         has_attachments=bool(files),
@@ -1385,16 +1358,12 @@ async def ask(
                 _write_json(d / "meta.json", meta)
             elif is_kimi:
                 meta = _read_json(d / "meta.json", {})
-                meta["phase_detail"] = (
-                    "Kimi (TokenRouter): жду ответ до 30 мин — не закрывай чат…"
-                )
+                meta["phase_detail"] = "Kimi (TokenRouter): жду ответ до 30 мин — не закрывай чат…"
                 meta["updated_at"] = _now()
                 _write_json(d / "meta.json", meta)
             else:
                 meta = _read_json(d / "meta.json", {})
-                meta["phase_detail"] = (
-                    "GPT думает / генерирует ответ (ожидание до 30 мин)…"
-                )
+                meta["phase_detail"] = "GPT думает / генерирует ответ (ожидание до 30 мин)…"
                 meta["updated_at"] = _now()
                 _write_json(d / "meta.json", meta)
             reply = await gpt.ask_with_files(
@@ -1411,11 +1380,7 @@ async def ask(
             # Только явный запрос «пустой txt» — иначе empty_stream маскировался
             # пустым файлом («GPT вернул пустой»), хотя kie уже success.
             err = str(e)
-            if (
-                want_pack
-                and _wants_blank_file(text)
-                and "пустой output" in err.lower()
-            ):
+            if want_pack and _wants_blank_file(text) and "пустой output" in err.lower():
                 logger.info(
                     "gpt_workspace: session={} blank-file intent + empty GPT → empty file",
                     session_id,
@@ -1429,16 +1394,13 @@ async def ask(
         # один жёсткий повтор: полный текст в ответе → Studio упакует в .txt.
         if want_pack and _reply_fails_file_delivery(reply, user_text=text):
             logger.warning(
-                "gpt_workspace: session={} file-delivery refuse/plan "
-                "reply_len={} → retry once",
+                "gpt_workspace: session={} file-delivery refuse/plan reply_len={} → retry once",
                 session_id,
                 len(reply),
             )
             meta = _read_json(d / "meta.json", {})
             meta["phase"] = "thinking"
-            meta["phase_detail"] = (
-                "Повтор: модель должна выдать полный текст файла…"
-            )
+            meta["phase_detail"] = "Повтор: модель должна выдать полный текст файла…"
             meta["updated_at"] = _now()
             _write_json(d / "meta.json", meta)
             retry_history = list(history) + [
@@ -1457,9 +1419,7 @@ async def ask(
                     max_retries=0,
                 )
                 reply2 = (reply2 or "").strip()
-                if reply2 and not _reply_fails_file_delivery(
-                    reply2, user_text=text
-                ):
+                if reply2 and not _reply_fails_file_delivery(reply2, user_text=text):
                     reply = reply2
                 elif reply2:
                     c1 = _strip_attachment_excuses(reply)
@@ -1553,8 +1513,15 @@ async def ask(
         media_count = sum(
             1
             for n in saved_files
-            if Path(n).suffix.lower() in {
-                ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg",
+            if Path(n).suffix.lower()
+            in {
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".webp",
+                ".gif",
+                ".bmp",
+                ".svg",
             }
         )
 
@@ -1580,8 +1547,15 @@ async def ask(
                 media_count = sum(
                     1
                     for n in saved_files
-                    if Path(n).suffix.lower() in {
-                        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg",
+                    if Path(n).suffix.lower()
+                    in {
+                        ".png",
+                        ".jpg",
+                        ".jpeg",
+                        ".webp",
+                        ".gif",
+                        ".bmp",
+                        ".svg",
                     }
                 )
                 logger.info(
@@ -1623,13 +1597,8 @@ async def ask(
 
         # 3) .txt/.docx — документные запросы; длинный договор в ответе — тоже файл
         delivered: Path | None = None
-        pack_doc = (
-            want_pack
-            and _should_pack_text_document(text, reply, media_count=media_count)
-        ) or (
-            media_count == 0
-            and _looks_like_document(reply)
-            and not _is_meta_chat_question(text)
+        pack_doc = (want_pack and _should_pack_text_document(text, reply, media_count=media_count)) or (
+            media_count == 0 and _looks_like_document(reply) and not _is_meta_chat_question(text)
         )
         # intent уже pack_reply/pack_last, а гейт не узнал формулировку
         # («Сделай … и пришли мне файл») — всё равно кладём текст в .txt
@@ -1647,10 +1616,7 @@ async def ask(
             pack_doc = False
         if pack_doc and reply.startswith("Не удалось получить текст файла от модели"):
             pack_doc = False
-        if (
-            pack_doc
-            and not any(p.suffix.lower() in {".xlsx", ".xlsm"} for p in files)
-        ):
+        if pack_doc and not any(p.suffix.lower() in {".xlsx", ".xlsm"} for p in files):
             try:
                 delivered = _deliver_reply_as_file(
                     out_dir=out_dir,
@@ -1673,14 +1639,15 @@ async def ask(
             flags=re.I,
         ).rstrip()
         # Длинный договор уже в файле — в пузыре не дублируем простыню
-        if ready and _looks_like_document(body) and any(
-            Path(n).suffix.lower() in {".txt", ".docx", ".md"} for n in ready
+        if (
+            ready
+            and _looks_like_document(body)
+            and any(Path(n).suffix.lower() in {".txt", ".docx", ".md"} for n in ready)
         ):
             body = ""
         if _wants_image_file(text) and media_count == 0:
             logger.warning(
-                "gpt_workspace: session={} image ask but no real media "
-                "raw_reply_len={} has_data_uri={}",
+                "gpt_workspace: session={} image ask but no real media raw_reply_len={} has_data_uri={}",
                 session_id,
                 len(reply or ""),
                 bool(_DATA_URI_INLINE_RE.search(reply or "")),

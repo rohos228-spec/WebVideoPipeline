@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import pytest
-
 from pathlib import Path
 
+import pytest
+
 from app.bots.outsee import (
+    GenerationResult,
     OutseeContentRejectedError,
     OutseeDownloadError,
     OutseeImageError,
-    GenerationResult,
 )
 from app.generation_options import OUTSEE_PROMPT_MAX_CHARS
 from app.services import outsee_retry as mod
@@ -35,9 +35,7 @@ def test_is_start_frame_content_policy_error() -> None:
     )
     assert mod._is_start_frame_content_policy_error(err) is True
     assert (
-        mod._is_start_frame_content_policy_error(
-            OutseeImageError("Аудиодорожка видео не прошла модерацию")
-        )
+        mod._is_start_frame_content_policy_error(OutseeImageError("Аудиодорожка видео не прошла модерацию"))
         is False
     )
 
@@ -65,9 +63,7 @@ def test_soften_start_frame_for_policy(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_video_content_policy_keeps_start_frame(
-    monkeypatch, tmp_path: Path
-) -> None:
+async def test_video_content_policy_keeps_start_frame(monkeypatch, tmp_path: Path) -> None:
     """CONTENT_POLICY celebrity: soften + retry, НЕ снимать start_frame."""
     from PIL import Image
 
@@ -88,9 +84,7 @@ async def test_video_content_policy_keeps_start_frame(
                     "определила на нём известную личность.'}"
                 )
             out_path.write_bytes(b"mp4" * 40)
-            return GenerationResult(
-                file_path=out_path, raw_url="https://x/v.mp4", gen_id="g1"
-            )
+            return GenerationResult(file_path=out_path, raw_url="https://x/v.mp4", gen_id="g1")
 
     async def fake_prepare(gpt, body, prefix, *, project_id=None, max_full=None):
         return body
@@ -101,9 +95,7 @@ async def test_video_content_policy_keeps_start_frame(
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
     monkeypatch.setattr(mod, "sleep_cancellable", no_sleep)
     monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
-    monkeypatch.setattr(
-        "app.bots.outsee_http.outsee_api_configured", lambda: False
-    )
+    monkeypatch.setattr("app.bots.outsee_http.outsee_api_configured", lambda: False)
 
     result = await mod.generate_video_with_retries(
         FakeOutsee(),
@@ -133,17 +125,13 @@ def test_is_audio_content_policy_error() -> None:
     )
     assert mod._is_audio_content_policy_error(err) is True
     assert mod._is_start_frame_content_policy_error(err) is False
-    assert (
-        mod._is_audio_content_policy_error(OutseeImageError("известную личность"))
-        is False
-    )
+    assert mod._is_audio_content_policy_error(OutseeImageError("известную личность")) is False
 
 
 def test_is_transient_network_error() -> None:
     assert (
         mod._is_transient_network_error(
-            OutseeImageError("Outsee API network /api/v1/videos/generate: "
-                             "All connection attempts failed")
+            OutseeImageError("Outsee API network /api/v1/videos/generate: All connection attempts failed")
         )
         is True
     )
@@ -154,7 +142,6 @@ def test_is_transient_network_error() -> None:
         is True
     )
     assert mod._is_transient_network_error(OutseeImageError("контент отклонён")) is False
-
 
 
 def test_is_prompt_related_error_truncation() -> None:
@@ -200,9 +187,7 @@ async def test_prepare_prompt_compresses_when_over_limit(monkeypatch) -> None:
 
     body = "y" * 5100
     prefix = "[ID: P1-F1-abc]"
-    out = await mod._prepare_prompt_for_outsee(
-        FakeGpt(), body, prefix, project_id=1
-    )
+    out = await mod._prepare_prompt_for_outsee(FakeGpt(), body, prefix, project_id=1)
     assert len(out) == 4000
     assert calls
 
@@ -270,9 +255,7 @@ async def test_plain_image_error_moderation_banner_failfast(monkeypatch) -> None
             attempts.append(prompt)
             raise OutseeImageError(
                 "outsee: Ваш текстовый запрос содержит запрещённы...",
-                context={
-                    "failure": "Ваш текстовый запрос содержит запрещённы..."
-                },
+                context={"failure": "Ваш текстовый запрос содержит запрещённы..."},
             )
 
     class FakeGpt:
@@ -367,9 +350,7 @@ async def test_image_download_error_retries_download_only(monkeypatch, tmp_path:
         async def retry_image_download(self, *, img_url, out_path, gen_id, **kwargs):
             dl_calls.append(img_url)
             out_path.write_bytes(b"x" * 100)
-            return GenerationResult(
-                file_path=out_path, raw_url=img_url, gen_id=gen_id
-            )
+            return GenerationResult(file_path=out_path, raw_url=img_url, gen_id=gen_id)
 
     async def fake_prepare(gpt, body, prefix, *, project_id=None):
         return body
@@ -393,9 +374,7 @@ async def test_image_download_error_retries_download_only(monkeypatch, tmp_path:
 
 
 @pytest.mark.asyncio
-async def test_image_download_exhaustion_does_not_regenerate(
-    monkeypatch, tmp_path: Path
-) -> None:
+async def test_image_download_exhaustion_does_not_regenerate(monkeypatch, tmp_path: Path) -> None:
     """После исчерпания download-only — raise, без второго Generate."""
     gen_calls: list[str] = []
     dl_calls = 0

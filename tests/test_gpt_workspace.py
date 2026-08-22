@@ -37,9 +37,7 @@ def test_history_drops_long_turns_for_pdf_translate(tmp_path: Path) -> None:
     ]
     pdf = tmp_path / "deck.pdf"
     pdf.write_bytes(b"%PDF-1.4")
-    out = gw._history_for_attachment_ask(
-        hist, files=[pdf], text="переведи текст из приложенного файла"
-    )
+    out = gw._history_for_attachment_ask(hist, files=[pdf], text="переведи текст из приложенного файла")
     assert len(out) == 2
     assert out[0]["role"] == "assistant"
     assert all(len(m["content"]) <= gw._HISTORY_LONG_MSG_CHARS for m in out)
@@ -104,9 +102,7 @@ def test_extract_image_urls_from_html() -> None:
     assert "https://wiki.example/static/a.webp" in urls
     assert all(not u.startswith("data:") for u in urls)
 
-    ordered = collect_result_urls(
-        "see https://en.wikipedia.org/wiki/Lion and https://cdn.example/x.png"
-    )
+    ordered = collect_result_urls("see https://en.wikipedia.org/wiki/Lion and https://cdn.example/x.png")
     assert ordered[0].endswith(".png")
 
 
@@ -128,13 +124,9 @@ async def test_materialize_html_pulls_og_image(tmp_path: Path, monkeypatch: pyte
         out_path.parent.mkdir(parents=True, exist_ok=True)
         if url.endswith(".png") or "lion.png" in url:
             out_path.write_bytes(png)
-            return ga.finalize_downloaded_file(
-                out_path, content_type="image/png", url=url
-            )
+            return ga.finalize_downloaded_file(out_path, content_type="image/png", url=url)
         out_path.write_bytes(html)
-        return ga.finalize_downloaded_file(
-            out_path, content_type="text/html", url=url
-        )
+        return ga.finalize_downloaded_file(out_path, content_type="text/html", url=url)
 
     monkeypatch.setattr(ga, "download_content", fake_download)
     saved = await ga.materialize_reply_assets(
@@ -149,8 +141,9 @@ async def test_materialize_html_pulls_og_image(tmp_path: Path, monkeypatch: pyte
 
 
 def test_finalize_url_download_never_bin(tmp_path: Path) -> None:
-    from app.services.gpt_api import finalize_downloaded_file, maybe_decode_base64_image
     import base64
+
+    from app.services.gpt_api import finalize_downloaded_file, maybe_decode_base64_image
 
     png = bytes.fromhex(
         "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
@@ -346,7 +339,7 @@ async def test_ask_rework_text_to_file_calls_gpt(
 
     monkeypatch.setattr(gc, "get_gpt_client", lambda: FakeGpt())
     s = gw.create_session()
-    gw.save_attachment(s["id"], "дело.txt", "сырой текст дела".encode("utf-8"))
+    gw.save_attachment(s["id"], "дело.txt", "сырой текст дела".encode())
     out = await gw.ask(s["id"], "текст переработай и пришли мне файлом")
     assert called["n"] == 1
     assert out["messages"][-1].get("studio_returned") is not True
@@ -388,9 +381,8 @@ async def test_ask_file_excuse_retries_and_packs_txt(
     import app.services.gpt_client as gc
 
     calls: list[str] = []
-    full = (
-        "Агент: character_registry_database_agent_v3_web_verified\n\n"
-        + ("Правило заполнения персонажей.\n" * 30)
+    full = "Агент: character_registry_database_agent_v3_web_verified\n\n" + (
+        "Правило заполнения персонажей.\n" * 30
     )
 
     class FakeGpt:
@@ -413,7 +405,7 @@ async def test_ask_file_excuse_retries_and_packs_txt(
     gw.save_attachment(
         s["id"],
         "agent.txt",
-        "старый промт агента персонажей".encode("utf-8"),
+        "старый промт агента персонажей".encode(),
     )
     out = await gw.ask(
         s["id"],
@@ -424,9 +416,7 @@ async def test_ask_file_excuse_retries_and_packs_txt(
     assert any(n.endswith(".txt") for n in names)
     assert "Готовые файлы" in out["messages"][-1]["content"]
     packed = next(
-        o
-        for o in out["outputs"]
-        if o["name"].endswith(".txt") and not o["name"].startswith("reply_")
+        o for o in out["outputs"] if o["name"].endswith(".txt") and not o["name"].startswith("reply_")
     )
     body = Path(packed["path"]).read_text(encoding="utf-8")
     assert "character_registry_database_agent_v3_web_verified" in body
@@ -465,17 +455,12 @@ def test_wants_deliverable_includes_send_file() -> None:
 
 def test_should_pack_prishli_mne_fail() -> None:
     """«Сделай агента и пришли мне файл» → .txt, не только пузырь."""
-    msg = (
-        "Нужно из этого агента сделать агента проверки. "
-        "Сделай агента и пришли мне файл"
-    )
+    msg = "Нужно из этого агента сделать агента проверки. Сделай агента и пришли мне файл"
     assert gw.resolve_file_intent(msg, has_attachments=True, last_doc="") == "pack_reply"
     assert gw._explicit_text_doc_ask(msg)
     assert gw._should_pack_text_document(msg, "x" * 500, media_count=0)
     # голый «пришли картинку» — не текстовый документ
-    assert not gw._should_pack_text_document(
-        "пришли картинку phantom", "png data", media_count=0
-    )
+    assert not gw._should_pack_text_document("пришли картинку phantom", "png data", media_count=0)
 
 
 def test_reset_running_sessions_on_startup(tmp_path, monkeypatch) -> None:
@@ -492,9 +477,7 @@ def test_reset_running_sessions_on_startup(tmp_path, monkeypatch) -> None:
         "phase": "thinking",
         "updated_at": "2026-01-01T00:00:00+00:00",
     }
-    (d / "meta.json").write_text(
-        __import__("json").dumps(meta), encoding="utf-8"
-    )
+    (d / "meta.json").write_text(__import__("json").dumps(meta), encoding="utf-8")
     (d / "messages.json").write_text("[]", encoding="utf-8")
     out = gw.reset_running_sessions_on_startup()
     assert out["reset"] == 1
@@ -519,14 +502,9 @@ def test_stale_running_session_lazy_reset(tmp_path, monkeypatch) -> None:
 
 def test_resolve_file_intent_simple() -> None:
     doc = "ДОГОВОР\n\n" + ("пункт\n" * 20)
+    assert gw.resolve_file_intent("отправь файл", has_attachments=False, last_doc=doc) == "pack_last"
     assert (
-        gw.resolve_file_intent("отправь файл", has_attachments=False, last_doc=doc)
-        == "pack_last"
-    )
-    assert (
-        gw.resolve_file_intent(
-            "верни файл hero.png", has_attachments=True, last_doc=""
-        )
+        gw.resolve_file_intent("верни файл hero.png", has_attachments=True, last_doc="")
         == "return_attachments"
     )
     assert (
@@ -545,14 +523,9 @@ def test_resolve_file_intent_simple() -> None:
         )
         == "pack_reply"
     )
+    assert gw.resolve_file_intent("что на картинке?", has_attachments=True, last_doc="") == "none"
     assert (
-        gw.resolve_file_intent("что на картинке?", has_attachments=True, last_doc="")
-        == "none"
-    )
-    assert (
-        gw.resolve_file_intent(
-            "пришли мне пустой txt файл", has_attachments=False, last_doc=""
-        )
+        gw.resolve_file_intent("пришли мне пустой txt файл", has_attachments=False, last_doc="")
         == "pack_reply"
     )
     # Вопрос про прошлую доставку — не новый pack
@@ -620,8 +593,7 @@ def test_last_assistant_skips_ready_files_notice() -> None:
         "ДОГОВОР № ___\nпредоставления доступа\n\n"
         "1.1. Сервис — система.\n1.2. API — интерфейс.\n"
         "1.3. Пакет — объем.\n1.4. Лимиты — ограничения.\n"
-        "1.5. Запрос — данные.\n"
-        + ("Исполнитель и Заказчик. Реквизиты сторон.\n" * 40)
+        "1.5. Запрос — данные.\n" + ("Исполнитель и Заказчик. Реквизиты сторон.\n" * 40)
     )
     prior = [
         {"role": "assistant", "content": contract},
@@ -642,7 +614,7 @@ async def test_ask_packs_agent_prishli_mne_fail(
     """«Сделай агента и пришли мне файл» → document_*.txt в Результаты."""
     import app.services.gpt_client as gc
 
-    body = ("Агент проверки таблицы\n\n" + ("правило логики\n" * 80))
+    body = "Агент проверки таблицы\n\n" + ("правило логики\n" * 80)
 
     class FakeGpt:
         async def ask_with_files(self, *a, **k):
@@ -747,9 +719,7 @@ async def test_ask_blank_txt_packs_empty_on_empty_gpt_output(
     names = [o["name"] for o in out["outputs"] if not o["name"].startswith("reply_")]
     assert names and any(n.endswith(".txt") for n in names)
     blank = next(
-        o
-        for o in out["outputs"]
-        if o["name"].endswith(".txt") and not o["name"].startswith("reply_")
+        o for o in out["outputs"] if o["name"].endswith(".txt") and not o["name"].startswith("reply_")
     )
     assert Path(blank["path"]).is_file()
     assert Path(blank["path"]).stat().st_size == 0
@@ -805,10 +775,7 @@ async def test_ask_image_web_search_fallback(
     import app.services.gpt_api as ga
     import app.services.gpt_client as gc
 
-    stub = (
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8A"
-        "AusB9Y9Zl1sAAAAASUVORK5CYII="
-    )
+    stub = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII="
 
     def _png(w: int, h: int) -> bytes:
         def chunk(tag: bytes, data: bytes) -> bytes:
@@ -853,18 +820,16 @@ async def test_ask_image_web_search_fallback(
 
 
 def test_image_search_query_strips_fluff() -> None:
-    assert "фантом" in gw._image_search_query(
-        "пришли мне картику фантом ассасин из доты на белом фоне"
-    ).lower()
+    assert (
+        "фантом" in gw._image_search_query("пришли мне картику фантом ассасин из доты на белом фоне").lower()
+    )
 
 
 @pytest.mark.asyncio
 async def test_materialize_svg_data_uri(tmp_path: Path) -> None:
     from app.services.gpt_api import materialize_reply_assets
 
-    b64 = (
-        "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjwvc3ZnPg=="
-    )
+    b64 = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjwvc3ZnPg=="
     saved = await materialize_reply_assets(
         f"data:image/svg+xml;base64,{b64}",
         tmp_path,
@@ -959,13 +924,7 @@ async def test_ask_excel_and_word(
 
     class FakeGpt:
         async def ask_with_files(self, *a, **k):
-            return (
-                "# Лист: Данные\n"
-                "A\tB\n"
-                "1\t2\n"
-                "\n"
-                "Короткий текст для word-документа про тест."
-            )
+            return "# Лист: Данные\nA\tB\n1\t2\n\nКороткий текст для word-документа про тест."
 
         async def download_attachment_from_last_reply(self, *a, **k):
             return None
@@ -1054,7 +1013,7 @@ async def test_ask_sends_txt_as_attachment_not_master(
     import app.services.gpt_client as gc
 
     s = gw.create_session()
-    gw.save_attachment(s["id"], "secret.txt", "код OMEGA-1\n".encode("utf-8"))
+    gw.save_attachment(s["id"], "secret.txt", "код OMEGA-1\n".encode())
 
     captured: dict = {}
 

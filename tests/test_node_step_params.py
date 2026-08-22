@@ -139,11 +139,7 @@ def test_skip_intro_when_enabled() -> None:
     )
 
     p = Project(topic="t")
-    p.meta = {
-        "node_step_params": {
-            "assemble": {"skip_intro_enabled": True, "skip_intro_seconds": 1.25}
-        }
-    }
+    p.meta = {"node_step_params": {"assemble": {"skip_intro_enabled": True, "skip_intro_seconds": 1.25}}}
     assert skip_intro_enabled_for_project(p) is True
     assert skip_intro_seconds_for_project(p) == 1.25
     p.meta["node_step_params"]["assemble"]["skip_intro_seconds"] = 9

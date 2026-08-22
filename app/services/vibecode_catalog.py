@@ -160,7 +160,9 @@ def normalize_model(raw: dict[str, Any], *, channel: str | None = None) -> dict[
         kind = "image"
     else:
         kind = "text"
-    pricing = apply_markup(raw.get("pricing") if isinstance(raw.get("pricing"), dict) else {}, channel=channel)
+    pricing = apply_markup(
+        raw.get("pricing") if isinstance(raw.get("pricing"), dict) else {}, channel=channel
+    )
     provider = "vibecode"
     if is_video:
         provider = "kie" if mid in {"kling-2-6"} else "outsee"
@@ -319,11 +321,7 @@ def resolve_node_media_settings(
 
     aspect_id = fields["aspect_ratio"] or getattr(project, "aspect_ratio", None) or DEFAULTS["aspect_ratio"]
     ar = ASPECT_RATIOS_BY_ID.get(aspect_id)
-    aspect_slug = (
-        fields["aspect_slug"]
-        or (ar.outsee_slug if ar else None)
-        or "9:16"
-    )
+    aspect_slug = fields["aspect_slug"] or (ar.outsee_slug if ar else None) or "9:16"
 
     quality_raw = fields["image_quality"] or getattr(project, "image_quality", None)
     quality_slug = resolve_image_quality_slug(img_gid, quality_raw)
@@ -384,9 +382,7 @@ def resolve_node_choice(
     node = find_canvas_node(meta, node_key=node_key, node_type=node_type)
     mid, channel = read_node_model_fields(node)
     if not mid:
-        mid = default_model_id_for_node_type(
-            str((node or {}).get("type") or node_type or "")
-        )
+        mid = default_model_id_for_node_type(str((node or {}).get("type") or node_type or ""))
     found = find_model(mid, channel=channel)
     if found:
         found = {**found, "channel": channel}

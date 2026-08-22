@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -19,7 +20,6 @@ from app.services.plan_shot2 import (
     ROW_VIDEO_PROMPT_2_V8,
     SHOT2_PROMPT_ATTR,
     SHOT2_STATUS_ATTR,
-    SHOT2_VIDEO_STATUS_ATTR,
 )
 from app.services.scan_frames import (
     _disk_has_frame_video_shot1,
@@ -142,9 +142,7 @@ async def test_trigger_finish_missing_only_shot2(tmp_path: Path, monkeypatch) ->
 
 
 @pytest.mark.asyncio
-async def test_finish_missing_cancels_stuck_advance(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_finish_missing_cancels_stuck_advance(tmp_path: Path, monkeypatch) -> None:
     """Доделка при already_running должна снять залипший advance-task."""
     import asyncio
 
@@ -164,9 +162,7 @@ async def test_finish_missing_cancels_stuck_advance(
         return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=lambda: [fr])))
     )
     session.flush = AsyncMock()
-    monkeypatch.setattr(
-        "app.services.project_control.flag_modified", lambda *_a, **_k: None
-    )
+    monkeypatch.setattr("app.services.project_control.flag_modified", lambda *_a, **_k: None)
 
     async def _never() -> None:
         await asyncio.sleep(3600)
@@ -263,9 +259,11 @@ async def test_trigger_finish_missing_videos_only_shot2(tmp_path: Path) -> None:
     assert info["missing_shot2"] == [1]
     assert info["queued_shot2"] == 1
     assert project.status.value == "generating_videos"
+
+
 @pytest.mark.asyncio
 async def test_finish_missing_clears_error_sleep(tmp_path: Path) -> None:
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     data_dir = tmp_path / "p17"
     scenes = data_dir / "scenes"
@@ -273,7 +271,7 @@ async def test_finish_missing_clears_error_sleep(tmp_path: Path) -> None:
     _write_plan_with_shot2(data_dir / "project.xlsx")
 
     project = _project(data_dir, status=ProjectStatus.generating_images)
-    until = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+    until = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
     project.meta = {
         "step_failure": {
             "sleep_until": until,
@@ -289,15 +287,11 @@ async def test_finish_missing_clears_error_sleep(tmp_path: Path) -> None:
 
     await trigger_finish_missing_images(session, project)
     assert "sleep_until" not in (project.meta.get("step_failure") or {})
-    assert (project.meta.get("step_failure") or {}).get("total_fails", {}).get(
-        "generating_images"
-    ) is None
+    assert (project.meta.get("step_failure") or {}).get("total_fails", {}).get("generating_images") is None
 
 
 @pytest.mark.asyncio
-async def test_finish_missing_videos_clears_user_stop(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_finish_missing_videos_clears_user_stop(tmp_path: Path, monkeypatch) -> None:
     data_dir = tmp_path / "p46"
     scenes = data_dir / "scenes"
     videos = data_dir / "videos"
@@ -322,9 +316,7 @@ async def test_finish_missing_videos_clears_user_stop(
     )
     session.flush = AsyncMock()
     session.get = AsyncMock(return_value=None)
-    monkeypatch.setattr(
-        "app.services.project_control.flag_modified", lambda *_a, **_k: None
-    )
+    monkeypatch.setattr("app.services.project_control.flag_modified", lambda *_a, **_k: None)
 
     info = await trigger_finish_missing_videos(session, project)
     assert info["missing_shot1"] == [1]
@@ -332,4 +324,3 @@ async def test_finish_missing_videos_clears_user_stop(
     assert project.status is ProjectStatus.generating_videos
     assert not (project.meta or {}).get("user_stop")
     assert not (project.meta or {}).get("mass_lane_user_stop")
-

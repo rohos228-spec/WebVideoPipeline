@@ -55,12 +55,7 @@ def _apply_ops_has_payload(data: dict | None) -> bool:
     """Есть что писать в DB (не пустой отказ модели)."""
     if not isinstance(data, dict):
         return False
-    return bool(
-        data.get("ops")
-        or data.get("actions")
-        or data.get("characters")
-        or data.get("scenes")
-    )
+    return bool(data.get("ops") or data.get("actions") or data.get("characters") or data.get("scenes"))
 
 
 def _log_apply_ops_coverage(
@@ -155,16 +150,9 @@ async def run_operator_api(
     from app.services.gpt_api import gpt_api_enabled, is_image_path
     from app.settings import settings
 
-    streams = (
-        clamp_check_streams(check_streams)
-        if check_streams is not None
-        else default_check_streams()
-    )
+    streams = clamp_check_streams(check_streams) if check_streams is not None else default_check_streams()
     if check_mode and streams == 0:
-        raise RuntimeError(
-            "check_streams=0: GPT-проверка отключена. "
-            "Поставь meta.check_streams 1..10."
-        )
+        raise RuntimeError("check_streams=0: GPT-проверка отключена. Поставь meta.check_streams 1..10.")
 
     # Vision limit 8: checkMode с кучей PNG → батчи, один итоговый отчёт.
     # checkFix/TSV для PNG-check отключаем: правки только через db_patch.
@@ -239,22 +227,16 @@ async def run_operator_api(
     source_keys = list(source_prompt_keys or [])
 
     if is_check:
-        analysis = _stub_analysis(
-            role=role, prompt=prompt or "", accompanying=accompanying or ""
-        )
+        analysis = _stub_analysis(role=role, prompt=prompt or "", accompanying=accompanying or "")
         if mode == "report_only":
             analysis.fix.rewrite_file = None
             analysis.forward.mode = "inherit"
             analysis.forward.paths = []
         gate_status = analysis.verdict
         analysis_path = write_analysis_json(out_dir, analysis)
-        report_path = write_check_report_txt(
-            out_dir, analysis, mode=mode, source_prompts=source_keys
-        )
+        report_path = write_check_report_txt(out_dir, analysis, mode=mode, source_prompts=source_keys)
         output_paths.extend([analysis_path, report_path])
-        body = render_check_report_txt(
-            analysis, mode=mode, source_prompts=source_keys
-        )
+        body = render_check_report_txt(analysis, mode=mode, source_prompts=source_keys)
     elif role == "extract":
         body += '\nextract: {"ok": true, "items": []}\n'
 
@@ -277,9 +259,7 @@ async def run_operator_api(
         output_paths.insert(0, write_analysis_json(out_dir, analysis))
         output_paths.insert(
             1,
-            write_check_report_txt(
-                out_dir, analysis, mode=mode, source_prompts=source_keys
-            ),
+            write_check_report_txt(out_dir, analysis, mode=mode, source_prompts=source_keys),
         )
 
     return OperatorApiResult(
@@ -334,16 +314,12 @@ async def _run_operator_api_real(
         accomp = build_api_accompany(accomp, expect_xlsx_writeback=True)
 
     xlsx_contract = "tsv"
-    if (effective_output == "project_file" and not is_check) or (
-        check_mode and check_fix and db_sot_check
-    ):
+    if (effective_output == "project_file" and not is_check) or (check_mode and check_fix and db_sot_check):
         xlsx_contract = "apply_ops"
     chat_paths = list(input_paths)
     if db_sot_check:
         chat_paths = [
-            p
-            for p in chat_paths
-            if p.suffix.lower() not in {".xlsx", ".xlsm", ".xls"}
+            p for p in chat_paths if p.suffix.lower() not in {".xlsx", ".xlsm", ".xls"}
         ] or chat_paths
     # Контракт apply-ops (этап 5): схема в response_format на главном вызове
     # project_file-ветки; check-ветки мигрируются отдельно (C.5).
@@ -359,9 +335,7 @@ async def _run_operator_api_real(
         temperature=0.0 if is_check else None,
         xlsx_write_contract=xlsx_contract,
         auto_pack=auto_pack,
-        response_schema=(
-            apply_ops_contract.response_schema() if apply_ops_contract else None
-        ),
+        response_schema=(apply_ops_contract.response_schema() if apply_ops_contract else None),
     )
     reply_text = result.text
 
@@ -370,9 +344,7 @@ async def _run_operator_api_real(
         from app.services.db_apply import extract_apply_ops_json as _extract_ops
 
         leaked = _extract_ops(reply_text or "")
-        has_verdict = bool(
-            re.search(r"verdict\s*:\s*(pass|fail)", reply_text or "", re.I)
-        )
+        has_verdict = bool(re.search(r"verdict\s*:\s*(pass|fail)", reply_text or "", re.I))
         if leaked and _apply_ops_has_payload(leaked) and not has_verdict:
             logger.warning(
                 "gpt_operator/api: node={} report_only вернул apply-ops — TXT retry",
@@ -409,12 +381,9 @@ async def _run_operator_api_real(
         if apply_ops is not None and not _apply_ops_has_payload(apply_ops):
             if not (check_mode and not check_fix):
                 logger.warning(
-                    "gpt_operator/api: node={} — пустой apply-ops "
-                    "(error/report={})",
+                    "gpt_operator/api: node={} — пустой apply-ops (error/report={})",
                     node_key,
-                    str(apply_ops.get("error") or apply_ops.get("report") or "")[
-                        :160
-                    ],
+                    str(apply_ops.get("error") or apply_ops.get("report") or "")[:160],
                 )
             apply_ops = None
         elif apply_ops is not None:
@@ -428,12 +397,7 @@ async def _run_operator_api_real(
             )
 
     # check+fix legacy Excel: retry на XLSX_WRITEBACK. DB SoT — skip.
-    if (
-        check_mode
-        and check_fix
-        and not db_sot_check
-        and _needs_check_writeback_retry(result.text)
-    ):
+    if check_mode and check_fix and not db_sot_check and _needs_check_writeback_retry(result.text):
         logger.warning(
             "gpt_operator/api: check+fix без XLSX_WRITEBACK node={} — retry",
             node_key,
@@ -474,9 +438,7 @@ async def _run_operator_api_real(
 
     reply_text = result.text
     try:
-        (out_dir / "gpt_reply_raw.txt").write_text(
-            reply_text or "", encoding="utf-8"
-        )
+        (out_dir / "gpt_reply_raw.txt").write_text(reply_text or "", encoding="utf-8")
     except OSError:
         logger.warning("gpt_operator/api: не записал gpt_reply_raw.txt")
 
@@ -492,9 +454,7 @@ async def _run_operator_api_real(
         # не проходит автоматом (§9#9), а уходит в repair-retry ниже.
         from app.services.gpt_api import is_image_path as _is_img
 
-        vision_strict = bool(check_mode) and any(
-            _is_img(p) for p in (chat_paths or [])
-        )
+        vision_strict = bool(check_mode) and any(_is_img(p) for p in (chat_paths or []))
         report_part, wb_part = split_check_reply_and_writeback(result.text)
         check_repairs = 0
         while True:
@@ -510,8 +470,7 @@ async def _run_operator_api_real(
                 if check_repairs > 2:
                     raise
                 logger.warning(
-                    "gpt_operator/api: node={} битый отчёт проверки "
-                    "(repair {}/2): {}",
+                    "gpt_operator/api: node={} битый отчёт проверки (repair {}/2): {}",
                     node_key,
                     check_repairs,
                     str(ce)[:200],
@@ -530,28 +489,20 @@ async def _run_operator_api_real(
                     auto_pack=auto_pack,
                 )
                 reply_text = result.text
-                report_part, wb_part = split_check_reply_and_writeback(
-                    result.text
-                )
+                report_part, wb_part = split_check_reply_and_writeback(result.text)
         if check_repairs:
             # После repair первый (битый) ответ уже неактуален: обновить
             # raw-дамп и пере-извлечь apply-ops для DB SoT — иначе фикс из
             # repair-ответа не применится (баг панели 2026-08-21).
             try:
-                (out_dir / "gpt_reply_raw.txt").write_text(
-                    result.text or "", encoding="utf-8"
-                )
+                (out_dir / "gpt_reply_raw.txt").write_text(result.text or "", encoding="utf-8")
             except OSError:
-                logger.warning(
-                    "gpt_operator/api: не обновил gpt_reply_raw.txt после repair"
-                )
+                logger.warning("gpt_operator/api: не обновил gpt_reply_raw.txt после repair")
             if check_mode and check_fix and db_sot_check:
                 from app.services.db_apply import extract_apply_ops_json
 
                 apply_ops = extract_apply_ops_json(result.text or "")
-                if apply_ops is not None and not _apply_ops_has_payload(
-                    apply_ops
-                ):
+                if apply_ops is not None and not _apply_ops_has_payload(apply_ops):
                     apply_ops = None
         if mode == "report_only":
             analysis.fix.rewrite_file = None
@@ -575,18 +526,13 @@ async def _run_operator_api_real(
         elif check_fix and db_sot_check and apply_ops is not None:
             analysis.fix.target = "db"
             analysis.fix.instructions = (
-                analysis.fix.instructions
-                or "apply-ops JSON → DB (scene_registry / frames)"
+                analysis.fix.instructions or "apply-ops JSON → DB (scene_registry / frames)"
             )
         gate_status = analysis.verdict
         output_paths.insert(0, write_analysis_json(out_dir, analysis))
-        report_path = write_check_report_txt(
-            out_dir, analysis, mode=mode, source_prompts=source_keys
-        )
+        report_path = write_check_report_txt(out_dir, analysis, mode=mode, source_prompts=source_keys)
         output_paths.insert(1, report_path)
-        reply_text = render_check_report_txt(
-            analysis, mode=mode, source_prompts=source_keys
-        )
+        reply_text = render_check_report_txt(analysis, mode=mode, source_prompts=source_keys)
 
     # project_file (не check): только apply-ops — контрактная политика
     # repair-retry (этап 5, C.1). Первая попытка политики = уже полученный
@@ -602,11 +548,7 @@ async def _run_operator_api_real(
         first_reply = reply_text or ""
         state = {"first_used": False}
         # Retry без xlsx — иначе модель снова упирается в «нет файла».
-        retry_paths = [
-            p
-            for p in input_paths
-            if p.suffix.lower() not in {".xlsx", ".xlsm", ".xls"}
-        ]
+        retry_paths = [p for p in input_paths if p.suffix.lower() not in {".xlsx", ".xlsm", ".xls"}]
 
         async def _call(feedback: str | None) -> str:
             if not state["first_used"]:
@@ -732,8 +674,7 @@ async def _run_check_vision_batched(
     batches = [images[i : i + batch_size] for i in range(0, len(images), batch_size)]
     streams = max(1, clamp_check_streams(check_streams))
     logger.info(
-        "gpt_operator/api: vision batch check node={} images={} batches={} "
-        "check_streams={}",
+        "gpt_operator/api: vision batch check node={} images={} batches={} check_streams={}",
         node_key,
         len(images),
         len(batches),
@@ -770,9 +711,7 @@ async def _run_check_vision_batched(
         for bi, batch in enumerate(batches, start=1):
             ordered.append(await _one_batch(bi, batch))
     else:
-        gathered = await asyncio.gather(
-            *[_one_batch(bi, batch) for bi, batch in enumerate(batches, start=1)]
-        )
+        gathered = await asyncio.gather(*[_one_batch(bi, batch) for bi, batch in enumerate(batches, start=1)])
         ordered = sorted(gathered, key=lambda x: x[0])
 
     parts: list[str] = []
@@ -834,10 +773,7 @@ async def _run_check_vision_batched(
         regen_lines.append("regen: " + ", ".join(all_hero))
     if all_frames:
         regen_lines.append("## regen_frames")
-        toks = [
-            f"{t['number']}s2" if t["shot"] == 2 else str(t["number"])
-            for t in all_frames
-        ]
+        toks = [f"{t['number']}s2" if t["shot"] == 2 else str(t["number"]) for t in all_frames]
         regen_lines.append("frames: " + ", ".join(toks))
     if merged_patch["characters"] or merged_patch["ops"]:
         regen_lines.append("## db_patch")
@@ -866,9 +802,7 @@ async def _run_check_vision_batched(
         analysis.verdict = verdict  # type: ignore[assignment]
     mode = "fix" if check_fix else "report_only"
     write_analysis_json(out_dir, analysis)
-    write_check_report_txt(
-        out_dir, analysis, mode=mode, source_prompts=list(source_prompt_keys or [])
-    )
+    write_check_report_txt(out_dir, analysis, mode=mode, source_prompts=list(source_prompt_keys or []))
     # Preserve raw merged text with regen/db_patch for vision_check_loop parsers
     reply_path = out_dir / "gpt_reply.txt"
     reply_path.write_text(merged, encoding="utf-8")

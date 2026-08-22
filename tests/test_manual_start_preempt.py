@@ -43,9 +43,7 @@ async def test_explicit_ui_start_preempts_other_running(session, tmp_path, monke
     await session.flush()
     p.data_dir.mkdir(parents=True, exist_ok=True)
 
-    status = await start_step(
-        session, p, "split", skip_queue_guard=True, explicit_ui_start=True
-    )
+    status = await start_step(session, p, "split", skip_queue_guard=True, explicit_ui_start=True)
     assert status is ProjectStatus.splitting
     assert not (p.meta or {}).get("user_stop")
     assert "enrich_completed_slots" not in (p.meta or {})

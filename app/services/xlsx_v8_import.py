@@ -28,7 +28,6 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.generation_options import is_skippable_empty_prompt
 from app.models import Frame, FrameStatus, Project
 from app.services.content_locks import is_ui_locked
 from app.services.plan_validation import is_meaningful_general_plan
@@ -42,10 +41,10 @@ ROW_IMAGE_PROMPT_V8 = 45  # «промт для картинки 1»
 ROW_IMAGE_PROMPT_2_V8 = 46  # «промт для картинки 2» (shot_02)
 # R46/R47 — резервные «картинка 2/3» (модель пока одну хранит, см. Frame.image_prompt)
 ROW_VIDEO_PROMPT_V8 = 48  # «промт для видео» (shot_01)
-ROW_TIMECODE_V8 = 15      # «таймкод» M:SS.ss-M:SS.ss (напр. 0:03.28-0:05.76)
-ROW_VOICEOVER_V8 = 49     # «закадровый текст»
+ROW_TIMECODE_V8 = 15  # «таймкод» M:SS.ss-M:SS.ss (напр. 0:03.28-0:05.76)
+ROW_VOICEOVER_V8 = 49  # «закадровый текст»
 ROW_VIDEO_PROMPT_2_V8 = 64  # «промт для видео 2» (shot_02)
-ROW_DURATION_V8 = 50      # «Время на кадр»
+ROW_DURATION_V8 = 50  # «Время на кадр»
 
 # Подписи строки промта shot_01 (колонка A/B) — fallback если R45 пустая.
 _PLAN_IMAGE_PROMPT_LABELS: tuple[str, ...] = (
@@ -83,10 +82,7 @@ def has_v8_plan_sheet(wb) -> bool:
 def _distribute_durations(cells: list[str]) -> list[float]:
     if not cells:
         return []
-    return [
-        round(min(max(len(c) / CHARS_PER_SEC, MIN_FRAME), MAX_FRAME), 2)
-        for c in cells
-    ]
+    return [round(min(max(len(c) / CHARS_PER_SEC, MIN_FRAME), MAX_FRAME), 2) for c in cells]
 
 
 def _read_general_plan(wb) -> str | None:
@@ -108,9 +104,7 @@ def _read_general_plan(wb) -> str | None:
             continue
 
         if block_header_row == r:
-            headers = [
-                ws.cell(row=r, column=c).value for c in range(1, 6)
-            ]
+            headers = [ws.cell(row=r, column=c).value for c in range(1, 6)]
             if all(h for h in headers):
                 block_header_row = -1
                 continue
@@ -120,13 +114,8 @@ def _read_general_plan(wb) -> str | None:
             lines.append(f"**{a_s}:** {b_s}")
             continue
 
-        if block_header_row == -1 and any(
-            ws.cell(row=r, column=c).value for c in range(1, 6)
-        ):
-            row_cells = [
-                str(ws.cell(row=r, column=c).value or "").strip()
-                for c in range(1, 6)
-            ]
+        if block_header_row == -1 and any(ws.cell(row=r, column=c).value for c in range(1, 6)):
+            row_cells = [str(ws.cell(row=r, column=c).value or "").strip() for c in range(1, 6)]
             if row_cells[0]:
                 lines.append(f"\n### {row_cells[0]}")
             for label, idx in [
@@ -203,10 +192,7 @@ def _frame_number_for_plan_column(ws, col: int) -> int:
 def _plan_prompt_row(ws) -> int:
     """Строка image_prompt shot_01: R45, либо по подписи в A/B."""
     max_col = ws.max_column or 0
-    if any(
-        _cell_text(ws, ROW_IMAGE_PROMPT_V8, col)
-        for col in range(2, max_col + 1)
-    ):
+    if any(_cell_text(ws, ROW_IMAGE_PROMPT_V8, col) for col in range(2, max_col + 1)):
         return ROW_IMAGE_PROMPT_V8
     discovered = _discover_labeled_row(ws, _PLAN_IMAGE_PROMPT_LABELS)
     return discovered or ROW_IMAGE_PROMPT_V8
@@ -249,11 +235,7 @@ def _plan_prompt_columns(ws, row: int) -> list[int]:
 def _plan_scene_columns_ordered(ws) -> list[tuple[int, int]]:
     """(номер кадра 1..N, колонка Excel) — R49 или уникальные колонки R45/R46."""
     max_col = ws.max_column or 0
-    vo_cols = [
-        c
-        for c in range(2, max_col + 1)
-        if _cell_text(ws, ROW_VOICEOVER_V8, c)
-    ]
+    vo_cols = [c for c in range(2, max_col + 1) if _cell_text(ws, ROW_VOICEOVER_V8, c)]
     if vo_cols:
         return list(enumerate(vo_cols, start=1))
     seen: list[int] = []
@@ -389,9 +371,7 @@ def describe_image_prompts_xlsx_scan(xlsx_path: Path) -> str:
         wb.close()
 
 
-def _map_prompts_to_frame_numbers(
-    frames: list[Any], prompts: dict[int, str]
-) -> dict[int, str]:
+def _map_prompts_to_frame_numbers(frames: list[Any], prompts: dict[int, str]) -> dict[int, str]:
     """Сопоставить промты xlsx с Frame.number; fallback — по порядку 1:1."""
     if not prompts or not frames:
         return {}
@@ -401,10 +381,7 @@ def _map_prompts_to_frame_numbers(
         return direct
     ordered_frames = sorted(by_num.keys())
     ordered_texts = [prompts[k] for k in sorted(prompts.keys()) if prompts[k]]
-    return {
-        ordered_frames[i]: ordered_texts[i]
-        for i in range(min(len(ordered_frames), len(ordered_texts)))
-    }
+    return {ordered_frames[i]: ordered_texts[i] for i in range(min(len(ordered_frames), len(ordered_texts)))}
 
 
 def apply_image_prompts_from_xlsx_to_frames(
@@ -564,8 +541,7 @@ async def bootstrap_frames_for_image_step(
     result.shot2_in_xlsx = len(shot2_nums)
     if not frame_nums:
         logger.warning(
-            "[#{}] bootstrap_frames_for_image_step: в листе «план» нет промтов "
-            "R45/R46 — {}",
+            "[#{}] bootstrap_frames_for_image_step: в листе «план» нет промтов R45/R46 — {}",
             project.id,
             scan,
         )
@@ -573,9 +549,7 @@ async def bootstrap_frames_for_image_step(
 
     voiceovers = read_v8_voiceovers_from_path(path)
     scenes_dir = project.data_dir / "scenes"
-    rows = (
-        await session.execute(select(Frame).where(Frame.project_id == project.id))
-    ).scalars().all()
+    rows = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     by_number = {f.number: f for f in rows}
 
     for num in frame_nums:
@@ -654,9 +628,7 @@ async def apply_v8_image_prompts_from_xlsx(
     xlsx_path: Path,
 ) -> list[int]:
     """Подтянуть image_prompt из v8-xlsx в Frame по номеру кадра."""
-    boot = await bootstrap_frames_for_image_step(
-        session, project, xlsx_path, force_prompts_from_xlsx=True
-    )
+    boot = await bootstrap_frames_for_image_step(session, project, xlsx_path, force_prompts_from_xlsx=True)
     return boot.touched
 
 
@@ -678,12 +650,14 @@ def _read_frame_fields(wb) -> list[dict[str, Any]]:
         voice = _cell_text(ws, ROW_VOICEOVER_V8, col)
         if voice is None:
             continue
-        out.append({
-            "voiceover_text": voice,
-            "image_prompt": _cell_text(ws, ROW_IMAGE_PROMPT_V8, col),
-            "animation_prompt": _cell_text(ws, ROW_VIDEO_PROMPT_V8, col),
-            "duration_seconds": _cell_float(ws, ROW_DURATION_V8, col),
-        })
+        out.append(
+            {
+                "voiceover_text": voice,
+                "image_prompt": _cell_text(ws, ROW_IMAGE_PROMPT_V8, col),
+                "animation_prompt": _cell_text(ws, ROW_VIDEO_PROMPT_V8, col),
+                "duration_seconds": _cell_float(ws, ROW_DURATION_V8, col),
+            }
+        )
     return out
 
 
@@ -733,7 +707,8 @@ async def import_v8_xlsx(
                 summary["project_fields_changed"].append("general_plan")
                 logger.info(
                     "[#{}] xlsx-v8→DB: general_plan заполнен ({} симв)",
-                    project.id, len(new_plan),
+                    project.id,
+                    len(new_plan),
                 )
         else:
             if project.general_plan != new_plan:
@@ -741,7 +716,8 @@ async def import_v8_xlsx(
                 summary["project_fields_changed"].append("general_plan")
                 logger.info(
                     "[#{}] xlsx-v8→DB: general_plan обновлён ({} симв)",
-                    project.id, len(new_plan),
+                    project.id,
+                    len(new_plan),
                 )
 
     # --- script_text + frames из voiceover-блоков ---
@@ -754,18 +730,20 @@ async def import_v8_xlsx(
                     project.script_text = new_script
                     summary["project_fields_changed"].append("script_text")
                     logger.info(
-                        "[#{}] xlsx-v8→DB: script_text заполнен из блоков "
-                        "({} симв, {} блоков)",
-                        project.id, len(new_script), len(blocks),
+                        "[#{}] xlsx-v8→DB: script_text заполнен из блоков ({} симв, {} блоков)",
+                        project.id,
+                        len(new_script),
+                        len(blocks),
                     )
             else:
                 if project.script_text != new_script:
                     project.script_text = new_script
                     summary["project_fields_changed"].append("script_text")
                     logger.info(
-                        "[#{}] xlsx-v8→DB: script_text обновлён ({} симв, "
-                        "{} блоков)",
-                        project.id, len(new_script), len(blocks),
+                        "[#{}] xlsx-v8→DB: script_text обновлён ({} симв, {} блоков)",
+                        project.id,
+                        len(new_script),
+                        len(blocks),
                     )
         else:
             logger.debug(
@@ -778,12 +756,14 @@ async def import_v8_xlsx(
         # подтянуть промты, заполненные ChatGPT-ом через enrich-слоты, в БД —
         # старый xlsx_sync (лист «Кадры», R29) на v8-файле молча no-op.
         existing = (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.number)
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         by_number = {f.number: f for f in existing}
 
         # Поля по кадрам — image_prompt, animation_prompt, voiceover, duration.
@@ -793,9 +773,7 @@ async def import_v8_xlsx(
         fallback_durations = _distribute_durations(blocks)
         t = 0.0
         prompts_synced: list[int] = []
-        for i, (cell, fields) in enumerate(
-            zip(blocks, frame_fields, strict=True), start=1
-        ):
+        for i, (cell, fields) in enumerate(zip(blocks, frame_fields, strict=True), start=1):
             dur = fields.get("duration_seconds") or fallback_durations[i - 1]
             start_ts = t
             end_ts = t + dur
@@ -846,17 +824,20 @@ async def import_v8_xlsx(
             summary["prompts_synced"] = prompts_synced
             logger.info(
                 "[#{}] xlsx-v8→DB: подтянуты image/anim prompts для кадров {}",
-                project.id, prompts_synced,
+                project.id,
+                prompts_synced,
             )
         if summary["frames_created"]:
             logger.info(
                 "[#{}] xlsx-v8→DB: создано {} Frame'ов",
-                project.id, len(summary["frames_created"]),
+                project.id,
+                len(summary["frames_created"]),
             )
         if summary["frames_updated"]:
             logger.info(
                 "[#{}] xlsx-v8→DB: обновлено {} Frame'ов (v8-поля)",
-                project.id, len(summary["frames_updated"]),
+                project.id,
+                len(summary["frames_updated"]),
             )
 
     await session.flush()

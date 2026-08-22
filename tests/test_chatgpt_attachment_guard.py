@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from app.bots.chatgpt import (
+    ChatGPTBot,
     attachment_health_is_ok,
     attachment_name_visible_in_text,
     composer_text_already_present,
     composer_text_is_duplicated,
     find_attachment_failure_phrases,
     format_attachment_health_error,
-    ChatGPTBot,
 )
 
 

@@ -80,4 +80,3 @@ async def test_enriching_ok_without_frames_after_script(tmp_path, monkeypatch) -
     ok, reason, _ = await can_enter_running(session, p, ProjectStatus.enriching_2)
     assert ok, reason
     assert reason == ""
-

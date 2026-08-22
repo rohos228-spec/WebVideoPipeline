@@ -22,9 +22,7 @@ async def test_generate_with_reference_uses_http_api_refs(
     async def fake_api(prompt, out_path, **kwargs):
         api_calls.append({"prompt": prompt, "refs": kwargs.get("reference_images")})
         out_path.write_bytes(b"ok" * 50)
-        return GenerationResult(
-            file_path=out_path, raw_url="https://example/x.png", gen_id="g1"
-        )
+        return GenerationResult(file_path=out_path, raw_url="https://example/x.png", gen_id="g1")
 
     class FakeOutsee:
         async def generate_image(self, *_a, **_k):
@@ -35,9 +33,7 @@ async def test_generate_with_reference_uses_http_api_refs(
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
     monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
-    monkeypatch.setattr(
-        "app.bots.outsee_http.outsee_api_configured", lambda: True
-    )
+    monkeypatch.setattr("app.bots.outsee_http.outsee_api_configured", lambda: True)
     monkeypatch.setattr("app.bots.outsee_http.generate_image", fake_api)
 
     result = await mod.generate_image_with_retries(

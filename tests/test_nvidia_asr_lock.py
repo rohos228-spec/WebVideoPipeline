@@ -10,8 +10,8 @@ import pytest
 from app.services import nvidia_asr
 from app.services.nvidia_asr import (
     _is_file_lock_error,
-    _nemo_filename,
     _nemo_file_ready,
+    _nemo_filename,
     _stable_nemo_path,
 )
 from app.services.nvidia_asr_env import (
@@ -21,7 +21,8 @@ from app.services.nvidia_asr_env import (
 
 
 def test_configure_forces_temp_out_of_appdata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("app.settings.settings.data_dir", tmp_path / "data")
     monkeypatch.setenv("TEMP", r"C:\Users\X\AppData\Local\Temp")
@@ -55,8 +56,7 @@ def test_clear_stale_lock_keeps_fresh(tmp_path: Path) -> None:
 
 def test_is_file_lock_error_russian_message() -> None:
     exc = PermissionError(
-        "[WinError 32] Процесс не может получить доступ к файлу, "
-        "так как этот файл занят другим процессом"
+        "[WinError 32] Процесс не может получить доступ к файлу, так как этот файл занят другим процессом"
     )
     assert _is_file_lock_error(exc)
 
@@ -75,7 +75,8 @@ def test_nemo_file_ready_requires_size(tmp_path: Path) -> None:
 
 
 def test_download_model_uses_local_nemo_without_hf_download(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cache = tmp_path / "data" / ".cache"
     monkeypatch.setattr("app.settings.settings.data_dir", tmp_path / "data")

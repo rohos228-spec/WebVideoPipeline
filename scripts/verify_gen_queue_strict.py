@@ -15,8 +15,6 @@ from app.services.gen_queue import (
     gen_queue_reconcile,
     gen_queue_tick,
 )
-from app.services.gen_queue_run import set_gen_queue_run
-from app.services.sidebar_layout import set_gen_queue
 
 
 async def _mem_session() -> tuple[AsyncSession, any]:

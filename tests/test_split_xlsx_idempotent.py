@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from app.services import xlsx_step_runners as xsr
 from app.services.xlsx_versioning import validate_xlsx
 

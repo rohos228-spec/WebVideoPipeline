@@ -61,9 +61,7 @@ def _to_float(v: Any) -> float | None:
         return None
 
 
-async def reload_from_xlsx(
-    session: AsyncSession, project: Project, xlsx_path: Path
-) -> dict[str, Any]:
+async def reload_from_xlsx(session: AsyncSession, project: Project, xlsx_path: Path) -> dict[str, Any]:
     """Читает xlsx и обновляет БД. Возвращает summary
     {project_fields_changed: [...], frames_changed: [n, ...]}."""
     from openpyxl import load_workbook
@@ -112,11 +110,7 @@ async def reload_from_xlsx(
                 continue
 
         # все фреймы проекта → быстрый доступ по номеру
-        rows = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id)
-            )
-        ).scalars().all()
+        rows = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
         by_number = {f.number: f for f in rows}
 
         # Создаём недостающие Frame'ы — после шага 3 (split) фреймов в БД
@@ -140,7 +134,9 @@ async def reload_from_xlsx(
             summary["frames_created"].append(fnum)
             logger.info(
                 "[#{}] xlsx→DB: создан Frame {} ('{}…')",
-                project.id, fnum, (voice or "")[:40],
+                project.id,
+                fnum,
+                (voice or "")[:40],
             )
 
         for col, fnum in col_to_frame.items():
@@ -182,13 +178,13 @@ async def reload_from_xlsx(
     # врать ✅.
     try:
         from app.services.project_state import recompute_status
+
         old, new, changed = await recompute_status(
             session, project, log_prefix="recompute(after xlsx reload)"
         )
         if changed:
             summary["status_recomputed"] = f"{old.value} → {new.value}"
     except Exception as e:  # noqa: BLE001
-        logger.warning("[#{}] recompute_status after xlsx reload failed: {}",
-                       project.id, e)
+        logger.warning("[#{}] recompute_status after xlsx reload failed: {}", project.id, e)
 
     return summary

@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Generic
+from typing import Any, Generic
 
 from loguru import logger
 
@@ -105,9 +106,7 @@ def _write_metrics(
             fh.write(
                 json.dumps(
                     {
-                        "ts": datetime.now(timezone.utc).isoformat(
-                            timespec="seconds"
-                        ),
+                        "ts": datetime.now(UTC).isoformat(timespec="seconds"),
                         "contract": contract,
                         "label": label,
                         "attempts": attempts,
@@ -136,9 +135,7 @@ def _write_reject(
         return None
     try:
         reject_dir.mkdir(parents=True, exist_ok=True)
-        safe_label = "".join(
-            ch if ch.isalnum() or ch in "-_." else "_" for ch in (label or "reply")
-        )
+        safe_label = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in (label or "reply"))
         path = reject_dir / f"{safe_label}_a{attempt}_{error.kind}.txt"
         path.write_text(
             f"# contract: {error.contract or '-'}\n"
@@ -200,9 +197,7 @@ async def run_with_contract(
             # вызова (volume-добор внутри chat) — она тоже repair'ится,
             # а не пролетает мимо петли (баг панели 2026-08-21).
             with llm_ledger.capture_attempt() as attempt_rows:
-                reply = await call(
-                    f"{FEEDBACK_HEADER}\n{feedback}" if feedback else None
-                )
+                reply = await call(f"{FEEDBACK_HEADER}\n{feedback}" if feedback else None)
             parsed = contract.parse(reply)
             problems = validate(parsed.payload) if validate else []
             if problems:
@@ -223,8 +218,11 @@ async def run_with_contract(
                 validate_fails += 1
                 exhausted = validate_fails > validate_limit
             rp = _write_reject(
-                reject_dir, label=label or contract.name,
-                attempt=attempts, reply=reply, error=e,
+                reject_dir,
+                label=label or contract.name,
+                attempt=attempts,
+                reply=reply,
+                error=e,
             )
             if rp is not None:
                 rejected.append(rp)

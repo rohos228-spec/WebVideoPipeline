@@ -6,13 +6,13 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
+from app.services import xlsx_step_runners as xsr
 from app.services.voiceover_split_local import (
     parse_dash_separated_blocks,
     split_voiceover_locally,
     write_voiceover_blocks_to_xlsx,
 )
-from app.services.xlsx_v8_import import ROW_VOICEOVER_V8, SHEET_PLAN_V8
-from app.services import xlsx_step_runners as xsr
+from app.services.xlsx_v8_import import SHEET_PLAN_V8
 
 
 def test_parse_dash_blocks() -> None:

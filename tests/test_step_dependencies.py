@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from app.models import ProjectStatus
 from app.orchestrator.node_registry import WORK_NODES
 from app.orchestrator.step_dependencies import (
@@ -19,7 +17,6 @@ from app.orchestrator.step_dependencies import (
     project_cone,
 )
 from app.telegram.menu import _STATUS_ORDER, status_order
-
 
 # ── структура DAG ─────────────────────────────────────────────────────────
 

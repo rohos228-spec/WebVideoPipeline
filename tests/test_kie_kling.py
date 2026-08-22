@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -90,9 +90,7 @@ async def test_generate_video_i2v_flow(monkeypatch: pytest.MonkeyPatch, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_generate_video_t2v_without_frame(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_generate_video_t2v_without_frame(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(kk, "kie_api_configured", lambda: True)
     monkeypatch.setattr(kk, "_frame_to_public_url", AsyncMock(return_value=None))
 
@@ -149,9 +147,7 @@ async def test_poll_retries_transport_error(monkeypatch: pytest.MonkeyPatch) -> 
                 "data": {
                     "taskId": "t",
                     "state": "success",
-                    "resultJson": json.dumps(
-                        {"resultUrls": ["https://cdn.example/v.mp4"]}
-                    ),
+                    "resultJson": json.dumps({"resultUrls": ["https://cdn.example/v.mp4"]}),
                 },
             }
 

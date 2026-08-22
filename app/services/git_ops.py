@@ -10,9 +10,7 @@ from loguru import logger
 
 from app.services.code_autofix import assert_paths_allowed, repo_root
 
-ALLOWED_PUSH_BRANCHES = frozenset(
-    {"main", "housepc", "tompc", "strangepc", "workpc"}
-)
+ALLOWED_PUSH_BRANCHES = frozenset({"main", "housepc", "tompc", "strangepc", "workpc"})
 
 
 class GitOpsError(RuntimeError):
@@ -25,9 +23,7 @@ def push_branch() -> str:
 
     br = (settings.orchestrator_git_branch or "main").strip() or "main"
     if br not in ALLOWED_PUSH_BRANCHES:
-        raise GitOpsError(
-            f"ветка {br!r} не из allowlist {sorted(ALLOWED_PUSH_BRANCHES)}"
-        )
+        raise GitOpsError(f"ветка {br!r} не из allowlist {sorted(ALLOWED_PUSH_BRANCHES)}")
     return br
 
 
@@ -62,8 +58,7 @@ def ensure_push_branch() -> str:
     br = current_branch()
     if br != want:
         raise GitOpsError(
-            f"нужна ветка {want!r} (ORCHESTRATOR_GIT_BRANCH), сейчас {br!r}. "
-            f"Сделай: git checkout {want}"
+            f"нужна ветка {want!r} (ORCHESTRATOR_GIT_BRANCH), сейчас {br!r}. Сделай: git checkout {want}"
         )
     return want
 

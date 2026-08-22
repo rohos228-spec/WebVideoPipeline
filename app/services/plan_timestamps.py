@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from loguru import logger
@@ -113,10 +113,7 @@ async def compute_frame_timestamp_ranges(
     if missing:
         sample = ", ".join(str(n) for n in missing[:8])
         extra = f" (+{len(missing) - 8})" if len(missing) > 8 else ""
-        raise RuntimeError(
-            f"таймкоды не для всех кадров: нет/битые {len(missing)} "
-            f"(напр. {sample}{extra})"
-        )
+        raise RuntimeError(f"таймкоды не для всех кадров: нет/битые {len(missing)} (напр. {sample}{extra})")
     return out
 
 
@@ -155,10 +152,7 @@ def clips_from_timestamp_cells(
 
 
 def ts_cells_from_frame_timings(timings: list) -> list[tuple[int, str]]:
-    return [
-        (t.frame_number, format_timecode_range(t.start_ts, t.end_ts))
-        for t in timings
-    ]
+    return [(t.frame_number, format_timecode_range(t.start_ts, t.end_ts)) for t in timings]
 
 
 def clips_from_frame_timings(
@@ -220,9 +214,7 @@ async def load_assembly_timeline_from_r15(
 
     clips = clips_from_timestamp_cells(cells, ts_cells, voice_full_path, master=master)
     if clips is None or len(clips) != len(frame_numbers):
-        missing = [
-            n for n, lbl in ts_cells if not (lbl or "").strip() or parse_timecode_range(lbl) is None
-        ]
+        missing = [n for n, lbl in ts_cells if not (lbl or "").strip() or parse_timecode_range(lbl) is None]
         sample = ", ".join(str(n) for n in missing[:8])
         raise RuntimeError(
             f"R{ts_row}: метки только для {len(clips or [])}/{len(frame_numbers)} кадров"
@@ -260,9 +252,7 @@ def write_montage_timeline_audit(
         "row": ts_row,
         "xlsx_path": str(xlsx_path),
         "xlsx_exists": xlsx_path.is_file(),
-        "xlsx_mtime": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
-        if st
-        else None,
+        "xlsx_mtime": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat() if st else None,
         "xlsx_size": st.st_size if st else None,
         "frames": [
             {
@@ -292,9 +282,7 @@ async def require_assembly_timeline_from_excel(
     """Единственный источник таймингов монтажа: строка 15 project.xlsx (всегда с диска)."""
     xlsx_path = project.data_dir / "project.xlsx"
     if not xlsx_path.is_file():
-        raise RuntimeError(
-            f"[#{project.id}] нет файла {xlsx_path} — положите project.xlsx в папку проекта"
-        )
+        raise RuntimeError(f"[#{project.id}] нет файла {xlsx_path} — положите project.xlsx в папку проекта")
 
     # Каждый запуск — заново с диска; кэш preflight не подставляем.
     ts_cells, ts_row = read_plan_timestamps_cells(project, frame_numbers)
@@ -304,7 +292,7 @@ async def require_assembly_timeline_from_excel(
         project.id,
         ts_row,
         xlsx_path,
-        datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+        datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
         st.st_size,
     )
 
@@ -378,15 +366,12 @@ def _assert_clips_match_excel_labels(
         start, end = parsed
         if abs(start - clip.start_ts) > 0.05 or abs(end - clip.end_ts) > 0.05:
             bad.append(
-                f"кадр {clip.frame_number}: Excel {label!r} != "
-                f"монтаж {clip.start_ts:.2f}-{clip.end_ts:.2f}s"
+                f"кадр {clip.frame_number}: Excel {label!r} != монтаж {clip.start_ts:.2f}-{clip.end_ts:.2f}s"
             )
     if bad:
         sample = "\n".join(bad[:8])
         extra = f"\n... ещё {len(bad) - 8}" if len(bad) > 8 else ""
-        raise RuntimeError(
-            f"[#{project_id}] R15 не совпадает с таймлайном монтажа:\n{sample}{extra}"
-        )
+        raise RuntimeError(f"[#{project_id}] R15 не совпадает с таймлайном монтажа:\n{sample}{extra}")
 
 
 async def ensure_r15_from_asr(
@@ -429,15 +414,9 @@ async def ensure_r15_from_asr(
     from app.services.mapper import timings_have_crumb_durations
 
     clips = frame_clips_from_whisper(cells, words, float(master), voice_full_path)
-    timings = [
-        FrameTiming(c.frame_number, c.start_ts, c.end_ts, c.duration)
-        for c in clips
-        if c.duration > 0
-    ]
+    timings = [FrameTiming(c.frame_number, c.start_ts, c.end_ts, c.duration) for c in clips if c.duration > 0]
     if not timings:
-        raise RuntimeError(
-            f"[#{project.id}] ASR не сопоставил текст кадров — строку 15 не заполнить"
-        )
+        raise RuntimeError(f"[#{project.id}] ASR не сопоставил текст кадров — строку 15 не заполнить")
     timings = enforce_monotonic_timings(timings, master=master)
     if timings_have_crumb_durations(timings):
         raise RuntimeError(
@@ -445,20 +424,14 @@ async def ensure_r15_from_asr(
             "проверьте текст R49 и words.json, строку 15 не пишем"
         )
 
-    ranges = [
-        (t.frame_number, format_timecode_range(t.start_ts, t.end_ts)) for t in timings
-    ]
+    ranges = [(t.frame_number, format_timecode_range(t.start_ts, t.end_ts)) for t in timings]
     written = write_plan_timestamps(project, ranges)
     if written <= 0:
-        raise RuntimeError(
-            f"[#{project.id}] не удалось записать R{ts_row} в project.xlsx — закрой Excel"
-        )
+        raise RuntimeError(f"[#{project.id}] не удалось записать R{ts_row} в project.xlsx — закрой Excel")
     # Метки длительности в строку «Время на кадр» (R50) — из того же ASR-разбора.
     from app.storage.plan_sheet_v8 import write_plan_durations
 
-    write_plan_durations(
-        project, [(t.frame_number, t.duration) for t in timings]
-    )
+    write_plan_durations(project, [(t.frame_number, t.duration) for t in timings])
 
     logger.info(
         "[#{}] R{} автозаполнена из ASR: {} кадров → {}",
@@ -508,23 +481,16 @@ async def auto_sync_r15_from_voice(
     timings = map_frames(cells, words, audio_duration=master)
     from app.storage.plan_sheet_v8 import write_plan_timestamps
 
-    ranges = [
-        (t.frame_number, format_timecode_range(t.start_ts, t.end_ts))
-        for t in timings
-    ]
+    ranges = [(t.frame_number, format_timecode_range(t.start_ts, t.end_ts)) for t in timings]
     written = write_plan_timestamps(project, ranges)
     if written > 0:
         from app.storage.plan_sheet_v8 import write_plan_durations
 
-        write_plan_durations(
-            project, [(t.frame_number, t.duration) for t in timings]
-        )
+        write_plan_durations(project, [(t.frame_number, t.duration) for t in timings])
 
     if written > 0:
         ts_cells, _ts_row = read_plan_timestamps_cells(project, frame_numbers)
-        synced_clips = clips_from_timestamp_cells(
-            cells, ts_cells, voice_full_path, master=master
-        )
+        synced_clips = clips_from_timestamp_cells(cells, ts_cells, voice_full_path, master=master)
         if synced_clips is None or len(synced_clips) != len(frame_numbers):
             logger.warning(
                 "[#{}] auto-sync записал R15, но перечитать не удалось — ASR в памяти",
@@ -567,8 +533,7 @@ async def auto_sync_r15_from_voice(
         encoding="utf-8",
     )
     logger.warning(
-        "[#{}] project.xlsx занят — монтаж по ASR в памяти ({} кадров). "
-        "Закрой Excel. Метки: {} … audit → {}",
+        "[#{}] project.xlsx занят — монтаж по ASR в памяти ({} кадров). Закрой Excel. Метки: {} … audit → {}",
         project.id,
         len(lines),
         lines[0].strip(),
@@ -663,9 +628,7 @@ async def try_timeline_from_xlsx_row15(
     voice_full_path: Path,
 ) -> tuple[list | None, float]:
     """Legacy alias."""
-    clips, master = await load_assembly_timeline_from_r15(
-        project, frame_numbers, cells, voice_full_path
-    )
+    clips, master = await load_assembly_timeline_from_r15(project, frame_numbers, cells, voice_full_path)
     if clips is None:
         return None, await probe_duration(voice_full_path)
     return clips, float(master)
@@ -678,13 +641,12 @@ def write_asr_timestamps_to_r15(
     allow_crumbs: bool = False,
 ) -> int:
     """После ASR: записать реальные метки в строку 15 листа «план»."""
-    from app.storage.plan_sheet_v8 import write_plan_timestamps
-
     from app.services.mapper import (
         FrameTiming,
         enforce_monotonic_timings,
         timings_have_crumb_durations,
     )
+    from app.storage.plan_sheet_v8 import write_plan_timestamps
 
     # Пишем все кадры; нулевую длительность поднимаем до 0.05 чтобы Excel/доска
     # не теряли колонки (иначе 141/153 и доска откатывается на words.json).
@@ -716,9 +678,7 @@ def write_asr_timestamps_to_r15(
                 end = max(float(timings[i + 1].start_ts), start + 0.05)
             else:
                 end = max(master, start + 0.05)
-        fixed.append(
-            FrameTiming(t.frame_number, round(start, 3), round(end, 3), round(end - start, 3))
-        )
+        fixed.append(FrameTiming(t.frame_number, round(start, 3), round(end, 3), round(end - start, 3)))
     timings = fixed
     if timings_have_crumb_durations(timings) and not allow_crumbs:
         logger.error(
@@ -734,16 +694,12 @@ def write_asr_timestamps_to_r15(
             project.id,
             sum(1 for t in timings if t.duration <= 0.1 + 1e-9),
         )
-    ranges = [
-        (t.frame_number, format_timecode_range(t.start_ts, t.end_ts)) for t in timings
-    ]
+    ranges = [(t.frame_number, format_timecode_range(t.start_ts, t.end_ts)) for t in timings]
     written = write_plan_timestamps(project, ranges)
     if written:
         from app.storage.plan_sheet_v8 import write_plan_durations
 
-        write_plan_durations(
-            project, [(t.frame_number, t.duration) for t in timings]
-        )
+        write_plan_durations(project, [(t.frame_number, t.duration) for t in timings])
         logger.info(
             "[#{}] plan R15: записано {} таймкодов ASR → {}",
             project.id,

@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,10 +42,10 @@ PROMPTS_ROOT = Path(__file__).resolve().parent.parent.parent / "prompts"
 # Шаги, у которых нет мастер-промта, тут не перечисляются.
 # Ключи совпадают с `StepDef.code` в `app/telegram/menu.py`.
 STEP_FOLDERS: dict[str, str] = {
-    "plan":       "01_plan",
-    "script":     "02_script",
-    "split":      "03_razbivka",
-    "hero":       "04_hero",
+    "plan": "01_plan",
+    "script": "02_script",
+    "split": "03_razbivka",
+    "hero": "04_hero",
     # `hero_style` — НЕ отдельная кнопка в меню; это вспомогательная
     # библиотека стилей для шага «4. Hero». Бот сам показывает picker
     # перед запуском Hero-генерации, выбор сохраняется в
@@ -53,49 +53,49 @@ STEP_FOLDERS: dict[str, str] = {
     # инфраструктуру библиотеки промтов (prompt_picker, on_prompt_picker_cb).
     "hero_style": "04_hero_style",
     # 4b. «Предметы» — генерация реф-картинок предметов.
-    "items":      "04b_items",
+    "items": "04b_items",
     # Слоты «Доп работа с EXCEL» (xlsx round-trip с ChatGPT) — каждый
     # слот имеет свою папку, чтобы юзер мог хранить разные промты.
-    "enrich_1":   "05a_enrich_1",
-    "enrich_2":   "05b_enrich_2",
-    "enrich_3":   "05c_enrich_3",
-    "enrich_4":   "05d_enrich_4",
-    "enrich_5":   "05e_enrich_5",
-    "excel_gpt":  "05_excel_gpt",
+    "enrich_1": "05a_enrich_1",
+    "enrich_2": "05b_enrich_2",
+    "enrich_3": "05c_enrich_3",
+    "enrich_4": "05d_enrich_4",
+    "enrich_5": "05e_enrich_5",
+    "excel_gpt": "05_excel_gpt",
     # Папки оставлены с историческими номерами (05/07), чтобы не ломать
     # уже существующие промты в `prompts/`. Меню-нумерация шагов
     # переехала, но имя папки на диске не зависит от позиции в меню.
-    "img_pr":     "05_image_prompts",
-    "anim_pr":    "07_animation",
+    "img_pr": "05_image_prompts",
+    "anim_pr": "07_animation",
     # Мульти-агентный дизайн сцен: все агенты и сборщик живут в одной
     # папке prompts/scene_design/ (characters.md, world.md, ..., assemble.md).
-    "scene_d":    "scene_design",
-    "scene_asm":  "scene_design",
+    "scene_d": "scene_design",
+    "scene_asm": "scene_design",
 }
 
 # Человеческое имя шага (для текстовых сообщений в TG).
 STEP_HUMAN_NAMES: dict[str, str] = {
-    "plan":       "1. Сценарий",
-    "script":     "2. Закадровый текст",
-    "split":      "3. Разбивка на блоки",
-    "hero":       "4. Персонажи (Объекты)",
+    "plan": "1. Сценарий",
+    "script": "2. Закадровый текст",
+    "split": "3. Разбивка на блоки",
+    "hero": "4. Персонажи (Объекты)",
     "hero_style": "4. Hero — стиль персонажа",
-    "items":      "4. Предметы (Объекты)",
+    "items": "4. Предметы (Объекты)",
     # Все слоты — суб-шаги одного wrapper-шага «5. Доп работа с EXCEL»,
     # поэтому в названии номер шага не указываем (он зависит от
     # n_slots, и для UX-промтов важен номер слота, а не позиция в меню).
-    "enrich_1":   "Доп работа с EXCEL #1",
-    "enrich_2":   "Доп работа с EXCEL #2",
-    "enrich_3":   "Доп работа с EXCEL #3",
-    "enrich_4":   "Доп работа с EXCEL #4",
-    "enrich_5":   "Доп работа с EXCEL #5",
-    "excel_gpt":  "Доп работа с Excel",
-    "img_pr":     "6. Промты картинок",
-    "anim_pr":    "8. Промты анимации",
-    "music":      "10. Музыка",
-    "audio":      "Озвучка",
-    "scene_d":    "3.5. Сцены — агенты",
-    "scene_asm":  "3.6. Сцены — сборка",
+    "enrich_1": "Доп работа с EXCEL #1",
+    "enrich_2": "Доп работа с EXCEL #2",
+    "enrich_3": "Доп работа с EXCEL #3",
+    "enrich_4": "Доп работа с EXCEL #4",
+    "enrich_5": "Доп работа с EXCEL #5",
+    "excel_gpt": "Доп работа с Excel",
+    "img_pr": "6. Промты картинок",
+    "anim_pr": "8. Промты анимации",
+    "music": "10. Музыка",
+    "audio": "Озвучка",
+    "scene_d": "3.5. Сцены — агенты",
+    "scene_asm": "3.6. Сцены — сборка",
 }
 
 # Шаги без мастер-промта — для красоты в списках и проверок.
@@ -105,9 +105,7 @@ DEFAULT_NAME = "default"
 _FILE_META = ".file_meta.json"
 
 # Слоты enrich — только .md из prompts/05*_enrich_*; не blocks v2 compose.
-ENRICH_STEP_CODES: frozenset[str] = frozenset(
-    {*(f"enrich_{i}" for i in range(1, 6)), "excel_gpt"}
-)
+ENRICH_STEP_CODES: frozenset[str] = frozenset({*(f"enrich_{i}" for i in range(1, 6)), "excel_gpt"})
 
 EXCEL_GPT_UNIFIED_STEP = "excel_gpt"
 
@@ -146,6 +144,7 @@ def resolve_excel_gpt_prompt_path(name: str) -> Path:
         if legacy.is_file():
             return legacy
     return primary
+
 
 # Макс. длина имени варианта на диске (UTF-8 байты). Раньше было 40 из‑за TG callback_data;
 # в веб-студии нужны длинные осмысленные имена файлов.
@@ -214,7 +213,7 @@ def _save_file_meta(step_code: str, data: dict[str, Any]) -> None:
 
 def touch_prompt_meta(step_code: str, name: str, size: int) -> float:
     """Записать стабильную дату сохранения (не mtime файла)."""
-    saved_at = datetime.now(timezone.utc).timestamp()
+    saved_at = datetime.now(UTC).timestamp()
     touch_prompt_meta_at(step_code, name, saved_at, size)
     return saved_at
 

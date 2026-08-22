@@ -30,9 +30,7 @@ async def session() -> AsyncSession:
 
 def test_is_chrome_infra_error() -> None:
     assert is_chrome_infra_error(ChromeCdpUnavailableError("x"))
-    assert is_chrome_infra_error(
-        RuntimeError("Cannot connect to host 127.0.0.1:29229")
-    )
+    assert is_chrome_infra_error(RuntimeError("Cannot connect to host 127.0.0.1:29229"))
 
 
 @pytest.mark.asyncio

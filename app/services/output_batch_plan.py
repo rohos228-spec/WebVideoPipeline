@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Нарезка db_frames на батчи по символам (без пустых JSON-оценок).
 
 img_pr:
@@ -16,8 +15,9 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence, TypeVar
+from typing import Any, TypeVar
 
 from loguru import logger
 
@@ -74,14 +74,11 @@ def split_into_n_batches(frames: Sequence[T], n_batches: int) -> list[list[T]]:
     return [b for b in out if b]
 
 
-def pack_frames_img_pr(
-    frames: Sequence[T], *, n_batches: int | None = None
-) -> list[list[T]]:
+def pack_frames_img_pr(frames: Sequence[T], *, n_batches: int | None = None) -> list[list[T]]:
     n = int(n_batches) if n_batches and int(n_batches) >= 2 else batch_count_img_pr(len(frames))
     batches = split_into_n_batches(frames, n)
     logger.info(
-        "output_batch_plan img_pr: frames={} chars/frame={} budget={} "
-        "batches={} sizes={}",
+        "output_batch_plan img_pr: frames={} chars/frame={} budget={} batches={} sizes={}",
         len(frames),
         IMG_PR_CHARS_PER_FRAME,
         IMG_PR_BATCH_CHAR_BUDGET,
@@ -91,15 +88,12 @@ def pack_frames_img_pr(
     return batches
 
 
-def pack_frames_by_voiceover(
-    frames: Sequence[T], vo_text: str | None
-) -> list[list[T]]:
+def pack_frames_by_voiceover(frames: Sequence[T], vo_text: str | None) -> list[list[T]]:
     vo = vo_text or ""
     n = batch_count_by_voiceover(len(vo))
     batches = split_into_n_batches(frames, n)
     logger.info(
-        "output_batch_plan vo: frames={} vo_chars={} per_batch={} "
-        "batches={} sizes={}",
+        "output_batch_plan vo: frames={} vo_chars={} per_batch={} batches={} sizes={}",
         len(frames),
         len(vo),
         VO_CHARS_PER_BATCH,
@@ -125,12 +119,7 @@ def detect_pack_kind(
         if "img_pr" in name:
             return "img_pr"
     blob = f"{prompt or ''}\n{accompanying or ''}".casefold()
-    if (
-        "img_pr" in blob
-        or "промт_картинки" in blob
-        or "промты картинок" in blob
-        or "image_prompt" in blob
-    ):
+    if "img_pr" in blob or "промт_картинки" in blob or "промты картинок" in blob or "image_prompt" in blob:
         return "img_pr"
     return "vo"
 
@@ -301,9 +290,7 @@ def proxy_prompt_body(frame: Any, *, body_cap: int = _BODY_CAP) -> str:
         ).strip()
     else:
         existing = (
-            getattr(frame, "image_prompt", None)
-            or getattr(frame, "animation_prompt", None)
-            or ""
+            getattr(frame, "image_prompt", None) or getattr(frame, "animation_prompt", None) or ""
         ).strip()
     if existing:
         return existing[:body_cap]

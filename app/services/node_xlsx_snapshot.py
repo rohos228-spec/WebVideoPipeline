@@ -9,7 +9,7 @@ UI preview/download по ``node_key`` читает этот снимок, а н�
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,7 @@ META_KEY = "xlsx_snapshots_by_node"
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def snapshots_map(project: Project) -> dict[str, dict[str, Any]]:
@@ -180,9 +180,7 @@ def release_upload_display_source(project: Project, node_key: str) -> bool:
     return True
 
 
-def resolve_display_xlsx_path(
-    project: Project, node_key: str | None
-) -> tuple[Path, str | None]:
+def resolve_display_xlsx_path(project: Project, node_key: str | None) -> tuple[Path, str | None]:
     """Файл для preview/download UI по node_key.
 
     Приоритет:

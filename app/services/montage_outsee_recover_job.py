@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from loguru import logger
@@ -22,7 +22,7 @@ _recover_tasks: dict[int, asyncio.Task[None]] = {}
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def get_recover_job(project: Project) -> dict[str, Any]:
@@ -84,11 +84,7 @@ def spawn_recover_job(project_id: int) -> asyncio.Task[None]:
                     return
                 board = montage_meta(project)
                 pending = list(board.get("pending_ops") or [])
-                image_ops = [
-                    op
-                    for op in pending
-                    if str(op.get("type") or "").startswith("image")
-                ]
+                image_ops = [op for op in pending if str(op.get("type") or "").startswith("image")]
                 # Кнопка «Забрать» = всегда ЗАМЕНИТЬ свежими из Outsee.
                 # Раньше без pending было force_replace=False → «already» и 0 файлов.
                 frame_filter: set[tuple[int, int]] | None = None
@@ -116,10 +112,7 @@ def spawn_recover_job(project_id: int) -> asyncio.Task[None]:
                 )
                 if image_ops and result.get("saved"):
                     # Снять только успешно забранные image-ops из очереди.
-                    saved_keys = {
-                        (int(s["frame_number"]), int(s["shot"]))
-                        for s in result.get("saved") or []
-                    }
+                    saved_keys = {(int(s["frame_number"]), int(s["shot"])) for s in result.get("saved") or []}
                     board = montage_meta(project)
                     new_pending = []
                     for op in list(board.get("pending_ops") or []):
@@ -143,19 +136,14 @@ def spawn_recover_job(project_id: int) -> asyncio.Task[None]:
                 errors = list(result.get("errors") or [])
                 ok = bool(result.get("ok")) and not errors
                 # Частичный успех: есть saved — не error, даже если errors.
-                if result.get("saved_count") or result.get("saved"):
-                    status = "done"
-                elif ok:
+                if result.get("saved_count") or result.get("saved") or ok:
                     status = "done"
                 else:
                     status = "error"
                 err_text = "; ".join(errors) if errors else None
-                if status == "done" and not (
-                    result.get("saved_count") or result.get("saved")
-                ):
+                if status == "done" and not (result.get("saved_count") or result.get("saved")):
                     err_text = err_text or (
-                        f"В истории Outsee нет подходящих карточек "
-                        f"(hits={result.get('hits_scanned') or 0})"
+                        f"В истории Outsee нет подходящих карточек (hits={result.get('hits_scanned') or 0})"
                     )
                 _set_job(
                     project,

@@ -157,8 +157,7 @@ def _synthetic_probe_fail_result(
         ),
     ]
     logger.warning(
-        "[#{}] enrich_xlsx node={!r}: synthetic media_probe fail-отчёт "
-        "({} целей, vision-вызова не было)",
+        "[#{}] enrich_xlsx node={!r}: synthetic media_probe fail-отчёт ({} целей, vision-вызова не было)",
         project.id,
         node_key,
         len(probe_bad),
@@ -179,6 +178,7 @@ def _is_scene_grammar_prompt(variant: str | None, master: str | None) -> bool:
 def _is_character_registry_prompt(variant: str | None, master: str | None) -> bool:
     blob = f"{variant or ''}\n{(master or '')[:800]}".casefold()
     return any(m in blob for m in _CHARACTER_REGISTRY_PROMPT_MARKERS)
+
 
 # Маппинг slot_idx (1..5) → (running_status, ready_status, step_code).
 _SLOT_MAP: dict[int, tuple[ProjectStatus, ProjectStatus, str]] = {
@@ -257,9 +257,7 @@ def _apply_enrich_ready_status(
     return False
 
 
-async def _harness_before_enrich_ready(
-    session: AsyncSession, project: Project, *, check_mode: bool
-) -> None:
+async def _harness_before_enrich_ready(session: AsyncSession, project: Project, *, check_mode: bool) -> None:
     """NODE_SYSTEM: excel_gpt gate before enrich_N_ready / node done. Skip checkMode."""
     if check_mode:
         return
@@ -320,9 +318,7 @@ async def _after_excel_gpt_done(
                 maybe_start_vision_check_loop_after_check,
             )
 
-            started = await maybe_start_vision_check_loop_after_check(
-                session, project, node_key
-            )
+            started = await maybe_start_vision_check_loop_after_check(session, project, node_key)
             if started:
                 return
         except Exception:  # noqa: BLE001
@@ -378,9 +374,7 @@ async def _maybe_auto_chain_excel_gpt(
     )
 
     finished_key = (finished_key or "").strip() or None
-    succ = first_work_successor_from_excel_slot(
-        project, slot_idx, from_key=finished_key
-    )
+    succ = first_work_successor_from_excel_slot(project, slot_idx, from_key=finished_key)
     if succ is None:
         meta = dict(project.meta or {})
         if "enrich_auto_chain_to" in meta:
@@ -511,9 +505,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     await session.refresh(project)
 
     sheet = _sheet_for_project(project)
-    xlsx_path: Path = sheet.ensure_initialized(
-        project_id=project.id, slug=project.slug
-    )
+    xlsx_path: Path = sheet.ensure_initialized(project_id=project.id, slug=project.slug)
 
     from app.services.gpt_operator import (
         operator_config,
@@ -580,11 +572,11 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         role_name = str(resolved.get("role") or "")
         check_mode = bool(resolved.get("checkMode") or op_cfg.get("checkMode"))
         check_fix = bool(resolved.get("checkFix", op_cfg.get("checkFix", True)))
-        check_prompt_source = str(
-            resolved.get("checkPromptSource")
-            or op_cfg.get("checkPromptSource")
-            or "upstream"
-        ).strip().lower()
+        check_prompt_source = (
+            str(resolved.get("checkPromptSource") or op_cfg.get("checkPromptSource") or "upstream")
+            .strip()
+            .lower()
+        )
         if check_prompt_source not in ("upstream", "agent"):
             check_prompt_source = "upstream"
         branching_role = role_name in ("review", "gate", "compare") or check_mode
@@ -606,8 +598,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             # Нет картинок на входе → проверка по DB, не по Excel/TSV.
             _img_ext = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
             _has_vision = any(
-                Path(str(f.get("name") or f.get("path") or "")).suffix.lower()
-                in _img_ext
+                Path(str(f.get("name") or f.get("path") or "")).suffix.lower() in _img_ext
                 for f in (resolved.get("files") or [])
                 if f.get("ok")
             )
@@ -629,8 +620,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 if hint:
                     accompanying = hint
                 logger.info(
-                    "[#{}] enrich_xlsx node={!r}: checkMode agent={} "
-                    "db_sot={} chars={}",
+                    "[#{}] enrich_xlsx node={!r}: checkMode agent={} db_sot={} chars={}",
                     project.id,
                     node_key,
                     agent_step,
@@ -657,8 +647,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 if hint:
                     accompanying = hint
                 logger.info(
-                    "[#{}] enrich_xlsx node={!r}: checkMode sources={} "
-                    "db_sot={} chars={}",
+                    "[#{}] enrich_xlsx node={!r}: checkMode sources={} db_sot={} chars={}",
                     project.id,
                     node_key,
                     source_prompt_keys,
@@ -689,9 +678,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             # Целевой формат проекта в контекст — не статично, из полей проекта.
             hint = project_format_hint_for_check(project, node_key)
             if hint and hint not in (accompanying or ""):
-                accompanying = (
-                    f"{accompanying}\n\n{hint}".strip() if accompanying else hint
-                )
+                accompanying = f"{accompanying}\n\n{hint}".strip() if accompanying else hint
 
             master = append_response_footer(master or "")
 
@@ -707,20 +694,12 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             raise RuntimeError(f"gpt-operator resolve: {errs}")
 
         data_paths = [
-            Path(str(f["path"]))
-            for f in (resolved.get("files") or [])
-            if f.get("ok") and f.get("path")
+            Path(str(f["path"])) for f in (resolved.get("files") or []) if f.get("ok") and f.get("path")
         ]
         # project_file / scene_grammar / character_registry = DB SoT.
-        output_mode_early = (
-            "text" if check_mode else str(resolved.get("outputMode") or "text")
-        )
-        scene_grammar_early = (not check_mode) and _is_scene_grammar_prompt(
-            variant, master
-        )
-        character_registry_early = (not check_mode) and _is_character_registry_prompt(
-            variant, master
-        )
+        output_mode_early = "text" if check_mode else str(resolved.get("outputMode") or "text")
+        scene_grammar_early = (not check_mode) and _is_scene_grammar_prompt(variant, master)
+        character_registry_early = (not check_mode) and _is_character_registry_prompt(variant, master)
         if (
             not data_paths
             and output_mode_early != "project_file"
@@ -742,18 +721,16 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             frames_chk = list(
                 (
                     await session.execute(
-                        _select(Frame)
-                        .where(Frame.project_id == project.id)
-                        .order_by(Frame.number)
+                        _select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
                     )
-                ).scalars().all()
+                )
+                .scalars()
+                .all()
             )
             ents = list(
-                (
-                    await session.execute(
-                        _select(Entity).where(Entity.project_id == project.id)
-                    )
-                ).scalars().all()
+                (await session.execute(_select(Entity).where(Entity.project_id == project.id)))
+                .scalars()
+                .all()
             )
             meta = project.meta if isinstance(project.meta, dict) else {}
             from app.services.db_frames_context import build_excel_gpt_check_context
@@ -786,8 +763,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 *[
                     p
                     for p in data_paths
-                    if p.suffix.lower()
-                    not in {".xlsx", ".xlsm", ".xls", ".tsv", ".csv"}
+                    if p.suffix.lower() not in {".xlsx", ".xlsm", ".xls", ".tsv", ".csv"}
                     and p.resolve() != db_check_path.resolve()
                 ],
             ]
@@ -799,8 +775,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 "Не пиши findings про TSV / project.xlsx / # Лист:."
             ).strip()
             logger.info(
-                "[#{}] enrich_xlsx node={!r}: checkMode DB SoT — "
-                "db_check.json frames={} scenes={} files={}",
+                "[#{}] enrich_xlsx node={!r}: checkMode DB SoT — db_check.json frames={} scenes={} files={}",
                 project.id,
                 node_key,
                 len(db_check["frames"]),
@@ -839,8 +814,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 )
                 if probe_bad_targets:
                     logger.warning(
-                        "[#{}] enrich_xlsx node={!r}: media_probe отбраковал "
-                        "{} файлов до vision: {}",
+                        "[#{}] enrich_xlsx node={!r}: media_probe отбраковал {} файлов до vision: {}",
                         project.id,
                         node_key,
                         len(probe_bad_targets),
@@ -858,9 +832,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
 
                     if any(is_video_path(p) for p in data_paths):
                         sheets_dir = project.data_dir / "tmp_video_sheets"
-                        data_paths = await materialize_video_sheets_for_check(
-                            data_paths, sheets_dir
-                        )
+                        data_paths = await materialize_video_sheets_for_check(data_paths, sheets_dir)
                         kind_hint = "videos"
                         logger.info(
                             "[#{}] enrich_xlsx: video→sheet 3×2 → {} файлов",
@@ -880,22 +852,15 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 )
                 db_snap = ""
             if db_snap:
-                accompanying = (
-                    f"{accompanying}\n\n{db_snap}".strip()
-                    if accompanying
-                    else db_snap
-                )
+                accompanying = f"{accompanying}\n\n{db_snap}".strip() if accompanying else db_snap
 
         role = str(resolved.get("role") or "assist")
         output_mode = "text" if check_mode else str(resolved.get("outputMode") or "text")
         scene_grammar = (not check_mode) and _is_scene_grammar_prompt(variant, master)
-        character_registry = (not check_mode) and _is_character_registry_prompt(
-            variant, master
-        )
+        character_registry = (not check_mode) and _is_character_registry_prompt(variant, master)
         if scene_grammar and output_mode != "project_file":
             logger.info(
-                "[#{}] enrich_xlsx node={!r}: scene_grammar → force "
-                "outputMode=project_file (было {!r})",
+                "[#{}] enrich_xlsx node={!r}: scene_grammar → force outputMode=project_file (было {!r})",
                 project.id,
                 node_key,
                 output_mode,
@@ -903,16 +868,14 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             output_mode = "project_file"
         if character_registry and output_mode != "project_file":
             logger.info(
-                "[#{}] enrich_xlsx node={!r}: character_registry → force "
-                "outputMode=project_file (было {!r})",
+                "[#{}] enrich_xlsx node={!r}: character_registry → force outputMode=project_file (было {!r})",
                 project.id,
                 node_key,
                 output_mode,
             )
             output_mode = "project_file"
         logger.info(
-            "[#{}] enrich_xlsx API transport slot={} role={} checkMode={} "
-            "output={} files={}",
+            "[#{}] enrich_xlsx API transport slot={} role={} checkMode={} output={} files={}",
             project.id,
             slot_idx,
             role,
@@ -939,18 +902,16 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             frames_for_map = list(
                 (
                     await session.execute(
-                        _select(Frame)
-                        .where(Frame.project_id == project.id)
-                        .order_by(Frame.number)
+                        _select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
                     )
-                ).scalars().all()
+                )
+                .scalars()
+                .all()
             )
             ents = list(
-                (
-                    await session.execute(
-                        _select(Entity).where(Entity.project_id == project.id)
-                    )
-                ).scalars().all()
+                (await session.execute(_select(Entity).where(Entity.project_id == project.id)))
+                .scalars()
+                .all()
             )
             # Компактный снимок DB (SoT). Excel в GPT не отдаём вообще.
             # scene_grammar: attrs не тащим — пишем с нуля.
@@ -970,10 +931,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                     if character_registry:
                         attrs = fr.attrs or {}
                         row["персонажи"] = str(
-                            attrs.get("characters")
-                            or attrs.get("персонажи")
-                            or attrs.get("persons")
-                            or ""
+                            attrs.get("characters") or attrs.get("персонажи") or attrs.get("persons") or ""
                         )
                     frame_rows.append(row)
                 db_ctx: dict = {
@@ -1036,17 +994,13 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 full_vo = (project.script_text or "").strip() or " ".join(vo_chunks)
                 if full_vo:
                     accompanying = (
-                        f"{accompanying}\n\n"
-                        f"# ПОЛНЫЙ ЗАКАДР (для start_words/end_words)\n"
-                        f"{full_vo}"
+                        f"{accompanying}\n\n# ПОЛНЫЙ ЗАКАДР (для start_words/end_words)\n{full_vo}"
                     ).strip()
             elif character_registry:
                 uuid_frames = [f for f in frames_for_map if f.uuid]
                 mapping = ""
                 if uuid_frames:
-                    mapping = "\n".join(
-                        f"кадр {f.number} = {f.uuid}" for f in uuid_frames
-                    )
+                    mapping = "\n".join(f"кадр {f.number} = {f.uuid}" for f in uuid_frames)
                 accompanying = (
                     f"{accompanying}\n\n{hint}\n"
                     f"{mapping}\n"
@@ -1063,20 +1017,13 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 ]
                 full_vo = (project.script_text or "").strip() or " ".join(vo_chunks)
                 if full_vo:
-                    accompanying = (
-                        f"{accompanying}\n\n"
-                        f"# ПОЛНЫЙ ЗАКАДР\n{full_vo}"
-                    ).strip()
+                    accompanying = (f"{accompanying}\n\n# ПОЛНЫЙ ЗАКАДР\n{full_vo}").strip()
             else:
                 uuid_frames = [f for f in frames_for_map if f.uuid]
                 mapping = ""
                 if uuid_frames:
-                    mapping = "\n".join(
-                        f"кадр {f.number} = {f.uuid}" for f in uuid_frames
-                    )
-                accompanying = (
-                    f"{accompanying}\n\n{hint}{mapping}"
-                ).strip()
+                    mapping = "\n".join(f"кадр {f.number} = {f.uuid}" for f in uuid_frames)
+                accompanying = (f"{accompanying}\n\n{hint}{mapping}").strip()
                 accompanying = (
                     f"{accompanying}\n\n"
                     "# DB SoT\n"
@@ -1091,8 +1038,10 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             from app.services.check_streams import get_check_streams
 
             check_streams_n = get_check_streams(project)
-        if check_mode and probe_bad_targets and not any(
-            _p.is_file() and _is_image_or_video_input(_p) for _p in data_paths
+        if (
+            check_mode
+            and probe_bad_targets
+            and not any(_p.is_file() and _is_image_or_video_input(_p) for _p in data_paths)
         ):
             # Этап 4 (C.3, сценарий «все файлы битые»): платный vision-вызов
             # не выполняется вовсе — синтезируем fail-отчёт с целями
@@ -1107,8 +1056,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             from app.services.scene_grammar_batches import run_scene_grammar_batched
 
             logger.info(
-                "[#{}] enrich_xlsx node={!r}: scene_grammar batched run "
-                "(1▶ → outline + shot-batches)",
+                "[#{}] enrich_xlsx node={!r}: scene_grammar batched run (1▶ → outline + shot-batches)",
                 project.id,
                 node_key,
             )
@@ -1127,10 +1075,10 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             and isinstance(db_ctx, dict)
             and ctx_path is not None
         ):
+            from app.services import db_apply as _db_apply
             from app.services.apply_ops_batches import (
                 run_apply_ops_batched,
             )
-            from app.services import db_apply as _db_apply
             from app.services.node_write_contract import filter_ops_for_node
 
             async def _apply_batch(payload: dict) -> None:
@@ -1175,8 +1123,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 await session.refresh(project)
 
             logger.info(
-                "[#{}] enrich_xlsx node={!r}: apply-ops adaptive "
-                "1→2→4 (dense shot fill)",
+                "[#{}] enrich_xlsx node={!r}: apply-ops adaptive 1→2→4 (dense shot fill)",
                 project.id,
                 node_key,
             )
@@ -1211,60 +1158,33 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         await session.refresh(project)
         # После project_file / DB-check: apply-ops JSON → DB (SoT).
         if output_mode == "project_file" or (
-            check_mode
-            and check_fix
-            and db_sot_check
-            and getattr(api_res, "apply_ops", None)
+            check_mode and check_fix and db_sot_check and getattr(api_res, "apply_ops", None)
         ):
             ops_data = getattr(api_res, "apply_ops", None)
-            ops_list = (
-                list(ops_data.get("ops") or [])
-                if isinstance(ops_data, dict)
-                else []
-            )
-            chars_list = (
-                list(ops_data.get("characters") or [])
-                if isinstance(ops_data, dict)
-                else []
-            )
-            scenes_list = (
-                list(ops_data.get("scenes") or [])
-                if isinstance(ops_data, dict)
-                else []
-            )
+            ops_list = list(ops_data.get("ops") or []) if isinstance(ops_data, dict) else []
+            chars_list = list(ops_data.get("characters") or []) if isinstance(ops_data, dict) else []
+            scenes_list = list(ops_data.get("scenes") or []) if isinstance(ops_data, dict) else []
             # check/report_only не пишут (или пишут DB-check без стрипа).
             # excel_gpt на графе с img_pr/anim_pr не пишет чужие промты.
             apply_node_kind: str | None = None
             if ops_list and not check_mode:
                 from app.services.node_write_contract import filter_ops_for_node
 
-                n_fields_before = sum(
-                    len(op.get("fields") or {})
-                    for op in ops_list
-                    if isinstance(op, dict)
-                )
-                ops_list = filter_ops_for_node(
-                    ops_list, node_kind="excel_gpt_no_prompts"
-                )
+                n_fields_before = sum(len(op.get("fields") or {}) for op in ops_list if isinstance(op, dict))
+                ops_list = filter_ops_for_node(ops_list, node_kind="excel_gpt_no_prompts")
                 apply_node_kind = "excel_gpt_no_prompts"
-                n_fields_after = sum(
-                    len(op.get("fields") or {})
-                    for op in ops_list
-                    if isinstance(op, dict)
-                )
+                n_fields_after = sum(len(op.get("fields") or {}) for op in ops_list if isinstance(op, dict))
                 dropped = n_fields_before - n_fields_after
                 if dropped:
                     logger.info(
-                        "[#{}] enrich_xlsx node={}: stripped {} prompt "
-                        "fields (excel_gpt_no_prompts)",
+                        "[#{}] enrich_xlsx node={}: stripped {} prompt fields (excel_gpt_no_prompts)",
                         project.id,
                         node_key,
                         dropped,
                     )
             if getattr(api_res, "applied_in_runner", False):
                 logger.info(
-                    "[#{}] enrich_xlsx node={}: apply-ops уже записан "
-                    "по батчам ({} ops)",
+                    "[#{}] enrich_xlsx node={}: apply-ops уже записан по батчам ({} ops)",
                     project.id,
                     node_key,
                     len(ops_list),
@@ -1304,9 +1224,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         scenes_list=scenes_list,
                     )
                     if expected_frame_uuids and not check_mode and not skip_coverage:
-                        cov = coverage_report(
-                            ops_list, expected_uuids=expected_frame_uuids
-                        )
+                        cov = coverage_report(ops_list, expected_uuids=expected_frame_uuids)
                         if cov.extra:
                             logger.warning(
                                 "[#{}] enrich_xlsx node={}: extra frame_uuid {}",
@@ -1336,13 +1254,10 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         data_paths=data_paths,
                         api_res=api_res,
                     )
-                    raise RuntimeError(
-                        f"enrich_xlsx node={node_key}: apply-ops отклонён: {e}"
-                    ) from None
+                    raise RuntimeError(f"enrich_xlsx node={node_key}: apply-ops отклонён: {e}") from None
             elif ops_data:
                 detail = (
-                    str(ops_data.get("error") or ops_data.get("report") or "")
-                    .strip()
+                    str(ops_data.get("error") or ops_data.get("report") or "").strip()
                     or "ops и characters пустые"
                 )
                 _persist_excel_gpt_reply_for_ui(
@@ -1366,7 +1281,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 )
                 raise RuntimeError(
                     f"enrich_xlsx node={node_key}: модель не вернула apply-ops JSON. "
-                    "Нужен {\"ops\":[…]} и/или {\"characters\":[…]} — "
+                    'Нужен {"ops":[…]} и/или {"characters":[…]} — '
                     "запись через Excel/TSV больше не поддерживается."
                 )
         save_operator_result(
@@ -1376,18 +1291,14 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             output_paths=list(api_res.output_paths),
             reply_text=api_res.reply_text,
             gate_status=api_res.gate_status,
-            analysis=(
-                api_res.analysis.to_dict() if getattr(api_res, "analysis", None) else None
-            ),
+            analysis=(api_res.analysis.to_dict() if getattr(api_res, "analysis", None) else None),
         )
         ready_status = _SLOT_MAP[slot_idx][1]
         running_status = _SLOT_MAP[slot_idx][0]
         # status мог уйти в generating_* пока шёл долгий API-check
         await session.refresh(project)
         meta = dict(project.meta or {})
-        completed = [
-            int(x) for x in (meta.get("enrich_completed_slots") or []) if str(x).isdigit()
-        ]
+        completed = [int(x) for x in (meta.get("enrich_completed_slots") or []) if str(x).isdigit()]
         if slot_idx not in completed:
             completed.append(slot_idx)
             completed.sort()
@@ -1403,8 +1314,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         # Юзер мог ▶ другой шаг (split) пока GPT enrich ещё отвечал.
         if project.status is not running_status:
             logger.warning(
-                "[#{}] enrich_xlsx slot={}: статус уже {} (ждали {}) — "
-                "не пишем enrich ready (stale GPT)",
+                "[#{}] enrich_xlsx slot={}: статус уже {} (ждали {}) — не пишем enrich ready (stale GPT)",
                 project.id,
                 slot_idx,
                 project.status.value,
@@ -1444,9 +1354,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         try:
             from app.services.run_sync import complete_excel_gpt_node_by_key
 
-            await complete_excel_gpt_node_by_key(
-                session, project, node_key, enrich_slot=slot_idx
-            )
+            await complete_excel_gpt_node_by_key(session, project, node_key, enrich_slot=slot_idx)
         except Exception:  # noqa: BLE001
             logger.exception(
                 "[#{}] enrich_xlsx API: complete_excel_gpt_node_by_key failed",
@@ -1472,8 +1380,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     data_paths = attachment_paths(project, node_key)
     if not data_paths:
         raise RuntimeError(
-            f"enrich_xlsx: нет файла для отправки "
-            f"({display_attachment_name(project, node_key)})"
+            f"enrich_xlsx: нет файла для отправки ({display_attachment_name(project, node_key)})"
         )
     want_xlsx = expects_xlsx_result(project, node_key)
     mode = work_mode(project, node_key)
@@ -1489,15 +1396,13 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         [p.name for p in data_paths],
     )
 
-    from app.services import chatgpt_xlsx as cx
-
     tmp_dir = cx.tmp_gpt_dir(project)
     prompt_file = tmp_dir / f"prompt_{prompt_step_code}_{variant}.md"
     prompt_file.write_text((master or "").strip(), encoding="utf-8")
     attach_files = [prompt_file, *data_paths]
 
     # 3. Round-trip до 3 раз.
-    from app.services.step_cancel import StepCancelledError, raise_if_cancelled
+    from app.services.step_cancel import raise_if_cancelled
 
     last_err: Exception | None = None
     xlsx_stat_before_run = cx.project_xlsx_stat(xlsx_path)
@@ -1528,24 +1433,20 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         ask_timeout=1200,
                         download_timeout=600,
                         project_id=project.id,
-                        validate_xlsx_download=download_path.suffix.lower()
-                        in {".xlsx", ".xls"},
+                        validate_xlsx_download=download_path.suffix.lower() in {".xlsx", ".xls"},
                     )
 
             else:
 
                 async def _do() -> str:
                     return await xgf.telegram_style_ask_with_files(
-                        (accompanying or "").strip()
-                        or "Выполни инструкцию из приложенного промта.",
+                        (accompanying or "").strip() or "Выполни инструкцию из приложенного промта.",
                         attach_files,
                         timeout=1200,
                         project_id=project.id,
                     )
 
-            reply = await xgf.run_under_xlsx_lock(
-                project.id, legacy_step_code, _do
-            )
+            reply = await xgf.run_under_xlsx_lock(project.id, legacy_step_code, _do)
             logger.info(
                 "[#{}] enrich_xlsx: получен ответ len={} (try={}, want_xlsx={})",
                 project.id,
@@ -1597,13 +1498,9 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 if attempt >= _MAX_RETRIES:
                     project.status = running_status
                     await session.flush()
-                    raise RuntimeError(
-                        f"enrich_xlsx slot={slot_idx}: 3 попытки failed, last err: {e}"
-                    ) from e
+                    raise RuntimeError(f"enrich_xlsx slot={slot_idx}: 3 попытки failed, last err: {e}") from e
                 continue
-            xlsx_ok = cx.should_accept_xlsx_after_gpt_error(
-                xlsx_path, xlsx_stat_before_run, e
-            )
+            xlsx_ok = cx.should_accept_xlsx_after_gpt_error(xlsx_path, xlsx_stat_before_run, e)
             if xlsx_ok:
                 logger.warning(
                     "[#{}] enrich_xlsx slot={} GPT error after fresh xlsx "
@@ -1642,9 +1539,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 # Откатим статус назад — пайплайн сам поднимет из данных.
                 project.status = running_status  # оставляем running, чтобы юзер ткнул retry
                 await session.flush()
-                raise RuntimeError(
-                    f"enrich_xlsx slot={slot_idx}: 3 попытки failed, last err: {e}"
-                ) from e
+                raise RuntimeError(f"enrich_xlsx slot={slot_idx}: 3 попытки failed, last err: {e}") from e
             continue
 
     # 3b. Проверочная роль: разобрать ответ → analysis.json + gateStatus
@@ -1665,11 +1560,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 node_key,
                 str(reply_text or ""),
                 input_paths=list(data_paths),
-                extra_output_paths=(
-                    [download_path]
-                    if want_xlsx and download_path.exists()
-                    else None
-                ),
+                extra_output_paths=([download_path] if want_xlsx and download_path.exists() else None),
             )
             logger.info(
                 "[#{}] enrich_xlsx browser check: gateStatus записан для {}",
@@ -1685,8 +1576,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     # 4. Excel → DB только через явный Import (не auto после enrich).
     if want_xlsx:
         logger.info(
-            "[#{}] enrich_xlsx slot={}: skip auto Excel import "
-            "(DB SoT; use Import button if needed)",
+            "[#{}] enrich_xlsx slot={}: skip auto Excel import (DB SoT; use Import button if needed)",
             project.id,
             slot_idx,
         )
@@ -1715,8 +1605,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     if "excel_hero" in meta:
         meta.pop("excel_hero")
         logger.info(
-            "[#{}] enrich_xlsx slot={}: сброшен кэш excel_hero после "
-            "обновления xlsx",
+            "[#{}] enrich_xlsx slot={}: сброшен кэш excel_hero после обновления xlsx",
             project.id,
             slot_idx,
         )
@@ -1738,8 +1627,9 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             node_key=node_key,
             node_type="excel_gpt",
         )
-        from app.services.node_xlsx_snapshot import release_upload_display_source
         from sqlalchemy.orm.attributes import flag_modified
+
+        from app.services.node_xlsx_snapshot import release_upload_display_source
 
         if node_key and release_upload_display_source(project, node_key):
             flag_modified(project, "meta")
@@ -1763,9 +1653,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     try:
         from app.services.run_sync import complete_excel_gpt_node_by_key
 
-        await complete_excel_gpt_node_by_key(
-            session, project, node_key, enrich_slot=slot_idx
-        )
+        await complete_excel_gpt_node_by_key(session, project, node_key, enrich_slot=slot_idx)
     except Exception:  # noqa: BLE001
         logger.debug(
             "[#{}] enrich_xlsx: complete NodeRun slot={} failed",

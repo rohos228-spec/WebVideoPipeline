@@ -122,7 +122,11 @@ async def test_is_busy(session) -> None:
 
 def test_data_dir_and_iter_dir() -> None:
     p = TPProject(
-        id=7, slug="foo", name="Foo", status="idle", current_iter=0,
+        id=7,
+        slug="foo",
+        name="Foo",
+        status="idle",
+        current_iter=0,
     )
     assert "test_prompts" in str(p.data_dir)
     assert str(p.data_dir).endswith("foo")
@@ -131,6 +135,7 @@ def test_data_dir_and_iter_dir() -> None:
 
 
 # ---- Меню ----------------------------------------------------------
+
 
 def test_root_kb_empty_list() -> None:
     kb = build_root_kb([])
@@ -142,10 +147,18 @@ def test_root_kb_empty_list() -> None:
 
 def test_root_kb_with_projects() -> None:
     p1 = TPProject(
-        id=1, slug="a", name="Alpha", status="idle", current_iter=3,
+        id=1,
+        slug="a",
+        name="Alpha",
+        status="idle",
+        current_iter=3,
     )
     p2 = TPProject(
-        id=2, slug="b", name="Beta", status="waiting_critique", current_iter=5,
+        id=2,
+        slug="b",
+        name="Beta",
+        status="waiting_critique",
+        current_iter=5,
     )
     kb = build_root_kb([p1, p2])
     btns = [b.text for row in kb.inline_keyboard for b in row]
@@ -157,8 +170,13 @@ def test_root_kb_with_projects() -> None:
 def test_project_kb_idle_without_prompts() -> None:
     """Без обоих промтов — нет кнопки «▶ Поехали», только подсказка."""
     p = TPProject(
-        id=1, slug="x", name="X", status="idle", current_iter=0,
-        visual_prompt=None, system_prompt=None,
+        id=1,
+        slug="x",
+        name="X",
+        status="idle",
+        current_iter=0,
+        visual_prompt=None,
+        system_prompt=None,
     )
     kb = build_project_kb(p)
     btns = [b.text for row in kb.inline_keyboard for b in row]
@@ -169,8 +187,13 @@ def test_project_kb_idle_without_prompts() -> None:
 def test_project_kb_idle_with_prompts() -> None:
     """С обоими промтами — есть «▶ Поехали»."""
     p = TPProject(
-        id=1, slug="x", name="X", status="idle", current_iter=0,
-        visual_prompt="vp", system_prompt="sp",
+        id=1,
+        slug="x",
+        name="X",
+        status="idle",
+        current_iter=0,
+        visual_prompt="vp",
+        system_prompt="sp",
     )
     kb = build_project_kb(p)
     btns = [b.text for row in kb.inline_keyboard for b in row]
@@ -180,8 +203,13 @@ def test_project_kb_idle_with_prompts() -> None:
 def test_project_kb_running() -> None:
     """В running-статусе — только индикатор и «🛑 Стоп»."""
     p = TPProject(
-        id=1, slug="x", name="X", status="running_gpt", current_iter=1,
-        visual_prompt="vp", system_prompt="sp",
+        id=1,
+        slug="x",
+        name="X",
+        status="running_gpt",
+        current_iter=1,
+        visual_prompt="vp",
+        system_prompt="sp",
     )
     kb = build_project_kb(p)
     btns = [b.text for row in kb.inline_keyboard for b in row]
@@ -194,8 +222,13 @@ def test_project_kb_running() -> None:
 def test_project_kb_waiting_critique() -> None:
     """waiting_critique — есть «✏ Добавить критику» и «🛑 Стоп»."""
     p = TPProject(
-        id=1, slug="x", name="X", status="waiting_critique", current_iter=2,
-        visual_prompt="vp", system_prompt="sp",
+        id=1,
+        slug="x",
+        name="X",
+        status="waiting_critique",
+        current_iter=2,
+        visual_prompt="vp",
+        system_prompt="sp",
     )
     kb = build_project_kb(p)
     btns = [b.text for row in kb.inline_keyboard for b in row]
@@ -206,8 +239,13 @@ def test_project_kb_waiting_critique() -> None:
 def test_project_kb_stopped_can_restart() -> None:
     """После stop — кнопка «▶ Повторить» если промты заданы."""
     p = TPProject(
-        id=1, slug="x", name="X", status="stopped", current_iter=4,
-        visual_prompt="vp", system_prompt="sp",
+        id=1,
+        slug="x",
+        name="X",
+        status="stopped",
+        current_iter=4,
+        visual_prompt="vp",
+        system_prompt="sp",
     )
     kb = build_project_kb(p)
     btns = [b.text for row in kb.inline_keyboard for b in row]
@@ -217,8 +255,13 @@ def test_project_kb_stopped_can_restart() -> None:
 def test_project_kb_error_can_retry() -> None:
     """После error — то же «▶ Повторить»."""
     p = TPProject(
-        id=1, slug="x", name="X", status="error", current_iter=4,
-        visual_prompt="vp", system_prompt="sp",
+        id=1,
+        slug="x",
+        name="X",
+        status="error",
+        current_iter=4,
+        visual_prompt="vp",
+        system_prompt="sp",
     )
     kb = build_project_kb(p)
     btns = [b.text for row in kb.inline_keyboard for b in row]
@@ -227,12 +270,21 @@ def test_project_kb_error_can_retry() -> None:
 
 def test_project_kb_always_has_delete_and_back() -> None:
     for status in (
-        "idle", "running_gpt", "running_outsee",
-        "waiting_critique", "stopped", "error",
+        "idle",
+        "running_gpt",
+        "running_outsee",
+        "waiting_critique",
+        "stopped",
+        "error",
     ):
         p = TPProject(
-            id=1, slug="x", name="X", status=status, current_iter=0,
-            visual_prompt="vp", system_prompt="sp",
+            id=1,
+            slug="x",
+            name="X",
+            status=status,
+            current_iter=0,
+            visual_prompt="vp",
+            system_prompt="sp",
         )
         kb = build_project_kb(p)
         btns = [b.text for row in kb.inline_keyboard for b in row]

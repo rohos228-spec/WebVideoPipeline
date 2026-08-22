@@ -77,9 +77,7 @@ async def test_hero_skipped_empty_keeps_hero_ready(mem_db) -> None:
         # frame so compute is past script
         from app.models import Frame
 
-        session.add(
-            Frame(project_id=p.id, number=1, voiceover_text="hi", status="planned")
-        )
+        session.add(Frame(project_id=p.id, number=1, voiceover_text="hi", status="planned"))
         await session.flush()
         assert _hero_step_required(p) is False
         actual = await compute_actual_status(session, p)

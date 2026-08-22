@@ -1,4 +1,5 @@
 """Append journal lines with UTF-8 (avoid PowerShell encoding issues)."""
+
 from __future__ import annotations
 
 import sys
@@ -17,12 +18,7 @@ def append(doing: str, done: str, result: str, bug: str = "-") -> None:
     inserted = False
     for i, ln in enumerate(lines):
         out.append(ln)
-        if (
-            not inserted
-            and ln.startswith("|-------")
-            and i > 0
-            and "Время" in lines[i - 1]
-        ):
+        if not inserted and ln.startswith("|-------") and i > 0 and "Время" in lines[i - 1]:
             window = "\n".join(lines[max(0, i - 8) : i])
             if "Журнал" in window:
                 out.append(line)

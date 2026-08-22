@@ -5,7 +5,8 @@ Do not pre-slice into 5 packs or voiceover/3500 packs.
 
 from __future__ import annotations
 
-from typing import Sequence, TypeVar
+from collections.abc import Sequence
+from typing import TypeVar
 
 T = TypeVar("T")
 

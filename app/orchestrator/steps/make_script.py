@@ -48,9 +48,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     try:
         from app.services.storage_step_sync import sync_storage_after_step
 
-        await sync_storage_after_step(
-            session, project, "script", log_prefix="make_script"
-        )
+        await sync_storage_after_step(session, project, "script", log_prefix="make_script")
     except Exception as e:  # noqa: BLE001
         logger.warning(
             "[#{}] make_script: sync downstream storage failed: {}",

@@ -11,18 +11,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models import Project, ProjectStatus
 from app.services.chrome_recovery import (
     clear_chrome_recovery,
     handle_chrome_step_failure,
     is_chrome_infra_error,
 )
-from app.models import Project, ProjectStatus
 from app.telegram.menu import step_by_running_status
 
 FAILS_PER_CYCLE = 3
@@ -89,7 +89,7 @@ def is_sleeping(project: Project) -> bool:
         dt = datetime.fromisoformat(str(until).replace("Z", "+00:00"))
     except ValueError:
         return False
-    if datetime.now(timezone.utc) >= dt:
+    if datetime.now(UTC) >= dt:
         return False
     return True
 
@@ -188,9 +188,7 @@ async def _soft_retry_without_wipe(
 
         recovered = await recover_scene_videos_from_disk(session, project)
         videos_dir = project.data_dir / "videos"
-        on_disk = (
-            len(list(videos_dir.glob("clip_*.mp4"))) if videos_dir.is_dir() else 0
-        )
+        on_disk = len(list(videos_dir.glob("clip_*.mp4"))) if videos_dir.is_dir() else 0
         logger.info(
             "[#{}] soft retry video: {} clip на диске, {} newly linked (без wipe)",
             project.id,
@@ -220,13 +218,13 @@ async def record_step_failure(
 
     from app.services.error_catalog import describe_error
     from app.services.gen_queue_run import is_user_stopped
-    from app.services.project_state import is_running_status
-    from app.services.step_cancel import is_stop_requested
 
     # Этап 3 (E.3): бюджет прогона исчерпан — сразу paused с машиночитаемой
     # причиной (паттерн vision-паузы этапа 4), БЕЗ sleep-циклов и счёта
     # фейлов: ретраи ничего не починят, первый же вызов снова упрётся.
     from app.services.llm_ledger import BUDGET_CODE, BudgetExhausted
+    from app.services.project_state import is_running_status
+    from app.services.step_cancel import is_stop_requested
 
     if isinstance(error, BudgetExhausted):
         from app.services.project_control import pause_project as pause_project_svc
@@ -353,11 +351,7 @@ async def record_step_failure(
             error_code=err_code,
         )
         if is_running_status(project.status):
-            rollback = (
-                step.requires
-                if step is not None and step.requires is not None
-                else ProjectStatus.new
-            )
+            rollback = step.requires if step is not None and step.requires is not None else ProjectStatus.new
             project.status = rollback
         await session.flush()
         logger.warning(
@@ -388,7 +382,7 @@ async def record_step_failure(
     await _soft_retry_without_wipe(session, project, step_code)
 
     if total >= MAX_TOTAL_FAILS:
-        fs["abandoned_at"] = datetime.now(timezone.utc).isoformat()
+        fs["abandoned_at"] = datetime.now(UTC).isoformat()
         fs["recovery_cycles"] = MAX_CYCLES
         project.status = ProjectStatus.paused
         _save_failure_state(project, fs)
@@ -413,7 +407,7 @@ async def record_step_failure(
 
     if total % FAILS_PER_CYCLE == 0:
         sleep_min = sleep_minutes_for_error(error)
-        until = datetime.now(timezone.utc) + timedelta(minutes=sleep_min)
+        until = datetime.now(UTC) + timedelta(minutes=sleep_min)
         fs["sleep_until"] = until.isoformat()
         fs["recovery_cycles"] = total // FAILS_PER_CYCLE
         _save_failure_state(project, fs)
@@ -549,10 +543,8 @@ async def resume_expired_error_sleeps(session: AsyncSession) -> list[int]:
     from sqlalchemy import select
 
     rows = (
-        await session.execute(
-            select(Project).where(Project.status == ProjectStatus.paused)
-        )
-    ).scalars().all()
+        (await session.execute(select(Project).where(Project.status == ProjectStatus.paused))).scalars().all()
+    )
     ids: list[int] = []
     for p in rows:
         if await maybe_resume_after_sleep(session, p):

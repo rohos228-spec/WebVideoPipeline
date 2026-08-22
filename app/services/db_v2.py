@@ -80,35 +80,21 @@ async def replace_all_frames(
         raise ValueError(f"replace_all_frames: нужно ≥2 кадра, получили {len(specs)}")
 
     # Не трогаем файлы на диске — только отвязка от старых Frame.id.
-    await session.execute(
-        update(Artifact)
-        .where(Artifact.project_id == project.id)
-        .values(frame_id=None)
-    )
-    await session.execute(
-        delete(FrameEdge).where(FrameEdge.project_id == project.id)
-    )
-    old_ids = list(
-        (
-            await session.execute(select(Frame.id).where(Frame.project_id == project.id))
-        ).scalars()
-    )
+    await session.execute(update(Artifact).where(Artifact.project_id == project.id).values(frame_id=None))
+    await session.execute(delete(FrameEdge).where(FrameEdge.project_id == project.id))
+    old_ids = list((await session.execute(select(Frame.id).where(Frame.project_id == project.id))).scalars())
     if old_ids:
-        await session.execute(
-            delete(PromptVersion).where(PromptVersion.frame_id.in_(old_ids))
-        )
-        await session.execute(
-            delete(FrameText).where(FrameText.frame_id.in_(old_ids))
-        )
+        await session.execute(delete(PromptVersion).where(PromptVersion.frame_id.in_(old_ids)))
+        await session.execute(delete(FrameText).where(FrameText.frame_id.in_(old_ids)))
         await session.execute(delete(Frame).where(Frame.project_id == project.id))
     await session.flush()
 
     # Одна сцена-контейнер
     scene = (
-        await session.execute(
-            select(Scene).where(Scene.project_id == project.id).order_by(Scene.sort_key)
-        )
-    ).scalars().first()
+        (await session.execute(select(Scene).where(Scene.project_id == project.id).order_by(Scene.sort_key)))
+        .scalars()
+        .first()
+    )
     if scene is None:
         scene = Scene(project_id=project.id, sort_key=_SORT_STEP, title="main")
         session.add(scene)
@@ -119,12 +105,7 @@ async def replace_all_frames(
     for i, raw in enumerate(specs, start=1):
         if not isinstance(raw, dict):
             raise ValueError(f"replace_all_frames: кадр {i} не объект")
-        vo = str(
-            raw.get("voiceover_text")
-            or raw.get("закадр")
-            or raw.get("voiceover")
-            or ""
-        ).strip()
+        vo = str(raw.get("voiceover_text") or raw.get("закадр") or raw.get("voiceover") or "").strip()
         if not vo:
             raise ValueError(f"replace_all_frames: кадр {i} без закадра")
         dur_raw = raw.get("duration_seconds", raw.get("длительность"))
@@ -134,17 +115,11 @@ async def replace_all_frames(
         except (TypeError, ValueError) as e:
             raise ValueError(f"replace_all_frames: кадр {i} длительность не число") from e
         meaning_raw = raw.get("meaning", raw.get("смысл"))
-        meaning = (
-            str(meaning_raw).strip()
-            if meaning_raw is not None and str(meaning_raw).strip()
-            else None
-        )
+        meaning = str(meaning_raw).strip() if meaning_raw is not None and str(meaning_raw).strip() else None
         raw_uuid = str(raw.get("uuid") or raw.get("frame_uuid") or "").strip()
         if raw_uuid:
             if raw_uuid in seen_uuids:
-                raise ValueError(
-                    f"replace_all_frames: дубликат uuid {raw_uuid!r} на кадре {i}"
-                )
+                raise ValueError(f"replace_all_frames: дубликат uuid {raw_uuid!r} на кадре {i}")
             seen_uuids.add(raw_uuid)
             frame_uuid = raw_uuid
         else:
@@ -206,9 +181,7 @@ async def backfill_project_v2(session: AsyncSession, project: Project) -> dict[s
 
     frames = list(
         (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number))
         ).scalars()
     )
     if not frames:
@@ -216,10 +189,10 @@ async def backfill_project_v2(session: AsyncSession, project: Project) -> dict[s
 
     # 1. Сцена по умолчанию
     scene = (
-        await session.execute(
-            select(Scene).where(Scene.project_id == project.id).order_by(Scene.sort_key)
-        )
-    ).scalars().first()
+        (await session.execute(select(Scene).where(Scene.project_id == project.id).order_by(Scene.sort_key)))
+        .scalars()
+        .first()
+    )
     if scene is None:
         scene = Scene(project_id=project.id, sort_key=_SORT_STEP, title="Сцена 1")
         session.add(scene)
@@ -285,9 +258,7 @@ async def backfill_project_v2(session: AsyncSession, project: Project) -> dict[s
 
     # 5. Цепочка next по текущему порядку (если связей ещё нет)
     edge_count = (
-        await session.execute(
-            select(func.count(FrameEdge.id)).where(FrameEdge.project_id == project.id)
-        )
+        await session.execute(select(func.count(FrameEdge.id)).where(FrameEdge.project_id == project.id))
     ).scalar_one()
     if not edge_count:
         ordered = sorted(frames, key=lambda f: (f.sort_key or 0.0, f.number))
@@ -329,9 +300,7 @@ async def insert_frame_after(
     frames = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         ).scalars()
     )
@@ -356,16 +325,18 @@ async def insert_frame_after(
         stats = await backfill_project_v2(session, project)
         _ = stats
         scene = (
-            await session.execute(
-                select(Scene).where(Scene.project_id == project.id).order_by(Scene.sort_key)
+            (
+                await session.execute(
+                    select(Scene).where(Scene.project_id == project.id).order_by(Scene.sort_key)
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         scene_id = scene.id if scene else None
 
     max_number = (
-        await session.execute(
-            select(func.max(Frame.number)).where(Frame.project_id == project.id)
-        )
+        await session.execute(select(func.max(Frame.number)).where(Frame.project_id == project.id))
     ).scalar_one() or 0
 
     fr = Frame(
@@ -383,14 +354,18 @@ async def insert_frame_after(
     # Перекидываем ниточку next: after -> new -> old_next
     if after_frame_id is not None:
         old_next = (
-            await session.execute(
-                select(FrameEdge).where(
-                    FrameEdge.project_id == project.id,
-                    FrameEdge.from_frame_id == after_frame_id,
-                    FrameEdge.type == "next",
+            (
+                await session.execute(
+                    select(FrameEdge).where(
+                        FrameEdge.project_id == project.id,
+                        FrameEdge.from_frame_id == after_frame_id,
+                        FrameEdge.type == "next",
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         session.add(
             FrameEdge(
                 project_id=project.id,
@@ -432,14 +407,18 @@ async def add_prompt_version(
     ).scalar_one() or 0
     if set_active:
         actives = (
-            await session.execute(
-                select(PromptVersion).where(
-                    PromptVersion.frame_id == frame_id,
-                    PromptVersion.kind == kind,
-                    PromptVersion.is_active.is_(True),
+            (
+                await session.execute(
+                    select(PromptVersion).where(
+                        PromptVersion.frame_id == frame_id,
+                        PromptVersion.kind == kind,
+                        PromptVersion.is_active.is_(True),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for pv in actives:
             pv.is_active = False
     pv = PromptVersion(
@@ -463,14 +442,18 @@ async def deactivate_prompt_versions(
 ) -> int:
     """Set is_active=False on all matching PromptVersion rows. Do not delete."""
     rows = (
-        await session.execute(
-            select(PromptVersion).where(
-                PromptVersion.project_id == project_id,
-                PromptVersion.kind == kind,
-                PromptVersion.is_active.is_(True),
+        (
+            await session.execute(
+                select(PromptVersion).where(
+                    PromptVersion.project_id == project_id,
+                    PromptVersion.kind == kind,
+                    PromptVersion.is_active.is_(True),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for pv in rows:
         pv.is_active = False
     n = len(rows)
@@ -491,39 +474,23 @@ async def project_graph(session: AsyncSession, project: Project) -> dict[str, An
     frames = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         ).scalars()
     )
     texts = list(
-        (
-            await session.execute(
-                select(FrameText).where(FrameText.project_id == project.id)
-            )
-        ).scalars()
+        (await session.execute(select(FrameText).where(FrameText.project_id == project.id))).scalars()
     )
     prompts = list(
-        (
-            await session.execute(
-                select(PromptVersion).where(PromptVersion.project_id == project.id)
-            )
-        ).scalars()
+        (await session.execute(select(PromptVersion).where(PromptVersion.project_id == project.id))).scalars()
     )
     edges = list(
-        (
-            await session.execute(
-                select(FrameEdge).where(FrameEdge.project_id == project.id)
-            )
-        ).scalars()
+        (await session.execute(select(FrameEdge).where(FrameEdge.project_id == project.id))).scalars()
     )
     entities = list(
         (
             await session.execute(
-                select(Entity)
-                .where(Entity.project_id == project.id)
-                .order_by(Entity.sort_key)
+                select(Entity).where(Entity.project_id == project.id).order_by(Entity.sort_key)
             )
         ).scalars()
     )
@@ -577,9 +544,7 @@ async def project_graph(session: AsyncSession, project: Project) -> dict[str, An
                     "is_active": p.is_active,
                     "text": p.text,
                 }
-                for p in sorted(
-                    prompts_by_frame.get(fr.id, []), key=lambda x: (x.kind, x.version)
-                )
+                for p in sorted(prompts_by_frame.get(fr.id, []), key=lambda x: (x.kind, x.version))
             ],
             "edges": [
                 {"id": e.id, "to_frame_id": e.to_frame_id, "type": e.type}

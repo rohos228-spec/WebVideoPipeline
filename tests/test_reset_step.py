@@ -85,10 +85,15 @@ async def _mkframe(session, project: Project, n: int, **kw) -> Frame:
 
 
 async def _mkart(
-    session, project: Project, kind: ArtifactKind, *, path: str | None = None,
+    session,
+    project: Project,
+    kind: ArtifactKind,
+    *,
+    path: str | None = None,
     frame_id: int | None = None,
 ) -> Artifact:
     import uuid as _uuid
+
     a = Artifact(
         project_id=project.id,
         frame_id=frame_id,
@@ -107,10 +112,24 @@ async def _mkart(
 def test_reset_supported_step_codes_includes_main_pipeline():
     """Все основные шаги pipeline'а должны поддерживать сброс."""
     expected = {
-        "plan", "script", "split",
-        "objects", "hero", "items",
-        "enrich", "enrich_1", "enrich_2", "enrich_3", "enrich_4", "enrich_5",
-        "img_pr", "img", "anim_pr", "video", "audio", "assemble",
+        "plan",
+        "script",
+        "split",
+        "objects",
+        "hero",
+        "items",
+        "enrich",
+        "enrich_1",
+        "enrich_2",
+        "enrich_3",
+        "enrich_4",
+        "enrich_5",
+        "img_pr",
+        "img",
+        "anim_pr",
+        "video",
+        "audio",
+        "assemble",
     }
     assert expected <= RESET_SUPPORTED_STEP_CODES
 
@@ -128,6 +147,7 @@ def test_unknown_step_returns_error(tmp_path):
     # синхронный тест: используем фиктивный объект, т.к. unknown шаги
     # фейлят валидацию до обращения к БД.
     from app.services.reset_step import _resolve_start_index
+
     assert _resolve_start_index("unknown_xyz") is None
     assert _resolve_start_index("img") is not None
     assert _resolve_start_index("img_pr") is not None
@@ -137,9 +157,7 @@ def test_unknown_step_returns_error(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_reset_img_clears_scene_image_and_resets_frames(
-    session, tmp_path: Path
-):
+async def test_reset_img_clears_scene_image_and_resets_frames(session, tmp_path: Path):
     """Сброс шага «img»:
     - удаляет scene_image артефакты и файлы,
     - сбрасывает frame.status: image_generated → image_prompt_ready,
@@ -150,7 +168,9 @@ async def test_reset_img_clears_scene_image_and_resets_frames(
     frames = []
     for i in range(1, 4):
         fr = await _mkframe(
-            session, p, i,
+            session,
+            p,
+            i,
             image_prompt=f"prompt {i}",
             status=FrameStatus.image_generated,
         )
@@ -159,8 +179,11 @@ async def test_reset_img_clears_scene_image_and_resets_frames(
         img_path = tmp_path / f"img_{i}.png"
         img_path.write_bytes(b"\x89PNG\r\n\x1a\n")
         await _mkart(
-            session, p, ArtifactKind.scene_image,
-            path=str(img_path), frame_id=fr.id,
+            session,
+            p,
+            ArtifactKind.scene_image,
+            path=str(img_path),
+            frame_id=fr.id,
         )
         frames.append((fr, img_path))
     # Также: hero — должен остаться нетронутым (он upstream).
@@ -172,12 +195,18 @@ async def test_reset_img_clears_scene_image_and_resets_frames(
     summary = await reset_step(session, p, "img")
 
     # 1) Все scene_image удалены
-    cnt = (await session.execute(
-        select(Artifact).where(
-            Artifact.project_id == p.id,
-            Artifact.kind == ArtifactKind.scene_image,
+    cnt = (
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == p.id,
+                    Artifact.kind == ArtifactKind.scene_image,
+                )
+            )
         )
-    )).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(cnt) == 0
     # 2) Файлы удалены
     for _fr, path in frames:
@@ -187,12 +216,18 @@ async def test_reset_img_clears_scene_image_and_resets_frames(
         await session.refresh(fr)
         assert fr.status is FrameStatus.image_prompt_ready
     # 4) hero_reference нетронут (upstream)
-    hero_arts = (await session.execute(
-        select(Artifact).where(
-            Artifact.project_id == p.id,
-            Artifact.kind == ArtifactKind.hero_reference,
+    hero_arts = (
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == p.id,
+                    Artifact.kind == ArtifactKind.hero_reference,
+                )
+            )
         )
-    )).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(hero_arts) == 1
     # 5) Project статус пересчитан: должны быть на image_prompts_ready
     #    (есть frames с image_prompt + plan + script + hero_arts → шаг
@@ -206,14 +241,14 @@ async def test_reset_img_clears_scene_image_and_resets_frames(
 
 
 @pytest.mark.asyncio
-async def test_reset_img_pr_cascades_to_img_and_below(
-    session, tmp_path: Path
-):
+async def test_reset_img_pr_cascades_to_img_and_below(session, tmp_path: Path):
     """Сброс img_pr должен снести image_prompt + ВСЁ downstream
     (scene_image, scene_video, audio, final_video, animation_prompt)."""
     p = await _mkproject(session)
     fr = await _mkframe(
-        session, p, 1,
+        session,
+        p,
+        1,
         image_prompt="p1",
         animation_prompt="a1",
         status=FrameStatus.video_generated,
@@ -244,20 +279,29 @@ async def test_reset_img_pr_cascades_to_img_and_below(
     # audio от img_pr НЕ зависит и переживает сброс (раньше линейный
     # каскад уничтожал и озвучку).
     for kind in (
-        ArtifactKind.scene_image, ArtifactKind.scene_video,
+        ArtifactKind.scene_image,
+        ArtifactKind.scene_video,
         ArtifactKind.final_video,
     ):
-        arts = (await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == p.id, Artifact.kind == kind
+        arts = (
+            (
+                await session.execute(
+                    select(Artifact).where(Artifact.project_id == p.id, Artifact.kind == kind)
+                )
             )
-        )).scalars().all()
-        assert not arts, f"{kind} should be wiped"
-    audio_arts = (await session.execute(
-        select(Artifact).where(
-            Artifact.project_id == p.id, Artifact.kind == ArtifactKind.audio
+            .scalars()
+            .all()
         )
-    )).scalars().all()
+        assert not arts, f"{kind} should be wiped"
+    audio_arts = (
+        (
+            await session.execute(
+                select(Artifact).where(Artifact.project_id == p.id, Artifact.kind == ArtifactKind.audio)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert audio_arts, "audio вне конуса img_pr — не сносится"
     # файлы конуса удалены
     assert not img_p.exists()
@@ -272,13 +316,20 @@ async def test_reset_split_deletes_all_frames(session, tmp_path: Path):
     с frame_id)."""
     p = await _mkproject(session)
     fr1 = await _mkframe(
-        session, p, 1, image_prompt="p1", status=FrameStatus.image_approved,
+        session,
+        p,
+        1,
+        image_prompt="p1",
+        status=FrameStatus.image_approved,
     )
     img_p = tmp_path / "im1.png"
     img_p.write_bytes(b"x")
     await _mkart(
-        session, p, ArtifactKind.scene_image,
-        path=str(img_p), frame_id=fr1.id,
+        session,
+        p,
+        ArtifactKind.scene_image,
+        path=str(img_p),
+        frame_id=fr1.id,
     )
     p.status = ProjectStatus.images_ready
     await session.flush()
@@ -286,9 +337,7 @@ async def test_reset_split_deletes_all_frames(session, tmp_path: Path):
     await reset_step(session, p, "split")
 
     # Frame'ы удалены
-    frames = (await session.execute(
-        select(Frame).where(Frame.project_id == p.id)
-    )).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == p.id))).scalars().all()
     assert not frames
     # файл картинки тоже удалён (мы его руками unlink'нули до удаления
     # frame'а)
@@ -313,17 +362,30 @@ async def test_reset_objects_wraps_to_hero_and_items(session, tmp_path: Path):
 
     await reset_step(session, p, "objects")
 
-    hero = (await session.execute(
-
-        select(Artifact).where(
-            Artifact.project_id == p.id, Artifact.kind == ArtifactKind.hero_reference,
+    hero = (
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == p.id,
+                    Artifact.kind == ArtifactKind.hero_reference,
+                )
+            )
         )
-    )).scalars().all()
-    items = (await session.execute(
-        select(Artifact).where(
-            Artifact.project_id == p.id, Artifact.kind == ArtifactKind.item_reference,
+        .scalars()
+        .all()
+    )
+    items = (
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == p.id,
+                    Artifact.kind == ArtifactKind.item_reference,
+                )
+            )
         )
-    )).scalars().all()
+        .scalars()
+        .all()
+    )
     assert not hero
     assert not items
     assert not h_p.exists()
@@ -359,13 +421,9 @@ async def test_clear_step_outputs_split_soft_preserves_frames(session) -> None:
     await _mkframe(session, p, 2)
     await session.flush()
 
-    summary = await clear_step_outputs_for_rerun(
-        session, p, "split", force_wipe=False
-    )
+    summary = await clear_step_outputs_for_rerun(session, p, "split", force_wipe=False)
 
-    frames = (
-        await session.execute(select(Frame).where(Frame.project_id == p.id))
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == p.id))).scalars().all()
     assert len(frames) == 2
     assert summary["split"]["frames_preserved"] is True
     assert (p.meta or {}).get("split_completed") is None
@@ -379,20 +437,18 @@ async def test_clear_step_outputs_split_force_wipe_deletes_frames(session) -> No
     await _mkframe(session, p, 2)
     await session.flush()
 
-    summary = await clear_step_outputs_for_rerun(
-        session, p, "split", force_wipe=True
-    )
+    summary = await clear_step_outputs_for_rerun(session, p, "split", force_wipe=True)
 
-    frames = (
-        await session.execute(select(Frame).where(Frame.project_id == p.id))
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == p.id))).scalars().all()
     assert len(frames) == 0
     assert summary["split"]["frames_deleted"] == 2
 
 
 @pytest.mark.asyncio
 async def test_clear_step_outputs_for_rerun_video_preserves_mp4(
-    session, tmp_path: Path, monkeypatch,
+    session,
+    tmp_path: Path,
+    monkeypatch,
 ):
     """Soft ▶ video: не удаляет clip_*.mp4, только soft-resume с диска."""
     import app.settings as app_settings
@@ -429,13 +485,17 @@ async def test_clear_step_outputs_for_rerun_video_preserves_mp4(
     assert summary.get("video", {}).get("mode") == "soft_resume"
     assert clip.exists()
     videos_left = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == p.id,
-                Artifact.kind == ArtifactKind.scene_video,
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == p.id,
+                    Artifact.kind == ArtifactKind.scene_video,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(videos_left) == 1
     await session.refresh(fr)
     assert fr.status is FrameStatus.video_generated
@@ -512,13 +572,17 @@ async def test_clear_step_outputs_for_rerun_anim_pr_preserves(session, tmp_path:
     assert fr.status is FrameStatus.animation_prompt_ready
 
     videos_left = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == p.id,
-                Artifact.kind == ArtifactKind.scene_video,
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == p.id,
+                    Artifact.kind == ArtifactKind.scene_video,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(videos_left) == 1
     assert vid_path.exists()
 
@@ -552,13 +616,17 @@ async def test_reset_audio_does_not_wipe_music(session, tmp_path: Path):
     assert "music" not in summary
     assert mus_p.exists()
     music_left = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == p.id,
-                Artifact.kind == ArtifactKind.music,
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == p.id,
+                    Artifact.kind == ArtifactKind.music,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(music_left) == 1
     assert "audio" in summary
     assert not aud_p.exists() or "audio" in summary
@@ -570,7 +638,9 @@ async def test_reset_video_resets_frame_status(session, tmp_path: Path):
     video_generated → animation_prompt_ready (если есть anim_prompt)."""
     p = await _mkproject(session)
     fr = await _mkframe(
-        session, p, 1,
+        session,
+        p,
+        1,
         image_prompt="p1",
         animation_prompt="a1",
         status=FrameStatus.video_generated,
@@ -590,9 +660,7 @@ async def test_reset_video_resets_frame_status(session, tmp_path: Path):
     assert "video" in summary
 
 
-async def _mk_active_pv(
-    session, project: Project, frame: Frame, *, kind: str, text: str
-) -> PromptVersion:
+async def _mk_active_pv(session, project: Project, frame: Frame, *, kind: str, text: str) -> PromptVersion:
     pv = PromptVersion(
         project_id=project.id,
         frame_id=frame.id,
@@ -617,7 +685,9 @@ async def test_wipe_img_pr_deactivates_prompt_versions(session):
 
     p = await _mkproject(session)
     fr = await _mkframe(
-        session, p, 1,
+        session,
+        p,
+        1,
         image_prompt="stale img prompt",
         status=FrameStatus.image_prompt_ready,
     )
@@ -632,13 +702,17 @@ async def test_wipe_img_pr_deactivates_prompt_versions(session):
     assert fr.image_prompt is None
     assert pv.is_active is False
     still = (
-        await session.execute(
-            select(PromptVersion).where(
-                PromptVersion.project_id == p.id,
-                PromptVersion.kind == "img",
+        (
+            await session.execute(
+                select(PromptVersion).where(
+                    PromptVersion.project_id == p.id,
+                    PromptVersion.kind == "img",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(still) == 1
     assert still[0].id == pv.id
     assert not any(x.is_active for x in still)
@@ -652,21 +726,21 @@ async def test_wipe_anim_pr_deactivates_video_prompt_versions(session):
     """reset_step(anim_pr) clears Frame.animation_prompt, shot2 video attr,
     and deactivates video PVs. Img PVs stay active (upstream).
     """
-    from app.services.plan_shot2 import SHOT2_VIDEO_PROMPT_ATTR
     from app.services.montage_board import _overlay_active_prompt_versions
+    from app.services.plan_shot2 import SHOT2_VIDEO_PROMPT_ATTR
 
     p = await _mkproject(session)
     fr = await _mkframe(
-        session, p, 1,
+        session,
+        p,
+        1,
         image_prompt="keep img",
         animation_prompt="stale video prompt",
         status=FrameStatus.animation_prompt_ready,
         attrs={SHOT2_VIDEO_PROMPT_ATTR: "stale shot2 video"},
     )
     img_pv = await _mk_active_pv(session, p, fr, kind="img", text="keep img")
-    vid_pv = await _mk_active_pv(
-        session, p, fr, kind="video", text="stale video prompt"
-    )
+    vid_pv = await _mk_active_pv(session, p, fr, kind="video", text="stale video prompt")
     p.status = ProjectStatus.animation_prompts_ready
     await session.flush()
 
@@ -680,13 +754,17 @@ async def test_wipe_anim_pr_deactivates_video_prompt_versions(session):
     assert vid_pv.is_active is False
     assert img_pv.is_active is True
     video_pvs = (
-        await session.execute(
-            select(PromptVersion).where(
-                PromptVersion.project_id == p.id,
-                PromptVersion.kind == "video",
+        (
+            await session.execute(
+                select(PromptVersion).where(
+                    PromptVersion.project_id == p.id,
+                    PromptVersion.kind == "video",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(video_pvs) == 1
     assert not any(x.is_active for x in video_pvs)
 
@@ -700,7 +778,9 @@ async def test_soft_resume_img_pr_does_not_deactivate_prompt_versions(session):
     """Soft ▶ img_pr (force_wipe=False) must not deactivate PromptVersion."""
     p = await _mkproject(session)
     fr = await _mkframe(
-        session, p, 1,
+        session,
+        p,
+        1,
         image_prompt="keep me",
         status=FrameStatus.image_prompt_ready,
     )
@@ -721,7 +801,9 @@ async def test_soft_resume_anim_pr_does_not_deactivate_prompt_versions(session):
     """Soft ▶ anim_pr must not deactivate video PromptVersion."""
     p = await _mkproject(session)
     fr = await _mkframe(
-        session, p, 1,
+        session,
+        p,
+        1,
         image_prompt="ip",
         animation_prompt="keep anim",
         status=FrameStatus.animation_prompt_ready,

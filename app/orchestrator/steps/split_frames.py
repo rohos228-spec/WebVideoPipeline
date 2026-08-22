@@ -35,9 +35,7 @@ def _split_input_hash(project: Project) -> str | None:
         return compute_input_hash(
             unit_input={"voiceover": normalize_text(vo_text)},
             fingerprint=contract_fingerprint("vp_frame_split"),
-            prompt_hash=step_prompt_hash(
-                project, "split", hints=[_SPLIT_DB_HINT]
-            ),
+            prompt_hash=step_prompt_hash(project, "split", hints=[_SPLIT_DB_HINT]),
             model=effective_text_model(),
         )
     except Exception as e:  # noqa: BLE001 — hash недоступен → legacy-пропуск
@@ -59,12 +57,10 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
     current_split_hash = _split_input_hash(project)
 
     existing_frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     meta = dict(project.meta or {})
     if len(existing_frames) >= 2 and meta.get("split_completed"):
         # Этап 2 (C.0): короткое замыкание валидно только при том же входе
@@ -74,10 +70,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
         # платный пересплит с replace_frames, рвущим downstream; политика
         # как у медиа C.6). Без собранного входа — тоже legacy-пропуск.
         stored_split_hash = meta.get("split_input_hash")
-        if (
-            current_split_hash is not None
-            and stored_split_hash is None
-        ):
+        if current_split_hash is not None and stored_split_hash is None:
             meta["split_input_hash"] = current_split_hash
             project.meta = meta
             logger.info(
@@ -85,9 +78,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
                 project.id,
             )
             stored_split_hash = current_split_hash
-        if current_split_hash is None or hashes_match(
-            stored_split_hash, current_split_hash
-        ):
+        if current_split_hash is None or hashes_match(stored_split_hash, current_split_hash):
             logger.info(
                 "[#{}] split_frames: split_completed + {} кадров — пропуск GPT",
                 project.id,
@@ -97,8 +88,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
             await session.flush()
             return
         logger.info(
-            "[#{}] split_frames: split_completed, но вход изменился "
-            "(was={}, now={}) — пересчёт разбивки",
+            "[#{}] split_frames: split_completed, но вход изменился (was={}, now={}) — пересчёт разбивки",
             project.id,
             str(meta.get("split_input_hash"))[:24],
             current_split_hash[:24],
@@ -136,12 +126,14 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
     # (проект #33: DB=133, xlsx/UI=80).
     try:
         frames_for_export = (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.number)
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if len(frames_for_export) >= 2:
             exported = db_apply.export_project_xlsx(project, list(frames_for_export))
             logger.info(
@@ -163,9 +155,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
     try:
         from app.services.storage_step_sync import sync_storage_after_step
 
-        await sync_storage_after_step(
-            session, project, "split", log_prefix="split_frames"
-        )
+        await sync_storage_after_step(session, project, "split", log_prefix="split_frames")
     except Exception as e:  # noqa: BLE001
         logger.warning(
             "[#{}] split_frames: sync downstream storage failed: {}",
@@ -174,16 +164,12 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
         )
 
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     if len(frames) < 2:
-        raise RuntimeError(
-            f"после replace_frames в БД кадров {len(frames)} (нужно ≥2)"
-        )
+        raise RuntimeError(f"после replace_frames в БД кадров {len(frames)} (нужно ≥2)")
 
     meta = dict(project.meta or {})
     for key in (

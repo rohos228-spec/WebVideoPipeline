@@ -61,9 +61,7 @@ def test_skip_coverage_character_registry_not_regressed() -> None:
 async def test_img_pr_gate_raises_if_vo_frame_lacks_image_prompt(harness_db) -> None:
     session, tmp_path = harness_db
     _write_plan_xlsx(tmp_path / "project.xlsx")
-    session.add(
-        Project(id=501, slug="img-pr-gap", topic="t", status=ProjectStatus.generating_image_prompts)
-    )
+    session.add(Project(id=501, slug="img-pr-gap", topic="t", status=ProjectStatus.generating_image_prompts))
     session.add(
         Frame(
             project_id=501,
@@ -96,9 +94,7 @@ async def test_img_pr_gate_raises_if_vo_frame_lacks_image_prompt(harness_db) -> 
 async def test_img_pr_gate_does_not_require_png(harness_db) -> None:
     session, tmp_path = harness_db
     _write_plan_xlsx(tmp_path / "project.xlsx")
-    session.add(
-        Project(id=502, slug="img-pr-ok", topic="t", status=ProjectStatus.generating_image_prompts)
-    )
+    session.add(Project(id=502, slug="img-pr-ok", topic="t", status=ProjectStatus.generating_image_prompts))
     session.add(
         Frame(
             project_id=502,
@@ -224,9 +220,7 @@ async def test_anim_pr_gate_raises_if_usable_image_prompt_lacks_anim(harness_db)
 async def test_excel_gpt_gate_does_not_require_image_prompt(harness_db) -> None:
     session, tmp_path = harness_db
     _write_plan_xlsx(tmp_path / "project.xlsx")
-    session.add(
-        Project(id=505, slug="excel-gpt-ok", topic="t", status=ProjectStatus.enriching_1)
-    )
+    session.add(Project(id=505, slug="excel-gpt-ok", topic="t", status=ProjectStatus.enriching_1))
     session.add(
         Frame(
             project_id=505,
@@ -240,11 +234,7 @@ async def test_excel_gpt_gate_does_not_require_image_prompt(harness_db) -> None:
     p = SimpleNamespace(id=505, data_dir=tmp_path, status="enriching_1", meta={})
     rep = await harness_gate_or_raise(session, p, step="excel_gpt")
     assert any(c.name == "excel_gpt_gate" for c in rep.checks)
-    assert all(
-        c.ok
-        for c in rep.checks
-        if c.name not in {"project_log_clean", "node_runs_failed"}
-    )
+    assert all(c.ok for c in rep.checks if c.name not in {"project_log_clean", "node_runs_failed"})
 
 
 @pytest.mark.asyncio

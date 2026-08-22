@@ -94,9 +94,7 @@ def test_sync_storage_after_script_uses_canvas_fallback(
         "app.services.storage_step_sync.find_node_key_for_type",
         AsyncMock(return_value=None),
     )
-    synced = asyncio.run(
-        sync_storage_after_step(session, p, "script", log_prefix="make_script")
-    )
+    synced = asyncio.run(sync_storage_after_step(session, p, "script", log_prefix="make_script"))
     assert synced
     names = [f["originalName"] for f in list_stored_files(p, store)]
     assert "voiceover.txt" in names

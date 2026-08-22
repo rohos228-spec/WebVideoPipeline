@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,17 +23,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import session_scope
 from app.models import Project
 from app.services.img_streams import acquire_image_slot, get_img_streams
+from app.services.montage_ai_change import rewrite_prompt_via_gpt
 from app.services.montage_board_meta import (
     add_failed_highlight,
     add_highlight,
     clear_failed_highlight,
-    slot_key_from_op,
     montage_meta,
     public_board_meta,
     set_montage_meta,
+    slot_key_from_op,
     touch_applied,
 )
-from app.services.montage_ai_change import rewrite_prompt_via_gpt
 from app.services.montage_board_regen import (
     _frame_by_number,
     execute_image_regen,
@@ -43,7 +44,6 @@ from app.services.montage_board_regen import (
     prepare_video_regen,
     resolve_image_prompt,
 )
-
 
 ProgressCb = Callable[[int, int, dict[str, Any]], Awaitable[None]]
 
@@ -60,9 +60,7 @@ _IMAGE_OP_TYPES = frozenset(
         "image_ai_change",
     }
 )
-_VIDEO_OP_TYPES = frozenset(
-    {"video_regen", "video_regen_prompt", "video_ai_change"}
-)
+_VIDEO_OP_TYPES = frozenset({"video_regen", "video_regen_prompt", "video_ai_change"})
 
 
 def _ready_local_asset(path: Path, *, min_bytes: int) -> bool:
@@ -198,9 +196,7 @@ async def _finalize_image_with_retry(
                 project = await session.get(Project, project_id)
                 if project is None:
                     raise RuntimeError(f"проект #{project_id} не найден")
-                return await finalize_image_regen(
-                    session, project, prep, new_path, board=board
-                )
+                return await finalize_image_regen(session, project, prep, new_path, board=board)
         except Exception as exc:  # noqa: BLE001
             last = exc
             if _is_sqlite_locked(exc) and attempt < 7:
@@ -232,9 +228,7 @@ async def _finalize_video_with_retry(
                 project = await session.get(Project, project_id)
                 if project is None:
                     raise RuntimeError(f"проект #{project_id} не найден")
-                return await finalize_video_regen(
-                    session, project, prep, new_path, board=board
-                )
+                return await finalize_video_regen(session, project, prep, new_path, board=board)
         except Exception as exc:  # noqa: BLE001
             last = exc
             if _is_sqlite_locked(exc) and attempt < 7:
@@ -384,8 +378,7 @@ async def _run_op_with_short_sessions(
         except Exception as exc:  # noqa: BLE001
             if _ready_local_asset(prep.file_path, min_bytes=_READY_VIDEO_BYTES):
                 logger.warning(
-                    "montage apply #{} video frame {} shot {}: "
-                    "execute failed but file ready — finalize: {}",
+                    "montage apply #{} video frame {} shot {}: execute failed but file ready — finalize: {}",
                     project_id,
                     frame_number,
                     shot,
@@ -500,9 +493,7 @@ async def apply_montage_board(
     board = montage_meta(project)
     if video_trims is not None:
         board["video_trims"] = video_trims
-    ops = order_montage_pending_ops(
-        list(pending_ops or board.get("pending_ops") or [])
-    )
+    ops = order_montage_pending_ops(list(pending_ops or board.get("pending_ops") or []))
     # Не стираем прошлые зелёные слоты — иначе после следующего apply
     # «слетают» все ранее применённые правки в UI. Чистим только failed
     # у слотов этой очереди (их снова добавят при ошибке).
@@ -517,17 +508,12 @@ async def apply_montage_board(
     project_id = int(project.id)
     parallel = _montage_apply_parallel(project)
 
-    image_indices = [
-        i for i, o in enumerate(ops) if str(o.get("type") or "") in _IMAGE_OP_TYPES
-    ]
-    video_indices = [
-        i for i, o in enumerate(ops) if str(o.get("type") or "") in _VIDEO_OP_TYPES
-    ]
+    image_indices = [i for i, o in enumerate(ops) if str(o.get("type") or "") in _IMAGE_OP_TYPES]
+    video_indices = [i for i, o in enumerate(ops) if str(o.get("type") or "") in _VIDEO_OP_TYPES]
     other_indices = [
         i
         for i, o in enumerate(ops)
-        if str(o.get("type") or "") not in _IMAGE_OP_TYPES
-        and str(o.get("type") or "") not in _VIDEO_OP_TYPES
+        if str(o.get("type") or "") not in _IMAGE_OP_TYPES and str(o.get("type") or "") not in _VIDEO_OP_TYPES
     ]
 
     logger.info(

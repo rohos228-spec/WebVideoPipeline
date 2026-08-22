@@ -24,9 +24,7 @@ def _valid_png(path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_validate_after_images_skips_frames_without_prompt(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_validate_after_images_skips_frames_without_prompt(tmp_path: Path, monkeypatch) -> None:
     """Кадры без image_prompt не блокируют images_ready."""
     from app.services import post_step_validate as psv
 
@@ -35,17 +33,11 @@ async def test_validate_after_images_skips_frames_without_prompt(
     _valid_png(scenes / "frame_001_abc12345.png")
 
     project = SimpleNamespace(id=59, data_dir=data_dir)
-    fr_ok = Frame(
-        project_id=59, number=1, image_prompt="wide shot", status=FrameStatus.image_generated
-    )
-    fr_empty = Frame(
-        project_id=59, number=2, image_prompt="", status=FrameStatus.planned
-    )
+    fr_ok = Frame(project_id=59, number=1, image_prompt="wide shot", status=FrameStatus.image_generated)
+    fr_empty = Frame(project_id=59, number=2, image_prompt="", status=FrameStatus.planned)
     session = AsyncMock()
     session.execute = AsyncMock(
-        return_value=MagicMock(
-            scalars=MagicMock(return_value=MagicMock(all=lambda: [fr_ok, fr_empty]))
-        )
+        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=lambda: [fr_ok, fr_empty])))
     )
 
     result = await psv.validate_after_images(session, project)
@@ -55,9 +47,7 @@ async def test_validate_after_images_skips_frames_without_prompt(
 
 
 @pytest.mark.asyncio
-async def test_validate_after_videos_uses_db_anim_prompts_not_xlsx_count(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_validate_after_videos_uses_db_anim_prompts_not_xlsx_count(tmp_path: Path, monkeypatch) -> None:
     """DB 180 vs xlsx 65 не валит videos_ready, если клипы есть у кадров с anim_pr."""
     from app.services import post_step_validate as psv
 
@@ -90,16 +80,10 @@ async def test_validate_after_videos_uses_db_anim_prompts_not_xlsx_count(
     ]
     session = AsyncMock()
     session.execute = AsyncMock(
-        return_value=MagicMock(
-            scalars=MagicMock(return_value=MagicMock(all=lambda: frames))
-        )
+        return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=lambda: frames)))
     )
-    monkeypatch.setattr(
-        psv, "recover_scene_videos_from_disk", AsyncMock(return_value=0)
-    )
-    monkeypatch.setattr(
-        psv, "_frames_with_artifact", AsyncMock(return_value=set())
-    )
+    monkeypatch.setattr(psv, "recover_scene_videos_from_disk", AsyncMock(return_value=0))
+    monkeypatch.setattr(psv, "_frames_with_artifact", AsyncMock(return_value=set()))
 
     result = await psv.validate_after_videos(session, project)
     assert result.ok is True

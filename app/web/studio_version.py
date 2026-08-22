@@ -93,9 +93,7 @@ def read_studio_version() -> dict[str, str | int | bool]:
     backend_attach = CHATGPT_ATTACH_LOGIC_ID
     backend_orchestrator = XLSX_STEP_RUNNERS_ID
     attach_ok = not attach_expected or attach_expected == backend_attach
-    orchestrator_ok = (
-        not orchestrator_expected or orchestrator_expected == backend_orchestrator
-    )
+    orchestrator_ok = not orchestrator_expected or orchestrator_expected == backend_orchestrator
 
     backend_git = _running_backend_git_short()
     text_llm_provider = settings.resolved_text_llm_provider()

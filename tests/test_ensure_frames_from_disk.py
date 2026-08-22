@@ -68,12 +68,16 @@ async def test_ensure_frames_creates_missing_from_disk(
     created = await ensure_frames_from_disk_media(session, project)
     assert created == [3, 5]
     rows = (
-        await session.execute(
-            __import__("sqlalchemy", fromlist=["select"]).select(Frame).where(
-                Frame.project_id == project.id
+        (
+            await session.execute(
+                __import__("sqlalchemy", fromlist=["select"])
+                .select(Frame)
+                .where(Frame.project_id == project.id)
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     by_num = {fr.number: fr for fr in rows}
     assert by_num[3].status.value == "video_generated"
     assert by_num[5].status.value == "video_generated"

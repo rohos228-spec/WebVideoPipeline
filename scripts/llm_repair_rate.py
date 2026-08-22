@@ -54,15 +54,9 @@ def main() -> int:
     for key in sorted(by_label):
         a = by_label[key]
         rate = a["repaired"] / a["units"] * 100 if a["units"] else 0.0
-        print(
-            f"{key:<22} {a['units']:>7} {a['repaired']:>9} {rate:>6.1f}% "
-            f"{a['exhausted']:>10}"
-        )
+        print(f"{key:<22} {a['units']:>7} {a['repaired']:>9} {rate:>6.1f}% {a['exhausted']:>10}")
     rate = total_repaired / total_units * 100 if total_units else 0.0
-    print(
-        f"\nИТОГО repair-rate: {rate:.1f}% "
-        f"(порог приёмки ≤10%); исчерпаний: {total_exhausted} (нужно 0)"
-    )
+    print(f"\nИТОГО repair-rate: {rate:.1f}% (порог приёмки ≤10%); исчерпаний: {total_exhausted} (нужно 0)")
     ok = rate <= 10.0 and total_exhausted == 0
     print("ПРИЁМКА:", "OK" if ok else "FAIL")
     return 0 if ok else 2

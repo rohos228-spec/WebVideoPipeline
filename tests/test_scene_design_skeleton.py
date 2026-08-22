@@ -53,12 +53,8 @@ def _draft_ok(frames_text: list[tuple[int, str]]) -> dict:
         )
     return {
         "scenes": scenes,
-        "characters_seed": [
-            {"id": "c01", "имя": "Павел", "якорь": "Павел", "вне_кадра": False}
-        ],
-        "locations_seed": [
-            {"id": "loc01", "name": "мастерская", "якорь": "мастерскую"}
-        ],
+        "characters_seed": [{"id": "c01", "имя": "Павел", "якорь": "Павел", "вне_кадра": False}],
+        "locations_seed": [{"id": "loc01", "name": "мастерская", "якорь": "мастерскую"}],
         "report": "ok",
     }
 
@@ -158,7 +154,11 @@ def test_explode_glued_vo_scenes() -> None:
     assert draft["scenes"][0]["id_scene"] == "scene_01"
     assert draft["scenes"][1]["id_scene"] == "scene_02"
     assert draft["scenes"][1]["связь_с_прошлой"]["тип"] != "начало"
-    glue = [g for g in sk.validate_skeleton(draft, frames, "Павел открыл мастерскую у моста взял сломанные часы") if "склейка" in g["проблема"]]
+    glue = [
+        g
+        for g in sk.validate_skeleton(draft, frames, "Павел открыл мастерскую у моста взял сломанные часы")
+        if "склейка" in g["проблема"]
+    ]
     assert glue == []
 
 
@@ -277,13 +277,8 @@ def test_link_type_continuation_vs_new_place() -> None:
             {"id": "loc02", "name": "улица", "якорь": "улицу"},
         ],
     }
-    gaps = sk.validate_skeleton(
-        draft, frames, "Павел в мастерской Потом он вышел на улицу к реке"
-    )
-    assert any(
-        "ожидается" in g["проблема"] and "новое_место" in g["проблема"]
-        for g in gaps
-    )
+    gaps = sk.validate_skeleton(draft, frames, "Павел в мастерской Потом он вышел на улицу к реке")
+    assert any("ожидается" in g["проблема"] and "новое_место" in g["проблема"] for g in gaps)
 
 
 def test_timing_gap() -> None:
@@ -480,12 +475,10 @@ async def test_run_skeleton_clean_draft_one_call(sk_session, monkeypatch):
 
     monkeypatch.setattr(gpt_client, "gpt_ask_fresh", fake_ask)
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     p = await session.get(Project, project.id)
     result = await sk.run_skeleton(session, p, list(frames))
     assert len(calls) == 1
@@ -520,12 +513,10 @@ async def test_run_skeleton_editor_fixes_dup_loc(sk_session, monkeypatch):
 
     monkeypatch.setattr(gpt_client, "gpt_ask_fresh", fake_ask)
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     p = await session.get(Project, project.id)
     result = await sk.run_skeleton(session, p, list(frames))
     assert len(calls) == 2
@@ -552,12 +543,10 @@ async def test_run_skeleton_editor_fail_twice(sk_session, monkeypatch):
 
     monkeypatch.setattr(gpt_client, "gpt_ask_fresh", fake_ask)
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     p = await session.get(Project, project.id)
     with pytest.raises(RuntimeError, match="разрывы не закрыты"):
         await sk.run_skeleton(session, p, list(frames))
@@ -568,12 +557,10 @@ async def test_run_skeleton_checkpoint_skips_gpt(sk_session, monkeypatch):
     session, project, texts = sk_session
     draft = _draft_ok(texts)
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     # Этап 2 (C.3): чекпоинт валиден только с input_hash того же входа —
     # сохраняем тем же рецептом, что run_skeleton.
     sk_hash = runner.agent_input_hash(
@@ -606,12 +593,10 @@ async def test_run_skeleton_stale_checkpoint_reruns_gpt(sk_session, monkeypatch)
 
     monkeypatch.setattr(gpt_client, "gpt_ask_fresh", fake_ask)
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     p = await session.get(Project, project.id)
     await sk.run_skeleton(session, p, list(frames))
     assert called["n"] >= 1
@@ -667,10 +652,22 @@ def test_slots_synthesized_one_per_bit() -> None:
 def test_slots_from_model_carried_asis() -> None:
     cell = _cell_with_bits()
     cell["слоты"] = [
-        {"слот": 1, "бит": 1, "якорь": "вошёл в два банка",
-         "фокус_слота": "вход", "длительность_сек": 5.0, "главный": False},
-        {"слот": 2, "бит": 2, "якорь": "лимонный сок",
-         "фокус_слота": "вера", "длительность_сек": 7.0, "главный": True},
+        {
+            "слот": 1,
+            "бит": 1,
+            "якорь": "вошёл в два банка",
+            "фокус_слота": "вход",
+            "длительность_сек": 5.0,
+            "главный": False,
+        },
+        {
+            "слот": 2,
+            "бит": 2,
+            "якорь": "лимонный сок",
+            "фокус_слота": "вера",
+            "длительность_сек": 7.0,
+            "главный": True,
+        },
     ]
     draft = {"cells": [cell]}
     sk.normalize_skeleton_draft(draft)
@@ -722,17 +719,11 @@ def test_validate_slots_thesis_cell_without_bits_ok() -> None:
 async def test_slots_stored_as_sk_slot_cells(sk_session) -> None:
     session, project, texts = sk_session
     draft = {"cells": [_cell_with_bits()]}
-    await sk.store_skeleton_cells(
-        session, project, draft, " ".join(t for _, t in texts)
-    )
+    await sk.store_skeleton_cells(session, project, draft, " ".join(t for _, t in texts))
     from app.models import SceneDesignCell
 
     rows = list(
-        (
-            await session.execute(
-                select(SceneDesignCell).where(SceneDesignCell.kind == "sk_slot")
-            )
-        ).scalars()
+        (await session.execute(select(SceneDesignCell).where(SceneDesignCell.kind == "sk_slot"))).scalars()
     )
     assert rows, "sk_slot ячейки не записаны"
     keys = {(r.target_key, r.field) for r in rows}

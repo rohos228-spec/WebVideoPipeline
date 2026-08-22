@@ -39,9 +39,7 @@ async def client(tmp_path, monkeypatch):
                 edges=[],
             )
         )
-        session.add(
-            Project(slug="gw-proj", title="GW", topic="", status="new", hero_mode="no_hero")
-        )
+        session.add(Project(slug="gw-proj", title="GW", topic="", status="new", hero_mode="no_hero"))
         await session.commit()
 
     transport = ASGITransport(app=app)
@@ -171,8 +169,8 @@ async def test_multi_upload_and_outputs_zip(client) -> None:
 @pytest.mark.asyncio
 async def test_ask_api_unavailable_returns_503(client, monkeypatch) -> None:
     c, _, _ = client
-    from app.services.gpt_client import GptApiUnavailable
     import app.services.gpt_client as gc
+    from app.services.gpt_client import GptApiUnavailable
 
     class Boom:
         async def ask_with_files(self, *a, **k):

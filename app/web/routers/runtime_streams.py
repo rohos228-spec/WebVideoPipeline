@@ -34,9 +34,7 @@ async def get_runtime_streams() -> dict[str, Any]:
     return {
         **cfg,
         "worker_busy": busy,
-        "create_max_parallel_outsee": int(
-            getattr(settings, "create_max_parallel_outsee", 4) or 4
-        ),
+        "create_max_parallel_outsee": int(getattr(settings, "create_max_parallel_outsee", 4) or 4),
         "limits": {
             "worker_max_parallel": [rs.WORKER_MIN, rs.WORKER_MAX],
             "default_outsee_streams": [rs.OUTSEE_MIN, rs.OUTSEE_MAX],

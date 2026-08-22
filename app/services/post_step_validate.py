@@ -27,15 +27,9 @@ def glob_delete_frame_video_clips(videos_dir: Path, frame_number: int) -> int:
         return 0
     removed = 0
     shot1 = [
-        p
-        for p in videos_dir.glob(f"clip_{frame_number:03d}_*.mp4")
-        if p.is_file() and "_s2_" not in p.name
+        p for p in videos_dir.glob(f"clip_{frame_number:03d}_*.mp4") if p.is_file() and "_s2_" not in p.name
     ]
-    shot2 = [
-        p
-        for p in videos_dir.glob(f"clip_{frame_number:03d}_s2_*.mp4")
-        if p.is_file()
-    ]
+    shot2 = [p for p in videos_dir.glob(f"clip_{frame_number:03d}_s2_*.mp4") if p.is_file()]
     for p in shot1 + shot2:
         try:
             p.unlink(missing_ok=True)
@@ -60,28 +54,30 @@ async def _expected_frame_count(session: AsyncSession, project: Project) -> int:
     if n > 0:
         return n
     frames = (
-        await session.execute(
-            select(Frame).where(
-                Frame.project_id == project.id,
-                Frame.voiceover_text.isnot(None),
-                Frame.voiceover_text != "",
+        (
+            await session.execute(
+                select(Frame).where(
+                    Frame.project_id == project.id,
+                    Frame.voiceover_text.isnot(None),
+                    Frame.voiceover_text != "",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if frames:
         return len(frames)
-    all_frames = (
-        await session.execute(select(Frame).where(Frame.project_id == project.id))
-    ).scalars().all()
+    all_frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     return len(all_frames)
 
 
 async def _frame_numbers(session: AsyncSession, project: Project) -> list[int]:
     frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     return [f.number for f in frames]
 
 
@@ -102,8 +98,7 @@ async def _frames_with_artifact(
 ) -> set[int]:
     rows = (
         await session.execute(
-            select(Artifact.frame_id, Artifact.path)
-            .where(
+            select(Artifact.frame_id, Artifact.path).where(
                 Artifact.project_id == project.id,
                 Artifact.kind == kind,
                 Artifact.frame_id.isnot(None),
@@ -111,9 +106,7 @@ async def _frames_with_artifact(
         )
     ).all()
     out: set[int] = set()
-    frames = (
-        await session.execute(select(Frame).where(Frame.project_id == project.id))
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     by_id = {f.id: f.number for f in frames}
     for frame_id, path in rows:
         if frame_id is None:
@@ -125,9 +118,7 @@ async def _frames_with_artifact(
     return out
 
 
-async def validate_after_videos(
-    session: AsyncSession, project: Project
-) -> ValidationResult:
+async def validate_after_videos(session: AsyncSession, project: Project) -> ValidationResult:
     """MP4 обязателен только у кадров с реальным ``animation_prompt``.
 
     После camera/SET-expand в БД может быть больше кадров, чем колонок в xlsx
@@ -138,12 +129,10 @@ async def validate_after_videos(
 
     await recover_scene_videos_from_disk(session, project)
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     numbers = [f.number for f in frames]
     msgs: list[str] = []
     if not numbers:
@@ -152,15 +141,9 @@ async def validate_after_videos(
     if dups:
         msgs.append(f"дубликаты номеров кадров: {dups}")
 
-    need_video = [
-        f.number
-        for f in frames
-        if not is_skippable_empty_prompt(f.animation_prompt or "")
-    ]
+    need_video = [f.number for f in frames if not is_skippable_empty_prompt(f.animation_prompt or "")]
     skipped_no_prompt = sorted(set(numbers) - set(need_video))
-    have = await _frames_with_artifact(
-        session, project, ArtifactKind.scene_video
-    )
+    have = await _frames_with_artifact(session, project, ArtifactKind.scene_video)
     # Клип на диске без artifact тоже ок — recover уже прошёл; добираем glob.
     videos_dir = project.data_dir / "videos"
     if videos_dir.is_dir():
@@ -178,9 +161,7 @@ async def validate_after_videos(
     if missing:
         msgs.append(f"нет клипов для кадров: {missing}")
     if skipped_no_prompt:
-        msgs.append(
-            f"без anim_pr (пропуск, не блокирует): {len(skipped_no_prompt)} кадров"
-        )
+        msgs.append(f"без anim_pr (пропуск, не блокирует): {len(skipped_no_prompt)} кадров")
     return ValidationResult(
         ok=ok,
         expected_frames=len(need_video),
@@ -190,9 +171,7 @@ async def validate_after_videos(
     )
 
 
-async def validate_after_images(
-    session: AsyncSession, project: Project
-) -> ValidationResult:
+async def validate_after_images(session: AsyncSession, project: Project) -> ValidationResult:
     """PNG обязателен только у кадров с реальным ``image_prompt``.
 
     После camera/SET-expand в БД может быть больше кадров, чем колонок R45
@@ -202,12 +181,10 @@ async def validate_after_images(
     from app.generation_options import is_skippable_empty_prompt
 
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     numbers = [f.number for f in frames]
     msgs: list[str] = []
     if not numbers:
@@ -216,11 +193,7 @@ async def validate_after_images(
     if dups:
         msgs.append(f"дубликаты номеров кадров: {dups}")
 
-    need_png = [
-        f.number
-        for f in frames
-        if not is_skippable_empty_prompt(f.image_prompt or "")
-    ]
+    need_png = [f.number for f in frames if not is_skippable_empty_prompt(f.image_prompt or "")]
     skipped_no_prompt = sorted(set(numbers) - set(need_png))
     scenes = project.data_dir / "scenes"
     have = {n for n in need_png if disk_has_valid_frame_image(scenes, n)}
@@ -229,10 +202,7 @@ async def validate_after_images(
     if missing:
         msgs.append(f"нет картинок для кадров: {missing}")
     if skipped_no_prompt:
-        msgs.append(
-            f"без промта картинки (пропуск, не блокирует): "
-            f"{len(skipped_no_prompt)} кадров"
-        )
+        msgs.append(f"без промта картинки (пропуск, не блокирует): {len(skipped_no_prompt)} кадров")
     return ValidationResult(
         ok=ok,
         expected_frames=len(need_png),
@@ -242,9 +212,7 @@ async def validate_after_images(
     )
 
 
-async def validate_after_music(
-    session: AsyncSession, project: Project
-) -> ValidationResult:
+async def validate_after_music(session: AsyncSession, project: Project) -> ValidationResult:
     from app.services.bgm import find_bgm_file
 
     path = find_bgm_file(project)
@@ -269,9 +237,7 @@ async def validate_after_music(
     )
 
 
-async def validate_after_audio(
-    session: AsyncSession, project: Project
-) -> ValidationResult:
+async def validate_after_audio(session: AsyncSession, project: Project) -> ValidationResult:
     """Готовая озвучка: master voice_full.* (любое расширение) или per-frame TTS.
 
     Режим disk_whisper / full_voice не требует ``frame_NNN.mp3`` — границы
@@ -298,13 +264,16 @@ async def validate_after_audio(
         )
     ).scalar_one_or_none()
     meta = dict(audio_art.meta or {}) if audio_art is not None else {}
-    disk_mode = meta.get("mode") in ("disk_whisper", "full_voice") or meta.get(
-        "source"
-    ) in ("disk_whisper", "full_voice")
+    disk_mode = meta.get("mode") in ("disk_whisper", "full_voice") or meta.get("source") in (
+        "disk_whisper",
+        "full_voice",
+    )
     has_frame_clips = audio_dir.is_dir() and any(audio_dir.glob("frame_*.mp3"))
     # Master на диске без нарезки frame_*.mp3 — норма для ручной озвучки / Whisper.
-    if voice is not None and voice.is_file() and (
-        disk_mode or meta.get("recovered_from_disk") or not has_frame_clips
+    if (
+        voice is not None
+        and voice.is_file()
+        and (disk_mode or meta.get("recovered_from_disk") or not has_frame_clips)
     ):
         return ValidationResult(
             ok=True,
@@ -319,9 +288,7 @@ async def validate_after_audio(
             p = audio_dir / f"frame_{n:03d}.mp3"
             if not p.is_file():
                 missing.append(n)
-    voice_full_mp3 = (
-        list(audio_dir.glob("voice_full_*.mp3")) if audio_dir.is_dir() else []
-    )
+    voice_full_mp3 = list(audio_dir.glob("voice_full_*.mp3")) if audio_dir.is_dir() else []
     has_master = (voice is not None and voice.is_file()) or bool(voice_full_mp3)
     msgs: list[str] = []
     if missing:
@@ -345,24 +312,32 @@ async def mark_frames_for_video_regen(
     if not numbers:
         return 0
     frames = (
-        await session.execute(
-            select(Frame).where(
-                Frame.project_id == project.id,
-                Frame.number.in_(numbers),
+        (
+            await session.execute(
+                select(Frame).where(
+                    Frame.project_id == project.id,
+                    Frame.number.in_(numbers),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     changed = 0
     for fr in frames:
         arts = (
-            await session.execute(
-                select(Artifact).where(
-                    Artifact.project_id == project.id,
-                    Artifact.frame_id == fr.id,
-                    Artifact.kind == ArtifactKind.scene_video,
+            (
+                await session.execute(
+                    select(Artifact).where(
+                        Artifact.project_id == project.id,
+                        Artifact.frame_id == fr.id,
+                        Artifact.kind == ArtifactKind.scene_video,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for a in arts:
             if a.path:
                 try:
@@ -413,13 +388,17 @@ async def mark_frames_for_image_regen(
 
 async def mark_music_for_regen(session: AsyncSession, project: Project) -> None:
     arts = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == project.id,
-                Artifact.kind == ArtifactKind.music,
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.kind == ArtifactKind.music,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for a in arts:
         await session.delete(a)
     await session.flush()
@@ -471,13 +450,9 @@ async def finalize_or_retry(
         "; ".join(result.messages) or "unknown",
     )
     if step == "video":
-        await mark_frames_for_video_regen(
-            session, project, result.missing_frame_numbers
-        )
+        await mark_frames_for_video_regen(session, project, result.missing_frame_numbers)
     elif step == "images":
-        await mark_frames_for_image_regen(
-            session, project, result.missing_frame_numbers
-        )
+        await mark_frames_for_image_regen(session, project, result.missing_frame_numbers)
     elif step == "music":
         await mark_music_for_regen(session, project)
     elif step == "audio":

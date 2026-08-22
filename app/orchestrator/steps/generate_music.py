@@ -151,11 +151,12 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     await session.flush()
     logger.info("[#{}] generate_music done → {}", project.id, music_path.name)
 
-    if settings.fleet_enabled and (settings.fleet_role or "").lower() == "agent":
-        from app.fleet.montage_queue import maybe_mark_for_fleet_montage
-
-        await maybe_mark_for_fleet_montage(session, project)
-    elif settings.fleet_enabled and settings.fleet_montage_hub:
+    if (
+        settings.fleet_enabled
+        and (settings.fleet_role or "").lower() == "agent"
+        or settings.fleet_enabled
+        and settings.fleet_montage_hub
+    ):
         from app.fleet.montage_queue import maybe_mark_for_fleet_montage
 
         await maybe_mark_for_fleet_montage(session, project)

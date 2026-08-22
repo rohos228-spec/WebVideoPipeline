@@ -55,10 +55,13 @@ class Publisher:
 
     def _hosts(self) -> list[str]:
         from urllib.parse import urlparse
+
         host = urlparse(self.upload_url).netloc
         return [host]
 
-    async def _first_visible(self, page: Page, selectors: list[str], *, timeout_ms: int = 20_000) -> str | None:
+    async def _first_visible(
+        self, page: Page, selectors: list[str], *, timeout_ms: int = 20_000
+    ) -> str | None:
         deadline = asyncio.get_event_loop().time() + timeout_ms / 1000
         while asyncio.get_event_loop().time() < deadline:
             for sel in selectors:
@@ -196,6 +199,7 @@ async def publish_everywhere(
 
 async def _recon(platform: str) -> None:
     from urllib.parse import urlparse
+
     cls = next((c for c in ALL_PUBLISHERS if c.platform == platform), None)
     if cls is None:
         print("unknown platform. choose one of:", ", ".join(c.platform for c in ALL_PUBLISHERS))

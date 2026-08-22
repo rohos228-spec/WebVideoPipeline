@@ -48,9 +48,7 @@ async def _add(
     session.add(p)
     await session.flush()
     if until:
-        await set_gen_queue_run(
-            session, p, mode="until_node", target_node_type=until
-        )
+        await set_gen_queue_run(session, p, mode="until_node", target_node_type=until)
     return p
 
 
@@ -59,9 +57,7 @@ async def test_blocks_later_while_earlier_at_script_ready_target_audio(
     session: AsyncSession,
 ) -> None:
     """#7 ждёт озвучку — #8 не должен продвигаться."""
-    await _add(
-        session, 7, status=ProjectStatus.script_ready, until="audio"
-    )
+    await _add(session, 7, status=ProjectStatus.script_ready, until="audio")
     await _add(session, 8, status=ProjectStatus.plan_ready, until="script")
     assert await gen_queue_blocks_project(session, 8) == 7
     assert await gen_queue_blocks_project(session, 7) is None
@@ -71,9 +67,7 @@ async def test_blocks_later_while_earlier_at_script_ready_target_audio(
 async def test_allows_later_when_earlier_queue_run_complete(
     session: AsyncSession,
 ) -> None:
-    p7 = await _add(
-        session, 7, status=ProjectStatus.script_ready, until="script"
-    )
+    p7 = await _add(session, 7, status=ProjectStatus.script_ready, until="script")
     p7.meta = {
         **(p7.meta or {}),
         "gen_queue_run": {
@@ -180,9 +174,7 @@ async def test_gen_queue_tick_does_not_autostart_new_after_earlier_done(
     session: AsyncSession,
 ) -> None:
     """После закрытия слота #7 следующий #8 (new) не автостартует — нужен ▶."""
-    await _add(
-        session, 7, status=ProjectStatus.script_ready, until="script"
-    )
+    await _add(session, 7, status=ProjectStatus.script_ready, until="script")
     await _add(session, 8, status=ProjectStatus.new, until="script")
     started = await gen_queue_tick(session)
     # #7 на цели → слот закрыт; #8 new — ждём ручной старт
@@ -294,9 +286,7 @@ async def test_advance_queue_does_not_autostart_next_new(
         "app.services.gen_queue.get_gen_queue",
         lambda: [7, 9],
     )
-    p7 = await _add(
-        session, 7, status=ProjectStatus.script_ready, until="script"
-    )
+    p7 = await _add(session, 7, status=ProjectStatus.script_ready, until="script")
     p9 = await _add(session, 9, status=ProjectStatus.new, until="script")
     await session.flush()
 
@@ -322,9 +312,7 @@ def test_gen_queue_does_not_assign_project_status_directly() -> None:
                 and target.value.id == "project"
                 and target.attr == "status"
             ):
-                raise AssertionError(
-                    "gen_queue.py must not assign project.status directly"
-                )
+                raise AssertionError("gen_queue.py must not assign project.status directly")
 
 
 @pytest.mark.asyncio

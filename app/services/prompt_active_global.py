@@ -90,4 +90,3 @@ def sync_global_active_from_overrides(overrides: dict[str, Any] | None) -> None:
             continue
         if step_code in STEP_FOLDERS:
             set_global_active(step_code, name.strip())
-

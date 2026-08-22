@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Frame, Project, ProjectStatus
 from app.services.animation_prompt_gpt import (
@@ -64,9 +63,7 @@ async def _prepare_manual_finish_restart(
             actions.append("xlsx_locks:" + ",".join(xlsx_stopped))
     clear_stop(project.id)
     actions.append("stop_file")
-    if clear_failure_backoff_for_manual_start(
-        project, running_key=running.value
-    ):
+    if clear_failure_backoff_for_manual_start(project, running_key=running.value):
         actions.append("failure_backoff")
     cleared = clear_user_stop_gate(project)
     actions.extend(cleared)
@@ -89,9 +86,7 @@ async def _prepare_manual_finish_restart(
     return actions
 
 
-async def trigger_finish_missing_images(
-    session: AsyncSession, project: Project
-) -> dict:
+async def trigger_finish_missing_images(session: AsyncSession, project: Project) -> dict:
     missing_shot1 = await scan_missing_frames(session, project)
     missing_shot2 = await scan_missing_shot2_frames(session, project)
     if not missing_shot1 and not missing_shot2:
@@ -105,24 +100,16 @@ async def trigger_finish_missing_images(
             "queued_shot1": 0,
             "queued_shot2": 0,
             "already_running": project.status is ProjectStatus.generating_images,
-            "message": (
-                "Все кадры shot_01 и shot_02 (где есть промт) уже на диске в scenes/"
-            ),
+            "message": ("Все кадры shot_01 и shot_02 (где есть промт) уже на диске в scenes/"),
         }
     already = project.status is ProjectStatus.generating_images
     synced = await sync_frames_with_disk_images(session, project)
-    queued_shot1 = await reset_frames_to_image_prompt_ready(
-        session, project, missing_shot1
-    )
-    queued_shot2 = await reset_shot2_to_prompt_ready(
-        session, project, missing_shot2
-    )
+    queued_shot1 = await reset_frames_to_image_prompt_ready(session, project, missing_shot1)
+    queued_shot2 = await reset_shot2_to_prompt_ready(session, project, missing_shot2)
     queued = queued_shot1 + queued_shot2
     if queued:
         project.status = ProjectStatus.generating_images
-    restart_actions = await _prepare_manual_finish_restart(
-        session, project, ProjectStatus.generating_images
-    )
+    restart_actions = await _prepare_manual_finish_restart(session, project, ProjectStatus.generating_images)
     parts: list[str] = []
     if missing_shot1:
         head1 = ", ".join(str(n) for n in missing_shot1[:20])
@@ -156,18 +143,14 @@ async def trigger_finish_missing_images(
     }
 
 
-async def trigger_resume_animation_prompts(
-    session: AsyncSession, project: Project
-) -> dict:
+async def trigger_resume_animation_prompts(session: AsyncSession, project: Project) -> dict:
     """Догонка anim_pr: R48 xlsx → БД, затем generating_animation_prompts."""
     synced = await sync_animation_prompts_from_xlsx(session, project)
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     missing_shot1 = scan_missing_animation_prompts(project, frames)
     missing_shot2 = scan_missing_animation_prompts_shot2(project, frames)
     already_done = sum(1 for fr in frames if (fr.animation_prompt or "").strip())
@@ -188,14 +171,11 @@ async def trigger_resume_animation_prompts(
             "queued": 0,
             "already_running": False,
             "message": (
-                "Все промты анимации shot_01 и shot_02 (где есть картинки) "
-                "уже в plan R48/R64 или БД"
+                "Все промты анимации shot_01 и shot_02 (где есть картинки) уже в plan R48/R64 или БД"
             ),
         }
     already = project.status is ProjectStatus.generating_animation_prompts
-    await _prepare_manual_finish_restart(
-        session, project, ProjectStatus.generating_animation_prompts
-    )
+    await _prepare_manual_finish_restart(session, project, ProjectStatus.generating_animation_prompts)
     if not already:
         project.status = ProjectStatus.generating_animation_prompts
     parts: list[str] = []
@@ -227,9 +207,7 @@ async def trigger_resume_animation_prompts(
     }
 
 
-async def trigger_finish_missing_videos(
-    session: AsyncSession, project: Project
-) -> dict:
+async def trigger_finish_missing_videos(session: AsyncSession, project: Project) -> dict:
     missing_shot1 = await scan_missing_videos_shot1(session, project)
     missing_shot2 = await scan_missing_shot2_videos(session, project)
     if not missing_shot1 and not missing_shot2:
@@ -243,24 +221,15 @@ async def trigger_finish_missing_videos(
             "queued_shot1": 0,
             "queued_shot2": 0,
             "already_running": project.status is ProjectStatus.generating_videos,
-            "message": (
-                "Все clip shot_01 и shot_02 (где есть промты и картинки) "
-                "уже на диске в videos/"
-            ),
+            "message": ("Все clip shot_01 и shot_02 (где есть промты и картинки) уже на диске в videos/"),
         }
     already = project.status is ProjectStatus.generating_videos
-    queued_shot1 = await reset_frames_for_video_regen(
-        session, project, missing_shot1
-    )
-    queued_shot2 = await reset_shot2_for_video_regen(
-        session, project, missing_shot2
-    )
+    queued_shot1 = await reset_frames_for_video_regen(session, project, missing_shot1)
+    queued_shot2 = await reset_shot2_for_video_regen(session, project, missing_shot2)
     queued = queued_shot1 + queued_shot2
     if queued and project.status is not ProjectStatus.generating_videos:
         project.status = ProjectStatus.generating_videos
-    await _prepare_manual_finish_restart(
-        session, project, ProjectStatus.generating_videos
-    )
+    await _prepare_manual_finish_restart(session, project, ProjectStatus.generating_videos)
     parts: list[str] = []
     if missing_shot1:
         head1 = ", ".join(str(n) for n in missing_shot1[:20])

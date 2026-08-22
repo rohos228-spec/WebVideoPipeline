@@ -189,9 +189,7 @@ async def test_start_step_excel_gpt_uses_active_key(mem_db, tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_complete_and_progress_target_excel_gpt_not_enrich(
-    mem_db, monkeypatch
-) -> None:
+async def test_complete_and_progress_target_excel_gpt_not_enrich(mem_db, monkeypatch) -> None:
     project_id, wf_id, nr_ids = await _seed_excel_gpt_run(mem_db)
     _patch_default_workflow(monkeypatch, wf_id)
     key = "n_excel_gpt_1"
@@ -227,14 +225,10 @@ async def test_complete_and_progress_target_excel_gpt_not_enrich(
 
 
 @pytest.mark.asyncio
-async def test_auto_advance_multi_excel_gpt_resolves_slot_without_active_key(
-    mem_db, monkeypatch
-) -> None:
+async def test_auto_advance_multi_excel_gpt_resolves_slot_without_active_key(mem_db, monkeypatch) -> None:
     """Как в логах #42: 3 excel_gpt, active key пуст → NodeRun running→done по слоту."""
     keys = ["n_excel_gpt_1", "n_excel_gpt_2", "n_excel_gpt_1784243040673"]
-    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(
-        mem_db, keys=keys, active_key=None
-    )
+    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(mem_db, keys=keys, active_key=None)
     _patch_default_workflow(monkeypatch, wf_id)
 
     from app.orchestrator.auto_advance import _prepare_node_run_for_status
@@ -243,9 +237,7 @@ async def test_auto_advance_multi_excel_gpt_resolves_slot_without_active_key(
         project = await session.get(Project, project_id)
         assert project is not None
         assert not (project.meta or {}).get("active_excel_gpt_node_key")
-        await _prepare_node_run_for_status(
-            session, project, ProjectStatus.enriching_2
-        )
+        await _prepare_node_run_for_status(session, project, ProjectStatus.enriching_2)
         assert (project.meta or {}).get("active_excel_gpt_node_key") == keys[1]
 
     async with mem_db() as session:
@@ -275,14 +267,10 @@ async def test_auto_advance_multi_excel_gpt_resolves_slot_without_active_key(
 
 
 @pytest.mark.asyncio
-async def test_complete_recovers_pending_when_prepare_missed(
-    mem_db, monkeypatch
-) -> None:
+async def test_complete_recovers_pending_when_prepare_missed(mem_db, monkeypatch) -> None:
     """Шаг успешен, NodeRun так и остался pending — complete поднимает до done."""
     keys = ["n_excel_gpt_1", "n_excel_gpt_2"]
-    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(
-        mem_db, keys=keys, active_key=None
-    )
+    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(mem_db, keys=keys, active_key=None)
     _patch_default_workflow(monkeypatch, wf_id)
 
     async with mem_db() as session:
@@ -305,9 +293,7 @@ async def test_complete_recovers_pending_when_prepare_missed(
 async def test_sync_heals_pending_from_completed_keys(mem_db, monkeypatch) -> None:
     """Stale completed_keys + pending NodeRun — meta чистим, в done не прыгаем."""
     keys = ["n_excel_gpt_1", "n_excel_gpt_2", "n_excel_gpt_3"]
-    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(
-        mem_db, keys=keys, active_key=None
-    )
+    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(mem_db, keys=keys, active_key=None)
     _patch_default_workflow(monkeypatch, wf_id)
 
     async with mem_db() as session:
@@ -336,9 +322,7 @@ async def test_auto_chain_complete_marks_prev_not_next(mem_db, monkeypatch) -> N
     """Баг #42: после slot1→enriching_2 active_key=slot2 — complete должен
     закрыть slot1, а не пометить slot2 done до работы / apply xlsx."""
     keys = ["n_excel_gpt_1", "n_excel_gpt_2", "n_excel_gpt_1784243040673"]
-    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(
-        mem_db, keys=keys, active_key=keys[0]
-    )
+    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(mem_db, keys=keys, active_key=keys[0])
     _patch_default_workflow(monkeypatch, wf_id)
 
     async with mem_db() as session:
@@ -391,9 +375,7 @@ async def test_complete_excel_gpt_by_key_before_chain(mem_db, monkeypatch) -> No
     from app.services.run_sync import complete_excel_gpt_node_by_key
 
     keys = ["n_excel_gpt_1", "n_excel_gpt_2", "n_excel_gpt_3"]
-    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(
-        mem_db, keys=keys, active_key=keys[0]
-    )
+    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(mem_db, keys=keys, active_key=keys[0])
     _patch_default_workflow(monkeypatch, wf_id)
 
     async with mem_db() as session:
@@ -407,9 +389,7 @@ async def test_complete_excel_gpt_by_key_before_chain(mem_db, monkeypatch) -> No
             strict=True,
             explicit_ui_start=True,
         )
-        ok = await complete_excel_gpt_node_by_key(
-            session, project, keys[0], enrich_slot=1
-        )
+        ok = await complete_excel_gpt_node_by_key(session, project, keys[0], enrich_slot=1)
         assert ok is True
 
     async with mem_db() as session:
@@ -420,9 +400,7 @@ async def test_complete_excel_gpt_by_key_before_chain(mem_db, monkeypatch) -> No
 @pytest.mark.asyncio
 async def test_sync_heals_stale_running_from_completed_keys(mem_db, monkeypatch) -> None:
     keys = ["n_excel_gpt_1", "n_excel_gpt_2", "n_excel_gpt_3"]
-    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(
-        mem_db, keys=keys, active_key=keys[2]
-    )
+    project_id, wf_id, nr_ids = await _seed_excel_gpt_run(mem_db, keys=keys, active_key=keys[2])
     _patch_default_workflow(monkeypatch, wf_id)
 
     async with mem_db() as session:

@@ -1,4 +1,5 @@
 """Deep artifact compare #50 vs sekty for LIVE QA."""
+
 from __future__ import annotations
 
 import json
@@ -62,9 +63,7 @@ def main() -> None:
     ).fetchall()
     print(f"FRAMES {len(frames)}")
     for f in frames:
-        print(
-            f"  #{f['num']} id={f['id']} img_pr={f['has_ip']} anim_pr={f['has_ap']}"
-        )
+        print(f"  #{f['num']} id={f['id']} img_pr={f['has_ip']} anim_pr={f['has_ap']}")
 
     # xlsx via openpyxl from venv if available
     try:

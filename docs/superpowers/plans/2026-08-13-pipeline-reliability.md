@@ -86,10 +86,14 @@
 ```python
 def test_excel_gpt_context_is_slim_and_keeps_vo_snippet() -> None:
     fr = SimpleNamespace(
-        number=1, uuid="ab" * 12, voiceover_text="слово " * 200,
-        meaning="m", attrs={"place": "кухня", "noise": "X" * 5000, "shot01_bg": "стол"},
+        number=1,
+        uuid="ab" * 12,
+        voiceover_text="слово " * 200,
+        meaning="m",
+        attrs={"place": "кухня", "noise": "X" * 5000, "shot01_bg": "стол"},
     )
     from app.services.db_frames_context import build_excel_gpt_db_context
+
     ctx = build_excel_gpt_db_context(project_id=14, slug="x", frames=[fr], characters=[])
     row = ctx["frames"][0]
     assert "noise" not in row
@@ -110,16 +114,20 @@ def test_excel_gpt_context_is_slim_and_keeps_vo_snippet() -> None:
 _EXCEL_GPT_VO_MAX = 400
 _ATTR_MAX = 500
 
+
 def _clip(text: str, n: int) -> str:
     t = text.strip()
     return t if len(t) <= n else t[: n - 1] + "…"
+
 
 def slim_attrs_for_excel_gpt(attrs: dict[str, Any] | None) -> dict[str, str]:
     picked = _pick_attrs(attrs)
     return {k: _clip(v, _ATTR_MAX) for k, v in picked.items()}
 
-def build_excel_gpt_db_context(*, project_id: int, slug: str, frames: list[Any],
-                               characters: list[dict[str, str]]) -> dict[str, Any]:
+
+def build_excel_gpt_db_context(
+    *, project_id: int, slug: str, frames: list[Any], characters: list[dict[str, str]]
+) -> dict[str, Any]:
     rows = []
     for fr in frames:
         uuid = str(getattr(fr, "uuid", None) or "").strip()
@@ -134,8 +142,13 @@ def build_excel_gpt_db_context(*, project_id: int, slug: str, frames: list[Any],
             row["meaning"] = _clip(meaning, _ATTR_MAX)
         row.update(slim_attrs_for_excel_gpt(getattr(fr, "attrs", None)))
         rows.append(row)
-    return {"source": "db_v2", "project_id": project_id, "slug": slug,
-            "frames": rows, "characters": list(characters or [])}
+    return {
+        "source": "db_v2",
+        "project_id": project_id,
+        "slug": slug,
+        "frames": rows,
+        "characters": list(characters or []),
+    }
 ```
 
 В `enrich_xlsx.py` else-ветке (не scene_grammar, не character_registry) заменить `row["attrs"] = fr.attrs` на вызов `build_excel_gpt_db_context` целиком вместо ручной сборки `frame_rows`.
@@ -170,11 +183,13 @@ def build_excel_gpt_db_context(*, project_id: int, slug: str, frames: list[Any],
 ```python
 from app.services.node_write_contract import filter_ops_for_node, coverage_report
 
+
 def test_excel_gpt_strips_prompt_fields():
     ops = [{"frame_uuid": "aa", "fields": {"место": "кухня", "промт_картинки": "NO", "промт_видео": "NO"}}]
     out = filter_ops_for_node(ops, node_kind="excel_gpt_no_prompts")
     assert "image_prompt" not in out[0]["fields"] and "промт_картинки" not in out[0]["fields"]
     assert out[0]["fields"]["место"] == "кухня"
+
 
 def test_coverage_fails_if_one_missing():
     r = coverage_report(
@@ -182,6 +197,7 @@ def test_coverage_fails_if_one_missing():
         expected_uuids=["a", "b"],
     )
     assert r.ok is False and r.missing == ["b"]
+
 
 def test_empty_ops_not_ok():
     r = coverage_report([], expected_uuids=["a"])
@@ -214,13 +230,16 @@ def test_empty_ops_not_ok():
 ```python
 def test_plan_batch_size_110_is_three():
     from app.services.img_pr_batches import plan_batch_size, chunk_frames
+
     size = plan_batch_size(110)
     chunks = chunk_frames(list(range(110)), size=size)
     assert len(chunks) == 3
     assert all(len(c) >= 36 for c in chunks)
 
+
 def test_tiny_delivery_does_not_become_onesie():
     from app.services.img_pr_batches import repartition_remaining
+
     rest = list(range(24))
     chunks = repartition_remaining(rest, delivered=1, min_size=8)
     assert all(len(c) >= 8 for c in chunks)

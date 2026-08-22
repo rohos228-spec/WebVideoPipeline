@@ -9,13 +9,13 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models import Base, Frame, Project
+from app.services.frame_audio import FrameAudioClip
 from app.services.frame_timeline_sync import (
     clips_look_equal_split,
     is_placeholder_voiceover,
     sync_frame_timestamps_from_voice,
     timeline_frames_and_cells,
 )
-from app.services.frame_audio import FrameAudioClip
 from app.services.whisper import WordTS
 
 
@@ -66,7 +66,9 @@ def test_clips_look_equal_split_ignores_varied_durations() -> None:
 
 @pytest.mark.asyncio
 async def test_sync_retries_whisper_on_equal_split_from_words_json(
-    session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("app.settings.settings.data_dir", tmp_path / "data")
     p = Project(id=3, slug="eq", topic="Eq")
@@ -77,8 +79,7 @@ async def test_sync_retries_whisper_on_equal_split_from_words_json(
     voice.write_bytes(b"\xff" * 100)
     session.add(p)
     frames = [
-        Frame(project_id=3, number=i, voiceover_text=f"слово{i}", status="planned")
-        for i in range(1, 6)
+        Frame(project_id=3, number=i, voiceover_text=f"слово{i}", status="planned") for i in range(1, 6)
     ]
     for fr in frames:
         session.add(fr)
@@ -98,10 +99,7 @@ async def test_sync_retries_whisper_on_equal_split_from_words_json(
     )
     await session.commit()
 
-    realigned = [
-        FrameAudioClip(i, voice, f"t{i}", float(i - 1), float(i), 1.0)
-        for i in range(1, 6)
-    ]
+    realigned = [FrameAudioClip(i, voice, f"t{i}", float(i - 1), float(i), 1.0) for i in range(1, 6)]
     equal_fallback = list(realigned)
 
     async def _fake_align(*_a, **_k):
@@ -147,9 +145,7 @@ async def test_timeline_frames_skips_disk_placeholders(
     p.data_dir.mkdir(parents=True, exist_ok=True)
     session.add(p)
     await session.flush()
-    session.add(
-        Frame(project_id=1, number=1, voiceover_text="Кадр 1", status="planned")
-    )
+    session.add(Frame(project_id=1, number=1, voiceover_text="Кадр 1", status="planned"))
     session.add(
         Frame(
             project_id=1,
@@ -164,9 +160,14 @@ async def test_timeline_frames_skips_disk_placeholders(
         "app.services.frame_timeline_sync.read_plan_voiceover_cells",
         return_value=[(1, ""), (2, "Реальный текст кадра два")],
     ):
-        timeline, cells = timeline_frames_and_cells(p, list((await session.execute(
-            __import__("sqlalchemy", fromlist=["select"]).select(Frame)
-        )).scalars().all()))
+        timeline, cells = timeline_frames_and_cells(
+            p,
+            list(
+                (await session.execute(__import__("sqlalchemy", fromlist=["select"]).select(Frame)))
+                .scalars()
+                .all()
+            ),
+        )
 
     assert [fr.number for fr in timeline] == [2]
     assert cells == [(2, "Реальный текст кадра два")]

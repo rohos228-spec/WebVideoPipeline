@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -21,9 +20,7 @@ def test_require_gpt_api_raises_without_key(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_api_client_workspace_txt_stays_in_input_paths(
-    monkeypatch, tmp_path: Path
-) -> None:
+async def test_api_client_workspace_txt_stays_in_input_paths(monkeypatch, tmp_path: Path) -> None:
     """treat_txt_as_prompt=False: user text = prompt, .txt в input_paths."""
     from app.settings import settings
 
@@ -75,8 +72,8 @@ async def test_api_client_pipeline_txt_is_master(monkeypatch, tmp_path: Path) ->
 
 @pytest.mark.asyncio
 async def test_xlsx_flow_ask_and_download_txt(monkeypatch, tmp_path: Path) -> None:
-    from app.settings import settings
     from app.services import xlsx_gpt_flow as xgf
+    from app.settings import settings
 
     monkeypatch.setattr(settings, "gpt_api_key", "k")
     monkeypatch.setattr(settings, "gpt_base_url", "https://api.kie.ai")

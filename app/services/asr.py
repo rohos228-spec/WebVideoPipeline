@@ -6,7 +6,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from app.services.whisper import WordTS, transcribe_words_whisper, transcribe_words_many_whisper
+from app.services.whisper import WordTS, transcribe_words_many_whisper, transcribe_words_whisper
 from app.settings import settings
 
 

@@ -21,9 +21,7 @@ def test_pick_result_url_prefers_list() -> None:
 
 
 def test_pick_result_url_fallback() -> None:
-    url = oh._pick_result_url(
-        {"status": "done", "result_url": "https://cdn.example/v.mp4"}
-    )
+    url = oh._pick_result_url({"status": "done", "result_url": "https://cdn.example/v.mp4"})
     assert url.endswith(".mp4")
 
 

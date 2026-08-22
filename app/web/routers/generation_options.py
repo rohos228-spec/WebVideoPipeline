@@ -20,10 +20,7 @@ router = APIRouter(prefix="/generation-options", tags=["generation-options"])
 
 
 def _choices_to_dict(choices: list) -> list[dict]:
-    return [
-        {"id": c.id, "label": c.label, "description": c.short_desc or c.outsee_slug}
-        for c in choices
-    ]
+    return [{"id": c.id, "label": c.label, "description": c.short_desc or c.outsee_slug} for c in choices]
 
 
 @router.get("/wizard")
@@ -54,8 +51,6 @@ async def wizard_catalog() -> dict:
         "defaults": {
             "image_generator": "gpt_image_2",
             "video_generator": "veo_3_fast",
-            "allowed_resolutions_for_default": list(
-                allowed_image_resolution_ids("gpt_image_2")
-            ),
+            "allowed_resolutions_for_default": list(allowed_image_resolution_ids("gpt_image_2")),
         },
     }

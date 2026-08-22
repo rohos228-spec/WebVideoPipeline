@@ -1,8 +1,7 @@
-﻿"""Unit tests for Studio node runners and plan extraction."""
+"""Unit tests for Studio node runners and plan extraction."""
 
 from __future__ import annotations
 
-import pytest
 from app.services.xlsx_step_runners import extract_general_plan_from_gpt_reply
 
 

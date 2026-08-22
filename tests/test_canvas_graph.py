@@ -63,11 +63,7 @@ async def test_load_graph_prefers_project_canvas(session: AsyncSession) -> None:
         {"id": "custom_script", "type": "script", "position": {"x": 200, "y": 88}},
     ]
     edges = [{"id": "e1", "source": "custom_plan", "target": "custom_script"}]
-    project.meta = {
-        "canvas_graph": build_canvas_graph_payload(
-            workflow_id=1, nodes=nodes, edges=edges
-        )
-    }
+    project.meta = {"canvas_graph": build_canvas_graph_payload(workflow_id=1, nodes=nodes, edges=edges)}
     graph = await load_graph_for_project(session, project)
     assert isinstance(graph, WorkflowGraph)
     assert len(graph.nodes) == 2
@@ -87,11 +83,7 @@ async def test_sync_run_snapshot_from_canvas_graph(session: AsyncSession) -> Non
     session.add(project)
     await session.flush()
     nodes = [{"id": "n1", "type": "plan", "position": {"x": 0, "y": 0}}]
-    project.meta = {
-        "canvas_graph": build_canvas_graph_payload(
-            workflow_id=wf.id, nodes=nodes, edges=[]
-        )
-    }
+    project.meta = {"canvas_graph": build_canvas_graph_payload(workflow_id=wf.id, nodes=nodes, edges=[])}
     run = WorkflowRun(workflow_id=wf.id, project_id=project.id, nodes_snapshot=[], edges_snapshot=[])
     session.add(run)
     await session.flush()

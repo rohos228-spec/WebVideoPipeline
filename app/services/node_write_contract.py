@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from app.services.db_apply import FIELD_ALIASES
 
@@ -24,9 +25,7 @@ IMAGE_PROMPT_FIELDS = frozenset({"image_prompt", "image_prompt_shot2"})
 ANIM_PROMPT_FIELDS = frozenset({"animation_prompt", "animation_prompt_shot2"})
 CHARACTER_FIELDS = frozenset({"characters"})
 
-_NODE_KINDS = frozenset(
-    {"img_pr", "anim_pr", "excel_gpt", "excel_gpt_no_prompts"}
-)
+_NODE_KINDS = frozenset({"img_pr", "anim_pr", "excel_gpt", "excel_gpt_no_prompts"})
 
 
 def _norm_key(raw: str) -> str:
@@ -59,11 +58,7 @@ def _keep_field(key: str, node_kind: str) -> bool:
             return False
         return True
     if node_kind == "img_pr":
-        return (
-            canon in IMAGE_PROMPT_FIELDS
-            or canon in CHARACTER_FIELDS
-            or norm in _IMG_PR_KEYS
-        )
+        return canon in IMAGE_PROMPT_FIELDS or canon in CHARACTER_FIELDS or norm in _IMG_PR_KEYS
     if node_kind == "anim_pr":
         return canon in ANIM_PROMPT_FIELDS or norm in _ANIM_PR_KEYS
     return True
@@ -121,9 +116,7 @@ def coverage_report(
 ) -> Coverage:
     """N/N по frame_uuid. extra не ломает ok, если все expected на месте."""
     expected = _unique_uuids(expected_uuids or [])
-    got = _unique_uuids(
-        (op.get("frame_uuid") if isinstance(op, dict) else None) for op in (ops or [])
-    )
+    got = _unique_uuids((op.get("frame_uuid") if isinstance(op, dict) else None) for op in (ops or []))
     expected_set = set(expected)
     got_set = set(got)
     matched = [u for u in expected if u in got_set]

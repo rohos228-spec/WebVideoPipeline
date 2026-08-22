@@ -39,7 +39,8 @@ scene_design (`scene_design/runner._run_one_agent`).
 from pydantic import BaseModel, ConfigDict, model_validator
 from app.contracts.base import LlmContract
 
-class MusicPrompt(BaseModel):          # пример: A21 music
+
+class MusicPrompt(BaseModel):  # пример: A21 music
     model_config = ConfigDict(extra="forbid")
     style: str
     prompt: str
@@ -49,6 +50,7 @@ class MusicPrompt(BaseModel):          # пример: A21 music
         if len(self.prompt.strip()) < 20:
             raise ValueError("prompt короче 20 символов — это не промт музыки")
         return self
+
 
 MUSIC = LlmContract(name="vp_music", model=MusicPrompt)
 ```
@@ -69,14 +71,16 @@ pydantic-генерённая схема в OpenAI strict-режиме нева�
 from app.contracts import MUSIC, LlmContractError
 from app.contracts.policy import run_with_contract
 
+
 async def _call(feedback: str | None) -> str:
     msg = base_prompt if not feedback else f"{base_prompt}\n\n{feedback}"
     return await gpt_client.gpt_ask_fresh(
         msg,
         timeout=timeout,
         project_id=project.id,
-        response_schema=MUSIC.response_schema(),   # схема в транспорт
+        response_schema=MUSIC.response_schema(),  # схема в транспорт
     )
+
 
 res = await run_with_contract(
     contract=MUSIC,
@@ -86,7 +90,7 @@ res = await run_with_contract(
     # validate=... — семантика поверх схемы (coverage N/N, доменные
     # проверки): вернуть список проблем, пустой = ок.
 )
-payload = res.payload          # типизированный MusicPrompt
+payload = res.payload  # типизированный MusicPrompt
 ```
 
 Правила врезки:

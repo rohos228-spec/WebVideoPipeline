@@ -17,9 +17,9 @@ def test_aliases_slow_gpt_image_to_vip() -> None:
 
 def test_image_forced_outsee_even_if_grsai(monkeypatch) -> None:
     monkeypatch.setenv("IMAGE_PROVIDER", "grsai")
-    from app.settings import Settings
     import app.services.media_route as mr
     import app.settings as settings_mod
+    from app.settings import Settings
 
     s = Settings()
     monkeypatch.setattr(settings_mod, "settings", s)
@@ -33,9 +33,9 @@ def test_image_forced_outsee_even_if_grsai(monkeypatch) -> None:
 
 def test_video_veo_outsee_kling_kie(monkeypatch) -> None:
     monkeypatch.setenv("VIDEO_PROVIDER", "grsai")
-    from app.settings import Settings
     import app.services.media_route as mr
     import app.settings as settings_mod
+    from app.settings import Settings
 
     s = Settings()
     monkeypatch.setattr(settings_mod, "settings", s)

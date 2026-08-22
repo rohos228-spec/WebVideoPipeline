@@ -151,12 +151,8 @@ async def _check_elevenlabs_session(page: Page) -> None:
         _log_elevenlabs_error(kind="session_lost", text=msg)
         raise RuntimeError(msg)
     try:
-        body_text = await page.evaluate(
-            "() => (document.body && document.body.innerText) || ''"
-        )
-        has_pw = await page.evaluate(
-            "() => !!document.querySelector('input[type=password]')"
-        )
+        body_text = await page.evaluate("() => (document.body && document.body.innerText) || ''")
+        has_pw = await page.evaluate("() => !!document.querySelector('input[type=password]')")
     except Exception:  # noqa: BLE001
         return
     if has_pw or elevenlabs_login_page_text(body_text):
@@ -167,9 +163,7 @@ async def _check_elevenlabs_session(page: Page) -> None:
 
 async def _detect_elevenlabs_failure(page: Page) -> str | None:
     try:
-        body_text = await page.evaluate(
-            "() => (document.body && document.body.innerText) || ''"
-        )
+        body_text = await page.evaluate("() => (document.body && document.body.innerText) || ''")
     except Exception:  # noqa: BLE001
         return None
     return elevenlabs_error_in_text(body_text)
@@ -296,9 +290,7 @@ async def _open_model_picker(page: Page) -> None:
     await _ensure_settings_tab(page)
 
     for loc in (
-        page.get_by_text("Model", exact=True).locator(
-            "xpath=following::button[1]"
-        ),
+        page.get_by_text("Model", exact=True).locator("xpath=following::button[1]"),
         page.locator("button").filter(has_text="Multilingual"),
         page.locator("button").filter(has_text="Flash v2"),
         page.locator("button").filter(has_text="Eleven v3"),
@@ -337,12 +329,15 @@ async def _click_v3_card_in_model_panel(page: Page) -> bool:
 
     for loc in (
         page.get_by_text("Eleven v3", exact=True),
-        page.locator("div, article, button, li").filter(
-            has_text="Eleven v3"
-        ).filter(has_text="expressive").first,
-        page.locator("div, article, button, li").filter(
-            has_text="Eleven v3"
-        ).filter(has_not_text="Multilingual").filter(has_not_text="Flash").first,
+        page.locator("div, article, button, li")
+        .filter(has_text="Eleven v3")
+        .filter(has_text="expressive")
+        .first,
+        page.locator("div, article, button, li")
+        .filter(has_text="Eleven v3")
+        .filter(has_not_text="Multilingual")
+        .filter(has_not_text="Flash")
+        .first,
     ):
         try:
             if await loc.count() and await loc.first.is_visible():
@@ -426,15 +421,12 @@ async def _open_voice_panel(page: Page) -> None:
     await _ensure_settings_tab(page)
 
     for loc in (
-        page.get_by_text("Voice", exact=True).locator(
-            "xpath=ancestor::*[1]/following-sibling::*//button[1]"
-        ),
-        page.get_by_text("Voice", exact=True).locator(
-            "xpath=ancestor::*[2]//button[contains(., ' - ')]"
-        ),
-        page.locator("button").filter(has_text=" - ").filter(
-            has_not_text="Generate"
-        ).filter(has_not_text="Download"),
+        page.get_by_text("Voice", exact=True).locator("xpath=ancestor::*[1]/following-sibling::*//button[1]"),
+        page.get_by_text("Voice", exact=True).locator("xpath=ancestor::*[2]//button[contains(., ' - ')]"),
+        page.locator("button")
+        .filter(has_text=" - ")
+        .filter(has_not_text="Generate")
+        .filter(has_not_text="Download"),
     ):
         try:
             if await loc.count() and await loc.first.is_visible():
@@ -662,9 +654,12 @@ async def _click_voice_result_card(page: Page, voice_id: str, search: Locator) -
         return True
 
     try:
-        row = page.locator("div, article, li").filter(has_text=" - ").filter(
-            has_not_text="Select a voice"
-        ).first
+        row = (
+            page.locator("div, article, li")
+            .filter(has_text=" - ")
+            .filter(has_not_text="Select a voice")
+            .first
+        )
         await row.click(force=True, position={"x": 30, "y": 12}, timeout=5_000)
         await asyncio.sleep(0.6)
         return await _voice_selection_done(page, voice_id)
@@ -794,7 +789,7 @@ class ElevenLabsBot:
                 await asyncio.sleep(1.0)
                 continue
         err_snip = await _detect_elevenlabs_failure(page)
-        msg = f"11Labs: не дождались загрузки mp3"
+        msg = "11Labs: не дождались загрузки mp3"
         if err_snip:
             msg = f"11Labs: {err_snip[:160]}"
         _log_elevenlabs_error(kind="tts_timeout", text=msg)

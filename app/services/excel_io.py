@@ -28,6 +28,4 @@ async def import_project_xlsx(
     from app.services.chatgpt_xlsx import sync_project_xlsx
 
     xlsx = path or (project.data_dir / "project.xlsx")
-    return await sync_project_xlsx(
-        session, project, xlsx, keep_fields=keep_fields
-    )
+    return await sync_project_xlsx(session, project, xlsx, keep_fields=keep_fields)

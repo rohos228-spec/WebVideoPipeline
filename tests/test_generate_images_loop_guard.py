@@ -1,4 +1,4 @@
-﻿"""Tests verifying generate_images does not hang in infinite sleep loops."""
+"""Tests verifying generate_images does not hang in infinite sleep loops."""
 
 from __future__ import annotations
 

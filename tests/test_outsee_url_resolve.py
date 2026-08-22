@@ -29,8 +29,7 @@ def test_resolve_prefers_full_png_over_thumb() -> None:
         "image_1780215069357_0_thumb.jpg?sig=1"
     )
     full = (
-        "https://storage.yandexcloud.net/outseehistory/generated/3787/133392/"
-        "image_1780215069357_0.png?sig=2"
+        "https://storage.yandexcloud.net/outseehistory/generated/3787/133392/image_1780215069357_0.png?sig=2"
     )
     net = [(1.0, thumb), (2.0, full)]
     resolved = _resolve_best_download_url(thumb, net_events=net)
@@ -40,13 +39,9 @@ def test_resolve_prefers_full_png_over_thumb() -> None:
 
 
 def test_collect_candidates_full_first() -> None:
-    thumb = (
-        "https://storage.yandexcloud.net/x/image_100_0_thumb.jpg?s=1"
-    )
+    thumb = "https://storage.yandexcloud.net/x/image_100_0_thumb.jpg?s=1"
     full = "https://storage.yandexcloud.net/x/image_100_0.png?s=2"
-    cands = _collect_download_url_candidates(
-        thumb, net_events=[(0.0, thumb), (1.0, full)]
-    )
+    cands = _collect_download_url_candidates(thumb, net_events=[(0.0, thumb), (1.0, full)])
     assert cands
     assert _is_outsee_thumb_url(cands[0]) is False
     assert "image_100_0.png" in cands[0]
@@ -54,8 +49,8 @@ def test_collect_candidates_full_first() -> None:
 
 def test_validate_rejects_thumb_download() -> None:
     """Маленький файл + thumb URL — отказ. Полный PNG при thumb URL — ок (отдельный тест)."""
-    from pathlib import Path
     import tempfile
+    from pathlib import Path
 
     from app.bots.outsee import OutseeDownloadError, _validate_downloaded_image
 

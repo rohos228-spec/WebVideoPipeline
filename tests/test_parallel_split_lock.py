@@ -43,9 +43,7 @@ async def _proj(session: AsyncSession, pid: int) -> Project:
     return p
 
 
-async def _proj_status(
-    session: AsyncSession, pid: int, status: ProjectStatus
-) -> Project:
+async def _proj_status(session: AsyncSession, pid: int, status: ProjectStatus) -> Project:
     p = await _proj(session, pid)
     p.status = status
     await session.flush()
@@ -94,9 +92,7 @@ async def test_video_fail_skip_after_5(env, monkeypatch) -> None:
     try:
         async with factory() as session:
             p = await _proj_status(session, 1, ProjectStatus.generating_videos)
-            fr = Frame(
-                project_id=p.id, number=1, attrs={}, voiceover_text="t"
-            )
+            fr = Frame(project_id=p.id, number=1, attrs={}, voiceover_text="t")
             session.add(fr)
             await session.commit()
 
@@ -118,9 +114,7 @@ async def test_video_fail_counter_reset(env, monkeypatch) -> None:
     try:
         async with factory() as session:
             p = await _proj_status(session, 1, ProjectStatus.generating_videos)
-            fr = Frame(
-                project_id=p.id, number=1, attrs={}, voiceover_text="t"
-            )
+            fr = Frame(project_id=p.id, number=1, attrs={}, voiceover_text="t")
             session.add(fr)
             await session.commit()
 

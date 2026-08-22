@@ -201,9 +201,7 @@ def _first_existing(*parts: str) -> Path | None:
     return None
 
 
-def _block_entry_for_category(
-    category: str, blocks: dict[str, BlockValue]
-) -> BlockValue | None:
+def _block_entry_for_category(category: str, blocks: dict[str, BlockValue]) -> BlockValue | None:
     entry = blocks.get(category)
     legacy_category = LEGACY_BLOCK_ALIASES.get(category)
     if legacy_category:
@@ -265,9 +263,7 @@ def list_step_templates() -> list[str]:
         steps_root = root / "steps"
         if not steps_root.is_dir():
             continue
-        names.update(
-            d.name for d in steps_root.iterdir() if d.is_dir() and (d / "template.md").is_file()
-        )
+        names.update(d.name for d in steps_root.iterdir() if d.is_dir() and (d / "template.md").is_file())
     return sorted(names)
 
 
@@ -537,9 +533,7 @@ def compose_for_node_type(
     step_id = NODE_TYPE_TO_STEP.get(node_type)
     if not step_id:
         raise ValueError(f"no step template for node type: {node_type}")
-    blocks, vars_ = merge_project_prompt_config(
-        overrides, hero_description=hero_description, topic=topic
-    )
+    blocks, vars_ = merge_project_prompt_config(overrides, hero_description=hero_description, topic=topic)
     return compose_step(step_id, blocks, vars_)
 
 

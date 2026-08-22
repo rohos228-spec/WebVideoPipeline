@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 from loguru import logger
 
@@ -59,10 +59,7 @@ def montage_lane_claim(project_id: int) -> Iterator[None]:
             marker.unlink(missing_ok=True)
         else:
             holder = marker.read_text(encoding="utf-8").strip()
-            raise RuntimeError(
-                f"монтаж #{project_id} уже идёт"
-                + (f" ({holder})" if holder else "")
-            )
+            raise RuntimeError(f"монтаж #{project_id} уже идёт" + (f" ({holder})" if holder else ""))
     marker.parent.mkdir(parents=True, exist_ok=True)
     label = f"assemble #{project_id}"
     marker.write_text(label, encoding="utf-8")
@@ -85,8 +82,6 @@ async def wait_for_montage_slot(
     while montage_lane_owned_by(project_id):
         if time.monotonic() >= deadline:
             holder = montage_lane_holder(project_id) or "?"
-            raise TimeoutError(
-                f"монтаж #{project_id} всё ещё занят ({holder}), timeout {int(timeout_sec)}s"
-            )
+            raise TimeoutError(f"монтаж #{project_id} всё ещё занят ({holder}), timeout {int(timeout_sec)}s")
         print(f"Монтаж #{project_id} уже идёт — ждём завершения…")
         await asyncio.sleep(poll_sec)

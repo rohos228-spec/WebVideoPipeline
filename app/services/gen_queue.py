@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Project, ProjectStatus
 from app.orchestrator.auto_advance import TRANSITIONS
 from app.orchestrator.graph.planner import load_graph_for_project
-from app.services.mass_factory import is_mass_factory_child
 from app.services.gen_queue_run import (
     gen_queue_slot_skipped,
     is_gen_queue_run_complete,
@@ -25,8 +24,8 @@ from app.services.gen_queue_run import (
     mark_gen_queue_run_complete,
     skip_gen_queue_slot,
 )
+from app.services.mass_factory import is_mass_factory_child
 from app.services.sidebar_layout import get_gen_queue, is_gen_queue_halted
-from app.telegram.menu import step_by_code, step_by_running_status
 
 GEN_QUEUE_BUSY_STATUSES = [
     ProjectStatus.planning,
@@ -53,10 +52,7 @@ GEN_QUEUE_BUSY_STATUSES = [
 
 
 def _slot_blocked(project: Project) -> bool:
-    return bool(
-        project.status is ProjectStatus.paused
-        or _user_stop_blocks_queue(project)
-    )
+    return bool(project.status is ProjectStatus.paused or _user_stop_blocks_queue(project))
 
 
 def _slot_closed(project: Project) -> bool:
@@ -155,9 +151,7 @@ async def is_timeline_complete(session: AsyncSession, project: Project) -> bool:
 
 
 async def _load_project(session: AsyncSession, project_id: int) -> Project | None:
-    return (
-        await session.execute(select(Project).where(Project.id == project_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
 
 
 async def _close_slot_if_already_at_target(
@@ -189,9 +183,7 @@ async def _advance_ready_project(session: AsyncSession, project: Project) -> boo
     return await maybe_auto_advance(session, project, bot=None, force=True)
 
 
-async def _start_or_advance_project(
-    session: AsyncSession, project: Project, *, queue_pos: int
-) -> int:
+async def _start_or_advance_project(session: AsyncSession, project: Project, *, queue_pos: int) -> int:
     """Продвинуть *_ready. new — только ручной ▶ (не автостарт).
 
     Возвращает 1 если что-то стартовало/продвинулось.
@@ -407,9 +399,7 @@ async def gen_queue_busy_count(session: AsyncSession) -> int:
     return len(await gen_queue_busy_projects(session))
 
 
-async def gen_queue_incomplete_earlier(
-    session: AsyncSession, project_id: int
-) -> int | None:
+async def gen_queue_incomplete_earlier(session: AsyncSession, project_id: int) -> int | None:
     """Блокирующий более ранний слот, если проект вне top-N окна.
 
     paused/user_stop пропускаются. Блокирует N-й runnable предшественник
@@ -502,9 +492,7 @@ async def gen_queue_tick(session: AsyncSession) -> int:
             window_filled += 1
             continue
 
-        started = await _start_or_advance_project(
-            session, project, queue_pos=idx + 1
-        )
+        started = await _start_or_advance_project(session, project, queue_pos=idx + 1)
         if started:
             started_total += started
             window_filled += 1
@@ -532,9 +520,7 @@ async def gen_queue_tick(session: AsyncSession) -> int:
     return started_total
 
 
-async def on_project_timeline_maybe_advance_queue(
-    session: AsyncSession, project: Project
-) -> int:
+async def on_project_timeline_maybe_advance_queue(session: AsyncSession, project: Project) -> int:
     """После завершения шага: закрыть слот и дозаполнить top-N окно."""
     queue = get_gen_queue()
     if not queue or project.id not in queue:
@@ -568,6 +554,4 @@ async def assert_can_start_in_queue(session: AsyncSession, project: Project) -> 
         return
     blocker = await gen_queue_blocks_project(session, project.id)
     if blocker is not None:
-        raise ValueError(
-            f"Очередь: сначала завершите #{blocker}, затем #{project.id}"
-        )
+        raise ValueError(f"Очередь: сначала завершите #{blocker}, затем #{project.id}")

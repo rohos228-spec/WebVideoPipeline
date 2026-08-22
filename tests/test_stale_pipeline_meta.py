@@ -92,9 +92,7 @@ async def test_recompute_does_not_jump_to_enrich_then_slot3(session) -> None:
     old, new, changed = await recompute_status(session, p)
     assert new is ProjectStatus.script_ready
     assert p.status is ProjectStatus.script_ready
-    await _apply_approve(
-        session, p, None, TRANSITIONS[ProjectStatus.script_ready], bot=None
-    )
+    await _apply_approve(session, p, None, TRANSITIONS[ProjectStatus.script_ready], bot=None)
     assert p.status is ProjectStatus.splitting
 
 
@@ -222,9 +220,7 @@ async def test_frames_ready_next_excel_gpt_is_slot1_not_slot3() -> None:
         status=ProjectStatus.frames_ready,
         meta={},
     )
-    assert g.next_running_after_ready(p, ProjectStatus.frames_ready) is (
-        ProjectStatus.enriching_1
-    )
+    assert g.next_running_after_ready(p, ProjectStatus.frames_ready) is (ProjectStatus.enriching_1)
 
 
 @pytest.mark.asyncio
@@ -268,9 +264,7 @@ async def test_completed_excel_gpt_slots_skip_to_next_incomplete() -> None:
         },
     )
     # После реального split + завершения n_eg1/n_eg2 — следующий = n_eg3.
-    assert g.next_running_after_ready(p, ProjectStatus.frames_ready) is (
-        ProjectStatus.enriching_3
-    )
+    assert g.next_running_after_ready(p, ProjectStatus.frames_ready) is (ProjectStatus.enriching_3)
 
 
 @pytest.mark.asyncio
@@ -308,9 +302,7 @@ async def test_stale_enrich_meta_without_split_completed_starts_slot1() -> None:
         status=ProjectStatus.frames_ready,
         meta={"enrich_completed_slots": [1, 2]},  # stale, no split_completed
     )
-    assert g.next_running_after_ready(p, ProjectStatus.frames_ready) is (
-        ProjectStatus.enriching_1
-    )
+    assert g.next_running_after_ready(p, ProjectStatus.frames_ready) is (ProjectStatus.enriching_1)
 
 
 @pytest.mark.asyncio
@@ -339,9 +331,7 @@ async def test_recompute_keeps_enrich_ready_before_split(session) -> None:
     actual = await compute_actual_status(session, p)
     assert actual is ProjectStatus.enrich_2_ready
 
-    old, new, changed = await recompute_status(
-        session, p, log_prefix="recompute(web_get)"
-    )
+    old, new, changed = await recompute_status(session, p, log_prefix="recompute(web_get)")
     assert old is ProjectStatus.enrich_2_ready
     assert new is ProjectStatus.enrich_2_ready
     assert changed is False
@@ -352,8 +342,6 @@ async def test_recompute_keeps_enrich_ready_before_split(session) -> None:
         ready_status_confirmed_by_data,
     )
 
-    assert await ready_status_confirmed_by_data(
-        session, p, ProjectStatus.enrich_2_ready
-    )
+    assert await ready_status_confirmed_by_data(session, p, ProjectStatus.enrich_2_ready)
     assert await clamp_status_to_data(session, p) is None
     assert p.status is ProjectStatus.enrich_2_ready

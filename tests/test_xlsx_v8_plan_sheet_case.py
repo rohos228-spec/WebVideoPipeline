@@ -6,12 +6,12 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
+from app.services import xlsx_step_runners as xsr
 from app.services.xlsx_v8_import import (
     ROW_VOICEOVER_V8,
     _read_voiceover_blocks,
     has_v8_plan_sheet,
 )
-from app.services import xlsx_step_runners as xsr
 
 
 def test_voiceover_blocks_case_insensitive_sheet_name(tmp_path: Path) -> None:

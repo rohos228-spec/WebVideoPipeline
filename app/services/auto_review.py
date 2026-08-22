@@ -72,9 +72,7 @@ class ReviewResult:
 # ============================================================
 
 
-def get_check_prompt_path(
-    kind: HITLKind, *, batch_snapshot_dir: Path | None = None
-) -> Path:
+def get_check_prompt_path(kind: HITLKind, *, batch_snapshot_dir: Path | None = None) -> Path:
     """Путь к чек-промту. Если есть snapshot массового — берём оттуда."""
     folder = CHECK_FOLDER_BY_KIND.get(kind)
     if folder is None:
@@ -87,9 +85,7 @@ def get_check_prompt_path(
     return PROMPTS_ROOT / folder / name
 
 
-def load_check_prompt(
-    kind: HITLKind, *, batch_snapshot_dir: Path | None = None
-) -> str:
+def load_check_prompt(kind: HITLKind, *, batch_snapshot_dir: Path | None = None) -> str:
     p = get_check_prompt_path(kind, batch_snapshot_dir=batch_snapshot_dir)
     if not p.exists():
         raise FileNotFoundError(f"чек-промт не найден: {p}")
@@ -248,10 +244,7 @@ async def review_plan(
     extra = []
     if not facts["has_all_intervals"]:
         missing = facts["missing_intervals"]
-        extra.append(
-            "PLAN_MISSING_INTERVALS: "
-            + ", ".join(f"{a}-{b}" for a, b in missing)
-        )
+        extra.append("PLAN_MISSING_INTERVALS: " + ", ".join(f"{a}-{b}" for a, b in missing))
     if facts.get("product_required") and not facts.get("product_mentioned"):
         extra.append(f"PRODUCT_NOT_MENTIONED: «{product_name}»")
     return await review_text(
@@ -282,14 +275,9 @@ async def review_script(
             f"[{facts['char_min']}, {facts['char_max']}]"
         )
     if facts["banned_phrases_found"]:
-        extra.append(
-            "BANNED_PHRASES: " + ", ".join(facts["banned_phrases_found"])
-        )
+        extra.append("BANNED_PHRASES: " + ", ".join(facts["banned_phrases_found"]))
     if facts["repeated_sentence_starts"]:
-        extra.append(
-            "REPEATED_STARTS: "
-            + ", ".join(facts["repeated_sentence_starts"][:5])
-        )
+        extra.append("REPEATED_STARTS: " + ", ".join(facts["repeated_sentence_starts"][:5]))
     if facts.get("product_required") and not facts.get("product_mentioned"):
         extra.append(f"PRODUCT_NOT_MENTIONED: «{product_name}»")
     return await review_text(

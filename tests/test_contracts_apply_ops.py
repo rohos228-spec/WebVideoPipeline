@@ -8,7 +8,6 @@ import pytest
 
 from app.contracts import (
     APPLY_OPS,
-    ApplyOpsEnvelope,
     LlmContractError,
     extract_json_payload,
 )
@@ -87,9 +86,7 @@ def test_dup_synonyms_last_write_wins() -> None:
 
 
 def test_actions_alias_for_ops() -> None:
-    parsed = APPLY_OPS.parse(
-        '{"actions":[{"frame_uuid":"x","fields":{"закадр":"т"}}]}'
-    )
+    parsed = APPLY_OPS.parse('{"actions":[{"frame_uuid":"x","fields":{"закадр":"т"}}]}')
     assert len(parsed.payload.ops) == 1
 
 
@@ -121,16 +118,12 @@ def test_replace_frames_mix_rejected() -> None:
 
 
 def test_replace_frames_kadry_alias() -> None:
-    parsed = APPLY_OPS.parse(
-        '{"ops":[{"target":"replace_frames","кадры":[{"закадр":"a"},{"закадр":"b"}]}]}'
-    )
+    parsed = APPLY_OPS.parse('{"ops":[{"target":"replace_frames","кадры":[{"закадр":"a"},{"закадр":"b"}]}]}')
     assert len(parsed.payload.ops[0].frames or []) == 2
 
 
 def test_project_target_uses_project_aliases() -> None:
-    parsed = APPLY_OPS.parse(
-        '{"ops":[{"target":"project","fields":{"общий_план":"план"}}]}'
-    )
+    parsed = APPLY_OPS.parse('{"ops":[{"target":"project","fields":{"общий_план":"план"}}]}')
     assert parsed.payload.ops[0].fields == {"general_plan": "план"}
 
 
@@ -148,9 +141,7 @@ def test_salvaged_marker_moved_to_meta() -> None:
 
 def test_extra_top_level_key_rejected() -> None:
     with pytest.raises(LlmContractError):
-        APPLY_OPS.parse(
-            '{"ops":[{"frame_uuid":"x","fields":{"закадр":"т"}}],"comment":"…"}'
-        )
+        APPLY_OPS.parse('{"ops":[{"frame_uuid":"x","fields":{"закадр":"т"}}],"comment":"…"}')
 
 
 # ── паритет с normalize_fields (единый источник алиасов) ─────────────────
@@ -161,11 +152,7 @@ def test_alias_parity_with_normalize_fields() -> None:
 
     sample = {alias: "v" for alias in list(FIELD_ALIASES)[:40]}
     legacy = normalize_fields(dict(sample), FIELD_ALIASES, scope="t")
-    parsed = APPLY_OPS.parse(
-        json.dumps(
-            {"ops": [{"frame_uuid": "x", "fields": sample}]}, ensure_ascii=False
-        )
-    )
+    parsed = APPLY_OPS.parse(json.dumps({"ops": [{"frame_uuid": "x", "fields": sample}]}, ensure_ascii=False))
     assert parsed.payload.ops[0].fields == legacy
 
 

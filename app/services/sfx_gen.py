@@ -42,9 +42,7 @@ def _write_wav(path: Path, samples: list[float]) -> None:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(_SAMPLE_RATE)
-        frames = b"".join(
-            struct.pack("<h", int(max(-1.0, min(1.0, s)) * 32767)) for s in samples
-        )
+        frames = b"".join(struct.pack("<h", int(max(-1.0, min(1.0, s)) * 32767)) for s in samples)
         w.writeframes(frames)
 
 

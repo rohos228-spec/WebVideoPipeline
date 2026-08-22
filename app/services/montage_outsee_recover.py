@@ -18,8 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bots.browser import browser_session
 from app.bots.chrome_cdp import fetch_cdp_version
 from app.bots.outsee import (
-    OutseeBot,
     _GALLERY_ID_SCAN_LIMIT,
+    OutseeBot,
     _image_page_url,
     _wait_gallery_thumbs,
     discover_prompt_ids_strategy_c,
@@ -123,9 +123,7 @@ async def _download_hit(
     # Lightbox после клик-скана — закрыть до Download (как Esc в strategy C).
     for _ in range(3):
         try:
-            has = await page.evaluate(
-                """() => !!document.querySelector('[data-content-viewer="true"]')"""
-            )
+            has = await page.evaluate("""() => !!document.querySelector('[data-content-viewer="true"]')""")
         except Exception:  # noqa: BLE001
             has = False
         if not has:
@@ -178,8 +176,7 @@ async def recover_montage_images_from_outsee(
 ) -> dict[str, Any]:
     if outsee_lane_busy():
         raise RuntimeError(
-            "Outsee занят другой операцией — дождитесь окончания Generate/apply "
-            "и нажмите снова"
+            "Outsee занят другой операцией — дождитесь окончания Generate/apply и нажмите снова"
         )
     try:
         await fetch_cdp_version(settings.browser_cdp_url)
@@ -188,9 +185,7 @@ async def recover_montage_images_from_outsee(
             "Chrome CDP :29229 не отвечает — запустите Start-Chrome.cmd и откройте outsee.io"
         ) from exc
 
-    img_gen = IMAGE_GENERATORS_BY_ID.get(
-        project.image_generator or DEFAULTS["image_generator"]
-    )
+    img_gen = IMAGE_GENERATORS_BY_ID.get(project.image_generator or DEFAULTS["image_generator"])
     model_slug = img_gen.outsee_slug if img_gen else None
 
     saved: list[dict[str, Any]] = []
@@ -201,9 +196,7 @@ async def recover_montage_images_from_outsee(
     async with browser_session() as bs:
         outsee = OutseeBot(bs)
         async with outsee_lane(project_id=project.id, op="montage_force_history"):
-            page = await outsee.session.open_page(
-                _image_page_url(model_slug), reuse=True
-            )
+            page = await outsee.session.open_page(_image_page_url(model_slug), reuse=True)
             n = await _wait_gallery_thumbs(
                 page,
                 min_count=1,
@@ -257,8 +250,7 @@ async def recover_montage_images_from_outsee(
 
             hits = list(by_key.values())
             logger.info(
-                "montage outsee recover #{}: {} hits via strategy C "
-                "(filter={}, force={})",
+                "montage outsee recover #{}: {} hits via strategy C (filter={}, force={})",
                 project.id,
                 len(hits),
                 sorted(frame_filter) if frame_filter else "all-project",
@@ -270,10 +262,7 @@ async def recover_montage_images_from_outsee(
                 key = (hit.frame_number, hit.shot)
                 if frame_filter is not None and key not in frame_filter:
                     continue
-                if (
-                    not force_replace
-                    and not _frame_needs_image(project, hit.frame_number, hit.shot)
-                ):
+                if not force_replace and not _frame_needs_image(project, hit.frame_number, hit.shot):
                     skipped.append(f"{hit.frame_number}:{hit.shot}=already")
                     continue
                 chosen[key] = hit
@@ -301,9 +290,7 @@ async def recover_montage_images_from_outsee(
                     force_replace=force_replace,
                 )
                 if path is None or not _ready_file(path):
-                    errors.append(
-                        f"F{hit.frame_number} shot{hit.shot}: download failed"
-                    )
+                    errors.append(f"F{hit.frame_number} shot{hit.shot}: download failed")
                     continue
                 try:
                     await finalize_scene_image(
@@ -330,15 +317,11 @@ async def recover_montage_images_from_outsee(
                         path.name,
                     )
                 except Exception as e:  # noqa: BLE001
-                    errors.append(
-                        f"F{hit.frame_number} shot{hit.shot}: finalize {e}"
-                    )
+                    errors.append(f"F{hit.frame_number} shot{hit.shot}: finalize {e}")
 
             if saved:
                 pending = list(board.get("pending_ops") or [])
-                saved_keys = {
-                    (int(s["frame_number"]), int(s["shot"])) for s in saved
-                }
+                saved_keys = {(int(s["frame_number"]), int(s["shot"])) for s in saved}
                 new_pending = []
                 for op in pending:
                     try:
@@ -391,9 +374,7 @@ async def recover_before_regen_ops(
         force_replace=False,
         limit=30,
     )
-    saved_keys = {
-        (int(s["frame_number"]), int(s["shot"])) for s in result.get("saved") or []
-    }
+    saved_keys = {(int(s["frame_number"]), int(s["shot"])) for s in result.get("saved") or []}
     remaining = []
     for op in ops:
         t = str(op.get("type") or "")

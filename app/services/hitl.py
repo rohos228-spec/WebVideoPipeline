@@ -31,12 +31,14 @@ def _keyboard(
         ],
     ]
     if allow_edit:
-        rows.append([
-            InlineKeyboardButton(
-                text="✏️ Изменить промт",
-                callback_data=f"hitl:{hitl_id}:edit",
-            ),
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✏️ Изменить промт",
+                    callback_data=f"hitl:{hitl_id}:edit",
+                ),
+            ]
+        )
     # Вторая строка второго ряда: «Оригинал» (без сжатия TG) + «Отклонить».
     last_row = []
     if allow_original:
@@ -273,9 +275,7 @@ async def wait_for_decision(hitl_id: int, *, poll_seconds: float = 2.0) -> HITLD
     logger.info("waiting for HITL {}", hitl_id)
     while True:
         async with session_scope() as s:
-            req = (
-                await s.execute(select(HITLRequest).where(HITLRequest.id == hitl_id))
-            ).scalar_one_or_none()
+            req = (await s.execute(select(HITLRequest).where(HITLRequest.id == hitl_id))).scalar_one_or_none()
             if req is None:
                 raise RuntimeError(f"HITL #{hitl_id} исчез из БД")
             if req.decision is not HITLDecision.pending:

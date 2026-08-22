@@ -23,7 +23,7 @@ import json
 import re
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,7 +111,7 @@ def _write_review_md(
         f"- checkpoint skeleton.json: {'да' if skeleton_ok else 'нет'}",
         f"- sk_* ячеек: {cells_n}",
         f"- повторный validate_skeleton: **{len(gaps)} разрывов**",
-        f"- собрано: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+        f"- собрано: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}",
         "",
         "## Лог-маркеры (ожидание)",
         "",
@@ -133,9 +133,7 @@ def _write_review_md(
         lines.append("_разрывов нет — можно рецензировать смысл_")
     else:
         for g in gaps[:40]:
-            lines.append(
-                f"- `{g.get('адрес')}`: {g.get('проблема')} → {g.get('как_исправить')}"
-            )
+            lines.append(f"- `{g.get('адрес')}`: {g.get('проблема')} → {g.get('как_исправить')}")
     lines += [
         "",
         "## Файлы пакета",
@@ -156,9 +154,9 @@ async def _build(project_id: int | None, slug: str | None) -> Path:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app.models import Base, Frame, Project, SceneDesignCell  # noqa: F401
-    from app.settings import settings
     from app.services.scene_design import skeleton as sk
     from app.services.scene_design.context_builder import frame_seconds, full_voiceover
+    from app.settings import settings
 
     engine = create_async_engine(settings.db_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -177,9 +175,7 @@ async def _build(project_id: int | None, slug: str | None) -> Path:
         frames = list(
             (
                 await session.execute(
-                    select(Frame)
-                    .where(Frame.project_id == project.id)
-                    .order_by(Frame.number)
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
                 )
             )
             .scalars()
@@ -262,7 +258,7 @@ async def _build(project_id: int | None, slug: str | None) -> Path:
             "cells_skeleton": len(cells),
             "frames": len(frames),
             "log_path": str(log_path) if log_path else None,
-            "built_at": datetime.now(timezone.utc).isoformat(),
+            "built_at": datetime.now(UTC).isoformat(),
             "code_head": "7a8390c1",
         }
         (out / "pack_meta.json").write_text(

@@ -40,9 +40,7 @@ def full_voiceover(project: Project, frames: list[Frame]) -> str:
     «start_words не найдены» при валидации сборки (#59).
     """
     from_frames = "\n".join(
-        (fr.voiceover_text or "").strip()
-        for fr in frames
-        if (fr.voiceover_text or "").strip()
+        (fr.voiceover_text or "").strip() for fr in frames if (fr.voiceover_text or "").strip()
     ).strip()
     if from_frames:
         return from_frames
@@ -158,15 +156,10 @@ def _skeleton_block_from_checkpoint(project: Project) -> str:
         "locations_seed": data.get("locations_seed") or [],
         "items_seed": data.get("items_seed") or [],
     }
-    return (
-        "# СКЕЛЕТ (JSON)\n"
-        + json.dumps(slim, ensure_ascii=False, separators=(",", ":"))
-    )
+    return "# СКЕЛЕТ (JSON)\n" + json.dumps(slim, ensure_ascii=False, separators=(",", ":"))
 
 
-def build_shared_context(
-    project: Project, frames: list[Frame], *, mode: str = "full"
-) -> str:
+def build_shared_context(project: Project, frames: list[Frame], *, mode: str = "full") -> str:
     """ПОЛНЫЙ ЗАКАДР + КАДРЫ + ОБЩИЙ ПЛАН + СТИЛЬ — общий блок всех агентов.
 
     ``mode="chunk"`` — тощий контекст: короткий план, VO только кадров чанка
@@ -176,15 +169,10 @@ def build_shared_context(
     slim = mode == "chunk"
     plan = general_plan_excerpt(project)
     if plan:
-        parts.append(
-            f"# ОБЩИЙ ПЛАН (выдержка)\n{plan[:200 if slim else _GENERAL_PLAN_LIMIT]}"
-        )
+        parts.append(f"# ОБЩИЙ ПЛАН (выдержка)\n{plan[: 200 if slim else _GENERAL_PLAN_LIMIT]}")
     style = project_style(project)
     if style:
-        parts.append(
-            f"# СТИЛЬ ПРОЕКТА (задан извне, не менять)\n"
-            f"{style[:120] if slim else style}"
-        )
+        parts.append(f"# СТИЛЬ ПРОЕКТА (задан извне, не менять)\n{style[:120] if slim else style}")
     full_vo = full_voiceover(project, frames)
     if not full_vo:
         raise RuntimeError("scene_design: нет закадра — нечего разбирать")

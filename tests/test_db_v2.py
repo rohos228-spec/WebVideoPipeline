@@ -52,9 +52,7 @@ async def test_backfill_creates_scene_sort_uuid_texts_prompts_edges(session: Asy
     assert stats["prompts"] == 6  # img + video на каждый кадр
     assert stats["edges"] == 2  # цепочка 1→2→3
 
-    frames = list(
-        (await session.execute(select(Frame).order_by(Frame.sort_key))).scalars()
-    )
+    frames = list((await session.execute(select(Frame).order_by(Frame.sort_key))).scalars())
     assert [f.sort_key for f in frames] == [10.0, 20.0, 30.0]
     assert all(f.uuid for f in frames)
     assert all(f.scene_id == frames[0].scene_id for f in frames)
@@ -68,9 +66,7 @@ async def test_insert_frame_between_keeps_neighbors(session: AsyncSession):
     p = await _mk_project_with_frames(session, 2)
     await db_v2.backfill_project_v2(session, p)
     await session.commit()
-    frames = list(
-        (await session.execute(select(Frame).order_by(Frame.sort_key))).scalars()
-    )
+    frames = list((await session.execute(select(Frame).order_by(Frame.sort_key))).scalars())
     keys_before = {f.id: f.sort_key for f in frames}
 
     new = await db_v2.insert_frame_after(session, p, after_frame_id=frames[0].id)
@@ -85,16 +81,12 @@ async def test_insert_frame_between_keeps_neighbors(session: AsyncSession):
 
     # ниточка next перекинута: 1 → new → 2
     e1 = (
-        await session.execute(
-            select(FrameEdge).where(FrameEdge.from_frame_id == frames[0].id)
-        )
-    ).scalars().one()
+        (await session.execute(select(FrameEdge).where(FrameEdge.from_frame_id == frames[0].id)))
+        .scalars()
+        .one()
+    )
     assert e1.to_frame_id == new.id
-    e2 = (
-        await session.execute(
-            select(FrameEdge).where(FrameEdge.from_frame_id == new.id)
-        )
-    ).scalars().one()
+    e2 = (await session.execute(select(FrameEdge).where(FrameEdge.from_frame_id == new.id))).scalars().one()
     assert e2.to_frame_id == frames[1].id
 
 
@@ -102,9 +94,7 @@ async def test_insert_frame_at_start_and_end(session: AsyncSession):
     p = await _mk_project_with_frames(session, 1)
     await db_v2.backfill_project_v2(session, p)
     await session.commit()
-    first = (
-        await session.execute(select(Frame).order_by(Frame.sort_key))
-    ).scalars().first()
+    first = (await session.execute(select(Frame).order_by(Frame.sort_key))).scalars().first()
 
     head = await db_v2.insert_frame_after(session, p, after_frame_id=None)
     assert head.sort_key < first.sort_key
@@ -117,22 +107,16 @@ async def test_prompt_versions_keep_history(session: AsyncSession):
     p = await _mk_project_with_frames(session, 1)
     await db_v2.backfill_project_v2(session, p)
     await session.commit()
-    fr = (
-        await session.execute(select(Frame).order_by(Frame.sort_key))
-    ).scalars().first()
+    fr = (await session.execute(select(Frame).order_by(Frame.sort_key))).scalars().first()
 
-    pv2 = await db_v2.add_prompt_version(
-        session, p.id, fr.id, kind="img", text="новый вариант"
-    )
+    pv2 = await db_v2.add_prompt_version(session, p.id, fr.id, kind="img", text="новый вариант")
     await session.commit()
     assert pv2.version == 2 and pv2.is_active
 
     prompts = list(
         (
             await session.execute(
-                select(PromptVersion).where(
-                    PromptVersion.frame_id == fr.id, PromptVersion.kind == "img"
-                )
+                select(PromptVersion).where(PromptVersion.frame_id == fr.id, PromptVersion.kind == "img")
             )
         ).scalars()
     )

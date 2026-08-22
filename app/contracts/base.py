@@ -84,6 +84,4 @@ class LlmContract(Generic[TModel]):
         """gpt_api.ResponseSchema для прокидки в chat(response_schema=…)."""
         from app.services.gpt_api import ResponseSchema
 
-        return ResponseSchema(
-            name=self.name, schema=self.json_schema(), strict=self.strict
-        )
+        return ResponseSchema(name=self.name, schema=self.json_schema(), strict=self.strict)

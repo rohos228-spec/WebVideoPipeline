@@ -29,9 +29,7 @@ def canvas_graph_from_meta(meta: dict[str, Any] | None) -> dict[str, Any] | None
     return {"nodes": nodes, "edges": edges, "workflow_id": raw.get("workflow_id")}
 
 
-def find_canvas_node_key_by_type(
-    meta: dict[str, Any] | None, node_type: str
-) -> str | None:
+def find_canvas_node_key_by_type(meta: dict[str, Any] | None, node_type: str) -> str | None:
     """Первый node id данного type из project.meta.canvas_graph (без WorkflowRun)."""
     want = str(node_type or "").strip()
     if not want:
@@ -80,12 +78,7 @@ def canvas_topology_key(
         (
             str(e.get("source") or ""),
             str(e.get("target") or ""),
-            str(
-                (e.get("data") or {}).get("kind")
-                if isinstance(e.get("data"), dict)
-                else "after"
-            )
-            or "after",
+            str((e.get("data") or {}).get("kind") if isinstance(e.get("data"), dict) else "after") or "after",
         )
         for e in (edges or [])
         if isinstance(e, dict) and e.get("source") and e.get("target")

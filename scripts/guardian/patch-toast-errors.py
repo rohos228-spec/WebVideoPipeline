@@ -1,7 +1,7 @@
 """One-off: replace toast.error(String(e)) with errorMessageFromUnknown in web/src."""
+
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]

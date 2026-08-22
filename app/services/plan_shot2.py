@@ -23,6 +23,7 @@ from app.services.xlsx_v8_import import (
     _plan_scene_columns_ordered,
     _resolve_plan_sheet,
 )
+
 ROW_VIDEO_PROMPT_2_V8 = 64  # промт для видео shot_02 (аналог R48 для shot_01)
 ROW_SHOT2_ID_SHOT_V8 = 18
 ROW_SHOT2_ACTION_V8 = 29
@@ -84,12 +85,7 @@ def read_shot2_columns(xlsx_path: Path) -> dict[int, Shot2ColumnInfo]:
                 prompt_1 = _cell_text(ws, ROW_IMAGE_PROMPT_V8, col)
                 prompt_2 = (_cell_text(ws, ROW_IMAGE_PROMPT_2_V8, col) or "").strip()
                 block = _shot2_block_filled(ws, col)
-                if (
-                    voice is None
-                    and not prompt_1
-                    and not prompt_2
-                    and not block
-                ):
+                if voice is None and not prompt_1 and not prompt_2 and not block:
                     continue
                 has = bool(prompt_2) or block
                 if has and not prompt_2 and block:
@@ -145,20 +141,14 @@ def find_shot1_image(scenes_dir: Path, frame_number: int) -> Path | None:
     """Последний PNG первого кадра (без ``_s2_`` в имени)."""
     if not scenes_dir.is_dir():
         return None
-    candidates = [
-        p
-        for p in scenes_dir.glob(f"frame_{frame_number:03d}_*.png")
-        if "_s2_" not in p.name
-    ]
+    candidates = [p for p in scenes_dir.glob(f"frame_{frame_number:03d}_*.png") if "_s2_" not in p.name]
     if not candidates:
         return None
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0]
 
 
-def effective_shot_from_artifact(
-    meta: dict | None, path: str | Path
-) -> int:
+def effective_shot_from_artifact(meta: dict | None, path: str | Path) -> int:
     """shot_02 по ``_s2_`` в имени важнее meta (дефолт meta=1 ломал skip shot_01)."""
     if "_s2_" in Path(path).name:
         return 2

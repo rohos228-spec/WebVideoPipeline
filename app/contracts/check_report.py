@@ -16,7 +16,7 @@ extra="allow": реальные отчёты несут доп. ключи (scor
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -61,11 +61,9 @@ class CheckReport(BaseModel):
     fix: CheckFix = Field(default_factory=CheckFix)
 
     @model_validator(mode="after")
-    def _verdict_required(self) -> "CheckReport":
+    def _verdict_required(self) -> CheckReport:
         if self.schema_id and self.schema_id != SCHEMA_ID:
-            raise ValueError(
-                f"неверная schema: {self.schema_id!r}, ожидается {SCHEMA_ID}"
-            )
+            raise ValueError(f"неверная schema: {self.schema_id!r}, ожидается {SCHEMA_ID}")
         if self.verdict is None:
             # Синонимы из старых промптов (decision) — как в parse_check_analysis.
             decision = ""
@@ -77,8 +75,7 @@ class CheckReport(BaseModel):
                 self.verdict = "fail"
             else:
                 raise ValueError(
-                    'в отчёте нет поля verdict ("pass"|"fail") — это не '
-                    "vp.check.v1-отчёт проверки"
+                    'в отчёте нет поля verdict ("pass"|"fail") — это не vp.check.v1-отчёт проверки'
                 )
         return self
 

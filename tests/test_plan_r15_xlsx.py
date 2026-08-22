@@ -48,9 +48,7 @@ def test_write_and_read_plan_r15(tmp_path: Path, monkeypatch) -> None:
     assert norm == [(1, "0:00.00-0:03.28"), (2, "0:03.28-0:07.50")]
 
 
-def test_write_plan_durations_follows_voiceover_columns(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_write_plan_durations_follows_voiceover_columns(tmp_path: Path, monkeypatch) -> None:
     """R50 «Время на кадр» пишется в те же колонки, что и закадр кадра (R49)."""
     root = tmp_path / "data"
     slug_dir = root / "videos" / "t2"

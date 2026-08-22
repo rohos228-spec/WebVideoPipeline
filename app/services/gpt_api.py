@@ -33,21 +33,23 @@ _FATAL_STATUS = frozenset({400, 401, 403, 404, 422})
 _RETRY_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 
 _URL_RE = re.compile(r"https?://[^\s\)\]\}<>\"']+", re.IGNORECASE)
-_TEXT_SUFFIXES = frozenset({
-    ".txt",
-    ".md",
-    ".csv",
-    ".tsv",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".xml",
-    ".html",
-    ".htm",
-    ".log",
-    ".srt",
-    ".vtt",
-})
+_TEXT_SUFFIXES = frozenset(
+    {
+        ".txt",
+        ".md",
+        ".csv",
+        ".tsv",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".xml",
+        ".html",
+        ".htm",
+        ".log",
+        ".srt",
+        ".vtt",
+    }
+)
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"})
 # Лимит картинок и размера (base64 раздувает ~4/3) — чтобы не упереться в payload.
 _MAX_VISION_IMAGES = 8
@@ -62,9 +64,7 @@ _PDF_CONTEXT_MAX_CHARS = 80_000
 # kie.ai: полный PDF-текст (~20–40k) на «переведи» → code=500 или hang/timeout.
 # Короткие куски (~4–6k) стабильны — режем по страницам.
 _PDF_PROVIDER_SAFE_CHARS = 5_500
-_PDF_PAGE_HEADER_RE = re.compile(
-    r"(?m)^---\s*стр\.\s*\d+/\d+\s*---\s*$"
-)
+_PDF_PAGE_HEADER_RE = re.compile(r"(?m)^---\s*стр\.\s*\d+/\d+\s*---\s*$")
 # XLSX → TSV: длинный «Общий план» / «план» легко >280k — раньше резали книгу
 # и модель «заполняла» только видимый кусок (~часть строк). Бюджет под GPT-5.x.
 _XLSX_CONTEXT_MAX_CHARS = 900_000
@@ -162,18 +162,12 @@ def _structured_outputs_active(url: str) -> bool:
         return False
     if mode == "on":
         return True
-    hosts = [
-        h.strip().lower()
-        for h in (settings.gpt_structured_relays or "").split(",")
-        if h.strip()
-    ]
+    hosts = [h.strip().lower() for h in (settings.gpt_structured_relays or "").split(",") if h.strip()]
     low = (url or "").lower()
     return any(h in low for h in hosts)
 
 
-def _schema_into_body(
-    body: dict[str, Any], schema: ResponseSchema, *, responses_mode: bool
-) -> None:
+def _schema_into_body(body: dict[str, Any], schema: ResponseSchema, *, responses_mode: bool) -> None:
     if responses_mode:
         body["text"] = {
             "format": {
@@ -200,9 +194,7 @@ def _norm_model_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", tail.lower())
 
 
-def _check_served_model(
-    result: GptChatResult, *, use_model: str, contract_active: bool
-) -> None:
+def _check_served_model(result: GptChatResult, *, use_model: str, contract_active: bool) -> None:
     """Контрактный путь: ответ от другой модели = ошибка транспорта.
 
     LiteLLM default_fallbacks (silent downgrade) отдаёт 200 от подменённой
@@ -218,8 +210,7 @@ def _check_served_model(
     a, b = _norm_model_name(use_model), _norm_model_name(served)
     if a and b and a != b:
         raise GptApiError(
-            f"GPT: ответ от другой модели (запрошена {use_model}, "
-            f"ответила {served}) — fallback релея",
+            f"GPT: ответ от другой модели (запрошена {use_model}, ответила {served}) — fallback релея",
             context={
                 "retryable": True,
                 "error_kind": "model_mismatch",
@@ -343,11 +334,7 @@ def _headers() -> dict[str, str]:
 
 def _chat_url(model: str) -> str:
     global _RELAY_BASE_LOGGED
-    base = (
-        _override_vibecode_base_url()
-        if _node_vibecode_override()
-        else settings.gpt_api_effective_base_url
-    )
+    base = _override_vibecode_base_url() if _node_vibecode_override() else settings.gpt_api_effective_base_url
     if not base:
         raise GptApiError(
             "База текстового LLM пуста — задай TOKENROUTER_BASE_URL, VIBECODE_BASE_URL или GPT_BASE_URL",
@@ -447,11 +434,7 @@ def xlsx_to_text(
     truncated_sheets: list[str] = []
     for ws in sheets:
         # apply_ops: не использовать `# Лист:` — иначе модель уходит в TSV/отказ.
-        header = (
-            f"[SHEET: {ws.title}]"
-            if apply_ops_mode
-            else f"# Лист: {ws.title}"
-        )
+        header = f"[SHEET: {ws.title}]" if apply_ops_mode else f"# Лист: {ws.title}"
         if used + len(header) + 32 > budget:
             truncated_sheets.append(ws.title)
             skip = (
@@ -464,11 +447,7 @@ def xlsx_to_text(
         sheet_lines = [header]
         sheet_used = len(header)
         rows_written = 0
-        row_cap = (
-            _XLSX_PRIORITY_MAX_ROWS
-            if _XLSX_PRIORITY_SHEET_RE.search(ws.title or "")
-            else max_rows
-        )
+        row_cap = _XLSX_PRIORITY_MAX_ROWS if _XLSX_PRIORITY_SHEET_RE.search(ws.title or "") else max_rows
         sheet_truncated = False
         pin_plan = _is_plan_sheet_title(ws.title or "")
         pinned_set = set(_XLSX_PINNED_PLAN_ROWS) if pin_plan else set()
@@ -562,10 +541,7 @@ def pdf_to_text(path: Path, *, max_chars: int = _PDF_CONTEXT_MAX_CHARS) -> str:
     try:
         from pypdf import PdfReader
     except ImportError:
-        return (
-            f"[pdf {path.name}: нужен пакет pypdf — "
-            f"pip install pypdf; текст не извлечён]"
-        )
+        return f"[pdf {path.name}: нужен пакет pypdf — pip install pypdf; текст не извлечён]"
     try:
         reader = PdfReader(str(path))
     except Exception as e:  # noqa: BLE001
@@ -709,9 +685,7 @@ def file_to_context(
     if suffix in (".xlsx", ".xlsm", ".xls"):
         # Для книг — отдельный большой бюджет; max_chars не режем до 60k.
         xlsx_budget = max(max_chars, _XLSX_CONTEXT_MAX_CHARS)
-        body = xlsx_to_text(
-            path, max_chars=xlsx_budget, write_contract=xlsx_write_contract
-        )
+        body = xlsx_to_text(path, max_chars=xlsx_budget, write_contract=xlsx_write_contract)
     elif suffix in _TEXT_SUFFIXES:
         try:
             body = path.read_text(encoding="utf-8", errors="replace")
@@ -731,9 +705,7 @@ def file_to_context(
             size = path.stat().st_size
         except OSError:
             size = -1
-        extracted = pdf_to_text(
-            path, max_chars=max(max_chars, _PDF_CONTEXT_MAX_CHARS)
-        )
+        extracted = pdf_to_text(path, max_chars=max(max_chars, _PDF_CONTEXT_MAX_CHARS))
         body = f"[pdf {path.name}: {size} байт]\n{extracted}"
     elif suffix in {".docx"}:
         # docx = zip+xml; вытащим word/document.xml текст грубо.
@@ -744,11 +716,7 @@ def file_to_context(
             with zipfile.ZipFile(path) as zf:
                 xml = zf.read("word/document.xml")
             root = ET.fromstring(xml)
-            texts = [
-                (n.text or "")
-                for n in root.iter()
-                if n.tag.endswith("}t") and (n.text or "").strip()
-            ]
+            texts = [(n.text or "") for n in root.iter() if n.tag.endswith("}t") and (n.text or "").strip()]
             body = "\n".join(texts) or f"[docx {path.name}: пустой текст]"
         except Exception as e:  # noqa: BLE001
             body = f"[docx {path.name}: не разобрал ({e})]"
@@ -895,14 +863,9 @@ def _compose_user_text(
     if files:
         parts.append("## Приложенные файлы")
         for p in files:
-            parts.append(
-                file_to_context(p, xlsx_write_contract=xlsx_write_contract)
-            )
+            parts.append(file_to_context(p, xlsx_write_contract=xlsx_write_contract))
     if image_names:
-        parts.append(
-            "## Изображения (vision)\n"
-            + "\n".join(f"- {n}" for n in image_names)
-        )
+        parts.append("## Изображения (vision)\n" + "\n".join(f"- {n}" for n in image_names))
     return "\n\n".join(parts) or "(пусто)"
 
 
@@ -925,11 +888,7 @@ def normalize_history(
         content = raw.get("content")
         if isinstance(content, list):
             # multimodal leftover — берём только текст
-            text = "".join(
-                str(p.get("text") or "")
-                for p in content
-                if isinstance(p, dict)
-            ).strip()
+            text = "".join(str(p.get("text") or "") for p in content if isinstance(p, dict)).strip()
         else:
             text = str(content or "").strip()
         if not text:
@@ -981,17 +940,17 @@ def build_input(
     if system:
         text = f"[Инструкция]\n{system}\n\n{text}"
 
-    items: list[dict[str, Any]] = [
-        {"role": m["role"], "content": m["content"]} for m in prior
-    ]
+    items: list[dict[str, Any]] = [{"role": m["role"], "content": m["content"]} for m in prior]
 
     file_parts: list[dict[str, Any]] = []
     # kie.ai: input_file(PDF) → code=500 Server exception. Текст уже в input_text.
     # Включать file_data только явно: GPT_PDF_INPUT_FILE=1
-    attach_pdf_file = str(
-        getattr(settings, "gpt_pdf_input_file", None)
-        or ""
-    ).strip().lower() in {"1", "true", "yes", "on"}
+    attach_pdf_file = str(getattr(settings, "gpt_pdf_input_file", None) or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     if not attach_pdf_file:
         try:
             from os import environ
@@ -1028,9 +987,7 @@ def build_input(
     content.extend(file_parts)
     for img in images:
         try:
-            content.append(
-                {"type": "input_image", "image_url": image_to_data_url(img)}
-            )
+            content.append({"type": "input_image", "image_url": image_to_data_url(img)})
         except GptApiError as e:
             logger.warning("gpt_api vision skip {}: {}", img.name, e)
             content.append(
@@ -1136,11 +1093,7 @@ def _parse_responses(payload: dict[str, Any]) -> tuple[str, str]:
             content = item.get("content")
             if isinstance(content, list):
                 for c in content:
-                    if (
-                        isinstance(c, dict)
-                        and c.get("type") in ("output_text", "text")
-                        and c.get("text")
-                    ):
+                    if isinstance(c, dict) and c.get("type") in ("output_text", "text") and c.get("text"):
                         text_parts.append(str(c["text"]))
     text = "".join(text_parts).strip()
     if not text:
@@ -1193,10 +1146,7 @@ def _raise_http_status(
         low = body_text.lower()
         hint = ""
         if "apikey error" in low:
-            hint = (
-                f" — ключ не авторизован на модель {use_model!r} "
-                "(добавь модель в whitelist ключа grsai)"
-            )
+            hint = f" — ключ не авторизован на модель {use_model!r} (добавь модель в whitelist ключа grsai)"
         elif "model not register" in low or "not register" in low:
             hint = f" — модель {use_model!r} не существует у провайдера (проверь GPT_MODEL)"
         raise GptApiError(
@@ -1314,11 +1264,7 @@ def looks_empty_ops_stub(text: str) -> bool:
         data = json.loads(t)
     except Exception:  # noqa: BLE001
         return re.sub(r"\s+", "", t) == '{"ops":[]}'
-    return (
-        isinstance(data, dict)
-        and data.get("ops") == []
-        and set(data.keys()) <= {"ops"}
-    )
+    return isinstance(data, dict) and data.get("ops") == [] and set(data.keys()) <= {"ops"}
 
 
 def _log_chat_finished(
@@ -1326,7 +1272,7 @@ def _log_chat_finished(
     provider_label: str,
     use_model: str,
     attempt: int,
-    result: "GptChatResult",
+    result: GptChatResult,
     include_task_id: bool = True,
 ) -> None:
     task_id = ""
@@ -1334,8 +1280,7 @@ def _log_chat_finished(
         task_id = result.response_id or (result.raw or {}).get("id") or "-"
     if looks_empty_ops_stub(result.text or ""):
         logger.warning(
-            "gpt_api.chat empty-ops stub provider={} model={} attempt={} "
-            "finish={} chars={} task_id={}",
+            "gpt_api.chat empty-ops stub provider={} model={} attempt={} finish={} chars={} task_id={}",
             provider_label,
             use_model,
             attempt,
@@ -1346,8 +1291,7 @@ def _log_chat_finished(
         return
     if include_task_id:
         logger.info(
-            "gpt_api.chat OK provider={} model={} attempt={} "
-            "finish={} chars={} task_id={}",
+            "gpt_api.chat OK provider={} model={} attempt={} finish={} chars={} task_id={}",
             provider_label,
             use_model,
             attempt,
@@ -1597,11 +1541,7 @@ async def _record_transport_call(
     except GptApiError as e:
         err_kind = str(
             e.context.get("error_kind")
-            or (
-                f"http_{e.context.get('status_code')}"
-                if e.context.get("status_code")
-                else ""
-            )
+            or (f"http_{e.context.get('status_code')}" if e.context.get("status_code") else "")
             or "gpt_api_error"
         )
         raise
@@ -1682,9 +1622,7 @@ async def _chat_responses_stream_impl(
     )
     async with _async_client(timeout=sto) as client:
         try:
-            async with client.stream(
-                "POST", url, headers=headers, json=stream_body
-            ) as resp:
+            async with client.stream("POST", url, headers=headers, json=stream_body) as resp:
                 cf_ray = resp.headers.get("cf-ray") or ""
                 if resp.status_code >= 400:
                     err_body = (await resp.aread()).decode("utf-8", errors="replace")
@@ -1705,10 +1643,7 @@ async def _chat_responses_stream_impl(
                         saw_text_done = True
                     elif et == "response.completed":
                         saw_completed = True
-                    if (
-                        logged_task_id
-                        or "resp_" not in line
-                    ):
+                    if logged_task_id or "resp_" not in line:
                         continue
                     resp_obj = ev.get("response")
                     if isinstance(resp_obj, dict) and resp_obj.get("id"):
@@ -1720,8 +1655,7 @@ async def _chat_responses_stream_impl(
                         )
                         logged_task_id = True
                 logger.info(
-                    "gpt_api.chat SSE EOF lines={} text_done={} completed={} "
-                    "cf_ray={}",
+                    "gpt_api.chat SSE EOF lines={} text_done={} completed={} cf_ray={}",
                     len(lines),
                     saw_text_done,
                     saw_completed,
@@ -1730,8 +1664,7 @@ async def _chat_responses_stream_impl(
         except (httpx.TimeoutException, httpx.HTTPError) as e:
             stream_err = e
             logger.warning(
-                "gpt_api.chat SSE interrupted lines={} text_done={} completed={} "
-                "err={}: {} — try salvage",
+                "gpt_api.chat SSE interrupted lines={} text_done={} completed={} err={}: {} — try salvage",
                 len(lines),
                 saw_text_done,
                 saw_completed,
@@ -1806,11 +1739,7 @@ async def _chat_responses_stream_impl(
             },
         )
 
-    usage = (
-        final_payload.get("usage")
-        if isinstance(final_payload.get("usage"), dict)
-        else {}
-    )
+    usage = final_payload.get("usage") if isinstance(final_payload.get("usage"), dict) else {}
     raw = dict(final_payload) if final_payload else {"stream_lines": len(lines)}
     if response_id:
         raw.setdefault("id", response_id)
@@ -1863,13 +1792,7 @@ def parse_chat_completions_sse_lines(lines: list[str]) -> tuple[str, str, dict[s
         if isinstance(piece, str) and piece:
             chunks.append(piece)
         elif isinstance(piece, list):
-            chunks.append(
-                "".join(
-                    str(p.get("text") or "")
-                    for p in piece
-                    if isinstance(p, dict)
-                )
-            )
+            chunks.append("".join(str(p.get("text") or "") for p in piece if isinstance(p, dict)))
         msg = first.get("message") if isinstance(first.get("message"), dict) else {}
         mc = msg.get("content")
         if isinstance(mc, str) and mc and not delta:
@@ -1914,14 +1837,10 @@ async def _chat_completions_stream_impl(
     stream_err: BaseException | None = None
     async with _async_client(timeout=sto) as client:
         try:
-            async with client.stream(
-                "POST", url, headers=headers, json=stream_body
-            ) as resp:
+            async with client.stream("POST", url, headers=headers, json=stream_body) as resp:
                 if resp.status_code >= 400:
                     err_txt = (await resp.aread()).decode("utf-8", errors="replace")
-                    _raise_http_status(
-                        resp.status_code, err_txt, use_model=use_model
-                    )
+                    _raise_http_status(resp.status_code, err_txt, use_model=use_model)
                 async for raw in resp.aiter_lines():
                     if raw:
                         lines.append(raw)
@@ -2022,11 +1941,7 @@ def _parse_choice(payload: dict[str, Any]) -> tuple[str, str]:
     content = message.get("content")
     # content может быть строкой или списком частей (vision/tools)
     if isinstance(content, list):
-        text = "".join(
-            str(part.get("text") or "")
-            for part in content
-            if isinstance(part, dict)
-        )
+        text = "".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
     else:
         text = str(content or "")
     finish = str(first.get("finish_reason") or "")
@@ -2158,9 +2073,7 @@ async def _chat_packed_parallel(
 
     async def _one(slice_path: Path, idx: int) -> GptChatResult:
         async with sem:
-            new_paths = [
-                slice_path if is_db_frames_path(p) else p for p in input_paths
-            ]
+            new_paths = [slice_path if is_db_frames_path(p) else p for p in input_paths]
             acc = (
                 f"{accompanying}\n\n"
                 f"# PACK {idx}/{len(slice_paths)} — только uuid из {slice_path.name}. "
@@ -2188,9 +2101,7 @@ async def _chat_packed_parallel(
                 auto_pack=False,
             )
 
-    parts = await asyncio.gather(
-        *[_one(p, i) for i, p in enumerate(slice_paths, start=1)]
-    )
+    parts = await asyncio.gather(*[_one(p, i) for i, p in enumerate(slice_paths, start=1)])
     merged = _merge_packed_apply_ops([p.text for p in parts])
     first = parts[0]
     return GptChatResult(
@@ -2282,10 +2193,7 @@ async def _chat_adaptive_1_2_4(
         )
         parts: list[GptChatResult] = []
         for i, slice_path in enumerate(slices, start=1):
-            new_paths = [
-                slice_path if is_db_frames_path(p) else p
-                for p in list(input_paths or [])
-            ]
+            new_paths = [slice_path if is_db_frames_path(p) else p for p in list(input_paths or [])]
             acc = (
                 f"{accompanying}\n\n"
                 f"# SPLIT L{nxt} {i}/{len(slices)} — только uuid из "
@@ -2343,9 +2251,7 @@ async def chat(**kwargs: Any) -> GptChatResult:
             fallback_hash = prompt_version_hash(str(kwargs.get("prompt") or ""))
         except Exception:  # noqa: BLE001 — учёт без хэша лучше, чем без вызова
             fallback_hash = ""
-    with llm_ledger.logical_call_scope(), llm_ledger.bind_prompt_hash(
-        fallback_hash, fallback=True
-    ):
+    with llm_ledger.logical_call_scope(), llm_ledger.bind_prompt_hash(fallback_hash, fallback=True):
         # Бюджет-предохранитель: ДО платного вызова (вложенные вызовы
         # проверяют тоже — дёшево, по кэшу).
         await _check_budget_before_call()
@@ -2406,16 +2312,12 @@ async def _chat_unscoped(
     headers = _headers()
     from app.services.llm_override import current_text_model_id
 
-    use_model = (
-        model or current_text_model_id() or settings.gpt_model_effective or "gpt-5.5"
-    ).strip()
+    use_model = (model or current_text_model_id() or settings.gpt_model_effective or "gpt-5.5").strip()
     url = _chat_url(use_model)
     use_timeout = float(timeout if timeout is not None else settings.gpt_timeout_s)
     retries = int(max_retries if max_retries is not None else settings.gpt_max_retries)
     ov_model = current_text_model_id()
-    provider_label = (
-        f"vibecode ({ov_model})" if _node_vibecode_override() else settings.text_llm_label
-    )
+    provider_label = f"vibecode ({ov_model})" if _node_vibecode_override() else settings.text_llm_label
     proxy = _gpt_proxy_url()
     via = "vps-relay" if _vps_relay_base() else ("proxy" if proxy else "direct")
     logger.info(
@@ -2486,11 +2388,7 @@ async def _chat_unscoped(
                 # stitch_llm_continuation несовместима со strict-JSON; обрыв
                 # ниже превращается в retryable-ошибку (ретрай целого вызова).
                 cont_round = 0
-                while (
-                    response_schema is None
-                    and cont_round < 2
-                    and looks_truncated_llm_text(result.text)
-                ):
+                while response_schema is None and cont_round < 2 and looks_truncated_llm_text(result.text):
                     cont_round += 1
                     tail = (result.text or "")[-4000:]
                     cont_prompt = (
@@ -2505,9 +2403,7 @@ async def _chat_unscoped(
                         "input": [
                             {
                                 "role": "user",
-                                "content": [
-                                    {"type": "input_text", "text": cont_prompt}
-                                ],
+                                "content": [{"type": "input_text", "text": cont_prompt}],
                             }
                         ],
                         "stream": True,
@@ -2532,12 +2428,10 @@ async def _chat_unscoped(
                         # Continue без исходного файла часто → пустой output.
                         # Уже полученный текст цельного ответа нельзя выбрасывать.
                         if (result.text or "").strip() and (
-                            e.context.get("error_kind") == "empty_stream"
-                            or "пустой output" in str(e)
+                            e.context.get("error_kind") == "empty_stream" or "пустой output" in str(e)
                         ):
                             logger.warning(
-                                "gpt_api.chat CF-continue empty — keep salvage "
-                                "chars={} ({})",
+                                "gpt_api.chat CF-continue empty — keep salvage chars={} ({})",
                                 len(result.text or ""),
                                 e,
                             )
@@ -2559,9 +2453,7 @@ async def _chat_unscoped(
                         },
                         response_id=result.response_id or cont.response_id,
                     )
-                if response_schema is not None and looks_truncated_llm_text(
-                    result.text or ""
-                ):
+                if response_schema is not None and looks_truncated_llm_text(result.text or ""):
                     raise GptApiError(
                         "GPT: ответ обрезан в контрактном режиме — "
                         "continuation отключён, нужен ретрай целого вызова",
@@ -2608,11 +2500,7 @@ async def _chat_unscoped(
                 )
                 # Контрактный режим: continuation выключен (см. responses-ветку).
                 cont_round = 0
-                while (
-                    response_schema is None
-                    and cont_round < 2
-                    and looks_truncated_llm_text(result.text)
-                ):
+                while response_schema is None and cont_round < 2 and looks_truncated_llm_text(result.text):
                     cont_round += 1
                     tail = (result.text or "")[-4000:]
                     cont_prompt = (
@@ -2638,12 +2526,10 @@ async def _chat_unscoped(
                         )
                     except GptApiError as e:
                         if (result.text or "").strip() and (
-                            e.context.get("error_kind") == "empty_stream"
-                            or "пустой output" in str(e)
+                            e.context.get("error_kind") == "empty_stream" or "пустой output" in str(e)
                         ):
                             logger.warning(
-                                "gpt_api.chat vibecode-continue empty — keep salvage "
-                                "chars={} ({})",
+                                "gpt_api.chat vibecode-continue empty — keep salvage chars={} ({})",
                                 len(result.text or ""),
                                 e,
                             )
@@ -2664,9 +2550,7 @@ async def _chat_unscoped(
                         },
                         response_id=result.response_id or cont.response_id,
                     )
-                if response_schema is not None and looks_truncated_llm_text(
-                    result.text or ""
-                ):
+                if response_schema is not None and looks_truncated_llm_text(result.text or ""):
                     raise GptApiError(
                         "GPT: ответ обрезан в контрактном режиме — "
                         "continuation отключён, нужен ретрай целого вызова",
@@ -2750,8 +2634,7 @@ async def _chat_unscoped(
                     "подожди или переключи бейдж модели на GPT (kie)"
                 )
             last_exc = GptApiError(
-                f"{provider_label} timeout {use_timeout:.0f}s "
-                f"(попытка {attempt}/{retries + 1}){hint}",
+                f"{provider_label} timeout {use_timeout:.0f}s (попытка {attempt}/{retries + 1}){hint}",
                 context={
                     "error_kind": "timeout",
                     "retryable": True,
@@ -2780,9 +2663,7 @@ async def _chat_unscoped(
                 )
                 and _drop_input_file_parts(body)
             ):
-                logger.warning(
-                    "gpt_api.chat: PDF input_file → 500, повтор только с текстом PDF"
-                )
+                logger.warning("gpt_api.chat: PDF input_file → 500, повтор только с текстом PDF")
                 last_exc = e
                 attempt = max(0, attempt - 1)
                 continue
@@ -2832,9 +2713,7 @@ async def chat_pdf_in_chunks(**kwargs: Any) -> GptChatResult:
             fallback_hash = prompt_version_hash(str(kwargs.get("prompt") or ""))
         except Exception:  # noqa: BLE001
             fallback_hash = ""
-    with llm_ledger.logical_call_scope(), llm_ledger.bind_prompt_hash(
-        fallback_hash, fallback=True
-    ):
+    with llm_ledger.logical_call_scope(), llm_ledger.bind_prompt_hash(fallback_hash, fallback=True):
         return await _chat_pdf_in_chunks_unscoped(**kwargs)
 
 
@@ -2983,9 +2862,7 @@ async def _chat_pdf_in_chunks_unscoped(
                 e,
             )
             return (
-                f"### {label}\n\n"
-                f"[фрагмент не обработан провайдером: {e} — "
-                f"остальные части ниже, если есть]"
+                f"### {label}\n\n[фрагмент не обработан провайдером: {e} — остальные части ниже, если есть]"
             )
 
     for idx, (label, part) in enumerate(jobs):
@@ -3036,7 +2913,6 @@ async def _chat_pdf_in_chunks_unscoped(
     )
 
 
-
 def _drop_input_file_parts(body: dict[str, Any]) -> bool:
     """Убрать input_file из Responses body. True если что-то сняли."""
     inp = body.get("input")
@@ -3053,19 +2929,13 @@ def _drop_input_file_parts(body: dict[str, Any]) -> bool:
             new_inp.append(item)
             continue
         filtered = [
-            p
-            for p in content
-            if not (isinstance(p, dict) and str(p.get("type") or "") == "input_file")
+            p for p in content if not (isinstance(p, dict) and str(p.get("type") or "") == "input_file")
         ]
         if len(filtered) == len(content):
             new_inp.append(item)
             continue
         changed = True
-        if (
-            len(filtered) == 1
-            and isinstance(filtered[0], dict)
-            and filtered[0].get("type") == "input_text"
-        ):
+        if len(filtered) == 1 and isinstance(filtered[0], dict) and filtered[0].get("type") == "input_text":
             new_inp.append({**item, "content": str(filtered[0].get("text") or "")})
         elif filtered:
             new_inp.append({**item, "content": filtered})
@@ -3247,9 +3117,7 @@ def resolve_bytes_extension(
     return fallback if fallback != ".bin" else ".dat"
 
 
-_WEAK_SUFFIXES = frozenset(
-    {"", ".bin", ".dat", ".tmp", ".octet-stream", ".unknown", ".download", ".file"}
-)
+_WEAK_SUFFIXES = frozenset({"", ".bin", ".dat", ".tmp", ".octet-stream", ".unknown", ".download", ".file"})
 _IMAGE_SUFFIXES = frozenset(
     {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".avif", ".heic", ".ico"}
 )
@@ -3306,8 +3174,7 @@ def suggested_name_and_mime(path: Path) -> tuple[str, str]:
         sniffed = resolve_bytes_extension(head or b"\x00", fallback=".dat")
     name = path.name
     if sniffed and (
-        needs_extension_fix(path, sniffed)
-        or path.suffix.lower() in {".bin", ".download", ".octet-stream"}
+        needs_extension_fix(path, sniffed) or path.suffix.lower() in {".bin", ".download", ".octet-stream"}
     ):
         name = f"{path.stem}{sniffed}"
     mime, _ = mimetypes.guess_type(name)
@@ -3346,9 +3213,7 @@ def ensure_correct_extension(path: Path) -> Path:
     }:
         return path
     # всегда чиним .bin даже если sniffed == fallback .dat
-    if path.suffix.lower() in {".bin", ".download", ".octet-stream"} or needs_extension_fix(
-        path, sniffed
-    ):
+    if path.suffix.lower() in {".bin", ".download", ".octet-stream"} or needs_extension_fix(path, sniffed):
         target = path.with_suffix(sniffed)
         if target.resolve() == path.resolve():
             return path
@@ -3386,9 +3251,7 @@ def finalize_downloaded_file(
             raw = decoded
         except OSError:
             pass
-    ext = resolve_bytes_extension(
-        raw, content_type=content_type, url=url, fallback=".dat"
-    )
+    ext = resolve_bytes_extension(raw, content_type=content_type, url=url, fallback=".dat")
     if b64_ext:
         ext = b64_ext
     cur = path.suffix.lower()
@@ -3492,7 +3355,7 @@ def extract_image_urls_from_html(html: bytes | str, base_url: str) -> list[str]:
     for pat in patterns:
         for m in re.finditer(pat, text, re.IGNORECASE):
             found.append(m.group(1).strip())
-    for m in re.finditer(r'<img\b[^>]*>', text, re.IGNORECASE):
+    for m in re.finditer(r"<img\b[^>]*>", text, re.IGNORECASE):
         tag = m.group(0)
         for attr in ("src", "data-src", "data-original"):
             am = re.search(rf'{attr}=["\']([^"\']+)["\']', tag, re.IGNORECASE)
@@ -3694,9 +3557,7 @@ async def search_web_image_urls(query: str, *, limit: int = 4) -> list[str]:
         seen.add(u)
         found.append(u)
 
-    async with _async_client(
-        timeout=25.0, follow_redirects=True, headers=headers
-    ) as client:
+    async with _async_client(timeout=25.0, follow_redirects=True, headers=headers) as client:
         for q in queries:
             if len(found) >= limit:
                 break
@@ -3786,9 +3647,7 @@ async def fetch_web_images(
     return saved
 
 
-async def download_content(
-    url: str, out_path: Path, *, timeout: float = 180.0
-) -> Path:
+async def download_content(url: str, out_path: Path, *, timeout: float = 180.0) -> Path:
     """Скачать файл по URL; расширение — Content-Type + magic, никогда .bin."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     content_type: str | None = None

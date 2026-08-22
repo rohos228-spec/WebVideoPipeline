@@ -3,6 +3,7 @@
 Usage:
     .venv\\Scripts\\python.exe scripts\\recover_heroes.py 13
 """
+
 from __future__ import annotations
 
 import asyncio

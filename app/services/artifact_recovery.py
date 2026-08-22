@@ -59,11 +59,7 @@ def archive_older_frame_clips(
 
 def newest_disk_video(videos_dir: Path, frame_number: int, shot: int) -> Path | None:
     if shot == 2:
-        candidates = [
-            p
-            for p in videos_dir.glob(f"clip_{frame_number:03d}_s2_*.mp4")
-            if p.is_file()
-        ]
+        candidates = [p for p in videos_dir.glob(f"clip_{frame_number:03d}_s2_*.mp4") if p.is_file()]
     else:
         candidates = [
             p
@@ -75,9 +71,7 @@ def newest_disk_video(videos_dir: Path, frame_number: int, shot: int) -> Path | 
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
-async def recover_scene_videos_from_disk(
-    session: AsyncSession, project: Project
-) -> list[int]:
+async def recover_scene_videos_from_disk(session: AsyncSession, project: Project) -> list[int]:
     """Привязать clip_XXX_*.mp4 / clip_XXX_s2_*.mp4; newer-on-disk заменяет stale Artifact."""
     from app.services.plan_shot2 import effective_shot_from_artifact
 
@@ -85,10 +79,10 @@ async def recover_scene_videos_from_disk(
     if not videos_dir.is_dir():
         return []
     frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     recovered: list[int] = []
 
     for fr in frames:
@@ -97,22 +91,21 @@ async def recover_scene_videos_from_disk(
             if newest is None:
                 continue
             arts = (
-                await session.execute(
-                    select(Artifact)
-                    .where(
-                        Artifact.project_id == project.id,
-                        Artifact.frame_id == fr.id,
-                        Artifact.kind == ArtifactKind.scene_video,
+                (
+                    await session.execute(
+                        select(Artifact)
+                        .where(
+                            Artifact.project_id == project.id,
+                            Artifact.frame_id == fr.id,
+                            Artifact.kind == ArtifactKind.scene_video,
+                        )
+                        .order_by(Artifact.id.desc())
                     )
-                    .order_by(Artifact.id.desc())
                 )
-            ).scalars().all()
-            shot_arts = [
-                a
-                for a in arts
-                if a.path
-                and effective_shot_from_artifact(a.meta, a.path) == shot
-            ]
+                .scalars()
+                .all()
+            )
+            shot_arts = [a for a in arts if a.path and effective_shot_from_artifact(a.meta, a.path) == shot]
             current = next(
                 (a for a in shot_arts if Path(a.path).is_file()),
                 None,
@@ -166,9 +159,7 @@ async def recover_scene_videos_from_disk(
     return recovered
 
 
-async def recover_scene_images_from_disk(
-    session: AsyncSession, project: Project
-) -> list[int]:
+async def recover_scene_images_from_disk(session: AsyncSession, project: Project) -> list[int]:
     """Привязать frame_NNN_*.png / frame_NNN_s2_*.png; newer-on-disk заменяет stale Artifact."""
     from app.services.plan_shot2 import find_shot1_image, find_shot2_image
     from app.services.scan_frames import is_valid_scene_image
@@ -177,10 +168,10 @@ async def recover_scene_images_from_disk(
     if not scenes_dir.is_dir():
         return []
     frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     recovered: list[int] = []
     for fr in frames:
         for shot, finder in ((1, find_shot1_image), (2, find_shot2_image)):
@@ -196,16 +187,20 @@ async def recover_scene_images_from_disk(
                 except OSError:
                     continue
             arts = (
-                await session.execute(
-                    select(Artifact)
-                    .where(
-                        Artifact.project_id == project.id,
-                        Artifact.frame_id == fr.id,
-                        Artifact.kind == ArtifactKind.scene_image,
+                (
+                    await session.execute(
+                        select(Artifact)
+                        .where(
+                            Artifact.project_id == project.id,
+                            Artifact.frame_id == fr.id,
+                            Artifact.kind == ArtifactKind.scene_image,
+                        )
+                        .order_by(Artifact.id.desc())
                     )
-                    .order_by(Artifact.id.desc())
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             shot_arts = []
             for a in arts:
                 meta_shot = (a.meta or {}).get("shot", 1)
@@ -312,9 +307,7 @@ def restore_scene_images_from_old(project: Project) -> dict[str, int]:
     }
 
 
-async def recover_scene_images_full(
-    session: AsyncSession, project: Project
-) -> dict[str, int | list[int]]:
+async def recover_scene_images_full(session: AsyncSession, project: Project) -> dict[str, int | list[int]]:
     """old/scenes → scenes/ → артефакты БД → статусы кадров."""
     from app.services.scan_frames import sync_frames_with_disk_images
 
@@ -329,9 +322,7 @@ async def recover_scene_images_full(
     }
 
 
-async def recover_audio_from_disk(
-    session: AsyncSession, project: Project
-) -> bool:
+async def recover_audio_from_disk(session: AsyncSession, project: Project) -> bool:
     """Зарегистрировать готовую озвучку на диске как ArtifactKind.audio."""
     full_path = find_voice_full_on_disk(
         project.data_dir,
@@ -384,9 +375,7 @@ async def recover_audio_from_disk(
     return True
 
 
-async def recover_whisper_from_disk(
-    session: AsyncSession, project: Project
-) -> bool:
+async def recover_whisper_from_disk(session: AsyncSession, project: Project) -> bool:
     """Подхватить words_*.json; обновить запись, если путь в БД битый."""
     existing = (
         await session.execute(
@@ -528,9 +517,7 @@ async def ensure_whisper_words(
     return words
 
 
-async def recover_music_from_disk(
-    session: AsyncSession, project: Project
-) -> bool:
+async def recover_music_from_disk(session: AsyncSession, project: Project) -> bool:
     """Зарегистрировать music/*.mp3 как ArtifactKind.music, если записи нет."""
     existing = (
         await session.execute(
@@ -652,15 +639,19 @@ async def recover_hero_references_from_old_dir(
     restored: list[str] = []
     for cid, src in sorted(by_id.items()):
         existing = (
-            await session.execute(
-                select(Artifact)
-                .where(
-                    Artifact.project_id == project.id,
-                    Artifact.kind == ArtifactKind.hero_reference,
+            (
+                await session.execute(
+                    select(Artifact)
+                    .where(
+                        Artifact.project_id == project.id,
+                        Artifact.kind == ArtifactKind.hero_reference,
+                    )
+                    .order_by(desc(Artifact.id))
                 )
-                .order_by(desc(Artifact.id))
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if any((a.meta or {}).get("excel_id") == cid for a in existing):
             dest = project.data_dir / "characters" / f"{cid}.png"
             if dest.is_file():
@@ -683,15 +674,19 @@ async def recover_hero_references_from_hitl(
 ) -> list[str]:
     """Восстановить персонажей: HITL photo_path → old/ → Outsee gallery."""
     rows = (
-        await session.execute(
-            select(HITLRequest)
-            .where(
-                HITLRequest.project_id == project.id,
-                HITLRequest.kind == HITLKind.approve_hero,
+        (
+            await session.execute(
+                select(HITLRequest)
+                .where(
+                    HITLRequest.project_id == project.id,
+                    HITLRequest.kind == HITLKind.approve_hero,
+                )
+                .order_by(HITLRequest.id)
             )
-            .order_by(HITLRequest.id)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     by_id = _latest_approved_hero_hitl(rows)
     if not by_id:
         return []
@@ -707,9 +702,7 @@ async def recover_hero_references_from_hitl(
         payload = hitl.payload or {}
         photo = payload.get("photo_path")
         if isinstance(photo, str) and Path(photo).is_file():
-            _restore_hero_png_from_path(
-                session, project, excel_id, Path(photo), hitl=hitl
-            )
+            _restore_hero_png_from_path(session, project, excel_id, Path(photo), hitl=hitl)
             restored.append(excel_id)
             continue
         prefix = payload.get("prompt_id_prefix")
@@ -731,9 +724,7 @@ async def recover_hero_references_from_hitl(
                 prefix = str(payload.get("prompt_id_prefix") or "").strip()
                 dest = project.data_dir / "characters" / f"{excel_id}.png"
                 try:
-                    img_url = await find_img_src_by_prompt_id_in_gallery(
-                        page, prefix, limit=25
-                    )
+                    img_url = await find_img_src_by_prompt_id_in_gallery(page, prefix, limit=25)
                     if not img_url:
                         logger.warning(
                             "[#{}] recover hero {}: [ID] не найден в Outsee",
@@ -748,9 +739,7 @@ async def recover_hero_references_from_hitl(
                         project_id=project.id,
                         img_url=img_url,
                     )
-                    _restore_hero_png_from_path(
-                        session, project, excel_id, dest, hitl=hitl
-                    )
+                    _restore_hero_png_from_path(session, project, excel_id, dest, hitl=hitl)
                     restored.append(excel_id)
                     logger.info(
                         "[#{}] recover hero {} из Outsee → {}",

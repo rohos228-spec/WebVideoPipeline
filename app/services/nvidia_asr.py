@@ -31,9 +31,7 @@ _NEMO_FILENAME_BY_REPO: dict[str, str] = {
 }
 _MIN_NEMO_BYTES = 50_000_000
 
-_NVIDIA_INSTALL_HINT = (
-    'pip install -e ".[nvidia]"   # NeMo + Parakeet на ПК монтажа (CUDA)'
-)
+_NVIDIA_INSTALL_HINT = 'pip install -e ".[nvidia]"   # NeMo + Parakeet на ПК монтажа (CUDA)'
 _LOAD_RETRIES = 8
 _LOAD_RETRY_SLEEP_S = 4.0
 _LOAD_LOCK_TIMEOUT_S = 900.0
@@ -84,11 +82,7 @@ def _is_file_lock_error(exc: BaseException) -> bool:
     if isinstance(exc, OSError) and getattr(exc, "winerror", None) == 32:
         return True
     text = str(exc).lower()
-    return (
-        "winerror 32" in text
-        or "used by another process" in text
-        or "занят другим процессом" in text
-    )
+    return "winerror 32" in text or "used by another process" in text or "занят другим процессом" in text
 
 
 def _nemo_filename(model_name: str) -> str:
@@ -221,7 +215,11 @@ def _http_download_nemo(model_name: str, cache_dir: Path) -> Path:
         try:
             timeout = httpx.Timeout(600.0, connect=60.0)
             with httpx.stream(
-                "GET", url, headers=headers, follow_redirects=True, timeout=timeout,
+                "GET",
+                url,
+                headers=headers,
+                follow_redirects=True,
+                timeout=timeout,
             ) as resp:
                 if resp.status_code == 416:
                     if _nemo_file_ready(part):
@@ -270,8 +268,7 @@ def _http_download_nemo(model_name: str, cache_dir: Path) -> Path:
                 raise
             wait = _LOAD_RETRY_SLEEP_S * attempt
             logger.warning(
-                "nvidia_asr: WinError 32 при HTTP-скачивании (попытка {}/{}), "
-                "повтор через {:.0f}s: {}",
+                "nvidia_asr: WinError 32 при HTTP-скачивании (попытка {}/{}), повтор через {:.0f}s: {}",
                 attempt,
                 _LOAD_RETRIES,
                 wait,
@@ -328,8 +325,7 @@ def _load_model(model_name: str):
                         raise
                     wait = _LOAD_RETRY_SLEEP_S * attempt
                     logger.warning(
-                        "nvidia_asr: WinError 32 при скачивании (попытка {}/{}), "
-                        "повтор через {:.0f}s: {}",
+                        "nvidia_asr: WinError 32 при скачивании (попытка {}/{}), повтор через {:.0f}s: {}",
                         attempt,
                         _LOAD_RETRIES,
                         wait,
@@ -426,8 +422,16 @@ def _probe_audio_channels(path: Path) -> int:
 
     proc = subprocess.run(
         [
-            "ffprobe", "-v", "error", "-select_streams", "a:0",
-            "-show_entries", "stream=channels", "-of", "csv=p=0", str(path),
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=channels",
+            "-of",
+            "csv=p=0",
+            str(path),
         ],
         capture_output=True,
         text=True,
@@ -458,25 +462,27 @@ def _ensure_mono_for_nemo(audio_path: Path) -> Path:
     src_mtime = src_stat.st_mtime
     # size тоже: смена файла с тем же stem/mtime-краем не должна брать чужой кэш.
     expect_min = max(1000, int(src_stat.st_size * 0.15))  # mono 16k ≈ меньше stereo
-    if (
-        out.is_file()
-        and out.stat().st_mtime >= src_mtime
-        and out.stat().st_size >= expect_min
-    ):
+    if out.is_file() and out.stat().st_mtime >= src_mtime and out.stat().st_size >= expect_min:
         logger.info("nvidia_asr: используем mono-кэш {}", out.name)
         return out
     import subprocess
 
     cmd = [
-        "ffmpeg", "-y", "-i", str(audio_path.resolve()),
-        "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(audio_path.resolve()),
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "pcm_s16le",
         str(out.resolve()),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"nvidia_asr: ffmpeg stereo→mono failed for {audio_path.name}: {proc.stderr}"
-        )
+        raise RuntimeError(f"nvidia_asr: ffmpeg stereo→mono failed for {audio_path.name}: {proc.stderr}")
     logger.warning(
         "nvidia_asr: {} — {} канал(ов), конвертировано в mono {}",
         audio_path.name,

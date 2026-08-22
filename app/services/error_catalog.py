@@ -16,8 +16,8 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ErrorSpec:
     code: str
-    title: str          # короткий заголовок для ноды
-    hint: str           # что делать
+    title: str  # короткий заголовок для ноды
+    hint: str  # что делать
 
 
 # ── Полный каталог возможных ошибок ────────────────────────────────────────
@@ -50,13 +50,17 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
         "Текст LLM: модель не поддерживается",
         "Проверь TOKENROUTER_MODEL или GPT_MODEL.",
     ),
-    "gpt_rate_limit": ErrorSpec("gpt_rate_limit", "GPT: лимит запросов (429)", "Снизь параллельность/подожди."),
+    "gpt_rate_limit": ErrorSpec(
+        "gpt_rate_limit", "GPT: лимит запросов (429)", "Снизь параллельность/подожди."
+    ),
     "gpt_server": ErrorSpec("gpt_server", "GPT: сбой шлюза (5xx)", "Временная ошибка провайдера, повтор."),
     "gpt_timeout": ErrorSpec("gpt_timeout", "GPT: таймаут", "Увеличь GPT_TIMEOUT_S или повтори."),
     "gpt_network": ErrorSpec("gpt_network", "GPT: сеть недоступна", "Проверь доступ к шлюзу."),
     "gpt_empty_response": ErrorSpec("gpt_empty_response", "GPT: пустой ответ", "Модель не вернула текст."),
     "gpt_bad_json": ErrorSpec("gpt_bad_json", "GPT: битый ответ", "Ответ не JSON — повтор."),
-    "gpt_provider_error": ErrorSpec("gpt_provider_error", "GPT: ошибка провайдера", "См. текст ответа шлюза."),
+    "gpt_provider_error": ErrorSpec(
+        "gpt_provider_error", "GPT: ошибка провайдера", "См. текст ответа шлюза."
+    ),
     # ── Картинки/видео (app/bots/grsai.py, outsee) ──
     "media_no_key": ErrorSpec(
         "media_no_key",
@@ -70,7 +74,9 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
     "media_empty": ErrorSpec("media_empty", "Пустой файл результата", "Провайдер вернул пустышку."),
     "media_auth": ErrorSpec("media_auth", "Генерация: ключ/доступ", "Проверь GRSAI/OUTSEE/KIE API ключ."),
     "media_credits": ErrorSpec("media_credits", "Генерация: нет кредитов", "Пополни баланс провайдера."),
-    "media_rate_limit": ErrorSpec("media_rate_limit", "Генерация: rate limit", "Снизь параллельность, подожди."),
+    "media_rate_limit": ErrorSpec(
+        "media_rate_limit", "Генерация: rate limit", "Снизь параллельность, подожди."
+    ),
     "media_start_frame_policy": ErrorSpec(
         "media_start_frame_policy",
         "Генерация: кадр отклонён",
@@ -109,16 +115,24 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
     "copy_failed": ErrorSpec("copy_failed", "Ошибка копирования", "Источник не найден."),
     # ── Проверочные ноды (vp.check.v1) ──
     "check_no_json": ErrorSpec("check_no_json", "Проверка: нет JSON", "Модель не вернула vp.check.v1."),
-    "check_schema": ErrorSpec("check_schema", "Проверка: неверная схема", "Ответ не соответствует vp.check.v1."),
+    "check_schema": ErrorSpec(
+        "check_schema", "Проверка: неверная схема", "Ответ не соответствует vp.check.v1."
+    ),
     # ── Пайплайн / граф ──
     "pipeline_input_not_ready": ErrorSpec(
-        "pipeline_input_not_ready", "Входы не готовы", "Предыдущие ноды не завершены.",
+        "pipeline_input_not_ready",
+        "Входы не готовы",
+        "Предыдущие ноды не завершены.",
     ),
     "pipeline_no_files_on_edge": ErrorSpec(
-        "pipeline_no_files_on_edge", "Нет файлов на входе", "У ноды-источника нет результата.",
+        "pipeline_no_files_on_edge",
+        "Нет файлов на входе",
+        "У ноды-источника нет результата.",
     ),
     "pipeline_node_unresolved": ErrorSpec(
-        "pipeline_node_unresolved", "Нода не сопоставлена", "Для excel_gpt нужен node_key.",
+        "pipeline_node_unresolved",
+        "Нода не сопоставлена",
+        "Для excel_gpt нужен node_key.",
     ),
     "pipeline_cancelled": ErrorSpec("pipeline_cancelled", "Остановлено пользователем", "Шаг снят через ⏹."),
     # ── Инфраструктура ──

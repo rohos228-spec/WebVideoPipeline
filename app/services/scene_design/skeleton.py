@@ -131,9 +131,7 @@ def _slot_duration_weights(parts: list[dict[str, Any]], total: Any) -> list[Any]
     return out
 
 
-def _slots_from_parts(
-    parts: list[dict[str, Any]], total: Any
-) -> list[dict[str, Any]]:
+def _slots_from_parts(parts: list[dict[str, Any]], total: Any) -> list[dict[str, Any]]:
     """Синтез слотов из битов: 1 бит = 1 слот (модель слоты не прислала)."""
     durations = _slot_duration_weights(parts, total)
     slots: list[dict[str, Any]] = []
@@ -145,9 +143,7 @@ def _slots_from_parts(
             else si + 1,
             "якорь": str(part.get("якорь") or "").strip(),
             "изменение": str(part.get("изменение") or "").strip(),
-            "главный": bool(
-                part.get("главный") is True or part.get("главный") == "true"
-            ),
+            "главный": bool(part.get("главный") is True or part.get("главный") == "true"),
         }
         if part.get("тип"):
             slot["тип"] = str(part.get("тип")).strip()
@@ -182,13 +178,7 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
             sid = f"scene_{num:02d}"
             prev = prev_scenes.get(num) or {}
             parts = [
-                p
-                for p in (
-                    cell.get("смысловые_части")
-                    or cell.get("биты")
-                    or []
-                )
-                if isinstance(p, dict)
+                p for p in (cell.get("смысловые_части") or cell.get("биты") or []) if isinstance(p, dict)
             ]
             bits: list[dict[str, Any]] = []
             main_part: dict[str, Any] | None = None
@@ -200,10 +190,7 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
                 bit = {
                     "порядок": order,
                     "глагол": str(
-                        part.get("глагол_или_суть")
-                        or part.get("глагол")
-                        or part.get("суть")
-                        or ""
+                        part.get("глагол_или_суть") or part.get("глагол") or part.get("суть") or ""
                     ).strip(),
                     "изменение": str(part.get("изменение") or "").strip(),
                     "якорь": str(part.get("якорь") or "").strip(),
@@ -221,23 +208,16 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
             if main_part and not str(glav.get("якорь_в_кадрах") or "").strip():
                 glav = {
                     **glav,
-                    "тип": str(
-                        glav.get("тип") or main_part.get("тип") or "действие"
-                    ).strip()
-                    or "действие",
+                    "тип": str(glav.get("тип") or main_part.get("тип") or "действие").strip() or "действие",
                     "глагол": str(
                         glav.get("глагол")
                         or main_part.get("глагол_или_суть")
                         or main_part.get("глагол")
                         or ""
                     ).strip(),
-                    "изменение": str(
-                        glav.get("изменение") or main_part.get("изменение") or ""
-                    ).strip(),
+                    "изменение": str(glav.get("изменение") or main_part.get("изменение") or "").strip(),
                     "якорь_в_кадрах": str(main_part.get("якорь") or "").strip(),
-                    "нить": str(
-                        glav.get("нить") or main_part.get("нить") or ""
-                    ).strip(),
+                    "нить": str(glav.get("нить") or main_part.get("нить") or "").strip(),
                 }
             link = cell.get("связь_с_прошлой")
             if not isinstance(link, dict):
@@ -247,7 +227,7 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
                 }
             scene: dict[str, Any] = {
                 "id_scene": sid,
-                "id_cell": str(cell.get("id_cell") or f"cell_{i+1:02d}").strip(),
+                "id_cell": str(cell.get("id_cell") or f"cell_{i + 1:02d}").strip(),
                 "кадры": [num],
                 "связь_с_прошлой": link,
                 "суть": str(cell.get("фокус") or cell.get("суть") or "").strip(),
@@ -255,20 +235,14 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
                 "главное": glav,
                 "биты": bits,
                 "смысловые_части": parts,
-                "предметы": [
-                    p for p in (cell.get("предметы") or []) if isinstance(p, dict)
-                ],
-                "персонажи": [
-                    p for p in (cell.get("персонажи") or []) if isinstance(p, dict)
-                ],
+                "предметы": [p for p in (cell.get("предметы") or []) if isinstance(p, dict)],
+                "персонажи": [p for p in (cell.get("персонажи") or []) if isinstance(p, dict)],
                 "время": str(cell.get("время") or "").strip(),
                 "длительность_сек": cell.get("длительность_сек"),
             }
             # Слоты: 1 бит = 1 слот. Модельные слоты переносим как есть,
             # иначе синтезируем из битов (длительность ∝ длине якоря).
-            slots = [
-                s for s in (cell.get("слоты") or []) if isinstance(s, dict)
-            ]
+            slots = [s for s in (cell.get("слоты") or []) if isinstance(s, dict)]
             if not slots and parts:
                 slots = _slots_from_parts(parts, cell.get("длительность_сек"))
             if slots:
@@ -323,9 +297,7 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
                         {
                             "порядок": 1,
                             "тип": glav.get("тип") or "действие",
-                            "глагол_или_суть": str(
-                                glav.get("глагол") or glav.get("что") or ""
-                            ).strip(),
+                            "глагол_или_суть": str(glav.get("глагол") or glav.get("что") or "").strip(),
                             "изменение": str(glav.get("изменение") or "").strip(),
                             "якорь": ank,
                             "нить": str(glav.get("нить") or "").strip(),
@@ -333,7 +305,7 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
                         }
                     ]
             cell_out: dict[str, Any] = {
-                "id_cell": str(sc.get("id_cell") or f"cell_{i+1:02d}"),
+                "id_cell": str(sc.get("id_cell") or f"cell_{i + 1:02d}"),
                 "кадр": num,
                 "связь_с_прошлой": sc.get("связь_с_прошлой")
                 or {"тип": "начало" if i == 0 else "продолжение", "что_связывает": ""},
@@ -351,9 +323,7 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
             if sc.get("фон_разовый"):
                 cell_out["фон_разовый"] = sc.get("фон_разовый")
             # Слоты: переносим из legacy-сцены или синтезируем из битов.
-            legacy_slots = [
-                s for s in (sc.get("слоты") or []) if isinstance(s, dict)
-            ]
+            legacy_slots = [s for s in (sc.get("слоты") or []) if isinstance(s, dict)]
             if not legacy_slots and parts:
                 legacy_slots = _slots_from_parts(parts, sc.get("длительность_сек"))
             if legacy_slots:
@@ -405,11 +375,7 @@ def skeleton_vo_frames(frames: list[Frame]) -> list[Frame]:
     ``duration_seconds`` из БД; их нельзя требовать как карточки скелета
     (тайминг vo≈0 vs кадры≈2.5с → вечные 15 gaps).
     """
-    out = [
-        fr
-        for fr in frames
-        if (getattr(fr, "voiceover_text", None) or "").strip()
-    ]
+    out = [fr for fr in frames if (getattr(fr, "voiceover_text", None) or "").strip()]
     return out or list(frames)
 
 
@@ -456,9 +422,7 @@ def _anchor_in_text(anchor: str, haystack: str) -> bool:
     return a in _norm_cf(haystack)
 
 
-def _gap(
-    address: str, problem: str, how: str
-) -> dict[str, str]:
+def _gap(address: str, problem: str, how: str) -> dict[str, str]:
     return {"адрес": address, "проблема": problem, "как_исправить": how}
 
 
@@ -475,9 +439,7 @@ def _scene_frames(scene: dict[str, Any]) -> list[int]:
     return out
 
 
-def _scene_sequence_gap(
-    sid: str, prev_max: int, nums: list[int], expect: list[int]
-) -> dict[str, str] | None:
+def _scene_sequence_gap(sid: str, prev_max: int, nums: list[int], expect: list[int]) -> dict[str, str] | None:
     """Порядок карточек = порядок VO-номеров.
 
     После camera_expand VO часто 1,2,5,9… — пустые SET между ними не дыры.
@@ -529,11 +491,7 @@ def validate_skeleton(
     vo_map = _vo_by_frame(frames)
     sec_map = _sec_by_frame(frames)
     rate = max(float(getattr(settings, "scene_design_vo_chars_per_sec", 14.0) or 14.0), 1.0)
-    item_ids = {
-        str(it.get("id") or "").strip()
-        for it in items
-        if str(it.get("id") or "").strip()
-    }
+    item_ids = {str(it.get("id") or "").strip() for it in items if str(it.get("id") or "").strip()}
 
     # 1. Покрытие
     covered: dict[int, str] = {}
@@ -549,8 +507,7 @@ def validate_skeleton(
                 _gap(
                     sid,
                     f"кадры {nums}: склейка VO-ячеек запрещена",
-                    "1 ячейка закадра = 1 сцена, кадры:[N] ровно один номер; "
-                    "разбей на отдельные scene_XX",
+                    "1 ячейка закадра = 1 сцена, кадры:[N] ровно один номер; разбей на отдельные scene_XX",
                 )
             )
         if nums != sorted(nums):
@@ -609,7 +566,11 @@ def validate_skeleton(
         mid = str(sc.get("место_id") or "").strip()
         if mid and mid not in loc_ids:
             gaps.append(
-                _gap(sid, f"место_id {mid!r} нет в locations_seed", f"заведи {mid} в locations_seed или смени id")
+                _gap(
+                    sid,
+                    f"место_id {mid!r} нет в locations_seed",
+                    f"заведи {mid} в locations_seed или смени id",
+                )
             )
         for p in sc.get("персонажи") or []:
             if not isinstance(p, dict):
@@ -675,27 +636,19 @@ def validate_skeleton(
             )
 
     # 3–4. Двойники локаций / персонажей
-    def _dup_gaps(
-        items: list[dict[str, Any]], *, kind: str, name_keys: tuple[str, ...]
-    ) -> None:
+    def _dup_gaps(items: list[dict[str, Any]], *, kind: str, name_keys: tuple[str, ...]) -> None:
         for i, a in enumerate(items):
             aid = str(a.get("id") or f"{kind}[{i}]").strip()
-            a_tok = _significant_tokens(
-                " ".join(str(a.get(k) or "") for k in ("якорь",) + name_keys)
-            )
+            a_tok = _significant_tokens(" ".join(str(a.get(k) or "") for k in ("якорь",) + name_keys))
             if not a_tok:
                 continue
             for b in items[i + 1 :]:
                 bid = str(b.get("id") or "").strip()
                 if not bid or bid == aid:
                     continue
-                b_tok = _significant_tokens(
-                    " ".join(str(b.get(k) or "") for k in ("якорь",) + name_keys)
-                )
+                b_tok = _significant_tokens(" ".join(str(b.get(k) or "") for k in ("якорь",) + name_keys))
                 inter = a_tok & b_tok
-                if len(inter) >= 1 and (
-                    len(inter) >= 2 or (a_tok <= b_tok or b_tok <= a_tok)
-                ):
+                if len(inter) >= 1 and (len(inter) >= 2 or (a_tok <= b_tok or b_tok <= a_tok)):
                     gaps.append(
                         _gap(
                             f"{kind}.{bid}",
@@ -1042,9 +995,7 @@ def explode_glued_vo_scenes(
             prev_mid = str(exploded[i - 1].get("место_id") or "").strip()
             sc["связь_с_прошлой"] = {
                 "тип": "продолжение",
-                "что_связывает": bind or prev_mid or (
-                    f"scene_{prev_nums[0]:02d}" if prev_nums else ""
-                ),
+                "что_связывает": bind or prev_mid or (f"scene_{prev_nums[0]:02d}" if prev_nums else ""),
             }
     draft["scenes"] = exploded
     if glued:
@@ -1058,9 +1009,7 @@ def explode_glued_vo_scenes(
     return glued
 
 
-def validate_skeleton_coverage(
-    scenes: list[Any], expected_frame_numbers: list[int]
-) -> None:
+def validate_skeleton_coverage(scenes: list[Any], expected_frame_numbers: list[int]) -> None:
     """Жёсткая проверка покрытия: 1 VO-ячейка = 1 сцена, без дыр и двойников."""
     if not expected_frame_numbers:
         return
@@ -1117,11 +1066,7 @@ def validate_skeleton_slots(scenes: list[Any]) -> None:
         if not isinstance(sc, dict):
             continue
         sid = str(sc.get("id_scene") or sc.get("id_cell") or "?")
-        bits = [
-            b
-            for b in (sc.get("биты") or sc.get("смысловые_части") or [])
-            if isinstance(b, dict)
-        ]
+        bits = [b for b in (sc.get("биты") or sc.get("смысловые_части") or []) if isinstance(b, dict)]
         slots = [s for s in (sc.get("слоты") or []) if isinstance(s, dict)]
         if not bits and not slots:
             continue
@@ -1130,9 +1075,7 @@ def validate_skeleton_slots(scenes: list[Any]) -> None:
             continue
         if bits and len(slots) != len(bits):
             problems.append(f"{sid}: слотов {len(slots)} != битов {len(bits)}")
-        main = sum(
-            1 for s in slots if s.get("главный") is True or s.get("главный") == "true"
-        )
+        main = sum(1 for s in slots if s.get("главный") is True or s.get("главный") == "true")
         if bits and main != 1:
             problems.append(f"{sid}: главных слотов {main} (нужен ровно 1)")
         for i, s in enumerate(slots, start=1):
@@ -1150,13 +1093,9 @@ def validate_skeleton_slots(scenes: list[Any]) -> None:
                 durs.append(0.0)
         if total > 0 and slots and any(d > 0 for d in durs):
             if abs(sum(durs) - total) > 0.6:
-                problems.append(
-                    f"{sid}: сумма слотов {sum(durs):.1f}с != ячейка {total:.1f}с"
-                )
+                problems.append(f"{sid}: сумма слотов {sum(durs):.1f}с != ячейка {total:.1f}с")
     if problems:
-        raise ag.SceneDesignAgentError(
-            "scene_design/skeleton: слоты — " + "; ".join(problems[:8])
-        )
+        raise ag.SceneDesignAgentError("scene_design/skeleton: слоты — " + "; ".join(problems[:8]))
 
 
 def merge_by_id(draft: dict[str, Any], editor: dict[str, Any]) -> dict[str, Any]:
@@ -1177,15 +1116,9 @@ def merge_by_id(draft: dict[str, Any], editor: dict[str, Any]) -> dict[str, Any]
         ed["fixed_scenes"] = tmp.get("scenes") or []
         # Обновить cells в out по id_cell / кадру
         cells = [c for c in (out.get("cells") or []) if isinstance(c, dict)]
-        by_cell = {
-            str(c.get("id_cell") or "").strip(): i
-            for i, c in enumerate(cells)
-            if c.get("id_cell")
-        }
+        by_cell = {str(c.get("id_cell") or "").strip(): i for i, c in enumerate(cells) if c.get("id_cell")}
         by_frame = {
-            _cell_frame_number(c): i
-            for i, c in enumerate(cells)
-            if _cell_frame_number(c) is not None
+            _cell_frame_number(c): i for i, c in enumerate(cells) if _cell_frame_number(c) is not None
         }
         for cell in fixed_cells:
             cid = str(cell.get("id_cell") or "").strip()
@@ -1224,11 +1157,7 @@ def merge_by_id(draft: dict[str, Any], editor: dict[str, Any]) -> dict[str, Any]
 
     def _merge_seed(key: str, fixed_key: str, id_field: str = "id") -> None:
         items = [x for x in (out.get(key) or []) if isinstance(x, dict)]
-        idx = {
-            str(x.get(id_field) or "").strip(): i
-            for i, x in enumerate(items)
-            if x.get(id_field)
-        }
+        idx = {str(x.get(id_field) or "").strip(): i for i, x in enumerate(items) if x.get(id_field)}
         fixed_list = [x for x in (ed.get(fixed_key) or []) if isinstance(x, dict)]
         provided: set[str] = set()
         for item in fixed_list:
@@ -1290,25 +1219,14 @@ def merge_by_id(draft: dict[str, Any], editor: dict[str, Any]) -> dict[str, Any]
 
 
 def _action_phases(scene: dict[str, Any]) -> list[dict[str, Any]]:
-    raw = (
-        scene.get("цепь_действия")
-        or scene.get("phases")
-        or scene.get("фазы")
-        or []
-    )
+    raw = scene.get("цепь_действия") or scene.get("phases") or scene.get("фазы") or []
     return [ph for ph in raw if isinstance(ph, dict)]
 
 
 def _phase_blob(scene: dict[str, Any]) -> str:
     return _norm_cf(
         " ".join(
-            str(
-                ph.get("action")
-                or ph.get("действие")
-                or ph.get("subject")
-                or ph.get("изменение")
-                or ""
-            )
+            str(ph.get("action") or ph.get("действие") or ph.get("subject") or ph.get("изменение") or "")
             for ph in _action_phases(scene)
         )
     )
@@ -1329,16 +1247,12 @@ def validate_action_covers_skeleton_bits(
     acts = [s for s in action_scenes if isinstance(s, dict)]
     if not acts:
         return
-    by_id = {
-        str(s.get("id_scene") or "").strip(): s
-        for s in acts
-        if str(s.get("id_scene") or "").strip()
-    }
+    by_id = {str(s.get("id_scene") or "").strip(): s for s in acts if str(s.get("id_scene") or "").strip()}
     missing: list[str] = []
     for i, sc in enumerate(skeleton.get("scenes") or []):
         if not isinstance(sc, dict):
             continue
-        sid = str(sc.get("id_scene") or "").strip() or f"scene_{i+1:02d}"
+        sid = str(sc.get("id_scene") or "").strip() or f"scene_{i + 1:02d}"
         bits = [b for b in (sc.get("биты") or []) if isinstance(b, dict)]
         if not bits:
             continue
@@ -1350,17 +1264,12 @@ def validate_action_covers_skeleton_bits(
             continue
         phases = _action_phases(act)
         if len(phases) < len(bits):
-            missing.append(
-                f"{sid}: фаз {len(phases)} < битов {len(bits)}"
-            )
+            missing.append(f"{sid}: фаз {len(phases)} < битов {len(bits)}")
             continue
         blob = _phase_blob(act)
         for bi, bit in enumerate(bits):
             toks = _significant_tokens(
-                " ".join(
-                    str(bit.get(k) or "")
-                    for k in ("глагол", "изменение", "якорь")
-                )
+                " ".join(str(bit.get(k) or "") for k in ("глагол", "изменение", "якорь"))
             )
             # Короткие/служебные биты без значимых токенов — хватает бюджета фаз.
             if len(toks) < 2:
@@ -1369,8 +1278,7 @@ def validate_action_covers_skeleton_bits(
                 # Не валим весь прогон: кино-фаза может перефразировать VO.
                 # Жёстко только бюджет фаз выше; токены — warning в лог.
                 logger.warning(
-                    "skeleton/action: {} бит[{}] без токен-пересечения "
-                    "(toks={}) — допускаем при фазах≥битов",
+                    "skeleton/action: {} бит[{}] без токен-пересечения (toks={}) — допускаем при фазах≥битов",
                     sid,
                     bi,
                     sorted(toks)[:8],
@@ -1418,9 +1326,7 @@ def _parse_editor_reply(text: str) -> dict[str, Any]:
         ),
     )
     if data is None:
-        raise RuntimeError(
-            f"skeleton editor: в ответе нет JSON (len={len(text or '')})"
-        )
+        raise RuntimeError(f"skeleton editor: в ответе нет JSON (len={len(text or '')})")
     err = str(data.get("error") or "").strip()
     if err:
         raise RuntimeError(f"skeleton editor: честный отказ — {err}")
@@ -1441,9 +1347,7 @@ async def _gpt(prompt: str, context: str, *, project: Project, timeout: float) -
     from app.services import gpt_client
 
     text = f"{prompt}\n\n---\n\n{context}"
-    return await gpt_client.gpt_ask_fresh(
-        text, timeout=timeout, project_id=project.id
-    )
+    return await gpt_client.gpt_ask_fresh(text, timeout=timeout, project_id=project.id)
 
 
 def write_skeleton_cells_payload(draft: dict[str, Any]) -> dict[str, Any]:
@@ -1496,20 +1400,12 @@ async def store_skeleton_cells(
                 val = slot.get(field)
                 if val is None or (isinstance(val, str) and not str(val).strip()):
                     continue
-                extra.append(
-                    sd_cells._cell(
-                        project, ag.SKELETON, "sk_slot", skey, field, val, seq=sorder
-                    )
-                )
+                extra.append(sd_cells._cell(project, ag.SKELETON, "sk_slot", skey, field, val, seq=sorder))
         glav = sc.get("главное")
         if isinstance(glav, dict):
             th = str(glav.get("нить") or "").strip()
             if th:
-                extra.append(
-                    sd_cells._cell(
-                        project, ag.SKELETON, "sk_thread", th, "открыта_в", sid, seq=0
-                    )
-                )
+                extra.append(sd_cells._cell(project, ag.SKELETON, "sk_thread", th, "открыта_в", sid, seq=0))
         for nt in sc.get("нити") or []:
             if isinstance(nt, str) and nt.strip():
                 extra.append(
@@ -1533,9 +1429,7 @@ async def store_skeleton_cells(
                     if val is None or (isinstance(val, str) and not str(val).strip()):
                         continue
                     extra.append(
-                        sd_cells._cell(
-                            project, ag.SKELETON, "sk_thread", name, str(field), val, seq=0
-                        )
+                        sd_cells._cell(project, ag.SKELETON, "sk_thread", name, str(field), val, seq=0)
                     )
     return await sd_cells.store_cells(session, project, ag.SKELETON, base + extra)
 
@@ -1552,9 +1446,7 @@ async def run_skeleton(
         ag.SKELETON,
         frame_list=[f for f in frames if getattr(f, "uuid", None)],
     )
-    cached = runner.load_checkpoint(
-        project, ag.SKELETON, input_hash=skeleton_hash
-    )
+    cached = runner.load_checkpoint(project, ag.SKELETON, input_hash=skeleton_hash)
     if isinstance(cached, dict) and (cached.get("scenes") or cached.get("cells")):
         normalize_skeleton_draft(cached)
         logger.info("[#{}] skeleton: checkpoint hit — GPT skip", project.id)
@@ -1583,9 +1475,7 @@ async def run_skeleton(
         from app.services.scene_design.runner import _dump_agent_fail
 
         dump = _dump_agent_fail(project, ag.SKELETON, draft_raw, e)
-        raise ag.SceneDesignAgentError(
-            f"{e} | dump={dump}" if dump else str(e)
-        ) from e
+        raise ag.SceneDesignAgentError(f"{e} | dump={dump}" if dump else str(e)) from e
     normalize_skeleton_draft(draft)
     explode_glued_vo_scenes(draft, vo_frames)
     heal_open_threads(draft)
@@ -1607,18 +1497,14 @@ async def run_skeleton(
                 f"# ЧЕРНОВИК (JSON)\n{json.dumps(draft, ensure_ascii=False)}\n\n"
                 f"# РАЗРЫВЫ (JSON)\n{json.dumps(gaps, ensure_ascii=False)}"
             )
-            reply = await _gpt(
-                editor_prompt, editor_ctx, project=project, timeout=timeout
-            )
+            reply = await _gpt(editor_prompt, editor_ctx, project=project, timeout=timeout)
             try:
                 edited = _parse_editor_reply(reply)
             except Exception as e:  # noqa: BLE001
                 from app.services.scene_design.runner import _dump_agent_fail
 
                 dump = _dump_agent_fail(project, "skeleton_editor", reply, e)
-                raise RuntimeError(
-                    f"{e} | dump={dump}" if dump else str(e)
-                ) from e
+                raise RuntimeError(f"{e} | dump={dump}" if dump else str(e)) from e
             draft = merge_by_id(draft, edited)
             explode_glued_vo_scenes(draft, vo_frames)
             heal_open_threads(draft)

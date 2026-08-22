@@ -40,43 +40,63 @@ class OptionChoice:
 
 IMAGE_GENERATORS: list[OptionChoice] = [
     OptionChoice(
-        "nano_banana_2", "+ Nano Banana 2", "nano-banana-2",
+        "nano_banana_2",
+        "+ Nano Banana 2",
+        "nano-banana-2",
         "Outsee · Nano Banana 2",
     ),
     OptionChoice(
-        "nano_banana_2_lite", "+ Nano Banana 2 Lite", "nano-banana-2-lite",
+        "nano_banana_2_lite",
+        "+ Nano Banana 2 Lite",
+        "nano-banana-2-lite",
         "Outsee · быстрая/дешёвая Banana 2",
     ),
     OptionChoice(
-        "nano_banana_pro", "+ Nano Banana Pro", "nano-banana-pro",
+        "nano_banana_pro",
+        "+ Nano Banana Pro",
+        "nano-banana-pro",
         "Grsai · Лучшая модель на рынке (TOP)",
     ),
     OptionChoice(
-        "nano_banana_fast", "+ Nano Banana Fast", "nano-banana-fast",
+        "nano_banana_fast",
+        "+ Nano Banana Fast",
+        "nano-banana-fast",
         "Grsai · быстрый Nano Banana",
     ),
     OptionChoice(
-        "nano_banana", "+ Nano Banana", "nano-banana",
+        "nano_banana",
+        "+ Nano Banana",
+        "nano-banana",
         "Grsai · быстрая и точная",
     ),
     OptionChoice(
-        "gpt_image_2_vip", "+ GPT Image 2", "gpt-image-2-vip",
+        "gpt_image_2_vip",
+        "+ GPT Image 2",
+        "gpt-image-2-vip",
         "Outsee · GPT Image 2 (до 4K)",
     ),
     OptionChoice(
-        "seedream_4_5", "Seedream 4.5", "seedream-4.5",
+        "seedream_4_5",
+        "Seedream 4.5",
+        "seedream-4.5",
         "Outsee · TikTok Seedream 4K",
     ),
     OptionChoice(
-        "seedream_5_0_lite", "Seedream 5.0 Lite", "seedream-5-lite",
+        "seedream_5_0_lite",
+        "Seedream 5.0 Lite",
+        "seedream-5-lite",
         "Outsee · Seedream 5 Lite",
     ),
     OptionChoice(
-        "seedream_5_pro", "Seedream 5 Pro", "seedream-5-pro",
+        "seedream_5_pro",
+        "Seedream 5 Pro",
+        "seedream-5-pro",
         "Outsee · Seedream 5 Pro",
     ),
     OptionChoice(
-        "gpt_image_1_5", "GPT Image 1.5", "gpt-image-1.5",
+        "gpt_image_1_5",
+        "GPT Image 1.5",
+        "gpt-image-1.5",
         "Outsee · GPT Image 1.5",
     ),
 ]
@@ -174,63 +194,93 @@ def clamp_image_resolution_id(
 
 VIDEO_GENERATORS: list[OptionChoice] = [
     OptionChoice(
-        "sora_2", "+ Sora 2", "sora-2",
+        "sora_2",
+        "+ Sora 2",
+        "sora-2",
         "Grsai · OpenAI Sora 2 (10/15с, звук)",
     ),
     OptionChoice(
-        "veo_3_1_lite", "+ Veo 3.1 Lite", "veo-3-1-lite",
+        "veo_3_1_lite",
+        "+ Veo 3.1 Lite",
+        "veo-3-1-lite",
         "Outsee · Veo 3.1 Lite",
     ),
     OptionChoice(
-        "veo_3_1_fast", "+ Veo 3.1 Fast", "veo-3-1-fast",
+        "veo_3_1_fast",
+        "+ Veo 3.1 Fast",
+        "veo-3-1-fast",
         "Grsai · veo3.1-fast",
     ),
     OptionChoice(
-        "veo_3_fast", "+ Veo 3 Fast", "veo-3-fast",
+        "veo_3_fast",
+        "+ Veo 3 Fast",
+        "veo-3-fast",
         "Grsai · alias veo3.1-fast (исторический id)",
     ),
     OptionChoice(
-        "kling_3", "Kling 3.0", "kling-3-0",
+        "kling_3",
+        "Kling 3.0",
+        "kling-3-0",
         "Новейшая Kling (TOP). Гибкая длительность, нативное аудио, мультишот",
     ),
     OptionChoice(
-        "kling_2_6", "Kling 2.6", "kling-2-6",
+        "kling_2_6",
+        "Kling 2.6",
+        "kling-2-6",
         "Kie · Kling 2.6 (KIE_API_KEY)",
     ),
     OptionChoice(
-        "kling_2_5_turbo", "Kling 2.5 Turbo", "kling-2-5-turbo",
+        "kling_2_5_turbo",
+        "Kling 2.5 Turbo",
+        "kling-2-5-turbo",
         "Хороший выбор для генерации по первому-последнему кадру",
     ),
     OptionChoice(
-        "kling_lip_sync", "Kling Lip Sync", "kling-lip-sync",
+        "kling_lip_sync",
+        "Kling Lip Sync",
+        "kling-lip-sync",
         "Синхронизация губ под аудио",
     ),
     OptionChoice(
-        "kling_motion_2_6", "Kling Motion Control 2.6", "kling-motion-2-6",
+        "kling_motion_2_6",
+        "Kling Motion Control 2.6",
+        "kling-motion-2-6",
         "Контроль движения и эмоций по вашему референсу",
     ),
     OptionChoice(
-        "kling_motion_3_0", "Kling Motion Control 3.0", "kling-motion-3-0",
+        "kling_motion_3_0",
+        "Kling Motion Control 3.0",
+        "kling-motion-3-0",
         "Улучшенный контроль движения, лучшая консистентность лица",
     ),
     OptionChoice(
-        "seedance_2", "Seedance 2", "seedance-2",
+        "seedance_2",
+        "Seedance 2",
+        "seedance-2",
         "Лучшая видео-модель на рынке (ЭКСКЛЮЗИВ)",
     ),
     OptionChoice(
-        "seedance_pro_1_5", "Seedance Pro 1.5", "seedance-pro-1-5",
+        "seedance_pro_1_5",
+        "Seedance Pro 1.5",
+        "seedance-pro-1-5",
         "Отличное соотношение цена-качество, идеально для базовых задач",
     ),
     OptionChoice(
-        "wan_2_6", "Wan 2.6", "wan-2-6",
+        "wan_2_6",
+        "Wan 2.6",
+        "wan-2-6",
         "Последняя версия видео-модели от Alibaba. Универсальна",
     ),
     OptionChoice(
-        "hailuo_2_3_fast", "Hailuo 2.3 Fast", "hailuo-2-3-fast",
+        "hailuo_2_3_fast",
+        "Hailuo 2.3 Fast",
+        "hailuo-2-3-fast",
         "Быстрая модель от MiniMax",
     ),
     OptionChoice(
-        "hailuo_2_3_pro", "Hailuo 2.3 Pro", "hailuo-2-3-pro",
+        "hailuo_2_3_pro",
+        "Hailuo 2.3 Pro",
+        "hailuo-2-3-pro",
         "Продвинутая версия Hailuo",
     ),
 ]
@@ -245,6 +295,7 @@ VIDEO_RESOLUTIONS: list[OptionChoice] = [
 
 
 # ---- Справочники для поиска по id ------------------------------------------
+
 
 def _by_id(choices: list[OptionChoice]) -> dict[str, OptionChoice]:
     return {c.id: c for c in choices}
@@ -270,9 +321,7 @@ VIDEO_RESOLUTIONS_BY_ID = _by_id(VIDEO_RESOLUTIONS)
 
 VIDEO_PRIMARY_REWRITE_ATTEMPTS = 3
 VIDEO_PRIMARY_FINAL_ATTEMPTS = 1
-VIDEO_PRIMARY_TOTAL_ATTEMPTS = (
-    VIDEO_PRIMARY_REWRITE_ATTEMPTS + VIDEO_PRIMARY_FINAL_ATTEMPTS
-)  # 4
+VIDEO_PRIMARY_TOTAL_ATTEMPTS = VIDEO_PRIMARY_REWRITE_ATTEMPTS + VIDEO_PRIMARY_FINAL_ATTEMPTS  # 4
 VIDEO_FALLBACK_ATTEMPTS = 3
 
 # Совместимость со старыми тестами/импортами: порог смены модели = primary total.
@@ -332,6 +381,7 @@ def resolve_image_quality_slug(
 
 # ---- Функция-рендер полной сводки настроек проекта ------------------------
 
+
 def render_settings_summary(
     image_generator: str | None,
     aspect_ratio: str | None,
@@ -349,12 +399,8 @@ def render_settings_summary(
     iq = IMAGE_QUALITIES_BY_ID.get(image_quality or "")
     vg = VIDEO_GENERATORS_BY_ID.get(video_generator or "")
     vr = VIDEO_RESOLUTIONS_BY_ID.get(video_resolution or "")
-    img_relax_str = (
-        "Безлимит" if image_relax else ("—" if image_relax is None else "без Безлимита")
-    )
-    vid_relax_str = (
-        "Безлимит" if video_relax else ("—" if video_relax is None else "без Безлимита")
-    )
+    img_relax_str = "Безлимит" if image_relax else ("—" if image_relax is None else "без Безлимита")
+    vid_relax_str = "Безлимит" if video_relax else ("—" if video_relax is None else "без Безлимита")
     qual_part = f" · {iq.label}" if iq else ""
     return (
         f"img-gen: {ig.label if ig else '—'} · "
@@ -416,9 +462,8 @@ OUTSEE_PROMPT_MAX_CHARS = 4900
 # Целевой лимит тела промта без ID-строки — запас под prepend_gen_id (~25 симв).
 OUTSEE_PROMPT_TARGET_BODY_CHARS = 4877
 
-def build_gen_id_prefix(
-    project_id: int, frame_number: int | None, short_uuid: str
-) -> str:
+
+def build_gen_id_prefix(project_id: int, frame_number: int | None, short_uuid: str) -> str:
     """Формат: `[ID: P12-F3-a7f2b01c]`  (или `[ID: P12-HERO-a7f2b01c]`).
 
     Нужен чтобы однозначно отличать картинки/промты в истории outsee. При
@@ -433,16 +478,12 @@ def build_gen_id_prefix(
 _PROMPT_ID_LINE_RE = re.compile(r"^\s*\[ID:\s*[^\]]+\]\s*$", re.IGNORECASE)
 
 # Заглушки GPT/xlsx — только короткие/чистые placeholder (не подстрока в длинном промте).
-_PLACEHOLDER_PHRASES: tuple[str, ...] = (
-    "нет исходных данных для заполнения",
-)
+_PLACEHOLDER_PHRASES: tuple[str, ...] = ("нет исходных данных для заполнения",)
 
 # Shot_02: обязательная фраза без содержания сцены — не генерация.
 _SHOT2_PREFIX_ONLY = (
-    "на основе референса, запрещено делать идентичную иллюстрацию "
-    "без смены положения камеры",
-    "на основе референса, запрещено делать идентичную иллюстрацию "
-    "без смены положения",
+    "на основе референса, запрещено делать идентичную иллюстрацию без смены положения камеры",
+    "на основе референса, запрещено делать идентичную иллюстрацию без смены положения",
 )
 
 
@@ -492,11 +533,7 @@ def strip_prompt_id_lines(prompt: str) -> str:
     """
     if not prompt:
         return ""
-    kept = [
-        ln
-        for ln in prompt.splitlines()
-        if not _PROMPT_ID_LINE_RE.match(ln)
-    ]
+    kept = [ln for ln in prompt.splitlines() if not _PROMPT_ID_LINE_RE.match(ln)]
     return "\n".join(kept).strip()
 
 

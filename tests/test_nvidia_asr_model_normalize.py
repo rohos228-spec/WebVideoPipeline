@@ -3,8 +3,6 @@
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from app.services import nvidia_asr
 from app.services.nvidia_asr import _MIN_NEMO_BYTES, normalize_nvidia_asr_model
 

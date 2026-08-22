@@ -13,7 +13,6 @@ from app.models import BatchProject, BatchStatus, Project, ProjectStatus
 from app.services.project_state import is_running_status
 
 
-
 async def block_pipeline_autorun_on_startup(session: AsyncSession) -> dict[str, Any]:
     """Rollback running work on restart — but keep user's auto_mode preference.
 
@@ -60,9 +59,7 @@ async def block_pipeline_autorun_on_startup(session: AsyncSession) -> dict[str, 
                 )
                 from app.services.work_lease import is_held
 
-                _code = NODE_TYPE_TO_STEP_CODE.get(
-                    RUNNING_TO_NODE_TYPE.get(project.status, ""), ""
-                )
+                _code = NODE_TYPE_TO_STEP_CODE.get(RUNNING_TO_NODE_TYPE.get(project.status, ""), "")
                 if _code and await is_held(project.id, f"step:{_code}"):
                     logger.info(
                         "[#{}] STARTUP GUARD: {} — живой step-lease "

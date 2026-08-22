@@ -373,9 +373,7 @@ async def test_assembled_heals_failed_run_status(mem_db) -> None:
     )
     async with mem_db() as session:
         run = (
-            await session.execute(
-                select(WorkflowRun).where(WorkflowRun.project_id == project_id)
-            )
+            await session.execute(select(WorkflowRun).where(WorkflowRun.project_id == project_id))
         ).scalar_one()
         run.status = WorkflowRunStatus.failed
         nr = await session.get(NodeRun, nr_id)
@@ -395,9 +393,7 @@ async def test_assembled_heals_failed_run_status(mem_db) -> None:
 
     async with mem_db() as session:
         run = (
-            await session.execute(
-                select(WorkflowRun).where(WorkflowRun.project_id == project_id)
-            )
+            await session.execute(select(WorkflowRun).where(WorkflowRun.project_id == project_id))
         ).scalar_one()
         assert run.status == WorkflowRunStatus.done
         nr = await session.get(NodeRun, nr_id)
@@ -420,9 +416,7 @@ async def test_scene_assembling_heals_false_failed_excel_gpt_sd_agents(mem_db) -
         wf = Workflow(name=f"wf-{uuid.uuid4().hex[:8]}", is_default=False, nodes=[], edges=[])
         session.add(wf)
         await session.flush()
-        project = Project(
-            slug=slug, topic="t", status=ProjectStatus.scene_assembling
-        )
+        project = Project(slug=slug, topic="t", status=ProjectStatus.scene_assembling)
         session.add(project)
         await session.flush()
         nodes = []

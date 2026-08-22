@@ -90,18 +90,14 @@ def test_missing_frame_uuids_partial_ops() -> None:
             ]
         }
     )
-    missing, delivered, data = missing_frame_uuids_for_volume(
-        text, ["a", "b", "c", "d"]
-    )
+    missing, delivered, data = missing_frame_uuids_for_volume(text, ["a", "b", "c", "d"])
     assert delivered == 2
     assert missing == ["c", "d"]
     assert data is not None
 
 
 def test_missing_skips_scenes_only_payload() -> None:
-    text = json.dumps(
-        {"characters": [{"id": "c01"}], "scenes": [{"id_scene": "scene_01"}], "ops": []}
-    )
+    text = json.dumps({"characters": [{"id": "c01"}], "scenes": [{"id_scene": "scene_01"}], "ops": []})
     missing, delivered, _ = missing_frame_uuids_for_volume(text, ["a", "b"])
     assert missing == []
     assert delivered == 0
@@ -140,13 +136,7 @@ async def test_volume_complete_apply_ops_reply(tmp_path: Path, monkeypatch) -> N
         # добор на 3 оставшихся
         miss = [u for u in uuids if u not in {uuids[0], uuids[1]}]
         return SimpleNamespace(
-            text=json.dumps(
-                {
-                    "ops": [
-                        {"frame_uuid": u, "fields": {"место": "x"}} for u in miss
-                    ]
-                }
-            )
+            text=json.dumps({"ops": [{"frame_uuid": u, "fields": {"место": "x"}} for u in miss]})
         )
 
     monkeypatch.setattr("app.services.gpt_api.chat", fake_chat)

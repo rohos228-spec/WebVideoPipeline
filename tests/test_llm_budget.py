@@ -9,11 +9,11 @@ import httpx
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models import Base, LlmCall, Project, ProjectStatus
-from app.services import gpt_api, llm_ledger as ledger
+from app.services import gpt_api
+from app.services import llm_ledger as ledger
 from app.services.llm_ledger import BudgetExhausted
 from app.services.llm_override import LlmAccountingContext, use_accounting
 from app.services.step_failure_policy import record_step_failure
@@ -213,9 +213,16 @@ async def test_volume_complete_reraises_budget(monkeypatch):
     with pytest.raises(BudgetExhausted):
         await gpt_api._maybe_volume_complete_chat_result(
             gpt_api.GptChatResult(text="{}", model="m"),
-            prompt="p", accompanying="", input_paths=None, system=None,
-            history=None, model="m", temperature=None, timeout=1.0,
-            xlsx_write_contract="apply_ops", volume_complete=True,
+            prompt="p",
+            accompanying="",
+            input_paths=None,
+            system=None,
+            history=None,
+            model="m",
+            temperature=None,
+            timeout=1.0,
+            xlsx_write_contract="apply_ops",
+            volume_complete=True,
         )
 
 
@@ -242,9 +249,7 @@ async def test_policy_pauses_with_reason(db):
     pid = await _add_project(db)
     async with db() as session:
         p = await session.get(Project, pid)
-        with patch(
-            "app.services.run_sync.mark_running_node_failed", new_callable=AsyncMock
-        ):
+        with patch("app.services.run_sync.mark_running_node_failed", new_callable=AsyncMock):
             action = await record_step_failure(
                 session,
                 p,
@@ -296,7 +301,9 @@ async def client(db):
 async def test_costs_api_aggregates(client, db, monkeypatch):
     monkeypatch.setattr(settings, "llm_budget_usd", 1.0)
     pid = await _add_project(db)
-    await _add_call(db, pid, 0.5, node_key="check_1", model="gpt-5.6-sol", prompt_tokens=100, completion_tokens=10)
+    await _add_call(
+        db, pid, 0.5, node_key="check_1", model="gpt-5.6-sol", prompt_tokens=100, completion_tokens=10
+    )
     await _add_call(db, pid, 0.2, node_key="check_1", model="gpt-5.6-sol", result="error", unbilled=True)
     await _add_call(db, pid, 0.1, node_key="plan", model="kimi-k3", contract_rejected=True)
     await _add_call(db, None, 0.3, node_key="adhoc", model="kimi-k3")
@@ -316,8 +323,16 @@ async def test_costs_api_aggregates(client, db, monkeypatch):
     # две served одной запрошенной модели не сливаются в одну строку.
     async with db() as s:
         for served in ("gw/served-a", "gw/served-b"):
-            s.add(LlmCall(project_id=pid, node_key="n", logical_call_id="l",
-                          model="req", served_model=served, cost_usd=1.0))
+            s.add(
+                LlmCall(
+                    project_id=pid,
+                    node_key="n",
+                    logical_call_id="l",
+                    model="req",
+                    served_model=served,
+                    cost_usd=1.0,
+                )
+            )
         await s.commit()
     d = (await client.get(f"/api/projects/{pid}/llm-costs")).json()
     served_rows = {m["model"]: m for m in d["models"] if m["model"].startswith("gw/")}

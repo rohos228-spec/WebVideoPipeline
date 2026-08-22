@@ -174,9 +174,7 @@ def validate_xlsx_sheets(path: Path) -> str | None:
         if actual == expected:
             return None
     actual_str = ", ".join(sorted(actual))
-    expected_hint = " | ".join(
-        ", ".join(sorted(layout)) for layout in _allowed_sheet_layouts()
-    )
+    expected_hint = " | ".join(", ".join(sorted(layout)) for layout in _allowed_sheet_layouts())
     return (
         f"{_XLSX_FORMAT_ERROR_PREFIX}: листы [{actual_str}] "
         f"не совпадают с шаблоном (ожидалось: {expected_hint})"
@@ -288,10 +286,7 @@ def validate_xlsx(path: Path) -> str | None:
     # xlsx — это zip, у zip-архивов всегда первые 2 байта 'PK'.
     if magic[:2] != b"PK":
         preview = magic.hex()
-        return (
-            f"файл не является xlsx (первые 4 байта: {preview}, "
-            f"ожидался zip-magic 'PK')"
-        )
+        return f"файл не является xlsx (первые 4 байта: {preview}, ожидался zip-magic 'PK')"
     # Финальная проверка — действительно ли openpyxl откроет файл.
     try:
         from openpyxl import load_workbook  # noqa: PLC0415

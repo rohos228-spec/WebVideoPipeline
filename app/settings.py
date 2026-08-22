@@ -29,19 +29,13 @@ class Settings(BaseSettings):
 
     # Browser — только Chrome из Start-Chrome.cmd (профиль .vp_browser_data, :29229)
     browser_cdp_url: str = Field("http://127.0.0.1:29229", alias="BROWSER_CDP_URL")
-    browser_cdp_connect_timeout_ms: int = Field(
-        45_000, alias="BROWSER_CDP_CONNECT_TIMEOUT_MS"
-    )
+    browser_cdp_connect_timeout_ms: int = Field(45_000, alias="BROWSER_CDP_CONNECT_TIMEOUT_MS")
     # При зависании connect_over_cdp после ws connected — перезапуск Chrome (Win)
     browser_cdp_auto_recover: bool = Field(True, alias="BROWSER_CDP_AUTO_RECOVER")
 
     # Service URLs
-    outsee_image_url: str = Field(
-        "https://outsee.io/image?model=gpt-image-2", alias="OUTSEE_IMAGE_URL"
-    )
-    outsee_video_url: str = Field(
-        "https://outsee.io/video?model=veo-3-fast", alias="OUTSEE_VIDEO_URL"
-    )
+    outsee_image_url: str = Field("https://outsee.io/image?model=gpt-image-2", alias="OUTSEE_IMAGE_URL")
+    outsee_video_url: str = Field("https://outsee.io/video?model=veo-3-fast", alias="OUTSEE_VIDEO_URL")
     # True = вариант A (image+video): глобальная очередь Outsee, одна новая
     # картинка/ролик после Generate, без перебора галереи по [ID: …].
     outsee_queue_mode: bool = Field(True, alias="OUTSEE_QUEUE_MODE")
@@ -50,12 +44,8 @@ class Settings(BaseSettings):
     # Developer API key (https://outsee.io/profile) — НЕ cookies / НЕ Grsai
     outsee_api_key: str = Field("", alias="OUTSEE_API_KEY")
     outsee_api_base_url: str = Field("https://outsee.io", alias="OUTSEE_API_BASE_URL")
-    outsee_default_image_model: str = Field(
-        "gpt-image-2", alias="OUTSEE_DEFAULT_IMAGE_MODEL"
-    )
-    outsee_default_video_model: str = Field(
-        "veo-3-1-lite", alias="OUTSEE_DEFAULT_VIDEO_MODEL"
-    )
+    outsee_default_image_model: str = Field("gpt-image-2", alias="OUTSEE_DEFAULT_IMAGE_MODEL")
+    outsee_default_video_model: str = Field("veo-3-1-lite", alias="OUTSEE_DEFAULT_VIDEO_MODEL")
     # при сбое Bearer API — откат на Playwright UI (нужен Chrome CDP)
     outsee_http_fallback_cdp: bool = Field(True, alias="OUTSEE_HTTP_FALLBACK_CDP")
     # legacy alias (cookie-era); ignored if OUTSEE_API_KEY set
@@ -96,18 +86,12 @@ class Settings(BaseSettings):
     # TEXT_LLM_PROVIDER=kie|tokenrouter|kimi — default kie (GPT не убирается).
     text_llm_provider: str = Field("kie", alias="TEXT_LLM_PROVIDER")
     tokenrouter_api_key: str = Field("", alias="TOKENROUTER_API_KEY")
-    tokenrouter_base_url: str = Field(
-        "https://api.tokenrouter.com/v1", alias="TOKENROUTER_BASE_URL"
-    )
-    tokenrouter_model: str = Field(
-        "moonshotai/kimi-k3-free", alias="TOKENROUTER_MODEL"
-    )
+    tokenrouter_base_url: str = Field("https://api.tokenrouter.com/v1", alias="TOKENROUTER_BASE_URL")
+    tokenrouter_model: str = Field("moonshotai/kimi-k3-free", alias="TOKENROUTER_MODEL")
 
     # vibecode.moe — OpenAI-совместимый chat/completions (GPT 5.5 / 5.6 Sol).
     vibecode_api_key: str = Field("", alias="VIBECODE_API_KEY")
-    vibecode_base_url: str = Field(
-        "https://vibecode.moe/v1", alias="VIBECODE_BASE_URL"
-    )
+    vibecode_base_url: str = Field("https://vibecode.moe/v1", alias="VIBECODE_BASE_URL")
 
     # Только dev/tests: без API-ключа check-роли получают stub-вердикт
     # (fail-open). В проде False → отсутствие ключа роняет проверку ошибкой.
@@ -124,9 +108,7 @@ class Settings(BaseSettings):
     yandex_storage_bucket: str = Field("", alias="YANDEX_STORAGE_BUCKET")
     yandex_storage_access_key: str = Field("", alias="YANDEX_STORAGE_ACCESS_KEY")
     yandex_storage_secret_key: str = Field("", alias="YANDEX_STORAGE_SECRET_KEY")
-    yandex_storage_endpoint: str = Field(
-        "https://storage.yandexcloud.net", alias="YANDEX_STORAGE_ENDPOINT"
-    )
+    yandex_storage_endpoint: str = Field("https://storage.yandexcloud.net", alias="YANDEX_STORAGE_ENDPOINT")
     yandex_storage_region: str = Field("ru-central1", alias="YANDEX_STORAGE_REGION")
     # Шаблон пути chat-эндпоинта. grsai/OpenAI: /v1/chat/completions;
     # kie.ai: путь зависит от модели → /{model}/v1/chat/completions.
@@ -199,10 +181,7 @@ class Settings(BaseSettings):
     def gpt_api_effective_key(self) -> str:
         """Ключ активного текстового LLM."""
         if self.text_llm_is_tokenrouter:
-            return (
-                (self.tokenrouter_api_key or "").strip()
-                or (self.gpt_api_key or "").strip()
-            )
+            return (self.tokenrouter_api_key or "").strip() or (self.gpt_api_key or "").strip()
         if self.text_llm_is_vibecode:
             return (self.vibecode_api_key or "").strip()
         return (self.gpt_api_key or "").strip() or (self.grsai_api_key or "").strip()
@@ -274,9 +253,7 @@ class Settings(BaseSettings):
         """API-транспорт текста доступен только при наличии ключа и базы."""
         return bool(self.gpt_api_effective_key and self.gpt_api_effective_base_url)
 
-    elevenlabs_web_url: str = Field(
-        "https://elevenlabs.io/app/speech-synthesis", alias="ELEVENLABS_WEB_URL"
-    )
+    elevenlabs_web_url: str = Field("https://elevenlabs.io/app/speech-synthesis", alias="ELEVENLABS_WEB_URL")
     # Опциональный API-ключ 11Labs — SFX-генерация звуков сопровождения
     # (POST /v1/sound-effects). Без ключа — локальный синтез (wave, офлайн).
     elevenlabs_api_key: str = Field("", alias="ELEVENLABS_API_KEY")
@@ -300,17 +277,11 @@ class Settings(BaseSettings):
     whisper_model: str = Field("large-v3", alias="WHISPER_MODEL")
     whisper_device: str = Field("cuda", alias="WHISPER_DEVICE")
     whisper_compute_type: str = Field("float16", alias="WHISPER_COMPUTE_TYPE")
-    nvidia_asr_model: str = Field(
-        "nvidia/parakeet-tdt-0.6b-v3", alias="NVIDIA_ASR_MODEL"
-    )
+    nvidia_asr_model: str = Field("nvidia/parakeet-tdt-0.6b-v3", alias="NVIDIA_ASR_MODEL")
     # Parakeet ~4–8 ГБ RAM/VRAM — не грузить при старте Studio (lazy при шаге «Аудио»)
-    nvidia_asr_preload_on_startup: bool = Field(
-        False, alias="NVIDIA_ASR_PRELOAD_ON_STARTUP"
-    )
+    nvidia_asr_preload_on_startup: bool = Field(False, alias="NVIDIA_ASR_PRELOAD_ON_STARTUP")
     # Без файла в audio/ — ошибка, а не 11Labs (импорт озвучки с диска)
-    audio_use_elevenlabs_fallback: bool = Field(
-        False, alias="AUDIO_USE_ELEVENLABS_FALLBACK"
-    )
+    audio_use_elevenlabs_fallback: bool = Field(False, alias="AUDIO_USE_ELEVENLABS_FALLBACK")
 
     # Ветка для commit/push оркестратора с этого ПК (housepc|tompc|strangepc|workpc).
     # Пусто = main. На каждом ПК своё значение в локальном .env.
@@ -346,9 +317,7 @@ class Settings(BaseSettings):
     subtitle_max_words: int = Field(2, alias="SUBTITLE_MAX_WORDS")
     subtitle_lead_seconds: float = Field(0.18, alias="SUBTITLE_LEAD_SECONDS")
     subtitle_chars_per_second: float = Field(14.0, alias="SUBTITLE_CHARS_PER_SECOND")
-    subtitle_rewhisper_on_assemble: bool = Field(
-        False, alias="SUBTITLE_REWHISPER_ON_ASSEMBLE"
-    )
+    subtitle_rewhisper_on_assemble: bool = Field(False, alias="SUBTITLE_REWHISPER_ON_ASSEMBLE")
 
     # Параллельная генерация: сколько проектов очереди могут выполняться
     # одновременно (top-N окно gen_queue + конкуррентный воркер). 1 = как раньше
@@ -362,32 +331,20 @@ class Settings(BaseSettings):
     scene_design_max_parallel: int = Field(5, alias="SCENE_DESIGN_MAX_PARALLEL")
     # Сборка: сколько Frame-строк пайплайна в одном GPT-запросе (чанк).
     # 0 / 1 = один запрос на весь ролик (старое поведение, легко ловит 524).
-    scene_design_assemble_chunk_frames: int = Field(
-        10, alias="SCENE_DESIGN_ASSEMBLE_CHUNK_FRAMES"
-    )
+    scene_design_assemble_chunk_frames: int = Field(10, alias="SCENE_DESIGN_ASSEMBLE_CHUNK_FRAMES")
     # action/camera: сразу режем на куски ≤N кадров (не жечь 5 мин на 524).
     # 0 = старое: сначала полный запрос, дробим только после 524.
-    scene_design_agent_chunk_frames: int = Field(
-        10, alias="SCENE_DESIGN_AGENT_CHUNK_FRAMES"
-    )
+    scene_design_agent_chunk_frames: int = Field(10, alias="SCENE_DESIGN_AGENT_CHUNK_FRAMES")
     # Сколько кусков action/camera одновременно (kie).
-    scene_design_agent_chunk_parallel: int = Field(
-        3, alias="SCENE_DESIGN_AGENT_CHUNK_PARALLEL"
-    )
+    scene_design_agent_chunk_parallel: int = Field(3, alias="SCENE_DESIGN_AGENT_CHUNK_PARALLEL")
     # Один GPT-вызов action/camera: abort раньше Cloudflare ~300s → сразу /2.
     # V9 плотнее — 240с часто режет живые куски; 280 даёт запас до CF.
-    scene_design_agent_attempt_timeout_s: float = Field(
-        280.0, alias="SCENE_DESIGN_AGENT_ATTEMPT_TIMEOUT_S"
-    )
+    scene_design_agent_attempt_timeout_s: float = Field(280.0, alias="SCENE_DESIGN_AGENT_ATTEMPT_TIMEOUT_S")
     # Волна 0: черновик→редактор скелета (sd_skeleton / sd_skeleton_editor).
     # Per-project: meta.scene_design_skeleton + нода marker=skeleton на канвасе.
-    scene_design_skeleton_enabled: bool = Field(
-        True, alias="SCENE_DESIGN_SKELETON_ENABLED"
-    )
+    scene_design_skeleton_enabled: bool = Field(True, alias="SCENE_DESIGN_SKELETON_ENABLED")
     # Тайминг скелета: len(закадр)/RATE vs сумма время_сек кадров (допуск 15%).
-    scene_design_vo_chars_per_sec: float = Field(
-        14.0, alias="SCENE_DESIGN_VO_CHARS_PER_SEC"
-    )
+    scene_design_vo_chars_per_sec: float = Field(14.0, alias="SCENE_DESIGN_VO_CHARS_PER_SEC")
 
     # Logic
     log_level: str = Field("INFO", alias="LOG_LEVEL")

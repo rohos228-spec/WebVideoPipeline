@@ -148,9 +148,7 @@ def assign_frames_to_scenes(
         if scene_frames:
             # Хронометраж сцены = сумма времён её кадров (из БД или оценка);
             # точнее декларации агента action, поэтому перезаписывает её.
-            row["время_сек"] = round(
-                sum(float(f.get("время_сек") or 0.0) for f in scene_frames), 1
-            )
+            row["время_сек"] = round(sum(float(f.get("время_сек") or 0.0) for f in scene_frames), 1)
         row["кадров"] = len(scene_frames)
     return unassigned
 

@@ -17,7 +17,6 @@ from sqlalchemy.orm import selectinload
 
 from app.models import Frame, NodeRunStatus, Project, ProjectStatus, WorkflowRun
 
-
 _LOCKS: dict[int, asyncio.Lock] = {}
 _TASKS: dict[int, asyncio.Task[Any]] = {}
 
@@ -30,9 +29,7 @@ def _lock_for(project_id: int) -> asyncio.Lock:
     return lock
 
 
-async def sync_anim_pr_noderun_done(
-    session: AsyncSession, project: Project
-) -> bool:
+async def sync_anim_pr_noderun_done(session: AsyncSession, project: Project) -> bool:
     """Пометить NodeRun animation_prompts = done, если очередь пуста.
 
     Project.status не трогаем — его двигает только официальный шаг /
@@ -60,9 +57,7 @@ async def sync_anim_pr_noderun_done(
         if nr.status in (NodeRunStatus.done, NodeRunStatus.skipped):
             continue
         old = nr.status
-        if sync_node_done_from_data(
-            nr, project_id=project.id, initiator="sidecar"
-        ):
+        if sync_node_done_from_data(nr, project_id=project.id, initiator="sidecar"):
             changed = True
             logger.info(
                 "[#{}] anim_pr_sidecar: NodeRun {}/{} {} → done (queue empty)",
@@ -108,12 +103,14 @@ async def drain_anim_pr_from_image_prompts(
             if project is None:
                 return {"batches": 0, "pending": 0}
             frames = (
-                await session.execute(
-                    select(Frame)
-                    .where(Frame.project_id == project_id)
-                    .order_by(Frame.number)
+                (
+                    await session.execute(
+                        select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             pending = apg.collect_batch_items(project, list(frames))
             if not pending:
                 await sync_anim_pr_noderun_done(session, project)
@@ -145,9 +142,7 @@ async def _sidecar_loop(project_id: int) -> None:
     try:
         while True:
             try:
-                stats = await drain_anim_pr_from_image_prompts(
-                    project_id, max_batches=3
-                )
+                stats = await drain_anim_pr_from_image_prompts(project_id, max_batches=3)
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001

@@ -68,9 +68,7 @@ def assert_path_allowed(path: str) -> str:
         if rel == d.rstrip("/") or rel.startswith(d):
             raise CodeAutofixError(f"путь запрещён: {rel}")
     if not any(rel.startswith(p) for p in ALLOWED_PREFIXES):
-        raise CodeAutofixError(
-            f"путь вне allowlist: {rel}; разрешены: {list(ALLOWED_PREFIXES)}"
-        )
+        raise CodeAutofixError(f"путь вне allowlist: {rel}; разрешены: {list(ALLOWED_PREFIXES)}")
     return rel
 
 
@@ -145,9 +143,7 @@ def apply_edits(edits: list[dict[str, Any]]) -> dict[str, Any]:
 
         if old_s is not None or new_s is not None:
             if not isinstance(old_s, str) or not isinstance(new_s, str):
-                raise CodeAutofixError(
-                    f"edit_files[{i}]: old_string/new_string должны быть строками"
-                )
+                raise CodeAutofixError(f"edit_files[{i}]: old_string/new_string должны быть строками")
             if not old_s:
                 raise CodeAutofixError(f"edit_files[{i}]: пустой old_string")
             if not full.is_file():
@@ -155,9 +151,7 @@ def apply_edits(edits: list[dict[str, Any]]) -> dict[str, Any]:
             text = full.read_text(encoding="utf-8")
             count = text.count(old_s)
             if count == 0:
-                raise CodeAutofixError(
-                    f"edit_files[{i}]: old_string не найден в {rel}"
-                )
+                raise CodeAutofixError(f"edit_files[{i}]: old_string не найден в {rel}")
             if count > 1:
                 raise CodeAutofixError(
                     f"edit_files[{i}]: old_string встречается {count} раз в {rel} — уточни"
@@ -181,9 +175,7 @@ def apply_edits(edits: list[dict[str, Any]]) -> dict[str, Any]:
             logger.info("code_autofix: wrote {}", rel)
             continue
 
-        raise CodeAutofixError(
-            f"edit_files[{i}]: нужен old_string/new_string или content"
-        )
+        raise CodeAutofixError(f"edit_files[{i}]: нужен old_string/new_string или content")
 
     return {"changed": changed, "count": len(changed)}
 

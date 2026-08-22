@@ -9,8 +9,8 @@ from sqlalchemy import select
 
 from app.models import Frame, FrameStatus
 from app.orchestrator.steps.generate_images import _all_frames_have_image_or_failed
-from app.services.scan_frames import frame_needs_shot1_image
 from app.services.plan_shot2 import ROW_IMAGE_PROMPT_2_V8, SHOT2_PROMPT_ATTR, SHOT2_STATUS_ATTR
+from app.services.scan_frames import frame_needs_shot1_image
 from app.services.xlsx_v8_import import (
     ROW_IMAGE_PROMPT_V8,
     bootstrap_frames_for_image_step,
@@ -127,9 +127,7 @@ async def test_bootstrap_writes_skippable_marked_prompts(tmp_path: Path, monkeyp
     from app.generation_options import is_skippable_empty_prompt
     from app.models import Base, Project
 
-    placeholder = (
-        "КАДР 1 / PROMPT_1:\nнет исходных данных для заполнения"
-    )
+    placeholder = "КАДР 1 / PROMPT_1:\nнет исходных данных для заполнения"
     assert is_skippable_empty_prompt(placeholder)
 
     monkeypatch.setattr(app_settings.settings, "data_dir", tmp_path)
@@ -154,17 +152,13 @@ async def test_bootstrap_writes_skippable_marked_prompts(tmp_path: Path, monkeyp
         boot = await bootstrap_frames_for_image_step(session, project, xlsx)
         assert boot.frames_prompt_updated == [1]
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project.id, Frame.number == 1))
         ).scalar_one()
         assert "нет исходных данных" in (fr.image_prompt or "")
     await engine.dispose()
 
 
-async def test_apply_prompts_to_many_frames_sekty_like(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_apply_prompts_to_many_frames_sekty_like(tmp_path: Path, monkeypatch) -> None:
     """124 кадра в БД, 62 промта в xlsx — apply пишет в кадры 1..62."""
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -202,25 +196,17 @@ async def test_apply_prompts_to_many_frames_sekty_like(
                 )
             )
         await session.flush()
-        frames = (
-            await session.execute(select(Frame).where(Frame.project_id == project.id))
-        ).scalars().all()
+        frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
         n = apply_image_prompts_from_xlsx_to_frames(frames, xlsx)
         assert n >= 62
         fr1 = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project.id, Frame.number == 1))
         ).scalar_one()
         fr62 = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id, Frame.number == 62)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project.id, Frame.number == 62))
         ).scalar_one()
         fr63 = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id, Frame.number == 63)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project.id, Frame.number == 63))
         ).scalar_one()
         assert fr1.image_prompt == "prompt scene 1"
         assert fr62.image_prompt == "prompt scene 62"
@@ -258,9 +244,7 @@ async def test_bootstrap_manual_xlsx_empty_db(tmp_path: Path, monkeypatch) -> No
         boot = await bootstrap_frames_for_image_step(session, project, xlsx)
         assert boot.prompts_in_xlsx == 2
         assert boot.frames_created == [1, 2]
-        frames = (
-            await session.execute(select(Frame).where(Frame.project_id == project.id))
-        ).scalars().all()
+        frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
         assert len(frames) == 2
         assert frames[0].image_prompt == "manual prompt A"
         assert frames[1].image_prompt == "manual prompt B"
@@ -332,9 +316,7 @@ def test_failed_frame_skipped_from_queue(tmp_path: Path) -> None:
     assert frame_needs_shot1_image(fr, scenes) is False
 
 
-async def test_bootstrap_creates_frames_from_xlsx_only(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_bootstrap_creates_frames_from_xlsx_only(tmp_path: Path, monkeypatch) -> None:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app import settings as app_settings
@@ -361,20 +343,14 @@ async def test_bootstrap_creates_frames_from_xlsx_only(
         boot = await bootstrap_frames_for_image_step(session, project, xlsx)
         assert boot.prompts_in_xlsx == 2
         assert boot.frames_created == [1, 2]
-        frames = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id)
-            )
-        ).scalars().all()
+        frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
         assert len(frames) == 2
         assert frames[0].image_prompt == "first prompt"
         assert frames[0].status is FrameStatus.image_prompt_ready
     await engine.dispose()
 
 
-async def test_bootstrap_resets_failed_when_xlsx_has_prompt(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_bootstrap_resets_failed_when_xlsx_has_prompt(tmp_path: Path, monkeypatch) -> None:
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -409,9 +385,7 @@ async def test_bootstrap_resets_failed_when_xlsx_has_prompt(
         boot = await bootstrap_frames_for_image_step(session, project, xlsx)
         assert 1 in boot.frames_status_reset
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project.id, Frame.number == 1))
         ).scalar_one()
         assert fr.image_prompt == "p1"
         assert fr.status is FrameStatus.image_prompt_ready
@@ -450,9 +424,7 @@ async def test_bootstrap_applies_shot2_from_r46(tmp_path: Path, monkeypatch) -> 
         assert boot.shot2_in_xlsx == 1
         assert boot.frames_shot2_updated == [1]
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project.id, Frame.number == 1))
         ).scalar_one()
         assert fr.attrs[SHOT2_PROMPT_ATTR] == "tight reaction close-up"
         assert fr.attrs[SHOT2_STATUS_ATTR] == "image_prompt_ready"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,7 @@ def _layout_path() -> Path:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def _empty_layout() -> dict[str, Any]:
@@ -195,9 +195,7 @@ def delete_folder(folder_id: str) -> bool:
     return True
 
 
-def _project_layout_entry(
-    layout: dict[str, Any], project_id: int
-) -> dict[str, Any]:
+def _project_layout_entry(layout: dict[str, Any], project_id: int) -> dict[str, Any]:
     key = str(project_id)
     raw = layout.get(key)
     if not isinstance(raw, dict):
@@ -278,9 +276,7 @@ def sync_projects(
     data = load_layout()
     layout: dict[str, Any] = dict(data.get("project_layout") or {})
     root_orders = [
-        int(v.get("order") or 0)
-        for k, v in layout.items()
-        if isinstance(v, dict) and not v.get("folder_id")
+        int(v.get("order") or 0) for k, v in layout.items() if isinstance(v, dict) and not v.get("folder_id")
     ]
     next_order = max(root_orders, default=-1) + 1
     changed = False
@@ -332,7 +328,7 @@ def log_prompt_send(
 ) -> None:
     try:
         PROMPTS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        ts = datetime.now(UTC).replace(microsecond=0).isoformat()
         pid = project_id if project_id is not None else "?"
         snippet = (text or "").replace("\n", " ")[:80]
         line = f"{ts}\tproject={pid}\tbot={bot}\tnode={node}\tsource={source}\t{snippet}"

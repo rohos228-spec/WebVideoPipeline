@@ -19,9 +19,7 @@ def _fence(payload: dict) -> str:
 
 
 def test_extract_json_from_fence() -> None:
-    data = ag.extract_json_object(
-        _fence({"characters": [{"id": "c01"}]}), marker_keys=("characters",)
-    )
+    data = ag.extract_json_object(_fence({"characters": [{"id": "c01"}]}), marker_keys=("characters",))
     assert data == {"characters": [{"id": "c01"}]}
 
 
@@ -41,9 +39,7 @@ def test_extract_json_none_on_garbage() -> None:
 
 
 def test_parse_slice_ok() -> None:
-    data = ag.parse_agent_slice(
-        "characters", _fence({"characters": [{"id": "c01"}], "report": "r"})
-    )
+    data = ag.parse_agent_slice("characters", _fence({"characters": [{"id": "c01"}], "report": "r"}))
     assert data["characters"][0]["id"] == "c01"
 
 
@@ -70,20 +66,17 @@ def test_loads_json_loose_strips_block_comments() -> None:
 
 def test_parse_skeleton_accepts_commented_stub_and_full() -> None:
     # Stub с пустым scenes + рабочий объект — берём непустой.
-    text = (
-        '```json\n{"scenes": [ /* карточки */ ], "map": {}}\n```\n'
-        + _fence(
-            {
-                "scenes": [
-                    {
-                        "id_scene": "scene_01",
-                        "кадры": [1],
-                        "суть": "тест",
-                    }
-                ],
-                "characters_seed": [],
-            }
-        )
+    text = '```json\n{"scenes": [ /* карточки */ ], "map": {}}\n```\n' + _fence(
+        {
+            "scenes": [
+                {
+                    "id_scene": "scene_01",
+                    "кадры": [1],
+                    "суть": "тест",
+                }
+            ],
+            "characters_seed": [],
+        }
     )
     # Первый fence с комментарием: loose парсит scenes как [] после strip?
     # Главное — непустой scenes из второго объекта.
@@ -147,9 +140,7 @@ def test_skeleton_rejects_glued_vo_cells() -> None:
         }
     )
     with pytest.raises(ag.SceneDesignAgentError, match="склейка|покрытие"):
-        ag.parse_agent_slice(
-            "skeleton", raw, expected_frame_numbers=[1, 2, 3]
-        )
+        ag.parse_agent_slice("skeleton", raw, expected_frame_numbers=[1, 2, 3])
 
 
 def test_skeleton_rejects_non_adjacent_or_gap() -> None:
@@ -161,9 +152,7 @@ def test_skeleton_rejects_non_adjacent_or_gap() -> None:
         }
     )
     with pytest.raises(ag.SceneDesignAgentError, match="покрытие|сосед"):
-        ag.parse_agent_slice(
-            "skeleton", raw, expected_frame_numbers=[1, 2, 3]
-        )
+        ag.parse_agent_slice("skeleton", raw, expected_frame_numbers=[1, 2, 3])
 
 
 def test_skeleton_accepts_one_scene_per_vo_cell() -> None:
@@ -176,9 +165,7 @@ def test_skeleton_accepts_one_scene_per_vo_cell() -> None:
             ]
         }
     )
-    data = ag.parse_agent_slice(
-        "skeleton", raw, expected_frame_numbers=[1, 2, 3]
-    )
+    data = ag.parse_agent_slice("skeleton", raw, expected_frame_numbers=[1, 2, 3])
     assert [sc["кадры"] for sc in data["scenes"]] == [[1], [2], [3]]
 
 
@@ -242,10 +229,7 @@ def _valid_payload() -> dict:
                 "время_сек": _SCENE_SEC,
             }
         ],
-        "ops": [
-            {"frame_uuid": fr.uuid, "fields": {"id_scene": "sc01", "место": "лес"}}
-            for fr in _FRAMES
-        ],
+        "ops": [{"frame_uuid": fr.uuid, "fields": {"id_scene": "sc01", "место": "лес"}} for fr in _FRAMES],
     }
 
 

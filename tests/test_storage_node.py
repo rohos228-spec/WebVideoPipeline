@@ -231,7 +231,6 @@ def test_dedup_same_xlsx_from_two_nodes(tmp_path: Path, monkeypatch) -> None:
 def test_sync_downstream_storage_after_gpt(tmp_path: Path, monkeypatch) -> None:
     """После excel_gpt → storage подтягивается без открытия панели."""
     from app.services.gpt_operator import save_operator_result
-    from app.services.storage_node import sync_downstream_storage_from_node
 
     p = _project(tmp_path, monkeypatch)
     xlsx = p.data_dir / "project.xlsx"
@@ -270,11 +269,8 @@ def test_sync_downstream_storage_after_gpt(tmp_path: Path, monkeypatch) -> None:
     assert resolve_storage(p, store, auto_sync=False)["okFileCount"] >= 1
 
 
-def test_script_source_exports_voiceover_and_syncs_storage(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_script_source_exports_voiceover_and_syncs_storage(tmp_path: Path, monkeypatch) -> None:
     """После script → storage должен получить voiceover.txt (не только xlsx)."""
-    from app.services.storage_node import sync_downstream_storage_from_node
 
     p = _project(tmp_path, monkeypatch)
     voice = p.data_dir / "voiceover.txt"
@@ -307,9 +303,7 @@ def test_script_source_exports_voiceover_and_syncs_storage(
     assert "voiceover.txt" in names
 
 
-def test_checkmode_reports_sync_despite_image_only_storage(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_checkmode_reports_sync_despite_image_only_storage(tmp_path: Path, monkeypatch) -> None:
     """check → storage: отчёты копируются (formats больше не режет sync)."""
     p = _project(tmp_path, monkeypatch)
     check = "n_excel_gpt_check"

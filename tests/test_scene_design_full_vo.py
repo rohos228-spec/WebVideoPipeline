@@ -10,9 +10,7 @@ from app.services.scene_design.context_builder import full_voiceover
 
 def test_full_voiceover_prefers_frame_join_over_short_script() -> None:
     """Баг #59: script_text короткий, VO в кадрах полный → цитаты не матчились."""
-    project = SimpleNamespace(
-        script_text="Короткий устаревший закадр про начало."
-    )
+    project = SimpleNamespace(script_text="Короткий устаревший закадр про начало.")
     frames = [
         SimpleNamespace(voiceover_text="К осени подозрительных совпадений стало слишком много."),
         SimpleNamespace(voiceover_text=""),  # SET-ребёнок

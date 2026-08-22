@@ -37,9 +37,7 @@ def test_tokenrouter_only_when_explicit(monkeypatch, tmp_path: Path) -> None:
     assert "Kimi" in s.text_llm_label
 
 
-def test_choice_file_switches_without_touching_gpt_env(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_choice_file_switches_without_touching_gpt_env(monkeypatch, tmp_path: Path) -> None:
     from app.services import text_llm_catalog as cat
 
     monkeypatch.setenv("TEXT_LLM_PROVIDER", "kie")
@@ -59,9 +57,9 @@ def test_choice_file_switches_without_touching_gpt_env(
 
 
 def test_vibecode_models_switch_url_and_key(monkeypatch, tmp_path: Path) -> None:
-    from app.services import text_llm_catalog as cat
-    import app.settings as settings_mod
     import app.services.gpt_api as gpt_api
+    import app.settings as settings_mod
+    from app.services import text_llm_catalog as cat
 
     monkeypatch.setenv("TEXT_LLM_PROVIDER", "kie")
     monkeypatch.setenv("GPT_API_KEY", "kie-key")
@@ -80,9 +78,7 @@ def test_vibecode_models_switch_url_and_key(monkeypatch, tmp_path: Path) -> None
     assert s.gpt_api_effective_key == "vk-test"
     assert s.gpt_chat_path_effective == "/chat/completions"
     assert gpt_api.is_responses_mode() is False
-    assert gpt_api._chat_url(s.gpt_model_effective) == (
-        "https://vibecode.moe/v1/chat/completions"
-    )
+    assert gpt_api._chat_url(s.gpt_model_effective) == ("https://vibecode.moe/v1/chat/completions")
 
     cat.write_choice(provider="vibecode", model_id="gpt-5.6-sol", cfg=s)
     assert s.gpt_model_effective == "gpt-5.6-sol"
@@ -94,13 +90,11 @@ def test_vibecode_models_switch_url_and_key(monkeypatch, tmp_path: Path) -> None
     assert s.gpt_api_effective_base_url == "https://api.kie.ai"
 
 
-def test_vibecode_stays_direct_even_when_vps_relay_set(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_vibecode_stays_direct_even_when_vps_relay_set(monkeypatch, tmp_path: Path) -> None:
     """VPS relay is for kie; vibecode must hit vibecode.moe (stale relay = 401 envelope)."""
-    from app.services import text_llm_catalog as cat
-    import app.settings as settings_mod
     import app.services.gpt_api as gpt_api
+    import app.settings as settings_mod
+    from app.services import text_llm_catalog as cat
 
     monkeypatch.setenv("TEXT_LLM_PROVIDER", "vibecode")
     monkeypatch.setenv("VIBECODE_API_KEY", "vk-test")
@@ -117,9 +111,7 @@ def test_vibecode_stays_direct_even_when_vps_relay_set(
     assert gpt_api._headers()["Authorization"] == "Bearer vk-test"
     cat.write_choice(provider="kie", model_id="gpt-kie", cfg=s)
     assert s.gpt_api_effective_base_url == "https://gpt.example.com"
-    assert gpt_api._chat_url("gpt-5-6-sol") == (
-        "https://gpt.example.com/codex/v1/responses"
-    )
+    assert gpt_api._chat_url("gpt-5-6-sol") == ("https://gpt.example.com/codex/v1/responses")
 
 
 def test_parse_chat_completions_sse() -> None:
@@ -141,8 +133,8 @@ def test_chat_url_for_tokenrouter(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("TOKENROUTER_BASE_URL", "https://api.tokenrouter.com/v1")
     monkeypatch.setenv("TOKENROUTER_MODEL", "moonshotai/kimi-k3-free")
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    import app.settings as settings_mod
     import app.services.gpt_api as gpt_api
+    import app.settings as settings_mod
 
     s = Settings()
     monkeypatch.setattr(settings_mod, "settings", s)

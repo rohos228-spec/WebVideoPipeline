@@ -126,24 +126,16 @@ async def db_overview(session: AsyncSession = Depends(get_session)) -> dict:
     out = []
     for p in projects:
         frames_n = (
-            await session.execute(
-                select(func.count(Frame.id)).where(Frame.project_id == p.id)
-            )
+            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == p.id))
         ).scalar_one()
         scenes_n = (
-            await session.execute(
-                select(func.count(Scene.id)).where(Scene.project_id == p.id)
-            )
+            await session.execute(select(func.count(Scene.id)).where(Scene.project_id == p.id))
         ).scalar_one()
         entities_n = (
-            await session.execute(
-                select(func.count(Entity.id)).where(Entity.project_id == p.id)
-            )
+            await session.execute(select(func.count(Entity.id)).where(Entity.project_id == p.id))
         ).scalar_one()
         edges_n = (
-            await session.execute(
-                select(func.count(FrameEdge.id)).where(FrameEdge.project_id == p.id)
-            )
+            await session.execute(select(func.count(FrameEdge.id)).where(FrameEdge.project_id == p.id))
         ).scalar_one()
         out.append(
             {
@@ -162,9 +154,7 @@ async def db_overview(session: AsyncSession = Depends(get_session)) -> dict:
 
 
 @router.get("/projects/{project_id}/graph")
-async def db_graph(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def db_graph(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     project = await _project(session, project_id)
     # Backfill только если есть кадры без v2-полей — иначе UI «Базы» тормозит
     # десятки секунд и успевает мелькнуть чужой stale-граф.
@@ -205,16 +195,12 @@ async def db_graph(
 
 
 @router.post("/projects/{project_id}/export-xlsx")
-async def export_xlsx(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def export_xlsx(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     """Кнопка «Экспорт в Excel»: переписать строки листа «план» из DB."""
     project = await _project(session, project_id)
     frames = list(
         (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number))
         ).scalars()
     )
     try:
@@ -333,9 +319,9 @@ _ORCHESTRATOR_SYSTEM = (
     "Если нужны действия (не вопрос про ошибку) — сначала JSON action, "
     "потом коротко по-русски.\n"
     "ФОРМАТ ОТВЕТА ПРИ ФИКСЕ КОДА: один JSON "
-    "{\"actions\":[{\"read_file\":…},{\"edit_files\":[…]},{\"run_tests\":[…]},"
-    "{\"git_commit_push\":{…}}]} — плоский список, БЕЗ вложенного "
-    "{\"actions\":[{\"actions\":…}]}. "
+    '{"actions":[{"read_file":…},{"edit_files":[…]},{"run_tests":[…]},'
+    '{"git_commit_push":{…}}]} — плоский список, БЕЗ вложенного '
+    '{"actions":[{"actions":…}]}. '
     "В чат НЕ вставляй исходники файлов и не дублируй JSON много раз — "
     "только краткий итог по-русски после actions. "
     "Нельзя закончить на одних read_file: после чтения сразу edit_files.\n"
@@ -348,7 +334,7 @@ _ORCHESTRATOR_SYSTEM = (
     "anim_pr → video → audio → music → assemble → publish.\n"
     "Отвечая про «следующий шаг», называй шаги из этого списка и опирайся "
     "на состояние шагов из контекста.\n"
-    "ДЕЙСТВИЯ (можно совместить в одном JSON: {\"ops\":[...], \"actions\":[...]}):\n"
+    'ДЕЙСТВИЯ (можно совместить в одном JSON: {"ops":[...], "actions":[...]}):\n'
     "1) ИЗМЕНИТЬ данные кадра/проекта → "
     '{"ops":[{"frame_uuid":"<uuid из графа>","fields":{...}}]}. '
     "Поля по-человечески: закадр, промт_картинки, промт_видео, смысл, "
@@ -358,102 +344,102 @@ _ORCHESTRATOR_SYSTEM = (
     '{"characters":[{"id":"c01","имя":"…","внешность":"…","одежда":"…",'
     '"характер":"…","правила":""}],'
     '"ops":[{"frame_uuid":"…","fields":{"персонажи":"c01"}}]}.\n'
-    "2) ЗАПУСТИТЬ шаг → {\"actions\":[{\"run_step\":\"<код>\"}]} "
+    '2) ЗАПУСТИТЬ шаг → {"actions":[{"run_step":"<код>"}]} '
     "(img_pr, img, anim_pr, video, audio, music, assemble, publish…).\n"
-    "3) ОСТАНОВИТЬ генерацию → {\"actions\":[{\"stop_step\":true}]}.\n"
+    '3) ОСТАНОВИТЬ генерацию → {"actions":[{"stop_step":true}]}.\n'
     "4) НАСТРОЙКА генерации → "
-    "{\"actions\":[{\"set_option\":{\"key\":\"<ключ>\",\"value\":\"<id>\"}}]} — "
+    '{"actions":[{"set_option":{"key":"<ключ>","value":"<id>"}}]} — '
     "ключи и допустимые id в разделе НАСТРОЙКИ контекста "
     "(image_generator, aspect_ratio, image_resolution, image_quality, "
     "video_generator, video_resolution, hero_mode, auto_mode).\n"
     "5) ВАРИАНТ промта шага → "
-    "{\"actions\":[{\"set_prompt\":{\"step\":\"<шаг>\",\"variant\":\"<имя>\"}}]} — "
+    '{"actions":[{"set_prompt":{"step":"<шаг>","variant":"<имя>"}}]} — '
     "варианты в разделе ПРОМТЫ контекста.\n"
     "6) ТЕКСТОВАЯ LLM → "
-    "{\"actions\":[{\"set_text_llm\":{\"provider\":\"kie|vibecode|tokenrouter\"}}]}.\n"
-    "7) ОТКРЫТЬ окна программы → {\"actions\":[{\"open_ui\":{...}}]} — kinds: "
+    '{"actions":[{"set_text_llm":{"provider":"kie|vibecode|tokenrouter"}}]}.\n'
+    '7) ОТКРЫТЬ окна программы → {"actions":[{"open_ui":{...}}]} — kinds: '
     "step_prompts (плюс step; ОБЯЗАТЕЛЬНО при выборе/сравнении вариантов "
     "промтов — человек выбирает в окне), node_studio/prompt_builder/hitl "
     "(плюс node_type), topic (тема), baza, gpt_chat, create (Create/Outsee), "
     "fleet, settings. "
     "ТОЧНЕЕ — с node_key из раздела НОДЫ КАНВАСА: "
-    "{\"open_ui\":{\"kind\":\"node_studio\",\"node_key\":\"n_plan\"}}.\n"
+    '{"open_ui":{"kind":"node_studio","node_key":"n_plan"}}.\n'
     "НАЗВАНИЯ НОД: маппи русские названия пользователя на node_key по "
     "разделу НОДЫ КАНВАСА (название в «»). ВНИМАНИЕ: «Сценарий» — это нода "
     "plan (n_plan); «Закадровый текст» — script (n_script); «Работа с GPT» — "
     "ноды excel_gpt (n_excel_gpt_1, n_excel_gpt_2…).\n"
     "8) HITL-РЕШЕНИЕ (когда нода ждёт аппрува) → "
-    "{\"actions\":[{\"hitl_decision\":\"approve|regenerate|reject|edit_prompt\"}]}.\n"
-    "9) ТЕМА проекта → {\"actions\":[{\"set_topic\":\"…\"}]}.\n"
+    '{"actions":[{"hitl_decision":"approve|regenerate|reject|edit_prompt"}]}.\n'
+    '9) ТЕМА проекта → {"actions":[{"set_topic":"…"}]}.\n'
     "ВАЖНО: ноды topic и storage — конфиг, у них НЕТ промтов и студии. "
     "Для темы используй set_topic или open_ui topic; не открывай для них "
     "step_prompts/node_studio/prompt_builder.\n"
     "10) СОЗДАТЬ проект → "
-    "{\"actions\":[{\"create_project\":{\"title\":\"…\",\"hero_mode\":\"auto\"}}]} — "
+    '{"actions":[{"create_project":{"title":"…","hero_mode":"auto"}}]} — '
     "hero_mode ∈ hero|no_hero|auto (по умолчанию auto). "
     "Создаёт проект и открывает его (open_project).\n"
     "10b) ДОЧЕРНИЙ проект из родителя → "
-    "{\"actions\":[{\"create_child\":{\"parent_id\":<id>}}]} или "
-    "{\"create_child\":{\"parent_title\":\"История ведьм\"}} или "
-    "{\"create_child\":true} (родитель = текущий проект). "
+    '{"actions":[{"create_child":{"parent_id":<id>}}]} или '
+    '{"create_child":{"parent_title":"История ведьм"}} или '
+    '{"create_child":true} (родитель = текущий проект). '
     "Копирует настройки генерации и промты (prompt_overrides / gpt_text); "
     "НЕ копирует кадры, Excel-данные, PNG/MP4. id/title бери из раздела "
     "ПРОЕКТЫ В СТУДИИ. После создания открой ребёнка (ui open_project).\n"
     "11) ДОБАВИТЬ ноду в граф → "
-    "{\"actions\":[{\"add_node\":{\"node_type\":\"hitl_gate\",\"after\":\"each\"}}]} — "
-    "after=\"each\" (после каждой рабочей ноды, без дублей) или "
-    "after=\"<node_key>\". «Нода проверки»: hitl_gate = аппрув человеком, "
+    '{"actions":[{"add_node":{"node_type":"hitl_gate","after":"each"}}]} — '
+    'after="each" (после каждой рабочей ноды, без дублей) или '
+    'after="<node_key>". «Нода проверки»: hitl_gate = аппрув человеком, '
     "excel_gpt = автопроверка GPT — уточни у пользователя, если неясно. "
     "В ответе называй, что именно добавил и после каких нод "
     "(см. СВЯЗИ цепочка + СВЯЗИ К ХРАНИЛИЩУ).\n"
     "11b) СВЯЗИ К ХРАНИЛИЩУ / любые рёбра → "
-    "{\"actions\":[{\"connect_edges\":{\"from\":\"each\",\"to_type\":\"storage\"}}]} — "
+    '{"actions":[{"connect_edges":{"from":"each","to_type":"storage"}}]} — '
     "ОБЯЗАТЕЛЬНО когда просят «подведи к хранилищу», «от каждой ноды к storage». "
     "Создаёт ноду storage сбоку если её нет; проводит ребро от КАЖДОЙ ноды к ней. "
-    "from=\"each\"|<node_key>; to=\"n_storage_1\" или to_type=\"storage\". "
+    'from="each"|<node_key>; to="n_storage_1" или to_type="storage". '
     "НИКОГДА не говори «нет действия для связей» — connect_edges есть. "
     "Можно в одном JSON: add_node excel_gpt after=each + connect_edges to_type=storage.\n"
     "КРИТИЧНО ПРО ХРАНИЛИЩЕ: «СВЯЗИ (цепочка)» — только пайплайн, БЕЗ storage. "
     "Рёбра к storage смотри ТОЛЬКО в строке «СВЯЗИ К ХРАНИЛИЩУ». "
     "Если там есть source→n_storage_* — связь ЕСТЬ, не ври что её нет. "
     "add_node сам дотягивает новые ноды к существующему storage.\n"
-    "12) УДАЛИТЬ ноды → {\"actions\":[{\"remove_node\":{\"node_type\":\"X\"}}]} "
+    '12) УДАЛИТЬ ноды → {"actions":[{"remove_node":{"node_type":"X"}}]} '
     "(все добавленные оркестратором типа X — ТОЛЬКО если прямо просят «удали "
-    "ВСЕ»), {\"remove_node\":{\"node_type\":\"X\",\"only\":\"duplicates\"}} — "
+    'ВСЕ»), {"remove_node":{"node_type":"X","only":"duplicates"}} — '
     "ТОЛЬКО дубли (две проверки подряд): «лишние удали» = всегда duplicates, "
-    "или {\"remove_node\":{\"node_key\":\"n_...\"}} (конкретную). Удаление НЕ "
+    'или {"remove_node":{"node_key":"n_..."}} (конкретную). Удаление НЕ '
     "выполняется сразу: человек подтверждает кнопкой в чате.\n"
-    "ПЕРЕИМЕНОВАТЬ ноду → {\"actions\":[{\"rename_node\":{\"node_key\":\"n_...\",\"label\":\"…\"}}]}. "
+    'ПЕРЕИМЕНОВАТЬ ноду → {"actions":[{"rename_node":{"node_key":"n_...","label":"…"}}]}. '
     "Новые проверки подписываются по родителю автоматически («Проверка — Сценарий»).\n"
     "13) ПОЧИНИТЬ граф (после удалений/разрывов) → "
-    "{\"actions\":[{\"repair_graph\":true}]} — цепочка пересобирается слева "
+    '{"actions":[{"repair_graph":true}]} — цепочка пересобирается слева '
     "направо (проверки встают за своими родителями). ПОРЯДОК ВАЖЕН: если "
     "граф сломан — repair_graph идёт в actions ПЕРВЫМ, до add_node.\n"
-    "14) ПРОГНАТЬ проверки (harness) → {\"actions\":[{\"run_harness\":true}]}.\n"
+    '14) ПРОГНАТЬ проверки (harness) → {"actions":[{"run_harness":true}]}.\n'
     "15) Вопрос/обсуждение без изменений — обычный текст.\n"
     "16) ПРОЧИТАТЬ КОД (allowlist app/ tests/ prompts/) → "
-    "{\"actions\":[{\"read_file\":{\"path\":\"app/...py\","
-    "\"start_line\":1,\"end_line\":120}}]} — "
+    '{"actions":[{"read_file":{"path":"app/...py",'
+    '"start_line":1,"end_line":120}}]} — '
     "сначала читай, потом правь. Содержимое вернётся в ответе Studio.\n"
     "17) ПРАВКА КОДА → "
-    "{\"actions\":[{\"edit_files\":[{\"path\":\"app/...py\","
-    "\"old_string\":\"…\",\"new_string\":\"…\"}]}]} — "
+    '{"actions":[{"edit_files":[{"path":"app/...py",'
+    '"old_string":"…","new_string":"…"}]}]} — '
     "old_string должен встречаться ровно 1 раз. "
-    "Новый мелкий файл: {\"path\":\"tests/....py\",\"content\":\"...\"}.\n"
+    'Новый мелкий файл: {"path":"tests/....py","content":"..."}.\n'
     "18) ПРОГНАТЬ pytest → "
-    "{\"actions\":[{\"run_tests\":[\"tests/test_....py\"]}]}. "
+    '{"actions":[{"run_tests":["tests/test_....py"]}]}. '
     "После edit_files — обязательно, перед push. FAIL не отменяет другие "
     "действия — смотри вывод и чини дальше.\n"
     "19) COMMIT+PUSH в origin/<ветка этого ПК> → "
-    "{\"actions\":[{\"git_commit_push\":{\"message\":\"fix: …\","
-    "\"files\":[\"app/....py\"],\"auto\":false}}]} — "
+    '{"actions":[{"git_commit_push":{"message":"fix: …",'
+    '"files":["app/....py"],"auto":false}}]} — '
     "ветка = из раздела КОД РАБОЧЕЙ ОБЛАСТИ / ORCHESTRATOR_GIT_BRANCH. "
     "по умолчанию auto=false: человек жмёт «Подтвердить push» в чате. "
     "auto=true — сразу push (только если пользователь явно просит "
     "«сразу запушь» / «без подтверждения»). Без force-push.\n"
     "20) УДАЛИТЬ ПРОЕКТЫ → "
-    "{\"actions\":[{\"delete_projects\":{\"ids\":[52,50]}}]} или "
-    "{\"delete_projects\":{\"titles\":[\"тест оркестра\",\"Тестовый трукрайм\"]}}. "
+    '{"actions":[{"delete_projects":{"ids":[52,50]}}]} или '
+    '{"delete_projects":{"titles":["тест оркестра","Тестовый трукрайм"]}}. '
     "id/title бери из раздела ПРОЕКТЫ В СТУДИИ. "
     "НИКОГДА не пиши «удаление не поддерживается». "
     "Удаление НЕ сразу: человек жмёт «Подтвердить удаление проектов» в чате.\n"
@@ -532,9 +518,7 @@ async def _checks_context(session: AsyncSession, project: Project) -> list[str]:
     checks = tel.get("checks") or []
     if checks:
         outcome = "ОК" if tel.get("last_outcome") == "verify_pass" else "НЕ ОК"
-        lines.append(
-            f"ПРОВЕРКИ HARNESS (последняя {tel.get('updated_at', '?')}, итог: {outcome}):"
-        )
+        lines.append(f"ПРОВЕРКИ HARNESS (последняя {tel.get('updated_at', '?')}, итог: {outcome}):")
         for c in checks:
             mark = "ок" if c.get("ok") else "НЕ ОК"
             detail = str(c.get("detail") or "")[:100]
@@ -543,17 +527,19 @@ async def _checks_context(session: AsyncSession, project: Project) -> list[str]:
         if tel.get("next_action") and tel["next_action"] != "none":
             lines.append(f"  next_action: {tel['next_action']}")
     else:
-        lines.append(
-            "ПРОВЕРКИ HARNESS: прогонов не было (свежие данные — через harness/verify)."
-        )
+        lines.append("ПРОВЕРКИ HARNESS: прогонов не было (свежие данные — через harness/verify).")
 
     run = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.project_id == project.id)
-            .order_by(WorkflowRun.id.desc())
+        (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.project_id == project.id)
+                .order_by(WorkflowRun.id.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if run is None:
         lines.append("СТАТУСЫ НОД: прогонов workflow ещё не было.")
         return lines
@@ -613,7 +599,7 @@ def _log_tail_context(project: Project, max_lines: int = 25) -> list[str]:
 
 _FIX_BUGS_MARKERS = (
     "режим «фикс багов»",
-    "режим \"фикс багов\"",
+    'режим "фикс багов"',
     "режим фикс багов",
     "поручение оператора ниже",
 )
@@ -627,9 +613,7 @@ def _is_fix_bugs_mode(message: str, *, flag: bool | None = None) -> bool:
     return any(m in t for m in _FIX_BUGS_MARKERS)
 
 
-def _is_diagnose_only_question(
-    message: str, *, fix_bugs: bool | None = None
-) -> bool:
+def _is_diagnose_only_question(message: str, *, fix_bugs: bool | None = None) -> bool:
     """Вопрос «что сломалось» — ответ текстом, без read_file/правок кода.
 
     Режим «Фикс багов» НИКОГДА не diagnose-only: иначе кнопка бесполезна
@@ -691,9 +675,7 @@ def _human_reply_from_diagnostics(diag_lines: list[str]) -> str:
             sleep = s.split(":", 1)[-1].strip()
         elif s.startswith("- active excel_gpt:"):
             node = s.split(":", 1)[-1].strip()
-        elif s.startswith("- n_") or (
-            s.startswith("- ") and ":" in s and "excel_gpt" in s
-        ):
+        elif s.startswith("- n_") or (s.startswith("- ") and ":" in s and "excel_gpt" in s):
             if not err:
                 parts = s[2:].split(":", 1)
                 if len(parts) == 2:
@@ -724,9 +706,7 @@ def _human_reply_from_diagnostics(diag_lines: list[str]) -> str:
         bits.append(f"Проект на паузе до {sleep} (после нескольких фейлов).")
     if hero_bits:
         bits.append("Также по персонажам: " + "; ".join(hero_bits[1:3]))
-    bits.append(
-        "Если нужна правка кода программы — напиши явно «почини код»."
-    )
+    bits.append("Если нужна правка кода программы — напиши явно «почини код».")
     return " ".join(bits)
 
 
@@ -744,9 +724,7 @@ async def _diagnostics_context(session: AsyncSession, project: Project) -> list[
     fs = meta.get("step_failure")
     if not isinstance(fs, dict):
         fs = meta.get("failure_state")
-    if isinstance(fs, dict) and (
-        fs.get("last_error") or fs.get("sleep_until") or fs.get("total_fails")
-    ):
+    if isinstance(fs, dict) and (fs.get("last_error") or fs.get("sleep_until") or fs.get("total_fails")):
         lines.append("СБОЙ ШАГА (step_failure):")
         if fs.get("last_running"):
             lines.append(f"- шаг: {fs.get('last_running')}")
@@ -762,12 +740,16 @@ async def _diagnostics_context(session: AsyncSession, project: Project) -> list[
         if active:
             lines.append(f"- active excel_gpt: {active}")
     run = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.project_id == project.id)
-            .order_by(WorkflowRun.id.desc())
+        (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.project_id == project.id)
+                .order_by(WorkflowRun.id.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if run is not None:
         failed = list(
             (
@@ -782,9 +764,7 @@ async def _diagnostics_context(session: AsyncSession, project: Project) -> list[
         if failed:
             lines.append("ОШИБКИ НОД (последний прогон):")
             for n in failed:
-                lines.append(
-                    f"- {n.node_key or n.node_type}: {str(n.error or '')[:300]}"
-                )
+                lines.append(f"- {n.node_key or n.node_type}: {str(n.error or '')[:300]}")
     tel = read_ops_telemetry(meta)
     bad_checks = [c for c in (tel.get("checks") or []) if not c.get("ok")]
     if bad_checks:
@@ -796,11 +776,7 @@ async def _diagnostics_context(session: AsyncSession, project: Project) -> list[
     try:
         from app.services.hero_quality import hero_quality_diag_lines
 
-        lines.extend(
-            hero_quality_diag_lines(
-                project.id, Path(project.data_dir), project=project
-            )
-        )
+        lines.extend(hero_quality_diag_lines(project.id, Path(project.data_dir), project=project))
     except Exception as e:  # noqa: BLE001
         lines.append(f"ПЕРСОНАЖИ — проверка упала: {e}")
     tail = _log_tail_context(project)
@@ -824,11 +800,7 @@ def _code_workspace_context() -> list[str]:
         lines.append(f"- push-ветка (ORCHESTRATOR_GIT_BRANCH): {want}")
         lines.append(f"- текущий HEAD: {br}" + (" ✓" if br == want else " ← СНАЧАЛА checkout нужной ветки"))
         lines.append(f"- allowlist путей: {', '.join(ALLOWED_PREFIXES)}")
-        dirty = [
-            p
-            for p in changed_paths()
-            if any(p.startswith(pref) for pref in ALLOWED_PREFIXES)
-        ][:40]
+        dirty = [p for p in changed_paths() if any(p.startswith(pref) for pref in ALLOWED_PREFIXES)][:40]
         if dirty:
             lines.append("- изменённые файлы (allowlist):")
             lines.extend(f"  · {p}" for p in dirty)
@@ -850,9 +822,7 @@ _NODE_STATUS_RU = {
 }
 
 
-async def _canvas_nodes_context(
-    session: AsyncSession, project: Project
-) -> tuple[list[str], dict[str, dict]]:
+async def _canvas_nodes_context(session: AsyncSession, project: Project) -> tuple[list[str], dict[str, dict]]:
     """Ноды канваса проекта: ключ → название (data.label) + тип + статус.
 
     Возвращает (строки для контекста, keymap node_key → {type, label}).
@@ -864,21 +834,21 @@ async def _canvas_nodes_context(
     from app.models import NodeRun, Workflow, WorkflowRun
 
     run = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.project_id == project.id)
-            .order_by(WorkflowRun.id.desc())
+        (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.project_id == project.id)
+                .order_by(WorkflowRun.id.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     nodes: list[dict] = []
     edges_src: list[dict] = []
     status_by_key: dict[str, str] = {}
     if run is not None:
-        for nr in (
-            await session.execute(
-                select(NodeRun).where(NodeRun.workflow_run_id == run.id)
-            )
-        ).scalars():
+        for nr in (await session.execute(select(NodeRun).where(NodeRun.workflow_run_id == run.id))).scalars():
             status_by_key[nr.node_key] = nr.status.value
 
     meta = project.meta if isinstance(project.meta, dict) else {}
@@ -890,11 +860,7 @@ async def _canvas_nodes_context(
         nodes = list(run.nodes_snapshot or [])
         edges_src = list(run.edges_snapshot or [])
     if not nodes:
-        wf = (
-            await session.execute(
-                select(Workflow).where(Workflow.is_default.is_(True))
-            )
-        ).scalars().first()
+        wf = (await session.execute(select(Workflow).where(Workflow.is_default.is_(True)))).scalars().first()
         nodes = list((wf.nodes if wf else []) or [])
         edges_src = list((wf.edges if wf else []) or [])
 
@@ -919,22 +885,15 @@ async def _canvas_nodes_context(
         chain = " → ".join(order)
     except Exception:  # noqa: BLE001
         pipe = _pipeline_edges(nodes, edges_src)
-        chain = ", ".join(
-            f"{e.get('source')}→{e.get('target')}" for e in pipe
-        )
+        chain = ", ".join(f"{e.get('source')}→{e.get('target')}" for e in pipe)
     if chain:
         lines.append(f"СВЯЗИ (цепочка): {chain}")
     side = _side_edges(nodes, edges_src)
     if side:
         pairs = [f"{e.get('source')}→{e.get('target')}" for e in side]
-        lines.append(
-            f"СВЯЗИ К ХРАНИЛИЩУ / сбоку ({len(pairs)}): " + ", ".join(pairs)
-        )
+        lines.append(f"СВЯЗИ К ХРАНИЛИЩУ / сбоку ({len(pairs)}): " + ", ".join(pairs))
     else:
-        lines.append(
-            "СВЯЗИ К ХРАНИЛИЩУ: нет — нужен "
-            '{"connect_edges":{"from":"each","to_type":"storage"}}'
-        )
+        lines.append('СВЯЗИ К ХРАНИЛИЩУ: нет — нужен {"connect_edges":{"from":"each","to_type":"storage"}}')
     return ["НОДЫ КАНВАСА (ключ → «название» (тип) — статус):", *lines], keymap
 
 
@@ -966,13 +925,9 @@ def _settings_context(project: Project) -> list[str]:
         except Exception:  # noqa: BLE001
             variants = []
         if variants:
-            lines.append(
-                f"- {step_code}: {overrides.get(step_code, 'default')} → {', '.join(variants)}"
-            )
+            lines.append(f"- {step_code}: {overrides.get(step_code, 'default')} → {', '.join(variants)}")
     st = catalog_status()
-    lines.append(
-        f"ТЕКСТОВАЯ LLM: активна {st['active_label']} → провайдеры: kie, tokenrouter"
-    )
+    lines.append(f"ТЕКСТОВАЯ LLM: активна {st['active_label']} → провайдеры: kie, tokenrouter")
     return lines
 
 
@@ -992,8 +947,7 @@ def _apply_set_option(project: Project, key: object, value: object) -> str:
     if k in catalogs:
         if v not in catalogs[k]:
             raise db_apply.ApplyOpsError(
-                f"set_option {k}: неизвестное значение {v!r}; "
-                f"допустимые: {sorted(catalogs[k])}"
+                f"set_option {k}: неизвестное значение {v!r}; допустимые: {sorted(catalogs[k])}"
             )
         if k == "image_resolution":
             v = go.clamp_image_resolution_id(project.image_generator, v)
@@ -1008,8 +962,7 @@ def _apply_set_option(project: Project, key: object, value: object) -> str:
         project.auto_mode = v.lower() in ("1", "true", "да", "вкл", "on")
         return f"auto_mode={'вкл' if project.auto_mode else 'выкл'}"
     raise db_apply.ApplyOpsError(
-        f"set_option: неизвестный ключ {k!r}; "
-        f"допустимые: {sorted([*catalogs, 'hero_mode', 'auto_mode'])}"
+        f"set_option: неизвестный ключ {k!r}; допустимые: {sorted([*catalogs, 'hero_mode', 'auto_mode'])}"
     )
 
 
@@ -1025,9 +978,7 @@ def _apply_set_prompt(project: Project, step: object, variant: object) -> str:
     if not variants:
         raise db_apply.ApplyOpsError(f"set_prompt: для шага {s!r} нет вариантов промтов")
     if v not in variants:
-        raise db_apply.ApplyOpsError(
-            f"set_prompt {s}: неизвестный вариант {v!r}; доступные: {variants}"
-        )
+        raise db_apply.ApplyOpsError(f"set_prompt {s}: неизвестный вариант {v!r}; доступные: {variants}")
     overrides = dict(project.prompt_overrides or {})
     overrides[s] = v
     project.prompt_overrides = overrides
@@ -1052,15 +1003,19 @@ async def _pending_hitl_id(session: AsyncSession, project: Project) -> int | Non
     from app.models import HITLDecision, HITLRequest
 
     row = (
-        await session.execute(
-            select(HITLRequest)
-            .where(
-                HITLRequest.project_id == project.id,
-                HITLRequest.decision == HITLDecision.pending,
+        (
+            await session.execute(
+                select(HITLRequest)
+                .where(
+                    HITLRequest.project_id == project.id,
+                    HITLRequest.decision == HITLDecision.pending,
+                )
+                .order_by(HITLRequest.id.desc())
             )
-            .order_by(HITLRequest.id.desc())
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     return row.id if row else None
 
 
@@ -1104,9 +1059,7 @@ async def _resolve_open_ui(
                 "(или open_ui topic — редактор в инспекторе)."
             )
         if node_type not in _all_node_types():
-            raise db_apply.ApplyOpsError(
-                f"open_ui {kind}: неизвестный тип ноды {node_type!r}"
-            )
+            raise db_apply.ApplyOpsError(f"open_ui {kind}: неизвестный тип ноды {node_type!r}")
         item: dict = {"kind": kind, "node_type": node_type}
         if node_key:
             item["node_key"] = node_key
@@ -1124,9 +1077,7 @@ async def _resolve_open_ui(
     )
 
 
-async def _apply_hitl_decision(
-    session: AsyncSession, project: Project, decision: object
-) -> dict:
+async def _apply_hitl_decision(session: AsyncSession, project: Project, decision: object) -> dict:
     """HITL-решение из чата — та же логика, что кнопки Studio/TG."""
     from datetime import datetime
 
@@ -1142,19 +1093,21 @@ async def _apply_hitl_decision(
     }
     new_decision = mapping.get(str(decision or "").strip())
     if new_decision is None:
-        raise db_apply.ApplyOpsError(
-            f"hitl_decision: неизвестно {decision!r}; есть: {sorted(mapping)}"
-        )
+        raise db_apply.ApplyOpsError(f"hitl_decision: неизвестно {decision!r}; есть: {sorted(mapping)}")
     req = (
-        await session.execute(
-            select(HITLRequest)
-            .where(
-                HITLRequest.project_id == project.id,
-                HITLRequest.decision == HITLDecision.pending,
+        (
+            await session.execute(
+                select(HITLRequest)
+                .where(
+                    HITLRequest.project_id == project.id,
+                    HITLRequest.decision == HITLDecision.pending,
+                )
+                .order_by(HITLRequest.id.desc())
             )
-            .order_by(HITLRequest.id.desc())
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if req is None:
         raise db_apply.ApplyOpsError("hitl_decision: нет ожидающих HITL-запросов")
     req.decision = new_decision
@@ -1181,9 +1134,7 @@ async def _apply_create_project(session: AsyncSession, spec: dict) -> dict:
     hero_mode = str((spec or {}).get("hero_mode") or "auto").strip()
     if hero_mode not in ("hero", "no_hero", "auto"):
         raise db_apply.ApplyOpsError("create_project: hero_mode ∈ hero|no_hero|auto")
-    detail = await _create_endpoint(
-        CreateProjectRequest(title=title, hero_mode=hero_mode), session
-    )
+    detail = await _create_endpoint(CreateProjectRequest(title=title, hero_mode=hero_mode), session)
     return {"id": detail.id, "title": detail.title or title, "slug": detail.slug}
 
 
@@ -1196,9 +1147,7 @@ async def _resolve_delete_project_ids(session: AsyncSession, spec: dict) -> list
     if isinstance(titles, str):
         titles = [titles]
     if not raw_ids and not titles:
-        raise db_apply.ApplyOpsError(
-            "delete_projects: нужен ids:[…] и/или titles:[…] из ПРОЕКТЫ В СТУДИИ"
-        )
+        raise db_apply.ApplyOpsError("delete_projects: нужен ids:[…] и/или titles:[…] из ПРОЕКТЫ В СТУДИИ")
 
     want_ids: set[int] = set()
     for x in raw_ids:
@@ -1207,9 +1156,7 @@ async def _resolve_delete_project_ids(session: AsyncSession, spec: dict) -> list
         except (TypeError, ValueError) as e:
             raise db_apply.ApplyOpsError(f"delete_projects: плохой id {x!r}") from e
 
-    rows = (
-        await session.execute(select(Project.id, Project.title, Project.slug, Project.topic))
-    ).all()
+    rows = (await session.execute(select(Project.id, Project.title, Project.slug, Project.topic))).all()
     by_id = {int(r[0]): r for r in rows}
     for tid in list(want_ids):
         if tid not in by_id:
@@ -1227,14 +1174,10 @@ async def _resolve_delete_project_ids(session: AsyncSession, spec: dict) -> list
             or q in ((r[3] or "")[:80].strip().lower())
         ]
         if not matches:
-            raise db_apply.ApplyOpsError(
-                f"delete_projects: не найден проект по названию {title!r}"
-            )
+            raise db_apply.ApplyOpsError(f"delete_projects: не найден проект по названию {title!r}")
         if len(matches) > 1:
             opts = ", ".join(f"#{m[0]} {(m[1] or m[2])}" for m in matches[:8])
-            raise db_apply.ApplyOpsError(
-                f"delete_projects: «{title}» неоднозначно ({opts}) — укажи ids"
-            )
+            raise db_apply.ApplyOpsError(f"delete_projects: «{title}» неоднозначно ({opts}) — укажи ids")
         want_ids.add(int(matches[0][0]))
 
     out: list[tuple[int, str]] = []
@@ -1300,9 +1243,7 @@ async def _resolve_parent_for_child(
     if spec is True or spec is None or spec == {}:
         return current
     if not isinstance(spec, dict):
-        raise db_apply.ApplyOpsError(
-            "create_child: ожидай true | {parent_id} | {parent_title}"
-        )
+        raise db_apply.ApplyOpsError("create_child: ожидай true | {parent_id} | {parent_title}")
     parent_id = spec.get("parent_id")
     parent_title = str(spec.get("parent_title") or spec.get("title") or "").strip()
     if parent_id is not None:
@@ -1316,9 +1257,7 @@ async def _resolve_parent_for_child(
         return parent
     if parent_title:
         needle = parent_title.casefold()
-        rows = (
-            await session.execute(select(Project).order_by(Project.id.desc()).limit(200))
-        ).scalars().all()
+        rows = (await session.execute(select(Project).order_by(Project.id.desc()).limit(200))).scalars().all()
         hits = [
             p
             for p in rows
@@ -1328,8 +1267,7 @@ async def _resolve_parent_for_child(
         ]
         if not hits:
             raise db_apply.ApplyOpsError(
-                f"create_child: проект «{parent_title}» не найден — "
-                "смотри раздел ПРОЕКТЫ В СТУДИИ"
+                f"create_child: проект «{parent_title}» не найден — смотри раздел ПРОЕКТЫ В СТУДИИ"
             )
         if len(hits) > 1:
             # точное совпадение title предпочтительнее
@@ -1344,9 +1282,7 @@ async def _resolve_parent_for_child(
     return current
 
 
-async def _apply_create_child(
-    session: AsyncSession, current: Project, spec: dict | bool | None
-) -> dict:
+async def _apply_create_child(session: AsyncSession, current: Project, spec: dict | bool | None) -> dict:
     """Дочерний проект — тот же код, что POST /api/projects/{id}/child."""
     from app.services.project_child import (
         create_child_from_parent,
@@ -1379,11 +1315,7 @@ def _side_sink_ids(nodes: list[dict]) -> set[str]:
     from app.orchestrator.node_registry import CONFIG_NODE_TYPES
 
     side = set(CONFIG_NODE_TYPES) | {"excel_feed"}
-    return {
-        str(n.get("id"))
-        for n in nodes
-        if n.get("id") and str(n.get("type") or "") in side
-    }
+    return {str(n.get("id")) for n in nodes if n.get("id") and str(n.get("type") or "") in side}
 
 
 def _pipeline_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
@@ -1409,11 +1341,7 @@ def _wire_all_to_storage(nodes: list[dict], edges: list[dict]) -> int:
     Нужно после add_node: иначе новые excel_gpt/hitl остаются без нити к
     хранилищу, и оркестратор/sync снова «не видят» связь.
     """
-    stor_ids = [
-        str(n.get("id"))
-        for n in nodes
-        if n.get("id") and str(n.get("type") or "") == "storage"
-    ]
+    stor_ids = [str(n.get("id")) for n in nodes if n.get("id") and str(n.get("type") or "") == "storage"]
     if not stor_ids:
         return 0
     sid = stor_ids[0]
@@ -1462,8 +1390,7 @@ def _linear_order(nodes: list[dict], edges: list[dict]) -> list[str]:
     heads = [nid for nid, d in in_deg.items() if d == 0]
     if len(heads) != 1:
         raise db_apply.ApplyOpsError(
-            "граф нелинейный — сначала {\"repair_graph\":true} (пересоберёт цепочку), "
-            "потом повтори add_node"
+            'граф нелинейный — сначала {"repair_graph":true} (пересоберёт цепочку), потом повтори add_node'
         )
     order: list[str] = []
     cur = heads[0]
@@ -1475,9 +1402,7 @@ def _linear_order(nodes: list[dict], edges: list[dict]) -> list[str]:
         order.append(cur)
         nxt = out_map.get(cur) or []
         if len(nxt) > 1:
-            raise db_apply.ApplyOpsError(
-                "граф нелинейный — добавляй по одной ноде (after=<node_key>)"
-            )
+            raise db_apply.ApplyOpsError("граф нелинейный — добавляй по одной ноде (after=<node_key>)")
         cur = nxt[0] if nxt else ""
     if len(order) != len(chain_ids):
         raise db_apply.ApplyOpsError("в графе есть несвязанные ноды — отказ")
@@ -1509,11 +1434,7 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
     meta = dict(project.meta or {})
     graph = meta.get("canvas_graph")
     if not isinstance(graph, dict) or not graph.get("nodes"):
-        wf = (
-            await session.execute(
-                select(Workflow).where(Workflow.is_default.is_(True))
-            )
-        ).scalars().first()
+        wf = (await session.execute(select(Workflow).where(Workflow.is_default.is_(True)))).scalars().first()
         if wf is None:
             raise db_apply.ApplyOpsError("add_node: нет workflow для проекта")
         graph = {"nodes": list(wf.nodes or []), "edges": list(wf.edges or [])}
@@ -1524,10 +1445,7 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
 
     if after == "each":
         skip = set(CONFIG_NODE_TYPES) | set(HITL_NODE_TYPES)
-        next_of_pre = {
-            str(e.get("source")): str(e.get("target"))
-            for e in _pipeline_edges(nodes, edges)
-        }
+        next_of_pre = {str(e.get("source")): str(e.get("target")) for e in _pipeline_edges(nodes, edges)}
 
         def _is_check_of_type(nid: str) -> bool:
             """Нода — ПРОВЕРКА этого типа, не рабочая.
@@ -1540,10 +1458,7 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
                 return False
             if node_type in HITL_NODE_TYPES:
                 return True
-            return (
-                str((n.get("data") or {}).get("description") or "")
-                == "добавлено оркестратором"
-            )
+            return str((n.get("data") or {}).get("description") or "") == "добавлено оркестратором"
 
         def _already_has(nid: str) -> bool:
             nxt = next_of_pre.get(nid)
@@ -1572,12 +1487,8 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
     k = 0
     # Новые ноды — отдельным рядом ПОД пайплайном, разнесены по x:
     # никогда не накладываются на существующие и друг на друга.
-    max_y = max(
-        (float((n.get("position") or {}).get("y", 0.0)) for n in nodes), default=0.0
-    )
-    min_x = min(
-        (float((n.get("position") or {}).get("x", 0.0)) for n in nodes), default=0.0
-    )
+    max_y = max((float((n.get("position") or {}).get("y", 0.0)) for n in nodes), default=0.0)
+    min_x = min((float((n.get("position") or {}).get("x", 0.0)) for n in nodes), default=0.0)
     # excel_gpt-ноды обязаны иметь slotIndex (иначе шаги enrich не различит).
     next_slot = 1
     if node_type == "excel_gpt":
@@ -1596,9 +1507,7 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
             new_id = f"n_{node_type}_{k}"
         existing_ids.add(new_id)
         # Подпись по родителю: «Проверка — Сценарий», «Работа с GPT — Картинки».
-        parent_label = str(
-            (by_id[nid].get("data") or {}).get("label") or by_id[nid].get("type") or nid
-        )
+        parent_label = str((by_id[nid].get("data") or {}).get("label") or by_id[nid].get("type") or nid)
         node_label = f"{base_label} — {parent_label}"
         new_nodes.append(
             {
@@ -1611,11 +1520,7 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
                 "data": {
                     "label": node_label,
                     "description": "добавлено оркестратором",
-                    **(
-                        {"slotIndex": next_slot + len(new_nodes)}
-                        if node_type == "excel_gpt"
-                        else {}
-                    ),
+                    **({"slotIndex": next_slot + len(new_nodes)} if node_type == "excel_gpt" else {}),
                 },
             }
         )
@@ -1635,20 +1540,14 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
             continue
         if src in new_node_for:
             nn = new_node_for[src]
-            out_edges.append(
-                {"id": f"e_{src}_{nn['id']}", "source": src, "target": nn["id"]}
-            )
-            out_edges.append(
-                {"id": f"e_{nn['id']}_{tgt}", "source": nn["id"], "target": tgt}
-            )
+            out_edges.append({"id": f"e_{src}_{nn['id']}", "source": src, "target": nn["id"]})
+            out_edges.append({"id": f"e_{nn['id']}_{tgt}", "source": nn["id"], "target": tgt})
         else:
             out_edges.append(e)
     # target без исходящего pipeline-ребра (хвост) — просто хвост target→new.
     for nid, nn in new_node_for.items():
         if nid not in next_of:
-            out_edges.append(
-                {"id": f"e_{nid}_{nn['id']}", "source": nid, "target": nn["id"]}
-            )
+            out_edges.append({"id": f"e_{nid}_{nn['id']}", "source": nid, "target": nn["id"]})
 
     all_nodes = nodes + new_nodes
     # Если storage уже на канвасе — новые (и любые дырявые) ноды сразу к нему.
@@ -1657,20 +1556,21 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
     project.meta = meta
 
     run = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.project_id == project.id)
-            .order_by(WorkflowRun.id.desc())
+        (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.project_id == project.id)
+                .order_by(WorkflowRun.id.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if run is not None:
         run.nodes_snapshot = list(all_nodes)
         run.edges_snapshot = list(out_edges)
     await session.commit()
-    msg = (
-        f"{node_type} ×{len(new_nodes)} "
-        f"({'каждой' if after == 'each' else after})"
-    )
+    msg = f"{node_type} ×{len(new_nodes)} ({'каждой' if after == 'each' else after})"
     if wired:
         msg += f"; +{wired} рёбер → storage"
     return {"add_node": msg}
@@ -1690,11 +1590,7 @@ async def _remove_node_targets(
     meta = dict(project.meta or {})
     graph = meta.get("canvas_graph")
     if not isinstance(graph, dict) or not graph.get("nodes"):
-        wf = (
-            await session.execute(
-                select(Workflow).where(Workflow.is_default.is_(True))
-            )
-        ).scalars().first()
+        wf = (await session.execute(select(Workflow).where(Workflow.is_default.is_(True)))).scalars().first()
         if wf is None:
             raise db_apply.ApplyOpsError("remove_node: нет workflow для проекта")
         graph = {"nodes": list(wf.nodes or []), "edges": list(wf.edges or [])}
@@ -1704,9 +1600,7 @@ async def _remove_node_targets(
 
     if node_key:
         if node_key not in by_id:
-            raise db_apply.ApplyOpsError(
-                f"remove_node: неизвестный node_key {node_key!r} (см. НОДЫ КАНВАСА)"
-            )
+            raise db_apply.ApplyOpsError(f"remove_node: неизвестный node_key {node_key!r} (см. НОДЫ КАНВАСА)")
         targets = {node_key}
     else:
         only = str((spec or {}).get("only") or "").strip()
@@ -1717,30 +1611,21 @@ async def _remove_node_targets(
             targets = set()
             prev = ""
             for nid in order:
-                if (
-                    type_by_id[nid] == node_type
-                    and prev
-                    and type_by_id.get(prev) == node_type
-                ):
+                if type_by_id[nid] == node_type and prev and type_by_id.get(prev) == node_type:
                     desc = str((by_id[nid].get("data") or {}).get("description") or "")
                     if desc == "добавлено оркестратором":
                         targets.add(nid)
                 prev = nid
             if not targets:
-                raise db_apply.ApplyOpsError(
-                    f"remove_node: дублей типа {node_type!r} подряд нет"
-                )
+                raise db_apply.ApplyOpsError(f"remove_node: дублей типа {node_type!r} подряд нет")
         elif only:
-            raise db_apply.ApplyOpsError(
-                f"remove_node: неизвестный only {only!r} (есть: duplicates)"
-            )
+            raise db_apply.ApplyOpsError(f"remove_node: неизвестный only {only!r} (есть: duplicates)")
         else:
             targets = {
                 str(n.get("id"))
                 for n in nodes
                 if str(n.get("type")) == node_type
-                and str((n.get("data") or {}).get("description") or "")
-                == "добавлено оркестратором"
+                and str((n.get("data") or {}).get("description") or "") == "добавлено оркестратором"
             }
             if not targets:
                 raise db_apply.ApplyOpsError(
@@ -1784,19 +1669,13 @@ async def _apply_remove_node(session: AsyncSession, project: Project, spec: dict
                     "id": str(e.get("id") or f"e_{src}_{tgt}"),
                     "source": src,
                     "target": tgt,
-                    **(
-                        {"data": e["data"]}
-                        if isinstance(e.get("data"), dict)
-                        else {}
-                    ),
+                    **({"data": e["data"]} if isinstance(e.get("data"), dict) else {}),
                 }
             )
             seen.add((src, tgt))
     else:
         out_edges = [
-            e
-            for e in edges
-            if str(e.get("source")) not in targets and str(e.get("target")) not in targets
+            e for e in edges if str(e.get("source")) not in targets and str(e.get("target")) not in targets
         ]
         for tid in targets:
             preds = [str(e.get("source")) for e in edges if str(e.get("target")) == tid]
@@ -1804,20 +1683,22 @@ async def _apply_remove_node(session: AsyncSession, project: Project, spec: dict
             for pr in preds:
                 for sc in succs:
                     if pr not in targets and sc not in targets:
-                        out_edges.append(
-                            {"id": f"e_{pr}_{sc}", "source": pr, "target": sc}
-                        )
+                        out_edges.append({"id": f"e_{pr}_{sc}", "source": pr, "target": sc})
 
     meta = dict(project.meta or {})
     meta["canvas_graph"] = {"nodes": left_nodes, "edges": out_edges}
     project.meta = meta
     run = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.project_id == project.id)
-            .order_by(WorkflowRun.id.desc())
+        (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.project_id == project.id)
+                .order_by(WorkflowRun.id.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if run is not None:
         run.nodes_snapshot = list(left_nodes)
         run.edges_snapshot = list(out_edges)
@@ -1836,11 +1717,7 @@ async def _apply_repair_graph(session: AsyncSession, project: Project) -> dict:
     meta = dict(project.meta or {})
     graph = meta.get("canvas_graph")
     if not isinstance(graph, dict) or not graph.get("nodes"):
-        wf = (
-            await session.execute(
-                select(Workflow).where(Workflow.is_default.is_(True))
-            )
-        ).scalars().first()
+        wf = (await session.execute(select(Workflow).where(Workflow.is_default.is_(True)))).scalars().first()
         if wf is None:
             raise db_apply.ApplyOpsError("repair_graph: нет workflow для проекта")
         graph = {"nodes": list(wf.nodes or []), "edges": list(wf.edges or [])}
@@ -1906,11 +1783,7 @@ async def _apply_repair_graph(session: AsyncSession, project: Project) -> dict:
                 "id": str(e.get("id") or f"e_{key[0]}_{key[1]}"),
                 "source": key[0],
                 "target": key[1],
-                **(
-                    {"data": e["data"]}
-                    if isinstance(e.get("data"), dict)
-                    else {}
-                ),
+                **({"data": e["data"]} if isinstance(e.get("data"), dict) else {}),
             }
         )
         seen.add(key)
@@ -1918,12 +1791,16 @@ async def _apply_repair_graph(session: AsyncSession, project: Project) -> dict:
     meta["canvas_graph"] = {"nodes": nodes, "edges": new_edges}
     project.meta = meta
     run = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.project_id == project.id)
-            .order_by(WorkflowRun.id.desc())
+        (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.project_id == project.id)
+                .order_by(WorkflowRun.id.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if run is not None:
         run.nodes_snapshot = list(nodes)
         run.edges_snapshot = list(new_edges)
@@ -1931,20 +1808,14 @@ async def _apply_repair_graph(session: AsyncSession, project: Project) -> dict:
     return {"repair_graph": f"цепочка пересобрана: {len(ordered)} нод + {len(sinks)} сбоку"}
 
 
-async def _load_canvas_graph(
-    session: AsyncSession, project: Project
-) -> tuple[list[dict], list[dict]]:
+async def _load_canvas_graph(session: AsyncSession, project: Project) -> tuple[list[dict], list[dict]]:
     """nodes/edges из meta.canvas_graph или default Workflow."""
     from app.models import Workflow
 
     meta = dict(project.meta or {})
     graph = meta.get("canvas_graph")
     if not isinstance(graph, dict) or not graph.get("nodes"):
-        wf = (
-            await session.execute(
-                select(Workflow).where(Workflow.is_default.is_(True))
-            )
-        ).scalars().first()
+        wf = (await session.execute(select(Workflow).where(Workflow.is_default.is_(True)))).scalars().first()
         if wf is None:
             raise db_apply.ApplyOpsError("нет workflow / canvas_graph для проекта")
         return [dict(n) for n in (wf.nodes or [])], [dict(e) for e in (wf.edges or [])]
@@ -1966,12 +1837,16 @@ async def _save_canvas_graph(
     meta["canvas_graph"] = {"nodes": nodes, "edges": edges}
     project.meta = meta
     run = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.project_id == project.id)
-            .order_by(WorkflowRun.id.desc())
+        (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.project_id == project.id)
+                .order_by(WorkflowRun.id.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if run is not None:
         run.nodes_snapshot = list(nodes)
         run.edges_snapshot = list(edges)
@@ -1990,9 +1865,7 @@ async def _apply_connect_edges(session: AsyncSession, project: Project, spec: di
     to_key = str(spec.get("to") or "").strip()
     to_type = str(spec.get("to_type") or "").strip()
     if not to_key and not to_type:
-        raise db_apply.ApplyOpsError(
-            "connect_edges: нужен to=<node_key> или to_type=storage"
-        )
+        raise db_apply.ApplyOpsError("connect_edges: нужен to=<node_key> или to_type=storage")
 
     nodes, edges = await _load_canvas_graph(session, project)
     by_id = {str(n.get("id")): n for n in nodes}
@@ -2000,9 +1873,7 @@ async def _apply_connect_edges(session: AsyncSession, project: Project, spec: di
 
     if not to_key and to_type:
         if to_type not in _all_node_types():
-            raise db_apply.ApplyOpsError(
-                f"connect_edges: неизвестный to_type {to_type!r}"
-            )
+            raise db_apply.ApplyOpsError(f"connect_edges: неизвестный to_type {to_type!r}")
         found = [nid for nid, n in by_id.items() if str(n.get("type")) == to_type]
         if found:
             to_key = found[0]
@@ -2035,29 +1906,20 @@ async def _apply_connect_edges(session: AsyncSession, project: Project, spec: di
             by_id[to_key] = nodes[-1]
             existing_ids.add(to_key)
         else:
-            raise db_apply.ApplyOpsError(
-                f"connect_edges: ноды типа {to_type!r} нет — сначала add_node"
-            )
+            raise db_apply.ApplyOpsError(f"connect_edges: ноды типа {to_type!r} нет — сначала add_node")
 
     if to_key not in by_id:
-        raise db_apply.ApplyOpsError(
-            f"connect_edges: неизвестный to {to_key!r}; ключи — в НОДЫ КАНВАСА"
-        )
+        raise db_apply.ApplyOpsError(f"connect_edges: неизвестный to {to_key!r}; ключи — в НОДЫ КАНВАСА")
 
     if from_spec == "each":
         # От КАЖДОЙ ноды (включая excel_gpt/hitl), кроме самой цели.
         sources = [nid for nid in by_id if nid != to_key]
     else:
         if from_spec not in by_id:
-            raise db_apply.ApplyOpsError(
-                f"connect_edges: неизвестный from {from_spec!r}"
-            )
+            raise db_apply.ApplyOpsError(f"connect_edges: неизвестный from {from_spec!r}")
         sources = [from_spec]
 
-    have = {
-        (str(e.get("source")), str(e.get("target")))
-        for e in edges
-    }
+    have = {(str(e.get("source")), str(e.get("target"))) for e in edges}
     added = 0
     for src in sources:
         if src == to_key:
@@ -2098,11 +1960,7 @@ async def _apply_rename_node(session: AsyncSession, project: Project, spec: dict
     meta = dict(project.meta or {})
     graph = meta.get("canvas_graph")
     if not isinstance(graph, dict) or not graph.get("nodes"):
-        wf = (
-            await session.execute(
-                select(Workflow).where(Workflow.is_default.is_(True))
-            )
-        ).scalars().first()
+        wf = (await session.execute(select(Workflow).where(Workflow.is_default.is_(True)))).scalars().first()
         if wf is None:
             raise db_apply.ApplyOpsError("rename_node: нет workflow для проекта")
         graph = {"nodes": list(wf.nodes or []), "edges": list(wf.edges or [])}
@@ -2114,9 +1972,7 @@ async def _apply_rename_node(session: AsyncSession, project: Project, spec: dict
             hit = n
             break
     if hit is None:
-        raise db_apply.ApplyOpsError(
-            f"rename_node: неизвестный node_key {node_key!r} (см. НОДЫ КАНВАСА)"
-        )
+        raise db_apply.ApplyOpsError(f"rename_node: неизвестный node_key {node_key!r} (см. НОДЫ КАНВАСА)")
     data = dict(hit.get("data") or {})
     old_label = str(data.get("label") or "")
     data["label"] = label
@@ -2125,12 +1981,16 @@ async def _apply_rename_node(session: AsyncSession, project: Project, spec: dict
     meta["canvas_graph"] = {"nodes": nodes, "edges": edges}
     project.meta = meta
     run = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.project_id == project.id)
-            .order_by(WorkflowRun.id.desc())
+        (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.project_id == project.id)
+                .order_by(WorkflowRun.id.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if run is not None:
         run.nodes_snapshot = list(nodes)
         run.edges_snapshot = list(edges)
@@ -2146,8 +2006,7 @@ def _cut(text: object, limit: int = 160) -> str:
 def _orchestrator_context(graph: dict) -> str:
     proj = graph.get("project") or {}
     lines = [
-        f"Проект #{proj.get('id')} «{proj.get('title') or proj.get('slug')}», "
-        f"статус {proj.get('status')}",
+        f"Проект #{proj.get('id')} «{proj.get('title') or proj.get('slug')}», статус {proj.get('status')}",
         "Кадры:",
     ]
     for f in graph.get("frames") or []:
@@ -2189,27 +2048,17 @@ async def orchestrator_chat(
     graph = await db_v2.project_graph(session, project)
 
     history_txt = "\n".join(
-        f"{m.get('role', '?')}: {m.get('content', '')}"
-        for m in (body.history or [])[-8:]
+        f"{m.get('role', '?')}: {m.get('content', '')}" for m in (body.history or [])[-8:]
     )
     diag_lines = await _diagnostics_context(session, project)
     canvas_lines, canvas_keymap = await _canvas_nodes_context(session, project)
     catalog_lines = await _projects_catalog_context(session)
     fix_bugs = _is_fix_bugs_mode(body.message, flag=bool(body.fix_bugs))
-    diagnose_only = _is_diagnose_only_question(
-        body.message, fix_bugs=fix_bugs
-    )
-    code_lines = (
-        []
-        if diagnose_only
-        else await asyncio.to_thread(_code_workspace_context)
-    )
+    diagnose_only = _is_diagnose_only_question(body.message, fix_bugs=fix_bugs)
+    code_lines = [] if diagnose_only else await asyncio.to_thread(_code_workspace_context)
     topic_snip = (project.topic or "").strip().replace("\n", " ")[:160]
     prompt = (
-        _ORCHESTRATOR_SYSTEM
-        + "\n\n"
-        + "\n".join(catalog_lines)
-        + "\n\nТЕКУЩИЙ ПРОЕКТ В ЧАТЕ: "
+        _ORCHESTRATOR_SYSTEM + "\n\n" + "\n".join(catalog_lines) + "\n\nТЕКУЩИЙ ПРОЕКТ В ЧАТЕ: "
         f"#{project.id} | {project.slug} | {(project.title or '') or '—'} | "
         f"{getattr(project.status, 'value', project.status)}"
         + (f"\nТЕМА: {topic_snip}" if topic_snip else "")
@@ -2243,9 +2092,7 @@ async def orchestrator_chat(
         + body.message
     )
     try:
-        reply = await get_gpt_client().ask_fresh(
-            prompt, timeout=600, project_id=project.id
-        )
+        reply = await get_gpt_client().ask_fresh(prompt, timeout=600, project_id=project.id)
     except GptApiUnavailable as e:
         raise HTTPException(503, str(e)) from None
 
@@ -2282,10 +2129,7 @@ async def orchestrator_chat(
                 if not isinstance(item, dict):
                     continue
                 nested = item.get("actions")
-                if isinstance(nested, list) and (
-                    len(item) == 1
-                    or all(k == "actions" for k in item)
-                ):
+                if isinstance(nested, list) and (len(item) == 1 or all(k == "actions" for k in item)):
                     flat.extend(_flatten_orchestrator_actions(nested))
                     continue
                 if isinstance(nested, list):
@@ -2315,14 +2159,11 @@ async def orchestrator_chat(
                         continue
                     if step not in STEP_CODE_TO_NODE_TYPE:
                         raise db_apply.ApplyOpsError(
-                            f"неизвестный шаг {step!r}; "
-                            f"разрешены: {sorted(STEP_CODE_TO_NODE_TYPE)}"
+                            f"неизвестный шаг {step!r}; разрешены: {sorted(STEP_CODE_TO_NODE_TYPE)}"
                         )
                     from app.services.project_steps import start_step
 
-                    new_status = await start_step(
-                        session, project, step, explicit_ui_start=True
-                    )
+                    new_status = await start_step(session, project, step, explicit_ui_start=True)
                     await session.commit()
                     actions_run.append({"run_step": step, "status": new_status.value})
                 elif act.get("stop_step"):
@@ -2338,9 +2179,7 @@ async def orchestrator_chat(
                     actions_run.append({"set_option": label})
                 elif "set_prompt" in act:
                     spec = act.get("set_prompt") or {}
-                    label = _apply_set_prompt(
-                        project, spec.get("step"), spec.get("variant")
-                    )
+                    label = _apply_set_prompt(project, spec.get("step"), spec.get("variant"))
                     await session.commit()
                     actions_run.append({"set_prompt": label})
                 elif "set_text_llm" in act:
@@ -2354,14 +2193,10 @@ async def orchestrator_chat(
                         )
                     except ValueError as e:
                         raise db_apply.ApplyOpsError(str(e)) from None
-                    actions_run.append(
-                        {"set_text_llm": f"{payload['provider']} ({payload['model_id']})"}
-                    )
+                    actions_run.append({"set_text_llm": f"{payload['provider']} ({payload['model_id']})"})
                 elif "open_ui" in act:
                     ui_actions.append(
-                        await _resolve_open_ui(
-                            session, project, act.get("open_ui") or {}, canvas_keymap
-                        )
+                        await _resolve_open_ui(session, project, act.get("open_ui") or {}, canvas_keymap)
                     )
                 elif "hitl_decision" in act:
                     actions_run.append(await _apply_hitl_decision(session, project, act.get("hitl_decision")))
@@ -2375,9 +2210,7 @@ async def orchestrator_chat(
                 elif "create_project" in act:
                     spec = act.get("create_project") or {}
                     created = await _apply_create_project(session, spec)
-                    actions_run.append(
-                        {"create_project": f"#{created['id']} {created['title']}"}
-                    )
+                    actions_run.append({"create_project": f"#{created['id']} {created['title']}"})
                     ui_actions.append({"kind": "open_project", "project_id": created["id"]})
                 elif "delete_projects" in act:
                     # Удаление проектов — только после кнопки подтверждения в чате.
@@ -2394,42 +2227,31 @@ async def orchestrator_chat(
                         }
                     )
                 elif "create_child" in act:
-                    created = await _apply_create_child(
-                        session, project, act.get("create_child")
-                    )
+                    created = await _apply_create_child(session, project, act.get("create_child"))
                     actions_run.append(
                         {
                             "create_child": (
-                                f"#{created['id']} {created['title']} "
-                                f"← parent #{created['parent_id']}"
+                                f"#{created['id']} {created['title']} ← parent #{created['parent_id']}"
                             )
                         }
                     )
                     ui_actions.append({"kind": "open_project", "project_id": created["id"]})
                 elif "add_node" in act:
-                    actions_run.append(
-                        await _apply_add_node(session, project, act.get("add_node") or {})
-                    )
+                    actions_run.append(await _apply_add_node(session, project, act.get("add_node") or {}))
                 elif "connect_edges" in act:
                     actions_run.append(
-                        await _apply_connect_edges(
-                            session, project, act.get("connect_edges") or {}
-                        )
+                        await _apply_connect_edges(session, project, act.get("connect_edges") or {})
                     )
                 elif act.get("repair_graph"):
                     actions_run.append(await _apply_repair_graph(session, project))
                 elif "rename_node" in act:
                     actions_run.append(
-                        await _apply_rename_node(
-                            session, project, act.get("rename_node") or {}
-                        )
+                        await _apply_rename_node(session, project, act.get("rename_node") or {})
                     )
                 elif "remove_node" in act:
                     # Удаление — только с подтверждением человеком (кнопка в чате).
                     spec = act.get("remove_node") or {}
-                    _nodes, _edges, targets = await _remove_node_targets(
-                        session, project, spec
-                    )
+                    _nodes, _edges, targets = await _remove_node_targets(session, project, spec)
                     pending_confirm.append(
                         {
                             "kind": "remove_node",
@@ -2443,14 +2265,10 @@ async def orchestrator_chat(
                 elif act.get("run_harness"):
                     from app.services.agent_harness import run_harness_verify
 
-                    rep = await run_harness_verify(
-                        session, project, allow_repair=False, include_http=False
-                    )
+                    rep = await run_harness_verify(session, project, allow_repair=False, include_http=False)
                     await session.commit()
                     bad = [c.name for c in rep.checks if not c.ok]
-                    actions_run.append(
-                        {"run_harness": "ок" if rep.ok else f"НЕОК: {bad}"}
-                    )
+                    actions_run.append({"run_harness": "ок" if rep.ok else f"НЕОК: {bad}"})
                 elif "read_file" in act:
                     from app.services.code_autofix import CodeAutofixError, read_file
 
@@ -2474,8 +2292,7 @@ async def orchestrator_chat(
                             "read_file": (
                                 f"прочитан {rfile['path']} "
                                 f"L{rfile['start_line']}-{rfile['end_line']}/"
-                                f"{rfile['total_lines']}"
-                                + (" (обрезан)" if rfile["truncated"] else "")
+                                f"{rfile['total_lines']}" + (" (обрезан)" if rfile["truncated"] else "")
                             )
                         }
                     )
@@ -2487,18 +2304,11 @@ async def orchestrator_chat(
 
                     try:
                         # sync FS — в thread, иначе блокирует весь Studio UI
-                        result = await asyncio.to_thread(
-                            apply_edits, act.get("edit_files") or []
-                        )
+                        result = await asyncio.to_thread(apply_edits, act.get("edit_files") or [])
                     except CodeAutofixError as e:
                         raise db_apply.ApplyOpsError(str(e)) from None
                     actions_run.append(
-                        {
-                            "edit_files": (
-                                f"{result['count']} файл(ов): "
-                                + ", ".join(result["changed"][:8])
-                            )
-                        }
+                        {"edit_files": (f"{result['count']} файл(ов): " + ", ".join(result["changed"][:8]))}
                     )
                 elif "run_tests" in act:
                     from app.services.code_autofix import (
@@ -2510,9 +2320,7 @@ async def orchestrator_chat(
                     paths = spec if isinstance(spec, list) else None
                     try:
                         # pytest sync — не блокировать event loop (зависание всего UI)
-                        tres = await asyncio.to_thread(
-                            lambda: run_tests(paths, timeout=90.0)
-                        )
+                        tres = await asyncio.to_thread(lambda: run_tests(paths, timeout=90.0))
                     except CodeAutofixError as e:
                         raise db_apply.ApplyOpsError(str(e)) from None
                     # FAIL не рвёт весь батч — модель видит вывод и чинит дальше
@@ -2538,9 +2346,7 @@ async def orchestrator_chat(
                     message = str(spec.get("message") or "").strip()
                     files = spec.get("files") or []
                     if files is not None and not isinstance(files, list):
-                        raise db_apply.ApplyOpsError(
-                            "git_commit_push.files: список путей"
-                        )
+                        raise db_apply.ApplyOpsError("git_commit_push.files: список путей")
                     auto = bool(spec.get("auto"))
                     if not message:
                         raise db_apply.ApplyOpsError("git_commit_push: пустой message")
@@ -2554,12 +2360,7 @@ async def orchestrator_chat(
                         except (GitOpsError, CodeAutofixError) as e:
                             raise db_apply.ApplyOpsError(str(e)) from None
                         actions_run.append(
-                            {
-                                "git_commit_push": (
-                                    f"pushed {pushed['sha']} "
-                                    f"({len(pushed['files'])} files)"
-                                )
-                            }
+                            {"git_commit_push": (f"pushed {pushed['sha']} ({len(pushed['files'])} files)")}
                         )
                     else:
                         pending_confirm.append(
@@ -2627,12 +2428,7 @@ async def orchestrator_chat(
                 reply or "",
             )
         )
-        if (
-            not human
-            or looks_like_code_dump
-            or len(human) < 40
-            or human.lstrip().startswith("{")
-        ):
+        if not human or looks_like_code_dump or len(human) < 40 or human.lstrip().startswith("{"):
             reply = _human_reply_from_diagnostics(diag_lines)
         else:
             reply = human
@@ -2732,15 +2528,12 @@ async def orchestrator_confirm_git_push(
     from app.services.git_ops import GitOpsError, commit_and_push
 
     try:
-        pushed = await asyncio.to_thread(
-            commit_and_push, list(body.files or []), body.message.strip()
-        )
+        pushed = await asyncio.to_thread(commit_and_push, list(body.files or []), body.message.strip())
     except (GitOpsError, CodeAutofixError) as e:
         raise HTTPException(400, str(e)) from None
     return {
         "git_commit_push": (
-            f"git HEAD: {pushed['sha']} уже в {pushed['branch']} "
-            f"({len(pushed['files'])} files)"
+            f"git HEAD: {pushed['sha']} уже в {pushed['branch']} ({len(pushed['files'])} files)"
         ),
         "sha": pushed["sha"],
         "branch": pushed["branch"],
@@ -2817,18 +2610,14 @@ async def add_text(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     fr = await _frame(session, frame_id)
-    t = FrameText(
-        project_id=fr.project_id, frame_id=fr.id, kind=body.kind, text=body.text
-    )
+    t = FrameText(project_id=fr.project_id, frame_id=fr.id, kind=body.kind, text=body.text)
     session.add(t)
     await session.commit()
     return {"id": t.id, "kind": t.kind}
 
 
 @router.delete("/texts/{text_id}")
-async def delete_text(
-    text_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def delete_text(text_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     t = await session.get(FrameText, text_id)
     if t is None:
         raise HTTPException(404, "текст не найден")
@@ -2867,21 +2656,23 @@ async def add_prompt(
 
 
 @router.post("/prompts/{prompt_id}/activate")
-async def activate_prompt(
-    prompt_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def activate_prompt(prompt_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     pv = await session.get(PromptVersion, prompt_id)
     if pv is None:
         raise HTTPException(404, "версия промта не найдена")
     siblings = (
-        await session.execute(
-            select(PromptVersion).where(
-                PromptVersion.frame_id == pv.frame_id,
-                PromptVersion.kind == pv.kind,
-                PromptVersion.is_active.is_(True),
+        (
+            await session.execute(
+                select(PromptVersion).where(
+                    PromptVersion.frame_id == pv.frame_id,
+                    PromptVersion.kind == pv.kind,
+                    PromptVersion.is_active.is_(True),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for s in siblings:
         s.is_active = False
     pv.is_active = True
@@ -2909,9 +2700,7 @@ async def add_entity(
 ) -> dict:
     project = await _project(session, project_id)
     max_key = (
-        await session.execute(
-            select(func.max(Entity.sort_key)).where(Entity.project_id == project.id)
-        )
+        await session.execute(select(func.max(Entity.sort_key)).where(Entity.project_id == project.id))
     ).scalar_one() or 0.0
     en = Entity(
         project_id=project.id,
@@ -2944,9 +2733,7 @@ async def patch_entity(
 
 
 @router.delete("/entities/{entity_id}")
-async def delete_entity(
-    entity_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def delete_entity(entity_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     en = await session.get(Entity, entity_id)
     if en is None:
         raise HTTPException(404, "сущность не найдена")
@@ -2982,9 +2769,7 @@ async def add_edge(
 
 
 @router.delete("/edges/{edge_id}")
-async def delete_edge(
-    edge_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def delete_edge(edge_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     e = await session.get(FrameEdge, edge_id)
     if e is None:
         raise HTTPException(404, "связь не найдена")

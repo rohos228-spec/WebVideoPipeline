@@ -1,4 +1,5 @@
 """Проверка #50: последовательность нод, файлы API, логи (без Run audio/music)."""
+
 from __future__ import annotations
 
 import json
@@ -116,8 +117,7 @@ def main() -> None:
     done_seq = [r for r in rows if r["status"] == "done"]
     for r in done_seq:
         print(
-            f"  {r['finished_at'] or r['started_at']}  {r['status']:8}  "
-            f"{r['node_type']:20}  {r['node_key']}"
+            f"  {r['finished_at'] or r['started_at']}  {r['status']:8}  {r['node_type']:20}  {r['node_key']}"
         )
     failed = [r for r in rows if r["status"] == "failed"]
     print("FAILED", len(failed))

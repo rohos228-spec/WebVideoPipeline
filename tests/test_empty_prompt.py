@@ -21,24 +21,15 @@ def test_empty_and_whitespace() -> None:
 
 def test_placeholder_no_source_data() -> None:
     assert is_skippable_empty_prompt("нет исходных данных для заполнения") is True
-    assert (
-        is_skippable_empty_prompt(
-            "КАДР 2 / PROMPT_2:\nнет исходных данных для заполнения"
-        )
-        is True
-    )
+    assert is_skippable_empty_prompt("КАДР 2 / PROMPT_2:\nнет исходных данных для заполнения") is True
 
 
 def test_shot2_prefix_only() -> None:
-    prefix = (
-        "на основе референса, запрещено делать идентичную иллюстрацию "
-        "без смены положения камеры"
-    )
+    prefix = "на основе референса, запрещено делать идентичную иллюстрацию без смены положения камеры"
     assert is_skippable_empty_prompt(prefix) is True
     assert (
         is_skippable_empty_prompt(
-            "на основе референса, запрещено делать идентичную иллюстрацию "
-            "без смены положения"
+            "на основе референса, запрещено делать идентичную иллюстрацию без смены положения"
         )
         is True
     )

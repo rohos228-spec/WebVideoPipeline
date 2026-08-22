@@ -26,7 +26,7 @@ def main() -> None:
     if not found:
         if out and out[-1].strip():
             out.append("")
-        out.append(f"# PC-local git branch for orchestrator push")
+        out.append("# PC-local git branch for orchestrator push")
         out.append(f"{KEY}={WANT}")
     ENV.write_text("\n".join(out) + "\n", encoding="utf-8")
     print("updated" if found else "appended", KEY, "=", WANT)

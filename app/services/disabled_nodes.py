@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from app.models import Project, ProjectStatus
-
 from app.orchestrator.node_registry import STEP_CODE_TO_NODE_TYPE
 
-KNOWN_NODE_TYPES: tuple[str, ...] = tuple(
-    sorted(set(STEP_CODE_TO_NODE_TYPE.values()), key=len, reverse=True)
-)
+KNOWN_NODE_TYPES: tuple[str, ...] = tuple(sorted(set(STEP_CODE_TO_NODE_TYPE.values()), key=len, reverse=True))
 
 
 def node_type_from_key(node_key: str) -> str | None:

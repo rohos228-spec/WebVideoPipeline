@@ -13,7 +13,7 @@ from app.services.mass_factory import (
     delete_new_mass_children,
     init_child_data_dir,
 )
-from app.services.xlsx_v8_import import SHEET_PLAN_V8, ROW_VOICEOVER_V8
+from app.services.xlsx_v8_import import ROW_VOICEOVER_V8, SHEET_PLAN_V8
 
 
 @pytest.fixture
@@ -36,9 +36,7 @@ def _write_filled_xlsx(path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_init_child_data_dir_resets_stale_xlsx(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_init_child_data_dir_resets_stale_xlsx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     tpl_dir = tmp_path / "templates"
     tpl_dir.mkdir()
     tpl = tpl_dir / "project_template_v8.xlsx"
@@ -55,9 +53,7 @@ async def test_init_child_data_dir_resets_stale_xlsx(
     (slug_dir / "tmp_gpt" / "split_old.xlsx").write_bytes(b"PK")
 
     monkeypatch.setattr("app.models.settings.data_dir", root)
-    monkeypatch.setattr(
-        "app.storage.project_sheet.resolve_default_template_path", lambda: tpl
-    )
+    monkeypatch.setattr("app.storage.project_sheet.resolve_default_template_path", lambda: tpl)
     monkeypatch.setattr("app.storage.project_sheet.DEFAULT_TEMPLATE_PATH", tpl)
 
     project = Project(id=9, topic="Topic A", slug="topic-a", status=ProjectStatus.new)

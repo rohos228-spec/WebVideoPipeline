@@ -38,9 +38,7 @@ def _looks_like_dead_browser(exc: BaseException) -> bool:
 
 def _looks_like_cdp_connect_failure(exc: BaseException) -> bool:
     msg = f"{type(exc).__name__}: {exc}".lower()
-    return "connect_over_cdp" in msg or (
-        "timeout" in msg and ("exceeded" in msg or "180000" in msg)
-    )
+    return "connect_over_cdp" in msg or ("timeout" in msg and ("exceeded" in msg or "180000" in msg))
 
 
 class BrowserSession:
@@ -86,8 +84,7 @@ class BrowserSession:
                 last_err = None
                 for attempt in range(1, 3):
                     logger.info(
-                        "connecting to chrome over cdp at {} "
-                        "(attempt {}/2, timeout={}ms, restarted={})",
+                        "connecting to chrome over cdp at {} (attempt {}/2, timeout={}ms, restarted={})",
                         url,
                         attempt,
                         timeout_ms,
@@ -111,10 +108,7 @@ class BrowserSession:
                 if (
                     not chrome_restarted
                     and last_err is not None
-                    and (
-                        cdp.playwright_cdp_hang(last_err)
-                        or cdp.is_cdp_connection_error(last_err)
-                    )
+                    and (cdp.playwright_cdp_hang(last_err) or cdp.is_cdp_connection_error(last_err))
                     and await cdp.recover_chrome_cdp(force=True)
                 ):
                     chrome_restarted = True
@@ -176,16 +170,13 @@ class BrowserSession:
                 last_exc = e
                 if attempt == 0 and _looks_like_dead_browser(e):
                     logger.warning(
-                        "browser.open_page: chrome-контекст мёртв ({}). "
-                        "Переподключаюсь и пробую ещё раз.",
+                        "browser.open_page: chrome-контекст мёртв ({}). Переподключаюсь и пробую ещё раз.",
                         type(e).__name__,
                     )
                     try:
                         await self.reconnect()
                     except Exception as rc_e:  # noqa: BLE001
-                        logger.error(
-                            "browser.open_page: reconnect провалился: {}", rc_e
-                        )
+                        logger.error("browser.open_page: reconnect провалился: {}", rc_e)
                         raise
                     continue
                 raise

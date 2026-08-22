@@ -35,8 +35,8 @@ from app.services.hitl import send_hitl_video
 from app.services.mapper import FrameTiming
 from app.services.media_probe import probe_duration, probe_video_size
 from app.services.montage.variant2 import MONTAGE_ENGINE_V2, run_variant2
-from app.services.montage_board_meta import montage_meta
 from app.services.montage_asr import ensure_montage_words
+from app.services.montage_board_meta import montage_meta
 from app.services.node_step_params import (
     post_voiceover_tail_seconds_for_project,
     skip_intro_seconds_for_project,
@@ -63,16 +63,20 @@ async def _scene_video_path(
     from app.services.plan_shot2 import effective_shot_from_artifact
 
     arts = (
-        await session.execute(
-            select(Artifact)
-            .where(
-                Artifact.project_id == project.id,
-                Artifact.frame_id == frame.id,
-                Artifact.kind == ArtifactKind.scene_video,
+        (
+            await session.execute(
+                select(Artifact)
+                .where(
+                    Artifact.project_id == project.id,
+                    Artifact.frame_id == frame.id,
+                    Artifact.kind == ArtifactKind.scene_video,
+                )
+                .order_by(Artifact.id.desc())
             )
-            .order_by(Artifact.id.desc())
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     art_path: Path | None = None
     for art in arts:
         if not art.path:
@@ -125,21 +129,17 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Bot) -> No
     logger.info("[#{}] assemble starting", project.id)
 
     await recover_before_assemble(session, project)
-    ok, reason, rollback = await can_enter_running(
-        session, project, ProjectStatus.assembling
-    )
+    ok, reason, rollback = await can_enter_running(session, project, ProjectStatus.assembling)
     if not ok:
         project.status = rollback or ProjectStatus.generating_audio
         await session.flush()
-        raise RuntimeError(
-            f"сборка невозможна: {reason}. Статус → {project.status.value}"
-        )
+        raise RuntimeError(f"сборка невозможна: {reason}. Статус → {project.status.value}")
 
     frames_all = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     if not frames_all:
         from app.services.ensure_frames_from_disk import bootstrap_project_frames_from_disk
 
@@ -151,14 +151,16 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Bot) -> No
                 boot["frames_created"],
             )
         frames_all = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                )
             )
-        ).scalars().all()
-    if not frames_all:
-        raise RuntimeError(
-            "нет кадров — положите clip_*/frame_* в videos/scenes или project.xlsx"
+            .scalars()
+            .all()
         )
+    if not frames_all:
+        raise RuntimeError("нет кадров — положите clip_*/frame_* в videos/scenes или project.xlsx")
 
     frames: list[Frame] = []
     skipped_no_video: list[int] = []
@@ -191,8 +193,7 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Bot) -> No
     ).scalar_one_or_none()
     if audio is None:
         raise RuntimeError(
-            "нет артефакта аудио — запустите шаг «Аудио» "
-            "(voice_full*.mp3 в audio/ не зарегистрирован)"
+            "нет артефакта аудио — запустите шаг «Аудио» (voice_full*.mp3 в audio/ не зарегистрирован)"
         )
 
     audio_path = Path(audio.path)
@@ -271,14 +272,10 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Bot) -> No
         )
 
         montage_frame_numbers = resolve_montage_frame_numbers(project, frame_numbers)
-        montage_cells = [
-            (n, text) for n, text in cells if n in set(montage_frame_numbers)
-        ]
+        montage_cells = [(n, text) for n, text in cells if n in set(montage_frame_numbers)]
         if len(montage_cells) < len(montage_frame_numbers):
             by_num = dict(cells)
-            montage_cells = [
-                (n, by_num.get(n, "")) for n in montage_frame_numbers
-            ]
+            montage_cells = [(n, by_num.get(n, "")) for n in montage_frame_numbers]
 
         if not words:
             words = await ensure_montage_words(
@@ -423,10 +420,7 @@ async def _assemble_body(
     _ = frames_all, skipped_no_video, audio, whisper_art, ts_row, ts_cells
 
     duration_by_frame = {c.frame_number: c.duration for c in audio_clips}
-    frame_timings = [
-        FrameTiming(c.frame_number, c.start_ts, c.end_ts, c.duration)
-        for c in audio_clips
-    ]
+    frame_timings = [FrameTiming(c.frame_number, c.start_ts, c.end_ts, c.duration) for c in audio_clips]
 
     for fr in frames_all:
         ac = next((c for c in audio_clips if c.frame_number == fr.number), None)
@@ -456,10 +450,14 @@ async def _assemble_body(
         )
         if not sub_entries:
             raise RuntimeError("не удалось построить субтитры из Excel + Whisper")
-        session.add(Artifact(
-            project_id=project.id, kind=ArtifactKind.subtitle,
-            uuid=uuid.uuid4().hex, path=str(subs_path),
-        ))
+        session.add(
+            Artifact(
+                project_id=project.id,
+                kind=ArtifactKind.subtitle,
+                uuid=uuid.uuid4().hex,
+                path=str(subs_path),
+            )
+        )
     else:
         logger.info("[#{}] assemble: субтитры выключены в настройках сборки", project.id)
 
@@ -478,9 +476,7 @@ async def _assemble_body(
                 if p2 is None:
                     p2 = await _scene_video_path(session, project, fr, shot=2)
                 if p2 is None:
-                    raise RuntimeError(
-                        f"нет клипа shot_01/shot_02 для кадра {fr.number}"
-                    )
+                    raise RuntimeError(f"нет клипа shot_01/shot_02 для кадра {fr.number}")
                 logger.info(
                     "[#{}] assemble: кадр {} — нет shot_01, используем shot_02",
                     project.id,
@@ -537,11 +533,24 @@ async def _assemble_body(
                 shutil.copy2(subs_path, tmp_ass)
                 burned = tmp / "burned.mp4"
                 proc = await asyncio.create_subprocess_exec(
-                    "ffmpeg", "-y", "-i", str(out_path),
-                    "-vf", subtitles_vf_arg(),
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "20",
-                    "-c:a", "copy",
-                    "-t", f"{audio_duration:.3f}",
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(out_path),
+                    "-vf",
+                    subtitles_vf_arg(),
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-preset",
+                    "fast",
+                    "-crf",
+                    "20",
+                    "-c:a",
+                    "copy",
+                    "-t",
+                    f"{audio_duration:.3f}",
                     str(burned),
                     cwd=str(tmp),
                 )
@@ -574,10 +583,14 @@ async def _assemble_body(
     )
     await session.flush()
 
-    session.add(Artifact(
-        project_id=project.id, kind=ArtifactKind.final_video,
-        uuid=uuid.uuid4().hex, path=str(out_path),
-    ))
+    session.add(
+        Artifact(
+            project_id=project.id,
+            kind=ArtifactKind.final_video,
+            uuid=uuid.uuid4().hex,
+            path=str(out_path),
+        )
+    )
     project.status = ProjectStatus.assembled
     await session.flush()
 
@@ -586,7 +599,9 @@ async def _assemble_body(
     await on_child_montage_complete(session, project)
 
     await send_hitl_video(
-        bot, session, project,
+        bot,
+        session,
+        project,
         kind=HITLKind.approve_final,
         video_path=str(out_path),
         caption=f"Финальный ролик #{project.id} готов. Одобрить и публиковать?",

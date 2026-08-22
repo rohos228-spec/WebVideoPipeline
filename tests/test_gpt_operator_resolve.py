@@ -82,9 +82,7 @@ def test_incoming_edge_pulls_scene_images(tmp_path: Path, monkeypatch) -> None:
                 }
             ],
         },
-        "excel_gpt_nodes": {
-            gpt: {"role": "review", "transport": "api", "outputMode": "text"}
-        },
+        "excel_gpt_nodes": {gpt: {"role": "review", "transport": "api", "outputMode": "text"}},
     }
     res = resolve_operator(p, gpt)
     assert res["canRun"] is True
@@ -95,9 +93,7 @@ def test_incoming_edge_pulls_scene_images(tmp_path: Path, monkeypatch) -> None:
     assert all(f["origin"] in ("edge", "snapshot") for f in res["files"] if f["ok"])
 
 
-def test_project_file_does_not_inject_xlsx(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_project_file_does_not_inject_xlsx(tmp_path: Path, monkeypatch) -> None:
     """DB SoT: project_file не тащит Excel — canRun без xlsx (db_frames на run)."""
     p = _project(tmp_path, monkeypatch)
     check = "n_check"
@@ -305,9 +301,7 @@ def test_resolve_hydrates_assist_reply_from_disk(tmp_path: Path, monkeypatch) ->
             "nodes": [{"id": key, "type": "excel_gpt", "position": {"x": 0, "y": 0}}],
             "edges": [],
         },
-        "excel_gpt_nodes": {
-            key: {"role": "assist", "outputMode": "project_file", "transport": "api"}
-        },
+        "excel_gpt_nodes": {key: {"role": "assist", "outputMode": "project_file", "transport": "api"}},
         # как после canvas PATCH / clear_step
         "gpt_operator_results": {},
     }
@@ -315,6 +309,4 @@ def test_resolve_hydrates_assist_reply_from_disk(tmp_path: Path, monkeypatch) ->
     last = res.get("lastResult") or {}
     assert last.get("replyPreview")
     assert "frame_uuid" in str(last.get("replyPreview"))
-    assert any(
-        str(p).endswith("gpt_reply.txt") for p in (last.get("outputPaths") or [])
-    )
+    assert any(str(p).endswith("gpt_reply.txt") for p in (last.get("outputPaths") or []))

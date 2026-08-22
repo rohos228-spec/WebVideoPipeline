@@ -63,9 +63,7 @@ async def test_ensure_public_keeps_http() -> None:
 async def test_ensure_public_requires_yandex_no_public_hosts() -> None:
     from app.bots import outsee_http as oh
 
-    png = base64.b64encode(
-        b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
-    ).decode("ascii")
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64).decode("ascii")
     data = f"data:image/png;base64,{png}"
 
     with (
@@ -83,9 +81,7 @@ def test_looks_like_image_bytes_rejects_html_landing() -> None:
     from app.bots.outsee_http import _looks_like_image_bytes
 
     assert _looks_like_image_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 20)
-    assert not _looks_like_image_bytes(
-        b"<!DOCTYPE html><html>", "text/html; charset=utf-8"
-    )
+    assert not _looks_like_image_bytes(b"<!DOCTYPE html><html>", "text/html; charset=utf-8")
     assert not _looks_like_image_bytes(b"<html>not an image</html>")
 
 
@@ -112,13 +108,10 @@ def test_is_outsee_image_fetch_error() -> None:
 
     assert _is_outsee_image_fetch_error(
         OutseeApiError(
-            "Outsee API /api/v1/videos/generate: Не удалось скачать "
-            "изображение по ссылке (таймаут или сеть)."
+            "Outsee API /api/v1/videos/generate: Не удалось скачать изображение по ссылке (таймаут или сеть)."
         )
     )
-    assert not _is_outsee_image_fetch_error(
-        OutseeApiError("CONTENT_POLICY celebrity")
-    )
+    assert not _is_outsee_image_fetch_error(OutseeApiError("CONTENT_POLICY celebrity"))
 
 
 def test_upload_payload_variants_prefer_jpeg_for_huge_png() -> None:
@@ -180,9 +173,7 @@ async def test_postprocess_mute_and_trim(tmp_path: Path, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_veo_generate_video_hosts_frame_and_postprocesses(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_veo_generate_video_hosts_frame_and_postprocesses(tmp_path: Path, monkeypatch) -> None:
     from app.bots import outsee_http as oh
 
     monkeypatch.setattr(oh.settings, "outsee_api_key", "test-key")
@@ -233,9 +224,7 @@ async def test_veo_generate_video_hosts_frame_and_postprocesses(
 
 
 @pytest.mark.asyncio
-async def test_veo_generate_video_raises_if_ref_not_hosted(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_veo_generate_video_raises_if_ref_not_hosted(tmp_path: Path, monkeypatch) -> None:
     """Реф передан, но host вернул None — нельзя молча уходить в text→video."""
     from app.bots import outsee_http as oh
 
@@ -256,9 +245,7 @@ async def test_veo_generate_video_raises_if_ref_not_hosted(
 
 
 @pytest.mark.asyncio
-async def test_veo_generate_video_accepts_str_path_ref(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_veo_generate_video_accepts_str_path_ref(tmp_path: Path, monkeypatch) -> None:
     from app.bots import outsee_http as oh
 
     monkeypatch.setattr(oh.settings, "outsee_api_key", "test-key")

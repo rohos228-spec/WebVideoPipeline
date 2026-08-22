@@ -15,15 +15,14 @@ from pathlib import Path
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bots.browser import _looks_like_cdp_connect_failure
 from app.bots.chatgpt import ChatGPTBot
 from app.models import Project
 from app.services import gpt_text_builder as gtb
 from app.services.prompt_library import get_project_prompt
 from app.services.xlsx_sync import reload_from_xlsx
-from app.services.xlsx_v8_import import has_v8_plan_sheet, import_v8_xlsx
+from app.services.xlsx_v8_import import import_v8_xlsx
 from app.services.xlsx_versioning import backup_to_old, replace_with, validate_xlsx
-
-from app.bots.browser import _looks_like_cdp_connect_failure
 
 
 def _sync_had_changes(info: dict | None) -> bool:
@@ -69,7 +68,6 @@ def should_accept_xlsx_after_gpt_error(
     return st.st_mtime > mtime_b + 0.5 or st.st_size != size_b
 
 
-
 def tmp_gpt_dir(project: Project) -> Path:
     d = project.data_dir / "tmp_gpt"
     d.mkdir(parents=True, exist_ok=True)
@@ -92,9 +90,11 @@ _STEP_TMP_GLOBS: dict[str, tuple[str, ...]] = {
 }
 
 # Чекпоинты / resume — никогда не удалять через purge.
-_PURGE_TMP_GPT_KEEP_NAMES: frozenset[str] = frozenset({
-    "img_pr_checkpoint.json",
-})
+_PURGE_TMP_GPT_KEEP_NAMES: frozenset[str] = frozenset(
+    {
+        "img_pr_checkpoint.json",
+    }
+)
 
 
 def purge_tmp_gpt_for_step(project: Project, step_code: str) -> int:
@@ -181,14 +181,8 @@ def write_plan_prompt_file(
         "# plan\n\nМастер-промт для шага «План» ещё не настроен.",
     )
     hero_hint = {
-        "hero": (
-            "Игнорируй автоматическое определение hero_needed, "
-            "выставь hero_needed=true."
-        ),
-        "no_hero": (
-            "Игнорируй автоматическое определение hero_needed, "
-            "выставь hero_needed=false."
-        ),
+        "hero": ("Игнорируй автоматическое определение hero_needed, выставь hero_needed=true."),
+        "no_hero": ("Игнорируй автоматическое определение hero_needed, выставь hero_needed=false."),
         "auto": "",
     }.get(project.hero_mode, "")
     extra = f"\n\nДополнительное указание: {hero_hint}" if hero_hint else ""
@@ -203,9 +197,7 @@ def write_plan_prompt_file(
     return prompt_file
 
 
-def write_script_prompt_file(
-    project: Project, tmp_dir: Path, *, ts: str | None = None
-) -> Path:
+def write_script_prompt_file(project: Project, tmp_dir: Path, *, ts: str | None = None) -> Path:
     topic = (project.topic or "").strip()
     prompt_text = _get_master_or_fallback(
         project,
@@ -224,8 +216,7 @@ def write_script_prompt_file(
             "см. раздел «РЕЖИМ B» в инструкции."
         ),
         "auto": (
-            "РЕЖИМ: определи сам по листу «Общий план» в xlsx "
-            "(hero_needed и содержание плана) — A или B."
+            "РЕЖИМ: определи сам по листу «Общий план» в xlsx (hero_needed и содержание плана) — A или B."
         ),
     }.get(project.hero_mode or "auto", "")
     from app.services.gpt_text_builder import inject_topic_placeholders
@@ -242,9 +233,7 @@ def write_script_prompt_file(
     return prompt_file
 
 
-def write_split_prompt_file(
-    project: Project, tmp_dir: Path, *, ts: str | None = None
-) -> Path:
+def write_split_prompt_file(project: Project, tmp_dir: Path, *, ts: str | None = None) -> Path:
     from app.services.node_step_params import build_split_params_block
 
     topic = (project.topic or "").strip()
@@ -259,17 +248,13 @@ def write_split_prompt_file(
         body = f"{prompt_text}\n\n---\n{params_block}\n"
     prompt_file = tmp_dir / f"prompt_split_{ts or _timestamp()}.txt"
     prompt_file.write_text(
-        f"# Инструкция для GPT (шаг 3 «Разбивка на блоки»)\n"
-        f"# Тема ролика: «{topic}»\n\n"
-        f"{body}",
+        f"# Инструкция для GPT (шаг 3 «Разбивка на блоки»)\n# Тема ролика: «{topic}»\n\n{body}",
         encoding="utf-8",
     )
     return prompt_file
 
 
-def write_img_pr_prompt_file(
-    project: Project, tmp_dir: Path, *, ts: str | None = None
-) -> Path:
+def write_img_pr_prompt_file(project: Project, tmp_dir: Path, *, ts: str | None = None) -> Path:
     master = _get_master_or_fallback(
         project,
         "img_pr",
@@ -280,9 +265,7 @@ def write_img_pr_prompt_file(
     return prompt_file
 
 
-def write_anim_pr_prompt_file(
-    project: Project, tmp_dir: Path, *, ts: str | None = None
-) -> Path:
+def write_anim_pr_prompt_file(project: Project, tmp_dir: Path, *, ts: str | None = None) -> Path:
     """Мастер-промт шага 8 «Промты анимации» — отдельный файл в ChatGPT."""
     master = _get_master_or_fallback(
         project,
@@ -364,9 +347,7 @@ async def sync_project_xlsx(
     try:
         from openpyxl import load_workbook
 
-        wb = load_workbook(
-            filename=str(xlsx_path), data_only=True, read_only=True
-        )
+        wb = load_workbook(filename=str(xlsx_path), data_only=True, read_only=True)
         from app.services.xlsx_v8_import import has_v8_plan_sheet
 
         is_v8 = has_v8_plan_sheet(wb)
@@ -391,9 +372,7 @@ async def sync_project_xlsx(
             _log_sync_result(project.id, "v8", sync_info)
         except Exception as e:  # noqa: BLE001
             v8_error = e
-            logger.warning(
-                "[#{}] sync_project_xlsx v8 failed: {}", project.id, e
-            )
+            logger.warning("[#{}] sync_project_xlsx v8 failed: {}", project.id, e)
             if update_frames_voiceover:
                 raise RuntimeError(f"xlsx-sync v8: {e}") from e
     try:
@@ -473,8 +452,7 @@ def _sync_voiceover_from_script_text(project: Project) -> Path | None:
         if _voiceover_text_usable(cur):
             return voiceover_path
         logger.warning(
-            "[#{}] ensure_current_voiceover: voiceover.txt загрязнён "
-            "(check/TSV) — ищем чистый источник",
+            "[#{}] ensure_current_voiceover: voiceover.txt загрязнён (check/TSV) — ищем чистый источник",
             project.id,
         )
     text = (project.script_text or "").strip()
@@ -548,8 +526,7 @@ def save_voiceover_text(project: Project, voiceover_path: Path, text: str) -> st
         raise ValueError(polluted)
     if len(body) < 10:
         raise ValueError(
-            "После очистки ответ слишком короткий для voiceover.txt — "
-            "перезапустите шаг «Закадровый текст»."
+            "После очистки ответ слишком короткий для voiceover.txt — перезапустите шаг «Закадровый текст»."
         )
     voiceover_path.parent.mkdir(parents=True, exist_ok=True)
     if voiceover_path.exists():

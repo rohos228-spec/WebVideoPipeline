@@ -94,9 +94,7 @@ def compose_local_animation_prompt(frame: Frame) -> str:
     if meaning:
         sense_bits.append(f"Scene meaning: {meaning}.")
     elif vo:
-        sense_bits.append(
-            f"Visual beat supporting narration (do not speak/lip-sync): {vo}."
-        )
+        sense_bits.append(f"Visual beat supporting narration (do not speak/lip-sync): {vo}.")
     sense = " ".join(sense_bits)
 
     cam = _CAMERAS[(int(frame.number) - 1) % len(_CAMERAS)]
@@ -138,11 +136,7 @@ def build_local_ops_for_missing(
     for fr in frames:
         if not fr.uuid:
             continue
-        if (
-            not force
-            and shot == 1
-            and len((fr.animation_prompt or "").strip()) >= MIN_ANIM_PROMPT_LEN
-        ):
+        if not force and shot == 1 and len((fr.animation_prompt or "").strip()) >= MIN_ANIM_PROMPT_LEN:
             continue
         text = compose_local_animation_prompt(fr)
         ops.append({"frame_uuid": fr.uuid, "fields": {field: text}})

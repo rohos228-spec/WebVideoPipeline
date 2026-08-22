@@ -60,7 +60,14 @@ def test_word_marks_align_exact() -> None:
 
     assert len(marks) == 8
     assert [m.text for m in marks] == [
-        "бог", "мёртв", "и", "мы", "сами", "отвечаем", "за", "смысл",
+        "бог",
+        "мёртв",
+        "и",
+        "мы",
+        "сами",
+        "отвечаем",
+        "за",
+        "смысл",
     ]
     # Привязка к кадрам: первые 4 слова → кадр 1, остальные → кадр 2.
     assert [m.frame_number for m in marks[:4]] == [1, 1, 1, 1]
@@ -207,9 +214,7 @@ async def test_generate_sfx_files_local(tmp_path) -> None:
 
 
 def test_mix_voice_only() -> None:
-    args, fc = build_mux_audio_args(
-        bgm_path=None, bgm_gain=0.0, output_duration=10.0, tail=0.0, sfx=[]
-    )
+    args, fc = build_mux_audio_args(bgm_path=None, bgm_gain=0.0, output_duration=10.0, tail=0.0, sfx=[])
     assert args == [] and fc is None
 
 
@@ -234,9 +239,7 @@ def test_mix_sfx_positions_and_duck(tmp_path) -> None:
         SfxInput(path=pa, t_start=1.25, gain=0.5, kind="whoosh"),
         SfxInput(path=pb, t_start=4.0, gain=0.175, kind="ambience"),
     ]
-    args, fc = build_mux_audio_args(
-        bgm_path=None, bgm_gain=0.0, output_duration=10.0, tail=0.0, sfx=sfx
-    )
+    args, fc = build_mux_audio_args(bgm_path=None, bgm_gain=0.0, output_duration=10.0, tail=0.0, sfx=sfx)
     assert fc is not None
     assert "adelay=1250|1250" in fc  # позиция по метке
     assert "adelay=4000|4000" in fc

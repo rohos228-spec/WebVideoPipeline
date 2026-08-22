@@ -50,7 +50,9 @@ async def main() -> int:
     async with factory() as s:
         from openpyxl import Workbook
 
-        p = Project(slug="e2e-full", title="E2E полный", topic="Рачок в неоне", status=ProjectStatus.new, meta={})
+        p = Project(
+            slug="e2e-full", title="E2E полный", topic="Рачок в неоне", status=ProjectStatus.new, meta={}
+        )
         s.add(p)
         await s.flush()
         p.data_dir.mkdir(parents=True, exist_ok=True)
@@ -108,7 +110,10 @@ async def main() -> int:
 
         # ── 4. img_pr через apply-ops ──
         ops = [
-            {"frame_uuid": f.uuid, "fields": {"промт_картинки": f"knitted style, neon crab, frame {f.number}, 9:16 vertical"}}
+            {
+                "frame_uuid": f.uuid,
+                "fields": {"промт_картинки": f"knitted style, neon crab, frame {f.number}, 9:16 vertical"},
+            }
             for f in frames
         ]
         r = await db_apply.apply_ops(s, p, ops)
@@ -165,10 +170,16 @@ async def main() -> int:
         from app.models import PromptVersion
 
         vers = (
-            await s.execute(
-                select(PromptVersion).where(PromptVersion.project_id == pid, PromptVersion.kind == "video")
+            (
+                await s.execute(
+                    select(PromptVersion).where(
+                        PromptVersion.project_id == pid, PromptVersion.kind == "video"
+                    )
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         step(
             "anim_pr (real step + apply-ops + gate)",
             p.status is ProjectStatus.animation_prompts_ready and anim_filled == 3 and not gate_err,
@@ -179,7 +190,9 @@ async def main() -> int:
         vids = p.data_dir / "videos"
         vids.mkdir(exist_ok=True)
         for f in frames:
-            (vids / f"clip_{f.number:03d}_abcd1234.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 50)
+            (vids / f"clip_{f.number:03d}_abcd1234.mp4").write_bytes(
+                b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 50
+            )
         (p.data_dir / "audio").mkdir(exist_ok=True)
         (p.data_dir / "audio" / "voice.mp3").write_bytes(b"ID3" + b"\x00" * 50)
         (p.data_dir / "music").mkdir(exist_ok=True)

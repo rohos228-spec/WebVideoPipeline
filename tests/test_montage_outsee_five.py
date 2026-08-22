@@ -13,8 +13,8 @@ from app.services.montage_outsee_five import (
     _parse_ids,
     _url_ts,
     download_with_all_mechanics,
-    sort_m5_pending_priority,
     search_m1_dom_scan,
+    sort_m5_pending_priority,
 )
 
 
@@ -56,17 +56,26 @@ def test_parse_ids_and_url_ts() -> None:
     got = _parse_ids("[ID: P13-F3-abcdef12] x [ID: P13-F3-abcdef12]-S2", project_id=13)
     assert len(got) == 2
     assert got[0][2] == 1 and got[1][2] == 2
-    ts = _url_ts(
-        "https://cdn/x/image_1780991092050_0_thumb.jpg?sig=1"
-    )
+    ts = _url_ts("https://cdn/x/image_1780991092050_0_thumb.jpg?sig=1")
     assert ts == 1780991092050
 
 
 def test_sort_m5_pending_priority_orders() -> None:
     hits = [
-        HitCandidate(1, 1, "aaaa1111", "[ID: P13-F1-aaaa1111]", "https://a/image_100_0_thumb.jpg", sources={"m1_dom"}),
-        HitCandidate(2, 1, "bbbb2222", "[ID: P13-F2-bbbb2222]", "https://a/image_200_0_thumb.jpg", sources={"m2_click", "m1_dom"}),
-        HitCandidate(3, 1, "cccc3333", "[ID: P13-F3-cccc3333]", "https://a/image_300_0_thumb.jpg", sources={"m3_text"}),
+        HitCandidate(
+            1, 1, "aaaa1111", "[ID: P13-F1-aaaa1111]", "https://a/image_100_0_thumb.jpg", sources={"m1_dom"}
+        ),
+        HitCandidate(
+            2,
+            1,
+            "bbbb2222",
+            "[ID: P13-F2-bbbb2222]",
+            "https://a/image_200_0_thumb.jpg",
+            sources={"m2_click", "m1_dom"},
+        ),
+        HitCandidate(
+            3, 1, "cccc3333", "[ID: P13-F3-cccc3333]", "https://a/image_300_0_thumb.jpg", sources={"m3_text"}
+        ),
     ]
     ordered = sort_m5_pending_priority(
         hits,

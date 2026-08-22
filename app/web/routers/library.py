@@ -398,7 +398,10 @@ async def save_prompt_bundle(
     if block_sections is None:
         block_sections = compose_step_sections(step_id, blocks_map) if step_id else []
 
-    bundle_key = payload.title or f"{project.slug if project else 'manual'}-{step_id or payload.step_code or payload.node_type or 'prompt'}"
+    bundle_key = (
+        payload.title
+        or f"{project.slug if project else 'manual'}-{step_id or payload.step_code or payload.node_type or 'prompt'}"
+    )
     saved = await lib.save_prompt_bundle(
         session,
         bundle_key=bundle_key,

@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence, TypeVar
+from typing import Any, TypeVar
 
 from loguru import logger
 
@@ -77,9 +78,7 @@ def repartition_remaining(
     ratio: float = DEFAULT_VOLUME_RATIO,
 ) -> list[list[T]]:
     """Alias for continue-queue rechunk after a tiny partial delivery."""
-    return plan_remainder_batches(
-        remaining, delivered=delivered, ratio=ratio, min_size=min_size
-    )
+    return plan_remainder_batches(remaining, delivered=delivered, ratio=ratio, min_size=min_size)
 
 
 def rechunk_tail(
@@ -97,9 +96,7 @@ def rechunk_tail(
 
 def is_db_frames_path(path: Path | str) -> bool:
     name = Path(path).name
-    return bool(_DB_FRAMES_NAME_RE.match(name)) and name.lower().endswith(
-        (".json", ".jsonl")
-    )
+    return bool(_DB_FRAMES_NAME_RE.match(name)) and name.lower().endswith((".json", ".jsonl"))
 
 
 def load_expected_frame_uuids(paths: Sequence[Path | str] | None) -> list[str]:
@@ -255,16 +252,13 @@ async def volume_complete_apply_ops_reply(
         (text, did_continue)
     """
     expected = load_expected_frame_uuids(input_paths)
-    missing, delivered, base = missing_frame_uuids_for_volume(
-        reply_text, expected
-    )
+    missing, delivered, base = missing_frame_uuids_for_volume(reply_text, expected)
     if not missing or delivered < 1 or base is None:
         return reply_text or "", False
 
     batches = plan_remainder_batches(missing, delivered=delivered)
     logger.warning(
-        "volume_batches: partial apply-ops got={}/{} → {} continue batch(es) "
-        "sizes={}",
+        "volume_batches: partial apply-ops got={}/{} → {} continue batch(es) sizes={}",
         delivered,
         len(expected),
         len(batches),
@@ -277,9 +271,7 @@ async def volume_complete_apply_ops_reply(
     merged = dict(base)
     # Лёгкие вложения: db_frames + без xlsx (как JSON-retry оператора).
     cont_paths = [
-        Path(p)
-        for p in (input_paths or [])
-        if Path(p).suffix.lower() not in {".xlsx", ".xlsm", ".xls"}
+        Path(p) for p in (input_paths or []) if Path(p).suffix.lower() not in {".xlsx", ".xlsm", ".xls"}
     ] or [Path(p) for p in (input_paths or [])]
 
     for bi, batch_uuids in enumerate(batches, start=1):
@@ -333,8 +325,7 @@ async def volume_complete_apply_ops_reply(
                 from app.contracts import LlmContractError
 
                 raise LlmContractError(
-                    f"volume-добор: батч {bi}/{len(batches)} без ops "
-                    f"(chars={len(cont.text or '')})",
+                    f"volume-добор: батч {bi}/{len(batches)} без ops (chars={len(cont.text or '')})",
                     kind="validate",
                     contract="vp_apply_ops",
                 )
@@ -347,9 +338,7 @@ async def volume_complete_apply_ops_reply(
             break
         merged = merge_apply_ops_payloads(merged, part)
         # Обновим missing для лога; не перепланируем mid-flight.
-        still, _, _ = missing_frame_uuids_for_volume(
-            json.dumps(merged, ensure_ascii=False), expected
-        )
+        still, _, _ = missing_frame_uuids_for_volume(json.dumps(merged, ensure_ascii=False), expected)
         logger.info(
             "volume_batches: continue {}/{} ops_total={} still_missing={}",
             bi,

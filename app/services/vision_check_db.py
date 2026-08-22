@@ -34,18 +34,20 @@ def _excel_hero_chars(project: Project) -> list[dict[str, Any]]:
     return [c for c in raw if isinstance(c, dict)] if isinstance(raw, list) else []
 
 
-async def load_character_rows(
-    session: AsyncSession, project: Project
-) -> list[dict[str, str]]:
+async def load_character_rows(session: AsyncSession, project: Project) -> list[dict[str, str]]:
     """Entity characters + fallback excel_hero → плоские строки для промта."""
     rows: dict[str, dict[str, str]] = {}
     ents = (
-        await session.execute(
-            select(Entity)
-            .where(Entity.project_id == project.id, Entity.type == "character")
-            .order_by(Entity.sort_key, Entity.id)
+        (
+            await session.execute(
+                select(Entity)
+                .where(Entity.project_id == project.id, Entity.type == "character")
+                .order_by(Entity.sort_key, Entity.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for e in ents:
         code = (e.code or "").strip().lower()
         if not code:
@@ -101,9 +103,7 @@ def _persons_from_frame(fr: Frame) -> str:
     return ""
 
 
-def match_frame_for_image(
-    path: Path, frames_by_num: dict[int, Frame]
-) -> tuple[Frame | None, int]:
+def match_frame_for_image(path: Path, frames_by_num: dict[int, Frame]) -> tuple[Frame | None, int]:
     """Path → (Frame|None, shot 1|2)."""
     name = path.name
     m = _FRAME_NUM_RE.search(name)
@@ -125,12 +125,10 @@ async def build_vision_db_snapshot(
     """Текст ``## База (source of truth)`` для checkMode vision."""
     chars = await load_character_rows(session, project)
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     by_num = {fr.number: fr for fr in frames}
 
     lines: list[str] = ["## База (source of truth)", ""]
@@ -154,11 +152,7 @@ async def build_vision_db_snapshot(
 
     paths = [p for p in (image_paths or []) if p and p.is_file()]
     scene_paths = [p for p in paths if _FRAME_NUM_RE.search(p.name)]
-    hero_paths = [
-        p
-        for p in paths
-        if re.match(r"^c\d{1,3}\.(png|jpe?g|webp|gif)$", p.name, re.IGNORECASE)
-    ]
+    hero_paths = [p for p in paths if re.match(r"^c\d{1,3}\.(png|jpe?g|webp|gif)$", p.name, re.IGNORECASE)]
 
     effective_kind = (kind or "").strip().lower()
     if effective_kind == "videos":
@@ -250,7 +244,5 @@ async def build_vision_db_snapshot(
             lines.append("(characters/*.png — сверяй с блоком Персонажи выше)")
         lines.append("")
 
-    lines.append(
-        "Правило: verdict и regen_* только по этим данным + видимому на картинке."
-    )
+    lines.append("Правило: verdict и regen_* только по этим данным + видимому на картинке.")
     return "\n".join(lines).strip()

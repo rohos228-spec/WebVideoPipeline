@@ -77,9 +77,7 @@ def build_mux_audio_args(
     if bgm_path is not None:
         args.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
         trim = f"atrim=0:{dur}," if dur else ""
-        chains.append(
-            f"[{next_idx}:a]volume={bgm_gain:.4f},{trim}asetpts=PTS-STARTPTS[bgm]"
-        )
+        chains.append(f"[{next_idx}:a]volume={bgm_gain:.4f},{trim}asetpts=PTS-STARTPTS[bgm]")
         mix_in.append("[bgm]")
         next_idx += 1
 
@@ -89,9 +87,7 @@ def build_mux_audio_args(
             continue
         args.extend(["-i", str(s.path)])
         ms = max(0, int(round(s.t_start * 1000)))
-        chains.append(
-            f"[{next_idx}:a]adelay={ms}|{ms},volume={s.gain:.4f}[sf{k}]"
-        )
+        chains.append(f"[{next_idx}:a]adelay={ms}|{ms},volume={s.gain:.4f}[sf{k}]")
         mix_in.append(f"[sf{k}]")
         next_idx += 1
 
@@ -100,10 +96,7 @@ def build_mux_audio_args(
 
     duration_mode = "longest" if dur else "first"
     filter_complex = (
-        ";".join(chains)
-        + ";"
-        + "".join(mix_in)
-        + f"amix=inputs={len(mix_in)}:duration={duration_mode}:"
+        ";".join(chains) + ";" + "".join(mix_in) + f"amix=inputs={len(mix_in)}:duration={duration_mode}:"
         "dropout_transition=2:normalize=0[aout]"
     )
     return args, filter_complex

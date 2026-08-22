@@ -203,14 +203,11 @@ def assert_frame_plan_labels_intact(
             if not ref:
                 # Пустая A в шаблоне не должна получить мусор/сдвиг подписей.
                 if got and _cell_is_control_junk(got):
-                    raise ValueError(
-                        f"xlsx_writeback: отказ — «план»!A{r}={got[:60]!r}"
-                    )
+                    raise ValueError(f"xlsx_writeback: отказ — «план»!A{r}={got[:60]!r}")
                 continue
             if got.casefold() != ref.casefold():
                 raise ValueError(
-                    f"xlsx_writeback: отказ — сдвиг подписей «план»!A{r}: "
-                    f"было {ref!r}, стало {got!r}"
+                    f"xlsx_writeback: отказ — сдвиг подписей «план»!A{r}: было {ref!r}, стало {got!r}"
                 )
     finally:
         wb_w.close()
@@ -277,16 +274,12 @@ def apply_sheet_blocks_to_xlsx(
 
     name_map = {n.lower(): n for n in wb.sheetnames}
     # Полный project.xlsx (v8) — нельзя плодить лишние листы (ломают validate).
-    strict_layout = (
-        _GENERAL_PLAN_SHEET in wb.sheetnames or "план" in name_map
-    )
+    strict_layout = _GENERAL_PLAN_SHEET in wb.sheetnames or "план" in name_map
     preferred = _preferred_content_sheet(wb) if strict_layout else None
 
     for sheet_name, rows in blocks.items():
         key = sheet_name.lower()
-        resolved = _resolve_block_sheet_name(
-            sheet_name, name_map=name_map, preferred=preferred
-        )
+        resolved = _resolve_block_sheet_name(sheet_name, name_map=name_map, preferred=preferred)
         if resolved is not None:
             ws = wb[resolved]
             key = resolved.lower()
@@ -353,9 +346,7 @@ def apply_sheet_blocks_to_xlsx(
                             f"и без известной подписи {lab!r} — отказ"
                         )
                 elif frame_plan and not has_row_marks:
-                    raise ValueError(
-                        f"xlsx_writeback: лист «{ws.title}» без @row= — отказ"
-                    )
+                    raise ValueError(f"xlsx_writeback: лист «{ws.title}» без @row= — отказ")
                 elif plan_like and strict_layout:
                     logger.warning(
                         "xlsx_writeback: skip sequential junk on v8 «{}»",
@@ -451,9 +442,7 @@ def merge_xlsx_nonempty_overlay(
             key = gpt_name.lower()
             if key not in name_map:
                 if strict:
-                    logger.warning(
-                        "xlsx_overlay: skip unknown sheet {!r}", gpt_name
-                    )
+                    logger.warning("xlsx_overlay: skip unknown sheet {!r}", gpt_name)
                     continue
                 ws_p = wb_proj.create_sheet(title=gpt_name[:31])
                 name_map[key] = ws_p.title
@@ -513,13 +502,12 @@ def write_prose_into_general_plan(
     подписи колонки A и merge ranges не трогаем.
     """
     from openpyxl import load_workbook
+
     from app.services.xlsx_v8_import import _resolve_plan_cell
 
     cleaned = _strip_reply_noise(prose)
     if len(cleaned) < _MIN_PROSE_PLAN_CHARS:
-        raise ValueError(
-            f"проза слишком короткая для плана ({len(cleaned)} < {_MIN_PROSE_PLAN_CHARS})"
-        )
+        raise ValueError(f"проза слишком короткая для плана ({len(cleaned)} < {_MIN_PROSE_PLAN_CHARS})")
     if not src_xlsx.exists():
         raise FileNotFoundError(str(src_xlsx))
 
@@ -605,14 +593,11 @@ def _writeback_project_xlsx_legacy_disabled(
 
     if callable(looks_like_check_payload) and looks_like_check_payload(reply):
         has_xlsx = any(
-            p.suffix.lower() in {".xlsx", ".xlsm", ".xls"}
-            and p.exists()
-            and p.stat().st_size > 64
+            p.suffix.lower() in {".xlsx", ".xlsm", ".xls"} and p.exists() and p.stat().st_size > 64
             for p in downloaded_paths
         )
         logger.warning(
-            "xlsx_writeback: skip text — reply looks like check report "
-            "(binary_xlsx={})",
+            "xlsx_writeback: skip text — reply looks like check report (binary_xlsx={})",
             has_xlsx,
         )
         if not has_xlsx:
@@ -697,11 +682,7 @@ def _writeback_project_xlsx_legacy_disabled(
     # только для простых книг без листа «план».
     prose = _strip_reply_noise(reply)
     has_frame_sheet = _workbook_has_frame_plan_sheet(project_xlsx)
-    if (
-        len(prose) >= _MIN_PROSE_PLAN_CHARS
-        and project_xlsx.exists()
-        and not has_frame_sheet
-    ):
+    if len(prose) >= _MIN_PROSE_PLAN_CHARS and project_xlsx.exists() and not has_frame_sheet:
         tmp = project_xlsx.with_suffix(".writeback.prose.tmp.xlsx")
         try:
             _ensure_pre_write_backup()
@@ -725,9 +706,7 @@ def _writeback_project_xlsx_legacy_disabled(
             len(prose),
         )
 
-    logger.debug(
-        "xlsx_writeback: в ответе нет TSV/листов и prose-fallback не сработал"
-    )
+    logger.debug("xlsx_writeback: в ответе нет TSV/листов и prose-fallback не сработал")
     return None
 
 
@@ -907,8 +886,7 @@ def writeback_looks_incomplete(
             nxt = (last + 1) if last else 2
             return (
                 True,
-                f"sheet {resolved!r}: writeback {n_got}/{n_want} rows "
-                f"(<{min_ratio:.0%})",
+                f"sheet {resolved!r}: writeback {n_got}/{n_want} rows (<{min_ratio:.0%})",
                 resolved,
                 nxt,
             )
@@ -995,9 +973,7 @@ async def maybe_continue_partial_xlsx_reply(
     parts = [reply_text or ""]
     last_sheet: str | None = None
     for cont_i in range(MAX_WRITEBACK_CONTINUES):
-        merged_so_far = merge_writeback_texts(
-            *parts, default_sheet=last_sheet
-        )
+        merged_so_far = merge_writeback_texts(*parts, default_sheet=last_sheet)
         incomplete, reason, sheet, nxt = writeback_looks_incomplete(
             reply_text=merged_so_far,
             template_xlsx=template_xlsx,
@@ -1022,11 +998,7 @@ async def maybe_continue_partial_xlsx_reply(
             input_paths=list(input_paths),
         )
         parts.append(cont.text or "")
-    merged = (
-        parts[0]
-        if len(parts) == 1
-        else merge_writeback_texts(*parts, default_sheet=last_sheet)
-    )
+    merged = parts[0] if len(parts) == 1 else merge_writeback_texts(*parts, default_sheet=last_sheet)
     if raise_if_still_incomplete:
         still, reason, sheet, nxt = writeback_looks_incomplete(
             reply_text=merged,

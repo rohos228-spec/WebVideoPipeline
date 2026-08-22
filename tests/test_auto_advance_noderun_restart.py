@@ -86,16 +86,12 @@ async def test_prepare_auto_advance_restarts_done_script_node(mem_db, monkeypatc
         project = await session.get(Project, pid)
         assert project is not None
         # без allow_restart — как старый баг
-        await _prepare_node_run_for_status(
-            session, project, ProjectStatus.scripting, allow_restart=False
-        )
+        await _prepare_node_run_for_status(session, project, ProjectStatus.scripting, allow_restart=False)
         nr = await session.get(NodeRun, nrid)
         assert nr is not None
         assert nr.status == NodeRunStatus.done
 
-        await _prepare_node_run_for_status(
-            session, project, ProjectStatus.scripting, allow_restart=True
-        )
+        await _prepare_node_run_for_status(session, project, ProjectStatus.scripting, allow_restart=True)
         nr = await session.get(NodeRun, nrid)
         assert nr is not None
         assert nr.status == NodeRunStatus.running

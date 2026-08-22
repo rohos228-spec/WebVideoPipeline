@@ -25,20 +25,46 @@ from app.models import Project, SceneDesignCell
 _CHUNK = 100
 
 # Словари допустимых значений (из docs/scene_grammar_unified_agent_v1.md §I).
-SHOT_FEATURES: frozenset[str] = frozenset({
-    "Крупный план лица", "Сверхкрупный план глаз", "Средний план персонажа",
-    "Общий план локации", "Панорамный вид", "Вид сверху", "Вид с дрона",
-    "Вид от первого лица", "Силуэт", "Групповая сцена", "Массовка",
-    "Экшен-сцена", "Диалог", "Интерьер", "Экстерьер", "Деталь объекта",
-    "Макросъемка", "Динамическая камера", "Статичная композиция",
-    "Симметричная композиция", "Контровой свет", "Ночной кадр",
-    "Закатный кадр", "Рассветный кадр", "Атмосферный туман",
-    "Историческая реконструкция", "Документальная хроника",
-    "Замедленное действие", "Демонстрация предмета",
-    "Художественная постановка", "Портретный кадр", "Бытовая сцена",
-    "Сцена природы", "Сцена разрушения", "Сцена катастрофы",
-    "Архитектурный акцент",
-})
+SHOT_FEATURES: frozenset[str] = frozenset(
+    {
+        "Крупный план лица",
+        "Сверхкрупный план глаз",
+        "Средний план персонажа",
+        "Общий план локации",
+        "Панорамный вид",
+        "Вид сверху",
+        "Вид с дрона",
+        "Вид от первого лица",
+        "Силуэт",
+        "Групповая сцена",
+        "Массовка",
+        "Экшен-сцена",
+        "Диалог",
+        "Интерьер",
+        "Экстерьер",
+        "Деталь объекта",
+        "Макросъемка",
+        "Динамическая камера",
+        "Статичная композиция",
+        "Симметричная композиция",
+        "Контровой свет",
+        "Ночной кадр",
+        "Закатный кадр",
+        "Рассветный кадр",
+        "Атмосферный туман",
+        "Историческая реконструкция",
+        "Документальная хроника",
+        "Замедленное действие",
+        "Демонстрация предмета",
+        "Художественная постановка",
+        "Портретный кадр",
+        "Бытовая сцена",
+        "Сцена природы",
+        "Сцена разрушения",
+        "Сцена катастрофы",
+        "Архитектурный акцент",
+    }
+)
 SCENE_STRUCTURES: frozenset[str] = frozenset(
     {
         "continuity",
@@ -161,9 +187,7 @@ def _item_fields(
         value = item.get(field)
         if value is None or (isinstance(value, str) and not value.strip()):
             continue
-        cell = _cell(
-            project, agent, kind, key, field, value, seq=seq, vo_offset=offset
-        )
+        cell = _cell(project, agent, kind, key, field, value, seq=seq, vo_offset=offset)
         if field == quote_field and quote_missing:
             _reject(cell, f"цитата не найдена в закадре: {str(value)[:60]!r}")
         cells.append(cell)
@@ -274,9 +298,14 @@ def slice_to_cells(
             if not key:
                 continue
             part = _item_fields(
-                project, agent, "character", key, item,
+                project,
+                agent,
+                "character",
+                key,
+                item,
                 ("имя", "внешность", "одежда", "характер", "правила"),
-                quote_field=None, full_vo_norm=vo_norm,
+                quote_field=None,
+                full_vo_norm=vo_norm,
             )
             if not _ID_RE["character"].match(key):
                 for c in part:
@@ -291,9 +320,14 @@ def slice_to_cells(
             if not key:
                 continue
             part = _item_fields(
-                project, agent, "location", key, item,
+                project,
+                agent,
+                "location",
+                key,
+                item,
                 ("name", "описание", "зоны"),
-                quote_field=None, full_vo_norm=vo_norm,
+                quote_field=None,
+                full_vo_norm=vo_norm,
             )
             if not _ID_RE["location"].match(key):
                 for c in part:
@@ -306,10 +340,14 @@ def slice_to_cells(
                 continue
             key = f"stage_{idx:02d}"
             part = _item_fields(
-                project, agent, "style_stage", key, item,
-                ("scene_hint", "тип_сцены", "освещение", "палитра", "тон", "сдвиг",
-                 "сцены"),
-                quote_field="scene_hint", full_vo_norm=vo_norm,
+                project,
+                agent,
+                "style_stage",
+                key,
+                item,
+                ("scene_hint", "тип_сцены", "освещение", "палитра", "тон", "сдвиг", "сцены"),
+                quote_field="scene_hint",
+                full_vo_norm=vo_norm,
             )
             cells.extend(part)
 
@@ -321,19 +359,31 @@ def slice_to_cells(
             if not key:
                 continue
             part = _item_fields(
-                project, agent, "scene", key, item,
-                ("start_words", "end_words", "время_сек", "структура_сцены",
-                 "тип_стыка", "переход_в_сцену", "цепь_действия", "смысл_сцены",
-                 "мотив", "связь_с_прошлой", "крючок_в_следующую", "location",
-                 "кто_в_кадре"),
-                quote_field="start_words", full_vo_norm=vo_norm,
+                project,
+                agent,
+                "scene",
+                key,
+                item,
+                (
+                    "start_words",
+                    "end_words",
+                    "время_сек",
+                    "структура_сцены",
+                    "тип_стыка",
+                    "переход_в_сцену",
+                    "цепь_действия",
+                    "смысл_сцены",
+                    "мотив",
+                    "связь_с_прошлой",
+                    "крючок_в_следующую",
+                    "location",
+                    "кто_в_кадре",
+                ),
+                quote_field="start_words",
+                full_vo_norm=vo_norm,
             )
             for c in part:
-                if (
-                    c.field == "end_words"
-                    and c.status == "ok"
-                    and _vo_offset(vo_norm, c.value) is None
-                ):
+                if c.field == "end_words" and c.status == "ok" and _vo_offset(vo_norm, c.value) is None:
                     _reject(c, f"цитата не найдена в закадре: {c.value[:60]!r}")
                 if c.field == "структура_сцены" and c.value not in SCENE_STRUCTURES:
                     _reject(c, f"структура_сцены вне словаря: {c.value!r}")
@@ -351,11 +401,29 @@ def slice_to_cells(
                 continue
             key = f"shot_{idx:02d}"
             part = _item_fields(
-                project, agent, "shot", key, item,
-                ("id_scene", "phase_index", "beat", "цитата", "крупность",
-                 "особенность_сцены", "композиция", "угол", "движение",
-                 "переход", "тип_стыка", "набор", "мотив", "кто_в_кадре"),
-                quote_field="цитата", full_vo_norm=vo_norm,
+                project,
+                agent,
+                "shot",
+                key,
+                item,
+                (
+                    "id_scene",
+                    "phase_index",
+                    "beat",
+                    "цитата",
+                    "крупность",
+                    "особенность_сцены",
+                    "композиция",
+                    "угол",
+                    "движение",
+                    "переход",
+                    "тип_стыка",
+                    "набор",
+                    "мотив",
+                    "кто_в_кадре",
+                ),
+                quote_field="цитата",
+                full_vo_norm=vo_norm,
             )
             for c in part:
                 if c.field == "особенность_сцены" and c.value not in SHOT_FEATURES:
@@ -435,7 +503,10 @@ async def store_cells(
     if rejected:
         logger.warning(
             "[#{}] scene_design/{}: {} ячеек отклонено из {}",
-            project.id, agent, rejected, stored,
+            project.id,
+            agent,
+            rejected,
+            stored,
         )
     return {"stored": stored, "rejected": rejected}
 
@@ -451,9 +522,7 @@ async def load_cells(
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def wipe_cells(
-    session: AsyncSession, project: Project, *, agent: str | None = None
-) -> int:
+async def wipe_cells(session: AsyncSession, project: Project, *, agent: str | None = None) -> int:
     """Удалить staging-ячейки проекта (reset шага); ``agent`` — только одного."""
     stmt = delete(SceneDesignCell).where(SceneDesignCell.project_id == project.id)
     if agent:

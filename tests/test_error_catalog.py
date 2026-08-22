@@ -31,8 +31,7 @@ def test_outsee_missing_key_is_media_not_gpt_text() -> None:
     from app.bots.outsee import OutseeImageError
 
     err = OutseeImageError(
-        "OUTSEE_API_KEY пуст — GPT Image 2 / Nano Banana 2 / Veo 3.1 Lite "
-        "идут через ключ Outsee",
+        "OUTSEE_API_KEY пуст — GPT Image 2 / Nano Banana 2 / Veo 3.1 Lite идут через ключ Outsee",
         context={"error_kind": "no_key", "provider": "outsee"},
     )
     code, msg = describe_error(err)

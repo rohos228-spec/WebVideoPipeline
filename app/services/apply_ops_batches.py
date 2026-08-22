@@ -114,10 +114,7 @@ def _frame_complete(
     if not dense:
         return False
     # db_frames.json кладёт whitelist на верхний уровень, не в attrs.
-    return all(
-        str(frame.get(k) or attrs.get(k) or "").strip()
-        for k in _COMPLETE_ATTRS_DENSE
-    )
+    return all(str(frame.get(k) or attrs.get(k) or "").strip() for k in _COMPLETE_ATTRS_DENSE)
 
 
 def _has_uuid(frame: dict[str, Any]) -> bool:
@@ -155,9 +152,7 @@ def select_frames_for_batches(
 ) -> list[dict[str, Any]]:
     """Кадры в GPT-пачки: уже заполненные shot-поля пропускаем."""
     del target_batches
-    return _pending_frames(
-        frames, dense=dense, skip_if_field=skip_if_field
-    )
+    return _pending_frames(frames, dense=dense, skip_if_field=skip_if_field)
 
 
 def _batch_footer(batch_i: int, split_level: int, n: int) -> str:
@@ -197,8 +192,7 @@ async def run_apply_ops_batched(
     )
     if not pending:
         logger.info(
-            "[#{}] apply_ops batched node={!r}: нечего писать "
-            "(все кадры уже заполнены или без закадра)",
+            "[#{}] apply_ops batched node={!r}: нечего писать (все кадры уже заполнены или без закадра)",
             project_id,
             node_key,
         )
@@ -222,9 +216,7 @@ async def run_apply_ops_batched(
     last_paths: list[Path] = [ctx_path]
     call_i = 0
 
-    async def _one_chunk(
-        chunk: list[dict[str, Any]], level: int
-    ) -> list[dict[str, Any]]:
+    async def _one_chunk(chunk: list[dict[str, Any]], level: int) -> list[dict[str, Any]]:
         nonlocal call_i, last_paths
         call_i += 1
         batch_ctx = {
@@ -236,9 +228,7 @@ async def run_apply_ops_batched(
                 "frames": len(chunk),
             },
         }
-        batch_path = ctx_path.with_name(
-            f"db_frames_batch_{call_i:02d}_L{level}.json"
-        )
+        batch_path = ctx_path.with_name(f"db_frames_batch_{call_i:02d}_L{level}.json")
         batch_path.write_text(
             json.dumps(batch_ctx, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -263,11 +253,7 @@ async def run_apply_ops_batched(
         ops = []
         if isinstance(res.apply_ops, dict):
             ops = list(res.apply_ops.get("ops") or [])
-        known = {
-            str(fr.get("uuid") or "").strip()
-            for fr in chunk
-            if str(fr.get("uuid") or "").strip()
-        }
+        known = {str(fr.get("uuid") or "").strip() for fr in chunk if str(fr.get("uuid") or "").strip()}
         dropped = 0
         kept: list[dict[str, Any]] = []
         for op in ops:
@@ -280,8 +266,7 @@ async def run_apply_ops_batched(
                 dropped += 1
         if dropped:
             logger.warning(
-                "[#{}] apply_ops batched node={!r}: call {} L{} "
-                "dropped {} unknown frame_uuid",
+                "[#{}] apply_ops batched node={!r}: call {} L{} dropped {} unknown frame_uuid",
                 project_id,
                 node_key,
                 call_i,
@@ -300,8 +285,7 @@ async def run_apply_ops_batched(
         )
         if not ops:
             raise RuntimeError(
-                f"enrich_xlsx node={node_key}: L{level} call {call_i} "
-                f"без ops (ждали {len(chunk)} кадров)."
+                f"enrich_xlsx node={node_key}: L{level} call {call_i} без ops (ждали {len(chunk)} кадров)."
             )
         if apply_fn is not None:
             payload = dict(res.apply_ops or {})
@@ -309,16 +293,8 @@ async def run_apply_ops_batched(
             payload["export_xlsx"] = False
             await apply_fn(payload)
         merged_ops.extend(ops)
-        got_uuids = {
-            str(op.get("frame_uuid") or "").strip()
-            for op in ops
-            if isinstance(op, dict)
-        }
-        missing = [
-            fr
-            for fr in chunk
-            if str(fr.get("uuid") or "").strip() not in got_uuids
-        ]
+        got_uuids = {str(op.get("frame_uuid") or "").strip() for op in ops if isinstance(op, dict)}
+        missing = [fr for fr in chunk if str(fr.get("uuid") or "").strip() not in got_uuids]
         return missing
 
     async def _run_adaptive(chunk: list[dict[str, Any]], level: int) -> None:
@@ -336,8 +312,7 @@ async def run_apply_ops_batched(
                 raise
             parts = split_in_half(chunk)
             logger.warning(
-                "[#{}] apply_ops node={!r}: L{} fail ({}) → split {} "
-                "frames into {} packs",
+                "[#{}] apply_ops node={!r}: L{} fail ({}) → split {} frames into {} packs",
                 project_id,
                 node_key,
                 level,

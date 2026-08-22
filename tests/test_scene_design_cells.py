@@ -13,10 +13,7 @@ from app.services.scene_design import cells as sd_cells
 from app.services.scene_design import chronology as sd_chronology
 from app.services.scene_design import context_builder as sd_context
 
-_VO = (
-    "Альфа начало истории. Бета середина пути. Гамма финал рассказа. "
-    "Дельта эпилог тихий."
-)
+_VO = "Альфа начало истории. Бета середина пути. Гамма финал рассказа. Дельта эпилог тихий."
 
 
 def _project() -> SimpleNamespace:
@@ -144,9 +141,7 @@ def test_camera_feature_dictionary() -> None:
     shot1 = [c for c in cells if c.target_key == "shot_01"]
     shot2 = [c for c in cells if c.target_key == "shot_02"]
     assert all(c.status == "ok" for c in shot1)
-    assert any(
-        c.field == "особенность_сцены" and c.status == "rejected" for c in shot2
-    )
+    assert any(c.field == "особенность_сцены" and c.status == "rejected" for c in shot2)
     q = next(c for c in shot1 if c.field == "цитата")
     assert q.vo_offset is not None
 
@@ -189,8 +184,7 @@ def test_style_hint_offset() -> None:
     stage1 = [c for c in cells if c.target_key == "stage_01"]
     assert all(c.status == "ok" for c in stage1)
     assert any(
-        c.target_key == "stage_02" and c.status == "rejected" and c.field == "scene_hint"
-        for c in cells
+        c.target_key == "stage_02" and c.status == "rejected" and c.field == "scene_hint" for c in cells
     )
 
 
@@ -202,10 +196,7 @@ async def test_store_load_wipe_chunks(session) -> None:
     project = (await session.execute(__import__("sqlalchemy").select(Project))).scalars().first()
     p = SimpleNamespace(id=project.id)
     slice_data = {
-        "characters": [
-            {"id": f"c{i:02d}", "имя": f"Персонаж {i}", "внешность": "x"}
-            for i in range(1, 8)
-        ]
+        "characters": [{"id": f"c{i:02d}", "имя": f"Персонаж {i}", "внешность": "x"} for i in range(1, 8)]
     }
     cells = sd_cells.slice_to_cells(p, "characters", slice_data, _VO)
     stats = await sd_cells.store_cells(session, project, "characters", cells, chunk_size=3)
@@ -225,9 +216,7 @@ async def test_store_load_wipe_chunks(session) -> None:
 
 
 def _frame(uuid: str, number: int, text: str) -> SimpleNamespace:
-    return SimpleNamespace(
-        uuid=uuid, number=number, voiceover_text=text, duration_seconds=3.0
-    )
+    return SimpleNamespace(uuid=uuid, number=number, voiceover_text=text, duration_seconds=3.0)
 
 
 def test_build_assembly_input_chronology() -> None:
@@ -283,9 +272,7 @@ def test_action_scene_time_cell_passes() -> None:
         ]
     }
     cells = sd_cells.slice_to_cells(p, "action", slice_data, _VO)
-    time_cell = next(
-        (c for c in cells if c.field == "время_сек" and c.status == "ok"), None
-    )
+    time_cell = next((c for c in cells if c.field == "время_сек" and c.status == "ok"), None)
     assert time_cell is not None
     assert time_cell.value == "6.0"
 
@@ -308,12 +295,15 @@ def test_frame_seconds_estimate_from_voiceover() -> None:
 
 def test_shared_context_has_frame_times_and_total() -> None:
     p = SimpleNamespace(
-        script_text="", general_plan="", meta={},
+        script_text="",
+        general_plan="",
+        meta={},
     )
     frames = [
         _frame("u1", 1, "Альфа начало истории."),  # 21 сим → 1.5с
-        SimpleNamespace(uuid="u2", number=2, voiceover_text="а" * 28,
-                        duration_seconds=2.0),  # БД игнор → 2.0 vo
+        SimpleNamespace(
+            uuid="u2", number=2, voiceover_text="а" * 28, duration_seconds=2.0
+        ),  # БД игнор → 2.0 vo
     ]
     ctx = sd_context.build_shared_context(p, frames)
     assert '"время_источник":"vo_14cps"' in ctx

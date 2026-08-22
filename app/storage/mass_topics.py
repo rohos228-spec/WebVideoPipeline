@@ -138,9 +138,7 @@ def _topics_from_sheet_rows(rows: list[tuple]) -> list[str]:
     headers = [_cell_str(c).lower() for c in rows[0]]
     topic_col = _detect_topic_col(headers)
 
-    topics = _filter_row_number_column(
-        _collect_topics_from_rows(rows, topic_col, skip_header=skip_header)
-    )
+    topics = _filter_row_number_column(_collect_topics_from_rows(rows, topic_col, skip_header=skip_header))
     if topics:
         return topics
 
@@ -160,9 +158,7 @@ def _topics_from_sheet_rows(rows: list[tuple]) -> list[str]:
     if best_score <= 0:
         return []
 
-    return _filter_row_number_column(
-        _collect_topics_from_rows(rows, best_col, skip_header=best_skip)
-    )
+    return _filter_row_number_column(_collect_topics_from_rows(rows, best_col, skip_header=best_skip))
 
 
 def _topics_from_batch_sheet(path: Path) -> list[str] | None:

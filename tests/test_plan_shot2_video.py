@@ -6,15 +6,15 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from app.services.plan_shot2 import ROW_IMAGE_PROMPT_2_V8, ROW_SHOT2_ID_SHOT_V8
-from app.services.xlsx_v8_import import ROW_IMAGE_PROMPT_V8, ROW_VOICEOVER_V8
-from app.services.shot2_timeline import build_assembly_clip_specs, split_voiceover_duration
+from app.models import Frame, Project
 from app.services.assembly import ClipSpec
+from app.services.plan_shot2 import ROW_IMAGE_PROMPT_2_V8, ROW_SHOT2_ID_SHOT_V8
+from app.services.shot2_timeline import build_assembly_clip_specs, split_voiceover_duration
+from app.services.xlsx_v8_import import ROW_IMAGE_PROMPT_V8, ROW_VOICEOVER_V8
 from app.storage.plan_sheet_v8 import (
     read_plan_animation_prompt_shot2_cells,
     write_plan_animation_prompt_shot2,
 )
-from app.models import Frame, Project
 
 
 def _write_v8_with_shot2(path: Path, *, prompt2_img: str, voiceover: str) -> None:
@@ -39,9 +39,7 @@ def test_write_and_read_plan_r64(tmp_path: Path, monkeypatch) -> None:
     _write_v8_with_shot2(xlsx, prompt2_img="close-up hands", voiceover="Voice line here.")
     project = Project(topic="t", slug="slug")
 
-    ok = write_plan_animation_prompt_shot2(
-        project, 1, "Slow dolly in on trembling hands."
-    )
+    ok = write_plan_animation_prompt_shot2(project, 1, "Slow dolly in on trembling hands.")
     assert ok
     cells = read_plan_animation_prompt_shot2_cells(project, [1])
     assert cells[0][1] == "Slow dolly in on trembling hands."

@@ -24,11 +24,11 @@ from app.services.prompt_library import PROMPTS_ROOT, STEP_FOLDERS
 
 # Карта step_code → PromptKey (для апсерта в DB).
 _STEP_TO_KEY: dict[str, PromptKey] = {
-    "plan":    PromptKey.PLAN_SHORTS,
-    "script":  PromptKey.SCRIPT_SHORTS,
-    "split":   PromptKey.RAZBIVKA_SLOV,
-    "hero":    PromptKey.HERO_SHORTS,
-    "img_pr":  PromptKey.IMAGE_SHORTS,
+    "plan": PromptKey.PLAN_SHORTS,
+    "script": PromptKey.SCRIPT_SHORTS,
+    "split": PromptKey.RAZBIVKA_SLOV,
+    "hero": PromptKey.HERO_SHORTS,
+    "img_pr": PromptKey.IMAGE_SHORTS,
     "anim_pr": PromptKey.VIDEO_SHORTS,
 }
 
@@ -49,16 +49,12 @@ async def sync_prompts_from_files() -> None:
         for step_code, key in _STEP_TO_KEY.items():
             p = _default_path(step_code)
             if not p.exists():
-                logger.warning(
-                    "prompts_loader: файл не найден, пропускаю: {}", p
-                )
+                logger.warning("prompts_loader: файл не найден, пропускаю: {}", p)
                 continue
             text = p.read_text(encoding="utf-8")
             existing = (
                 await s.execute(
-                    select(MasterPrompt).where(
-                        MasterPrompt.key == key, MasterPrompt.version == 1
-                    )
+                    select(MasterPrompt).where(MasterPrompt.key == key, MasterPrompt.version == 1)
                 )
             ).scalar_one_or_none()
             if existing is None:

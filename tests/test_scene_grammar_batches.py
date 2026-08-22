@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.services.scene_grammar_batches import (
+    _scenes_need_shots,
     clear_scene_grammar_checkpoint,
     diagnose_apply_ops_text,
     load_scene_grammar_checkpoint,
     merge_scene_grammar_payloads,
     save_scene_grammar_checkpoint,
-    _scenes_need_shots,
 )
 
 
@@ -102,9 +102,7 @@ def test_diagnose_truncated_and_empty_arrays() -> None:
     )
     assert reason == "json_truncated"
     assert data is None
-    reason2, data2 = diagnose_apply_ops_text(
-        '{"characters":[],"scenes":[],"ops":[],"report":""}'
-    )
+    reason2, data2 = diagnose_apply_ops_text('{"characters":[],"scenes":[],"ops":[],"report":""}')
     assert reason2 == "empty_arrays"
     assert isinstance(data2, dict)
     reason3, data3 = diagnose_apply_ops_text(

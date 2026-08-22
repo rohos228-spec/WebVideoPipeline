@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.services.prompt_library import list_prompts, STEP_FOLDERS
+from app.services.prompt_library import STEP_FOLDERS, list_prompts
 
 
 def ok(msg: str) -> None:

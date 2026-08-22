@@ -76,9 +76,7 @@ def test_rewrite_plus_report_emit(tmp_path: Path, monkeypatch) -> None:
         '"rewrite_file":"old/project_fixed.xlsx"}}',
         input_paths=[orig],
     )
-    patch_operator_config(
-        p, "n_check", {"emitKinds": ["inputs", "reply_txt"], "role": "review"}
-    )
+    patch_operator_config(p, "n_check", {"emitKinds": ["inputs", "reply_txt"], "role": "review"})
     got = files_from_source_node(p, "n_check")
     names = {x.name for x in got}
     assert "project_fixed.xlsx" in names
@@ -160,9 +158,7 @@ def test_emit_kinds_reply_and_analysis(tmp_path: Path, monkeypatch) -> None:
             "fix": {"target": "none"},
         },
     )
-    patch_operator_config(
-        p, "n_check", {"emitKinds": ["reply_txt", "analysis"], "role": "review"}
-    )
+    patch_operator_config(p, "n_check", {"emitKinds": ["reply_txt", "analysis"], "role": "review"})
     got = files_from_source_node(p, "n_check")
     names = {p.name for p in got}
     assert names == {"gpt_reply.txt", "analysis.json"}
@@ -190,9 +186,7 @@ def test_emit_kinds_result_and_inputs(tmp_path: Path, monkeypatch) -> None:
         output_paths=[xlsx, reply],
         reply_text="done",
     )
-    patch_operator_config(
-        p, "n_check", {"emitKinds": ["result", "inputs"], "role": "assist"}
-    )
+    patch_operator_config(p, "n_check", {"emitKinds": ["result", "inputs"], "role": "assist"})
     got = files_from_source_node(p, "n_check")
     names = {p.name for p in got}
     assert "project.xlsx" in names

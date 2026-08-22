@@ -2,6 +2,7 @@
 
 Запуск: python scripts/setup_chrono_dyn_project.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +10,6 @@ import copy
 import json
 import shutil
 import uuid
-from pathlib import Path
 
 from sqlalchemy import select
 
@@ -18,7 +18,6 @@ from app.models import Frame, FrameStatus, Project, ProjectStatus
 from app.services.node_groups import NODE_GROUPS, insert_node_group
 from app.services.sidebar_layout import ensure_project_layout
 from app.web.routers.projects import _slugify
-
 
 SOURCE_ID = 59
 TITLE = "Спесивцевы chrono_dyn"
@@ -80,17 +79,11 @@ async def main() -> None:
 
         # VO-родители из #59 (без пустых SET-детей)
         src_frames = (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == SOURCE_ID)
-                .order_by(Frame.number)
-            )
-        ).scalars().all()
-        vo_frames = [
-            f
-            for f in src_frames
-            if (f.voiceover_text or "").strip()
-        ]
+            (await session.execute(select(Frame).where(Frame.project_id == SOURCE_ID).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        vo_frames = [f for f in src_frames if (f.voiceover_text or "").strip()]
         for i, fr in enumerate(vo_frames, start=1):
             attrs = {}
             # не тянем camera_subdivide / scene attrs старого прогона
@@ -153,9 +146,7 @@ async def main() -> None:
                 p = await session.get(Project, project_id)
                 if p is None:
                     raise SystemExit(f"project #{project_id} vanished")
-                await insert_node_group(
-                    session, p, "scene_design_fanout_chrono_dyn", after=None
-                )
+                await insert_node_group(session, p, "scene_design_fanout_chrono_dyn", after=None)
                 await session.commit()
             break
         except Exception as exc:  # noqa: BLE001

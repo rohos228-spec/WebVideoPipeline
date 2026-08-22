@@ -5,8 +5,7 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
-from app.services import db_apply
-from app.services import excel_io
+from app.services import db_apply, excel_io
 
 
 def test_apply_ops_default_export_xlsx_false() -> None:

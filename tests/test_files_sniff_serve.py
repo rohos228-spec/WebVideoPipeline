@@ -1,4 +1,4 @@
-""" /api/files: .bin на диске → MIME/filename по magic bytes. """
+"""/api/files: .bin на диске → MIME/filename по magic bytes."""
 
 from __future__ import annotations
 

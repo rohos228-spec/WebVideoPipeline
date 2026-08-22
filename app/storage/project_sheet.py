@@ -244,7 +244,9 @@ class ProjectSheet:
 
     def __init__(self, file_path: Path, *, template_path: Path | None = None) -> None:
         self.file_path = Path(file_path)
-        self.template_path = Path(template_path) if template_path is not None else resolve_default_template_path()
+        self.template_path = (
+            Path(template_path) if template_path is not None else resolve_default_template_path()
+        )
 
     # ---- инициализация --------------------------------------------------
 
@@ -255,9 +257,7 @@ class ProjectSheet:
         её формирует GPT."""
         from app.services.xlsx_versioning import repair_project_xlsx_if_corrupt
 
-        repair_project_xlsx_if_corrupt(
-            self.file_path, template_path=self.template_path
-        )
+        repair_project_xlsx_if_corrupt(self.file_path, template_path=self.template_path)
         if not self.file_path.exists():
             self.file_path.parent.mkdir(parents=True, exist_ok=True)
             tpl = _ensure_template_exists(self.template_path)
@@ -458,12 +458,12 @@ class ProjectSheet:
     # ---- internal --------------------------------------------------------
 
     def _open(self):  # type: ignore[no-untyped-def]
-        from openpyxl import load_workbook
-
         # Если Excel открыл файл — он держит его на чтение, и load_workbook
         # обычно проходит. Но если открыто в режиме редактирования и lock
         # держится жёстко, делаем 3 ретрая по 0.2 сек.
         import time as _t
+
+        from openpyxl import load_workbook
 
         last: Exception | None = None
         from zipfile import BadZipFile
@@ -478,9 +478,7 @@ class ProjectSheet:
                     "project_sheet: {} не zip/xlsx — пробую restore из old/",
                     self.file_path,
                 )
-                if repair_project_xlsx_if_corrupt(
-                    self.file_path, template_path=self.template_path
-                ):
+                if repair_project_xlsx_if_corrupt(self.file_path, template_path=self.template_path):
                     continue
                 raise
             except PermissionError as e:

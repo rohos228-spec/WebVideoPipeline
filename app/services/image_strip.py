@@ -55,10 +55,7 @@ def compose_horizontal_strip(
         raise ValueError("compose_horizontal_strip: image_paths пустой")
     labels = list(panel_labels or [])
     if labels and len(labels) != len(image_paths):
-        raise ValueError(
-            f"compose_horizontal_strip: panel_labels={len(labels)} "
-            f"≠ images={len(image_paths)}"
-        )
+        raise ValueError(f"compose_horizontal_strip: panel_labels={len(labels)} ≠ images={len(image_paths)}")
 
     opened: list[Image.Image] = []
     try:
@@ -144,9 +141,7 @@ def compose_horizontal_strip(
                 for s in scaled:
                     s.close()
 
-        raise RuntimeError(
-            f"compose_horizontal_strip: не удалось ужать ленту до {max_bytes} байт"
-        )
+        raise RuntimeError(f"compose_horizontal_strip: не удалось ужать ленту до {max_bytes} байт")
     finally:
         for img in opened:
             img.close()
@@ -174,9 +169,7 @@ def compose_grid_strip(
         raise ValueError("compose_grid_strip: cols/rows должны быть ≥ 1")
     expected = cols * rows
     if len(image_paths) != expected:
-        raise ValueError(
-            f"compose_grid_strip: нужно ровно {expected} кадров, дано {len(image_paths)}"
-        )
+        raise ValueError(f"compose_grid_strip: нужно ровно {expected} кадров, дано {len(image_paths)}")
 
     opened: list[Image.Image] = []
     try:
@@ -208,9 +201,7 @@ def compose_grid_strip(
                         raw_scaled.append(img.copy())
                     else:
                         new_w = max(1, int(img.width * target_h / img.height))
-                        raw_scaled.append(
-                            img.resize((new_w, target_h), Image.Resampling.LANCZOS)
-                        )
+                        raw_scaled.append(img.resize((new_w, target_h), Image.Resampling.LANCZOS))
                 cell_w = max(img.width for img in raw_scaled)
                 for img in raw_scaled:
                     if img.width == cell_w:
@@ -268,9 +259,7 @@ def compose_grid_strip(
                 for cell in cells:
                     cell.close()
 
-        raise RuntimeError(
-            f"compose_grid_strip: не удалось ужать сетку до {max_bytes} байт"
-        )
+        raise RuntimeError(f"compose_grid_strip: не удалось ужать сетку до {max_bytes} байт")
     finally:
         for img in opened:
             img.close()

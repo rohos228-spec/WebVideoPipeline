@@ -73,9 +73,7 @@ async def test_delete_scene_pngs_removes_all_shot1(tmp_path: Path) -> None:
     session.delete = MagicMock(side_effect=lambda a: deleted.append(a))
     session.flush = AsyncMock()
 
-    removed = await _delete_scene_pngs(
-        session, project, [{"number": 9, "shot": 1}]
-    )
+    removed = await _delete_scene_pngs(session, project, [{"number": 9, "shot": 1}])
 
     assert not old.exists()
     assert not new.exists()

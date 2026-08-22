@@ -36,22 +36,18 @@ async def list_runs(
     session: AsyncSession = Depends(get_session),
 ) -> list[WorkflowRun]:
     rows = (
-        await session.execute(
-            select(WorkflowRun).order_by(WorkflowRun.id.desc()).limit(100)
-        )
-    ).scalars().all()
+        (await session.execute(select(WorkflowRun).order_by(WorkflowRun.id.desc()).limit(100)))
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
 @router.get("/{run_id}", response_model=WorkflowRunDetail)
-async def get_run(
-    run_id: int, session: AsyncSession = Depends(get_session)
-) -> WorkflowRun:
+async def get_run(run_id: int, session: AsyncSession = Depends(get_session)) -> WorkflowRun:
     run = (
         await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.id == run_id)
-            .options(selectinload(WorkflowRun.node_runs))
+            select(WorkflowRun).where(WorkflowRun.id == run_id).options(selectinload(WorkflowRun.node_runs))
         )
     ).scalar_one_or_none()
     if run is None:
@@ -84,9 +80,7 @@ async def start_run(
             raise HTTPException(status_code=404, detail="project not found")
     else:
         if not payload.topic:
-            raise HTTPException(
-                status_code=400, detail="either project_id or topic is required"
-            )
+            raise HTTPException(status_code=400, detail="either project_id or topic is required")
         base_slug = _slugify(payload.topic)
         slug = base_slug
         n = 2
@@ -138,27 +132,25 @@ async def start_run(
     # Перечитываем с node_runs eager-load для ответа.
     full = (
         await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.id == run.id)
-            .options(selectinload(WorkflowRun.node_runs))
+            select(WorkflowRun).where(WorkflowRun.id == run.id).options(selectinload(WorkflowRun.node_runs))
         )
     ).scalar_one()
-    await publish_node_event(run.id, event_type="run_created", payload={
-        "project_id": project.id,
-        "workflow_id": wf.id,
-    })
+    await publish_node_event(
+        run.id,
+        event_type="run_created",
+        payload={
+            "project_id": project.id,
+            "workflow_id": wf.id,
+        },
+    )
     return full
 
 
 @router.post("/{run_id}/cancel", response_model=WorkflowRunDetail)
-async def cancel_run(
-    run_id: int, session: AsyncSession = Depends(get_session)
-) -> WorkflowRun:
+async def cancel_run(run_id: int, session: AsyncSession = Depends(get_session)) -> WorkflowRun:
     run = (
         await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.id == run_id)
-            .options(selectinload(WorkflowRun.node_runs))
+            select(WorkflowRun).where(WorkflowRun.id == run_id).options(selectinload(WorkflowRun.node_runs))
         )
     ).scalar_one_or_none()
     if run is None:

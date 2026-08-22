@@ -18,17 +18,15 @@ async def list_prompts(
     session: AsyncSession = Depends(get_session),
 ) -> list[MasterPrompt]:
     rows = (
-        await session.execute(
-            select(MasterPrompt).order_by(MasterPrompt.key, MasterPrompt.version.desc())
-        )
-    ).scalars().all()
+        (await session.execute(select(MasterPrompt).order_by(MasterPrompt.key, MasterPrompt.version.desc())))
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
 @router.get("/{prompt_id}", response_model=PromptDTO)
-async def get_prompt(
-    prompt_id: int, session: AsyncSession = Depends(get_session)
-) -> MasterPrompt:
+async def get_prompt(prompt_id: int, session: AsyncSession = Depends(get_session)) -> MasterPrompt:
     p = await session.get(MasterPrompt, prompt_id)
     if p is None:
         raise HTTPException(status_code=404, detail="prompt not found")

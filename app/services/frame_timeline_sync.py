@@ -17,7 +17,6 @@ from app.models import Artifact, ArtifactKind, Frame, Project
 from app.services.asr import active_asr_backend
 from app.services.frame_audio import (
     FrameAudioClip,
-    _voiceover_cells_for_frames,
     align_existing_voice_full,
     find_voice_full_on_disk,
     frame_clips_from_whisper,
@@ -32,7 +31,9 @@ from app.services.whisper import (
     whisper_words_fresh_for_audio,
 )
 from app.settings import settings
-from app.storage.plan_sheet_v8 import read_plan_voiceover_cells
+from app.storage.plan_sheet_v8 import (
+    read_plan_voiceover_cells,  # noqa: F401  — тесты monkeypatch-ят через этот модуль
+)
 
 _PLACEHOLDER_VO_RE = re.compile(r"^кадр\s+\d+\.?$", re.IGNORECASE)
 
@@ -246,9 +247,7 @@ async def _realign_with_whisper(
     )
     source = "whisper_realigned"
     if persist_words:
-        path = await _persist_whisper_words(
-            session, project, clips, words, audio_dir, cells=cells
-        )
+        path = await _persist_whisper_words(session, project, clips, words, audio_dir, cells=cells)
         source = f"whisper_realigned+persist:{path.name}"
     return clips, words, source
 
@@ -266,11 +265,11 @@ async def sync_frame_timestamps_from_voice(
         frames = list(
             (
                 await session.execute(
-                    select(Frame)
-                    .where(Frame.project_id == project.id)
-                    .order_by(Frame.number.asc())
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number.asc())
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
     timeline_frames, cells = timeline_frames_and_cells(project, frames)
     if not timeline_frames:
@@ -367,11 +366,11 @@ async def sync_frame_timestamps_if_needed(
         frames = list(
             (
                 await session.execute(
-                    select(Frame)
-                    .where(Frame.project_id == project.id)
-                    .order_by(Frame.number.asc())
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number.asc())
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
     timeline_frames, _cells = timeline_frames_and_cells(project, frames)
     if not timeline_frames:
@@ -411,9 +410,7 @@ async def sync_frame_timestamps_if_needed(
 
     if not missing and not suspicious and not _r49_changed_since_whisper(whisper_art, _cells):
         return {"skipped": "timestamps ok"}
-    if not missing and suspicious and whisper_fresh and not _r49_changed_since_whisper(
-        whisper_art, _cells
-    ):
+    if not missing and suspicious and whisper_fresh and not _r49_changed_since_whisper(whisper_art, _cells):
         return {"skipped": "timestamps ok (fresh words)"}
 
     reason = []
@@ -473,9 +470,7 @@ def _r15_memory_hit(project_id: int, xlsx_key: float, frame_count: int) -> bool:
     return bool(mem and mem[0] == xlsx_key and mem[1] == int(frame_count))
 
 
-def _r15_memory_set(
-    project_id: int, xlsx_key: float, frame_count: int, source: str
-) -> None:
+def _r15_memory_set(project_id: int, xlsx_key: float, frame_count: int, source: str) -> None:
     _R15_MEMORY[int(project_id)] = (xlsx_key, int(frame_count), source)
 
 
@@ -597,11 +592,11 @@ async def sync_frame_timestamps_for_board(
         frames = list(
             (
                 await session.execute(
-                    select(Frame)
-                    .where(Frame.project_id == project.id)
-                    .order_by(Frame.number.asc())
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number.asc())
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
     if not frames:
         return {"skipped": "no frames"}
@@ -679,16 +674,14 @@ async def sync_frame_timestamps_for_board(
 
     # 1) Excel R15 — только при дырах в БД или после смены xlsx (с drift-guard).
     try:
+        from app.services.frame_audio import FrameAudioClip
         from app.services.plan_timestamps import (
             count_parsed_timestamp_cells,
             parse_timecode_range,
         )
         from app.storage.plan_sheet_v8 import read_plan_timestamps_cells
-        from app.services.frame_audio import FrameAudioClip
 
-        ts_cells, _ts_row = await asyncio.to_thread(
-            read_plan_timestamps_cells, project, frame_numbers
-        )
+        ts_cells, _ts_row = await asyncio.to_thread(read_plan_timestamps_cells, project, frame_numbers)
         _filled, parsed_n, _bad = count_parsed_timestamp_cells(ts_cells)
         need = len(frame_numbers)
         # Достаточно большинства меток — не откатываем на words.json из‑за 1–2 дыр.
@@ -747,8 +740,7 @@ async def sync_frame_timestamps_for_board(
                 if updated:
                     await session.flush()
                     logger.info(
-                        "[#{}] montage_board sync: {} кадров ← Excel R15 "
-                        "(parsed {}/{}, changed={})",
+                        "[#{}] montage_board sync: {} кадров ← Excel R15 (parsed {}/{}, changed={})",
                         project.id,
                         len(clips),
                         parsed_n,
@@ -757,8 +749,7 @@ async def sync_frame_timestamps_for_board(
                     )
                 else:
                     logger.debug(
-                        "[#{}] montage_board sync: R15 ok, DB уже совпадает "
-                        "({} кадров)",
+                        "[#{}] montage_board sync: R15 ok, DB уже совпадает ({} кадров)",
                         project.id,
                         len(clips),
                     )

@@ -61,11 +61,39 @@ TEMPLATE_FIELDS: tuple[str, ...] = (
 # чтобы не плодить зависимостей.
 _CYR_MAP = str.maketrans(
     {
-        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
-        "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
-        "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
-        "ф": "f", "х": "h", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sch",
-        "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+        "а": "a",
+        "б": "b",
+        "в": "v",
+        "г": "g",
+        "д": "d",
+        "е": "e",
+        "ё": "e",
+        "ж": "zh",
+        "з": "z",
+        "и": "i",
+        "й": "y",
+        "к": "k",
+        "л": "l",
+        "м": "m",
+        "н": "n",
+        "о": "o",
+        "п": "p",
+        "р": "r",
+        "с": "s",
+        "т": "t",
+        "у": "u",
+        "ф": "f",
+        "х": "h",
+        "ц": "c",
+        "ч": "ch",
+        "ш": "sh",
+        "щ": "sch",
+        "ъ": "",
+        "ы": "y",
+        "ь": "",
+        "э": "e",
+        "ю": "yu",
+        "я": "ya",
     }
 )
 
@@ -95,9 +123,7 @@ async def _unique_batch_slug(session: AsyncSession, base: str) -> str:
     n = 1
     while True:
         exists = (
-            await session.execute(
-                select(BatchProject).where(BatchProject.slug == slug)
-            )
+            await session.execute(select(BatchProject).where(BatchProject.slug == slug))
         ).scalar_one_or_none()
         if exists is None:
             return slug
@@ -110,9 +136,7 @@ async def _unique_project_slug(session: AsyncSession, base: str) -> str:
     slug = base
     n = 1
     while True:
-        exists = (
-            await session.execute(select(Project).where(Project.slug == slug))
-        ).scalar_one_or_none()
+        exists = (await session.execute(select(Project).where(Project.slug == slug))).scalar_one_or_none()
         if exists is None:
             return slug
         n += 1
@@ -128,6 +152,7 @@ def _snapshot_settings_from(project: Project) -> dict:
         # проектом (иначе изменения эталона потекут в snapshot).
         if isinstance(val, (dict, list)):
             import copy as _copy
+
             val = _copy.deepcopy(val)
         snap[f] = val
     return snap
@@ -171,9 +196,7 @@ async def create_batch(
     settings_snapshot: dict = {}
     if template_project_id is not None:
         template = (
-            await session.execute(
-                select(Project).where(Project.id == template_project_id)
-            )
+            await session.execute(select(Project).where(Project.id == template_project_id))
         ).scalar_one_or_none()
         if template is not None:
             settings_snapshot = _snapshot_settings_from(template)
@@ -195,7 +218,10 @@ async def create_batch(
 
     logger.info(
         "batches: created #{} '{}' (slug={}, template_pid={})",
-        batch.id, name, slug, template_project_id,
+        batch.id,
+        name,
+        slug,
+        template_project_id,
     )
     return batch
 
@@ -241,22 +267,23 @@ async def add_topics(
         return []
 
     # Считаем сколько уже подпроектов у этого батча — продолжаем нумерацию.
-    existing = (
-        await session.execute(
-            select(Project).where(Project.batch_id == batch.id)
-        )
-    ).scalars().all()
-    next_position = (
-        max((p.batch_position or 0) for p in existing) if existing else 0
-    ) + 1
+    existing = (await session.execute(select(Project).where(Project.batch_id == batch.id))).scalars().all()
+    next_position = (max((p.batch_position or 0) for p in existing) if existing else 0) + 1
 
     snap = batch.settings_snapshot or {}
     created: list[Project] = []
 
     # Карточные поля, попадающие в Project.meta["topic_card"].
     CARD_KEYS = [
-        "title", "source", "style", "hook_type", "emotion", "fact",
-        "logic", "integration", "shoot_note",
+        "title",
+        "source",
+        "style",
+        "hook_type",
+        "emotion",
+        "fact",
+        "logic",
+        "integration",
+        "shoot_note",
     ]
 
     # Снимок постоянного продукта массового — копируем в meta каждого
@@ -277,6 +304,7 @@ async def add_topics(
         meta: dict = {"topic_card": topic_card}
         if perm_product and perm_product.get("name"):
             import copy as _copy
+
             meta["permanent_product"] = _copy.deepcopy(perm_product)
 
         kwargs: dict = {
@@ -295,6 +323,7 @@ async def add_topics(
                 v = snap[f]
                 if isinstance(v, (dict, list)):
                     import copy as _copy
+
                     v = _copy.deepcopy(v)
                 kwargs[f] = v
 
@@ -324,9 +353,12 @@ async def add_topics(
 
         created.append(proj)
         logger.info(
-            "batches: sub-project #{} '{}' (slug={}, pos={}) added to batch #{} "
-            "[card_keys={}]",
-            proj.id, title, proj.slug, position, batch.id,
+            "batches: sub-project #{} '{}' (slug={}, pos={}) added to batch #{} [card_keys={}]",
+            proj.id,
+            title,
+            proj.slug,
+            position,
+            batch.id,
             list(topic_card.keys()),
         )
 
@@ -336,11 +368,7 @@ async def add_topics(
 async def list_batches(session: AsyncSession) -> list[BatchProject]:
     """Все массовые проекты, новые сверху."""
     return list(
-        (
-            await session.execute(
-                select(BatchProject).order_by(BatchProject.id.desc())
-            )
-        ).scalars().all()
+        (await session.execute(select(BatchProject).order_by(BatchProject.id.desc()))).scalars().all()
     )
 
 
@@ -363,12 +391,14 @@ async def batch_progress(
       }
     """
     subs = (
-        await session.execute(
-            select(Project)
-            .where(Project.batch_id == batch.id)
-            .order_by(Project.batch_position.asc())
+        (
+            await session.execute(
+                select(Project).where(Project.batch_id == batch.id).order_by(Project.batch_position.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     by_status: dict[str, int] = {}
     queued = in_progress = ready = done = paused = failed = 0
@@ -414,18 +444,12 @@ async def delete_batch(
     явное удаление здесь, чтобы не оставлять сирот).
     """
     batch = (
-        await session.execute(
-            select(BatchProject).where(BatchProject.id == batch_id)
-        )
+        await session.execute(select(BatchProject).where(BatchProject.id == batch_id))
     ).scalar_one_or_none()
     if batch is None:
         return
 
-    subs = (
-        await session.execute(
-            select(Project).where(Project.batch_id == batch_id)
-        )
-    ).scalars().all()
+    subs = (await session.execute(select(Project).where(Project.batch_id == batch_id))).scalars().all()
     for p in subs:
         await session.delete(p)
 
@@ -441,13 +465,9 @@ async def delete_batch(
             logger.warning("batches: failed to remove {}: {}", base_dir, e)
 
 
-async def get_batch(
-    session: AsyncSession, batch_id: int
-) -> BatchProject | None:
+async def get_batch(session: AsyncSession, batch_id: int) -> BatchProject | None:
     return (
-        await session.execute(
-            select(BatchProject).where(BatchProject.id == batch_id)
-        )
+        await session.execute(select(BatchProject).where(BatchProject.id == batch_id))
     ).scalar_one_or_none()
 
 
@@ -459,11 +479,11 @@ async def get_batch_subprojects(
     return list(
         (
             await session.execute(
-                select(Project)
-                .where(Project.batch_id == batch_id)
-                .order_by(Project.batch_position.asc())
+                select(Project).where(Project.batch_id == batch_id).order_by(Project.batch_position.asc())
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -520,9 +540,7 @@ async def set_permanent_product_field(
     # пре-visual стадии (planning/scripting/splitting). Ниже оседаем
     # в batch.meta["product_late_subs"] список суб-id'ов, которые уже
     # прошли этот порог — юзер в меню увидит предупреждение.
-    too_late = await _propagate_product_to_new_subs(
-        session, batch.id, meta.get("permanent_product")
-    )
+    too_late = await _propagate_product_to_new_subs(session, batch.id, meta.get("permanent_product"))
     if too_late:
         meta = dict(batch.meta or {})
         meta["product_late_subs"] = too_late
@@ -531,9 +549,7 @@ async def set_permanent_product_field(
     return batch
 
 
-async def clear_permanent_product(
-    session: AsyncSession, batch_id: int
-) -> BatchProject | None:
+async def clear_permanent_product(session: AsyncSession, batch_id: int) -> BatchProject | None:
     """Полностью удаляет постоянный продукт массового."""
     batch = await get_batch(session, batch_id)
     if batch is None:
@@ -588,15 +604,17 @@ async def _propagate_product_to_new_subs(
     import copy as _copy
 
     all_subs = (
-        await session.execute(
-            select(Project).where(
-                Project.batch_id == batch_id,
-                Project.status.not_in(
-                    [ProjectStatus.published, ProjectStatus.failed]
-                ),
+        (
+            await session.execute(
+                select(Project).where(
+                    Project.batch_id == batch_id,
+                    Project.status.not_in([ProjectStatus.published, ProjectStatus.failed]),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     too_late: list[int] = []
     updated = 0
     for p in all_subs:
@@ -631,16 +649,16 @@ def get_permanent_product(batch: BatchProject) -> dict | None:
 # Дефолты всех «переключателей» режима. Хранятся в
 # batch.settings_snapshot["mass_settings"] (JSON sub-dict).
 DEFAULT_MASS_SETTINGS: dict = {
-    "enrich_slots_count": 3,        # 1..5
-    "hero_count": 1,                # 1..5
-    "hero_variations": 1,           # 1..5 (применяется ко всем героям)
-    "excel_hero_enabled": False,    # bool
-    "auto_mode": True,              # bool — default for sub-projects
-    "bgm_enabled": False,           # bool
-    "bgm_level": 70,                # 0..100
-    "pause_minutes": 0,             # пауза между sub'ами, мин
-    "max_parallelism": 1,           # пока всегда 1
-    "auto_review_kinds": [],        # пусто — visual=auto-approve
+    "enrich_slots_count": 3,  # 1..5
+    "hero_count": 1,  # 1..5
+    "hero_variations": 1,  # 1..5 (применяется ко всем героям)
+    "excel_hero_enabled": False,  # bool
+    "auto_mode": True,  # bool — default for sub-projects
+    "bgm_enabled": False,  # bool
+    "bgm_level": 70,  # 0..100
+    "pause_minutes": 0,  # пауза между sub'ами, мин
+    "max_parallelism": 1,  # пока всегда 1
+    "auto_review_kinds": [],  # пусто — visual=auto-approve
 }
 
 _INT_LIMITS: dict[str, tuple[int, int]] = {
@@ -694,10 +712,7 @@ def get_mass_settings(batch: BatchProject) -> dict:
                 merged[k] = iv
             elif isinstance(default, list):
                 if isinstance(v, list):
-                    merged[k] = [
-                        x for x in v
-                        if isinstance(x, str) and x in _KNOWN_AUTO_REVIEW_KINDS
-                    ]
+                    merged[k] = [x for x in v if isinstance(x, str) and x in _KNOWN_AUTO_REVIEW_KINDS]
                 else:
                     merged[k] = list(default)
     return merged
@@ -730,10 +745,7 @@ async def set_mass_setting(
         current[field] = iv
     elif isinstance(default, list):
         if isinstance(value, list):
-            current[field] = [
-                x for x in value
-                if isinstance(x, str) and x in _KNOWN_AUTO_REVIEW_KINDS
-            ]
+            current[field] = [x for x in value if isinstance(x, str) and x in _KNOWN_AUTO_REVIEW_KINDS]
     snap = dict(batch.settings_snapshot or {})
     snap["mass_settings"] = current
     batch.settings_snapshot = snap
@@ -741,9 +753,7 @@ async def set_mass_setting(
     return batch
 
 
-async def toggle_mass_setting(
-    session: AsyncSession, batch_id: int, field: str
-) -> BatchProject | None:
+async def toggle_mass_setting(session: AsyncSession, batch_id: int, field: str) -> BatchProject | None:
     """Переключает bool-поле; для «ложных bool» мы трактуем
     auto_review_kinds.<kind> как присутствие в списке."""
     batch = await get_batch(session, batch_id)
@@ -771,9 +781,7 @@ async def toggle_mass_setting(
     return batch
 
 
-async def apply_mass_settings_to_subs(
-    session: AsyncSession, batch_id: int
-) -> int:
+async def apply_mass_settings_to_subs(session: AsyncSession, batch_id: int) -> int:
     """Перед стартом очереди переносим масс-настройки в каждый
     sub-project, который ещё не вышел из status==new (сохраняем
     parity-принцип #7: in-flight sub'ы НЕ трогаем).
@@ -791,13 +799,17 @@ async def apply_mass_settings_to_subs(
         return 0
     ms = get_mass_settings(batch)
     subs = (
-        await session.execute(
-            select(Project).where(
-                Project.batch_id == batch_id,
-                Project.status == ProjectStatus.new,
+        (
+            await session.execute(
+                select(Project).where(
+                    Project.batch_id == batch_id,
+                    Project.status == ProjectStatus.new,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not subs:
         return 0
     n_hero = int(ms["hero_count"])
@@ -818,7 +830,9 @@ async def apply_mass_settings_to_subs(
     await session.flush()
     logger.info(
         "batch #{} ({}): applied mass settings to {} sub(s)",
-        batch.id, batch.slug, len(subs),
+        batch.id,
+        batch.slug,
+        len(subs),
     )
     return len(subs)
 
@@ -828,9 +842,7 @@ async def apply_mass_settings_to_subs(
 # ----------------------------------------------------------------------
 
 
-async def start_batch_queue(
-    session: AsyncSession, batch_id: int
-) -> BatchProject | None:
+async def start_batch_queue(session: AsyncSession, batch_id: int) -> BatchProject | None:
     """Запустить очередь массового: status=running + auto_mode=True для
     всех подпроектов, которые ещё не закончены.
 
@@ -857,15 +869,15 @@ async def start_batch_queue(
     await session.flush()
     logger.info(
         "batch #{} ({}): очередь запущена, auto_mode default={}, субы: {}",
-        batch.id, batch.slug, auto_default,
+        batch.id,
+        batch.slug,
+        auto_default,
         sum(1 for p in subs if p.status not in terminal),
     )
     return batch
 
 
-async def pause_batch_queue(
-    session: AsyncSession, batch_id: int
-) -> BatchProject | None:
+async def pause_batch_queue(session: AsyncSession, batch_id: int) -> BatchProject | None:
     """Поставить очередь на паузу.
 
     Текущий running-подпроект НЕ прерываем (он доработает текущий шаг
@@ -886,9 +898,7 @@ async def pause_batch_queue(
     return batch
 
 
-async def resume_batch_queue(
-    session: AsyncSession, batch_id: int
-) -> BatchProject | None:
+async def resume_batch_queue(session: AsyncSession, batch_id: int) -> BatchProject | None:
     """Снять с паузы: то же что start_batch_queue, но не двигает
     подпроекты в paused-состоянии (только включает auto_mode у new
     и *_ready)."""
@@ -906,9 +916,7 @@ async def resume_batch_queue(
     return batch
 
 
-async def retry_paused_subprojects(
-    session: AsyncSession, batch_id: int
-) -> int:
+async def retry_paused_subprojects(session: AsyncSession, batch_id: int) -> int:
     """Вернуть все подпроекты в paused → new, чтобы воркер их подхватил.
 
     Сбрасывает счётчики авто-retry, очищает auto_paused_reason.
@@ -924,7 +932,8 @@ async def retry_paused_subprojects(
             meta = dict(p.meta or {})
             for k in list(meta.keys()):
                 if k.startswith("auto_retry_") or k in (
-                    "auto_paused_reason", "auto_paused_fix_hints",
+                    "auto_paused_reason",
+                    "auto_paused_fix_hints",
                 ):
                     del meta[k]
             p.meta = meta
@@ -932,7 +941,8 @@ async def retry_paused_subprojects(
     await session.flush()
     logger.info(
         "batch #{}: вернули в очередь {} paused-подпроект(ов)",
-        batch_id, count,
+        batch_id,
+        count,
     )
     return count
 
@@ -956,21 +966,18 @@ async def pause_all_running_batches(
 
     Возвращает {"batches": N, "rolled_back": M, "auto_mode_off": K}.
     """
-    from app.telegram.menu import step_by_running_status
     from sqlalchemy import select as _sel
+
+    from app.telegram.menu import step_by_running_status
 
     out = {"batches": 0, "rolled_back": 0, "auto_mode_off": 0}
 
-    batches_q = await session.execute(
-        _sel(BatchProject).where(BatchProject.status == BatchStatus.running)
-    )
+    batches_q = await session.execute(_sel(BatchProject).where(BatchProject.status == BatchStatus.running))
     for b in batches_q.scalars().all():
         b.status = BatchStatus.paused
         out["batches"] += 1
 
-    subs_q = await session.execute(
-        _sel(Project).where(Project.batch_id.is_not(None))
-    )
+    subs_q = await session.execute(_sel(Project).where(Project.batch_id.is_not(None)))
     for p in subs_q.scalars().all():
         # 1) Если статус — running, ROLLBACK на prerequisite *_ready.
         #    Это останавливает бесконечные циклы maybe_auto_advance.
@@ -978,7 +985,9 @@ async def pause_all_running_batches(
         if step is not None and step.requires is not None:
             logger.info(
                 "[#{}] MASS PAUSE rollback: {} -> {}",
-                p.id, p.status.value, step.requires.value,
+                p.id,
+                p.status.value,
+                step.requires.value,
             )
             p.status = step.requires
             out["rolled_back"] += 1
@@ -991,9 +1000,10 @@ async def pause_all_running_batches(
 
     await session.flush()
     logger.info(
-        "MASS PAUSE: paused {} batches, rolled back {} running subs, "
-        "auto_mode off for {} subs",
-        out["batches"], out["rolled_back"], out["auto_mode_off"],
+        "MASS PAUSE: paused {} batches, rolled back {} running subs, auto_mode off for {} subs",
+        out["batches"],
+        out["rolled_back"],
+        out["auto_mode_off"],
     )
     return out
 
@@ -1008,16 +1018,12 @@ async def resume_all_paused_batches(
 
     out = {"batches": 0, "auto_mode_on": 0}
 
-    batches_q = await session.execute(
-        _sel(BatchProject).where(BatchProject.status == BatchStatus.paused)
-    )
+    batches_q = await session.execute(_sel(BatchProject).where(BatchProject.status == BatchStatus.paused))
     for b in batches_q.scalars().all():
         b.status = BatchStatus.running
         out["batches"] += 1
 
-    subs_q = await session.execute(
-        _sel(Project).where(Project.batch_id.is_not(None))
-    )
+    subs_q = await session.execute(_sel(Project).where(Project.batch_id.is_not(None)))
     terminal = {
         ProjectStatus.published,
         ProjectStatus.failed,
@@ -1031,6 +1037,7 @@ async def resume_all_paused_batches(
     await session.flush()
     logger.info(
         "MASS RESUME: resumed {} batches, auto_mode on for {} subs",
-        out["batches"], out["auto_mode_on"],
+        out["batches"],
+        out["auto_mode_on"],
     )
     return out

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -30,7 +30,6 @@ async def session(tmp_path, monkeypatch) -> AsyncSession:
 
 
 def _project(tmp_path, *, script_text: str = "", voiceover: str | None = None) -> Project:
-    from app import settings as app_settings
 
     p = Project(id=7, slug="vo-test", topic="t", status=ProjectStatus.plan_ready)
     p.data_dir.mkdir(parents=True, exist_ok=True)

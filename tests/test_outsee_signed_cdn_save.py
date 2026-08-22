@@ -21,7 +21,6 @@ from app.bots.outsee import (
     _resolve_best_download_url,
 )
 
-
 SIGNED_THUMB = (
     "https://storage.yandexcloud.net/outseehistory/generated/3787/157627/"
     "image_1780991092050_0_thumb.jpg"
@@ -40,9 +39,7 @@ def test_thumb_guess_does_not_reuse_thumb_signature() -> None:
     cands = _all_full_png_url_candidates(SIGNED_THUMB)
     assert cands, "expected guessed full PNG paths"
     assert all("_thumb" not in c for c in cands)
-    assert all("thumbSIG" not in c for c in cands), (
-        f"thumb signature leaked onto PNG candidates: {cands}"
-    )
+    assert all("thumbSIG" not in c for c in cands), f"thumb signature leaked onto PNG candidates: {cands}"
     assert all(c.lower().endswith(".png") for c in cands)
 
 
@@ -52,17 +49,13 @@ def test_real_full_url_keeps_its_own_signature() -> None:
 
 
 def test_resolve_prefers_real_signed_full_from_net_events() -> None:
-    resolved = _resolve_best_download_url(
-        SIGNED_THUMB, net_events=[(1.0, REAL_SIGNED_FULL)]
-    )
+    resolved = _resolve_best_download_url(SIGNED_THUMB, net_events=[(1.0, REAL_SIGNED_FULL)])
     assert "fullSIG" in resolved
     assert _is_outsee_thumb_url(resolved) is False
 
 
 def test_collect_puts_real_signed_full_first() -> None:
-    cands = _collect_download_url_candidates(
-        SIGNED_THUMB, extra_urls=[REAL_SIGNED_FULL]
-    )
+    cands = _collect_download_url_candidates(SIGNED_THUMB, extra_urls=[REAL_SIGNED_FULL])
     assert cands
     assert "fullSIG" in cands[0]
     assert _is_outsee_thumb_url(cands[0]) is False
@@ -86,9 +79,7 @@ async def test_download_uses_real_dom_full_not_fake_thumb_sig(
 
     async def fake_download(page, url, out_path, **kwargs):
         if "fullSIG" in url:
-            out_path.write_bytes(
-                b"\x89PNG\r\n\x1a\n" + b"x" * (_MIN_IMAGE_BYTES + 1000)
-            )
+            out_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * (_MIN_IMAGE_BYTES + 1000))
             return
         if "thumbSIG" in url:
             raise RuntimeError("HTTP 403 path-signature mismatch")

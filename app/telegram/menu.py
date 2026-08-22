@@ -45,7 +45,6 @@ from aiogram.types import (
 
 from app.models import Project, ProjectStatus
 from app.services.mass_pause import is_active as mass_pause_active
-from app.services.project_state import is_running_status
 
 # Тексты кнопок постоянной reply-клавиатуры (видна всегда внизу TG над полем
 # ввода). Эти строки используются в bot.py для распознавания нажатий.
@@ -213,61 +212,91 @@ def steps_for(project: Project | None) -> list[StepDef]:
     enrich_ready = ENRICH_READY[n_slots - 1]
     return [
         StepDef(
-            1, "plan", "Сценарий",
-            ProjectStatus.planning, ProjectStatus.plan_ready, None,
+            1,
+            "plan",
+            "Сценарий",
+            ProjectStatus.planning,
+            ProjectStatus.plan_ready,
+            None,
         ),
         StepDef(
-            2, "script", "Закадровый текст",
-            ProjectStatus.scripting, ProjectStatus.script_ready,
+            2,
+            "script",
+            "Закадровый текст",
+            ProjectStatus.scripting,
+            ProjectStatus.script_ready,
             ProjectStatus.plan_ready,
         ),
         StepDef(
-            3, "split", "Разбивка на блоки",
-            ProjectStatus.splitting, ProjectStatus.frames_ready,
+            3,
+            "split",
+            "Разбивка на блоки",
+            ProjectStatus.splitting,
+            ProjectStatus.frames_ready,
             ProjectStatus.script_ready,
         ),
         StepDef(
-            4, "objects", "Объекты",
+            4,
+            "objects",
+            "Объекты",
             ProjectStatus.generating_hero,  # для подсветки ⏳ при персонажах
             ProjectStatus.hero_ready,
             ProjectStatus.frames_ready,
         ),
         StepDef(
-            5, "enrich", "Доп работа с EXCEL",
+            5,
+            "enrich",
+            "Доп работа с EXCEL",
             ProjectStatus.enriching_1,  # плейсхолдер; ⏳ спец-кейсом
             enrich_ready,
             _objects_requires_for_step5(),
         ),
         StepDef(
-            6, "img_pr", "Промты картинок",
+            6,
+            "img_pr",
+            "Промты картинок",
             ProjectStatus.generating_image_prompts,
             ProjectStatus.image_prompts_ready,
             enrich_ready,
         ),
         StepDef(
-            7, "img", "Картинки",
-            ProjectStatus.generating_images, ProjectStatus.images_ready,
+            7,
+            "img",
+            "Картинки",
+            ProjectStatus.generating_images,
+            ProjectStatus.images_ready,
             ProjectStatus.image_prompts_ready,
         ),
         StepDef(
-            8, "anim_pr", "Промты анимации",
+            8,
+            "anim_pr",
+            "Промты анимации",
             ProjectStatus.generating_animation_prompts,
             ProjectStatus.animation_prompts_ready,
             ProjectStatus.images_ready,
         ),
         StepDef(
-            9, "video", "Видео",
-            ProjectStatus.generating_videos, ProjectStatus.videos_ready,
+            9,
+            "video",
+            "Видео",
+            ProjectStatus.generating_videos,
+            ProjectStatus.videos_ready,
             ProjectStatus.animation_prompts_ready,
         ),
         StepDef(
-            10, "music", "Музыка",
-            ProjectStatus.generating_music, ProjectStatus.music_ready,
+            10,
+            "music",
+            "Музыка",
+            ProjectStatus.generating_music,
+            ProjectStatus.music_ready,
             ProjectStatus.audio_ready,
         ),
         StepDef(
-            11, "assemble", "Финальная сборка",
-            ProjectStatus.assembling, ProjectStatus.assembled,
+            11,
+            "assemble",
+            "Финальная сборка",
+            ProjectStatus.assembling,
+            ProjectStatus.assembled,
             ProjectStatus.audio_ready,
         ),
     ]
@@ -281,8 +310,11 @@ def _enrich_slot_step(slot: int) -> StepDef:
     return StepDef(
         # Номер шага «-1» означает «не присутствует в основном списке»
         # (под кнопкой 5 «Доп работа с EXCEL» — sub-step).
-        -1, f"enrich_{slot}", f"Доп работа с EXCEL #{slot}",
-        ENRICH_RUNNING[slot - 1], ENRICH_READY[slot - 1],
+        -1,
+        f"enrich_{slot}",
+        f"Доп работа с EXCEL #{slot}",
+        ENRICH_RUNNING[slot - 1],
+        ENRICH_READY[slot - 1],
         # Префиквизит:
         #   - слот #1 — после «Объектов» (hero_ready)
         #   - слот #N>1 — после предыдущего enrich_(N-1)_ready
@@ -311,23 +343,32 @@ _STEP_BY_CODE: dict[str, StepDef] = {s.code: s for s in STEPS}
 # ready=hero_ready, requires=frames_ready (см. on_project_step:
 # if step.code == "hero").
 _STEP_BY_CODE["hero"] = StepDef(
-    -1, "hero", "Персонажи",
-    ProjectStatus.generating_hero, ProjectStatus.hero_ready,
+    -1,
+    "hero",
+    "Персонажи",
+    ProjectStatus.generating_hero,
+    ProjectStatus.hero_ready,
     ProjectStatus.frames_ready,
 )
 # Sub-step «Сцены (агенты)» — фаза 1 мульти-агентного scene_design между
 # split и hero: 5 категорийных агентов параллельно → staging-ячейки.
 # В основном меню нет (n=-1), запуск через Studio canvas / API.
 _STEP_BY_CODE["scene_d"] = StepDef(
-    -1, "scene_d", "Сцены: агенты",
-    ProjectStatus.scene_designing, ProjectStatus.scene_agents_ready,
+    -1,
+    "scene_d",
+    "Сцены: агенты",
+    ProjectStatus.scene_designing,
+    ProjectStatus.scene_agents_ready,
     ProjectStatus.frames_ready,
 )
 # Sub-step «Сцены (сборщик)» — фаза 2: финальный агент-сборщик
 # (ячейки → scene_registry + attrs кадров).
 _STEP_BY_CODE["scene_asm"] = StepDef(
-    -1, "scene_asm", "Сцены: сборка",
-    ProjectStatus.scene_assembling, ProjectStatus.scene_design_ready,
+    -1,
+    "scene_asm",
+    "Сцены: сборка",
+    ProjectStatus.scene_assembling,
+    ProjectStatus.scene_design_ready,
     ProjectStatus.scene_agents_ready,
 )
 # Per-agent перезапуск (кнопка ▶ на ноде агента на канвасе): гоняет GPT
@@ -343,31 +384,46 @@ for _code, _title in (
     ("sd_act", "Агент: действие"),
 ):
     _STEP_BY_CODE[_code] = StepDef(
-        -1, _code, _title,
-        ProjectStatus.scene_designing, ProjectStatus.scene_agents_ready,
+        -1,
+        _code,
+        _title,
+        ProjectStatus.scene_designing,
+        ProjectStatus.scene_agents_ready,
         ProjectStatus.frames_ready,
     )
 _STEP_BY_CODE["audio"] = StepDef(
-    -1, "audio", "Озвучка",
-    ProjectStatus.generating_audio, ProjectStatus.audio_ready,
+    -1,
+    "audio",
+    "Озвучка",
+    ProjectStatus.generating_audio,
+    ProjectStatus.audio_ready,
     ProjectStatus.videos_ready,
 )
 # Sub-steps «Звуки сопровождения»: план по таймлайну → генерация. На канвасе
 # — ноды sfx_plan/sfx_gen между «Музыка» и «Сборка»; в главном меню TG нет.
 _STEP_BY_CODE["sfx_plan"] = StepDef(
-    -1, "sfx_plan", "План звуков",
-    ProjectStatus.sfx_planning, ProjectStatus.sfx_plan_ready,
+    -1,
+    "sfx_plan",
+    "План звуков",
+    ProjectStatus.sfx_planning,
+    ProjectStatus.sfx_plan_ready,
     ProjectStatus.music_ready,
 )
 _STEP_BY_CODE["sfx_gen"] = StepDef(
-    -1, "sfx_gen", "Звуки (SFX)",
-    ProjectStatus.generating_sfx, ProjectStatus.sfx_ready,
+    -1,
+    "sfx_gen",
+    "Звуки (SFX)",
+    ProjectStatus.generating_sfx,
+    ProjectStatus.sfx_ready,
     ProjectStatus.sfx_plan_ready,
 )
 # requires=hero_ready.
 _STEP_BY_CODE["items"] = StepDef(
-    -1, "items", "Предметы",
-    ProjectStatus.generating_items, ProjectStatus.items_ready,
+    -1,
+    "items",
+    "Предметы",
+    ProjectStatus.generating_items,
+    ProjectStatus.items_ready,
     ProjectStatus.hero_ready,
 )
 # Sub-step'ы enrich_1..5.
@@ -393,7 +449,14 @@ def step_by_running_status(running_status: ProjectStatus) -> StepDef | None:
     приоритет на sub-step'ах — на будущее).
     """
     # Sub-step'ы (точнее, чем wrapper'ы).
-    for code in ("hero", "items", "audio", "scene_d", "scene_asm", *(f"enrich_{i}" for i in range(1, MAX_ENRICH_SLOTS + 1))):
+    for code in (
+        "hero",
+        "items",
+        "audio",
+        "scene_d",
+        "scene_asm",
+        *(f"enrich_{i}" for i in range(1, MAX_ENRICH_SLOTS + 1)),
+    ):
         sd = _STEP_BY_CODE.get(code)
         if sd is not None and sd.running_status is running_status:
             return sd
@@ -440,8 +503,8 @@ def step_icon(step: StepDef, project_status: ProjectStatus) -> str:
 
 def is_step_runnable(step: StepDef, project_status: ProjectStatus) -> bool:
     """Можно ли запустить шаг прямо сейчас?
-       Запуск разрешён, если предыдущий шаг достиг своего «ready»-состояния
-       (или это первый шаг). Перезапуск разрешён всегда (если уже пройден)."""
+    Запуск разрешён, если предыдущий шаг достиг своего «ready»-состояния
+    (или это первый шаг). Перезапуск разрешён всегда (если уже пройден)."""
     if step.requires is None:
         return True
     return status_order(project_status) >= status_order(step.requires)
@@ -452,28 +515,34 @@ def main_menu_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📁 Новый проект", callback_data="menu:new")],
         [InlineKeyboardButton(text="📋 Существующие проекты", callback_data="menu:list")],
         [InlineKeyboardButton(text="🎬 Массовое создание", callback_data="mass:list")],
-        [InlineKeyboardButton(
-            text="🧪 Тестирование визуальных промтов",
-            callback_data="test:list",
-        )],
+        [
+            InlineKeyboardButton(
+                text="🧪 Тестирование визуальных промтов",
+                callback_data="test:list",
+            )
+        ],
     ]
     # Пауза МАССОВОЙ генерации (все батчи разом).
     # НЕ трогает индивидуальные проекты — те продолжают работать.
     # Состояние — файл `data/.mass_pause`, переживает рестарт.
     if mass_pause_active():
-        rows.append([
-            InlineKeyboardButton(
-                text="▶ Возобновить массовую (снять паузу)",
-                callback_data="menu:mresume",
-            ),
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="▶ Возобновить массовую (снять паузу)",
+                    callback_data="menu:mresume",
+                ),
+            ]
+        )
     else:
-        rows.append([
-            InlineKeyboardButton(
-                text="⏸ Пауза массовой (все батчи)",
-                callback_data="menu:mpause",
-            ),
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="⏸ Пауза массовой (все батчи)",
+                    callback_data="menu:mpause",
+                ),
+            ]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -499,12 +568,14 @@ def project_menu_kb(project: Project) -> InlineKeyboardMarkup:
     # Пока мастер не пройден — первая строка меню это большая кнопка
     # «Заполнить настройки».
     if not wiz_ok:
-        rows.append([
-            InlineKeyboardButton(
-                text="⚙ Заполнить настройки (5 вопросов)",
-                callback_data=f"wiz:{project.id}:start",
-            )
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="⚙ Заполнить настройки (5 вопросов)",
+                    callback_data=f"wiz:{project.id}:start",
+                )
+            ]
+        )
 
     steps = steps_for(project)
     for s in steps:
@@ -517,12 +588,14 @@ def project_menu_kb(project: Project) -> InlineKeyboardMarkup:
                     a_label = f"{a_icon} Озвучка · идёт… (тык — управление)"
                 else:
                     a_label = f"{a_icon} Озвучка"
-                rows.append([
-                    InlineKeyboardButton(
-                        text=a_label,
-                        callback_data=f"proj:{project.id}:step:audio",
-                    )
-                ])
+                rows.append(
+                    [
+                        InlineKeyboardButton(
+                            text=a_label,
+                            callback_data=f"proj:{project.id}:step:audio",
+                        )
+                    ]
+                )
 
         icon = step_icon(s, project.status)
 
@@ -562,60 +635,70 @@ def project_menu_kb(project: Project) -> InlineKeyboardMarkup:
 
     # Шестая строка: настройки (пересмотреть / сбросить)
     if wiz_ok:
-        rows.append([
-            InlineKeyboardButton(
-                text="⚙ Настройки", callback_data=f"wiz:{project.id}:start"
-            ),
-            InlineKeyboardButton(
-                text="↻ Сбросить настройки",
-                callback_data=f"wiz:{project.id}:reset",
-            ),
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(text="⚙ Настройки", callback_data=f"wiz:{project.id}:start"),
+                InlineKeyboardButton(
+                    text="↻ Сбросить настройки",
+                    callback_data=f"wiz:{project.id}:reset",
+                ),
+            ]
+        )
 
     # Библиотека мастер-промтов: посмотреть/сменить выбор по любому шагу.
-    rows.append([
-        InlineKeyboardButton(
-            text="🧰 Промты", callback_data=f"pov:{project.id}"
-        ),
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(text="🧰 Промты", callback_data=f"pov:{project.id}"),
+        ]
+    )
 
     # ⏹ Остановить текущий шаг — роллбек in-flight running-статуса
     # на prerequisite (и/или снятие xlsx-flow локов). Не пауза проекта —
     # воркер продолжит двигать проект, просто текущий шаг откатился.
-    rows.append([
-        InlineKeyboardButton(
-            text="⏹ Остановить текущий шаг",
-            callback_data=f"proj:{project.id}:stop_running",
-        ),
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⏹ Остановить текущий шаг",
+                callback_data=f"proj:{project.id}:stop_running",
+            ),
+        ]
+    )
 
     # 🔛 Пауза / ▶ Снять паузу проекта — выводит весь проект в
     # статус `paused`. Воркер игнорирует такие проекты (paused
     # не входит в active-список). При снятии возвращаем на
     # сохранённый в meta["paused_from_status"] старый статус или в `new`.
     if project.status is ProjectStatus.paused:
-        rows.append([
-            InlineKeyboardButton(
-                text="▶ Снять паузу проекта",
-                callback_data=f"proj:{project.id}:resume",
-            ),
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="▶ Снять паузу проекта",
+                    callback_data=f"proj:{project.id}:resume",
+                ),
+            ]
+        )
     else:
-        rows.append([
-            InlineKeyboardButton(
-                text="🔛 Пауза проекта",
-                callback_data=f"proj:{project.id}:pause",
-            ),
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔛 Пауза проекта",
+                    callback_data=f"proj:{project.id}:pause",
+                ),
+            ]
+        )
 
-    rows.append([
-        InlineKeyboardButton(text="📥 Скачать xlsx", callback_data=f"proj:{project.id}:dl_xlsx"),
-        InlineKeyboardButton(text="🔄 Перечитать xlsx", callback_data=f"proj:{project.id}:reload_xlsx"),
-    ])
-    rows.append([
-        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"proj:{project.id}:delete"),
-        InlineKeyboardButton(text="⬅ Меню", callback_data="menu:root"),
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(text="📥 Скачать xlsx", callback_data=f"proj:{project.id}:dl_xlsx"),
+            InlineKeyboardButton(text="🔄 Перечитать xlsx", callback_data=f"proj:{project.id}:reload_xlsx"),
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"proj:{project.id}:delete"),
+            InlineKeyboardButton(text="⬅ Меню", callback_data="menu:root"),
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -636,23 +719,27 @@ def objects_submenu_kb(project: Project) -> InlineKeyboardMarkup:
         chars_label = "✅ Персонажи (перегенерировать)"
     else:
         chars_label = "▶ Персонажи"
-    rows.append([
-        InlineKeyboardButton(
-            text=chars_label,
-            callback_data=f"proj:{project.id}:objects:persons",
-        )
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=chars_label,
+                callback_data=f"proj:{project.id}:objects:persons",
+            )
+        ]
+    )
     # «🧾 Из EXCEL» — новый flow: персонажи берутся из листа «Персонажи»
     # project.xlsx (R1=id, R3=имя, R4=внешность, R5=одежда, R6=характер,
     # R7=правила). Для каждого пользователь выбирает промт, дальше
     # генерация идёт автоматически. Реф-вариации (по ID в R7) — без GPT.
     if project.status is not ProjectStatus.generating_hero:
-        rows.append([
-            InlineKeyboardButton(
-                text="🧾 Из EXCEL",
-                callback_data=f"proj:{project.id}:objects:persons_xlsx",
-            )
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🧾 Из EXCEL",
+                    callback_data=f"proj:{project.id}:objects:persons_xlsx",
+                )
+            ]
+        )
 
     # «Предметы» — раньше блокировались до hero_ready. По требованию
     # юзера блокировки сняты — кнопка всегда кликабельна.
@@ -662,19 +749,23 @@ def objects_submenu_kb(project: Project) -> InlineKeyboardMarkup:
         items_label = "✅ Предметы (перегенерировать)"
     else:
         items_label = "▶ Предметы"
-    rows.append([
-        InlineKeyboardButton(
-            text=items_label,
-            callback_data=f"proj:{project.id}:objects:items",
-        )
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=items_label,
+                callback_data=f"proj:{project.id}:objects:items",
+            )
+        ]
+    )
 
-    rows.append([
-        InlineKeyboardButton(
-            text="⬅ Назад в меню проекта",
-            callback_data=f"proj:{project.id}:menu",
-        )
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅ Назад в меню проекта",
+                callback_data=f"proj:{project.id}:menu",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -699,38 +790,44 @@ def images_submenu_kb(project: Project) -> InlineKeyboardMarkup:
 
     if project.status is ProjectStatus.generating_images:
         gen_all_label = "⏳ Сгенерировать все · идёт…"
-    elif status_order(project.status) >= status_order(
-        ProjectStatus.images_ready
-    ):
+    elif status_order(project.status) >= status_order(ProjectStatus.images_ready):
         gen_all_label = "✅ Сгенерировать все (перегенерировать)"
     else:
         gen_all_label = "▶ Сгенерировать все"
-    rows.append([
-        InlineKeyboardButton(
-            text=gen_all_label,
-            callback_data=f"proj:{project.id}:img:gen_all",
-        )
-    ])
-    rows.append([
-        InlineKeyboardButton(
-            text="🔍 Добить недостающие",
-            callback_data=f"proj:{project.id}:img:fill_missing",
-        )
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=gen_all_label,
+                callback_data=f"proj:{project.id}:img:gen_all",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="🔍 Добить недостающие",
+                callback_data=f"proj:{project.id}:img:fill_missing",
+            )
+        ]
+    )
     # «🔁 Прогнать шаг с нуля» — sub_step reset (поддерживается через
     # reset_step_svc для шага 7). reset_ask handler есть в bot.py.
-    rows.append([
-        InlineKeyboardButton(
-            text="🔁 Прогнать шаг с нуля",
-            callback_data=f"reset_ask:{project.id}:img",
-        )
-    ])
-    rows.append([
-        InlineKeyboardButton(
-            text="⬅ Назад в меню проекта",
-            callback_data=f"proj:{project.id}:menu",
-        )
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="🔁 Прогнать шаг с нуля",
+                callback_data=f"reset_ask:{project.id}:img",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅ Назад в меню проекта",
+                callback_data=f"proj:{project.id}:menu",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -757,10 +854,7 @@ def enrich_submenu_kb(project: Project) -> InlineKeyboardMarkup:
     """
     rows: list[list[InlineKeyboardButton]] = []
     n_slots = enabled_enrich_slots(project)
-    slot1_can_run = (
-        status_order(project.status)
-        >= status_order(_objects_requires_for_step5())
-    )
+    slot1_can_run = status_order(project.status) >= status_order(_objects_requires_for_step5())
     any_running = project.status in ENRICH_RUNNING
 
     for i in range(1, n_slots + 1):
@@ -794,28 +888,30 @@ def enrich_submenu_kb(project: Project) -> InlineKeyboardMarkup:
     # enriching_<i+1>. Показываем только когда слот #1 готов к
     # запуску и сейчас ничего не выполняется.
     if slot1_can_run and not any_running:
-        rows.append([
-            InlineKeyboardButton(
-                text=f"▶▶ Запустить все слоты подряд (#1→#{n_slots})",
-                callback_data=f"proj:{project.id}:enrich_run_all",
-            )
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"▶▶ Запустить все слоты подряд (#1→#{n_slots})",
+                    callback_data=f"proj:{project.id}:enrich_run_all",
+                )
+            ]
+        )
 
     # «➕ Добавить слот» — рисуется только пока не достигли лимита.
     if n_slots < MAX_ENRICH_SLOTS:
-        rows.append([
-            InlineKeyboardButton(
-                text="➕ Добавить слот",
-                callback_data=f"proj:{project.id}:enrich_add_slot",
-            )
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="➕ Добавить слот",
+                    callback_data=f"proj:{project.id}:enrich_add_slot",
+                )
+            ]
+        )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def script_step_kb(
-    pid: int, *, voiceover_exists: bool
-) -> InlineKeyboardMarkup:
+def script_step_kb(pid: int, *, voiceover_exists: bool) -> InlineKeyboardMarkup:
     """Подменю шага 2 «Закадровый текст».
 
     Показывается после клика на кнопку шага 2 в меню проекта.
@@ -824,30 +920,38 @@ def script_step_kb(
     """
     rows: list[list[InlineKeyboardButton]] = []
     if voiceover_exists:
-        rows.append([
-            InlineKeyboardButton(
-                text="📄 Посмотреть voiceover.txt",
-                callback_data=f"proj:{pid}:script_view",
-            )
-        ])
-        rows.append([
-            InlineKeyboardButton(
-                text="✏️ Заменить voiceover.txt",
-                callback_data=f"proj:{pid}:script_replace",
-            )
-        ])
-    rows.append([
-        InlineKeyboardButton(
-            text="▶ Сгенерировать заново" if voiceover_exists else "▶ Сгенерировать",
-            callback_data=f"proj:{pid}:script_regen",
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="📄 Посмотреть voiceover.txt",
+                    callback_data=f"proj:{pid}:script_view",
+                )
+            ]
         )
-    ])
-    rows.append([
-        InlineKeyboardButton(
-            text="⬅ Назад в меню проекта",
-            callback_data=f"proj:{pid}:menu",
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✏️ Заменить voiceover.txt",
+                    callback_data=f"proj:{pid}:script_replace",
+                )
+            ]
         )
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="▶ Сгенерировать заново" if voiceover_exists else "▶ Сгенерировать",
+                callback_data=f"proj:{pid}:script_regen",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅ Назад в меню проекта",
+                callback_data=f"proj:{pid}:menu",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

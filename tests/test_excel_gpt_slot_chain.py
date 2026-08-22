@@ -176,13 +176,9 @@ def test_graph_next_reruns_done_excel_gpt_under_chain() -> None:
         },
     )
     # Stale «готово» на слоте 3 НЕ даёт прыжок на hero.
-    assert g.next_running_after_ready(p, ProjectStatus.enrich_2_ready) is (
-        ProjectStatus.enriching_3
-    )
+    assert g.next_running_after_ready(p, ProjectStatus.enrich_2_ready) is (ProjectStatus.enriching_3)
     p.meta["enrich_auto_chain_to"] = 3
-    assert g.next_running_after_ready(p, ProjectStatus.enrich_2_ready) is (
-        ProjectStatus.enriching_3
-    )
+    assert g.next_running_after_ready(p, ProjectStatus.enrich_2_ready) is (ProjectStatus.enriching_3)
 
 
 def test_next_excel_slot_after_ready_ignores_done() -> None:
@@ -198,9 +194,7 @@ def test_next_excel_slot_after_ready_ignores_done() -> None:
         {"id": "e2", "source": "n_excel_gpt_2", "target": "n_excel_gpt_3"},
     ]
     assert next_excel_gpt_slot_after_ready(p, ProjectStatus.enrich_2_ready) == 3
-    assert next_excel_gpt_running_after_ready(p, ProjectStatus.enrich_2_ready) is (
-        ProjectStatus.enriching_3
-    )
+    assert next_excel_gpt_running_after_ready(p, ProjectStatus.enrich_2_ready) is (ProjectStatus.enriching_3)
     nxt = prepare_enrich_chain_for_auto_advance(p, ProjectStatus.enrich_2_ready)
     assert nxt is ProjectStatus.enriching_3
     assert p.meta.get("enrich_auto_chain_to") == 3
@@ -232,9 +226,7 @@ def test_graph_skips_to_hero_only_after_last_excel_slot() -> None:
             "canvas_graph": {"nodes": nodes, "edges": edges},
         },
     )
-    assert g.next_running_after_ready(p, ProjectStatus.enrich_2_ready) is (
-        ProjectStatus.generating_hero
-    )
+    assert g.next_running_after_ready(p, ProjectStatus.enrich_2_ready) is (ProjectStatus.generating_hero)
 
 
 def test_prepare_chain_follows_edges_not_orphan_slots() -> None:
@@ -323,9 +315,7 @@ def test_auto_chain_uses_edge_key_not_slot_resolve_collision() -> None:
     assert resolve_excel_gpt_node_key_for_slot(p, 5) == "n_excel_gpt_2"
     assert first_work_successor_along_edges(p, "n_work") == ("n_check", "excel_gpt")
 
-    nxt = prepare_enrich_chain_for_auto_advance(
-        p, ProjectStatus.enrich_4_ready, finished_key="n_work"
-    )
+    nxt = prepare_enrich_chain_for_auto_advance(p, ProjectStatus.enrich_4_ready, finished_key="n_work")
     assert nxt is ProjectStatus.enriching_5
     assert p.meta["active_excel_gpt_node_key"] == "n_check"
     assert p.meta["active_excel_gpt_node_key"] != "n_excel_gpt_2"

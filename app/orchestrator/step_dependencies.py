@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any
 
 # step_code → data-родители (чей выход — вход этого шага).
 #
@@ -164,9 +164,7 @@ def is_step_enabled(project: Any, step_code: str) -> bool:
 def project_cone(project: Any, step_code: str, *, include_self: bool = True) -> tuple[str, ...]:
     """Конус инвалидации для конкретного проекта: DAG × включённые шаги."""
     return tuple(
-        c
-        for c in dependents_cone(step_code, include_self=include_self)
-        if is_step_enabled(project, c)
+        c for c in dependents_cone(step_code, include_self=include_self) if is_step_enabled(project, c)
     )
 
 

@@ -7,8 +7,8 @@ Image и video делят один lock — один Chrome, один outsee.io.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from loguru import logger
 

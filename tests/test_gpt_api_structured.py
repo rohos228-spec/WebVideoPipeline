@@ -102,9 +102,7 @@ async def test_schema_attached_on_enforcing_relay(monkeypatch) -> None:
         return httpx.Response(200, json=_completion('{"ops":[]}'))
 
     _mock_httpx(monkeypatch, handler)
-    result = await chat(
-        prompt="p", auto_pack=False, model="gpt-5.6-sol", response_schema=SCHEMA
-    )
+    result = await chat(prompt="p", auto_pack=False, model="gpt-5.6-sol", response_schema=SCHEMA)
     assert result.text == '{"ops":[]}'
     rf = bodies[0]["response_format"]
     assert rf["type"] == "json_schema"
@@ -123,9 +121,7 @@ async def test_schema_not_attached_on_unverified_relay(monkeypatch) -> None:
         return httpx.Response(200, json=_completion('{"ops":[]}'))
 
     _mock_httpx(monkeypatch, handler)
-    result = await chat(
-        prompt="p", auto_pack=False, model="gpt-5.6-sol", response_schema=SCHEMA
-    )
+    result = await chat(prompt="p", auto_pack=False, model="gpt-5.6-sol", response_schema=SCHEMA)
     assert result.text == '{"ops":[]}'
     assert "response_format" not in bodies[0]  # деградация: без параметра
 
@@ -171,9 +167,7 @@ async def test_chat_mismatch_end_to_end(monkeypatch) -> None:
     _enable(monkeypatch, relays="gw.test")
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, json=_completion('{"ops":[]}', model="MiniMax-M3")
-        )
+        return httpx.Response(200, json=_completion('{"ops":[]}', model="MiniMax-M3"))
 
     _mock_httpx(monkeypatch, handler)
     with pytest.raises(GptApiError) as ei:
@@ -284,9 +278,7 @@ async def test_truncated_contract_retry_then_success(monkeypatch) -> None:
         )
 
     _mock_httpx(monkeypatch, handler)
-    result = await chat(
-        prompt="p", auto_pack=False, model="gpt-5.6-sol", response_schema=SCHEMA
-    )
+    result = await chat(prompt="p", auto_pack=False, model="gpt-5.6-sol", response_schema=SCHEMA)
     assert len(calls) == 2
     assert result.text == '{"ops":[]}'
 
@@ -300,9 +292,7 @@ def _sse_responses(text: str, *, model: str = "gpt-5-6-sol") -> str:
             "status": "completed",
             "model": model,
             "usage": {"total_tokens": 7},
-            "output": [
-                {"content": [{"type": "output_text", "text": text}]}
-            ],
+            "output": [{"content": [{"type": "output_text", "text": text}]}],
         },
     }
     return (
@@ -330,9 +320,7 @@ async def test_responses_mode_attaches_text_format(monkeypatch) -> None:
         )
 
     _mock_httpx(monkeypatch, handler)
-    result = await chat(
-        prompt="p", auto_pack=False, model="gpt-5-6-sol", response_schema=SCHEMA
-    )
+    result = await chat(prompt="p", auto_pack=False, model="gpt-5-6-sol", response_schema=SCHEMA)
     fmt = bodies[0]["text"]["format"]
     assert fmt["type"] == "json_schema"
     assert fmt["schema"] == SCHEMA.schema
@@ -349,9 +337,7 @@ def test_served_model_suffix_downgrade_detected() -> None:
 
 
 def test_served_model_provider_prefix_ok() -> None:
-    r = GptChatResult(
-        text="", model="gpt-5.6-sol", served_model="openai/gpt-5.6-sol"
-    )
+    r = GptChatResult(text="", model="gpt-5.6-sol", served_model="openai/gpt-5.6-sol")
     _check_served_model(r, use_model="gpt-5.6-sol", contract_active=True)
 
 
@@ -368,9 +354,7 @@ async def test_volume_complete_inherits_schema(monkeypatch) -> None:
         captured.update(kwargs)
         return reply_text, False
 
-    monkeypatch.setattr(
-        volume_batches, "volume_complete_apply_ops_reply", fake_volume
-    )
+    monkeypatch.setattr(volume_batches, "volume_complete_apply_ops_reply", fake_volume)
     result = GptChatResult(text='{"ops":[]}', model="m")
     out = await gpt_api._maybe_volume_complete_chat_result(
         result,

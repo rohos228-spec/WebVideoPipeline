@@ -54,9 +54,7 @@ from app.storage.project_sheet import (
 
 async def recover(pid: int) -> None:
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             print(f"проект #{pid} не найден")
             return
@@ -100,9 +98,7 @@ async def recover(pid: int) -> None:
                 print(f"  ✓ project.script_text ← voiceover.txt ({len(vo)} симв)")
 
         # 3) Кадры (только если их нет в БД)
-        existing = (
-            await s.execute(select(Frame).where(Frame.project_id == project.id))
-        ).scalars().all()
+        existing = (await s.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
         if existing:
             print(f"  кадры уже есть в БД ({len(existing)} шт), не трогаю")
         elif SHEET_FRAMES in wb.sheetnames:

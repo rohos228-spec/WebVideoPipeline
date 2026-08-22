@@ -125,9 +125,7 @@ def normalize_check_feedback_edges(
                 break
         if softened:
             if not soft_pass_warned:
-                warnings.append(
-                    "петля через ветку «Ок» у проверяющей ноды — kind не меняли"
-                )
+                warnings.append("петля через ветку «Ок» у проверяющей ноды — kind не меняли")
                 soft_pass_warned = True
             continue
 
@@ -160,9 +158,7 @@ def validate_workflow_graph(
             errors.append(f"дублирующийся id ноды: {sid}")
         by_id[sid] = n
 
-    norm_edges, norm_warnings, patches, soft_exclude = normalize_check_feedback_edges(
-        nodes, edges
-    )
+    norm_edges, norm_warnings, patches, soft_exclude = normalize_check_feedback_edges(nodes, edges)
     warnings.extend(norm_warnings)
 
     out: dict[str, list[str]] = {nid: [] for nid in by_id}
@@ -196,13 +192,9 @@ def validate_workflow_graph(
     elif feedback_count:
         soft = _find_cycle(out)
         if soft:
-            warnings.append(
-                "есть петля через «Не ок» (проверка → правка → снова) — так и задумано"
-            )
+            warnings.append("есть петля через «Не ок» (проверка → правка → снова) — так и задумано")
 
-    work_nodes = [
-        nid for nid, n in by_id.items() if is_work_node_type(str(n.get("type") or ""))
-    ]
+    work_nodes = [nid for nid, n in by_id.items() if is_work_node_type(str(n.get("type") or ""))]
     if not work_nodes:
         warnings.append("нет рабочих нод (plan, script, …)")
     else:
@@ -214,9 +206,7 @@ def validate_workflow_graph(
     isolated = [
         nid
         for nid in by_id
-        if not out.get(nid)
-        and not rev.get(nid)
-        and _node_type(by_id.get(nid)) != "topic"
+        if not out.get(nid) and not rev.get(nid) and _node_type(by_id.get(nid)) != "topic"
     ]
     if isolated:
         warnings.append(f"изолированные ноды ({len(isolated)}): {', '.join(isolated[:5])}")

@@ -13,6 +13,7 @@
 Параллельно может работать только ОДИН тестовый цикл — лочится по
 test_prompt_projects.status in ('running_gpt', 'running_outsee').
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -40,9 +41,7 @@ def slugify(name: str) -> str:
     return base or "test"
 
 
-async def create_test_project(
-    session: AsyncSession, name: str
-) -> TestPromptProject:
+async def create_test_project(session: AsyncSession, name: str) -> TestPromptProject:
     """Создаёт тестовый проект с уникальным slug. Папка не создаётся
     здесь — она появится при первой итерации (idempotent mkdir).
     """
@@ -53,9 +52,7 @@ async def create_test_project(
     slug = slug_base
     i = 1
     while (
-        await session.execute(
-            select(TestPromptProject).where(TestPromptProject.slug == slug)
-        )
+        await session.execute(select(TestPromptProject).where(TestPromptProject.slug == slug))
     ).scalar_one_or_none():
         i += 1
         slug = f"{slug_base}-{i}"
@@ -72,12 +69,14 @@ async def get_running_project(
     outsee). None если нет ни одного — можно запускать новый.
     """
     rows = (
-        await session.execute(
-            select(TestPromptProject).where(
-                TestPromptProject.status.in_(list(_RUNNING_STATUSES))
+        (
+            await session.execute(
+                select(TestPromptProject).where(TestPromptProject.status.in_(list(_RUNNING_STATUSES)))
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return rows[0] if rows else None
 
 
@@ -130,20 +129,13 @@ async def _gpt_get_new_prompt(
     gpt = get_gpt_client()
     await gpt.new_conversation()
     if attachments:
-        await gpt.ask_with_files(
-            user_message, attachments, timeout=900, expect_file_download=True
-        )
+        await gpt.ask_with_files(user_message, attachments, timeout=900, expect_file_download=True)
     else:
         await gpt.ask_fresh(user_message, timeout=900)
-    await gpt.download_attachment_from_last_reply(
-        out_txt_path, allow_reply_text_fallback=True
-    )
+    await gpt.download_attachment_from_last_reply(out_txt_path, allow_reply_text_fallback=True)
 
     if not out_txt_path.exists() or out_txt_path.stat().st_size == 0:
-        raise RuntimeError(
-            f"ChatGPT не прислал .txt-вложение (или файл пустой): "
-            f"{out_txt_path}"
-        )
+        raise RuntimeError(f"ChatGPT не прислал .txt-вложение (или файл пустой): {out_txt_path}")
     return out_txt_path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -206,8 +198,7 @@ async def run_iteration(
     """
     if not project.visual_prompt or not project.system_prompt:
         raise RuntimeError(
-            "Не заданы visual_prompt и/или system_prompt — задай их "
-            "в меню проекта перед запуском."
+            "Не заданы visual_prompt и/или system_prompt — задай их в меню проекта перед запуском."
         )
 
     # Лок: проверяем, что не запущен другой тестовый проект.
@@ -233,31 +224,21 @@ async def run_iteration(
         with contextlib.suppress(Exception):
             await bot.send_message(
                 chat_id,
-                f"🧪 #{project.id} «{project.name}» — итерация {new_iter}\n"
-                f"➡ Шаг 1/2: отправляю ChatGPT…",
+                f"🧪 #{project.id} «{project.name}» — итерация {new_iter}\n➡ Шаг 1/2: отправляю ChatGPT…",
             )
 
     if critique is None:
         # Первая итерация — без вложения.
-        user_msg = _build_gpt_first_prompt(
-            project.system_prompt, project.visual_prompt
-        )
+        user_msg = _build_gpt_first_prompt(project.system_prompt, project.visual_prompt)
         attachments: list[Path] | None = None
     else:
         # Доводка по критике — к запросу прикрепляем предыдущий txt.
         prev_txt = project.iter_dir(prev_iter) / "prompt.txt"
         if not prev_txt.exists():
-            raise RuntimeError(
-                f"Нет предыдущего txt-промта в {prev_txt}, не могу "
-                f"продолжить цикл"
-            )
+            raise RuntimeError(f"Нет предыдущего txt-промта в {prev_txt}, не могу продолжить цикл")
         # Сохраняем критику рядом с предыдущим txt — для истории.
-        (project.iter_dir(prev_iter) / "critique.txt").write_text(
-            critique, encoding="utf-8"
-        )
-        user_msg = _build_gpt_critique_prompt(
-            project.system_prompt, critique
-        )
+        (project.iter_dir(prev_iter) / "critique.txt").write_text(critique, encoding="utf-8")
+        user_msg = _build_gpt_critique_prompt(project.system_prompt, critique)
         attachments = [prev_txt]
 
     try:
@@ -281,13 +262,10 @@ async def run_iteration(
         with contextlib.suppress(Exception):
             await bot.send_message(
                 chat_id,
-                f"➡ Шаг 2/2: отправляю в Banana Pro (Relax)…\n"
-                f"Промт получен ({len(new_prompt)} символов).",
+                f"➡ Шаг 2/2: отправляю в Banana Pro (Relax)…\nПромт получен ({len(new_prompt)} символов).",
             )
 
-    prompt_id_prefix = (
-        f"[ID: test{project.id}-iter{new_iter}-{uuid.uuid4().hex[:8]}]"
-    )
+    prompt_id_prefix = f"[ID: test{project.id}-iter{new_iter}-{uuid.uuid4().hex[:8]}]"
     try:
         await _outsee_generate(
             prompt=new_prompt,
@@ -308,9 +286,12 @@ async def run_iteration(
     await session.flush()
 
     logger.info(
-        "test_prompt: #{} «{}» итерация {} готова "
-        "(txt={}, img={})",
-        project.id, project.name, new_iter, out_txt, out_img,
+        "test_prompt: #{} «{}» итерация {} готова (txt={}, img={})",
+        project.id,
+        project.name,
+        new_iter,
+        out_txt,
+        out_img,
     )
     return out_txt, out_img
 

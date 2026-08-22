@@ -81,9 +81,7 @@ async def ensure_run_for_project(
 
     async def _ensure(s: AsyncSession) -> int:
         existing = (
-            await s.execute(
-                select(WorkflowRun).where(WorkflowRun.project_id == project_id)
-            )
+            await s.execute(select(WorkflowRun).where(WorkflowRun.project_id == project_id))
         ).scalar_one_or_none()
         if existing is not None:
             return existing.id
@@ -96,9 +94,7 @@ async def ensure_run_for_project(
         if project is not None:
             from app.services.canvas_graph import canvas_graph_from_meta
 
-            cg = canvas_graph_from_meta(
-                project.meta if isinstance(project.meta, dict) else {}
-            )
+            cg = canvas_graph_from_meta(project.meta if isinstance(project.meta, dict) else {})
             if cg:
                 nodes = list(cg["nodes"])
                 edges = list(cg["edges"])
@@ -202,9 +198,7 @@ def _nr_effective_type(run: WorkflowRun, nr: NodeRun) -> str:
     return _effective_type_from_nr(nr)
 
 
-async def _workflow_run_with_nodes(
-    session: AsyncSession, project_id: int
-) -> WorkflowRun | None:
+async def _workflow_run_with_nodes(session: AsyncSession, project_id: int) -> WorkflowRun | None:
     return (
         await session.execute(
             select(WorkflowRun)
@@ -214,9 +208,7 @@ async def _workflow_run_with_nodes(
     ).scalar_one_or_none()
 
 
-def _aggregate_workflow_run_status(
-    run: WorkflowRun, project: Project | None = None
-) -> None:
+def _aggregate_workflow_run_status(run: WorkflowRun, project: Project | None = None) -> None:
     """Обновить WorkflowRun.status по NodeRun-ам.
 
     Если Project уже в terminal success (assembled/published), не держим
@@ -264,9 +256,7 @@ def _aggregate_workflow_run_status(
             run.finished_at = now
 
 
-async def sync_run_for_project(
-    project_id: int, session: AsyncSession | None = None
-) -> None:
+async def sync_run_for_project(project_id: int, session: AsyncSession | None = None) -> None:
     """Синхронизировать skipped/disabled и агрегировать WorkflowRun (без повышения статусов).
 
     ``session`` — опционально (тесты / API override); иначе глобальный session_scope.
@@ -349,9 +339,7 @@ async def sync_run_for_project(
             slot = slot_for_excel_gpt_node_key(project, nr.node_key)
             if nr.status == NodeRunStatus.pending:
                 if slot is not None:
-                    await clear_slot_completion_meta(
-                        s, project, slot, node_key=nr.node_key
-                    )
+                    await clear_slot_completion_meta(s, project, slot, node_key=nr.node_key)
                     logger.info(
                         "[#{}] heal: stale completed_key {} (slot {}) — "
                         "meta сброшен, NodeRun pending (не прыгаем в done)",
@@ -421,9 +409,7 @@ async def sync_run_for_project(
                 if nr.status == NodeRunStatus.done:
                     continue
                 if nr.status == NodeRunStatus.failed:
-                    reset_node_to_pending(
-                        nr, project_id=project_id, initiator="auto_unstick"
-                    )
+                    reset_node_to_pending(nr, project_id=project_id, initiator="auto_unstick")
                 if nr.status == NodeRunStatus.pending:
                     queue_node_for_start(nr, project_id=project_id, initiator="api")
                     start_node_running(nr, project_id=project_id, initiator="api")
@@ -514,16 +500,10 @@ async def resolve_node_run_for_step(
     node_type = STEP_CODE_TO_NODE_TYPE.get(step_code)
     if node_type is None:
         return None
-    matches = [
-        nr for nr in run.node_runs if _nr_effective_type(run, nr) == node_type
-    ]
+    matches = [nr for nr in run.node_runs if _nr_effective_type(run, nr) == node_type]
     if not matches and node_type in ("sd_agent", "sd_assemble"):
         # Legacy-канвас: одна нода scene_design вместо веера sd_*.
-        matches = [
-            nr
-            for nr in run.node_runs
-            if _nr_effective_type(run, nr) == "scene_design"
-        ]
+        matches = [nr for nr in run.node_runs if _nr_effective_type(run, nr) == "scene_design"]
     if len(matches) == 1:
         return matches[0]
     if key:
@@ -648,10 +628,7 @@ async def prepare_node_for_step_start(
         if explicit_ui_start:
             reset_node_to_pending(nr, project_id=project.id, initiator="ui_restart")
         else:
-            msg = (
-                f"нода «{nr.node_type}» уже в статусе «{nr.status.value}» — "
-                "явный перезапуск только из UI"
-            )
+            msg = f"нода «{nr.node_type}» уже в статусе «{nr.status.value}» — явный перезапуск только из UI"
             if strict:
                 raise ValueError(msg)
             logger.debug("[#{}] {}", project.id, msg)
@@ -659,10 +636,7 @@ async def prepare_node_for_step_start(
 
     if nr.status in (NodeRunStatus.running, NodeRunStatus.queued):
         if is_generation_active(project.id) and not explicit_ui_start:
-            msg = (
-                f"нода «{nr.node_type}» уже в работе ({nr.status.value}) — "
-                "дождитесь или «Сбросить шаг»"
-            )
+            msg = f"нода «{nr.node_type}» уже в работе ({nr.status.value}) — дождитесь или «Сбросить шаг»"
             if strict:
                 raise ValueError(msg)
             return True
@@ -679,8 +653,7 @@ async def prepare_node_for_step_start(
     if not start_node_running(nr, project_id=project.id, initiator="api"):
         if strict:
             raise ValueError(
-                f"нода «{nr.node_type}» не перешла в «выполняется» "
-                f"(текущий статус: {nr.status.value})"
+                f"нода «{nr.node_type}» не перешла в «выполняется» (текущий статус: {nr.status.value})"
             )
         return False
 
@@ -700,10 +673,7 @@ async def prepare_node_for_step_start(
         run_scope = await _workflow_run_with_nodes(session, project.id)
         if run_scope is not None:
             for other in run_scope.node_runs:
-                if (
-                    _nr_effective_type(run_scope, other) != "sd_agent"
-                    or other.node_key == nr.node_key
-                ):
+                if _nr_effective_type(run_scope, other) != "sd_agent" or other.node_key == nr.node_key:
                     continue
                 if other.status in (
                     NodeRunStatus.running,
@@ -717,31 +687,20 @@ async def prepare_node_for_step_start(
                     )
         await session.flush()
     # Веер scene_design: полный scene_d (без only_agent) гоняет все sd_agent.
-    elif (
-        step_code == "scene_d"
-        and not resolved_key
-        and _effective_type_from_nr(nr) == "sd_agent"
-    ):
+    elif step_code == "scene_d" and not resolved_key and _effective_type_from_nr(nr) == "sd_agent":
         run_fan = await _workflow_run_with_nodes(session, project.id)
         if run_fan is not None:
             for other in run_fan.node_runs:
-                if (
-                    _nr_effective_type(run_fan, other) != "sd_agent"
-                    or other.node_key == nr.node_key
-                ):
+                if _nr_effective_type(run_fan, other) != "sd_agent" or other.node_key == nr.node_key:
                     continue
                 if other.status == NodeRunStatus.skipped:
                     continue
                 if other.status in (NodeRunStatus.done, NodeRunStatus.waiting_hitl):
                     if not explicit_ui_start:
                         continue
-                    reset_node_to_pending(
-                        other, project_id=project.id, initiator="ui_restart"
-                    )
+                    reset_node_to_pending(other, project_id=project.id, initiator="ui_restart")
                 if other.status in (NodeRunStatus.running, NodeRunStatus.queued):
-                    reset_node_to_pending(
-                        other, project_id=project.id, initiator="auto_unstick"
-                    )
+                    reset_node_to_pending(other, project_id=project.id, initiator="auto_unstick")
                 queue_node_for_start(other, project_id=project.id, initiator="api")
                 start_node_running(other, project_id=project.id, initiator="api")
     await session.flush()
@@ -878,9 +837,7 @@ async def complete_active_node_for_step(
     if (
         node_type in ("sd_agent", "sd_assemble")
         and not any(_nr_effective_type(run, nr) == node_type for nr in run.node_runs)
-        and any(
-            _nr_effective_type(run, nr) == "scene_design" for nr in run.node_runs
-        )
+        and any(_nr_effective_type(run, nr) == "scene_design" for nr in run.node_runs)
     ):
         node_type = "scene_design"
 
@@ -926,15 +883,9 @@ async def complete_active_node_for_step(
                     new_status.value,
                 )
 
-    excel_matches = [
-        nr for nr in run.node_runs if nr.node_type == EXCEL_GPT_NODE_TYPE
-    ]
+    excel_matches = [nr for nr in run.node_runs if nr.node_type == EXCEL_GPT_NODE_TYPE]
     # Несколько excel_gpt без ключа — не трогаем «первую попавшуюся».
-    if (
-        node_type == EXCEL_GPT_NODE_TYPE
-        and not finished_key
-        and len(excel_matches) > 1
-    ):
+    if node_type == EXCEL_GPT_NODE_TYPE and not finished_key and len(excel_matches) > 1:
         logger.warning(
             "[#{}] complete_active_node: excel_gpt multi-node без ключа "
             "(prev={} → {}), NodeRun не помечен done",
@@ -952,9 +903,7 @@ async def complete_active_node_for_step(
 
             sd_runner.clear_only_agent(project)
         except Exception:  # noqa: BLE001
-            logger.debug(
-                "[#{}] clear only_agent failed", project.id, exc_info=True
-            )
+            logger.debug("[#{}] clear only_agent failed", project.id, exc_info=True)
 
     # Точечный ▶: чужие sd_agent, ошибочно поднятые в running, вернуть в pending.
     if only_agent and finished_key and node_type == "sd_agent":
@@ -964,9 +913,7 @@ async def complete_active_node_for_step(
             if other.node_key == finished_key:
                 continue
             if other.status in (NodeRunStatus.running, NodeRunStatus.queued):
-                reset_node_to_pending(
-                    other, project_id=project.id, initiator="only_agent_scope"
-                )
+                reset_node_to_pending(other, project_id=project.id, initiator="only_agent_scope")
         await session.flush()
 
     for nr in run.node_runs:
@@ -1092,9 +1039,7 @@ async def mark_running_node_failed(
     if (
         node_type in ("sd_agent", "sd_assemble")
         and not any(_nr_effective_type(run, nr) == node_type for nr in run.node_runs)
-        and any(
-            _nr_effective_type(run, nr) == "scene_design" for nr in run.node_runs
-        )
+        and any(_nr_effective_type(run, nr) == "scene_design" for nr in run.node_runs)
     ):
         node_type = "scene_design"
     # Веер scene_design: фейлим все running-ноды агентов, не только первую.
@@ -1108,9 +1053,7 @@ async def mark_running_node_failed(
         except Exception:  # noqa: BLE001
             only_agent_fail = None
     fail_all = node_type == "sd_agent" and not only_agent_fail
-    active_key = (
-        active_excel_gpt_node_key(project) if node_type == EXCEL_GPT_NODE_TYPE else None
-    )
+    active_key = active_excel_gpt_node_key(project) if node_type == EXCEL_GPT_NODE_TYPE else None
     if only_agent_fail and node_type == "sd_agent":
         try:
             from app.services.scene_design import runner as sd_runner
@@ -1163,9 +1106,7 @@ async def update_active_node_progress_text(
     if run is None:
         return
     node_type = _canvas_node_type_for_running(project.status)
-    active_key = (
-        active_excel_gpt_node_key(project) if node_type == EXCEL_GPT_NODE_TYPE else None
-    )
+    active_key = active_excel_gpt_node_key(project) if node_type == EXCEL_GPT_NODE_TYPE else None
     if node_type == EXCEL_GPT_NODE_TYPE and not active_key:
         slot = slot_from_running_status(project.status)
         if slot is not None:
@@ -1176,7 +1117,7 @@ async def update_active_node_progress_text(
         if active_key and nr.node_key != active_key:
             continue
         if nr.status in (NodeRunStatus.running, NodeRunStatus.queued):
-            nr.progress_text = (progress_text or None)
+            nr.progress_text = progress_text or None
             if nr.progress_text:
                 nr.progress_text = nr.progress_text[:200]
             await session.flush()
@@ -1218,9 +1159,7 @@ async def reset_nodes_from_step(
             if nr.node_type in NODE_TYPE_ORDER:
                 idx = NODE_TYPE_ORDER.index(nr.node_type)
                 if idx >= asm_idx and nr.node_type != "sd_agent":
-                    reset_node_to_pending(
-                        nr, project_id=project_id, initiator="api_reset"
-                    )
+                    reset_node_to_pending(nr, project_id=project_id, initiator="api_reset")
         await session.flush()
         return
     node_type = STEP_CODE_TO_NODE_TYPE.get(step_code)
@@ -1280,9 +1219,7 @@ async def stop_active_running_node(
                 await _reset_and_notify(nr)
         await session.flush()
         return
-    active_key = (
-        active_excel_gpt_node_key(project) if node_type == EXCEL_GPT_NODE_TYPE else None
-    )
+    active_key = active_excel_gpt_node_key(project) if node_type == EXCEL_GPT_NODE_TYPE else None
     for nr in run.node_runs:
         if nr.node_type != node_type:
             continue
@@ -1367,9 +1304,7 @@ def _node_already_succeeded_for_project(project: Project, nr: NodeRun) -> bool:
     if eff not in LINEAR_NODE_TYPES:
         return False
     nr_i = LINEAR_NODE_TYPES.index(eff)
-    cur_type = READY_TO_NODE_TYPE.get(project.status) or RUNNING_TO_NODE_TYPE.get(
-        project.status
-    )
+    cur_type = READY_TO_NODE_TYPE.get(project.status) or RUNNING_TO_NODE_TYPE.get(project.status)
     if cur_type in LINEAR_NODE_TYPES and LINEAR_NODE_TYPES.index(cur_type) > nr_i:
         return True
     # ready-статус этой ноды уже пройден (project на следующем ready/running)
@@ -1394,10 +1329,10 @@ async def _reconcile_stale_node_runs(
     grace = timedelta(seconds=grace_sec)
     async with session_scope() as session:
         runs = (
-            await session.execute(
-                select(WorkflowRun).options(selectinload(WorkflowRun.node_runs))
-            )
-        ).scalars().all()
+            (await session.execute(select(WorkflowRun).options(selectinload(WorkflowRun.node_runs))))
+            .scalars()
+            .all()
+        )
         for run in runs:
             if run.project_id is None:
                 continue
@@ -1416,12 +1351,8 @@ async def _reconcile_stale_node_runs(
                     )
                     from app.services.work_lease import is_held
 
-                    _code = NODE_TYPE_TO_STEP_CODE.get(
-                        RUNNING_TO_NODE_TYPE.get(project.status, ""), ""
-                    )
-                    if _code and await is_held(
-                        run.project_id, f"step:{_code}"
-                    ):
+                    _code = NODE_TYPE_TO_STEP_CODE.get(RUNNING_TO_NODE_TYPE.get(project.status, ""), "")
+                    if _code and await is_held(run.project_id, f"step:{_code}"):
                         live = True
                 except Exception:  # noqa: BLE001
                     logger.debug(
@@ -1520,19 +1451,12 @@ async def _reconcile_stale_node_runs(
                 status_val = getattr(project.status, "value", str(project.status))
                 eff = _effective_type_from_nr(nr)
                 # Точечный ▶ скелета: чужие sd_agent в running — сбросить, не keep.
-                if (
-                    status_val == "scene_designing"
-                    and eff == "sd_agent"
-                ):
+                if status_val == "scene_designing" and eff == "sd_agent":
                     try:
                         from app.services.scene_design import runner as sd_runner
 
                         only = sd_runner.get_only_agent(project)
-                        only_key = (
-                            sd_runner.resolve_sd_node_key(project, only)
-                            if only
-                            else None
-                        )
+                        only_key = sd_runner.resolve_sd_node_key(project, only) if only else None
                     except Exception:  # noqa: BLE001
                         only = None
                         only_key = None
@@ -1544,8 +1468,7 @@ async def _reconcile_stale_node_runs(
                         ):
                             fixed += 1
                             logger.info(
-                                "[#{}] NodeRun {}/{}: {} → pending "
-                                "(only_agent={}, {})",
+                                "[#{}] NodeRun {}/{}: {} → pending (only_agent={}, {})",
                                 run.project_id,
                                 nr.node_type,
                                 nr.node_key,
@@ -1559,8 +1482,7 @@ async def _reconcile_stale_node_runs(
                     and running_type == eff
                     and (
                         str(status_val).startswith("generating_")
-                        or status_val
-                        in ("scene_designing", "scene_assembling")
+                        or status_val in ("scene_designing", "scene_assembling")
                     )
                 ):
                     logger.info(

@@ -113,9 +113,7 @@ async def create_child_from_parent(
     overrides = kwargs.get("gpt_text_overrides")
     if isinstance(overrides, dict) and overrides:
         kwargs["gpt_text_overrides"] = {
-            code: refresh_topic_line_in_text(text, "")
-            if isinstance(text, str)
-            else text
+            code: refresh_topic_line_in_text(text, "") if isinstance(text, str) else text
             for code, text in overrides.items()
         }
 
@@ -152,9 +150,7 @@ async def count_children(session: AsyncSession, parent_id: int) -> int:
     parent_expr = cast(func.json_extract(Project.meta, "$.mass_parent_id"), Integer)
     return int(
         (
-            await session.execute(
-                select(func.count()).select_from(Project).where(parent_expr == parent_id)
-            )
+            await session.execute(select(func.count()).select_from(Project).where(parent_expr == parent_id))
         ).scalar_one()
         or 0
     )

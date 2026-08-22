@@ -57,9 +57,7 @@ async def _add(
     )
     session.add(p)
     await session.flush()
-    await set_gen_queue_run(
-        session, p, mode="until_node", target_node_type="script"
-    )
+    await set_gen_queue_run(session, p, mode="until_node", target_node_type="script")
     return p
 
 

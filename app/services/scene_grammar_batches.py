@@ -272,26 +272,12 @@ async def _gpt_apply_json(
                 "Предыдущий JSON обрезан (не закрыты скобки). "
                 "Верни ПОЛНЫЙ короткий JSON только на запрошенные сцены."
             ),
-            "json_unparseable": (
-                "Предыдущий JSON битый. Верни один валидный JSON-объект без markdown."
-            ),
-            "short_non_json": (
-                "Предыдущий ответ слишком короткий / без scenes. Не пиши отказ — верни JSON."
-            ),
-            "empty_arrays": (
-                "Предыдущий JSON с пустыми scenes/characters. Заполни scenes[]."
-            ),
+            "json_unparseable": ("Предыдущий JSON битый. Верни один валидный JSON-объект без markdown."),
+            "short_non_json": ("Предыдущий ответ слишком короткий / без scenes. Не пиши отказ — верни JSON."),
+            "empty_arrays": ("Предыдущий JSON с пустыми scenes/characters. Заполни scenes[]."),
         }.get(reason.split(":")[0], "Верни непустой JSON {characters, scenes, ops, report}.")
-        acc = (
-            f"{accompanying}\n\n"
-            f"# ПОВТОР (причина отказа: {reason})\n"
-            f"{hint}\n"
-            f"Детали: {err or reason}"
-        )
-    raise RuntimeError(
-        "scene_grammar batch: GPT не вернул scenes/characters "
-        f"({last_err})"
-    )
+        acc = f"{accompanying}\n\n# ПОВТОР (причина отказа: {reason})\n{hint}\nДетали: {err or reason}"
+    raise RuntimeError(f"scene_grammar batch: GPT не вернул scenes/characters ({last_err})")
 
 
 async def run_scene_grammar_batched(
@@ -319,8 +305,7 @@ async def run_scene_grammar_batched(
         scenes_so_far = list(merged_so_far.get("scenes") or [])
         still = _scenes_need_shots(scenes_so_far)
         logger.info(
-            "scene_grammar batch: node={} resume checkpoint parts={} "
-            "scenes={} still_need_shots={}",
+            "scene_grammar batch: node={} resume checkpoint parts={} scenes={} still_need_shots={}",
             node_key,
             len(parts),
             len(scenes_so_far),
@@ -376,9 +361,7 @@ async def run_scene_grammar_batched(
         )
 
         chunk = max(1, int(scenes_per_batch))
-        work: deque[list[dict[str, Any]]] = deque(
-            need[i : i + chunk] for i in range(0, len(need), chunk)
-        )
+        work: deque[list[dict[str, Any]]] = deque(need[i : i + chunk] for i in range(0, len(need), chunk))
         bi = 0
         while work:
             if project_id is not None:
@@ -435,16 +418,10 @@ async def run_scene_grammar_batched(
             }
             got_ids.discard("")
             asked = [s for s in batch if str(s.get("id_scene") or "").strip()]
-            missing_scenes = [
-                s
-                for s in asked
-                if str(s.get("id_scene") or "").strip() not in got_ids
-            ]
+            missing_scenes = [s for s in asked if str(s.get("id_scene") or "").strip() not in got_ids]
             delivered_n = len(asked) - len(missing_scenes)
             if missing_scenes and delivered_n > 0:
-                extras = plan_remainder_batches(
-                    missing_scenes, delivered=delivered_n
-                )
+                extras = plan_remainder_batches(missing_scenes, delivered=delivered_n)
                 new_size = inferred_batch_size(delivered_n)
                 tail: list[dict[str, Any]] = []
                 while work:
@@ -475,11 +452,7 @@ def _finalize_batched(
     reply_path = out_dir / "gpt_reply.txt"
     reply_path.write_text(reply_text + "\n", encoding="utf-8")
     meta_path = out_dir / "scene_grammar_batches.json"
-    n_shots = sum(
-        len(s.get("shots") or [])
-        for s in (merged.get("scenes") or [])
-        if isinstance(s, dict)
-    )
+    n_shots = sum(len(s.get("shots") or []) for s in (merged.get("scenes") or []) if isinstance(s, dict))
     meta_path.write_text(
         json.dumps(
             {

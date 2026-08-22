@@ -21,9 +21,7 @@ async def test_video_download_url_first_skips_card_cascade(
     video_url = "https://cdn.example.com/generated/clip.mp4?sig=1"
     called = {"card": 0, "context": 0}
 
-    async def _fake_context(
-        _page: object, _url: str, path: Path, **_kw: object
-    ) -> None:
+    async def _fake_context(_page: object, _url: str, path: Path, **_kw: object) -> None:
         called["context"] += 1
         path.write_bytes(_VALID_MP4)
 
@@ -32,12 +30,8 @@ async def test_video_download_url_first_skips_card_cascade(
         raise AssertionError("card cascade must not run when URL download succeeds")
 
     monkeypatch.setattr(os_mod, "_download_via_context", _fake_context)
-    monkeypatch.setattr(
-        os_mod, "_find_card_by_clicking_videos", _fake_find_videos
-    )
-    monkeypatch.setattr(
-        os_mod, "_wait_gallery_video_thumbs", AsyncMock(return_value=1)
-    )
+    monkeypatch.setattr(os_mod, "_find_card_by_clicking_videos", _fake_find_videos)
+    monkeypatch.setattr(os_mod, "_wait_gallery_video_thumbs", AsyncMock(return_value=1))
     monkeypatch.setattr(os_mod, "_update_download_progress", AsyncMock())
     monkeypatch.setattr(os_mod, "_log_download_stage", lambda **_kw: None)
 
@@ -60,15 +54,10 @@ async def test_image_download_url_first_skips_card_cascade(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     out_path = tmp_path / "frame.png"
-    img_url = (
-        "https://storage.yandexcloud.net/outseehistory/generated/"
-        "image_100_0_thumb.jpg?sig=1"
-    )
+    img_url = "https://storage.yandexcloud.net/outseehistory/generated/image_100_0_thumb.jpg?sig=1"
     called = {"card": 0, "candidates": 0}
 
-    async def _fake_candidates(
-        _page: object, _url: str, path: Path, **_kw: object
-    ) -> str:
+    async def _fake_candidates(_page: object, _url: str, path: Path, **_kw: object) -> str:
         called["candidates"] += 1
         path.write_bytes(_PNG_MAGIC + b"x" * 210_000)
         return "https://storage.yandexcloud.net/x/image_100_0.png"
@@ -77,12 +66,8 @@ async def test_image_download_url_first_skips_card_cascade(
         called["card"] += 1
         raise AssertionError("card cascade must not run when URL download succeeds")
 
-    monkeypatch.setattr(
-        os_mod, "_download_via_context_candidates", _fake_candidates
-    )
-    monkeypatch.setattr(
-        os_mod, "_find_card_by_clicking_images", _fake_find_images
-    )
+    monkeypatch.setattr(os_mod, "_download_via_context_candidates", _fake_candidates)
+    monkeypatch.setattr(os_mod, "_find_card_by_clicking_images", _fake_find_images)
     monkeypatch.setattr(
         os_mod,
         "verify_img_url_matches_prompt_id_in_gallery",

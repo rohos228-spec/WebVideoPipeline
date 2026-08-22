@@ -1,4 +1,5 @@
 """Resume #60 and start sd_act via Studio API."""
+
 from __future__ import annotations
 
 import json
@@ -58,8 +59,7 @@ def main() -> int:
 
     for meta in (
         ROOT / "data/videos/spesivcevy-chrono-dyn/scene_design/scene_design_meta.json",
-        ROOT
-        / "data/videos/spesivcevy/storage/n_storage_1786293092094/scene_design_meta.json",
+        ROOT / "data/videos/spesivcevy/storage/n_storage_1786293092094/scene_design_meta.json",
     ):
         if meta.is_file():
             m = json.loads(meta.read_text(encoding="utf-8"))

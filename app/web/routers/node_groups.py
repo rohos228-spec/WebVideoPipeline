@@ -64,9 +64,7 @@ async def patch_node_group(
     body: dict[str, Any] = Body(...),
 ) -> dict[str, Any]:
     """Переименовать / сменить описание / категорию пользовательской группы."""
-    patch = {
-        k: body.get(k) for k in ("title", "description", "category") if k in body
-    }
+    patch = {k: body.get(k) for k in ("title", "description", "category") if k in body}
     if not patch:
         raise HTTPException(status_code=400, detail="пустой patch")
     try:

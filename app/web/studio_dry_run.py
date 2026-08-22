@@ -20,9 +20,7 @@ async def validate_project_step_dry_run(
 ) -> dict[str, object]:
     """Те же проверки, что у start_step, без записи в БД."""
     if step_code in FORBIDDEN_DRY_RUN_STEPS:
-        raise ValueError(
-            f"dry_run недоступен для шага «{step_code}» (боты Outsee/ElevenLabs)"
-        )
+        raise ValueError(f"dry_run недоступен для шага «{step_code}» (боты Outsee/ElevenLabs)")
 
     step = step_by_code(step_code)
     if step is None:
@@ -40,13 +38,9 @@ async def validate_project_step_dry_run(
 
     warnings: list[str] = []
     try:
-        ok, reason, _fix = await can_enter_running(
-            session, project, step.running_status
-        )
+        ok, reason, _fix = await can_enter_running(session, project, step.running_status)
         if not ok:
-            warnings.append(
-                f"{reason} (статус проекта: {project.status.value})"
-            )
+            warnings.append(f"{reason} (статус проекта: {project.status.value})")
     except Exception as e:  # noqa: BLE001
         warnings.append(f"data-guard: {e}")
 

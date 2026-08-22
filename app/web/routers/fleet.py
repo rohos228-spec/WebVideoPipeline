@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import os
 import platform
 import subprocess
-from datetime import datetime, timezone
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, AsyncIterator
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -35,9 +35,9 @@ from app.fleet.montage_queue import (
     queue_position_for_project,
 )
 from app.fleet.self_node import is_local_fleet_node, self_node_name
-from app.services.node_step_params import send_to_main_pc_for_project
 from app.models import FleetNode, FleetNodeStatus, Project, ProjectStatus
 from app.project_root import find_project_root
+from app.services.node_step_params import send_to_main_pc_for_project
 from app.settings import settings
 from app.web.auth_sessions import AuthDep
 
@@ -198,7 +198,7 @@ async def register_heartbeat(body: FleetRegister, authorization: str | None = He
             node.role = body.role
             node.is_main = body.is_main
         node.status = FleetNodeStatus.online
-        node.last_seen = datetime.now(timezone.utc)
+        node.last_seen = datetime.now(UTC)
         await session.commit()
         await session.refresh(node)
         return _node_out(node)
@@ -213,7 +213,7 @@ async def sync_node(node_id: int, _user: AuthDep = None) -> dict:
 
             ver = read_studio_version()
             node.status = FleetNodeStatus.online
-            node.last_seen = datetime.now(timezone.utc)
+            node.last_seen = datetime.now(UTC)
             node.hostname = platform.node()
             node.pipeline_version = ver.get("label") or str(ver.get("version"))
             await session.commit()
@@ -229,7 +229,7 @@ async def sync_node(node_id: int, _user: AuthDep = None) -> dict:
         info = await ping_agent(node.base_url, node.token or settings.fleet_agent_token)
         if info:
             node.status = FleetNodeStatus.online
-            node.last_seen = datetime.now(timezone.utc)
+            node.last_seen = datetime.now(UTC)
             node.hostname = info.get("hostname")
             node.pipeline_version = info.get("studio_version")
         else:
@@ -265,9 +265,7 @@ async def node_files(node_id: int, path: str = ".", _user: AuthDep = None) -> di
         return await local_files(path=path)
     token = node.token or settings.fleet_agent_token
     try:
-        return await agent_get(
-            node.base_url, token, "/api/fleet/local/files", params={"path": path}
-        )
+        return await agent_get(node.base_url, token, "/api/fleet/local/files", params={"path": path})
     except FleetAgentError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
 
@@ -449,9 +447,7 @@ async def pull_project_to_main(
         raise HTTPException(status_code=502, detail="empty bundle from agent")
 
     async with session_scope() as session:
-        project = await bundle_svc.import_project_bundle(
-            session, bytes(blob), run_assemble=False
-        )
+        project = await bundle_svc.import_project_bundle(session, bytes(blob), run_assemble=False)
         meta = dict(project.meta or {})
         meta["fleet_source_node"] = node.name
         meta["fleet_source_project_id"] = project_id
@@ -569,7 +565,7 @@ async def _powershell_stream_events(body: PowerShellRun) -> AsyncIterator[str]:
     while not finished or not queue.empty():
         try:
             tag, text = await asyncio.wait_for(queue.get(), timeout=0.2)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if proc.returncode is not None and queue.empty():
                 break
             yield ": keepalive\n\n"
@@ -615,7 +611,7 @@ def _resolve_backend_log_path() -> Path:
 
 
 def _read_log_chunk(path: Path, pos: int) -> tuple[str, int]:
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+    with open(path, encoding="utf-8", errors="replace") as handle:
         handle.seek(pos)
         chunk = handle.read()
         return chunk, handle.tell()
@@ -709,7 +705,7 @@ async def _proxy_agent_log_stream(node: FleetNode) -> AsyncIterator[bytes]:
             if resp.status >= 400:
                 text = await resp.text()
                 payload = json.dumps({"type": "stderr", "text": text[:500]}, ensure_ascii=False)
-                yield f"data: {payload}\n\n".encode("utf-8")
+                yield f"data: {payload}\n\n".encode()
                 return
             async for chunk in resp.content.iter_any():
                 if chunk:
@@ -728,8 +724,8 @@ async def _proxy_agent_ps_stream(node: FleetNode, body: PowerShellRun) -> AsyncI
             if resp.status >= 400:
                 text = await resp.text()
                 payload = json.dumps({"type": "stderr", "text": text[:500]}, ensure_ascii=False)
-                yield f"data: {payload}\n\n".encode("utf-8")
-                yield f"data: {json.dumps({'type': 'exit', 'code': resp.status})}\n\n".encode("utf-8")
+                yield f"data: {payload}\n\n".encode()
+                yield f"data: {json.dumps({'type': 'exit', 'code': resp.status})}\n\n".encode()
                 return
             async for chunk in resp.content.iter_any():
                 if chunk:
@@ -767,19 +763,15 @@ async def local_info(_auth: AgentAuth = None) -> dict:
 async def local_pipeline(_auth: AgentAuth = None) -> dict:
     async with session_scope() as session:
         rows = (
-            await session.execute(
-                select(Project)
-                .order_by(Project.updated_at.desc())
-                .limit(50)
-            )
-        ).scalars().all()
+            (await session.execute(select(Project).order_by(Project.updated_at.desc()).limit(50)))
+            .scalars()
+            .all()
+        )
         projects = []
         for project in rows:
             meta = project.meta or {}
             montage_queued = bool(meta.get(META_ENQUEUED)) and project.status == ProjectStatus.music_ready
-            queue_pos = (
-                await queue_position_for_project(session, project) if montage_queued else None
-            )
+            queue_pos = await queue_position_for_project(session, project) if montage_queued else None
             projects.append(
                 {
                     "id": project.id,

@@ -9,9 +9,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
-
-from sqlalchemy import select
 
 from app.db import session_scope
 from app.models import Project
@@ -29,19 +26,12 @@ async def main(project_id: int, *, scan_only: bool) -> int:
         scenes = project.data_dir / "scenes"
         on_disk = len(list(scenes.glob("frame_*.png"))) if scenes.is_dir() else 0
         missing_before = await scan_missing_frames(session, project)
-        print(
-            f"#{project_id} «{project.topic}» slug={project.slug} "
-            f"status={project.status.value}"
-        )
+        print(f"#{project_id} «{project.topic}» slug={project.slug} status={project.status.value}")
         print(f"  scenes/: {on_disk} png, без файла (до): {len(missing_before)}")
 
         if scan_only:
             old_root = project.data_dir / "old" / "scenes"
-            batches = (
-                len([d for d in old_root.iterdir() if d.is_dir()])
-                if old_root.is_dir()
-                else 0
-            )
+            batches = len([d for d in old_root.iterdir() if d.is_dir()]) if old_root.is_dir() else 0
             print(f"  old/scenes бэкапов: {batches}")
             if not batches:
                 print(

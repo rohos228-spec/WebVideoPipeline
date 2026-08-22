@@ -13,17 +13,23 @@ from __future__ import annotations
 from app.settings import settings
 
 # После нормализации (_ → -) и алиасов.
-OUTSEE_IMAGE_IDS = frozenset({
-    "gpt-image-2-vip",
-    "nano-banana-2",
-    "nano-banana-2-lite",
-})
-OUTSEE_VIDEO_IDS = frozenset({
-    "veo-3-1-lite",
-})
-KIE_VIDEO_IDS = frozenset({
-    "kling-2-6",
-})
+OUTSEE_IMAGE_IDS = frozenset(
+    {
+        "gpt-image-2-vip",
+        "nano-banana-2",
+        "nano-banana-2-lite",
+    }
+)
+OUTSEE_VIDEO_IDS = frozenset(
+    {
+        "veo-3-1-lite",
+    }
+)
+KIE_VIDEO_IDS = frozenset(
+    {
+        "kling-2-6",
+    }
+)
 
 # Старый Slow и studio-id → канонический slug.
 _ALIASES = {

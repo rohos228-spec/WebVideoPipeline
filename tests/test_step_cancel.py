@@ -6,6 +6,7 @@
   * флаг идемпотентный (повторный request_stop не падает);
   * clear_all очищает все флаги.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,12 +25,12 @@ from app.services.step_cancel import (
     is_advance_active,
     is_stop_requested,
     raise_if_cancelled,
-    register_advance_task,
     register_active_page,
+    register_advance_task,
     request_stop,
     sleep_cancellable,
-    unregister_advance_task,
     unregister_active_page,
+    unregister_advance_task,
 )
 
 

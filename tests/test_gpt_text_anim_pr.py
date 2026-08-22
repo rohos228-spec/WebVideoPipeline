@@ -24,9 +24,7 @@ def test_anim_pr_initial_default_no_master_in_chat(monkeypatch) -> None:
         "app.services.gpt_text_builder.get_project_prompt",
         lambda _p, _c: "# MASTER\n\nRules.",
     )
-    text = gtb.build_anim_pr_initial_default(
-        project, frames, prompt_file_name="prompt_anim_pr_test.md"
-    )
+    text = gtb.build_anim_pr_initial_default(project, frames, prompt_file_name="prompt_anim_pr_test.md")
     assert "MASTER" not in text
     assert "prompt_anim_pr_test.md" in text
     assert "apply-ops" in text

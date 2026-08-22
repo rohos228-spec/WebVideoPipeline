@@ -66,9 +66,7 @@ def test_price_unknown_model_zero_and_warns_once():
 
 def test_price_served_model_priority():
     # запрошенная неизвестна, served известна → цена по served
-    assert ledger.price_for("unknown-req", "gpt-5.6-sol") == ledger.price_for(
-        "gpt-5.6-sol"
-    )
+    assert ledger.price_for("unknown-req", "gpt-5.6-sol") == ledger.price_for("gpt-5.6-sol")
 
 
 # ── compute_cost / unbilled ──────────────────────────────────────────────
@@ -98,9 +96,7 @@ def test_unbilled_only_when_no_token_fields():
     cost, pt, ct, tt, unbilled = ledger.compute_cost({}, model="gpt-5.6-sol")
     assert unbilled and cost == 0.0 and (pt, ct, tt) == (None, None, None)
     # Этап 3 [панель 1/3]: частичный usage — НЕ unbilled.
-    _, pt, ct, _, unbilled = ledger.compute_cost(
-        {"prompt_tokens": 10}, model="gpt-5.6-sol"
-    )
+    _, pt, ct, _, unbilled = ledger.compute_cost({"prompt_tokens": 10}, model="gpt-5.6-sol")
     assert not unbilled and pt == 10 and ct is None
 
 

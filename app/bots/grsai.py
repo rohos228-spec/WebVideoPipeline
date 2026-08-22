@@ -74,9 +74,7 @@ _GPT_ASPECTS = _BANANA_ASPECTS
 
 GRSAI_IMAGE_CATALOG: list[GrsaiModelInfo] = [
     GrsaiModelInfo("gpt-image-2", "GPT Image 2", True, "gpt-image", ("1K",), _GPT_ASPECTS),
-    GrsaiModelInfo(
-        "gpt-image-2-vip", "GPT Image 2 VIP", True, "gpt-image", ("1K", "2K", "4K"), _GPT_ASPECTS
-    ),
+    GrsaiModelInfo("gpt-image-2-vip", "GPT Image 2 VIP", True, "gpt-image", ("1K", "2K", "4K"), _GPT_ASPECTS),
     GrsaiModelInfo(
         "nano-banana-2", "Nano Banana 2", True, "nano-banana", ("1K", "2K", "4K"), _BANANA_ASPECTS
     ),
@@ -89,12 +87,14 @@ GRSAI_IMAGE_CATALOG: list[GrsaiModelInfo] = [
     GrsaiModelInfo(
         "nano-banana-fast", "Nano Banana Fast", True, "nano-banana", ("1K", "2K"), _BANANA_ASPECTS
     ),
+    GrsaiModelInfo("nano-banana", "Nano Banana", True, "nano-banana", ("1K", "2K"), _BANANA_ASPECTS),
     GrsaiModelInfo(
-        "nano-banana", "Nano Banana", True, "nano-banana", ("1K", "2K"), _BANANA_ASPECTS
-    ),
-    GrsaiModelInfo(
-        "nano-banana-pro-vt", "Nano Banana Pro VT", True, "nano-banana",
-        ("1K", "2K", "4K"), _BANANA_ASPECTS,
+        "nano-banana-pro-vt",
+        "Nano Banana Pro VT",
+        True,
+        "nano-banana",
+        ("1K", "2K", "4K"),
+        _BANANA_ASPECTS,
     ),
 ]
 
@@ -163,9 +163,7 @@ def grsai_key_configured() -> bool:
 
 def grsai_enabled() -> bool:
     """Image path: ключ + IMAGE_PROVIDER=grsai."""
-    return grsai_key_configured() and (
-        (settings.image_provider or "grsai").lower() == "grsai"
-    )
+    return grsai_key_configured() and ((settings.image_provider or "grsai").lower() == "grsai")
 
 
 def grsai_video_enabled() -> bool:
@@ -379,7 +377,11 @@ async def generate_image(
             context={"model": model, "error_kind": "moderation", "payload": payload},
         )
     if status != "succeeded":
-        err = payload.get("error") or (payload.get("data") or {}).get("error") if isinstance(payload.get("data"), dict) else None
+        err = (
+            payload.get("error") or (payload.get("data") or {}).get("error")
+            if isinstance(payload.get("data"), dict)
+            else None
+        )
         raise GrsaiError(
             f"grsai failed status={status}: {err or payload}",
             context={"model": model, "status": status},
@@ -581,7 +583,9 @@ async def generate_video(
     data = _unwrap_submit(payload if isinstance(payload, dict) else {})
     status = str(data.get("status") or "")
     task_id = str(data.get("id") or payload.get("id") or "")
-    if status in {"", "running", "pending"} or (task_id and status not in {"succeeded", "failed", "violation"}):
+    if status in {"", "running", "pending"} or (
+        task_id and status not in {"succeeded", "failed", "violation"}
+    ):
         if not task_id:
             # sometimes immediate result
             if status == "succeeded":

@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 # Версия формата. Менять ТОЛЬКО при несовместимой смене правил сборки —
 # все существующие чекпоинты станут mismatch (одноразовый прогрев кэша).
@@ -43,9 +44,7 @@ def normalize_text(text: str) -> str:
     """
     import unicodedata
 
-    return unicodedata.normalize(
-        "NFC", text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
-    )
+    return unicodedata.normalize("NFC", text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n"))
 
 
 def canonical_json(value: Any) -> str:
@@ -55,9 +54,7 @@ def canonical_json(value: Any) -> str:
     значимый: call-site обязан отсортировать коллекции без семантического
     порядка сам (кадры — по uuid), см. allowlist-правило спеки.
     """
-    return json.dumps(
-        value, sort_keys=True, ensure_ascii=True, separators=(",", ":")
-    )
+    return json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
 
 
 def _sha256(data: str) -> str:
@@ -84,9 +81,7 @@ def step_prompt_hash(project: Any, step_code: str, *, hints: Iterable[str] = (),
     """Удобная обёртка: промпт шага проекта → prompt_version_hash."""
     from app.services.gpt_text_builder import get_effective_text
 
-    return prompt_version_hash(
-        get_effective_text(project, step_code, **ctx), hints=hints
-    )
+    return prompt_version_hash(get_effective_text(project, step_code, **ctx), hints=hints)
 
 
 def contract_fingerprint(contract_name: str) -> str:

@@ -22,7 +22,6 @@ from app.services.xlsx_v8_import import (
     ROW_VOICEOVER_V8,
     SHEET_PLAN_V8,
     _normalize_sheet_name,
-    _resolve_plan_sheet,
 )
 
 ROW_PERSONS_PRIMARY = 8
@@ -113,17 +112,13 @@ async def _sync_persons_column(
     return code
 
 
-async def _reload_excel_hero_meta(
-    session: AsyncSession, project: Project, xlsx: Path
-) -> None:
+async def _reload_excel_hero_meta(session: AsyncSession, project: Project, xlsx: Path) -> None:
     from app.services.excel_characters import parse_persons_sheet
 
     try:
         chars = parse_persons_sheet(xlsx)
     except Exception as e:  # noqa: BLE001
-        logger.warning(
-            "[#{}] sheet_cell: excel_hero reload failed: {}", project.id, e
-        )
+        logger.warning("[#{}] sheet_cell: excel_hero reload failed: {}", project.id, e)
         return
     meta = dict(project.meta or {})
     if chars:
@@ -261,9 +256,7 @@ async def write_sheet_cell(
         await _reload_excel_hero_meta(session, project, path)
     elif sheet_norm == plan_norm or sheet_norm == "кадры":
         # Для плана имя в книге может отличаться регистром — уже нашли ws.
-        synced = await _sync_plan_cell(
-            session, project, row=row, col=col, value=text
-        )
+        synced = await _sync_plan_cell(session, project, row=row, col=col, value=text)
 
     await session.flush()
     logger.info(

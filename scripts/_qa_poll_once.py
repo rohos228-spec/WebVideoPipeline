@@ -4,7 +4,9 @@ import urllib.request
 from pathlib import Path
 
 p = json.load(urllib.request.urlopen("http://127.0.0.1:8765/api/projects/50", timeout=30))
-print("status", p["status"], "script", len(p.get("script_text") or ""), "plan", len(p.get("general_plan") or ""))
+print(
+    "status", p["status"], "script", len(p.get("script_text") or ""), "plan", len(p.get("general_plan") or "")
+)
 
 logs = sorted(Path("data").glob("backend*.log"), key=lambda x: x.stat().st_mtime)
 log = logs[-1]

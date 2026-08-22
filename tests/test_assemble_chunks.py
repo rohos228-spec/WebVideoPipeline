@@ -65,9 +65,7 @@ def test_filter_assembly_keeps_overlapping_scenes_and_shots():
             {"цитата": "Гамма три", "набор": "SET_08"},
         ],
     }
-    chunk = ac.filter_assembly_input_for_frames(
-        assembly, frames[:2], frames, vo, include_characters=True
-    )
+    chunk = ac.filter_assembly_input_for_frames(assembly, frames[:2], frames, vo, include_characters=True)
     assert len(chunk["characters"]) == 1
     assert len(chunk["scenes_chrono"]) == 1
     assert chunk["scenes_chrono"][0]["id_scene"] == "scene_01"
@@ -75,9 +73,7 @@ def test_filter_assembly_keeps_overlapping_scenes_and_shots():
     assert len(chunk["shot_plan_chrono"]) == 1
     assert chunk["shot_plan_chrono"][0]["набор"] == "SET_01"
 
-    chunk2 = ac.filter_assembly_input_for_frames(
-        assembly, frames[2:], frames, vo, include_characters=False
-    )
+    chunk2 = ac.filter_assembly_input_for_frames(assembly, frames[2:], frames, vo, include_characters=False)
     assert chunk2["characters"] == []
     assert len(chunk2["scenes_chrono"]) == 1
     assert chunk2["scenes_chrono"][0]["id_scene"] == "scene_02"

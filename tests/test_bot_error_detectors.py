@@ -13,9 +13,9 @@ from app.bots.elevenlabs import (
     elevenlabs_login_url,
 )
 from app.bots.outsee import (
+    _outsee_timeout_message,
     outsee_login_page_text,
     outsee_login_url,
-    _outsee_timeout_message,
 )
 
 

@@ -63,23 +63,27 @@ def analyze(events: list[dict]) -> dict:
             step_durations[base].append(detail["duration_s"])
 
         if "error_type" in detail or "error_msg" in detail:
-            errors.append({
-                "ts": ev.get("ts"),
-                "event": event_type,
-                "project_id": pid,
-                "error_type": detail.get("error_type", ""),
-                "error_msg": detail.get("error_msg", "")[:200],
-                "screenshot": ev.get("screenshot"),
-            })
+            errors.append(
+                {
+                    "ts": ev.get("ts"),
+                    "event": event_type,
+                    "project_id": pid,
+                    "error_type": detail.get("error_type", ""),
+                    "error_msg": detail.get("error_msg", "")[:200],
+                    "screenshot": ev.get("screenshot"),
+                }
+            )
 
         if ev.get("screenshot"):
-            screenshots.append({
-                "ts": ev.get("ts"),
-                "file": ev.get("screenshot"),
-                "event": event_type,
-                "tab": detail.get("tab"),
-                "url": detail.get("url", "")[:100],
-            })
+            screenshots.append(
+                {
+                    "ts": ev.get("ts"),
+                    "file": ev.get("screenshot"),
+                    "event": event_type,
+                    "tab": detail.get("tab"),
+                    "url": detail.get("url", "")[:100],
+                }
+            )
 
     timing_summary = {}
     for step, durations in sorted(step_durations.items()):

@@ -60,8 +60,7 @@ def test_wrap_does_not_add_watercolor_over_clay() -> None:
     from app.services.img_pr_style import wrap_scene_with_style
 
     body = (
-        "Minimalist Claymation Plasticine 2D-Look Miniature Illustration. "
-        "A clay person sews in a workshop."
+        "Minimalist Claymation Plasticine 2D-Look Miniature Illustration. A clay person sews in a workshop."
     )
     wrapped = wrap_scene_with_style(body)
     assert wrapped == body
@@ -124,12 +123,8 @@ def test_batch_attach_includes_master_on_every_batch(tmp_path: Path) -> None:
     vo = tmp_path / "voiceover.txt"
     vo.write_text("vo", encoding="utf-8")
 
-    first = ipb.batch_attach_files(
-        batch_i=1, prompt_file=master, db_path=db1, voiceover=vo
-    )
-    later = ipb.batch_attach_files(
-        batch_i=2, prompt_file=master, db_path=db2, voiceover=vo
-    )
+    first = ipb.batch_attach_files(batch_i=1, prompt_file=master, db_path=db1, voiceover=vo)
+    later = ipb.batch_attach_files(batch_i=2, prompt_file=master, db_path=db2, voiceover=vo)
     assert first == [master, db1, vo]
     assert later == [master, db2]
     assert master in later
@@ -141,9 +136,7 @@ def test_is_empty_ops_reply_detects_stub() -> None:
     assert ipb.is_empty_ops_reply('  {"ops":[]}\n')
     assert not ipb.is_empty_ops_reply("")
     assert not ipb.is_empty_ops_reply("hello")
-    assert not ipb.is_empty_ops_reply(
-        '{"ops":[{"frame_uuid":"a","fields":{"промт_картинки":"x"}}]}'
-    )
+    assert not ipb.is_empty_ops_reply('{"ops":[{"frame_uuid":"a","fields":{"промт_картинки":"x"}}]}')
 
 
 def test_batch_footer_forbids_empty_ops() -> None:

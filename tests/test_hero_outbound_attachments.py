@@ -69,9 +69,7 @@ async def test_hero_outbound_attachments_exclude_output_pngs(session, tmp_path) 
     assert "project.xlsx" in names
     assert "c01.png" not in names
 
-    verdict = await attachments_for_step(
-        session, p, "hero", include_result_artifacts=True
-    )
+    verdict = await attachments_for_step(session, p, "hero", include_result_artifacts=True)
     vnames = [f.name for f in verdict]
     assert "c01.png" in vnames
 
@@ -137,9 +135,7 @@ async def test_wipe_hero_resets_hitl_approvals(session, tmp_path) -> None:
     details = await _wipe_hero(session, p)
     await session.flush()
     assert details.get("hitl_hero_reset", 0) >= 1
-    row = (
-        await session.execute(select(HITLRequest).where(HITLRequest.project_id == p.id))
-    ).scalars().first()
+    row = (await session.execute(select(HITLRequest).where(HITLRequest.project_id == p.id))).scalars().first()
     assert row is not None
     assert row.decision is HITLDecision.pending
 

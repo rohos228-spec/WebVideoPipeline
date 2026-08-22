@@ -40,9 +40,7 @@ def _gpt_codes(exc: BaseException) -> tuple[str, int]:
     if not isinstance(exc, GptApiError):
         return "", 0
     kind = str(exc.context.get("error_kind") or "")
-    code = int(
-        exc.context.get("provider_code") or exc.context.get("status_code") or 0
-    )
+    code = int(exc.context.get("provider_code") or exc.context.get("status_code") or 0)
     return kind, code
 
 
@@ -65,10 +63,7 @@ def is_transient_server_failure(exc: BaseException) -> bool:
     if code in (500, 502, 503):
         return True
     msg = str(exc).lower()
-    return any(
-        x in msg
-        for x in ("http 500", "http 502", "http 503", "server exception")
-    )
+    return any(x in msg for x in ("http 500", "http 502", "http 503", "server exception"))
 
 
 def is_capacity_failure(exc: BaseException) -> bool:
@@ -178,9 +173,7 @@ def merge_agent_slices(agent: str, parts: list[dict[str, Any]]) -> dict[str, Any
         if isinstance(items, list):
             merged.extend(items)
     if not merged:
-        raise ag.SceneDesignAgentError(
-            f"scene_design/{agent}: после склейки чанков пустой «{list_key}»"
-        )
+        raise ag.SceneDesignAgentError(f"scene_design/{agent}: после склейки чанков пустой «{list_key}»")
     if agent == "action":
         merged = ag.repair_chrono_dyn_year_jumps(merged)
         merged = ag.normalize_chrono_dyn_phase_budget(merged)

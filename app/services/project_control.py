@@ -9,14 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models import Project, ProjectStatus
+from app.services.gen_queue_run import is_user_stopped
 from app.services.mass_factory import (
     is_mass_factory_parent,
     list_mass_children,
     mass_parent_id,
 )
 from app.services.project_state import is_running_status
-from app.services.gen_queue_run import is_user_stopped
-from app.services.step_cancel import clear_stop, is_generation_active, is_stop_requested, request_stop
+from app.services.step_cancel import clear_stop, is_generation_active, request_stop
 from app.services.xlsx_flow_locks import clear_xlsx_flow_locks
 from app.telegram.menu import step_by_running_status
 
@@ -234,11 +234,7 @@ async def stop_project_running(
         cur = project.status
         rollback_from = cur.value
         step = step_by_running_status(cur)
-        rollback_to = (
-            step.requires
-            if step is not None and step.requires is not None
-            else ProjectStatus.new
-        )
+        rollback_to = step.requires if step is not None and step.requires is not None else ProjectStatus.new
         # excel_gpt до split: enriching_2 → enrich_1_ready ложный (слот 1
         # мог не существовать) → recompute откатывает в script_ready и
         # auto_advance снова жмёт ту же ноду. Откат только на реально
@@ -295,9 +291,7 @@ async def stop_project_running(
     else:
         ok = True
         stopped_kind = "gate"
-        msg = (
-            f"автопродвижение остановлено (статус: {project.status.value})"
-        )
+        msg = f"автопродвижение остановлено (статус: {project.status.value})"
         await stop_active_running_node(session, project)
         # Иначе stop-файл блокирует Outsee при «Применить правки» (abort_if_cancelled).
         clear_stop(project.id)
@@ -379,17 +373,13 @@ async def rollback_running_for_queue(
     """Откат running-шага для gen_queue (request_stop + FSM нод, без user_stop)."""
     if not is_running_status(project.status):
         return False
-    from app.services.step_cancel import request_stop
     from app.services.run_sync import stop_active_running_node
+    from app.services.step_cancel import request_stop
 
     request_stop(project.id)
     await stop_active_running_node(session, project)
     step = step_by_running_status(project.status)
-    rollback = (
-        step.requires
-        if step is not None and step.requires is not None
-        else ProjectStatus.new
-    )
+    rollback = step.requires if step is not None and step.requires is not None else ProjectStatus.new
     cur = project.status.value
     project.status = rollback
     project.updated_at = datetime.utcnow()

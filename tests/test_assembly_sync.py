@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from app.services.assembly import subtitle_layout, subtitles_vf_arg
 import inspect
 
 from app.services import assembly as asm
+from app.services.assembly import subtitle_layout, subtitles_vf_arg
 from app.services.mapper import (
     FrameTiming,
     build_frame_word_spans_per_frame,
@@ -57,9 +57,8 @@ def test_enforce_monotonic_no_min_duration_crumb_cascade() -> None:
     assert out[1].start_ts == 99.0
     # Не каскад сдвига: 100.00, 100.05, 100.10, …
     assert out[2].start_ts == 99.0
-    assert not any(
-        t.start_ts >= 100.0 - 1e-9 and abs(t.duration - 0.05) < 1e-9 for t in out
-    )
+    assert not any(t.start_ts >= 100.0 - 1e-9 and abs(t.duration - 0.05) < 1e-9 for t in out)
+
 
 def test_map_frames_redistributes_when_whisper_runs_out() -> None:
     cells = [(i, f"слово{i}") for i in range(1, 7)]
@@ -96,7 +95,11 @@ def test_one_word_per_cue_uses_next_word_start_as_end() -> None:
     ]
     timings = [FrameTiming(1, 0.0, 1.0, 1.0)]
     cues = build_subtitle_cues_from_cells(
-        cells, words, timings, max_words=1, lead_seconds=0.0,
+        cells,
+        words,
+        timings,
+        max_words=1,
+        lead_seconds=0.0,
     )
     assert len(cues) == 2
     assert cues[0][2] == "Привет"
@@ -117,7 +120,11 @@ def test_two_words_per_cue_two_lines() -> None:
     ]
     timings = [FrameTiming(1, 0.0, 1.5, 1.5)]
     cues = build_subtitle_cues_from_cells(
-        cells, words, timings, max_words=2, lead_seconds=0.0,
+        cells,
+        words,
+        timings,
+        max_words=2,
+        lead_seconds=0.0,
     )
     assert len(cues) == 2
     assert cues[0][2] == "раз\nдва"
@@ -144,7 +151,11 @@ def test_one_word_lead_shows_earlier() -> None:
     ]
     timings = [FrameTiming(1, 0.0, 1.0, 1.0)]
     cues = build_subtitle_cues_from_cells(
-        cells, words, timings, max_words=1, lead_seconds=0.30,
+        cells,
+        words,
+        timings,
+        max_words=1,
+        lead_seconds=0.30,
     )
     assert len(cues) == 2
     assert cues[0][0] <= 0.05
@@ -327,7 +338,11 @@ def test_char_count_sets_minimum_duration() -> None:
     words = [WordTS("шум", 0.0, 0.2, 1.0)]
     timings = [FrameTiming(1, 0.0, 5.0, 5.0)]
     cues = build_subtitle_cues_from_cells(
-        cells, words, timings, lead_seconds=0.0, chars_per_second=14.0,
+        cells,
+        words,
+        timings,
+        lead_seconds=0.0,
+        chars_per_second=14.0,
     )
     assert len(cues) == 1
     assert cues[0][1] - cues[0][0] >= 1.0
@@ -338,7 +353,11 @@ def test_char_weighted_split_longer_word_gets_more_time() -> None:
     words = [WordTS("шум", 5.0, 5.5, 1.0)]
     timings = [FrameTiming(1, 0.0, 4.0, 4.0)]
     cues = build_subtitle_cues_from_cells(
-        cells, words, timings, lead_seconds=0.0, chars_per_second=14.0,
+        cells,
+        words,
+        timings,
+        lead_seconds=0.0,
+        chars_per_second=14.0,
     )
     assert len(cues) == 2
     short_dur = cues[0][1] - cues[0][0]

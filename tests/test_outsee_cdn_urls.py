@@ -24,8 +24,7 @@ def test_thumb_yields_both_cdn_hosts() -> None:
 def test_frame8_style_thumb_not_double_zero() -> None:
     """Регрессия: …_0_thumb.jpg не должен стать …_0_0.png."""
     thumb = (
-        "https://storage.yandexcloud.net/outseehistory/generated/3787/135831/"
-        "image_1780279147074_0_thumb.jpg"
+        "https://storage.yandexcloud.net/outseehistory/generated/3787/135831/image_1780279147074_0_thumb.jpg"
     )
     candidates = _all_full_png_url_candidates(thumb)
     assert len(candidates) >= 2
@@ -34,14 +33,8 @@ def test_frame8_style_thumb_not_double_zero() -> None:
 
 
 def test_resolve_prefers_full_png_over_thumb() -> None:
-    thumb = (
-        "https://storage.yandexcloud.net/outseehistory/generated/1/2/"
-        "image_100_0_thumb.jpg"
-    )
-    full = (
-        "https://outseehistory.storage.yandexcloud.net/generated/1/2/"
-        "image_100_0.png"
-    )
+    thumb = "https://storage.yandexcloud.net/outseehistory/generated/1/2/image_100_0_thumb.jpg"
+    full = "https://outseehistory.storage.yandexcloud.net/generated/1/2/image_100_0.png"
     best = _resolve_best_download_url(thumb, extra_urls=[full])
     assert best == full
     assert "image_100_0.png" in best

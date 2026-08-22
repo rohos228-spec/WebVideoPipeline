@@ -8,15 +8,12 @@ from sqlalchemy import func, select
 from app.db import session_scope
 from app.models import Project
 from app.seed_pilot import DEFAULT_HERO_MODE, DEFAULT_TOPIC, seed
-from app.settings import settings
 
 
 async def ensure_default_project() -> int | None:
     """Создать пилотный проект, если в БД ещё нет ни одного."""
     async with session_scope() as s:
-        count = (
-            await s.execute(select(func.count()).select_from(Project))
-        ).scalar_one()
+        count = (await s.execute(select(func.count()).select_from(Project))).scalar_one()
         if count and int(count) > 0:
             return None
 

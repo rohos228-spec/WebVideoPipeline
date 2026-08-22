@@ -159,11 +159,7 @@ async def grsai_generate(body: GrsaiGenerateBody) -> dict[str, Any]:
     quote: dict[str, Any] | None = None
 
     if media == "video":
-        model = (
-            body.model
-            or getattr(settings, "grsai_default_video_model", None)
-            or "sora-2"
-        ).strip()
+        model = (body.model or getattr(settings, "grsai_default_video_model", None) or "sora-2").strip()
         quote = quote_generation(
             media="video",
             model=model,

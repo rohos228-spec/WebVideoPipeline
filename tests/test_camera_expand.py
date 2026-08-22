@@ -27,28 +27,11 @@ def test_parse_ladder():
 
 def test_required_shots_uses_ladder_and_set():
     set_counts = {"SET_01": (3, 4)}
-    assert (
-        required_shots_for_beat(
-            {"крупность": "VLS→CU", "набор": "SET_01"}, set_counts
-        )
-        == 3
-    )
-    assert (
-        required_shots_for_beat({"крупность": "MS", "набор": None}, set_counts) == 1
-    )
+    assert required_shots_for_beat({"крупность": "VLS→CU", "набор": "SET_01"}, set_counts) == 3
+    assert required_shots_for_beat({"крупность": "MS", "набор": None}, set_counts) == 1
     # Длинный VO без лестницы — всё равно минимум шотов.
-    assert (
-        required_shots_for_beat(
-            {"крупность": "MS", "набор": None}, set_counts, duration_sec=5.0
-        )
-        == 2
-    )
-    assert (
-        required_shots_for_beat(
-            {"крупность": "MS", "набор": None}, set_counts, duration_sec=9.0
-        )
-        == 3
-    )
+    assert required_shots_for_beat({"крупность": "MS", "набор": None}, set_counts, duration_sec=5.0) == 2
+    assert required_shots_for_beat({"крупность": "MS", "набор": None}, set_counts, duration_sec=9.0) == 3
 
 
 def test_clamp_shots_to_duration():

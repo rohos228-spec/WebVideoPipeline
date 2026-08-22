@@ -42,9 +42,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     meta = project.meta or {}
     already: dict[str, str] = meta.get(_META_KEY, {})
     skip_platforms = set(already.keys())
-    logger.info(
-        "[#{}] publishing {} (skip={})", project.id, final.path, sorted(skip_platforms) or "—"
-    )
+    logger.info("[#{}] publishing {} (skip={})", project.id, final.path, sorted(skip_platforms) or "—")
 
     results = await publish_everywhere(Path(final.path), caption, skip_platforms=skip_platforms)
 
@@ -77,6 +75,10 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         # Остаёмся в assembled — воркер повторит позже, но будет пропускать уже опубликованные.
         logger.warning(
             "[#{}] {}/{} платформ опубликовано ({} ok в этот раз, {} fail), останемся в assembled",
-            project.id, published_count, total_platforms, len(ok), len(fails),
+            project.id,
+            published_count,
+            total_platforms,
+            len(ok),
+            len(fails),
         )
     await session.flush()

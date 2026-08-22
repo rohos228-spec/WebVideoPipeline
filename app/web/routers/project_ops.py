@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import shutil
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
@@ -12,19 +11,19 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Artifact, ArtifactKind, Project, ProjectStatus
+from app.models import Artifact, ArtifactKind, Project
+from app.services.chatgpt_xlsx import sync_project_xlsx
 from app.services.event_bus import publish_project_event
 from app.services.project_control import pause_project as pause_project_svc
 from app.services.project_control import resume_project as resume_project_svc
 from app.services.project_control import stop_project_running
 from app.services.reset_step import reset_step
 from app.services.run_sync import (
+    _get_default_workflow_id,
     ensure_run_for_project,
     reset_nodes_from_step,
     sync_run_for_project,
-    _get_default_workflow_id,
 )
-from app.services.chatgpt_xlsx import sync_project_xlsx
 from app.settings import settings
 from app.storage import ProjectSheet
 from app.web.deps import get_session
@@ -41,9 +40,7 @@ def _project_or_404(project: Project | None) -> Project:
 
 
 @router.post("/{project_id}/pause", response_model=ProjectDetail)
-async def pause_project(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> Project:
+async def pause_project(project_id: int, session: AsyncSession = Depends(get_session)) -> Project:
     p = _project_or_404(await session.get(Project, project_id))
     await pause_project_svc(session, p)
     await session.commit()
@@ -54,9 +51,7 @@ async def pause_project(
 
 
 @router.post("/{project_id}/resume", response_model=ProjectDetail)
-async def resume_project(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> Project:
+async def resume_project(project_id: int, session: AsyncSession = Depends(get_session)) -> Project:
     p = _project_or_404(await session.get(Project, project_id))
     await resume_project_svc(session, p)
     await session.commit()
@@ -66,9 +61,7 @@ async def resume_project(
 
 
 @router.post("/{project_id}/continue")
-async def continue_project(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def continue_project(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     """Снять stop/паузу и продвинуть проект на следующий шаг (если *_ready)."""
     from app.orchestrator.auto_advance import continue_project_pipeline
 
@@ -85,9 +78,7 @@ async def continue_project(
 
 
 @router.post("/{project_id}/stop")
-async def stop_project(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def stop_project(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     # Сразу cancel advance/GPT — до любого ожидания SQLite (первый клик ⏹).
     from app.services.step_cancel import request_stop
 
@@ -113,9 +104,7 @@ async def stop_project(
 
 
 @router.post("/{project_id}/finish/images")
-async def finish_missing_images(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def finish_missing_images(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     """Доделка картинок: frame_NNN_*.png без файла → generating_images."""
     from app.services.finish_missing import trigger_finish_missing_images
 
@@ -133,9 +122,7 @@ async def finish_missing_images(
 
 
 @router.post("/{project_id}/finish/animation-prompts")
-async def resume_animation_prompts(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def resume_animation_prompts(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     """Догонка промтов анимации: plan R48 → БД → generating_animation_prompts."""
     from app.services.finish_missing import trigger_resume_animation_prompts
 
@@ -153,9 +140,7 @@ async def resume_animation_prompts(
 
 
 @router.post("/{project_id}/finish/videos")
-async def finish_missing_videos(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def finish_missing_videos(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     """Доделка видео: clip_NNN_*.mp4 без файла → generating_videos."""
     from app.services.finish_missing import trigger_finish_missing_videos
 
@@ -181,8 +166,8 @@ async def parse_mass_topics_xlsx(
     """Парсит любой xlsx (построчно темы) и сохраняет очередь на родителе (правило B)."""
     import tempfile
 
-    from app.storage.mass_topics import parse_topics_xlsx
     from app.services.mass_factory import apply_topics_upload
+    from app.storage.mass_topics import parse_topics_xlsx
 
     parent = _project_or_404(await session.get(Project, project_id))
     suffix = Path(file.filename or "topics.xlsx").suffix or ".xlsx"
@@ -321,9 +306,7 @@ async def reset_project_step(
 
 
 @router.get("/{project_id}/excel-hero")
-async def get_excel_hero(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def get_excel_hero(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     """Текущее состояние excel-hero в project.meta (если есть)."""
     p = _project_or_404(await session.get(Project, project_id))
     meta = dict(p.meta or {})
@@ -333,9 +316,7 @@ async def get_excel_hero(
 
 
 @router.post("/{project_id}/excel-hero/load")
-async def load_excel_hero(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict:
+async def load_excel_hero(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
     """Загрузить персонажей в meta['excel_hero']: Entity (SoT) → fallback Excel.
 
     После этого шаг hero пойдёт по excel-ветке (`_run_excel`), беря данные
@@ -360,7 +341,9 @@ async def load_excel_hero(
                 )
                 .order_by(Entity.sort_key, Entity.id)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     chars = characters_from_entities(ents)
     source = "entity"
@@ -369,10 +352,7 @@ async def load_excel_hero(
         if not xlsx.exists():
             raise HTTPException(
                 status_code=404,
-                detail=(
-                    "в Базе нет персонажей (Entity) и нет project.xlsx "
-                    f"по пути {xlsx}"
-                ),
+                detail=(f"в Базе нет персонажей (Entity) и нет project.xlsx по пути {xlsx}"),
             )
         try:
             chars = parse_persons_sheet(xlsx)
@@ -409,9 +389,7 @@ async def load_excel_hero(
 
 
 @router.delete("/{project_id}/excel-hero", status_code=204)
-async def clear_excel_hero(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> None:
+async def clear_excel_hero(project_id: int, session: AsyncSession = Depends(get_session)) -> None:
     """Убрать excel_hero — hero пойдёт по обычной ветке (hero_descriptions)."""
     p = _project_or_404(await session.get(Project, project_id))
     meta = dict(p.meta or {})
@@ -420,9 +398,7 @@ async def clear_excel_hero(
         p.meta = meta
         p.updated_at = datetime.utcnow()
         await session.commit()
-        await publish_project_event(
-            project_id, event_type="project_updated", payload={"excel_hero": 0}
-        )
+        await publish_project_event(project_id, event_type="project_updated", payload={"excel_hero": 0})
 
 
 @router.get("/{project_id}/xlsx")
@@ -454,9 +430,7 @@ async def download_xlsx(
 
 
 @router.post("/{project_id}/xlsx/reload", response_model=ProjectDetail)
-async def reload_xlsx(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> Project:
+async def reload_xlsx(project_id: int, session: AsyncSession = Depends(get_session)) -> Project:
     p = _project_or_404(await session.get(Project, project_id))
     xlsx = p.data_dir / "project.xlsx"
     if not xlsx.exists():
@@ -589,9 +563,7 @@ async def preview_xlsx(
 
     if row is not None and active:
         ws = wb[active]
-        row_iter = ws.iter_rows(
-            min_row=row, max_row=row, max_col=max_cols, values_only=True
-        )
+        row_iter = ws.iter_rows(min_row=row, max_row=row, max_col=max_cols, values_only=True)
         row_vals = next(row_iter, None)
         cells = [_cell_str(c) for c in row_vals] if row_vals is not None else []
         while cells and not cells[-1].strip():
@@ -660,9 +632,7 @@ async def preview_xlsx(
                 break
 
         last_loaded = start_row + len(rows) - 1 if rows else start_row - 1
-        if hit_row_cap:
-            truncated_rows = True
-        elif dim_row > 0 and last_loaded < dim_row:
+        if hit_row_cap or dim_row > 0 and last_loaded < dim_row:
             truncated_rows = True
 
         rows = _trim_trailing_empty_rows(rows)
@@ -824,7 +794,7 @@ async def montage_board_apply(
             }
         # Сразу пишем running в meta — иначе первый poll UI видит старый
         # done/error и мгновенно показывает «Генерация завершена».
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from app.services.montage_board_meta import montage_meta, set_montage_meta
 
@@ -832,7 +802,7 @@ async def montage_board_apply(
         board["apply_job"] = {
             "status": "running",
             "error": None,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
             "finished_at": None,
             "total_ops": len(ops),
             "done_ops": 0,
@@ -884,7 +854,6 @@ async def montage_board_montage(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Кнопка «Монтаж» — remount-video в фоне (озвучка + FFmpeg)."""
-    import asyncio
 
     from app.services.montage_board_montage_job import get_montage_job, spawn_montage_job
 
@@ -920,7 +889,7 @@ async def montage_board_recover_outsee(
 ) -> dict:
     """Запускает фоновый скан Outsee → сохранение/замена кадров (кнопка не зависает)."""
     p = _project_or_404(await session.get(Project, project_id))
-    from app.services.montage_board_meta import public_board_meta, montage_meta
+    from app.services.montage_board_meta import montage_meta, public_board_meta
     from app.services.montage_outsee_recover_job import (
         get_recover_job,
         spawn_recover_job,
@@ -941,9 +910,7 @@ async def montage_board_recover_outsee(
     if outsee_lane_busy():
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Outsee занят Generate/apply — дождитесь окончания и нажмите снова"
-            ),
+            detail=("Outsee занят Generate/apply — дождитесь окончания и нажмите снова"),
         )
     clear_stop(project_id)
     spawn_recover_job(project_id)
@@ -979,7 +946,10 @@ async def montage_board_swap_shots(
 
     p = _project_or_404(await session.get(Project, project_id))
     result = await swap_shot_media(
-        session, p, frame_number, kind=kind  # type: ignore[arg-type]
+        session,
+        p,
+        frame_number,
+        kind=kind,  # type: ignore[arg-type]
     )
     await session.commit()
     if not result.get("ok"):
@@ -1102,9 +1072,7 @@ async def montage_board_upload_image(
     if not content:
         raise HTTPException(status_code=400, detail="пустой файл")
     suffix = Path(file.filename or "upload.png").suffix or ".png"
-    path = await save_scene_image_upload(
-        session, p, frame_number, shot=shot, content=content, suffix=suffix
-    )
+    path = await save_scene_image_upload(session, p, frame_number, shot=shot, content=content, suffix=suffix)
     board = montage_meta(p)
     mark_stale_videos(board, frame_number, shot=shot)
     set_montage_meta(p, board)
@@ -1134,9 +1102,7 @@ async def montage_board_upload_video(
     if not content:
         raise HTTPException(status_code=400, detail="пустой файл")
     suffix = Path(file.filename or "upload.mp4").suffix or ".mp4"
-    path = await save_scene_video_upload(
-        session, p, frame_number, shot=shot, content=content, suffix=suffix
-    )
+    path = await save_scene_video_upload(session, p, frame_number, shot=shot, content=content, suffix=suffix)
     board = montage_meta(p)
     clear_stale_video(board, frame_number, shot)
     set_montage_meta(p, board)
@@ -1221,8 +1187,8 @@ async def list_project_assets(
         from sqlalchemy import select
 
         arts = (
-            await session.execute(select(Artifact).where(Artifact.project_id == project_id))
-        ).scalars().all()
+            (await session.execute(select(Artifact).where(Artifact.project_id == project_id))).scalars().all()
+        )
         kind_map = {
             "hero": {ArtifactKind.hero_reference},
             "items": {ArtifactKind.item_reference},
@@ -1296,7 +1262,16 @@ async def list_project_assets(
                 for fp in sorted(d.rglob("*")):
                     if not fp.is_file():
                         continue
-                    if fp.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".mp4", ".webm", ".wav", ".mp3"}:
+                    if fp.suffix.lower() not in {
+                        ".png",
+                        ".jpg",
+                        ".jpeg",
+                        ".webp",
+                        ".mp4",
+                        ".webm",
+                        ".wav",
+                        ".mp3",
+                    }:
                         continue
                     rel = _rel_path(str(fp))
                     out.append(
@@ -1565,9 +1540,7 @@ async def upload_excel_gpt_file(
     # Иначе «загрузил промт» лежит во вложениях, а отчёт всё ещё по старому builtin.
     if bool(cfg_before.get("checkMode")) and ext in {".txt", ".md"}:
         try:
-            result = save_check_agent_file(
-                p, node_key, original_name=safe_name, content=content
-            )
+            result = save_check_agent_file(p, node_key, original_name=safe_name, content=content)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         flag_modified(p, "meta")
@@ -1581,8 +1554,7 @@ async def upload_excel_gpt_file(
             "isImage": False,
             "preview_url": None,
             "uploadedFileNames": list(
-                (result.get("resolve") or {}).get("config", {}).get("uploadedFileNames")
-                or []
+                (result.get("resolve") or {}).get("config", {}).get("uploadedFileNames") or []
             ),
             "resolve": result.get("resolve"),
         }
@@ -1603,11 +1575,7 @@ async def upload_excel_gpt_file(
 
     is_image = ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
     is_xlsx = ext in {".xlsx", ".xlsm", ".xls"}
-    preview = (
-        f"/api/files?path={dest}"
-        if is_image or ext in {".mp4", ".webm", ".txt", ".md"}
-        else None
-    )
+    preview = f"/api/files?path={dest}" if is_image or ext in {".mp4", ".webm", ".txt", ".md"} else None
 
     if is_xlsx:
         from app.services.node_xlsx_snapshot import clear_bound_snapshot
@@ -1623,20 +1591,12 @@ async def upload_excel_gpt_file(
     if is_xlsx:
         # Подмена Excel: один актуальный файл; со стрелок больше не берём —
         # иначе в списке/GPT остаётся старый project.xlsx.
-        names = [
-            n
-            for n in prev_names
-            if Path(n).suffix.lower() not in {".xlsx", ".xlsm", ".xls"}
-        ]
+        names = [n for n in prev_names if Path(n).suffix.lower() not in {".xlsx", ".xlsm", ".xls"}]
         names.append(safe_name)
         cur["takeFromEdges"] = False
         # Удалить старые xlsx в папке uploads этой ноды (кроме нового).
         for old in list(dest_dir.iterdir()):
-            if (
-                old.is_file()
-                and old.suffix.lower() in {".xlsx", ".xlsm", ".xls"}
-                and old.name != safe_name
-            ):
+            if old.is_file() and old.suffix.lower() in {".xlsx", ".xlsm", ".xls"} and old.name != safe_name:
                 try:
                     old.unlink()
                 except OSError:
@@ -1686,9 +1646,7 @@ async def upload_check_agent_file(
         raise HTTPException(status_code=400, detail="need filename")
     content = await file.read()
     try:
-        result = save_check_agent_file(
-            p, node_key, original_name=file.filename, content=content
-        )
+        result = save_check_agent_file(p, node_key, original_name=file.filename, content=content)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     flag_modified(p, "meta")
@@ -1790,9 +1748,7 @@ async def get_check_prompt_preview(
         sources = collect_source_prompts(p, node_key)
         ok_sources = [s for s in sources if s.get("ok")]
         if not ok_sources:
-            raise HTTPException(
-                status_code=404, detail="нет исходного промта для проверки"
-            )
+            raise HTTPException(status_code=404, detail="нет исходного промта для проверки")
         master = assemble_check_master_prompt(
             ok_sources,
             check_fix=check_fix,
@@ -2113,9 +2069,7 @@ async def restore_all_parents_voiceover(
     """Восстановить исходный voiceover у всех родительских проектов."""
     from app.services.voiceover_recovery import restore_all_parent_voiceovers
 
-    summary = await restore_all_parent_voiceovers(
-        session, dry_run=dry_run, force=force
-    )
+    summary = await restore_all_parent_voiceovers(session, dry_run=dry_run, force=force)
     if summary.get("restored"):
         for row in summary.get("results", []):
             if row.get("restored"):
@@ -2135,10 +2089,8 @@ async def restore_project_voiceover(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Восстановить исходный voiceover одного проекта."""
-    from app.services.voiceover_recovery import restore_original_voiceover
-
     from app.services.mass_factory import mass_parent_id
-    from app.services.voiceover_recovery import is_parent_project
+    from app.services.voiceover_recovery import is_parent_project, restore_original_voiceover
 
     p = _project_or_404(await session.get(Project, project_id))
     if not is_parent_project(p):
@@ -2150,9 +2102,7 @@ async def restore_project_voiceover(
                 "hint": "восстановление только для родительских проектов",
             },
         )
-    result = await restore_original_voiceover(
-        session, p, dry_run=dry_run, force=force
-    )
+    result = await restore_original_voiceover(session, p, dry_run=dry_run, force=force)
     if result.get("restored"):
         await session.commit()
         await publish_project_event(
@@ -2169,9 +2119,7 @@ async def preview_original_voiceover(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Показать, откуда будет взят исходный voiceover (без записи)."""
-    from app.services.voiceover_recovery import find_original_voiceover
-
-    from app.services.voiceover_recovery import is_parent_project
+    from app.services.voiceover_recovery import find_original_voiceover, is_parent_project
 
     p = _project_or_404(await session.get(Project, project_id))
     if not is_parent_project(p):
@@ -2239,5 +2187,3 @@ async def harness_verify(
     out = report.to_dict()
     out["forbidden_steps"] = sorted(HARNESS_FORBIDDEN_STEPS)
     return out
-
-

@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from app.bots.outsee import (
-    OutseePromptTooLongError,
     _OUTSEE_LENGTH_MARKERS,
     _OUTSEE_MODERATION_MARKERS,
+    OutseePromptTooLongError,
     _outsee_failure_kind,
     _quality_selectors,
     _raise_outsee_failure,

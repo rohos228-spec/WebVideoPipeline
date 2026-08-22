@@ -55,11 +55,13 @@ def _fanout_nodes() -> list[dict]:
         {"id": "n_hero", "type": "hero", "data": {}},
     ]
     for agent in ("characters", "world", "camera", "action"):
-        nodes.append({
-            "id": f"n_sd_agent_{agent}",
-            "type": "sd_agent",
-            "data": {"agent": agent},
-        })
+        nodes.append(
+            {
+                "id": f"n_sd_agent_{agent}",
+                "type": "sd_agent",
+                "data": {"agent": agent},
+            }
+        )
     return nodes
 
 
@@ -90,12 +92,14 @@ async def _mk_project(session: AsyncSession) -> Project:
     session.add(run)
     await session.flush()
     for n in wf.nodes:
-        session.add(NodeRun(
-            workflow_run_id=run.id,
-            node_key=n["id"],
-            node_type=n["type"],
-            status=NodeRunStatus.done,
-        ))
+        session.add(
+            NodeRun(
+                workflow_run_id=run.id,
+                node_key=n["id"],
+                node_type=n["type"],
+                status=NodeRunStatus.done,
+            )
+        )
     await session.flush()
     return project
 
@@ -104,15 +108,9 @@ async def _statuses(session: AsyncSession, project: Project) -> dict[str, str]:
     from sqlalchemy import select
 
     run = (
-        await session.execute(
-            select(WorkflowRun).where(WorkflowRun.project_id == project.id)
-        )
+        await session.execute(select(WorkflowRun).where(WorkflowRun.project_id == project.id))
     ).scalar_one()
-    rows = (
-        await session.execute(
-            select(NodeRun).where(NodeRun.workflow_run_id == run.id)
-        )
-    ).scalars().all()
+    rows = (await session.execute(select(NodeRun).where(NodeRun.workflow_run_id == run.id))).scalars().all()
     return {nr.node_key: nr.status for nr in rows}
 
 

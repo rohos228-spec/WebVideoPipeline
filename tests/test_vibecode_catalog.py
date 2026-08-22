@@ -182,9 +182,7 @@ def test_resolve_node_media_settings_from_images_node() -> None:
 def test_frontend_picker_wired() -> None:
     node = Path("web/src/components/canvas/pipeline-node.tsx").read_text(encoding="utf-8")
     assert "NodeModelPicker" in node
-    picker = Path("web/src/components/canvas/node-model-picker.tsx").read_text(
-        encoding="utf-8"
-    )
+    picker = Path("web/src/components/canvas/node-model-picker.tsx").read_text(encoding="utf-8")
     assert "Дешёвый канал" not in picker
     assert "Стабильный канал" not in picker
     assert "catalog_channels" not in picker
@@ -201,9 +199,7 @@ def test_frontend_picker_wired() -> None:
     assert "максимум" in media_opts
     assert "1:1" in media_opts and "21:9" in media_opts and "5:4" in media_opts
     assert "veo-3-1-lite" in media_opts and "kling-2-6" in media_opts
-    settings = Path("web/src/components/inspector/project-settings.tsx").read_text(
-        encoding="utf-8"
-    )
+    settings = Path("web/src/components/inspector/project-settings.tsx").read_text(encoding="utf-8")
     assert "GenerationModelsPanel" not in settings
     merge = Path("web/src/lib/canvas-node-merge.ts").read_text(encoding="utf-8")
     assert "modelId: n.data.modelId ?? old.data.modelId" in merge
@@ -218,9 +214,7 @@ def test_frontend_picker_wired() -> None:
     assert "GPT Image 2 SLOW" not in snap
     assert "GPT Image 2 FAST" not in snap
     assert '"gpt-image-2-vip"' in snap
-    streams = Path("web/src/components/inspector/streams-panel.tsx").read_text(
-        encoding="utf-8"
-    )
+    streams = Path("web/src/components/inspector/streams-panel.tsx").read_text(encoding="utf-8")
     assert "Картинки + Видео" in streams
     assert "текстовые модели" in streams
     assert "Проверка GPT · проект" not in streams
@@ -256,16 +250,12 @@ def test_node_override_routes_chat_to_vibecode(monkeypatch, tmp_path: Path) -> N
     )
     with use_override(ov):
         assert gpt_api.is_responses_mode() is False
-        assert gpt_api._chat_url("claude-sonnet-5") == (
-            "https://vibecode.moe/v1/chat/completions"
-        )
+        assert gpt_api._chat_url("claude-sonnet-5") == ("https://vibecode.moe/v1/chat/completions")
         assert gpt_api._headers()["Authorization"] == "Bearer vk-test"
     assert gpt_api.is_responses_mode() is True
 
 
-def test_node_override_vibecode_bypasses_vps_relay(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_node_override_vibecode_bypasses_vps_relay(monkeypatch, tmp_path: Path) -> None:
     """Node vibecode must not use GPT VPS (stale Caddy = kie 401 envelope)."""
     import app.services.gpt_api as gpt_api
     import app.settings as settings_mod
@@ -287,9 +277,7 @@ def test_node_override_vibecode_bypasses_vps_relay(
 
     assert s.vps_relay_base_url == "https://gpt.example.com"
     assert gpt_api._gpt_proxy_url() is None
-    assert gpt_api._chat_url("gpt-5-6-sol") == (
-        "https://gpt.example.com/codex/v1/responses"
-    )
+    assert gpt_api._chat_url("gpt-5-6-sol") == ("https://gpt.example.com/codex/v1/responses")
 
     ov = NodeLlmOverride(
         model_id="claude-sonnet-5",
@@ -299,16 +287,12 @@ def test_node_override_vibecode_bypasses_vps_relay(
         label="Claude Sonnet 5",
     )
     with use_override(ov):
-        assert gpt_api._chat_url("claude-sonnet-5") == (
-            "https://vibecode.moe/v1/chat/completions"
-        )
+        assert gpt_api._chat_url("claude-sonnet-5") == ("https://vibecode.moe/v1/chat/completions")
         assert gpt_api._headers()["Authorization"] == "Bearer vk-test"
         assert "gpt.example.com" not in gpt_api._chat_url("claude-sonnet-5")
 
 
-def test_node_override_empty_vibecode_key_does_not_steal_kie_key(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_node_override_empty_vibecode_key_does_not_steal_kie_key(monkeypatch, tmp_path: Path) -> None:
     """Без VIBECODE_API_KEY нода не должна слать kie-ключ на /v1/chat/completions."""
     import app.services.gpt_api as gpt_api
     import app.settings as settings_mod
@@ -341,9 +325,7 @@ def test_node_override_empty_vibecode_key_does_not_steal_kie_key(
 
 
 @pytest.mark.asyncio
-async def test_node_gpt55_uses_completions_stream_when_header_is_kie(
-    monkeypatch, tmp_path: Path
-) -> None:
+async def test_node_gpt55_uses_completions_stream_when_header_is_kie(monkeypatch, tmp_path: Path) -> None:
     """Шапка kie, на ноде GPT 5.5 — stream chat/completions, не Responses и не non-stream."""
     import app.services.gpt_api as gpt_api
     import app.settings as settings_mod
@@ -402,9 +384,7 @@ async def test_node_gpt55_uses_completions_stream_when_header_is_kie(
         label="GPT 5.5",
     )
     with use_override(ov):
-        result = await gpt_api.chat(
-            prompt="ping", timeout=5, max_retries=0, auto_pack=False
-        )
+        result = await gpt_api.chat(prompt="ping", timeout=5, max_retries=0, auto_pack=False)
     assert called.get("path") == "completions_stream"
     assert called.get("model") == "gpt-5.5"
     assert "/v1/chat/completions" in (called.get("url") or "")

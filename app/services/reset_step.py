@@ -24,7 +24,7 @@ Wrapper-коды:
 from __future__ import annotations
 
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -70,7 +70,7 @@ def _backup_artifact_file_before_wipe(project: Project, path: Path) -> Path | No
         sub = "refs"
     dest_dir = project.data_dir / "old" / sub
     dest_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     dest = dest_dir / f"{ts}_{path.name}"
     try:
         shutil.copy2(path, dest)
@@ -98,13 +98,17 @@ async def _wipe_artifacts_db_only(
 ) -> dict[str, int]:
     """Снять артефакты из БД без удаления файлов на диске."""
     arts = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == project.id,
-                Artifact.kind.in_(kinds),
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.kind.in_(kinds),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for a in arts:
         await session.delete(a)
     return {"artifacts": len(arts), "files": 0}
@@ -117,13 +121,17 @@ async def _wipe_artifacts_by_kind(
 ) -> dict[str, int]:
     """Удалить артефакты указанных типов + файлы на диске."""
     arts = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == project.id,
-                Artifact.kind.in_(kinds),
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.kind.in_(kinds),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     files_deleted = 0
     for a in arts:
         if a.path:
@@ -146,7 +154,9 @@ async def _wipe_artifacts_by_kind(
                     except Exception as e:  # noqa: BLE001
                         logger.warning(
                             "[#{}] reset_step: не смог удалить файл {}: {}",
-                            project.id, p, e,
+                            project.id,
+                            p,
+                            e,
                         )
         await session.delete(a)
     return {"artifacts": len(arts), "files": files_deleted}
@@ -207,13 +217,17 @@ async def _wipe_split(session: AsyncSession, project: Project) -> dict[str, Any]
     отдельно ДО удаления frame'ов."""
     # сначала собираем пути файлов кадровых артефактов
     frame_arts = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == project.id,
-                Artifact.frame_id.isnot(None),
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.frame_id.isnot(None),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     files_deleted = 0
     for a in frame_arts:
         if a.path:
@@ -227,11 +241,7 @@ async def _wipe_split(session: AsyncSession, project: Project) -> dict[str, Any]
                 except Exception:  # noqa: BLE001
                     pass
     # теперь сами frame'ы (cascade-каскад удалит остальное)
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id)
-        )
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     for fr in frames:
         await session.delete(fr)
     meta = dict(project.meta or {})
@@ -257,9 +267,7 @@ async def _wipe_split(session: AsyncSession, project: Project) -> dict[str, Any]
     }
 
 
-async def _preserve_split_on_rerun(
-    session: AsyncSession, project: Project
-) -> dict[str, Any]:
+async def _preserve_split_on_rerun(session: AsyncSession, project: Project) -> dict[str, Any]:
     """Soft ▶ разбивки: НЕ удалять кадры до успешного replace_frames.
 
     Иначе при фейле GPT / ⏹ / kill остаются 0 кадров (#33). Старые кадры
@@ -287,9 +295,7 @@ async def _preserve_split_on_rerun(
     n_frames = int(
         (
             await session.execute(
-                select(func.count()).select_from(Frame).where(
-                    Frame.project_id == project.id
-                )
+                select(func.count()).select_from(Frame).where(Frame.project_id == project.id)
             )
         ).scalar_one()
         or 0
@@ -317,9 +323,7 @@ async def _wipe_scene_design(session: AsyncSession, project: Project) -> dict[st
     if isinstance(sd_prev, dict):
         raw_only = str(sd_prev.get("only_agent") or "").strip()
         preserved_only = raw_only or None
-    meta_cleared = [
-        k for k in ("scene_design", "scene_registry") if meta.pop(k, None) is not None
-    ]
+    meta_cleared = [k for k in ("scene_design", "scene_registry") if meta.pop(k, None) is not None]
     if meta_cleared:
         if preserved_only:
             meta["scene_design"] = {"only_agent": preserved_only}
@@ -337,11 +341,7 @@ async def _wipe_scene_design(session: AsyncSession, project: Project) -> dict[st
     cells_deleted = await sd_cells.wipe_cells(session, project)
     collapse = await collapse_shot_children(session, project)
 
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id)
-        )
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     attr_keys = set(_ATTR_EXCEL_ROWS) | {"characters", "persons", "персонажи"}
     frames_cleared = 0
     for fr in frames:
@@ -380,11 +380,7 @@ async def _wipe_scene_assemble(session: AsyncSession, project: Project) -> dict[
     if meta_cleared:
         project.meta = meta
 
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id)
-        )
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     attr_keys = set(_ATTR_EXCEL_ROWS) | {"characters", "persons", "персонажи"}
     frames_cleared = 0
     for fr in frames:
@@ -403,8 +399,8 @@ def _sd_agent_wiper(step_code: str):
 
     async def _wipe(session: AsyncSession, project: Project) -> dict[str, Any]:
         from app.orchestrator.node_registry import SD_AGENT_STEP_CODES
-        from app.services.scene_design import invalidate_agent
         from app.services.scene_design import cells as sd_cells
+        from app.services.scene_design import invalidate_agent
 
         agent = SD_AGENT_STEP_CODES.get(step_code)
         if not agent:
@@ -426,17 +422,19 @@ async def _wipe_hero(session: AsyncSession, project: Project) -> dict[str, Any]:
     """
     from app.models import HITLDecision, HITLKind, HITLRequest
 
-    details = await _wipe_artifacts_by_kind(
-        session, project, ArtifactKind.hero_reference
-    )
+    details = await _wipe_artifacts_by_kind(session, project, ArtifactKind.hero_reference)
     hitl_rows = (
-        await session.execute(
-            select(HITLRequest).where(
-                HITLRequest.project_id == project.id,
-                HITLRequest.kind == HITLKind.approve_hero,
+        (
+            await session.execute(
+                select(HITLRequest).where(
+                    HITLRequest.project_id == project.id,
+                    HITLRequest.kind == HITLKind.approve_hero,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     cleared = 0
     for r in hitl_rows:
         if r.decision is not HITLDecision.pending:
@@ -448,9 +446,7 @@ async def _wipe_hero(session: AsyncSession, project: Project) -> dict[str, Any]:
 
 async def _wipe_items(session: AsyncSession, project: Project) -> dict[str, Any]:
     """Сброс шага 4b «Предметы»: удалить item_reference артефакты."""
-    return await _wipe_artifacts_by_kind(
-        session, project, ArtifactKind.item_reference
-    )
+    return await _wipe_artifacts_by_kind(session, project, ArtifactKind.item_reference)
 
 
 def _enrich_slot_wiper(slot: int):
@@ -464,6 +460,7 @@ def _enrich_slot_wiper(slot: int):
     2) downstream шаги (img_pr/img/anim_pr/...) будут сброшены отдельно
        вызывающим кодом reset_step (мы не дублируем это здесь).
     """
+
     async def _wipe(session: AsyncSession, project: Project) -> dict[str, Any]:
         from app.services.excel_gpt_node import clear_slot_completion_meta
 
@@ -483,6 +480,7 @@ def _enrich_slot_wiper(slot: int):
             "slot": slot,
             **cleared,
         }
+
     return _wipe
 
 
@@ -509,9 +507,7 @@ async def _wipe_excel_gpt(session: AsyncSession, project: Project) -> dict[str, 
             nk = done_keys[-1]
         else:
             excel_ids = [
-                k
-                for k, n in graph._by_id.items()
-                if str(n.get("type") or "") == EXCEL_GPT_NODE_TYPE
+                k for k, n in graph._by_id.items() if str(n.get("type") or "") == EXCEL_GPT_NODE_TYPE
             ]
             if len(excel_ids) == 1:
                 nk = excel_ids[0]
@@ -527,11 +523,7 @@ async def _wipe_img_pr(session: AsyncSession, project: Project) -> dict[str, Any
     у всех кадров. Также R45/R46 в xlsx — иначе sync вернёт старые промты."""
     from app.services.plan_shot2 import SHOT2_PROMPT_ATTR
 
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id)
-        )
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     cleared = 0
     status_reset = 0
     shot2_cleared = 0
@@ -581,16 +573,10 @@ async def _resume_img_pr(session: AsyncSession, project: Project) -> dict[str, A
     Если в DB пусто, а в project.xlsx уже есть R45 — подтянуть (после
     успешного apply + падения на greenlet / случайного wipe).
     """
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id)
-        )
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     have = sum(1 for fr in frames if (fr.image_prompt or "").strip())
     need = sum(
-        1
-        for fr in frames
-        if (fr.voiceover_text or "").strip() and not (fr.image_prompt or "").strip()
+        1 for fr in frames if (fr.voiceover_text or "").strip() and not (fr.image_prompt or "").strip()
     )
     restored: list[int] = []
     if need and not have:
@@ -598,9 +584,7 @@ async def _resume_img_pr(session: AsyncSession, project: Project) -> dict[str, A
         if xlsx_path.is_file():
             from app.services.xlsx_v8_import import apply_v8_image_prompts_from_xlsx
 
-            restored = await apply_v8_image_prompts_from_xlsx(
-                session, project, xlsx_path
-            )
+            restored = await apply_v8_image_prompts_from_xlsx(session, project, xlsx_path)
     return {
         "mode": "soft_resume",
         "had_prompts": have,
@@ -629,7 +613,7 @@ def _backup_scenes_before_wipe(project: Project, scenes_dir: Path) -> int:
     pngs = list(scenes_dir.glob("*.png"))
     if not pngs:
         return 0
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     dest_dir = project.data_dir / "old" / "scenes" / ts
     dest_dir.mkdir(parents=True, exist_ok=True)
     copied = 0
@@ -656,16 +640,14 @@ def _backup_scenes_before_wipe(project: Project, scenes_dir: Path) -> int:
 
 async def _wipe_images(session: AsyncSession, project: Project) -> dict[str, Any]:
     """Сброс шага 7 «Картинки»:
-      - удалить scene_image артефакты + файлы
-      - дочистить data/projects/<slug>/scenes/*.png
-      - сбросить frame.status в image_prompt_ready (или planned, если
-        промт пропал) и снять fail_reason из attrs.
+    - удалить scene_image артефакты + файлы
+    - дочистить data/projects/<slug>/scenes/*.png
+    - сбросить frame.status в image_prompt_ready (или planned, если
+      промт пропал) и снять fail_reason из attrs.
     """
     scenes_dir = project.data_dir / "scenes"
     backed_up = _backup_scenes_before_wipe(project, scenes_dir)
-    art_stats = await _wipe_artifacts_by_kind(
-        session, project, ArtifactKind.scene_image
-    )
+    art_stats = await _wipe_artifacts_by_kind(session, project, ArtifactKind.scene_image)
     # дочистим .png в scenes/, если что-то осталось
     extra_files = 0
     if scenes_dir.exists():
@@ -676,11 +658,7 @@ async def _wipe_images(session: AsyncSession, project: Project) -> dict[str, Any
             except Exception:  # noqa: BLE001
                 pass
     # сбрасываем frame.status
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id)
-        )
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     frames_reset = 0
     for fr in frames:
         if fr.status in (
@@ -691,11 +669,7 @@ async def _wipe_images(session: AsyncSession, project: Project) -> dict[str, Any
             FrameStatus.failed,
             FrameStatus.done,
         ):
-            new_status = (
-                FrameStatus.image_prompt_ready
-                if fr.image_prompt
-                else FrameStatus.planned
-            )
+            new_status = FrameStatus.image_prompt_ready if fr.image_prompt else FrameStatus.planned
             fr.status = new_status
             frames_reset += 1
         # снять fail_reason если был
@@ -724,11 +698,7 @@ async def _wipe_anim_pr(session: AsyncSession, project: Project) -> dict[str, An
     """
     from app.services.plan_shot2 import SHOT2_VIDEO_PROMPT_ATTR
 
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id)
-        )
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     cleared = 0
     status_reset = 0
     shot2_cleared = 0
@@ -782,22 +752,20 @@ async def _wipe_videos(session: AsyncSession, project: Project) -> dict[str, Any
     """Сброс шага 9 «Видео»: scene_video артефакты + файлы. Также
     сбрасываем frame.status video_* → animation_prompt_ready."""
     arts = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == project.id,
-                Artifact.kind == ArtifactKind.scene_video,
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.kind == ArtifactKind.scene_video,
+                )
             )
         )
-    ).scalars().all()
-    frame_ids_with_video = {a.frame_id for a in arts if a.frame_id is not None}
-    art_stats = await _wipe_artifacts_by_kind(
-        session, project, ArtifactKind.scene_video
+        .scalars()
+        .all()
     )
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id)
-        )
-    ).scalars().all()
+    frame_ids_with_video = {a.frame_id for a in arts if a.frame_id is not None}
+    art_stats = await _wipe_artifacts_by_kind(session, project, ArtifactKind.scene_video)
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     frames_reset = 0
     for fr in frames:
         had_video = fr.id in frame_ids_with_video
@@ -807,11 +775,7 @@ async def _wipe_videos(session: AsyncSession, project: Project) -> dict[str, Any
             FrameStatus.done,
         ):
             continue
-        fr.status = (
-            FrameStatus.animation_prompt_ready
-            if fr.animation_prompt
-            else FrameStatus.image_approved
-        )
+        fr.status = FrameStatus.animation_prompt_ready if fr.animation_prompt else FrameStatus.image_approved
         frames_reset += 1
     return {**art_stats, "frames_reset": frames_reset}
 
@@ -863,17 +827,13 @@ async def _wipe_sfx_gen(session: AsyncSession, project: Project) -> dict[str, An
     return {"checkpoint_reset": True, "files_deleted": removed}
 
 
-async def _preserve_user_media_on_rerun(
-    session: AsyncSession, project: Project
-) -> dict[str, Any]:
+async def _preserve_user_media_on_rerun(session: AsyncSession, project: Project) -> dict[str, Any]:
     """Повтор audio/music — файлы пользователя на диске не удаляем."""
     _ = session, project
     return {"files_preserved": True}
 
 
-async def _preserve_script_source_on_rerun(
-    session: AsyncSession, project: Project
-) -> dict[str, Any]:
+async def _preserve_script_source_on_rerun(session: AsyncSession, project: Project) -> dict[str, Any]:
     """Повтор «Закадровый текст»: исходный voiceover остаётся для прикрепления в GPT."""
     _ = session
     from app.services.chatgpt_xlsx import ensure_script_input_voiceover
@@ -903,40 +863,40 @@ async def _wipe_assemble(session: AsyncSession, project: Project) -> dict[str, A
 # и всё что после.
 
 _PIPELINE_RESET_LEVELS: list[tuple[str, Any]] = [
-    ("plan",      _wipe_plan),
-    ("script",    _wipe_script),
-    ("split",     _wipe_split),
-    ("scene_d",   _wipe_scene_design),
+    ("plan", _wipe_plan),
+    ("script", _wipe_script),
+    ("split", _wipe_split),
+    ("scene_d", _wipe_scene_design),
     ("scene_asm", _wipe_scene_assemble),
-    ("sd_char",   _sd_agent_wiper("sd_char")),
-    ("sd_world",  _sd_agent_wiper("sd_world")),
-    ("sd_style",  _sd_agent_wiper("sd_style")),
-    ("sd_cam",    _sd_agent_wiper("sd_cam")),
-    ("sd_act",    _sd_agent_wiper("sd_act")),
-    ("hero",      _wipe_hero),
-    ("items",     _wipe_items),
-    ("enrich_1",  _enrich_slot_wiper(1)),
-    ("enrich_2",  _enrich_slot_wiper(2)),
-    ("enrich_3",  _enrich_slot_wiper(3)),
-    ("enrich_4",  _enrich_slot_wiper(4)),
-    ("enrich_5",  _enrich_slot_wiper(5)),
+    ("sd_char", _sd_agent_wiper("sd_char")),
+    ("sd_world", _sd_agent_wiper("sd_world")),
+    ("sd_style", _sd_agent_wiper("sd_style")),
+    ("sd_cam", _sd_agent_wiper("sd_cam")),
+    ("sd_act", _sd_agent_wiper("sd_act")),
+    ("hero", _wipe_hero),
+    ("items", _wipe_items),
+    ("enrich_1", _enrich_slot_wiper(1)),
+    ("enrich_2", _enrich_slot_wiper(2)),
+    ("enrich_3", _enrich_slot_wiper(3)),
+    ("enrich_4", _enrich_slot_wiper(4)),
+    ("enrich_5", _enrich_slot_wiper(5)),
     ("excel_gpt", _wipe_excel_gpt),
-    ("img_pr",    _wipe_img_pr),
-    ("img",       _wipe_images),
-    ("anim_pr",   _wipe_anim_pr),
-    ("video",     _wipe_videos),
-    ("audio",     _wipe_audio),
-    ("music",     _wipe_music),
-    ("sfx_plan",  _wipe_sfx_plan),
-    ("sfx_gen",   _wipe_sfx_gen),
-    ("assemble",  _wipe_assemble),
+    ("img_pr", _wipe_img_pr),
+    ("img", _wipe_images),
+    ("anim_pr", _wipe_anim_pr),
+    ("video", _wipe_videos),
+    ("audio", _wipe_audio),
+    ("music", _wipe_music),
+    ("sfx_plan", _wipe_sfx_plan),
+    ("sfx_gen", _wipe_sfx_gen),
+    ("assemble", _wipe_assemble),
 ]
 
 # Wrapper-коды раскрываются в подшаги (минимальный индекс берётся как
 # точка старта каскада).
 _WRAPPER_TO_CODES: dict[str, list[str]] = {
     "objects": ["hero", "items"],
-    "enrich":  ["enrich_1", "enrich_2", "enrich_3", "enrich_4", "enrich_5"],
+    "enrich": ["enrich_1", "enrich_2", "enrich_3", "enrich_4", "enrich_5"],
 }
 
 # При явном reset_step: шаги, которые не сносим как downstream.
@@ -945,9 +905,7 @@ _WRAPPER_TO_CODES: dict[str, list[str]] = {
 # они UPSTREAM сборщика. Сброс scene_asm не должен сносить чекпоинты агентов,
 # а сброс одного агента — чекпоинты соседей (иначе перезапуск сборщика
 # требует полного GPT-прогона всех пяти).
-_SD_AGENT_CODES: frozenset[str] = frozenset(
-    {"sd_char", "sd_world", "sd_style", "sd_cam", "sd_act"}
-)
+_SD_AGENT_CODES: frozenset[str] = frozenset({"sd_char", "sd_world", "sd_style", "sd_cam", "sd_act"})
 _RESET_SKIP_DOWNSTREAM: dict[str, frozenset[str]] = {
     "audio": frozenset({"music"}),
     "video": frozenset({"music"}),
@@ -1012,17 +970,39 @@ def _resolve_start_index(step_code: str) -> int | None:
 
 # Какие шаги вообще поддерживают сброс. Используется в TG для решения,
 # показывать ли кнопку «🔁 Прогнать шаг с нуля».
-RESET_SUPPORTED_STEP_CODES: frozenset[str] = frozenset({
-    "plan", "script", "split",
-    "scene_d", "scene_asm",
-    "sd_char", "sd_world", "sd_style", "sd_cam", "sd_act",
-    "objects", "hero", "items",
-    "enrich",
-    "enrich_1", "enrich_2", "enrich_3", "enrich_4", "enrich_5",
-    "excel_gpt",
-    "img_pr", "img", "anim_pr", "video", "audio", "music",
-    "sfx_plan", "sfx_gen", "assemble",
-})
+RESET_SUPPORTED_STEP_CODES: frozenset[str] = frozenset(
+    {
+        "plan",
+        "script",
+        "split",
+        "scene_d",
+        "scene_asm",
+        "sd_char",
+        "sd_world",
+        "sd_style",
+        "sd_cam",
+        "sd_act",
+        "objects",
+        "hero",
+        "items",
+        "enrich",
+        "enrich_1",
+        "enrich_2",
+        "enrich_3",
+        "enrich_4",
+        "enrich_5",
+        "excel_gpt",
+        "img_pr",
+        "img",
+        "anim_pr",
+        "video",
+        "audio",
+        "music",
+        "sfx_plan",
+        "sfx_gen",
+        "assemble",
+    }
+)
 
 
 def is_reset_supported(step_code: str) -> bool:
@@ -1101,6 +1081,7 @@ async def clear_step_outputs_for_rerun(
 # ---------------------------------------------------------------------------
 # Публичная функция.
 
+
 async def reset_step(
     session: AsyncSession,
     project: Project,
@@ -1146,7 +1127,9 @@ async def reset_step(
         except Exception as e:  # noqa: BLE001
             logger.exception(
                 "[#{}] reset_step: handler {} упал: {}",
-                project.id, key, e,
+                project.id,
+                key,
+                e,
             )
             summary[key] = {"error": str(e)}
 
@@ -1166,8 +1149,11 @@ async def reset_step(
 
     logger.info(
         "[#{}] reset_step: code={} steps_wiped={} status: {} → {}",
-        project.id, step_code, steps_wiped,
-        old_status.value, new_status.value,
+        project.id,
+        step_code,
+        steps_wiped,
+        old_status.value,
+        new_status.value,
     )
 
     return summary

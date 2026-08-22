@@ -60,9 +60,7 @@ async def test_put_step_template_saves_edited_blocks(step_templates_dir) -> None
         ]
     }
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        resp = await ac.put(
-            f"/api/prompt-studio/step-template/{step_templates_dir}", json=payload
-        )
+        resp = await ac.put(f"/api/prompt-studio/step-template/{step_templates_dir}", json=payload)
     assert resp.status_code == 200
     data = resp.json()
     assert data["blocks"][1]["body"] == "новая роль"
@@ -79,9 +77,7 @@ async def test_put_step_template_rejects_too_few_blocks(step_templates_dir) -> N
         ]
     }
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        resp = await ac.put(
-            f"/api/prompt-studio/step-template/{step_templates_dir}", json=payload
-        )
+        resp = await ac.put(f"/api/prompt-studio/step-template/{step_templates_dir}", json=payload)
     assert resp.status_code == 400
 
 
@@ -97,9 +93,7 @@ async def test_put_step_template_rejects_non_technical_first_block(step_template
         ]
     }
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        resp = await ac.put(
-            f"/api/prompt-studio/step-template/{step_templates_dir}", json=payload
-        )
+        resp = await ac.put(f"/api/prompt-studio/step-template/{step_templates_dir}", json=payload)
     assert resp.status_code == 400
 
 
@@ -115,9 +109,7 @@ async def test_put_step_template_rejects_bad_numbering(step_templates_dir) -> No
         ]
     }
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        resp = await ac.put(
-            f"/api/prompt-studio/step-template/{step_templates_dir}", json=payload
-        )
+        resp = await ac.put(f"/api/prompt-studio/step-template/{step_templates_dir}", json=payload)
     assert resp.status_code == 400
 
 

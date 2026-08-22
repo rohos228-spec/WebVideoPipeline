@@ -40,9 +40,7 @@ def test_parse_pass_json() -> None:
 
 
 def test_parse_fail_and_broken() -> None:
-    fail = parse_check_analysis(
-        '{"schema":"vp.check.v1","verdict":"fail","summary":"брак","checks":[]}'
-    )
+    fail = parse_check_analysis('{"schema":"vp.check.v1","verdict":"fail","summary":"брак","checks":[]}')
     assert fail.verdict == "fail"
     assert not fail.ok
 
@@ -71,9 +69,7 @@ def test_parse_fenced_and_aliases() -> None:
 
 
 def test_looks_like_check_payload_blocks_voiceover_pollution() -> None:
-    assert looks_like_check_payload(
-        "# ОТЧЁТ ПРОВЕРКИ\nverdict: fail\n\n## summary\nx\n"
-    )
+    assert looks_like_check_payload("# ОТЧЁТ ПРОВЕРКИ\nverdict: fail\n\n## summary\nx\n")
     assert looks_like_check_payload(
         json.dumps(
             {
@@ -95,9 +91,7 @@ def test_looks_like_check_payload_blocks_voiceover_pollution() -> None:
             }
         )
     )
-    assert not looks_like_check_payload(
-        "В тёмном подъезде пахло сыростью. Герой шагнул вперёд."
-    )
+    assert not looks_like_check_payload("В тёмном подъезде пахло сыростью. Герой шагнул вперёд.")
 
 
 def test_save_voiceover_rejects_check_payload(tmp_path: Path, monkeypatch) -> None:
@@ -137,10 +131,7 @@ def test_save_voiceover_rejects_tsv_writeback(tmp_path: Path, monkeypatch) -> No
     dest = root / "voiceover.txt"
     dest.write_text("старый нормальный закадр", encoding="utf-8")
     bad = (
-        "# Лист: Общий план\n"
-        "@row=1\tТема\tдлинный текст\n"
-        "# Лист: План\n"
-        "@row=49\tзакадровый текст\tраз\tдва\n"
+        "# Лист: Общий план\n@row=1\tТема\tдлинный текст\n# Лист: План\n@row=49\tзакадровый текст\tраз\tдва\n"
     )
     try:
         save_voiceover_text(p, dest, bad)
@@ -151,9 +142,7 @@ def test_save_voiceover_rejects_tsv_writeback(tmp_path: Path, monkeypatch) -> No
 
 
 def test_write_analysis_json(tmp_path: Path) -> None:
-    a = parse_check_analysis(
-        '{"schema":"vp.check.v1","verdict":"pass","summary":"ok","checks":[]}'
-    )
+    a = parse_check_analysis('{"schema":"vp.check.v1","verdict":"pass","summary":"ok","checks":[]}')
     path = write_analysis_json(tmp_path / "excel_gpt_uploads" / "n1", a)
     assert path.is_file()
     data = json.loads(path.read_text(encoding="utf-8"))

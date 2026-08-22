@@ -33,9 +33,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
     frames = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         )
         .scalars()

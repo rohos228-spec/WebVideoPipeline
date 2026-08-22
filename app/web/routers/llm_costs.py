@@ -35,9 +35,7 @@ def _agg_columns() -> list[Any]:
     return [
         func.count(LlmCall.id).label("calls"),
         func.coalesce(func.sum(LlmCall.prompt_tokens), 0).label("prompt_tokens"),
-        func.coalesce(func.sum(LlmCall.completion_tokens), 0).label(
-            "completion_tokens"
-        ),
+        func.coalesce(func.sum(LlmCall.completion_tokens), 0).label("completion_tokens"),
         func.coalesce(func.sum(LlmCall.cost_usd), 0.0).label("cost_usd"),
         func.coalesce(func.sum(_FAILED), 0).label("failed"),
         func.coalesce(func.sum(_REJECTED), 0).label("contract_rejected"),
@@ -58,9 +56,7 @@ def _row_dict(row: Any) -> dict[str, Any]:
 
 
 @router.get("/projects/{project_id}/llm-costs")
-async def project_llm_costs(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict[str, Any]:
+async def project_llm_costs(project_id: int, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
     project = await session.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
@@ -86,9 +82,7 @@ async def project_llm_costs(
             .order_by(func.sum(LlmCall.cost_usd).desc())
         )
     ).all()
-    total_row = (
-        await session.execute(select(*_agg_columns()).where(where))
-    ).one()
+    total_row = (await session.execute(select(*_agg_columns()).where(where))).one()
     total = _row_dict(total_row)
 
     meta = project.meta if isinstance(project.meta, dict) else {}
@@ -106,9 +100,7 @@ async def project_llm_costs(
             "enabled": budget > 0,
             "exhausted": budget > 0 and spent >= budget,
             "override": "llm_budget_usd" in meta,
-            "paused_for_budget": bool(
-                pr and pr.get("code") == llm_ledger.BUDGET_CODE
-            ),
+            "paused_for_budget": bool(pr and pr.get("code") == llm_ledger.BUDGET_CODE),
         },
         # Ненулевой = учёт неполный (INSERT падали) — данные занижены.
         "failed_inserts": llm_ledger.failed_insert_count(),
@@ -131,9 +123,7 @@ async def llm_costs_projects(
     names: dict[int, str] = {}
     if ids:
         for pid, title in (
-            await session.execute(
-                select(Project.id, Project.title).where(Project.id.in_(ids))
-            )
+            await session.execute(select(Project.id, Project.title).where(Project.id.in_(ids)))
         ).all():
             names[int(pid)] = str(title or "")
     projects = []
@@ -143,14 +133,19 @@ async def llm_costs_projects(
         if r.project_id is None:
             adhoc = item
             continue
-        projects.append(
-            {"project_id": int(r.project_id), "title": names.get(int(r.project_id), ""), **item}
-        )
+        projects.append({"project_id": int(r.project_id), "title": names.get(int(r.project_id), ""), **item})
     return {
         "projects": projects,
-        "adhoc": adhoc or {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
-                           "cost_usd": 0.0, "failed": 0, "contract_rejected": 0,
-                           "unbilled": 0},
+        "adhoc": adhoc
+        or {
+            "calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cost_usd": 0.0,
+            "failed": 0,
+            "contract_rejected": 0,
+            "unbilled": 0,
+        },
         "failed_inserts": llm_ledger.failed_insert_count(),
     }
 

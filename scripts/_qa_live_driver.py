@@ -3,6 +3,7 @@
 Polls status, auto-approves text HITL when needed, appends journal lines,
 and starts the next pipeline step when the previous one becomes ready.
 """
+
 from __future__ import annotations
 
 import json
@@ -83,19 +84,18 @@ def append_journal(doing: str, done: str, result: str, bug: str = "-") -> None:
     text = JOURNAL.read_text(encoding="utf-8")
     marker = "## Журнал"
     if marker not in text:
-        text += "\n" + marker + "\n\n| Время | Делаю | Сделал | Результат | Баг/фикс |\n|-------|-------|--------|-----------|----------|\n"
+        text += (
+            "\n"
+            + marker
+            + "\n\n| Время | Делаю | Сделал | Результат | Баг/фикс |\n|-------|-------|--------|-----------|----------|\n"
+        )
     # insert after header row of journal table
     lines = text.splitlines()
     out = []
     inserted = False
     for i, ln in enumerate(lines):
         out.append(ln)
-        if (
-            not inserted
-            and ln.startswith("|-------")
-            and i > 0
-            and "Время" in lines[i - 1]
-        ):
+        if not inserted and ln.startswith("|-------") and i > 0 and "Время" in lines[i - 1]:
             # find journal section only
             # look back for Журнал nearby
             window = "\n".join(lines[max(0, i - 8) : i])
@@ -206,7 +206,10 @@ def tail_backend_errors(n: int = 40) -> list[str]:
     interesting = [
         ln
         for ln in lines[-200:]
-        if any(x in ln.lower() for x in ("error", "traceback", "fail", "exception", "testovyy", "project=50", " #50"))
+        if any(
+            x in ln.lower()
+            for x in ("error", "traceback", "fail", "exception", "testovyy", "project=50", " #50")
+        )
     ]
     return interesting[-n:]
 

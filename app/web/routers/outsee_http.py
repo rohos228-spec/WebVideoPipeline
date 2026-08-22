@@ -62,8 +62,7 @@ async def outsee_http_status() -> dict[str, Any]:
         "max_parallel": active_snap["max_parallel"],
         "active_jobs": active_snap["jobs"],
         "hint": (
-            "OUTSEE_API_KEY из https://outsee.io/profile — Bearer /api/v1 "
-            "(отдельный ключ, не Grsai)"
+            "OUTSEE_API_KEY из https://outsee.io/profile — Bearer /api/v1 (отдельный ключ, не Grsai)"
             if oh.outsee_api_configured()
             else "Задай OUTSEE_API_KEY в .env (профиль outsee.io)"
         ),

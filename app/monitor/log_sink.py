@@ -47,10 +47,7 @@ def init(monitor_dir: Path | None = None) -> Path:
         str(logs_dir / "pipeline_{time:YYYY-MM-DD}.log"),
         rotation="50 MB",
         retention="7 days",
-        format=(
-            "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | "
-            "{name}:{function}:{line} | {message}"
-        ),
+        format=("{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {name}:{function}:{line} | {message}"),
         level="DEBUG",
         enqueue=True,
     )

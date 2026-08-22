@@ -58,7 +58,7 @@ def is_polluted_character_field(text: str) -> bool:
 
 
 def build_ref_variation_sheet_prompt(
-    ch: "ExcelCharacter",
+    ch: ExcelCharacter,
     *,
     style: str = "",
     max_chars: int = 4900,
@@ -85,9 +85,7 @@ def build_ref_variation_sheet_prompt(
     if changes:
         parts.append("Changes (keep face/identity from reference):\n" + changes)
     else:
-        parts.append(
-            "Different turnaround sheet composition; keep identity from reference."
-        )
+        parts.append("Different turnaround sheet composition; keep identity from reference.")
     if style_bit:
         parts.append("Visual style:\n" + style_bit)
     text = "\n\n".join(parts)
@@ -268,9 +266,7 @@ def parse_persons_sheet(xlsx_path: Path) -> list[ExcelCharacter]:
 
     wb = load_workbook(filename=str(xlsx_path), data_only=True)
     if SHEET_PERSONS not in wb.sheetnames:
-        raise RuntimeError(
-            f"в xlsx нет листа «{SHEET_PERSONS}» — это не v8-шаблон?"
-        )
+        raise RuntimeError(f"в xlsx нет листа «{SHEET_PERSONS}» — это не v8-шаблон?")
 
     ws = wb[SHEET_PERSONS]
     # Сначала собираем IDs из R1 (столбцы B.. = col 2..max_col).

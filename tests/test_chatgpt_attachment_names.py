@@ -19,6 +19,4 @@ def test_aria_label_group_visible() -> None:
 
 
 def test_missing_file_not_visible() -> None:
-    assert not attachment_name_visible_in_text(
-        "frame_099_missing.png", "frame_001_d04262f4.png"
-    )
+    assert not attachment_name_visible_in_text("frame_099_missing.png", "frame_001_d04262f4.png")

@@ -37,9 +37,7 @@ _UPLOAD_SUFFIXES = frozenset(
         *_VIDEO_SUFFIXES,
     }
 )
-_VALID_SOURCES = frozenset(
-    {"project_xlsx", "upload", "voiceover", "image", "hero_refs", "scene_images"}
-)
+_VALID_SOURCES = frozenset({"project_xlsx", "upload", "voiceover", "image", "hero_refs", "scene_images"})
 _VALID_WORK_MODES = frozenset({"assist", "review", "transform"})
 
 _SLOT_MAP: dict[int, tuple[ProjectStatus, ProjectStatus, str]] = {
@@ -52,9 +50,7 @@ _SLOT_MAP: dict[int, tuple[ProjectStatus, ProjectStatus, str]] = {
 
 
 def is_excel_gpt_node_type(node_type: str) -> bool:
-    return node_type == EXCEL_GPT_NODE_TYPE or (
-        node_type.startswith("enrich_") and node_type != "enrich"
-    )
+    return node_type == EXCEL_GPT_NODE_TYPE or (node_type.startswith("enrich_") and node_type != "enrich")
 
 
 # Маркер scene-агента на ноде «Работа с GPT»: data.sd_agent =
@@ -85,9 +81,7 @@ def effective_node_type(node: dict[str, Any]) -> str:
     if typ == EXCEL_GPT_NODE_TYPE:
         marker = sd_agent_marker(node)
         if marker:
-            return (
-                "sd_assemble" if marker == SCENE_AGENT_ASSEMBLER else "sd_agent"
-            )
+            return "sd_assemble" if marker == SCENE_AGENT_ASSEMBLER else "sd_agent"
     return typ
 
 
@@ -147,6 +141,7 @@ def assign_slot_indices(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     явным data.slotOverflow (проверки scene-веера и т.п.) закреплены вне
     слотов: нумерацию пропускают, флаг сохраняют.
     """
+
     def _pinned_overflow(n: dict[str, Any]) -> bool:
         data = n.get("data")
         return isinstance(data, dict) and data.get("slotOverflow") is True
@@ -252,19 +247,11 @@ def next_excel_gpt_slot_after_ready(project: Project, ready_status: ProjectStatu
     nodes = excel_gpt_nodes_from_project(project)
     if not nodes:
         return None
-    later = sorted(
-        {
-            slot_index_from_node(n)
-            for n in nodes
-            if slot_index_from_node(n) > finished
-        }
-    )
+    later = sorted({slot_index_from_node(n) for n in nodes if slot_index_from_node(n) > finished})
     return later[0] if later else None
 
 
-def first_work_successor_along_edges(
-    project: Project, from_node_key: str
-) -> tuple[str, str] | None:
+def first_work_successor_along_edges(project: Project, from_node_key: str) -> tuple[str, str] | None:
     """Первый work-узел по исходящим стрелкам (passthrough/storage пропускаем).
 
     Returns (node_key, node_type) или None.
@@ -323,9 +310,7 @@ def first_work_successor_from_excel_slot(
     from_key — явный id завершённой ноды (стрелки). Иначе resolve(slot) при
     коллизии slotIndex может стартовать не с той ноды.
     """
-    key0 = (from_key or "").strip() or resolve_excel_gpt_node_key_for_slot(
-        project, from_slot
-    )
+    key0 = (from_key or "").strip() or resolve_excel_gpt_node_key_for_slot(project, from_slot)
     if not key0:
         return None
     succ = first_work_successor_along_edges(project, key0)
@@ -337,11 +322,7 @@ def first_work_successor_from_excel_slot(
         slot = slot_for_excel_gpt_node_key(project, key)
         if slot is None:
             node = next(
-                (
-                    n
-                    for n in excel_gpt_nodes_from_project(project)
-                    if str(n.get("id") or "") == key
-                ),
+                (n for n in excel_gpt_nodes_from_project(project) if str(n.get("id") or "") == key),
                 None,
             )
             if node is not None:
@@ -349,9 +330,7 @@ def first_work_successor_from_excel_slot(
     return key, typ, slot
 
 
-def next_excel_gpt_running_after_ready(
-    project: Project, ready_status: ProjectStatus
-) -> ProjectStatus | None:
+def next_excel_gpt_running_after_ready(project: Project, ready_status: ProjectStatus) -> ProjectStatus | None:
     """Running-статус следующего excel_gpt после enrich_N_ready, если слот есть."""
     nxt = next_excel_gpt_slot_after_ready(project, ready_status)
     if nxt is None:
@@ -390,9 +369,7 @@ def prepare_enrich_chain_for_auto_advance(
                 break
         if not from_key:
             from_key = resolve_excel_gpt_node_key_for_slot(project, finished)
-    succ = first_work_successor_from_excel_slot(
-        project, finished, from_key=from_key
-    )
+    succ = first_work_successor_from_excel_slot(project, finished, from_key=from_key)
     if succ is None:
         return None
     next_key, typ, nxt_slot = succ
@@ -487,19 +464,13 @@ def resolve_excel_gpt_node_key_for_slot(
         n
         for n in pool
         if slot_index_from_node(n) == slot
-        and not (
-            isinstance(n.get("data"), dict) and n["data"].get("slotOverflow")
-        )
+        and not (isinstance(n.get("data"), dict) and n["data"].get("slotOverflow"))
     ]
     if matches:
         matches.sort(
             key=lambda n: float((n.get("position") or {}).get("x", 0)),
         )
-        match_ids = {
-            str(n.get("id") or "").strip()
-            for n in matches
-            if str(n.get("id") or "").strip()
-        }
+        match_ids = {str(n.get("id") or "").strip() for n in matches if str(n.get("id") or "").strip()}
         # Коллизия slotIndex: только граф / стрелки. Incomplete-leftmost
         # врёт, если ранние ноды уже пройдены, но ключ не записан.
         if len(matches) > 1:
@@ -513,15 +484,10 @@ def resolve_excel_gpt_node_key_for_slot(
                 )
                 return graph_key
             done_keys = completed_node_keys(project)
-            incomplete = [
-                n
-                for n in matches
-                if str(n.get("id") or "").strip() not in done_keys
-            ]
+            incomplete = [n for n in matches if str(n.get("id") or "").strip() not in done_keys]
             pick = incomplete[0] if incomplete else matches[0]
             logger.warning(
-                "excel_gpt: slotIndex={} collides on {} nodes — fallback {} "
-                "(incomplete={})",
+                "excel_gpt: slotIndex={} collides on {} nodes — fallback {} (incomplete={})",
                 slot,
                 len(matches),
                 pick.get("id"),
@@ -532,13 +498,7 @@ def resolve_excel_gpt_node_key_for_slot(
         nid = str(matches[0].get("id") or "").strip()
         return nid or None
     ordered = sorted(
-        [
-            n
-            for n in pool
-            if not (
-                isinstance(n.get("data"), dict) and n["data"].get("slotOverflow")
-            )
-        ],
+        [n for n in pool if not (isinstance(n.get("data"), dict) and n["data"].get("slotOverflow"))],
         key=lambda n: float((n.get("position") or {}).get("x", 0)),
     )
     if slot - 1 < len(ordered):
@@ -671,9 +631,7 @@ def next_incomplete_excel_gpt_slot(project: Project, after_slot: int) -> int | N
             continue
         nid = str(n.get("id") or "")
         marked_done = slot in done_slots or (nid and nid in done_keys)
-        if marked_done and not (
-            isinstance(chain_to, int) and slot <= chain_to
-        ):
+        if marked_done and not (isinstance(chain_to, int) and slot <= chain_to):
             continue
         candidates.append(slot)
     if candidates:
@@ -705,9 +663,7 @@ def ensure_enrich_auto_chain_to(
     guard = 0
     while guard < MAX_EXCEL_GPT_SLOTS + 2:
         guard += 1
-        succ = first_work_successor_from_excel_slot(
-            project, cur, from_key=cur_key
-        )
+        succ = first_work_successor_from_excel_slot(project, cur, from_key=cur_key)
         if succ is None:
             break
         key, typ, slot = succ
@@ -764,14 +720,10 @@ def clear_excel_gpt_tail_completion(
             keys_to_clear.add(nid)
 
     meta = dict(project.meta or {})
-    completed = [
-        int(x) for x in (meta.get("enrich_completed_slots") or []) if str(x).isdigit()
-    ]
+    completed = [int(x) for x in (meta.get("enrich_completed_slots") or []) if str(x).isdigit()]
     slots_cleared = [s for s in completed if s in slots_to_clear]
     if slots_cleared:
-        meta["enrich_completed_slots"] = sorted(
-            s for s in completed if s not in slots_to_clear
-        )
+        meta["enrich_completed_slots"] = sorted(s for s in completed if s not in slots_to_clear)
 
     keys = [str(k) for k in (meta.get("excel_gpt_completed_keys") or [])]
     keys_cleared = [k for k in keys if k in keys_to_clear]
@@ -852,9 +804,7 @@ def attachment_paths(project: Project, node_key: str | None = None) -> list[Path
     return paths
 
 
-def save_gpt_reply_text(
-    project: Project, node_key: str | None, reply: str
-) -> Path | None:
+def save_gpt_reply_text(project: Project, node_key: str | None, reply: str) -> Path | None:
     """Сохранить текстовый ответ GPT (режим review/transform / image)."""
     from datetime import datetime
 

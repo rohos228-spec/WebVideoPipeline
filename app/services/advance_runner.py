@@ -7,10 +7,9 @@ from dataclasses import dataclass
 
 from aiogram import Bot
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session_scope
-from app.models import Project, ProjectStatus
+from app.models import Project
 from app.orchestrator.pipeline import advance_project
 from app.services.run_sync import complete_active_node_for_step
 
@@ -41,9 +40,7 @@ async def advance_project_job(project_id: int, bot: Bot) -> AdvanceJobResult:
                     prev_status=prev_status,
                     new_status=project.status,
                 )
-                logger.debug(
-                    "advance_project_job: #{} {} -> {}", project_id, prev, new
-                )
+                logger.debug("advance_project_job: #{} {} -> {}", project_id, prev, new)
                 return AdvanceJobResult(project_id, prev, new)
             return AdvanceJobResult(project_id, prev, None)
     except asyncio.CancelledError:

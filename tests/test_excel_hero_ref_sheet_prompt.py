@@ -23,9 +23,7 @@ def test_ref_variation_prompt_forces_sheet_not_scene() -> None:
         char="безучастный",
         ref_ids=["c01"],
     )
-    text = build_ref_variation_sheet_prompt(
-        ch, style="archival noir watercolor grunge"
-    )
+    text = build_ref_variation_sheet_prompt(ch, style="archival noir watercolor grunge")
     low = text.lower()
     assert "turnaround" in low or "model sheet" in low
     assert "white background" in low

@@ -96,30 +96,18 @@ def test_maybe_auto_advance_skips_builtin_verdict_for_check_node(monkeypatch) ->
         async def flush(self) -> None:
             return None
 
-    verdict_mock = AsyncMock(
-        side_effect=AssertionError("builtin verdict must be skipped")
-    )
+    verdict_mock = AsyncMock(side_effect=AssertionError("builtin verdict must be skipped"))
     apply_mock = AsyncMock(return_value=None)
 
-    monkeypatch.setattr(
-        "app.services.gen_queue_run.is_user_stopped", lambda _p: False
-    )
-    monkeypatch.setattr(
-        "app.services.project_control.auto_awaits_manual_start", lambda _p: False
-    )
-    monkeypatch.setattr(
-        "app.services.gen_queue.project_gated_by_gen_queue", lambda _id: False
-    )
+    monkeypatch.setattr("app.services.gen_queue_run.is_user_stopped", lambda _p: False)
+    monkeypatch.setattr("app.services.project_control.auto_awaits_manual_start", lambda _p: False)
+    monkeypatch.setattr("app.services.gen_queue.project_gated_by_gen_queue", lambda _id: False)
     monkeypatch.setattr(
         "app.services.gen_queue.gen_queue_blocks_project",
         AsyncMock(return_value=None),
     )
-    monkeypatch.setattr(
-        "app.services.step_cancel.is_generation_active", lambda _id: False
-    )
-    monkeypatch.setattr(
-        aa, "ready_status_confirmed_by_data", AsyncMock(return_value=True)
-    )
+    monkeypatch.setattr("app.services.step_cancel.is_generation_active", lambda _id: False)
+    monkeypatch.setattr(aa, "ready_status_confirmed_by_data", AsyncMock(return_value=True))
     monkeypatch.setattr(aa, "clamp_status_to_data", AsyncMock(return_value=None))
     monkeypatch.setattr(aa, "get_latest_hitl", AsyncMock(return_value=hitl))
     monkeypatch.setattr(aa, "_run_verdict_review_for_step", verdict_mock)
@@ -130,9 +118,7 @@ def test_maybe_auto_advance_skips_builtin_verdict_for_check_node(monkeypatch) ->
         AsyncMock(return_value="n_check"),
     )
 
-    advanced = asyncio.run(
-        maybe_auto_advance(_Sess(), project, bot=None, force=True)
-    )
+    advanced = asyncio.run(maybe_auto_advance(_Sess(), project, bot=None, force=True))
 
     assert advanced is True
     apply_mock.assert_awaited_once()
@@ -190,36 +176,22 @@ def test_maybe_auto_advance_keeps_verdict_when_next_is_script(monkeypatch) -> No
     )
     apply_review = AsyncMock(return_value=True)
 
-    monkeypatch.setattr(
-        "app.services.gen_queue_run.is_user_stopped", lambda _p: False
-    )
-    monkeypatch.setattr(
-        "app.services.project_control.auto_awaits_manual_start", lambda _p: False
-    )
-    monkeypatch.setattr(
-        "app.services.gen_queue.project_gated_by_gen_queue", lambda _id: False
-    )
+    monkeypatch.setattr("app.services.gen_queue_run.is_user_stopped", lambda _p: False)
+    monkeypatch.setattr("app.services.project_control.auto_awaits_manual_start", lambda _p: False)
+    monkeypatch.setattr("app.services.gen_queue.project_gated_by_gen_queue", lambda _id: False)
     monkeypatch.setattr(
         "app.services.gen_queue.gen_queue_blocks_project",
         AsyncMock(return_value=None),
     )
-    monkeypatch.setattr(
-        "app.services.step_cancel.is_generation_active", lambda _id: False
-    )
-    monkeypatch.setattr(
-        aa, "ready_status_confirmed_by_data", AsyncMock(return_value=True)
-    )
+    monkeypatch.setattr("app.services.step_cancel.is_generation_active", lambda _id: False)
+    monkeypatch.setattr(aa, "ready_status_confirmed_by_data", AsyncMock(return_value=True))
     monkeypatch.setattr(aa, "clamp_status_to_data", AsyncMock(return_value=None))
     monkeypatch.setattr(aa, "get_latest_hitl", AsyncMock(return_value=hitl))
     monkeypatch.setattr(aa, "_run_verdict_review_for_step", verdict_mock)
     monkeypatch.setattr(aa, "_apply_review_result", apply_review)
-    monkeypatch.setattr(
-        aa, "_next_canvas_node_is_check", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(aa, "_next_canvas_node_is_check", AsyncMock(return_value=None))
 
-    advanced = asyncio.run(
-        maybe_auto_advance(_Sess(), project, bot=None, force=True)
-    )
+    advanced = asyncio.run(maybe_auto_advance(_Sess(), project, bot=None, force=True))
 
     assert advanced is True
     verdict_mock.assert_awaited_once()

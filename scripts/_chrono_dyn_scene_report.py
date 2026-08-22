@@ -1,4 +1,5 @@
 """Собрать отчёт сцена × нода из scene_design/*.json проекта #60."""
+
 from __future__ import annotations
 
 import json
@@ -20,8 +21,7 @@ def load_vo_rows() -> list[dict]:
     con = sqlite3.connect(str(DB))
     con.row_factory = sqlite3.Row
     rows = con.execute(
-        "SELECT number, uuid, voiceover_text FROM frames "
-        "WHERE project_id=? ORDER BY number",
+        "SELECT number, uuid, voiceover_text FROM frames WHERE project_id=? ORDER BY number",
         (PROJECT_ID,),
     ).fetchall()
     con.close()
@@ -94,9 +94,7 @@ def main() -> None:
 
     style_by: dict[str, dict] = {}
     for st in style.get("style_arc") or []:
-        hint = str(
-            st.get("scene_hint") or st.get("id_scene") or st.get("сцены") or ""
-        )
+        hint = str(st.get("scene_hint") or st.get("id_scene") or st.get("сцены") or "")
         style_by[hint] = st
 
     rows = []
@@ -120,9 +118,7 @@ def main() -> None:
                         {
                             "phase": ph.get("phase_index", i),
                             "beat": clip(ph.get("beat") or ph.get("бит") or "", 40),
-                            "subject": clip(
-                                ph.get("subject") or ph.get("субъект") or "", 80
-                            ),
+                            "subject": clip(ph.get("subject") or ph.get("субъект") or "", 80),
                             "action": clip(
                                 ph.get("action")
                                 or ph.get("действие")
@@ -135,9 +131,7 @@ def main() -> None:
                                 60,
                             ),
                             "transition": clip(
-                                ph.get("переход_к_следующей")
-                                or ph.get("transition")
-                                or "",
+                                ph.get("переход_к_следующей") or ph.get("transition") or "",
                                 60,
                             ),
                         }
@@ -170,8 +164,7 @@ def main() -> None:
 
         vo_hit = map_scene_to_vo_row(str(sc.get("start_words") or ""), vo_rows)
         vo_preview = clip(
-            first_str(sc, "start_words")
-            or first_str(sc, "цитата_закадра", "vo", "voiceover", "текст"),
+            first_str(sc, "start_words") or first_str(sc, "цитата_закадра", "vo", "voiceover", "текст"),
             180,
         )
         rows.append(
@@ -188,19 +181,11 @@ def main() -> None:
                     first_str(sc, "локация_в_кадре", "location", "локация"),
                     120,
                 ),
-                "who_scene": clip(
-                    first_str(sc, "кто_в_кадре", "characters_in_frame"), 140
-                ),
+                "who_scene": clip(first_str(sc, "кто_в_кадре", "characters_in_frame"), 140),
                 "link_prev": clip(first_str(sc, "связь_с_прошлой", "link_prev"), 180),
-                "hook_next": clip(
-                    first_str(sc, "крючок_в_следующую", "hook_next"), 180
-                ),
-                "structure": clip(
-                    first_str(sc, "структура_сцены", "structure"), 40
-                ),
-                "scene_transition": clip(
-                    first_str(sc, "переход_в_сцену", "scene_transition"), 40
-                ),
+                "hook_next": clip(first_str(sc, "крючок_в_следующую", "hook_next"), 180),
+                "structure": clip(first_str(sc, "структура_сцены", "structure"), 40),
+                "scene_transition": clip(first_str(sc, "переход_в_сцену", "scene_transition"), 40),
                 "scene_meaning": clip(first_str(sc, "смысл_сцены", "мотив"), 160),
                 "n_phases": n_phases,
                 "n_shots": len(shots),
@@ -208,9 +193,7 @@ def main() -> None:
                 "camera_shots": shot_summaries,
                 "style": (
                     {
-                        "mood": clip(
-                            first_str(st, "настроение", "mood", "атмосфера"), 80
-                        ),
+                        "mood": clip(first_str(st, "настроение", "mood", "атмосфера"), 80),
                         "hint": clip(first_str(st, "scene_hint"), 80),
                     }
                     if st
@@ -258,11 +241,7 @@ def main() -> None:
         if sc["action_phases"]:
             for ph in sc["action_phases"]:
                 cam = next(
-                    (
-                        x
-                        for x in sc["camera_shots"]
-                        if x.get("phase") == ph.get("phase")
-                    ),
+                    (x for x in sc["camera_shots"] if x.get("phase") == ph.get("phase")),
                     None,
                 )
                 if cam is None and sc["camera_shots"]:

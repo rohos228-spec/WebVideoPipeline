@@ -82,9 +82,7 @@ async def test_split_allowed_from_hero_ready(session, tmp_path, monkeypatch) -> 
     p.data_dir.mkdir(parents=True, exist_ok=True)
     (p.data_dir / "project.xlsx").write_bytes(b"x" * 2048)
 
-    status = await start_step(
-        session, p, "split", skip_queue_guard=True, explicit_ui_start=True
-    )
+    status = await start_step(session, p, "split", skip_queue_guard=True, explicit_ui_start=True)
     assert status is ProjectStatus.splitting
 
 
@@ -108,16 +106,12 @@ async def test_img_allowed_from_plan_ready(session, tmp_path, monkeypatch) -> No
     )
     await session.flush()
 
-    status = await start_step(
-        session, p, "img", skip_queue_guard=True, explicit_ui_start=True
-    )
+    status = await start_step(session, p, "img", skip_queue_guard=True, explicit_ui_start=True)
     assert status is ProjectStatus.generating_images
 
 
 @pytest.mark.asyncio
-async def test_start_step_img_pr_explicit_wipes_image_prompt(
-    session, tmp_path, monkeypatch
-) -> None:
+async def test_start_step_img_pr_explicit_wipes_image_prompt(session, tmp_path, monkeypatch) -> None:
     """Явный ▶ на img_pr всегда пересобирает: wipe image_prompt, не skip."""
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     from app import settings as app_settings
@@ -136,18 +130,14 @@ async def test_start_step_img_pr_explicit_wipes_image_prompt(
     session.add(fr)
     await session.flush()
 
-    status = await start_step(
-        session, p, "img_pr", skip_queue_guard=True, explicit_ui_start=True
-    )
+    status = await start_step(session, p, "img_pr", skip_queue_guard=True, explicit_ui_start=True)
     assert status is ProjectStatus.generating_image_prompts
     await session.refresh(fr)
     assert not (fr.image_prompt or "").strip()
 
 
 @pytest.mark.asyncio
-async def test_start_step_img_pr_auto_keeps_image_prompt(
-    session, tmp_path, monkeypatch
-) -> None:
+async def test_start_step_img_pr_auto_keeps_image_prompt(session, tmp_path, monkeypatch) -> None:
     """Авто/очередь img_pr не сжигает уже готовые промты."""
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     from app import settings as app_settings
@@ -166,9 +156,7 @@ async def test_start_step_img_pr_auto_keeps_image_prompt(
     session.add(fr)
     await session.flush()
 
-    status = await start_step(
-        session, p, "img_pr", skip_queue_guard=True, explicit_ui_start=False
-    )
+    status = await start_step(session, p, "img_pr", skip_queue_guard=True, explicit_ui_start=False)
     assert status is ProjectStatus.generating_image_prompts
     await session.refresh(fr)
     assert fr.image_prompt == "keep this on auto"

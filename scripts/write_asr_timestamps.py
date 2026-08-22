@@ -3,6 +3,7 @@
 Usage:
   python scripts/write_asr_timestamps.py 26
 """
+
 from __future__ import annotations
 
 import argparse
@@ -39,12 +40,14 @@ async def main() -> None:
             return
 
         frames = (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.number)
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not frames:
             print("нет кадров в БД")
             return
@@ -67,10 +70,7 @@ async def main() -> None:
         existing, row = read_plan_timestamps_cells(project, frame_numbers)
         _filled, parsed, _bad = count_parsed_timestamp_cells(existing)
         if not args.force and parsed >= max(1, len(frame_numbers) // 2):
-            print(
-                f"STOP: R{row} уже заполнена ({parsed}/{len(frame_numbers)}). "
-                "Нужна перезапись → --force"
-            )
+            print(f"STOP: R{row} уже заполнена ({parsed}/{len(frame_numbers)}). Нужна перезапись → --force")
             return
 
         cells = read_plan_voiceover_cells(project, frame_numbers)

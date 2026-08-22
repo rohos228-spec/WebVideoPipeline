@@ -1,4 +1,5 @@
 """Verify LIVE QA fixes on project 50 after main update (no audio/music runs)."""
+
 from __future__ import annotations
 
 import json

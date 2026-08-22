@@ -1,11 +1,8 @@
 import pytest
 
 from app.bots.outsee import (
-    OutseeImageError,
     OutseePromptTooLongError,
-    _raise_outsee_failure,
     _verify_prompt_length_before_send,
-    outsee_error_kind,
 )
 from app.generation_options import (
     OUTSEE_PROMPT_MAX_CHARS,
@@ -40,11 +37,7 @@ def test_prepend_gen_id_counts_toward_limit() -> None:
 
 
 def test_prepend_gen_id_strips_duplicate_id_lines() -> None:
-    body = (
-        "[ID: P17-F90-dda7487c]\n\n"
-        "[ID: P17-F90-dda7487c r1a2]\n\n"
-        "Cinematic wide shot of a lab."
-    )
+    body = "[ID: P17-F90-dda7487c]\n\n[ID: P17-F90-dda7487c r1a2]\n\nCinematic wide shot of a lab."
     prefix = "[ID: P17-F90-fd10c7d1]"
     full = prepend_gen_id(body, prefix)
     assert full.count("[ID:") == 1

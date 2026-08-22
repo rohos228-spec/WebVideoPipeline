@@ -20,8 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Frame, FrameStatus, Project, ProjectStatus
 from app.services import animation_prompt_gpt as apg
 from app.services import db_apply, db_v2
-from app.services.chatgpt_xlsx import tmp_gpt_dir, write_anim_pr_prompt_file
 from app.services.animation_prompt_local import build_local_ops_for_missing
+from app.services.chatgpt_xlsx import tmp_gpt_dir, write_anim_pr_prompt_file
 from app.services.gpt_api import GptApiError
 from app.services.gpt_client import get_gpt_client
 from app.services.step_cancel import StepCancelledError, consume_stop, raise_if_cancelled
@@ -126,9 +126,7 @@ async def _fill_remaining_local(
     saved = 0
     for i in range(0, len(ops), 40):
         part = ops[i : i + 40]
-        result = await db_apply.apply_ops(
-            session, project, part, export_xlsx=False, node_kind="anim_pr"
-        )
+        result = await db_apply.apply_ops(session, project, part, export_xlsx=False, node_kind="anim_pr")
         saved += int(result.get("updated") or 0)
         await session.commit()
     for fr in frames:
@@ -172,10 +170,10 @@ async def fill_animation_prompts(
     # Не синкаем из R48 в DB — Excel только экспорт после apply-ops.
     await db_v2.backfill_project_v2(session, project)
     frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
 
     # VO только из БД — Excel hydrate отключён.
 
@@ -220,20 +218,15 @@ async def fill_animation_prompts(
         )
 
     pending = apg.collect_batch_items(project, frames)
-    pending_shot2 = (
-        apg.collect_shot2_batch_items(project, frames) if finalize_status else []
-    )
-    already_done, xlsx_filled, with_image = apg.count_animation_prompt_stats(
-        project, frames
-    )
+    pending_shot2 = apg.collect_shot2_batch_items(project, frames) if finalize_status else []
+    already_done, xlsx_filled, with_image = apg.count_animation_prompt_stats(project, frames)
     if not pending and not pending_shot2:
         # Не compute_actual_status: при готовых клипах уходит в videos_ready →
         # auto_advance стартует video, хотя юзер ждал anim_pr.
         if finalize_status:
             await _gate_then_mark_anim_ready(session, project)
         logger.info(
-            "[#{}] make_animation_prompts: nothing to do "
-            "(db_ready={}, png={}) → status={}",
+            "[#{}] make_animation_prompts: nothing to do (db_ready={}, png={}) → status={}",
             project.id,
             already_done,
             with_image,
@@ -243,8 +236,7 @@ async def fill_animation_prompts(
         return stats
 
     logger.info(
-        "[#{}] anim_pr: очередь shot_01={} shot_02={} (db_ready={}, png={}, "
-        "from_image_prompt=1)",
+        "[#{}] anim_pr: очередь shot_01={} shot_02={} (db_ready={}, png={}, from_image_prompt=1)",
         project.id,
         len(pending),
         len(pending_shot2),
@@ -257,8 +249,7 @@ async def fill_animation_prompts(
         first_batch = pending if pending else pending_shot2
         first_pending = first_batch[0].frame.number
         logger.info(
-            "[#{}] anim_pr: догонка — {} готово, первая пачка с кадра {} "
-            "(shot_01={}, shot_02={})",
+            "[#{}] anim_pr: догонка — {} готово, первая пачка с кадра {} (shot_01={}, shot_02={})",
             project.id,
             already_done,
             first_pending,
@@ -269,9 +260,7 @@ async def fill_animation_prompts(
     tmp_dir = tmp_gpt_dir(project)
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     prompt_file = write_anim_pr_prompt_file(project, tmp_dir, ts=ts)
-    initial = apg.build_initial_message(
-        project, frames, prompt_file_name=prompt_file.name
-    )
+    initial = apg.build_initial_message(project, frames, prompt_file_name=prompt_file.name)
     sheet = _sheet_for_project(project)
 
     # Master rules → system у каждой пачки (фаза 1 при maintenance kie часто жжёт 5 мин впустую).
@@ -348,9 +337,7 @@ async def fill_animation_prompts(
             use_strip = apg.batch_has_full_strip(batch)
             strip_path: Path | None = None
             if use_strip:
-                strip_path = await asyncio.to_thread(
-                    apg.build_batch_strip_path, batch, tmp_dir
-                )
+                strip_path = await asyncio.to_thread(apg.build_batch_strip_path, batch, tmp_dir)
             batch_msg = apg.build_batch_message(batch)
             logger.info(
                 "[#{}] anim_pr: ФАЗА 2 shot_01 batch {} кадров {} — {} ({} симв.)",
@@ -393,8 +380,7 @@ async def fill_animation_prompts(
                 if rem <= delivered:
                     shot1_force = rem
                 logger.warning(
-                    "[#{}] anim_pr: volume partial shot_01 got={}/{} → "
-                    "cap={} force_next={}",
+                    "[#{}] anim_pr: volume partial shot_01 got={}/{} → cap={} force_next={}",
                     project.id,
                     delivered,
                     asked,
@@ -417,9 +403,7 @@ async def fill_animation_prompts(
             use_strip2 = apg.batch_has_full_strip(batch2)
             strip2: Path | None = None
             if use_strip2:
-                strip2 = await asyncio.to_thread(
-                    apg.build_batch_strip_path, batch2, tmp_dir
-                )
+                strip2 = await asyncio.to_thread(apg.build_batch_strip_path, batch2, tmp_dir)
             batch_msg2 = apg.build_batch_message_shot2(batch2)
             logger.info(
                 "[#{}] anim_pr: ФАЗА 2 shot_02 batch {} кадров {} — {} ({} симв.)",
@@ -461,8 +445,7 @@ async def fill_animation_prompts(
                 if rem2 <= delivered2:
                     shot2_force = rem2
                 logger.warning(
-                    "[#{}] anim_pr: volume partial shot_02 got={}/{} → "
-                    "cap={} force_next={}",
+                    "[#{}] anim_pr: volume partial shot_02 got={}/{} → cap={} force_next={}",
                     project.id,
                     delivered2,
                     asked2,
@@ -506,9 +489,7 @@ async def _save_anim_pr_batch(
     shot: int,
 ) -> int:
     # Целый JSON-blob в reply не должен попасть в R48 одним куском.
-    if apg.is_apply_ops_blob(reply) and not apg.parse_apply_ops_animation_reply(
-        reply, frames
-    ):
+    if apg.is_apply_ops_blob(reply) and not apg.parse_apply_ops_animation_reply(reply, frames):
         raise RuntimeError(
             f"anim_pr: ответ — битый JSON apply-ops для кадров "
             f"{[it.frame.number for it in batch]} (shot_0{shot})"
@@ -541,9 +522,7 @@ async def _save_anim_pr_batch(
             f"{[it.frame.number for it in batch]} (shot_0{shot}) — uuid/длина?"
         )
     try:
-        result = await db_apply.apply_ops(
-            session, project, ops, export_xlsx=False, node_kind="anim_pr"
-        )
+        result = await db_apply.apply_ops(session, project, ops, export_xlsx=False, node_kind="anim_pr")
     except db_apply.ApplyOpsError as e:
         raise RuntimeError(f"anim_pr apply_ops отклонён: {e}") from None
     saved = int(result.get("updated") or 0)
@@ -584,19 +563,14 @@ async def _save_anim_pr_batch(
     # прогресс и крутим while True дальше по remaining (без soft-retry/30м паузы).
     batch_nums = {it.frame.number for it in batch}
     filled_from_batch = {
-        p.frame_number
-        for p in pairs
-        if p.frame_number is not None and p.frame_number in batch_nums
+        p.frame_number for p in pairs if p.frame_number is not None and p.frame_number in batch_nums
     }
     still_missing = sorted(batch_nums - filled_from_batch)
     if still_missing and not filled_from_batch:
-        raise RuntimeError(
-            f"не получены animation_prompt shot_0{shot} для кадров {still_missing}"
-        )
+        raise RuntimeError(f"не получены animation_prompt shot_0{shot} для кадров {still_missing}")
     if still_missing:
         logger.warning(
-            "[#{}] anim_pr: частичный ответ shot_0{} — сохранено {}, "
-            "остались {} (продолжаю без fail)",
+            "[#{}] anim_pr: частичный ответ shot_0{} — сохранено {}, остались {} (продолжаю без fail)",
             project.id,
             shot,
             sorted(filled_from_batch),

@@ -180,9 +180,7 @@ def build_marks_from_words(
     if audio_duration is not None and marks:
         report.drift_s = abs(marks[-1].end - audio_duration)
         if report.drift_s > 3.0:
-            report.problems.append(
-                f"дрейф к длительности аудио: {report.drift_s:.1f}с"
-            )
+            report.problems.append(f"дрейф к длительности аудио: {report.drift_s:.1f}с")
     if report.coverage < 0.5:
         report.problems.append(f"низкое покрытие текста: {report.coverage:.0%}")
     if not report.monotonic:
@@ -224,10 +222,7 @@ async def build_word_marks(
     out_path.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 
     # Слова в БД с привязкой к кадрам (spans как сегменты).
-    segments = [
-        {"frame_number": s.frame_number, "start_ts": s.start_ts, "end_ts": s.end_ts}
-        for s in spans
-    ]
+    segments = [{"frame_number": s.frame_number, "start_ts": s.start_ts, "end_ts": s.end_ts} for s in spans]
     await asr_words_store.replace_project_asr_words(
         session,
         project.id,

@@ -88,6 +88,4 @@ async def test_audio_ready_not_rolled_back_when_voice_on_disk(
     voice.write_bytes(b"wav")
     await session.flush()
 
-    assert await ready_status_confirmed_by_data(
-        session, project, ProjectStatus.audio_ready
-    )
+    assert await ready_status_confirmed_by_data(session, project, ProjectStatus.audio_ready)

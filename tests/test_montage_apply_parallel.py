@@ -129,9 +129,7 @@ async def test_apply_images_phase_before_videos(
     assert result["ok"] is True
 
     first_vid = next(i for i, e in enumerate(events) if e.startswith("start:vid"))
-    assert all(
-        e.startswith("start:img") or e.startswith("done:img") for e in events[:first_vid]
-    )
+    assert all(e.startswith("start:img") or e.startswith("done:img") for e in events[:first_vid])
 
 
 @pytest.mark.asyncio

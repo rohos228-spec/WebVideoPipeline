@@ -76,9 +76,7 @@ def align_script_tokens(script_tokens: list[str], words: list[WordTS]) -> list[i
     if not known:
         # Полный провал align — равномерно по словам ASR
         n_s, n_w = len(script_tokens), len(words)
-        return [
-            min(int(i * n_w / max(n_s, 1)), n_w - 1) for i in range(n_s)
-        ]
+        return [min(int(i * n_w / max(n_s, 1)), n_w - 1) for i in range(n_s)]
     # края
     first_i, first_w = known[0]
     for i in range(first_i):
@@ -171,9 +169,7 @@ def exclusive_asr_word_bounds(
             # ok — можно оставить ends как starts следующего
             pass
 
-    return [
-        (spans[i].frame_number, starts[i], ends[i]) for i in range(n)
-    ]
+    return [(spans[i].frame_number, starts[i], ends[i]) for i in range(n)]
 
 
 def timings_match_voiceover(
@@ -192,10 +188,7 @@ def timings_match_voiceover(
         return []
     ad = max(float(master), 0.01)
     if not words:
-        raw = [
-            FrameTiming(fn, 0.0, 0.0, float(max(len(tokenize_lower(text)), 1)))
-            for fn, text in cells
-        ]
+        raw = [FrameTiming(fn, 0.0, 0.0, float(max(len(tokenize_lower(text)), 1))) for fn, text in cells]
         return normalize_contiguous(raw, ad)
 
     bounds = exclusive_asr_word_bounds(cells, words)
@@ -215,9 +208,7 @@ def timings_match_voiceover(
                 end = float(words[hi - 1].end)
             if end <= start:
                 end = float(words[hi - 1].end)
-        out.append(
-            FrameTiming(fn, round(start, 3), round(end, 3), round(max(end - start, 0.0), 3))
-        )
+        out.append(FrameTiming(fn, round(start, 3), round(end, 3), round(max(end - start, 0.0), 3)))
 
     # Покрытие всей озвучки [0, master] без дыр (паузы в начале/конце и между).
     if out:
@@ -289,12 +280,14 @@ def extract_local_frame_words(
     for w in words:
         if w.end <= frame_start or w.start >= frame_end:
             continue
-        local.append(WordTS(
-            word=w.word,
-            start=round(max(0.0, w.start - frame_start), 3),
-            end=round(min(frame_end - frame_start, w.end - frame_start), 3),
-            prob=w.prob,
-        ))
+        local.append(
+            WordTS(
+                word=w.word,
+                start=round(max(0.0, w.start - frame_start), 3),
+                end=round(min(frame_end - frame_start, w.end - frame_start), 3),
+                prob=w.prob,
+            )
+        )
     return local
 
 
@@ -363,7 +356,9 @@ def build_frame_word_spans_per_frame(
         if timing is None:
             continue
         local_words = extract_local_frame_words(
-            words, timing.start_ts, timing.end_ts,
+            words,
+            timing.start_ts,
+            timing.end_ts,
         )
         span = build_frame_word_span_for_cell(frame_number, text, local_words)
         if span is not None:
@@ -383,10 +378,7 @@ def _timings_proportional_to_tokens(
         weights = [1.0] * len(spans)
     else:
         weights = [max(len(s.lower_words), 1) for s in spans]
-    raw = [
-        FrameTiming(s.frame_number, 0.0, 0.0, float(w))
-        for s, w in zip(spans, weights)
-    ]
+    raw = [FrameTiming(s.frame_number, 0.0, 0.0, float(w)) for s, w in zip(spans, weights)]
     return normalize_contiguous(raw, audio_duration)
 
 
@@ -410,10 +402,7 @@ def _segment_durations_from_transitions(
         if transitions[i] < transitions[i - 1]:
             transitions[i] = transitions[i - 1]
 
-    return [
-        max(transitions[i + 1] - transitions[i], 0.0)
-        for i in range(len(spans))
-    ]
+    return [max(transitions[i + 1] - transitions[i], 0.0) for i in range(len(spans))]
 
 
 def _should_use_token_proportional(
@@ -738,10 +727,7 @@ def finalize_align_timings(
                 master,
             )
         else:
-            raw = [
-                FrameTiming(fn, 0.0, 0.0, float(max(len(tokenize_lower(text)), 1)))
-                for fn, text in cells
-            ]
+            raw = [FrameTiming(fn, 0.0, 0.0, float(max(len(tokenize_lower(text)), 1))) for fn, text in cells]
             out = absorb_crumb_durations(normalize_contiguous(raw, master), master)
     return out
 

@@ -9,16 +9,14 @@ from __future__ import annotations
 import re
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from loguru import logger
 
 from app.services.mapper import (
     FrameTiming,
-    enforce_monotonic_timings,
-    map_frames,
     normalize_contiguous,
     tokenize_lower,
 )
@@ -79,9 +77,7 @@ _LEGACY_METHOD_MAP = {
 
 
 def list_align_methods() -> list[dict[str, str]]:
-    return [
-        {"id": m.id, "title": m.title, "summary": m.summary} for m in ALIGN_METHODS
-    ]
+    return [{"id": m.id, "title": m.title, "summary": m.summary} for m in ALIGN_METHODS]
 
 
 def resolve_align_method(method_id: str) -> str:
@@ -97,9 +93,7 @@ def _require_nemo() -> None:
     from app.services.nvidia_asr import nvidia_asr_available
 
     if not nvidia_asr_available():
-        raise RuntimeError(
-            'NeMo ASR недоступен. Установите: pip install -e ".[nvidia]"'
-        )
+        raise RuntimeError('NeMo ASR недоступен. Установите: pip install -e ".[nvidia]"')
 
 
 def transcribe_nemo(audio_path: Path, *, language: str = "ru") -> list[WordTS]:
@@ -231,12 +225,13 @@ def speech_nemo_chunks(
 ) -> list[WordTS]:
     """≤8 сегментов по весу R49 → NeMo по одному сегменту (не 153 раза)."""
     _require_nemo()
+    import time
+
     from app.services.nvidia_asr import (
         normalize_nvidia_asr_model,
         transcribe_words_nvidia,
     )
     from app.settings import settings
-    import time
 
     ad = max(float(master), 0.05)
     segments = _segment_time_bounds(cells, ad, max_chunks=max_chunks)
@@ -271,8 +266,7 @@ def speech_nemo_chunks(
                     exc,
                 )
                 raise RuntimeError(
-                    f"NeMo упал на сегменте {i + 1}/{len(segments)} "
-                    f"({start:.1f}-{end:.1f}s): {exc}"
+                    f"NeMo упал на сегменте {i + 1}/{len(segments)} ({start:.1f}-{end:.1f}s): {exc}"
                 ) from exc
             for w in chunk_words:
                 ws = float(w.start) + float(start)
@@ -481,9 +475,7 @@ def _method_auto(
     return timings_match_voiceover(cells, words, master, mode="direct")
 
 
-_TIMING_HANDLERS: dict[
-    str, Callable[[list[tuple[int, str]], list[WordTS], float], list[FrameTiming]]
-] = {
+_TIMING_HANDLERS: dict[str, Callable[[list[tuple[int, str]], list[WordTS], float], list[FrameTiming]]] = {
     "nemo_direct": _method_direct,
     "nemo_contiguous": _method_contiguous,
     "nemo_chunks": _method_contiguous,  # сегментный ASR → границы по переходам, не raw direct
@@ -518,8 +510,7 @@ def run_speech_align(
             timings = normalize_contiguous(raw, ad)
         crumbs = sum(1 for t in timings if t.duration <= 0.1 + 1e-9)
         logger.info(
-            "audio_align method=silence: {} silences, {} islands→frames, "
-            "master={:.2f}s, crumbs≤0.1s={}",
+            "audio_align method=silence: {} silences, {} islands→frames, master={:.2f}s, crumbs≤0.1s={}",
             len(silences),
             len(timings),
             ad,
@@ -563,9 +554,7 @@ def apply_align_method(
     mid = resolve_align_method(method_id)
     if mid == "silence":
         # Без аудиофайла — равномерный fallback (тесты).
-        raw = [FrameTiming(fn, 0.0, 0.0, 1.0) for fn, _ in cells] or [
-            FrameTiming(1, 0.0, 0.0, 1.0)
-        ]
+        raw = [FrameTiming(fn, 0.0, 0.0, 1.0) for fn, _ in cells] or [FrameTiming(1, 0.0, 0.0, 1.0)]
         return normalize_contiguous(raw, master)
     if not cells:
         raise ValueError("нет ячеек R49 для align")

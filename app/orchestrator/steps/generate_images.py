@@ -24,9 +24,10 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from aiogram import Bot
 from loguru import logger
@@ -34,7 +35,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.browser import browser_session
-from app.services.gpt_client import get_gpt_client
 from app.bots.outsee import (
     OutseeBot,
     OutseeContentRejectedError,
@@ -60,7 +60,14 @@ from app.models import (
     Project,
     ProjectStatus,
 )
+from app.services.gpt_client import get_gpt_client
 from app.services.hitl import send_hitl_photo
+from app.services.img_streams import (
+    INFLIGHT_ATTR,
+    acquire_image_slot,
+    get_img_streams,
+)
+from app.services.outsee_retry import generate_image_with_retries
 from app.services.plan_shot2 import (
     SHOT2_PROMPT_ATTR,
     SHOT2_STATUS_ATTR,
@@ -74,12 +81,6 @@ from app.services.scan_frames import (
     is_valid_scene_image,
     newest_frame_image_path,
 )
-from app.services.img_streams import (
-    INFLIGHT_ATTR,
-    acquire_image_slot,
-    get_img_streams,
-)
-from app.services.outsee_retry import generate_image_with_retries
 from app.services.step_cancel import (
     StepCancelledError,
     consume_stop,
@@ -88,6 +89,7 @@ from app.services.step_cancel import (
 )
 from app.settings import settings
 from app.storage import for_project as _sheet_for_project
+
 
 def _frame_image_input_hash(frame: Frame) -> str | None:
     """Этап 2 (C.6): hash входа генерации кадра — промпт + провайдер.
@@ -120,9 +122,7 @@ def _frame_image_input_hash(frame: Frame) -> str | None:
         return None
 
 
-def _stash_stale_frame_images(
-    out_dir: Path, frame_number: int, *, include_shot2: bool = False
-) -> int:
+def _stash_stale_frame_images(out_dir: Path, frame_number: int, *, include_shot2: bool = False) -> int:
     """Протухшие PNG кадра → scenes/stale/ (не удаляем: форензика).
 
     Ревью этапа 2: сбой переноса — WARNING, не тишина (файл остался бы
@@ -133,9 +133,7 @@ def _stash_stale_frame_images(
     try:
         candidates = list(out_dir.glob(f"frame_{frame_number:03d}_*.png"))
     except OSError as e:
-        logger.warning(
-            "stale-скан кадра {} не удался: {}", frame_number, e
-        )
+        logger.warning("stale-скан кадра {} не удался: {}", frame_number, e)
         return 0
     for p in candidates:
         if "_s2_" in p.name and not include_shot2:
@@ -146,8 +144,7 @@ def _stash_stale_frame_images(
             n += 1
         except OSError as e:
             logger.warning(
-                "перенос {} в stale/ не удался: {} — файл останется "
-                "«истиной на диске», регенерации не будет",
+                "перенос {} в stale/ не удался: {} — файл останется «истиной на диске», регенерации не будет",
                 p.name,
                 e,
             )
@@ -159,9 +156,7 @@ def _img_http_primary() -> bool:
     from app.bots.grsai import grsai_enabled
     from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_image
 
-    return bool(
-        grsai_enabled() or outsee_api_enabled_for_image() or outsee_api_configured()
-    )
+    return bool(grsai_enabled() or outsee_api_enabled_for_image() or outsee_api_configured())
 
 
 @asynccontextmanager
@@ -182,8 +177,8 @@ _XLSX_SHEET_PLAN = "план"
 # id в ЛЮБОЙ из этих строк. Раньше код смотрел только row=38/39 (3-й
 # блок), и если юзер вписал в row=8 — рефы не подгружались. Теперь
 # читаем ВСЕ три строки и сливаем (с dedupe сохраняя порядок).
-_XLSX_ROWS_PERSONS = (8, 23, 38)   # «персонажи» — id c01..c05
-_XLSX_ROWS_ITEMS = (9, 24, 39)     # «предметы» — id i01 / predmet1
+_XLSX_ROWS_PERSONS = (8, 23, 38)  # «персонажи» — id c01..c05
+_XLSX_ROWS_ITEMS = (9, 24, 39)  # «предметы» — id i01 / predmet1
 _OUTSEE_MAX_REFS = 2  # лимит Outsee на одну генерацию картинки
 
 _REF_ID_RE = re.compile(r"^(c\d+|i\d+|predmet\d+)$", re.IGNORECASE)
@@ -296,15 +291,19 @@ async def _artifact_ref_path(
     else:
         return None
     rows = (
-        await session.execute(
-            select(Artifact)
-            .where(
-                Artifact.project_id == project_id,
-                Artifact.kind == kind_filter,
+        (
+            await session.execute(
+                select(Artifact)
+                .where(
+                    Artifact.project_id == project_id,
+                    Artifact.kind == kind_filter,
+                )
+                .order_by(desc(Artifact.id))
             )
-            .order_by(desc(Artifact.id))
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for art in rows:
         meta = art.meta or {}
         candidates: set[str] = set()
@@ -375,35 +374,37 @@ async def _collect_ref_paths(
             found = (
                 _find_ref_file_any(base_dir, rid)
                 or _hero_legacy_ref(project.data_dir, rid)
-                or await _artifact_ref_path(
-                    session, project.id, rid, kind="character"
-                )
+                or await _artifact_ref_path(session, project.id, rid, kind="character")
             )
             label = "персонаж"
-            missing_hint = (
-                "запусти шаг «Персонажи» или положи cNN.png в characters/"
-            )
+            missing_hint = "запусти шаг «Персонажи» или положи cNN.png в characters/"
         elif kind == "item":
-            found = _find_ref_file_any(
-                base_dir, rid
-            ) or await _artifact_ref_path(session, project.id, rid, kind="item")
-            label = "предмет"
-            missing_hint = (
-                "запусти шаг «Предметы» или положи iNN.png / predmetN.png в items/"
+            found = _find_ref_file_any(base_dir, rid) or await _artifact_ref_path(
+                session, project.id, rid, kind="item"
             )
+            label = "предмет"
+            missing_hint = "запусти шаг «Предметы» или положи iNN.png / predmetN.png в items/"
         else:
             continue
         if found is not None:
             refs.append(found)
             logger.info(
                 "[#{}] frame {} ref {} '{}' → {}",
-                project.id, frame_number, label, rid, found,
+                project.id,
+                frame_number,
+                label,
+                rid,
+                found,
             )
         else:
             logger.warning(
-                "[#{}] frame {} ref {} '{}' не найден "
-                "(папка {}) — {}",
-                project.id, frame_number, label, rid, base_dir, missing_hint,
+                "[#{}] frame {} ref {} '{}' не найден (папка {}) — {}",
+                project.id,
+                frame_number,
+                label,
+                rid,
+                base_dir,
+                missing_hint,
             )
     return refs
 
@@ -421,14 +422,13 @@ async def _load_refs_for_frame(
       3) постоянный продукт массового — если остался свободный слот.
     """
     refs: list[Path] = []
-    xlsx_path = (
-        project.data_dir / "project.xlsx"
-    )
+    xlsx_path = project.data_dir / "project.xlsx"
     persons_ids: list[str] = []
     items_ids: list[str] = []
     if xlsx_path.exists():
         try:
             from openpyxl import load_workbook  # ленивый импорт
+
             wb = load_workbook(xlsx_path, data_only=True, read_only=True)
             ws = _resolve_plan_sheet(wb)
             if ws is not None:
@@ -443,9 +443,7 @@ async def _load_refs_for_frame(
                     merged: list[str] = []
                     seen: set[str] = set()
                     for r in rows:
-                        for x in _parse_ref_ids(
-                            ws.cell(row=r, column=col).value
-                        ):
+                        for x in _parse_ref_ids(ws.cell(row=r, column=col).value):
                             if x not in seen:
                                 seen.add(x)
                                 merged.append(x)
@@ -455,13 +453,13 @@ async def _load_refs_for_frame(
                 items_ids = _merged(_XLSX_ROWS_ITEMS)
             wb.close()
         except ImportError:
-            logger.warning(
-                "openpyxl не установлен — не могу прочитать xlsx-рефы"
-            )
+            logger.warning("openpyxl не установлен — не могу прочитать xlsx-рефы")
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 "[#{}] frame {}: ошибка чтения xlsx-рефов: {}",
-                project.id, frame_number, e,
+                project.id,
+                frame_number,
+                e,
             )
 
     chars_dir = project.data_dir / "characters"
@@ -506,19 +504,26 @@ async def _load_refs_for_frame(
             refs.append(prod_path)
             logger.info(
                 "[#{}] frame {} ref продукт '{}' → {} (slot {})",
-                project.id, frame_number,
-                prod.get("name") or "?", prod_path, len(refs),
+                project.id,
+                frame_number,
+                prod.get("name") or "?",
+                prod_path,
+                len(refs),
             )
         else:
             logger.warning(
                 "[#{}] frame {}: продукт-референс {} не найден на диске",
-                project.id, frame_number, prod_ref_path,
+                project.id,
+                frame_number,
+                prod_ref_path,
             )
     elif prod_ref_path and len(refs) >= _OUTSEE_MAX_REFS:
         logger.warning(
             "[#{}] frame {}: у кадра уже {} ref'ов, продукт-референс "
             "не помещается — Outsee лимит. Кадр уйдёт без продукта.",
-            project.id, frame_number, _OUTSEE_MAX_REFS,
+            project.id,
+            frame_number,
+            _OUTSEE_MAX_REFS,
         )
 
     return refs[:_OUTSEE_MAX_REFS]
@@ -534,9 +539,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
 
         ensure_anim_pr_sidecar(project.id)
     except Exception:  # noqa: BLE001
-        logger.warning(
-            "[#{}] anim_pr_sidecar: не стартовал", project.id, exc_info=True
-        )
+        logger.warning("[#{}] anim_pr_sidecar: не стартовал", project.id, exc_info=True)
 
     # PNG на диске без Artifact (после partial wipe / restore) → подтянуть в БД,
     # иначе шаг «всё есть» по диску, а compute_actual_status видит дыры.
@@ -558,10 +561,10 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
 
     # Excel не bootstrap'им: кадры/промты только из БД (явный Import отдельно).
     frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
 
     if not frames:
         raise RuntimeError(
@@ -569,16 +572,11 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             "(кнопка Import / excel_io.import_project_xlsx)."
         )
 
-    missing_prompts = [
-        fr.number
-        for fr in frames
-        if is_skippable_empty_prompt(fr.image_prompt or "")
-    ]
+    missing_prompts = [fr.number for fr in frames if is_skippable_empty_prompt(fr.image_prompt or "")]
 
     if missing_prompts:
         logger.warning(
-            "[#{}] generate_images: у {} кадров пустой image_prompt в БД — "
-            "пропускаю (failed): {}",
+            "[#{}] generate_images: у {} кадров пустой image_prompt в БД — пропускаю (failed): {}",
             project.id,
             len(missing_prompts),
             missing_prompts[:12],
@@ -625,8 +623,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 and stored_hash != current_hash
             ):
                 logger.info(
-                    "[#{}] frame {}: PNG протух (input changed, was={}, "
-                    "now={}) — регенерация",
+                    "[#{}] frame {}: PNG протух (input changed, was={}, now={}) — регенерация",
                     project.id,
                     fr.number,
                     stored_hash[:24],
@@ -636,9 +633,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 # остальных проверках перестаёт считать кадр готовым.
                 # Ревью [2/3]: включая shot2 — он снят со старого
                 # shot1-референса и после регенерации shot1 тоже протух.
-                _stash_stale_frame_images(
-                    out_dir, fr.number, include_shot2=True
-                )
+                _stash_stale_frame_images(out_dir, fr.number, include_shot2=True)
                 drop_vision_passed_for_frame(project, fr.number)
                 attrs = dict(fr.attrs or {})
                 if attrs.pop(SHOT2_STATUS_ATTR, None) is not None:
@@ -655,8 +650,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         bad = newest_frame_image_path(out_dir, fr.number)
         if bad is not None and not is_valid_scene_image(bad):
             logger.warning(
-                "[#{}] frame {}: на диске невалидная картинка {} ({} B) — "
-                "в outsee",
+                "[#{}] frame {}: на диске невалидная картинка {} ({} B) — в outsee",
                 project.id,
                 fr.number,
                 bad.name,
@@ -676,15 +670,9 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     if queued == 0:
         from app.services.scan_frames import scan_missing_frames
 
-        with_prompt = sum(
-            1
-            for fr in frames
-            if not is_skippable_empty_prompt(fr.image_prompt or "")
-        )
+        with_prompt = sum(1 for fr in frames if not is_skippable_empty_prompt(fr.image_prompt or ""))
         missing = await scan_missing_frames(session, project)
-        on_disk = sum(
-            1 for fr in frames if disk_has_valid_frame_image(out_dir, fr.number)
-        )
+        on_disk = sum(1 for fr in frames if disk_has_valid_frame_image(out_dir, fr.number))
         logger.warning(
             "[#{}] generate_images: очередь пуста — кадров в БД={}, "
             "с image_prompt={}, валидных PNG на диске={}, без PNG но с промтом={}. "
@@ -696,9 +684,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             missing,
         )
         if with_prompt == 0:
-            raise RuntimeError(
-                "в БД нет image_prompt. Сделай img_pr или явный Импорт Excel."
-            )
+            raise RuntimeError("в БД нет image_prompt. Сделай img_pr или явный Импорт Excel.")
         if missing:
             raise RuntimeError(
                 f"в БД есть промты, на диске нет картинок, но очередь outsee=0 "
@@ -706,8 +692,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             )
         if not missing and on_disk >= with_prompt:
             logger.info(
-                "[#{}] generate_images: все {} кадров с промтом уже на диске — "
-                "outsee не нужен",
+                "[#{}] generate_images: все {} кадров с промтом уже на диске — outsee не нужен",
                 project.id,
                 with_prompt,
             )
@@ -721,8 +706,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
 
     streams = get_img_streams(project)
     logger.info(
-        "[#{}] generate_images: outsee_streams={} "
-        "(общий с video/Create; 0=skip, 1=serial, 2..4=parallel)",
+        "[#{}] generate_images: outsee_streams={} (общий с video/Create; 0=skip, 1=serial, 2..4=parallel)",
         project.id,
         streams,
     )
@@ -835,7 +819,8 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                             if shot2_queued:
                                 logger.info(
                                     "[#{}] generate_images: фаза shot_02 — {} сцен",
-                                    project.id, shot2_queued,
+                                    project.id,
+                                    shot2_queued,
                                 )
                                 phase = "shot2"
                                 continue
@@ -844,9 +829,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                                 project.id,
                             )
                             break
-                        pending = await _pending_shot1_numbers(
-                            session, project.id, out_dir, project=project
-                        )
+                        pending = await _pending_shot1_numbers(session, project.id, out_dir, project=project)
                         if pending:
                             shot1_empty_retries += 1
                             logger.warning(
@@ -879,9 +862,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                             continue
 
                     # phase == "shot2"
-                    batch2 = await _claim_shot2_batch(
-                        session, project.id, project=project, limit=streams
-                    )
+                    batch2 = await _claim_shot2_batch(session, project.id, project=project, limit=streams)
                     if batch2:
                         logger.info(
                             "[#{}] generate_images: shot2 batch n={} frames={}",
@@ -913,12 +894,14 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         await session.rollback()
                     session.expire_all()
                     frames_fresh = (
-                        await session.execute(
-                            select(Frame)
-                            .where(Frame.project_id == project.id)
-                            .order_by(Frame.number)
+                        (
+                            await session.execute(
+                                select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                            )
                         )
-                    ).scalars().all()
+                        .scalars()
+                        .all()
+                    )
                     xlsx_path = project.data_dir / "project.xlsx"
                     requeued = 0
                     if xlsx_path.is_file():
@@ -934,15 +917,12 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         except Exception:  # noqa: BLE001
                             await session.rollback()
                     logger.warning(
-                        "[#{}] generate_images: shot2 claim пуст — "
-                        "inflight_cleared={} requeued={} (ждём 3с)",
+                        "[#{}] generate_images: shot2 claim пуст — inflight_cleared={} requeued={} (ждём 3с)",
                         project.id,
                         cleared,
                         requeued,
                     )
-                    if requeued == 0 and await _all_shot2_done(
-                        session, project.id
-                    ):
+                    if requeued == 0 and await _all_shot2_done(session, project.id):
                         break
                     await sleep_cancellable(3.0, project.id)
             except StepCancelledError as e:
@@ -951,8 +931,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 # другой сессии. Обновляем наш ORM-объект, чтобы worker'овый
                 # commit() не перезаписал откат старым running-статусом.
                 # НЕ ставим images_ready.
-                logger.info("[#{}] generate_images: {} — выхожу из цикла",
-                            project.id, e)
+                logger.info("[#{}] generate_images: {} — выхожу из цикла", project.id, e)
                 try:
                     await session.refresh(project)
                 except Exception:  # noqa: BLE001
@@ -1020,11 +999,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
 
 async def _clear_stale_inflight(session: AsyncSession, project_id: int) -> int:
     """Снять ``img_gen_inflight`` со всех кадров (после обрыва streams)."""
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project_id)
-        )
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project_id))).scalars().all()
     n = 0
     for fr in frames:
         attrs = dict(fr.attrs or {})
@@ -1046,12 +1021,10 @@ async def _pending_shot1_numbers(
     from app.services.vision_check_loop import scene_regen_allows
 
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project_id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     out: list[int] = []
     for fr in frames:
         if project is not None:
@@ -1071,9 +1044,7 @@ async def _next_frame_to_process(
     project: Project | None = None,
 ) -> Frame | None:
     """Следующий кадр для outsee: промт есть, валидного PNG на диске нет."""
-    batch = await _claim_shot1_batch(
-        session, project_id, out_dir, project=project, limit=1
-    )
+    batch = await _claim_shot1_batch(session, project_id, out_dir, project=project, limit=1)
     return batch[0] if batch else None
 
 
@@ -1097,12 +1068,10 @@ async def _claim_shot1_batch(
     if limit < 1:
         return []
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project_id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     claimed: list[Frame] = []
     for fr in frames:
         if project is not None:
@@ -1135,12 +1104,10 @@ async def _claim_shot2_batch(
     if limit < 1:
         return []
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project_id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     claimed: list[Frame] = []
     for fr in frames:
         if project is not None:
@@ -1181,9 +1148,7 @@ async def _generate_frame_job(
     # процесса/задачи не генерят дважды. Acquire — после слота провайдера
     # (не жечь TTL в очереди), внутри задачи генерации (owner = задача).
     async with acquire_image_slot():
-        async with lease_unit(
-            project_id, f"img:{frame_id}" + (":s2" if shot == 2 else "")
-        ) as got:
+        async with lease_unit(project_id, f"img:{frame_id}" + (":s2" if shot == 2 else "")) as got:
             if not got:
                 logger.info(
                     "[#{}] frame_id={} shot={}: занят живым lease — пропуск",
@@ -1241,9 +1206,7 @@ async def _run_claimed_batch(
     if streams <= 1:
         fr = claimed[0]
         try:
-            ref = (
-                find_shot1_image(out_dir, fr.number) if shot == 2 else None
-            )
+            ref = find_shot1_image(out_dir, fr.number) if shot == 2 else None
             if shot == 2 and ref is None:
                 logger.error(
                     "[#{}] frame {} shot_02: нет PNG shot_01 — skip",
@@ -1261,13 +1224,10 @@ async def _run_claimed_batch(
             from app.services.work_lease import lease_unit
 
             async with acquire_image_slot():
-                async with lease_unit(
-                    project.id, f"img:{fr.id}" + (":s2" if shot == 2 else "")
-                ) as got:
+                async with lease_unit(project.id, f"img:{fr.id}" + (":s2" if shot == 2 else "")) as got:
                     if not got:
                         logger.info(
-                            "[#{}] frame {} shot={}: занят живым lease — "
-                            "пропуск (serial)",
+                            "[#{}] frame {} shot={}: занят живым lease — пропуск (serial)",
                             project.id,
                             fr.number,
                             shot,
@@ -1327,9 +1287,7 @@ async def _run_claimed_batch(
             if isinstance(r, StepCancelledError):
                 raise r
             if isinstance(r, Exception):
-                logger.exception(
-                    "[#{}] img stream worker failed: {}", project.id, r
-                )
+                logger.exception("[#{}] img stream worker failed: {}", project.id, r)
     await session.refresh(project)
 
 
@@ -1347,12 +1305,14 @@ async def _all_frames_have_image_or_failed(
         # Regen-targets + дырки (не passed / без PNG). Не считать «готово»,
         # пока post_validate ещё видит missing кадры вне списка regen.
         frames = (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project_id)
-                .order_by(Frame.number)
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for fr in frames:
             allow = scene_regen_allows(project, fr.number, 1)
             if allow is False:
@@ -1367,12 +1327,10 @@ async def _all_frames_have_image_or_failed(
         return True
 
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project_id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     for fr in frames:
         if project is not None:
             allow = scene_regen_allows(project, fr.number, 1)
@@ -1429,12 +1387,10 @@ async def _next_shot2_frame_to_process(
     from app.services.vision_check_loop import scene_regen_allows
 
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project_id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     for fr in frames:
         if project is not None:
             allow = scene_regen_allows(project, fr.number, 2)
@@ -1455,12 +1411,10 @@ async def _next_shot2_frame_to_process(
 
 async def _all_shot2_done(session: AsyncSession, project_id: int) -> bool:
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project_id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     for fr in frames:
         attrs = fr.attrs or {}
         prompt = attrs.get(SHOT2_PROMPT_ATTR) or ""
@@ -1477,18 +1431,18 @@ async def _apply_pending_regens(session: AsyncSession, project_id: int) -> None:
     «потреблены», возвращает соответствующие кадры в image_prompt_ready
     и помечает HITL как consumed."""
     hitls = (
-        await session.execute(
-            select(HITLRequest)
-            .where(HITLRequest.project_id == project_id)
-            .where(HITLRequest.kind == HITLKind.approve_images)
-            .where(
-                HITLRequest.decision.in_(
-                    [HITLDecision.regenerate, HITLDecision.edit_prompt]
-                )
+        (
+            await session.execute(
+                select(HITLRequest)
+                .where(HITLRequest.project_id == project_id)
+                .where(HITLRequest.kind == HITLKind.approve_images)
+                .where(HITLRequest.decision.in_([HITLDecision.regenerate, HITLDecision.edit_prompt]))
+                .order_by(HITLRequest.id.desc())
             )
-            .order_by(HITLRequest.id.desc())
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for h in hitls:
         payload = dict(h.payload or {})
         if payload.get("consumed"):
@@ -1497,9 +1451,7 @@ async def _apply_pending_regens(session: AsyncSession, project_id: int) -> None:
             payload["consumed"] = True
             h.payload = payload
             continue
-        frame = (
-            await session.execute(select(Frame).where(Frame.id == h.frame_id))
-        ).scalar_one_or_none()
+        frame = (await session.execute(select(Frame).where(Frame.id == h.frame_id))).scalar_one_or_none()
         if frame is None:
             payload["consumed"] = True
             h.payload = payload
@@ -1565,27 +1517,27 @@ async def _generate_and_send(
         )
     ).scalar_one_or_none()
     use_regen_button = (
-        not is_shot2
-        and last_hitl is not None
-        and last_hitl.decision is HITLDecision.regenerate
+        not is_shot2 and last_hitl is not None and last_hitl.decision is HITLDecision.regenerate
     )
 
     attempt = (
-        await session.execute(
-            select(HITLRequest)
-            .where(HITLRequest.frame_id == frame.id)
-            .where(HITLRequest.kind == HITLKind.approve_images)
+        (
+            await session.execute(
+                select(HITLRequest)
+                .where(HITLRequest.frame_id == frame.id)
+                .where(HITLRequest.kind == HITLKind.approve_images)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     attempt_number = len(attempt) + 1
 
     gen_id = uuid.uuid4().hex
     short_uuid = gen_id[:8]
     if is_shot2:
         file_path = out_dir / f"frame_{frame.number:03d}_s2_{short_uuid}.png"
-        prompt_id_prefix = build_gen_id_prefix(
-            project.id, frame.number, short_uuid
-        ) + "-S2"
+        prompt_id_prefix = build_gen_id_prefix(project.id, frame.number, short_uuid) + "-S2"
     else:
         file_path = out_dir / f"frame_{frame.number:03d}_{short_uuid}.png"
         prompt_id_prefix = build_gen_id_prefix(project.id, frame.number, short_uuid)
@@ -1593,8 +1545,7 @@ async def _generate_and_send(
     full_prompt_len = len(prepend_gen_id(prompt_text, prompt_id_prefix))
     if full_prompt_len > OUTSEE_PROMPT_MAX_CHARS:
         logger.warning(
-            "[#{}] frame {}: image_prompt {} симв > outsee {} — "
-            "GPT сожмёт перед отправкой",
+            "[#{}] frame {}: image_prompt {} симв > outsee {} — GPT сожмёт перед отправкой",
             project.id,
             frame.number,
             full_prompt_len,
@@ -1640,7 +1591,10 @@ async def _generate_and_send(
     if refs:
         logger.info(
             "[#{}] frame {}: {} ref(ов) подгружено: {}",
-            project.id, frame.number, len(refs), [str(r) for r in refs],
+            project.id,
+            frame.number,
+            len(refs),
+            [str(r) for r in refs],
         )
 
     try:
@@ -1666,7 +1620,8 @@ async def _generate_and_send(
                 # Отпустить SQLite txn перед долгим Outsee (parallel → db locked).
                 await session.commit()
                 result = await generate_image_with_retries(
-                    outsee, gpt,
+                    outsee,
+                    gpt,
                     prompt=prompt_text,
                     out_path=file_path,
                     max_attempts_per_prompt=3,
@@ -1686,7 +1641,8 @@ async def _generate_and_send(
             # GPT-rewrite промта (убирает триггеры модерации) + ещё 3 попытки.
             await session.commit()
             result = await generate_image_with_retries(
-                outsee, gpt,
+                outsee,
+                gpt,
                 prompt=prompt_text,
                 out_path=file_path,
                 max_attempts_per_prompt=3,
@@ -1738,8 +1694,7 @@ async def _generate_and_send(
                 )
             else:
                 head = (
-                    f"⚠️ Кадр #{frame.number} проекта #{project.id}: "
-                    f"картинку поймать не удалось ({kind}).\n\n"
+                    f"⚠️ Кадр #{frame.number} проекта #{project.id}: картинку поймать не удалось ({kind}).\n\n"
                 )
             await bot.send_message(
                 settings.telegram_owner_chat_id,
@@ -1756,8 +1711,10 @@ async def _generate_and_send(
     # скипнет кадр и брак примется recovery), кадр failed → retry-политика.
     from app.services.media_probe import (
         MediaProbeError,
-        probe_image as _probe_accept_image,
         stash_rejected_file,
+    )
+    from app.services.media_probe import (
+        probe_image as _probe_accept_image,
     )
 
     try:

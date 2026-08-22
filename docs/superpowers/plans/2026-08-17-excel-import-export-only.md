@@ -49,11 +49,13 @@
 ```python
 # app/services/excel_io.py
 """Единственные разрешённые Excel I/O точки: import / export."""
+
 from __future__ import annotations
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Project
 from app.services.db_apply import export_project_xlsx
+
 
 async def import_project_xlsx(
     session: AsyncSession,
@@ -61,8 +63,10 @@ async def import_project_xlsx(
     path: Path | None = None,
 ) -> dict:
     from app.services.chatgpt_xlsx import sync_project_xlsx
+
     xlsx = path or (project.data_dir / "project.xlsx")
     return await sync_project_xlsx(session, project, xlsx, keep_fields=False)
+
 
 __all__ = ["export_project_xlsx", "import_project_xlsx"]
 ```
@@ -73,6 +77,7 @@ __all__ = ["export_project_xlsx", "import_project_xlsx"]
 # tests/test_excel_io_guards.py
 import inspect
 from app.services import db_apply
+
 
 def test_apply_ops_default_export_xlsx_false():
     sig = inspect.signature(db_apply.apply_ops)
@@ -183,6 +188,7 @@ def test_start_step_does_not_call_sync(monkeypatch):
     monkeypatch.setattr("app.services.chatgpt_xlsx.sync_project_xlsx", lambda *a, **k: called.append(1))
     # invoke start_step minimal path or assert project_steps source has no sync call via importlib inspection
     import app.services.project_steps as ps
+
     src = inspect.getsource(ps)
     assert "sync_project_xlsx" not in src
     assert "sync_animation_prompts_from_xlsx" not in src
@@ -230,6 +236,8 @@ Run: `rg -n "read_plan_voiceover|ROW_VOICEOVER|R49|read_plan_animation|write_pla
 
 ```python
 FORBIDDEN = ("write_plan_", "writeback_project_xlsx", "write_asr_timestamps_to_r15", "sync_project_xlsx")
+
+
 def test_orchestrator_steps_no_forbidden_excel_io():
     root = Path("app/orchestrator/steps")
     for p in root.glob("*.py"):

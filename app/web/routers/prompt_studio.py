@@ -131,25 +131,27 @@ async def _gpt_text_context(session: AsyncSession, project: Project, step_code: 
     ctx: dict = {}
     if step_code == "img_pr":
         frames = (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.number.asc())
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number.asc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if frames:
-            ctx["voiceover_line"] = "-".join(
-                (fr.voiceover_text or "").strip() for fr in frames
-            )
+            ctx["voiceover_line"] = "-".join((fr.voiceover_text or "").strip() for fr in frames)
             ctx["n_frames"] = len(frames)
     if step_code == "anim_pr":
         frames = (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.number.asc())
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number.asc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if frames:
             ctx["frames"] = frames
         ctx["prompt_file_name"] = "prompt_anim_pr.md"
@@ -536,9 +538,7 @@ async def save_step_template(step_id: str, payload: StepTemplatePatch) -> dict[s
         raise HTTPException(status_code=400, detail="blocks must be numbered 1..N without gaps")
     first = next(b for b in payload.blocks if b.number == 1)
     if "ТЕХНИЧЕСКАЯ ЧАСТЬ" not in first.title.strip().upper():
-        raise HTTPException(
-            status_code=400, detail="block 1 must stay «ТЕХНИЧЕСКАЯ ЧАСТЬ» (technical block)"
-        )
+        raise HTTPException(status_code=400, detail="block 1 must stay «ТЕХНИЧЕСКАЯ ЧАСТЬ» (technical block)")
     write_step_template_blocks(step_id, [b.model_dump() for b in payload.blocks])
     return {"step_id": step_id, "blocks": parse_step_template_blocks(step_id)}
 
@@ -585,15 +585,11 @@ async def compose_preview(
         po.update(overrides)
         overrides = po
         hero_description = (
-            (project.hero_descriptions or [None])[0]
-            if isinstance(project.hero_descriptions, list)
-            else None
+            (project.hero_descriptions or [None])[0] if isinstance(project.hero_descriptions, list) else None
         )
         topic = project.topic
 
-    blocks, vars_ = merge_project_prompt_config(
-        overrides, hero_description=hero_description, topic=topic
-    )
+    blocks, vars_ = merge_project_prompt_config(overrides, hero_description=hero_description, topic=topic)
     if payload.blocks:
         blocks.update(payload.blocks)
     if payload.vars:
@@ -648,9 +644,7 @@ async def patch_project_prompt_config(
     blocks, vars_ = merge_project_prompt_config(
         po,
         hero_description=(
-            (project.hero_descriptions or [None])[0]
-            if isinstance(project.hero_descriptions, list)
-            else None
+            (project.hero_descriptions or [None])[0] if isinstance(project.hero_descriptions, list) else None
         ),
         topic=project.topic,
     )
@@ -873,4 +867,3 @@ async def run_gpt_verdict(
         "last_raw": result.last_raw[:8000],
         "history": result.history,
     }
-

@@ -72,13 +72,17 @@ async def test_recover_video_rebinds_when_disk_newer(
     await session.flush()
 
     arts = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == 7,
-                Artifact.kind == ArtifactKind.scene_video,
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == 7,
+                    Artifact.kind == ArtifactKind.scene_video,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(arts) == 1
     assert Path(arts[0].path).name == "clip_001_new.mp4"
 

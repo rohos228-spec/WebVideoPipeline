@@ -79,24 +79,16 @@ async def list_artifacts(
 
 
 @router.get("/{artifact_uuid}", response_model=ArtifactDTO)
-async def get_artifact(
-    artifact_uuid: str, session: AsyncSession = Depends(get_session)
-) -> Artifact:
-    a = (
-        await session.execute(select(Artifact).where(Artifact.uuid == artifact_uuid))
-    ).scalar_one_or_none()
+async def get_artifact(artifact_uuid: str, session: AsyncSession = Depends(get_session)) -> Artifact:
+    a = (await session.execute(select(Artifact).where(Artifact.uuid == artifact_uuid))).scalar_one_or_none()
     if a is None:
         raise HTTPException(status_code=404, detail="artifact not found")
     return a
 
 
 @router.get("/{artifact_uuid}/file")
-async def download_artifact(
-    artifact_uuid: str, session: AsyncSession = Depends(get_session)
-) -> FileResponse:
-    a = (
-        await session.execute(select(Artifact).where(Artifact.uuid == artifact_uuid))
-    ).scalar_one_or_none()
+async def download_artifact(artifact_uuid: str, session: AsyncSession = Depends(get_session)) -> FileResponse:
+    a = (await session.execute(select(Artifact).where(Artifact.uuid == artifact_uuid))).scalar_one_or_none()
     if a is None:
         raise HTTPException(status_code=404, detail="artifact not found")
     path = Path(a.path)

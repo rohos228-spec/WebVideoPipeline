@@ -91,9 +91,7 @@ async def test_apply_ops_unknown_uuid_fail_closed(api_client) -> None:
     assert "неизвестные frame_uuid" in r.json()["detail"]
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         assert fr.voiceover_text == "реплика 1"  # не тронут
 
@@ -104,9 +102,7 @@ async def test_apply_ops_near_miss_uuid_repaired(api_client) -> None:
     client, project_id, factory = api_client
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         real = fr.uuid
     assert len(real) >= 2
@@ -132,9 +128,7 @@ async def test_apply_ops_near_miss_uuid_repaired(api_client) -> None:
     assert body.get("uuid_repairs")
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         assert fr.voiceover_text == "после repair"
 
@@ -145,9 +139,7 @@ async def test_apply_ops_frame_number_as_uuid_remapped(api_client) -> None:
     client, project_id, factory = api_client
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         real = fr.uuid
     r = await client.post(
@@ -164,9 +156,7 @@ async def test_apply_ops_frame_number_as_uuid_remapped(api_client) -> None:
     assert any(x.get("from") == "1" and x.get("to") == real for x in body.get("uuid_repairs") or [])
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         assert fr.voiceover_text == "после number remap"
 
@@ -176,9 +166,7 @@ async def test_apply_ops_empty_and_empty_fields_rejected(api_client) -> None:
     client, project_id, factory = api_client
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         uuid = fr.uuid
     r_empty = await client.post(f"/api/db/projects/{project_id}/apply-ops", json={"ops": []})
@@ -195,9 +183,7 @@ async def test_apply_ops_updates_db_versions_and_exports_xlsx(api_client, tmp_pa
     client, project_id, factory = api_client
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         uuid = fr.uuid
 
@@ -215,7 +201,7 @@ async def test_apply_ops_updates_db_versions_and_exports_xlsx(api_client, tmp_pa
                         "duration_seconds": 3.5,
                     },
                 }
-            ]
+            ],
         },
     )
     assert r.status_code == 200, r.text
@@ -225,9 +211,7 @@ async def test_apply_ops_updates_db_versions_and_exports_xlsx(api_client, tmp_pa
 
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         assert fr.voiceover_text == "новый закадр"
         assert fr.image_prompt == "новый img промт"
@@ -263,9 +247,7 @@ async def test_apply_ops_human_aliases_and_unknown_field(api_client) -> None:
     client, project_id, factory = api_client
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         uuid = fr.uuid
 
@@ -288,9 +270,7 @@ async def test_apply_ops_human_aliases_and_unknown_field(api_client) -> None:
     assert r.status_code == 200, r.text
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         assert fr.voiceover_text == "закадр по-человечески"
         assert fr.image_prompt == "img по-человечески"
@@ -313,9 +293,7 @@ async def test_apply_ops_characters_and_frame_persons(api_client, tmp_path) -> N
     client, project_id, factory = api_client
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         uuid = fr.uuid
 
@@ -347,9 +325,7 @@ async def test_apply_ops_characters_and_frame_persons(api_client, tmp_path) -> N
 
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         attrs = fr.attrs or {}
         assert attrs.get("characters") == "c01"
@@ -383,9 +359,7 @@ async def test_apply_ops_plan_analytics_and_shot_export(api_client, tmp_path) ->
     client, project_id, factory = api_client
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         uuid = fr.uuid
 
@@ -409,16 +383,14 @@ async def test_apply_ops_plan_analytics_and_shot_export(api_client, tmp_path) ->
                         "фон": "тёмный коридор",
                     },
                 }
-            ]
+            ],
         },
     )
     assert r.status_code == 200, r.text
 
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         attrs = fr.attrs or {}
         assert attrs.get("place") == "деревенская изба ночью"
@@ -482,16 +454,12 @@ async def test_orchestrator_chat_applies_ops(api_client, monkeypatch) -> None:
     client, project_id, factory = api_client
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         uuid = fr.uuid
 
     reply = f'{{"ops":[{{"frame_uuid":"{uuid}","fields":{{"закадр":"закадр из чата"}}}}]}}'
-    monkeypatch.setattr(
-        "app.services.gpt_client.get_gpt_client", lambda: _FakeGpt(reply)
-    )
+    monkeypatch.setattr("app.services.gpt_client.get_gpt_client", lambda: _FakeGpt(reply))
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
         json={"message": "перепиши закадр в 1 кадре", "history": []},
@@ -502,9 +470,7 @@ async def test_orchestrator_chat_applies_ops(api_client, monkeypatch) -> None:
     assert data["applied"] and data["applied"]["updated"] == 1
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         assert fr.voiceover_text == "закадр из чата"
 
@@ -526,9 +492,7 @@ async def test_orchestrator_chat_plain_text_no_write(api_client, monkeypatch) ->
     assert data["applied"] is None and data["error"] is None
     async with factory() as session:
         fr = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project_id, Frame.number == 1)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project_id, Frame.number == 1))
         ).scalar_one()
         assert fr.voiceover_text == "реплика 1"  # не тронут
 
@@ -587,9 +551,7 @@ async def test_orchestrator_chat_settings_actions(api_client, monkeypatch, tmp_p
         '{"stop_step":true}'
         "]}"
     )
-    monkeypatch.setattr(
-        "app.services.gpt_client.get_gpt_client", lambda: _FakeGpt(reply)
-    )
+    monkeypatch.setattr("app.services.gpt_client.get_gpt_client", lambda: _FakeGpt(reply))
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
         json={"message": "настрой всё и останови", "history": []},
@@ -644,9 +606,7 @@ async def test_checks_context_includes_node_runs_and_harness(api_client) -> None
     client, project_id, factory = api_client
     async with factory() as session:
         p = await session.get(Project, project_id)
-        wr = WorkflowRun(
-            workflow_id=1, project_id=project_id, status=WorkflowRunStatus.running
-        )
+        wr = WorkflowRun(workflow_id=1, project_id=project_id, status=WorkflowRunStatus.running)
         session.add(wr)
         await session.flush()
         session.add(
@@ -771,16 +731,12 @@ async def test_orchestrator_chat_hitl_decision_and_topic(api_client, monkeypatch
 
     client, project_id, factory = api_client
     async with factory() as session:
-        session.add(
-            HITLRequest(project_id=project_id, kind=HITLKind.approve_images, payload={})
-        )
+        session.add(HITLRequest(project_id=project_id, kind=HITLKind.approve_images, payload={}))
         await session.commit()
 
     monkeypatch.setattr(
         "app.services.gpt_client.get_gpt_client",
-        lambda: _FakeGpt(
-            '{"actions":[{"hitl_decision":"approve"},{"set_topic":"Новая тема"}]}'
-        ),
+        lambda: _FakeGpt('{"actions":[{"hitl_decision":"approve"},{"set_topic":"Новая тема"}]}'),
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
@@ -795,9 +751,7 @@ async def test_orchestrator_chat_hitl_decision_and_topic(api_client, monkeypatch
         p = await session.get(Project, project_id)
         assert p.topic == "Новая тема"
         req = (
-            await session.execute(
-                select(HITLRequest).where(HITLRequest.project_id == project_id)
-            )
+            await session.execute(select(HITLRequest).where(HITLRequest.project_id == project_id))
         ).scalar_one()
         assert req.decision is HITLDecision.approved
 
@@ -900,9 +854,7 @@ async def test_orchestrator_chat_create_child_and_catalog(api_client, monkeypatc
 
     monkeypatch.setattr(
         "app.services.gpt_client.get_gpt_client",
-        lambda: _FakeGpt(
-            '{"actions":[{"create_child":{"parent_title":"История ведьм"}}]}'
-        ),
+        lambda: _FakeGpt('{"actions":[{"create_child":{"parent_title":"История ведьм"}}]}'),
     )
     # чат с другого проекта — parent_title должен найти #project_id
     r = await client.post(
@@ -931,9 +883,7 @@ async def test_orchestrator_chat_create_child_and_catalog(api_client, monkeypatc
         assert child.image_generator == parent.image_generator
         # контент кадров не копируем
         n_frames = (
-            await session.execute(
-                select(func.count()).select_from(Frame).where(Frame.project_id == child_id)
-            )
+            await session.execute(select(func.count()).select_from(Frame).where(Frame.project_id == child_id))
         ).scalar_one()
         assert int(n_frames or 0) == 0
 
@@ -951,9 +901,24 @@ async def test_orchestrator_chat_add_node_each_and_single(api_client, monkeypatc
                 name="default",
                 is_default=True,
                 nodes=[
-                    {"id": "n_plan", "type": "plan", "position": {"x": 0.0, "y": 0.0}, "data": {"label": "Сценарий"}},
-                    {"id": "n_script", "type": "script", "position": {"x": 290.0, "y": 0.0}, "data": {"label": "Закадровый"}},
-                    {"id": "n_img", "type": "images", "position": {"x": 580.0, "y": 0.0}, "data": {"label": "Картинки"}},
+                    {
+                        "id": "n_plan",
+                        "type": "plan",
+                        "position": {"x": 0.0, "y": 0.0},
+                        "data": {"label": "Сценарий"},
+                    },
+                    {
+                        "id": "n_script",
+                        "type": "script",
+                        "position": {"x": 290.0, "y": 0.0},
+                        "data": {"label": "Закадровый"},
+                    },
+                    {
+                        "id": "n_img",
+                        "type": "images",
+                        "position": {"x": 580.0, "y": 0.0},
+                        "data": {"label": "Картинки"},
+                    },
                 ],
                 edges=[
                     {"id": "e_0", "source": "n_plan", "target": "n_script"},
@@ -1031,9 +996,24 @@ async def test_orchestrator_chat_remove_node(api_client, monkeypatch) -> None:
                 name="default",
                 is_default=True,
                 nodes=[
-                    {"id": "n_plan", "type": "plan", "position": {"x": 0.0, "y": 0.0}, "data": {"label": "Сценарий"}},
-                    {"id": "n_hitl_gate_old", "type": "hitl_gate", "position": {"x": 145.0, "y": 140.0}, "data": {"label": "Проверка"}},
-                    {"id": "n_script", "type": "script", "position": {"x": 290.0, "y": 0.0}, "data": {"label": "Закадровый"}},
+                    {
+                        "id": "n_plan",
+                        "type": "plan",
+                        "position": {"x": 0.0, "y": 0.0},
+                        "data": {"label": "Сценарий"},
+                    },
+                    {
+                        "id": "n_hitl_gate_old",
+                        "type": "hitl_gate",
+                        "position": {"x": 145.0, "y": 140.0},
+                        "data": {"label": "Проверка"},
+                    },
+                    {
+                        "id": "n_script",
+                        "type": "script",
+                        "position": {"x": 290.0, "y": 0.0},
+                        "data": {"label": "Закадровый"},
+                    },
                 ],
                 edges=[
                     {"id": "e_0", "source": "n_plan", "target": "n_hitl_gate_old"},
@@ -1072,8 +1052,7 @@ async def test_orchestrator_chat_remove_node(api_client, monkeypatch) -> None:
         p = await session.get(Project, project_id)
         g = (p.meta or {}).get("canvas_graph") or {}
         assert any(
-            n["id"].startswith("n_hitl_gate_") and n["id"] != "n_hitl_gate_old"
-            for n in g["nodes"]
+            n["id"].startswith("n_hitl_gate_") and n["id"] != "n_hitl_gate_old" for n in g["nodes"]
         )  # ещё НЕ удалено
 
     # Подтверждение — удаляет.
@@ -1130,8 +1109,18 @@ async def test_remove_node_consecutive_keeps_chain_linear(api_client) -> None:
         meta["canvas_graph"] = {
             "nodes": [
                 {"id": "n_plan", "type": "plan", "position": {"x": 0.0, "y": 0.0}, "data": {}},
-                {"id": "n_hitl_gate_1", "type": "hitl_gate", "position": {"x": 100.0, "y": 160.0}, "data": {"description": "добавлено оркестратором"}},
-                {"id": "n_hitl_gate_2", "type": "hitl_gate", "position": {"x": 200.0, "y": 160.0}, "data": {"description": "добавлено оркестратором"}},
+                {
+                    "id": "n_hitl_gate_1",
+                    "type": "hitl_gate",
+                    "position": {"x": 100.0, "y": 160.0},
+                    "data": {"description": "добавлено оркестратором"},
+                },
+                {
+                    "id": "n_hitl_gate_2",
+                    "type": "hitl_gate",
+                    "position": {"x": 200.0, "y": 160.0},
+                    "data": {"description": "добавлено оркестратором"},
+                },
                 {"id": "n_script", "type": "script", "position": {"x": 290.0, "y": 0.0}, "data": {}},
             ],
             "edges": [
@@ -1238,8 +1227,18 @@ async def test_add_node_labels_by_parent_and_rename(api_client, monkeypatch) -> 
                 name="default",
                 is_default=True,
                 nodes=[
-                    {"id": "n_plan", "type": "plan", "position": {"x": 0.0, "y": 0.0}, "data": {"label": "Сценарий"}},
-                    {"id": "n_script", "type": "script", "position": {"x": 290.0, "y": 0.0}, "data": {"label": "Закадровый текст"}},
+                    {
+                        "id": "n_plan",
+                        "type": "plan",
+                        "position": {"x": 0.0, "y": 0.0},
+                        "data": {"label": "Сценарий"},
+                    },
+                    {
+                        "id": "n_script",
+                        "type": "script",
+                        "position": {"x": 290.0, "y": 0.0},
+                        "data": {"label": "Закадровый текст"},
+                    },
                 ],
                 edges=[{"id": "e0", "source": "n_plan", "target": "n_script"}],
             )
@@ -1295,8 +1294,18 @@ async def test_remove_node_only_duplicates(api_client) -> None:
         meta["canvas_graph"] = {
             "nodes": [
                 {"id": "n_plan", "type": "plan", "position": {"x": 0.0, "y": 0.0}, "data": {}},
-                {"id": "n_hitl_gate_1", "type": "hitl_gate", "position": {"x": 100.0, "y": 160.0}, "data": {"description": "добавлено оркестратором"}},
-                {"id": "n_hitl_gate_2", "type": "hitl_gate", "position": {"x": 200.0, "y": 160.0}, "data": {"description": "добавлено оркестратором"}},
+                {
+                    "id": "n_hitl_gate_1",
+                    "type": "hitl_gate",
+                    "position": {"x": 100.0, "y": 160.0},
+                    "data": {"description": "добавлено оркестратором"},
+                },
+                {
+                    "id": "n_hitl_gate_2",
+                    "type": "hitl_gate",
+                    "position": {"x": 200.0, "y": 160.0},
+                    "data": {"description": "добавлено оркестратором"},
+                },
                 {"id": "n_script", "type": "script", "position": {"x": 290.0, "y": 0.0}, "data": {}},
             ],
             "edges": [
@@ -1333,11 +1342,36 @@ async def test_repair_graph_places_checks_after_parents(api_client) -> None:
         meta = dict(p.meta or {})
         meta["canvas_graph"] = {
             "nodes": [
-                {"id": "n_plan", "type": "plan", "position": {"x": 0.0, "y": 0.0}, "data": {"label": "Сценарий"}},
-                {"id": "n_script", "type": "script", "position": {"x": 290.0, "y": 0.0}, "data": {"label": "Закадровый текст"}},
-                {"id": "n_img", "type": "images", "position": {"x": 580.0, "y": 0.0}, "data": {"label": "Картинки"}},
-                {"id": "n_excel_gpt_1", "type": "excel_gpt", "position": {"x": 0.0, "y": 160.0}, "data": {"label": "Работа с GPT — Сценарий"}},
-                {"id": "n_excel_gpt_2", "type": "excel_gpt", "position": {"x": 200.0, "y": 160.0}, "data": {"label": "Работа с GPT — Картинки"}},
+                {
+                    "id": "n_plan",
+                    "type": "plan",
+                    "position": {"x": 0.0, "y": 0.0},
+                    "data": {"label": "Сценарий"},
+                },
+                {
+                    "id": "n_script",
+                    "type": "script",
+                    "position": {"x": 290.0, "y": 0.0},
+                    "data": {"label": "Закадровый текст"},
+                },
+                {
+                    "id": "n_img",
+                    "type": "images",
+                    "position": {"x": 580.0, "y": 0.0},
+                    "data": {"label": "Картинки"},
+                },
+                {
+                    "id": "n_excel_gpt_1",
+                    "type": "excel_gpt",
+                    "position": {"x": 0.0, "y": 160.0},
+                    "data": {"label": "Работа с GPT — Сценарий"},
+                },
+                {
+                    "id": "n_excel_gpt_2",
+                    "type": "excel_gpt",
+                    "position": {"x": 200.0, "y": 160.0},
+                    "data": {"label": "Работа с GPT — Картинки"},
+                },
             ],
             "edges": [],
         }
@@ -1370,8 +1404,18 @@ async def test_repair_then_add_each_works(api_client, monkeypatch) -> None:
         meta = dict(p.meta or {})
         meta["canvas_graph"] = {
             "nodes": [
-                {"id": "n_plan", "type": "plan", "position": {"x": 0.0, "y": 0.0}, "data": {"label": "Сценарий"}},
-                {"id": "n_script", "type": "script", "position": {"x": 290.0, "y": 0.0}, "data": {"label": "Закадровый текст"}},
+                {
+                    "id": "n_plan",
+                    "type": "plan",
+                    "position": {"x": 0.0, "y": 0.0},
+                    "data": {"label": "Сценарий"},
+                },
+                {
+                    "id": "n_script",
+                    "type": "script",
+                    "position": {"x": 290.0, "y": 0.0},
+                    "data": {"label": "Закадровый текст"},
+                },
             ],
             "edges": [],  # разрыв
         }
@@ -1436,10 +1480,30 @@ async def test_add_node_each_gives_check_after_work_excel_gpt(api_client) -> Non
         meta = dict(p.meta or {})
         meta["canvas_graph"] = {
             "nodes": [
-                {"id": "n_plan", "type": "plan", "position": {"x": 0.0, "y": 0.0}, "data": {"label": "Сценарий"}},
-                {"id": "n_script", "type": "script", "position": {"x": 290.0, "y": 0.0}, "data": {"label": "Закадровый"}},
-                {"id": "n_excel_gpt_1", "type": "excel_gpt", "position": {"x": 580.0, "y": 0.0}, "data": {"label": "Тест", "slotIndex": 1}},
-                {"id": "n_images", "type": "images", "position": {"x": 870.0, "y": 0.0}, "data": {"label": "Картинки"}},
+                {
+                    "id": "n_plan",
+                    "type": "plan",
+                    "position": {"x": 0.0, "y": 0.0},
+                    "data": {"label": "Сценарий"},
+                },
+                {
+                    "id": "n_script",
+                    "type": "script",
+                    "position": {"x": 290.0, "y": 0.0},
+                    "data": {"label": "Закадровый"},
+                },
+                {
+                    "id": "n_excel_gpt_1",
+                    "type": "excel_gpt",
+                    "position": {"x": 580.0, "y": 0.0},
+                    "data": {"label": "Тест", "slotIndex": 1},
+                },
+                {
+                    "id": "n_images",
+                    "type": "images",
+                    "position": {"x": 870.0, "y": 0.0},
+                    "data": {"label": "Картинки"},
+                },
             ],
             "edges": [
                 {"id": "e0", "source": "n_plan", "target": "n_script"},
@@ -1450,9 +1514,7 @@ async def test_add_node_each_gives_check_after_work_excel_gpt(api_client) -> Non
         p.meta = meta
         await session.commit()
 
-        res = await _apply_add_node(
-            session, p, {"node_type": "excel_gpt", "after": "each"}
-        )
+        res = await _apply_add_node(session, p, {"node_type": "excel_gpt", "after": "each"})
         await session.commit()
         # ВСЕ ноды получают проверку: plan, script, «Тест», images (хвост).
         assert "×4" in res["add_node"]
@@ -1463,8 +1525,7 @@ async def test_add_node_each_gives_check_after_work_excel_gpt(api_client) -> Non
         marked = {
             n["id"]
             for n in g["nodes"]
-            if str((n.get("data") or {}).get("description") or "")
-            == "добавлено оркестратором"
+            if str((n.get("data") or {}).get("description") or "") == "добавлено оркестратором"
         }
         # после n_script стоит проверка (даже если дальше рабочая excel_gpt)
         idx_s = order.index("n_script")
@@ -1508,9 +1569,7 @@ async def test_orchestrator_chat_diagnostics_in_context(api_client, monkeypatch)
 
     client, project_id, factory = api_client
     async with factory() as session:
-        wr = WorkflowRun(
-            workflow_id=1, project_id=project_id, status=WorkflowRunStatus.failed
-        )
+        wr = WorkflowRun(workflow_id=1, project_id=project_id, status=WorkflowRunStatus.failed)
         session.add(wr)
         await session.flush()
         session.add(
@@ -1681,17 +1740,13 @@ async def test_connect_edges_each_to_storage(api_client) -> None:
         p.meta = meta
         await session.commit()
 
-        res = await _apply_connect_edges(
-            session, p, {"from": "each", "to_type": "storage"}
-        )
+        res = await _apply_connect_edges(session, p, {"from": "each", "to_type": "storage"})
         assert "+3" in res["connect_edges"]
         g = (p.meta or {})["canvas_graph"]
         storage = [n for n in g["nodes"] if n["type"] == "storage"]
         assert len(storage) == 1
         sid = storage[0]["id"]
-        to_storage = {
-            e["source"] for e in g["edges"] if e["target"] == sid
-        }
+        to_storage = {e["source"] for e in g["edges"] if e["target"] == sid}
         assert to_storage == {"n_plan", "n_script", "n_img"}
         # Цепочка пайплайна всё ещё линейна (storage сбоку).
         assert _linear_order(g["nodes"], g["edges"]) == [
@@ -1701,9 +1756,7 @@ async def test_connect_edges_each_to_storage(api_client) -> None:
         ]
 
         # add_node each: старые рёбра к storage живы + новые ноды сами дотянуты.
-        res_add = await _apply_add_node(
-            session, p, {"node_type": "excel_gpt", "after": "each"}
-        )
+        res_add = await _apply_add_node(session, p, {"node_type": "excel_gpt", "after": "each"})
         assert "storage" in res_add["add_node"]
         g2 = (p.meta or {})["canvas_graph"]
         sid2 = next(n["id"] for n in g2["nodes"] if n["type"] == "storage")
@@ -1718,9 +1771,7 @@ def test_diagnose_only_question_blocks_code_dump() -> None:
         _is_diagnose_only_question,
     )
 
-    assert _is_diagnose_only_question(
-        "У МЕНЯ ОПЯТЬ ОШИБКА В РАБОТЕ НОДЫ РАБОТА ГПТ, НАЙДИ ПРИЧИНУ"
-    )
+    assert _is_diagnose_only_question("У МЕНЯ ОПЯТЬ ОШИБКА В РАБОТЕ НОДЫ РАБОТА ГПТ, НАЙДИ ПРИЧИНУ")
     assert _is_diagnose_only_question("что не так с нодой?")
     assert not _is_diagnose_only_question("почини код в enrich_xlsx.py")
     reply = _human_reply_from_diagnostics(
@@ -1820,9 +1871,7 @@ async def test_orchestrator_chat_connect_edges_action(api_client, monkeypatch) -
 
     monkeypatch.setattr(
         "app.services.gpt_client.get_gpt_client",
-        lambda: _FakeGpt(
-            '{"actions":[{"connect_edges":{"from":"each","to_type":"storage"}}]}'
-        ),
+        lambda: _FakeGpt('{"actions":[{"connect_edges":{"from":"each","to_type":"storage"}}]}'),
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",

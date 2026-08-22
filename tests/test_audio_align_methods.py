@@ -9,12 +9,12 @@ import pytest
 
 from app.services.audio_align_methods import (
     ALIGN_METHODS,
+    _timings_from_speech_islands,
     apply_align_method,
     detect_silences,
     list_align_methods,
     resolve_align_method,
     run_speech_align,
-    _timings_from_speech_islands,
 )
 from app.services.mapper import (
     FrameTiming,
@@ -222,10 +222,7 @@ def test_detect_silences_parses_ffmpeg_stderr(tmp_path: Path) -> None:
     fake = tmp_path / "voice.wav"
     fake.write_bytes(b"x")
     stderr = (
-        "silence_start: 1.2\n"
-        "silence_end: 1.8 | silence_duration: 0.6\n"
-        "silence_start: 4.0\n"
-        "silence_end: 4.5\n"
+        "silence_start: 1.2\nsilence_end: 1.8 | silence_duration: 0.6\nsilence_start: 4.0\nsilence_end: 4.5\n"
     )
     with patch("app.services.audio_align_methods.subprocess.run") as run:
         run.return_value = type("R", (), {"returncode": 0, "stderr": stderr, "stdout": ""})()

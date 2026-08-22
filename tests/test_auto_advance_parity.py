@@ -34,9 +34,7 @@ class _StubAsyncSession:
         return None
 
     async def execute(self, *_args, **_kwargs):  # pragma: no cover
-        raise AssertionError(
-            "execute() should not be called in these test cases"
-        )
+        raise AssertionError("execute() should not be called in these test cases")
 
 
 def _make_project(
@@ -88,8 +86,12 @@ async def test_enrich_cap_2_skips_to_image_prompts() -> None:
     assert transition.next_running is ProjectStatus.enriching_3
     hitl = _make_hitl(HITLKind.approve_hero)
     await _apply_approve(
-        _StubAsyncSession(), project, hitl, transition,
-        bot=None, badge="",
+        _StubAsyncSession(),
+        project,
+        hitl,
+        transition,
+        bot=None,
+        badge="",
     )
     assert project.status is ProjectStatus.generating_image_prompts
 
@@ -105,8 +107,12 @@ async def test_enrich_cap_5_uses_full_chain() -> None:
     transition = TRANSITIONS[ProjectStatus.enrich_2_ready]
     hitl = _make_hitl(HITLKind.approve_hero)
     await _apply_approve(
-        _StubAsyncSession(), project, hitl, transition,
-        bot=None, badge="",
+        _StubAsyncSession(),
+        project,
+        hitl,
+        transition,
+        bot=None,
+        badge="",
     )
     assert project.status is ProjectStatus.enriching_3
 
@@ -129,8 +135,12 @@ async def test_hero_count_2_stays_in_generating_hero() -> None:
         payload={"hero_index": 1, "variation_index": 1},
     )
     await _apply_approve(
-        _StubAsyncSession(), project, hitl, transition,
-        bot=None, badge="",
+        _StubAsyncSession(),
+        project,
+        hitl,
+        transition,
+        bot=None,
+        badge="",
     )
     assert project.status is ProjectStatus.generating_hero
 
@@ -150,8 +160,12 @@ async def test_hero_count_1_advances_to_items() -> None:
         payload={"hero_index": 1, "variation_index": 1},
     )
     await _apply_approve(
-        _StubAsyncSession(), project, hitl, transition,
-        bot=None, badge="",
+        _StubAsyncSession(),
+        project,
+        hitl,
+        transition,
+        bot=None,
+        badge="",
     )
     assert project.status is ProjectStatus.generating_items
 
@@ -171,8 +185,12 @@ async def test_hero_variations_3_stays_for_remaining_variations() -> None:
         payload={"hero_index": 1, "variation_index": 1},
     )
     await _apply_approve(
-        _StubAsyncSession(), project, hitl, transition,
-        bot=None, badge="",
+        _StubAsyncSession(),
+        project,
+        hitl,
+        transition,
+        bot=None,
+        badge="",
     )
     assert project.status is ProjectStatus.generating_hero
 
@@ -180,9 +198,7 @@ async def test_hero_variations_3_stays_for_remaining_variations() -> None:
 def test_expected_progression_respects_enrich_slots() -> None:
     """parity #8: expected_status_progression возвращает ровно
     N enrich-шагов и не больше."""
-    p = _make_project(
-        status=ProjectStatus.planning, enrich_slots_count=2
-    )
+    p = _make_project(status=ProjectStatus.planning, enrich_slots_count=2)
     prog = expected_status_progression(p)
     enriching = [s for s in prog if s.value.startswith("enriching_")]
     assert enriching == [ProjectStatus.enriching_1, ProjectStatus.enriching_2]
@@ -193,9 +209,7 @@ def test_expected_progression_respects_enrich_slots() -> None:
 
 def test_expected_progression_default_3_slots() -> None:
     """parity #8: дефолт = 3 слота."""
-    p = _make_project(
-        status=ProjectStatus.planning, enrich_slots_count=3
-    )
+    p = _make_project(status=ProjectStatus.planning, enrich_slots_count=3)
     prog = expected_status_progression(p)
     enriching = [s for s in prog if s.value.startswith("enriching_")]
     assert enriching == [

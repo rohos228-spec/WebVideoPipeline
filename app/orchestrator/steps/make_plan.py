@@ -52,9 +52,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     try:
         from app.services.storage_step_sync import sync_storage_after_step
 
-        await sync_storage_after_step(
-            session, project, "plan", log_prefix="make_plan"
-        )
+        await sync_storage_after_step(session, project, "plan", log_prefix="make_plan")
     except Exception as e:  # noqa: BLE001
         logger.warning("[#{}] make_plan: sync downstream storage failed: {}", project.id, e)
 

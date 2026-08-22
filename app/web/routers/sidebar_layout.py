@@ -6,13 +6,13 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from app.db import session_scope
 from app.models import Project
 from app.services import sidebar_layout as layout_svc
 from app.services.gen_queue_run import clear_gen_queue_run, set_gen_queue_run
 from app.services.project_control import clear_user_stop_gate
-from sqlalchemy import select
 
 router = APIRouter(prefix="/sidebar-layout", tags=["sidebar-layout"])
 
@@ -49,16 +49,14 @@ class GenQueueEnqueue(BaseModel):
 
 @router.get("")
 async def get_sidebar_layout() -> dict:
+    from sqlalchemy import select
+
     from app.db import session_scope
     from app.models import Project
     from app.services.gen_queue import get_gen_queue_idle_info
-    from sqlalchemy import select
 
     async with session_scope() as session:
-        ids = {
-            int(pid)
-            for pid in (await session.execute(select(Project.id))).scalars().all()
-        }
+        ids = {int(pid) for pid in (await session.execute(select(Project.id))).scalars().all()}
         payload = layout_svc.layout_for_api(ids)
         payload["gen_queue_idle"] = await get_gen_queue_idle_info(session)
         await session.commit()
@@ -78,15 +76,13 @@ async def put_sidebar_layout(body: LayoutUpdate) -> dict:
         project_layout=project_layout,
         gen_queue=body.gen_queue,
     )
-    from app.db import session_scope
-    from app.models import Project
     from sqlalchemy import select
 
+    from app.db import session_scope
+    from app.models import Project
+
     async with session_scope() as session:
-        ids = {
-            int(pid)
-            for pid in (await session.execute(select(Project.id))).scalars().all()
-        }
+        ids = {int(pid) for pid in (await session.execute(select(Project.id))).scalars().all()}
     return layout_svc.layout_for_api(ids)
 
 
@@ -157,9 +153,7 @@ async def bulk_enqueue_gen_queue(body: GenQueueBulkEnqueue) -> dict:
     async with session_scope() as session:
         projects: list[Project] = []
         for pid in body.project_ids:
-            project = (
-                await session.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await session.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             if project is None:
                 raise HTTPException(status_code=404, detail=f"project not found: {pid}")
             if not project.auto_mode:

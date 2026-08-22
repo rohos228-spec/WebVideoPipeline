@@ -272,9 +272,7 @@ def plan_vision_prompt_fixes(
     if not targets:
         return []
 
-    critical = [
-        i for i in extract_vision_issues(reply) if i.get("severity") == "critical"
-    ]
+    critical = [i for i in extract_vision_issues(reply) if i.get("severity") == "critical"]
     per: dict[int, dict[str, Any]] = {}
     for issue in critical:
         body = str(issue.get("text") or "")
@@ -286,9 +284,7 @@ def plan_vision_prompt_fixes(
         clone = bool(_CLONE_RE.search(body))
         axis = str(issue.get("axis") or "").strip()
         for n in nums:
-            slot = per.setdefault(
-                n, {"must": set(), "clone": False, "reasons": [], "axes": set()}
-            )
+            slot = per.setdefault(n, {"must": set(), "clone": False, "reasons": [], "axes": set()})
             slot["must"].update(missing)
             if clone:
                 slot["clone"] = True
@@ -300,9 +296,7 @@ def plan_vision_prompt_fixes(
     for t in targets:
         num = int(t["number"])
         if _reply_marks_clones(reply, num):
-            slot = per.setdefault(
-                num, {"must": set(), "clone": False, "reasons": [], "axes": set()}
-            )
+            slot = per.setdefault(num, {"must": set(), "clone": False, "reasons": [], "axes": set()})
             slot["clone"] = True
             if not slot["reasons"]:
                 slot["reasons"].append(f"clone/double mentioned for frame {num}")
@@ -343,9 +337,7 @@ def plan_vision_prompt_fixes(
         hard = clone_hard or bool(info.get("clone"))
         # scenes: clones/character закрыты спец-билдерами — generic-строки
         # этих осей не дублируем; для videos они единственная инструкция.
-        axes_for_block = (
-            axes - {"clones", "character"} if kind == "scenes" else axes
-        )
+        axes_for_block = axes - {"clones", "character"} if kind == "scenes" else axes
         fix = _fix_block(
             must=sorted(must) if kind == "scenes" else [],
             forbid_clones=kind == "scenes",
@@ -388,9 +380,7 @@ def plan_hero_vision_fixes(reply: str, hero_ids: list[str]) -> dict[str, str]:
             if issue.get("severity") != "critical":
                 continue
             body = str(issue.get("text") or "")
-            body_cids = {
-                c for c in (_norm_cid(m.group(0)) for m in _CID_RE.finditer(body)) if c
-            }
+            body_cids = {c for c in (_norm_cid(m.group(0)) for m in _CID_RE.finditer(body)) if c}
             if cid not in body_cids:
                 continue
             axis = str(issue.get("axis") or "").strip()
@@ -493,12 +483,10 @@ async def build_auto_vision_db_patch(
     from app.services.vision_check_db import load_character_rows
 
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     by_num = {fr.number: fr for fr in frames}
     chars = await load_character_rows(session, project)
     meta = project.meta if isinstance(project.meta, dict) else {}

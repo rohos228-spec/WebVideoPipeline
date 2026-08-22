@@ -73,7 +73,11 @@ def test_subtitles_clamped_to_audio_end() -> None:
     words = [WordTS("привет", 0.0, 0.5, 1.0), WordTS("мир", 0.5, 1.0, 1.0)]
     timings = [FrameTiming(1, 0.0, 10.0, 10.0)]
     cues = build_subtitle_cues_from_cells(
-        cells, words, timings, max_words=1, max_end_ts=1.0,
+        cells,
+        words,
+        timings,
+        max_words=1,
+        max_end_ts=1.0,
     )
     assert cues
     assert cues[-1][1] <= 1.0
@@ -108,10 +112,7 @@ def test_frame_clips_from_whisper_no_r15_crumb_tail(tmp_path: Path) -> None:
     voice.write_bytes(b"x")
     # Текст совпадает со словами — direct word-map; лёгкий overlap на границах.
     cells = [(i, f"слово{i}") for i in range(1, 21)]
-    words = [
-        WordTS(f"слово{i}", float(i - 1) * 2.0, float(i - 1) * 2.0 + 2.2, 1.0)
-        for i in range(1, 21)
-    ]
+    words = [WordTS(f"слово{i}", float(i - 1) * 2.0, float(i - 1) * 2.0 + 2.2, 1.0) for i in range(1, 21)]
     master = 42.0
     clips = frame_clips_from_whisper(cells, words, master=master, voice_full_path=voice)
     assert len(clips) == 20

@@ -20,9 +20,7 @@ class NodeLlmOverride:
     label: str
 
 
-_current: ContextVar[NodeLlmOverride | None] = ContextVar(
-    "node_llm_override", default=None
-)
+_current: ContextVar[NodeLlmOverride | None] = ContextVar("node_llm_override", default=None)
 
 
 @dataclass(frozen=True)
@@ -40,9 +38,7 @@ class LlmAccountingContext:
     node_key: str
 
 
-_accounting: ContextVar[LlmAccountingContext | None] = ContextVar(
-    "llm_accounting_context", default=None
-)
+_accounting: ContextVar[LlmAccountingContext | None] = ContextVar("llm_accounting_context", default=None)
 
 
 def current_accounting() -> LlmAccountingContext | None:
@@ -126,11 +122,7 @@ def bind_project_llm(project: Any, status: Any | None = None) -> Iterator[NodeLl
     # наличия model-override.
     acct = LlmAccountingContext(
         project_id=getattr(project, "id", None),
-        node_key=str(
-            node_key
-            or node_type
-            or (getattr(status, "value", None) or "step")
-        ),
+        node_key=str(node_key or node_type or (getattr(status, "value", None) or "step")),
     )
     with use_accounting(acct), use_override(ov) as bound:
         yield bound

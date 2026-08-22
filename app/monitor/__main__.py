@@ -92,11 +92,14 @@ async def main() -> None:
 
     from app.monitor.log_sink import emit_event
 
-    emit_event("monitor_started", detail={
-        "monitor_dir": str(monitor_dir.resolve()),
-        "screenshot_interval": args.interval,
-        "browser_watch": not args.no_browser,
-    })
+    emit_event(
+        "monitor_started",
+        detail={
+            "monitor_dir": str(monitor_dir.resolve()),
+            "screenshot_interval": args.interval,
+            "browser_watch": not args.no_browser,
+        },
+    )
 
     try:
         from app.main import main as app_main

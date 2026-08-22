@@ -13,12 +13,16 @@ from app.services.excel_gpt_node import effective_node_type
 async def sync_runs_from_workflow(session: AsyncSession, workflow: Workflow) -> int:
     """Обновить nodes/edges snapshot у всех Run этого workflow. Возвращает число Run."""
     runs = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.workflow_id == workflow.id)
-            .options(selectinload(WorkflowRun.node_runs))
+        (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.workflow_id == workflow.id)
+                .options(selectinload(WorkflowRun.node_runs))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     nodes = list(workflow.nodes or [])
     edges = list(workflow.edges or [])
     node_ids = {n["id"] for n in nodes if "id" in n}

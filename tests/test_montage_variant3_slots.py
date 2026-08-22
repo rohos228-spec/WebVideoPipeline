@@ -10,11 +10,10 @@ from app.services.media_probe import probe_duration
 from app.services.montage.variant2 import (
     GAP_POLICY,
     MONTAGE_ENGINE_V2,
-    _OverlaySlot,
     _clip_filter_chain,
-    _concat_segments,
     _duration_up_to_frame,
     _encode_clip_segment,
+    _OverlaySlot,
     _pingpong_plan,
     build_timeline_segments,
 )
@@ -87,9 +86,18 @@ def test_gap_policy_name() -> None:
 async def test_ffmpeg_reverse_to_next_start(tmp_path: Path) -> None:
     clip = tmp_path / "a.mp4"
     proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-y", "-f", "lavfi",
-        "-i", "color=c=red:s=320x240:d=2.0:r=30",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", str(clip),
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=320x240:d=2.0:r=30",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-an",
+        str(clip),
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )

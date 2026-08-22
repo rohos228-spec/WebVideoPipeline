@@ -1,4 +1,5 @@
 """Poll #60 until scene agents done/failed."""
+
 from __future__ import annotations
 
 import json
@@ -36,17 +37,13 @@ def main() -> None:
             last = cur
         con = sqlite3.connect(str(DB))
         status = con.execute("SELECT status FROM projects WHERE id=60").fetchone()[0]
-        meta = json.loads(
-            con.execute("SELECT meta FROM projects WHERE id=60").fetchone()[0] or "{}"
-        )
+        meta = json.loads(con.execute("SELECT meta FROM projects WHERE id=60").fetchone()[0] or "{}")
         con.close()
         sd = meta.get("scene_design") or {}
         agents = sd.get("agents") or {}
         action_ok = isinstance(agents.get("action"), dict) and agents["action"].get("status") == "done"
         camera_ok = isinstance(agents.get("camera"), dict) and agents["camera"].get("status") == "done"
-        if status in ("scene_agents_ready", "scene_design_ready", "paused") and (
-            action_ok and camera_ok
-        ):
+        if status in ("scene_agents_ready", "scene_design_ready", "paused") and (action_ok and camera_ok):
             print("READY", flush=True)
             return
         if status == "paused" or sd.get("status") == "failed":

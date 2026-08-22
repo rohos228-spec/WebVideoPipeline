@@ -56,9 +56,7 @@ def _as_plain_text(value: Any) -> str:
     return str(value).strip()
 
 
-def merge_world_style_checkpoints(
-    project: Project, assembly_input: dict[str, Any]
-) -> dict[str, Any]:
+def merge_world_style_checkpoints(project: Project, assembly_input: dict[str, Any]) -> dict[str, Any]:
     """locations/style_arc: ячейки часто без списка сцен — взять JSON чекпоинта."""
     from app.services.scene_design.runner import load_checkpoint
 
@@ -146,9 +144,11 @@ def _who_to_cnn(
     if any(x in folded for x in ("титульн", "надпись", "фамилия")):
         return found
     for name, cid in sorted(name_to_id.items(), key=lambda x: -len(x[0])):
-        if name and re.search(
-            rf"(?<![0-9a-zа-яё]){re.escape(name)}(?![0-9a-zа-яё])", folded
-        ) and cid not in found:
+        if (
+            name
+            and re.search(rf"(?<![0-9a-zа-яё]){re.escape(name)}(?![0-9a-zа-яё])", folded)
+            and cid not in found
+        ):
             found.append(cid)
     extra_needles = (
         ("соседк", "соседка"),
@@ -260,9 +260,7 @@ def attach_action_chains_to_scenes(
             if score > best_score:
                 best_score = score
                 best = ac
-                row["цепь_действия"] = chain or _parse_action_chain(
-                    ac.get("цепь_действия")
-                )
+                row["цепь_действия"] = chain or _parse_action_chain(ac.get("цепь_действия"))
         if best is not None and best_score >= 0:
             if not row.get("смысл_сцены"):
                 row["смысл_сцены"] = best.get("смысл_сцены") or ""
@@ -336,16 +334,9 @@ def stamp_characters_onto_ops(
         if not isinstance(op, dict):
             continue
         op2 = dict(op)
-        fields = (
-            dict(op2.get("fields") or {})
-            if isinstance(op2.get("fields"), dict)
-            else {}
-        )
+        fields = dict(op2.get("fields") or {}) if isinstance(op2.get("fields"), dict) else {}
         current = _as_plain_text(
-            fields.get("персонажи")
-            or fields.get("characters")
-            or fields.get("persons")
-            or ""
+            fields.get("персонажи") or fields.get("characters") or fields.get("persons") or ""
         )
         ids = _who_to_cnn(current, name_to_id, extras)
         sid = str(fields.get("id_scene") or "").strip()
@@ -372,11 +363,7 @@ def stamp_actions_onto_ops(
 
     Запрет: GPT-«камера вводит…» и копипаст одного действия на все кадры сцены.
     """
-    chrono = [
-        sc
-        for sc in (assembly_input.get("scenes_chrono") or [])
-        if isinstance(sc, dict)
-    ]
+    chrono = [sc for sc in (assembly_input.get("scenes_chrono") or []) if isinstance(sc, dict)]
     by_scene: dict[str, dict[str, Any]] = {
         str(sc.get("id_scene") or "").strip(): sc for sc in chrono if sc.get("id_scene")
     }
@@ -397,16 +384,10 @@ def stamp_actions_onto_ops(
         if not isinstance(op, dict):
             continue
         op2 = dict(op)
-        fields = (
-            dict(op2.get("fields") or {})
-            if isinstance(op2.get("fields"), dict)
-            else {}
-        )
+        fields = dict(op2.get("fields") or {}) if isinstance(op2.get("fields"), dict) else {}
         # Почистить [object Object] / вложенные объекты во всех строковых полях.
         for k, v in list(fields.items()):
-            if isinstance(v, (dict, list)) or (
-                isinstance(v, str) and "[object Object]" in v
-            ):
+            if isinstance(v, (dict, list)) or (isinstance(v, str) and "[object Object]" in v):
                 fields[k] = _as_plain_text(v) if "[object Object]" not in str(v) else ""
 
         uid = str(op2.get("frame_uuid") or "").strip()
@@ -455,15 +436,9 @@ def build_local_assembler_payload(
     GPT-assemble только жжёт чанки. Локальный путь восстанавливает запись
     из уже готовых агентов (characters/action/camera) без повторных вызовов.
     """
-    characters = [
-        c for c in (assembly_input.get("characters") or []) if isinstance(c, dict)
-    ]
-    shots = [
-        s for s in (assembly_input.get("shot_plan_chrono") or []) if isinstance(s, dict)
-    ]
-    chrono = [
-        sc for sc in (assembly_input.get("scenes_chrono") or []) if isinstance(sc, dict)
-    ]
+    characters = [c for c in (assembly_input.get("characters") or []) if isinstance(c, dict)]
+    shots = [s for s in (assembly_input.get("shot_plan_chrono") or []) if isinstance(s, dict)]
+    chrono = [sc for sc in (assembly_input.get("scenes_chrono") or []) if isinstance(sc, dict)]
     uuid_to_sid: dict[str, str] = {}
     for sc in chrono:
         sid = str(sc.get("id_scene") or "").strip()
@@ -489,9 +464,7 @@ def build_local_assembler_payload(
                 if q and vo and (q[:24] in vo or vo[:24] in q):
                     sh = cand
                     break
-        composition = _as_plain_text(
-            sh.get("композиция") or sh.get("действие") or sh.get("action") or ""
-        )
+        composition = _as_plain_text(sh.get("композиция") or sh.get("действие") or sh.get("action") or "")
         if re.search(r"со спины|спин[аыуе]", composition, flags=re.I):
             composition = re.sub(r"со спины\s*", "", composition, flags=re.I).strip(" ,")
             if "лиц" not in composition.casefold():
@@ -586,9 +559,7 @@ def force_scenes_from_chrono(
             except (TypeError, ValueError):
                 kid_sec = 0.0
         loc_id = str(sc.get("location") or sc.get("место_id") or "").strip()
-        place = _loc_label(loc_id, locations) or _as_plain_text(
-            sc.get("место") or sc.get("набор") or ""
-        )
+        place = _loc_label(loc_id, locations) or _as_plain_text(sc.get("место") or sc.get("набор") or "")
         st = _style_for_scene(sid, style_arc)
         lighting = _lighting_line(st)
         scene_place[sid] = place
@@ -642,11 +613,7 @@ def force_scenes_from_chrono(
         if not isinstance(op, dict):
             continue
         op2 = dict(op)
-        fields = (
-            dict(op2.get("fields") or {})
-            if isinstance(op2.get("fields"), dict)
-            else {}
-        )
+        fields = dict(op2.get("fields") or {}) if isinstance(op2.get("fields"), dict) else {}
         uid = str(op2.get("frame_uuid") or "").strip()
         if uid in uuid_to_scene:
             fields["id_scene"] = uuid_to_scene[uid]
@@ -736,8 +703,7 @@ def validate_payload(
             declared = 0.0
         if declared <= 0:
             problems.append(
-                f"{sid}: нет время_сек — задай хронометраж сцены "
-                "(сумма время_сек её кадров из входа)"
+                f"{sid}: нет время_сек — задай хронометраж сцены (сумма время_сек её кадров из входа)"
             )
         else:
             declared_time[sid] = declared
@@ -748,9 +714,7 @@ def validate_payload(
                 problems.append(f"{sid}: пустые {key}")
                 continue
             if quote not in vo_norm:
-                problems.append(
-                    f"{sid}: {key} не найдены в закадре: {_norm_words(raw_quote)[:60]!r}"
-                )
+                problems.append(f"{sid}: {key} не найдены в закадре: {_norm_words(raw_quote)[:60]!r}")
             owner = seen_quotes.get(quote)
             if owner is not None and owner != sid:
                 problems.append(f"{sid}: {key} дублируют цитату сцены {owner}")
@@ -774,9 +738,7 @@ def validate_payload(
         if not isinstance(fields, dict) or not fields:
             problems.append(f"ops {uuid}: пустые fields")
             continue
-        sid = str(
-            fields.get("id_scene") or fields.get("shot01_id_scene") or ""
-        ).strip()
+        sid = str(fields.get("id_scene") or fields.get("shot01_id_scene") or "").strip()
         if sid and sid not in scene_ids:
             problems.append(f"ops {uuid}: id_scene {sid!r} отсутствует в scenes[]")
 
@@ -792,18 +754,14 @@ def validate_payload(
         fields = op.get("fields") or {}
         if not isinstance(fields, dict):
             continue
-        sid = str(
-            fields.get("id_scene") or fields.get("shot01_id_scene") or ""
-        ).strip()
+        sid = str(fields.get("id_scene") or fields.get("shot01_id_scene") or "").strip()
         if not sid:
             continue
         frames_per_scene[sid] = frames_per_scene.get(sid, 0) + 1
     if len(scenes) > 1:
         # Сравниваем с VO-ячейками, не с SET после camera_expand.
         # Иначе 6 сцен × 5–7 шотов (40 кадров) ложно валится как «склейка VO».
-        vo_n = sum(
-            1 for fr in frames if (getattr(fr, "voiceover_text", None) or "").strip()
-        )
+        vo_n = sum(1 for fr in frames if (getattr(fr, "voiceover_text", None) or "").strip())
         vo_basis = vo_n if vo_n > 0 else len(frame_uuids)
         if len(scenes) < max(3, int(0.5 * vo_basis)):
             # Мало сцен относительно VO-ячеек — склеили закадр, а не SET внутри сцены.
@@ -835,9 +793,7 @@ def validate_payload(
         fields = op.get("fields") or {}
         if not isinstance(fields, dict):
             continue
-        sid = str(
-            fields.get("id_scene") or fields.get("shot01_id_scene") or ""
-        ).strip()
+        sid = str(fields.get("id_scene") or fields.get("shot01_id_scene") or "").strip()
         if not sid:
             continue
         sec, _source = frame_seconds(fr)

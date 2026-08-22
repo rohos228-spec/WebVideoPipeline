@@ -7,8 +7,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 # Шаг, где три параллельных проекта уже ловили database is locked (split frames).
 _SPLIT_LOCK = asyncio.Lock()

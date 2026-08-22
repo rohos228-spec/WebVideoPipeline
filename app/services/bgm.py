@@ -11,9 +11,13 @@ from app.models import Project
 from app.settings import settings
 
 _BGM_FILENAMES = (
-    "bgm.mp3", "bgm.wav", "bgm.m4a",
-    "music.mp3", "music.wav",
-    "background.mp3", "fon.mp3",
+    "bgm.mp3",
+    "bgm.wav",
+    "bgm.m4a",
+    "music.mp3",
+    "music.wav",
+    "background.mp3",
+    "fon.mp3",
 )
 _AUDIO_GLOB = ("*.mp3", "*.wav", "*.m4a", "*.ogg", "*.flac")
 

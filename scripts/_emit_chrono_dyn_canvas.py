@@ -1,4 +1,5 @@
 """Emit canvas TSX with embedded scene×node report for #60."""
+
 from __future__ import annotations
 
 import json

@@ -12,13 +12,12 @@
 
 from __future__ import annotations
 
-import app.bootstrap_env  # noqa: F401  — TEMP/HF env до loguru, nemo, huggingface
-
 import asyncio
 import contextlib
 
 from loguru import logger
 
+import app.bootstrap_env  # noqa: F401  — TEMP/HF env до loguru, nemo, huggingface
 from app.db import engine
 from app.models import Base, Project, ProjectStatus
 from app.prompts_loader import sync_prompts_from_files
@@ -73,17 +72,13 @@ async def _init_db() -> None:
             ("auto_mode", "BOOLEAN DEFAULT 0"),
             ("title", "VARCHAR(240)"),
         ]
-        cols_rows = (
-            await conn.exec_driver_sql("PRAGMA table_info(projects)")
-        ).fetchall()
+        cols_rows = (await conn.exec_driver_sql("PRAGMA table_info(projects)")).fetchall()
         existing = {row[1] for row in cols_rows}
         for col, ctype in _new_cols:
             if col in existing:
                 continue
             try:
-                await conn.exec_driver_sql(
-                    f"ALTER TABLE projects ADD COLUMN {col} {ctype}"
-                )
+                await conn.exec_driver_sql(f"ALTER TABLE projects ADD COLUMN {col} {ctype}")
                 logger.info("migrate: projects.{} added", col)
             except Exception as e:  # noqa: BLE001
                 logger.warning("migrate: add column {} failed: {}", col, e)
@@ -93,9 +88,7 @@ async def _init_db() -> None:
         # сбрасываем в `new`, дальше recompute_all поднимет до правильного
         # уровня по данным.
         try:
-            await conn.exec_driver_sql(
-                "UPDATE projects SET status = 'new' WHERE status = 'failed'"
-            )
+            await conn.exec_driver_sql("UPDATE projects SET status = 'new' WHERE status = 'failed'")
         except Exception as e:  # noqa: BLE001
             logger.warning("migrate failed→new: {}", e)
 
@@ -112,11 +105,9 @@ async def _backfill_from_disk() -> None:
     с xlsx, ничего не меняется.
     """
     from sqlalchemy import func, select
-    from sqlalchemy.orm.attributes import flag_modified
 
     from app.db import session_scope
     from app.models import Frame, Project
-    from app.services.chatgpt_xlsx import _sync_had_changes, sync_project_xlsx
     from app.services.ensure_frames_from_disk import (
         discover_frame_numbers_on_disk,
         ensure_frames_from_disk_media,
@@ -138,9 +129,7 @@ async def _backfill_from_disk() -> None:
 
     try:
         async with session_scope() as s:
-            projects = (
-                await s.execute(select(Project))
-            ).scalars().all()
+            projects = (await s.execute(select(Project))).scalars().all()
             for p in projects:
                 # p.data_dir автоматически даёт правильный путь:
                 # для одиночных — data/videos/<slug>/,
@@ -160,9 +149,7 @@ async def _backfill_from_disk() -> None:
                 # general_plan / script_text. Бэкфилл только заполняет
                 # пустоты.
                 frame_count = (
-                    await s.execute(
-                        select(func.count(Frame.id)).where(Frame.project_id == p.id)
-                    )
+                    await s.execute(select(func.count(Frame.id)).where(Frame.project_id == p.id))
                 ).scalar_one() or 0
 
                 # Excel → DB только явный Import (excel_io). Startup auto-sync выключен.
@@ -178,8 +165,7 @@ async def _backfill_from_disk() -> None:
                         if txt:
                             p.script_text = txt
                             logger.info(
-                                "backfill[#{}]: voiceover.txt → "
-                                "project.script_text ({} симв)",
+                                "backfill[#{}]: voiceover.txt → project.script_text ({} симв)",
                                 p.id,
                                 len(txt),
                             )
@@ -215,8 +201,7 @@ async def _recompute_all_projects() -> None:
             changes = await recompute_all(s)
             if changes:
                 logger.warning(
-                    "recompute: {} проект(а/ов) с десинхронизацией статуса "
-                    "→ {}",
+                    "recompute: {} проект(а/ов) с десинхронизацией статуса → {}",
                     len(changes),
                     {pid: f"{old}→{new}" for pid, (old, new) in changes.items()},
                 )
@@ -304,16 +289,15 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
     active = list(WORKER_ACTIVE_STATUSES)
     from app.services.mass_pause import is_active as _mass_pause_active
     from app.services.step_cancel import active_advance_count, is_stop_requested
-    from app.telegram.bot import notify_step_done
-
     from app.services.step_failure_policy import (
         clear_failure_on_success,
+        failure_sleep_until,
         is_sleeping,
         maybe_resume_after_sleep,
         record_step_failure,
-        failure_sleep_until,
         resume_expired_error_sleeps,
     )
+    from app.telegram.bot import notify_step_done
 
     async def _handle_one_advance(
         project_id: int,
@@ -364,9 +348,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                             )
 
                             if await is_timeline_complete(s, p):
-                                started = await on_project_timeline_maybe_advance_queue(
-                                    s, p
-                                )
+                                started = await on_project_timeline_maybe_advance_queue(s, p)
                                 if started:
                                     await s.commit()
                 except Exception:  # noqa: BLE001
@@ -382,9 +364,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         result.new_status,
                     )
                 except Exception:  # noqa: BLE001
-                    logger.exception(
-                        "notify_step_done({}) failed", project_id
-                    )
+                    logger.exception("notify_step_done({}) failed", project_id)
         except StepCancelledError:
             logger.info(
                 "[#{}] advance_project cancelled by stop-flag (⏹)",
@@ -414,33 +394,19 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                     if bot and settings.telegram_active:
                         if action == "retry" and prev == 0:
                             if is_chrome_infra_error(e):
-                                msg = (
-                                    f"🔄 #{p.id}: Chrome перезапущен, "
-                                    f"повтор {p.status.value}"
-                                )
+                                msg = f"🔄 #{p.id}: Chrome перезапущен, повтор {p.status.value}"
                             else:
-                                msg = (
-                                    f"⚠️ #{p.id} ({p.status.value}): "
-                                    f"{type(e).__name__}: {e}"
-                                )
-                            await bot.send_message(
-                                settings.telegram_owner_chat_id, msg[:3800]
-                            )
+                                msg = f"⚠️ #{p.id} ({p.status.value}): {type(e).__name__}: {e}"
+                            await bot.send_message(settings.telegram_owner_chat_id, msg[:3800])
                         elif action == "sleep":
                             await bot.send_message(
                                 settings.telegram_owner_chat_id,
-                                (
-                                    f"😴 #{p.id}: 3 ошибки — reset, "
-                                    f"пауза 30 мин (макс. 9 попыток)"
-                                )[:3800],
+                                (f"😴 #{p.id}: 3 ошибки — reset, пауза 30 мин (макс. 9 попыток)")[:3800],
                             )
                         elif action == "abandon":
                             await bot.send_message(
                                 settings.telegram_owner_chat_id,
-                                (
-                                    f"🛑 #{p.id}: 3 цикла отказов — "
-                                    f"paused, следующий в очереди"
-                                )[:3800],
+                                (f"🛑 #{p.id}: 3 цикла отказов — paused, следующий в очереди")[:3800],
                             )
                             from app.services.gen_queue import gen_queue_tick
 
@@ -449,10 +415,9 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         elif action == "pause_infra":
                             await bot.send_message(
                                 settings.telegram_owner_chat_id,
-                                (
-                                    f"🌐 #{p.id}: Chrome не восстановился — "
-                                    f"paused. Start-Chrome.cmd + ▶"
-                                )[:3800],
+                                (f"🌐 #{p.id}: Chrome не восстановился — paused. Start-Chrome.cmd + ▶")[
+                                    :3800
+                                ],
                             )
                         elif action == "pause_budget":
                             # Этап 3: причина уже в meta.pause_reason.
@@ -469,9 +434,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                             )
                 fail_counts.pop(key, None)
             except Exception:  # noqa: BLE001
-                logger.warning(
-                    "step_failure_policy failed for #{}", project_id
-                )
+                logger.warning("step_failure_policy failed for #{}", project_id)
         finally:
             unregister_advance_task(project_id)
 
@@ -525,8 +488,8 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                     )
 
                 projects = (
-                    await s.execute(select(Project).where(Project.status.in_(active)))
-                ).scalars().all()
+                    (await s.execute(select(Project).where(Project.status.in_(active)))).scalars().all()
+                )
                 max_parallel = worker_max_parallel()
                 slots_free = max(0, max_parallel - active_advance_count())
                 to_start: list[tuple[int, str]] = []
@@ -568,8 +531,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
 
                         stop_path = stop_flag_path(p.id)
                         logger.warning(
-                            "worker: #{} is_stop_requested "
-                            "(file_exists={}, path={}) — stop_project_running",
+                            "worker: #{} is_stop_requested (file_exists={}, path={}) — stop_project_running",
                             p.id,
                             stop_path.exists(),
                             stop_path,
@@ -612,8 +574,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                             continue
                     if slots_free <= 0:
                         logger.debug(
-                            "worker: #{} {} — нет свободных слотов "
-                            "(max_parallel={})",
+                            "worker: #{} {} — нет свободных слотов (max_parallel={})",
                             p.id,
                             p.status.value,
                             max_parallel,
@@ -666,13 +627,17 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
 
                     ready_statuses = list(TRANSITIONS.keys())
                     auto_projects = (
-                        await s.execute(
-                            select(Project).where(
-                                Project.auto_mode == True,  # noqa: E712
-                                Project.status.in_(ready_statuses),
+                        (
+                            await s.execute(
+                                select(Project).where(
+                                    Project.auto_mode == True,  # noqa: E712
+                                    Project.status.in_(ready_statuses),
+                                )
                             )
                         )
-                    ).scalars().all()
+                        .scalars()
+                        .all()
+                    )
                     for ap in auto_projects:
                         if mass_paused and ap.batch_id is not None:
                             continue
@@ -690,8 +655,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         if project_gated_by_gen_queue(ap.id):
                             if enrich_ready_bypasses_gen_queue(ap):
                                 logger.info(
-                                    "auto_advance tick: #{} {} — gen_queue bypass "
-                                    "(excel_gpt chain)",
+                                    "auto_advance tick: #{} {} — gen_queue bypass (excel_gpt chain)",
                                     ap.id,
                                     ap.status.value,
                                 )
@@ -705,9 +669,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         try:
                             advanced = await maybe_auto_advance(s, ap, bot)
                         except Exception:  # noqa: BLE001
-                            logger.exception(
-                                "auto_advance failed for #{}", ap.id
-                            )
+                            logger.exception("auto_advance failed for #{}", ap.id)
                             continue
                         if advanced:
                             await s.commit()
@@ -719,9 +681,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                                     on_project_timeline_maybe_advance_queue,
                                 )
 
-                                started = await on_project_timeline_maybe_advance_queue(
-                                    s, ap
-                                )
+                                started = await on_project_timeline_maybe_advance_queue(s, ap)
                                 if started:
                                     await s.commit()
                             except Exception:  # noqa: BLE001
@@ -730,13 +690,9 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                                     ap.id,
                                 )
                             try:
-                                await notify_step_done(
-                                    bot, project_id, prev, new_status
-                                )
+                                await notify_step_done(bot, project_id, prev, new_status)
                             except Exception:  # noqa: BLE001
-                                logger.exception(
-                                    "notify_step_done({}) failed", project_id
-                                )
+                                logger.exception("notify_step_done({}) failed", project_id)
 
                     # 2) serial worker: запускает следующий подпроект
                     #    из активного массового, если нет «занятого».
@@ -785,9 +741,7 @@ async def _await_background_tasks(tasks: list[asyncio.Task]) -> None:
         return
     # FIRST_COMPLETED, а не FIRST_EXCEPTION: воркер ловит исключения внутри
     # петли; FIRST_EXCEPTION ждал бы вечно, если поллинг завершится штатно.
-    done, pending = await asyncio.wait(
-        tasks, return_when=asyncio.FIRST_COMPLETED
-    )
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     for t in pending:
         t.cancel()
     for t in pending:
@@ -810,8 +764,14 @@ async def _startup_maintenance() -> None:
         _proots = find_project_root() / "prompts"
         _missing = [
             d
-            for d in ("check_plan", "check_script", "check_hero",
-                      "check_images", "check_videos", "check_final")
+            for d in (
+                "check_plan",
+                "check_script",
+                "check_hero",
+                "check_images",
+                "check_videos",
+                "check_final",
+            )
             if not (_proots / d).is_dir()
         ]
         if _missing:
@@ -832,9 +792,7 @@ async def _startup_maintenance() -> None:
             from app.project_root import find_project_root
 
             _helper = find_project_root() / "scripts" / "return_prompts_from_stash.py"
-            _spec = importlib.util.spec_from_file_location(
-                "return_prompts_from_stash", _helper
-            )
+            _spec = importlib.util.spec_from_file_location("return_prompts_from_stash", _helper)
             if _spec and _spec.loader:
                 _mod = importlib.util.module_from_spec(_spec)
                 _spec.loader.exec_module(_mod)
@@ -905,9 +863,7 @@ async def _preload_nvidia_asr_on_startup() -> None:
         if ok:
             logger.info("nvidia_asr: {} готов к шагу «Аудио»", model)
         else:
-            logger.warning(
-                "nvidia_asr: предзагрузка не удалась — повтор при шаге «Аудио»"
-            )
+            logger.warning("nvidia_asr: предзагрузка не удалась — повтор при шаге «Аудио»")
     except Exception as exc:  # noqa: BLE001
         logger.warning("nvidia_asr startup preload skipped: {}", exc)
 
@@ -957,9 +913,7 @@ async def main() -> None:
         real_bot, _ = await build_bot()
         logger.info("telegram bot polling started")
         polling_task = asyncio.create_task(
-            dp.start_polling(
-                real_bot, allowed_updates=dp.resolve_used_update_types()
-            )
+            dp.start_polling(real_bot, allowed_updates=dp.resolve_used_update_types())
         )
     else:
         logger.info(
@@ -1028,8 +982,7 @@ async def main() -> None:
         tasks.append(sync_task)
         tasks.append(reconcile_task)
         logger.info(
-            "web UI: http://{}:{} (REST на /api/*, WS на /ws/{{channel}}) — "
-            "backfill/recompute в фоне",
+            "web UI: http://{}:{} (REST на /api/*, WS на /ws/{{channel}}) — backfill/recompute в фоне",
             settings.web_host,
             settings.web_port,
         )

@@ -107,10 +107,7 @@ async def test_project_file_empty_ops_refusal_retries(tmp_path, monkeypatch) -> 
     wb.close()
 
     calls: list[str] = []
-    refusal = (
-        '{"ops":[],"characters":[],"error":'
-        '"Бинарный файл project.xlsx недоступен в рабочей среде"}'
-    )
+    refusal = '{"ops":[],"characters":[],"error":"Бинарный файл project.xlsx недоступен в рабочей среде"}'
     ok = '{"ops":[{"frame_uuid":"u1","fields":{"место":"Веймар"}}]}'
     monkeypatch.setattr("app.services.gpt_api.gpt_api_enabled", lambda: True)
 
@@ -208,9 +205,7 @@ async def test_report_only_retries_when_model_returns_ops(tmp_path, monkeypatch)
     async def fake_chat(**kw):
         calls.append(kw.get("prompt") or "")
         if len(calls) == 1:
-            return SimpleNamespace(
-                text='{"ops":[{"frame_uuid":"u1","fields":{"смысл_сцены":"x"}}]}'
-            )
+            return SimpleNamespace(text='{"ops":[{"frame_uuid":"u1","fields":{"смысл_сцены":"x"}}]}')
         return SimpleNamespace(text="# ОТЧЁТ ПРОВЕРКИ\nverdict: fail\n")
 
     monkeypatch.setattr("app.services.gpt_api.chat", fake_chat)

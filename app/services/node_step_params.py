@@ -56,11 +56,7 @@ def build_duration_params_block(project: Project, step_code: str, *, header: str
     dur = duration_seconds_for_step(project, step_code)
     dur_s = _fmt_num(dur)
     chars_s = _fmt_num(int(round(dur * CHARS_PER_SEC)) if dur is not None else None)
-    return (
-        f"{header}\n"
-        f"Длина {dur_s} секунд\n"
-        f"Количество символов (длина секунд × 14) = {chars_s}"
-    )
+    return f"{header}\nДлина {dur_s} секунд\nКоличество символов (длина секунд × 14) = {chars_s}"
 
 
 def split_cell_limits_from_project(
@@ -185,9 +181,7 @@ def assemble_bgm_level_for_project(project: Project) -> int | None:
     return assemble_bgm_level_from_meta(getattr(project, "meta", None) or {})
 
 
-def append_step_params_to_gpt_text(
-    project: Project, step_code: str, base_text: str
-) -> str:
+def append_step_params_to_gpt_text(project: Project, step_code: str, base_text: str) -> str:
     """Добавляет блок параметров к тексту, уходящему в ChatGPT."""
     block = build_step_params_block(project, step_code).strip()
     if not block:

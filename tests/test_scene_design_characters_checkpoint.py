@@ -59,12 +59,8 @@ def test_characters_from_raw_file_if_meta_stale(tmp_path: Path) -> None:
 
 
 def test_shot_child_vs_vo_parent() -> None:
-    parent = SimpleNamespace(
-        attrs={"camera_subdivide": {"role": "vo_parent", "shot_index": 1}}
-    )
-    child = SimpleNamespace(
-        attrs={"camera_subdivide": {"role": "shot", "shot_index": 2}}
-    )
+    parent = SimpleNamespace(attrs={"camera_subdivide": {"role": "vo_parent", "shot_index": 1}})
+    child = SimpleNamespace(attrs={"camera_subdivide": {"role": "shot", "shot_index": 2}})
     assert _is_shot_child(parent) is False
     assert _is_shot_child(child) is True
     assert already_subdivided([parent, child]) is True

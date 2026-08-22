@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session_scope
 from app.models import Workflow
-from app.orchestrator.default_graph import LAYOUT_VERSION, default_graph as _default_graph
+from app.orchestrator.default_graph import LAYOUT_VERSION
+from app.orchestrator.default_graph import default_graph as _default_graph
 from app.services.excel_gpt_node import (
     assign_slot_indices,
     is_legacy_enrich_label,
@@ -75,9 +76,7 @@ async def migrate_workflow_enrich_nodes(session: AsyncSession, wf: Workflow) -> 
         return False
     has_enrich = any(str(n.get("type") or "").startswith("enrich_") for n in nodes)
     has_legacy_labels = any(
-        is_legacy_enrich_label(
-            str((n.get("data") or {}).get("label") or "")
-        )
+        is_legacy_enrich_label(str((n.get("data") or {}).get("label") or ""))
         for n in nodes
         if str(n.get("type") or "") == "excel_gpt"
     )

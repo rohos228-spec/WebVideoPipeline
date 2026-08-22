@@ -191,10 +191,7 @@ def clear_stale_downstream_meta(project: Project) -> list[str]:
             project.meta = meta
         return cleared
 
-    if (
-        cur is ProjectStatus.frames_ready
-        and not meta.get("split_completed")
-    ):
+    if cur is ProjectStatus.frames_ready and not meta.get("split_completed"):
         for key in (
             "enrich_completed_slots",
             "excel_gpt_completed_keys",
@@ -214,9 +211,7 @@ async def _split_noderun_done(session, project: Project) -> bool | None:
 
     try:
         run = (
-            await session.execute(
-                select(WorkflowRun).where(WorkflowRun.project_id == project.id)
-            )
+            await session.execute(select(WorkflowRun).where(WorkflowRun.project_id == project.id))
         ).scalar_one_or_none()
     except Exception:  # noqa: BLE001 — mock-сессии в unit-тестах
         return None
@@ -224,13 +219,17 @@ async def _split_noderun_done(session, project: Project) -> bool | None:
         return None
     try:
         rows = (
-            await session.execute(
-                select(NodeRun).where(
-                    NodeRun.workflow_run_id == run.id,
-                    NodeRun.node_type == "split",
+            (
+                await session.execute(
+                    select(NodeRun).where(
+                        NodeRun.workflow_run_id == run.id,
+                        NodeRun.node_type == "split",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     except Exception:  # noqa: BLE001
         return None
     real = [nr for nr in rows if isinstance(nr, NodeRun)]
@@ -265,18 +264,14 @@ def _shot_index_from_attrs(attrs: object) -> int:
         return 1
 
 
-async def _primary_image_prompt_counts(
-    session, project_id: int
-) -> tuple[int, int, int]:
+async def _primary_image_prompt_counts(session, project_id: int) -> tuple[int, int, int]:
     """(primary_total, primary_with_img_prompt, all_with_img_prompt).
 
     После camera_subdivide SET-дети часто без своего image_prompt — gate
     «промты готовы» смотрит на primary (shot_index=1), иначе recompute
     вечно видит fr_with < fr_total → enrich_1_ready → auto hero loop.
     """
-    rows = (
-        await session.execute(select(Frame).where(Frame.project_id == project_id))
-    ).scalars().all()
+    rows = (await session.execute(select(Frame).where(Frame.project_id == project_id))).scalars().all()
     primary_total = 0
     primary_with = 0
     all_with = 0
@@ -306,12 +301,9 @@ def _excel_hero_expected_count(project: Project) -> int:
     chars = cfg.get("characters") or []
     n = 0
     for c in chars:
-        if not isinstance(c, dict) or not str((c.get("id") or "")).strip():
+        if not isinstance(c, dict) or not str(c.get("id") or "").strip():
             continue
-        if any(
-            str((c.get(k) or "")).strip()
-            for k in ("name", "look", "clothes", "char", "rules")
-        ):
+        if any(str(c.get(k) or "").strip() for k in ("name", "look", "clothes", "char", "rules")):
             n += 1
     return n
 
@@ -319,13 +311,17 @@ def _excel_hero_expected_count(project: Project) -> int:
 async def _count_excel_hero_artifacts(session, project_id: int) -> int:
     """Число уникальных excel_id среди hero_reference с файлом."""
     rows = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == project_id,
-                Artifact.kind == ArtifactKind.hero_reference,
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project_id,
+                    Artifact.kind == ArtifactKind.hero_reference,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     seen: set[str] = set()
     for a in rows:
         xid = (a.meta or {}).get("excel_id")
@@ -374,9 +370,7 @@ async def compute_actual_status(session, project: Project) -> ProjectStatus:
     has_hero_descr = bool(project.hero_description)
 
     fr_total = (
-        await session.execute(
-            select(func.count(Frame.id)).where(Frame.project_id == pid)
-        )
+        await session.execute(select(func.count(Frame.id)).where(Frame.project_id == pid))
     ).scalar_one()
     (
         fr_primary_total,
@@ -482,9 +476,7 @@ async def compute_actual_status(session, project: Project) -> ProjectStatus:
     # выше script_ready. Источник правды — meta.split_completed текущего
     # прогона: stale NodeRun.done с прошлого круга НЕ должен пропускать split
     # (иначе plan_ready → frames_ready и «прыжок через ноды»).
-    if _status_ord(getattr(project, "status", None)) < _status_ord(
-        ProjectStatus.frames_ready
-    ):
+    if _status_ord(getattr(project, "status", None)) < _status_ord(ProjectStatus.frames_ready):
         meta_now = project.meta if isinstance(project.meta, dict) else {}
         # Только meta.split_completed текущего прогона. NodeRun.done со
         # прошлого круга НЕ поднимает в frames_ready (прыжок через ноды).
@@ -659,9 +651,7 @@ async def recompute_status(
     # (frames_ready → new из‑за пустого general_plan / гонки web_get).
     if new is ProjectStatus.new and old is not ProjectStatus.new:
         fr_n = (
-            await session.execute(
-                select(func.count(Frame.id)).where(Frame.project_id == project.id)
-            )
+            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project.id))
         ).scalar_one()
         has_script = bool((project.script_text or "").strip())
         if int(fr_n or 0) >= 1 or has_script:
@@ -717,7 +707,10 @@ async def recompute_status(
     if dry_run:
         logger.info(
             "[#{}] {}: {} → {} [dry-run]",
-            project.id, log_prefix, old.value, new.value,
+            project.id,
+            log_prefix,
+            old.value,
+            new.value,
         )
         return old, new, True
 
@@ -749,7 +742,10 @@ async def recompute_status(
     project.status = new
     logger.info(
         "[#{}] {}: {} → {}",
-        project.id, log_prefix, old.value, new.value,
+        project.id,
+        log_prefix,
+        old.value,
+        new.value,
     )
     return old, new, True
 

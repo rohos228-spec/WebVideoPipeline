@@ -178,9 +178,7 @@ def parse_gpt_verdict(raw: str) -> VerdictResult:
         obj = extract_json_object(raw)
     except Exception:  # noqa: BLE001
         obj = None
-    if isinstance(obj, dict) and (
-        "decision" in obj or ("criteria" in obj and "confidence" in obj)
-    ):
+    if isinstance(obj, dict) and ("decision" in obj or ("criteria" in obj and "confidence" in obj)):
         dec = str(obj.get("decision") or "").strip().lower()
         if dec in {"approved", "approve", "ok", "pass", "одобрено"}:
             return VerdictResult(approved=True, raw=raw, structured_check=True)
@@ -225,13 +223,9 @@ def parse_gpt_verdict(raw: str) -> VerdictResult:
 
 def build_fix_user_message(fix_text: str, *, target: str = "excel") -> str:
     if target == "excel":
-        return (
-            f"исправь Excel согласно требованиям и пришли обновленный файл: {fix_text}"
-        )
+        return f"исправь Excel согласно требованиям и пришли обновленный файл: {fix_text}"
     if target == "voiceover":
-        return (
-            f"исправь файл согласно требованиям и пришли обновленный файл: {fix_text}"
-        )
+        return f"исправь файл согласно требованиям и пришли обновленный файл: {fix_text}"
     return f"исправь согласно требованиям: {fix_text}"
 
 
@@ -368,16 +362,20 @@ async def attachments_for_step(
     if step_code == "images":
         kinds = [ArtifactKind.hero_reference, ArtifactKind.item_reference]
         arts = (
-            await session.execute(
-                select(Artifact)
-                .where(
-                    Artifact.project_id == project.id,
-                    Artifact.kind.in_(kinds),
+            (
+                await session.execute(
+                    select(Artifact)
+                    .where(
+                        Artifact.project_id == project.id,
+                        Artifact.kind.in_(kinds),
+                    )
+                    .order_by(Artifact.id.asc())
+                    .limit(12)
                 )
-                .order_by(Artifact.id.asc())
-                .limit(12)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for a in arts:
             if a.path and Path(a.path).is_file():
                 paths.append(Path(a.path))
@@ -387,16 +385,20 @@ async def attachments_for_step(
         if step_code == "items":
             kinds = [ArtifactKind.item_reference]
         arts = (
-            await session.execute(
-                select(Artifact)
-                .where(
-                    Artifact.project_id == project.id,
-                    Artifact.kind.in_(kinds),
+            (
+                await session.execute(
+                    select(Artifact)
+                    .where(
+                        Artifact.project_id == project.id,
+                        Artifact.kind.in_(kinds),
+                    )
+                    .order_by(Artifact.id.asc())
+                    .limit(12)
                 )
-                .order_by(Artifact.id.asc())
-                .limit(12)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for a in arts:
             if a.path and Path(a.path).is_file():
                 paths.append(Path(a.path))
@@ -505,8 +507,7 @@ async def _download_and_apply_verdict_fix(
             raise RuntimeError("скачанный voiceover.txt пустой")
         if looks_like_check_payload(text) or looks_like_xlsx_tsv_writeback(text):
             raise RuntimeError(
-                "GPT вернул отчёт/TSV вместо закадрового текста — "
-                "voiceover.txt не перезаписан"
+                "GPT вернул отчёт/TSV вместо закадрового текста — voiceover.txt не перезаписан"
             )
         text = cx.save_voiceover_text(project, target, text)
         project.script_text = text
@@ -585,9 +586,7 @@ async def run_verdict_review(
             len(check_prompt),
         )
     fix_target = FIX_TARGET_BY_STEP.get(step_code, "excel")
-    files = await attachments_for_step(
-        session, project, step_code, include_result_artifacts=True
-    )
+    files = await attachments_for_step(session, project, step_code, include_result_artifacts=True)
 
     history: list[str] = []
     last_raw = ""

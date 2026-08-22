@@ -11,20 +11,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
-from app.models import Artifact, ArtifactKind, BatchProject, Frame, Project, ProjectStatus
+from app.models import ArtifactKind, BatchProject, Frame, Project, ProjectStatus
 from app.services.default_project import default_auto_mode_for_new_project
+from app.services.event_bus import publish_project_event
 from app.services.mass_factory import mass_parent_id
+from app.services.project_state import recompute_status
+from app.services.project_steps import list_step_codes, start_step
+from app.services.run_sync import _get_default_workflow_id, ensure_run_for_project, sync_run_for_project
 from app.services.sidebar_layout import (
     ensure_project_layout,
     get_gen_queue,
     layout_for_api,
     remove_project_from_layout,
+)
+from app.services.sidebar_layout import (
     sync_projects as sync_sidebar_projects,
 )
-from app.services.event_bus import publish_project_event
-from app.services.project_state import recompute_status
-from app.services.project_steps import list_step_codes, start_step
-from app.services.run_sync import ensure_run_for_project, sync_run_for_project, _get_default_workflow_id
 from app.storage import ProjectSheet
 from app.web.deps import get_session
 from app.web.project_dto import project_to_detail, project_to_summary
@@ -39,9 +41,41 @@ def _slugify(s: str) -> str:
     base = re.sub(r"[\s_-]+", "-", base, flags=re.UNICODE)
     # Транслит кириллицы — повторяем существующую логику из проекта.
     cyr = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
-    lat = ["a", "b", "v", "g", "d", "e", "yo", "zh", "z", "i", "y", "k", "l", "m", "n",
-           "o", "p", "r", "s", "t", "u", "f", "h", "c", "ch", "sh", "sch", "", "y", "",
-           "e", "yu", "ya"]
+    lat = [
+        "a",
+        "b",
+        "v",
+        "g",
+        "d",
+        "e",
+        "yo",
+        "zh",
+        "z",
+        "i",
+        "y",
+        "k",
+        "l",
+        "m",
+        "n",
+        "o",
+        "p",
+        "r",
+        "s",
+        "t",
+        "u",
+        "f",
+        "h",
+        "c",
+        "ch",
+        "sh",
+        "sch",
+        "",
+        "y",
+        "",
+        "e",
+        "yu",
+        "ya",
+    ]
     table = dict(zip(cyr, lat))
     out_chars: list[str] = []
     for ch in base:
@@ -67,31 +101,31 @@ async def list_projects(
     ``GET /projects/{id}`` и воркере.
     """
     rows = (
-        await session.execute(
-            select(Project)
-            .options(
-                defer(Project.general_plan),
-                defer(Project.script_text),
-                defer(Project.hero_description),
-                defer(Project.hero_descriptions),
-                defer(Project.hero_variations),
-                defer(Project.hero_variation_modifiers),
-                defer(Project.item_descriptions),
-                defer(Project.item_variations),
-                defer(Project.prompt_overrides),
-                defer(Project.gpt_text_overrides),
+        (
+            await session.execute(
+                select(Project)
+                .options(
+                    defer(Project.general_plan),
+                    defer(Project.script_text),
+                    defer(Project.hero_description),
+                    defer(Project.hero_descriptions),
+                    defer(Project.hero_variations),
+                    defer(Project.hero_variation_modifiers),
+                    defer(Project.item_descriptions),
+                    defer(Project.item_variations),
+                    defer(Project.prompt_overrides),
+                    defer(Project.gpt_text_overrides),
+                )
+                .order_by(Project.id.desc())
             )
-            .order_by(Project.id.desc())
         )
-    ).scalars().all()
-    root_ids = {
-        p.id for p in rows if mass_parent_id(p) is None and p.batch_id is None
-    }
+        .scalars()
+        .all()
+    )
+    root_ids = {p.id for p in rows if mass_parent_id(p) is None and p.batch_id is None}
     batch_subprojects: dict[int, tuple[int, int]] = {}
     batch_names: dict[int, str] = {}
-    batch_rows = (
-        await session.execute(select(BatchProject))
-    ).scalars().all()
+    batch_rows = (await session.execute(select(BatchProject))).scalars().all()
     for b in batch_rows:
         batch_names[b.id] = b.name
     for p in rows:
@@ -139,9 +173,7 @@ async def steps_catalog() -> list[dict[str, str]]:
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)
-async def get_project(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> ProjectDetail:
+async def get_project(project_id: int, session: AsyncSession = Depends(get_session)) -> ProjectDetail:
     p = await session.get(Project, project_id)
     if p is None:
         raise HTTPException(status_code=404, detail="project not found")
@@ -199,11 +231,15 @@ async def create_project(
     )
     await session.commit()
     await session.refresh(p)
-    await publish_project_event(p.id, event_type="project_created", payload={
-        "slug": p.slug,
-        "title": p.title,
-        "topic": p.topic,
-    })
+    await publish_project_event(
+        p.id,
+        event_type="project_created",
+        payload={
+            "slug": p.slug,
+            "title": p.title,
+            "topic": p.topic,
+        },
+    )
     wf_id = await _get_default_workflow_id()
     if wf_id is not None:
         try:
@@ -260,9 +296,7 @@ async def create_child_project(
 
 
 @router.post("/{project_id}/ensure-run")
-async def ensure_project_run(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> dict[str, int]:
+async def ensure_project_run(project_id: int, session: AsyncSession = Depends(get_session)) -> dict[str, int]:
     """Гарантирует WorkflowRun для проекта (связь с графом в БД)."""
     p = await session.get(Project, project_id)
     if p is None:
@@ -276,9 +310,7 @@ async def ensure_project_run(
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_project(
-    project_id: int, session: AsyncSession = Depends(get_session)
-) -> None:
+async def delete_project(project_id: int, session: AsyncSession = Depends(get_session)) -> None:
     p = await session.get(Project, project_id)
     if p is None:
         raise HTTPException(status_code=404, detail="project not found")
@@ -311,14 +343,31 @@ async def patch_project(
     if "video_generator" in payload and vid_gid and vid_gid not in VIDEO_GENERATORS_BY_ID:
         raise HTTPException(status_code=400, detail=f"unknown video_generator: {vid_gid}")
     ALLOWED = {
-        "title", "topic", "hero_mode", "general_plan", "hero_description", "script_text",
-        "image_generator", "aspect_ratio", "image_resolution", "image_quality", "image_relax",
-        "video_generator", "video_resolution", "video_relax",
-        "hero_count", "hero_descriptions", "hero_variations",
+        "title",
+        "topic",
+        "hero_mode",
+        "general_plan",
+        "hero_description",
+        "script_text",
+        "image_generator",
+        "aspect_ratio",
+        "image_resolution",
+        "image_quality",
+        "image_relax",
+        "video_generator",
+        "video_resolution",
+        "video_relax",
+        "hero_count",
+        "hero_descriptions",
+        "hero_variations",
         "hero_variation_modifiers",
-        "item_descriptions", "item_variations",
-        "enrich_slots_count", "prompt_overrides", "gpt_text_overrides",
-        "auto_mode", "meta",
+        "item_descriptions",
+        "item_variations",
+        "enrich_slots_count",
+        "prompt_overrides",
+        "gpt_text_overrides",
+        "auto_mode",
+        "meta",
     }
     from sqlalchemy.orm.attributes import flag_modified
 
@@ -342,9 +391,7 @@ async def patch_project(
             if k in ("prompt_overrides", "gpt_text_overrides"):
                 flag_modified(p, k)
     if "image_generator" in payload:
-        p.image_resolution = clamp_image_resolution_id(
-            p.image_generator, p.image_resolution
-        )
+        p.image_resolution = clamp_image_resolution_id(p.image_generator, p.image_resolution)
     # Контроль только ИИ — ручной режим убран.
     meta_now = dict(p.meta or {}) if isinstance(p.meta, dict) else {}
     if meta_now.get("ai_control") is not True:
@@ -390,16 +437,12 @@ async def patch_project(
                     project_id,
                     exc,
                 )
-    if "meta" in payload and canvas_graph_from_meta(
-        p.meta if isinstance(p.meta, dict) else {}
-    ):
+    if "meta" in payload and canvas_graph_from_meta(p.meta if isinstance(p.meta, dict) else {}):
         await sync_run_snapshot_from_canvas_graph(session, p)
     if "prompt_overrides" in payload:
         from app.services.prompt_active_global import sync_global_active_from_overrides
 
-        sync_global_active_from_overrides(
-            p.prompt_overrides if isinstance(p.prompt_overrides, dict) else {}
-        )
+        sync_global_active_from_overrides(p.prompt_overrides if isinstance(p.prompt_overrides, dict) else {})
     p.updated_at = datetime.utcnow()
     await session.commit()
     await session.refresh(p)
@@ -414,17 +457,19 @@ async def media_review(
     session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     """Кадры с путями к последним scene_image / scene_video для визуального HITL."""
-    artifact_kind = (
-        ArtifactKind.scene_image if kind == "images" else ArtifactKind.scene_video
-    )
+    artifact_kind = ArtifactKind.scene_image if kind == "images" else ArtifactKind.scene_video
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project_id)
-            .options(selectinload(Frame.artifacts))
-            .order_by(Frame.number.asc())
+        (
+            await session.execute(
+                select(Frame)
+                .where(Frame.project_id == project_id)
+                .options(selectinload(Frame.artifacts))
+                .order_by(Frame.number.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out: list[dict] = []
     for fr in frames:
         arts = [a for a in fr.artifacts if a.kind == artifact_kind]
@@ -440,9 +485,7 @@ async def media_review(
                 "status": fr.status.value if hasattr(fr.status, "value") else str(fr.status),
                 "artifact_uuid": art.uuid if art else None,
                 "file_path": art.path if art else None,
-                "preview_url": (
-                    f"/api/files?path={art.path}" if art and art.path else None
-                ),
+                "preview_url": (f"/api/files?path={art.path}" if art and art.path else None),
             }
         )
     return out

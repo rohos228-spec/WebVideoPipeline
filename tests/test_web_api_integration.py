@@ -90,15 +90,14 @@ async def test_get_project_recompute_no_hero(client) -> None:
     """no_hero + frame with prompts → не застревает на frames_ready."""
     c, pid, factory = client
     async with factory() as session:
-        from app.models import Artifact, ArtifactKind
         import uuid
+
+        from app.models import Artifact, ArtifactKind
 
         p = await session.get(Project, pid)
         from sqlalchemy import select
 
-        fr = (
-            await session.execute(select(Frame).where(Frame.project_id == pid))
-        ).scalar_one()
+        fr = (await session.execute(select(Frame).where(Frame.project_id == pid))).scalar_one()
         session.add(
             Artifact(
                 project_id=pid,

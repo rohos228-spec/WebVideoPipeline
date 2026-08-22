@@ -71,9 +71,7 @@ def test_raise_outsee_failure_ui_length_marker() -> None:
 
 def test_failure_text_matches_prompt_id_rejects_foreign_frame() -> None:
     prefix = "[ID: P17-F94-1f534434 r1a3]"
-    foreign = (
-        "[ID: P17-F93-39192420] Ошибка запрещённый контент"
-    )
+    foreign = "[ID: P17-F93-39192420] Ошибка запрещённый контент"
     own = "[ID: P17-F94-1f534434 r1a3] запрещённый контент"
     assert _failure_text_matches_prompt_id(foreign, prefix) is False
     assert _failure_text_matches_prompt_id(own, prefix) is True
@@ -93,12 +91,7 @@ def test_pre_failure_baseline_ignores_foreign_moderation() -> None:
 def test_fail_fast_while_generate_disabled_only_moderation_length() -> None:
     from app.bots.outsee import _fail_fast_while_generate_disabled
 
-    assert (
-        _fail_fast_while_generate_disabled(
-            "Ваш текстовый запрос содержит запрещённое"
-        )
-        is True
-    )
+    assert _fail_fast_while_generate_disabled("Ваш текстовый запрос содержит запрещённое") is True
     assert _fail_fast_while_generate_disabled("Prompt is too long") is True
     assert _fail_fast_while_generate_disabled("ошибка генерации veo") is False
     assert _fail_fast_while_generate_disabled("что-то пошло не так") is False
@@ -154,10 +147,7 @@ def test_queue_sidebar_moderation_stale_until_gen_idle_and_min_elapsed() -> None
 
 def test_video_result_moderation_without_prompt_id_not_stale() -> None:
     """Video UI: result panel shows prompt text + rejection without [ID: …]."""
-    text = (
-        "парень плачет без звукаГенерировать70Контент отклонён"
-        "Аудиодорожка видео не прошла модерацию"
-    )
+    text = "парень плачет без звукаГенерировать70Контент отклонёнАудиодорожка видео не прошла модерацию"
     prefix = "[ID: P42-F6-abc12345 r1a3]"
     assert not _outsee_failure_is_stale(
         text,
@@ -200,10 +190,7 @@ def test_queue_rejection_fail_fast_while_generate_disabled() -> None:
 
 
 def test_video_audio_moderation_in_result_without_gen_idle() -> None:
-    text = (
-        "парень плачетКонтент отклонён"
-        "Аудиодорожка видео не прошла модерацию"
-    )
+    text = "парень плачетКонтент отклонёнАудиодорожка видео не прошла модерацию"
     prefix = "[ID: P42-F1-abc12345]"
     assert not _outsee_failure_is_stale(
         text,
@@ -217,10 +204,7 @@ def test_video_audio_moderation_in_result_without_gen_idle() -> None:
 
 
 def test_prompt_body_not_counted_as_failure_noise() -> None:
-    prompt = (
-        "--no text, subtitles, captions, logos, watermarks, "
-        "added characters, duplicated"
-    )
+    prompt = "--no text, subtitles, captions, logos, watermarks, added characters, duplicated"
     assert _outsee_failure_looks_like_prompt_body(prompt) is True
     assert _outsee_failure_text_is_noise(prompt) is True
 
@@ -229,10 +213,7 @@ def test_prompt_with_zapreshcheno_is_not_moderation() -> None:
     """Регресс: «запрещено добавлять…» в промте → ложный abort до download."""
     from app.bots.outsee import _outsee_failure_kind
 
-    text = (
-        "лыжники 9 человек двигаются прямо, запрещено добавлять новых "
-        "персонажей которых нет в кадреВидео"
-    )
+    text = "лыжники 9 человек двигаются прямо, запрещено добавлять новых персонажей которых нет в кадреВидео"
     assert _outsee_failure_kind(text) != "moderation"
     assert _outsee_failure_looks_like_prompt_body(text) is True
     assert _outsee_failure_text_is_noise(text) is True
@@ -289,19 +270,13 @@ def test_queue_card_without_id_still_stale_if_not_card_scoped() -> None:
 def test_unlimited_busy_is_busy_kind_not_generation() -> None:
     from app.bots.outsee import _outsee_failure_kind
 
-    text = (
-        "Безлимитная генерация уже активна. "
-        "Дождитесь завершения или отключите безлимит."
-    )
+    text = "Безлимитная генерация уже активна. Дождитесь завершения или отключите безлимит."
     assert _outsee_failure_kind(text) == "busy"
 
 
 def test_unlimited_busy_is_always_stale_keep_waiting() -> None:
     """Регресс P47-F18: abort на 3с → нет download/replace."""
-    text = (
-        "Безлимитная генерация уже активна. "
-        "Дождитесь завершения или отключите безлимит."
-    )
+    text = "Безлимитная генерация уже активна. Дождитесь завершения или отключите безлимит."
     assert _outsee_failure_is_stale(
         text,
         baseline_failure_texts=frozenset(),

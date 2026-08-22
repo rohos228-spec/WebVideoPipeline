@@ -32,9 +32,7 @@ from pydantic import (
 from app.contracts.base import LlmContract
 
 
-def canonicalize_fields(
-    raw: dict[str, Any], *, scope: str, project_scope: bool = False
-) -> dict[str, Any]:
+def canonicalize_fields(raw: dict[str, Any], *, scope: str, project_scope: bool = False) -> dict[str, Any]:
     """Ключи fields → канонические имена через FIELD_ALIASES.
 
     Raises:
@@ -57,8 +55,7 @@ def canonicalize_fields(
         out[canon] = v  # last-write-wins — как текущий normalize_fields
     if dup:
         logger.warning(
-            "contracts/apply_ops: {} — дубль-синонимы одного поля {} "
-            "(last-write-wins)",
+            "contracts/apply_ops: {} — дубль-синонимы одного поля {} (last-write-wins)",
             scope,
             dup,
         )
@@ -79,28 +76,20 @@ class ApplyOp(BaseModel):
     target: Literal["frame", "project", "replace_frames"] = "frame"
     frame_uuid: str | None = None
     fields: dict[str, Any] | None = None
-    frames: list[Any] | None = Field(
-        default=None, validation_alias=AliasChoices("frames", "кадры")
-    )
+    frames: list[Any] | None = Field(default=None, validation_alias=AliasChoices("frames", "кадры"))
 
     @model_validator(mode="after")
-    def _shape_by_target(self) -> "ApplyOp":
+    def _shape_by_target(self) -> ApplyOp:
         if self.target == "frame":
             if not (self.frame_uuid or "").strip():
                 raise ValueError("для target=frame нужен frame_uuid")
             if not self.fields:
-                raise ValueError(
-                    f"кадр {self.frame_uuid}: пустые fields — нечего применять"
-                )
-            self.fields = canonicalize_fields(
-                self.fields, scope=f"кадр {self.frame_uuid}"
-            )
+                raise ValueError(f"кадр {self.frame_uuid}: пустые fields — нечего применять")
+            self.fields = canonicalize_fields(self.fields, scope=f"кадр {self.frame_uuid}")
         elif self.target == "project":
             if not self.fields:
                 raise ValueError("проект: пустые fields")
-            self.fields = canonicalize_fields(
-                self.fields, scope="проект", project_scope=True
-            )
+            self.fields = canonicalize_fields(self.fields, scope="проект", project_scope=True)
         else:  # replace_frames
             if not isinstance(self.frames, list) or not self.frames:
                 raise ValueError("replace_frames: нужен непустой список frames")
@@ -112,35 +101,25 @@ class ApplyOpsEnvelope(BaseModel):
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    ops: list[ApplyOp] = Field(
-        default_factory=list, validation_alias=AliasChoices("ops", "actions")
-    )
+    ops: list[ApplyOp] = Field(default_factory=list, validation_alias=AliasChoices("ops", "actions"))
     characters: list[dict[str, Any]] | None = None
     scenes: list[dict[str, Any]] | None = None
 
     @model_validator(mode="after")
-    def _not_empty_and_replace_rules(self) -> "ApplyOpsEnvelope":
+    def _not_empty_and_replace_rules(self) -> ApplyOpsEnvelope:
         if not self.ops and not self.characters and not self.scenes:
             raise ValueError("пустой ops — нечего применять")
         replace_n = sum(1 for op in self.ops if op.target == "replace_frames")
         if replace_n > 1:
             raise ValueError("replace_frames: только одна операция за раз")
         if replace_n and len(self.ops) > 1:
-            raise ValueError(
-                "replace_frames нельзя смешивать с другими ops в одном запросе"
-            )
+            raise ValueError("replace_frames нельзя смешивать с другими ops в одном запросе")
         return self
 
     def frame_uuids(self) -> list[str]:
-        return [
-            str(op.frame_uuid)
-            for op in self.ops
-            if op.target == "frame" and op.frame_uuid
-        ]
+        return [str(op.frame_uuid) for op in self.ops if op.target == "frame" and op.frame_uuid]
 
 
 # strict=False: fields — словарь с динамическими ключами (алиасы),
 # в OpenAI strict-режиме невыразим (см. ResponseSchema.strict).
-APPLY_OPS = LlmContract(
-    name="vp_apply_ops", model=ApplyOpsEnvelope, strict=False
-)
+APPLY_OPS = LlmContract(name="vp_apply_ops", model=ApplyOpsEnvelope, strict=False)

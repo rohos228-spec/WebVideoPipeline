@@ -149,13 +149,7 @@ def attachment_name_visible_in_text(expected_filename: str, composer_text: str) 
     suffix = Path(expected_filename).suffix
     if not stem:
         return False
-    pattern = (
-        re.escape(stem)
-        + r"(?:"
-        + _ATTACHMENT_DEDUP_SUFFIX.pattern
-        + r")?"
-        + re.escape(suffix)
-    )
+    pattern = re.escape(stem) + r"(?:" + _ATTACHMENT_DEDUP_SUFFIX.pattern + r")?" + re.escape(suffix)
     return bool(re.search(pattern, composer_text, re.IGNORECASE))
 
 
@@ -228,6 +222,7 @@ def format_attachment_health_error(health: dict) -> str:
 def reply_text_usable_as_download(text: str, *, min_len: int = 10) -> bool:
     """GPT иногда кладёт voiceover в текст ответа, а не во вложение."""
     return len((text or "").strip()) >= min_len
+
 
 # Селекторы для file-input и download-ссылок в чате (с запасом).
 FILE_INPUT_SELECTORS = [
@@ -320,10 +315,7 @@ DOWNLOAD_LINK_SELECTORS = [
     f"{ASSISTANT_LAST_PREFIX} a[aria-label='Скачать']",
     # Карточка файла в новом UI: <button> с svg <use href=".../sprites...#<hash>">.
     # `:has()` поддерживается Playwright/Chromium >=105.
-    *[
-        f"{ASSISTANT_LAST_PREFIX} button:has(use[href$='#{h}'])"
-        for h in DOWNLOAD_SPRITE_HASHES
-    ],
+    *[f"{ASSISTANT_LAST_PREFIX} button:has(use[href$='#{h}'])" for h in DOWNLOAD_SPRITE_HASHES],
     # Fallback: любая кнопка/ссылка внутри карточки файла.
     f"{ASSISTANT_LAST_PREFIX} [data-testid*='file'] button",
     f"{ASSISTANT_LAST_PREFIX} [data-testid*='attachment'] button",
@@ -368,10 +360,7 @@ FILE_PREVIEW_DOWNLOAD_SELECTORS = [
     "button[aria-label*='Скачать']",
     "button[aria-label*='Download']",
     "button[data-testid*='download']",
-    *[
-        f"button:has(use[href$='#{h}'])"
-        for h in DOWNLOAD_SPRITE_HASHES
-    ],
+    *[f"button:has(use[href$='#{h}'])" for h in DOWNLOAD_SPRITE_HASHES],
 ]
 # Макс. размер кнопки ↓ в header (иконка ~32–40px; не кликать по телу таблицы).
 FILE_PREVIEW_DOWNLOAD_BTN_MAX_PX = 56
@@ -709,9 +698,7 @@ class ChatGPTBot:
             _log_chatgpt_error(kind="session_lost", text=msg)
             raise RuntimeError(msg)
         try:
-            body_text = await page.evaluate(
-                "() => (document.body && document.body.innerText) || ''"
-            )
+            body_text = await page.evaluate("() => (document.body && document.body.innerText) || ''")
         except Exception:  # noqa: BLE001
             body_text = ""
         if chatgpt_login_page_text(body_text):
@@ -721,9 +708,7 @@ class ChatGPTBot:
 
     async def _check_chatgpt_rate_limit(self, page: Page) -> None:
         try:
-            body_text = await page.evaluate(
-                "() => (document.body && document.body.innerText) || ''"
-            )
+            body_text = await page.evaluate("() => (document.body && document.body.innerText) || ''")
         except Exception:  # noqa: BLE001
             return
         if chatgpt_rate_limit_in_text(body_text):
@@ -852,8 +837,7 @@ class ChatGPTBot:
                     if repairs_during_wait < ATTACH_WAIT_MAX_REPAIR:
                         repairs_during_wait += 1
                         logger.warning(
-                            "ChatGPT: вложения деградировали во время ожидания Send "
-                            "({}) — repair {}/{}",
+                            "ChatGPT: вложения деградировали во время ожидания Send ({}) — repair {}/{}",
                             detail,
                             repairs_during_wait,
                             ATTACH_WAIT_MAX_REPAIR,
@@ -867,10 +851,7 @@ class ChatGPTBot:
                             )
                         await asyncio.sleep(1.0)
                         continue
-                    raise RuntimeError(
-                        "ChatGPT: вложения деградировали пока ждали Send — "
-                        f"{detail}"
-                    )
+                    raise RuntimeError(f"ChatGPT: вложения деградировали пока ждали Send — {detail}")
             sel, ok = await self._is_send_button_enabled(page)
             if ok and sel:
                 return sel
@@ -879,10 +860,7 @@ class ChatGPTBot:
                 att_note = ""
                 if guard_file_paths:
                     health = await self._composer_attachment_health(guard_file_paths)
-                    att_note = (
-                        f", attachments={health.get('count')}/"
-                        f"{health.get('expected')}"
-                    )
+                    att_note = f", attachments={health.get('count')}/{health.get('expected')}"
                 logger.info(
                     "ChatGPT: жду активную кнопку Send… ({:.0f}/{:.0f}с{})",
                     now - started,
@@ -893,10 +871,7 @@ class ChatGPTBot:
             await asyncio.sleep(ATTACH_UPLOAD_POLL_SEC)
         await self._dump_composer_html()
         await self._dump_send_button_candidates(page)
-        raise RuntimeError(
-            "ChatGPT: кнопка Send не стала активной — "
-            "текст/файлы не приняты композером"
-        )
+        raise RuntimeError("ChatGPT: кнопка Send не стала активной — текст/файлы не приняты композером")
 
     async def _verify_message_dispatched(
         self,
@@ -953,9 +928,7 @@ class ChatGPTBot:
         )
         if guard_file_paths:
             await self._guard_attachments_before_send(guard_file_paths)
-            await self._wait_attachments_stable(
-                guard_file_paths, settle_sec=min(ATTACH_SETTLE_SEC, 3.0)
-            )
+            await self._wait_attachments_stable(guard_file_paths, settle_sec=min(ATTACH_SETTLE_SEC, 3.0))
         btn = page.locator(send_sel).first
         logger.info(
             "ChatGPT: Send активна ({}) — финальная проверка вложений ok, клик",
@@ -987,9 +960,7 @@ class ChatGPTBot:
             timeout=verify_timeout,
         )
 
-    async def _set_composer_text_replace(
-        self, page: Page, text: str, input_sel: str
-    ) -> None:
+    async def _set_composer_text_replace(self, page: Page, text: str, input_sel: str) -> None:
         """Заменить текст композера (не append) — insertText дублирует при ретраях."""
         stripped = (text or "").strip()
         if not stripped:
@@ -1037,9 +1008,7 @@ class ChatGPTBot:
             )
         await self._set_composer_text_replace(page, stripped, input_sel)
 
-    async def _click_send(
-        self, *, guard_file_paths: list[Path] | None = None
-    ) -> None:
+    async def _click_send(self, *, guard_file_paths: list[Path] | None = None) -> None:
         """Нажать Send без ввода текста в композер (только вложения)."""
         if guard_file_paths:
             await self._guard_attachments_before_send(guard_file_paths)
@@ -1140,8 +1109,7 @@ class ChatGPTBot:
             if not count:
                 break
             btn = page.locator(
-                "form button[aria-label*='Удалить файл'], "
-                "form button[aria-label*='Remove file']"
+                "form button[aria-label*='Удалить файл'], form button[aria-label*='Remove file']"
             ).last
             try:
                 await btn.click(timeout=3_000)
@@ -1179,9 +1147,7 @@ class ChatGPTBot:
                 await page.keyboard.press("Delete")
             except Exception:  # noqa: BLE001
                 pass
-        effective = (
-            (composer_text if composer_text is not None else text) or ""
-        ).strip()
+        effective = ((composer_text if composer_text is not None else text) or "").strip()
         if effective:
             await self._fill_composer_text(page, effective, input_sel)
         stripped = effective
@@ -1204,9 +1170,7 @@ class ChatGPTBot:
             "ChatGPT: текст в композере ({} симв.), отправляю через активную Send",
             len(stripped),
         )
-        max_send_attempts = (
-            ATTACH_GUARD_MAX_REPAIR if guard_file_paths else 1
-        )
+        max_send_attempts = ATTACH_GUARD_MAX_REPAIR if guard_file_paths else 1
         last_err: RuntimeError | None = None
         for send_attempt in range(1, max_send_attempts + 1):
             try:
@@ -1215,9 +1179,7 @@ class ChatGPTBot:
                 await self._dispatch_composer_send(
                     page,
                     had_draft=bool(stripped),
-                    send_timeout=ATTACH_UPLOAD_TIMEOUT_SEC
-                    if not clear_first
-                    else 45.0,
+                    send_timeout=ATTACH_UPLOAD_TIMEOUT_SEC if not clear_first else 45.0,
                     guard_file_paths=guard_file_paths if not clear_first else None,
                 )
                 return
@@ -1227,10 +1189,7 @@ class ChatGPTBot:
                 for sel in STOP_BUTTON_SELECTORS:
                     try:
                         if await page.locator(sel).count() > 0:
-                            logger.info(
-                                "ChatGPT: генерация уже идёт — "
-                                "не повторяю send/re-attach"
-                            )
+                            logger.info("ChatGPT: генерация уже идёт — не повторяю send/re-attach")
                             return
                     except Exception:  # noqa: BLE001
                         continue
@@ -1253,9 +1212,7 @@ class ChatGPTBot:
                     if input_sel:
                         draft = await self._composer_draft_text()
                         if not composer_text_already_present(stripped, draft):
-                            await self._fill_composer_text(
-                                page, stripped, input_sel
-                            )
+                            await self._fill_composer_text(page, stripped, input_sel)
         if last_err is not None:
             raise last_err
 
@@ -1301,13 +1258,10 @@ class ChatGPTBot:
                     continue
             await sleep_cancellable(0.4, project_id)
         raise TimeoutError(
-            "ChatGPT: после отправки нет индикатора генерации (Stop) — "
-            "сообщение, вероятно, не ушло"
+            "ChatGPT: после отправки нет индикатора генерации (Stop) — сообщение, вероятно, не ушло"
         )
 
-    async def _wait_until_done(
-        self, *, timeout: float = 300, project_id: int | None = None
-    ) -> None:
+    async def _wait_until_done(self, *, timeout: float = 300, project_id: int | None = None) -> None:
         """Ждём, пока пропадёт кнопка "Stop generating"."""
         from app.services.step_cancel import abort_if_cancelled, sleep_cancellable
 
@@ -1336,9 +1290,7 @@ class ChatGPTBot:
             await sleep_cancellable(0.5, project_id)
         msg = "ChatGPT: лимит запросов"
         try:
-            body_text = await page.evaluate(
-                "() => (document.body && document.body.innerText) || ''"
-            )
+            body_text = await page.evaluate("() => (document.body && document.body.innerText) || ''")
             if chatgpt_rate_limit_in_text(body_text):
                 _log_chatgpt_error(kind="rate_limit", text=msg)
                 raise RuntimeError(msg)
@@ -1383,9 +1335,7 @@ class ChatGPTBot:
         )
         return (text or "").strip()
 
-    async def ask(
-        self, prompt: str, *, timeout: float = 300, project_id: int | None = None
-    ) -> str:
+    async def ask(self, prompt: str, *, timeout: float = 300, project_id: int | None = None) -> str:
         """Отправить один промт в текущий чат и вернуть финальный ответ."""
         from app.services.step_cancel import abort_if_cancelled, sleep_cancellable
 
@@ -1437,9 +1387,7 @@ class ChatGPTBot:
         logger.info("ChatGPT reply len={}", len(reply))
         return reply
 
-    async def ask_fresh(
-        self, prompt: str, *, timeout: float = 300, project_id: int | None = None
-    ) -> str:
+    async def ask_fresh(self, prompt: str, *, timeout: float = 300, project_id: int | None = None) -> str:
         """Новый чат + один промт + ответ."""
         from app.services.step_cancel import abort_if_cancelled
 
@@ -1466,9 +1414,7 @@ class ChatGPTBot:
         attach_sel = await _first_matching(page, ATTACH_BUTTON_SELECTORS, timeout=12)
         if not attach_sel:
             await self._dump_composer_html()
-            raise RuntimeError(
-                "ChatGPT: не найдена кнопка-скрепка (ATTACH_BUTTON_SELECTORS)"
-            )
+            raise RuntimeError("ChatGPT: не найдена кнопка-скрепка (ATTACH_BUTTON_SELECTORS)")
         logger.info("ChatGPT: кликаю скрепку ({})", attach_sel)
         await page.locator(attach_sel).first.click(timeout=5_000)
         await asyncio.sleep(0.7)
@@ -1482,9 +1428,7 @@ class ChatGPTBot:
         input_sel = await _first_matching(page, FILE_INPUT_SELECTORS, timeout=12)
         if not input_sel:
             await self._dump_composer_html()
-            raise RuntimeError(
-                "ChatGPT: после скрепки не появился input[type=file]"
-            )
+            raise RuntimeError("ChatGPT: после скрепки не появился input[type=file]")
         return input_sel
 
     async def _fire_file_input_events(self, input_sel: str) -> None:
@@ -1604,11 +1548,7 @@ class ChatGPTBot:
         text = await self._composer_attachment_text()
         labels = await self._composer_attachment_labels()
         haystack = f"{text}\n{labels}".strip()
-        missing = [
-            fp.name
-            for fp in file_paths
-            if not attachment_name_visible_in_text(fp.name, haystack)
-        ]
+        missing = [fp.name for fp in file_paths if not attachment_name_visible_in_text(fp.name, haystack)]
         dom_errors = await self._composer_attachment_dom_errors()
         phrase_errors = find_attachment_failure_phrases(haystack)
         errors = list(dict.fromkeys([*dom_errors, *phrase_errors]))
@@ -1639,8 +1579,7 @@ class ChatGPTBot:
             health = await self._composer_attachment_health(file_paths)
             if not attachment_health_is_ok(health):
                 raise RuntimeError(
-                    "ChatGPT: вложения нестабильны — "
-                    f"{format_attachment_health_error(health)}"
+                    f"ChatGPT: вложения нестабильны — {format_attachment_health_error(health)}"
                 )
             now = asyncio.get_event_loop().time()
             if now - last_log >= ATTACH_UPLOAD_POLL_SEC:
@@ -1685,9 +1624,7 @@ class ChatGPTBot:
             )
             if attempt >= max_repair_attempts:
                 await self._dump_composer_html()
-                raise RuntimeError(
-                    f"ChatGPT: вложения не готовы к отправке — {detail} [{names}]"
-                )
+                raise RuntimeError(f"ChatGPT: вложения не готовы к отправке — {detail} [{names}]")
             await self._clear_composer_attachments()
             await asyncio.sleep(0.6)
             await self._attach_files(file_paths, _skip_settle=True)
@@ -1714,8 +1651,7 @@ class ChatGPTBot:
             now = asyncio.get_event_loop().time()
             if now - last_log_at >= ATTACH_UPLOAD_POLL_SEC:
                 logger.info(
-                    "ChatGPT: upload check {:.0f}/{:.0f}с — names_ok={} "
-                    "count={}/{} loading={} ({})",
+                    "ChatGPT: upload check {:.0f}/{:.0f}с — names_ok={} count={}/{} loading={} ({})",
                     now - started,
                     timeout,
                     names_ok,
@@ -1731,8 +1667,7 @@ class ChatGPTBot:
             await asyncio.sleep(ATTACH_UPLOAD_POLL_SEC)
         await self._dump_composer_html()
         raise RuntimeError(
-            f"ChatGPT: вложения не готовы за {timeout:.0f}с "
-            f"[{', '.join(p.name for p in file_paths)}]"
+            f"ChatGPT: вложения не готовы за {timeout:.0f}с [{', '.join(p.name for p in file_paths)}]"
         )
 
     async def _attach_batch_via_paperclip(self, file_paths: list[Path]) -> None:
@@ -1753,9 +1688,7 @@ class ChatGPTBot:
         """Прикрепить один файл через скрепку + set_input_files."""
         await self._attach_batch_via_paperclip([file_path])
 
-    async def _attach_files(
-        self, file_paths: list[Path], *, _skip_settle: bool = False
-    ) -> None:
+    async def _attach_files(self, file_paths: list[Path], *, _skip_settle: bool = False) -> None:
         """Загружает один или несколько файлов в текущий черновик сообщения.
 
         Стратегия (как ручной аплоад мышкой в Chrome):
@@ -1848,13 +1781,10 @@ class ChatGPTBot:
             after = await self._count_attachment_previews()
             attached = after - before
 
-        if attached < len(file_paths) or not await self._files_visible_in_composer(
-            file_paths
-        ):
+        if attached < len(file_paths) or not await self._files_visible_in_composer(file_paths):
             await self._dump_composer_html()
             raise RuntimeError(
-                f"ChatGPT: прикреплено {attached}/{len(file_paths)} файлов "
-                f"[{names}] — отправку отменяю"
+                f"ChatGPT: прикреплено {attached}/{len(file_paths)} файлов [{names}] — отправку отменяю"
             )
         logger.info(
             "ChatGPT: все {} файлов в композере (превью +{})",
@@ -1872,9 +1802,7 @@ class ChatGPTBot:
         drag_drop_ok = False
         try:
             await self._drag_drop_files([file_path])
-            preview_sel = await _first_matching(
-                page, FILE_PREVIEW_SELECTORS, timeout=25
-            )
+            preview_sel = await _first_matching(page, FILE_PREVIEW_SELECTORS, timeout=25)
             if preview_sel and file_path.name in await self._composer_attachment_text():
                 logger.info(
                     "ChatGPT: drag-drop превью для {} ({})",
@@ -1904,21 +1832,14 @@ class ChatGPTBot:
 
         if not input_sel:
             await self._dump_composer_html()
-            raise RuntimeError(
-                f"ChatGPT: не удалось прикрепить {file_path.name} "
-                "(нет input[type=file])"
-            )
+            raise RuntimeError(f"ChatGPT: не удалось прикрепить {file_path.name} (нет input[type=file])")
 
         await page.locator(input_sel).last.set_input_files([str(file_path)])
         await self._fire_file_input_events(input_sel)
-        preview_sel = await _first_matching(
-            page, FILE_PREVIEW_SELECTORS, timeout=60
-        )
+        preview_sel = await _first_matching(page, FILE_PREVIEW_SELECTORS, timeout=60)
         if not preview_sel or file_path.name not in await self._composer_attachment_text():
             await self._dump_composer_html()
-            raise RuntimeError(
-                f"ChatGPT: {file_path.name} — превью/имя не появилось после set_input_files"
-            )
+            raise RuntimeError(f"ChatGPT: {file_path.name} — превью/имя не появилось после set_input_files")
         await self._wait_upload_done()
 
     async def _attach_files_batch(self, file_paths: list[Path]) -> None:
@@ -1929,13 +1850,9 @@ class ChatGPTBot:
         drag_drop_ok = False
         try:
             await self._drag_drop_files(file_paths)
-            preview_sel = await _first_matching(
-                page, FILE_PREVIEW_SELECTORS, timeout=20
-            )
+            preview_sel = await _first_matching(page, FILE_PREVIEW_SELECTORS, timeout=20)
             if preview_sel and await self._files_visible_in_composer(file_paths):
-                logger.info(
-                    "ChatGPT: batch drag-drop превью ({})", preview_sel
-                )
+                logger.info("ChatGPT: batch drag-drop превью ({})", preview_sel)
                 await self._wait_upload_done()
                 drag_drop_ok = True
         except Exception as e:  # noqa: BLE001
@@ -1948,21 +1865,13 @@ class ChatGPTBot:
         input_sel = await self._materialize_file_input(fresh=True)
 
         if not input_sel:
-            raise RuntimeError(
-                "ChatGPT: batch fallback — нет input[type=file]"
-            )
+            raise RuntimeError("ChatGPT: batch fallback — нет input[type=file]")
 
-        await page.locator(input_sel).last.set_input_files(
-            [str(p) for p in file_paths]
-        )
+        await page.locator(input_sel).last.set_input_files([str(p) for p in file_paths])
         await self._fire_file_input_events(input_sel)
-        preview_sel = await _first_matching(
-            page, FILE_PREVIEW_SELECTORS, timeout=60
-        )
+        preview_sel = await _first_matching(page, FILE_PREVIEW_SELECTORS, timeout=60)
         if not preview_sel or not await self._files_visible_in_composer(file_paths):
-            raise RuntimeError(
-                f"ChatGPT: batch set_input_files — нет превью/имён [{names}]"
-            )
+            raise RuntimeError(f"ChatGPT: batch set_input_files — нет превью/имён [{names}]")
         await self._wait_upload_done()
 
     async def _drag_drop_files(self, file_paths: list[Path]) -> None:
@@ -1981,10 +1890,7 @@ class ChatGPTBot:
             if not mime:
                 ext = fp.suffix.lower()
                 if ext == ".xlsx":
-                    mime = (
-                        "application/vnd.openxmlformats-officedocument."
-                        "spreadsheetml.sheet"
-                    )
+                    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 elif ext == ".txt":
                     mime = "text/plain"
                 elif ext == ".md":
@@ -1995,9 +1901,7 @@ class ChatGPTBot:
                     mime = "application/octet-stream"
             with open(fp, "rb") as f:
                 content_b64 = base64.b64encode(f.read()).decode("ascii")
-            files_data.append(
-                {"name": fp.name, "mime": mime, "b64": content_b64}
-            )
+            files_data.append({"name": fp.name, "mime": mime, "b64": content_b64})
         logger.info(
             "ChatGPT: drag-drop {} файлов на форму композера",
             len(files_data),
@@ -2087,8 +1991,7 @@ class ChatGPTBot:
 
         if not result or not result.get("ok"):
             raise RuntimeError(
-                f"ChatGPT: drag-drop не удался: "
-                f"{result.get('error') if result else 'no result'}"
+                f"ChatGPT: drag-drop не удался: {result.get('error') if result else 'no result'}"
             )
         logger.info(
             "ChatGPT: drag-drop dispatched на <{}> для файлов {}",
@@ -2096,9 +1999,7 @@ class ChatGPTBot:
             result.get("files"),
         )
 
-    async def _wait_upload_done(
-        self, *, timeout: float = ATTACH_UPLOAD_TIMEOUT_SEC
-    ) -> None:
+    async def _wait_upload_done(self, *, timeout: float = ATTACH_UPLOAD_TIMEOUT_SEC) -> None:
         """Ждёт пока в композере исчезнут спиннеры загрузки вложений."""
         page = await self._page_ready()
         spinner_sels = [
@@ -2156,9 +2057,7 @@ class ChatGPTBot:
             if len(html) > max_chars:
                 head = html[: max_chars // 2]
                 tail = html[-max_chars // 2 :]
-                html_log = (
-                    f"{head}\n...[truncated {len(html) - max_chars} chars]...\n{tail}"
-                )
+                html_log = f"{head}\n...[truncated {len(html) - max_chars} chars]...\n{tail}"
             else:
                 html_log = html
             logger.info("ChatGPT: composer outerHTML:\n{}", html_log)
@@ -2208,9 +2107,7 @@ class ChatGPTBot:
                     len(reply),
                 )
                 return reply
-            logger.info(
-                "ChatGPT (file reply): карточка не появилась — короткая стабилизация текста"
-            )
+            logger.info("ChatGPT (file reply): карточка не появилась — короткая стабилизация текста")
             stabilize_target = REPLY_STABILIZE_FILE_SEC
             min_stable_len = 0
         else:
@@ -2267,7 +2164,7 @@ class ChatGPTBot:
         expect_file_download: bool = False,
     ) -> str:
         """Прикрепляет файлы, вводит сопр. текст в композер и отправляет."""
-        from app.services.step_cancel import abort_if_cancelled, sleep_cancellable
+        from app.services.step_cancel import abort_if_cancelled
 
         abort_if_cancelled(project_id)
         stripped = (prompt or "").strip()
@@ -2322,9 +2219,7 @@ class ChatGPTBot:
         """
         suf = master_prompt_file.suffix.lower()
         if suf in _ANIM_PR_IMAGE_SUFFIXES:
-            raise ValueError(
-                f"anim_pr initial: ожидался .md/.txt, не картинка: {master_prompt_file.name}"
-            )
+            raise ValueError(f"anim_pr initial: ожидался .md/.txt, не картинка: {master_prompt_file.name}")
         if suf not in _ANIM_PR_DOC_SUFFIXES:
             logger.warning(
                 "anim_pr initial: нестандартное расширение {} — всё равно шлём только этот файл",
@@ -2362,9 +2257,7 @@ class ChatGPTBot:
             raise ValueError("anim_pr batch: нет изображений")
         for fp in image_paths:
             if fp.suffix.lower() not in _ANIM_PR_IMAGE_SUFFIXES:
-                raise ValueError(
-                    f"anim_pr batch: только картинки, не {fp.name}"
-                )
+                raise ValueError(f"anim_pr batch: только картинки, не {fp.name}")
         logger.info(
             "anim_pr ФАЗА 2: {} влож. + текст ({} симв.) — мастер-файл не прикрепляем",
             len(image_paths),
@@ -2468,9 +2361,7 @@ class ChatGPTBot:
             )
 
         try:
-            async with page.expect_response(
-                _response_looks_like_file, timeout=20_000
-            ) as resp_info:
+            async with page.expect_response(_response_looks_like_file, timeout=20_000) as resp_info:
                 await self._force_locator_click(locator)
             resp = await resp_info.value
             body = await resp.body()
@@ -2617,9 +2508,7 @@ class ChatGPTBot:
                 btn = loc.nth(idx)
                 aria = (await btn.get_attribute("aria-label")) or ""
                 if sel.endswith("behavior-btn") and aria:
-                    if not any(
-                        aria.lower().endswith(ext) for ext in _FILE_EXTENSIONS
-                    ):
+                    if not any(aria.lower().endswith(ext) for ext in _FILE_EXTENSIONS):
                         continue
                 return btn
         return None
@@ -2821,9 +2710,7 @@ class ChatGPTBot:
             FILE_PREVIEW_DOWNLOAD_POLL_SEC,
             tag,
         )
-        if await self._click_and_save_file(
-            page, locator, target_path, label=f"{tag}-legacy"
-        ):
+        if await self._click_and_save_file(page, locator, target_path, label=f"{tag}-legacy"):
             return True
         try:
             await page.keyboard.press("Escape")
@@ -2842,12 +2729,8 @@ class ChatGPTBot:
         """Скачивание по типу файла: .txt быстро, .xlsx через превью таблицы."""
         tag = label or target_path.name
         if _uses_spreadsheet_preview(target_path, tag):
-            return await self._click_spreadsheet_file_then_download(
-                page, locator, target_path, label=tag
-            )
-        return await self._click_plain_file_then_download(
-            page, locator, target_path, label=tag
-        )
+            return await self._click_spreadsheet_file_then_download(page, locator, target_path, label=tag)
+        return await self._click_plain_file_then_download(page, locator, target_path, label=tag)
 
     async def _try_download_aria_file_buttons(
         self,
@@ -2878,12 +2761,13 @@ class ChatGPTBot:
     ) -> bool:
         """Скачать файл кликом по карточке (behavior-btn) или панели превью справа."""
         card_sel = await _first_matching(
-            page, FILE_CARD_SELECTORS, timeout=timeout,
+            page,
+            FILE_CARD_SELECTORS,
+            timeout=timeout,
         )
         if card_sel is None:
             logger.info(
-                "ChatGPT: _try_download_via_file_card: карточка файла "
-                "не найдена за {} сек",
+                "ChatGPT: _try_download_via_file_card: карточка файла не найдена за {} сек",
                 timeout,
             )
             return False
@@ -3048,24 +2932,18 @@ class ChatGPTBot:
         page = await self._page_ready()
         target_path = Path(target_path)
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        phase_timeout = min(
-            DOWNLOAD_PHASE_TIMEOUT_SEC, max(60.0, timeout * 0.05)
-        )
+        phase_timeout = min(DOWNLOAD_PHASE_TIMEOUT_SEC, max(60.0, timeout * 0.05))
 
         aria_timeout = min(120.0, max(45.0, timeout * 0.06))
         is_plain = not _uses_spreadsheet_preview(target_path)
-        if await self._try_download_aria_file_buttons(
-            page, target_path, timeout=aria_timeout
-        ):
+        if await self._try_download_aria_file_buttons(page, target_path, timeout=aria_timeout):
             return target_path
 
         if is_plain:
             if await self._download_plain_file_preview(page, target_path):
                 return target_path
         else:
-            if await self._try_download_via_file_card(
-                page, target_path, timeout=phase_timeout
-            ):
+            if await self._try_download_via_file_card(page, target_path, timeout=phase_timeout):
                 size = target_path.stat().st_size if target_path.exists() else -1
                 logger.info(
                     "ChatGPT: файл скачан (behavior-btn / превью) как {} ({} байт)",
@@ -3073,9 +2951,7 @@ class ChatGPTBot:
                     size,
                 )
                 if size < 1024:
-                    logger.warning(
-                        "ChatGPT: размер подозрительно мал ({} байт).", size
-                    )
+                    logger.warning("ChatGPT: размер подозрительно мал ({} байт).", size)
                     await self._dump_last_assistant_html()
                 return target_path
 
@@ -3107,9 +2983,7 @@ class ChatGPTBot:
 
         await self._hover_file_cards()
         retry_timeout = min(DOWNLOAD_PHASE_RETRY_SEC, max(12.0, timeout * 0.03))
-        if await self._try_download_via_file_card(
-            page, target_path, timeout=retry_timeout
-        ):
+        if await self._try_download_via_file_card(page, target_path, timeout=retry_timeout):
             size = target_path.stat().st_size if target_path.exists() else -1
             logger.info(
                 "ChatGPT: файл скачан после hover как {} ({} байт)",
@@ -3131,9 +3005,7 @@ class ChatGPTBot:
             )
             return target_path
 
-        if await self._try_download_aria_file_buttons(
-            page, target_path, timeout=min(90.0, timeout * 0.05)
-        ):
+        if await self._try_download_aria_file_buttons(page, target_path, timeout=min(90.0, timeout * 0.05)):
             return target_path
 
         suffix = target_path.suffix.lower()
@@ -3155,4 +3027,3 @@ class ChatGPTBot:
             "Полный outerHTML последнего ответа залогирован — пришли строки "
             "из консоли с 'last assistant outerHTML' разработчику."
         )
-

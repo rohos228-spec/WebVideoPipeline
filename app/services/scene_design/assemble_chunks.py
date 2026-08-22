@@ -11,7 +11,7 @@ import copy
 from typing import Any
 
 from app.models import Frame
-from app.services.scene_design.chronology import frame_offsets, _norm
+from app.services.scene_design.chronology import _norm, frame_offsets
 from app.services.scene_design.context_builder import frame_seconds
 
 
@@ -102,16 +102,12 @@ def filter_assembly_input_for_frames(
             # Оставляем только кадры этого чанка внутри сцены.
             chunk_uuids = {f.uuid for f in chunk_frames if f.uuid}
             kids = [
-                k
-                for k in (row.get("кадры") or [])
-                if isinstance(k, dict) and k.get("uuid") in chunk_uuids
+                k for k in (row.get("кадры") or []) if isinstance(k, dict) and k.get("uuid") in chunk_uuids
             ]
             if kids:
                 row["кадры"] = kids
                 row["кадров"] = len(kids)
-                row["время_сек"] = round(
-                    sum(float(k.get("время_сек") or 0.0) for k in kids), 1
-                )
+                row["время_сек"] = round(sum(float(k.get("время_сек") or 0.0) for k in kids), 1)
             scenes_out.append(row)
 
     shots_out: list[dict[str, Any]] = []
@@ -126,9 +122,7 @@ def filter_assembly_input_for_frames(
     # scenes и полный shot overlap; GPT соберёт границы по camera.
     out: dict[str, Any] = {
         "characters": (
-            copy.deepcopy(list(assembly_input.get("characters") or []))
-            if include_characters
-            else []
+            copy.deepcopy(list(assembly_input.get("characters") or [])) if include_characters else []
         ),
         "locations": copy.deepcopy(list(assembly_input.get("locations") or [])),
         "style_arc": copy.deepcopy(list(assembly_input.get("style_arc") or [])),
@@ -258,8 +252,6 @@ def merge_assembler_payloads(
         "ops": ops,
         "report": (
             f"chunks:{len(parts)}; scenes:{len(scenes)}; ops:{len(ops)}; "
-            f"dropped_no_uuid:{dropped_no_uuid}; "
-            + " | ".join(reports)[:1500]
+            f"dropped_no_uuid:{dropped_no_uuid}; " + " | ".join(reports)[:1500]
         ),
     }
-

@@ -29,9 +29,7 @@ def _assembler_reply(prompt_text: str) -> str:
     uuid встречаются и в КАДРЫ, и в ячейках scenes_chrono — дедуплицируем,
     порядок сохраняем. Хронометраж сцены = сумма время_сек её кадров.
     """
-    pairs = re.findall(
-        r'"uuid":\s*"([^"]+)"[^{}]*?"время_сек":\s*([\d.]+)', prompt_text
-    )
+    pairs = re.findall(r'"uuid":\s*"([^"]+)"[^{}]*?"время_сек":\s*([\d.]+)', prompt_text)
     frame_times = dict(pairs)
     uuids = list(dict.fromkeys(re.findall(r'"uuid":\s*"([^"]+)"', prompt_text)))
     assert uuids, "в контексте сборщика нет uuid кадров"
@@ -94,9 +92,7 @@ async def sd_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             ],
             start=1,
         ):
-            session.add(
-                Frame(project_id=p.id, number=i, voiceover_text=part, duration_seconds=3.0)
-            )
+            session.add(Frame(project_id=p.id, number=i, voiceover_text=part, duration_seconds=3.0))
         await session.commit()
         yield session, p
     await engine.dispose()
@@ -145,7 +141,10 @@ async def test_scene_design_step_end_to_end(sd_session, monkeypatch) -> None:
     sd = meta.get("scene_design") or {}
     assert sd.get("status") == "agents_done"
     assert set((sd.get("agents") or {}).keys()) == {
-        "characters", "world", "camera", "action",
+        "characters",
+        "world",
+        "camera",
+        "action",
     }
 
     # Фаза 2 — сборщик.
@@ -165,18 +164,18 @@ async def test_scene_design_step_end_to_end(sd_session, monkeypatch) -> None:
     from app.services.scene_design.context_builder import frame_seconds
 
     frames_for_sec = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     expected_sec = round(sum(frame_seconds(fr)[0] for fr in frames_for_sec), 1)
     assert registry[0]["время_сек"] == expected_sec
 
     frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     for fr in frames:
         attrs = fr.attrs or {}
         assert attrs.get("shot01_id_scene") == "sc01"

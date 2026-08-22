@@ -8,10 +8,7 @@ from app.services.xlsx_step_runners import extract_general_plan_from_gpt_reply
 
 def test_extract_general_plan_from_apply_ops_json() -> None:
     body = "A" * 220
-    reply = (
-        'Вот план:\n'
-        '{"ops":[{"target":"project","fields":{"общий_план":"' + body + '"}}]}'
-    )
+    reply = 'Вот план:\n{"ops":[{"target":"project","fields":{"общий_план":"' + body + '"}}]}'
     got = extract_general_plan_from_gpt_reply(reply)
     assert got == body
     assert is_meaningful_general_plan(got)

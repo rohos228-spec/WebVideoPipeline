@@ -162,14 +162,11 @@ def build_video_clip_specs(
             raise RuntimeError(f"нет метки R15 для кадра {num}")
 
         if ac.duration <= 0 or ac.end_ts <= ac.start_ts:
-            raise RuntimeError(
-                f"кадр {num}: битая метка {ac.start_ts:.2f}–{ac.end_ts:.2f}s"
-            )
+            raise RuntimeError(f"кадр {num}: битая метка {ac.start_ts:.2f}–{ac.end_ts:.2f}s")
 
         if ac.start_ts < prev_end - 0.02:
             raise RuntimeError(
-                f"кадр {num}: start {ac.start_ts:.2f}s перекрывает предыдущий "
-                f"(конец ~{prev_end:.2f}s)"
+                f"кадр {num}: start {ac.start_ts:.2f}s перекрывает предыдущий (конец ~{prev_end:.2f}s)"
             )
 
         disk1, disk2 = find_scene_clips(videos_dir, num)
@@ -180,8 +177,7 @@ def build_video_clip_specs(
         segment = ac.end_ts - ac.start_ts
         if segment > 45.0:
             raise RuntimeError(
-                f"кадр {num}: сегмент {segment:.1f}s — битая метка R15 "
-                f"({ac.start_ts:.2f}–{ac.end_ts:.2f})"
+                f"кадр {num}: сегмент {segment:.1f}s — битая метка R15 ({ac.start_ts:.2f}–{ac.end_ts:.2f})"
             )
 
         last_src = _append_scene_clips(

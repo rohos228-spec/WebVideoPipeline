@@ -3,11 +3,11 @@
 Usage:
   .\\.venv\\Scripts\\python.exe scripts\\assemble_r15_direct.py 17
 """
+
 from __future__ import annotations
 
 import asyncio
 import uuid
-from pathlib import Path
 
 from sqlalchemy import select
 
@@ -60,10 +60,14 @@ async def _run_montage(project_id: int) -> None:
         await recover_before_assemble(session, project)
 
         frames = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not frames:
             raise SystemExit("нет кадров в БД")
 

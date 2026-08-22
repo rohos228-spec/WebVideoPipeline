@@ -32,8 +32,8 @@ import os
 import socket
 import time
 import uuid as _uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from loguru import logger
 from sqlalchemy import delete, text, update
@@ -72,9 +72,7 @@ def current_owner() -> str:
         # Ревью [4/4]: без чистки словарь растёт вечно, а переиспользование
         # id() после GC отдавало бы owner мёртвой задачи новой.
         if task is not None:
-            task.add_done_callback(
-                lambda t: _task_owner.pop(id(t), None)
-            )
+            task.add_done_callback(lambda t: _task_owner.pop(id(t), None))
     return owner
 
 
@@ -91,9 +89,7 @@ async def _ensure_table() -> None:
     from app.db import engine
 
     async with engine.begin() as conn:
-        await conn.run_sync(
-            lambda c: WorkLease.__table__.create(c, checkfirst=True)
-        )
+        await conn.run_sync(lambda c: WorkLease.__table__.create(c, checkfirst=True))
 
 
 async def _execute_with_retry(stmt, params=None) -> int:
@@ -147,9 +143,7 @@ async def acquire(
     )
     ok = rowcount > 0
     if not ok:
-        logger.debug(
-            "work_lease: {}/{} занят живым lease — пропуск", project_id, unit_key
-        )
+        logger.debug("work_lease: {}/{} занят живым lease — пропуск", project_id, unit_key)
     return ok
 
 

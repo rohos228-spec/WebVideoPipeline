@@ -100,14 +100,20 @@ def check_start_here() -> list[str]:
             errors.append(f"START_HERE references missing code/test: {rel}")
 
     # Контрактные утверждения — сверка с реальным кодом.
-    from app.services.gpt_text_builder import ENRICH_DEFAULT_ACCOMPANYING_TEXT
     from app.services.chatgpt_xlsx import PLAN_XLSX_OUTPUT_FOOTER
+    from app.services.gpt_text_builder import ENRICH_DEFAULT_ACCOMPANYING_TEXT
 
-    if "xlsx" in ENRICH_DEFAULT_ACCOMPANYING_TEXT.lower() and "без xlsx" not in ENRICH_DEFAULT_ACCOMPANYING_TEXT.lower():
+    if (
+        "xlsx" in ENRICH_DEFAULT_ACCOMPANYING_TEXT.lower()
+        and "без xlsx" not in ENRICH_DEFAULT_ACCOMPANYING_TEXT.lower()
+    ):
         # Допускаем слово xlsx в запрете («без xlsx»).
         if "прилож" in ENRICH_DEFAULT_ACCOMPANYING_TEXT.lower():
             errors.append("ENRICH footer still asks to attach xlsx")
-    if "apply-ops" not in ENRICH_DEFAULT_ACCOMPANYING_TEXT.lower() and "apply-ops" not in ENRICH_DEFAULT_ACCOMPANYING_TEXT:
+    if (
+        "apply-ops" not in ENRICH_DEFAULT_ACCOMPANYING_TEXT.lower()
+        and "apply-ops" not in ENRICH_DEFAULT_ACCOMPANYING_TEXT
+    ):
         errors.append("ENRICH footer missing apply-ops")
     if "# Лист:" in PLAN_XLSX_OUTPUT_FOOTER and "Не прикладывай" not in PLAN_XLSX_OUTPUT_FOOTER:
         errors.append("PLAN footer still requires TSV # Лист as primary output")
@@ -137,16 +143,12 @@ def check_start_here() -> list[str]:
             env_branch = m.group(1).strip()
     if "этот ПК = `housepc`" in text or "этот ПК: housepc" in text.lower():
         if env_branch and env_branch != "housepc":
-            errors.append(
-                f"START_HERE claims housepc but .env ORCHESTRATOR_GIT_BRANCH={env_branch}"
-            )
+            errors.append(f"START_HERE claims housepc but .env ORCHESTRATOR_GIT_BRANCH={env_branch}")
 
     ops = (PACK / "00_core/video-pipeline-ops.md").read_text(encoding="utf-8")
     if "этот ПК = `housepc`" in ops or "ORCHESTRATOR_GIT_BRANCH=housepc`" in ops:
         errors.append("ops still hardcodes this PC as housepc — read .env instead")
-    if "колонка R48 в project.xlsx`, не stale DB" in ops or (
-        "колонка R48" in ops and "не stale DB" in ops
-    ):
+    if "колонка R48 в project.xlsx`, не stale DB" in ops or ("колонка R48" in ops and "не stale DB" in ops):
         errors.append("ops still claims R48/xlsx is SoT for anim_pr (DB is SoT)")
     if "Источник правды" in ops and "DB" not in ops.split("anim_pr", 1)[-1][:400]:
         # soft check: anim_pr section should mention DB
@@ -214,9 +216,7 @@ def main() -> int:
             print(f"  ! {e}")
     else:
         print("ai-pack VERIFY OK")
-    head = subprocess.check_output(
-        ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True
-    ).strip()
+    head = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True).strip()
     print(f"  git HEAD: {head}")
     print(f"  pack files checked: {len(COPY_MAP)} copies + START_HERE")
     return 0

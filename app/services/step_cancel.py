@@ -4,6 +4,7 @@ Web/API и воркер могут быть разными процессами 
 достаточны. `request_stop` пишет `data/.stop/project_{id}.stop`, воркер
 видит его в `is_stop_requested` и выходит из outsee/GPT циклов.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -184,8 +185,7 @@ def request_stop(
     cancelled_xlsx = cancel_xlsx_flow_tasks(project_id)
     if cancelled_adv or cancelled_xlsx:
         logger.info(
-            "step_cancel.request_stop: #{} reason={} "
-            "(advance_cancel={}, xlsx_cancel={}, file=ok)",
+            "step_cancel.request_stop: #{} reason={} (advance_cancel={}, xlsx_cancel={}, file=ok)",
             project_id,
             reason,
             cancelled_adv,
@@ -223,9 +223,7 @@ def consume_stop(project_id: int) -> bool:
 
 def abort_if_cancelled(project_id: int | None) -> None:
     if project_id is not None and is_stop_requested(project_id):
-        raise StepCancelledError(
-            f"проект #{project_id}: остановка по запросу пользователя"
-        )
+        raise StepCancelledError(f"проект #{project_id}: остановка по запросу пользователя")
 
 
 async def _drain_task(task: asyncio.Task) -> None:
@@ -294,9 +292,7 @@ async def sleep_cancellable(
 
 def raise_if_cancelled(project_id: int) -> None:
     if consume_stop(project_id):
-        raise StepCancelledError(
-            f"проект #{project_id}: остановка по запросу пользователя"
-        )
+        raise StepCancelledError(f"проект #{project_id}: остановка по запросу пользователя")
 
 
 def clear_all() -> None:

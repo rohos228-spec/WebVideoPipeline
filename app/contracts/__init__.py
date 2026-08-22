@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from app.contracts.apply_ops import APPLY_OPS, ApplyOp, ApplyOpsEnvelope
 from app.contracts.base import LlmContract, ParsedReply
+from app.contracts.check_report import CHECK_REPORT, CheckReport
 from app.contracts.errors import LlmContractError
 from app.contracts.extract import extract_json_payload
-from app.contracts.check_report import CHECK_REPORT, CheckReport
 from app.contracts.policy import RepairResult, run_with_contract
 from app.contracts.prompt_ops import (
     ANIM_PR,
@@ -63,9 +63,7 @@ def get_contract(name: str) -> LlmContract:
     try:
         return _REGISTRY[name]
     except KeyError:
-        raise KeyError(
-            f"неизвестный контракт {name!r}; есть: {sorted(_REGISTRY)}"
-        ) from None
+        raise KeyError(f"неизвестный контракт {name!r}; есть: {sorted(_REGISTRY)}") from None
 
 
 def register(contract: LlmContract) -> LlmContract:

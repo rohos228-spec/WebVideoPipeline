@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -79,7 +79,7 @@ def trash_voiceover_file(project: Project, voice_path: Path) -> Path | None:
     """Переместить voiceover в .trash/ + бэкап в old/ (вместо безвозвратного unlink)."""
     if not voice_path.is_file():
         return None
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     trash_dir = project.data_dir / ".trash"
     trash_dir.mkdir(parents=True, exist_ok=True)
     dest = trash_dir / f"{ts}_voiceover.txt"
@@ -121,8 +121,8 @@ def _script_text_from_xlsx(path: Path) -> str | None:
         from openpyxl import load_workbook
 
         from app.services.xlsx_sync import _GENERAL_LABEL_TO_FIELD, _to_str
-        from app.storage.project_sheet import ROW_HEADER, ROW_VOICEOVER, SHEET_FRAMES, SHEET_GENERAL
         from app.services.xlsx_v8_import import _read_voiceover_blocks, has_v8_plan_sheet
+        from app.storage.project_sheet import ROW_HEADER, ROW_VOICEOVER, SHEET_FRAMES, SHEET_GENERAL
 
         wb = load_workbook(filename=str(path), data_only=True)
         try:
@@ -240,12 +240,14 @@ async def _frames_voiceover_candidate(
     base_priority: int,
 ) -> VoiceoverCandidate | None:
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project_id)
-            .order_by(Frame.number.asc())
+        (
+            await session.execute(
+                select(Frame).where(Frame.project_id == project_id).order_by(Frame.number.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     parts = [(fr.voiceover_text or "").strip() for fr in frames]
     parts = [p for p in parts if p]
     if len(parts) < 2:
@@ -282,9 +284,7 @@ async def discover_original_candidates(
         children.sort(key=lambda p: p.id)
         for child in children:
             bp = 200 + child.id * 10
-            out.extend(
-                _scan_dir_candidates(child.data_dir, f"child#{child.id}/", base_priority=bp)
-            )
+            out.extend(_scan_dir_candidates(child.data_dir, f"child#{child.id}/", base_priority=bp))
             c2 = _candidate_from_text(
                 child.script_text or "",
                 f"child#{child.id}/script_text",
@@ -388,10 +388,7 @@ async def restore_original_voiceover(
             "chars": len(candidate.text),
             "current_chars": len(current),
             "current_db_chars": len(current_db),
-            "alternatives": [
-                {"source": c.source, "chars": len(c.text)}
-                for c in candidates[1:6]
-            ],
+            "alternatives": [{"source": c.source, "chars": len(c.text)} for c in candidates[1:6]],
         }
 
     save_voiceover_text(project, voiceover_path, candidate.text)
@@ -450,8 +447,6 @@ async def restore_all_parent_voiceovers(
 async def count_parent_projects(session: AsyncSession) -> int:
     parent_expr = cast(func.json_extract(Project.meta, "$.mass_parent_id"), Integer)
     total = (
-        await session.execute(
-            select(func.count()).select_from(Project).where(parent_expr.is_(None))
-        )
+        await session.execute(select(func.count()).select_from(Project).where(parent_expr.is_(None)))
     ).scalar_one()
     return int(total or 0)

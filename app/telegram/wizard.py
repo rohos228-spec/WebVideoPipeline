@@ -16,9 +16,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from aiogram import Bot
 from aiogram.types import (
@@ -40,11 +40,11 @@ from app.generation_options import (
     IMAGE_QUALITIES_BY_ID,
     IMAGE_RESOLUTIONS,
     IMAGE_RESOLUTIONS_BY_ID,
-    OptionChoice,
     VIDEO_GENERATORS,
     VIDEO_GENERATORS_BY_ID,
     VIDEO_RESOLUTIONS,
     VIDEO_RESOLUTIONS_BY_ID,
+    OptionChoice,
     is_gpt_image_generator,
 )
 from app.models import Project
@@ -139,8 +139,7 @@ _QUESTIONS: list[WizardQuestion] = [
     WizardQuestion(
         field="image_relax",
         title=(
-            "5/8. <b>Безлимит</b> для картинок?\n"
-            "Если «Да» — outsee включит тогл «Безлимит» перед генерацией."
+            "5/8. <b>Безлимит</b> для картинок?\nЕсли «Да» — outsee включит тогл «Безлимит» перед генерацией."
         ),
         choices=BOOLEAN_CHOICES,
         image_path=None,
@@ -169,10 +168,7 @@ _QUESTIONS: list[WizardQuestion] = [
     ),
     WizardQuestion(
         field="video_relax",
-        title=(
-            "8/8. <b>Relax-режим видео</b>?\n"
-            "Поддерживается только для Veo 3.1 Fast."
-        ),
+        title=("8/8. <b>Relax-режим видео</b>?\nПоддерживается только для Veo 3.1 Fast."),
         choices=BOOLEAN_CHOICES,
         image_path=None,
         cols=2,
@@ -222,13 +218,7 @@ def _kb_for_question(
         buttons.append(row)
     # Кнопка «⬅ Отмена / В меню» не нужна на первом вопросе — проект только
     # создан. Но полезна когда юзер пересматривает настройки.
-    buttons.append(
-        [
-            InlineKeyboardButton(
-                text="⬅ В меню проекта", callback_data=f"proj:{project_id}:menu"
-            )
-        ]
-    )
+    buttons.append([InlineKeyboardButton(text="⬅ В меню проекта", callback_data=f"proj:{project_id}:menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -254,30 +244,38 @@ async def send_config_preset_menu(bot: Bot, chat_id: int, project: Project) -> N
 
     buttons: list[list[InlineKeyboardButton]] = []
     for p in presets:
-        buttons.append([
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"📋 {p['name']}",
+                    callback_data=f"wiz:{project.id}:preset:apply:{p['id']}",
+                )
+            ]
+        )
+    buttons.append(
+        [
             InlineKeyboardButton(
-                text=f"📋 {p['name']}",
-                callback_data=f"wiz:{project.id}:preset:apply:{p['id']}",
+                text="➕ Создание конфигурации",
+                callback_data=f"wiz:{project.id}:preset:create",
             )
-        ])
-    buttons.append([
-        InlineKeyboardButton(
-            text="➕ Создание конфигурации",
-            callback_data=f"wiz:{project.id}:preset:create",
-        )
-    ])
-    buttons.append([
-        InlineKeyboardButton(
-            text="⚙️ Настроить вручную",
-            callback_data=f"wiz:{project.id}:preset:manual",
-        )
-    ])
-    buttons.append([
-        InlineKeyboardButton(
-            text="⬅ В меню проекта",
-            callback_data=f"proj:{project.id}:menu",
-        )
-    ])
+        ]
+    )
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⚙️ Настроить вручную",
+                callback_data=f"wiz:{project.id}:preset:manual",
+            )
+        ]
+    )
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅ В меню проекта",
+                callback_data=f"proj:{project.id}:menu",
+            )
+        ]
+    )
     await bot.send_message(
         chat_id,
         "\n".join(lines),
@@ -315,9 +313,7 @@ async def try_handle_preset_name_message(msg) -> bool:
         return True
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == project_id))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
         if project is None:
             await msg.answer("Проект не найден.")
             return True
@@ -371,9 +367,7 @@ async def send_wizard_question(bot: Bot, chat_id: int, project: Project) -> None
             )
             if len(body) > 1000:
                 tail = body[1000:]
-                await bot.send_message(
-                    chat_id, tail, parse_mode="HTML", reply_markup=kb
-                )
+                await bot.send_message(chat_id, tail, parse_mode="HTML", reply_markup=kb)
             return
         except Exception as e:  # noqa: BLE001
             logger.warning("wizard: send_photo failed, fallback to text: {}", e)
@@ -386,8 +380,7 @@ async def _send_wizard_complete(bot: Bot, chat_id: int, project: Project) -> Non
 
     await bot.send_message(
         chat_id,
-        "✅ Настройки проекта сохранены. Теперь можно запускать шаги.\n\n"
-        + project_header(project),
+        "✅ Настройки проекта сохранены. Теперь можно запускать шаги.\n\n" + project_header(project),
         parse_mode="HTML",
         reply_markup=project_menu_kb(project),
     )
@@ -438,8 +431,7 @@ def _settings_overview_text(project: Project) -> str:
         f"<b>⛙ Настройки проекта #{project.id}</b>",
         f"«{topic}»",
         "",
-        "Кликни любое поле — поменяешь только его, остальные "
-        "не сбросятся.",
+        "Кликни любое поле — поменяешь только его, остальные не сбросятся.",
         "",
     ]
     for q in _QUESTIONS:
@@ -447,10 +439,7 @@ def _settings_overview_text(project: Project) -> str:
             # Поле неприменимо для текущего проекта (например video_relax
             # доступен только для veo_3_1_fast). Прячем из overview.
             continue
-        lines.append(
-            f"• {_FIELD_LABELS.get(q.field, q.field)}: "
-            f"<b>{_current_value_label(project, q)}</b>"
-        )
+        lines.append(f"• {_FIELD_LABELS.get(q.field, q.field)}: <b>{_current_value_label(project, q)}</b>")
     return "\n".join(lines)
 
 
@@ -459,39 +448,42 @@ def _settings_overview_kb(project: Project) -> InlineKeyboardMarkup:
     for q in _QUESTIONS:
         if q.skip_if(project):
             continue
-        rows.append([
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=(f"✏ {_FIELD_LABELS.get(q.field, q.field)}: {_current_value_label(project, q)}"),
+                    callback_data=f"wiz:{project.id}:edit:{q.field}",
+                )
+            ]
+        )
+    rows.append(
+        [
             InlineKeyboardButton(
-                text=(
-                    f"✏ {_FIELD_LABELS.get(q.field, q.field)}: "
-                    f"{_current_value_label(project, q)}"
-                ),
-                callback_data=f"wiz:{project.id}:edit:{q.field}",
-            )
-        ])
-    rows.append([
-        InlineKeyboardButton(
-            text="💾 Сохранить конфигурацию",
-            callback_data=f"wiz:{project.id}:preset:save",
-        ),
-    ])
-    rows.append([
-        InlineKeyboardButton(
-            text="↻ Сбросить все настройки",
-            callback_data=f"wiz:{project.id}:reset",
-        ),
-    ])
-    rows.append([
-        InlineKeyboardButton(
-            text="⬅ В меню проекта",
-            callback_data=f"proj:{project.id}:menu",
-        ),
-    ])
+                text="💾 Сохранить конфигурацию",
+                callback_data=f"wiz:{project.id}:preset:save",
+            ),
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="↻ Сбросить все настройки",
+                callback_data=f"wiz:{project.id}:reset",
+            ),
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅ В меню проекта",
+                callback_data=f"proj:{project.id}:menu",
+            ),
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def _send_settings_overview(
-    bot: Bot, chat_id: int, project: Project
-) -> None:
+async def _send_settings_overview(bot: Bot, chat_id: int, project: Project) -> None:
     await bot.send_message(
         chat_id,
         _settings_overview_text(project),
@@ -500,9 +492,7 @@ async def _send_settings_overview(
     )
 
 
-def _kb_for_edit(
-    project_id: int, field: str, choices: list[OptionChoice], cols: int
-) -> InlineKeyboardMarkup:
+def _kb_for_edit(project_id: int, field: str, choices: list[OptionChoice], cols: int) -> InlineKeyboardMarkup:
     """Пикер редактирования одного поля. Callback:
     `wiz:<pid>:setone:<field>:<option_id>`. После клика — возврат в overview.
     """
@@ -520,18 +510,18 @@ def _kb_for_edit(
             row = []
     if row:
         buttons.append(row)
-    buttons.append([
-        InlineKeyboardButton(
-            text="⬅ Назад в настройки",
-            callback_data=f"wiz:{project_id}:start",
-        )
-    ])
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅ Назад в настройки",
+                callback_data=f"wiz:{project_id}:start",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-async def _send_edit_picker(
-    bot: Bot, chat_id: int, project: Project, field: str
-) -> None:
+async def _send_edit_picker(bot: Bot, chat_id: int, project: Project, field: str) -> None:
     """Показать пикер выбора для одного поля. Использует те же
     `choices` и `image_path`, что и мастер, но callback'и ведут на setone.
     """
@@ -567,14 +557,10 @@ async def _send_edit_picker(
             )
             if len(body) > 1000:
                 tail = body[1000:]
-                await bot.send_message(
-                    chat_id, tail, parse_mode="HTML", reply_markup=kb
-                )
+                await bot.send_message(chat_id, tail, parse_mode="HTML", reply_markup=kb)
             return
         except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "wizard: send_photo failed in edit picker: {}", e
-            )
+            logger.warning("wizard: send_photo failed in edit picker: {}", e)
     await bot.send_message(chat_id, body, parse_mode="HTML", reply_markup=kb)
 
 
@@ -602,9 +588,7 @@ async def handle_wizard_callback(cb: CallbackQuery) -> None:
 
     if action == "start":
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == project_id))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
@@ -621,14 +605,10 @@ async def handle_wizard_callback(cb: CallbackQuery) -> None:
     if action == "edit" and len(parts) >= 4:
         field = parts[3]
         if field not in _QUESTIONS_BY_FIELD:
-            await cb.answer(
-                f"wizard: неизвестное поле {field}", show_alert=True
-            )
+            await cb.answer(f"wizard: неизвестное поле {field}", show_alert=True)
             return
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == project_id))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
@@ -645,22 +625,16 @@ async def handle_wizard_callback(cb: CallbackQuery) -> None:
         option_id = parts[4]
         question = _QUESTIONS_BY_FIELD.get(field)
         if question is None:
-            await cb.answer(
-                f"wizard: неизвестное поле {field}", show_alert=True
-            )
+            await cb.answer(f"wizard: неизвестное поле {field}", show_alert=True)
             return
         choice = question.catalog.get(option_id)
         if choice is None:
-            await cb.answer(
-                f"wizard: неизвестный вариант {option_id}", show_alert=True
-            )
+            await cb.answer(f"wizard: неизвестный вариант {option_id}", show_alert=True)
             return
         db_value = question.to_db(option_id)
 
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == project_id))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
@@ -679,13 +653,9 @@ async def handle_wizard_callback(cb: CallbackQuery) -> None:
             try:
                 from app.storage import for_project as _sheet_for_project
 
-                _sheet_for_project(project).write_general(
-                    **{field: choice.label}
-                )
+                _sheet_for_project(project).write_general(**{field: choice.label})
             except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    "wizard: xlsx write failed ({}): {}", field, e
-                )
+                logger.warning("wizard: xlsx write failed ({}): {}", field, e)
             await s.flush()
             await s.refresh(project)
             await s.commit()
@@ -717,9 +687,7 @@ async def handle_wizard_callback(cb: CallbackQuery) -> None:
 
         sub = parts[3]
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == project_id))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
@@ -762,14 +730,10 @@ async def handle_wizard_callback(cb: CallbackQuery) -> None:
 
             if sub == "save":
                 if not is_wizard_complete(project):
-                    await cb.answer(
-                        "Сначала заполни все настройки", show_alert=True
-                    )
+                    await cb.answer("Сначала заполни все настройки", show_alert=True)
                     return
                 await cb.answer()
-                await prompt_save_preset_name(
-                    cb.bot, cb.message.chat.id, project_id
-                )
+                await prompt_save_preset_name(cb.bot, cb.message.chat.id, project_id)
                 return
 
         await cb.answer("wizard: preset error", show_alert=True)
@@ -777,9 +741,7 @@ async def handle_wizard_callback(cb: CallbackQuery) -> None:
 
     if action == "reset":
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == project_id))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
@@ -809,16 +771,12 @@ async def handle_wizard_callback(cb: CallbackQuery) -> None:
             return
         choice = question.catalog.get(option_id)
         if choice is None:
-            await cb.answer(
-                f"wizard: неизвестный вариант {option_id}", show_alert=True
-            )
+            await cb.answer(f"wizard: неизвестный вариант {option_id}", show_alert=True)
             return
         db_value = question.to_db(option_id)
 
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == project_id))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
@@ -835,9 +793,7 @@ async def handle_wizard_callback(cb: CallbackQuery) -> None:
             try:
                 from app.storage import for_project as _sheet_for_project
 
-                _sheet_for_project(project).write_general(
-                    **{field: choice.label}
-                )
+                _sheet_for_project(project).write_general(**{field: choice.label})
             except Exception as e:  # noqa: BLE001
                 logger.warning("wizard: xlsx write failed ({}): {}", field, e)
             await s.flush()

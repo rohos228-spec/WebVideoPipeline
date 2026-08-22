@@ -53,15 +53,19 @@ def test_load_check_agent_view_builtin(tmp_path: Path) -> None:
             },
         },
     )
-    with patch(
-        "app.services.gpt_operator.upstream_node_type_for_check",
-        return_value="images",
-    ), patch(
-        "app.services.check_analysis.load_check_operator_prompt_body",
-        return_value="BUILTIN CHECK BODY",
-    ), patch(
-        "app.services.check_analysis.resolve_check_operator_step",
-        return_value="img",
+    with (
+        patch(
+            "app.services.gpt_operator.upstream_node_type_for_check",
+            return_value="images",
+        ),
+        patch(
+            "app.services.check_analysis.load_check_operator_prompt_body",
+            return_value="BUILTIN CHECK BODY",
+        ),
+        patch(
+            "app.services.check_analysis.resolve_check_operator_step",
+            return_value="img",
+        ),
     ):
         view = load_check_agent_view(project, "n_check")  # type: ignore[arg-type]
     assert view is not None

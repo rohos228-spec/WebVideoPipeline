@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -61,9 +61,7 @@ def test_manual_start_clears_sleep_and_fail_counter() -> None:
         },
     )
     assert is_sleeping(p)
-    assert clear_failure_backoff_for_manual_start(
-        p, running_key="generating_image_prompts"
-    )
+    assert clear_failure_backoff_for_manual_start(p, running_key="generating_image_prompts")
     assert not is_sleeping(p)
     assert p.meta["step_failure"]["total_fails"] == {"splitting": 1}
 
@@ -88,8 +86,7 @@ def test_clear_failure_sleep_keeps_fail_counters() -> None:
 
 def test_sleep_minutes_shorter_for_xlsx_sheet_mismatch() -> None:
     err = RuntimeError(
-        "скачанный xlsx невалиден: ошибка формата эксель таблицы: листы [a] "
-        "не совпадают с шаблоном"
+        "скачанный xlsx невалиден: ошибка формата эксель таблицы: листы [a] не совпадают с шаблоном"
     )
     assert sleep_minutes_for_error(err) == XLSX_SHEET_FORMAT_SLEEP_MINUTES
     assert sleep_minutes_for_error(RuntimeError("other")) == SLEEP_MINUTES
@@ -104,10 +101,7 @@ def test_sleep_minutes_shorter_for_xlsx_sheet_mismatch() -> None:
     )
     assert (
         sleep_minutes_for_error(
-            RuntimeError(
-                "project_file: модель не вернула TSV `# Лист:`/`@row=` — "
-                "project.xlsx не изменён"
-            )
+            RuntimeError("project_file: модель не вернула TSV `# Лист:`/`@row=` — project.xlsx не изменён")
         )
         == XLSX_SHEET_FORMAT_SLEEP_MINUTES
     )
@@ -186,8 +180,7 @@ async def test_record_step_failure_user_stop_does_not_revive(
             session,
             p,
             error=RuntimeError(
-                "Некорректный xlsx: ChatGPT вернул пустой/слишком короткий план "
-                "после xlsx-sync"
+                "Некорректный xlsx: ChatGPT вернул пустой/слишком короткий план после xlsx-sync"
             ),
         )
 
@@ -234,7 +227,7 @@ async def test_record_step_failure_sleep_parks_paused(
 async def test_maybe_resume_after_sleep_skips_user_stop(
     session: AsyncSession,
 ) -> None:
-    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
     p = Project(
         slug="resume-stop",
         topic="t",
@@ -261,7 +254,7 @@ async def test_maybe_resume_after_sleep_from_paused_parking(
     session: AsyncSession,
 ) -> None:
     """Error-sleep parks as paused; after sleep_until the worker must resume."""
-    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
     p = Project(
         slug="resume-paused",
         topic="t",
@@ -312,7 +305,7 @@ async def test_resume_expired_error_sleeps_picks_paused(
 ) -> None:
     from app.services.step_failure_policy import resume_expired_error_sleeps
 
-    past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    past = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     sleeper = Project(
         slug="sleeper",
         topic="t",
@@ -351,7 +344,7 @@ async def test_resume_expired_error_sleeps_picks_paused(
 async def test_maybe_resume_when_last_running_is_paused_uses_total_fails(
     session: AsyncSession,
 ) -> None:
-    past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
     p = Project(
         slug="resume-last-paused",
         topic="t",

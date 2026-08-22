@@ -16,9 +16,7 @@ def test_extract_json_prefers_nonempty_marker_lists():
 Реальный ответ:
 {"characters": [{"id": "c01"}], "scenes": [{"id_scene": "scene_01"}], "ops": [{"frame_uuid": "u1", "fields": {"id_scene": "scene_01"}}]}
 """
-    data = extract_json_object(
-        text, marker_keys=("scenes", "ops", "characters", "error")
-    )
+    data = extract_json_object(text, marker_keys=("scenes", "ops", "characters", "error"))
     assert data is not None
     assert data["scenes"][0]["id_scene"] == "scene_01"
     assert data["ops"][0]["frame_uuid"] == "u1"

@@ -17,7 +17,6 @@ hero_ready (предметы опциональны), юзер правит оп
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 from aiogram import Bot
 from loguru import logger
@@ -25,7 +24,6 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.browser import browser_session
-from app.services.gpt_client import get_gpt_client
 from app.bots.outsee import (
     OutseeBot,
     OutseeContentRejectedError,
@@ -36,9 +34,9 @@ from app.generation_options import (
     IMAGE_RESOLUTIONS_BY_ID,
 )
 from app.models import Artifact, ArtifactKind, Project, ProjectStatus
+from app.services.gpt_client import get_gpt_client
 from app.services.outsee_retry import generate_image_with_retries
 from app.services.prompt_library import get_project_prompt
-from app.settings import settings
 
 # Aspect ratio и Relax для предметов — как у hero (16:9 + Relax), потому
 # что предметы тоже идут как реф-листы.
@@ -46,20 +44,22 @@ ITEM_ASPECT_RATIO = "16:9"
 ITEM_RELAX = True
 
 
-async def _existing_item_indices(
-    session: AsyncSession, project: Project
-) -> set[int]:
+async def _existing_item_indices(session: AsyncSession, project: Project) -> set[int]:
     """Какие индексы предметов уже имеют артефакт kind=item_reference."""
     rows = (
-        await session.execute(
-            select(Artifact)
-            .where(
-                Artifact.project_id == project.id,
-                Artifact.kind == ArtifactKind.item_reference,
+        (
+            await session.execute(
+                select(Artifact)
+                .where(
+                    Artifact.project_id == project.id,
+                    Artifact.kind == ArtifactKind.item_reference,
+                )
+                .order_by(desc(Artifact.id))
             )
-            .order_by(desc(Artifact.id))
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out: set[int] = set()
     for a in rows:
         m = a.meta or {}
@@ -77,8 +77,7 @@ def _items_style_prompt(project: Project) -> str:
         return get_project_prompt(project, "items").strip()
     except FileNotFoundError:
         logger.warning(
-            "items: prompts/04b_items/default.md не найден — генерирую "
-            "только из описаний без стиля"
+            "items: prompts/04b_items/default.md не найден — генерирую только из описаний без стиля"
         )
         return ""
 
@@ -132,9 +131,8 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         )
 
         full_prompt = (
-            (style + "\n\n---\n\n" if style else "")
-            + f"Описание предмета (predmet{idx}): {desc_text}"
-        )
+            style + "\n\n---\n\n" if style else ""
+        ) + f"Описание предмета (predmet{idx}): {desc_text}"
 
         short_uuid = uuid.uuid4().hex[:8]
         file_name = f"predmet{idx}_{short_uuid}.png"
@@ -146,7 +144,8 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 outsee = OutseeBot(bs)
                 gpt = get_gpt_client()
                 result = await generate_image_with_retries(
-                    outsee, gpt,
+                    outsee,
+                    gpt,
                     prompt=full_prompt,
                     out_path=out_path,
                     max_attempts_per_prompt=3,
@@ -163,9 +162,10 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         except OutseeImageError as e:
             is_moderation = isinstance(e, OutseeContentRejectedError)
             logger.error(
-                "[#{}] items: predmet{} 6 попыток provalились "
-                "(moderation={}): {}",
-                project.id, idx, is_moderation,
+                "[#{}] items: predmet{} 6 попыток provalились (moderation={}): {}",
+                project.id,
+                idx,
+                is_moderation,
                 getattr(e, "reason", None) or str(e),
             )
             # Откат на hero_ready: предметы опциональны, юзер может

@@ -8,8 +8,9 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence, TypeVar
+from typing import Any, TypeVar
 
 from app.services.db_apply import extract_apply_ops_json
 from app.services.volume_batches import (
@@ -92,9 +93,7 @@ def _checkpoint_path(project_dir: Path) -> Path:
     return project_dir / "tmp_gpt" / _CHECKPOINT_NAME
 
 
-def load_checkpoint(
-    project_dir: Path, *, input_hash: str | None = None
-) -> dict[str, Any]:
+def load_checkpoint(project_dir: Path, *, input_hash: str | None = None) -> dict[str, Any]:
     empty: dict[str, Any] = {"done_uuids": [], "ops": []}
     path = _checkpoint_path(project_dir)
     if not path.is_file():
@@ -114,8 +113,7 @@ def load_checkpoint(
             from loguru import logger
 
             logger.info(
-                "img_pr checkpoint invalidated: input changed "
-                "(was={}, now={}, дропнуто done={} ops={})",
+                "img_pr checkpoint invalidated: input changed (was={}, now={}, дропнуто done={} ops={})",
                 str(data.get("input_hash"))[:24],
                 input_hash[:24],
                 len(done),
@@ -211,9 +209,7 @@ def repartition_remaining(
     min_size: int = MIN_CONTINUE_SIZE,
 ) -> list[list[_T]]:
     """Rechunk leftover frames after a partial batch; never continue by onesie."""
-    return plan_remainder_batches(
-        remaining, delivered=delivered, min_size=min_size
-    )
+    return plan_remainder_batches(remaining, delivered=delivered, min_size=min_size)
 
 
 _PROMPT_FIELD_KEYS = (
@@ -350,9 +346,7 @@ def parse_img_pr_ops(
     salvaged = filter_prompt_ops(salvage_img_pr_ops(reply or ""))
     partial = bool(isinstance(data, dict) and data.get("_salvaged_partial"))
     # Битый/обрезанный JSON: extract взял мало ops — regex достаёт все uuid.
-    if not clean:
-        clean = salvaged
-    elif (partial or len(clean) <= 1) and len(salvaged) > len(clean):
+    if not clean or (partial or len(clean) <= 1) and len(salvaged) > len(clean):
         clean = salvaged
     return clean
 
@@ -364,16 +358,10 @@ def batch_footer(*, batch_i: int, batch_n: int, n: int, plastilin: bool = False)
 
 def followup_message(*, batch_i: int, batch_n: int, n: int, plastilin: bool = False) -> str:
     tmpl = _PLASTILIN_FOLLOWUP_MSG if plastilin else _FOLLOWUP_MSG
-    return tmpl.format(
-        footer=batch_footer(
-            batch_i=batch_i, batch_n=batch_n, n=n, plastilin=plastilin
-        )
-    )
+    return tmpl.format(footer=batch_footer(batch_i=batch_i, batch_n=batch_n, n=n, plastilin=plastilin))
 
 
-def write_rejected_reply(
-    tmp_dir: Path, *, batch_i: int, attempt: int, reply: str, reason: str
-) -> Path:
+def write_rejected_reply(tmp_dir: Path, *, batch_i: int, attempt: int, reply: str, reason: str) -> Path:
     path = tmp_dir / f"img_pr_rejected_b{batch_i}_a{attempt}.txt"
     path.write_text(
         f"# reason: {reason}\n# reply_len: {len(reply or '')}\n\n{reply or ''}",

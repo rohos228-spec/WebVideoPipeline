@@ -126,9 +126,7 @@ _STYLE_META_KEYS = (
 _NO_STYLE_WARNED = False
 
 
-def is_plastilin_master(
-    variant: str | None = None, master: str | None = None
-) -> bool:
+def is_plastilin_master(variant: str | None = None, master: str | None = None) -> bool:
     blob = f"{variant or ''}\n{(master or '')[:1200]}".casefold()
     return any(m in blob for m in PLASTILIN_MASTER_MARKERS)
 
@@ -150,9 +148,7 @@ def already_has_style(text: str) -> bool:
     low = t.casefold()
     if any(m in low for m in _CLAY_STYLE_MARKERS):
         return True
-    return any(m in low for m in _KNITTED_BODY_MARKERS) and (
-        "Final style lock" in t or "STYLE:" in t
-    )
+    return any(m in low for m in _KNITTED_BODY_MARKERS) and ("Final style lock" in t or "STYLE:" in t)
 
 
 def _local_variant_name(project: Any | None, meta: dict | None) -> str:
@@ -211,8 +207,7 @@ def _warn_no_style_once() -> None:
         return
     _NO_STYLE_WARNED = True
     logger.warning(
-        "img_pr_style: no project style configured — leaving scene unwrapped "
-        "(not injecting Archival Noir)"
+        "img_pr_style: no project style configured — leaving scene unwrapped (not injecting Archival Noir)"
     )
 
 

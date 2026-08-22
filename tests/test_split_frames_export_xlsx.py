@@ -19,10 +19,7 @@ async def test_split_frames_exports_xlsx_before_snapshot():
     project.data_dir = MagicMock()
 
     existing = []  # force GPT path
-    created = [
-        MagicMock(spec=Frame, number=i, voiceover_text=f"vo{i}")
-        for i in range(1, 4)
-    ]
+    created = [MagicMock(spec=Frame, number=i, voiceover_text=f"vo{i}") for i in range(1, 4)]
 
     session = AsyncMock()
     # first execute: existing frames empty; later: frames for export + final check
@@ -36,7 +33,9 @@ async def test_split_frames_exports_xlsx_before_snapshot():
     session.commit = AsyncMock()
 
     result = MagicMock()
-    result.apply_ops = [{"target": "replace_frames", "frames": [{"закадр": "a"}, {"закадр": "b"}, {"закадр": "c"}]}]
+    result.apply_ops = [
+        {"target": "replace_frames", "frames": [{"закадр": "a"}, {"закадр": "b"}, {"закадр": "c"}]}
+    ]
     result.frames_spec = None
 
     export_calls: list = []
@@ -44,7 +43,10 @@ async def test_split_frames_exports_xlsx_before_snapshot():
     with (
         patch.object(split_frames.xsr, "run_split_xlsx", AsyncMock(return_value=result)),
         patch("app.services.db_apply.apply_ops", AsyncMock(return_value={"replace_frames": 3})) as apply_ops,
-        patch("app.services.db_apply.export_project_xlsx", side_effect=lambda *a, **k: export_calls.append(1) or {"frames": 3, "cells": 9}) as export_fn,
+        patch(
+            "app.services.db_apply.export_project_xlsx",
+            side_effect=lambda *a, **k: export_calls.append(1) or {"frames": 3, "cells": 9},
+        ) as export_fn,
         patch("app.services.node_xlsx_snapshot.snapshot_and_bind_node_xlsx", AsyncMock()) as snap,
         patch("app.services.storage_step_sync.sync_storage_after_step", AsyncMock()),
         patch("app.services.agent_harness.harness_gate_or_raise", AsyncMock()),

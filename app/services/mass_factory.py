@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import shutil
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -120,9 +119,7 @@ def mass_parent_id(project: Project) -> int | None:
 
 def assert_not_factory_template_for_generation(project: Project) -> None:
     if is_mass_factory_parent(project) and not is_mass_factory_child(project):
-        raise ValueError(
-            "Шаблон фабрики: настройте промпты здесь, генерация — в дочерних проектах очереди"
-        )
+        raise ValueError("Шаблон фабрики: настройте промпты здесь, генерация — в дочерних проектах очереди")
 
 
 def build_child_meta(
@@ -147,9 +144,7 @@ async def _unique_slug(session: AsyncSession, base: str, slugify) -> str:
     slug = slugify(base)
     candidate = slug
     suffix = 2
-    while (
-        await session.execute(select(Project).where(Project.slug == candidate))
-    ).scalar_one_or_none():
+    while (await session.execute(select(Project).where(Project.slug == candidate))).scalar_one_or_none():
         candidate = f"{slug}-{suffix}"
         suffix += 1
     return candidate
@@ -350,9 +345,7 @@ async def create_mass_child(
 
 async def list_mass_children(session: AsyncSession, parent_id: int) -> list[Project]:
     parent_expr = cast(func.json_extract(Project.meta, "$.mass_parent_id"), Integer)
-    rows = (
-        await session.execute(select(Project).where(parent_expr == parent_id))
-    ).scalars().all()
+    rows = (await session.execute(select(Project).where(parent_expr == parent_id))).scalars().all()
     out = list(rows)
     out.sort(key=lambda p: (p.meta or {}).get("mass_lane_position") or 999)
     return out
@@ -364,9 +357,7 @@ async def delete_new_mass_children(session: AsyncSession, parent_id: int) -> int
         if child.status is not ProjectStatus.new:
             continue
         run = (
-            await session.execute(
-                select(WorkflowRun).where(WorkflowRun.project_id == child.id)
-            )
+            await session.execute(select(WorkflowRun).where(WorkflowRun.project_id == child.id))
         ).scalar_one_or_none()
         if run is not None:
             await session.delete(run)
@@ -555,8 +546,8 @@ async def on_child_montage_complete(session: AsyncSession, child: Project) -> Pr
         logger.info("mass_factory: parent #{} queue finished", parent_id)
         return None
 
-    from app.web.routers.projects import _slugify
     from app.services.project_steps import start_step
+    from app.web.routers.projects import _slugify
 
     next_topic = topics[cursor]
     next_child = await create_mass_child(

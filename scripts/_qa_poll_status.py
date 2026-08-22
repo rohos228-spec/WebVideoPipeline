@@ -8,14 +8,10 @@ ROOT = Path("data/videos/testovyy-trukraym")
 
 
 def snap():
-    p = json.load(
-        urllib.request.urlopen("http://127.0.0.1:8765/api/projects/50", timeout=30)
-    )
+    p = json.load(urllib.request.urlopen("http://127.0.0.1:8765/api/projects/50", timeout=30))
     conn = sqlite3.connect("data/state.db")
     arts = dict(
-        conn.execute(
-            "select kind, count(*) from artifacts where project_id=50 group by kind"
-        ).fetchall()
+        conn.execute("select kind, count(*) from artifacts where project_id=50 group by kind").fetchall()
     )
     png = len(list(ROOT.rglob("*.png")))
     mp4 = len(list(ROOT.rglob("*.mp4")))

@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from app.bots.outsee import (
-    OutseeDownloadError,
     _MIN_IMAGE_BYTES,
+    OutseeDownloadError,
     _validate_downloaded_image,
 )
 
@@ -36,10 +36,7 @@ def test_validate_accepts_full_png_even_if_url_is_thumb() -> None:
 
 
 def test_validate_rejects_small_thumb_bytes() -> None:
-    thumb_url = (
-        "https://storage.yandexcloud.net/outseehistory/generated/1/2/"
-        "outsee-2-1_thumb.jpg"
-    )
+    thumb_url = "https://storage.yandexcloud.net/outseehistory/generated/1/2/outsee-2-1_thumb.jpg"
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
         f.write(_png_bytes(12_000))
         path = Path(f.name)
@@ -53,10 +50,7 @@ def test_validate_rejects_small_thumb_bytes() -> None:
 
 
 def test_validate_accepts_full_url_full_png() -> None:
-    full_url = (
-        "https://storage.yandexcloud.net/outseehistory/generated/1/2/"
-        "outsee-2-1.png"
-    )
+    full_url = "https://storage.yandexcloud.net/outseehistory/generated/1/2/outsee-2-1.png"
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         f.write(_png_bytes(_MIN_IMAGE_BYTES + 10_000))
         path = Path(f.name)

@@ -26,13 +26,9 @@ def test_plan_prompt_file_contains_master_not_in_chat(project: Project) -> None:
     master = "MASTER PROMPT BODY unique-token-xyz"
     tmp_dir = cx.tmp_gpt_dir(project)
 
-    with patch(
-        "app.services.chatgpt_xlsx.get_project_prompt", return_value=master
-    ):
+    with patch("app.services.chatgpt_xlsx.get_project_prompt", return_value=master):
         prompt_file = cx.write_plan_prompt_file(project, tmp_dir)
-        chat = cx.chat_message(
-            project, "plan", prompt_file_name=prompt_file.name
-        )
+        chat = cx.chat_message(project, "plan", prompt_file_name=prompt_file.name)
 
     content = prompt_file.read_text(encoding="utf-8")
     assert master in content
@@ -64,9 +60,7 @@ def test_img_pr_prompt_file_and_chat_separated(project: Project) -> None:
     master = "IMAGE MASTER unique-img-abc"
     tmp_dir = cx.tmp_gpt_dir(project)
 
-    with patch(
-        "app.services.chatgpt_xlsx.get_project_prompt", return_value=master
-    ):
+    with patch("app.services.chatgpt_xlsx.get_project_prompt", return_value=master):
         prompt_file = cx.write_img_pr_prompt_file(project, tmp_dir)
         chat = cx.chat_message(
             project,
@@ -82,12 +76,8 @@ def test_img_pr_prompt_file_and_chat_separated(project: Project) -> None:
 
 def test_default_accompanying_never_includes_master(project: Project) -> None:
     master = "SECRET MASTER CONTENT"
-    with patch(
-        "app.services.gpt_text_builder.get_project_prompt", return_value=master
-    ):
-        default = gtb.build_default_text(
-            project, "script", prompt_file_name="prompt.txt"
-        )
+    with patch("app.services.gpt_text_builder.get_project_prompt", return_value=master):
+        default = gtb.build_default_text(project, "script", prompt_file_name="prompt.txt")
     assert master not in default
     assert "prompt.txt" in default
 
@@ -114,16 +104,12 @@ async def test_sync_project_xlsx_raises_when_both_imports_fail(
 
     marked: list[str] = []
 
-    async def _fake_mark(
-        _session: object, _project: Project, error: str, **_: object
-    ) -> None:
+    async def _fake_mark(_session: object, _project: Project, error: str, **_: object) -> None:
         marked.append(error)
 
     monkeypatch.setattr(cx, "import_v8_xlsx", _fail_v8)
     monkeypatch.setattr(cx, "reload_from_xlsx", _fail_v7)
-    monkeypatch.setattr(
-        "app.services.run_sync.mark_running_node_failed", _fake_mark
-    )
+    monkeypatch.setattr("app.services.run_sync.mark_running_node_failed", _fake_mark)
 
     session = object()
     with pytest.raises(RuntimeError, match="xlsx-sync"):

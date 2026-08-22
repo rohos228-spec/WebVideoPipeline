@@ -116,9 +116,7 @@ async def list_outsee_create_history(
     from app.services.generation_storage import list_generation_files
 
     create_budget = min(120, limit)
-    out: list[dict[str, Any]] = list(
-        list_generation_files(kind=kind, limit=create_budget)
-    )
+    out: list[dict[str, Any]] = list(list_generation_files(kind=kind, limit=create_budget))
     if scope != "all":
         return out[:limit]
 
@@ -145,28 +143,29 @@ async def list_outsee_create_history(
             ArtifactKind.audio,
         }
 
-    projects = {
-        p.id: p
-        for p in (await session.execute(select(Project))).scalars().all()
-    }
+    projects = {p.id: p for p in (await session.execute(select(Project))).scalars().all()}
     remain = max(0, limit - len(out))
     arts = (
-        await session.execute(
-            select(Artifact)
-            .where(Artifact.kind.in_(kind_filter))
-            .order_by(Artifact.id.desc())
-            .limit(remain if remain else 1)
+        (
+            await session.execute(
+                select(Artifact)
+                .where(Artifact.kind.in_(kind_filter))
+                .order_by(Artifact.id.desc())
+                .limit(remain if remain else 1)
+            )
         )
-    ).scalars().all() if remain else []
+        .scalars()
+        .all()
+        if remain
+        else []
+    )
 
     frame_ids = {a.frame_id for a in arts if a.frame_id}
     frames: dict[int, Frame] = {}
     if frame_ids:
         frames = {
             f.id: f
-            for f in (
-                await session.execute(select(Frame).where(Frame.id.in_(frame_ids)))
-            ).scalars().all()
+            for f in (await session.execute(select(Frame).where(Frame.id.in_(frame_ids)))).scalars().all()
         }
 
     for a in arts:
@@ -228,9 +227,7 @@ async def list_outsee_create_history(
                 if not d.is_dir():
                     continue
                 try:
-                    files = sorted(
-                        d.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True
-                    )
+                    files = sorted(d.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True)
                 except OSError:
                     continue
                 for fp in files[:30]:

@@ -13,20 +13,11 @@ from app.storage import for_project as _sheet_for_project
 
 
 def _frames_needing_image_prompt(frames: list[Frame]) -> list[Frame]:
-    return [
-        fr
-        for fr in frames
-        if (fr.voiceover_text or "").strip()
-        and not (fr.image_prompt or "").strip()
-    ]
+    return [fr for fr in frames if (fr.voiceover_text or "").strip() and not (fr.image_prompt or "").strip()]
 
 
 def _frames_with_image_prompt(frames: list[Frame]) -> list[Frame]:
-    return [
-        fr
-        for fr in frames
-        if (fr.voiceover_text or "").strip() and (fr.image_prompt or "").strip()
-    ]
+    return [fr for fr in frames if (fr.voiceover_text or "").strip() and (fr.image_prompt or "").strip()]
 
 
 async def _reload_frames(session: AsyncSession, project_id: int) -> list[Frame]:
@@ -38,20 +29,18 @@ async def _reload_frames(session: AsyncSession, project_id: int) -> list[Frame]:
                 .order_by(Frame.number)
                 .execution_options(populate_existing=True)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
-async def _finish_success(
-    session: AsyncSession, project: Project, frames: list[Frame]
-) -> None:
+async def _finish_success(session: AsyncSession, project: Project, frames: list[Frame]) -> None:
     filled = _frames_with_image_prompt(frames)
     still_missing = _frames_needing_image_prompt(frames)
     if still_missing:
         missing_nums = [fr.number for fr in still_missing]
-        raise RuntimeError(
-            f"GPT не заполнил image_prompt для кадров: {missing_nums}"
-        )
+        raise RuntimeError(f"GPT не заполнил image_prompt для кадров: {missing_nums}")
     if not filled:
         raise RuntimeError("GPT не заполнил ни одного image_prompt")
 
@@ -104,9 +93,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             return
         raise RuntimeError("нет кадров с закадром — нечего составлять промты")
 
-    uuid_map = "\n".join(
-        f"кадр {fr.number} = {fr.uuid}" for fr in need if fr.uuid
-    )
+    uuid_map = "\n".join(f"кадр {fr.number} = {fr.uuid}" for fr in need if fr.uuid)
     if not uuid_map.strip():
         raise RuntimeError("у кадров нет uuid — backfill не сработал")
 
@@ -124,14 +111,13 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         try:
             raise_if_cancelled(project.id)
         except StepCancelledError as e:
-            logger.info(
-                "[#{}] generate_image_prompts: {} — выхожу", project.id, e
-            )
+            logger.info("[#{}] generate_image_prompts: {} — выхожу", project.id, e)
             cancelled = True
             break
         try:
             from app.db import SessionLocal
-            from app.services import db_apply, xlsx_step_runners as xsr
+            from app.services import db_apply
+            from app.services import xlsx_step_runners as xsr
 
             result = await xsr.run_img_pr_xlsx(
                 project,
@@ -156,9 +142,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         async with SessionLocal() as apply_session:
                             proj = await apply_session.get(Project, project.id)
                             if proj is None:
-                                raise RuntimeError(
-                                    "project gone during img_pr apply"
-                                )
+                                raise RuntimeError("project gone during img_pr apply")
                             await db_apply.apply_ops(
                                 apply_session,
                                 proj,
@@ -172,10 +156,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                     except Exception as apply_err:  # noqa: BLE001
                         last_apply_err = apply_err
                         msg = str(apply_err).lower()
-                        locked = (
-                            "database is locked" in msg
-                            or "database locked" in msg
-                        )
+                        locked = "database is locked" in msg or "database locked" in msg
                         if not locked or apply_try >= 5:
                             raise
                         wait_s = min(2 * apply_try, 10)
@@ -195,8 +176,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 )
             else:
                 logger.info(
-                    "[#{}] generate_image_prompts: ops уже в DB (inline), "
-                    "пропуск повторного apply (ops={})",
+                    "[#{}] generate_image_prompts: ops уже в DB (inline), пропуск повторного apply (ops={})",
                     project.id,
                     len(ops),
                 )
@@ -207,9 +187,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             try:
                 from app.services.node_xlsx_snapshot import snapshot_and_bind_node_xlsx
 
-                await snapshot_and_bind_node_xlsx(
-                    session, project, node_type="image_prompts"
-                )
+                await snapshot_and_bind_node_xlsx(session, project, node_type="image_prompts")
             except Exception as snap_err:  # noqa: BLE001
                 logger.warning(
                     "[#{}] image_prompts snapshot failed: {}",
@@ -236,9 +214,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 e,
             )
             if attempt >= 2:
-                raise RuntimeError(
-                    f"generate_image_prompts: не удалось получить промты: {e}"
-                ) from e
+                raise RuntimeError(f"generate_image_prompts: не удалось получить промты: {e}") from e
 
     if cancelled:
         try:

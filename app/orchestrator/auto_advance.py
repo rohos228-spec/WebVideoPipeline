@@ -42,10 +42,14 @@ from app.models import (
     Project,
     ProjectStatus,
 )
-from app.services.project_state import compute_actual_status
-from app.services.disabled_nodes import skip_disabled_running, skip_disabled_running_async
-from app.services.step_data_guard import can_enter_running, clamp_status_to_data, ready_status_confirmed_by_data
 from app.services.auto_review import ReviewResult
+from app.services.disabled_nodes import skip_disabled_running, skip_disabled_running_async
+from app.services.project_state import compute_actual_status
+from app.services.step_data_guard import (
+    can_enter_running,
+    clamp_status_to_data,
+    ready_status_confirmed_by_data,
+)
 from app.settings import settings
 from app.telegram.menu import STEPS, enabled_enrich_slots, status_order, step_by_running_status
 
@@ -80,9 +84,7 @@ def _parse_kinds_env(raw: str | None) -> set[HITLKind]:
     return out
 
 
-AUTO_REVIEW_VISUAL_KINDS: set[HITLKind] = _parse_kinds_env(
-    os.environ.get("AUTO_REVIEW_VISUAL_KINDS")
-)
+AUTO_REVIEW_VISUAL_KINDS: set[HITLKind] = _parse_kinds_env(os.environ.get("AUTO_REVIEW_VISUAL_KINDS"))
 
 # Максимум подряд `regen` на одном шаге → проект → paused.
 MAX_AUTO_REGEN_PER_STEP = 2
@@ -272,10 +274,12 @@ def expected_status_progression(project: Project | None) -> list[ProjectStatus]:
             progression.append(ProjectStatus.scene_assembling)
     except Exception:  # noqa: BLE001
         pass
-    progression.extend([
-        ProjectStatus.generating_hero,
-        ProjectStatus.generating_items,
-    ])
+    progression.extend(
+        [
+            ProjectStatus.generating_hero,
+            ProjectStatus.generating_items,
+        ]
+    )
     enrich_running = [
         ProjectStatus.enriching_1,
         ProjectStatus.enriching_2,
@@ -284,16 +288,18 @@ def expected_status_progression(project: Project | None) -> list[ProjectStatus]:
         ProjectStatus.enriching_5,
     ]
     progression.extend(enrich_running[: max(1, min(5, n_slots))])
-    progression.extend([
-        ProjectStatus.generating_image_prompts,
-        ProjectStatus.generating_images,
-        ProjectStatus.generating_animation_prompts,
-        ProjectStatus.generating_videos,
-        ProjectStatus.generating_audio,
-        ProjectStatus.generating_music,
-        ProjectStatus.assembling,
-        ProjectStatus.publishing,
-    ])
+    progression.extend(
+        [
+            ProjectStatus.generating_image_prompts,
+            ProjectStatus.generating_images,
+            ProjectStatus.generating_animation_prompts,
+            ProjectStatus.generating_videos,
+            ProjectStatus.generating_audio,
+            ProjectStatus.generating_music,
+            ProjectStatus.assembling,
+            ProjectStatus.publishing,
+        ]
+    )
     return progression
 
 
@@ -329,20 +335,22 @@ READY_VERDICT_STEP: dict[ProjectStatus, str] = {
 # ============================================================
 
 
-async def get_latest_hitl(
-    session: AsyncSession, project_id: int, kind: HITLKind
-) -> HITLRequest | None:
+async def get_latest_hitl(session: AsyncSession, project_id: int, kind: HITLKind) -> HITLRequest | None:
     rows = (
-        await session.execute(
-            select(HITLRequest)
-            .where(
-                HITLRequest.project_id == project_id,
-                HITLRequest.kind == kind,
+        (
+            await session.execute(
+                select(HITLRequest)
+                .where(
+                    HITLRequest.project_id == project_id,
+                    HITLRequest.kind == kind,
+                )
+                .order_by(HITLRequest.id.desc())
+                .limit(1)
             )
-            .order_by(HITLRequest.id.desc())
-            .limit(1)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return rows[0] if rows else None
 
 
@@ -413,9 +421,7 @@ _ENRICH_READY_TO_INDEX: dict[ProjectStatus, int] = {
 }
 
 
-def _next_running_with_enrich_cap(
-    project: Project, transition: StepTransition
-) -> ProjectStatus | None:
+def _next_running_with_enrich_cap(project: Project, transition: StepTransition) -> ProjectStatus | None:
     """(single-mass parity #3) Наследует логику single-mode меню:
     если проект в enrich_N_ready и N ≥ enrich_slots_count — это был
     ПОСЛЕДНИЙ активный слот, прыгаем сразу на generating_image_prompts.
@@ -455,24 +461,26 @@ async def _next_status_after_hero_approve(
         meta = dict(project.meta or {})
         cfg = meta.get("excel_hero") or {}
         all_ids: list[str] = []
-        for c in (cfg.get("characters") or []):
+        for c in cfg.get("characters") or []:
             if isinstance(c, dict):
-                cid = str((c.get("id") or "")).strip()
+                cid = str(c.get("id") or "").strip()
                 if cid:
                     all_ids.append(cid)
         approved_rows = (
-            await session.execute(
-                select(HITLRequest).where(
-                    HITLRequest.project_id == project.id,
-                    HITLRequest.kind == HITLKind.approve_hero,
-                    HITLRequest.decision == HITLDecision.approved,
+            (
+                await session.execute(
+                    select(HITLRequest).where(
+                        HITLRequest.project_id == project.id,
+                        HITLRequest.kind == HITLKind.approve_hero,
+                        HITLRequest.decision == HITLDecision.approved,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         approved_ids = {
-            (r.payload or {}).get("excel_id")
-            for r in approved_rows
-            if (r.payload or {}).get("excel_id")
+            (r.payload or {}).get("excel_id") for r in approved_rows if (r.payload or {}).get("excel_id")
         }
         approved_ids.add(excel_id)
         remaining = [i for i in all_ids if i not in approved_ids]
@@ -506,9 +514,7 @@ async def _next_status_after_hero_approve(
     return skip_disabled_running(project, nxt) or nxt
 
 
-async def _hide_hitl_buttons_with_badge(
-    bot: Bot | None, hitl: HITLRequest | None, badge: str
-) -> None:
+async def _hide_hitl_buttons_with_badge(bot: Bot | None, hitl: HITLRequest | None, badge: str) -> None:
     """(single-mass parity #5) Убирает inline-кнопки С HITL-карточки
     в TG после auto-решения и добавляет подпись-бейдж в текст/caption.
 
@@ -525,9 +531,7 @@ async def _hide_hitl_buttons_with_badge(
     # СЭТОДА приходит ApiError "there is no caption" — переходим
     # на edit_message_text.
     try:
-        await bot.edit_message_reply_markup(
-            chat_id=chat_id, message_id=msg_id, reply_markup=None
-        )
+        await bot.edit_message_reply_markup(chat_id=chat_id, message_id=msg_id, reply_markup=None)
     except Exception:  # noqa: BLE001
         pass
     if not badge:
@@ -595,12 +599,12 @@ async def _pin_excel_gpt_key_after_ready(
     Без этого resolve(slotIndex) берёт leftmost ноду с тем же слотом
     (часто ДО текущего шага) и пайплайн откатывается назад.
     """
+    from app.orchestrator.graph.planner import load_graph_for_project
     from app.services.excel_gpt_node import (
         EXCEL_GPT_NODE_TYPE,
         slot_from_running_status,
     )
     from app.services.project_meta import set_meta_fields
-    from app.orchestrator.graph.planner import load_graph_for_project
 
     if slot_from_running_status(nxt) is None:
         return None
@@ -685,8 +689,7 @@ async def _prepare_node_run_for_status(
         # Stale active: уже done → иначе снова крутим ноду ДО hero.
         if node_key and node_key in completed_node_keys(project):
             logger.warning(
-                "auto_advance: #{} stale active_excel_gpt_node_key={} "
-                "(already completed) — re-resolve",
+                "auto_advance: #{} stale active_excel_gpt_node_key={} (already completed) — re-resolve",
                 project.id,
                 node_key,
             )
@@ -734,16 +737,11 @@ async def _prepare_node_run_for_status(
         from app.models import WorkflowRun
 
         has_run = (
-            await session.execute(
-                select(WorkflowRun.id)
-                .where(WorkflowRun.project_id == project.id)
-                .limit(1)
-            )
+            await session.execute(select(WorkflowRun.id).where(WorkflowRun.project_id == project.id).limit(1))
         ).scalar_one_or_none()
         if has_run is not None:
             logger.warning(
-                "auto_advance: #{} prepare_node for {} soft-fail — "
-                "Project.status не двигаем",
+                "auto_advance: #{} prepare_node for {} soft-fail — Project.status не двигаем",
                 project.id,
                 running_status.value,
             )
@@ -761,9 +759,7 @@ async def _commit_running_after_prepare(
 ) -> bool:
     """Pin excel_gpt → prepare NodeRun → только потом Project.status."""
     await _pin_excel_gpt_key_after_ready(session, project, ready_status, nxt)
-    prepared = await _prepare_node_run_for_status(
-        session, project, nxt, allow_restart=allow_restart
-    )
+    prepared = await _prepare_node_run_for_status(session, project, nxt, allow_restart=allow_restart)
     if not prepared:
         return False
     project.status = nxt
@@ -780,7 +776,7 @@ async def _apply_approve(
     badge: str | None = None,
 ) -> None:
     """Эмулируем клик `approve` пользователем в TG."""
-    from app.services.gen_queue_run import is_user_stopped, should_hold_queue_auto_advance
+    from app.services.gen_queue_run import should_hold_queue_auto_advance
     from app.services.project_control import auto_awaits_manual_start
 
     # Свежий meta: ⏹ мог только что выставить user_stop / await_manual.
@@ -825,9 +821,7 @@ async def _apply_approve(
                     maybe_return_to_check_after_vision_ready,
                 )
 
-                check_nxt = await maybe_return_to_check_after_vision_ready(
-                    session, project
-                )
+                check_nxt = await maybe_return_to_check_after_vision_ready(session, project)
             except Exception:  # noqa: BLE001
                 logger.exception(
                     "auto_advance: #{} vision_check_loop return after hero failed",
@@ -872,9 +866,7 @@ async def _apply_approve(
             )
 
             if vision_check_loop_active(project):
-                check_nxt = await maybe_return_to_check_after_vision_ready(
-                    session, project
-                )
+                check_nxt = await maybe_return_to_check_after_vision_ready(session, project)
         except Exception:  # noqa: BLE001
             logger.exception(
                 "auto_advance: #{} vision_check_loop return after images failed",
@@ -886,9 +878,7 @@ async def _apply_approve(
         else:
             from app.services.excel_gpt_node import prepare_enrich_chain_for_auto_advance
 
-            enrich_nxt = prepare_enrich_chain_for_auto_advance(
-                project, transition.ready_status
-            )
+            enrich_nxt = prepare_enrich_chain_for_auto_advance(project, transition.ready_status)
             if enrich_nxt is not None:
                 nxt = enrich_nxt
             else:
@@ -902,9 +892,7 @@ async def _apply_approve(
                         linear.value,
                     )
                 else:
-                    graph_nxt = await _graph_next_running(
-                        session, project, transition.ready_status
-                    )
+                    graph_nxt = await _graph_next_running(session, project, transition.ready_status)
                     if graph_nxt is None:
                         logger.warning(
                             "graph: #{} no next step after images_ready — check canvas edges",
@@ -928,9 +916,7 @@ async def _apply_approve(
         # Media-ready: сначала TRANSITIONS.next (не прыгать images→videos).
         from app.services.excel_gpt_node import prepare_enrich_chain_for_auto_advance
 
-        enrich_nxt = prepare_enrich_chain_for_auto_advance(
-            project, transition.ready_status
-        )
+        enrich_nxt = prepare_enrich_chain_for_auto_advance(project, transition.ready_status)
         if enrich_nxt is not None:
             graph_nxt = enrich_nxt
             logger.info(
@@ -939,10 +925,7 @@ async def _apply_approve(
                 transition.ready_status.value,
                 enrich_nxt.value,
             )
-        elif (
-            transition.ready_status in _LINEAR_MEDIA_READY
-            and transition.next_running is not None
-        ):
+        elif transition.ready_status in _LINEAR_MEDIA_READY and transition.next_running is not None:
             graph_nxt = transition.next_running
             logger.info(
                 "auto_advance: #{} {} → {} (linear media)",
@@ -951,9 +934,7 @@ async def _apply_approve(
                 graph_nxt.value,
             )
         else:
-            graph_nxt = await _graph_next_running(
-                session, project, transition.ready_status
-            )
+            graph_nxt = await _graph_next_running(session, project, transition.ready_status)
         # frames_ready → scene_designing: флаг включён (env/per-project) и
         # нода ещё не пройдена — идём в мульти-агентный дизайн сцен, даже
         # если ноды scene_design нет на канвасе проекта.
@@ -979,25 +960,17 @@ async def _apply_approve(
 
             meta = project.meta if isinstance(project.meta, dict) else {}
             if meta.get("hero_skipped_empty") or not _hero_step_required(project):
-                alt = await _graph_next_running(
-                    session, project, ProjectStatus.hero_ready
-                )
+                alt = await _graph_next_running(session, project, ProjectStatus.hero_ready)
                 logger.info(
                     "auto_advance: #{} frames_ready skip hero (empty/not required) → {}",
                     project.id,
                     alt.value if alt is not None else "none",
                 )
                 graph_nxt = alt
-        if (
-            transition.ready_status is ProjectStatus.scene_agents_ready
-            and graph_nxt is None
-        ):
+        if transition.ready_status is ProjectStatus.scene_agents_ready and graph_nxt is None:
             # Старый канвас без нод sd_agent/sd_assemble — линейный fallback.
             graph_nxt = ProjectStatus.scene_assembling
-        if (
-            transition.ready_status is ProjectStatus.scene_design_ready
-            and graph_nxt is None
-        ):
+        if transition.ready_status is ProjectStatus.scene_design_ready and graph_nxt is None:
             # Нода запущена флагом без узла на канвасе — линейный fallback.
             graph_nxt = ProjectStatus.generating_hero
         if graph_nxt is None:
@@ -1037,13 +1010,12 @@ async def _apply_approve(
     await session.flush()
     logger.info(
         "auto_advance: #{} {} → approved → {}",
-        project.id, transition.ready_status.value,
+        project.id,
+        transition.ready_status.value,
         project.status.value,
     )
     # (single-mass parity #5) Гасим кнопки на карточке в TG.
-    await _hide_hitl_buttons_with_badge(
-        bot, hitl, badge or "✅ Авто-одобрено"
-    )
+    await _hide_hitl_buttons_with_badge(bot, hitl, badge or "✅ Авто-одобрено")
 
 
 async def _apply_regen(
@@ -1066,15 +1038,16 @@ async def _apply_regen(
         project.status = ProjectStatus.paused
         meta = dict(project.meta or {})
         meta["auto_paused_reason"] = (
-            f"{transition.ready_status.value}: "
-            f"{count - 1} раз подряд GPT просил regen"
+            f"{transition.ready_status.value}: {count - 1} раз подряд GPT просил regen"
         )
         meta["auto_paused_fix_hints"] = result.fix_hints
         project.meta = meta
         await session.flush()
         logger.warning(
             "auto_advance: #{} paused after {} regens on {}",
-            project.id, count - 1, transition.ready_status.value,
+            project.id,
+            count - 1,
+            transition.ready_status.value,
         )
         return
 
@@ -1087,9 +1060,7 @@ async def _apply_regen(
         )
         project.status = ProjectStatus.paused
     else:
-        await _prepare_node_run_for_status(
-            session, project, back_to, allow_restart=True
-        )
+        await _prepare_node_run_for_status(session, project, back_to, allow_restart=True)
         project.status = back_to
 
     # Передаём fix_hints в gpt_text_override, чтобы шаг увидел их и
@@ -1101,12 +1072,12 @@ async def _apply_regen(
     await session.flush()
     logger.info(
         "auto_advance: #{} {} → regen #{} → {}",
-        project.id, transition.ready_status.value, count,
+        project.id,
+        transition.ready_status.value,
+        count,
         back_to.value if back_to else "(paused)",
     )
-    await _hide_hitl_buttons_with_badge(
-        bot, hitl, "🔁 Авто-перегенерация (GPT просит fix_hints)"
-    )
+    await _hide_hitl_buttons_with_badge(bot, hitl, "🔁 Авто-перегенерация (GPT просит fix_hints)")
 
 
 async def _apply_reject(
@@ -1122,19 +1093,16 @@ async def _apply_reject(
         hitl.decision = HITLDecision.rejected
     project.status = ProjectStatus.paused
     meta = dict(project.meta or {})
-    meta["auto_paused_reason"] = (
-        f"{transition.ready_status.value}: GPT отметил как rejected"
-    )
+    meta["auto_paused_reason"] = f"{transition.ready_status.value}: GPT отметил как rejected"
     meta["auto_paused_fix_hints"] = result.fix_hints
     project.meta = meta
     await session.flush()
     logger.warning(
         "auto_advance: #{} REJECTED on {}",
-        project.id, transition.ready_status.value,
+        project.id,
+        transition.ready_status.value,
     )
-    await _hide_hitl_buttons_with_badge(
-        bot, hitl, "❌ GPT-отказ. Проект поставлен на паузу."
-    )
+    await _hide_hitl_buttons_with_badge(bot, hitl, "❌ GPT-отказ. Проект поставлен на паузу.")
 
 
 # ============================================================
@@ -1233,9 +1201,7 @@ _HARNESS_GATE_OBSERVABILITY = frozenset(
 )
 
 
-async def _harness_gate(
-    session: AsyncSession, project: Project, status: ProjectStatus
-) -> bool:
+async def _harness_gate(session: AsyncSession, project: Project, status: ProjectStatus) -> bool:
     """Центральный harness-гейт: не продвигать *_ready статус при плохих данных.
 
     Блок — только проверки данных (status-aware); наблюдаемость (лог,
@@ -1247,12 +1213,8 @@ async def _harness_gate(
 
     if settings.harness_gate_disabled:
         return True
-    report = await run_harness_verify(
-        session, project, allow_repair=False, include_http=False
-    )
-    gate_checks = [
-        c for c in report.checks if c.name not in _HARNESS_GATE_OBSERVABILITY
-    ]
+    report = await run_harness_verify(session, project, allow_repair=False, include_http=False)
+    gate_checks = [c for c in report.checks if c.name not in _HARNESS_GATE_OBSERVABILITY]
     bad = [c for c in gate_checks if not c.ok]
     if not bad:
         meta0 = dict(project.meta or {})
@@ -1299,11 +1261,7 @@ async def maybe_auto_advance(
     Вызывается ИЗ worker-loop'а ПОСЛЕ обхода running-статусов. Только
     для проектов с `auto_mode=True` в *_ready состоянии.
     """
-    if (
-        not force
-        and not getattr(project, "auto_mode", False)
-        and not settings.hitl_auto_approve
-    ):
+    if not force and not getattr(project, "auto_mode", False) and not settings.hitl_auto_approve:
         return False
     try:
         await session.refresh(project)
@@ -1401,9 +1359,7 @@ async def maybe_auto_advance(
             )
 
             if vision_check_loop_active(project):
-                check_nxt = await maybe_return_to_check_after_vision_ready(
-                    session, project
-                )
+                check_nxt = await maybe_return_to_check_after_vision_ready(session, project)
                 if check_nxt is not None:
                     project.status = check_nxt
                     await session.flush()
@@ -1428,13 +1384,13 @@ async def maybe_auto_advance(
         gen_queue_blocks_project,
         on_project_timeline_maybe_advance_queue,
     )
-    from app.services.sidebar_layout import get_gen_queue
     from app.services.gen_queue_run import (
         is_gen_queue_run_complete,
         mark_gen_queue_run_complete,
         ready_status_is_queue_target,
         should_hold_queue_auto_advance,
     )
+    from app.services.sidebar_layout import get_gen_queue
 
     if should_hold_queue_auto_advance(project):
         if not is_gen_queue_run_complete(project):
@@ -1535,12 +1491,11 @@ async def maybe_auto_advance(
             return False
 
     # (single-mass parity #4) Решаем нужен ли vision-чек для этого kind'а.
-    if transition.kind in VISUAL_REVIEW_KINDS and not _should_vision_check(
-        project, transition.kind
-    ):
+    if transition.kind in VISUAL_REVIEW_KINDS and not _should_vision_check(project, transition.kind):
         logger.info(
             "auto_advance: #{} {} → auto-approve (visual, no GPT check)",
-            project.id, status.value,
+            project.id,
+            status.value,
         )
         await _apply_approve(session, project, hitl, transition, bot=bot)
         return True
@@ -1552,31 +1507,21 @@ async def maybe_auto_advance(
 
         if verdict_step in VERDICT_STUDIO_STEPS:
             needs_verdict = transition.kind in TEXT_REVIEW_KINDS or (
-                transition.kind in VISUAL_REVIEW_KINDS
-                and _should_vision_check(project, transition.kind)
+                transition.kind in VISUAL_REVIEW_KINDS and _should_vision_check(project, transition.kind)
             )
             if needs_verdict:
-                check_key = await _next_canvas_node_is_check(
-                    session, project, status
-                )
+                check_key = await _next_canvas_node_is_check(session, project, status)
                 if check_key:
                     logger.info(
-                        "auto_advance: #{} {} skip builtin verdict — "
-                        "next canvas node {} is checkMode",
+                        "auto_advance: #{} {} skip builtin verdict — next canvas node {} is checkMode",
                         project.id,
                         status.value,
                         check_key,
                     )
-                    await _apply_approve(
-                        session, project, hitl, transition, bot=bot
-                    )
+                    await _apply_approve(session, project, hitl, transition, bot=bot)
                     return True
-                result = await _run_verdict_review_for_step(
-                    session, project, verdict_step
-                )
-                return await _apply_review_result(
-                    session, project, hitl, transition, result, bot=bot
-                )
+                result = await _run_verdict_review_for_step(session, project, verdict_step)
+                return await _apply_review_result(session, project, hitl, transition, result, bot=bot)
 
     # GPT-чек для текстовых kind'ов (legacy JSON, если не ai_control / нет Verdict-шага):
     if transition.kind in TEXT_REVIEW_KINDS:
@@ -1584,13 +1529,12 @@ async def maybe_auto_advance(
         if not artifact:
             logger.warning(
                 "auto_advance: #{} нет артефакта для {}, пропускаю",
-                project.id, transition.kind.value,
+                project.id,
+                transition.kind.value,
             )
             return False
         result = await _run_text_review(project, transition.kind, artifact)
-        return await _apply_review_result(
-            session, project, hitl, transition, result, bot=bot
-        )
+        return await _apply_review_result(session, project, hitl, transition, result, bot=bot)
 
     # Все остальные случаи (visual + AUTO_REVIEW_VISUAL=1) — TODO.
     # Пока — auto-approve.
@@ -1676,9 +1620,7 @@ async def _run_verdict_review_for_step(
     )
 
 
-async def _run_text_review(
-    project: Project, kind: HITLKind, artifact: str
-) -> ReviewResult:
+async def _run_text_review(project: Project, kind: HITLKind, artifact: str) -> ReviewResult:
     """Запускает GPT-ревью текста через HTTP API."""
     from app.services import auto_review
     from app.services.gpt_client import get_gpt_client
@@ -1688,6 +1630,7 @@ async def _run_text_review(
         from pathlib import Path
 
         from app.settings import settings as _s
+
         snap = Path(_s.data_dir) / "batches" / project.batch_slug / "prompts"
         if not snap.exists():
             snap = None
@@ -1700,13 +1643,15 @@ async def _run_text_review(
     await gpt.new_conversation()
     if kind is HITLKind.approve_plan:
         return await auto_review.review_plan(
-            plan_text=artifact, chatgpt_bot=gpt,
+            plan_text=artifact,
+            chatgpt_bot=gpt,
             batch_snapshot_dir=snap,
             product_name=product_name,
         )
     if kind is HITLKind.approve_script:
         return await auto_review.review_script(
-            script_text=artifact, chatgpt_bot=gpt,
+            script_text=artifact,
+            chatgpt_bot=gpt,
             batch_snapshot_dir=snap,
             product_name=product_name,
         )
@@ -1726,18 +1671,15 @@ async def _apply_review_result(
     if result.decision is HITLDecision.approved:
         await _apply_approve(session, project, hitl, transition, bot=bot)
     elif result.decision is HITLDecision.regenerate:
-        await _apply_regen(
-            session, project, hitl, transition, result, bot=bot
-        )
+        await _apply_regen(session, project, hitl, transition, result, bot=bot)
     elif result.decision is HITLDecision.rejected:
-        await _apply_reject(
-            session, project, hitl, transition, result, bot=bot
-        )
+        await _apply_reject(session, project, hitl, transition, result, bot=bot)
     else:
         # На pending/edit_prompt — игнорируем, оставляем юзеру.
         logger.warning(
             "auto_advance: #{} unexpected decision {}",
-            project.id, result.decision,
+            project.id,
+            result.decision,
         )
         return False
     return True
@@ -1791,25 +1733,27 @@ async def serial_busy_in_batch(session: AsyncSession, batch_id: int) -> int | No
     return busy.id if busy is not None else None
 
 
-async def serial_next_to_start(
-    session: AsyncSession, batch_id: int
-) -> Project | None:
+async def serial_next_to_start(session: AsyncSession, batch_id: int) -> Project | None:
     """Следующий по очереди подпроект массового, который ещё не начат и
     у которого `auto_mode=True`. Берётся минимальный `batch_position`
     среди статусов `new` или `paused` (paused → юзер мог снять с
     паузы)."""
     candidates = (
-        await session.execute(
-            select(Project)
-            .where(
-                Project.batch_id == batch_id,
-                Project.auto_mode == True,  # noqa: E712
-                Project.status.in_([ProjectStatus.new]),
+        (
+            await session.execute(
+                select(Project)
+                .where(
+                    Project.batch_id == batch_id,
+                    Project.auto_mode == True,  # noqa: E712
+                    Project.status.in_([ProjectStatus.new]),
+                )
+                .order_by(Project.batch_position.asc())
+                .limit(1)
             )
-            .order_by(Project.batch_position.asc())
-            .limit(1)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return candidates[0] if candidates else None
 
 
@@ -1830,12 +1774,10 @@ async def serial_tick_batches(session: AsyncSession) -> int:
 
     started = 0
     batches = (
-        await session.execute(
-            select(BatchProject).where(
-                BatchProject.status == BatchStatus.running
-            )
-        )
-    ).scalars().all()
+        (await session.execute(select(BatchProject).where(BatchProject.status == BatchStatus.running)))
+        .scalars()
+        .all()
+    )
     for batch in batches:
         busy = await serial_busy_in_batch(session, batch.id)
         if busy is not None:
@@ -1849,7 +1791,9 @@ async def serial_tick_batches(session: AsyncSession) -> int:
             logger.info(
                 "auto_advance: batch #{} TOCTOU — «занятие» #{} появилось "
                 "между выбором next_p=#{} и flip\u2019ом, пропуск",
-                batch.id, busy_again, next_p.id,
+                batch.id,
+                busy_again,
+                next_p.id,
             )
             continue
         # Пересвежаем самого кандидата — вдруг callback в TG в эту же
@@ -1859,7 +1803,9 @@ async def serial_tick_batches(session: AsyncSession) -> int:
         if next_p.status is not ProjectStatus.new:
             logger.info(
                 "auto_advance: batch #{} sub #{} уже не new ({}), пропуск",
-                batch.id, next_p.id, next_p.status.value,
+                batch.id,
+                next_p.id,
+                next_p.status.value,
             )
             continue
         # Стартуем подпроект: status new → planning.
@@ -1868,7 +1814,9 @@ async def serial_tick_batches(session: AsyncSession) -> int:
         started += 1
         logger.info(
             "auto_advance: batch #{} started sub #{} (pos {})",
-            batch.id, next_p.id, next_p.batch_position,
+            batch.id,
+            next_p.id,
+            next_p.batch_position,
         )
     _ = settings  # keep import alive
     return started
@@ -1909,9 +1857,7 @@ def _mass_parent_id(project: Project) -> int | None:
         return None
 
 
-async def _mass_lanes_for_parent(
-    session: AsyncSession, parent_id: int
-) -> list[Project]:
+async def _mass_lanes_for_parent(session: AsyncSession, parent_id: int) -> list[Project]:
     """Только слоты mass-factory; ручные «+» (project_child_manual) не трогаем."""
     rows = (await session.execute(select(Project))).scalars().all()
     out: list[Project] = []
@@ -1925,18 +1871,14 @@ async def _mass_lanes_for_parent(
     return out
 
 
-async def serial_busy_in_mass_parent(
-    session: AsyncSession, parent_id: int
-) -> int | None:
+async def serial_busy_in_mass_parent(session: AsyncSession, parent_id: int) -> int | None:
     for p in await _mass_lanes_for_parent(session, parent_id):
         if p.status in MASS_LANE_BUSY_STATUSES:
             return p.id
     return None
 
 
-async def serial_next_mass_lane(
-    session: AsyncSession, parent_id: int
-) -> Project | None:
+async def serial_next_mass_lane(session: AsyncSession, parent_id: int) -> Project | None:
     candidates = [
         p
         for p in await _mass_lanes_for_parent(session, parent_id)
@@ -1956,10 +1898,8 @@ async def serial_tick_mass_lanes(session: AsyncSession) -> int:
 
     started = 0
     waiting = (
-        await session.execute(
-            select(Project).where(Project.status == ProjectStatus.new)
-        )
-    ).scalars().all()
+        (await session.execute(select(Project).where(Project.status == ProjectStatus.new))).scalars().all()
+    )
     parent_ids: set[int] = set()
     for p in waiting:
         pid = _mass_parent_id(p)
@@ -1986,9 +1926,7 @@ async def serial_tick_mass_lanes(session: AsyncSession) -> int:
         if next_p.status is not ProjectStatus.new:
             continue
         # На всякий случай: sibling с user_stop не должен стартовать.
-        if (next_p.meta or {}).get("user_stop") or (next_p.meta or {}).get(
-            "mass_lane_user_stop"
-        ):
+        if (next_p.meta or {}).get("user_stop") or (next_p.meta or {}).get("mass_lane_user_stop"):
             continue
         next_p.status = ProjectStatus.planning
         await session.flush()

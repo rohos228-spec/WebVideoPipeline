@@ -271,8 +271,7 @@ def normalize_fields(raw: dict, aliases: dict[str, str], *, scope: str) -> dict:
     if unknown:
         allowed = sorted(set(aliases))
         raise ApplyOpsError(
-            f"{scope}: неизвестные поля {unknown}. "
-            f"Разрешённые (можно по-человечески): {allowed}"
+            f"{scope}: неизвестные поля {unknown}. Разрешённые (можно по-человечески): {allowed}"
         )
     return out
 
@@ -410,9 +409,7 @@ def salvage_ops_from_partial_json(text: str) -> list[dict[str, Any]]:
                         obj = json.loads(chunk)
                     except Exception:  # noqa: BLE001
                         obj = None
-                    if isinstance(obj, dict) and (
-                        obj.get("frame_uuid") or obj.get("target")
-                    ):
+                    if isinstance(obj, dict) and (obj.get("frame_uuid") or obj.get("target")):
                         ops.append(obj)
                     i = j + 1
                     ended = True
@@ -490,27 +487,15 @@ def _normalize_scene_card(raw: dict[str, Any]) -> dict[str, Any]:
     """Сцена из ответа агента → реестр (границы по словам, не по столбцу)."""
     if not isinstance(raw, dict):
         raise ApplyOpsError("scenes: каждый элемент — объект")
-    sid = str(
-        raw.get("id_scene") or raw.get("id") or raw.get("scene_id") or ""
-    ).strip()
+    sid = str(raw.get("id_scene") or raw.get("id") or raw.get("scene_id") or "").strip()
     if not sid:
         raise ApplyOpsError("scenes: нужен id_scene")
     start = str(
-        raw.get("start_words")
-        or raw.get("сцена_start_words")
-        or raw.get("scene_start_words")
-        or ""
+        raw.get("start_words") or raw.get("сцена_start_words") or raw.get("scene_start_words") or ""
     ).strip()
-    end = str(
-        raw.get("end_words")
-        or raw.get("сцена_end_words")
-        or raw.get("scene_end_words")
-        or ""
-    ).strip()
+    end = str(raw.get("end_words") or raw.get("сцена_end_words") or raw.get("scene_end_words") or "").strip()
     if not start or not end:
-        raise ApplyOpsError(
-            f"scenes[{sid}]: нужны start_words и end_words (цитаты из полного закадра)"
-        )
+        raise ApplyOpsError(f"scenes[{sid}]: нужны start_words и end_words (цитаты из полного закадра)")
     shots = raw.get("shots")
     if shots is not None and not isinstance(shots, list):
         raise ApplyOpsError(f"scenes[{sid}]: shots должен быть списком")
@@ -526,37 +511,23 @@ def _normalize_scene_card(raw: dict[str, Any]) -> dict[str, Any]:
         "start_words": start,
         "end_words": end,
         "время_сек": time_sec,
-        "структура_сцены": str(
-            raw.get("структура_сцены") or raw.get("scene_structure") or ""
-        ).strip(),
+        "структура_сцены": str(raw.get("структура_сцены") or raw.get("scene_structure") or "").strip(),
         "тип_стыка": str(raw.get("тип_стыка") or raw.get("edit_type") or "").strip(),
         "переход_в_сцену": str(
-            raw.get("переход_в_сцену")
-            or raw.get("переход_в_кадр")
-            or raw.get("scene_transition")
-            or ""
+            raw.get("переход_в_сцену") or raw.get("переход_в_кадр") or raw.get("scene_transition") or ""
         ).strip(),
         "место": str(raw.get("место") or raw.get("place") or "").strip(),
         "освещение": str(
             raw.get("освещение") or raw.get("lighting") or raw.get("scene_lighting") or ""
         ).strip(),
         "акцент": str(raw.get("акцент") or raw.get("accent") or "").strip(),
-        "смысл_сцены": str(
-            raw.get("смысл_сцены") or raw.get("scene_sense") or ""
-        ).strip(),
+        "смысл_сцены": str(raw.get("смысл_сцены") or raw.get("scene_sense") or "").strip(),
         "тип_сцены": str(raw.get("тип_сцены") or raw.get("visual_type") or "").strip(),
         "особенность_доминанта": str(
-            raw.get("особенность_доминанта")
-            or raw.get("особенность_сцены")
-            or raw.get("scene_feature")
-            or ""
+            raw.get("особенность_доминанта") or raw.get("особенность_сцены") or raw.get("scene_feature") or ""
         ).strip(),
-        "номер_кластера": str(
-            raw.get("номер_кластера") or raw.get("cluster") or ""
-        ).strip(),
-        "персонажи_сцены": str(
-            raw.get("персонажи_сцены") or raw.get("characters") or ""
-        ).strip(),
+        "номер_кластера": str(raw.get("номер_кластера") or raw.get("cluster") or "").strip(),
+        "персонажи_сцены": str(raw.get("персонажи_сцены") or raw.get("characters") or "").strip(),
         "shots": list(shots or []),
     }
 
@@ -695,9 +666,7 @@ def expand_scene_registry_onto_frames(
                 ("cluster", sc.get("номер_кластера") or sc.get("cluster")),
                 (
                     "scene_lighting",
-                    sc.get("освещение")
-                    or sc.get("lighting")
-                    or sc.get("scene_lighting"),
+                    sc.get("освещение") or sc.get("lighting") or sc.get("scene_lighting"),
                 ),
                 (
                     "scene_structure",
@@ -706,9 +675,7 @@ def expand_scene_registry_onto_frames(
                 ("edit_type", sc.get("тип_стыка") or sc.get("edit_type")),
                 (
                     "scene_transition",
-                    sc.get("переход_в_сцену")
-                    or sc.get("переход_в_кадр")
-                    or sc.get("scene_transition"),
+                    sc.get("переход_в_сцену") or sc.get("переход_в_кадр") or sc.get("scene_transition"),
                 ),
                 (
                     "scene_start_words",
@@ -727,11 +694,7 @@ def expand_scene_registry_onto_frames(
                 if _set(attrs, "shot01_id_shot", shot_id, overwrite=True):
                     changed = True
                 shot_accent = (
-                    sh.get("акцент")
-                    or sh.get("accent")
-                    or sh.get("предметы")
-                    or sh.get("действие")
-                    or ""
+                    sh.get("акцент") or sh.get("accent") or sh.get("предметы") or sh.get("действие") or ""
                 )
                 shot_lighting = (
                     sh.get("освещение")
@@ -761,9 +724,7 @@ def expand_scene_registry_onto_frames(
                     if _set(attrs, "characters", sh.get("персонажи"), overwrite=True):
                         changed = True
                 elif sc.get("персонажи_сцены") is not None:
-                    if _set(
-                        attrs, "characters", sc.get("персонажи_сцены"), overwrite=True
-                    ):
+                    if _set(attrs, "characters", sc.get("персонажи_сцены"), overwrite=True):
                         changed = True
             else:
                 # Кадр без своего shot — не копируем scene.accent (иначе все
@@ -824,9 +785,7 @@ def _normalize_character_card(raw: dict[str, Any]) -> dict[str, Any]:
     """Карточка персонажа из ответа агента → code/name/attrs."""
     if not isinstance(raw, dict):
         raise ApplyOpsError("characters: каждый элемент — объект")
-    code = str(
-        raw.get("id") or raw.get("code") or raw.get("ID") or ""
-    ).strip()
+    code = str(raw.get("id") or raw.get("code") or raw.get("ID") or "").strip()
     if not code:
         raise ApplyOpsError("characters: нужен id (c01…)")
     name = str(raw.get("имя") or raw.get("name") or "").strip()
@@ -872,9 +831,7 @@ async def upsert_characters(
             )
         ).scalars()
     )
-    by_code = {
-        str(e.code or "").strip(): e for e in existing if e.code
-    }
+    by_code = {str(e.code or "").strip(): e for e in existing if e.code}
     max_key = max((float(e.sort_key or 0) for e in existing), default=0.0)
     n = 0
     for raw in characters:
@@ -914,11 +871,7 @@ def _write_persons_sheet(wb: Any, entities: list[Any]) -> int:
         SHEET_PERSONS,
     )
 
-    chars = [
-        e
-        for e in entities
-        if getattr(e, "type", None) == "character" and getattr(e, "code", None)
-    ]
+    chars = [e for e in entities if getattr(e, "type", None) == "character" and getattr(e, "code", None)]
     chars.sort(key=lambda e: (float(getattr(e, "sort_key", 0) or 0), str(e.code)))
     if SHEET_PERSONS in wb.sheetnames:
         ws = wb[SHEET_PERSONS]
@@ -978,7 +931,6 @@ def export_project_xlsx(
     """
     from app.services.plan_shot2 import (
         SHOT2_PROMPT_ATTR,
-        SHOT2_STATUS_ATTR,
         SHOT2_VIDEO_PROMPT_ATTR,
     )
     from app.services.xlsx_versioning import backup_to_old
@@ -1022,10 +974,7 @@ def export_project_xlsx(
                 ws.cell(row=ROW_TIMECODE_V8, column=col, value=tc)
                 cells += 1
             persons = str(
-                attrs.get("characters")
-                or attrs.get("persons")
-                or attrs.get("персонажи")
-                or ""
+                attrs.get("characters") or attrs.get("persons") or attrs.get("персонажи") or ""
             ).strip()
             ws.cell(row=ROW_PERSONS_PRIMARY, column=col, value=persons)
             cells += 1
@@ -1063,9 +1012,10 @@ def export_project_xlsx(
         general_plan = (project.meta or {}).get("general_plan")
         if general_plan:
             for name in wb.sheetnames:
-                if _normalize_sheet_name(name).casefold() == _normalize_sheet_name(
-                    SHEET_GENERAL_V8
-                ).casefold():
+                if (
+                    _normalize_sheet_name(name).casefold()
+                    == _normalize_sheet_name(SHEET_GENERAL_V8).casefold()
+                ):
                     wb[name]["B2"] = str(general_plan)
                     cells += 1
                     break
@@ -1125,17 +1075,13 @@ async def apply_ops(
         raise ApplyOpsError("пустой ops — нечего применять")
     for op in ops:
         if op.get("target", "frame") not in TARGETS:
-            raise ApplyOpsError(
-                f"неизвестный target {op.get('target')!r}; разрешены: {list(TARGETS)}"
-            )
+            raise ApplyOpsError(f"неизвестный target {op.get('target')!r}; разрешены: {list(TARGETS)}")
 
     replace_ops = [op for op in ops if op.get("target") == "replace_frames"]
     if len(replace_ops) > 1:
         raise ApplyOpsError("replace_frames: только одна операция за раз")
     if replace_ops and len(ops) > 1:
-        raise ApplyOpsError(
-            "replace_frames нельзя смешивать с другими ops в одном запросе"
-        )
+        raise ApplyOpsError("replace_frames нельзя смешивать с другими ops в одном запросе")
 
     frame_ops = [op for op in ops if op.get("target", "frame") == "frame"]
     project_ops = [op for op in ops if op.get("target", "frame") == "project"]
@@ -1166,13 +1112,7 @@ async def apply_ops(
         if any(not u for u in uuids):
             raise ApplyOpsError("для target=frame нужен frame_uuid")
         # Все кадры проекта — иначе near-miss не к чему привязать.
-        frames = list(
-            (
-                await session.execute(
-                    select(Frame).where(Frame.project_id == project.id)
-                )
-            ).scalars()
-        )
+        frames = list((await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars())
         by_uuid = {f.uuid: f for f in frames}
         # GPT часто пишет номер кадра ("78") вместо uuid — сначала remap по number.
         by_number: dict[int, list[str]] = {}
@@ -1185,9 +1125,7 @@ async def apply_ops(
             except (TypeError, ValueError):
                 continue
             by_number.setdefault(ni, []).append(str(f.uuid))
-        number_to_uuid = {
-            n: ids[0] for n, ids in by_number.items() if len(ids) == 1
-        }
+        number_to_uuid = {n: ids[0] for n, ids in by_number.items() if len(ids) == 1}
         number_repairs = remap_frame_number_uuids(frame_ops, number_to_uuid)
         if number_repairs:
             from loguru import logger
@@ -1239,9 +1177,7 @@ async def apply_ops(
                 else:
                     fr.duration_seconds = parsed_dur
         if "image_prompt" in fields:
-            fr.image_prompt = (
-                None if fields["image_prompt"] is None else str(fields["image_prompt"])
-            )
+            fr.image_prompt = None if fields["image_prompt"] is None else str(fields["image_prompt"])
             await db_v2.add_prompt_version(
                 session,
                 project.id,
@@ -1251,8 +1187,8 @@ async def apply_ops(
                 set_active=True,
             )
             # Чтобы шаг images подхватил кадр после excel_gpt/img_pr apply-ops.
-            from app.models import FrameStatus
             from app.generation_options import is_skippable_empty_prompt
+            from app.models import FrameStatus
 
             if not is_skippable_empty_prompt(fr.image_prompt or "") and fr.status not in (
                 FrameStatus.image_generated,
@@ -1261,9 +1197,7 @@ async def apply_ops(
                 fr.status = FrameStatus.image_prompt_ready
         if "animation_prompt" in fields:
             fr.animation_prompt = (
-                None
-                if fields["animation_prompt"] is None
-                else str(fields["animation_prompt"])
+                None if fields["animation_prompt"] is None else str(fields["animation_prompt"])
             )
             await db_v2.add_prompt_version(
                 session,
@@ -1295,9 +1229,7 @@ async def apply_ops(
         updated += 1
 
     for op in project_ops:
-        fields = normalize_fields(
-            op.get("fields") or {}, PROJECT_FIELD_ALIASES, scope="проект"
-        )
+        fields = normalize_fields(op.get("fields") or {}, PROJECT_FIELD_ALIASES, scope="проект")
         if not fields:
             raise ApplyOpsError("проект: пустые fields")
         meta = dict(project.meta or {})
@@ -1323,29 +1255,17 @@ async def apply_ops(
     # Детали из scenes[].shots[] → Frame.attrs (place/действие/описание…).
     all_frames = list(
         (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.number)
-            )
+            await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number))
         ).scalars()
     )
     meta_now = project.meta if isinstance(project.meta, dict) else {}
-    expanded = expand_scene_registry_onto_frames(
-        all_frames, meta_now.get("scene_registry")
-    )
+    expanded = expand_scene_registry_onto_frames(all_frames, meta_now.get("scene_registry"))
     if expanded:
         await session.flush()
 
     exported = None
     if export_xlsx:
-        ents = list(
-            (
-                await session.execute(
-                    select(Entity).where(Entity.project_id == project.id)
-                )
-            ).scalars()
-        )
+        ents = list((await session.execute(select(Entity).where(Entity.project_id == project.id))).scalars())
         exported = export_project_xlsx(project, all_frames, entities=ents)
     return {
         "ok": True,
@@ -1354,7 +1274,5 @@ async def apply_ops(
         "scenes": scenes_n,
         "expanded_frames": expanded,
         "exported": exported,
-        "uuid_repairs": [
-            {"from": a, "to": b} for a, b in (number_repairs + uuid_repairs)
-        ],
+        "uuid_repairs": [{"from": a, "to": b} for a, b in (number_repairs + uuid_repairs)],
     }

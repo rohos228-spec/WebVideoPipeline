@@ -27,9 +27,10 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from aiogram import Bot
 from loguru import logger
@@ -38,14 +39,12 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.browser import browser_session
-from app.services.gpt_client import get_gpt_client
 from app.bots.outsee import (
     OutseeBot,
     OutseeContentRejectedError,
     OutseeImageError,
 )
 from app.generation_options import (
-    DEFAULTS,
     IMAGE_GENERATORS_BY_ID,
     IMAGE_RESOLUTIONS_BY_ID,
     OUTSEE_PROMPT_MAX_CHARS,
@@ -61,6 +60,7 @@ from app.models import (
 )
 from app.services import gpt_text_builder as gtb
 from app.services.excel_characters import ExcelCharacter
+from app.services.gpt_client import get_gpt_client
 from app.services.hitl import send_hitl_photo
 from app.services.outsee_retry import generate_image_with_retries
 from app.services.prompt_library import (
@@ -83,9 +83,7 @@ def _excel_hero_http_primary() -> bool:
     from app.bots.grsai import grsai_enabled
     from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_image
 
-    return bool(
-        grsai_enabled() or outsee_api_enabled_for_image() or outsee_api_configured()
-    )
+    return bool(grsai_enabled() or outsee_api_enabled_for_image() or outsee_api_configured())
 
 
 @asynccontextmanager
@@ -112,15 +110,11 @@ def _read_hero_style(project: Project) -> str | None:
     try:
         return p.read_text(encoding="utf-8")
     except Exception as e:  # noqa: BLE001
-        logger.warning(
-            "[#{}] hero_style read failed ({}): {}", project.id, p, e
-        )
+        logger.warning("[#{}] hero_style read failed ({}): {}", project.id, p, e)
         return None
 
 
-def _hero_target_pairs(
-    n_total: int, variations_cfg: list[int]
-) -> list[tuple[int, int]]:
+def _hero_target_pairs(n_total: int, variations_cfg: list[int]) -> list[tuple[int, int]]:
     """Список всех пар (hero_idx, var_idx) в порядке обхода: сначала
     все вариации героя 1, потом героя 2, и т.д. Каждая вариация —
     отдельная HITL-карточка."""
@@ -138,21 +132,22 @@ def _hero_target_pairs(
     return pairs
 
 
-async def _approved_pairs(
-    session: AsyncSession, project: Project
-) -> set[tuple[int, int]]:
+async def _approved_pairs(session: AsyncSession, project: Project) -> set[tuple[int, int]]:
     """Множество (hero_idx, var_idx), для которых уже есть одобренная
     HITL-карточка. variation_index по умолчанию 1 (legacy)."""
     rows = (
-        await session.execute(
-            select(HITLRequest)
-            .where(
-                HITLRequest.project_id == project.id,
-                HITLRequest.kind == HITLKind.approve_hero,
-                HITLRequest.decision == HITLDecision.approved,
+        (
+            await session.execute(
+                select(HITLRequest).where(
+                    HITLRequest.project_id == project.id,
+                    HITLRequest.kind == HITLKind.approve_hero,
+                    HITLRequest.decision == HITLDecision.approved,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out: set[tuple[int, int]] = set()
     for r in rows:
         p = r.payload or {}
@@ -173,39 +168,42 @@ async def _is_regen_for_pair(
     regenerate. Используется чтобы понять «эту вариацию надо передать
     через кнопку Повторить» (для v=1) вместо fresh generate."""
     rows = (
-        await session.execute(
-            select(HITLRequest)
-            .where(
-                HITLRequest.project_id == project.id,
-                HITLRequest.kind == HITLKind.approve_hero,
+        (
+            await session.execute(
+                select(HITLRequest)
+                .where(
+                    HITLRequest.project_id == project.id,
+                    HITLRequest.kind == HITLKind.approve_hero,
+                )
+                .order_by(desc(HITLRequest.id))
             )
-            .order_by(desc(HITLRequest.id))
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for r in rows:
         p = r.payload or {}
-        if p.get("hero_index") == hero_idx and p.get(
-            "variation_index", 1
-        ) == var_idx:
+        if p.get("hero_index") == hero_idx and p.get("variation_index", 1) == var_idx:
             return r.decision is HITLDecision.regenerate
     return False
 
 
-async def _approved_excel_ids(
-    session: AsyncSession, project: Project
-) -> set[str]:
+async def _approved_excel_ids(session: AsyncSession, project: Project) -> set[str]:
     """Множество ID персонажей из excel-режима, у которых HITL-карточка
     `approve_hero` помечена как `approved`. ID берётся из `payload.excel_id`."""
     rows = (
-        await session.execute(
-            select(HITLRequest)
-            .where(
-                HITLRequest.project_id == project.id,
-                HITLRequest.kind == HITLKind.approve_hero,
-                HITLRequest.decision == HITLDecision.approved,
+        (
+            await session.execute(
+                select(HITLRequest).where(
+                    HITLRequest.project_id == project.id,
+                    HITLRequest.kind == HITLKind.approve_hero,
+                    HITLRequest.decision == HITLDecision.approved,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out: set[str] = set()
     for r in rows:
         p = r.payload or {}
@@ -215,20 +213,22 @@ async def _approved_excel_ids(
     return out
 
 
-async def _excel_ids_with_artifact(
-    session: AsyncSession, project: Project
-) -> set[str]:
+async def _excel_ids_with_artifact(session: AsyncSession, project: Project) -> set[str]:
     """ID персонажей, для которых уже есть hero_reference с файлом на диске."""
     rows = (
-        await session.execute(
-            select(Artifact)
-            .where(
-                Artifact.project_id == project.id,
-                Artifact.kind == ArtifactKind.hero_reference,
+        (
+            await session.execute(
+                select(Artifact)
+                .where(
+                    Artifact.project_id == project.id,
+                    Artifact.kind == ArtifactKind.hero_reference,
+                )
+                .order_by(desc(Artifact.id))
             )
-            .order_by(desc(Artifact.id))
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out: set[str] = set()
     for a in rows:
         m = a.meta or {}
@@ -272,20 +272,22 @@ def _excel_ref_deps_met(
     return True
 
 
-async def _is_regen_for_excel_id(
-    session: AsyncSession, project: Project, excel_id: str
-) -> bool:
+async def _is_regen_for_excel_id(session: AsyncSession, project: Project, excel_id: str) -> bool:
     """True если последнее HITL-решение по этому excel_id — regenerate."""
     rows = (
-        await session.execute(
-            select(HITLRequest)
-            .where(
-                HITLRequest.project_id == project.id,
-                HITLRequest.kind == HITLKind.approve_hero,
+        (
+            await session.execute(
+                select(HITLRequest)
+                .where(
+                    HITLRequest.project_id == project.id,
+                    HITLRequest.kind == HITLKind.approve_hero,
+                )
+                .order_by(desc(HITLRequest.id))
             )
-            .order_by(desc(HITLRequest.id))
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for r in rows:
         p = r.payload or {}
         if p.get("excel_id") == excel_id:
@@ -293,20 +295,22 @@ async def _is_regen_for_excel_id(
     return False
 
 
-async def _excel_artifact_for_id(
-    session: AsyncSession, project: Project, excel_id: str
-) -> Artifact | None:
+async def _excel_artifact_for_id(session: AsyncSession, project: Project, excel_id: str) -> Artifact | None:
     """Самый свежий артефакт hero_reference с meta.excel_id == excel_id."""
     rows = (
-        await session.execute(
-            select(Artifact)
-            .where(
-                Artifact.project_id == project.id,
-                Artifact.kind == ArtifactKind.hero_reference,
+        (
+            await session.execute(
+                select(Artifact)
+                .where(
+                    Artifact.project_id == project.id,
+                    Artifact.kind == ArtifactKind.hero_reference,
+                )
+                .order_by(desc(Artifact.id))
             )
-            .order_by(desc(Artifact.id))
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for a in rows:
         m = a.meta or {}
         if m.get("excel_id") == excel_id:
@@ -314,35 +318,32 @@ async def _excel_artifact_for_id(
     return None
 
 
-async def _v1_artifact_for_hero(
-    session: AsyncSession, project: Project, hero_idx: int
-) -> Artifact | None:
+async def _v1_artifact_for_hero(session: AsyncSession, project: Project, hero_idx: int) -> Artifact | None:
     """Возвращает САМЫЙ СВЕЖИЙ артефакт v=1 для данного героя (то, что
     мы будем использовать как reference для v>=2 и брать оттуда
     закешированный hero_prompt)."""
     rows = (
-        await session.execute(
-            select(Artifact)
-            .where(
-                Artifact.project_id == project.id,
-                Artifact.kind == ArtifactKind.hero_reference,
+        (
+            await session.execute(
+                select(Artifact)
+                .where(
+                    Artifact.project_id == project.id,
+                    Artifact.kind == ArtifactKind.hero_reference,
+                )
+                .order_by(desc(Artifact.id))
             )
-            .order_by(desc(Artifact.id))
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for a in rows:
         m = a.meta or {}
-        if (
-            m.get("hero_index") == hero_idx
-            and m.get("variation_index") == 1
-        ):
+        if m.get("hero_index") == hero_idx and m.get("variation_index") == 1:
             return a
     return None
 
 
-async def _load_entity_characters(
-    session: AsyncSession, project: Project
-) -> list:
+async def _load_entity_characters(session: AsyncSession, project: Project) -> list:
     """Entity(type=character) → ExcelCharacter list (пусто если нет)."""
     from sqlalchemy import select
 
@@ -360,7 +361,9 @@ async def _load_entity_characters(
                     )
                     .order_by(Entity.sort_key, Entity.id)
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
     except Exception as e:  # noqa: BLE001
         logger.debug("[#{}] excel_hero Entity load failed: {}", project.id, e)
@@ -444,7 +447,9 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     if project.hero_mode == "no_hero" or project.hero_count == 0:
         logger.info(
             "[#{}] hero skipped (hero_mode={}, hero_count={})",
-            project.id, project.hero_mode, project.hero_count,
+            project.id,
+            project.hero_mode,
+            project.hero_count,
         )
         project.status = ProjectStatus.hero_ready
         return
@@ -499,18 +504,15 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             break
     if target is None:
         logger.info(
-            "[#{}] hero: все {} пар (hero, variation) одобрены — "
-            "перехожу к hero_ready",
-            project.id, len(target_pairs),
+            "[#{}] hero: все {} пар (hero, variation) одобрены — перехожу к hero_ready",
+            project.id,
+            len(target_pairs),
         )
         project.status = ProjectStatus.hero_ready
         return
     hero_idx, v_idx = target
 
-    user_brief = (
-        descriptions[hero_idx - 1]
-        if hero_idx - 1 < len(descriptions) else ""
-    ).strip()
+    user_brief = (descriptions[hero_idx - 1] if hero_idx - 1 < len(descriptions) else "").strip()
     if len(user_brief) < 5:
         raise RuntimeError(
             f"hero_descriptions[{hero_idx - 1}] пустой — нечем описать "
@@ -528,9 +530,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     n_variations = max(1, min(5, n_variations))
 
     # Текстовые «отличия» для вариаций 2..N этого героя.
-    modifiers_all = list(
-        getattr(project, "hero_variation_modifiers", None) or []
-    )
+    modifiers_all = list(getattr(project, "hero_variation_modifiers", None) or [])
     variation_mods_for_hero: list[str] = []
     if hero_idx - 1 < len(modifiers_all):
         raw = modifiers_all[hero_idx - 1] or []
@@ -540,24 +540,27 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     is_regen = await _is_regen_for_pair(session, project, hero_idx, v_idx)
 
     logger.info(
-        "[#{}] generate_hero pair=({}/{}, v{}/{}) starting "
-        "(brief: {} симв, regen={})",
-        project.id, hero_idx, n_total, v_idx, n_variations,
-        len(user_brief), is_regen,
+        "[#{}] generate_hero pair=({}/{}, v{}/{}) starting (brief: {} симв, regen={})",
+        project.id,
+        hero_idx,
+        n_total,
+        v_idx,
+        n_variations,
+        len(user_brief),
+        is_regen,
     )
 
     # Стиль персонажа (мастер-промт из prompts/04_hero_style/) —
     # обязательно подмешивается к ChatGPT-промту, чтобы итоговое
     # изображение было в нужном визуале (фото-реализм / аниме / 3D / etc).
     hero_style_content = _read_hero_style(project)
-    style_chosen = (
-        getattr(project, "prompt_overrides", None) or {}
-    ).get("hero_style") or "default"
+    style_chosen = (getattr(project, "prompt_overrides", None) or {}).get("hero_style") or "default"
     if not hero_style_content:
         # Hard fallback: текст-плейсхолдер. Не падаем — но логируем.
         logger.warning(
             "[#{}] hero_style '{}' не найден на диске — продолжаю без стиля",
-            project.id, style_chosen,
+            project.id,
+            style_chosen,
         )
         hero_style_content = ""
 
@@ -573,7 +576,11 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 logger.info(
                     "[#{}] hero pair=({}, v{}): использую закешированный "
                     "hero_prompt из meta v=1 артефакта (id={}, {} симв)",
-                    project.id, hero_idx, v_idx, v1_art.id, len(hero_prompt),
+                    project.id,
+                    hero_idx,
+                    v_idx,
+                    v1_art.id,
+                    len(hero_prompt),
                 )
 
     async with browser_session() as bs:
@@ -593,16 +600,14 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             # отдельно для этого героя.
             hero_template = gtb.get_effective_text(project, "hero")
             hero_ask = gtb.render_hero_text(
-                hero_template, brief=user_brief, hero_style=hero_style_content,
+                hero_template,
+                brief=user_brief,
+                hero_style=hero_style_content,
             )
             last_reply = ""
             for attempt in range(1, 4):
                 ask = hero_ask
-                if (
-                    attempt > 1
-                    and last_reply
-                    and len(last_reply) > OUTSEE_PROMPT_MAX_CHARS
-                ):
+                if attempt > 1 and last_reply and len(last_reply) > OUTSEE_PROMPT_MAX_CHARS:
                     ask = (
                         f"Прошлый ответ был {len(last_reply)} символов — это "
                         f"больше лимита {OUTSEE_PROMPT_MAX_CHARS}. Сожми его до "
@@ -616,26 +621,30 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 last_reply = reply or ""
                 logger.info(
                     "[#{}] hero ChatGPT attempt {}: {} симв",
-                    project.id, attempt, len(last_reply),
+                    project.id,
+                    attempt,
+                    len(last_reply),
                 )
                 logger.info(
                     "[#{}] hero ChatGPT preview:\n{}",
-                    project.id, last_reply[:600],
+                    project.id,
+                    last_reply[:600],
                 )
                 if not last_reply or len(last_reply) < 100:
                     logger.warning(
-                        "[#{}] hero ChatGPT вернул слишком короткий ответ "
-                        "({} симв), пробую ещё раз",
-                        project.id, len(last_reply),
+                        "[#{}] hero ChatGPT вернул слишком короткий ответ ({} симв), пробую ещё раз",
+                        project.id,
+                        len(last_reply),
                     )
                     continue
                 hero_prompt = last_reply.strip()
                 if len(hero_prompt) <= OUTSEE_PROMPT_MAX_CHARS:
                     break
                 logger.warning(
-                    "[#{}] hero ChatGPT вернул {} симв (лимит {}), "
-                    "прошу сжать",
-                    project.id, len(hero_prompt), OUTSEE_PROMPT_MAX_CHARS,
+                    "[#{}] hero ChatGPT вернул {} симв (лимит {}), прошу сжать",
+                    project.id,
+                    len(hero_prompt),
+                    OUTSEE_PROMPT_MAX_CHARS,
                 )
             if not hero_prompt:
                 raise RuntimeError(
@@ -647,7 +656,9 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 logger.warning(
                     "[#{}] hero prompt всё ещё длиннее лимита: {} > {} — "
                     "отправляю как есть, outsee может не принять",
-                    project.id, len(hero_prompt), OUTSEE_PROMPT_MAX_CHARS,
+                    project.id,
+                    len(hero_prompt),
+                    OUTSEE_PROMPT_MAX_CHARS,
                 )
 
         # 2) Сборка финального prompt_text.
@@ -679,22 +690,25 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         from app.services.vision_regen_fix import merge_prompt_with_fix
 
         _pair_cid = f"c{int(hero_idx):02d}"
-        _pair_vfix = str(
-            ((project.meta or {}).get("vision_fix_hero") or {}).get(_pair_cid)
-            or ""
-        )
+        _pair_vfix = str(((project.meta or {}).get("vision_fix_hero") or {}).get(_pair_cid) or "")
         if _pair_vfix:
             prompt_text = merge_prompt_with_fix(prompt_text, _pair_vfix)
             logger.info(
                 "[#{}] hero pair=({}, v{}): VISION_FIX подмешан ({} симв)",
-                project.id, hero_idx, v_idx, len(_pair_vfix),
+                project.id,
+                hero_idx,
+                v_idx,
+                len(_pair_vfix),
             )
 
         logger.info(
-            "[#{}] hero pair=({}, v{}): prompt {} симв "
-            "(style='{}', regen={})",
-            project.id, hero_idx, v_idx, len(prompt_text),
-            style_chosen, is_regen,
+            "[#{}] hero pair=({}, v{}): prompt {} симв (style='{}', regen={})",
+            project.id,
+            hero_idx,
+            v_idx,
+            len(prompt_text),
+            style_chosen,
+            is_regen,
         )
 
         # 3) Reference-картинка для v>=2: путь к v=1 артефакту героя.
@@ -707,15 +721,17 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                     ref_path = cand
                 else:
                     logger.warning(
-                        "[#{}] hero v{}: v=1 файл {} не найден на диске — "
-                        "пойду без референса",
-                        project.id, v_idx, cand,
+                        "[#{}] hero v{}: v=1 файл {} не найден на диске — пойду без референса",
+                        project.id,
+                        v_idx,
+                        cand,
                     )
             else:
                 logger.warning(
-                    "[#{}] hero v{}: v=1 артефакт героя {} не найден — "
-                    "пойду без референса",
-                    project.id, v_idx, hero_idx,
+                    "[#{}] hero v{}: v=1 артефакт героя {} не найден — пойду без референса",
+                    project.id,
+                    v_idx,
+                    hero_idx,
                 )
 
         # 4) Генерация в outsee.
@@ -734,9 +750,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         short_uuid = uuid.uuid4().hex[:8]
         file_name = f"hero_{hero_idx}_v{v_idx}_{short_uuid}.png"
         out_path = out_dir / file_name
-        prompt_id_prefix = (
-            f"[ID: P{project.id}-HERO{hero_idx}-V{v_idx}-{short_uuid}]"
-        )
+        prompt_id_prefix = f"[ID: P{project.id}-HERO{hero_idx}-V{v_idx}-{short_uuid}]"
 
         result = None
         # Этап 4 (B.4, ревью): при VISION_FIX «Повторить» пропускаем —
@@ -744,14 +758,17 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         if v_idx == 1 and is_regen and not _pair_vfix:
             logger.info(
                 "[#{}] regenerate hero {}/{} v1: пробую кнопку «Повторить»",
-                project.id, hero_idx, n_total,
+                project.id,
+                hero_idx,
+                n_total,
             )
             try:
                 result = await outsee.regenerate_image(out_path)
             except Exception as e:  # noqa: BLE001
                 logger.warning(
-                    "[#{}] «Повторить» не сработала ({}), делаю fresh "
-                    "generate", project.id, e,
+                    "[#{}] «Повторить» не сработала ({}), делаю fresh generate",
+                    project.id,
+                    e,
                 )
                 result = None
 
@@ -768,7 +785,8 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             #     «4. Hero» снова — никакого «failed → unfail» дёрганья.
             try:
                 result = await generate_image_with_retries(
-                    outsee, gpt,
+                    outsee,
+                    gpt,
                     prompt=prompt_text,
                     out_path=out_path,
                     max_attempts_per_prompt=3,
@@ -788,7 +806,11 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 is_moderation = isinstance(e, OutseeContentRejectedError)
                 logger.error(
                     "[#{}] hero pair=({}/{}, v{}/{}) RAN OUT попыток: {}",
-                    project.id, hero_idx, n_total, v_idx, n_variations,
+                    project.id,
+                    hero_idx,
+                    n_total,
+                    v_idx,
+                    n_variations,
                     e.reason if hasattr(e, "reason") else str(e),
                 )
                 # Откатываем статус ровно туда, откуда юзер тыкнул
@@ -872,21 +894,20 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     final_prompt_id_prefix = prompt_id_prefix
     if v_idx < n_variations:
         approve_hint = (
-            f"✅ — принять и перейти к v{v_idx + 1}/{n_variations}; "
-            f"🔁 — перегенерить эту вариацию."
+            f"✅ — принять и перейти к v{v_idx + 1}/{n_variations}; 🔁 — перегенерить эту вариацию."
         )
     elif hero_idx < n_total:
         approve_hint = (
-            f"✅ — принять и перейти к герою {hero_idx + 1}/{n_total}; "
-            f"🔁 — перегенерить эту вариацию."
+            f"✅ — принять и перейти к герою {hero_idx + 1}/{n_total}; 🔁 — перегенерить эту вариацию."
         )
     else:
         approve_hint = (
-            "✅ — принять (это последняя вариация последнего героя); "
-            "🔁 — перегенерить эту вариацию."
+            "✅ — принять (это последняя вариация последнего героя); 🔁 — перегенерить эту вариацию."
         )
     await send_hitl_photo(
-        bot, session, project,
+        bot,
+        session,
+        project,
         kind=HITLKind.approve_hero,
         photo_path=str(file_path),
         caption=(
@@ -944,13 +965,13 @@ async def _run_excel(
     Параллель = ``meta.outsee_streams`` / ``img_streams`` (общий пул Outsee).
     Реф-вариации ждут файл родителя, затем идут следующей волной.
     """
+    from sqlalchemy.orm.attributes import flag_modified
+
     from app.db import SessionLocal
+    from app.services.check_analysis import normalize_hero_excel_id
     from app.services.hero_check_regen import META_IDS, get_hero_check_regen_ids
     from app.services.img_streams import get_img_streams
     from app.services.step_cancel import raise_if_cancelled
-    from sqlalchemy.orm.attributes import flag_modified
-
-    from app.services.check_analysis import normalize_hero_excel_id
 
     batch_auto = True
     streams = get_img_streams(project)
@@ -1013,9 +1034,7 @@ async def _run_excel(
                 is_regen = True
             if has_file and not is_regen:
                 continue
-            if not _excel_ref_deps_met(
-                ch, approved=approved, generated=generated, batch_auto=batch_auto
-            ):
+            if not _excel_ref_deps_met(ch, approved=approved, generated=generated, batch_auto=batch_auto):
                 skipped.append(ch)
                 continue
             ready.append(ch)
@@ -1050,9 +1069,7 @@ async def _run_excel(
             project.status = ProjectStatus.frames_ready
             await session.flush()
             try:
-                await bot.send_message(
-                    settings.telegram_owner_chat_id, msg, parse_mode="HTML"
-                )
+                await bot.send_message(settings.telegram_owner_chat_id, msg, parse_mode="HTML")
             except Exception:  # noqa: BLE001
                 logger.warning("[#{}] не удалось отправить TG-deadlock", project.id)
             return
@@ -1071,9 +1088,7 @@ async def _run_excel(
 
         async def _one(ch: ExcelCharacter) -> str:
             async with SessionLocal() as s:
-                p = (
-                    await s.execute(select(Project).where(Project.id == project_id))
-                ).scalar_one()
+                p = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one()
                 p.status = ProjectStatus.generating_hero
                 await _generate_one_excel_character(
                     s,
@@ -1095,9 +1110,7 @@ async def _run_excel(
                         await asyncio.sleep(0.15 * attempt)
                 return ch.id
 
-        results = await asyncio.gather(
-            *(_one(ch) for ch in batch), return_exceptions=True
-        )
+        results = await asyncio.gather(*(_one(ch) for ch in batch), return_exceptions=True)
         errors = [r for r in results if isinstance(r, BaseException)]
         ok_ids = [r for r in results if isinstance(r, str)]
         for err in errors:
@@ -1106,9 +1119,7 @@ async def _run_excel(
             await session.refresh(project)
             project.status = ProjectStatus.frames_ready
             await session.flush()
-            raise RuntimeError(
-                f"excel_hero: волна упала без успехов: {errors[0]!r}"
-            )
+            raise RuntimeError(f"excel_hero: волна упала без успехов: {errors[0]!r}")
 
         await session.refresh(project)
         project.status = ProjectStatus.generating_hero
@@ -1116,9 +1127,7 @@ async def _run_excel(
         if regen_ids and ok_ids:
             meta_r = dict(project.meta or {})
             left = [
-                x
-                for x in (meta_r.get(META_IDS) or [])
-                if normalize_hero_excel_id(str(x)) not in set(ok_ids)
+                x for x in (meta_r.get(META_IDS) or []) if normalize_hero_excel_id(str(x)) not in set(ok_ids)
             ]
             meta_r[META_IDS] = left
             project.meta = meta_r
@@ -1159,14 +1168,19 @@ async def _generate_one_excel_character(
             if art is None or not art.path:
                 logger.warning(
                     "[#{}] excel_hero {}: ref {} артефакт не найден",
-                    project.id, ch.id, rid,
+                    project.id,
+                    ch.id,
+                    rid,
                 )
                 continue
             p = Path(art.path)
             if not p.exists():
                 logger.warning(
                     "[#{}] excel_hero {}: ref {} файл {} не существует",
-                    project.id, ch.id, rid, p,
+                    project.id,
+                    ch.id,
+                    rid,
+                    p,
                 )
                 continue
             ref_paths.append(p)
@@ -1174,9 +1188,10 @@ async def _generate_one_excel_character(
             # Все ссылки «одобрены», но файлы пропали (wipe / old/) —
             # один ERROR и выход; while True в _run_excel остановится по status.
             logger.error(
-                "[#{}] excel_hero {}: нет файлов рефов {} — откат frames_ready "
-                "(не крутим batch-цикл)",
-                project.id, ch.id, ch.ref_ids,
+                "[#{}] excel_hero {}: нет файлов рефов {} — откат frames_ready (не крутим batch-цикл)",
+                project.id,
+                ch.id,
+                ch.ref_ids,
             )
             project.status = ProjectStatus.frames_ready
             await session.flush()
@@ -1193,10 +1208,7 @@ async def _generate_one_excel_character(
 
     # Стиль (общий для проекта — выбирается в обычном hero-flow).
     hero_style_content = _read_hero_style(project) or ""
-    style_chosen = (
-        (getattr(project, "prompt_overrides", None) or {}).get("hero_style")
-        or "default"
-    )
+    style_chosen = (getattr(project, "prompt_overrides", None) or {}).get("hero_style") or "default"
 
     out_dir = project.data_dir / "characters"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1235,8 +1247,7 @@ async def _generate_one_excel_character(
             prompt_text = (
                 "CRITICAL: The attached reference image is the SAME person. "
                 "Copy face, skull, mustache/hair, age, body proportions exactly. "
-                "Only apply the listed Changes; do not invent a new character.\n\n"
-                + prompt_text
+                "Only apply the listed Changes; do not invent a new character.\n\n" + prompt_text
             )
             logger.info(
                 "[#{}] excel_hero {}: REF mode refs={} files={} prompt_len={}",
@@ -1252,17 +1263,15 @@ async def _generate_one_excel_character(
             hero_template = gtb.get_effective_text(project, "hero")
             brief = ch.brief_for_gpt()
             hero_ask = gtb.render_hero_text(
-                hero_template, brief=brief, hero_style=hero_style_content,
+                hero_template,
+                brief=brief,
+                hero_style=hero_style_content,
             )
             last_reply = ""
             prompt_text = ""
             for attempt in range(1, 4):
                 ask = hero_ask
-                if (
-                    attempt > 1
-                    and last_reply
-                    and len(last_reply) > OUTSEE_PROMPT_MAX_CHARS
-                ):
+                if attempt > 1 and last_reply and len(last_reply) > OUTSEE_PROMPT_MAX_CHARS:
                     ask = (
                         f"Прошлый ответ был {len(last_reply)} символов — "
                         f"больше лимита {OUTSEE_PROMPT_MAX_CHARS}. Сожми до "
@@ -1275,7 +1284,10 @@ async def _generate_one_excel_character(
                 last_reply = reply or ""
                 logger.info(
                     "[#{}] excel_hero {} GPT attempt {}: {} симв",
-                    project.id, ch.id, attempt, len(last_reply),
+                    project.id,
+                    ch.id,
+                    attempt,
+                    len(last_reply),
                 )
                 if not last_reply or len(last_reply) < 100:
                     continue
@@ -1284,17 +1296,14 @@ async def _generate_one_excel_character(
                     break
             if not prompt_text:
                 raise RuntimeError(
-                    f"ChatGPT не вернул заполненный промт для excel "
-                    f"персонажа {ch.id} после 3 попыток"
+                    f"ChatGPT не вернул заполненный промт для excel персонажа {ch.id} после 3 попыток"
                 )
 
         # Этап 4 (B.4): фикс vision-вердикта для этого cid — в начало
         # промпта (карточка персонажа не мутируется, фикс живёт в meta).
         from app.services.vision_regen_fix import merge_prompt_with_fix
 
-        _vfix = str(
-            ((project.meta or {}).get("vision_fix_hero") or {}).get(ch.id) or ""
-        )
+        _vfix = str(((project.meta or {}).get("vision_fix_hero") or {}).get(ch.id) or "")
         if _vfix:
             prompt_text = merge_prompt_with_fix(prompt_text, _vfix)
             logger.info(
@@ -1325,8 +1334,10 @@ async def _generate_one_excel_character(
                     result = await outsee.regenerate_image(out_path)
             except Exception as e:  # noqa: BLE001
                 logger.warning(
-                    "[#{}] excel_hero {} «Повторить» упала ({}), fresh "
-                    "generate", project.id, ch.id, e,
+                    "[#{}] excel_hero {} «Повторить» упала ({}), fresh generate",
+                    project.id,
+                    ch.id,
+                    e,
                 )
                 result = None
 
@@ -1334,7 +1345,8 @@ async def _generate_one_excel_character(
             try:
                 async with acquire_image_slot():
                     result = await generate_image_with_retries(
-                        outsee, gpt,
+                        outsee,
+                        gpt,
                         prompt=prompt_text,
                         out_path=out_path,
                         max_attempts_per_prompt=3,
@@ -1353,7 +1365,8 @@ async def _generate_one_excel_character(
                 is_moderation = isinstance(e, OutseeContentRejectedError)
                 logger.error(
                     "[#{}] excel_hero {} RAN OUT попыток: {}",
-                    project.id, ch.id,
+                    project.id,
+                    ch.id,
                     e.reason if hasattr(e, "reason") else str(e),
                 )
                 project.status = ProjectStatus.frames_ready
@@ -1380,9 +1393,7 @@ async def _generate_one_excel_character(
                         parse_mode="HTML",
                     )
                 except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "[#{}] не удалось отправить TG-ошибку", project.id
-                    )
+                    logger.warning("[#{}] не удалось отправить TG-ошибку", project.id)
                 return
 
     file_path = Path(result.file_path)
@@ -1408,8 +1419,7 @@ async def _generate_one_excel_character(
     generated_now = await _excel_ids_with_artifact(session, project)
     remaining_n = sum(1 for c in chars if c.id not in generated_now)
     logger.info(
-        "[#{}] excel_hero batch: {} → {} (осталось {}, style={}, "
-        "batch_auto={}, approved={})",
+        "[#{}] excel_hero batch: {} → {} (осталось {}, style={}, batch_auto={}, approved={})",
         project.id,
         ch.id,
         file_path.name,

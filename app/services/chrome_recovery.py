@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from loguru import logger
@@ -110,7 +110,7 @@ async def handle_chrome_step_failure(
     attempts = int(cr.get("restart_attempts") or 0) + 1
     cr["restart_attempts"] = attempts
     cr["last_error"] = f"{type(error).__name__}: {error}"
-    cr["last_at"] = datetime.now(timezone.utc).isoformat()
+    cr["last_at"] = datetime.now(UTC).isoformat()
     _save_chrome_recovery(project, cr)
 
     logger.warning(
@@ -125,7 +125,7 @@ async def handle_chrome_step_failure(
     if attempts <= MAX_CHROME_RESTARTS_PER_STEP:
         recovered = await restart_chrome_for_pipeline(reason=str(error))
         cr["last_restart_ok"] = recovered
-        cr["last_restart_at"] = datetime.now(timezone.utc).isoformat()
+        cr["last_restart_at"] = datetime.now(UTC).isoformat()
         _save_chrome_recovery(project, cr)
         await session.flush()
 

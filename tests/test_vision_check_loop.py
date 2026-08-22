@@ -10,6 +10,7 @@ import pytest
 
 from app import settings as app_settings
 from app.models import Project, ProjectStatus
+from app.services import vision_check_loop as vcl
 from app.services.check_analysis import (
     append_vision_check_hint,
     extract_critical_frame_regen_targets,
@@ -20,7 +21,6 @@ from app.services.check_analysis import (
     parse_check_analysis,
     resolve_vision_check_gate,
 )
-from app.services import vision_check_loop as vcl
 from app.services.excel_gpt_node import upload_dir
 
 
@@ -178,9 +178,7 @@ frames: 3
 def test_extract_extended_score_axes() -> None:
     from app.services.check_analysis import extract_vision_scores
 
-    scores = extract_vision_scores(
-        "## scores\nstyle: 0.7\nhands: 0.4\noverall: 0.6\n"
-    )
+    scores = extract_vision_scores("## scores\nstyle: 0.7\nhands: 0.4\noverall: 0.6\n")
     assert scores["style"] == 0.7
     assert scores["hands"] == 0.4
     assert scores["overall"] == 0.6
@@ -258,9 +256,7 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slug: str) -> Proj
     return p
 
 
-def test_start_hero_loop_via_vision(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_start_hero_loop_via_vision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     p = _project(tmp_path, monkeypatch, "vh")
     check_key = "n_check"
     p.meta = {
@@ -296,17 +292,13 @@ def test_start_hero_loop_via_vision(
     async def _fake_prepare(*_a, **_k):
         return True
 
-    monkeypatch.setattr(
-        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
-    )
+    monkeypatch.setattr("app.services.run_sync.prepare_node_for_step_start", _fake_prepare)
 
     class _Sess:
         async def flush(self):
             return None
 
-    started = asyncio.run(
-        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
-    )
+    started = asyncio.run(vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key))
     assert started is True
     assert p.status is ProjectStatus.generating_hero
     assert p.meta["hero_check_regen_ids"] == ["c01", "c02"]
@@ -385,17 +377,13 @@ verdict: pass
         async def flush(self):
             return None
 
-    started = asyncio.run(
-        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
-    )
+    started = asyncio.run(vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key))
     assert started is False
     assert p.status is ProjectStatus.enrich_1_ready
     assert not p.meta.get("hero_check_regen_ids")
 
 
-def test_start_scenes_loop(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_start_scenes_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     p = _project(tmp_path, monkeypatch, "vs")
     check_key = "n_check_img"
     p.meta = {
@@ -436,9 +424,7 @@ def test_start_scenes_loop(
     async def _fake_prepare(*_a, **_k):
         return True
 
-    monkeypatch.setattr(
-        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
-    )
+    monkeypatch.setattr("app.services.run_sync.prepare_node_for_step_start", _fake_prepare)
 
     class _Sess:
         async def flush(self):
@@ -454,9 +440,7 @@ def test_start_scenes_loop(
         async def delete(self, *_a, **_k):
             return None
 
-    started = asyncio.run(
-        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
-    )
+    started = asyncio.run(vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key))
     assert started is True
     assert p.status is ProjectStatus.generating_images
     assert vcl.get_scene_check_regen(p) == [
@@ -580,9 +564,7 @@ frame_009_e28b8eab.png не принят из-за пяти лишних дво�
     assert "SINGLE HERO RULE" in p
     assert "CLONE RETRY" in p
     assert "c02 in archive hall" in p
-    assert merge_prompt_with_fix("base", "[VISION_FIX]\nx\n[/VISION_FIX]").startswith(
-        "[VISION_FIX]"
-    )
+    assert merge_prompt_with_fix("base", "[VISION_FIX]\nx\n[/VISION_FIX]").startswith("[VISION_FIX]")
 
 
 def test_auto_vision_fix_missing_c02() -> None:
@@ -717,9 +699,7 @@ def test_hero_compat_extract_still_works() -> None:
     assert extract_hero_regen_ids("regen: c01, c3") == ["c01", "c03"]
 
 
-def test_scored_warn_only_does_not_start_loop(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_scored_warn_only_does_not_start_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     p = _project(tmp_path, monkeypatch, "vw")
     check_key = "n_check"
     p.meta = {
@@ -770,9 +750,7 @@ regen: c01
         async def flush(self):
             return None
 
-    started = asyncio.run(
-        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
-    )
+    started = asyncio.run(vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key))
     assert started is False
     assert "vision_check_return_node" not in (p.meta or {})
 
@@ -780,9 +758,7 @@ regen: c01
 # ---------------------------------------------------------------- Этап 4 (D)
 
 
-def test_gate_conflict_resolves_to_fail(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_gate_conflict_resolves_to_fail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Этап 4 (D.1): meta pass + свежий resolve fail → работаем по fail (§9#5)."""
     p = _project(tmp_path, monkeypatch, "vconf")
     check_key = "n_check_img"
@@ -800,9 +776,7 @@ def test_gate_conflict_resolves_to_fail(
                     "data": {"slotIndex": 2, "checkMode": True},
                 },
             ],
-            "edges": [
-                {"source": "n_img", "target": check_key, "data": {"kind": "after"}}
-            ],
+            "edges": [{"source": "n_img", "target": check_key, "data": {"kind": "after"}}],
         },
     }
     out = upload_dir(p, check_key)
@@ -824,9 +798,7 @@ overall: 0.9
     async def _fake_prepare(*_a, **_k):
         return True
 
-    monkeypatch.setattr(
-        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
-    )
+    monkeypatch.setattr("app.services.run_sync.prepare_node_for_step_start", _fake_prepare)
 
     class _Sess:
         async def flush(self):
@@ -842,17 +814,13 @@ overall: 0.9
         async def delete(self, *_a, **_k):
             return None
 
-    started = asyncio.run(
-        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
-    )
+    started = asyncio.run(vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key))
     assert started is True
     assert p.status is ProjectStatus.generating_images
     assert vcl.get_scene_check_regen(p) == [{"number": 3, "shot": 1}]
 
 
-def test_ok_in_fail_report_is_soft_not_permanent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ok_in_fail_report_is_soft_not_permanent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Этап 4 (D.2): [ok] из fail-отчёта не пишется в passed — только soft-ok."""
     p = _project(tmp_path, monkeypatch, "vsoft")
     check_key = "n_check_img"
@@ -870,9 +838,7 @@ def test_ok_in_fail_report_is_soft_not_permanent(
                     "data": {"slotIndex": 2, "checkMode": True},
                 },
             ],
-            "edges": [
-                {"source": "n_img", "target": check_key, "data": {"kind": "after"}}
-            ],
+            "edges": [{"source": "n_img", "target": check_key, "data": {"kind": "after"}}],
         },
     }
     out = upload_dir(p, check_key)
@@ -891,9 +857,7 @@ verdict: fail
     async def _fake_prepare(*_a, **_k):
         return True
 
-    monkeypatch.setattr(
-        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
-    )
+    monkeypatch.setattr("app.services.run_sync.prepare_node_for_step_start", _fake_prepare)
 
     class _Sess:
         async def flush(self):
@@ -909,9 +873,7 @@ verdict: fail
         async def delete(self, *_a, **_k):
             return None
 
-    started = asyncio.run(
-        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
-    )
+    started = asyncio.run(vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key))
     assert started is True
     # f1 НЕ принят навсегда — попадёт в следующий recheck
     assert "f1" not in vcl.get_vision_passed(p)
@@ -1141,18 +1103,27 @@ def test_noop_regen_snapshot_detects_unchanged_prompt() -> None:
     fr = SimpleNamespace(number=3, uuid="u3", image_prompt="same", attrs={})
     p = Project(slug="x", topic="t", status=ProjectStatus.enrich_1_ready, meta={})
     first = vcl.update_regen_prompt_snapshot(
-        p, "scenes", [{"number": 3, "shot": 1}], {3: fr}  # type: ignore[arg-type]
+        p,
+        "scenes",
+        [{"number": 3, "shot": 1}],
+        {3: fr},  # type: ignore[arg-type]
     )
     assert first == []
     second = vcl.update_regen_prompt_snapshot(
-        p, "scenes", [{"number": 3, "shot": 1}], {3: fr}  # type: ignore[arg-type]
+        p,
+        "scenes",
+        [{"number": 3, "shot": 1}],
+        {3: fr},  # type: ignore[arg-type]
     )
     assert second == ["f3"]
     assert p.meta["vision_noop_regen"] == 1
     # промпт изменился → не noop
     fr.image_prompt = "changed"
     third = vcl.update_regen_prompt_snapshot(
-        p, "scenes", [{"number": 3, "shot": 1}], {3: fr}  # type: ignore[arg-type]
+        p,
+        "scenes",
+        [{"number": 3, "shot": 1}],
+        {3: fr},  # type: ignore[arg-type]
     )
     assert third == []
 
@@ -1184,9 +1155,7 @@ def _scenes_check_meta(check_key: str, extra: dict | None = None) -> dict:
                     "data": {"slotIndex": 2, "checkMode": True},
                 },
             ],
-            "edges": [
-                {"source": "n_img", "target": check_key, "data": {"kind": "after"}}
-            ],
+            "edges": [{"source": "n_img", "target": check_key, "data": {"kind": "after"}}],
         },
     }
     meta.update(extra or {})
@@ -1208,16 +1177,12 @@ class _SessEmpty:
         return None
 
 
-def test_rounds_total_survives_and_pauses(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_rounds_total_survives_and_pauses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Этап 4 (A.2/A.3): сквозной счётчик (переживает сброс META_ROUND) → pause."""
     p = _project(tmp_path, monkeypatch, "vlim")
     check_key = "n_check_img"
     # Рестарт стер per-loop round, но vision_rounds_total хранит 2 круга
-    p.meta = _scenes_check_meta(
-        check_key, {"vision_rounds_total": {check_key: 2}}
-    )
+    p.meta = _scenes_check_meta(check_key, {"vision_rounds_total": {check_key: 2}})
     out = upload_dir(p, check_key)
     out.mkdir(parents=True, exist_ok=True)
     (out / "gpt_reply_raw.txt").write_text(
@@ -1228,12 +1193,8 @@ def test_rounds_total_survives_and_pauses(
     async def _fake_prepare(*_a, **_k):
         return True
 
-    monkeypatch.setattr(
-        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
-    )
-    started = asyncio.run(
-        vcl.maybe_start_vision_check_loop_after_check(_SessEmpty(), p, check_key)
-    )
+    monkeypatch.setattr("app.services.run_sync.prepare_node_for_step_start", _fake_prepare)
+    started = asyncio.run(vcl.maybe_start_vision_check_loop_after_check(_SessEmpty(), p, check_key))
     assert started is True
     assert p.status is ProjectStatus.paused
     reason = p.meta["pause_reason"]
@@ -1244,9 +1205,7 @@ def test_rounds_total_survives_and_pauses(
     assert p.meta["vision_rounds_total"][check_key] == 2
 
 
-def test_rounds_below_limit_proceeds_and_counts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_rounds_below_limit_proceeds_and_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     p = _project(tmp_path, monkeypatch, "vcnt")
     check_key = "n_check_img"
     p.meta = _scenes_check_meta(check_key)
@@ -1260,12 +1219,8 @@ def test_rounds_below_limit_proceeds_and_counts(
     async def _fake_prepare(*_a, **_k):
         return True
 
-    monkeypatch.setattr(
-        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
-    )
-    started = asyncio.run(
-        vcl.maybe_start_vision_check_loop_after_check(_SessEmpty(), p, check_key)
-    )
+    monkeypatch.setattr("app.services.run_sync.prepare_node_for_step_start", _fake_prepare)
+    started = asyncio.run(vcl.maybe_start_vision_check_loop_after_check(_SessEmpty(), p, check_key))
     assert started is True
     assert p.status is ProjectStatus.generating_images
     assert p.meta["vision_rounds_total"][check_key] == 1
@@ -1334,9 +1289,7 @@ def test_vision_decision_requires_pause() -> None:
 # ------------------------------------------------- Этап 4 (ревью code-critic)
 
 
-def test_more_rounds_grants_new_rounds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_more_rounds_grants_new_rounds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Ревью: more_rounds обязан дать новые круги, не мгновенную повторную паузу."""
     p = _project(tmp_path, monkeypatch, "mr")
     check_key = "n_check_img"
@@ -1370,12 +1323,8 @@ def test_more_rounds_grants_new_rounds(
     async def _fake_prepare(*_a, **_k):
         return True
 
-    monkeypatch.setattr(
-        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
-    )
-    started = asyncio.run(
-        vcl.maybe_start_vision_check_loop_after_check(_SessEmpty(), p, check_key)
-    )
+    monkeypatch.setattr("app.services.run_sync.prepare_node_for_step_start", _fake_prepare)
+    started = asyncio.run(vcl.maybe_start_vision_check_loop_after_check(_SessEmpty(), p, check_key))
     assert started is True
     assert p.status is not ProjectStatus.paused
     assert p.status is ProjectStatus.generating_images
@@ -1385,9 +1334,7 @@ def test_axis_fix_for_canonical_fN_token() -> None:
     """Ревью: канонический токен шаблона `f3: (hands)` доезжает до фикса."""
     from app.services.vision_regen_fix import AXIS_FIX_LINES, plan_vision_prompt_fixes
 
-    fr = SimpleNamespace(
-        number=3, uuid="uuid-3", image_prompt="hero at desk", attrs={}
-    )
+    fr = SimpleNamespace(number=3, uuid="uuid-3", image_prompt="hero at desk", attrs={})
     reply = "## issues\n- [critical] f3: (hands) шесть пальцев на левой руке\n"
     ops = plan_vision_prompt_fixes(
         reply,
@@ -1431,9 +1378,7 @@ def test_scenes_clones_axis_not_duplicated() -> None:
     """Ревью: для scenes clones закрыт спец-билдером, generic-строка не дублируется."""
     from app.services.vision_regen_fix import AXIS_FIX_LINES, plan_vision_prompt_fixes
 
-    fr = SimpleNamespace(
-        number=3, uuid="uuid-3", image_prompt="hero", attrs={"персонажи": "c02"}
-    )
+    fr = SimpleNamespace(number=3, uuid="uuid-3", image_prompt="hero", attrs={"персонажи": "c02"})
     reply = "## issues\n- [critical] f3: (clones) двойники c02\n"
     ops = plan_vision_prompt_fixes(
         reply,

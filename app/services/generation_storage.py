@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -53,24 +53,20 @@ def elapsed_from_iso(
         if end:
             t1 = datetime.fromisoformat(end)
         elif live:
-            t1 = datetime.now(timezone.utc).astimezone()
+            t1 = datetime.now(UTC).astimezone()
         else:
             return None
         if t0.tzinfo is None:
-            t0 = t0.replace(tzinfo=timezone.utc).astimezone()
+            t0 = t0.replace(tzinfo=UTC).astimezone()
         if t1.tzinfo is None:
-            t1 = t1.replace(tzinfo=timezone.utc).astimezone()
+            t1 = t1.replace(tzinfo=UTC).astimezone()
         return max(0, int((t1 - t0).total_seconds()))
     except Exception:  # noqa: BLE001
         return None
 
 
 def _mtime_iso(mtime: float) -> str:
-    return (
-        datetime.fromtimestamp(mtime, tz=timezone.utc)
-        .astimezone()
-        .isoformat(timespec="seconds")
-    )
+    return datetime.fromtimestamp(mtime, tz=UTC).astimezone().isoformat(timespec="seconds")
 
 
 def resolve_item_elapsed(
@@ -134,7 +130,7 @@ def build_generation_path(
     """Путь для нового файла результата (папки создаются)."""
     media = _safe_segment(media, "image")
     model = _safe_segment(model, "model")
-    now = datetime.now(timezone.utc).astimezone()
+    now = datetime.now(UTC).astimezone()
     day = now.strftime("%Y%m%d")
     stamp = now.strftime("%H%M%S")
     short = uuid.uuid4().hex[:10]
@@ -166,7 +162,7 @@ def write_sidecar(
 
     `require_file=False` — для pending (файл ещё не скачан).
     """
-    now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    now = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
     sec = elapsed_sec
     if sec is None and started_at:
         sec = elapsed_from_iso(started_at, finished_at or now)
@@ -216,9 +212,7 @@ def update_sidecar(media_path: Path, **updates: Any) -> Path | None:
     meta["file"] = media_path.name
     if media_path.is_file():
         meta["bytes"] = media_path.stat().st_size
-    meta["updated_at"] = (
-        datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-    )
+    meta["updated_at"] = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
     if "elapsed_sec" in updates and updates["elapsed_sec"] is not None:
         meta["elapsed_label"] = format_elapsed_min_sec(updates["elapsed_sec"])
     elif meta.get("elapsed_sec") is not None and not meta.get("elapsed_label"):
@@ -251,11 +245,7 @@ def import_legacy_create_media() -> int:
     }
     marker = generations_root() / ".imported_legacy.txt"
     try:
-        imported = (
-            set(marker.read_text(encoding="utf-8").splitlines())
-            if marker.is_file()
-            else set()
-        )
+        imported = set(marker.read_text(encoding="utf-8").splitlines()) if marker.is_file() else set()
     except OSError:
         imported = set()
 
@@ -407,7 +397,7 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
         if status == "done" and not has_file:
             status = "failed"
         if status in {"queued", "processing"} and not has_file:
-            age_s = max(0.0, datetime.now(timezone.utc).timestamp() - mtime)
+            age_s = max(0.0, datetime.now(UTC).timestamp() - mtime)
             if age_s > 20 * 60:
                 status = "failed"
                 if not meta.get("error"):
@@ -424,9 +414,7 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
                 file_mtime = fp.stat().st_mtime
             except OSError:
                 pass
-        elapsed_sec, elapsed_label, persist = resolve_item_elapsed(
-            meta, status=status, mtime=file_mtime
-        )
+        elapsed_sec, elapsed_label, persist = resolve_item_elapsed(meta, status=status, mtime=file_mtime)
         if persist and fp is not None:
             try:
                 end = meta.get("finished_at") or meta.get("updated_at")

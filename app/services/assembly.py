@@ -103,19 +103,33 @@ async def _cut_clip(
     vf = ",".join(vf_parts) if vf_parts else None
 
     cmd: list[str] = [
-        "ffmpeg", "-y",
-        "-ss", f"{start:.3f}",
-        "-i", str(src),
-        "-t", f"{source_span:.3f}",
+        "ffmpeg",
+        "-y",
+        "-ss",
+        f"{start:.3f}",
+        "-i",
+        str(src),
+        "-t",
+        f"{source_span:.3f}",
     ]
     if vf:
         cmd.extend(["-vf", vf])
-    cmd.extend([
-        "-t", f"{target_dur:.3f}",
-        "-an",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "20",
-        str(dst),
-    ])
+    cmd.extend(
+        [
+            "-t",
+            f"{target_dur:.3f}",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "fast",
+            "-crf",
+            "20",
+            str(dst),
+        ]
+    )
     await _run(cmd)
 
 
@@ -139,14 +153,26 @@ async def _resolve_assembly_target_size(clips: list[ClipSpec]) -> tuple[int, int
 
 async def _extend_video_tail(src: Path, dst: Path, tail_seconds: float) -> None:
     """Держим последний кадр ещё tail_seconds (видео после озвучки)."""
-    await _run([
-        "ffmpeg", "-y",
-        "-i", str(src),
-        "-vf", f"tpad=stop_mode=clone:stop_duration={tail_seconds:.3f}",
-        "-an",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "20",
-        str(dst),
-    ])
+    await _run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(src),
+            "-vf",
+            f"tpad=stop_mode=clone:stop_duration={tail_seconds:.3f}",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "fast",
+            "-crf",
+            "20",
+            str(dst),
+        ]
+    )
 
 
 async def assemble(
@@ -172,11 +198,7 @@ async def assemble(
         for i, spec in enumerate(clips):
             dst = tmp_dir / f"clip_{i:03d}.mp4"
             src_w, src_h = await probe_video_size(spec.src)
-            scale_to = (
-                (target_w, target_h)
-                if (src_w, src_h) != (target_w, target_h)
-                else (None, None)
-            )
+            scale_to = (target_w, target_h) if (src_w, src_h) != (target_w, target_h) else (None, None)
             await _cut_clip(
                 spec.src,
                 spec.duration,
@@ -194,14 +216,28 @@ async def assemble(
             encoding="utf-8",
         )
         concat_mp4 = tmp_dir / "concat.mp4"
-        await _run([
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", str(list_file),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "20",
-            "-an",
-            str(concat_mp4),
-        ])
+        await _run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_file),
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-preset",
+                "fast",
+                "-crf",
+                "20",
+                "-an",
+                str(concat_mp4),
+            ]
+        )
 
         tail = max(0.0, float(tail_seconds or 0.0))
         if tail > 0:
@@ -230,10 +266,16 @@ async def assemble(
         )
         if filter_complex is not None:
             mux_cmd.extend(mix_args)
-            mux_cmd.extend([
-                "-filter_complex", filter_complex,
-                "-map", "0:v:0", "-map", "[aout]",
-            ])
+            mux_cmd.extend(
+                [
+                    "-filter_complex",
+                    filter_complex,
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "[aout]",
+                ]
+            )
             if bgm_path is not None:
                 logger.info("assembly: mixing BGM {} (gain {:.2f})", bgm_path.name, bgm_gain)
             if sfx:
@@ -254,14 +296,26 @@ async def assemble(
         out_path.parent.mkdir(parents=True, exist_ok=True)
         if subtitles_ass is not None and subtitles_ass.exists():
             import shutil
+
             tmp_ass = tmp_dir / SUBTITLES_ASS_NAME
             shutil.copy2(subtitles_ass, tmp_ass)
             burn_cmd = [
-                "ffmpeg", "-y",
-                "-i", str(with_audio),
-                "-vf", subtitles_vf_arg(),
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "20",
-                "-c:a", "copy",
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(with_audio),
+                "-vf",
+                subtitles_vf_arg(),
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-preset",
+                "fast",
+                "-crf",
+                "20",
+                "-c:a",
+                "copy",
             ]
             if tail <= 0:
                 burn_cmd.append("-shortest")
@@ -290,14 +344,21 @@ async def trim_intro_seconds(src: Path, *, skip_seconds: float) -> Path:
     with tempfile.TemporaryDirectory(prefix="vp_skip_") as tmp:
         tmp_dir = Path(tmp)
         dst = tmp_dir / "trimmed.mp4"
-        await _run([
-            "ffmpeg", "-y",
-            "-ss", f"{skip:.3f}",
-            "-i", str(src),
-            "-c", "copy",
-            "-avoid_negative_ts", "make_zero",
-            str(dst),
-        ])
+        await _run(
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                f"{skip:.3f}",
+                "-i",
+                str(src),
+                "-c",
+                "copy",
+                "-avoid_negative_ts",
+                "make_zero",
+                str(dst),
+            ]
+        )
         if not dst.is_file() or dst.stat().st_size < 64:
             raise RuntimeError(f"trim intro failed for {src.name}")
         import shutil
@@ -336,9 +397,7 @@ def make_simple_ass(
     body_lines: list[str] = []
     for s, e, text in frames:
         line = f"{ass_prefix}{_escape_ass(text)}"
-        body_lines.append(
-            f"Dialogue: 0,{_fmt_ts(s)},{_fmt_ts(e)},Default,,0,0,0,,{line}"
-        )
+        body_lines.append(f"Dialogue: 0,{_fmt_ts(s)},{_fmt_ts(e)},Default,,0,0,0,,{line}")
     path.write_text(header + "\n".join(body_lines) + "\n", encoding="utf-8")
     return path
 

@@ -20,7 +20,6 @@ from sqlalchemy import select
 
 from app.db import engine, session_scope
 from app.models import Base, Project, ProjectStatus
-from app.settings import settings
 from app.storage import ProjectSheet
 
 DEFAULT_TOPIC = "5 фактов о рачках в стиле киберпанк"
@@ -34,11 +33,39 @@ def _slugify(text: str) -> str:
     # простая транслитерация для кириллицы, чтобы путь был ASCII-только
     table = str.maketrans(
         {
-            "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
-            "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
-            "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
-            "ф": "f", "х": "h", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sch",
-            "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+            "а": "a",
+            "б": "b",
+            "в": "v",
+            "г": "g",
+            "д": "d",
+            "е": "e",
+            "ё": "e",
+            "ж": "zh",
+            "з": "z",
+            "и": "i",
+            "й": "y",
+            "к": "k",
+            "л": "l",
+            "м": "m",
+            "н": "n",
+            "о": "o",
+            "п": "p",
+            "р": "r",
+            "с": "s",
+            "т": "t",
+            "у": "u",
+            "ф": "f",
+            "х": "h",
+            "ц": "c",
+            "ч": "ch",
+            "ш": "sh",
+            "щ": "sch",
+            "ъ": "",
+            "ы": "y",
+            "ь": "",
+            "э": "e",
+            "ю": "yu",
+            "я": "ya",
         }
     )
     t = t.translate(table)
@@ -60,9 +87,7 @@ async def seed(topic: str = DEFAULT_TOPIC, hero_mode: str = DEFAULT_HERO_MODE) -
         slug = base_slug
         n = 1
         while True:
-            exists = (
-                await s.execute(select(Project).where(Project.slug == slug))
-            ).scalar_one_or_none()
+            exists = (await s.execute(select(Project).where(Project.slug == slug))).scalar_one_or_none()
             if exists is None:
                 break
             n += 1

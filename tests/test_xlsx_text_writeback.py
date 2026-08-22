@@ -7,11 +7,11 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 from app.services.xlsx_text_writeback import (
+    _writeback_project_xlsx_legacy_disabled,
     apply_sheet_blocks_to_xlsx,
     extract_sheet_blocks,
     merge_xlsx_nonempty_overlay,
     writeback_project_xlsx,
-    _writeback_project_xlsx_legacy_disabled,
 )
 
 
@@ -28,14 +28,7 @@ def test_writeback_project_xlsx_public_api_disabled(tmp_path: Path) -> None:
 
 
 def test_extract_sheet_blocks_tsv() -> None:
-    text = (
-        "# Лист: план\n"
-        "A\tB\tC\n"
-        "1\t2\t3\n"
-        "# Лист: Кадры\n"
-        "n\ttext\n"
-        "1\thello\n"
-    )
+    text = "# Лист: план\nA\tB\tC\n1\t2\t3\n# Лист: Кадры\nn\ttext\n1\thello\n"
     blocks = extract_sheet_blocks(text)
     assert list(blocks.keys()) == ["план", "Кадры"]
     assert blocks["план"][0] == ["A", "B", "C"]
@@ -61,25 +54,15 @@ def test_writeback_incomplete_and_merge(tmp_path: Path) -> None:
     wb.save(src)
     wb.close()
 
-    partial = "\n".join(
-        ["# Лист: Общий план"]
-        + [f"@row={i}\trow{i}\tonly-part" for i in range(1, 9)]
-    )
-    incomplete, reason, sheet, nxt = writeback_looks_incomplete(
-        reply_text=partial, template_xlsx=src
-    )
+    partial = "\n".join(["# Лист: Общий план"] + [f"@row={i}\trow{i}\tonly-part" for i in range(1, 9)])
+    incomplete, reason, sheet, nxt = writeback_looks_incomplete(reply_text=partial, template_xlsx=src)
     assert incomplete is True
     assert sheet == "Общий план"
     assert nxt == 9
 
-    more = "\n".join(
-        ["# Лист: Общий план"]
-        + [f"@row={i}\trow{i}\trest" for i in range(9, 41)]
-    )
+    more = "\n".join(["# Лист: Общий план"] + [f"@row={i}\trow{i}\trest" for i in range(9, 41)])
     merged = merge_writeback_texts(partial, more)
-    incomplete2, _, _, _ = writeback_looks_incomplete(
-        reply_text=merged, template_xlsx=src
-    )
+    incomplete2, _, _, _ = writeback_looks_incomplete(reply_text=merged, template_xlsx=src)
     assert incomplete2 is False
     assert merged.count("@row=") == 40
 
@@ -109,15 +92,8 @@ def test_unmarked_junk_not_sequential_overwrite(tmp_path: Path) -> None:
     wb.save(src)
     wb.close()
 
-    reply = (
-        "# Лист: план\n"
-        "CONTINUE_XLSX: план @row=55\n"
-        "мусор без таба\n"
-        "@row=10\tфон\tNEW\n"
-    )
-    out = _writeback_project_xlsx_legacy_disabled(
-        project_xlsx=src, reply_text=reply, downloaded_paths=[]
-    )
+    reply = "# Лист: план\nCONTINUE_XLSX: план @row=55\nмусор без таба\n@row=10\tфон\tNEW\n"
+    out = _writeback_project_xlsx_legacy_disabled(project_xlsx=src, reply_text=reply, downloaded_paths=[])
     assert out == src
     wb2 = load_workbook(src, data_only=True)
     assert wb2["план"]["A1"].value == "номер кадра"
@@ -152,9 +128,7 @@ def test_row_marked_continue_cannot_shift_plan_labels(tmp_path: Path) -> None:
         "@row=4\tномер кадра\t1\t2\n"
         "@row=10\tфон\tOK\n"
     )
-    out = _writeback_project_xlsx_legacy_disabled(
-        project_xlsx=src, reply_text=reply, downloaded_paths=[]
-    )
+    out = _writeback_project_xlsx_legacy_disabled(project_xlsx=src, reply_text=reply, downloaded_paths=[])
     assert out == src
     wb2 = load_workbook(src, data_only=True)
     assert wb2["план"]["A1"].value == "номер кадра"
@@ -230,12 +204,7 @@ def test_continue_marker_not_written_into_cells(tmp_path: Path) -> None:
     """CONTINUE_XLSX — сигнал дозапроса, не значение ячейки A1."""
     from app.services.xlsx_text_writeback import extract_sheet_blocks
 
-    text = (
-        "# Лист: план\n"
-        "@row=4\tномер кадра\tx\n"
-        "CONTINUE_XLSX: план @row=55\n"
-        "@row=5\tпредыдущий кадр\ty\n"
-    )
+    text = "# Лист: план\n@row=4\tномер кадра\tx\nCONTINUE_XLSX: план @row=55\n@row=5\tпредыдущий кадр\ty\n"
     blocks = extract_sheet_blocks(text)
     assert "план" in blocks
     flat = ["\t".join(r) for r in blocks["план"]]
@@ -280,13 +249,9 @@ def test_continue_marker_ignored_when_coverage_ok(tmp_path: Path) -> None:
     wb.close()
 
     body = "\n".join(
-        ["# Лист: план"]
-        + [f"@row={i}\trow{i}\tok" for i in range(1, 41)]
-        + ["CONTINUE_XLSX: план @row=56"]
+        ["# Лист: план"] + [f"@row={i}\trow{i}\tok" for i in range(1, 41)] + ["CONTINUE_XLSX: план @row=56"]
     )
-    incomplete, reason, _, _ = writeback_looks_incomplete(
-        reply_text=body, template_xlsx=src
-    )
+    incomplete, reason, _, _ = writeback_looks_incomplete(reply_text=body, template_xlsx=src)
     assert incomplete is False
     assert reason == "ok"
 
@@ -315,10 +280,7 @@ def test_writeback_remaps_dannye_and_keeps_plan_labels(tmp_path: Path) -> None:
     wb.save(src)
     wb.close()
 
-    reply = (
-        "# Лист: Данные\n"
-        "@row=5\tЛОМАЙ ПОДПИСЬ\tновое значение\n"
-    )
+    reply = "# Лист: Данные\n@row=5\tЛОМАЙ ПОДПИСЬ\tновое значение\n"
     out = _writeback_project_xlsx_legacy_disabled(
         project_xlsx=src,
         reply_text=reply,
@@ -350,14 +312,7 @@ def test_apply_and_writeback(tmp_path: Path) -> None:
     wb.save(src)
     wb.close()
 
-    reply = (
-        "# Лист: план\n"
-        "@row=1\tname\tval\n"
-        "@row=2\tfoo\tbar\n"
-        "# Лист: Кадры\n"
-        "@row=1\tid\n"
-        "@row=2\t1\n"
-    )
+    reply = "# Лист: план\n@row=1\tname\tval\n@row=2\tfoo\tbar\n# Лист: Кадры\n@row=1\tid\n@row=2\t1\n"
     out = _writeback_project_xlsx_legacy_disabled(
         project_xlsx=src,
         reply_text=reply,
@@ -398,9 +353,7 @@ def test_apply_row_marks_preserve_sparse_plan_rows(tmp_path: Path) -> None:
     wb.close()
 
     blocks = extract_sheet_blocks(
-        "# Лист: план\n"
-        "@row=45\tпромт картинки\t\tnew prompt\n"
-        "@row=49\tзакадровый текст\t\tnew vo\n"
+        "# Лист: план\n@row=45\tпромт картинки\t\tnew prompt\n@row=49\tзакадровый текст\t\tnew vo\n"
     )
     apply_sheet_blocks_to_xlsx(src, blocks, dest)
     wb2 = load_workbook(dest)
@@ -663,6 +616,8 @@ def test_apply_creates_missing_sheet(tmp_path: Path) -> None:
     assert "Новый" in wb.sheetnames
     assert wb["Новый"]["B1"].value == "b"
     wb.close()
+
+
 def test_writeback_skips_html_named_xlsx_uses_tsv(tmp_path: Path) -> None:
     """HTML с расширением .xlsx не должен затирать книгу — берём TSV."""
     src = tmp_path / "project.xlsx"
@@ -681,9 +636,7 @@ def test_writeback_skips_html_named_xlsx_uses_tsv(tmp_path: Path) -> None:
     fake.write_bytes(b"<!DOCTYPE html><html><body>login</body></html>")
 
     reply = "# Лист: план\n@row=10\tфон\tFROM_TSV\n"
-    out = _writeback_project_xlsx_legacy_disabled(
-        project_xlsx=src, reply_text=reply, downloaded_paths=[fake]
-    )
+    out = _writeback_project_xlsx_legacy_disabled(project_xlsx=src, reply_text=reply, downloaded_paths=[fake])
     assert out == src
     wb2 = load_workbook(src, data_only=True)
     assert wb2["план"]["B10"].value == "FROM_TSV"

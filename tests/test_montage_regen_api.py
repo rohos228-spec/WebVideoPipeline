@@ -43,9 +43,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Project:
 
 
 @pytest.mark.asyncio
-async def test_resolve_image_prompt_prefers_active_version(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_resolve_image_prompt_prefers_active_version(session: AsyncSession, project: Project) -> None:
     session.add(project)
     fr = Frame(
         project_id=project.id,
@@ -95,19 +93,19 @@ async def test_edit_prompt_writes_db_without_excel(
     fr2 = await session.get(Frame, fr.id)
     assert fr2 is not None and fr2.image_prompt == "новый промт API"
     pvs = (
-        await session.execute(
-            select(PromptVersion).where(
-                PromptVersion.frame_id == fr.id, PromptVersion.kind == "img"
+        (
+            await session.execute(
+                select(PromptVersion).where(PromptVersion.frame_id == fr.id, PromptVersion.kind == "img")
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert any(p.is_active and p.text == "новый промт API" for p in pvs)
 
 
 @pytest.mark.asyncio
-async def test_execute_image_regen_api_skips_cdp(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_execute_image_regen_api_skips_cdp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     called: dict[str, object] = {}
 
     async def _fake_gen(outsee, gpt, **kwargs):
@@ -120,12 +118,8 @@ async def test_execute_image_regen_api_skips_cdp(
         res.file_path = out
         return res
 
-    monkeypatch.setattr(
-        "app.services.montage_board_regen._image_api_enabled", lambda: True
-    )
-    monkeypatch.setattr(
-        "app.services.montage_board_regen.generate_image_with_retries", _fake_gen
-    )
+    monkeypatch.setattr("app.services.montage_board_regen._image_api_enabled", lambda: True)
+    monkeypatch.setattr("app.services.montage_board_regen.generate_image_with_retries", _fake_gen)
     # Если кто-то снова импортирует browser_session — тест взорвётся.
     import sys
     import types
@@ -154,9 +148,7 @@ async def test_execute_image_regen_api_skips_cdp(
 
 
 @pytest.mark.asyncio
-async def test_execute_video_regen_api_skips_cdp(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_execute_video_regen_api_skips_cdp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     async def _fake_gen(outsee, gpt, **kwargs):
         out = Path(kwargs["out_path"])
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -165,12 +157,8 @@ async def test_execute_video_regen_api_skips_cdp(
         res.file_path = out
         return res
 
-    monkeypatch.setattr(
-        "app.services.montage_board_regen._video_api_enabled", lambda: True
-    )
-    monkeypatch.setattr(
-        "app.services.montage_board_regen.generate_video_with_retries", _fake_gen
-    )
+    monkeypatch.setattr("app.services.montage_board_regen._video_api_enabled", lambda: True)
+    monkeypatch.setattr("app.services.montage_board_regen.generate_video_with_retries", _fake_gen)
 
     start = tmp_path / "start.png"
     start.write_bytes(b"png")
@@ -187,9 +175,7 @@ async def test_execute_video_regen_api_skips_cdp(
 
 
 @pytest.mark.asyncio
-async def test_resolve_video_prompt_frame_over_empty_version(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_resolve_video_prompt_frame_over_empty_version(session: AsyncSession, project: Project) -> None:
     session.add(project)
     fr = Frame(
         project_id=project.id,

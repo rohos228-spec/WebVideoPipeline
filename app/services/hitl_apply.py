@@ -43,9 +43,7 @@ def _action_for_decision(decision: HITLDecision) -> str:
 _FRAME_VISUAL_KINDS = frozenset({HITLKind.approve_images, HITLKind.approve_videos})
 
 
-async def _pending_visual_hitl_count(
-    session: AsyncSession, project_id: int, kind: HITLKind
-) -> int:
+async def _pending_visual_hitl_count(session: AsyncSession, project_id: int, kind: HITLKind) -> int:
     return (
         await session.execute(
             select(func.count())
@@ -59,9 +57,7 @@ async def _pending_visual_hitl_count(
     ).scalar_one()
 
 
-async def _maybe_advance_visual_ready(
-    session: AsyncSession, project: Project, kind: HITLKind
-) -> None:
+async def _maybe_advance_visual_ready(session: AsyncSession, project: Project, kind: HITLKind) -> None:
     """Когда все per-frame HITL закрыты — перевести проект на следующий шаг."""
     if await _pending_visual_hitl_count(session, project.id, kind) > 0:
         return
@@ -135,9 +131,7 @@ async def apply_hitl_side_effects(
             await session.flush()
             return
         if action == "approve":
-            project.status = await _next_status_after_hero_approve(
-                session, project, req
-            )
+            project.status = await _next_status_after_hero_approve(session, project, req)
             await session.flush()
         return
 

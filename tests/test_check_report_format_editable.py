@@ -14,7 +14,6 @@ from app.services.gpt_operator import (
     assemble_check_agent_prompt,
     patch_operator_config,
     resolve_check_report_format,
-    resolve_operator,
     save_check_agent_file,
 )
 
@@ -76,7 +75,7 @@ def test_assemble_agent_uses_custom_format(tmp_path: Path, monkeypatch) -> None:
         p,
         "n_check",
         original_name="a.txt",
-        content="Ты проверяешь план. pass если есть хук.".encode("utf-8"),
+        content="Ты проверяешь план. pass если есть хук.".encode(),
     )
     patch_operator_config(
         p,

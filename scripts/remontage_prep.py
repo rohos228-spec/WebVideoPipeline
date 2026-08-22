@@ -3,6 +3,7 @@
 Usage:
   python scripts/remontage_prep.py 15
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,9 +23,7 @@ def _unlink_quiet(path: Path, *, label: str) -> bool:
         print(f"  deleted {label}: {path.name}")
         return True
     except PermissionError:
-        print(
-            f"  skip {label} (файл занят — закрой плеер/превью): {path.name}"
-        )
+        print(f"  skip {label} (файл занят — закрой плеер/превью): {path.name}")
         return False
     except OSError as exc:
         print(f"  skip {label} ({exc}): {path.name}")
@@ -65,9 +64,7 @@ async def main() -> None:
             await session.execute(
                 select(Artifact).where(
                     Artifact.project_id == args.project_id,
-                    Artifact.kind.in_(
-                        (ArtifactKind.final_video, ArtifactKind.subtitle)
-                    ),
+                    Artifact.kind.in_((ArtifactKind.final_video, ArtifactKind.subtitle)),
                 )
             )
         ).scalars():
@@ -89,20 +86,22 @@ async def main() -> None:
 
         voice = find_voice_full_on_disk(audio_dir)
         if voice is None:
-            raise SystemExit(
-                "Нет voice_full в audio/ (mp3/wav). Положи файл и запусти снова."
-            )
+            raise SystemExit("Нет voice_full в audio/ (mp3/wav). Положи файл и запусти снова.")
         print(f"  voice_full: {voice.name} ({voice.stat().st_size // 1024} KB)")
 
         voice_res = voice.resolve()
         audio_arts = (
-            await session.execute(
-                select(Artifact).where(
-                    Artifact.project_id == args.project_id,
-                    Artifact.kind == ArtifactKind.audio,
+            (
+                await session.execute(
+                    select(Artifact).where(
+                        Artifact.project_id == args.project_id,
+                        Artifact.kind == ArtifactKind.audio,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for a in audio_arts:
             p = Path(a.path) if a.path else None
             if p is None or not p.is_file() or p.resolve() != voice_res:

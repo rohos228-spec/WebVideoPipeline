@@ -77,9 +77,7 @@ async def ready_status_confirmed_by_data(
     # иначе recompute после разбивки откатывает в `new` и цепочка встаёт.
     if ready_status is ProjectStatus.frames_ready:
         fr_n = (
-            await session.execute(
-                select(func.count(Frame.id)).where(Frame.project_id == project.id)
-            )
+            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project.id))
         ).scalar_one()
         if int(fr_n or 0) >= 1:
             meta = project.meta if isinstance(project.meta, dict) else {}
@@ -90,9 +88,7 @@ async def ready_status_confirmed_by_data(
     # фича выключена — pass-through фазы не оставляет чекпоинтов).
     if ready_status is ProjectStatus.scene_agents_ready:
         fr_n = (
-            await session.execute(
-                select(func.count(Frame.id)).where(Frame.project_id == project.id)
-            )
+            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project.id))
         ).scalar_one()
         if int(fr_n or 0) < 1:
             return False
@@ -108,9 +104,7 @@ async def ready_status_confirmed_by_data(
     # фича выключена — pass-through ноды не оставляет флага).
     if ready_status is ProjectStatus.scene_design_ready:
         fr_n = (
-            await session.execute(
-                select(func.count(Frame.id)).where(Frame.project_id == project.id)
-            )
+            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project.id))
         ).scalar_one()
         if int(fr_n or 0) < 1:
             return False
@@ -139,9 +133,7 @@ async def ready_status_confirmed_by_data(
 
         if _enrich_meta_allowed_for_status(project):
             enrich_st = _enrich_ready_from_meta(project)
-            if enrich_st is not None and status_order(enrich_st) >= status_order(
-                ready_status
-            ):
+            if enrich_st is not None and status_order(enrich_st) >= status_order(ready_status):
                 return True
             if project.status is ready_status:
                 return True
@@ -169,9 +161,7 @@ async def ready_status_confirmed_by_data(
                     .limit(1)
                 )
             ).scalar_one_or_none()
-            audio_ok = bool(
-                art is not None and art.path and Path(art.path).is_file()
-            )
+            audio_ok = bool(art is not None and art.path and Path(art.path).is_file())
         if ready_status is ProjectStatus.audio_ready and audio_ok:
             return True
         if ready_status is ProjectStatus.music_ready and audio_ok:
@@ -251,27 +241,21 @@ async def can_enter_running(
         # Нельзя заходить в img из ранних статусов только из‑за leftover
         # image_prompt (старый прогон) — иначе auto_advance прыгает через
         # script/split/hero/... сразу в генерацию картинок.
-        if status_order(project.status) >= status_order(
-            ProjectStatus.image_prompts_ready
-        ):
+        if status_order(project.status) >= status_order(ProjectStatus.image_prompts_ready):
             return True, "", None
         # Soft resume: статус чуть отстаёт (ещё generating_image_prompts),
         # но промпты на кадрах уже есть.
-        if status_order(project.status) >= status_order(
-            ProjectStatus.generating_image_prompts
-        ):
+        if status_order(project.status) >= status_order(ProjectStatus.generating_image_prompts):
             frames = (
-                await session.execute(
-                    select(Frame)
-                    .where(Frame.project_id == project.id)
-                    .order_by(Frame.number)
+                (
+                    await session.execute(
+                        select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                    )
                 )
-            ).scalars().all()
-            with_prompt = sum(
-                1
-                for fr in frames
-                if (getattr(fr, "image_prompt", None) or "").strip()
+                .scalars()
+                .all()
             )
+            with_prompt = sum(1 for fr in frames if (getattr(fr, "image_prompt", None) or "").strip())
             if with_prompt > 0:
                 return True, "", None
         return (
@@ -312,12 +296,14 @@ async def can_enter_running(
             )
         # Видео требует animation prompts (R48/DB) — иначе sidecar/skip прыгает в video.
         frames = (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.number)
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         from app.services.animation_prompt_gpt import scan_missing_animation_prompts
 
         missing_anim = scan_missing_animation_prompts(project, list(frames))
@@ -381,9 +367,7 @@ async def can_enter_running(
     return True, "", None
 
 
-async def clamp_status_to_data(
-    session: AsyncSession, project: Project
-) -> ProjectStatus | None:
+async def clamp_status_to_data(session: AsyncSession, project: Project) -> ProjectStatus | None:
     """Если status «впереди» данных — откатить к compute_actual_status.
 
     Железо: никогда не сбрасывать frames_ready/script_ready → new при живых
@@ -403,9 +387,7 @@ async def clamp_status_to_data(
     old = project.status
     # Сначала проверяем: текущий ready уже подтверждён — не трогаем и не
     # чистим meta (иначе clear_stale сносит split_completed до проверки).
-    if old.value.endswith("_ready") and await ready_status_confirmed_by_data(
-        session, project, old
-    ):
+    if old.value.endswith("_ready") and await ready_status_confirmed_by_data(session, project, old):
         return None
 
     clear_stale_downstream_meta(project)
@@ -414,9 +396,7 @@ async def clamp_status_to_data(
     # Тот же BLOCKED, что в recompute_status: * → new при script/кадрах.
     if actual is ProjectStatus.new and old is not ProjectStatus.new:
         fr_n = (
-            await session.execute(
-                select(func.count(Frame.id)).where(Frame.project_id == project.id)
-            )
+            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project.id))
         ).scalar_one()
         has_script = bool((project.script_text or "").strip())
         if int(fr_n or 0) >= 1 or has_script:
@@ -432,9 +412,7 @@ async def clamp_status_to_data(
 
     if status_order(old) > status_order(actual):
         # Повторная страховка: confirmed ready не откатываем.
-        if old.value.endswith("_ready") and await ready_status_confirmed_by_data(
-            session, project, old
-        ):
+        if old.value.endswith("_ready") and await ready_status_confirmed_by_data(session, project, old):
             return None
         project.status = actual
         await session.flush()

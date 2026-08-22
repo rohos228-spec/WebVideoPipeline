@@ -1,8 +1,9 @@
-﻿"""Real SQLite DB tests verifying project status never rolls back when videos/images exist."""
+"""Real SQLite DB tests verifying project status never rolls back when videos/images exist."""
 
 from __future__ import annotations
 
 import uuid
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine

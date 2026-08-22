@@ -42,9 +42,7 @@ def test_snapshot_node_result_xlsx_unique_name(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_snapshot_and_bind_then_preview_by_node_key(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_snapshot_and_bind_then_preview_by_node_key(tmp_path: Path, monkeypatch) -> None:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app.models import Base, Project, ProjectStatus, Workflow
@@ -74,9 +72,7 @@ async def test_snapshot_and_bind_then_preview_by_node_key(
         await session.flush()
 
         # Снимок «как после enrich»
-        entry = await snapshot_and_bind_node_xlsx(
-            session, p, node_key="n_excel_gpt_1"
-        )
+        entry = await snapshot_and_bind_node_xlsx(session, p, node_key="n_excel_gpt_1")
         assert entry is not None
         assert entry["name"].endswith(".xlsx")
         assert "n_excel_gpt_1" in entry["name"]

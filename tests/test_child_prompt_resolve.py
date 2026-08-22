@@ -55,9 +55,7 @@ def test_inherited_slot_beats_global_default(tmp_path: Path, monkeypatch) -> Non
     assert (name, source) == ("parent_plan", "slot")
 
 
-def test_child_md_override_plus_global_default_still_uses_parent(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_child_md_override_plus_global_default_still_uses_parent(tmp_path: Path, monkeypatch) -> None:
     """Типичный баг: override сохранён как name.md, global=default."""
     prompts_root = tmp_path / "prompts"
     monkeypatch.setattr("app.services.prompt_library.PROMPTS_ROOT", prompts_root)
@@ -83,31 +81,29 @@ def test_excel_gpt_inherited_slots_beat_global_without_node_key() -> None:
             "n_excel_gpt_1": {"main": "custom_excel"},
         }
     }
-    with patch(
-        "app.services.prompt_library.excel_gpt_prompt_exists",
-        side_effect=lambda name: name in {"custom_excel", "default"},
-    ), patch(
-        "app.services.prompt_active_global.get_global_active",
-        return_value="default",
+    with (
+        patch(
+            "app.services.prompt_library.excel_gpt_prompt_exists",
+            side_effect=lambda name: name in {"custom_excel", "default"},
+        ),
+        patch(
+            "app.services.prompt_active_global.get_global_active",
+            return_value="default",
+        ),
     ):
-        name, source = resolve_project_prompt_with_source(
-            {}, "excel_gpt", meta=meta
-        )
+        name, source = resolve_project_prompt_with_source({}, "excel_gpt", meta=meta)
     assert (name, source) == ("custom_excel", "slot")
 
 
 @pytest.mark.asyncio
-async def test_create_child_resolves_parent_plan_prompt(
-    tmp_path, monkeypatch
-) -> None:
+async def test_create_child_resolves_parent_plan_prompt(tmp_path, monkeypatch) -> None:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+    from app import settings as app_settings
     from app.models import Base, Project, ProjectStatus, Workflow
     from app.services.project_child import create_child_from_parent
     from app.services.prompt_library import read_resolved_project_prompt
     from app.web.routers.projects import _slugify
-
-    from app import settings as app_settings
 
     prompts_root = tmp_path / "prompts"
     monkeypatch.setattr("app.services.prompt_library.PROMPTS_ROOT", prompts_root)

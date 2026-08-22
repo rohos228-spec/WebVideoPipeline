@@ -1,18 +1,16 @@
-﻿"""Unit tests verifying scene images and videos are backed up before any wipe."""
+"""Unit tests verifying scene images and videos are backed up before any wipe."""
 
 from __future__ import annotations
 
 import uuid
+
 import pytest
 import pytest_asyncio
-from pathlib import Path
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models import Artifact, ArtifactKind, Base, Frame, FrameStatus, Project, ProjectStatus
-from app.services.artifact_recovery import restore_scene_images_from_old
+from app.models import Artifact, ArtifactKind, Base, Frame, Project
 from app.services.reset_step import (
     _BACKUP_ON_WIPE_KINDS,
-    _backup_artifact_file_before_wipe,
     _wipe_artifacts_by_kind,
     _wipe_split,
 )

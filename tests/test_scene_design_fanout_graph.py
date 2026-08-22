@@ -42,9 +42,7 @@ def _fanout_graph() -> WorkflowGraph:
             }
         )
         edges.append({"id": f"e_s_{agent}", "source": "n_split", "target": nid})
-        edges.append(
-            {"id": f"e_{agent}_asm", "source": nid, "target": "n_excel_gpt_sd_asm"}
-        )
+        edges.append({"id": f"e_{agent}_asm", "source": nid, "target": "n_excel_gpt_sd_asm"})
     nodes.append(
         {
             "id": "n_excel_gpt_sd_asm",
@@ -53,9 +51,7 @@ def _fanout_graph() -> WorkflowGraph:
             "data": {"sd_agent": "assemble"},
         }
     )
-    edges.append(
-        {"id": "e_asm_x1", "source": "n_excel_gpt_sd_asm", "target": "n_excel_gpt_1"}
-    )
+    edges.append({"id": "e_asm_x1", "source": "n_excel_gpt_sd_asm", "target": "n_excel_gpt_1"})
     return WorkflowGraph(nodes, edges)
 
 

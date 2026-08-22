@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from loguru import logger
@@ -81,7 +81,7 @@ def load_r15_markers(project: Project, frame_numbers: list[int]) -> tuple[list[R
         project.id,
         ts_row,
         xlsx,
-        datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+        datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
         st.st_size,
     )
 
@@ -103,12 +103,8 @@ def load_r15_markers(project: Project, frame_numbers: list[int]) -> tuple[list[R
         if end <= start + 0.01:
             raise RuntimeError(f"кадр {num}: end<=start ({label!r})")
         if start < prev_end - 0.02:
-            raise RuntimeError(
-                f"кадр {num}: start {start:.3f}s < prev {prev_end:.3f}s — метки не по порядку"
-            )
-        markers.append(
-            R15Marker(frame_number=num, label=label.strip(), start_s=start, end_s=end)
-        )
+            raise RuntimeError(f"кадр {num}: start {start:.3f}s < prev {prev_end:.3f}s — метки не по порядку")
+        markers.append(R15Marker(frame_number=num, label=label.strip(), start_s=start, end_s=end))
         prev_end = end
 
     return markers, ts_row
@@ -125,8 +121,6 @@ def write_r15_proof(markers: list[R15Marker], path: Path, *, ts_row: int, voice_
         "frame\texcel\tstart_s\tend_s\tduration_s",
     ]
     for m in markers:
-        lines.append(
-            f"{m.frame_number}\t{m.label}\t{m.start_s:.3f}\t{m.end_s:.3f}\t{m.duration_s:.3f}"
-        )
+        lines.append(f"{m.frame_number}\t{m.label}\t{m.start_s:.3f}\t{m.end_s:.3f}\t{m.duration_s:.3f}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

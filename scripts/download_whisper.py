@@ -1,7 +1,7 @@
 """Скачать модель faster-whisper заранее (чтобы сборка не зависала на HF).
 
-  python scripts/download_whisper.py
-  python scripts/download_whisper.py large-v3
+python scripts/download_whisper.py
+python scripts/download_whisper.py large-v3
 """
 
 from __future__ import annotations

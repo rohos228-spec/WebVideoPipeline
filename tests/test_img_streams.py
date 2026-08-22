@@ -9,13 +9,13 @@ import pytest
 
 from app import settings as app_settings
 from app.models import Frame, FrameStatus, Project, ProjectStatus
+from app.orchestrator.steps import generate_images as gi
 from app.services.img_streams import (
     INFLIGHT_ATTR,
     clamp_img_streams,
     get_img_streams,
     set_img_streams_meta,
 )
-from app.orchestrator.steps import generate_images as gi
 
 
 def test_clamp_img_streams() -> None:
@@ -63,9 +63,7 @@ def test_get_img_streams_defaults_to_2_when_meta_and_env_unset(
     assert not (tmp_path / "runtime_streams.json").exists()
 
 
-def test_get_img_streams_keeps_existing_runtime_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_get_img_streams_keeps_existing_runtime_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Не перетирать runtime_streams.json, если default_outsee_streams уже задан."""
     monkeypatch.setattr(app_settings.settings, "data_dir", tmp_path)
     monkeypatch.setattr(app_settings.settings, "img_max_streams", None)
@@ -124,8 +122,6 @@ def test_claim_shot1_batch_marks_inflight(tmp_path: Path, monkeypatch: pytest.Mo
 
     # Этап 2 (D.3): claim маркер INFLIGHT_ATTR больше не пишет — захват
     # решает lease в _generate_frame_job (TTL/owner в БД).
-    batch = asyncio.run(
-        gi._claim_shot1_batch(_Sess(), 1, out, project=p, limit=2)
-    )
+    batch = asyncio.run(gi._claim_shot1_batch(_Sess(), 1, out, project=p, limit=2))
     assert len(batch) == 2
     assert all(not (f.attrs or {}).get(INFLIGHT_ATTR) for f in batch)

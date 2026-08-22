@@ -14,7 +14,7 @@ import hashlib
 import json
 import re
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -240,9 +240,7 @@ def _entry_for_file(
         "fromLabel": from_label,
         "savedAt": saved_at,
         "originalName": original_name or path.name,
-        "preview_url": (
-            f"/api/files?path={q}" if kind in ("image", "video", "text") else None
-        ),
+        "preview_url": (f"/api/files?path={q}" if kind in ("image", "video", "text") else None),
         "download_url": f"/api/files?path={q}&download=1",
     }
 
@@ -278,6 +276,7 @@ def list_stored_files(project: Project, node_key: str) -> list[dict[str, Any]]:
                 original_name=str(meta.get("originalName") or "") or None,
             )
         )
+
     # новые сверху по времени в имени / mtime
     def sort_key(f: dict[str, Any]) -> str:
         return str(f.get("savedAt") or f.get("name") or "")
@@ -401,17 +400,13 @@ def sync_from_edges(
     errors: list[str] = []
     seen_realpaths: set[str] = set()
     seen_fingerprints: set[str] = {
-        str(x.get("fingerprint") or "")
-        for x in index_files
-        if str(x.get("fingerprint") or "")
+        str(x.get("fingerprint") or "") for x in index_files if str(x.get("fingerprint") or "")
     }
 
     for src in _incoming_sources(project, node_key):
         label = _source_label(project, src)
         try:
-            paths = files_from_source_node(
-                project, src, use_snapshot=False, limit=limit_per_source
-            )
+            paths = files_from_source_node(project, src, use_snapshot=False, limit=limit_per_source)
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{src}: {exc}")
             continue
@@ -478,7 +473,7 @@ def sync_from_edges(
     index["files"] = index_files
     _save_index(project, node_key, index)
 
-    last_sync_at = datetime.now(timezone.utc).isoformat()
+    last_sync_at = datetime.now(UTC).isoformat()
     if touch_project_meta:
         meta = dict(project.meta or {})
         nodes = dict(meta.get("storage_nodes") or {})
@@ -503,9 +498,7 @@ def sync_from_edges(
     }
 
 
-def sync_downstream_storage_from_node(
-    project: Project, from_node_key: str
-) -> list[dict[str, Any]]:
+def sync_downstream_storage_from_node(project: Project, from_node_key: str) -> list[dict[str, Any]]:
     """После завершения ноды — подтянуть файлы во все storage со стрелки.
 
     Учитывает вердикт pass/fail: заблокированные ветки не синкаем.
@@ -576,9 +569,7 @@ def resolve_storage(
     do_sync = cfg.get("autoSync", True) if auto_sync is None else bool(auto_sync)
     sync_info: dict[str, Any] | None = None
     if do_sync and _incoming_sources(project, node_key):
-        sync_info = sync_from_edges(
-            project, node_key, touch_project_meta=touch_project_meta
-        )
+        sync_info = sync_from_edges(project, node_key, touch_project_meta=touch_project_meta)
         cfg = node_config(project, node_key)
     files = list_stored_files(project, node_key)
     incoming = _incoming_sources(project, node_key)
@@ -625,10 +616,7 @@ def build_storage_zip(project: Project, node_key: str) -> Path:
     files = [
         p
         for p in sorted(root.iterdir())
-        if p.is_file()
-        and p.name != INDEX_NAME
-        and not p.name.startswith("_export_")
-        and p.stat().st_size > 0
+        if p.is_file() and p.name != INDEX_NAME and not p.name.startswith("_export_") and p.stat().st_size > 0
     ]
     if not files:
         raise FileNotFoundError("хранилище пусто")

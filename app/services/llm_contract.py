@@ -38,9 +38,7 @@ class ReplyValidation:
 
 def looks_like_xlsx_tsv(text: str) -> bool:
     t = text or ""
-    return SHEET_HEADER_PREFIX.lower() in t.lower() or (
-        ROW_MARK_PREFIX in t and "\t" in t
-    )
+    return SHEET_HEADER_PREFIX.lower() in t.lower() or (ROW_MARK_PREFIX in t and "\t" in t)
 
 
 def looks_like_voiceover_block(text: str) -> bool:
@@ -50,9 +48,7 @@ def looks_like_voiceover_block(text: str) -> bool:
 
 def looks_like_check_txt(text: str) -> bool:
     t = (text or "").lstrip()
-    return t.startswith(CHECK_REPORT_HEADER) or (
-        "verdict:" in t.lower() and "## summary" in t.lower()
-    )
+    return t.startswith(CHECK_REPORT_HEADER) or ("verdict:" in t.lower() and "## summary" in t.lower())
 
 
 def looks_like_check_json(text: str) -> bool:

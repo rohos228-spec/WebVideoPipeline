@@ -81,9 +81,7 @@ def _wrap_async(
                 if hasattr(result, "file_path"):
                     result_info["file_path"] = str(result.file_path)
                 if hasattr(result, "raw_url"):
-                    result_info["raw_url"] = _truncate(
-                        getattr(result, "raw_url", None), 300
-                    )
+                    result_info["raw_url"] = _truncate(getattr(result, "raw_url", None), 300)
                 if isinstance(result, str):
                     result_info["reply_len"] = len(result)
             except Exception:
@@ -126,9 +124,7 @@ def _extract_chatgpt_params(self, prompt: str, *a, **kw) -> dict:
     }
 
 
-def _extract_outsee_generate_params(
-    self, prompt, out_path, *a, **kw
-) -> dict:
+def _extract_outsee_generate_params(self, prompt, out_path, *a, **kw) -> dict:
     return {
         "prompt_len": len(prompt) if isinstance(prompt, str) else 0,
         "prompt_preview": _truncate(prompt if isinstance(prompt, str) else "", 150),
@@ -153,9 +149,7 @@ def _extract_outsee_regen_params(self, out_path, *a, **kw) -> dict:
 def _extract_advance_params(session, project, bot, *a, **kw) -> dict:
     return {
         "project_id": getattr(project, "id", None),
-        "step": getattr(project, "status", None)
-        and project.status.value
-        or "",
+        "step": getattr(project, "status", None) and project.status.value or "",
         "topic": _truncate(getattr(project, "topic", ""), 80),
     }
 
@@ -277,11 +271,7 @@ def patch_all(watcher=None) -> None:
                 raise
             finally:
                 duration = time.monotonic() - t0
-                new_status = (
-                    getattr(project, "status", None)
-                    and project.status.value
-                    or ""
-                )
+                new_status = getattr(project, "status", None) and project.status.value or ""
                 detail = {
                     **params,
                     "duration_s": round(duration, 2),
@@ -317,7 +307,12 @@ def patch_all(watcher=None) -> None:
         @functools.wraps(original_hero_run)
         async def _tracked_hero_run(session, project, bot, *a, **kw):
             params = _extract_hero_params(session, project, bot)
-            emit_event("generate_hero_start", project_id=params.get("project_id"), step="generate_hero", detail=params)
+            emit_event(
+                "generate_hero_start",
+                project_id=params.get("project_id"),
+                step="generate_hero",
+                detail=params,
+            )
             if _watcher:
                 await _screenshot_if_available("hero_before")
             t0 = time.monotonic()
@@ -332,7 +327,12 @@ def patch_all(watcher=None) -> None:
                 detail = {**params, "duration_s": round(duration, 2)}
                 if error_info:
                     detail.update(error_info)
-                emit_event("generate_hero_end", project_id=params.get("project_id"), step="generate_hero", detail=detail)
+                emit_event(
+                    "generate_hero_end",
+                    project_id=params.get("project_id"),
+                    step="generate_hero",
+                    detail=detail,
+                )
                 if _watcher:
                     await _screenshot_if_available("hero_after")
 

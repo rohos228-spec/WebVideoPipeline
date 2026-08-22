@@ -11,25 +11,27 @@ from loguru import logger
 
 from app.bots.elevenlabs import ElevenLabsBot
 from app.models import Frame, Project
+from app.services.asr import active_asr_backend, transcribe_words, transcribe_words_many
 from app.services.elevenlabs_voices import resolve_elevenlabs_voice_id
 from app.services.mapper import map_frames
 from app.services.media_probe import probe_duration
 from app.services.voiceover_split_local import split_voiceover_locally
-from app.services.asr import active_asr_backend, transcribe_words, transcribe_words_many
 from app.services.whisper import WordTS
 
 FRAME_AUDIO_PREFIX = "frame_"
 
 _VOICE_EXTENSIONS = frozenset({".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"})
 
-_USER_VOICE_BASENAMES = frozenset({
-    "voice_full",
-    "voice",
-    "voiceover",
-    "ozvuchka",
-    # Кнопка панели монтажа раньше писала voice_montage.* — тоже принимаем.
-    "voice_montage",
-})
+_USER_VOICE_BASENAMES = frozenset(
+    {
+        "voice_full",
+        "voice",
+        "voiceover",
+        "ozvuchka",
+        # Кнопка панели монтажа раньше писала voice_montage.* — тоже принимаем.
+        "voice_montage",
+    }
+)
 
 
 def _is_user_voice_file(path: Path) -> bool:
@@ -95,6 +97,7 @@ def find_voice_full_on_disk(data_dir: Path, *, meta: dict | None = None) -> Path
     chosen = max(unique, key=lambda p: p.stat().st_mtime)
     return chosen
 
+
 @dataclass
 class FrameAudioClip:
     frame_number: int
@@ -154,13 +157,21 @@ async def concat_mp3_files(paths: list[Path], out_path: Path) -> Path:
         "\n".join(f"file '{p.resolve().as_posix()}'" for p in paths),
         encoding="utf-8",
     )
-    await _run_ffmpeg([
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0",
-        "-i", str(list_file),
-        "-c", "copy",
-        str(out_path),
-    ])
+    await _run_ffmpeg(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_file),
+            "-c",
+            "copy",
+            str(out_path),
+        ]
+    )
     list_file.unlink(missing_ok=True)
     return out_path
 
@@ -175,9 +186,7 @@ async def load_frame_clips_from_disk(
     for frame_number in frame_numbers:
         path = frame_audio_path(audio_dir, frame_number)
         if not path.is_file():
-            raise FileNotFoundError(
-                f"нет {path.name} — перезапустите шаг «Аудио» (per-frame TTS)"
-            )
+            raise FileNotFoundError(f"нет {path.name} — перезапустите шаг «Аудио» (per-frame TTS)")
         duration = await probe_duration(path)
         clip = FrameAudioClip(
             frame_number=frame_number,
@@ -210,14 +219,16 @@ def _rescale_clips_to_master(clips: list[FrameAudioClip], master: float) -> list
     out: list[FrameAudioClip] = []
     for clip in clips:
         dur = round(clip.duration * factor, 3)
-        out.append(FrameAudioClip(
-            frame_number=clip.frame_number,
-            path=clip.path,
-            text=clip.text,
-            start_ts=round(pos, 3),
-            end_ts=round(pos + dur, 3),
-            duration=dur,
-        ))
+        out.append(
+            FrameAudioClip(
+                frame_number=clip.frame_number,
+                path=clip.path,
+                text=clip.text,
+                start_ts=round(pos, 3),
+                end_ts=round(pos + dur, 3),
+                duration=dur,
+            )
+        )
         pos += dur
     out[-1].end_ts = round(master, 3)
     out[-1].duration = round(out[-1].end_ts - out[-1].start_ts, 3)
@@ -300,9 +311,7 @@ async def build_assembly_timeline(
     master = await probe_duration(voice_full_path)
 
     if per_frame_tts and not has_all_frame_audio(audio_dir, frame_numbers):
-        logger.warning(
-            "per_frame в meta, но frame_*.mp3 нет — таймлайн по voice_full + Whisper"
-        )
+        logger.warning("per_frame в meta, но frame_*.mp3 нет — таймлайн по voice_full + Whisper")
         per_frame_tts = False
 
     if per_frame_tts and has_all_frame_audio(audio_dir, frame_numbers):
@@ -401,9 +410,7 @@ def _voiceover_cells_for_frames(
             return out
         blocks = split_voiceover_locally(full)
         if len(blocks) < len(frames):
-            raise RuntimeError(
-                f"voiceover: {len(blocks)} блоков после split, нужно {len(frames)} кадров"
-            )
+            raise RuntimeError(f"voiceover: {len(blocks)} блоков после split, нужно {len(frames)} кадров")
         return [(fr.number, blocks[i]) for i, fr in enumerate(frames)]
 
     empty_n = sum(1 for _, t in out if not t)
@@ -412,8 +419,7 @@ def _voiceover_cells_for_frames(
         blocks = split_voiceover_locally(full)
         if len(blocks) >= len(frames):
             logger.warning(
-                "[#{}] voiceover_cells: R49 частично пуст ({}/{} кадров) — "
-                "тайминги из voiceover.txt",
+                "[#{}] voiceover_cells: R49 частично пуст ({}/{} кадров) — тайминги из voiceover.txt",
                 project.id,
                 empty_n,
                 len(frames),
@@ -437,14 +443,16 @@ def frame_clips_equal_duration(
     pos = 0.0
     for i, fr in enumerate(frames):
         end = master if i == n - 1 else pos + step
-        clips.append(FrameAudioClip(
-            frame_number=fr.number,
-            path=voice_full_path,
-            text="",
-            start_ts=round(pos, 3),
-            end_ts=round(end, 3),
-            duration=round(end - pos, 3),
-        ))
+        clips.append(
+            FrameAudioClip(
+                frame_number=fr.number,
+                path=voice_full_path,
+                text="",
+                start_ts=round(pos, 3),
+                end_ts=round(end, 3),
+                duration=round(end - pos, 3),
+            )
+        )
         pos = end
     return clips
 
@@ -458,10 +466,14 @@ async def _extract_mp3_segment(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     dur = max(0.05, end_ts - start_ts)
     cmd = [
-        "ffmpeg", "-y",
-        "-ss", f"{start_ts:.3f}",
-        "-t", f"{dur:.3f}",
-        "-i", str(src),
+        "ffmpeg",
+        "-y",
+        "-ss",
+        f"{start_ts:.3f}",
+        "-t",
+        f"{dur:.3f}",
+        "-i",
+        str(src),
     ]
     # wav/m4a → mp3: stream copy невозможен, нужен encode.
     if src.suffix.lower() == ".mp3" and out_path.suffix.lower() == ".mp3":
@@ -470,6 +482,7 @@ async def _extract_mp3_segment(
         cmd.extend(["-vn", "-c:a", "libmp3lame", "-q:a", "2"])
     cmd.append(str(out_path))
     await _run_ffmpeg(cmd)
+
 
 async def synthesize_per_frame_audio(
     el: ElevenLabsBot,
@@ -489,9 +502,7 @@ async def synthesize_per_frame_audio(
 
     full_text = resolve_full_voiceover_text(project)
     if len(full_text) < 50:
-        raise RuntimeError(
-            "нет voiceover.txt / script_text — сначала шаг «Закадровый текст»"
-        )
+        raise RuntimeError("нет voiceover.txt / script_text — сначала шаг «Закадровый текст»")
 
     cells = _voiceover_cells_for_frames(project, frames, cells)
     if not any(t for _, t in cells):
@@ -601,8 +612,7 @@ async def align_existing_voice_full(
         clips = frame_clips_from_whisper(aligned_cells, words, master, voice_path)
     else:
         logger.warning(
-            "[#{}] align_existing_voice_full: нет текста R49/voiceover — "
-            "таймкоды кадров поровну по {:.2f}s",
+            "[#{}] align_existing_voice_full: нет текста R49/voiceover — таймкоды кадров поровну по {:.2f}s",
             project.id,
             master,
         )
@@ -650,10 +660,12 @@ def whisper_words_from_clips(
         chunk = chunks[chunk_idx]
         chunk_idx += 1
         for w in chunk:
-            words.append(WordTS(
-                word=w.word,
-                start=round(w.start + clip.start_ts, 3),
-                end=round(w.end + clip.start_ts, 3),
-                prob=w.prob,
-            ))
+            words.append(
+                WordTS(
+                    word=w.word,
+                    start=round(w.start + clip.start_ts, 3),
+                    end=round(w.end + clip.start_ts, 3),
+                    prob=w.prob,
+                )
+            )
     return words

@@ -25,14 +25,13 @@ class WordTS:
 def whisper_available() -> bool:
     try:
         import faster_whisper  # noqa: F401
+
         return True
     except ImportError:
         return False
 
 
-_WHISPER_INSTALL_HINT = (
-    'pip install -e ".[whisper]"   # или: pip install "faster-whisper>=1.0"'
-)
+_WHISPER_INSTALL_HINT = 'pip install -e ".[whisper]"   # или: pip install "faster-whisper>=1.0"'
 
 
 def _resolve_whisper_runtime(
@@ -52,9 +51,7 @@ def _resolve_whisper_runtime(
             return dev, ctype
     except ImportError:
         pass
-    logger.warning(
-        "whisper: CUDA недоступна — fallback device=cpu compute_type=int8"
-    )
+    logger.warning("whisper: CUDA недоступна — fallback device=cpu compute_type=int8")
     return "cpu", "int8"
 
 
@@ -119,12 +116,14 @@ def transcribe_words_whisper(
     for seg in segments:
         seg_count += 1
         for w in seg.words or []:
-            words.append(WordTS(
-                word=w.word.strip(),
-                start=float(w.start),
-                end=float(w.end),
-                prob=float(getattr(w, "probability", 0.0)),
-            ))
+            words.append(
+                WordTS(
+                    word=w.word.strip(),
+                    start=float(w.start),
+                    end=float(w.end),
+                    prob=float(getattr(w, "probability", 0.0)),
+                )
+            )
         now = time.monotonic()
         if now - last_log >= 15.0:
             logger.info(
@@ -168,12 +167,14 @@ def transcribe_words_many_whisper(
         words: list[WordTS] = []
         for seg in segments:
             for w in seg.words or []:
-                words.append(WordTS(
-                    word=w.word.strip(),
-                    start=float(w.start),
-                    end=float(w.end),
-                    prob=float(getattr(w, "probability", 0.0)),
-                ))
+                words.append(
+                    WordTS(
+                        word=w.word.strip(),
+                        start=float(w.start),
+                        end=float(w.end),
+                        prob=float(getattr(w, "probability", 0.0)),
+                    )
+                )
         out.append(words)
     return out
 

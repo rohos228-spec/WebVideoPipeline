@@ -40,9 +40,7 @@ def bump() -> str:
             if line.startswith("CHATGPT_ATTACH_LOGIC_ID"):
                 attach = line.split("=", 1)[1].strip().strip('"').strip("'")
                 break
-        xsr = (ROOT / "app" / "services" / "xlsx_step_runners.py").read_text(
-            encoding="utf-8"
-        )
+        xsr = (ROOT / "app" / "services" / "xlsx_step_runners.py").read_text(encoding="utf-8")
         for line in xsr.splitlines():
             if line.startswith("XLSX_STEP_RUNNERS_ID"):
                 orchestrator = line.split("=", 1)[1].strip().strip('"').strip("'")
@@ -65,8 +63,7 @@ def _npm_cmd() -> list[str]:
         if found:
             return [found]
     raise SystemExit(
-        "npm not found on PATH (need Node.js). "
-        "Install Node or run: web> npm install && npm run build"
+        "npm not found on PATH (need Node.js). Install Node or run: web> npm install && npm run build"
     )
 
 

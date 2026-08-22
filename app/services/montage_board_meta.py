@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 MONTAGE_META_KEY = "montage_board"
@@ -94,9 +94,7 @@ def add_failed_highlight(board: dict[str, Any], key: str) -> None:
 
 
 def clear_failed_highlight(board: dict[str, Any], key: str) -> None:
-    board["failed_highlights"] = [
-        x for x in (board.get("failed_highlights") or []) if x != key
-    ]
+    board["failed_highlights"] = [x for x in (board.get("failed_highlights") or []) if x != key]
 
 
 def clear_failed_highlights(board: dict[str, Any]) -> None:
@@ -174,4 +172,4 @@ def should_accept_queue_save(
 
 
 def touch_applied(board: dict[str, Any]) -> None:
-    board["applied_at"] = datetime.now(timezone.utc).isoformat()
+    board["applied_at"] = datetime.now(UTC).isoformat()

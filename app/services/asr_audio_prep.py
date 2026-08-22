@@ -27,9 +27,7 @@ async def probe_audio_channels(path: Path) -> int:
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"ffprobe channels failed for {path}: {stderr.decode(errors='ignore')}"
-        )
+        raise RuntimeError(f"ffprobe channels failed for {path}: {stderr.decode(errors='ignore')}")
     parts = stdout.decode().strip().split(",")
     if not parts or not parts[0].isdigit():
         return 1
@@ -49,11 +47,7 @@ async def prepare_audio_for_asr(src: Path) -> Path:
         logger.warning("audio_prep: ffprobe {} — конвертируем вслепую: {}", src.name, exc)
         channels = 2
 
-    if (
-        cache.is_file()
-        and cache.stat().st_size > 1000
-        and cache.stat().st_mtime >= src.stat().st_mtime
-    ):
+    if cache.is_file() and cache.stat().st_size > 1000 and cache.stat().st_mtime >= src.stat().st_mtime:
         return cache
 
     if channels == 1 and src.suffix.lower() == ".wav":
@@ -103,7 +97,6 @@ async def prepare_audio_for_asr(src: Path) -> Path:
     _, stderr = await proc.communicate()
     if proc.returncode != 0 or not cache.is_file():
         raise RuntimeError(
-            f"ffmpeg mono convert failed for {src.name}: "
-            f"{stderr.decode(errors='ignore')[:800]}"
+            f"ffmpeg mono convert failed for {src.name}: {stderr.decode(errors='ignore')[:800]}"
         )
     return cache

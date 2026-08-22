@@ -17,9 +17,7 @@ def test_extract_voiceover_markers() -> None:
         "<<<END>>>\n"
         "ИТОГО: 50 символов."
     )
-    assert extract_voiceover_block(raw) == (
-        "Третьего января 1889 года Ницше пережил коллапс."
-    )
+    assert extract_voiceover_block(raw) == ("Третьего января 1889 года Ницше пережил коллапс.")
     out = sanitize_voiceover_text(raw)
     assert out == "Третьего января 1889 года Ницше пережил коллапс."
     assert "ИТОГО" not in out
@@ -80,10 +78,7 @@ def test_sanitize_keeps_clean_voiceover() -> None:
 
 
 def test_sanitize_strips_only_itogo_footer() -> None:
-    text = (
-        "Третьего января 1889 года Ницше пережил психический коллапс.\n\n"
-        "ИТОГО: 120 символов."
-    )
+    text = "Третьего января 1889 года Ницше пережил психический коллапс.\n\nИТОГО: 120 символов."
     out = sanitize_voiceover_text(text)
     assert out.endswith("коллапс.")
     assert "ИТОГО" not in out
@@ -92,13 +87,6 @@ def test_sanitize_strips_only_itogo_footer() -> None:
 def test_looks_like_xlsx_tsv_writeback() -> None:
     from app.services.voiceover_sanitize import looks_like_xlsx_tsv_writeback
 
-    tsv = (
-        "# Лист: Общий план\n"
-        "@row=1\tТема\tТекст\n"
-        "# Лист: План\n"
-        "@row=49\tзакадровый текст\tраз\tдва\n"
-    )
+    tsv = "# Лист: Общий план\n@row=1\tТема\tТекст\n# Лист: План\n@row=49\tзакадровый текст\tраз\tдва\n"
     assert looks_like_xlsx_tsv_writeback(tsv)
-    assert not looks_like_xlsx_tsv_writeback(
-        "Третьего января 1889 года Ницше пережил психический коллапс."
-    )
+    assert not looks_like_xlsx_tsv_writeback("Третьего января 1889 года Ницше пережил психический коллапс.")

@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,7 +78,7 @@ def main() -> int:
         copied.append(dst_rel)
 
     head = _git_head()
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     manifest_lines = [
         "ai-pack build",
         f"git_head: {head}",
@@ -90,9 +90,7 @@ def main() -> int:
     ]
     if missing:
         manifest_lines.extend(["", "missing:", *[f"  {p}" for p in missing]])
-    (PACK / "MANIFEST.txt").write_text(
-        "\n".join(manifest_lines) + "\n", encoding="utf-8", newline="\n"
-    )
+    (PACK / "MANIFEST.txt").write_text("\n".join(manifest_lines) + "\n", encoding="utf-8", newline="\n")
 
     print(f"ai-pack OK -> {PACK}")
     print(f"  git HEAD: {head}")

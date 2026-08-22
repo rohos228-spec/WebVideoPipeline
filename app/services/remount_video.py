@@ -27,15 +27,17 @@ from app.services.step_cancel import raise_if_cancelled
 async def _delete_audio_artifacts(session: AsyncSession, project: Project) -> int:
     """Снять audio/whisper из БД — файлы voice_full на диске не удаляем."""
     arts = (
-        await session.execute(
-            select(Artifact).where(
-                Artifact.project_id == project.id,
-                Artifact.kind.in_(
-                    (ArtifactKind.audio, ArtifactKind.whisper_words)
-                ),
+        (
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.kind.in_((ArtifactKind.audio, ArtifactKind.whisper_words)),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for art in arts:
         await session.delete(art)
     return len(arts)
@@ -63,16 +65,17 @@ async def remount_video(
         summary["disk_bootstrap"] = boot
 
     frames_before = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number.asc())
+        (
+            await session.execute(
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.number.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not frames_before:
         summary["error"] = (
-            "нет кадров в БД — положите clip_*/frame_* в videos/scenes "
-            "или project.xlsx и повторите"
+            "нет кадров в БД — положите clip_*/frame_* в videos/scenes или project.xlsx и повторите"
         )
         return summary
 
@@ -112,9 +115,7 @@ async def remount_video(
         if audio_art and audio_art.path and Path(audio_art.path).is_file():
             voice_path = Path(audio_art.path)
     if voice_path is None or not voice_path.is_file():
-        summary["error"] = (
-            "нет готовой озвучки (audio/voice*.mp3) — положите файл или пройдите шаг «Аудио»"
-        )
+        summary["error"] = "нет готовой озвучки (audio/voice*.mp3) — положите файл или пройдите шаг «Аудио»"
         return summary
     summary["voice_file"] = str(voice_path)
 
@@ -140,9 +141,7 @@ async def remount_video(
     raise_if_cancelled(project.id)
 
     if project.status is not ProjectStatus.audio_ready:
-        summary["error"] = (
-            f"выравнивание озвучки не завершилось: status={project.status.value}"
-        )
+        summary["error"] = f"выравнивание озвучки не завершилось: status={project.status.value}"
         return summary
 
     if not run_assemble:

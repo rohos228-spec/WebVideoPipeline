@@ -33,12 +33,8 @@ def _base_hash(**overrides):
 
 
 def test_dict_key_order_does_not_matter():
-    a = compute_input_hash(
-        unit_input={"x": 1, "y": 2}, fingerprint="f", params={"a": 1, "b": 2}
-    )
-    b = compute_input_hash(
-        unit_input={"y": 2, "x": 1}, fingerprint="f", params={"b": 2, "a": 1}
-    )
+    a = compute_input_hash(unit_input={"x": 1, "y": 2}, fingerprint="f", params={"a": 1, "b": 2})
+    b = compute_input_hash(unit_input={"y": 2, "x": 1}, fingerprint="f", params={"b": 2, "a": 1})
     assert a == b
 
 
@@ -98,9 +94,7 @@ def test_prompt_hash_sensitive_to_text_and_hints():
 
 def test_prompt_hint_boundary_not_concatenation():
     # ("ab", ["c"]) и ("a", ["bc"]) не должны совпасть.
-    assert prompt_version_hash("ab", hints=["c"]) != prompt_version_hash(
-        "a", hints=["bc"]
-    )
+    assert prompt_version_hash("ab", hints=["c"]) != prompt_version_hash("a", hints=["bc"])
 
 
 # ── отпечатки ─────────────────────────────────────────────────────────────

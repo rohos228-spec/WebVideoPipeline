@@ -18,12 +18,8 @@ from app.services.excel_characters import (
 
 
 def test_detect_character_registry_prompt() -> None:
-    assert _is_character_registry_prompt(
-        "агент по созданию персонажей 02.08.txt.md", None
-    )
-    assert _is_character_registry_prompt(
-        None, "Агент: character_registry_database_agent_v3_web_verified\n"
-    )
+    assert _is_character_registry_prompt("агент по созданию персонажей 02.08.txt.md", None)
+    assert _is_character_registry_prompt(None, "Агент: character_registry_database_agent_v3_web_verified\n")
     assert not _is_character_registry_prompt("scene_grammar_unified_agent_v1", None)
     assert _is_scene_grammar_prompt("scene_grammar_unified_agent_v1", None)
 
@@ -66,9 +62,7 @@ def test_characters_from_entities_and_gpt_cards() -> None:
 
 
 @pytest.mark.asyncio
-async def test_hero_loads_from_entity_not_xlsx(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_hero_loads_from_entity_not_xlsx(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from unittest.mock import AsyncMock
 
     from app.models import Project, ProjectStatus
@@ -105,9 +99,7 @@ async def test_hero_loads_from_entity_not_xlsx(
 
 
 @pytest.mark.asyncio
-async def test_hero_falls_back_to_xlsx_when_entity_empty(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_hero_falls_back_to_xlsx_when_entity_empty(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from unittest.mock import AsyncMock
 
     from app.models import Project, ProjectStatus

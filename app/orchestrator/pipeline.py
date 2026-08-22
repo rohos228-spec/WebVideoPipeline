@@ -125,18 +125,13 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
         )
         from app.services import work_lease as _wl
 
-        _step_code = NODE_TYPE_TO_STEP_CODE.get(
-            RUNNING_TO_NODE_TYPE.get(status, ""), ""
-        )
+        _step_code = NODE_TYPE_TO_STEP_CODE.get(RUNNING_TO_NODE_TYPE.get(status, ""), "")
         if _step_code:
             _lease_key = f"step:{_step_code}"
             _lease_me = _wl.current_owner()
-            if not await _wl.acquire(
-                project.id, _lease_key, owner=_lease_me, ttl_s=3600
-            ):
+            if not await _wl.acquire(project.id, _lease_key, owner=_lease_me, ttl_s=3600):
                 logger.info(
-                    "[#{}] advance: {} занят живым step-lease (другой "
-                    "процесс) — пропуск такта",
+                    "[#{}] advance: {} занят живым step-lease (другой процесс) — пропуск такта",
                     project.id,
                     status.value,
                 )
@@ -146,9 +141,7 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
             async def _renew_loop() -> None:
                 while True:
                     await asyncio.sleep(600)
-                    if not await _wl.renew(
-                        project.id, _lease_key, owner=_lease_me, ttl_s=3600
-                    ):
+                    if not await _wl.renew(project.id, _lease_key, owner=_lease_me, ttl_s=3600):
                         logger.warning(
                             "[#{}] advance: step-lease {} потерян",
                             project.id,
@@ -162,9 +155,7 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
         try:
             from app.orchestrator.auto_advance import _prepare_node_run_for_status
 
-            await _prepare_node_run_for_status(
-                session, project, status, allow_restart=True
-            )
+            await _prepare_node_run_for_status(session, project, status, allow_restart=True)
         except Exception:  # noqa: BLE001
             logger.debug(
                 "advance #{}: prepare NodeRun for {} failed",
@@ -244,9 +235,7 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
             try:
                 from app.services import work_lease as _wl_fin
 
-                await _wl_fin.release(
-                    project.id, _step_lease[0], owner=_step_lease[1]
-                )
+                await _wl_fin.release(project.id, _step_lease[0], owner=_step_lease[1])
             except Exception:  # noqa: BLE001
                 pass
         if _step_lock_cm is not None:

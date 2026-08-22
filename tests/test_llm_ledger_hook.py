@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from contextlib import asynccontextmanager
 
 import httpx
@@ -12,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models import Base, LlmCall
-from app.services import gpt_api, llm_ledger as ledger
+from app.services import gpt_api
+from app.services import llm_ledger as ledger
 from app.services.llm_override import LlmAccountingContext, use_accounting
 from app.settings import settings
 
@@ -41,9 +41,7 @@ async def ledger_db(tmp_path, monkeypatch):
 
 async def _rows(factory) -> list[LlmCall]:
     async with factory() as s:
-        return list(
-            (await s.execute(select(LlmCall).order_by(LlmCall.id))).scalars()
-        )
+        return list((await s.execute(select(LlmCall).order_by(LlmCall.id))).scalars())
 
 
 def _enable_kie_chat(monkeypatch, *, retries: int = 0) -> None:
@@ -80,9 +78,7 @@ def _ok_payload(text: str = "ответ модели достаточной дл
     return {
         "id": "chatcmpl-1",
         "model": "gpt-5.6-sol",
-        "choices": [
-            {"message": {"content": text}, "finish_reason": "stop"}
-        ],
+        "choices": [{"message": {"content": text}, "finish_reason": "stop"}],
         "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
     }
 
@@ -95,9 +91,7 @@ async def test_success_writes_one_row(ledger_db, monkeypatch):
         return httpx.Response(200, json=_ok_payload())
 
     _mock_httpx(monkeypatch, handler)
-    result = await gpt_api.chat(
-        prompt="q", model="gpt-5.6-sol", auto_pack=False, volume_complete=False
-    )
+    result = await gpt_api.chat(prompt="q", model="gpt-5.6-sol", auto_pack=False, volume_complete=False)
     assert result.text
     rows = await _rows(ledger_db)
     assert len(rows) == 1
@@ -124,9 +118,7 @@ async def test_retries_are_separate_rows_same_logical_id(ledger_db, monkeypatch)
         return httpx.Response(200, json=_ok_payload())
 
     _mock_httpx(monkeypatch, handler)
-    await gpt_api.chat(
-        prompt="q", model="gpt-5.6-sol", auto_pack=False, volume_complete=False
-    )
+    await gpt_api.chat(prompt="q", model="gpt-5.6-sol", auto_pack=False, volume_complete=False)
     rows = await _rows(ledger_db)
     assert [r.result for r in rows] == ["error", "error", "ok"]
     assert rows[0].error_kind == "http_500" and rows[0].unbilled
@@ -175,9 +167,7 @@ async def test_failed_call_recorded_with_error_kind(ledger_db, monkeypatch):
 
     _mock_httpx(monkeypatch, handler)
     with pytest.raises(gpt_api.GptApiError):
-        await gpt_api.chat(
-            prompt="q", auto_pack=False, volume_complete=False
-        )
+        await gpt_api.chat(prompt="q", auto_pack=False, volume_complete=False)
     rows = await _rows(ledger_db)
     assert len(rows) == 1
     assert rows[0].result == "error" and rows[0].error_kind == "timeout"
@@ -214,9 +204,7 @@ async def test_vibecode_stream_path_records(ledger_db, monkeypatch):
     )
 
     def handler(request):
-        return httpx.Response(
-            200, content=sse.encode(), headers={"content-type": "text/event-stream"}
-        )
+        return httpx.Response(200, content=sse.encode(), headers={"content-type": "text/event-stream"})
 
     _mock_httpx(monkeypatch, handler)
     await gpt_api.chat(prompt="q", auto_pack=False, volume_complete=False)

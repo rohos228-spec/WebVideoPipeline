@@ -81,13 +81,9 @@ def classify_video_error(exc: BaseException) -> ClassifiedVideoError:  # noqa: C
     if code_num == 402 or "insufficient credit" in low or "недостаточно кредит" in low:
         return ClassifiedVideoError("media_credits", VideoErrorAction.STOP_AUTH, msg)
 
-    if name == "OutseeDownloadError" or (
-        ("download" in low or "скач" in low) and "content" not in low
-    ):
+    if name == "OutseeDownloadError" or (("download" in low or "скач" in low) and "content" not in low):
         if ctx_d.get("video_url") or ctx_d.get("raw_url"):
-            return ClassifiedVideoError(
-                "media_download", VideoErrorAction.DOWNLOAD_RETRY, msg
-            )
+            return ClassifiedVideoError("media_download", VideoErrorAction.DOWNLOAD_RETRY, msg)
         return ClassifiedVideoError("media_download", VideoErrorAction.RETRY_BURN, msg)
 
     # Concurrency / rate
@@ -132,20 +128,13 @@ def classify_video_error(exc: BaseException) -> ClassifiedVideoError:  # noqa: C
     if any(m in low for m in _frame_markers) and any(m in low for m in _policy_markers):
         # Аудио-policy тоже содержит content_policy — не путать
         if not any(m in low for m in ("аудио", "audio", "sound", "голос", "дорожк")):
-            return ClassifiedVideoError(
-                "media_start_frame_policy", VideoErrorAction.SOFTEN_FRAME, msg
-            )
+            return ClassifiedVideoError("media_start_frame_policy", VideoErrorAction.SOFTEN_FRAME, msg)
 
     # Audio CONTENT_POLICY
     if ("audio" in low or "sound" in low or "голос" in low) and (
-        "content_policy" in low
-        or "content policy" in low
-        or "moderation" in low
-        or "отклон" in low
+        "content_policy" in low or "content policy" in low or "moderation" in low or "отклон" in low
     ):
-        return ClassifiedVideoError(
-            "media_audio_policy", VideoErrorAction.SILENT_AUDIO, msg
-        )
+        return ClassifiedVideoError("media_audio_policy", VideoErrorAction.SILENT_AUDIO, msg)
 
     # Moderation / content policy on prompt
     if (
@@ -158,29 +147,20 @@ def classify_video_error(exc: BaseException) -> ClassifiedVideoError:  # noqa: C
         or "violation" in low
         or "safety" in low
     ):
-        return ClassifiedVideoError(
-            "media_moderation", VideoErrorAction.RETRY_REWRITE, msg
-        )
+        return ClassifiedVideoError("media_moderation", VideoErrorAction.RETRY_REWRITE, msg)
 
     # Prompt length
     if (
         name in ("OutseePromptTooLongError",)
         or "too long" in low
         or "prompt length" in low
-        or (
-            "символ" in low
-            and ("лимит" in low or "max" in low or "4096" in low or "1000" in low)
-        )
+        or ("символ" in low and ("лимит" in low or "max" in low or "4096" in low or "1000" in low))
     ):
-        return ClassifiedVideoError(
-            "media_prompt_length", VideoErrorAction.RETRY_REWRITE, msg
-        )
+        return ClassifiedVideoError("media_prompt_length", VideoErrorAction.RETRY_REWRITE, msg)
 
     # Validation (kie 422) — один раз пытаемся поправить через rewrite/truncate
     if code_num == 422 or "validation" in low:
-        return ClassifiedVideoError(
-            "media_validation", VideoErrorAction.RETRY_REWRITE, msg
-        )
+        return ClassifiedVideoError("media_validation", VideoErrorAction.RETRY_REWRITE, msg)
 
     # Transient network / maintenance — не сжигать (ограничено streak в retry-слое)
     if code_num in (455, 502, 503) or any(
@@ -197,9 +177,7 @@ def classify_video_error(exc: BaseException) -> ClassifiedVideoError:  # noqa: C
             "name or service not known",
         )
     ):
-        return ClassifiedVideoError(
-            "media_transient", VideoErrorAction.RETRY_SAME, msg
-        )
+        return ClassifiedVideoError("media_transient", VideoErrorAction.RETRY_SAME, msg)
 
     # Generation timeout / fail / empty — сжигают попытку лестницы
     if code_num in (500, 501, 504) or any(

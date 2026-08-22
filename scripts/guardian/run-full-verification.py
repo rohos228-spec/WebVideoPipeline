@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Полная API-верификация Studio (часть FULL-VERIFICATION.md)."""
+
 from __future__ import annotations
 
 import argparse
@@ -9,7 +10,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 BASE = "http://127.0.0.1:8765"
@@ -46,7 +47,7 @@ class Row:
 
 @dataclass
 class Report:
-    started: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    started: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     rows: list[Row] = field(default_factory=list)
     qa_smoke_id: int | None = None
     qa_full_id: int | None = None
@@ -147,9 +148,7 @@ def main() -> int:
 
     code, cat = http("GET", "/api/projects/steps/catalog")
     ok_cat = (
-        code == 200
-        and isinstance(cat, list)
-        and any(x.get("code") == "plan" and x.get("label") for x in cat)
+        code == 200 and isinstance(cat, list) and any(x.get("code") == "plan" and x.get("label") for x in cat)
     )
     report.add("A", "A3", "steps catalog", ok_cat, f"codes={len(cat) if isinstance(cat, list) else 0}")
 
@@ -321,7 +320,7 @@ def main() -> int:
     out_path = (
         __import__("pathlib").Path(__file__).resolve().parents[2]
         / "docs"
-        / f"QA-RUN-API-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.json"
+        / f"QA-RUN-API-{datetime.now(UTC).strftime('%Y-%m-%d')}.json"
     )
     out_path.write_text(
         json.dumps(

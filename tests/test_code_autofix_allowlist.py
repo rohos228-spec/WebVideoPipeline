@@ -24,9 +24,7 @@ def test_deny_traversal() -> None:
 
 def test_allow_app_and_tests() -> None:
     assert ca.assert_path_allowed("app/services/code_autofix.py").startswith("app/")
-    assert ca.assert_path_allowed("tests/test_code_autofix_allowlist.py").startswith(
-        "tests/"
-    )
+    assert ca.assert_path_allowed("tests/test_code_autofix_allowlist.py").startswith("tests/")
 
 
 def test_apply_edit_roundtrip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -37,9 +35,7 @@ def test_apply_edit_roundtrip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None
     target.write_text("x = 1\n", encoding="utf-8")
     monkeypatch.setattr(ca, "repo_root", lambda: root)
 
-    out = ca.apply_edits(
-        [{"path": "app/sample.py", "old_string": "x = 1", "new_string": "x = 2"}]
-    )
+    out = ca.apply_edits([{"path": "app/sample.py", "old_string": "x = 1", "new_string": "x = 2"}])
     assert out["changed"] == ["app/sample.py"]
     assert target.read_text(encoding="utf-8") == "x = 2\n"
 
@@ -51,6 +47,4 @@ def test_apply_edit_ambiguous(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None
     (app / "sample.py").write_text("a\na\n", encoding="utf-8")
     monkeypatch.setattr(ca, "repo_root", lambda: root)
     with pytest.raises(ca.CodeAutofixError, match="встречается"):
-        ca.apply_edits(
-            [{"path": "app/sample.py", "old_string": "a", "new_string": "b"}]
-        )
+        ca.apply_edits([{"path": "app/sample.py", "old_string": "a", "new_string": "b"}])

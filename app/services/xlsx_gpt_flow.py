@@ -136,9 +136,7 @@ async def telegram_style_ask_and_download(
 
     if download_path.suffix.lower() == ".txt":
         if not download_path.exists() or download_path.stat().st_size < 10:
-            raise RuntimeError(
-                f"скачанный txt пустой или повреждён: {download_path}"
-            )
+            raise RuntimeError(f"скачанный txt пустой или повреждён: {download_path}")
 
     return reply
 

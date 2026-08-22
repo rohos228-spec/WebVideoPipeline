@@ -248,15 +248,8 @@ async def rename_block(
 async def sync_blocks_catalog(session: AsyncSession) -> dict[str, Any]:
     """Сверка prompts/blocks с library; логирует новые файлы как block_discovered."""
     before = list_block_categories()
-    before_keys = {
-        block_library_key(cat, name)
-        for cat, names in before.items()
-        for name in names
-    }
-    existing_keys = {
-        item.key
-        for item in await lib.list_items(session, kind="block", limit=5000)
-    }
+    before_keys = {block_library_key(cat, name) for cat, names in before.items() for name in names}
+    existing_keys = {item.key for item in await lib.list_items(session, kind="block", limit=5000)}
 
     discovered: list[dict[str, str]] = []
     imported = 0

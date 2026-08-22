@@ -6,15 +6,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 XLSX = (REPO / "web" / "src" / "lib" / "xlsx-sheets.ts").read_text(encoding="utf-8")
-STUDIO = (REPO / "web" / "src" / "components" / "studio" / "node-studio.tsx").read_text(
+STUDIO = (REPO / "web" / "src" / "components" / "studio" / "node-studio.tsx").read_text(encoding="utf-8")
+VMENU = (REPO / "web" / "src" / "components" / "canvas" / "node-v-menu.tsx").read_text(encoding="utf-8")
+VMENU_XLSX = (REPO / "web" / "src" / "components" / "canvas" / "node-v-menu-excel.tsx").read_text(
     encoding="utf-8"
 )
-VMENU = (REPO / "web" / "src" / "components" / "canvas" / "node-v-menu.tsx").read_text(
-    encoding="utf-8"
-)
-VMENU_XLSX = (
-    REPO / "web" / "src" / "components" / "canvas" / "node-v-menu-excel.tsx"
-).read_text(encoding="utf-8")
 
 
 def test_studio_defaults_to_full_sheet_params() -> None:

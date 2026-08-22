@@ -48,9 +48,7 @@ async def maybe_start_hero_check_regen_after_check(
     node_key: str | None,
 ) -> bool:
     """После checkMode: hero или scenes → vision_check_loop."""
-    return await vcl.maybe_start_vision_check_loop_after_check(
-        session, project, node_key
-    )
+    return await vcl.maybe_start_vision_check_loop_after_check(session, project, node_key)
 
 
 async def maybe_return_to_check_after_hero(

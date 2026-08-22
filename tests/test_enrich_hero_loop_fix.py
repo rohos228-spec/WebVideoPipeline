@@ -36,7 +36,13 @@ def test_frames_ready_skips_completed_enrich_3_on_custom_graph() -> None:
     ]
     edges = [
         {"id": "e1", "source": "n_topic", "target": "n_split", "sourceHandle": "out", "targetHandle": "in"},
-        {"id": "e2", "source": "n_split", "target": "n_enrich_3", "sourceHandle": "out", "targetHandle": "in"},
+        {
+            "id": "e2",
+            "source": "n_split",
+            "target": "n_enrich_3",
+            "sourceHandle": "out",
+            "targetHandle": "in",
+        },
         {"id": "e3", "source": "n_enrich_3", "target": "n_hero", "sourceHandle": "out", "targetHandle": "in"},
     ]
     g = WorkflowGraph(nodes, edges)
@@ -64,9 +70,7 @@ def test_rollback_after_hero_failure_returns_last_enrich_ready() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_excel_hero_from_xlsx(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_bootstrap_excel_hero_from_xlsx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services.excel_characters import ExcelCharacter
     from app.settings import settings
 

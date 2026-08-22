@@ -43,9 +43,7 @@ async def _extract_frame_rgb(path: Path, *, at_sec: float) -> bytes:
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0 or not stdout:
         err = stderr.decode(errors="ignore")[:200]
-        raise RuntimeError(
-            f"ffmpeg frame @ {at_sec}s failed for {path.name}: {err}"
-        )
+        raise RuntimeError(f"ffmpeg frame @ {at_sec}s failed for {path.name}: {err}")
     return stdout
 
 
@@ -87,10 +85,7 @@ async def videos_are_duplicates(candidate: Path, reference: Path) -> bool:
     if cs == rs and cs > 0:
         if await file_sha256(candidate) == await file_sha256(reference):
             return True
-    return (
-        await video_content_fingerprint(candidate)
-        == await video_content_fingerprint(reference)
-    )
+    return await video_content_fingerprint(candidate) == await video_content_fingerprint(reference)
 
 
 async def find_duplicate_reference(

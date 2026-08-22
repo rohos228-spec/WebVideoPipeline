@@ -65,9 +65,7 @@ def test_refuse_empty_queue_overwrite() -> None:
     )
     assert ok is False
     assert reason == "refuse_empty_overwrite"
-    ok2, _ = should_accept_queue_save(
-        cleaned=[], existing=existing, apply_running=False, force_clear=True
-    )
+    ok2, _ = should_accept_queue_save(cleaned=[], existing=existing, apply_running=False, force_clear=True)
     assert ok2 is True
 
 

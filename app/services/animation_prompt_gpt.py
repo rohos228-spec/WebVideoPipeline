@@ -166,13 +166,8 @@ def build_initial_message(
     _ = frames
     override = gtb.get_override(project, "anim_pr")
     if override is not None:
-        return (
-            override.strip()
-            + f"\n\n(Мастер-промт — в прикреплённом файле {prompt_file_name}.)"
-        )
-    return gtb.build_anim_pr_initial_default(
-        project, prompt_file_name=prompt_file_name
-    )
+        return override.strip() + f"\n\n(Мастер-промт — в прикреплённом файле {prompt_file_name}.)"
+    return gtb.build_anim_pr_initial_default(project, prompt_file_name=prompt_file_name)
 
 
 def voiceover_for_frame(project: Project, frame: Frame) -> str:
@@ -228,8 +223,7 @@ def build_batch_message(items: list[FrameImageBatchItem]) -> str:
             [
                 "Прикреплено изображение-лента (доп. реф): кадры слева направо, "
                 "между ними тонкие белые вертикальные разделители.",
-                "На каждой панели снизу чёрная метка FNNN — "
-                "привязывай промт ТОЛЬКО по frame_uuid из списка.",
+                "На каждой панели снизу чёрная метка FNNN — привязывай промт ТОЛЬКО по frame_uuid из списка.",
                 "Порядок слева → направо совпадает со списком ниже.",
             ]
         )
@@ -250,9 +244,7 @@ def build_batch_message(items: list[FrameImageBatchItem]) -> str:
     )
     for pos, it in enumerate(items, start=1):
         uuid = (getattr(it.frame, "uuid", None) or "").strip() or it.image_id
-        img_pr = _clip_image_prompt_for_batch(
-            getattr(it.frame, "image_prompt", None) or ""
-        )
+        img_pr = _clip_image_prompt_for_batch(getattr(it.frame, "image_prompt", None) or "")
         parts.append(f"Позиция {pos} метка={panel_label_for_item(it)}")
         parts.append(f"frame_uuid: {uuid}")
         parts.append(f"ID изображения: {it.image_id}")
@@ -328,20 +320,16 @@ _VIDEO_DONE_STATUSES = frozenset(
 )
 
 
-async def sync_animation_prompts_from_xlsx(
-    session: AsyncSession, project: Project
-) -> int:
+async def sync_animation_prompts_from_xlsx(session: AsyncSession, project: Project) -> int:
     """Лист «план» R48 ↔ Frame.animation_prompt.
 
     Пустая ячейка в xlsx → сброс устаревшего промта в БД (кроме кадров с видео).
     """
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     if not frames:
         return 0
     cells = read_plan_animation_prompt_cells(project, [f.number for f in frames])
@@ -351,11 +339,7 @@ async def sync_animation_prompts_from_xlsx(
     for fr in frames:
         text = (by_num.get(fr.number) or "").strip()
         if len(text) < MIN_ANIM_PROMPT_LEN:
-            if (
-                xlsx_exists
-                and fr.animation_prompt
-                and fr.status not in _VIDEO_DONE_STATUSES
-            ):
+            if xlsx_exists and fr.animation_prompt and fr.status not in _VIDEO_DONE_STATUSES:
                 fr.animation_prompt = None
                 if fr.status is FrameStatus.animation_prompt_ready:
                     fr.status = (
@@ -381,20 +365,12 @@ async def sync_animation_prompts_from_xlsx(
     return changed
 
 
-def scan_missing_animation_prompts_shot2(
-    project: Project, frames: list[Frame]
-) -> list[int]:
+def scan_missing_animation_prompts_shot2(project: Project, frames: list[Frame]) -> list[int]:
     """shot_02: PNG на диске, но нет промта видео в plan R64 / attrs."""
-    return [
-        fr.number
-        for fr in frames
-        if frame_needs_shot2_video_prompt(project, fr)
-    ]
+    return [fr.number for fr in frames if frame_needs_shot2_video_prompt(project, fr)]
 
 
-def scan_missing_animation_prompts(
-    project: Project, frames: list[Frame]
-) -> list[int]:
+def scan_missing_animation_prompts(project: Project, frames: list[Frame]) -> list[int]:
     """Кадры с промтом картинки, но без animation_prompt в БД/R48.
 
     PNG на диске больше не обязателен: видеопромт строится из image_prompt.
@@ -410,27 +386,21 @@ def scan_missing_animation_prompts(
     return missing
 
 
-def scan_missing_animation_prompts_all(
-    project: Project, frames: list[Frame]
-) -> tuple[list[int], list[int]]:
+def scan_missing_animation_prompts_all(project: Project, frames: list[Frame]) -> tuple[list[int], list[int]]:
     """(shot_01, shot_02) — кадры без промта анимации."""
     s1 = scan_missing_animation_prompts(project, frames)
     s2 = scan_missing_animation_prompts_shot2(project, frames)
     return s1, s2
 
 
-def count_animation_prompt_stats(
-    project: Project, frames: list[Frame]
-) -> tuple[int, int, int]:
+def count_animation_prompt_stats(project: Project, frames: list[Frame]) -> tuple[int, int, int]:
     """(готово по xlsx/БД, заполнено в plan R48, кадров с картинкой на диске)."""
     ready = sum(1 for fr in frames if has_animation_prompt_for_frame(project, fr))
     xlsx_filled = 0
     if _plan_xlsx_exists(project):
         nums = [f.number for f in frames]
         cells = dict(read_plan_animation_prompt_cells(project, nums))
-        xlsx_filled = sum(
-            1 for n in nums if len((cells.get(n) or "").strip()) >= MIN_ANIM_PROMPT_LEN
-        )
+        xlsx_filled = sum(1 for n in nums if len((cells.get(n) or "").strip()) >= MIN_ANIM_PROMPT_LEN)
     img_index = index_scene_image_paths(project)
     with_image = sum(1 for fr in frames if fr.number in img_index)
     return ready, xlsx_filled, with_image
@@ -442,9 +412,7 @@ def scene_shot2_image_path(project: Project, frame_number: int) -> Path | None:
     return find_shot2_image(scenes_dir, frame_number)
 
 
-def image_id_for_shot2_frame(
-    project: Project, frame: Frame, image_path: Path | None
-) -> str:
+def image_id_for_shot2_frame(project: Project, frame: Frame, image_path: Path | None) -> str:
     """ID для shot_02 в batch anim_pr (отличается суффиксом ``-s2-``)."""
     if image_path is not None:
         stem = image_path.stem  # frame_003_s2_a7f2b01c
@@ -471,9 +439,7 @@ def build_batch_message_shot2(items: list[FrameImageBatchItem]) -> str:
     ]
     for pos, it in enumerate(items, start=1):
         uuid = (getattr(it.frame, "uuid", None) or "").strip() or it.image_id
-        parts.append(
-            f"Позиция {pos} (слева→направо, shot_02) метка={panel_label_for_item(it)}"
-        )
+        parts.append(f"Позиция {pos} (слева→направо, shot_02) метка={panel_label_for_item(it)}")
         parts.append(f"frame_uuid: {uuid}")
         parts.append(f"ID изображения: {it.image_id}")
         parts.append(f"Закадровый текст сцены: {it.voiceover}")
@@ -490,10 +456,7 @@ def animation_prompt_shot2_in_plan_xlsx(project: Project, frame_number: int) -> 
 
 def has_animation_prompt_shot2_for_frame(project: Project, frame: Frame) -> bool:
     if _plan_xlsx_exists(project):
-        return (
-            len(animation_prompt_shot2_in_plan_xlsx(project, frame.number))
-            >= MIN_SHOT2_VIDEO_PROMPT_LEN
-        )
+        return len(animation_prompt_shot2_in_plan_xlsx(project, frame.number)) >= MIN_SHOT2_VIDEO_PROMPT_LEN
     attrs = frame.attrs or {}
     return len((attrs.get(SHOT2_VIDEO_PROMPT_ATTR) or "").strip()) >= MIN_SHOT2_VIDEO_PROMPT_LEN
 
@@ -744,7 +707,7 @@ def unpack_animation_prompt_blobs(frames: list[Frame]) -> int:
     Старый парсер клал весь ответ GPT (часто на 6 кадров) в первый кадр пачки.
     Возвращает число кадров, которым выставили чистый промт.
     """
-    by_uuid = { (fr.uuid or "").strip(): fr for fr in frames if (fr.uuid or "").strip() }
+    by_uuid = {(fr.uuid or "").strip(): fr for fr in frames if (fr.uuid or "").strip()}
     collected: dict[str, str] = {}
     for fr in frames:
         raw = (fr.animation_prompt or "").strip()
@@ -759,11 +722,7 @@ def unpack_animation_prompt_blobs(frames: list[Frame]) -> int:
             uid = target.uuid.strip()
             existing = (target.animation_prompt or "").strip()
             # Уже чистый промт — не затираем распаковкой чужого blob.
-            if (
-                existing
-                and not is_apply_ops_blob(existing)
-                and len(existing) >= MIN_ANIM_PROMPT_LEN
-            ):
+            if existing and not is_apply_ops_blob(existing) and len(existing) >= MIN_ANIM_PROMPT_LEN:
                 continue
             if uid in collected:
                 continue

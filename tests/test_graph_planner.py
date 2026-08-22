@@ -95,8 +95,20 @@ def test_excel_gpt_predecessor_allows_hero() -> None:
         {"id": "n_hero", "type": "hero", "position": {"x": 200, "y": 0}, "data": {}},
     ]
     edges = [
-        {"id": "e1", "source": "n_plan", "target": "n_excel_gpt_1", "sourceHandle": "out", "targetHandle": "in"},
-        {"id": "e2", "source": "n_excel_gpt_1", "target": "n_hero", "sourceHandle": "out", "targetHandle": "in"},
+        {
+            "id": "e1",
+            "source": "n_plan",
+            "target": "n_excel_gpt_1",
+            "sourceHandle": "out",
+            "targetHandle": "in",
+        },
+        {
+            "id": "e2",
+            "source": "n_excel_gpt_1",
+            "target": "n_hero",
+            "sourceHandle": "out",
+            "targetHandle": "in",
+        },
     ]
     g = WorkflowGraph(nodes, edges)
     p = Project(

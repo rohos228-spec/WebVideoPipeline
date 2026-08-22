@@ -99,9 +99,7 @@ def _latest_hero_artifacts(project_id: int) -> dict[str, dict[str, Any]]:
     return out
 
 
-def collect_hero_quality_checks(
-    project_id: int, data_dir: Path
-) -> list[HarnessCheck]:
+def collect_hero_quality_checks(project_id: int, data_dir: Path) -> list[HarnessCheck]:
     """Жёсткие проверки: sheet-контракт персонажей."""
     checks: list[HarnessCheck] = []
     xlsx = data_dir / "project.xlsx"
@@ -123,9 +121,7 @@ def collect_hero_quality_checks(
         checks.append(HarnessCheck("excel_hero_parse", False, msg[:200]))
         return checks
     if not persons:
-        return [
-            HarnessCheck("excel_hero_present", True, "no characters sheet rows")
-        ]
+        return [HarnessCheck("excel_hero_present", True, "no characters sheet rows")]
 
     polluted: list[str] = []
     bad_sheet: list[str] = []
@@ -139,9 +135,7 @@ def collect_hero_quality_checks(
         if png.is_file() and not ch.ref_ids:
             bg = png_corners_look_sheet_bg(png)
             if bg is False:
-                bad_sheet.append(
-                    f"{ch.id}: PNG углы не белые — похоже на сцену, не turnaround sheet"
-                )
+                bad_sheet.append(f"{ch.id}: PNG углы не белые — похоже на сцену, не turnaround sheet")
 
     checks.append(
         HarnessCheck(
@@ -187,9 +181,7 @@ def hero_slot_prompt_check(project: Any) -> HarnessCheck | None:
         return HarnessCheck("hero_slot_prompt", False, str(e)[:200])
 
 
-def hero_quality_diag_lines(
-    project_id: int, data_dir: Path, *, project: Any | None = None
-) -> list[str]:
+def hero_quality_diag_lines(project_id: int, data_dir: Path, *, project: Any | None = None) -> list[str]:
     """Строки для оркестратор-диагностики (живой прогон, не stale telemetry)."""
     lines: list[str] = []
     if project is not None:
@@ -214,8 +206,5 @@ def hero_quality_diag_lines(
     lines = ["ПЕРСОНАЖИ — ОШИБКИ КАЧЕСТВА (не статус NodeRun):"]
     for c in bad:
         lines.append(f"- {c.name}: {c.detail}")
-    lines.append(
-        "- действие: проверь слот hero (sheet, не реестр) и "
-        "перегенерируй проблемные cNN"
-    )
+    lines.append("- действие: проверь слот hero (sheet, не реестр) и перегенерируй проблемные cNN")
     return lines

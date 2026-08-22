@@ -52,9 +52,7 @@ def parse_krupnost_ladder(raw: str) -> list[str]:
 
 def load_set_shot_counts(catalog_path: Path | None = None) -> dict[str, tuple[int, int]]:
     """SET_xx → (min_shots, max_shots) из заголовков camera_sets.md."""
-    path = catalog_path or (
-        find_project_root() / "prompts" / "scene_design" / "camera_sets.md"
-    )
+    path = catalog_path or (find_project_root() / "prompts" / "scene_design" / "camera_sets.md")
     if not path.is_file():
         return {}
     text = path.read_text(encoding="utf-8")
@@ -198,9 +196,7 @@ def already_subdivided(frames: list[Frame]) -> bool:
     return any(_is_shot_child(f) for f in frames)
 
 
-async def collapse_shot_children(
-    session: AsyncSession, project: Project
-) -> dict[str, Any]:
+async def collapse_shot_children(session: AsyncSession, project: Project) -> dict[str, Any]:
     """Удалить SET-детей, оставить VO-родителей. Закадр не трогаем.
 
     Нужно перед повторным scene_design: иначе camera_subdivide skip
@@ -213,9 +209,7 @@ async def collapse_shot_children(
     frames = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         ).scalars()
     )
@@ -233,15 +227,9 @@ async def collapse_shot_children(
             fr.duration_seconds = round(float(fr.end_ts) - float(fr.start_ts), 2)
         parents_cleared += 1
     if child_ids:
-        await session.execute(
-            delete(FrameText).where(FrameText.frame_id.in_(child_ids))
-        )
-        await session.execute(
-            delete(PromptVersion).where(PromptVersion.frame_id.in_(child_ids))
-        )
-        await session.execute(
-            delete(Artifact).where(Artifact.frame_id.in_(child_ids))
-        )
+        await session.execute(delete(FrameText).where(FrameText.frame_id.in_(child_ids)))
+        await session.execute(delete(PromptVersion).where(PromptVersion.frame_id.in_(child_ids)))
+        await session.execute(delete(Artifact).where(Artifact.frame_id.in_(child_ids)))
         await session.execute(
             delete(FrameEdge).where(
                 FrameEdge.project_id == project.id,
@@ -267,9 +255,7 @@ async def collapse_shot_children(
     }
 
 
-def _beat_vo_spans(
-    shots: list[dict[str, Any]], full_vo: str
-) -> list[tuple[int, int]]:
+def _beat_vo_spans(shots: list[dict[str, Any]], full_vo: str) -> list[tuple[int, int]]:
     """[start, end) для каждого бита по цитате → до следующей цитаты."""
     vo_norm = _norm(full_vo)
     starts: list[int] = []
@@ -397,16 +383,12 @@ def _pick_unique_quote(
     return whole or "scene"
 
 
-async def renumber_frames_by_sort_key(
-    session: AsyncSession, project: Project
-) -> list[Frame]:
+async def renumber_frames_by_sort_key(session: AsyncSession, project: Project) -> list[Frame]:
     """number = 1..N по sort_key (insert даёт max+1 — ломает порядок)."""
     frames = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         ).scalars()
     )
@@ -441,16 +423,8 @@ async def subdivide_vo_frames_by_camera(
 
     set_counts = set_counts if set_counts is not None else load_set_shot_counts()
     chrono = uses_chrono_dyn(project)
-    shots = [
-        s
-        for s in (assembly_input.get("shot_plan_chrono") or [])
-        if isinstance(s, dict)
-    ]
-    action_scenes = [
-        s
-        for s in (assembly_input.get("scenes_chrono") or [])
-        if isinstance(s, dict)
-    ]
+    shots = [s for s in (assembly_input.get("shot_plan_chrono") or []) if isinstance(s, dict)]
+    action_scenes = [s for s in (assembly_input.get("scenes_chrono") or []) if isinstance(s, dict)]
     report: dict[str, Any] = {
         "skipped": False,
         "parents": 0,
@@ -562,9 +536,7 @@ async def subdivide_vo_frames_by_camera(
         children: list[Frame] = []
         after_id = parent.id
         for _ in range(need - 1):
-            child = await insert_frame_after(
-                session, project, after_frame_id=after_id
-            )
+            child = await insert_frame_after(session, project, after_frame_id=after_id)
             children.append(child)
             after_id = child.id
             inserted += 1
@@ -728,18 +700,12 @@ def rebuild_scenes_from_camera(
     нарративная сцена); длинные группы не режем пополам.
     """
     set_counts = set_counts if set_counts is not None else load_set_shot_counts()
-    shots = [
-        s
-        for s in (assembly_input.get("shot_plan_chrono") or [])
-        if isinstance(s, dict)
-    ]
+    shots = [s for s in (assembly_input.get("shot_plan_chrono") or []) if isinstance(s, dict)]
     if not shots and not already_subdivided(frames):
         logger.warning("camera_expand: нет shot_plan — scenes_chrono не трогаем")
         return assembly_input
 
-    groups = _group_frames_into_scenes(
-        frames, shots, full_vo, set_counts, chrono_dyn=chrono_dyn
-    )
+    groups = _group_frames_into_scenes(frames, shots, full_vo, set_counts, chrono_dyn=chrono_dyn)
     expanded = expand_shot_plan_rows(shots, set_counts) if shots else []
 
     # uuid → полный VO родителя (у детей закадр пустой).
@@ -760,23 +726,15 @@ def rebuild_scenes_from_camera(
         if not parent_vo or (chrono_dyn and len(frs) > 1):
             # chrono: VO размазан по кадрам сцены (в т.ч. vo_parent ×1) — склеиваем.
             joined = " ".join(
-                (f.voiceover_text or "").strip()
-                for f in frs
-                if (f.voiceover_text or "").strip()
+                (f.voiceover_text or "").strip() for f in frs if (f.voiceover_text or "").strip()
             )
             parent_vo = joined or parent_vo
         if not parent_vo:
             parent_vo = next(
-                (
-                    (f.voiceover_text or "").strip()
-                    for f in frs
-                    if (f.voiceover_text or "").strip()
-                ),
+                ((f.voiceover_text or "").strip() for f in frs if (f.voiceover_text or "").strip()),
                 str(beat.get("цитата") or ""),
             )
-        ladder = meta0.get("ladder") or parse_krupnost_ladder(
-            str(beat.get("крупность") or "")
-        )
+        ladder = meta0.get("ladder") or parse_krupnost_ladder(str(beat.get("крупность") or ""))
         kids_all = [_frame_row(f) for f in frs]
         total_sec = sum(float(k["время_сек"]) for k in kids_all)
         # Длинный диапазон + ≥4 шота → две сцены внутри одного VO-тайминга.
@@ -797,9 +755,7 @@ def rebuild_scenes_from_camera(
                 used_quotes,
                 from_end=False,
             )
-            c_ew = _pick_unique_quote(
-                c_vo or c_sw, full_vo, used_quotes, from_end=True
-            )
+            c_ew = _pick_unique_quote(c_vo or c_sw, full_vo, used_quotes, from_end=True)
             sid = len(scenes) + 1
             sid_raw = str(beat.get("id_scene") or "").strip()
             scenes.append(
@@ -816,9 +772,7 @@ def rebuild_scenes_from_camera(
                     "мотив": beat.get("мотив") or "",
                     "структура_сцены": beat.get("структура_сцены") or "continuity",
                     "тип_стыка": beat.get("тип_стыка") or "action",
-                    "переход_в_сцену": beat.get("переход")
-                    or beat.get("переход_в_сцену")
-                    or "cut",
+                    "переход_в_сцену": beat.get("переход") or beat.get("переход_в_сцену") or "cut",
                     "цепь_действия": [],
                     "смысл_сцены": str(beat.get("мотив") or "")[:200],
                 }
@@ -836,9 +790,7 @@ def rebuild_scenes_from_camera(
         "single_frame_scenes": sum(1 for s in scenes if s["кадров"] < 2),
         "multi_frame_scenes": sum(1 for s in scenes if s["кадров"] >= 2),
         "need_ge2_but_got1": sum(
-            1
-            for s in scenes
-            if int(s.get("camera_shots_required") or 1) >= 2 and s["кадров"] < 2
+            1 for s in scenes if int(s.get("camera_shots_required") or 1) >= 2 and s["кадров"] < 2
         ),
     }
     logger.info(

@@ -1,49 +1,37 @@
 import pytest
 
 from app.services.apply_ops_batches import (
-    frames_per_batch,
-    should_batch_apply_ops,
-    split_frames,
-    select_frames_for_batches,
     _frame_complete,
     _pending_frames,
+    frames_per_batch,
     run_apply_ops_batched,
+    select_frames_for_batches,
+    should_batch_apply_ops,
+    split_frames,
 )
 
 
 def test_dense_32_pending_stays_one_batch() -> None:
     n, raw = 32, 24_000
-    size = frames_per_batch(
-        n_frames=n, json_bytes=raw, dense=True, target_batches=5
-    )
+    size = frames_per_batch(n_frames=n, json_bytes=raw, dense=True, target_batches=5)
     assert size == 32
-    assert not should_batch_apply_ops(
-        n_frames=n, json_bytes=raw, dense=True, target_batches=5
-    )
+    assert not should_batch_apply_ops(n_frames=n, json_bytes=raw, dense=True, target_batches=5)
 
 
 def test_dense_160_is_five_batches() -> None:
     n, raw = 160, 120_000
-    size = frames_per_batch(
-        n_frames=n, json_bytes=raw, dense=True, target_batches=5
-    )
+    size = frames_per_batch(n_frames=n, json_bytes=raw, dense=True, target_batches=5)
     assert size == 32
-    assert should_batch_apply_ops(
-        n_frames=n, json_bytes=raw, dense=True, target_batches=5
-    )
+    assert should_batch_apply_ops(n_frames=n, json_bytes=raw, dense=True, target_batches=5)
     chunks = split_frames(list(range(n)), size)
     assert [len(c) for c in chunks] == [32, 32, 32, 32, 32]
 
 
 def test_dense_116_frames_split_like_xlsx_v8() -> None:
     n, raw = 116, 97570
-    size = frames_per_batch(
-        n_frames=n, json_bytes=raw, dense=True, target_batches=5
-    )
+    size = frames_per_batch(n_frames=n, json_bytes=raw, dense=True, target_batches=5)
     assert size == 24
-    assert should_batch_apply_ops(
-        n_frames=n, json_bytes=raw, dense=True, target_batches=5
-    )
+    assert should_batch_apply_ops(n_frames=n, json_bytes=raw, dense=True, target_batches=5)
     chunks = split_frames(list(range(n)), size)
     assert [len(c) for c in chunks] == [24, 24, 24, 24, 20]
 
@@ -84,13 +72,9 @@ def test_dense_retry_skips_filled_and_keeps_one_tail_batch() -> None:
             row["main_action"] = "x"
             row["shot01_description"] = "y"
         frames.append(row)
-    selected = select_frames_for_batches(
-        frames, dense=True, target_batches=5
-    )
+    selected = select_frames_for_batches(frames, dense=True, target_batches=5)
     assert len(selected) == 31
-    size = frames_per_batch(
-        n_frames=len(selected), json_bytes=24_000, dense=True, target_batches=5
-    )
+    size = frames_per_batch(n_frames=len(selected), json_bytes=24_000, dense=True, target_batches=5)
     assert size == 31
     chunks = split_frames(selected, size)
     assert [len(c) for c in chunks] == [31]
@@ -117,13 +101,9 @@ def test_pending_skips_filled_shot01() -> None:
 
 def test_img_prompt_skip_and_small_batches() -> None:
     n, raw = 40, 80_000
-    size = frames_per_batch(
-        n_frames=n, json_bytes=raw, dense=False, skip_if_field="image_prompt"
-    )
+    size = frames_per_batch(n_frames=n, json_bytes=raw, dense=False, skip_if_field="image_prompt")
     assert size <= 8
-    assert should_batch_apply_ops(
-        n_frames=n, json_bytes=raw, dense=False, skip_if_field="image_prompt"
-    )
+    assert should_batch_apply_ops(n_frames=n, json_bytes=raw, dense=False, skip_if_field="image_prompt")
     frames = [
         {"uuid": "a" * 24, "voiceover_text": "one", "image_prompt": "already"},
         {"uuid": "b" * 24, "voiceover_text": "two", "image_prompt": ""},
@@ -141,9 +121,7 @@ def _frame(i: int) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_run_apply_ops_starts_with_one_batch(
-    tmp_path, monkeypatch
-) -> None:
+async def test_run_apply_ops_starts_with_one_batch(tmp_path, monkeypatch) -> None:
     """Успех с первого раза = ровно один LLM-вызов, не 5 пачек."""
     import json
 
@@ -155,19 +133,14 @@ async def test_run_apply_ops_starts_with_one_batch(
         path = kwargs["input_paths"][0]
         frames = json.loads(path.read_text(encoding="utf-8"))["frames"]
         calls.append(len(frames))
-        ops = [
-            {"frame_uuid": fr["uuid"], "fields": {"main_action": "x"}}
-            for fr in frames
-        ]
+        ops = [{"frame_uuid": fr["uuid"], "fields": {"main_action": "x"}} for fr in frames]
         return OperatorApiResult(
             reply_text='{"ops":[]}',
             output_paths=[path],
             apply_ops={"ops": ops},
         )
 
-    monkeypatch.setattr(
-        "app.services.apply_ops_batches.run_operator_api", fake_run
-    )
+    monkeypatch.setattr("app.services.apply_ops_batches.run_operator_api", fake_run)
     frames = [_frame(i) for i in range(160)]
     ctx = tmp_path / "db_frames.json"
     ctx.write_text("{}", encoding="utf-8")
@@ -188,9 +161,7 @@ async def test_run_apply_ops_starts_with_one_batch(
 
 
 @pytest.mark.asyncio
-async def test_run_apply_ops_splits_1_to_2_on_error(
-    tmp_path, monkeypatch
-) -> None:
+async def test_run_apply_ops_splits_1_to_2_on_error(tmp_path, monkeypatch) -> None:
     """Полный батч падает → два полубатча, не заранее 5×32."""
     import json
 
@@ -204,19 +175,14 @@ async def test_run_apply_ops_splits_1_to_2_on_error(
         calls.append(len(frames))
         if len(frames) > 80:
             raise RuntimeError("too big")
-        ops = [
-            {"frame_uuid": fr["uuid"], "fields": {"main_action": "x"}}
-            for fr in frames
-        ]
+        ops = [{"frame_uuid": fr["uuid"], "fields": {"main_action": "x"}} for fr in frames]
         return OperatorApiResult(
             reply_text='{"ops":[]}',
             output_paths=[path],
             apply_ops={"ops": ops},
         )
 
-    monkeypatch.setattr(
-        "app.services.apply_ops_batches.run_operator_api", fake_run
-    )
+    monkeypatch.setattr("app.services.apply_ops_batches.run_operator_api", fake_run)
     frames = [_frame(i) for i in range(160)]
     ctx = tmp_path / "db_frames.json"
     ctx.write_text("{}", encoding="utf-8")
@@ -237,9 +203,7 @@ async def test_run_apply_ops_splits_1_to_2_on_error(
 
 
 @pytest.mark.asyncio
-async def test_run_apply_ops_splits_2_to_4_on_second_error(
-    tmp_path, monkeypatch
-) -> None:
+async def test_run_apply_ops_splits_2_to_4_on_second_error(tmp_path, monkeypatch) -> None:
     """Полубатч тоже падает → ещё раз пополам (4 куска исходного)."""
     import json
 
@@ -253,19 +217,14 @@ async def test_run_apply_ops_splits_2_to_4_on_second_error(
         calls.append(len(frames))
         if len(frames) > 40:
             raise RuntimeError("still too big")
-        ops = [
-            {"frame_uuid": fr["uuid"], "fields": {"main_action": "x"}}
-            for fr in frames
-        ]
+        ops = [{"frame_uuid": fr["uuid"], "fields": {"main_action": "x"}} for fr in frames]
         return OperatorApiResult(
             reply_text='{"ops":[]}',
             output_paths=[path],
             apply_ops={"ops": ops},
         )
 
-    monkeypatch.setattr(
-        "app.services.apply_ops_batches.run_operator_api", fake_run
-    )
+    monkeypatch.setattr("app.services.apply_ops_batches.run_operator_api", fake_run)
     frames = [_frame(i) for i in range(160)]
     ctx = tmp_path / "db_frames.json"
     ctx.write_text("{}", encoding="utf-8")

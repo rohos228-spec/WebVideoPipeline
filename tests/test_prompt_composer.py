@@ -40,25 +40,19 @@ def test_resolve_block_value_missing_category_is_safe() -> None:
 
 
 def test_resolve_block_value_dict_with_weight() -> None:
-    text, weight = pc.resolve_block_value(
-        "world", {"name": "cats_anthropomorphic", "weight": 0.5}
-    )
+    text, weight = pc.resolve_block_value("world", {"name": "cats_anthropomorphic", "weight": 0.5})
     assert weight == 0.5
     assert not text.startswith("<!--")
 
 
 def test_resolve_block_value_dict_with_custom_text() -> None:
-    text, weight = pc.resolve_block_value(
-        "lighting", {"text": "мягкий боковой свет", "weight": 0.9}
-    )
+    text, weight = pc.resolve_block_value("lighting", {"text": "мягкий боковой свет", "weight": 0.9})
     assert text == "мягкий боковой свет"
     assert weight == 0.9
 
 
 def test_resolve_block_value_dict_custom_text_wins_over_name() -> None:
-    text, _ = pc.resolve_block_value(
-        "world", {"name": "cats_anthropomorphic", "text": "свой мир"}
-    )
+    text, _ = pc.resolve_block_value("world", {"name": "cats_anthropomorphic", "text": "свой мир"})
     assert text == "свой мир"
 
 
@@ -181,7 +175,9 @@ def test_template_first_block_is_technical(step_id: str) -> None:
     headers = HEADER_RE.findall(text)
     assert headers, f"{step_id}: no blocks found"
     first_title = headers[0][1].upper()
-    assert "ТЕХНИЧЕСКАЯ ЧАСТЬ" in first_title, f"{step_id}: first block must be technical, got {first_title!r}"
+    assert "ТЕХНИЧЕСКАЯ ЧАСТЬ" in first_title, (
+        f"{step_id}: first block must be technical, got {first_title!r}"
+    )
 
 
 @pytest.mark.parametrize("step_id", ALL_STEP_TEMPLATES)
@@ -240,8 +236,7 @@ def test_write_step_template_blocks_round_trip(tmp_path, monkeypatch) -> None:
     steps_root = tmp_path / "steps"
     (steps_root / "99_test").mkdir(parents=True)
     (steps_root / "99_test" / "template.md").write_text(
-        "# Шаг 99 — Тест\n\n## 1. ТЕХНИЧЕСКАЯ ЧАСТЬ\n\nстарый текст\n\n"
-        "## 2. РОЛЬ\n\nстарая роль\n",
+        "# Шаг 99 — Тест\n\n## 1. ТЕХНИЧЕСКАЯ ЧАСТЬ\n\nстарый текст\n\n## 2. РОЛЬ\n\nстарая роль\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(pc, "STEPS_ROOT", steps_root)

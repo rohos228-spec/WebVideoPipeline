@@ -127,9 +127,7 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slug: str) -> Proj
     return p
 
 
-def test_preflight_filters_and_records_targets(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_preflight_filters_and_records_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Этап 4 (C.3): брак исключён из vision-входа, цель в meta с причиной."""
     p = _project(tmp_path, monkeypatch, "pf")
     good = _png(tmp_path / "frame_001_a.png")
@@ -137,9 +135,7 @@ def test_preflight_filters_and_records_targets(
     txt = tmp_path / "db_check.json"
     txt.write_text("{}", encoding="utf-8")
 
-    ok_paths, bad = asyncio.run(
-        vcl.preflight_media_for_check(p, [good, black, txt], "scenes")
-    )
+    ok_paths, bad = asyncio.run(vcl.preflight_media_for_check(p, [good, black, txt], "scenes"))
     assert good in ok_paths and txt in ok_paths
     assert black not in ok_paths
     assert bad == [{"token": "f3", "reason": "media_probe:black_image"}]
@@ -168,9 +164,7 @@ def test_probe_targets_hero_kind() -> None:
     assert hero_ids == ["c01"]
 
 
-def test_probe_targets_force_fail_and_merge(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_probe_targets_force_fail_and_merge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Этап 4 (C.3): probe-цели перебивают pass-гейт и вливаются в regen."""
     from app.services.excel_gpt_node import upload_dir
 
@@ -181,9 +175,7 @@ def test_probe_targets_force_fail_and_merge(
             check_key: {"checkMode": True, "checkFix": False, "slotIndex": 2},
         },
         "gpt_operator_results": {check_key: {"gateStatus": "pass"}},
-        "media_probe_regen": [
-            {"token": "f4", "reason": "media_probe:video_unreadable"}
-        ],
+        "media_probe_regen": [{"token": "f4", "reason": "media_probe:video_unreadable"}],
         "canvas_graph": {
             "nodes": [
                 {"id": "n_img", "type": "images"},
@@ -193,9 +185,7 @@ def test_probe_targets_force_fail_and_merge(
                     "data": {"slotIndex": 2, "checkMode": True},
                 },
             ],
-            "edges": [
-                {"source": "n_img", "target": check_key, "data": {"kind": "after"}}
-            ],
+            "edges": [{"source": "n_img", "target": check_key, "data": {"kind": "after"}}],
         },
     }
     out = upload_dir(p, check_key)
@@ -209,9 +199,7 @@ def test_probe_targets_force_fail_and_merge(
     async def _fake_prepare(*_a, **_k):
         return True
 
-    monkeypatch.setattr(
-        "app.services.run_sync.prepare_node_for_step_start", _fake_prepare
-    )
+    monkeypatch.setattr("app.services.run_sync.prepare_node_for_step_start", _fake_prepare)
 
     class _Sess:
         async def flush(self):
@@ -227,9 +215,7 @@ def test_probe_targets_force_fail_and_merge(
         async def delete(self, *_a, **_k):
             return None
 
-    started = asyncio.run(
-        vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key)
-    )
+    started = asyncio.run(vcl.maybe_start_vision_check_loop_after_check(_Sess(), p, check_key))
     assert started is True
     assert p.status is ProjectStatus.generating_images
     assert vcl.get_scene_check_regen(p) == [{"number": 4, "shot": 1}]
@@ -237,9 +223,7 @@ def test_probe_targets_force_fail_and_merge(
     assert p.meta.get("media_probe_regen") == []
 
 
-def test_synthetic_probe_fail_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_synthetic_probe_fail_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Этап 4 (C.3): «все файлы битые» — fail-отчёт без vision-вызова."""
     from app.orchestrator.steps.enrich_xlsx import _synthetic_probe_fail_result
     from app.services.excel_gpt_node import upload_dir
@@ -254,9 +238,7 @@ def test_synthetic_probe_fail_result(
         ],
     )
     assert res.gate_status == "fail"
-    raw = (upload_dir(p, "n_check") / "gpt_reply_raw.txt").read_text(
-        encoding="utf-8"
-    )
+    raw = (upload_dir(p, "n_check") / "gpt_reply_raw.txt").read_text(encoding="utf-8")
     assert "[critical] f3" in raw
     assert "media_probe:video_unreadable" in raw
     from app.services.check_analysis import extract_critical_frame_regen_targets

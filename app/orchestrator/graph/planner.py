@@ -47,9 +47,7 @@ def is_passthrough_node_type(node_type: str) -> bool:
     if is_side_sink_node_type(node_type):
         return False
     return (
-        is_hitl_node_type(node_type)
-        or is_config_node_type(node_type)
-        or node_type in PASSTHROUGH_NODE_TYPES
+        is_hitl_node_type(node_type) or is_config_node_type(node_type) or node_type in PASSTHROUGH_NODE_TYPES
     )
 
 
@@ -144,18 +142,13 @@ class WorkflowGraph:
         return effective_node_type(n)
 
     def keys_of_type(self, node_type: str) -> list[str]:
-        return [
-            nid
-            for nid, n in self._by_id.items()
-            if effective_node_type(n) == node_type
-        ]
+        return [nid for nid, n in self._by_id.items() if effective_node_type(n) == node_type]
 
     def excel_gpt_keys_for_slot(self, slot: int) -> list[str]:
         return [
             nid
             for nid, n in self._by_id.items()
-            if str(n.get("type") or "") == EXCEL_GPT_NODE_TYPE
-            and slot_index_from_node(n) == slot
+            if str(n.get("type") or "") == EXCEL_GPT_NODE_TYPE and slot_index_from_node(n) == slot
         ]
 
     def skipped_keys(self, project: Project) -> set[str]:
@@ -209,11 +202,7 @@ class WorkflowGraph:
             if nid in skipped:
                 continue
             typ = self.node_type(nid)
-            if (
-                is_work_node_type(typ)
-                and not self._effective_predecessors(nid, skipped)
-                and nid not in roots
-            ):
+            if is_work_node_type(typ) and not self._effective_predecessors(nid, skipped) and nid not in roots:
                 roots.append(nid)
 
         reachable: set[str] = set()
@@ -268,8 +257,7 @@ class WorkflowGraph:
         from app.telegram.menu import status_order as _status_ord
 
         trust_enrich_meta = bool(meta.get("split_completed")) or (
-            status is not None
-            and _status_ord(status) >= _status_ord(ProjectStatus.enriching_1)
+            status is not None and _status_ord(status) >= _status_ord(ProjectStatus.enriching_1)
         )
         if trust_enrich_meta:
             for slot in meta.get("enrich_completed_slots") or []:
@@ -373,9 +361,7 @@ class WorkflowGraph:
                 # force_rerun: следующий слот M>N / enrich_auto_chain_to.
                 slot = slot_index_from_node(n)
                 finished_slot = slot_from_ready_status(ready_status)
-                later_after_ready = (
-                    finished_slot is not None and slot > finished_slot
-                )
+                later_after_ready = finished_slot is not None and slot > finished_slot
                 force_rerun = later_after_ready or (
                     slot in excel_gpt_force_rerun_slots(project)
                     and (finished_slot is None or slot > finished_slot)
@@ -536,7 +522,11 @@ class WorkflowGraph:
             if is_hitl_node_type(typ):
                 preds = self._effective_predecessors(nid, skipped)
                 if preds and all(self.node_type(p) in done_types for p in preds):
-                    if active_type and typ == f"hitl_{active_type.replace('image_prompts', 'images')}" or status in READY_TO_NODE_TYPE:
+                    if (
+                        active_type
+                        and typ == f"hitl_{active_type.replace('image_prompts', 'images')}"
+                        or status in READY_TO_NODE_TYPE
+                    ):
                         out[nid] = NodeRunStatus.waiting_hitl
                     else:
                         out[nid] = NodeRunStatus.done
@@ -556,9 +546,7 @@ class WorkflowGraph:
                     running = running_status_for_slot(slot)
                     ready = ready_status_for_slot(slot)
                     meta = project.meta if isinstance(project.meta, dict) else {}
-                    active_key = str(
-                        meta.get("active_excel_gpt_node_key") or ""
-                    ).strip()
+                    active_key = str(meta.get("active_excel_gpt_node_key") or "").strip()
                     if nid in completed_node_keys(project):
                         out[nid] = NodeRunStatus.done
                     elif active_key == nid and status == running:
@@ -603,16 +591,10 @@ class WorkflowGraph:
         target_type = spec.node_type
         skipped = self.skipped_keys(project)
         flow = self._flow_work_keys(skipped)
-        target_keys = [
-            k
-            for k in self.keys_of_type(target_type)
-            if k not in skipped and k in flow
-        ]
+        target_keys = [k for k in self.keys_of_type(target_type) if k not in skipped and k in flow]
         if not target_keys and step_code == "excel_gpt":
             target_keys = [
-                k
-                for k in self.keys_of_type(EXCEL_GPT_NODE_TYPE)
-                if k not in skipped and k in flow
+                k for k in self.keys_of_type(EXCEL_GPT_NODE_TYPE) if k not in skipped and k in flow
             ]
         all_keys = list(self.keys_of_type(target_type))
         if not all_keys and step_code == "excel_gpt":
@@ -640,6 +622,7 @@ class WorkflowGraph:
                 return True
         return False
 
+
 async def load_graph_for_project(
     session: AsyncSession,
     project: Project,
@@ -652,9 +635,7 @@ async def load_graph_for_project(
         return WorkflowGraph(list(cg["nodes"]), list(cg["edges"]))
 
     run = (
-        await session.execute(
-            select(WorkflowRun).where(WorkflowRun.project_id == project.id)
-        )
+        await session.execute(select(WorkflowRun).where(WorkflowRun.project_id == project.id))
     ).scalar_one_or_none()
     if run is not None:
         nodes = list(run.nodes_snapshot or [])

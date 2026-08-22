@@ -43,9 +43,7 @@ def mass_list_kb(batches: list[BatchProject]) -> InlineKeyboardMarkup:
     ]
     for b in batches:
         label = f"📁 {b.name}"
-        rows.append([
-            InlineKeyboardButton(text=label, callback_data=f"mass:open:{b.id}")
-        ])
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"mass:open:{b.id}")])
     rows.append([InlineKeyboardButton(text="⬅ В главное меню", callback_data="menu:root")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -53,55 +51,75 @@ def mass_list_kb(batches: list[BatchProject]) -> InlineKeyboardMarkup:
 def mass_main_kb(batch: BatchProject, sub_count: int) -> InlineKeyboardMarkup:
     # Кнопка управления очередью меняется по текущему статусу.
     if batch.status.value == "running":
-        queue_row = [InlineKeyboardButton(
-            text="⏸ Поставить на паузу",
-            callback_data=f"mass:pause:{batch.id}",
-        )]
+        queue_row = [
+            InlineKeyboardButton(
+                text="⏸ Поставить на паузу",
+                callback_data=f"mass:pause:{batch.id}",
+            )
+        ]
     elif batch.status.value == "paused":
-        queue_row = [InlineKeyboardButton(
-            text="▶ Снять с паузы",
-            callback_data=f"mass:resume:{batch.id}",
-        )]
+        queue_row = [
+            InlineKeyboardButton(
+                text="▶ Снять с паузы",
+                callback_data=f"mass:resume:{batch.id}",
+            )
+        ]
     else:
-        queue_row = [InlineKeyboardButton(
-            text="▶ Запустить очередь",
-            callback_data=f"mass:start:{batch.id}",
-        )]
+        queue_row = [
+            InlineKeyboardButton(
+                text="▶ Запустить очередь",
+                callback_data=f"mass:start:{batch.id}",
+            )
+        ]
     prod_btn_text = "📦 Постоянный продукт"
     prod = (batch.meta or {}).get("permanent_product") if batch.meta else None
     if prod and prod.get("name"):
         prod_btn_text = f"📦 Продукт: {_short(prod.get('name'), 18)}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"📝 Темы ({sub_count})",
-                callback_data=f"mass:topics:{batch.id}",
-            )],
-            [InlineKeyboardButton(
-                text=prod_btn_text,
-                callback_data=f"mass:prod:{batch.id}",
-            )],
+            [
+                InlineKeyboardButton(
+                    text=f"📝 Темы ({sub_count})",
+                    callback_data=f"mass:topics:{batch.id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=prod_btn_text,
+                    callback_data=f"mass:prod:{batch.id}",
+                )
+            ],
             queue_row,
-            [InlineKeyboardButton(
-                text="🔄 Вернуть paused в очередь",
-                callback_data=f"mass:retry_paused:{batch.id}",
-            )],
-            [InlineKeyboardButton(
-                text="📊 Прогресс",
-                callback_data=f"mass:progress:{batch.id}",
-            )],
-            [InlineKeyboardButton(
-                text="⚙ Настройки шаблона",
-                callback_data=f"mass:settings:{batch.id}",
-            )],
-            [InlineKeyboardButton(
-                text="🗑 Удалить весь массовый",
-                callback_data=f"mass:delete:{batch.id}",
-            )],
-            [InlineKeyboardButton(
-                text="⬅ К списку массовых",
-                callback_data="mass:list",
-            )],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Вернуть paused в очередь",
+                    callback_data=f"mass:retry_paused:{batch.id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📊 Прогресс",
+                    callback_data=f"mass:progress:{batch.id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⚙ Настройки шаблона",
+                    callback_data=f"mass:settings:{batch.id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗑 Удалить весь массовый",
+                    callback_data=f"mass:delete:{batch.id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅ К списку массовых",
+                    callback_data="mass:list",
+                )
+            ],
         ]
     )
 
@@ -111,28 +129,42 @@ def mass_product_kb(batch: BatchProject) -> InlineKeyboardMarkup:
     prod = (batch.meta or {}).get("permanent_product") if batch.meta else None
     has_prod = bool(prod and prod.get("name"))
     rows = [
-        [InlineKeyboardButton(
-            text="✏ Название продукта",
-            callback_data=f"mass:prod_name:{batch.id}",
-        )],
-        [InlineKeyboardButton(
-            text="📝 Описание продукта",
-            callback_data=f"mass:prod_desc:{batch.id}",
-        )],
-        [InlineKeyboardButton(
-            text="🖼 Прислать референс-фото",
-            callback_data=f"mass:prod_photo:{batch.id}",
-        )],
+        [
+            InlineKeyboardButton(
+                text="✏ Название продукта",
+                callback_data=f"mass:prod_name:{batch.id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="📝 Описание продукта",
+                callback_data=f"mass:prod_desc:{batch.id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🖼 Прислать референс-фото",
+                callback_data=f"mass:prod_photo:{batch.id}",
+            )
+        ],
     ]
     if has_prod:
-        rows.append([InlineKeyboardButton(
-            text="🗑 Удалить продукт",
-            callback_data=f"mass:prod_clear:{batch.id}",
-        )])
-    rows.append([InlineKeyboardButton(
-        text="⬅ К меню массового",
-        callback_data=f"mass:open:{batch.id}",
-    )])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🗑 Удалить продукт",
+                    callback_data=f"mass:prod_clear:{batch.id}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅ К меню массового",
+                callback_data=f"mass:open:{batch.id}",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -172,22 +204,30 @@ def product_text(batch: BatchProject) -> str:
 def mass_topics_kb(batch: BatchProject) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(
-                text="📝 Добавить темы текстом",
-                callback_data=f"mass:add_text:{batch.id}",
-            )],
-            [InlineKeyboardButton(
-                text="📥 Скачать topics.xlsx",
-                callback_data=f"mass:dl_xlsx:{batch.id}",
-            )],
-            [InlineKeyboardButton(
-                text="📤 Залить topics.xlsx",
-                callback_data=f"mass:upload_xlsx:{batch.id}",
-            )],
-            [InlineKeyboardButton(
-                text="⬅ К меню массового",
-                callback_data=f"mass:open:{batch.id}",
-            )],
+            [
+                InlineKeyboardButton(
+                    text="📝 Добавить темы текстом",
+                    callback_data=f"mass:add_text:{batch.id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📥 Скачать topics.xlsx",
+                    callback_data=f"mass:dl_xlsx:{batch.id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📤 Залить topics.xlsx",
+                    callback_data=f"mass:upload_xlsx:{batch.id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅ К меню массового",
+                    callback_data=f"mass:open:{batch.id}",
+                )
+            ],
         ]
     )
 
@@ -199,48 +239,60 @@ def mass_progress_kb(batch: BatchProject, subs: list[Project]) -> InlineKeyboard
     for p in subs[:60]:
         icon = _status_icon(p.status)
         label = f"{icon} #{p.batch_position or '?'} {_short(p.topic, 14)}"
-        line.append(InlineKeyboardButton(
-            text=label,
-            callback_data=f"mass:sub:{batch.id}:{p.id}",
-        ))
+        line.append(
+            InlineKeyboardButton(
+                text=label,
+                callback_data=f"mass:sub:{batch.id}:{p.id}",
+            )
+        )
         if len(line) == 2:
             rows.append(line)
             line = []
     if line:
         rows.append(line)
     if len(subs) > 60:
-        rows.append([InlineKeyboardButton(
-            text=f"… ещё {len(subs) - 60} (открой topics.xlsx)",
-            callback_data=f"mass:dl_xlsx:{batch.id}",
-        )])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"… ещё {len(subs) - 60} (открой topics.xlsx)",
+                    callback_data=f"mass:dl_xlsx:{batch.id}",
+                )
+            ]
+        )
 
-    rows.append([
-        InlineKeyboardButton(
-            text="📥 Скачать topics.xlsx",
-            callback_data=f"mass:dl_xlsx:{batch.id}",
-        ),
-    ])
-    rows.append([
-        InlineKeyboardButton(text="⬅ К меню массового", callback_data=f"mass:open:{batch.id}")
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="📥 Скачать topics.xlsx",
+                callback_data=f"mass:dl_xlsx:{batch.id}",
+            ),
+        ]
+    )
+    rows.append([InlineKeyboardButton(text="⬅ К меню массового", callback_data=f"mass:open:{batch.id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def mass_delete_confirm_kb(batch: BatchProject) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(
-                text="❌ Удалить полностью (вместе с файлами)",
-                callback_data=f"mass:delete_yes:{batch.id}",
-            )],
-            [InlineKeyboardButton(
-                text="📦 Удалить из БД, файлы оставить",
-                callback_data=f"mass:delete_keep:{batch.id}",
-            )],
-            [InlineKeyboardButton(
-                text="⬅ Отмена",
-                callback_data=f"mass:open:{batch.id}",
-            )],
+            [
+                InlineKeyboardButton(
+                    text="❌ Удалить полностью (вместе с файлами)",
+                    callback_data=f"mass:delete_yes:{batch.id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📦 Удалить из БД, файлы оставить",
+                    callback_data=f"mass:delete_keep:{batch.id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅ Отмена",
+                    callback_data=f"mass:open:{batch.id}",
+                )
+            ],
         ]
     )
 
@@ -256,6 +308,7 @@ def mass_settings_kb(batch: BatchProject, ms: dict) -> InlineKeyboardMarkup:
       mass:tog:<bid>:<field>                # bool toggle / auto_review_kinds.<kind>
       mass:setval:<bid>:<field>:<value>     # фиксированное значение
     """
+
     def _bool_btn(label: str, field: str) -> InlineKeyboardButton:
         on = bool(ms.get(field))
         icon = "✅" if on else "⚪"
@@ -291,13 +344,19 @@ def mass_settings_kb(batch: BatchProject, ms: dict) -> InlineKeyboardMarkup:
         _int_row("BGM уровень (%)", "bgm_level"),
         _int_row("Пауза между sub (мин)", "pause_minutes"),
         _int_row(
-            "Макс параллельность", "max_parallelism",
+            "Макс параллельность",
+            "max_parallelism",
         ),
     ]
     # Visual auto-review kinds — свои toggle'ы.
-    rows.append([InlineKeyboardButton(
-        text="— GPT-vision проверяет —", callback_data="mass:noop",
-    )])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="— GPT-vision проверяет —",
+                callback_data="mass:noop",
+            )
+        ]
+    )
     kinds_on = set(ms.get("auto_review_kinds") or [])
     for kind, label in (
         ("approve_hero", "Персонажи (hero)"),
@@ -306,14 +365,22 @@ def mass_settings_kb(batch: BatchProject, ms: dict) -> InlineKeyboardMarkup:
         ("approve_final", "Финальное видео (final)"),
     ):
         icon = "✅" if kind in kinds_on else "⚪"
-        rows.append([InlineKeyboardButton(
-            text=f"{icon} {label}",
-            callback_data=f"mass:tog:{batch.id}:auto_review_kinds.{kind}",
-        )])
-    rows.append([InlineKeyboardButton(
-        text="⬅ К меню массового",
-        callback_data=f"mass:open:{batch.id}",
-    )])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{icon} {label}",
+                    callback_data=f"mass:tog:{batch.id}:auto_review_kinds.{kind}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅ К меню массового",
+                callback_data=f"mass:open:{batch.id}",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -344,10 +411,7 @@ def mass_settings_text(batch: BatchProject, ms: dict) -> str:
 
 def batch_header(batch: BatchProject, sub_count: int, progress: dict) -> str:
     """Текстовый блок-заголовок для меню массового."""
-    pct = (
-        int(round(100 * (progress.get("done", 0) / sub_count)))
-        if sub_count else 0
-    )
+    pct = int(round(100 * (progress.get("done", 0) / sub_count))) if sub_count else 0
     queue_icon = {
         "new": "⏳ не запущена",
         "running": "▶ работает",
@@ -371,18 +435,13 @@ def progress_text(batch: BatchProject, subs: list[Project], progress: dict) -> s
     """Полный текст экрана прогресса с компактной таблицей."""
     head = batch_header(batch, len(subs), progress)
     if not subs:
-        return (
-            head
-            + "\n\nТем ещё нет. Жми «📝 Темы» → «Добавить темы текстом»."
-        )
+        return head + "\n\nТем ещё нет. Жми «📝 Темы» → «Добавить темы текстом»."
     lines = ["", "<pre>", " №   Шаг                          Стат"]
     lines.append("──   ───────────────────────────  ────")
     for p in subs[:60]:
         icon = _status_icon(p.status)
         step_label = _step_label(p.status)
-        lines.append(
-            f"{(p.batch_position or 0):>3}  {step_label:<27}  {icon}"
-        )
+        lines.append(f"{(p.batch_position or 0):>3}  {step_label:<27}  {icon}")
     if len(subs) > 60:
         lines.append(f"... ещё {len(subs) - 60} подпроектов (см. topics.xlsx)")
     lines.append("</pre>")
@@ -391,14 +450,10 @@ def progress_text(batch: BatchProject, subs: list[Project], progress: dict) -> s
 
 def topics_text(batch: BatchProject, subs: list[Project]) -> str:
     """Текст экрана со списком тем."""
-    head = (
-        f"<b>📝 Темы массового «{_html.escape(batch.name)}»</b>\n"
-        f"всего: {len(subs)}"
-    )
+    head = f"<b>📝 Темы массового «{_html.escape(batch.name)}»</b>\nвсего: {len(subs)}"
     if not subs:
         return (
-            head
-            + "\n\nТем пока нет.\n\n"
+            head + "\n\nТем пока нет.\n\n"
             "Способы добавить:\n"
             "1) «📝 Добавить темы текстом» — пишешь темы по одной на строку\n"
             "2) «📥 Скачать topics.xlsx» → заполнить → «📤 Залить topics.xlsx»"
@@ -406,9 +461,7 @@ def topics_text(batch: BatchProject, subs: list[Project]) -> str:
     listing = []
     for p in subs[:30]:
         icon = _status_icon(p.status)
-        listing.append(
-            f"{icon} #{p.batch_position or '?'}. {_html.escape(_short(p.topic, 60))}"
-        )
+        listing.append(f"{icon} #{p.batch_position or '?'}. {_html.escape(_short(p.topic, 60))}")
     if len(subs) > 30:
         listing.append(f"… ещё {len(subs) - 30} (открой xlsx)")
     return head + "\n\n" + "\n".join(listing)

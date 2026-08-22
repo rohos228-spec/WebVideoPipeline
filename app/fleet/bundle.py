@@ -38,9 +38,7 @@ def _add_dir_to_tar(tar: tarfile.TarFile, src: Path, arc_prefix: str) -> None:
         tar.add(path, arcname=f"{arc_prefix}/{rel}")
 
 
-async def export_project_bundle(
-    session: AsyncSession, project_id: int
-) -> tuple[bytes, str]:
+async def export_project_bundle(session: AsyncSession, project_id: int) -> tuple[bytes, str]:
     project = await session.get(Project, project_id)
     if project is None:
         raise ValueError(f"project #{project_id} not found")
@@ -52,16 +50,12 @@ async def export_project_bundle(
     manifest = {
         "slug": project.slug,
         "topic": project.topic,
-        "status": project.status.value
-        if hasattr(project.status, "value")
-        else str(project.status),
+        "status": project.status.value if hasattr(project.status, "value") else str(project.status),
         "meta": project.meta or {},
     }
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode(
-            "utf-8"
-        )
+        manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
         info = tarfile.TarInfo(name="manifest.json")
         info.size = len(manifest_bytes)
         tar.addfile(info, io.BytesIO(manifest_bytes))
@@ -90,9 +84,7 @@ async def import_project_bundle(
         if not slug:
             raise ValueError("bundle manifest missing slug")
 
-        project = (
-            await session.execute(select(Project).where(Project.slug == slug))
-        ).scalar_one_or_none()
+        project = (await session.execute(select(Project).where(Project.slug == slug))).scalar_one_or_none()
         if project is None:
             project = Project(
                 slug=slug,

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Character-based batch planning for img_pr and VO steps."""
 
 from __future__ import annotations
@@ -109,9 +108,7 @@ def test_img_pr_beats_voiceover_when_pack_kind_set(tmp_path) -> None:
     slices_img = plan_db_frames_slices([path, vo], pack_kind="img_pr")
     assert slices_img is not None
     assert len(slices_img) == 3
-    sizes = [
-        len(json.loads(p.read_text(encoding="utf-8"))["frames"]) for p in slices_img
-    ]
+    sizes = [len(json.loads(p.read_text(encoding="utf-8"))["frames"]) for p in slices_img]
     assert sizes == [57, 57, 57]
 
 
@@ -126,14 +123,10 @@ def test_force_batches_2_and_4_ignore_vo_formula(tmp_path) -> None:
     vo.write_text("д" * 20_000, encoding="utf-8")  # VO-формула дала бы 6
     two = plan_db_frames_slices([path, vo], force_batches=2)
     assert two is not None and len(two) == 2
-    assert [
-        len(json.loads(p.read_text(encoding="utf-8"))["frames"]) for p in two
-    ] == [10, 10]
+    assert [len(json.loads(p.read_text(encoding="utf-8"))["frames"]) for p in two] == [10, 10]
     four = plan_db_frames_slices([path, vo], force_batches=4)
     assert four is not None and len(four) == 4
-    assert [
-        len(json.loads(p.read_text(encoding="utf-8"))["frames"]) for p in four
-    ] == [5, 5, 5, 5]
+    assert [len(json.loads(p.read_text(encoding="utf-8"))["frames"]) for p in four] == [5, 5, 5, 5]
 
 
 def test_img_pr_detected_from_prompt_text_even_with_voiceover(tmp_path) -> None:

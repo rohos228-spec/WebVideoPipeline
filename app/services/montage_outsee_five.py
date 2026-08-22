@@ -14,9 +14,9 @@ from typing import Any
 from loguru import logger
 
 from app.bots.outsee import (
+    _INPUT_REF_MARKERS,
     _MIN_IMAGE_BYTES,
     _UI_ASSET_MARKERS,
-    _INPUT_REF_MARKERS,
     _find_result_panel_card,
     _is_outsee_thumb_url,
     _outsee_image_stable_key,
@@ -128,9 +128,7 @@ def _merge_hit(
 # ---------------------------------------------------------------------------
 # ПОИСК — механика 1: DOM-scan
 # ---------------------------------------------------------------------------
-async def search_m1_dom_scan(
-    page, project_id: int, *, limit: int = 40
-) -> list[HitCandidate]:
+async def search_m1_dom_scan(page, project_id: int, *, limit: int = 40) -> list[HitCandidate]:
     js = """
     ([projectId, limit]) => {
         const needle = '[ID: P' + projectId + '-F';
@@ -246,9 +244,7 @@ async def search_m2_click_panel(
                     return best;
                 }"""
             )
-            for prefix, frame, shot, hex8 in _parse_ids(
-                str(panel_text or ""), project_id=project_id
-            ):
+            for prefix, frame, shot, hex8 in _parse_ids(str(panel_text or ""), project_id=project_id):
                 _merge_hit(
                     bag,
                     project_id=project_id,
@@ -275,9 +271,7 @@ async def search_m2_click_panel(
 async def search_m3_get_by_text(page, project_id: int) -> list[HitCandidate]:
     bag: dict[str, HitCandidate] = {}
     try:
-        body = await page.evaluate(
-            "() => (document.body && (document.body.innerText || '')) || ''"
-        )
+        body = await page.evaluate("() => (document.body && (document.body.innerText || '')) || ''")
     except Exception as e:  # noqa: BLE001
         logger.warning("search_m3_get_by_text body: {}", e)
         body = ""
@@ -493,17 +487,13 @@ def _is_real_generated_url(url: str | None) -> bool:
     low = _strip_url_query(url).lower()
     if "_thumb" in low:
         return False
-    return "generated/" in low and (
-        low.endswith(".png") or ".png?" in url.lower()
-    )
+    return "generated/" in low and (low.endswith(".png") or ".png?" in url.lower())
 
 
 async def _dismiss_content_viewer(page) -> None:
     """Lightbox data-content-viewer перехватывает клики → Download не срабатывает."""
     try:
-        has = await page.evaluate(
-            """() => !!document.querySelector('[data-content-viewer="true"]')"""
-        )
+        has = await page.evaluate("""() => !!document.querySelector('[data-content-viewer="true"]')""")
     except Exception:  # noqa: BLE001
         has = False
     if not has:
@@ -513,9 +503,7 @@ async def _dismiss_content_viewer(page) -> None:
             await page.keyboard.press("Escape")
         await page.wait_for_timeout(150)
         try:
-            still = await page.evaluate(
-                """() => !!document.querySelector('[data-content-viewer="true"]')"""
-            )
+            still = await page.evaluate("""() => !!document.querySelector('[data-content-viewer="true"]')""")
         except Exception:  # noqa: BLE001
             still = False
         if not still:
@@ -544,9 +532,7 @@ async def _click_thumb(page, img_src: str, *, project_id: int | None) -> bool:
         if await loc.count() == 0:
             continue
         try:
-            await _physical_mouse_click(
-                page, loc, project_id=project_id, label="five-thumb", prefer_cdp=True
-            )
+            await _physical_mouse_click(page, loc, project_id=project_id, label="five-thumb", prefer_cdp=True)
             return True
         except Exception as e:  # noqa: BLE001
             logger.debug("_click_thumb {}: {}", fragment[-40:], e)
@@ -562,9 +548,7 @@ async def _expect_download_click(page, btn, out_path: Path, *, project_id: int |
             await btn.scroll_into_view_if_needed(timeout=2000)
         # 8с: если lightbox/не та кнопка — быстро fallback на CDN URL
         async with page.expect_download(timeout=8_000) as dl_info:
-            await _physical_mouse_click(
-                page, btn, project_id=project_id, label="five-dl"
-            )
+            await _physical_mouse_click(page, btn, project_id=project_id, label="five-dl")
         download = await dl_info.value
         await await_with_cancel(download.save_as(str(out_path)), project_id)
         return _ready(out_path)
@@ -596,8 +580,7 @@ async def download_d1_thumb_button(
     if await img.count() == 0:
         return False
     card = img.locator(
-        "xpath=ancestor::*[descendant::button"
-        "[descendant::svg[contains(@class,'lucide-download')]]][1]"
+        "xpath=ancestor::*[descendant::button[descendant::svg[contains(@class,'lucide-download')]]][1]"
     )
     if await card.count() == 0:
         return False
@@ -623,9 +606,7 @@ async def download_d2_result_panel(
     if panel is not None:
         btn = panel.locator("button:has(svg.lucide-download)").first
         if await btn.count() == 0:
-            btn = panel.locator(
-                "button:has-text('Скачать'), button:has-text('Download')"
-            ).first
+            btn = panel.locator("button:has-text('Скачать'), button:has-text('Download')").first
     if btn is None or await btn.count() == 0:
         btn = page.locator("button:has(svg.lucide-download)").first
     if await btn.count() == 0:
@@ -720,9 +701,7 @@ async def download_d0_hit_src_direct(
     if not _is_real_generated_url(url):
         return False
     try:
-        await _download_via_context(
-            page, url, out_path, project_id=project_id, attempts=2
-        )
+        await _download_via_context(page, url, out_path, project_id=project_id, attempts=2)
         _validate_downloaded_image(out_path, gen_id=hit.short_uuid, img_url=url)
         if not _ready(out_path):
             return False
@@ -762,9 +741,7 @@ async def download_d3_dom_full_request(
         return False
 
 
-async def download_d4_page_fetch(
-    page, hit: HitCandidate, out_path: Path, *, project_id: int | None
-) -> bool:
+async def download_d4_page_fetch(page, hit: HitCandidate, out_path: Path, *, project_id: int | None) -> bool:
     """D4: fetch в контексте страницы (cookies) → bytes на диск."""
     await _click_thumb(page, hit.img_src, project_id=project_id)
     await page.wait_for_timeout(400)
@@ -805,9 +782,7 @@ async def download_d4_page_fetch(
         return False
 
 
-async def download_d5_cascade(
-    page, hit: HitCandidate, out_path: Path, *, project_id: int | None
-) -> bool:
+async def download_d5_cascade(page, hit: HitCandidate, out_path: Path, *, project_id: int | None) -> bool:
     """D5: полный card-click cascade по [ID]."""
     try:
         await download_saved_image_by_prompt_id(
@@ -890,9 +865,7 @@ async def run_five_mechanics_search(
 ) -> dict[str, Any]:
     """Задействует все 5 механик поиска+сортировки. Возвращает выбранные hits."""
     m1 = await search_m1_dom_scan(page, project_id, limit=limit)
-    m2 = await search_m2_click_panel(
-        page, project_id, limit=min(24, limit), project_db_id=project_db_id
-    )
+    m2 = await search_m2_click_panel(page, project_id, limit=min(24, limit), project_db_id=project_db_id)
     m3 = await search_m3_get_by_text(page, project_id)
     known = [h.img_src for h in (m1 + m2) if h.img_src]
     m4 = await search_m4_url_timestamp(page, project_id, known_srcs=known)
@@ -919,9 +892,7 @@ async def run_five_mechanics_search(
 
     merged = list(bag.values())
     # Механика 5 — сортировка
-    ordered = sort_m5_pending_priority(
-        merged, frame_filter=frame_filter, pending_keys=pending_keys
-    )
+    ordered = sort_m5_pending_priority(merged, frame_filter=frame_filter, pending_keys=pending_keys)
     return {
         "hits": ordered,
         "stats": {

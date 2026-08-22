@@ -60,9 +60,7 @@ def _project(tmp_path: Path, monkeypatch) -> Project:
     return p
 
 
-def test_resolve_display_always_prefers_upload_when_input_source(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_resolve_display_always_prefers_upload_when_input_source(tmp_path: Path, monkeypatch) -> None:
     p = _project(tmp_path, monkeypatch)
     live = p.data_dir / "project.xlsx"
     snap = snapshot_node_result_xlsx(live, node_key="n_gpt")
@@ -81,9 +79,7 @@ def test_resolve_display_always_prefers_upload_when_input_source(
     wb.close()
 
 
-def test_release_upload_then_snapshot_shows(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_release_upload_then_snapshot_shows(tmp_path: Path, monkeypatch) -> None:
     p = _project(tmp_path, monkeypatch)
     upload = upload_file_path(p, "n_gpt", "new.xlsx")
     _write_xlsx(upload, "UPLOADED")
@@ -102,9 +98,7 @@ def test_release_upload_then_snapshot_shows(
     wb.close()
 
 
-def test_resolve_operator_upload_replaces_edge_xlsx(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_resolve_operator_upload_replaces_edge_xlsx(tmp_path: Path, monkeypatch) -> None:
     p = _project(tmp_path, monkeypatch)
     upload = upload_file_path(p, "n_gpt", "new.xlsx")
     _write_xlsx(upload, "UPLOADED")
@@ -137,9 +131,7 @@ def test_clear_bound_snapshot_and_upload_path(tmp_path: Path, monkeypatch) -> No
     assert upload_dir(p, "n_gpt").is_dir()
 
 
-def test_clear_bound_snapshot_suppresses_filename_fallback(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_clear_bound_snapshot_suppresses_filename_fallback(tmp_path: Path, monkeypatch) -> None:
     """После явной очистки снимка UI не должен снова цеплять old/*_result_*.xlsx."""
     from app.services.node_xlsx_snapshot import resolve_bound_xlsx_path
 

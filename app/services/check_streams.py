@@ -8,8 +8,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
 from app.models import Project
 
@@ -57,7 +58,7 @@ def set_check_streams_meta(project: Project, streams: int) -> int:
 def _semaphore(size: int) -> asyncio.Semaphore:
     global _SEM, _SEM_SIZE
     n = max(1, clamp_check_streams(size))
-    if _SEM is None or _SEM_SIZE != n:
+    if _SEM is None or n != _SEM_SIZE:
         _SEM = asyncio.Semaphore(n)
         _SEM_SIZE = n
     return _SEM

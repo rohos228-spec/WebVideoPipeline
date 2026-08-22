@@ -7,8 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.services.prompt_library import (
-    resolve_project_prompt_with_source,
     read_resolved_project_prompt,
+    resolve_project_prompt_with_source,
 )
 
 
@@ -55,9 +55,7 @@ def test_excel_gpt_without_node_key_falls_back_to_override() -> None:
         "app.services.prompt_library.excel_gpt_prompt_exists",
         side_effect=lambda name: name in {"prompt_a", "prompt_b"},
     ):
-        name, source = resolve_project_prompt_with_source(
-            overrides, "excel_gpt", meta=meta
-        )
+        name, source = resolve_project_prompt_with_source(overrides, "excel_gpt", meta=meta)
     assert name == "prompt_a"
     assert source == "override"
 

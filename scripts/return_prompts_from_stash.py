@@ -18,9 +18,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 MANIFEST_NAME = "_vp_aside_manifest.json"
 
@@ -328,7 +327,7 @@ def backup_prompts_aside(repo: Path, *, aside: Path | None = None) -> dict[str, 
         json.dumps(
             {
                 "version": 1,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
                 "repo": str(repo.resolve()),
                 "entries": entries,
             },
@@ -472,7 +471,10 @@ def simulate_studio_update(repo: Path, *, branch_ref: str) -> dict[str, object]:
         stash_restore = return_prompts_from_stash(repo, "stash@{0}", safe=False)
     aside_restore = restore_prompts_from_aside(repo, safe=True)
     restored = sorted(
-        set(list(stash_restore.get("restored") or []) + [f"prompts/{r}" for r in (aside_restore.get("restored") or [])])
+        set(
+            list(stash_restore.get("restored") or [])
+            + [f"prompts/{r}" for r in (aside_restore.get("restored") or [])]
+        )
     )
     # normalize aside restored to prompts/ prefix for asserts
     return {

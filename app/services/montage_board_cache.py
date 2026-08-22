@@ -6,8 +6,9 @@ import asyncio
 import hashlib
 import json
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 
@@ -83,10 +84,7 @@ def _persist_disk_duration_cache() -> None:
     path = _duration_disk_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            f"{p}|{mt}|{sz}": dur
-            for (p, mt, sz), dur in list(_video_duration_cache.items())
-        }
+        payload = {f"{p}|{mt}|{sz}": dur for (p, mt, sz), dur in list(_video_duration_cache.items())}
         # Ограничим рост файла
         if len(payload) > 5000:
             items = list(payload.items())[-4000:]

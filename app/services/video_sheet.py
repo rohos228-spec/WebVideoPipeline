@@ -40,11 +40,7 @@ def parse_clip_number(path: Path) -> tuple[int, int] | None:
 def find_shot1_video(videos_dir: Path, frame_number: int) -> Path | None:
     if not videos_dir.is_dir():
         return None
-    candidates = [
-        p
-        for p in videos_dir.glob(f"clip_{frame_number:03d}_*.mp4")
-        if "_s2_" not in p.name
-    ]
+    candidates = [p for p in videos_dir.glob(f"clip_{frame_number:03d}_*.mp4") if "_s2_" not in p.name]
     if not candidates:
         return None
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
@@ -188,9 +184,7 @@ async def materialize_video_sheets_for_check(
             continue
         num, sh = parsed
         try:
-            sheet = await build_video_sheet(
-                p, out_dir, frame_number=num, shot=sh
-            )
+            sheet = await build_video_sheet(p, out_dir, frame_number=num, shot=sh)
             result.append(sheet)
         except Exception:  # noqa: BLE001
             logger.exception("video_sheet: failed for {}", p.name)

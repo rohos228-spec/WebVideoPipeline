@@ -77,9 +77,7 @@ def test_assemble_agent_prompt_uses_check_operator(tmp_path: Path, monkeypatch) 
 
 def test_patch_switches_to_upstream(tmp_path: Path, monkeypatch) -> None:
     p = _project(tmp_path, monkeypatch)
-    res = patch_operator_config(
-        p, "n_check", {"checkPromptSource": "upstream", "transport": "api"}
-    )
+    res = patch_operator_config(p, "n_check", {"checkPromptSource": "upstream", "transport": "api"})
     assert res["checkPromptSource"] == "upstream"
 
 
@@ -94,9 +92,7 @@ def test_custom_uploaded_agent_txt(tmp_path: Path, monkeypatch) -> None:
         p,
         "n_check",
         original_name="my_agent.txt",
-        content="Ты проверяешь только хронометраж.\nКаждый блок ≤ 15 сек.\n".encode(
-            "utf-8"
-        ),
+        content="Ты проверяешь только хронометраж.\nКаждый блок ≤ 15 сек.\n".encode(),
     )
     assert res["ok"] is True
     assert res["fileName"] == "my_agent.txt"
@@ -127,7 +123,7 @@ def test_upload_txt_on_check_node_becomes_agent(tmp_path: Path, monkeypatch) -> 
         p,
         "n_check",
         original_name="rules.txt",
-        content="Проверь только длительность блоков.\n".encode("utf-8"),
+        content="Проверь только длительность блоков.\n".encode(),
     )
     body = load_custom_check_agent_body(p, "n_check")
     assert body and "длительность" in body

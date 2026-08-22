@@ -51,10 +51,10 @@ def test_preflight_python_avoids_ps51_quote_trap() -> None:
         text = (root / rel).read_text(encoding="utf-8-sig")
         assert "from app.web.api import create_app" in text
         assert "print('create_app OK')" in text, (
-            f"{rel} must use single-quoted print in python -c (not print(\"...\"))"
+            f'{rel} must use single-quoted print in python -c (not print("..."))'
         )
         assert 'print("create_app OK")' not in text, (
-            f"{rel} still has print(\"create_app OK\") which breaks under python -c on Windows"
+            f'{rel} still has print("create_app OK") which breaks under python -c on Windows'
         )
         assert not re.search(
             r'-c\s+"[^"]*from\s+app\.web',

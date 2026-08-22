@@ -93,9 +93,7 @@ def test_rename_version_label(plan_step):
     write_prompt_with_history(plan_step, "draft", "v2")
     versions = list_prompt_versions(plan_step, "draft")
     assert len(versions) == 1
-    updated = rename_prompt_version_label(
-        plan_step, "draft", versions[0]["id"], "Before rewrite"
-    )
+    updated = rename_prompt_version_label(plan_step, "draft", versions[0]["id"], "Before rewrite")
     assert updated["label"] == "Before rewrite"
     listed = list_prompt_versions(plan_step, "draft")
     assert listed[0]["label"] == "Before rewrite"
@@ -154,9 +152,7 @@ def test_resolve_project_prompt_with_source_override(plan_step):
     from app.services.prompt_library import resolve_project_prompt_with_source
 
     write_prompt(plan_step, "custom", "x")
-    name, source = resolve_project_prompt_with_source(
-        {"plan": "custom"}, "plan", meta={}
-    )
+    name, source = resolve_project_prompt_with_source({"plan": "custom"}, "plan", meta={})
     assert name == "custom"
     assert source == "override"
 
@@ -166,9 +162,7 @@ def test_resolve_project_prompt_with_source_slot(plan_step):
 
     write_prompt(plan_step, "slot_v", "x")
     meta = {"prompt_slot_variants": {"n1": {"main": "slot_v"}}}
-    name, source = resolve_project_prompt_with_source(
-        {}, "plan", meta=meta, node_key="n1", slot_id="main"
-    )
+    name, source = resolve_project_prompt_with_source({}, "plan", meta=meta, node_key="n1", slot_id="main")
     assert name == "slot_v"
     assert source == "slot"
 
@@ -176,7 +170,6 @@ def test_resolve_project_prompt_with_source_slot(plan_step):
 def test_api_modified_uses_meta_not_mtime(plan_step):
     import os
     import time
-    from pathlib import Path
 
     from app.services.prompt_library import prompt_path, step_dir
     from app.web.routers.prompt_files import _prompt_modified
@@ -190,4 +183,3 @@ def test_api_modified_uses_meta_not_mtime(plan_step):
     if meta_path.is_file():
         meta_path.unlink()
     assert _prompt_modified(plan_step, "draft", p) is None
-

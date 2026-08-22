@@ -32,12 +32,8 @@ class WorkNodeSpec:
 
 WORK_NODES: dict[str, WorkNodeSpec] = {
     "plan": WorkNodeSpec("plan", "plan", ProjectStatus.planning, ProjectStatus.plan_ready),
-    "script": WorkNodeSpec(
-        "script", "script", ProjectStatus.scripting, ProjectStatus.script_ready
-    ),
-    "split": WorkNodeSpec(
-        "split", "split", ProjectStatus.splitting, ProjectStatus.frames_ready
-    ),
+    "script": WorkNodeSpec("script", "script", ProjectStatus.scripting, ProjectStatus.script_ready),
+    "split": WorkNodeSpec("split", "split", ProjectStatus.splitting, ProjectStatus.frames_ready),
     # scene_design — legacy-тип старых канвасов (одна нода на всю ноду-фазу).
     # Канон: веер sd_agent ×5 (data.agent=characters/world/style/camera/action)
     # → sd_assemble. Оба типа делят step scene_d/scene_asm; в обратных map'ах
@@ -60,63 +56,35 @@ WORK_NODES: dict[str, WorkNodeSpec] = {
         ProjectStatus.scene_assembling,
         ProjectStatus.scene_design_ready,
     ),
-    "hero": WorkNodeSpec(
-        "hero", "hero", ProjectStatus.generating_hero, ProjectStatus.hero_ready
-    ),
-    "items": WorkNodeSpec(
-        "items", "items", ProjectStatus.generating_items, ProjectStatus.items_ready
-    ),
-    "enrich_1": WorkNodeSpec(
-        "enrich_1", "enrich_1", ProjectStatus.enriching_1, ProjectStatus.enrich_1_ready
-    ),
-    "enrich_2": WorkNodeSpec(
-        "enrich_2", "enrich_2", ProjectStatus.enriching_2, ProjectStatus.enrich_2_ready
-    ),
-    "enrich_3": WorkNodeSpec(
-        "enrich_3", "enrich_3", ProjectStatus.enriching_3, ProjectStatus.enrich_3_ready
-    ),
-    "enrich_4": WorkNodeSpec(
-        "enrich_4", "enrich_4", ProjectStatus.enriching_4, ProjectStatus.enrich_4_ready
-    ),
-    "enrich_5": WorkNodeSpec(
-        "enrich_5", "enrich_5", ProjectStatus.enriching_5, ProjectStatus.enrich_5_ready
-    ),
+    "hero": WorkNodeSpec("hero", "hero", ProjectStatus.generating_hero, ProjectStatus.hero_ready),
+    "items": WorkNodeSpec("items", "items", ProjectStatus.generating_items, ProjectStatus.items_ready),
+    "enrich_1": WorkNodeSpec("enrich_1", "enrich_1", ProjectStatus.enriching_1, ProjectStatus.enrich_1_ready),
+    "enrich_2": WorkNodeSpec("enrich_2", "enrich_2", ProjectStatus.enriching_2, ProjectStatus.enrich_2_ready),
+    "enrich_3": WorkNodeSpec("enrich_3", "enrich_3", ProjectStatus.enriching_3, ProjectStatus.enrich_3_ready),
+    "enrich_4": WorkNodeSpec("enrich_4", "enrich_4", ProjectStatus.enriching_4, ProjectStatus.enrich_4_ready),
+    "enrich_5": WorkNodeSpec("enrich_5", "enrich_5", ProjectStatus.enriching_5, ProjectStatus.enrich_5_ready),
     "image_prompts": WorkNodeSpec(
         "image_prompts",
         "img_pr",
         ProjectStatus.generating_image_prompts,
         ProjectStatus.image_prompts_ready,
     ),
-    "images": WorkNodeSpec(
-        "images", "img", ProjectStatus.generating_images, ProjectStatus.images_ready
-    ),
+    "images": WorkNodeSpec("images", "img", ProjectStatus.generating_images, ProjectStatus.images_ready),
     "animation_prompts": WorkNodeSpec(
         "animation_prompts",
         "anim_pr",
         ProjectStatus.generating_animation_prompts,
         ProjectStatus.animation_prompts_ready,
     ),
-    "videos": WorkNodeSpec(
-        "videos", "video", ProjectStatus.generating_videos, ProjectStatus.videos_ready
-    ),
-    "audio": WorkNodeSpec(
-        "audio", "audio", ProjectStatus.generating_audio, ProjectStatus.audio_ready
-    ),
-    "music": WorkNodeSpec(
-        "music", "music", ProjectStatus.generating_music, ProjectStatus.music_ready
-    ),
+    "videos": WorkNodeSpec("videos", "video", ProjectStatus.generating_videos, ProjectStatus.videos_ready),
+    "audio": WorkNodeSpec("audio", "audio", ProjectStatus.generating_audio, ProjectStatus.audio_ready),
+    "music": WorkNodeSpec("music", "music", ProjectStatus.generating_music, ProjectStatus.music_ready),
     "sfx_plan": WorkNodeSpec(
         "sfx_plan", "sfx_plan", ProjectStatus.sfx_planning, ProjectStatus.sfx_plan_ready
     ),
-    "sfx_gen": WorkNodeSpec(
-        "sfx_gen", "sfx_gen", ProjectStatus.generating_sfx, ProjectStatus.sfx_ready
-    ),
-    "assemble": WorkNodeSpec(
-        "assemble", "assemble", ProjectStatus.assembling, ProjectStatus.assembled
-    ),
-    "publish": WorkNodeSpec(
-        "publish", "publish", ProjectStatus.publishing, ProjectStatus.published
-    ),
+    "sfx_gen": WorkNodeSpec("sfx_gen", "sfx_gen", ProjectStatus.generating_sfx, ProjectStatus.sfx_ready),
+    "assemble": WorkNodeSpec("assemble", "assemble", ProjectStatus.assembling, ProjectStatus.assembled),
+    "publish": WorkNodeSpec("publish", "publish", ProjectStatus.publishing, ProjectStatus.published),
 }
 
 STEP_CODE_TO_NODE_TYPE: dict[str, str] = {s.step_code: s.node_type for s in WORK_NODES.values()}
@@ -137,12 +105,8 @@ SD_AGENT_STEP_CODES: dict[str, str] = {
 for _code in SD_AGENT_STEP_CODES:
     STEP_CODE_TO_NODE_TYPE[_code] = "sd_agent"
 
-RUNNING_TO_NODE_TYPE: dict[ProjectStatus, str] = {
-    s.running_status: s.node_type for s in WORK_NODES.values()
-}
-READY_TO_NODE_TYPE: dict[ProjectStatus, str] = {
-    s.ready_status: s.node_type for s in WORK_NODES.values()
-}
+RUNNING_TO_NODE_TYPE: dict[ProjectStatus, str] = {s.running_status: s.node_type for s in WORK_NODES.values()}
+READY_TO_NODE_TYPE: dict[ProjectStatus, str] = {s.ready_status: s.node_type for s in WORK_NODES.values()}
 # Коллизии legacy scene_design vs веер sd_*: канон — sd_agent/sd_assemble.
 RUNNING_TO_NODE_TYPE[ProjectStatus.scene_designing] = "sd_agent"
 RUNNING_TO_NODE_TYPE[ProjectStatus.scene_assembling] = "sd_assemble"
@@ -153,9 +117,7 @@ READY_TO_NODE_TYPE[ProjectStatus.scene_design_ready] = "sd_assemble"
 # generating_sfx, потерянные в прежнем списке main.py (§9#1 карты).
 WORKER_ACTIVE_STATUSES: tuple[ProjectStatus, ...] = tuple(RUNNING_TO_NODE_TYPE)
 
-NODE_TYPE_TO_RUNNING: dict[str, ProjectStatus] = {
-    s.node_type: s.running_status for s in WORK_NODES.values()
-}
+NODE_TYPE_TO_RUNNING: dict[str, ProjectStatus] = {s.node_type: s.running_status for s in WORK_NODES.values()}
 NODE_TYPE_TO_READY: dict[str, ProjectStatus] = {s.node_type: s.ready_status for s in WORK_NODES.values()}
 
 LINEAR_NODE_TYPES: list[str] = [

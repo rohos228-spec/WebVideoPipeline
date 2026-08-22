@@ -29,7 +29,6 @@ from app.services.gpt_operator import (
 )
 from app.services.gpt_operator_client import run_operator_api
 
-
 SAMPLE_TXT = """
 # ОТЧЁТ ПРОВЕРКИ
 verdict: fail
@@ -290,9 +289,7 @@ def test_check_mode_resolve_needs_source_prompt(tmp_path: Path, monkeypatch) -> 
                 {"id": src, "type": "excel_gpt", "position": {"x": 0, "y": 0}},
                 {"id": chk, "type": "excel_gpt", "position": {"x": 200, "y": 0}},
             ],
-            "edges": [
-                {"id": "e1", "source": src, "target": chk, "data": {"kind": "after"}}
-            ],
+            "edges": [{"id": "e1", "source": src, "target": chk, "data": {"kind": "after"}}],
         },
         "excel_gpt_nodes": {
             src: {"role": "assist", "transport": "api", "emitKinds": ["result"]},
@@ -426,9 +423,7 @@ def test_check_mode_gate_edges(tmp_path: Path, monkeypatch) -> None:
                 },
             ],
         },
-        "excel_gpt_nodes": {
-            key: {"role": "assist", "checkMode": True, "transport": "api"}
-        },
+        "excel_gpt_nodes": {key: {"role": "assist", "checkMode": True, "transport": "api"}},
     }
     save_operator_result(
         p,
@@ -447,20 +442,10 @@ def test_check_mode_gate_edges(tmp_path: Path, monkeypatch) -> None:
 def test_needs_check_writeback_retry_detects_missing_tsv() -> None:
     from app.services.gpt_operator_client import _needs_check_writeback_retry
 
-    refuse = (
-        "verdict: fail\n"
-        "отсутствует сам файл `project.xlsx`\n"
-        "file: original\n"
-    )
+    refuse = "verdict: fail\nотсутствует сам файл `project.xlsx`\nfile: original\n"
     assert _needs_check_writeback_retry(refuse) is True
 
-    good = (
-        "# ОТЧЁТ\nverdict: fail\n\n"
-        "--- XLSX_WRITEBACK ---\n"
-        "# Лист: план\n"
-        "A\tB\n"
-        "1\t2\n"
-    )
+    good = "# ОТЧЁТ\nverdict: fail\n\n--- XLSX_WRITEBACK ---\n# Лист: план\nA\tB\n1\t2\n"
     assert _needs_check_writeback_retry(good) is False
 
     marker_only = "ok\n\n--- XLSX_WRITEBACK ---\n(no sheets)\n"

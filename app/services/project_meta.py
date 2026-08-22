@@ -8,9 +8,7 @@ from typing import Any
 
 from loguru import logger
 
-PROMPT_META_KEYS: frozenset[str] = frozenset(
-    {"custom_prompts", "prompt_slot_variants", "prompt_history"}
-)
+PROMPT_META_KEYS: frozenset[str] = frozenset({"custom_prompts", "prompt_slot_variants", "prompt_history"})
 
 # UI часто шлёт весь meta из React Query кэша. Пока воркер писал
 # gpt_operator_results / storage_nodes — stale PATCH затирал их null/{} и
@@ -67,10 +65,7 @@ def audit_prompt_meta_change(
         n_before = _prompt_key_count(before, key)
         n_after = _prompt_key_count(after, key)
         if n_after < n_before or (n_before and key not in (after or {})):
-            line = (
-                f"{ts}\tsource={source}\tproject={pid}\tkey={key}\t"
-                f"keys {n_before} → {n_after}"
-            )
+            line = f"{ts}\tsource={source}\tproject={pid}\tkey={key}\tkeys {n_before} → {n_after}"
             _write_prompts_audit(line)
             logger.warning("prompts_audit: {}", line)
 

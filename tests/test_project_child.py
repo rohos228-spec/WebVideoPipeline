@@ -106,9 +106,7 @@ async def test_create_child_inherits_settings_not_content(
 
 
 @pytest.mark.asyncio
-async def test_child_noderun_uses_effective_sd_types(
-    session: AsyncSession, tmp_path, monkeypatch
-) -> None:
+async def test_child_noderun_uses_effective_sd_types(session: AsyncSession, tmp_path, monkeypatch) -> None:
     """Баг #59: ребёнок получал NodeRun.type=excel_gpt → ложные «прервано».
 
     Родитель создаётся через ensure_run → effective_node_type (sd_agent).
@@ -185,4 +183,3 @@ async def test_child_noderun_uses_effective_sd_types(
     assert by_key["n_excel_gpt_sd_camera"] == "sd_agent"
     assert by_key["n_excel_gpt_sd_asm"] == "sd_assemble"
     assert by_key["n_excel_gpt_sd_characters"] == "sd_agent"
-

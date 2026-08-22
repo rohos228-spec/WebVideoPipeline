@@ -2,6 +2,7 @@
 
 При ⏹ также отменяем asyncio-task xlsx-flow (как test-prompt 🛑 Стоп).
 """
+
 from __future__ import annotations
 
 import asyncio

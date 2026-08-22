@@ -33,11 +33,7 @@ async def sync_step_prompt_to_db(
     if key is None:
         return False
     existing = (
-        await session.execute(
-            select(MasterPrompt).where(
-                MasterPrompt.key == key, MasterPrompt.version == 1
-            )
-        )
+        await session.execute(select(MasterPrompt).where(MasterPrompt.key == key, MasterPrompt.version == 1))
     ).scalar_one_or_none()
     if existing is None:
         session.add(MasterPrompt(key=key, version=1, text=content, active=True))

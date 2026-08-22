@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from loguru import logger
 
@@ -40,9 +41,7 @@ class CreateJob:
     raw_url: str | None = None
     error: str | None = None
     created_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-        .astimezone()
-        .isoformat(timespec="seconds")
+        default_factory=lambda: datetime.now(UTC).astimezone().isoformat(timespec="seconds")
     )
     started_at: str | None = None
     finished_at: str | None = None
@@ -54,11 +53,7 @@ class CreateJob:
     def to_dict(self) -> dict[str, Any]:
         from app.services.generation_storage import format_elapsed_min_sec
 
-        label = (
-            format_elapsed_min_sec(self.elapsed_sec)
-            if self.elapsed_sec is not None
-            else None
-        )
+        label = format_elapsed_min_sec(self.elapsed_sec) if self.elapsed_sec is not None else None
         return {
             "job_id": self.id,
             "ok": self.status != "failed",
@@ -172,8 +167,7 @@ def list_active_jobs(*, provider: str | None = None) -> list[CreateJob]:
     out = [
         j
         for j in _JOBS.values()
-        if j.status in {"queued", "processing"}
-        and (provider is None or j.provider == provider)
+        if j.status in {"queued", "processing"} and (provider is None or j.provider == provider)
     ]
     out.sort(key=lambda j: (0 if j.status == "processing" else 1, j.created_at))
     return out
@@ -209,10 +203,8 @@ async def enqueue_generation(
     run: GenerateFn,
 ) -> CreateJob:
     """Регистрирует job (queued) и стартует task — слот API берёт семафор."""
-    fp = _job_fingerprint(
-        media=media, model=model, provider=provider, prompt=prompt, params=params
-    )
-    now = datetime.now(timezone.utc).timestamp()
+    fp = _job_fingerprint(media=media, model=model, provider=provider, prompt=prompt, params=params)
+    now = datetime.now(UTC).timestamp()
     async with _LOCK:
         stale = [k for k, (_, ts) in _RECENT_FP.items() if now - ts > _DEDUP_WINDOW_S]
         for k in stale:
@@ -295,9 +287,7 @@ async def _run_job(
     async with _semaphore(job.provider):
         job.status = "processing"
         job.queue_position = None
-        job.started_at = (
-            datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        )
+        job.started_at = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
         t0 = asyncio.get_running_loop().time()
         _refresh_queue_positions()
         update_sidecar(job.path, status="processing", started_at=job.started_at)
@@ -313,9 +303,7 @@ async def _run_job(
             result = await run(job.path)
             final_path = Path(getattr(result, "file_path", job.path))
             if not final_path.is_file() or final_path.stat().st_size < 32:
-                raise RuntimeError(
-                    f"Create job: файл не сохранён на диск ({final_path})"
-                )
+                raise RuntimeError(f"Create job: файл не сохранён на диск ({final_path})")
 
             root = generations_root().resolve()
             try:
@@ -346,9 +334,7 @@ async def _run_job(
             job.raw_url = getattr(result, "raw_url", None)
             job.preview_url = f"/api/files?path={job.path.resolve()}"
             job.status = "done"
-            job.finished_at = (
-                datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            )
+            job.finished_at = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
             job.elapsed_sec = max(0, int(round(asyncio.get_running_loop().time() - t0)))
             write_sidecar(
                 job.path,
@@ -379,9 +365,7 @@ async def _run_job(
         except Exception as e:  # noqa: BLE001
             job.status = "failed"
             job.error = str(getattr(e, "reason", None) or e)[:500]
-            job.finished_at = (
-                datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-            )
+            job.finished_at = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
             job.elapsed_sec = max(0, int(round(asyncio.get_running_loop().time() - t0)))
             update_sidecar(
                 job.path,

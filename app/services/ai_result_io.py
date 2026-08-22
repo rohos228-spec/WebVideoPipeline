@@ -26,9 +26,7 @@ from loguru import logger
 # ── Чекпоинты ИИ-задач в project.meta["ai_jobs"] ──────────────────────────
 
 
-def ai_job_checkpoint(
-    project: Any, name: str, *, input_hash: str | None = None
-) -> Any | None:
+def ai_job_checkpoint(project: Any, name: str, *, input_hash: str | None = None) -> Any | None:
     """Сохранённый результат ИИ-задачи или None.
 
     С ``input_hash`` (этап 2, C.4): чекпоинт валиден только для того же
@@ -46,8 +44,7 @@ def ai_job_checkpoint(
         stored = hashes.get(name) if isinstance(hashes, dict) else None
         if stored != input_hash:
             logger.info(
-                "[#{}] ai_job {}: чекпоинт invalidated: input changed "
-                "(was={}, now={})",
+                "[#{}] ai_job {}: чекпоинт invalidated: input changed (was={}, now={})",
                 getattr(project, "id", "?"),
                 name,
                 str(stored)[:24],
@@ -57,9 +54,7 @@ def ai_job_checkpoint(
     return payload
 
 
-def save_ai_job_checkpoint(
-    project: Any, name: str, payload: Any, *, input_hash: str | None = None
-) -> None:
+def save_ai_job_checkpoint(project: Any, name: str, payload: Any, *, input_hash: str | None = None) -> None:
     meta = getattr(project, "meta", None)
     if not isinstance(meta, dict):
         return
@@ -147,11 +142,7 @@ async def text_job(
         logger.debug("text_job {}: input_hash не собрать", name, exc_info=True)
         job_hash = None
 
-    cached = (
-        ai_job_checkpoint(project, name, input_hash=job_hash)
-        if use_checkpoint
-        else None
-    )
+    cached = ai_job_checkpoint(project, name, input_hash=job_hash) if use_checkpoint else None
     if cached is not None:
         # Ревью [3/4]: кэш-хит обязан пройти ТЕКУЩИЙ validate — ужесточение
         # валидатора не должно пропускать старый payload по хэшу.
@@ -161,8 +152,7 @@ async def text_job(
             cached_problems = [f"validate чекпоинта упал: {e}"]
         if cached_problems:
             logger.info(
-                "[#{}] ai_job {}: чекпоинт не проходит текущий validate "
-                "({}) — пересчёт",
+                "[#{}] ai_job {}: чекпоинт не проходит текущий validate ({}) — пересчёт",
                 getattr(project, "id", "?"),
                 name,
                 cached_problems[:3],
@@ -211,12 +201,8 @@ async def text_job(
         problems = validate(payload)
         if not problems:
             if use_checkpoint:
-                save_ai_job_checkpoint(
-                    project, name, payload, input_hash=job_hash
-                )
-            return TextJobResult(
-                payload=payload, attempts=attempt, problems_log=problems_log
-            )
+                save_ai_job_checkpoint(project, name, payload, input_hash=job_hash)
+            return TextJobResult(payload=payload, attempts=attempt, problems_log=problems_log)
         problems_log.append(problems)
         feedback = "\n".join(problems)
         logger.warning(
@@ -238,8 +224,14 @@ def ffprobe_duration(path: Path) -> float | None:
     try:
         out = subprocess.run(
             [
-                "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1", str(path),
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
             ],
             capture_output=True,
             text=True,

@@ -20,13 +20,9 @@ from app.services.xlsx_text_writeback import apply_sheet_blocks_to_xlsx
 def test_llm_contract_voiceover_and_writeback() -> None:
     bad = validate_model_reply("просто текст", kind="voiceover")
     assert bad.ok is False
-    good = validate_model_reply(
-        "<<<VOICEOVER>>>\nhello\n<<<END>>>", kind="voiceover"
-    )
+    good = validate_model_reply("<<<VOICEOVER>>>\nhello\n<<<END>>>", kind="voiceover")
     assert good.ok is True
-    wb = validate_model_reply(
-        "# Лист: план\n@row=49\ta\tb\n", kind="xlsx_writeback"
-    )
+    wb = validate_model_reply("# Лист: план\n@row=49\ta\tb\n", kind="xlsx_writeback")
     assert wb.ok is True
     accomp = build_api_accompany("hi", expect_xlsx_writeback=True)
     assert "# Лист:" in accomp or "TSV" in accomp or "@row=" in accomp
@@ -96,9 +92,7 @@ def test_harness_forbidden_steps() -> None:
 
 
 @pytest.mark.asyncio
-async def test_harness_gate_or_raise_ok_and_fail(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_harness_gate_or_raise_ok_and_fail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Общий гейт шага: ок-данные → проходит; нет project.xlsx → RuntimeError."""
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 

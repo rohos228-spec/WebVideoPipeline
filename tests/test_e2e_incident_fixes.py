@@ -1,20 +1,21 @@
-﻿"""End-to-End verification test suite for incident #14 bugfixes."""
+"""End-to-End verification test suite for incident #14 bugfixes."""
 
 from __future__ import annotations
 
 import uuid
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models import Artifact, ArtifactKind, Base, Frame, FrameStatus, Project, ProjectStatus
-from app.services.project_state import compute_actual_status
 from app.orchestrator.steps.generate_images import (
     INFLIGHT_ATTR,
     _claim_shot1_batch,
     _clear_stale_inflight,
     _pending_shot1_numbers,
 )
+from app.services.project_state import compute_actual_status
 
 
 @pytest_asyncio.fixture

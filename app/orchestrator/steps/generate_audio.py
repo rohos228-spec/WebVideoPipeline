@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from pathlib import Path
 
@@ -29,6 +28,7 @@ from app.services.artifact_recovery import (
     recover_scene_videos_from_disk,
     recover_whisper_from_disk,
 )
+from app.services.asr import active_asr_backend
 from app.services.frame_audio import (
     FrameAudioClip,
     align_existing_voice_full,
@@ -37,7 +37,6 @@ from app.services.frame_audio import (
 )
 from app.services.mapper import extract_local_frame_words
 from app.services.media_probe import probe_duration
-from app.services.asr import active_asr_backend
 from app.services.whisper import WordTS, dump_words_json
 from app.settings import settings
 
@@ -98,18 +97,20 @@ async def _persist_audio_results(
         }
         for c in clips
     ]
-    session.add(Artifact(
-        project_id=project.id,
-        kind=ArtifactKind.audio,
-        uuid=uuid.uuid4().hex,
-        path=str(full_audio_path),
-        meta={
-            "mode": "disk_whisper" if source == "disk_whisper" else "per_frame",
-            "source": source,
-            "clip_count": len(clips),
-            "clips": clip_meta,
-        },
-    ))
+    session.add(
+        Artifact(
+            project_id=project.id,
+            kind=ArtifactKind.audio,
+            uuid=uuid.uuid4().hex,
+            path=str(full_audio_path),
+            meta={
+                "mode": "disk_whisper" if source == "disk_whisper" else "per_frame",
+                "source": source,
+                "clip_count": len(clips),
+                "clips": clip_meta,
+            },
+        )
+    )
     await session.flush()
 
     frame_segments = [
@@ -138,13 +139,15 @@ async def _persist_audio_results(
 
         whisper_meta["r49_hash"] = _r49_content_hash(cells)
     art_uuid = uuid.uuid4().hex
-    session.add(Artifact(
-        project_id=project.id,
-        kind=ArtifactKind.whisper_words,
-        uuid=art_uuid,
-        path=str(words_path),
-        meta=whisper_meta or None,
-    ))
+    session.add(
+        Artifact(
+            project_id=project.id,
+            kind=ArtifactKind.whisper_words,
+            uuid=art_uuid,
+            path=str(words_path),
+            meta=whisper_meta or None,
+        )
+    )
     from app.services.asr import active_asr_backend
     from app.services.asr_words_store import replace_project_asr_words
 
@@ -209,10 +212,10 @@ async def run(
         await recover_whisper_from_disk(session, project)
 
     frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     if not frames:
         raise RuntimeError("нет кадров")
 
@@ -246,8 +249,7 @@ async def run(
     timeline_frames, cells = timeline_frames_and_cells(project, frames)
     if not timeline_frames:
         raise RuntimeError(
-            "нет закадрового текста в БД (Frame.voiceover_text) — "
-            "сделай split/Импорт Excel или заполни Базу"
+            "нет закадрового текста в БД (Frame.voiceover_text) — сделай split/Импорт Excel или заполни Базу"
         )
 
     if voice_path is not None and voice_path.is_file():

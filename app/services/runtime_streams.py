@@ -75,9 +75,7 @@ def load_runtime_streams() -> dict[str, int]:
         except Exception as e:  # noqa: BLE001
             logger.warning("runtime_streams: read failed: {}", e)
     return {
-        "worker_max_parallel": _clamp(
-            data.get("worker_max_parallel"), WORKER_MIN, WORKER_MAX, _env_worker()
-        ),
+        "worker_max_parallel": _clamp(data.get("worker_max_parallel"), WORKER_MIN, WORKER_MAX, _env_worker()),
         "default_outsee_streams": _clamp(
             data.get("default_outsee_streams"),
             OUTSEE_MIN,

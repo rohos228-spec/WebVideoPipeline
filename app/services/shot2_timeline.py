@@ -33,9 +33,7 @@ def build_assembly_clip_specs(
     for fr in frames:
         total = duration_by_frame.get(fr.number)
         if total is None:
-            raise RuntimeError(
-                f"нет таймлайна аудио для кадра {fr.number} — перезапустите «Аудио»"
-            )
+            raise RuntimeError(f"нет таймлайна аудио для кадра {fr.number} — перезапустите «Аудио»")
         p1 = shot1_paths.get(fr.number)
         p2 = shot2_paths.get(fr.number)
         has_p1 = p1 is not None and p1.is_file()
@@ -53,9 +51,7 @@ def build_assembly_clip_specs(
             )
             continue
         if not has_p1:
-            raise RuntimeError(
-                f"нет клипа shot_01/shot_02 для кадра {fr.number}"
-            )
+            raise RuntimeError(f"нет клипа shot_01/shot_02 для кадра {fr.number}")
         assert p1 is not None
         if has_p2:
             d1, d2 = split_voiceover_duration(total)

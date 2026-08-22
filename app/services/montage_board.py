@@ -64,11 +64,7 @@ def _preview_url(path: Path | None) -> str | None:
 def _find_shot1_video(videos_dir: Path, frame_number: int) -> Path | None:
     if not videos_dir.is_dir():
         return None
-    candidates = [
-        p
-        for p in videos_dir.glob(f"clip_{frame_number:03d}_*.mp4")
-        if "_s2_" not in p.name
-    ]
+    candidates = [p for p in videos_dir.glob(f"clip_{frame_number:03d}_*.mp4") if "_s2_" not in p.name]
     if not candidates:
         return None
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
@@ -202,11 +198,7 @@ def _snapshot_frames(frames: list[Frame]) -> list[_FrameBoardSnapshot]:
                 voiceover_text=fr.voiceover_text or "",
                 start_ts=float(fr.start_ts) if fr.start_ts is not None else None,
                 end_ts=float(fr.end_ts) if fr.end_ts is not None else None,
-                duration_seconds=(
-                    float(fr.duration_seconds)
-                    if fr.duration_seconds is not None
-                    else None
-                ),
+                duration_seconds=(float(fr.duration_seconds) if fr.duration_seconds is not None else None),
                 image_prompt=(fr.image_prompt or "").strip(),
                 animation_prompt=(fr.animation_prompt or "").strip(),
                 attrs=dict(fr.attrs or {}),
@@ -248,13 +240,17 @@ async def _overlay_active_prompt_versions(
         return
     ids = [int(fr.id) for fr in frames]
     rows = (
-        await session.execute(
-            select(PromptVersion).where(
-                PromptVersion.frame_id.in_(ids),
-                PromptVersion.is_active.is_(True),
+        (
+            await session.execute(
+                select(PromptVersion).where(
+                    PromptVersion.frame_id.in_(ids),
+                    PromptVersion.is_active.is_(True),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     by_frame: dict[int, dict[str, str]] = {}
     for pv in rows:
         text = (pv.text or "").strip()
@@ -285,9 +281,7 @@ def _read_source_prompts_once(
     if not frames or not xlsx_path.is_file():
         return out
 
-    excel: dict[int, dict[str, str]] = {
-        fr.number: _empty_prompt_row() for fr in frames
-    }
+    excel: dict[int, dict[str, str]] = {fr.number: _empty_prompt_row() for fr in frames}
     try:
         wb = load_workbook(filename=str(xlsx_path), data_only=True, read_only=True)
     except Exception as e:  # noqa: BLE001
@@ -299,18 +293,10 @@ def _read_source_prompts_once(
             for fr in frames:
                 col = plan_column_for_frame(fr.number)
                 excel[fr.number] = {
-                    "image_prompt_shot1": (
-                        _cell_text(ws, ROW_IMAGE_PROMPT_V8, col) or ""
-                    ).strip(),
-                    "image_prompt_shot2": (
-                        _cell_text(ws, ROW_IMAGE_PROMPT_2_V8, col) or ""
-                    ).strip(),
-                    "animation_prompt_shot1": (
-                        _cell_text(ws, ROW_VIDEO_PROMPT_V8, col) or ""
-                    ).strip(),
-                    "animation_prompt_shot2": (
-                        _cell_text(ws, ROW_VIDEO_PROMPT_2_V8, col) or ""
-                    ).strip(),
+                    "image_prompt_shot1": (_cell_text(ws, ROW_IMAGE_PROMPT_V8, col) or "").strip(),
+                    "image_prompt_shot2": (_cell_text(ws, ROW_IMAGE_PROMPT_2_V8, col) or "").strip(),
+                    "animation_prompt_shot1": (_cell_text(ws, ROW_VIDEO_PROMPT_V8, col) or "").strip(),
+                    "animation_prompt_shot2": (_cell_text(ws, ROW_VIDEO_PROMPT_2_V8, col) or "").strip(),
                 }
     finally:
         wb.close()
@@ -320,9 +306,7 @@ def _read_source_prompts_once(
         attrs = fr.attrs
         cell = excel.get(fr.number) or {}
         img1 = fr.image_prompt or cell.get("image_prompt_shot1") or ""
-        img2 = (attrs.get(SHOT2_PROMPT_ATTR) or "").strip() or (
-            cell.get("image_prompt_shot2") or ""
-        )
+        img2 = (attrs.get(SHOT2_PROMPT_ATTR) or "").strip() or (cell.get("image_prompt_shot2") or "")
         vid1 = fr.animation_prompt or cell.get("animation_prompt_shot1") or ""
         vid2 = (attrs.get(SHOT2_VIDEO_PROMPT_ATTR) or "").strip()
         if len(vid2) < MIN_SHOT2_VIDEO_PROMPT_LEN:
@@ -431,11 +415,11 @@ async def build_montage_board(
         return list(
             (
                 await session.execute(
-                    select(Frame)
-                    .where(Frame.project_id == project_id)
-                    .order_by(Frame.number.asc())
+                    select(Frame).where(Frame.project_id == project_id).order_by(Frame.number.asc())
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
 
     frames_orm = await _load_frames()
@@ -456,9 +440,7 @@ async def build_montage_board(
                 )
                 frames_orm = await _load_frames()
             except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    "montage_board: xlsx bootstrap project {}: {}", project_id, e
-                )
+                logger.warning("montage_board: xlsx bootstrap project {}: {}", project_id, e)
     try:
         from app.services.ensure_frames_from_disk import ensure_frames_from_disk_media
 
@@ -466,9 +448,7 @@ async def build_montage_board(
         if created:
             frames_orm = await _load_frames()
     except Exception as e:  # noqa: BLE001
-        logger.warning(
-            "montage_board: disk frames bootstrap project {}: {}", project_id, e
-        )
+        logger.warning("montage_board: disk frames bootstrap project {}: {}", project_id, e)
 
     try:
         from app.services.frame_timeline_sync import sync_frame_timestamps_for_board
@@ -477,17 +457,13 @@ async def build_montage_board(
         if sync_info.get("updated"):
             frames_orm = await _load_frames()
     except Exception as e:  # noqa: BLE001
-        logger.warning(
-            "montage_board: frame_timeline_sync project {}: {}", project_id, e
-        )
+        logger.warning("montage_board: frame_timeline_sync project {}: {}", project_id, e)
 
     # Активные prompt_versions (DB v2) перекрывают Frame.* перед снимком для UI.
     try:
         await _overlay_active_prompt_versions(session, frames_orm)
     except Exception as e:  # noqa: BLE001
-        logger.warning(
-            "montage_board: prompt_versions overlay project {}: {}", project_id, e
-        )
+        logger.warning("montage_board: prompt_versions overlay project {}: {}", project_id, e)
 
     # ORM только здесь; дальше — plain snapshots (to_thread не трогает Session).
     frames = _snapshot_frames(frames_orm)
@@ -504,9 +480,7 @@ async def build_montage_board(
     scenes_dir = data_dir / "scenes"
     videos_dir = data_dir / "videos"
 
-    frame_videos: list[
-        tuple[_FrameBoardSnapshot, Path | None, Path | None, dict, bool, bool]
-    ] = []
+    frame_videos: list[tuple[_FrameBoardSnapshot, Path | None, Path | None, dict, bool, bool]] = []
     all_vid_paths: list[Path | None] = []
     for fr in frames:
         ex = excel_by_frame.get(fr.number, {})
@@ -538,9 +512,7 @@ async def build_montage_board(
         img1 = find_shot1_image(scenes_dir, fr.number)
         img2 = find_shot2_image(scenes_dir, fr.number)
         scene_seconds = (
-            fr.duration_seconds
-            if fr.duration_seconds is not None and fr.duration_seconds > 0
-            else None
+            fr.duration_seconds if fr.duration_seconds is not None and fr.duration_seconds > 0 else None
         )
         shot1_use, shot2_use = _scene_use_durations(scene_seconds, has_shot2=has_shot2_video)
         vid1_dur = next(dur_iter)
@@ -549,9 +521,7 @@ async def build_montage_board(
         vo_end = fr.end_ts
         shot1_timeline_start = vo_start
         shot1_timeline_end = (
-            round(vo_start + shot1_use, 3)
-            if vo_start is not None and shot1_use is not None
-            else None
+            round(vo_start + shot1_use, 3) if vo_start is not None and shot1_use is not None else None
         )
         shot2_timeline_start = shot1_timeline_end
         shot2_timeline_end = vo_end if has_shot2 else None

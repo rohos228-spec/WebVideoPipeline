@@ -86,9 +86,7 @@ async def test_replace_project_asr_words_assigns_frames(session) -> None:
     assert rows[0].backend == "nvidia"
 
     # Replace clears previous run
-    await replace_project_asr_words(
-        session, p.id, [WordTS("только", 0.0, 0.3)], backend="whisper"
-    )
+    await replace_project_asr_words(session, p.id, [WordTS("только", 0.0, 0.3)], backend="whisper")
     await session.commit()
     rows2 = await load_project_asr_words(session, p.id)
     assert len(rows2) == 1

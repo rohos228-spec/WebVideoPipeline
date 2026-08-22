@@ -21,9 +21,7 @@ def is_local_fleet_node(node: FleetNode) -> bool:
         return True
     if node.is_main and settings.fleet_is_main:
         return True
-    if (node.base_url or "").rstrip("/") == settings.fleet_agent_base_url.rstrip(
-        "/"
-    ):
+    if (node.base_url or "").rstrip("/") == settings.fleet_agent_base_url.rstrip("/"):
         return True
     return False
 
@@ -34,9 +32,7 @@ async def ensure_self_fleet_node() -> None:
     name = self_node_name()
     base = settings.fleet_agent_base_url.rstrip("/")
     async with session_scope() as session:
-        row = (
-            await session.execute(select(FleetNode).where(FleetNode.name == name))
-        ).scalar_one_or_none()
+        row = (await session.execute(select(FleetNode).where(FleetNode.name == name))).scalar_one_or_none()
         if row is None:
             row = FleetNode(
                 name=name,

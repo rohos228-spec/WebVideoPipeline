@@ -14,9 +14,7 @@ VALID_WINDOWS_MIN = frozenset({1, 5, 30, 60})
 
 # loguru / типичный префикс: 2026-07-29 06:22:01.123 | INFO | ...
 # PowerShell backend: 2026-07-29 11:44:00  message
-_TS_RE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)"
-)
+_TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)")
 
 
 def bugs_dir() -> Path:
@@ -130,6 +128,7 @@ def filter_log_window(text: str, *, minutes: int, now: datetime | None = None) -
         return "\n".join(kept)
     # нет timestamp — отдаём последние ~800 строк
     return "\n".join(lines[-800:])
+
 
 def collect_log_snippets(*, minutes: int) -> list[dict[str, Any]]:
     snippets: list[dict[str, Any]] = []

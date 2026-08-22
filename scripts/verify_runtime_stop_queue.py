@@ -24,10 +24,8 @@ async def _reset_queue(ids: list[int]) -> None:
 async def _ensure_verify_projects(session) -> list[Project]:
     """Переиспользовать runtime-verify-* из БД или создать заново."""
     rows = (
-        await session.execute(
-            select(Project).where(Project.slug.like("runtime-verify-%"))
-        )
-    ).scalars().all()
+        (await session.execute(select(Project).where(Project.slug.like("runtime-verify-%")))).scalars().all()
+    )
     by_slug = {p.slug: p for p in rows}
     projects: list[Project] = []
     for i in range(1, 5):
@@ -64,9 +62,7 @@ async def main() -> int:
         await _reset_queue(sorted(ids))
 
         for p in projects:
-            await set_gen_queue_run(
-                s, p, mode="until_node", target_node_type="script"
-            )
+            await set_gen_queue_run(s, p, mode="until_node", target_node_type="script")
         await s.commit()
 
         p2 = projects[1]
@@ -89,14 +85,14 @@ async def main() -> int:
                 errors.append("#2 auto_advance after STOP must be False")
             blocker = await gen_queue_blocks_project(s3, p4.id)
             if blocker != p2.id:
-                errors.append(
-                    f"#4 should be blocked by #2 user_stop, got blocker={blocker}"
-                )
+                errors.append(f"#4 should be blocked by #2 user_stop, got blocker={blocker}")
 
         async with session_scope() as s4:
             rows = (
-                await s4.execute(select(Project).where(Project.slug.like("runtime-verify-%")))
-            ).scalars().all()
+                (await s4.execute(select(Project).where(Project.slug.like("runtime-verify-%"))))
+                .scalars()
+                .all()
+            )
             for p in rows:
                 p.status = ProjectStatus.new
                 meta = dict(p.meta or {})
@@ -107,14 +103,14 @@ async def main() -> int:
         await _reset_queue(sorted(ids))
         async with session_scope() as s5:
             rows = (
-                await s5.execute(select(Project).where(Project.slug.like("runtime-verify-%")))
-            ).scalars().all()
+                (await s5.execute(select(Project).where(Project.slug.like("runtime-verify-%"))))
+                .scalars()
+                .all()
+            )
             by_id = {p.id: p for p in rows}
             for pid in sorted(ids):
                 p = by_id[pid]
-                await set_gen_queue_run(
-                    s5, p, mode="until_node", target_node_type="script"
-                )
+                await set_gen_queue_run(s5, p, mode="until_node", target_node_type="script")
                 p.auto_mode = True
             await s5.commit()
             started = await gen_queue_tick(s5)
@@ -123,8 +119,7 @@ async def main() -> int:
             await s5.refresh(first)
             if started != 1 or first.status != ProjectStatus.planning:
                 errors.append(
-                    f"gen_queue_tick should start #1 plan, got started={started} "
-                    f"status={first.status.value}"
+                    f"gen_queue_tick should start #1 plan, got started={started} status={first.status.value}"
                 )
 
     if errors:

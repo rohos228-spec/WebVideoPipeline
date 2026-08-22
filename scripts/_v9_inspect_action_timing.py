@@ -1,4 +1,5 @@
 """Inspect action.json timing vs phase counts for camera budget issues."""
+
 from __future__ import annotations
 
 import json

@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.contracts.policy import run_with_contract
 from app.models import Base, LlmCall
-from app.services import gpt_api, llm_ledger as ledger
+from app.services import gpt_api
+from app.services import llm_ledger as ledger
 from app.services.input_hash import prompt_version_hash
 from app.settings import settings
 

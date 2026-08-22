@@ -48,9 +48,7 @@ HARNESS_REPAIRABLE_STEPS = frozenset(
 # Шаговые N/N-гейты (harness_gate_or_raise step=), не путать со status assembled.
 _IMG_PR_STEPS = frozenset({"img_pr", "image_prompts"})
 _ANIM_PR_STEPS = frozenset({"anim_pr", "animation_prompts"})
-_EXCEL_GPT_STEPS = frozenset(
-    {"excel_gpt", "enrich_1", "enrich_2", "enrich_3", "enrich_4", "enrich_5"}
-)
+_EXCEL_GPT_STEPS = frozenset({"excel_gpt", "enrich_1", "enrich_2", "enrich_3", "enrich_4", "enrich_5"})
 
 # PNG сцены — после шага img. anim_pr пишет текст из image_prompt, картинок ещё нет.
 _SCENES_REQUIRED_STATUSES = {
@@ -223,9 +221,7 @@ def _count_project_log_errors(project_id: int, slug: str) -> tuple[int, str]:
     except Exception as e:  # noqa: BLE001
         return 0, f"read-fail:{e}"
     for ln in lines:
-        if any(n and n in ln for n in needles) and (
-            "ERROR" in ln or "WARNING" in ln or "Traceback" in ln
-        ):
+        if any(n and n in ln for n in needles) and ("ERROR" in ln or "WARNING" in ln or "Traceback" in ln):
             hits.append(ln)
     return len(hits), log.name
 
@@ -252,9 +248,7 @@ def _load_frame_prompt_rows(
         return [], str(e)
     rows: list[tuple[int, str, str, str]] = []
     for r in raw:
-        rows.append(
-            (int(r[0] or 0), str(r[1] or ""), str(r[2] or ""), str(r[3] or ""))
-        )
+        rows.append((int(r[0] or 0), str(r[1] or ""), str(r[2] or ""), str(r[3] or "")))
     return rows, ""
 
 
@@ -296,9 +290,7 @@ def _append_prompt_nn_checks(
             for n, _, img, anim in frame_rows
             if (not is_skippable_empty_prompt(img)) and is_skippable_empty_prompt(anim)
         ]
-        usable = sum(
-            1 for _, _, img, _ in frame_rows if not is_skippable_empty_prompt(img)
-        )
+        usable = sum(1 for _, _, img, _ in frame_rows if not is_skippable_empty_prompt(img))
         ok = not missing
         checks.append(
             HarnessCheck(
@@ -328,19 +320,13 @@ def verify_project_disk(
     repair: list[str] = []
 
     xlsx = data_dir / "project.xlsx"
-    checks.append(
-        HarnessCheck("project_xlsx", xlsx.is_file(), str(xlsx) if xlsx.is_file() else "missing")
-    )
+    checks.append(HarnessCheck("project_xlsx", xlsx.is_file(), str(xlsx) if xlsx.is_file() else "missing"))
     if not xlsx.is_file():
         repair.append("plan")
 
     scenes = list((data_dir / "scenes").glob("*.png")) if (data_dir / "scenes").is_dir() else []
     videos = list((data_dir / "videos").glob("*.mp4")) if (data_dir / "videos").is_dir() else []
-    heroes = (
-        list((data_dir / "characters").glob("*.png"))
-        if (data_dir / "characters").is_dir()
-        else []
-    )
+    heroes = list((data_dir / "characters").glob("*.png")) if (data_dir / "characters").is_dir() else []
     final = list((data_dir / "final").glob("*.mp4")) if (data_dir / "final").is_dir() else []
 
     scenes_required = status in _SCENES_REQUIRED_STATUSES
@@ -371,9 +357,7 @@ def verify_project_disk(
 
             excel_persons = parse_persons_sheet(xlsx)
             for ch in excel_persons:
-                if is_polluted_character_field(ch.name) or is_polluted_character_field(
-                    ch.look
-                ):
+                if is_polluted_character_field(ch.name) or is_polluted_character_field(ch.look):
                     polluted.append(ch.id)
         except Exception as e:  # noqa: BLE001
             logger.debug("harness persons parse skip: {}", e)
@@ -401,8 +385,7 @@ def verify_project_disk(
         HarnessCheck(
             "heroes_png",
             heroes_ok,
-            f"n={len(heroes)} excel={len(excel_persons)} "
-            f"full_required={heroes_full} status={status}",
+            f"n={len(heroes)} excel={len(excel_persons)} full_required={heroes_full} status={status}",
         )
     )
     if heroes_full and not heroes_ok:
@@ -555,9 +538,7 @@ def verify_project_disk(
                 )
             )
     else:
-        _append_prompt_nn_checks(
-            checks, repair, nn_rows, status=status, step=step
-        )
+        _append_prompt_nn_checks(checks, repair, nn_rows, status=status, step=step)
 
     # node_runs failed
     failed_n = 0
@@ -577,9 +558,7 @@ def verify_project_disk(
                     (row[0],),
                 ).fetchone()[0]
             db.close()
-            checks.append(
-                HarnessCheck("node_runs_failed", failed_n == 0, f"failed={failed_n}")
-            )
+            checks.append(HarnessCheck("node_runs_failed", failed_n == 0, f"failed={failed_n}"))
     except Exception as e:  # noqa: BLE001
         checks.append(HarnessCheck("node_runs", False, str(e)))
 
@@ -702,9 +681,7 @@ def verify_project_http(
         checked = 0
         for a in artifacts:
             checked += 1
-            status, nbytes, _ = _http_get(
-                f"{base}/api/artifacts/{a['uuid']}/file", timeout=30.0, max_bytes=1
-            )
+            status, nbytes, _ = _http_get(f"{base}/api/artifacts/{a['uuid']}/file", timeout=30.0, max_bytes=1)
             if status != 200 or nbytes <= 0:
                 fail += 1
         checks.append(
@@ -730,9 +707,7 @@ def verify_project_http(
                 fail += 1
             if checked >= 40:
                 break
-        checks.append(
-            HarnessCheck("assets_http", fail == 0, f"checked={checked} fail={fail}")
-        )
+        checks.append(HarnessCheck("assets_http", fail == 0, f"checked={checked} fail={fail}"))
     else:
         checks.append(HarnessCheck("assets_http", False, f"status={st}"))
 
@@ -747,9 +722,7 @@ def verify_project_http(
 _GATE_OBSERVABILITY = frozenset({"project_log_clean", "node_runs_failed"})
 
 
-async def harness_gate_or_raise(
-    session: Any, project: Any, *, step: str
-) -> HarnessReport:
+async def harness_gate_or_raise(session: Any, project: Any, *, step: str) -> HarnessReport:
     """Harness-гейт после шага: плохие данные → RuntimeError (soft retry шага).
 
     Наблюдаемость (лог/старые failed-записи) в гейт не входит — иначе ошибка
@@ -757,19 +730,11 @@ async def harness_gate_or_raise(
     записи (anim_pr/img_pr/split/plan…); центральный гейт — в auto_advance.
     Вызывать ДО смены статуса на *_ready: N/N смотрит ``step``, не status.
     """
-    report = await run_harness_verify(
-        session, project, allow_repair=False, include_http=False, step=step
-    )
-    bad = [
-        f"{c.name}({c.detail})"
-        for c in report.checks
-        if not c.ok and c.name not in _GATE_OBSERVABILITY
-    ]
+    report = await run_harness_verify(session, project, allow_repair=False, include_http=False, step=step)
+    bad = [f"{c.name}({c.detail})" for c in report.checks if not c.ok and c.name not in _GATE_OBSERVABILITY]
     if bad:
         raise RuntimeError(f"{step} harness gate failed: {bad}")
-    logger.info(
-        "[#{}] {}: harness gate ok ({} checks)", project.id, step, len(report.checks)
-    )
+    logger.info("[#{}] {}: harness gate ok ({} checks)", project.id, step, len(report.checks))
     return report
 
 
@@ -791,9 +756,7 @@ async def run_harness_verify(
             import anyio
 
             http_checks = await anyio.to_thread.run_sync(
-                lambda: verify_project_http(
-                    int(project.id), data_dir, base_url=http_base_url
-                )
+                lambda: verify_project_http(int(project.id), data_dir, base_url=http_base_url)
             )
         except Exception as e:  # noqa: BLE001
             http_checks = [HarnessCheck("http_checks", False, str(e))]

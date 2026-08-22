@@ -38,9 +38,7 @@ def test_allowed_upload_includes_images() -> None:
     assert not is_allowed_upload_filename("d.exe")
 
 
-def test_image_source_attachments_and_no_xlsx_expectation(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_image_source_attachments_and_no_xlsx_expectation(tmp_path: Path, monkeypatch) -> None:
     p = _project(tmp_path, monkeypatch)
     key = "n_excel_gpt_1"
     up = p.data_dir / "excel_gpt_uploads" / key
@@ -71,11 +69,7 @@ def test_hero_refs_collect_characters(tmp_path: Path, monkeypatch) -> None:
     (chars / "c01.png").write_bytes(b"\x89PNG" + b"1" * 300)
     (chars / "c02.jpg").write_bytes(b"\xff\xd8" + b"2" * 300)
     key = "n_excel_gpt_2"
-    p.meta = {
-        "excel_gpt_nodes": {
-            key: {"inputSource": "hero_refs", "workMode": "review"}
-        }
-    }
+    p.meta = {"excel_gpt_nodes": {key: {"inputSource": "hero_refs", "workMode": "review"}}}
     assert work_mode(p, key) == "review"
     assert expects_xlsx_result(p, key) is False
     names = {x.name for x in attachment_paths(p, key)}
@@ -86,11 +80,7 @@ def test_project_xlsx_still_expects_xlsx(tmp_path: Path, monkeypatch) -> None:
     p = _project(tmp_path, monkeypatch)
     (p.data_dir / "project.xlsx").write_bytes(b"PK" + b"0" * 200)
     key = "n_excel_gpt_1"
-    p.meta = {
-        "excel_gpt_nodes": {
-            key: {"inputSource": "project_xlsx", "workMode": "assist"}
-        }
-    }
+    p.meta = {"excel_gpt_nodes": {key: {"inputSource": "project_xlsx", "workMode": "assist"}}}
     assert expects_xlsx_result(p, key) is True
     assert attachment_paths(p, key)[0].name == "project.xlsx"
 

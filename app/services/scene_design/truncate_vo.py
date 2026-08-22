@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Artifact, Frame, FrameEdge, FrameText, Project, PromptVersion
 from app.services.scene_design.camera_expand import (
     _subdivide_attr,
+)
+from app.services.scene_design.camera_expand import (
     renumber_frames_by_sort_key as _renumber,
 )
 
@@ -32,9 +34,7 @@ async def truncate_vo_to_ratio(
     frames = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         ).scalars()
     )
@@ -69,15 +69,9 @@ async def truncate_vo_to_ratio(
     delete_ids = [f.id for f in frames if f.id not in kept_ids]
 
     if delete_ids:
-        await session.execute(
-            delete(FrameText).where(FrameText.frame_id.in_(delete_ids))
-        )
-        await session.execute(
-            delete(PromptVersion).where(PromptVersion.frame_id.in_(delete_ids))
-        )
-        await session.execute(
-            delete(Artifact).where(Artifact.frame_id.in_(delete_ids))
-        )
+        await session.execute(delete(FrameText).where(FrameText.frame_id.in_(delete_ids)))
+        await session.execute(delete(PromptVersion).where(PromptVersion.frame_id.in_(delete_ids)))
+        await session.execute(delete(Artifact).where(Artifact.frame_id.in_(delete_ids)))
         await session.execute(
             delete(FrameEdge).where(
                 FrameEdge.project_id == project.id,
@@ -91,11 +85,7 @@ async def truncate_vo_to_ratio(
         await session.flush()
 
     ordered = await _renumber(session, project)
-    vo_parts = [
-        (f.voiceover_text or "").strip()
-        for f in ordered
-        if (f.voiceover_text or "").strip()
-    ]
+    vo_parts = [(f.voiceover_text or "").strip() for f in ordered if (f.voiceover_text or "").strip()]
     if vo_parts:
         project.script_text = "\n".join(vo_parts)
 

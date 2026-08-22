@@ -42,19 +42,21 @@ async def main(arg: str) -> int:
         if arg.isdigit():
             project = await session.get(Project, int(arg))
         else:
-            project = (
-                await session.execute(select(Project).where(Project.slug == arg))
-            ).scalar_one_or_none()
+            project = (await session.execute(select(Project).where(Project.slug == arg))).scalar_one_or_none()
         if project is None:
             print(f"проект не найден: {arg}")
             return 1
 
         videos_dir = project.data_dir / "videos"
         frames = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not frames:
             print("нет кадров в проекте")
             return 1
@@ -70,14 +72,18 @@ async def main(arg: str) -> int:
                 missing.append(fr.number)
                 continue
             old = (
-                await session.execute(
-                    select(Artifact).where(
-                        Artifact.project_id == project.id,
-                        Artifact.frame_id == fr.id,
-                        Artifact.kind == ArtifactKind.scene_video,
+                (
+                    await session.execute(
+                        select(Artifact).where(
+                            Artifact.project_id == project.id,
+                            Artifact.frame_id == fr.id,
+                            Artifact.kind == ArtifactKind.scene_video,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for a in old:
                 await session.delete(a)
             session.add(
@@ -99,9 +105,7 @@ async def main(arg: str) -> int:
             orphans = sorted(
                 p.name
                 for p in videos_dir.glob("*.mp4")
-                if p.is_file() and not any(
-                    _clip_path(videos_dir, fr.number) == p for fr in frames
-                )
+                if p.is_file() and not any(_clip_path(videos_dir, fr.number) == p for fr in frames)
             )
             if orphans:
                 print(f"лишние/не распознаны mp4 в папке: {orphans[:15]}")

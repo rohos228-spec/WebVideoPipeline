@@ -29,7 +29,9 @@ async def session(tmp_path: Path) -> AsyncSession:
 
 @pytest.mark.asyncio
 async def test_r49_hash_unchanged_after_r15_xlsx_touch(
-    session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("app.settings.settings.data_dir", tmp_path / "data")
     p = Project(id=26, slug="vedm", topic="V")
@@ -42,9 +44,7 @@ async def test_r49_hash_unchanged_after_r15_xlsx_touch(
     xlsx.write_bytes(b"xlsx1")
     session.add(p)
     for i in range(1, 4):
-        session.add(
-            Frame(project_id=26, number=i, voiceover_text=f"текст {i}", status="planned")
-        )
+        session.add(Frame(project_id=26, number=i, voiceover_text=f"текст {i}", status="planned"))
     await session.flush()
 
     cells = [(1, "текст 1"), (2, "текст 2"), (3, "текст 3")]
@@ -91,9 +91,9 @@ async def test_r49_hash_unchanged_after_r15_xlsx_touch(
         patch(
             "app.services.frame_timeline_sync.frame_clips_from_whisper",
             return_value=[
-                __import__(
-                    "app.services.frame_audio", fromlist=["FrameAudioClip"]
-                ).FrameAudioClip(i, voice, "t", float(i - 1), float(i), 1.0)
+                __import__("app.services.frame_audio", fromlist=["FrameAudioClip"]).FrameAudioClip(
+                    i, voice, "t", float(i - 1), float(i), 1.0
+                )
                 for i in range(1, 4)
             ],
         ),
@@ -110,7 +110,9 @@ async def test_r49_hash_unchanged_after_r15_xlsx_touch(
 
 @pytest.mark.asyncio
 async def test_fresh_words_skips_equal_split_realign(
-    session: AsyncSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Proportional R15 метки ~равные — не запускать ASR повторно если words.json свежий."""
     monkeypatch.setattr("app.settings.settings.data_dir", tmp_path / "data")

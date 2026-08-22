@@ -75,9 +75,7 @@ async def test_release_only_own(lease_db):
 
 @pytest.mark.asyncio
 async def test_concurrent_acquire_exactly_one_wins(lease_db):
-    results = await asyncio.gather(
-        *(wl.acquire(1, "img:u1", owner=f"o{i}", ttl_s=60) for i in range(8))
-    )
+    results = await asyncio.gather(*(wl.acquire(1, "img:u1", owner=f"o{i}", ttl_s=60) for i in range(8)))
     assert sum(1 for r in results if r) == 1
 
 
@@ -146,7 +144,5 @@ async def test_task_owners_differ(lease_db):
     async def owner_of() -> str:
         return wl.current_owner()
 
-    o1, o2 = await asyncio.gather(
-        asyncio.create_task(owner_of()), asyncio.create_task(owner_of())
-    )
+    o1, o2 = await asyncio.gather(asyncio.create_task(owner_of()), asyncio.create_task(owner_of()))
     assert o1 != o2

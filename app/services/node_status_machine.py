@@ -30,12 +30,8 @@ STATUS_LOG_PATH = Path("logs/status.log")
 _FORWARD_TRANSITIONS: dict[NodeRunStatus, frozenset[NodeRunStatus]] = {
     NodeRunStatus.pending: frozenset({NodeRunStatus.queued, NodeRunStatus.skipped}),
     NodeRunStatus.queued: frozenset({NodeRunStatus.running}),
-    NodeRunStatus.running: frozenset(
-        {NodeRunStatus.done, NodeRunStatus.failed, NodeRunStatus.waiting_hitl}
-    ),
-    NodeRunStatus.waiting_hitl: frozenset(
-        {NodeRunStatus.done, NodeRunStatus.running, NodeRunStatus.failed}
-    ),
+    NodeRunStatus.running: frozenset({NodeRunStatus.done, NodeRunStatus.failed, NodeRunStatus.waiting_hitl}),
+    NodeRunStatus.waiting_hitl: frozenset({NodeRunStatus.done, NodeRunStatus.running, NodeRunStatus.failed}),
     NodeRunStatus.failed: frozenset({NodeRunStatus.queued}),
     NodeRunStatus.done: frozenset(),
     NodeRunStatus.skipped: frozenset(),
@@ -183,11 +179,7 @@ def transition_node_status(
 
     # Heal: Project уже на следующем ready/assembled, а NodeRun залип в failed
     # (гонка reconcile / WA после успеха). Не открываем failed→done для worker.
-    if (
-        initiator == "heal_success"
-        and new_status == NodeRunStatus.done
-        and old == NodeRunStatus.failed
-    ):
+    if initiator == "heal_success" and new_status == NodeRunStatus.done and old == NodeRunStatus.failed:
         _apply_side_effects(nr, old, new_status, initiator=initiator, error=error)
         _log_line(
             node_key=nr.node_key,
@@ -235,20 +227,14 @@ def transition_node_status(
 def queue_node_for_start(nr: NodeRun, *, project_id: int | None, initiator: str = "api") -> bool:
     """pending | failed → queued перед запуском шага."""
     if nr.status == NodeRunStatus.failed:
-        return transition_node_status(
-            nr, NodeRunStatus.queued, initiator=initiator, project_id=project_id
-        )
+        return transition_node_status(nr, NodeRunStatus.queued, initiator=initiator, project_id=project_id)
     if nr.status == NodeRunStatus.pending:
-        return transition_node_status(
-            nr, NodeRunStatus.queued, initiator=initiator, project_id=project_id
-        )
+        return transition_node_status(nr, NodeRunStatus.queued, initiator=initiator, project_id=project_id)
     if nr.status == NodeRunStatus.queued:
         return False
     if nr.status == NodeRunStatus.running:
         return False
-    raise ValueError(
-        f"нода {nr.node_type} в статусе «{nr.status.value}» — нельзя поставить в очередь"
-    )
+    raise ValueError(f"нода {nr.node_type} в статусе «{nr.status.value}» — нельзя поставить в очередь")
 
 
 def start_node_running(nr: NodeRun, *, project_id: int | None, initiator: str = "api") -> bool:
@@ -256,18 +242,12 @@ def start_node_running(nr: NodeRun, *, project_id: int | None, initiator: str = 
     if nr.status == NodeRunStatus.running:
         return False
     if nr.status == NodeRunStatus.queued:
-        return transition_node_status(
-            nr, NodeRunStatus.running, initiator=initiator, project_id=project_id
-        )
+        return transition_node_status(nr, NodeRunStatus.running, initiator=initiator, project_id=project_id)
     if nr.status in (NodeRunStatus.pending, NodeRunStatus.failed):
         if not queue_node_for_start(nr, project_id=project_id, initiator=initiator):
             pass
-        return transition_node_status(
-            nr, NodeRunStatus.running, initiator=initiator, project_id=project_id
-        )
-    raise ValueError(
-        f"нода {nr.node_type} в статусе «{nr.status.value}» — нельзя запустить"
-    )
+        return transition_node_status(nr, NodeRunStatus.running, initiator=initiator, project_id=project_id)
+    raise ValueError(f"нода {nr.node_type} в статусе «{nr.status.value}» — нельзя запустить")
 
 
 def complete_node(nr: NodeRun, *, project_id: int | None, initiator: str = "worker") -> bool:
@@ -282,14 +262,10 @@ def complete_node(nr: NodeRun, *, project_id: int | None, initiator: str = "work
         return False
     if nr.status == NodeRunStatus.done:
         return False
-    return transition_node_status(
-        nr, NodeRunStatus.done, initiator=initiator, project_id=project_id
-    )
+    return transition_node_status(nr, NodeRunStatus.done, initiator=initiator, project_id=project_id)
 
 
-def heal_failed_node_done(
-    nr: NodeRun, *, project_id: int | None
-) -> bool:
+def heal_failed_node_done(nr: NodeRun, *, project_id: int | None) -> bool:
     """failed → done когда Project.status уже доказывает успех шага."""
     if nr.status != NodeRunStatus.failed:
         return False
@@ -301,9 +277,7 @@ def heal_failed_node_done(
     )
 
 
-def sync_node_done_from_data(
-    nr: NodeRun, *, project_id: int | None, initiator: str = "sidecar"
-) -> bool:
+def sync_node_done_from_data(nr: NodeRun, *, project_id: int | None, initiator: str = "sidecar") -> bool:
     """Пометить ноду done, когда работа уже сделана вне официального шага.
 
     Sidecar (anim_pr) заполняет R48/DB без Project.status — canvas должен
@@ -316,9 +290,7 @@ def sync_node_done_from_data(
     if nr.status == NodeRunStatus.failed:
         return heal_failed_node_done(nr, project_id=project_id)
     if nr.status != NodeRunStatus.running:
-        if not start_node_running(
-            nr, project_id=project_id, initiator=initiator
-        ):
+        if not start_node_running(nr, project_id=project_id, initiator=initiator):
             if nr.status != NodeRunStatus.running:
                 return False
     return complete_node(nr, project_id=project_id, initiator="worker")
@@ -344,20 +316,14 @@ def fail_node(
     )
 
 
-def reset_node_to_pending(
-    nr: NodeRun, *, project_id: int | None, initiator: str = "api_reset"
-) -> bool:
+def reset_node_to_pending(nr: NodeRun, *, project_id: int | None, initiator: str = "api_reset") -> bool:
     """Явный сброс ноды пользователем или auto_unstick/ui_restart."""
-    return transition_node_status(
-        nr, NodeRunStatus.pending, initiator=initiator, project_id=project_id
-    )
+    return transition_node_status(nr, NodeRunStatus.pending, initiator=initiator, project_id=project_id)
 
 
 def mark_node_skipped(nr: NodeRun, *, project_id: int | None) -> bool:
     """pending → skipped (отключённая нода на канвасе)."""
-    return transition_node_status(
-        nr, NodeRunStatus.skipped, initiator="sync", project_id=project_id
-    )
+    return transition_node_status(nr, NodeRunStatus.skipped, initiator="sync", project_id=project_id)
 
 
 def is_transition_allowed(

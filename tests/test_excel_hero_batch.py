@@ -21,25 +21,13 @@ def test_excel_batch_auto_flag() -> None:
 
 def test_excel_ref_deps_batch_uses_generated() -> None:
     ch = ExcelCharacter(id="c02", name="x", look="y", ref_ids=["c01"])
-    assert generate_hero._excel_ref_deps_met(
-        ch, approved=set(), generated={"c01"}, batch_auto=True
-    )
-    assert not generate_hero._excel_ref_deps_met(
-        ch, approved=set(), generated=set(), batch_auto=True
-    )
-    assert not generate_hero._excel_ref_deps_met(
-        ch, approved=set(), generated={"c01"}, batch_auto=False
-    )
+    assert generate_hero._excel_ref_deps_met(ch, approved=set(), generated={"c01"}, batch_auto=True)
+    assert not generate_hero._excel_ref_deps_met(ch, approved=set(), generated=set(), batch_auto=True)
+    assert not generate_hero._excel_ref_deps_met(ch, approved=set(), generated={"c01"}, batch_auto=False)
     # Stale HITL approved без файла на диске — НЕ deps (после wipe).
-    assert not generate_hero._excel_ref_deps_met(
-        ch, approved={"c01"}, generated=set(), batch_auto=True
-    )
-    assert not generate_hero._excel_ref_deps_met(
-        ch, approved={"c01"}, generated=set(), batch_auto=False
-    )
-    assert generate_hero._excel_ref_deps_met(
-        ch, approved={"c01"}, generated={"c01"}, batch_auto=False
-    )
+    assert not generate_hero._excel_ref_deps_met(ch, approved={"c01"}, generated=set(), batch_auto=True)
+    assert not generate_hero._excel_ref_deps_met(ch, approved={"c01"}, generated=set(), batch_auto=False)
+    assert generate_hero._excel_ref_deps_met(ch, approved={"c01"}, generated={"c01"}, batch_auto=False)
 
 
 @pytest.mark.asyncio
@@ -233,9 +221,7 @@ async def test_compute_no_enrich_rollback_when_set_children_lack_prompts() -> No
         status=ProjectStatus.image_prompts_ready,
         meta={
             "excel_hero": {
-                "characters": [
-                    {"id": f"c{i:02d}", "name": "x", "look": "y"} for i in range(1, 9)
-                ]
+                "characters": [{"id": f"c{i:02d}", "name": "x", "look": "y"} for i in range(1, 9)]
             },
             "enrich_completed_slots": [1],
             "split_completed": True,

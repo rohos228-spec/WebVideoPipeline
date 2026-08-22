@@ -1,4 +1,5 @@
 """Fill Персонажи sheet for #50 so Outsee hero can run for real."""
+
 from __future__ import annotations
 
 import json

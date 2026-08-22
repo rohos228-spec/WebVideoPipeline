@@ -39,10 +39,11 @@
 from __future__ import annotations
 
 import re
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Project
 from app.generation_options import OUTSEE_PROMPT_MAX_CHARS
+from app.models import Project
 from app.services.prompt_library import (
     STEP_HUMAN_NAMES,
     get_project_prompt,
@@ -50,14 +51,24 @@ from app.services.prompt_library import (
 
 # Шаги, для которых поддерживается edit-override «сопр. сообщения».
 SUPPORTED_STEPS: tuple[str, ...] = (
-    "plan", "script", "hero", "split", "img_pr", "anim_pr", "music",
+    "plan",
+    "script",
+    "hero",
+    "split",
+    "img_pr",
+    "anim_pr",
+    "music",
     # Слоты «Доп работа с EXCEL» (шаг 5). Каждый слот хранит свой
     # override в `Project.gpt_text_overrides["enrich_<i>"]`. В отличие
     # от других шагов, тут «сопр. сообщение» = ТОЛЬКО сопровождающий
     # текст (без мастер-промта). Мастер-промт лежит отдельно в
     # `prompts/05<a..e>_enrich_<i>/<name>.md`, в `enrich_xlsx.py` они
     # склеиваются: master + "\n\n---\n\n" + accompanying.
-    "enrich_1", "enrich_2", "enrich_3", "enrich_4", "enrich_5",
+    "enrich_1",
+    "enrich_2",
+    "enrich_3",
+    "enrich_4",
+    "enrich_5",
     "excel_gpt",
 )
 
@@ -131,6 +142,7 @@ def refresh_topic_line_in_text(text: str, topic: str) -> str:
 
     return _TOPIC_LINE_RE.sub(_repl, text, count=1)
 
+
 def is_supported(step_code: str) -> bool:
     return step_code in SUPPORTED_STEPS
 
@@ -183,10 +195,7 @@ def _build_topic_context_block(project: Project) -> str:
         if product.get("description"):
             lines.append(f"  • Описание: {product['description']}")
         if product.get("reference_image_path"):
-            lines.append(
-                "  • Референс-изображение приложено отдельно "
-                f"({product['reference_image_path']})."
-            )
+            lines.append(f"  • Референс-изображение приложено отдельно ({product['reference_image_path']}).")
         lines.append(
             "  • ВАЖНО: на этапе интеграции (по «Карточке ролика») органично "
             "ввести этот продукт в сюжет, не противореча историческому/"
@@ -247,9 +256,7 @@ def _build_script_default(project: Project, *, prompt_file_name: str = "prompt.t
     )
 
 
-def _build_split_default(
-    project: Project, *, prompt_file_name: str = "prompt.txt"
-) -> str:
+def _build_split_default(project: Project, *, prompt_file_name: str = "prompt.txt") -> str:
     """Шаг 3 — разбивка на блоки (xlsx-flow). К чату прикладываются
     `prompt.txt`, `project.xlsx`, `voiceover.txt`. Возвращаем chat_msg.
     """
@@ -328,9 +335,7 @@ def _build_hero_default(project: Project) -> str:
     )
 
 
-def render_hero_text(
-    template: str, *, brief: str, hero_style: str
-) -> str:
+def render_hero_text(template: str, *, brief: str, hero_style: str) -> str:
     """Подставляет в шаблон «сопр. сообщения» шага `hero` конкретные
     значения для одной пары (hero_idx, variation_idx).
 
@@ -338,9 +343,7 @@ def render_hero_text(
     GPT не оставил пустую секцию (поведение совпадает с предыдущей
     версией `generate_hero.py`).
     """
-    style = (hero_style or "").strip() or (
-        "(не задан — используй кинематографический фото-реализм)"
-    )
+    style = (hero_style or "").strip() or ("(не задан — используй кинематографический фото-реализм)")
     out = template.replace(HERO_PLACEHOLDER_STYLE, style)
     out = out.replace(HERO_PLACEHOLDER_BRIEF, (brief or "").strip())
     return out
@@ -364,9 +367,7 @@ def build_anim_pr_initial_default(
     )
 
 
-def _build_anim_pr_default(
-    project: Project, *, prompt_file_name: str = "prompt_anim_pr.md", **_ctx
-) -> str:  # noqa: ARG001
+def _build_anim_pr_default(project: Project, *, prompt_file_name: str = "prompt_anim_pr.md", **_ctx) -> str:  # noqa: ARG001
     """Дефолт «сопр. сообщения» без списка кадров (Studio / TG)."""
     return build_anim_pr_initial_default(project, [], prompt_file_name=prompt_file_name)
 
@@ -386,8 +387,7 @@ def _build_img_pr_default(
     """
     context_block = _build_topic_context_block(project)
     return (
-        (context_block + "\n\n" if context_block else "")
-        + f"Прикреплены файлы:\n"
+        (context_block + "\n\n" if context_block else "") + f"Прикреплены файлы:\n"
         f"  1. {prompt_file_name} — инструкция (стиль + структура промта).\n"
         f"  2. db_frames.json — кадры ЭТОГО батча из Базы "
         f"(uuid + place/lighting/shot01_*/accent/scene_sense/scene_feature "
@@ -403,6 +403,7 @@ def _build_img_pr_default(
 # --------------------------------------------------------------------------- #
 # Публичные функции
 # --------------------------------------------------------------------------- #
+
 
 def _build_music_default(project: Project, **_ctx) -> str:  # noqa: ARG001
     """Сопроводительный текст для GPT → Suno (шаг «Музыка»)."""

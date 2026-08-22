@@ -300,9 +300,7 @@ async def list_prompt_file_history(step_code: str, name: str) -> list[PromptVers
 
 
 @router.get("/{step_code}/{name}/history/{version_id}/content", response_model=PromptVersionContent)
-async def get_prompt_file_history_content(
-    step_code: str, name: str, version_id: str
-) -> PromptVersionContent:
+async def get_prompt_file_history_content(step_code: str, name: str, version_id: str) -> PromptVersionContent:
     _ensure_step(step_code)
     _ensure_name(name)
     try:
@@ -339,9 +337,7 @@ async def rename_prompt_file_history_label(
 
 
 @router.post("/{step_code}/{name}/history/{version_id}/restore")
-async def restore_prompt_file_history(
-    step_code: str, name: str, version_id: str
-) -> PromptFileContent:
+async def restore_prompt_file_history(step_code: str, name: str, version_id: str) -> PromptFileContent:
     _ensure_step(step_code)
     _ensure_name(name)
     try:
@@ -362,9 +358,7 @@ async def restore_prompt_file_history(
 
 
 @router.patch("/{step_code}/{name}/rename", response_model=PromptFileInfo)
-async def rename_prompt_file_route(
-    step_code: str, name: str, payload: PromptRenamePayload
-) -> PromptFileInfo:
+async def rename_prompt_file_route(step_code: str, name: str, payload: PromptRenamePayload) -> PromptFileInfo:
     _ensure_step(step_code)
     _ensure_name(name)
     new_name = payload.new_name.strip()
@@ -412,10 +406,7 @@ async def upload_prompt_file(
     if not is_valid_prompt_name(raw_name):
         raise HTTPException(
             status_code=400,
-            detail=(
-                "имя промта содержит запрещённые символы или превышает "
-                "255 байт UTF-8"
-            ),
+            detail=("имя промта содержит запрещённые символы или превышает 255 байт UTF-8"),
         )
     blob = await file.read()
     try:

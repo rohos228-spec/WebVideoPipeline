@@ -11,7 +11,6 @@ Previous tests only simulated the happy Python path. These also cover:
 from __future__ import annotations
 
 import importlib.util
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -173,9 +172,7 @@ def test_4_cli_stash_ref_with_braces(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # 5) write_prompt upload path + update
 # ---------------------------------------------------------------------------
-def test_5_write_prompt_upload_survives_update(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_5_write_prompt_upload_survives_update(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     helper = _load_helper()
     repo, origin = _init_prompt_repo(tmp_path)
     aside = tmp_path / "aside5"
@@ -236,9 +233,7 @@ def test_7_stash_list_survives_none_stdout_and_cyrillic(
     assert refs, "must find studio stash with Cyrillic message"
 
     # Simulate decode failure path that used to raise AttributeError.
-    broken = subprocess.CompletedProcess(
-        args=["git"], returncode=0, stdout=None, stderr=None
-    )
+    broken = subprocess.CompletedProcess(args=["git"], returncode=0, stdout=None, stderr=None)
     monkeypatch.setattr(helper, "_git", lambda *_a, **_k: broken)
     assert helper.list_studio_stash_refs(repo) == []
     assert helper.list_prompt_paths_in_stash(repo, "stash@{0}") == ([], [])

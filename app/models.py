@@ -297,9 +297,7 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
     frames: Mapped[list[Frame]] = relationship(back_populates="project", cascade="all,delete-orphan")
-    artifacts: Mapped[list[Artifact]] = relationship(
-        back_populates="project", cascade="all,delete-orphan"
-    )
+    artifacts: Mapped[list[Artifact]] = relationship(back_populates="project", cascade="all,delete-orphan")
     hitl_requests: Mapped[list[HITLRequest]] = relationship(
         back_populates="project", cascade="all,delete-orphan"
     )
@@ -489,9 +487,7 @@ class AsrWord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     run_uuid: Mapped[str] = mapped_column(String(64), index=True)
     idx: Mapped[int] = mapped_column()  # 0-based порядок в полном audio
     word: Mapped[str] = mapped_column(String(256))
@@ -707,9 +703,7 @@ class Workflow(Base):
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
-    runs: Mapped[list[WorkflowRun]] = relationship(
-        back_populates="workflow", cascade="all,delete-orphan"
-    )
+    runs: Mapped[list[WorkflowRun]] = relationship(back_populates="workflow", cascade="all,delete-orphan")
 
 
 class WorkflowRun(Base):
@@ -726,9 +720,7 @@ class WorkflowRun(Base):
     __tablename__ = "workflow_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    workflow_id: Mapped[int] = mapped_column(
-        ForeignKey("workflows.id", ondelete="CASCADE"), index=True
-    )
+    workflow_id: Mapped[int] = mapped_column(ForeignKey("workflows.id", ondelete="CASCADE"), index=True)
     project_id: Mapped[int] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), unique=True, index=True
     )
@@ -747,9 +739,7 @@ class WorkflowRun(Base):
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
     workflow: Mapped[Workflow] = relationship(back_populates="runs")
-    node_runs: Mapped[list[NodeRun]] = relationship(
-        back_populates="run", cascade="all,delete-orphan"
-    )
+    node_runs: Mapped[list[NodeRun]] = relationship(back_populates="run", cascade="all,delete-orphan")
 
 
 class NodeRun(Base):
@@ -760,9 +750,7 @@ class NodeRun(Base):
     """
 
     __tablename__ = "node_runs"
-    __table_args__ = (
-        UniqueConstraint("workflow_run_id", "node_key", name="uq_node_runs_run_key"),
-    )
+    __table_args__ = (UniqueConstraint("workflow_run_id", "node_key", name="uq_node_runs_run_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     workflow_run_id: Mapped[int] = mapped_column(
@@ -853,9 +841,7 @@ class LlmCall(Base):
     """
 
     __tablename__ = "llm_calls"
-    __table_args__ = (
-        Index("ix_llm_calls_project_created", "project_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_llm_calls_project_created", "project_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
@@ -903,12 +889,8 @@ class LibraryItem(Base):
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
-    versions: Mapped[list[LibraryVersion]] = relationship(
-        back_populates="item", cascade="all,delete-orphan"
-    )
-    events: Mapped[list[LibraryEvent]] = relationship(
-        back_populates="item", cascade="all,delete-orphan"
-    )
+    versions: Mapped[list[LibraryVersion]] = relationship(back_populates="item", cascade="all,delete-orphan")
+    events: Mapped[list[LibraryEvent]] = relationship(back_populates="item", cascade="all,delete-orphan")
 
 
 class LibraryVersion(Base):
@@ -918,9 +900,7 @@ class LibraryVersion(Base):
     __table_args__ = (UniqueConstraint("item_id", "version", name="uq_library_version_item"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    item_id: Mapped[int] = mapped_column(
-        ForeignKey("library_items.id", ondelete="CASCADE"), index=True
-    )
+    item_id: Mapped[int] = mapped_column(ForeignKey("library_items.id", ondelete="CASCADE"), index=True)
     version: Mapped[int] = mapped_column(index=True)
     content: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
@@ -973,9 +953,7 @@ class WorkflowVersion(Base):
     __table_args__ = (UniqueConstraint("workflow_id", "version", name="uq_workflow_version"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    workflow_id: Mapped[int] = mapped_column(
-        ForeignKey("workflows.id", ondelete="CASCADE"), index=True
-    )
+    workflow_id: Mapped[int] = mapped_column(ForeignKey("workflows.id", ondelete="CASCADE"), index=True)
     version: Mapped[int] = mapped_column(index=True)
     name: Mapped[str | None] = mapped_column(String(200), default=None)
     description: Mapped[str | None] = mapped_column(Text, default=None)

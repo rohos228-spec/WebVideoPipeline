@@ -25,9 +25,7 @@ def _seq_call(replies: list[str], seen: list[str | None]):
 @pytest.mark.asyncio
 async def test_success_first_try() -> None:
     seen: list[str | None] = []
-    res = await run_with_contract(
-        contract=APPLY_OPS, call=_seq_call([OK], seen), label="t"
-    )
+    res = await run_with_contract(contract=APPLY_OPS, call=_seq_call([OK], seen), label="t")
     assert res.attempts == 1 and res.repairs == 0
     assert res.payload.frame_uuids() == ["u1"]
     assert seen == [None]
@@ -63,8 +61,11 @@ async def test_validate_fail_semantic_layer() -> None:
     res = await run_with_contract(
         contract=APPLY_OPS,
         call=_seq_call(
-            [OK, '{"ops":[{"frame_uuid":"u1","fields":{"закадр":"а"}},'
-                 '{"frame_uuid":"u2","fields":{"закадр":"б"}}]}'],
+            [
+                OK,
+                '{"ops":[{"frame_uuid":"u1","fields":{"закадр":"а"}},'
+                '{"frame_uuid":"u2","fields":{"закадр":"б"}}]}',
+            ],
             seen,
         ),
         validate=check_coverage,
@@ -111,9 +112,7 @@ async def test_contract_error_from_call_is_repaired() -> None:
     async def call(feedback):
         calls["n"] += 1
         if calls["n"] == 1:
-            raise LlmContractError(
-                "volume-добор: недобор 3/10", kind="validate", contract="x"
-            )
+            raise LlmContractError("volume-добор: недобор 3/10", kind="validate", contract="x")
         assert feedback and "недобор" in feedback
         return OK
 
@@ -132,9 +131,7 @@ async def test_transport_errors_pass_through() -> None:
 
 @pytest.mark.asyncio
 async def test_metrics_shape() -> None:
-    res = await run_with_contract(
-        contract=APPLY_OPS, call=_seq_call([BAD_SCHEMA, OK], [])
-    )
+    res = await run_with_contract(contract=APPLY_OPS, call=_seq_call([BAD_SCHEMA, OK], []))
     assert res.metrics() == {
         "attempts": 2,
         "repairs": 1,
@@ -164,9 +161,7 @@ async def test_metrics_jsonl_written(tmp_path) -> None:
         )
     rows = [
         _json.loads(line)
-        for line in (tmp_path / "llm_metrics.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
+        for line in (tmp_path / "llm_metrics.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert len(rows) == 2
     assert rows[0]["ok"] is True and rows[0]["repairs"] == 1

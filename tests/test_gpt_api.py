@@ -169,13 +169,13 @@ async def test_chat_responses_mode(monkeypatch) -> None:
         # Responses mode must request SSE — иначе CF рвёт длинный JSON.
         assert captured["body"].get("stream") is True
         sse = (
-            'event: response.created\n'
+            "event: response.created\n"
             'data: {"type":"response.created","response":{"id":"resp_test123","status":"in_progress"}}\n'
             "\n"
-            'event: response.output_text.delta\n'
+            "event: response.output_text.delta\n"
             'data: {"type":"response.output_text.delta","delta":"работает"}\n'
             "\n"
-            'event: response.completed\n'
+            "event: response.completed\n"
             'data: {"type":"response.completed","response":{"id":"resp_test123","status":"completed",'
             '"output":[{"type":"message","role":"assistant","content":'
             '[{"type":"output_text","text":"работает"}]}],'
@@ -310,9 +310,7 @@ def test_looks_empty_ops_stub() -> None:
     assert looks_empty_ops_stub('{"ops":[]}') is True
     assert looks_empty_ops_stub('{"ops": []}') is True
     assert looks_empty_ops_stub("") is False
-    assert looks_empty_ops_stub(
-        '{"ops":[{"frame_uuid":"a","fields":{"промт_картинки":"x"}}]}'
-    ) is False
+    assert looks_empty_ops_stub('{"ops":[{"frame_uuid":"a","fields":{"промт_картинки":"x"}}]}') is False
     assert looks_empty_ops_stub("просто текст") is False
 
 
@@ -330,9 +328,7 @@ def test_stream_timeout_does_not_use_call_timeout_as_read(monkeypatch) -> None:
 
 
 def test_responses_retrieve_urls_include_post_path_and_jobs() -> None:
-    urls = responses_retrieve_urls(
-        "https://api.kie.ai/codex/v1/responses", "resp_abc"
-    )
+    urls = responses_retrieve_urls("https://api.kie.ai/codex/v1/responses", "resp_abc")
     assert urls[0] == "https://api.kie.ai/codex/v1/responses/resp_abc"
     assert any("recordInfo" in u and "resp_abc" in u for u in urls)
 
@@ -349,9 +345,7 @@ def test_parse_retrieved_jobs_result_json() -> None:
                         "output": [
                             {
                                 "type": "message",
-                                "content": [
-                                    {"type": "output_text", "text": '{"ops":[]}'}
-                                ],
+                                "content": [{"type": "output_text", "text": '{"ops":[]}'}],
                             }
                         ],
                     }
@@ -935,7 +929,6 @@ def test_pdf_to_text_and_no_base64_in_context(tmp_path: Path) -> None:
 
 def test_build_input_attaches_pdf_as_input_file(tmp_path: Path, monkeypatch) -> None:
     """По умолчанию PDF = только текст; input_file — при GPT_PDF_INPUT_FILE=1."""
-    import os
 
     from app.services.gpt_api import build_input
 
@@ -1007,9 +1000,7 @@ def test_chat_pdf_in_chunks_calls_chat_per_piece(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(gpt_api, "chat", fake_chat)
     monkeypatch.setattr(gpt_api.asyncio, "sleep", no_sleep)
 
-    big = "\n\n".join(
-        f"--- стр. {i}/8 ---\n" + ("alpha " * 300) for i in range(1, 9)
-    )
+    big = "\n\n".join(f"--- стр. {i}/8 ---\n" + ("alpha " * 300) for i in range(1, 9))
     pdf = tmp_path / "guide.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
 
@@ -1044,9 +1035,7 @@ def test_chat_pdf_in_chunks_continues_after_mid_500(tmp_path: Path, monkeypatch)
                 "GPT провайдер code=500: Server exception, please try again later",
                 context={"provider_code": 500, "retryable": True},
             )
-        return gpt_api.GptChatResult(
-            text=f"OK{n['i']}", model="test", finish_reason="stop"
-        )
+        return gpt_api.GptChatResult(text=f"OK{n['i']}", model="test", finish_reason="stop")
 
     async def no_sleep(*_a, **_k):
         return None
@@ -1054,9 +1043,7 @@ def test_chat_pdf_in_chunks_continues_after_mid_500(tmp_path: Path, monkeypatch)
     monkeypatch.setattr(gpt_api, "chat", fake_chat)
     monkeypatch.setattr(gpt_api.asyncio, "sleep", no_sleep)
 
-    big = "\n\n".join(
-        f"--- стр. {i}/6 ---\n" + ("beta " * 200) for i in range(1, 7)
-    )
+    big = "\n\n".join(f"--- стр. {i}/6 ---\n" + ("beta " * 200) for i in range(1, 7))
     pdf = tmp_path / "deck.pdf"
     pdf.write_bytes(b"%PDF-1.4 fake")
     monkeypatch.setattr(gpt_api, "pdf_to_text", lambda path, max_chars=80_000: big)
@@ -1158,9 +1145,12 @@ def test_gpt_proxy_url_empty(monkeypatch) -> None:
     assert gpt_api._gpt_proxy_url() is None
     monkeypatch.setattr(settings, "gpt_proxy_url", "  ")
     assert gpt_api._gpt_proxy_url() is None
+
+
 @pytest.mark.asyncio
 async def test_download_content_html_renamed_off_xlsx(monkeypatch, tmp_path: Path) -> None:
     """Страница HTML, сохранённая как .xlsx, переименовывается в .html."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,

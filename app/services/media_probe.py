@@ -88,9 +88,7 @@ async def probe_image(path: Path, *, expect_aspect: str | None = None) -> tuple[
     except MediaProbeError:
         raise
     except Exception as e:  # noqa: BLE001 — битый файл/не картинка
-        raise MediaProbeError(
-            "image_unreadable", f"{path.name}: не читается ({e})"
-        ) from e
+        raise MediaProbeError("image_unreadable", f"{path.name}: не читается ({e})") from e
     if w <= 0 or h <= 0:
         raise MediaProbeError("image_zero_size", f"{path.name}: размер {w}x{h}")
     _check_aspect(w, h, expect_aspect, path)
@@ -104,8 +102,17 @@ async def probe_image(path: Path, *, expect_aspect: str | None = None) -> tuple[
 
 async def _extract_probe_still(path: Path, at_sec: float, out: Path) -> None:
     proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-y", "-ss", f"{max(at_sec, 0.0):.3f}", "-i", str(path),
-        "-frames:v", "1", "-q:v", "3", str(out),
+        "ffmpeg",
+        "-y",
+        "-ss",
+        f"{max(at_sec, 0.0):.3f}",
+        "-i",
+        str(path),
+        "-frames:v",
+        "1",
+        "-q:v",
+        "3",
+        str(out),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -133,13 +140,9 @@ async def probe_video(
     except MediaProbeError:
         raise
     except Exception as e:  # noqa: BLE001 — RuntimeError ffprobe и пр.
-        raise MediaProbeError(
-            "video_unreadable", f"{path.name}: ffprobe не читает ({e})"
-        ) from e
+        raise MediaProbeError("video_unreadable", f"{path.name}: ffprobe не читает ({e})") from e
     if dur <= 0.05:
-        raise MediaProbeError(
-            "duration_zero", f"{path.name}: длительность {dur:.3f}s"
-        )
+        raise MediaProbeError("duration_zero", f"{path.name}: длительность {dur:.3f}s")
     _check_aspect(w, h, expect_aspect, path)
     if check_black:
         with tempfile.TemporaryDirectory(prefix="vp_probe_") as td:
@@ -149,8 +152,7 @@ async def probe_video(
         if mean <= BLACK_MEAN_MAX and peak <= BLACK_PEAK_MAX:
             raise MediaProbeError(
                 "black_video",
-                f"{path.name}: чёрный кадр в середине клипа "
-                f"(mean={mean:.1f}, peak={peak:.0f})",
+                f"{path.name}: чёрный кадр в середине клипа (mean={mean:.1f}, peak={peak:.0f})",
             )
     return {"width": w, "height": h, "duration": dur}
 
@@ -170,9 +172,7 @@ def stash_rejected_file(path: Path) -> bool:
         # Не тишина: файл останется «истиной на диске» и будет подхвачен.
         import logging
 
-        logging.getLogger(__name__).warning(
-            "media_probe: перенос %s в stale/ не удался: %s", path, e
-        )
+        logging.getLogger(__name__).warning("media_probe: перенос %s в stale/ не удался: %s", path, e)
         return False
 
 
@@ -181,21 +181,24 @@ async def probe_audio_silence(path: Path) -> float:
     if not path.is_file() or path.stat().st_size == 0:
         raise MediaProbeError("audio_unreadable", f"{path} отсутствует или пуст")
     proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-i", str(path), "-af", "volumedetect", "-f", "null", "-",
+        "ffmpeg",
+        "-i",
+        str(path),
+        "-af",
+        "volumedetect",
+        "-f",
+        "null",
+        "-",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     _stdout, stderr = await proc.communicate()
     err_text = (stderr or b"").decode(errors="ignore")
     if proc.returncode != 0:
-        raise MediaProbeError(
-            "audio_unreadable", f"{path.name}: ffmpeg не читает ({err_text[:160]})"
-        )
+        raise MediaProbeError("audio_unreadable", f"{path.name}: ffmpeg не читает ({err_text[:160]})")
     m = re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB", err_text)
     if not m:
-        raise MediaProbeError(
-            "audio_unreadable", f"{path.name}: volumedetect без mean_volume"
-        )
+        raise MediaProbeError("audio_unreadable", f"{path.name}: volumedetect без mean_volume")
     mean_db = float(m.group(1))
     if mean_db < SILENCE_MEAN_DB:
         raise MediaProbeError(
@@ -239,10 +242,14 @@ async def probe_duration(path: Path) -> float:
     # клип короче/длиннее фактических кадров.
     proc = await asyncio.create_subprocess_exec(
         "ffprobe",
-        "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=duration,nb_frames,avg_frame_rate,r_frame_rate",
-        "-of", "json",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=duration,nb_frames,avg_frame_rate,r_frame_rate",
+        "-of",
+        "json",
         str(path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -269,9 +276,12 @@ async def probe_duration(path: Path) -> float:
 
     proc2 = await asyncio.create_subprocess_exec(
         "ffprobe",
-        "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
         str(path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

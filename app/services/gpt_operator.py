@@ -8,6 +8,7 @@ UI и node.data — только кэш отрисовки; resolve всегда
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 from typing import Any, Literal
 
@@ -33,17 +34,11 @@ VALID_CHECK_PROMPT_SOURCES: frozenset[str] = frozenset({"upstream", "agent"})
 # Связь = порядок + кандидат на вход. Файлы берёт приёмник (takeFromEdges),
 # не отдельный kind «feed». gate — legacy «если ok»; pass/fail — ветки вердикта.
 VALID_EDGE_KINDS: frozenset[str] = frozenset({"after", "gate", "pass", "fail"})
-VALID_ROLES: frozenset[str] = frozenset(
-    {"assist", "review", "transform", "extract", "compare", "gate"}
-)
+VALID_ROLES: frozenset[str] = frozenset({"assist", "review", "transform", "extract", "compare", "gate"})
 VALID_OUTPUTS: frozenset[str] = frozenset({"text", "project_file", "sidecar"})
 # Что нода отдаёт дальше по стрелке (мультивыбор).
-VALID_EMIT_KINDS: frozenset[str] = frozenset(
-    {"result", "reply_txt", "analysis", "inputs"}
-)
-_REPLY_TXT_NAMES: frozenset[str] = frozenset(
-    {"gpt_reply.txt", "operator_transform.txt", "check_report.txt"}
-)
+VALID_EMIT_KINDS: frozenset[str] = frozenset({"result", "reply_txt", "analysis", "inputs"})
+_REPLY_TXT_NAMES: frozenset[str] = frozenset({"gpt_reply.txt", "operator_transform.txt", "check_report.txt"})
 _ANALYSIS_NAMES: frozenset[str] = frozenset({"analysis.json"})
 
 # Роли с вердиктом ок/не ок → две исходящие ветки.
@@ -57,9 +52,7 @@ ROLE_DEFAULT_LABELS: dict[str, str] = {
     "compare": "Сравнивает",
     "gate": "Ок / не ок",
 }
-_DEFAULT_LABEL_SET: frozenset[str] = frozenset(
-    {*ROLE_DEFAULT_LABELS.values(), "Работа с GPT", ""}
-)
+_DEFAULT_LABEL_SET: frozenset[str] = frozenset({*ROLE_DEFAULT_LABELS.values(), "Работа с GPT", ""})
 
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 _VIDEO_SUFFIXES = frozenset({".mp4", ".webm", ".mov", ".mkv"})
@@ -158,21 +151,15 @@ def operator_config(project: Project, node_key: str) -> dict[str, Any]:
     else:
         cfg["checkFix"] = True
     raw_cps = str(cfg.get("checkPromptSource") or "upstream").strip().lower()
-    cfg["checkPromptSource"] = (
-        raw_cps if raw_cps in VALID_CHECK_PROMPT_SOURCES else "upstream"
-    )
+    cfg["checkPromptSource"] = raw_cps if raw_cps in VALID_CHECK_PROMPT_SOURCES else "upstream"
     # Для checkMode дефолтный emit — вход + txt-отчёт (если пользователь не задал).
-    if check_mode and not (
-        isinstance(cfg.get("emitKinds"), list) and cfg.get("emitKinds")
-    ):
+    if check_mode and not (isinstance(cfg.get("emitKinds"), list) and cfg.get("emitKinds")):
         cfg["emitKinds"] = ["inputs", "reply_txt"]
     else:
         cfg["emitKinds"] = normalize_emit_kinds(cfg.get("emitKinds"), role=role)
     if check_mode:
         # Отчёт — текст; Excel проекта не трогаем как основной выход отчёта.
-        cfg["outputMode"] = normalize_output_mode(
-            cfg.get("outputMode") or "text", role="review"
-        )
+        cfg["outputMode"] = normalize_output_mode(cfg.get("outputMode") or "text", role="review")
     else:
         cfg["outputMode"] = normalize_output_mode(cfg.get("outputMode"), role=role)
     cfg["useSnapshot"] = bool(cfg.get("useSnapshot"))
@@ -209,9 +196,9 @@ def is_check_operator(cfg_or_role: Any, check_mode: bool | None = None) -> bool:
 def collect_source_prompts(project: Project, node_key: str) -> list[dict[str, Any]]:
     """Активные мастер-промты нод по входящим стрелкам (для checkMode)."""
     from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
+    from app.services import gpt_text_builder as gtb
     from app.services.excel_gpt_node import EXCEL_GPT_STEP_CODE
     from app.services.prompt_library import read_resolved_project_prompt
-    from app.services import gpt_text_builder as gtb
 
     types = _node_type_map(project)
     out: list[dict[str, Any]] = []
@@ -327,11 +314,7 @@ def assemble_check_master_prompt(
             "Пустой Excel или отсутствие .xlsx — НЕ ошибка и НЕ finding. "
             "Запрещены findings про TSV, `# Лист:`, `@row=`, «нет frame_uuid "
             "в TSV», «нет project.xlsx». UUID бери из frames[].uuid. "
-            + (
-                "mode=fix: отчёт + JSON apply-ops в DB."
-                if check_fix
-                else "mode=report_only: только отчёт."
-            )
+            + ("mode=fix: отчёт + JSON apply-ops в DB." if check_fix else "mode=report_only: только отчёт.")
         )
     else:
         attach_rule = (
@@ -341,20 +324,17 @@ def assemble_check_master_prompt(
             if check_fix
             else "НЕ изменяй файл — только отчёт (file: original). TSV-экспорт во вложении — это и есть книга."
         )
-        contract = (
-            "# КОНТРАКТ API (важнее исходных промтов)\n"
-            + (
-                "Бинарный project.xlsx в API недоступен — во вложении TSV-экспорт, "
-                "это и есть книга. Отказ «нет файла / нет project.xlsx» ЗАПРЕЩЁН. "
-                "При mode=fix ОБЯЗАТЕЛЕН блок --- XLSX_WRITEBACK --- с секциями "
-                "`# Лист: …` (TSV). Требования исходных промтов «прикрепи/верни .xlsx» "
-                "заменяются этим контрактом: правки только через XLSX_WRITEBACK. "
-                "В forward укажи file: fixed."
-                if check_fix
-                else "Бинарный project.xlsx недоступен; TSV во вложении = книга. "
-                "Не отказывай из‑за «нет файла». mode=report_only — только отчёт, "
-                "без XLSX_WRITEBACK; file: original."
-            )
+        contract = "# КОНТРАКТ API (важнее исходных промтов)\n" + (
+            "Бинарный project.xlsx в API недоступен — во вложении TSV-экспорт, "
+            "это и есть книга. Отказ «нет файла / нет project.xlsx» ЗАПРЕЩЁН. "
+            "При mode=fix ОБЯЗАТЕЛЕН блок --- XLSX_WRITEBACK --- с секциями "
+            "`# Лист: …` (TSV). Требования исходных промтов «прикрепи/верни .xlsx» "
+            "заменяются этим контрактом: правки только через XLSX_WRITEBACK. "
+            "В forward укажи file: fixed."
+            if check_fix
+            else "Бинарный project.xlsx недоступен; TSV во вложении = книга. "
+            "Не отказывай из‑за «нет файла». mode=report_only — только отчёт, "
+            "без XLSX_WRITEBACK; file: original."
         )
     blocks: list[str] = [
         "Ты — агент проверки результата.",
@@ -489,9 +469,7 @@ def load_custom_check_agent_body(project: Project, node_key: str) -> str | None:
     return None
 
 
-def load_check_agent_view(
-    project: Project, node_key: str
-) -> dict[str, Any] | None:
+def load_check_agent_view(project: Project, node_key: str) -> dict[str, Any] | None:
     """Текст агента для кнопки «Просмотр»: свой файл или builtin check_operator."""
     from app.services.check_analysis import (
         load_check_operator_prompt_body,
@@ -553,8 +531,7 @@ def assemble_check_agent_prompt(
         typ = upstream_node_type_for_check(project, node_key)
         if not typ:
             raise RuntimeError(
-                "нет файла агента и нет вышестоящей ноды — "
-                "загрузите .txt агента или проведите стрелку"
+                "нет файла агента и нет вышестоящей ноды — загрузите .txt агента или проведите стрелку"
             )
         step = resolve_check_operator_step(typ)
         body = load_check_operator_prompt_body(typ)
@@ -819,14 +796,10 @@ def _paths_for_emit_kinds(
         found.append(p)
 
     outputs = [
-        x
-        for x in (_resolve_result_path(root, i) for i in (entry.get("outputPaths") or []))
-        if x is not None
+        x for x in (_resolve_result_path(root, i) for i in (entry.get("outputPaths") or [])) if x is not None
     ]
     inputs = [
-        x
-        for x in (_resolve_result_path(root, i) for i in (entry.get("inputPaths") or []))
-        if x is not None
+        x for x in (_resolve_result_path(root, i) for i in (entry.get("inputPaths") or [])) if x is not None
     ]
 
     if "result" in kinds:
@@ -933,9 +906,7 @@ def files_from_source_node(
         # Выбор «что отдаёт» на ноде-источнике (emitKinds).
         src_cfg = operator_config(project, source_key)
         emit_kinds: list[EmitKind] = list(src_cfg.get("emitKinds") or [])
-        emitted = _paths_for_emit_kinds(
-            project, source_key, entry, emit_kinds, limit=limit
-        )
+        emitted = _paths_for_emit_kinds(project, source_key, entry, emit_kinds, limit=limit)
         if emitted:
             return emitted
         # Fallback, если emitKinds ничего не нашёл (ещё нет результата).
@@ -970,7 +941,9 @@ def files_from_source_node(
         voice = root / "voiceover.txt"
         if voice.is_file():
             return [voice]
-        return _collect_under(root / "audio", suffixes=frozenset({".mp3", ".wav", ".m4a", ".txt"}), limit=limit)
+        return _collect_under(
+            root / "audio", suffixes=frozenset({".mp3", ".wav", ".m4a", ".txt"}), limit=limit
+        )
 
     # Закадровый текст: главный артефакт — voiceover.txt (+ xlsx если есть).
     if typ == "script":
@@ -994,9 +967,7 @@ def files_from_source_node(
             for p in sorted(udir.iterdir()):
                 if p.is_file() and p.stat().st_size > 0:
                     synthetic["outputPaths"].append(str(p))
-        emitted = _paths_for_emit_kinds(
-            project, source_key, synthetic, emit_kinds, limit=limit
-        )
+        emitted = _paths_for_emit_kinds(project, source_key, synthetic, emit_kinds, limit=limit)
         if emitted:
             return emitted
         if use_snapshot:
@@ -1187,9 +1158,7 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
             if src_role not in BRANCHING_ROLES and not is_excel_gpt_node_type(
                 _node_type_map(project).get(src, "")
             ):
-                warnings.append(
-                    f"стрелка {kind} от {src}: ожидается роль «проверяет» / «шлагбаум»"
-                )
+                warnings.append(f"стрелка {kind} от {src}: ожидается роль «проверяет» / «шлагбаум»")
         # Любая входящая связь — кандидат на файлы; решает takeFromEdges у этой ноды.
         if take_from_edges and src:
             # Vision-check: hero/scenes/videos часто >12 файлов — не режем на 12.
@@ -1260,15 +1229,12 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
         unique_files = [
             f
             for f in unique_files
-            if not str(f.get("name") or "").lower().endswith(
-                (".xlsx", ".xlsm", ".xls")
-            )
+            if not str(f.get("name") or "").lower().endswith((".xlsx", ".xlsm", ".xls"))
         ]
         dropped = before - len(unique_files)
         if dropped:
             warnings.append(
-                f"project_file/DB SoT: убрано xlsx со входа ({dropped}) — "
-                "пишем в базу через apply-ops"
+                f"project_file/DB SoT: убрано xlsx со входа ({dropped}) — пишем в базу через apply-ops"
             )
 
     ok_files = [f for f in unique_files if f.get("ok")]
@@ -1297,9 +1263,7 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
 
             custom = load_custom_check_agent_body(project, node_key)
             if custom:
-                check_agent_step = (
-                    f"upload:{cfg.get('checkAgentFileName') or 'check_agent.txt'}"
-                )
+                check_agent_step = f"upload:{cfg.get('checkAgentFileName') or 'check_agent.txt'}"
             else:
                 typ = upstream_node_type_for_check(project, node_key)
                 if not typ:
@@ -1323,15 +1287,11 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
                 errors.append("нет исходного промта для проверки")
             for s in source_prompts:
                 if not s.get("ok") and s.get("error"):
-                    warnings.append(
-                        f"промт {s.get('nodeKey')}: {s.get('error')}"
-                    )
+                    warnings.append(f"промт {s.get('nodeKey')}: {s.get('error')}")
 
     if not ok_files and role in ("assist", "transform", "extract", "review"):
         if db_sot:
-            warnings.append(
-                "project_file/DB SoT: входных файлов нет — ок, будет db_frames.json"
-            )
+            warnings.append("project_file/DB SoT: входных файлов нет — ок, будет db_frames.json")
         else:
             # soft: assist без файлов — ошибка запуска
             errors.append("нет ни одного существующего файла на входе")
@@ -1364,13 +1324,9 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
     branching_enabled = role in BRANCHING_ROLES or check_mode
     if branching_enabled:
         if not pass_edges:
-            warnings.append(
-                "нет исходящей стрелки «Ок» — проведите связь и выберите тип «Ок»"
-            )
+            warnings.append("нет исходящей стрелки «Ок» — проведите связь и выберите тип «Ок»")
         if not fail_edges:
-            warnings.append(
-                "нет исходящей стрелки «Не ок» — проведите связь и выберите тип «Не ок»"
-            )
+            warnings.append("нет исходящей стрелки «Не ок» — проведите связь и выберите тип «Не ок»")
 
     verdict = str(last.get("gateStatus") or cfg.get("gateStatus") or "").strip().lower()
     if verdict not in ("pass", "fail"):
@@ -1397,9 +1353,7 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
     consistent = len(errors) == 0
     from app.services.check_analysis import default_check_report_format
 
-    report_format_text, report_format_custom = resolve_check_report_format(
-        project, node_key
-    )
+    report_format_text, report_format_custom = resolve_check_report_format(project, node_key)
     source_prompt_view = [
         {
             "nodeKey": s.get("nodeKey"),
@@ -1454,8 +1408,7 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
         "errors": errors,
         "warnings": warnings,
         "consistent": consistent,
-        "canRun": consistent
-        and (len(ok_files) > 0 or role == "gate" or db_sot),
+        "canRun": consistent and (len(ok_files) > 0 or role == "gate" or db_sot),
         "lastResult": last,
         "config": {
             "role": role,
@@ -1467,9 +1420,7 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
             "checkFix": check_fix,
             "checkPromptSource": check_prompt_source,
             "checkAgentFileName": str(cfg.get("checkAgentFileName") or "") or None,
-            "checkReportFormat": (
-                report_format_text if report_format_custom else None
-            ),
+            "checkReportFormat": (report_format_text if report_format_custom else None),
             "transport": cfg.get("transport") or "api",
             "uploadedFileNames": list(cfg.get("uploadedFileNames") or []),
             "workMode": cfg.get("workMode"),
@@ -1534,9 +1485,7 @@ def patch_operator_config(project: Project, node_key: str, patch: dict[str, Any]
         cur["checkFix"] = bool(patch.get("checkFix"))
     if "checkPromptSource" in patch:
         cps = str(patch.get("checkPromptSource") or "upstream").strip().lower()
-        cur["checkPromptSource"] = (
-            cps if cps in VALID_CHECK_PROMPT_SOURCES else "upstream"
-        )
+        cur["checkPromptSource"] = cps if cps in VALID_CHECK_PROMPT_SOURCES else "upstream"
     if "checkReportFormat" in patch:
         from app.services.check_analysis import normalize_check_report_format
 
@@ -1564,9 +1513,7 @@ def patch_operator_config(project: Project, node_key: str, patch: dict[str, Any]
         # Автоподпись при смене роли, если текст ещё дефолтный / пустой.
         prev_label = str(cur.get("label") or "").strip()
         if prev_label in _DEFAULT_LABEL_SET:
-            cur["label"] = default_label_for_role(
-                normalize_role(cur.get("role") or "assist")
-            )
+            cur["label"] = default_label_for_role(normalize_role(cur.get("role") or "assist"))
     if "uploadedFileNames" in patch and isinstance(patch["uploadedFileNames"], list):
         cur["uploadedFileNames"] = [str(x) for x in patch["uploadedFileNames"] if x]
         if cur["uploadedFileNames"]:
@@ -1584,9 +1531,7 @@ def patch_operator_config(project: Project, node_key: str, patch: dict[str, Any]
     return resolve_operator(project, node_key)
 
 
-def set_edge_kind_in_canvas(
-    project: Project, edge_id: str, kind: EdgeKind
-) -> dict[str, Any] | None:
+def set_edge_kind_in_canvas(project: Project, edge_id: str, kind: EdgeKind) -> dict[str, Any] | None:
     """Меняет edge.data.kind в canvas_graph. Возвращает обновлённое ребро или None."""
     meta = dict(project.meta or {})
     cg = canvas_graph_from_meta(meta)
@@ -1628,10 +1573,8 @@ def apply_check_reply(
 
     Для browser и API путей. Битый JSON → fail (ветка «Не ок»).
     """
-    from app.services.check_analysis import parse_check_analysis, write_analysis_json
+    from app.services.check_analysis import parse_check_analysis, write_analysis_json, write_check_report_txt
     from app.services.excel_gpt_node import upload_dir
-
-    from app.services.check_analysis import write_check_report_txt
 
     parsed = parse_check_analysis(reply_text or "")
     cfg = operator_config(project, node_key)
@@ -1642,14 +1585,8 @@ def apply_check_reply(
         parsed.forward = type(parsed.forward)(mode="inherit", paths=[])
     out_dir = upload_dir(project, node_key)
     analysis_path = write_analysis_json(out_dir, parsed)
-    sources = [
-        str(s.get("nodeKey") or "")
-        for s in collect_source_prompts(project, node_key)
-        if s.get("ok")
-    ]
-    report_path = write_check_report_txt(
-        out_dir, parsed, mode=mode, source_prompts=sources
-    )
+    sources = [str(s.get("nodeKey") or "") for s in collect_source_prompts(project, node_key) if s.get("ok")]
+    report_path = write_check_report_txt(out_dir, parsed, mode=mode, source_prompts=sources)
     outputs = [analysis_path, report_path, *(extra_output_paths or [])]
     reply_file = out_dir / "gpt_reply.txt"
     if (reply_text or "").strip() and not reply_file.is_file():
@@ -1678,7 +1615,7 @@ def save_operator_result(
     gate_status: str | None = None,
     analysis: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from app.services.check_analysis import parse_check_analysis
 
@@ -1698,7 +1635,7 @@ def save_operator_result(
     meta = project.meta if isinstance(project.meta, dict) else {}
     results = dict(meta.get("gpt_operator_results") or {})
     entry: dict[str, Any] = {
-        "at": datetime.now(timezone.utc).isoformat(),
+        "at": datetime.now(UTC).isoformat(),
         "inputPaths": [str(p) for p in input_paths],
         "outputPaths": [str(p) for p in output_paths],
         "replyPreview": (reply_text or "")[:2000],
@@ -1767,9 +1704,7 @@ def gate_allows_successors(project: Project, gate_node_key: str) -> bool | None:
     return None
 
 
-def verdict_edge_blocks(
-    project: Project, source_key: str, edge_kind: str
-) -> bool | None:
+def verdict_edge_blocks(project: Project, source_key: str, edge_kind: str) -> bool | None:
     """Блокирует ли стрелка pass/fail/gate переход.
 
     None — стрелка не вердиктная (после/файлы/проверка).

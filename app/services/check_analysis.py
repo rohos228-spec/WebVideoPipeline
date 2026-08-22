@@ -170,14 +170,10 @@ _HEADER_MODE_RE = re.compile(r"(?im)^\s*mode\s*:\s*(\S+)\s*$")
 _HEADER_SOURCES_RE = re.compile(r"(?im)^\s*source_prompts\s*:\s*(.+?)\s*$")
 _FORWARD_FILE_RE = re.compile(r"(?im)^\s*file\s*:\s*(\S+)\s*$")
 _FORWARD_PATH_RE = re.compile(r"(?im)^\s*path\s*:\s*(.+?)\s*$")
-_FINDING_RE = re.compile(
-    r"(?m)^\s*[-*]\s*\[(critical|error|warn|warning|minor|ok|pass|fail)\]\s*(.+?)\s*$"
-)
+_FINDING_RE = re.compile(r"(?m)^\s*[-*]\s*\[(critical|error|warn|warning|minor|ok|pass|fail)\]\s*(.+?)\s*$")
 _REGEN_LINE_RE = re.compile(r"(?im)^\s*regen\s*:\s*(.+?)\s*$")
 _HERO_EXCEL_ID_RE = re.compile(r"\bc(\d{1,3})\b", re.IGNORECASE)
-_HERO_FILE_ID_RE = re.compile(
-    r"\b(c\d{1,3})\.(?:png|jpe?g|webp|gif)\b", re.IGNORECASE
-)
+_HERO_FILE_ID_RE = re.compile(r"\b(c\d{1,3})\.(?:png|jpe?g|webp|gif)\b", re.IGNORECASE)
 
 # Подсказка в хвост отчёта для check после hero (vision → точечный переген).
 HERO_REGEN_REPORT_HINT = """
@@ -353,10 +349,7 @@ def extract_hero_regen_ids(text: str) -> list[str]:
                         _add(hm.group(0))
         else:
             low = section.lower()
-            if any(
-                w in low
-                for w in ("regen", "переген", "плохо", "брак", "error", "fail", "не ок")
-            ):
+            if any(w in low for w in ("regen", "переген", "плохо", "брак", "error", "fail", "не ок")):
                 for m in _HERO_FILE_ID_RE.finditer(section):
                     _add(m.group(1))
                 for hm in _HERO_EXCEL_ID_RE.finditer(section):
@@ -378,12 +371,7 @@ def append_vision_check_hint(prompt: str) -> str:
     """Дописать единый vision_check хвост (hero + scenes)."""
     base = (prompt or "").rstrip()
     low = base.lower()
-    if (
-        "vision_check" in low
-        and "db_patch" in low
-        and "## scores" in low
-        and "critical" in low
-    ):
+    if "vision_check" in low and "db_patch" in low and "## scores" in low and "critical" in low:
         return base
     if not base:
         return VISION_CHECK_REPORT_HINT
@@ -401,9 +389,7 @@ def normalize_frame_regen_token(raw: str) -> dict[str, Any] | None:
         s,
         re.IGNORECASE,
     )
-    if fm and re.search(
-        r"\.(?:png|jpe?g|webp|gif|mp4|webm|mov|mkv)\b", s, re.IGNORECASE
-    ):
+    if fm and re.search(r"\.(?:png|jpe?g|webp|gif|mp4|webm|mov|mkv)\b", s, re.IGNORECASE):
         num = int(fm.group(1))
         shot = 2 if re.search(r"(?:_s2_|s2|shot2)", s, re.IGNORECASE) else 1
         return {"number": num, "shot": shot}
@@ -434,9 +420,7 @@ def _section_requests_regen(section: str) -> bool:
         " ",
         low,
     )
-    return any(
-        w in cleaned for w in ("regen", "переген", "плохо", "брак", "не утвержд")
-    )
+    return any(w in cleaned for w in ("regen", "переген", "плохо", "брак", "не утвержд"))
 
 
 def extract_prose_reject_frame_targets(text: str) -> list[dict[str, Any]]:
@@ -630,9 +614,7 @@ _SCORE_LINE_RE = re.compile(
     r"hands|overall)\s*[:=]\s*"
     r"(0(?:\.\d+)?|1(?:\.0+)?|\.\d+)\s*$"
 )
-_ISSUE_LINE_RE = re.compile(
-    r"(?im)^\s*[-*]\s*\[(critical|warning|minor|warn|error|fail)\]\s*(.+?)\s*$"
-)
+_ISSUE_LINE_RE = re.compile(r"(?im)^\s*[-*]\s*\[(critical|warning|minor|warn|error|fail)\]\s*(.+?)\s*$")
 
 
 def _clamp_score(raw: float) -> float:
@@ -674,9 +656,7 @@ def _norm_issue_severity(raw: str) -> str:
     return s or "warning"
 
 
-_VISION_SEV_TAG_RE = re.compile(
-    r"(?i)\[(critical|warning|minor|warn|error|fail|ok)\]"
-)
+_VISION_SEV_TAG_RE = re.compile(r"(?i)\[(critical|warning|minor|warn|error|fail|ok)\]")
 
 # Этап 4 (B.2): атрибуция оси брака у issue. Явный тег «(axis)» из
 # шаблона; fallback — ключевые слова, порядок = приоритет (специфичные
@@ -742,17 +722,13 @@ def extract_vision_issues(text: str) -> list[dict[str, Any]]:
             if re.search(
                 r"(?i)\b(tsv|xlsx|writeback|общий\s*план|вход:?\s*отсутств)",
                 body,
-            ) and not re.search(
-                r"(?i)\b(?:frame|video_sheet|clip)[_-]?\d+|c\d{2}\b", body
-            ):
+            ) and not re.search(r"(?i)\b(?:frame|video_sheet|clip)[_-]?\d+|c\d{2}\b", body):
                 sev = "warning"
             key = f"{sev}|{body.lower()}"
             if key in seen:
                 continue
             seen.add(key)
-            out.append(
-                {"severity": sev, "text": body, "axis": classify_issue_axis(body)}
-            )
+            out.append({"severity": sev, "text": body, "axis": classify_issue_axis(body)})
     return out
 
 
@@ -766,16 +742,12 @@ def has_critical_vision_issues(text: str) -> bool:
     raw = text or ""
     if not any(i.get("severity") == "critical" for i in extract_vision_issues(raw)):
         return False
-    if re.search(r"(?im)^\s*verdict\s*:\s*pass\b", raw) and not re.search(
-        r"(?i)\[critical\]", raw
-    ):
+    if re.search(r"(?im)^\s*verdict\s*:\s*pass\b", raw) and not re.search(r"(?i)\[critical\]", raw):
         return False
     return True
 
 
-_OK_LINE_RE = re.compile(
-    r"(?im)^\s*[-*]\s*\[ok\]\s*(.+?)\s*$"
-)
+_OK_LINE_RE = re.compile(r"(?im)^\s*[-*]\s*\[ok\]\s*(.+?)\s*$")
 
 
 def extract_ok_vision_tokens(text: str) -> list[str]:
@@ -806,9 +778,7 @@ def extract_ok_vision_tokens(text: str) -> list[str]:
         body = (m.group(1) or "").strip()
         if not body:
             continue
-        if not re.search(
-            r"(?i)\b(?:frame|video_sheet|clip)[_-]?\d+|c\d{1,3}\b", body
-        ):
+        if not re.search(r"(?i)\b(?:frame|video_sheet|clip)[_-]?\d+|c\d{1,3}\b", body):
             continue
         for fm in re.finditer(
             r"\b(c\d{1,3}|(?:frame|video_sheet|clip)[_-]?\d{1,4}[^\s`\"']*)"
@@ -870,7 +840,7 @@ def resolve_vision_check_gate(
     return "pass" if float(overall) >= float(threshold) else "fail"
 
 
-def apply_vision_score_gate(analysis: "CheckAnalysis", text: str) -> "CheckAnalysis":
+def apply_vision_score_gate(analysis: CheckAnalysis, text: str) -> CheckAnalysis:
     """Переписать verdict по scores/severity, если отчёт scored-vision."""
     resolved = resolve_vision_check_gate(text)
     if resolved is None:
@@ -953,9 +923,7 @@ def extract_critical_frame_regen_targets(text: str) -> list[dict[str, Any]]:
             # цель (Req 8: «на фоне 3 фигуры» у f7 не рожает кадр 3).
             # Явные токены: 7s2 / f7 / «кадр 7» / frame 7 — число
             # вплотную к слову либо с s2-суффиксом.
-            for m in re.finditer(
-                r"\b(\d{1,4})[_-]?(?:s2|shot2)\b", body, re.IGNORECASE
-            ):
+            for m in re.finditer(r"\b(\d{1,4})[_-]?(?:s2|shot2)\b", body, re.IGNORECASE):
                 _add(f"{m.group(1)}s2")
             for m in re.finditer(r"\bf(\d{1,4})(s2)?\b", body, re.IGNORECASE):
                 _add(m.group(1) + ("s2" if m.group(2) else ""))
@@ -967,9 +935,7 @@ def extract_critical_frame_regen_targets(text: str) -> list[dict[str, Any]]:
                 _add(m.group(1) + ("s2" if m.group(2) else ""))
     # Prose «не утверждён» / «на перегенерацию только frame_X» — даже без [critical]
     for t in prose:
-        _add(
-            f"{t['number']}s2" if int(t.get("shot") or 1) == 2 else str(t["number"])
-        )
+        _add(f"{t['number']}s2" if int(t.get("shot") or 1) == 2 else str(t["number"]))
     return found
 
 
@@ -1171,9 +1137,7 @@ def _json_looks_like_check(obj: dict[str, Any]) -> bool:
     if "verdict" in obj and ("checks" in obj or "fix" in obj or "forward" in obj):
         return True
     decision = str(obj.get("decision") or "").strip()
-    if decision and (
-        "criteria" in obj or "issues" in obj or "red_flags" in obj or "checks" in obj
-    ):
+    if decision and ("criteria" in obj or "issues" in obj or "red_flags" in obj or "checks" in obj):
         return True
     return False
 
@@ -1227,9 +1191,7 @@ def _section_bodies(text: str) -> dict[str, str]:
     return bodies
 
 
-def parse_check_report_txt(
-    text: str, *, strict_contract: bool = False
-) -> CheckAnalysis | None:
+def parse_check_report_txt(text: str, *, strict_contract: bool = False) -> CheckAnalysis | None:
     """Разобрать TXT-отчёт. None — если текст не похож на шаблон.
 
     ``strict_contract`` — формат-брак (нет verdict / пустой отчёт)
@@ -1333,7 +1295,9 @@ def render_check_report_txt(
         note = (c.note or c.id or "").strip() or "—"
         findings_lines.append(f"- [{tag}] {note}")
     if not findings_lines:
-        findings_lines.append("- [ok] замечаний нет" if analysis.verdict == "pass" else "- [error] см. summary")
+        findings_lines.append(
+            "- [ok] замечаний нет" if analysis.verdict == "pass" else "- [error] см. summary"
+        )
     rewrite = (analysis.fix.rewrite_file or "").strip().replace("\\", "/")
     if rewrite:
         file_kind = "fixed"
@@ -1346,10 +1310,13 @@ def render_check_report_txt(
         path_line = "—"
     related = "—\n"
     if analysis.checks:
-        related = "\n".join(
-            f"- {c.id} → промт:— | {c.note}" if c.note else f"- {c.id} → промт:— |"
-            for c in analysis.checks[:12]
-        ) + "\n"
+        related = (
+            "\n".join(
+                f"- {c.id} → промт:— | {c.note}" if c.note else f"- {c.id} → промт:— |"
+                for c in analysis.checks[:12]
+            )
+            + "\n"
+        )
     actions = (analysis.fix.instructions or "").strip() or (
         "правки не выполнялись" if mode_s == "report_only" else "см. findings"
     )
@@ -1363,9 +1330,7 @@ def render_check_report_txt(
         f"{(analysis.summary or analysis.verdict).strip()}\n"
         "\n## analysis\n"
         f"{analysis_body}\n"
-        "\n## findings\n"
-        + "\n".join(findings_lines)
-        + "\n\n## related\n"
+        "\n## findings\n" + "\n".join(findings_lines) + "\n\n## related\n"
         f"{related}"
         "\n## logic\n"
         "см. analysis / findings\n"
@@ -1454,9 +1419,7 @@ def parse_check_analysis(
         if require_schema:
             sid = str(obj.get("schema") or "").strip()
             if sid and sid != SCHEMA_ID:
-                return _format_fail(
-                    f"неверная schema: {sid!r}, ожидается {SCHEMA_ID}"
-                )
+                return _format_fail(f"неверная schema: {sid!r}, ожидается {SCHEMA_ID}")
         if "verdict" not in obj:
             decision = str(obj.get("decision") or "").strip().lower()
             if decision in ("approved", "approve", "ok"):
@@ -1473,9 +1436,7 @@ def parse_check_analysis(
     txt = parse_check_report_txt(probe, strict_contract=strict_contract)
     if txt is not None:
         return _finish(txt)
-    return _format_fail(
-        "нет TXT-отчёта и нет JSON vp.check.v1 в ответе", kind="parse"
-    )
+    return _format_fail("нет TXT-отчёта и нет JSON vp.check.v1 в ответе", kind="parse")
 
 
 def parse_gate_status(text: str) -> str:
@@ -1528,9 +1489,7 @@ def append_txt_report_footer(
         sep = "\n\n---\nФОРМАТ ОТВЕТА (шаблон этой ноды):\n"
         return f"{base}{sep}{footer}"
     marker = "# ОТЧЁТ ПРОВЕРКИ"
-    if marker in base or (
-        "source_prompts:" in base.lower() and "## findings" in base.lower()
-    ):
+    if marker in base or ("source_prompts:" in base.lower() and "## findings" in base.lower()):
         return base
     if not base:
         return footer

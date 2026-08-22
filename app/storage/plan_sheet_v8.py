@@ -12,6 +12,7 @@ from loguru import logger
 from openpyxl import load_workbook
 
 from app.models import Project
+from app.services.plan_shot2 import MIN_SHOT2_VIDEO_PROMPT_LEN
 from app.services.xlsx_v8_import import (
     ROW_DURATION_V8,
     ROW_IMAGE_PROMPT_V8,
@@ -22,7 +23,6 @@ from app.services.xlsx_v8_import import (
     _cell_text,
     _resolve_plan_sheet,
 )
-from app.services.plan_shot2 import MIN_SHOT2_VIDEO_PROMPT_LEN
 
 SHEET_PLAN_V8 = "план"
 from app.storage.project_sheet import _file_lock
@@ -186,9 +186,7 @@ def read_plan_timestamps_cells(
                     col_map = voiceover_frame_columns(ws_primary)
                     for frame_number in frame_numbers:
                         col = _timestamp_column(frame_number, col_map)
-                        out[frame_number] = _read_r15_label(
-                            ws_raw, ws_values, ts_row, col
-                        )
+                        out[frame_number] = _read_r15_label(ws_raw, ws_values, ts_row, col)
             finally:
                 wb_values.close()
                 wb_raw.close()
@@ -288,9 +286,7 @@ def write_plan_durations(
     return written
 
 
-def _read_plan_voiceover_cells_raw(
-    project: Project, frame_numbers: list[int]
-) -> list[tuple[int, str]]:
+def _read_plan_voiceover_cells_raw(project: Project, frame_numbers: list[int]) -> list[tuple[int, str]]:
     """R49 без data_only — если формулы не сохранили cached values."""
     if not frame_numbers:
         return []
@@ -342,13 +338,17 @@ async def resolve_plan_voiceover_cells(
         return raw_cells, "xlsx-r49-raw"
 
     rows = (
-        await session.execute(
-            select(Frame).where(
-                Frame.project_id == project.id,
-                Frame.number.in_(frame_numbers),
+        (
+            await session.execute(
+                select(Frame).where(
+                    Frame.project_id == project.id,
+                    Frame.number.in_(frame_numbers),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     by_number = {fr.number: (fr.voiceover_text or "").strip() for fr in rows}
     db_cells = [(n, by_number.get(n, "")) for n in frame_numbers]
     filled = sum(1 for _, text in db_cells if text.strip())
@@ -616,16 +616,12 @@ def merge_gpt_image_prompt_rows_into_project(
                     return 0, 0
                 for col in range(3, max_col + 1):
                     p45 = (_cell_text(ws_g, ROW_IMAGE_PROMPT_V8, col) or "").strip()
-                    p46 = (
-                        _cell_text(ws_g, ROW_IMAGE_PROMPT_2_V8, col) or ""
-                    ).strip()
+                    p46 = (_cell_text(ws_g, ROW_IMAGE_PROMPT_2_V8, col) or "").strip()
                     if p45:
                         ws_p.cell(row=ROW_IMAGE_PROMPT_V8, column=col, value=p45)
                         n45 += 1
                     if p46:
-                        ws_p.cell(
-                            row=ROW_IMAGE_PROMPT_2_V8, column=col, value=p46
-                        )
+                        ws_p.cell(row=ROW_IMAGE_PROMPT_2_V8, column=col, value=p46)
                         n46 += 1
                 if n45 or n46:
                     wb_proj.save(project_xlsx)

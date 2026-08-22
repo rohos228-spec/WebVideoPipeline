@@ -90,9 +90,7 @@ def _image_api_enabled() -> bool:
     from app.bots.grsai import grsai_enabled
     from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_image
 
-    return bool(
-        grsai_enabled() or outsee_api_enabled_for_image() or outsee_api_configured()
-    )
+    return bool(grsai_enabled() or outsee_api_enabled_for_image() or outsee_api_configured())
 
 
 def _video_api_enabled() -> bool:
@@ -100,30 +98,20 @@ def _video_api_enabled() -> bool:
     from app.bots.grsai import grsai_video_enabled
     from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_video
 
-    return bool(
-        grsai_video_enabled()
-        or outsee_api_enabled_for_video()
-        or outsee_api_configured()
-    )
+    return bool(grsai_video_enabled() or outsee_api_enabled_for_video() or outsee_api_configured())
 
 
 class _ApiOnlyOutseeStub:
     """Заглушка OutseeBot: montage regen никогда не открывает Chrome CDP."""
 
     async def generate_image(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError(
-            "montage regen: CDP отключён — нужен OUTSEE_API_KEY / GRSAI_API_KEY"
-        )
+        raise RuntimeError("montage regen: CDP отключён — нужен OUTSEE_API_KEY / GRSAI_API_KEY")
 
     async def generate_video(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError(
-            "montage regen: CDP отключён — нужен OUTSEE_API_KEY / GRSAI_API_KEY"
-        )
+        raise RuntimeError("montage regen: CDP отключён — нужен OUTSEE_API_KEY / GRSAI_API_KEY")
 
     async def retry_image_download(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError(
-            "montage regen: CDP download отключён — повтор скачивания только через HTTP API"
-        )
+        raise RuntimeError("montage regen: CDP download отключён — повтор скачивания только через HTTP API")
 
 
 def image_prompt_from_excel(project: Project, frame: Frame, shot: int) -> str:
@@ -171,14 +159,18 @@ async def _active_prompt_text(
 ) -> str:
     """Активная версия из prompt_versions (DB v2), иначе пусто."""
     pv = (
-        await session.execute(
-            select(PromptVersion).where(
-                PromptVersion.frame_id == frame_id,
-                PromptVersion.kind == kind,
-                PromptVersion.is_active.is_(True),
+        (
+            await session.execute(
+                select(PromptVersion).where(
+                    PromptVersion.frame_id == frame_id,
+                    PromptVersion.kind == kind,
+                    PromptVersion.is_active.is_(True),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     return (pv.text or "").strip() if pv is not None else ""
 
 
@@ -322,8 +314,10 @@ async def prepare_image_regen(
             raise RuntimeError("пустая корректировка")
         if board is not None:
             store_correction(board, frame_number, shot, text)
-        current = find_shot2_image(scenes_dir, frame_number) if shot == 2 else find_shot1_image(
-            scenes_dir, frame_number
+        current = (
+            find_shot2_image(scenes_dir, frame_number)
+            if shot == 2
+            else find_shot1_image(scenes_dir, frame_number)
         )
         if current is None:
             raise RuntimeError("нет текущего изображения для корректировки")
@@ -336,9 +330,7 @@ async def prepare_image_regen(
         pinned = (pinned_prompt or "").strip()
         prompt_text = pinned or await resolve_image_prompt(session, project, fr, shot)
         if not prompt_text:
-            raise RuntimeError(
-                f"нет промта картинки в БД/Excel (кадр {frame_number}, shot {shot})"
-            )
+            raise RuntimeError(f"нет промта картинки в БД/Excel (кадр {frame_number}, shot {shot})")
         if shot == 1:
             refs = await _load_refs_for_frame(session, project, frame_number)
         elif shot == 2:
@@ -360,9 +352,7 @@ async def prepare_image_regen(
     img_gen = IMAGE_GENERATORS_BY_ID.get(project.image_generator or DEFAULTS["image_generator"])
     ar = ASPECT_RATIOS_BY_ID.get(project.aspect_ratio or DEFAULTS["aspect_ratio"])
     ir = IMAGE_RESOLUTIONS_BY_ID.get(
-        clamp_image_resolution_id(
-            project.image_generator, project.image_resolution
-        )
+        clamp_image_resolution_id(project.image_generator, project.image_resolution)
     )
 
     return ImageRegenPrep(
@@ -392,8 +382,7 @@ async def execute_image_regen(prep: ImageRegenPrep) -> Path:
         )
     preview = (prep.prompt_text or "").replace("\n", " ")[:160]
     logger.info(
-        "montage regen image #{} frame {} shot {} → API "
-        "({} симв., refs={}, prefix={}, preview={!r})",
+        "montage regen image #{} frame {} shot {} → API ({} симв., refs={}, prefix={}, preview={!r})",
         prep.project_id,
         prep.frame_number,
         prep.shot,
@@ -425,8 +414,7 @@ async def execute_image_regen(prep: ImageRegenPrep) -> Path:
     except Exception as exc:  # noqa: BLE001
         if _ready_regen_file(prep.file_path):
             logger.warning(
-                "montage regen image #{} frame {} shot {}: "
-                "API failed but file ready: {}",
+                "montage regen image #{} frame {} shot {}: API failed but file ready: {}",
                 prep.project_id,
                 prep.frame_number,
                 prep.shot,
@@ -451,9 +439,7 @@ async def finalize_image_regen(
     *,
     board: dict | None = None,
 ) -> dict:
-    await finalize_scene_image(
-        session, project, prep.frame_number, shot=prep.shot, new_path=new_path
-    )
+    await finalize_scene_image(session, project, prep.frame_number, shot=prep.shot, new_path=new_path)
     if board is not None:
         mark_stale_videos(board, prep.frame_number, shot=prep.shot)
     await session.flush()
@@ -559,13 +545,9 @@ async def execute_video_regen(prep: VideoRegenPrep) -> Path:
         dup_globs = list(videos_dir.glob(f"clip_{prep.frame_number:03d}_s2_*.mp4"))
     else:
         dup_globs = [
-            p
-            for p in videos_dir.glob(f"clip_{prep.frame_number:03d}_*.mp4")
-            if "_s2_" not in p.name
+            p for p in videos_dir.glob(f"clip_{prep.frame_number:03d}_*.mp4") if "_s2_" not in p.name
         ]
-    duplicate_check_paths = list(
-        dict.fromkeys(p.resolve() for p in dup_globs if p.is_file())
-    )
+    duplicate_check_paths = list(dict.fromkeys(p.resolve() for p in dup_globs if p.is_file()))
     result = await generate_video_with_retries(
         _ApiOnlyOutseeStub(),  # type: ignore[arg-type]
         gpt,
@@ -594,9 +576,7 @@ async def finalize_video_regen(
     *,
     board: dict | None = None,
 ) -> dict:
-    await finalize_scene_video(
-        session, project, prep.frame_number, shot=prep.shot, new_path=new_path
-    )
+    await finalize_scene_video(session, project, prep.frame_number, shot=prep.shot, new_path=new_path)
     if board is not None:
         clear_stale_video(board, prep.frame_number, prep.shot)
     await session.flush()

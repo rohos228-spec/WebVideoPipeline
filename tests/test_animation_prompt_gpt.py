@@ -91,10 +91,7 @@ def test_parse_animation_reply_no_positional_zip_mixup() -> None:
         ),
     ]
     # Два абзаца без ID — раньше zip клал их в F1/F2 вперемешку с риском ошибки.
-    reply = (
-        "Slow push on wrong scene, NO VOICE.\n\n"
-        "Gentle pan that belonged to another frame, silent."
-    )
+    reply = "Slow push on wrong scene, NO VOICE.\n\nGentle pan that belonged to another frame, silent."
     pairs = parse_animation_reply(reply, frames, batch_items=batch)
     assert pairs == []
 
@@ -206,9 +203,7 @@ async def anim_pr_session(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_sync_clears_stale_db_when_xlsx_r48_empty(
-    anim_pr_session, tmp_path: Path, monkeypatch
-) -> None:
+async def test_sync_clears_stale_db_when_xlsx_r48_empty(anim_pr_session, tmp_path: Path, monkeypatch) -> None:
     """Пустой plan R48 → убираем мусорные animation_prompt из БД."""
     from openpyxl import Workbook
 
@@ -233,9 +228,9 @@ async def test_sync_clears_stale_db_when_xlsx_r48_empty(
     ws.title = "план"
     wb.save(xlsx)
 
-    fr = (await session.execute(
-        __import__("sqlalchemy").select(Frame).where(Frame.project_id == project.id)
-    )).scalar_one()
+    fr = (
+        await session.execute(__import__("sqlalchemy").select(Frame).where(Frame.project_id == project.id))
+    ).scalar_one()
 
     changed = await sync_animation_prompts_from_xlsx(session, project)
     assert changed >= 1
@@ -274,10 +269,10 @@ async def test_start_step_anim_pr_explicit_reruns_even_if_ready(
 
     Полный wipe animation_prompt — только reset_step / force_wipe=True.
     """
-    from app.settings import settings
     from sqlalchemy import select
 
     from app.models import Frame
+    from app.settings import settings
 
     session, project = anim_pr_session
     monkeypatch.setattr(settings, "data_dir", tmp_path)
@@ -286,17 +281,13 @@ async def test_start_step_anim_pr_explicit_reruns_even_if_ready(
     scenes.mkdir(parents=True)
     (scenes / "frame_001_abcd1234.png").write_bytes(b"x" * 250_000)
 
-    before = (
-        await session.execute(select(Frame).where(Frame.project_id == project.id))
-    ).scalar_one()
+    before = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalar_one()
     kept = (before.animation_prompt or "").strip()
     assert kept  # fixture даёт готовый промт
 
     status = await start_step(session, project, "anim_pr", explicit_ui_start=True)
     assert status is ProjectStatus.generating_animation_prompts
-    fr = (
-        await session.execute(select(Frame).where(Frame.project_id == project.id))
-    ).scalar_one()
+    fr = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalar_one()
     # Soft ▶ сохраняет уже сгенерированные промты (не сжигает пачки).
     assert (fr.animation_prompt or "").strip() == kept
 
@@ -339,12 +330,8 @@ def test_build_apply_ops_from_pairs_maps_uuid_and_field() -> None:
         SimpleNamespace(number=2, uuid="u2"),
     ]
     pairs = [
-        ParsedAnimationPair(
-            image_id="a", animation_text="dolly in slowly", frame_number=1
-        ),
-        ParsedAnimationPair(
-            image_id="b", animation_text="pan right across", frame_number=2
-        ),
+        ParsedAnimationPair(image_id="a", animation_text="dolly in slowly", frame_number=1),
+        ParsedAnimationPair(image_id="b", animation_text="pan right across", frame_number=2),
         ParsedAnimationPair(image_id="c", animation_text="x", frame_number=1),
         ParsedAnimationPair(image_id="d", animation_text="no frame", frame_number=None),
     ]

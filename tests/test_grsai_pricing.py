@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from app.services.generation_storage import (
     build_generation_path,
     list_generation_files,
@@ -31,12 +29,8 @@ def test_quote_resolution_multiplier():
 
 
 def test_quote_sora_size_duration():
-    small = quote_generation(
-        media="video", model="sora-2", duration=10, size="small"
-    )
-    large15 = quote_generation(
-        media="video", model="sora-2", duration=15, size="large"
-    )
+    small = quote_generation(media="video", model="sora-2", duration=10, size="small")
+    large15 = quote_generation(media="video", model="sora-2", duration=15, size="large")
     assert large15["usd"] > small["usd"]
 
 

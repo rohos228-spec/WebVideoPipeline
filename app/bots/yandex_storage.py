@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
@@ -33,8 +33,10 @@ def yandex_storage_configured() -> bool:
 
 def _endpoint() -> str:
     return (
-        getattr(settings, "yandex_storage_endpoint", None) or "https://storage.yandexcloud.net"
-    ).strip().rstrip("/")
+        (getattr(settings, "yandex_storage_endpoint", None) or "https://storage.yandexcloud.net")
+        .strip()
+        .rstrip("/")
+    )
 
 
 def _region() -> str:
@@ -86,7 +88,7 @@ def build_put_headers(
     amz_date: str | None = None,
 ) -> dict[str, str]:
     """AWS SigV4 headers для PutObject (path-style)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     amz = amz_date or now.strftime("%Y%m%dT%H%M%SZ")
     datestamp = amz[:8]
     region = _region()
@@ -155,7 +157,7 @@ async def upload_public_bytes(
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
     if ext not in ("jpg", "jpeg", "png", "webp", "gif", "bin"):
         ext = "jpg"
-    object_key = f"vp-frames/{datetime.now(timezone.utc).strftime('%Y%m%d')}/{uuid4().hex}.{ext}"
+    object_key = f"vp-frames/{datetime.now(UTC).strftime('%Y%m%d')}/{uuid4().hex}.{ext}"
     url = public_object_url(object_key)
     headers = build_put_headers(
         method="PUT",

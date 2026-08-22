@@ -97,9 +97,7 @@ async def upload_attachment(
                     status_code=400,
                     detail=f"пустой файл: {uf.filename or '?'}",
                 )
-            saved.append(
-                gw.save_attachment(session_id, uf.filename or "file.bin", data)
-            )
+            saved.append(gw.save_attachment(session_id, uf.filename or "file.bin", data))
     except HTTPException:
         raise
     except FileNotFoundError as e:

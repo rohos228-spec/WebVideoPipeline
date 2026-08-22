@@ -1,4 +1,5 @@
 """Status dump for project #60."""
+
 from __future__ import annotations
 
 import json

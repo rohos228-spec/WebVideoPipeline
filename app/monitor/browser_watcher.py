@@ -55,9 +55,7 @@ class BrowserWatcher:
 
         try:
             self._pw = await async_playwright().start()
-            self._browser = await self._pw.chromium.connect_over_cdp(
-                self.cdp_url, timeout=10_000
-            )
+            self._browser = await self._pw.chromium.connect_over_cdp(self.cdp_url, timeout=10_000)
             if self._browser.contexts:
                 self._context = self._browser.contexts[0]
             else:
@@ -82,7 +80,8 @@ class BrowserWatcher:
         except Exception as e:
             logger.warning(
                 "browser_watcher: не удалось подключиться к Chrome ({}): {}",
-                self.cdp_url, e,
+                self.cdp_url,
+                e,
             )
             emit_event(
                 "watcher_connect_failed",
@@ -154,9 +153,7 @@ class BrowserWatcher:
             if url_changed or not self.screenshot_on_change:
                 await self._take_screenshot(page, page_id, url)
 
-    async def take_screenshot_now(
-        self, label: str = "manual"
-    ) -> list[str]:
+    async def take_screenshot_now(self, label: str = "manual") -> list[str]:
         """Немедленный снимок всех вкладок. Возвращает пути к файлам."""
         paths: list[str] = []
         if self._context is None:
@@ -201,9 +198,7 @@ class BrowserWatcher:
             )
             return str(fpath)
         except Exception as e:
-            logger.debug(
-                "browser_watcher: скриншот {} не удался: {}", page_id, e
-            )
+            logger.debug("browser_watcher: скриншот {} не удался: {}", page_id, e)
             return None
 
     def _hook_page_events(self, page: Page, page_id: str) -> None:

@@ -162,9 +162,7 @@ async def test_plan_voiceover_cell_syncs_frame(
     await session.commit()
     assert result["synced"] == "voiceover_text"
     fr = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == p.id, Frame.number == 1)
-        )
+        await session.execute(select(Frame).where(Frame.project_id == p.id, Frame.number == 1))
     ).scalar_one()
     assert fr.voiceover_text == "новый закадр"
 

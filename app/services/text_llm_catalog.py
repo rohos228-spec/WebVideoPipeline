@@ -118,12 +118,8 @@ def write_choice(
     payload = {"provider": provider, "model_id": model_id}
     path = _choice_path(s)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    logger.info(
-        "text_llm_choice: active → {} ({})", payload["provider"], payload["model_id"]
-    )
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    logger.info("text_llm_choice: active → {} ({})", payload["provider"], payload["model_id"])
     return payload
 
 
@@ -176,9 +172,7 @@ def catalog_status(cfg: Settings | None = None) -> dict[str, Any]:
             base = s.vibecode_base_url
         else:
             model = s.gpt_model
-            key_ok = bool(
-                (s.gpt_api_key or "").strip() or (s.grsai_api_key or "").strip()
-            )
+            key_ok = bool((s.gpt_api_key or "").strip() or (s.grsai_api_key or "").strip())
             base = s.gpt_base_url or s.grsai_base_url
         models.append(
             {

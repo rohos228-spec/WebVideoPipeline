@@ -35,9 +35,7 @@ from app.services.project_state import compute_actual_status, recompute_status
 async def _recover(project_id: int, dry_run: bool) -> int:
     async with session_scope() as session:
         project = (
-            await session.execute(
-                select(Project).where(Project.id == project_id)
-            )
+            await session.execute(select(Project).where(Project.id == project_id))
         ).scalar_one_or_none()
         if project is None:
             print(f"[!] проект #{project_id} не найден")
@@ -48,9 +46,7 @@ async def _recover(project_id: int, dry_run: bool) -> int:
         has_script = bool(project.script_text)
         has_hero = bool(project.hero_description)
         fr_total = (
-            await session.execute(
-                select(func.count(Frame.id)).where(Frame.project_id == project_id)
-            )
+            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project_id))
         ).scalar_one()
         fr_with_img_prompt = (
             await session.execute(
@@ -115,15 +111,11 @@ async def _recover(project_id: int, dry_run: bool) -> int:
             return 0
 
         if dry_run:
-            print(
-                f"[dry-run] изменил бы {project.status.value} → {new_status.value}"
-            )
+            print(f"[dry-run] изменил бы {project.status.value} → {new_status.value}")
             return 0
 
         old_value = project.status.value
-        old, new, changed = await recompute_status(
-            session, project, log_prefix="recover_project_state CLI"
-        )
+        old, new, changed = await recompute_status(session, project, log_prefix="recover_project_state CLI")
         if not changed:
             print("[=] нечего менять")
             return 0

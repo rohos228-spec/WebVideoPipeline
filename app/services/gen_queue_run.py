@@ -99,9 +99,7 @@ def is_gen_queue_timeline_complete(project: Project) -> bool:
     return status_at_or_past_target(project, target)
 
 
-def ready_status_is_queue_target(
-    project: Project, ready_status: ProjectStatus
-) -> bool:
+def ready_status_is_queue_target(project: Project, ready_status: ProjectStatus) -> bool:
     """Текущий *_ready — это выбранная целевая нода очереди."""
     if gen_queue_run_mode(project) != "until_node":
         return False

@@ -76,82 +76,100 @@ def picker_kb(
     # ▶ Запустить шаг — на самом верху, если шаблон выбран и попросили
     # показать (для enrich-слотов).
     if show_run_button and chosen:
-        rows.append([
-            InlineKeyboardButton(
-                text="▶ Запустить шаг",
-                callback_data=f"prm:{pid}:{step_code}:run",
-            )
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="▶ Запустить шаг",
+                    callback_data=f"prm:{pid}:{step_code}:run",
+                )
+            ]
+        )
     # Кнопка «📝 Изменить тему» — для шага «plan»: даёт переписать тему ролика.
     if show_topic_button:
-        rows.append([
-            InlineKeyboardButton(
-                text="📝 Изменить тему",
-                callback_data=f"prm:{pid}:{step_code}:topic",
-            )
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="📝 Изменить тему",
+                    callback_data=f"prm:{pid}:{step_code}:topic",
+                )
+            ]
+        )
     for name in plib.list_prompts(step_code):
         marker = "● " if name == chosen else ""
-        rows.append([
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{marker}{name}",
+                    callback_data=f"prm:{pid}:{step_code}:sel:{name}",
+                )
+            ]
+        )
+    rows.append(
+        [
             InlineKeyboardButton(
-                text=f"{marker}{name}",
-                callback_data=f"prm:{pid}:{step_code}:sel:{name}",
-            )
-        ])
-    rows.append([
-        InlineKeyboardButton(
-            text="✏ Редактировать выбранный",
-            callback_data=f"prm:{pid}:{step_code}:editcur",
-        ),
-    ])
-    rows.append([
-        InlineKeyboardButton(
-            text="+ Новый промт",
-            callback_data=f"prm:{pid}:{step_code}:add",
-        ),
-        InlineKeyboardButton(
-            text="🗑 Удалить",
-            callback_data=f"prm:{pid}:{step_code}:delask",
-        ),
-    ])
+                text="✏ Редактировать выбранный",
+                callback_data=f"prm:{pid}:{step_code}:editcur",
+            ),
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="+ Новый промт",
+                callback_data=f"prm:{pid}:{step_code}:add",
+            ),
+            InlineKeyboardButton(
+                text="🗑 Удалить",
+                callback_data=f"prm:{pid}:{step_code}:delask",
+            ),
+        ]
+    )
     # Кнопка редактирования «сопр. сообщения» — только для шагов, в
     # которых поддерживается override полного текста (см. SUPPORTED_STEPS
     # в gpt_text_builder).
     if gtb.is_supported(step_code):
         marker = "✅ " if has_msg_override else ""
-        rows.append([
-            InlineKeyboardButton(
-                text=f"{marker}✏️ Сопр. сообщение",
-                callback_data=f"prm:{pid}:{step_code}:msgmenu",
-            ),
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{marker}✏️ Сопр. сообщение",
+                    callback_data=f"prm:{pid}:{step_code}:msgmenu",
+                ),
+            ]
+        )
     # Шорткат на picker'е стиля персонажа (`hero_style`) — туда юзер
     # идёт каждый раз, когда настраивает шаг 4. Логично дать ему
     # отсюда же доступ к «сопр. сообщению» самого шага 4 (`hero`).
     if step_code == "hero_style" and gtb.is_supported("hero"):
-        rows.append([
-            InlineKeyboardButton(
-                text="✏️ Сопр. сообщение (Hero)",
-                callback_data=f"prm:{pid}:hero:msgmenu",
-            ),
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✏️ Сопр. сообщение (Hero)",
+                    callback_data=f"prm:{pid}:hero:msgmenu",
+                ),
+            ]
+        )
     # «🔁 Прогнать шаг с нуля» — удаляет все данные этого шага
     # + downstream и сбрасывает project.status, чтобы шаг
     # можно было прогнать заново. Безопасное для «пустых»
     # шагов тоже (ничего не удалит — будет no-op).
     if is_reset_supported(step_code):
-        rows.append([
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔁 Прогнать шаг с нуля",
+                    callback_data=f"reset_ask:{pid}:{step_code}",
+                ),
+            ]
+        )
+    rows.append(
+        [
             InlineKeyboardButton(
-                text="🔁 Прогнать шаг с нуля",
-                callback_data=f"reset_ask:{pid}:{step_code}",
+                text="⬅ Отмена",
+                callback_data=f"prm:{pid}:{step_code}:cancel",
             ),
-        ])
-    rows.append([
-        InlineKeyboardButton(
-            text="⬅ Отмена",
-            callback_data=f"prm:{pid}:{step_code}:cancel",
-        ),
-    ])
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -187,18 +205,22 @@ def msg_menu_kb(pid: int, step_code: str, has_override: bool) -> InlineKeyboardM
         ],
     ]
     if has_override:
-        rows.append([
-            InlineKeyboardButton(
-                text="🔄 Сбросить (вернуть дефолт)",
-                callback_data=f"prm:{pid}:{step_code}:msgreset",
-            )
-        ])
-    rows.append([
-        InlineKeyboardButton(
-            text="⬅ Назад к picker'у",
-            callback_data=f"prm:{pid}:{step_code}:menu",
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔄 Сбросить (вернуть дефолт)",
+                    callback_data=f"prm:{pid}:{step_code}:msgreset",
+                )
+            ]
         )
-    ])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅ Назад к picker'у",
+                callback_data=f"prm:{pid}:{step_code}:menu",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -208,18 +230,22 @@ def delete_kb(pid: int, step_code: str) -> InlineKeyboardMarkup:
     for name in plib.list_prompts(step_code):
         if name == plib.DEFAULT_NAME:
             continue
-        rows.append([
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"🗑 {name}",
+                    callback_data=f"prm:{pid}:{step_code}:del:{name}",
+                )
+            ]
+        )
+    rows.append(
+        [
             InlineKeyboardButton(
-                text=f"🗑 {name}",
-                callback_data=f"prm:{pid}:{step_code}:del:{name}",
-            )
-        ])
-    rows.append([
-        InlineKeyboardButton(
-            text="⬅ Назад",
-            callback_data=f"prm:{pid}:{step_code}:menu",
-        ),
-    ])
+                text="⬅ Назад",
+                callback_data=f"prm:{pid}:{step_code}:menu",
+            ),
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -238,16 +264,20 @@ def overview_text(project) -> str:
 def overview_kb(pid: int) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for step_code, human in plib.STEP_HUMAN_NAMES.items():
-        rows.append([
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"⚙ {human}",
+                    callback_data=f"prm:{pid}:{step_code}:menu",
+                )
+            ]
+        )
+    rows.append(
+        [
             InlineKeyboardButton(
-                text=f"⚙ {human}",
-                callback_data=f"prm:{pid}:{step_code}:menu",
-            )
-        ])
-    rows.append([
-        InlineKeyboardButton(
-            text="⬅ В меню проекта",
-            callback_data=f"proj:{pid}:menu",
-        ),
-    ])
+                text="⬅ В меню проекта",
+                callback_data=f"proj:{pid}:menu",
+            ),
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)

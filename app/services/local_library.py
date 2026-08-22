@@ -128,9 +128,7 @@ async def get_item(session: AsyncSession, item_id: int) -> LibraryItem | None:
 
 async def get_item_by_key(session: AsyncSession, kind: str, key: str) -> LibraryItem | None:
     return (
-        await session.execute(
-            select(LibraryItem).where(LibraryItem.kind == kind, LibraryItem.key == key)
-        )
+        await session.execute(select(LibraryItem).where(LibraryItem.kind == kind, LibraryItem.key == key))
     ).scalar_one_or_none()
 
 

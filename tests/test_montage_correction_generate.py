@@ -24,10 +24,8 @@ def test_generate_image_no_early_disabled_raise_before_refs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_correction_mode_sends_only_user_text(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from app.models import Project, Frame
+async def test_correction_mode_sends_only_user_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.models import Frame, Project
 
     monkeypatch.setattr("app.settings.settings.data_dir", str(tmp_path))
     project = Project(id=47, slug="t", topic="t", hero_mode="auto")

@@ -17,7 +17,7 @@ import math
 import shutil
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from loguru import logger
@@ -101,12 +101,8 @@ def _marker_slots(
         half = marker.duration_s / 2.0
         mid = marker.start_s + half
         return [
-            _OverlaySlot(
-                marker.frame_number, marker.start_s, mid, shot1, "shot1", marker.label
-            ),
-            _OverlaySlot(
-                marker.frame_number, mid, marker.end_s, disk2, "shot2", marker.label
-            ),
+            _OverlaySlot(marker.frame_number, marker.start_s, mid, shot1, "shot1", marker.label),
+            _OverlaySlot(marker.frame_number, mid, marker.end_s, disk2, "shot2", marker.label),
         ]
     return [
         _OverlaySlot(
@@ -350,8 +346,7 @@ def _validate_timeline(
             raise RuntimeError(f"кадр {cs.frame_number}: freeze-pad запрещён")
         if abs(cs.out_start - cursor) > _R15_ALIGN_TOL_S:
             raise RuntimeError(
-                f"кадр {cs.frame_number}: разрыв шкалы "
-                f"(out_start={cs.out_start:.3f}, cursor={cursor:.3f})"
+                f"кадр {cs.frame_number}: разрыв шкалы (out_start={cs.out_start:.3f}, cursor={cursor:.3f})"
             )
         if cs.bound_to_r15 and abs(cs.out_start - cs.r15_start) > _R15_ALIGN_TOL_S:
             raise RuntimeError(
@@ -365,8 +360,7 @@ def _validate_timeline(
                 expect = voice_s - cs.r15_start
             if abs(cs.slot_dur - expect) > 0.05:
                 raise RuntimeError(
-                    f"кадр {cs.frame_number}: длина {cs.slot_dur:.2f} "
-                    f"!= до следующего старта {expect:.2f}"
+                    f"кадр {cs.frame_number}: длина {cs.slot_dur:.2f} != до следующего старта {expect:.2f}"
                 )
             bound_i += 1
         if abs(seg.duration_s - cs.out_duration) > 0.03:
@@ -394,8 +388,7 @@ async def _run(cmd: list[str], *, context: str = "") -> None:
 
 def _base_vf(w: int, h: int) -> str:
     return (
-        f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"
+        f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"
     )
 
 
@@ -453,9 +446,7 @@ async def _encode_pingpong_segment(
     w: int,
     h: int,
 ) -> None:
-    parts = _pingpong_plan(
-        slot.src_dur, slot.slot_dur, start_phase=slot.start_phase
-    )
+    parts = _pingpong_plan(slot.src_dur, slot.slot_dur, start_phase=slot.start_phase)
     src_dur = max(0.05, slot.src_dur)
     base = _base_vf(w, h)
 
@@ -468,15 +459,22 @@ async def _encode_pingpong_segment(
                 f"{base},trim=duration={src_dur:.3f},setpts=PTS-STARTPTS,"
                 f"reverse,trim=duration={dur:.3f},setpts=PTS-STARTPTS"
             )
-        await _run([
-            "ffmpeg", "-y",
-            "-i", str(slot.clip),
-            "-vf", vf,
-            *_X264,
-            "-an",
-            "-t", f"{slot.out_duration:.3f}",
-            str(path),
-        ], context=f"pingpong f{slot.frame_number} {phase} {dur:.2f}s")
+        await _run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(slot.clip),
+                "-vf",
+                vf,
+                *_X264,
+                "-an",
+                "-t",
+                f"{slot.out_duration:.3f}",
+                str(path),
+            ],
+            context=f"pingpong f{slot.frame_number} {phase} {dur:.2f}s",
+        )
         return
 
     n = len(parts)
@@ -487,9 +485,7 @@ async def _encode_pingpong_segment(
         label = f"p{i}"
         outs.append(f"[{label}]")
         if phase == "fwd":
-            fc_parts.append(
-                f"[s{i}]trim=duration={dur:.3f},setpts=PTS-STARTPTS[{label}]"
-            )
+            fc_parts.append(f"[s{i}]trim=duration={dur:.3f},setpts=PTS-STARTPTS[{label}]")
         else:
             fc_parts.append(
                 f"[s{i}]trim=duration={src_dur:.3f},setpts=PTS-STARTPTS,"
@@ -497,20 +493,27 @@ async def _encode_pingpong_segment(
             )
     concat_in = "".join(outs)
     fc_parts.append(
-        f"{concat_in}concat=n={n}:v=1:a=0,"
-        f"trim=duration={slot.slot_dur:.3f},setpts=PTS-STARTPTS[vout]"
+        f"{concat_in}concat=n={n}:v=1:a=0,trim=duration={slot.slot_dur:.3f},setpts=PTS-STARTPTS[vout]"
     )
     fc = ";".join(fc_parts)
-    await _run([
-        "ffmpeg", "-y",
-        "-i", str(slot.clip),
-        "-filter_complex", fc,
-        "-map", "[vout]",
-        *_X264,
-        "-an",
-        "-t", f"{slot.out_duration:.3f}",
-        str(path),
-    ], context=f"pingpong f{slot.frame_number} {n} parts {slot.slot_dur:.2f}s")
+    await _run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(slot.clip),
+            "-filter_complex",
+            fc,
+            "-map",
+            "[vout]",
+            *_X264,
+            "-an",
+            "-t",
+            f"{slot.out_duration:.3f}",
+            str(path),
+        ],
+        context=f"pingpong f{slot.frame_number} {n} parts {slot.slot_dur:.2f}s",
+    )
 
 
 def _write_plan(
@@ -564,26 +567,45 @@ def _duration_up_to_frame(seconds: float, *, fps: int = _TIMELINE_FPS) -> float:
 
 async def _concat_segments(list_file: Path, out: Path, *, voice_s: float) -> None:
     try:
-        await _run([
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", str(list_file),
-            "-c", "copy",
-            "-an",
-            "-t", f"{voice_s:.3f}",
-            str(out),
-        ], context="concat copy")
+        await _run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_file),
+                "-c",
+                "copy",
+                "-an",
+                "-t",
+                f"{voice_s:.3f}",
+                str(out),
+            ],
+            context="concat copy",
+        )
     except RuntimeError:
         logger.warning("variant3: concat copy failed — re-encode once")
-        await _run([
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", str(list_file),
-            *_X264,
-            "-an",
-            "-t", f"{voice_s:.3f}",
-            str(out),
-        ], context="concat re-encode")
+        await _run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_file),
+                *_X264,
+                "-an",
+                "-t",
+                f"{voice_s:.3f}",
+                str(out),
+            ],
+            context="concat re-encode",
+        )
 
 
 async def _ensure_timeline_duration(
@@ -615,18 +637,22 @@ async def _ensure_timeline_duration(
         )
         pad_path = tmp / "pad_rev.mp4"
         # reverse последних кадров всего timeline
-        await _run([
-            "ffmpeg", "-y",
-            "-i", str(src),
-            "-vf",
-            (
-                f"{_base_vf(w, h)},reverse,trim=duration={pad_s:.3f},setpts=PTS-STARTPTS"
-            ),
-            *_X264,
-            "-an",
-            "-t", f"{pad_s:.3f}",
-            str(pad_path),
-        ], context=f"reverse-pad {pad_s:.2f}s")
+        await _run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(src),
+                "-vf",
+                (f"{_base_vf(w, h)},reverse,trim=duration={pad_s:.3f},setpts=PTS-STARTPTS"),
+                *_X264,
+                "-an",
+                "-t",
+                f"{pad_s:.3f}",
+                str(pad_path),
+            ],
+            context=f"reverse-pad {pad_s:.2f}s",
+        )
         list_file = tmp / "concat_padded.txt"
         list_file.write_text(
             "\n".join((f"file '{src.as_posix()}'", f"file '{pad_path.as_posix()}'")),
@@ -638,15 +664,22 @@ async def _ensure_timeline_duration(
         got = await probe_duration(src)
 
     if got > voice_s + 0.05:
-        await _run([
-            "ffmpeg", "-y",
-            "-i", str(src),
-            "-vf", f"trim=duration={voice_s:.6f},setpts=PTS-STARTPTS",
-            *_X264,
-            "-an",
-            "-t", f"{voice_s:.3f}",
-            str(dst),
-        ], context=f"trim timeline to {voice_s:.2f}s")
+        await _run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(src),
+                "-vf",
+                f"trim=duration={voice_s:.6f},setpts=PTS-STARTPTS",
+                *_X264,
+                "-an",
+                "-t",
+                f"{voice_s:.3f}",
+                str(dst),
+            ],
+            context=f"trim timeline to {voice_s:.2f}s",
+        )
         return dst
 
     if src != dst:
@@ -665,15 +698,22 @@ async def _encode_clip_segment(
         await _encode_pingpong_segment(slot, path, w=w, h=h)
         return
     vf = _clip_filter_chain(w, h, slot.slot_dur, slot.src_dur)
-    await _run([
-        "ffmpeg", "-y",
-        "-i", str(slot.clip),
-        "-vf", vf,
-        *_X264,
-        "-an",
-        "-t", f"{slot.out_duration:.3f}",
-        str(path),
-    ], context=f"clip slot f{slot.frame_number} {slot.out_duration:.2f}s")
+    await _run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(slot.clip),
+            "-vf",
+            vf,
+            *_X264,
+            "-an",
+            "-t",
+            f"{slot.out_duration:.3f}",
+            str(path),
+        ],
+        context=f"clip slot f{slot.frame_number} {slot.out_duration:.2f}s",
+    )
 
 
 async def _build_slot_timeline(
@@ -745,9 +785,7 @@ async def _mux(
         float(getattr(settings, "assembly_voice_gain", _DEFAULT_VOICE_GAIN)),
         0.1,
     )
-    bgm_ratio = float(
-        getattr(settings, "assembly_bgm_mix_ratio", _DEFAULT_BGM_MIX_RATIO)
-    )
+    bgm_ratio = float(getattr(settings, "assembly_bgm_mix_ratio", _DEFAULT_BGM_MIX_RATIO))
     if bgm is not None and bgm.path.is_file():
         bgm_gain = max(bgm.level, 0.0) * max(bgm_ratio, 0.0)
         fc = (
@@ -759,12 +797,21 @@ async def _mux(
         cmd.extend(["-map", "0:v:0", "-map", "[aout]"])
     else:
         cmd.extend(["-filter_complex", f"[1:a]volume={gain:.4f}[aout]", "-map", "0:v:0", "-map", "[aout]"])
-    cmd.extend([
-        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-        "-metadata", f"comment={MONTAGE_ENGINE_V2}",
-        "-t", f"{voice_s:.3f}",
-        str(out),
-    ])
+    cmd.extend(
+        [
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-metadata",
+            f"comment={MONTAGE_ENGINE_V2}",
+            "-t",
+            f"{voice_s:.3f}",
+            str(out),
+        ]
+    )
     await _run(cmd, context="mux")
 
 
@@ -822,19 +869,22 @@ async def run_variant2(
     xlsx = project.data_dir / "project.xlsx"
     st = xlsx.stat()
     (final_dir / "MONTAGE_STAMP.txt").write_text(
-        "\n".join([
-            f"engine={MONTAGE_ENGINE_V2}",
-            "variant=3-slots",
-            f"gap_policy={GAP_POLICY}",
-            f"at={datetime.now(timezone.utc).isoformat()}",
-            f"xlsx={xlsx}",
-            f"xlsx_mtime={datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()}",
-            f"overlay_slots={len(slots)}",
-            f"timeline_segments={len(segments)}",
-            f"markers={len(markers)}",
-            f"voice_s={voice_s:.3f}",
-            f"last_marker_end={marker_end:.3f}",
-        ]) + "\n",
+        "\n".join(
+            [
+                f"engine={MONTAGE_ENGINE_V2}",
+                "variant=3-slots",
+                f"gap_policy={GAP_POLICY}",
+                f"at={datetime.now(UTC).isoformat()}",
+                f"xlsx={xlsx}",
+                f"xlsx_mtime={datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat()}",
+                f"overlay_slots={len(slots)}",
+                f"timeline_segments={len(segments)}",
+                f"markers={len(markers)}",
+                f"voice_s={voice_s:.3f}",
+                f"last_marker_end={marker_end:.3f}",
+            ]
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -850,9 +900,7 @@ async def run_variant2(
 
     with tempfile.TemporaryDirectory(prefix="vp_montage_v3_") as td:
         tmp = Path(td)
-        video = await _build_slot_timeline(
-            project, segments, w=w, h=h, voice_s=voice_s, tmp=tmp
-        )
+        video = await _build_slot_timeline(project, segments, w=w, h=h, voice_s=voice_s, tmp=tmp)
         pre_mux = final_dir / "_variant2_pre_mux.mp4"
         shutil.copy2(video, pre_mux)
         logger.info("[#{}] variant3: timeline сохранён → {} (перед mux)", project.id, pre_mux)

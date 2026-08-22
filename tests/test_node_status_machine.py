@@ -43,9 +43,7 @@ def test_complete_node_rejects_sync_initiator() -> None:
 def test_allowed_failed_to_queued_retry() -> None:
     nr = _nr(NodeRunStatus.failed)
     nr.error = "timeout"
-    assert transition_node_status(
-        nr, NodeRunStatus.queued, initiator="api", project_id=1
-    )
+    assert transition_node_status(nr, NodeRunStatus.queued, initiator="api", project_id=1)
     assert nr.status == NodeRunStatus.queued
 
 
@@ -77,25 +75,19 @@ def test_ui_restart_reset() -> None:
 
 def test_forbidden_pending_to_done_without_running() -> None:
     nr = _nr(NodeRunStatus.pending)
-    assert not transition_node_status(
-        nr, NodeRunStatus.done, initiator="sync", project_id=1
-    )
+    assert not transition_node_status(nr, NodeRunStatus.done, initiator="sync", project_id=1)
     assert nr.status == NodeRunStatus.pending
 
 
 def test_forbidden_running_to_pending_auto_rollback() -> None:
     nr = _nr(NodeRunStatus.running)
-    assert not transition_node_status(
-        nr, NodeRunStatus.pending, initiator="sync", project_id=1
-    )
+    assert not transition_node_status(nr, NodeRunStatus.pending, initiator="sync", project_id=1)
     assert nr.status == NodeRunStatus.running
 
 
 def test_stop_allows_running_to_pending() -> None:
     nr = _nr(NodeRunStatus.running)
-    assert transition_node_status(
-        nr, NodeRunStatus.pending, initiator="api_stop", project_id=1
-    )
+    assert transition_node_status(nr, NodeRunStatus.pending, initiator="api_stop", project_id=1)
     assert nr.status == NodeRunStatus.pending
 
 
@@ -109,9 +101,7 @@ def test_only_agent_scope_allows_running_to_pending() -> None:
 
 def test_forbidden_done_to_running() -> None:
     nr = _nr(NodeRunStatus.done)
-    assert not transition_node_status(
-        nr, NodeRunStatus.running, initiator="api", project_id=1
-    )
+    assert not transition_node_status(nr, NodeRunStatus.running, initiator="api", project_id=1)
 
 
 @pytest.mark.parametrize(

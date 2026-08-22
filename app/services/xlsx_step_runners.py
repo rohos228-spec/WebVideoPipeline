@@ -18,16 +18,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Frame, Project, ProjectStatus
 from app.services import chatgpt_xlsx as cx
 from app.services import xlsx_gpt_flow as xgf
-from app.services.xlsx_versioning import (
-    backup_to_old,
-    normalize_xlsx_to_reference_layout,
-    replace_with,
-    validate_xlsx,
-)
 from app.services.voiceover_split_local import (
     parse_dash_separated_blocks,
     split_voiceover_locally,
     write_voiceover_blocks_to_xlsx,
+)
+from app.services.xlsx_versioning import (
+    backup_to_old,
+    replace_with,
+    validate_xlsx,
 )
 from app.storage import for_project as _sheet_for_project
 
@@ -87,9 +86,7 @@ def _apply_split_fallback(
     """GPT часто не пишет R49 — пробуем блоки из ответа или voiceover.txt."""
     blocks = parse_dash_separated_blocks(gpt_reply)
     if len(blocks) < 2 and voiceover_path.exists():
-        blocks = split_voiceover_locally(
-            voiceover_path.read_text(encoding="utf-8")
-        )
+        blocks = split_voiceover_locally(voiceover_path.read_text(encoding="utf-8"))
     if len(blocks) < 2:
         return _count_v8_voiceover_blocks(xlsx_path)
     write_voiceover_blocks_to_xlsx(xlsx_path, blocks)
@@ -224,9 +221,7 @@ def _ensure_project_xlsx(project: Project) -> Path:
     if proj_xlsx.exists():
         return proj_xlsx
     sheet = _sheet_for_project(project)
-    proj_xlsx = sheet.ensure_initialized(
-        project_id=project.id, slug=project.slug
-    )
+    proj_xlsx = sheet.ensure_initialized(project_id=project.id, slug=project.slug)
     if not proj_xlsx.exists():
         raise FileNotFoundError(f"project.xlsx не найден: {proj_xlsx}")
     return proj_xlsx
@@ -282,12 +277,8 @@ async def run_plan_xlsx(
 
     ts = _ts()
     tmp_dir = cx.tmp_gpt_dir(project)
-    prompt_file = cx.write_plan_prompt_file(
-        project, tmp_dir, topic=actual_topic, ts=ts
-    )
-    chat_msg = cx.chat_message(
-        project, "plan", topic=actual_topic, prompt_file_name=prompt_file.name
-    )
+    prompt_file = cx.write_plan_prompt_file(project, tmp_dir, topic=actual_topic, ts=ts)
+    chat_msg = cx.chat_message(project, "plan", topic=actual_topic, prompt_file_name=prompt_file.name)
     chat_msg = f"{chat_msg}{_PLAN_DB_HINT}"
 
     logger.info(
@@ -420,9 +411,7 @@ async def run_script_xlsx(
             contract="vp_voiceover",
         )
 
-    voiceover_text = cx.save_voiceover_text(
-        project, proj_xlsx.parent / "voiceover.txt", voiceover_text
-    )
+    voiceover_text = cx.save_voiceover_text(project, proj_xlsx.parent / "voiceover.txt", voiceover_text)
 
     return (
         XlsxRoundtripResult(
@@ -475,9 +464,7 @@ def extract_frames_spec_from_gpt_reply(reply: str, *, voiceover_path: Path | Non
                     return out
     blocks = parse_dash_separated_blocks(reply or "")
     if len(blocks) < 2 and voiceover_path is not None and voiceover_path.exists():
-        blocks = split_voiceover_locally(
-            voiceover_path.read_text(encoding="utf-8", errors="replace")
-        )
+        blocks = split_voiceover_locally(voiceover_path.read_text(encoding="utf-8", errors="replace"))
     if len(blocks) >= 2:
         return [{"закадр": b.strip()} for b in blocks if b.strip()]
     return []
@@ -492,17 +479,12 @@ async def run_split_xlsx(
     proj_xlsx = _ensure_project_xlsx(project)
     voiceover = cx.ensure_current_voiceover(project)
     if voiceover is None:
-        raise FileNotFoundError(
-            "voiceover.txt не найден — сначала пройди шаг «Закадровый текст»"
-        )
+        raise FileNotFoundError("voiceover.txt не найден — сначала пройди шаг «Закадровый текст»")
 
     ts = _ts()
     tmp_dir = cx.tmp_gpt_dir(project)
     prompt_file = cx.write_split_prompt_file(project, tmp_dir, ts=ts)
-    chat_msg = (
-        cx.chat_message(project, "split", prompt_file_name=prompt_file.name)
-        + _SPLIT_DB_HINT
-    )
+    chat_msg = cx.chat_message(project, "split", prompt_file_name=prompt_file.name) + _SPLIT_DB_HINT
 
     logger.info(
         "split_db: prompt={}, voiceover={}, chat_len={} (без xlsx-download)",
@@ -537,9 +519,7 @@ async def run_split_xlsx(
     try:
         from app.services.input_hash import step_prompt_hash
 
-        split_prompt_hash: str | None = step_prompt_hash(
-            project, "split", hints=[_SPLIT_DB_HINT]
-        )
+        split_prompt_hash: str | None = step_prompt_hash(project, "split", hints=[_SPLIT_DB_HINT])
     except Exception:  # noqa: BLE001 — учёт возьмёт fallback из gpt_api
         split_prompt_hash = None
 
@@ -553,14 +533,9 @@ async def run_split_xlsx(
                 label="split",
             )
         reply = policy_res.reply_text
-        frames_spec = [
-            item.model_dump(exclude_none=True)
-            for item in policy_res.payload.frames
-        ]
+        frames_spec = [item.model_dump(exclude_none=True) for item in policy_res.payload.frames]
     except LlmContractError as e:
-        blocks = split_voiceover_locally(
-            voiceover.read_text(encoding="utf-8", errors="replace")
-        )
+        blocks = split_voiceover_locally(voiceover.read_text(encoding="utf-8", errors="replace"))
         blocks = [b.strip() for b in blocks if b.strip()]
         if len(blocks) < 2:
             raise
@@ -574,9 +549,7 @@ async def run_split_xlsx(
         reply = f"[degraded_no_llm] {e}"
         frames_spec = [{"закадр": b} for b in blocks]
 
-    logger.info(
-        "split_db: кадров={} degraded_no_llm={}", len(frames_spec), degraded
-    )
+    logger.info("split_db: кадров={} degraded_no_llm={}", len(frames_spec), degraded)
     return XlsxRoundtripResult(
         reply_text=reply,
         downloaded_path=proj_xlsx,
@@ -639,20 +612,12 @@ async def _load_img_pr_context(
             raise RuntimeError(f"project #{project.id} not found for img_pr db_frames")
         await db_v2.backfill_project_v2(session, proj)
         frames = list(
-            (
-                await session.execute(
-                    select(Frame)
-                    .where(Frame.project_id == proj.id)
-                    .order_by(Frame.number)
-                )
-            ).scalars().all()
+            (await session.execute(select(Frame).where(Frame.project_id == proj.id).order_by(Frame.number)))
+            .scalars()
+            .all()
         )
         ents = list(
-            (
-                await session.execute(
-                    select(Entity).where(Entity.project_id == proj.id)
-                )
-            ).scalars().all()
+            (await session.execute(select(Entity).where(Entity.project_id == proj.id))).scalars().all()
         )
         general_plan = proj.general_plan or ""
         cards = entity_cards_for_gpt(ents)
@@ -718,9 +683,7 @@ def _write_img_pr_db_frames_for(
 async def _write_img_pr_db_frames(project: Project, tmp_dir: Path) -> Path:
     """Пишет полный db_frames.json (smoke / legacy)."""
     frames, cards, general_plan = await _load_img_pr_context(project)
-    return _write_img_pr_db_frames_for(
-        project, tmp_dir, frames, cards, general_plan
-    )
+    return _write_img_pr_db_frames_for(project, tmp_dir, frames, cards, general_plan)
 
 
 async def _apply_img_pr_ops_now(
@@ -740,9 +703,7 @@ async def _apply_img_pr_ops_now(
         proj = await session.get(Project, project.id)
         if proj is None:
             raise RuntimeError(f"project #{project.id} gone during img_pr apply")
-        await db_apply.apply_ops(
-            session, proj, ops, export_xlsx=export_xlsx, node_kind="img_pr"
-        )
+        await db_apply.apply_ops(session, proj, ops, export_xlsx=export_xlsx, node_kind="img_pr")
         await session.commit()
     logger.info(
         "img_pr_db: applied to DB ops={} export_xlsx={} {}",
@@ -775,9 +736,7 @@ async def run_img_pr_xlsx(
         master_text = ""
     master_head = master_text[:2000]
     plastilin = is_plastilin_master(prompt_file.name, master_head)
-    style_id = resolve_project_img_style(
-        project, variant=prompt_file.name, master=master_head
-    )
+    style_id = resolve_project_img_style(project, variant=prompt_file.name, master=master_head)
     logger.info("img_pr_db: style_id={!r} plastilin={}", style_id, plastilin)
     img_pr_hint = _PLASTILIN_IMG_PR_HINT if plastilin else _IMG_PR_DB_HINT
     if plastilin:
@@ -827,9 +786,7 @@ async def run_img_pr_xlsx(
     all_ops: list[dict] = list(ckpt.get("ops") or [])
     done_set = set(done_uuids)
 
-    frames = [
-        fr for fr in frames_full if (fr.uuid or "").strip() not in done_set
-    ]
+    frames = [fr for fr in frames_full if (fr.uuid or "").strip() not in done_set]
     if not frames:
         if all_ops:
             logger.info(
@@ -855,13 +812,10 @@ async def run_img_pr_xlsx(
                 apply_ops=[],
                 ops_applied_inline=True,
             )
-        raise RuntimeError(
-            "нет кадров без image_prompt для img_pr "
-            f"(done_checkpoint={len(done_set)})"
-        )
+        raise RuntimeError(f"нет кадров без image_prompt для img_pr (done_checkpoint={len(done_set)})")
 
-    from collections import deque
     import asyncio
+    from collections import deque
 
     from app.services.adaptive_llm_batches import next_split_level, split_in_half
     from app.services.gpt_client import ApiGptClient
@@ -906,27 +860,17 @@ async def run_img_pr_xlsx(
             batch_tag=batch_tag,
             include_characters=True,
         )
-        uuid_lines = "\n".join(
-            f"кадр {fr.number} = {fr.uuid}" for fr in batch if fr.uuid
-        )
-        footer = ipb.batch_footer(
-            batch_i=bi, batch_n=batch_n, n=len(batch), plastilin=plastilin
-        )
+        uuid_lines = "\n".join(f"кадр {fr.number} = {fr.uuid}" for fr in batch if fr.uuid)
+        footer = ipb.batch_footer(batch_i=bi, batch_n=batch_n, n=len(batch), plastilin=plastilin)
         chat_msg = cx.chat_message(
             project,
             "img_pr",
             prompt_file_name=prompt_file.name,
             n_frames=len(batch),
         )
-        chat_msg = (
-            f"{chat_msg}{img_pr_hint}\n{footer}\n"
-            f"Адресация:\n{uuid_lines}\n"
-        )
+        chat_msg = f"{chat_msg}{img_pr_hint}\n{footer}\nАдресация:\n{uuid_lines}\n"
         if uuid_map_text.strip():
-            chat_msg = (
-                f"{chat_msg}\n# uuid map (справочно)\n"
-                f"{uuid_map_text.strip()[:2000]}\n"
-            )
+            chat_msg = f"{chat_msg}\n# uuid map (справочно)\n{uuid_map_text.strip()[:2000]}\n"
         attach = ipb.batch_attach_files(
             batch_i=bi,
             prompt_file=prompt_file,
@@ -949,7 +893,7 @@ async def run_img_pr_xlsx(
                     f"{img_pr_hint}\n{footer}\n"
                     f"Адресация:\n{uuid_lines}\n"
                     "Только JSON apply-ops. "
-                    "Пустой {\"ops\":[]} запрещён — верни сколько полных ops влезло. "
+                    'Пустой {"ops":[]} запрещён — верни сколько полных ops влезло. '
                     + (
                         "Стиль пластилина оставь в промт_картинки.\n"
                         if plastilin
@@ -959,16 +903,10 @@ async def run_img_pr_xlsx(
                 # Этап 5: repair с текстом ошибки прошлой попытки (было —
                 # свежая сессия без фидбека, карта A15).
                 if last_error_text:
-                    chat_msg = (
-                        f"{chat_msg}\n# ОШИБКИ ПРОШЛОЙ ПОПЫТКИ (исправь)\n"
-                        f"{last_error_text}\n"
-                    )
-                logger.info(
-                    "img_pr_db: batch {}/{} fresh session retry", bi, batch_n
-                )
+                    chat_msg = f"{chat_msg}\n# ОШИБКИ ПРОШЛОЙ ПОПЫТКИ (исправь)\n{last_error_text}\n"
+                logger.info("img_pr_db: batch {}/{} fresh session retry", bi, batch_n)
             logger.info(
-                "img_pr_db: batch {}/{} attempt {} frames={} attach={} "
-                "parallel={} bytes={}",
+                "img_pr_db: batch {}/{} attempt {} frames={} attach={} parallel={} bytes={}",
                 bi,
                 batch_n,
                 attempt,
@@ -977,7 +915,8 @@ async def run_img_pr_xlsx(
                 _IMG_PR_LIVE_STREAMS,
                 db_path.stat().st_size,
             )
-            from app.contracts import IMG_PR, LlmContractError as _LCE
+            from app.contracts import IMG_PR
+            from app.contracts import LlmContractError as _LCE
 
             with llm_ledger.bind_prompt_hash(ledger_prompt_hash):
                 last_reply = await gpt_local.ask_with_files(
@@ -1012,12 +951,9 @@ async def run_img_pr_xlsx(
                 reply=last_reply or "",
                 reason=reason,
             )
-            delay = _EMPTY_OPS_BACKOFF_S[
-                min(attempt - 1, len(_EMPTY_OPS_BACKOFF_S) - 1)
-            ]
+            delay = _EMPTY_OPS_BACKOFF_S[min(attempt - 1, len(_EMPTY_OPS_BACKOFF_S) - 1)]
             logger.warning(
-                "img_pr_db: batch {}/{} attempt {} failed reply_len={} "
-                "reason={} backoff={:.0f}s {}",
+                "img_pr_db: batch {}/{} attempt {} failed reply_len={} reason={} backoff={:.0f}s {}",
                 bi,
                 batch_n,
                 attempt,
@@ -1027,9 +963,7 @@ async def run_img_pr_xlsx(
                 rej.name,
             )
             if attempt < ipb._GPT_ATTEMPTS:
-                await sleep_cancellable(
-                    delay, project_id or project.id
-                )
+                await sleep_cancellable(delay, project_id or project.id)
         return batch_ops, last_reply or ""
 
     async def _run_batches() -> None:
@@ -1053,16 +987,11 @@ async def run_img_pr_xlsx(
                 async with sem:
                     raise_if_cancelled(project.id)
                     bi = bi_seq + idx
-                    ops, reply = await _ask_batch_ops(
-                        bi=bi, batch_n=batch_n, batch=batch, level=level
-                    )
+                    ops, reply = await _ask_batch_ops(bi=bi, batch_n=batch_n, batch=batch, level=level)
                     return bi, batch, level, ops, reply
 
             gathered = await asyncio.gather(
-                *[
-                    _one(i, batch, level)
-                    for i, (batch, level) in enumerate(wave, start=1)
-                ],
+                *[_one(i, batch, level) for i, (batch, level) in enumerate(wave, start=1)],
                 return_exceptions=True,
             )
             bi_seq += len(wave)
@@ -1073,9 +1002,7 @@ async def run_img_pr_xlsx(
                     # не в failed_notes/гейт покрытия (edge панели).
                     from app.services.step_cancel import StepCancelledError
 
-                    if isinstance(
-                        item, (StepCancelledError, asyncio.CancelledError)
-                    ):
+                    if isinstance(item, (StepCancelledError, asyncio.CancelledError)):
                         raise item
                     logger.error(
                         "img_pr_db: parallel batch L{} frames={} raised: {}",
@@ -1090,9 +1017,7 @@ async def run_img_pr_xlsx(
                         continue
                     # Было: if all_ops: continue — тихая потеря батча
                     # (карта §9 #13). Теперь копим и валим в конце.
-                    failed_notes.append(
-                        f"batch L{level} frames={len(batch)}: {item}"
-                    )
+                    failed_notes.append(f"batch L{level} frames={len(batch)}: {item}")
                     continue
                 bi, batch, level, batch_ops, last_reply = item
                 replies.append(last_reply)
@@ -1102,8 +1027,7 @@ async def run_img_pr_xlsx(
                         for half in split_in_half(batch):
                             work.append((half, nxt))
                         logger.warning(
-                            "img_pr_db: no ops L{} frames={} → split {} "
-                            "(queue={})",
+                            "img_pr_db: no ops L{} frames={} → split {} (queue={})",
                             level,
                             len(batch),
                             nxt,
@@ -1120,21 +1044,13 @@ async def run_img_pr_xlsx(
                     continue
                 api_batches += 1
                 any_ok = True
-                expected = {
-                    (fr.uuid or "").strip()
-                    for fr in batch
-                    if (fr.uuid or "").strip()
-                }
-                got_uuids = {
-                    ipb.uuid_of_op(op) for op in batch_ops if ipb.uuid_of_op(op)
-                } & expected
+                expected = {(fr.uuid or "").strip() for fr in batch if (fr.uuid or "").strip()}
+                got_uuids = {ipb.uuid_of_op(op) for op in batch_ops if ipb.uuid_of_op(op)} & expected
                 for u in sorted(got_uuids):
                     if u and u not in done_set:
                         done_uuids.append(u)
                         done_set.add(u)
-                kept_ops = [
-                    op for op in batch_ops if ipb.uuid_of_op(op) in got_uuids
-                ]
+                kept_ops = [op for op in batch_ops if ipb.uuid_of_op(op) in got_uuids]
                 all_ops.extend(kept_ops)
                 missing_uuids = expected - got_uuids
                 logger.info(
@@ -1147,11 +1063,7 @@ async def run_img_pr_xlsx(
                     len(missing_uuids),
                 )
                 if missing_uuids:
-                    missing_frames = [
-                        fr
-                        for fr in batch
-                        if (fr.uuid or "").strip() in missing_uuids
-                    ]
+                    missing_frames = [fr for fr in batch if (fr.uuid or "").strip() in missing_uuids]
                     nxt = next_split_level(level)
                     if nxt is not None and len(missing_frames) >= 2:
                         for half in split_in_half(missing_frames):
@@ -1165,8 +1077,7 @@ async def run_img_pr_xlsx(
                         )
                     else:
                         failed_notes.append(
-                            f"batch {bi} L{level}: недобор "
-                            f"{len(missing_uuids)} uuid, split исчерпан"
+                            f"batch {bi} L{level}: недобор {len(missing_uuids)} uuid, split исчерпан"
                         )
                         logger.warning(
                             "img_pr_db: still missing {} uuid L{} — stop split",
@@ -1180,9 +1091,7 @@ async def run_img_pr_xlsx(
                 input_hash=step_hash,
             )
             if not any_ok and not work and not all_ops:
-                raise RuntimeError(
-                    "img_pr: все параллельные батчи провалились без ops"
-                )
+                raise RuntimeError("img_pr: все параллельные батчи провалились без ops")
 
     await xgf.run_under_xlsx_lock(project.id, "img_pr", _run_batches)
 
@@ -1195,9 +1104,7 @@ async def run_img_pr_xlsx(
     # Этап 5 (C.4): гейт покрытия N/N — частичный успех не зеленеет
     # (спека «Запрет тихого частичного успеха»). Прогресс в чекпоинте,
     # повтор шага добирает только недостающие uuid.
-    expected_all = {
-        (fr.uuid or "").strip() for fr in frames if (fr.uuid or "").strip()
-    }
+    expected_all = {(fr.uuid or "").strip() for fr in frames if (fr.uuid or "").strip()}
     missing_all = sorted(expected_all - done_set)
     if failed_notes or missing_all:
         from app.contracts import LlmContractError
@@ -1231,9 +1138,7 @@ async def run_img_pr_xlsx(
     )
 
 
-async def sync_after_plan(
-    session: AsyncSession, project: Project, xlsx_path: Path
-) -> None:
+async def sync_after_plan(session: AsyncSession, project: Project, xlsx_path: Path) -> None:
     await cx.sync_project_xlsx(session, project, xlsx_path, keep_fields=False)
     from app.services.plan_validation import is_meaningful_general_plan
 
@@ -1248,9 +1153,7 @@ async def sync_after_plan(
         raise _plan_empty_error(xlsx_path, plan_len=len(plan_text))
 
 
-async def sync_after_split(
-    session: AsyncSession, project: Project, xlsx_path: Path
-) -> dict | None:
+async def sync_after_split(session: AsyncSession, project: Project, xlsx_path: Path) -> dict | None:
     return await cx.sync_project_xlsx(
         session,
         project,
@@ -1260,9 +1163,7 @@ async def sync_after_split(
     )
 
 
-async def sync_after_img_pr(
-    session: AsyncSession, project: Project, xlsx_path: Path
-) -> None:
+async def sync_after_img_pr(session: AsyncSession, project: Project, xlsx_path: Path) -> None:
     await cx.sync_project_xlsx(session, project, xlsx_path, keep_fields=False)
     from app.services.xlsx_v8_import import apply_v8_image_prompts_from_xlsx
 
@@ -1280,12 +1181,10 @@ async def sync_after_img_pr(
     )
 
     frames = (
-        await session.execute(
-            select(Frame)
-            .where(Frame.project_id == project.id)
-            .order_by(Frame.number)
-        )
-    ).scalars().all()
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
     by_num = read_shot2_columns(xlsx_path)
     shot2_n = 0
     for fr in frames:
@@ -1307,9 +1206,7 @@ async def sync_after_img_pr(
         )
 
 
-def set_status_if_behind(
-    project: Project, target: ProjectStatus
-) -> None:
+def set_status_if_behind(project: Project, target: ProjectStatus) -> None:
     """Ставит статус, если текущий «ниже» target (как в bot после xlsx)."""
     from app.telegram.menu import status_order as _ord
 

@@ -15,9 +15,7 @@ def test_download_image_like_generate_order() -> None:
     ctx = src.find("await _download_via_context_candidates(")
     assert q >= 0, "queue download missing"
     assert c >= 0 and d >= 0 and ctx >= 0
-    assert q < c < d < ctx, (
-        f"wrong order: queue@{q} card@{c} saved@{d} ctx@{ctx}"
-    )
+    assert q < c < d < ctx, f"wrong order: queue@{q} card@{c} saved@{d} ctx@{ctx}"
 
 
 def test_generate_image_uses_shared_download() -> None:
@@ -37,5 +35,5 @@ def test_retry_image_download_tries_queue_first() -> None:
 def test_handoff_url_match_does_not_return_none_for_cdn_only() -> None:
     src = inspect.getsource(outsee_mod._find_card_by_clicking_images)
     assert "скачивание по CDN без клика" not in src
-    assert 'return None' not in src.split("handoff URL совпал")[1].split("if not matched")[0]
+    assert "return None" not in src.split("handoff URL совпал")[1].split("if not matched")[0]
     assert "_find_result_panel_card" in src.split("handoff URL совпал")[1][:800]

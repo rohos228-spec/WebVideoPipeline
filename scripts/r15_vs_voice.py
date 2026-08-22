@@ -3,6 +3,7 @@
 Usage:
   python scripts/r15_vs_voice.py 15
 """
+
 from __future__ import annotations
 
 import argparse
@@ -35,10 +36,14 @@ async def main() -> None:
             raise SystemExit(f"project #{args.project_id} not found")
 
         frames = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         frame_numbers = [f.number for f in frames]
         xlsx = project.data_dir / "project.xlsx"
         audio_dir = project.data_dir / "audio"
@@ -68,7 +73,9 @@ async def main() -> None:
             lbl = dict(ts_cells).get(num, "")
             parsed = parse_timecode_range(lbl)
             clip = next((c for c in clips if c.frame_number == num), None)
-            print(f"  frame {num}: {lbl!r} parsed={parsed} clip={clip.start_ts if clip else None}-{clip.end_ts if clip else None}s")
+            print(
+                f"  frame {num}: {lbl!r} parsed={parsed} clip={clip.start_ts if clip else None}-{clip.end_ts if clip else None}s"
+            )
 
         if words_path is None or not words_path.is_file():
             print("\n  Нет words.json — сначала remontage или assemble (ASR для субтитров).")

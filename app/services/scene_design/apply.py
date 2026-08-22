@@ -10,11 +10,7 @@ from app.models import Project
 
 
 def _character_cards(raw: Any) -> list[dict[str, Any]]:
-    return [
-        c
-        for c in (raw or [])
-        if isinstance(c, dict) and str(c.get("id") or c.get("code") or "").strip()
-    ]
+    return [c for c in (raw or []) if isinstance(c, dict) and str(c.get("id") or c.get("code") or "").strip()]
 
 
 def characters_from_payload_or_checkpoint(

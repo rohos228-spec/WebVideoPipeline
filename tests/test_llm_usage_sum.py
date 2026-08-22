@@ -76,9 +76,7 @@ async def test_continuation_x2_usage_is_sum_of_three(monkeypatch):
     def handler(request):
         i = min(calls["n"], len(bodies) - 1)
         calls["n"] += 1
-        return httpx.Response(
-            200, content=bodies[i], headers={"content-type": "text/event-stream"}
-        )
+        return httpx.Response(200, content=bodies[i], headers={"content-type": "text/event-stream"})
 
     _mock_httpx(monkeypatch, handler)
     # Этап 3: склейка сохраняется (stitch), usage — сумма трёх, не первого.
@@ -131,8 +129,12 @@ async def test_volume_batches_fills_usage_acc(tmp_path, monkeypatch):
         json.dumps({"frames": [{"uuid": u, "number": i + 1} for i, u in enumerate(uuids)]}),
         encoding="utf-8",
     )
-    partial = {"ops": [{"frame_uuid": uuids[0], "fields": {"место": "a"}},
-                       {"frame_uuid": uuids[1], "fields": {"место": "b"}}]}
+    partial = {
+        "ops": [
+            {"frame_uuid": uuids[0], "fields": {"место": "a"}},
+            {"frame_uuid": uuids[1], "fields": {"место": "b"}},
+        ]
+    }
 
     async def fake_chat(**kw):
         miss = [u for u in uuids if u not in {uuids[0], uuids[1]}]
@@ -164,7 +166,8 @@ async def test_pdf_chunks_usage_is_sum(monkeypatch):
     async def fake_chat(**kw):
         n["i"] += 1
         return GptChatResult(
-            text=f"part {n['i']}", model="m",
+            text=f"part {n['i']}",
+            model="m",
             usage={"prompt_tokens": 10 * n["i"], "completion_tokens": n["i"]},
         )
 

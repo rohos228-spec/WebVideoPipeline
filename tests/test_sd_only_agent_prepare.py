@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -24,7 +25,6 @@ from app.services.run_sync import (
     prepare_node_for_step_start,
 )
 from app.services.scene_design import runner as sd_runner
-from datetime import datetime, timedelta
 
 
 @pytest.fixture
@@ -146,11 +146,7 @@ async def test_prepare_with_only_agent_does_not_fanout(mem_db) -> None:
         assert ok is True
         from sqlalchemy import select
 
-        rows = (
-            await session.scalars(
-                select(NodeRun).where(NodeRun.workflow_run_id == run.id)
-            )
-        ).all()
+        rows = (await session.scalars(select(NodeRun).where(NodeRun.workflow_run_id == run.id))).all()
         by_key = {nr.node_key: nr.status for nr in rows}
         assert by_key["n_excel_gpt_sd_cd_skeleton"] == NodeRunStatus.running
         for agent in ("characters", "world", "action", "camera"):
@@ -193,9 +189,7 @@ async def test_scene_d_wipe_must_not_drop_only_agent_before_prepare(mem_db) -> N
         sd_runner.set_only_agent(project, "skeleton")
         assert sd_runner.get_only_agent(project) == "skeleton"
 
-        await clear_step_outputs_for_rerun(
-            session, project, "scene_d", force_wipe=False
-        )
+        await clear_step_outputs_for_rerun(session, project, "scene_d", force_wipe=False)
         assert sd_runner.get_only_agent(project) == "skeleton"
 
 
@@ -242,11 +236,7 @@ async def test_complete_only_agent_to_frames_ready_marks_skeleton_done(
         for n in nodes:
             from app.services.excel_gpt_node import effective_node_type
 
-            st = (
-                NodeRunStatus.running
-                if n["id"] == "n_excel_gpt_sd_cd_skeleton"
-                else NodeRunStatus.pending
-            )
+            st = NodeRunStatus.running if n["id"] == "n_excel_gpt_sd_cd_skeleton" else NodeRunStatus.pending
             session.add(
                 NodeRun(
                     workflow_run_id=run.id,
@@ -259,9 +249,7 @@ async def test_complete_only_agent_to_frames_ready_marks_skeleton_done(
         sd_runner.set_only_agent(project, "skeleton")
         meta = dict(project.meta or {})
         sd = dict(meta.get("scene_design") or {})
-        sd["agents"] = {
-            "skeleton": {"status": "done", "path": "scene_design/skeleton.json"}
-        }
+        sd["agents"] = {"skeleton": {"status": "done", "path": "scene_design/skeleton.json"}}
         meta["scene_design"] = sd
         project.meta = meta
         project.status = ProjectStatus.frames_ready
@@ -289,9 +277,7 @@ async def test_complete_only_agent_to_frames_ready_marks_skeleton_done(
 
 
 @pytest.mark.asyncio
-async def test_reconcile_heals_skeleton_running_after_frames_ready(
-    mem_db, monkeypatch
-) -> None:
+async def test_reconcile_heals_skeleton_running_after_frames_ready(mem_db, monkeypatch) -> None:
     """Застрявший running скелет при frames_ready+agent done → heal done."""
     from app.services import step_cancel as sc
 
@@ -370,9 +356,7 @@ async def test_reconcile_heals_skeleton_running_after_frames_ready(
 
 
 @pytest.mark.asyncio
-async def test_reconcile_heals_skeleton_false_failed_after_frames_ready(
-    mem_db, monkeypatch
-) -> None:
+async def test_reconcile_heals_skeleton_false_failed_after_frames_ready(mem_db, monkeypatch) -> None:
     """Ложный failed (background_reconcile) при agent done → heal done."""
     from app.services import step_cancel as sc
 

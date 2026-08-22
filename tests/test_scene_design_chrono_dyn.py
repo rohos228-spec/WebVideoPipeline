@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -43,9 +43,7 @@ def test_uses_chrono_dyn_from_meta() -> None:
 
 
 def test_skeleton_wave0_when_flag() -> None:
-    p = SimpleNamespace(
-        meta={"scene_design_variant": "chrono_dyn", "scene_design_skeleton": True}
-    )
+    p = SimpleNamespace(meta={"scene_design_variant": "chrono_dyn", "scene_design_skeleton": True})
     assert ag.uses_skeleton(p) is True
     waves = ag.agent_waves(p)
     assert waves[0] == ("skeleton",)
@@ -121,11 +119,7 @@ def test_validate_chrono_dyn_action_rejects_unlinked_scenes() -> None:
             "цепь_действия": [
                 {
                     "phase_index": p,
-                    "beat": (
-                        "setup"
-                        if p == 1
-                        else ("payoff" if p == 5 else "develop")
-                    ),
+                    "beat": ("setup" if p == 1 else ("payoff" if p == 5 else "develop")),
                     "action": f"одно действие {p}",
                     "subject": "c01",
                     "orientation": "face",
@@ -151,8 +145,7 @@ def test_validate_chrono_dyn_rejects_compound_actions() -> None:
                     "phase_index": 1,
                     "beat": "setup",
                     "action": (
-                        "Соседи встречаются у лифта, забирают письма "
-                        "из ящиков и проходят мимо двери 357"
+                        "Соседи встречаются у лифта, забирают письма из ящиков и проходят мимо двери 357"
                     ),
                     "subject": "c01",
                     "orientation": "side",
@@ -337,16 +330,8 @@ def test_validate_chrono_dyn_rejects_passive_standing() -> None:
             "цепь_действия": [
                 {
                     "phase_index": p,
-                    "beat": (
-                        "setup"
-                        if p == 1
-                        else ("payoff" if p == 5 else "develop")
-                    ),
-                    "action": (
-                        "стоит у двери"
-                        if p <= 2
-                        else f"Александр делает жест {p}"
-                    ),
+                    "beat": ("setup" if p == 1 else ("payoff" if p == 5 else "develop")),
+                    "action": ("стоит у двери" if p <= 2 else f"Александр делает жест {p}"),
                     "subject": "c01",
                     "orientation": "face",
                     "переход_к_следующей": "cut_on_action",

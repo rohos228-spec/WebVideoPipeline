@@ -122,20 +122,12 @@ class ApiGptClient:
                 raise RuntimeError(f"gpt_client: не прочитал {prompt_file}: {e}") from e
 
         accompanying = (text or "").strip()
-        if expect_file_download and any(
-            p.suffix.lower() in {".xlsx", ".xlsm", ".xls"} for p in data_files
-        ):
+        if expect_file_download and any(p.suffix.lower() in {".xlsx", ".xlsm", ".xls"} for p in data_files):
             from app.services.llm_contract import build_api_accompany
 
-            accompanying = build_api_accompany(
-                accompanying, expect_xlsx_writeback=True
-            )
+            accompanying = build_api_accompany(accompanying, expect_xlsx_writeback=True)
         elif expect_file_download and WRITEBACK_HINT not in accompanying:
-            accompanying = (
-                f"{accompanying}\n\n{WRITEBACK_HINT}".strip()
-                if accompanying
-                else WRITEBACK_HINT
-            )
+            accompanying = f"{accompanying}\n\n{WRITEBACK_HINT}".strip() if accompanying else WRITEBACK_HINT
 
         hist = list(history or [])
         logger.info(
@@ -329,11 +321,7 @@ class ApiGptClient:
             if staging.exists():
                 staging.unlink()
             ref = next(
-                (
-                    p
-                    for p in self._last_input_paths
-                    if p.suffix.lower() in {".xlsx", ".xlsm"} and p.exists()
-                ),
+                (p for p in self._last_input_paths if p.suffix.lower() in {".xlsx", ".xlsm"} and p.exists()),
                 None,
             )
             if ref is not None:

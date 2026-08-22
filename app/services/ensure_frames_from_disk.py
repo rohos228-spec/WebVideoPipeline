@@ -68,11 +68,9 @@ async def ensure_frames_from_disk_media(
 
     existing = {
         int(n)
-        for n in (
-            await session.execute(
-                select(Frame.number).where(Frame.project_id == project.id)
-            )
-        ).scalars().all()
+        for n in (await session.execute(select(Frame.number).where(Frame.project_id == project.id)))
+        .scalars()
+        .all()
     }
     missing = sorted(n for n in numbers if n not in existing)
     if not missing:
@@ -128,9 +126,7 @@ async def ensure_frames_from_disk_media(
 async def _count_project_frames(session: AsyncSession, project_id: int) -> int:
     return int(
         (
-            await session.execute(
-                select(func.count(Frame.id)).where(Frame.project_id == project_id)
-            )
+            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project_id))
         ).scalar_one()
         or 0
     )

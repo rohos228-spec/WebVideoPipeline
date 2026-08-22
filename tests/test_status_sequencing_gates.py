@@ -116,9 +116,7 @@ async def test_images_ready_auto_advance_prefers_anim_pr_not_videos(session) -> 
     await session.flush()
     # PNG на диске не обязателен для входа в anim_pr (image_prompt есть).
 
-    await _apply_approve(
-        session, p, None, TRANSITIONS[ProjectStatus.images_ready], bot=None
-    )
+    await _apply_approve(session, p, None, TRANSITIONS[ProjectStatus.images_ready], bot=None)
     assert p.status is ProjectStatus.generating_animation_prompts
 
 
@@ -157,9 +155,7 @@ async def test_generating_videos_requires_animation_prompts(session, tmp_path) -
     )
     await session.flush()
 
-    ok, reason, fix = await can_enter_running(
-        session, p, ProjectStatus.generating_videos
-    )
+    ok, reason, fix = await can_enter_running(session, p, ProjectStatus.generating_videos)
     assert ok is False
     assert "anim_pr" in reason or "video prompt" in reason.lower()
     assert fix is ProjectStatus.generating_animation_prompts
@@ -242,7 +238,5 @@ async def test_prepare_exception_does_not_move_project_status(session) -> None:
         new_callable=AsyncMock,
         side_effect=RuntimeError("boom prepare"),
     ):
-        await _apply_approve(
-            session, p, None, TRANSITIONS[ProjectStatus.images_ready], bot=None
-        )
+        await _apply_approve(session, p, None, TRANSITIONS[ProjectStatus.images_ready], bot=None)
     assert p.status is ProjectStatus.images_ready

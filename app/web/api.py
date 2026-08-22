@@ -23,9 +23,6 @@ from app.web.routers import (
     artifacts as artifacts_router,
 )
 from app.web.routers import (
-    llm_costs as llm_costs_router,
-)
-from app.web.routers import (
     auth as auth_router,
 )
 from app.web.routers import (
@@ -33,6 +30,12 @@ from app.web.routers import (
 )
 from app.web.routers import (
     config_presets as config_presets_router,
+)
+from app.web.routers import (
+    create_queue as create_queue_router,
+)
+from app.web.routers import (
+    db_browser as db_browser_router,
 )
 from app.web.routers import (
     fleet as fleet_router,
@@ -44,6 +47,12 @@ from app.web.routers import (
     generation_options as generation_options_router,
 )
 from app.web.routers import (
+    gpt_workspace as gpt_workspace_router,
+)
+from app.web.routers import (
+    grsai as grsai_router,
+)
+from app.web.routers import (
     hitl as hitl_router,
 )
 from app.web.routers import (
@@ -53,25 +62,16 @@ from app.web.routers import (
     library as library_router,
 )
 from app.web.routers import (
+    llm_costs as llm_costs_router,
+)
+from app.web.routers import (
+    node_groups as node_groups_router,
+)
+from app.web.routers import (
     outsee_create as outsee_create_router,
 )
 from app.web.routers import (
     outsee_http as outsee_http_router,
-)
-from app.web.routers import (
-    create_queue as create_queue_router,
-)
-from app.web.routers import (
-    db_browser as db_browser_router,
-)
-from app.web.routers import (
-    gpt_workspace as gpt_workspace_router,
-)
-from app.web.routers import (
-    grsai as grsai_router,
-)
-from app.web.routers import (
-    text_llm as text_llm_router,
 )
 from app.web.routers import (
     project_ops as project_ops_router,
@@ -92,13 +92,13 @@ from app.web.routers import (
     runs as runs_router,
 )
 from app.web.routers import (
-    sidebar_layout as sidebar_layout_router,
-)
-from app.web.routers import (
     runtime_streams as runtime_streams_router,
 )
 from app.web.routers import (
-    node_groups as node_groups_router,
+    sidebar_layout as sidebar_layout_router,
+)
+from app.web.routers import (
+    text_llm as text_llm_router,
 )
 from app.web.routers import (
     workflows as workflows_router,

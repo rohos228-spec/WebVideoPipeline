@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 
 def _slot_indices(file_input_count: int, ref_count: int) -> list[int]:
     """Зеркало _attach_reference_images_robust: какой input под какой ref."""

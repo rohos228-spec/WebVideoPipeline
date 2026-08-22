@@ -39,29 +39,29 @@ SHEET_NAME = "Темы"
 
 # Карточные поля — попадают в Project.meta["topic_card"] и в промпт.
 CARD_FIELDS = [
-    "title",         # B: Название ролика
-    "source",        # C: Источник
-    "style",         # D: Стиль
-    "hook_type",     # E: Тип хука
-    "emotion",       # F: Эмоциональный фон
-    "fact",          # G: Научпоп ядро / факт
-    "logic",         # H: Логическое объяснение
-    "integration",   # I: Интеграция продукта
-    "shoot_note",    # J: Примечание по съёмке
+    "title",  # B: Название ролика
+    "source",  # C: Источник
+    "style",  # D: Стиль
+    "hook_type",  # E: Тип хука
+    "emotion",  # F: Эмоциональный фон
+    "fact",  # G: Научпоп ядро / факт
+    "logic",  # H: Логическое объяснение
+    "integration",  # I: Интеграция продукта
+    "shoot_note",  # J: Примечание по съёмке
 ]
 
 HEADERS = [
-    "№",                          # A
-    "Название ролика",            # B
-    "Источник",                   # C
-    "Стиль",                      # D
-    "Тип хука",                   # E
-    "Эмоциональный фон",          # F
-    "Научпоп ядро / факт",        # G
-    "Логическое объяснение",      # H
-    "Интеграция продукта",        # I
-    "Примечание по съёмке",       # J
-    "hero_mode",                  # K
+    "№",  # A
+    "Название ролика",  # B
+    "Источник",  # C
+    "Стиль",  # D
+    "Тип хука",  # E
+    "Эмоциональный фон",  # F
+    "Научпоп ядро / факт",  # G
+    "Логическое объяснение",  # H
+    "Интеграция продукта",  # I
+    "Примечание по съёмке",  # J
+    "hero_mode",  # K
     "⛔ СЛУЖ. НЕ ТРОГАТЬ — slug",  # L
     "⛔ СЛУЖ. НЕ ТРОГАТЬ — статус",  # M
     "⛔ СЛУЖ. НЕ ТРОГАТЬ — прогресс",  # N
@@ -91,12 +91,11 @@ def _apply_service_styling(ws, last_row: int) -> None:
     включённой защите листа, но без пароля и опционально —
     просто подсказка.
     """
-    from openpyxl.styles import PatternFill, Font, Alignment, Protection
-    gray = PatternFill(start_color="FFE0E0E0", end_color="FFE0E0E0",
-                       fill_type="solid")
+    from openpyxl.styles import Alignment, Font, PatternFill, Protection
+
+    gray = PatternFill(start_color="FFE0E0E0", end_color="FFE0E0E0", fill_type="solid")
     head_red = Font(color="FF990000", bold=True, size=10)
-    centered = Alignment(horizontal="center", vertical="center",
-                         wrap_text=True)
+    centered = Alignment(horizontal="center", vertical="center", wrap_text=True)
     for col_idx in SERVICE_COL_INDICES:
         h = ws.cell(row=2, column=col_idx)
         h.fill = gray
@@ -227,32 +226,46 @@ def read_topics(path: Path) -> list[dict]:
         # Дополняем до 15 колонок (вдруг старый файл с 7 колонками).
         padded = (row + (None,) * 15)[:15]
         (
-            position, title, source, style, hook_type, emotion, fact,
-            logic, integration, shoot_note, hero_mode, slug, status,
-            progress, updated_at,
+            position,
+            title,
+            source,
+            style,
+            hook_type,
+            emotion,
+            fact,
+            logic,
+            integration,
+            shoot_note,
+            hero_mode,
+            slug,
+            status,
+            progress,
+            updated_at,
         ) = padded
         title_clean = _s(title) or ""
         if not title_clean:
             continue
-        out.append({
-            "position": position,
-            "title": title_clean,
-            # для обратной совместимости — старые потребители ждут "topic"
-            "topic": title_clean,
-            "source": _s(source),
-            "style": _s(style),
-            "hook_type": _s(hook_type),
-            "emotion": _s(emotion),
-            "fact": _s(fact),
-            "logic": _s(logic),
-            "integration": _s(integration),
-            "shoot_note": _s(shoot_note),
-            "hero_mode": (_s(hero_mode) or "").lower() or None,
-            "slug": _s(slug),
-            "status": _s(status),
-            "progress": _s(progress),
-            "updated_at": updated_at,
-        })
+        out.append(
+            {
+                "position": position,
+                "title": title_clean,
+                # для обратной совместимости — старые потребители ждут "topic"
+                "topic": title_clean,
+                "source": _s(source),
+                "style": _s(style),
+                "hook_type": _s(hook_type),
+                "emotion": _s(emotion),
+                "fact": _s(fact),
+                "logic": _s(logic),
+                "integration": _s(integration),
+                "shoot_note": _s(shoot_note),
+                "hero_mode": (_s(hero_mode) or "").lower() or None,
+                "slug": _s(slug),
+                "status": _s(status),
+                "progress": _s(progress),
+                "updated_at": updated_at,
+            }
+        )
     return out
 
 

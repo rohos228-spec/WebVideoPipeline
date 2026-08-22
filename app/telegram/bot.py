@@ -53,10 +53,9 @@ from app.models import (
 )
 from app.services import gpt_text_builder as gtb
 from app.services import prompt_library as plib
-from app.services.prompt_history import write_prompt_with_history
 from app.services import reset_step as reset_step_svc
+from app.services.prompt_history import write_prompt_with_history
 from app.services.xlsx_flow_locks import (
-    clear_xlsx_flow_locks,
     is_xlsx_flow_active,
     xlsx_flow_active_set,
 )
@@ -98,7 +97,6 @@ from app.telegram.prompt_picker import (
 from app.telegram.wizard import (
     handle_wizard_callback,
     send_config_preset_menu,
-    send_wizard_question,
     try_handle_preset_name_message,
 )
 
@@ -241,7 +239,7 @@ def _is_enrich_slot(code: str) -> bool:
     """
     if not code.startswith("enrich_"):
         return False
-    tail = code[len("enrich_"):]
+    tail = code[len("enrich_") :]
     return tail.isdigit() and 1 <= int(tail) <= 5
 
 
@@ -258,6 +256,7 @@ def _can_run_enrich_slot_now(project: Project, step_code: str) -> bool:
     if not _is_enrich_slot(step_code):
         return False
     from app.telegram.menu import status_order, step_by_code
+
     step = step_by_code(step_code)
     if step is None:
         return False
@@ -301,9 +300,7 @@ def _set_user_screen(
     _user_screen[user_id] = (screen_type, pid, extra)
 
 
-async def _run_xlsx_with_lock(
-    coro: Coroutine[Any, Any, None], project_id: int, step: str
-) -> None:
+async def _run_xlsx_with_lock(coro: Coroutine[Any, Any, None], project_id: int, step: str) -> None:
     """Запускает xlsx-flow корутину под глобальным per-(project, step) локом.
 
     Лок защищает от тройного нажатия одной кнопки, когда пользователь видит
@@ -366,10 +363,7 @@ async def _last_project_id_fallback() -> int | None:
     async with session_scope() as s:
         proj = (
             await s.execute(
-                select(Project)
-                .where(Project.batch_id.is_(None))
-                .order_by(Project.id.desc())
-                .limit(1)
+                select(Project).where(Project.batch_id.is_(None)).order_by(Project.id.desc()).limit(1)
             )
         ).scalar_one_or_none()
     return proj.id if proj is not None else None
@@ -381,6 +375,7 @@ def is_owner(msg: Message) -> bool:
 
 # ---------------------------------------------------------------------------
 # /start, /menu — главные команды
+
 
 @dp.message(CommandStart())
 async def cmd_start(msg: Message) -> None:
@@ -521,9 +516,7 @@ async def cmd_status(msg: Message) -> None:
     async with session_scope() as s:
         if len(parts) >= 2 and parts[1].isdigit():
             pid = int(parts[1])
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             if project is None:
                 await msg.answer(f"Проект #{pid} не найден")
                 return
@@ -532,9 +525,7 @@ async def cmd_status(msg: Message) -> None:
                 "project_menu",
                 pid,
             )
-            _remember_project(
-                msg.from_user.id if msg.from_user else 0, pid
-            )
+            _remember_project(msg.from_user.id if msg.from_user else 0, pid)
             await msg.answer(
                 project_header(project),
                 parse_mode="HTML",
@@ -545,19 +536,21 @@ async def cmd_status(msg: Message) -> None:
             # живут внутри «🎬 Массовое создание» и не должны пересекаться
             # с одиночными — выводятся только в mass:* меню.
             rows = (
-                await s.execute(
-                    select(Project)
-                    .where(Project.batch_id.is_(None))
-                    .order_by(Project.id.desc())
-                    .limit(20)
+                (
+                    await s.execute(
+                        select(Project)
+                        .where(Project.batch_id.is_(None))
+                        .order_by(Project.id.desc())
+                        .limit(20)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             if not rows:
                 await msg.answer("Пока нет проектов. /menu → 📁 Новый проект")
                 return
-            _set_user_screen(
-                msg.from_user.id if msg.from_user else 0, "project_list"
-            )
+            _set_user_screen(msg.from_user.id if msg.from_user else 0, "project_list")
             kb = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
@@ -574,6 +567,7 @@ async def cmd_status(msg: Message) -> None:
 
 # ---------------------------------------------------------------------------
 # Главное меню (callback menu:*)
+
 
 @dp.callback_query(F.data == "menu:root")
 async def on_menu_root(cb: CallbackQuery) -> None:
@@ -616,13 +610,14 @@ async def on_menu_list(cb: CallbackQuery) -> None:
     # принципиально не пересекаются.
     async with session_scope() as s:
         rows = (
-            await s.execute(
-                select(Project)
-                .where(Project.batch_id.is_(None))
-                .order_by(Project.id.desc())
-                .limit(30)
+            (
+                await s.execute(
+                    select(Project).where(Project.batch_id.is_(None)).order_by(Project.id.desc()).limit(30)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     await cb.answer()
     if not rows:
         await cb.message.answer("Пока нет проектов. ⬅ Меню → 📁 Новый проект")
@@ -727,9 +722,7 @@ async def _create_mass_from_name(msg: Message, name: str) -> None:
         kb = mass_main_kb(batch, len(subs))
     _set_user_screen(msg.from_user.id, "mass_main", b_id)
     await msg.answer(
-        head
-        + "\n\n📁 Создан. Папка: <code>data/batches/"
-        + f"{batch.slug}</code>",
+        head + "\n\n📁 Создан. Папка: <code>data/batches/" + f"{batch.slug}</code>",
         parse_mode="HTML",
         reply_markup=kb,
     )
@@ -849,23 +842,25 @@ async def on_mass_dl_xlsx(cb: CallbackQuery) -> None:
         for p in subs:
             meta = p.meta or {}
             card = meta.get("topic_card") or {}
-            rows.append({
-                "position": p.batch_position,
-                "title": p.topic,
-                "topic": p.topic,
-                "source": card.get("source"),
-                "style": card.get("style"),
-                "hook_type": card.get("hook_type"),
-                "emotion": card.get("emotion"),
-                "fact": card.get("fact"),
-                "logic": card.get("logic"),
-                "integration": card.get("integration"),
-                "shoot_note": card.get("shoot_note"),
-                "hero_mode": p.hero_mode,
-                "slug": p.slug,
-                "status": p.status.value,
-                "progress": "",
-            })
+            rows.append(
+                {
+                    "position": p.batch_position,
+                    "title": p.topic,
+                    "topic": p.topic,
+                    "source": card.get("source"),
+                    "style": card.get("style"),
+                    "hook_type": card.get("hook_type"),
+                    "emotion": card.get("emotion"),
+                    "fact": card.get("fact"),
+                    "logic": card.get("logic"),
+                    "integration": card.get("integration"),
+                    "shoot_note": card.get("shoot_note"),
+                    "hero_mode": p.hero_mode,
+                    "slug": p.slug,
+                    "status": p.status.value,
+                    "progress": "",
+                }
+            )
         batch_sheet.write_subprojects_table(path, rows, batch.name)
     if not path.exists():
         await cb.answer("Файл не найден", show_alert=True)
@@ -914,9 +909,7 @@ async def on_mass_sub_open(cb: CallbackQuery) -> None:
         await cb.answer("Bad callback", show_alert=True)
         return
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
     if project is None:
         await cb.answer("Проект не найден", show_alert=True)
         return
@@ -1094,6 +1087,7 @@ async def on_mass_noop(cb: CallbackQuery) -> None:
 
 # --------- управление очередью (PR #2) ---------
 
+
 async def _refresh_mass_main(cb: CallbackQuery, bid: int) -> None:
     """Перерисовать главное меню массового после изменения очереди."""
     async with session_scope() as s:
@@ -1202,6 +1196,7 @@ async def on_mass_prod(cb: CallbackQuery) -> None:
             await cb.answer("Массовый не найден", show_alert=True)
             return
         from app.telegram.mass_menu import mass_product_kb, product_text
+
         text = product_text(batch)
         kb = mass_product_kb(batch)
     await cb.answer()
@@ -1260,8 +1255,7 @@ async def on_mass_prod_photo(cb: CallbackQuery) -> None:
     _pending_mass_prod_photo[cb.from_user.id] = bid
     await cb.answer()
     await cb.message.answer(
-        "Пришли <b>референс-фото продукта</b> картинкой "
-        "(одно фото за сообщение). Сохраним рядом с массовым.",
+        "Пришли <b>референс-фото продукта</b> картинкой (одно фото за сообщение). Сохраним рядом с массовым.",
         parse_mode="HTML",
     )
 
@@ -1288,6 +1282,7 @@ async def on_mass_prod_clear(cb: CallbackQuery) -> None:
         if batch is None:
             return
         from app.telegram.mass_menu import mass_product_kb, product_text
+
         text = product_text(batch)
         kb = mass_product_kb(batch)
     await cb.message.answer(text, parse_mode="HTML", reply_markup=kb)
@@ -1301,6 +1296,7 @@ async def _show_mass_product(msg: Message, bid: int) -> None:
             await msg.answer("Массовый не найден.")
             return
         from app.telegram.mass_menu import mass_product_kb, product_text
+
         text = product_text(batch)
         kb = mass_product_kb(batch)
     await msg.answer(text, parse_mode="HTML", reply_markup=kb)
@@ -1331,34 +1327,32 @@ async def _handle_mass_topics_text(msg: Message, batch_id: int) -> None:
                     status=p.status.value,
                 )
             except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    "mass: project_sheet init failed for #{}: {}", p.id, e
-                )
+                logger.warning("mass: project_sheet init failed for #{}: {}", p.id, e)
         # Обновляем topics.xlsx актуальной таблицей (с карточными полями).
         all_subs = await batches_svc.get_batch_subprojects(s, batch_id)
         rows = []
         for p in all_subs:
             card = (p.meta or {}).get("topic_card") or {}
-            rows.append({
-                "position": p.batch_position,
-                "title": p.topic,
-                "topic": p.topic,
-                "source": card.get("source"),
-                "style": card.get("style"),
-                "hook_type": card.get("hook_type"),
-                "emotion": card.get("emotion"),
-                "fact": card.get("fact"),
-                "logic": card.get("logic"),
-                "integration": card.get("integration"),
-                "shoot_note": card.get("shoot_note"),
-                "hero_mode": p.hero_mode,
-                "slug": p.slug,
-                "status": p.status.value,
-                "progress": "",
-            })
-        batch_sheet.write_subprojects_table(
-            batch.topics_xlsx_path, rows, batch.name
-        )
+            rows.append(
+                {
+                    "position": p.batch_position,
+                    "title": p.topic,
+                    "topic": p.topic,
+                    "source": card.get("source"),
+                    "style": card.get("style"),
+                    "hook_type": card.get("hook_type"),
+                    "emotion": card.get("emotion"),
+                    "fact": card.get("fact"),
+                    "logic": card.get("logic"),
+                    "integration": card.get("integration"),
+                    "shoot_note": card.get("shoot_note"),
+                    "hero_mode": p.hero_mode,
+                    "slug": p.slug,
+                    "status": p.status.value,
+                    "progress": "",
+                }
+            )
+        batch_sheet.write_subprojects_table(batch.topics_xlsx_path, rows, batch.name)
         progress = await batches_svc.batch_progress(s, batch)
         head = batch_header(batch, len(all_subs), progress)
         kb = mass_main_kb(batch, len(all_subs))
@@ -1418,34 +1412,32 @@ async def _handle_mass_xlsx_upload(msg: Message, batch_id: int, doc) -> None:
                     status=p.status.value,
                 )
             except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    "mass: project_sheet init failed for #{}: {}", p.id, e
-                )
+                logger.warning("mass: project_sheet init failed for #{}: {}", p.id, e)
         # Сохраняем актуальную топик-таблицу (со всеми карточными полями).
         all_subs = await batches_svc.get_batch_subprojects(s, batch_id)
         rows = []
         for p in all_subs:
             card = (p.meta or {}).get("topic_card") or {}
-            rows.append({
-                "position": p.batch_position,
-                "title": p.topic,
-                "topic": p.topic,
-                "source": card.get("source"),
-                "style": card.get("style"),
-                "hook_type": card.get("hook_type"),
-                "emotion": card.get("emotion"),
-                "fact": card.get("fact"),
-                "logic": card.get("logic"),
-                "integration": card.get("integration"),
-                "shoot_note": card.get("shoot_note"),
-                "hero_mode": p.hero_mode,
-                "slug": p.slug,
-                "status": p.status.value,
-                "progress": "",
-            })
-        batch_sheet.write_subprojects_table(
-            batch.topics_xlsx_path, rows, batch.name
-        )
+            rows.append(
+                {
+                    "position": p.batch_position,
+                    "title": p.topic,
+                    "topic": p.topic,
+                    "source": card.get("source"),
+                    "style": card.get("style"),
+                    "hook_type": card.get("hook_type"),
+                    "emotion": card.get("emotion"),
+                    "fact": card.get("fact"),
+                    "logic": card.get("logic"),
+                    "integration": card.get("integration"),
+                    "shoot_note": card.get("shoot_note"),
+                    "hero_mode": p.hero_mode,
+                    "slug": p.slug,
+                    "status": p.status.value,
+                    "progress": "",
+                }
+            )
+        batch_sheet.write_subprojects_table(batch.topics_xlsx_path, rows, batch.name)
         progress = await batches_svc.batch_progress(s, batch)
         head = batch_header(batch, len(all_subs), progress)
         kb = mass_main_kb(batch, len(all_subs))
@@ -1465,6 +1457,7 @@ async def on_noop(cb: CallbackQuery) -> None:
 # ---------------------------------------------------------------------------
 # Мастер настроек проекта (cb=wiz:<pid>:*)
 
+
 @dp.callback_query(F.data.startswith("wiz:"))
 async def on_wizard_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
@@ -1476,6 +1469,7 @@ async def on_wizard_cb(cb: CallbackQuery) -> None:
 # ---------------------------------------------------------------------------
 # Шаг 4 — выбор количества героев (cb=hero_cnt:<pid>:<N>)
 
+
 @dp.callback_query(F.data.regexp(r"^hero_cnt:\d+:\d$"))
 async def on_hero_count_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
@@ -1485,9 +1479,7 @@ async def on_hero_count_cb(cb: CallbackQuery) -> None:
     pid = int(parts[1])
     n = int(parts[2])
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -1530,6 +1522,7 @@ async def on_hero_count_cb(cb: CallbackQuery) -> None:
 # Шаг 4 — выбор кол-ва вариаций для конкретного героя
 # (cb=hero_var:<pid>:<hero_idx>:<count>)
 
+
 @dp.callback_query(F.data.regexp(r"^hero_var:\d+:\d+:\d+$"))
 async def on_hero_variation_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
@@ -1545,9 +1538,7 @@ async def on_hero_variation_cb(cb: CallbackQuery) -> None:
     user_id = cb.from_user.id
     _pending_hero_variation.pop(user_id, None)
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -1593,14 +1584,10 @@ async def on_hero_variation_cb(cb: CallbackQuery) -> None:
             return
     # Иначе (count==1 или модификаторы уже все собраны) → пробуем
     # пройти дальше: либо описание следующего героя, либо запуск.
-    await _continue_hero_flow_after_step(
-        cb.message, user_id, pid, hero_idx, n_total
-    )
+    await _continue_hero_flow_after_step(cb.message, user_id, pid, hero_idx, n_total)
 
 
-def _hero_var_modifier_question_text(
-    hero_idx: int, n_total: int, var_idx: int, count: int
-) -> str:
+def _hero_var_modifier_question_text(hero_idx: int, n_total: int, var_idx: int, count: int) -> str:
     return (
         f"Опиши <b>отличия вариации {var_idx}/{count}</b> для героя "
         f"<b>{hero_idx}/{n_total}</b> одним сообщением: что должно "
@@ -1624,23 +1611,15 @@ async def _continue_hero_flow_after_step(
       — есть ещё герои → просим описание следующего
     """
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await msg.answer("Проект не найден.")
             return
         descriptions = list(project.hero_descriptions or [])
         variations = list(project.hero_variations or [])
         modifiers_all = list(project.hero_variation_modifiers or [])
-        all_described = (
-            len(descriptions) >= n_total
-            and all(d.strip() for d in descriptions[:n_total])
-        )
-        all_var_set = (
-            len(variations) >= n_total
-            and all(int(v or 0) >= 1 for v in variations[:n_total])
-        )
+        all_described = len(descriptions) >= n_total and all(d.strip() for d in descriptions[:n_total])
+        all_var_set = len(variations) >= n_total and all(int(v or 0) >= 1 for v in variations[:n_total])
         # Все ли модификаторы собраны (для каждого героя — variations[i-1]-1 шт.)
         all_modifiers_set = True
         for i in range(n_total):
@@ -1679,6 +1658,7 @@ async def _continue_hero_flow_after_step(
 # ---------------------------------------------------------------------------
 # Меню проекта (cb=proj:<id>:menu и cb=proj:<id>:step:<code>)
 
+
 @dp.callback_query(F.data.regexp(r"^proj:\d+:menu$"))
 async def on_project_menu(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
@@ -1686,9 +1666,7 @@ async def on_project_menu(cb: CallbackQuery) -> None:
         return
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -1713,6 +1691,7 @@ async def on_project_menu(cb: CallbackQuery) -> None:
 #   - reset_all    — обнулить вообще всё (стиль, кол-во, описания,
 #                    вариации) и начать с выбора стиля.
 
+
 @dp.callback_query(F.data.regexp(r"^hero_menu:\d+:(continue|reset_briefs|reset_all)$"))
 async def on_hero_menu_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
@@ -1723,9 +1702,7 @@ async def on_hero_menu_cb(cb: CallbackQuery) -> None:
     action = parts[2]
     user_id = cb.from_user.id
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -1739,14 +1716,18 @@ async def on_hero_menu_cb(cb: CallbackQuery) -> None:
             # generate_hero увидит «N из N уже одобрено» и сразу выйдет
             # с status=hero_ready (баг при повторной генерации).
             old_hitls = (
-                await s.execute(
-                    select(HITLRequest).where(
-                        HITLRequest.project_id == project.id,
-                        HITLRequest.kind == HITLKind.approve_hero,
-                        HITLRequest.decision == HITLDecision.approved,
+                (
+                    await s.execute(
+                        select(HITLRequest).where(
+                            HITLRequest.project_id == project.id,
+                            HITLRequest.kind == HITLKind.approve_hero,
+                            HITLRequest.decision == HITLDecision.approved,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for h in old_hitls:
                 h.decision = HITLDecision.rejected
             # Возвращаем статус в frames_ready чтобы юзер мог снова
@@ -1792,14 +1773,18 @@ async def on_hero_menu_cb(cb: CallbackQuery) -> None:
             # Старые approve_hero-одобрения помечаем как rejected — см.
             # коммент выше в ветке reset_briefs.
             old_hitls = (
-                await s.execute(
-                    select(HITLRequest).where(
-                        HITLRequest.project_id == project.id,
-                        HITLRequest.kind == HITLKind.approve_hero,
-                        HITLRequest.decision == HITLDecision.approved,
+                (
+                    await s.execute(
+                        select(HITLRequest).where(
+                            HITLRequest.project_id == project.id,
+                            HITLRequest.kind == HITLKind.approve_hero,
+                            HITLRequest.decision == HITLDecision.approved,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for h in old_hitls:
                 h.decision = HITLDecision.rejected
             if project.status in (
@@ -1840,8 +1825,7 @@ async def on_hero_menu_cb(cb: CallbackQuery) -> None:
         n = project.hero_count or 0
         if n <= 0:
             await cb.message.answer(
-                "0 героев — шаг пропускаем. Если хочешь героев — "
-                "жми «🎨 Сменить стиль (всё с начала)»."
+                "0 героев — шаг пропускаем. Если хочешь героев — жми «🎨 Сменить стиль (всё с начала)»."
             )
             return
         descriptions = list(project.hero_descriptions or [])
@@ -1868,9 +1852,7 @@ async def on_hero_menu_cb(cb: CallbackQuery) -> None:
         step = step_by_code("hero")
         if step is not None:
             total_variations = sum(int(v or 1) for v in variations[:n])
-            style_chosen = (
-                dict(project.prompt_overrides or {}).get("hero_style") or "default"
-            )
+            style_chosen = dict(project.prompt_overrides or {}).get("hero_style") or "default"
             _set_user_screen(user_id, "hero_wait_input", pid, "run")
             await cb.message.answer(
                 f"✅ Шаг {step.n}: <b>{step.title}</b> — всё собрано.\n"
@@ -1889,6 +1871,7 @@ async def on_hero_menu_cb(cb: CallbackQuery) -> None:
 # собраны. Раньше шаг запускался автоматом, что было вразрез с
 # требованием юзера «каждый пункт запускается только по кнопке».
 
+
 @dp.callback_query(F.data.regexp(r"^hero_run:\d+$"))
 async def on_hero_run_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
@@ -1896,9 +1879,7 @@ async def on_hero_run_cb(cb: CallbackQuery) -> None:
         return
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -1914,14 +1895,8 @@ async def on_hero_run_cb(cb: CallbackQuery) -> None:
         descriptions = list(project.hero_descriptions or [])
         variations = list(project.hero_variations or [])
         modifiers_all = list(project.hero_variation_modifiers or [])
-        all_described = (
-            len(descriptions) >= n
-            and all(d.strip() for d in descriptions[:n])
-        )
-        all_var_set = (
-            len(variations) >= n
-            and all(int(v or 0) >= 1 for v in variations[:n])
-        )
+        all_described = len(descriptions) >= n and all(d.strip() for d in descriptions[:n])
+        all_var_set = len(variations) >= n and all(int(v or 0) >= 1 for v in variations[:n])
         all_modifiers_set = True
         for i in range(n):
             need = max(int(variations[i] or 1) - 1, 0)
@@ -1960,6 +1935,7 @@ async def on_hero_run_cb(cb: CallbackQuery) -> None:
 # эти шаги запускались по одному клику в меню проекта, теперь требуется
 # явное подтверждение через эту кнопку.
 
+
 @dp.callback_query(F.data.regexp(r"^step_run:\d+:[a-z_0-9]+$"))
 async def on_step_run_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
@@ -1973,9 +1949,7 @@ async def on_step_run_cb(cb: CallbackQuery) -> None:
         await cb.answer("Неизвестный шаг", show_alert=True)
         return
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -1992,8 +1966,7 @@ async def on_step_run_cb(cb: CallbackQuery) -> None:
             other = step_by_running_status(project.status)
             other_title = other.title if other is not None else project.status.value
             await cb.answer(
-                f"Сейчас выполняется «{other_title}». "
-                "Сначала ⏹ останови или дождись завершения.",
+                f"Сейчас выполняется «{other_title}». Сначала ⏹ останови или дождись завершения.",
                 show_alert=True,
             )
             return
@@ -2020,17 +1993,24 @@ async def on_step_run_cb(cb: CallbackQuery) -> None:
 # и переписывает project.status на правильный ready-уровень. После сброса
 # юзер ткнёт «▶ Запустить шаг» и шаг пойдёт с нуля.
 
+
 def _reset_confirm_kb(pid: int, step_code: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="✅ Да, удалить и прогнать заново",
-            callback_data=f"reset_do:{pid}:{step_code}",
-        )],
-        [InlineKeyboardButton(
-            text="⬅ Отмена",
-            callback_data=f"proj:{pid}:menu",
-        )],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Да, удалить и прогнать заново",
+                    callback_data=f"reset_do:{pid}:{step_code}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅ Отмена",
+                    callback_data=f"proj:{pid}:menu",
+                )
+            ],
+        ]
+    )
 
 
 @dp.callback_query(F.data.regexp(r"^reset_ask:\d+:[a-z_0-9]+$"))
@@ -2048,9 +2028,7 @@ async def on_step_reset_ask(cb: CallbackQuery) -> None:
         await cb.answer("Сброс для этого шага не поддерживается", show_alert=True)
         return
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -2089,19 +2067,20 @@ async def on_step_reset_do(cb: CallbackQuery) -> None:
     summary: dict | None = None
     try:
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             if project is None:
                 await cb.message.answer(
-                    f"❌ Проект #{pid} не найден.", parse_mode="HTML",
+                    f"❌ Проект #{pid} не найден.",
+                    parse_mode="HTML",
                 )
                 return
             summary = await reset_step_svc.reset_step(s, project, step_code)
     except Exception as e:  # noqa: BLE001
         logger.exception(
             "[#{}] reset_step UI: исключение при сбросе шага {}: {}",
-            pid, step_code, e,
+            pid,
+            step_code,
+            e,
         )
         await cb.message.answer(
             f"❌ Сброс упал с ошибкой:\n<code>{e}</code>",
@@ -2123,10 +2102,7 @@ async def on_step_reset_do(cb: CallbackQuery) -> None:
         "",
     ]
     if steps_wiped:
-        body_lines.append(
-            f"Очищены шаги (с downstream): "
-            f"<code>{', '.join(steps_wiped)}</code>"
-        )
+        body_lines.append(f"Очищены шаги (с downstream): <code>{', '.join(steps_wiped)}</code>")
     # Детализация по шагам (artifacts/files/frames)
     detail_lines: list[str] = []
     for k, v in summary.items():
@@ -2138,10 +2114,7 @@ async def on_step_reset_do(cb: CallbackQuery) -> None:
         body_lines.append("Детали:")
         body_lines.extend(detail_lines)
     body_lines.append("")
-    body_lines.append(
-        "Теперь нажми «▶ Запустить шаг» в меню проекта, чтобы погнать "
-        "его заново."
-    )
+    body_lines.append("Теперь нажми «▶ Запустить шаг» в меню проекта, чтобы погнать его заново.")
     await cb.message.answer(
         "\n".join(body_lines),
         parse_mode="HTML",
@@ -2162,9 +2135,7 @@ async def on_project_step(cb: CallbackQuery) -> None:
         return
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -2176,20 +2147,15 @@ async def on_project_step(cb: CallbackQuery) -> None:
         # шагов просто разрешаем юзеру повторно ткнуть кнопку — не надо
         # «Этот шаг уже выполняется» (это блокировало возврат к шагу 5,
         # пока проект висит в generating_image_prompts).
-        is_hero_zombie = (
-            step.code == "hero"
-            and project.status is ProjectStatus.generating_hero
-        )
-        is_other_zombie = (
-            step.code != "hero"
-            and project.status is step.running_status
-        )
+        is_hero_zombie = step.code == "hero" and project.status is ProjectStatus.generating_hero
+        is_other_zombie = step.code != "hero" and project.status is step.running_status
 
         if is_other_zombie:
             logger.info(
-                "[#{}] step={} клик при зомби-статусе {}: "
-                "разрешаю перезапуск шага.",
-                pid, step.code, project.status.value,
+                "[#{}] step={} клик при зомби-статусе {}: разрешаю перезапуск шага.",
+                pid,
+                step.code,
+                project.status.value,
             )
 
         # `failed` больше не используется — воркер вместо этого откатывает
@@ -2218,9 +2184,7 @@ async def on_project_step(cb: CallbackQuery) -> None:
         # отредактировать сопр. сообщение, явно нажать «▶ Запустить».
         # Если тема ролика ещё не задана — сначала спрашиваем тему.
         if step.code == "plan":
-            proj_xlsx = (
-                project.data_dir / "project.xlsx"
-            )
+            proj_xlsx = project.data_dir / "project.xlsx"
             if proj_xlsx.exists():
                 # Если тема не задана — просим ввести.
                 if not (project.topic or "").strip():
@@ -2237,17 +2201,16 @@ async def on_project_step(cb: CallbackQuery) -> None:
                 has_msg_override = gtb.has_override(project, "plan")
                 chosen = overrides.get("plan")
                 show_run = bool(
-                    chosen
-                    and plib.is_valid_prompt_name(chosen)
-                    and plib.prompt_path("plan", chosen).exists()
+                    chosen and plib.is_valid_prompt_name(chosen) and plib.prompt_path("plan", chosen).exists()
                 )
                 _set_user_screen(cb.from_user.id, "picker", pid, "plan")
                 await cb.answer()
                 await cb.message.answer(
-                    f"Тема: <b>{project.topic}</b>\n\n"
-                    + _prompt_picker_text("plan", overrides),
+                    f"Тема: <b>{project.topic}</b>\n\n" + _prompt_picker_text("plan", overrides),
                     reply_markup=_prompt_picker_kb(
-                        pid, "plan", overrides,
+                        pid,
+                        "plan",
+                        overrides,
                         has_msg_override=has_msg_override,
                         show_run_button=show_run,
                         show_topic_button=True,
@@ -2263,17 +2226,12 @@ async def on_project_step(cb: CallbackQuery) -> None:
         #   [⬅ Назад]. Если ещё нет — сразу picker промтов из
         #   prompts/02_script/ (как было).
         if step.code == "script":
-            proj_xlsx = (
-                project.data_dir / "project.xlsx"
-            )
+            proj_xlsx = project.data_dir / "project.xlsx"
             if proj_xlsx.exists():
                 voiceover_path = proj_xlsx.parent / "voiceover.txt"
                 voiceover_exists = voiceover_path.exists()
                 await cb.answer()
-                header = (
-                    "<b>Шаг 2. Закадровый текст</b>\n"
-                    f"Проект #{pid} «{project.topic}»\n"
-                )
+                header = f"<b>Шаг 2. Закадровый текст</b>\nПроект #{pid} «{project.topic}»\n"
                 if voiceover_exists:
                     size = voiceover_path.stat().st_size
                     body = (
@@ -2287,15 +2245,11 @@ async def on_project_step(cb: CallbackQuery) -> None:
                         "«▶ Сгенерировать», выбери промт и подожди ответ от "
                         "ChatGPT."
                     )
-                _set_user_screen(
-                    cb.from_user.id, "step_submenu", pid, "script"
-                )
+                _set_user_screen(cb.from_user.id, "step_submenu", pid, "script")
                 await cb.message.answer(
                     header + body,
                     parse_mode="HTML",
-                    reply_markup=script_step_kb(
-                        pid, voiceover_exists=voiceover_exists
-                    ),
+                    reply_markup=script_step_kb(pid, voiceover_exists=voiceover_exists),
                 )
                 return
             # xlsx-файла нет — упадём в старую логику ниже.
@@ -2306,15 +2260,11 @@ async def on_project_step(cb: CallbackQuery) -> None:
         #      ждём ответ, скачиваем txt, бэкапим старый voiceover.txt в old/,
         #      сохраняем новый как voiceover.txt, статус → frames_ready.
         if step.code == "split":
-            proj_xlsx = (
-                project.data_dir / "project.xlsx"
-            )
+            proj_xlsx = project.data_dir / "project.xlsx"
             if proj_xlsx.exists():
                 voiceover_path = proj_xlsx.parent / "voiceover.txt"
                 if not voiceover_path.exists():
-                    await cb.answer(
-                        "Сначала Шаг 2 — нет voiceover.txt", show_alert=True
-                    )
+                    await cb.answer("Сначала Шаг 2 — нет voiceover.txt", show_alert=True)
                     return
                 overrides = dict(project.prompt_overrides or {})
                 _pending_split_prompt[cb.from_user.id] = pid
@@ -2334,9 +2284,7 @@ async def on_project_step(cb: CallbackQuery) -> None:
         if step.code == "objects":
             from app.telegram.menu import objects_submenu_kb
 
-            _set_user_screen(
-                cb.from_user.id, "step_submenu", pid, "objects"
-            )
+            _set_user_screen(cb.from_user.id, "step_submenu", pid, "objects")
             await cb.answer()
             await cb.message.answer(
                 f"<b>Шаг 4. Объекты</b>\n"
@@ -2358,9 +2306,7 @@ async def on_project_step(cb: CallbackQuery) -> None:
         if step.code == "img":
             from app.telegram.menu import images_submenu_kb
 
-            _set_user_screen(
-                cb.from_user.id, "step_submenu", pid, "img"
-            )
+            _set_user_screen(cb.from_user.id, "step_submenu", pid, "img")
             await cb.answer()
             await cb.message.answer(
                 f"<b>Шаг 7. Картинки</b>\n"
@@ -2453,9 +2399,7 @@ async def on_project_step(cb: CallbackQuery) -> None:
                 )
                 await cb.message.answer(
                     _prompt_picker_text("hero_style", overrides),
-                    reply_markup=_prompt_picker_kb(
-                        pid, "hero_style", overrides
-                    ),
+                    reply_markup=_prompt_picker_kb(pid, "hero_style", overrides),
                     parse_mode="HTML",
                 )
                 return
@@ -2476,9 +2420,7 @@ async def on_project_step(cb: CallbackQuery) -> None:
                 # Пользователь раньше выбрал «0 героев» — шаг сразу готов.
                 project.status = ProjectStatus.hero_ready
                 await cb.answer("0 героев — шаг пропущен")
-                await cb.message.answer(
-                    "✅ Шаг 4 пропущен (0 героев). Можно идти к шагу 5."
-                )
+                await cb.message.answer("✅ Шаг 4 пропущен (0 героев). Можно идти к шагу 5.")
                 return
             # Описания и вариации заполняем параллельно: сначала
             # описание героя i, потом сразу кол-во его вариаций, потом
@@ -2536,33 +2478,32 @@ async def on_project_step(cb: CallbackQuery) -> None:
             overrides = dict(project.prompt_overrides or {})
             chosen = overrides.get(step.code)
             chosen_ok = (
-                chosen
-                and plib.is_valid_prompt_name(chosen)
-                and plib.prompt_path(step.code, chosen).exists()
+                chosen and plib.is_valid_prompt_name(chosen) and plib.prompt_path(step.code, chosen).exists()
             )
             need_picker = not chosen_ok
             # Для enrich-слотов и всех шагов с promp-picker'ом (plan, script, split,
             # img_pr, anim_pr, items): picker всегда видим, авто-запуска нет —
             # только по кнопке «▶ Запустить шаг».
-            always_picker = (
-                _is_enrich_slot(step.code)
-                or step.code in (
-                    "script", "split", "img_pr", "anim_pr", "items"
-                )
+            always_picker = _is_enrich_slot(step.code) or step.code in (
+                "script",
+                "split",
+                "img_pr",
+                "anim_pr",
+                "items",
             )
             if always_picker:
                 need_picker = True
             if need_picker:
                 has_msg_override = gtb.has_override(project, step.code)
                 show_run = bool(chosen_ok) if always_picker else _can_run_enrich_slot_now(project, step.code)
-                _set_user_screen(
-                    cb.from_user.id, "picker", pid, step.code
-                )
+                _set_user_screen(cb.from_user.id, "picker", pid, step.code)
                 await cb.answer()
                 await cb.message.answer(
                     _prompt_picker_text(step.code, overrides),
                     reply_markup=_prompt_picker_kb(
-                        pid, step.code, overrides,
+                        pid,
+                        step.code,
+                        overrides,
                         has_msg_override=has_msg_override,
                         show_run_button=show_run,
                     ),
@@ -2590,6 +2531,7 @@ async def on_project_step(cb: CallbackQuery) -> None:
 # Подменю шага 2 «Закадровый текст»: посмотреть текущий voiceover.txt /
 # сгенерировать заново.
 
+
 @dp.callback_query(F.data.regexp(r"^proj:\d+:script_view$"))
 async def on_script_view(cb: CallbackQuery) -> None:
     """Прислать пользователю текущий voiceover.txt файлом."""
@@ -2598,9 +2540,7 @@ async def on_script_view(cb: CallbackQuery) -> None:
         return
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -2631,15 +2571,11 @@ async def on_script_regen(cb: CallbackQuery) -> None:
         return
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
-        proj_xlsx = (
-            project.data_dir / "project.xlsx"
-        )
+        proj_xlsx = project.data_dir / "project.xlsx"
         if not proj_xlsx.exists():
             await cb.answer("Сначала Шаг 1 — нет project.xlsx", show_alert=True)
             return
@@ -2662,9 +2598,7 @@ async def on_script_replace(cb: CallbackQuery) -> None:
         return
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -2710,17 +2644,13 @@ async def on_prompt_overview(cb: CallbackQuery) -> None:
         return
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
         text = _prompt_overview_text(project)
     await cb.answer()
-    await cb.message.answer(
-        text, reply_markup=_prompt_overview_kb(pid), parse_mode="HTML"
-    )
+    await cb.message.answer(text, reply_markup=_prompt_overview_kb(pid), parse_mode="HTML")
 
 
 @dp.callback_query(F.data.startswith("prm:"))
@@ -2745,19 +2675,10 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
     if action == "menu":
         # Перерисовать picker.
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             overrides = dict(project.prompt_overrides or {}) if project else {}
-            has_msg_override = (
-                gtb.has_override(project, step_code) if project else False
-            )
-            if (
-                step_code in (
-                    "plan", "script", "split", "img_pr", "anim_pr", "items"
-                )
-                and project is not None
-            ):
+            has_msg_override = gtb.has_override(project, step_code) if project else False
+            if step_code in ("plan", "script", "split", "img_pr", "anim_pr", "items") and project is not None:
                 chosen = overrides.get(step_code)
                 show_run = bool(
                     chosen
@@ -2765,10 +2686,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
                     and plib.prompt_path(step_code, chosen).exists()
                 )
             elif _is_enrich_slot(step_code):
-                show_run = (
-                    _can_run_enrich_slot_now(project, step_code)
-                    if project else False
-                )
+                show_run = _can_run_enrich_slot_now(project, step_code) if project else False
             else:
                 show_run = False
         is_plan = step_code == "plan"
@@ -2780,7 +2698,9 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         await cb.message.answer(
             topic_prefix + _prompt_picker_text(step_code, overrides),
             reply_markup=_prompt_picker_kb(
-                pid, step_code, overrides,
+                pid,
+                step_code,
+                overrides,
                 has_msg_override=has_msg_override,
                 show_run_button=show_run,
                 show_topic_button=is_plan,
@@ -2794,9 +2714,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         _pending_plan_topic[cb.from_user.id] = pid
         await cb.answer()
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             cur_topic = (project.topic or "") if project else ""
         text = f"Текущая тема: <b>{cur_topic}</b>\n\n" if cur_topic else ""
         await cb.message.answer(
@@ -2812,18 +2730,14 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         # Шаг 1 (План) — запуск xlsx-flow напрямую из picker'а.
         if step_code == "plan":
             async with session_scope() as s:
-                project = (
-                    await s.execute(select(Project).where(Project.id == pid))
-                ).scalar_one_or_none()
+                project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
                 if project is None:
                     await cb.answer("Проект не найден", show_alert=True)
                     return
                 overrides = dict(project.prompt_overrides or {})
                 chosen = overrides.get("plan")
                 chosen_ok = (
-                    chosen
-                    and plib.is_valid_prompt_name(chosen)
-                    and plib.prompt_path("plan", chosen).exists()
+                    chosen and plib.is_valid_prompt_name(chosen) and plib.prompt_path("plan", chosen).exists()
                 )
                 if not chosen_ok:
                     await cb.answer(
@@ -2857,9 +2771,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         # Шаг 2 (script) — запуск xlsx-flow из picker'а.
         if step_code == "script":
             async with session_scope() as s:
-                project = (
-                    await s.execute(select(Project).where(Project.id == pid))
-                ).scalar_one_or_none()
+                project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
                 if project is None:
                     await cb.answer("Проект не найден", show_alert=True)
                     return
@@ -2895,9 +2807,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         # Шаг 3 (split) — запуск xlsx-flow из picker'а.
         if step_code == "split":
             async with session_scope() as s:
-                project = (
-                    await s.execute(select(Project).where(Project.id == pid))
-                ).scalar_one_or_none()
+                project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
                 if project is None:
                     await cb.answer("Проект не найден", show_alert=True)
                     return
@@ -2933,9 +2843,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         # Шаг 6 (img_pr) — запуск xlsx-flow из picker'а.
         if step_code == "img_pr":
             async with session_scope() as s:
-                project = (
-                    await s.execute(select(Project).where(Project.id == pid))
-                ).scalar_one_or_none()
+                project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
                 if project is None:
                     await cb.answer("Проект не найден", show_alert=True)
                     return
@@ -2976,14 +2884,13 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
             from app.telegram.menu import (
                 step_by_code as _step_by_code,
             )
+
             sub_step = _step_by_code(step_code)
             if sub_step is None:
                 await cb.answer("Неизвестный шаг", show_alert=True)
                 return
             async with session_scope() as s:
-                project = (
-                    await s.execute(select(Project).where(Project.id == pid))
-                ).scalar_one_or_none()
+                project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
                 if project is None:
                     await cb.answer("Проект не найден", show_alert=True)
                     return
@@ -3035,23 +2942,20 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         from app.telegram.menu import (
             step_by_code as _step_by_code,
         )
+
         step = _step_by_code(step_code)
         if step is None:
             await cb.answer("Неизвестный шаг", show_alert=True)
             return
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
             overrides = dict(project.prompt_overrides or {})
             chosen = overrides.get(step_code)
             chosen_ok = (
-                chosen
-                and plib.is_valid_prompt_name(chosen)
-                and plib.prompt_path(step_code, chosen).exists()
+                chosen and plib.is_valid_prompt_name(chosen) and plib.prompt_path(step_code, chosen).exists()
             )
             if not chosen_ok:
                 await cb.answer(
@@ -3089,13 +2993,10 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         # Открыть подменю «сопр. сообщения»: статус (default/override) +
         # кнопки «📥 Получить файл», «🔄 Сбросить», «⬅ Назад».
         if not gtb.is_supported(step_code):
-            await cb.answer("Шаг не поддерживает редактирование сопр. сообщения",
-                            show_alert=True)
+            await cb.answer("Шаг не поддерживает редактирование сопр. сообщения", show_alert=True)
             return
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             has_ovr = gtb.has_override(project, step_code) if project else False
         await cb.answer()
         await cb.message.answer(
@@ -3109,8 +3010,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         # Сборка дефолтного «сопр. сообщения» для этого шага и отправка
         # юзеру файлом .md. Регистрируем ожидание ответа.
         if not gtb.is_supported(step_code):
-            await cb.answer("Шаг не поддерживает редактирование сопр. сообщения",
-                            show_alert=True)
+            await cb.answer("Шаг не поддерживает редактирование сопр. сообщения", show_alert=True)
             return
         try:
             text = await _build_gpt_text_for_edit(pid, step_code)
@@ -3123,6 +3023,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         # Сохраняем .md-файл и шлём его.
         from datetime import datetime as _dt
         from pathlib import Path as _Path
+
         ts = _dt.utcnow().strftime("%Y%m%d_%H%M%S")
         out_dir = _Path(settings.data_dir) / "tmp_gpt_text_edits"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -3148,9 +3049,11 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         _pending_gpt_text_edit[sent.message_id] = (cb.from_user.id, pid, step_code)
         _pending_gpt_text_edit_by_user[cb.from_user.id] = (pid, step_code)
         logger.info(
-            "msgsend: registered pending gpt-text-edit for user={} pid={} step={} "
-            "(reply_to msg_id={})",
-            cb.from_user.id, pid, step_code, sent.message_id,
+            "msgsend: registered pending gpt-text-edit for user={} pid={} step={} (reply_to msg_id={})",
+            cb.from_user.id,
+            pid,
+            step_code,
+            sent.message_id,
         )
         return
 
@@ -3160,9 +3063,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
             await cb.answer("Шаг не поддерживает", show_alert=True)
             return
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
@@ -3183,9 +3084,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
             await cb.answer("Файл не найден", show_alert=True)
             return
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
@@ -3196,15 +3095,9 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         # Шаг 1 (План) — picker остаётся видимым (как в enrich), авто-запуска нет.
         if step_code == "plan":
             async with session_scope() as s:
-                project = (
-                    await s.execute(select(Project).where(Project.id == pid))
-                ).scalar_one_or_none()
-                overrides_after = (
-                    dict(project.prompt_overrides or {}) if project else {}
-                )
-                has_msg_override = (
-                    gtb.has_override(project, step_code) if project else False
-                )
+                project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
+                overrides_after = dict(project.prompt_overrides or {}) if project else {}
+                has_msg_override = gtb.has_override(project, step_code) if project else False
                 show_run = bool(
                     overrides_after.get(step_code)
                     and plib.is_valid_prompt_name(overrides_after.get(step_code, ""))
@@ -3228,7 +3121,9 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
                 + topic_prefix
                 + _prompt_picker_text(step_code, overrides_after),
                 reply_markup=_prompt_picker_kb(
-                    pid, step_code, overrides_after,
+                    pid,
+                    step_code,
+                    overrides_after,
                     has_msg_override=has_msg_override,
                     show_run_button=show_run,
                     show_topic_button=True,
@@ -3242,15 +3137,9 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         # по кнопке «▶ Запустить шаг».
         if step_code in ("script", "split", "img_pr", "anim_pr", "items"):
             async with session_scope() as s:
-                project = (
-                    await s.execute(select(Project).where(Project.id == pid))
-                ).scalar_one_or_none()
-                overrides_after = (
-                    dict(project.prompt_overrides or {}) if project else {}
-                )
-                has_msg_override = (
-                    gtb.has_override(project, step_code) if project else False
-                )
+                project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
+                overrides_after = dict(project.prompt_overrides or {}) if project else {}
+                has_msg_override = gtb.has_override(project, step_code) if project else False
                 show_run = bool(
                     overrides_after.get(step_code)
                     and plib.is_valid_prompt_name(overrides_after.get(step_code, ""))
@@ -3266,10 +3155,11 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
                 "  • <b>✏ Редактировать выбранный</b> — поправить шаблон.\n"
                 "  • <b>✏️ Сопр. сообщение</b> — отредактировать текст, "
                 "который уходит в ChatGPT вместе с xlsx.\n"
-                "  • выбрать другой шаблон из списка.\n\n"
-                + _prompt_picker_text(step_code, overrides_after),
+                "  • выбрать другой шаблон из списка.\n\n" + _prompt_picker_text(step_code, overrides_after),
                 reply_markup=_prompt_picker_kb(
-                    pid, step_code, overrides_after,
+                    pid,
+                    step_code,
+                    overrides_after,
                     has_msg_override=has_msg_override,
                     show_run_button=show_run,
                 ),
@@ -3303,24 +3193,15 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
         # «▶ Запустить шаг» для явного запуска.
         if _is_enrich_slot(step_code):
             async with session_scope() as s:
-                project = (
-                    await s.execute(select(Project).where(Project.id == pid))
-                ).scalar_one_or_none()
-                overrides_after = (
-                    dict(project.prompt_overrides or {}) if project else {}
-                )
-                has_msg_override = (
-                    gtb.has_override(project, step_code) if project else False
-                )
-                show_run = (
-                    _can_run_enrich_slot_now(project, step_code)
-                    if project else False
-                )
+                project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
+                overrides_after = dict(project.prompt_overrides or {}) if project else {}
+                has_msg_override = gtb.has_override(project, step_code) if project else False
+                show_run = _can_run_enrich_slot_now(project, step_code) if project else False
             _set_user_screen(cb.from_user.id, "picker", pid, step_code)
             hint_run = (
                 "  • <b>▶ Запустить шаг</b> — стартовать ChatGPT.\n"
-                if show_run else
-                "  • <i>Запустить этот слот можно только после того, "
+                if show_run
+                else "  • <i>Запустить этот слот можно только после того, "
                 "как предыдущий слот будет готов.</i>\n"
                 "    Чтобы запустить всё подряд — кнопка "
                 "<b>▶▶ Запустить все слоты подряд</b> в меню шага 5.\n"
@@ -3329,15 +3210,14 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
             await cb.message.answer(
                 f"✅ Для шага «{human}» теперь выбран шаблон "
                 f"<code>{name}</code>.\n\n"
-                "Можешь:\n"
-                + hint_run
-                + "  • <b>✏ Редактировать выбранный</b> — поправить шаблон.\n"
+                "Можешь:\n" + hint_run + "  • <b>✏ Редактировать выбранный</b> — поправить шаблон.\n"
                 "  • <b>✏️ Сопр. сообщение</b> — отредактировать текст, "
                 "который уходит в ChatGPT вместе с xlsx.\n"
-                "  • выбрать другой шаблон из списка.\n\n"
-                + _prompt_picker_text(step_code, overrides_after),
+                "  • выбрать другой шаблон из списка.\n\n" + _prompt_picker_text(step_code, overrides_after),
                 reply_markup=_prompt_picker_kb(
-                    pid, step_code, overrides_after,
+                    pid,
+                    step_code,
+                    overrides_after,
                     has_msg_override=has_msg_override,
                     show_run_button=show_run,
                 ),
@@ -3378,9 +3258,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
 
     if action == "editcur":
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
@@ -3394,8 +3272,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
     if action == "delask":
         await cb.answer()
         await cb.message.answer(
-            "Выбери вариант для удаления (<code>default</code> "
-            "удалить нельзя):",
+            "Выбери вариант для удаления (<code>default</code> удалить нельзя):",
             reply_markup=_prompt_delete_kb(pid, step_code),
             parse_mode="HTML",
         )
@@ -3412,9 +3289,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
             return
         # Если этот вариант был выбран в проекте — сбрасываем override.
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             if project is not None:
                 overrides = dict(project.prompt_overrides or {})
                 if overrides.get(step_code) == name:
@@ -3422,20 +3297,16 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
                     project.prompt_overrides = overrides
         await cb.answer("Удалено" if removed else "Файла не было")
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             overrides = dict(project.prompt_overrides or {}) if project else {}
-            has_msg_override = (
-                gtb.has_override(project, step_code) if project else False
-            )
-            show_run = (
-                _can_run_enrich_slot_now(project, step_code) if project else False
-            )
+            has_msg_override = gtb.has_override(project, step_code) if project else False
+            show_run = _can_run_enrich_slot_now(project, step_code) if project else False
         await cb.message.answer(
             _prompt_picker_text(step_code, overrides),
             reply_markup=_prompt_picker_kb(
-                pid, step_code, overrides,
+                pid,
+                step_code,
+                overrides,
                 has_msg_override=has_msg_override,
                 show_run_button=show_run,
             ),
@@ -3446,9 +3317,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
     await cb.answer("Неизвестное действие picker", show_alert=True)
 
 
-async def _send_prompt_for_edit(
-    cb: CallbackQuery, pid: int, step_code: str, name: str
-) -> None:
+async def _send_prompt_for_edit(cb: CallbackQuery, pid: int, step_code: str, name: str) -> None:
     """Отправляет файл `<step>/<name>.md` юзеру и переводит его в режим
     ожидания возврата отредактированного файла."""
     path = plib.prompt_path(step_code, name)
@@ -3479,7 +3348,7 @@ async def _handle_prompt_name_input(msg: Message, pid: int, step_code: str) -> N
         await msg.answer(
             "Имя пустое или слишком длинное (лимит ~20 кириллических "
             "/ ~40 латинских симв) или содержит запрещённые символы "
-            "(<code>/ \\ : * ? \" &lt; &gt; |</code>). Попробуй ещё раз или нажми "
+            '(<code>/ \\ : * ? " &lt; &gt; |</code>). Попробуй ещё раз или нажми '
             "«⬅ Отмена» в picker'е.",
             parse_mode="HTML",
         )
@@ -3540,9 +3409,7 @@ async def _handle_prompt_upload(msg: Message) -> None:
     _pending_prompt_upload.pop(user_id, None)
     # Сохраняем выбор в проекте.
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await msg.answer(f"Проект #{pid} не найден")
             return
@@ -3564,9 +3431,7 @@ async def _replace_voiceover(pid: int, new_text: str, msg: Message) -> None:
     from datetime import datetime as _dt
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await msg.answer("Проект не найден.")
             return
@@ -3622,9 +3487,7 @@ async def on_photo_message(msg: Message) -> None:
         except Exception as e:  # noqa: BLE001
             await msg.answer(f"❌ Не смог сохранить фото: {e}")
             return
-        await batches_svc.set_permanent_product_field(
-            s, mass_pp_bid, reference_image_path=str(target_path)
-        )
+        await batches_svc.set_permanent_product_field(s, mass_pp_bid, reference_image_path=str(target_path))
     await msg.answer(
         f"🖼 Референс продукта сохранён: <code>{target_path.name}</code>",
         parse_mode="HTML",
@@ -3667,16 +3530,16 @@ async def on_document_message(msg: Message) -> None:
             await msg.answer("Не вижу файл — пришли заново.")
             return
         logger.info(
-            "on_document_message: gpt-text-edit reply detected user={} pid={} "
-            "step={} doc={}",
-            user_id, pid_e, step_e, doc.file_name,
+            "on_document_message: gpt-text-edit reply detected user={} pid={} step={} doc={}",
+            user_id,
+            pid_e,
+            step_e,
+            doc.file_name,
         )
         import tempfile
         from pathlib import Path as _Path
 
-        with tempfile.NamedTemporaryFile(
-            suffix=".md", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as tmp:
             tmp_path = _Path(tmp.name)
         await msg.bot.download(doc, destination=str(tmp_path))
         new_text = tmp_path.read_text(encoding="utf-8", errors="replace")
@@ -3695,9 +3558,7 @@ async def on_document_message(msg: Message) -> None:
         import tempfile
         from pathlib import Path as _Path
 
-        with tempfile.NamedTemporaryFile(
-            suffix=".txt", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
             tmp_path = _Path(tmp.name)
         await msg.bot.download(doc, destination=str(tmp_path))
         text = tmp_path.read_text(encoding="utf-8", errors="replace")
@@ -3709,11 +3570,7 @@ async def on_document_message(msg: Message) -> None:
     # и прислал обратно .xlsx-документом.
     pending_xlsx_pid = _pending_xlsx_replace.get(user_id)
     doc = msg.document
-    if (
-        pending_xlsx_pid is not None
-        and doc is not None
-        and (doc.file_name or "").lower().endswith(".xlsx")
-    ):
+    if pending_xlsx_pid is not None and doc is not None and (doc.file_name or "").lower().endswith(".xlsx"):
         _pending_xlsx_replace.pop(user_id, None)
         await _handle_xlsx_replace(msg, pending_xlsx_pid, doc)
         return
@@ -3737,6 +3594,7 @@ async def on_document_message(msg: Message) -> None:
 # ---------------------------------------------------------------------------
 # Замена project.xlsx загруженным от юзера документом
 
+
 async def _handle_xlsx_replace(msg: Message, project_id: int, doc) -> None:
     """Принимает .xlsx-документ от юзера и подменяет project.xlsx.
 
@@ -3756,9 +3614,7 @@ async def _handle_xlsx_replace(msg: Message, project_id: int, doc) -> None:
     )
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == project_id))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
         if project is None:
             await msg.answer(f"Проект #{project_id} не найден.")
             return
@@ -3792,16 +3648,15 @@ async def _handle_xlsx_replace(msg: Message, project_id: int, doc) -> None:
         from app.services.xlsx_v8_import import import_v8_xlsx
 
         async with session_scope() as s:
-            project = (
-                await s.execute(
-                    select(Project).where(Project.id == project_id)
-                )
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is not None:
                 try:
                     info_v8 = await import_v8_xlsx(
-                        s, project, proj_xlsx,
-                        keep_fields=False, update_frames_voiceover=True,
+                        s,
+                        project,
+                        proj_xlsx,
+                        keep_fields=False,
+                        update_frames_voiceover=True,
                     )
                     logger.info("xlsx_replace: v8 import → {}", info_v8)
                 except Exception as e:  # noqa: BLE001
@@ -3814,11 +3669,7 @@ async def _handle_xlsx_replace(msg: Message, project_id: int, doc) -> None:
     except Exception as e:  # noqa: BLE001
         logger.exception("xlsx_replace reload failed: {}", e)
 
-    backup_note = (
-        f"\nСтарая версия: <code>old/{backup.name}</code>"
-        if backup is not None
-        else ""
-    )
+    backup_note = f"\nСтарая версия: <code>old/{backup.name}</code>" if backup is not None else ""
     await msg.answer(
         f"✅ project.xlsx заменён ({proj_xlsx.stat().st_size} байт).\n"
         f"Проект #{project_id} «{topic}»{backup_note}\n"
@@ -3830,6 +3681,7 @@ async def _handle_xlsx_replace(msg: Message, project_id: int, doc) -> None:
 # ---------------------------------------------------------------------------
 # Скачать xlsx / перечитать xlsx / удалить проект
 
+
 @dp.callback_query(F.data.regexp(r"^proj:\d+:dl_xlsx$"))
 async def on_project_download_xlsx(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
@@ -3837,9 +3689,7 @@ async def on_project_download_xlsx(cb: CallbackQuery) -> None:
         return
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -3875,9 +3725,7 @@ async def on_project_stop_running(cb: CallbackQuery) -> None:
     from app.services.project_control import stop_project_running
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -3890,8 +3738,7 @@ async def on_project_stop_running(cb: CallbackQuery) -> None:
 
         if info["stopped_kind"] == "running":
             auto_note = (
-                "Автопродвижение включено — после перезапуска шага пайплайн "
-                "продолжит сам."
+                "Автопродвижение включено — после перезапуска шага пайплайн продолжит сам."
                 if project.auto_mode
                 else "Запустите шаг вручную или включите автопродвижение."
             )
@@ -3931,9 +3778,7 @@ async def on_project_pause(cb: CallbackQuery) -> None:
     pid = int((cb.data or "").split(":")[1])
     prev_value: str | None = None
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -3951,9 +3796,7 @@ async def on_project_pause(cb: CallbackQuery) -> None:
     await cb.answer(f"🛑 Проект #{pid} на паузе")
     try:
         if cb.message:
-            await cb.message.edit_reply_markup(
-                reply_markup=project_menu_kb(refreshed)
-            )
+            await cb.message.edit_reply_markup(reply_markup=project_menu_kb(refreshed))
     except Exception:  # noqa: BLE001
         pass
 
@@ -3969,9 +3812,7 @@ async def on_project_resume(cb: CallbackQuery) -> None:
     pid = int((cb.data or "").split(":")[1])
     target_value: str = "new"
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -3982,9 +3823,7 @@ async def on_project_resume(cb: CallbackQuery) -> None:
         from_status = meta.pop("paused_from_status", None)
         project.meta = meta
         try:
-            project.status = (
-                ProjectStatus(from_status) if from_status else ProjectStatus.new
-            )
+            project.status = ProjectStatus(from_status) if from_status else ProjectStatus.new
             target_value = project.status.value
         except Exception:  # noqa: BLE001
             project.status = ProjectStatus.new
@@ -3995,9 +3834,7 @@ async def on_project_resume(cb: CallbackQuery) -> None:
     await cb.answer(f"▶ Проект #{pid}: {target_value}")
     try:
         if cb.message:
-            await cb.message.edit_reply_markup(
-                reply_markup=project_menu_kb(refreshed)
-            )
+            await cb.message.edit_reply_markup(reply_markup=project_menu_kb(refreshed))
     except Exception:  # noqa: BLE001
         pass
 
@@ -4033,11 +3870,12 @@ async def on_mass_global_pause(cb: CallbackQuery) -> None:
             logger.exception("pause_all_running_batches failed: {}", e)
     logger.info(
         "MASS PAUSE: enabled by user; batches={} rolled_back={} auto_off={}",
-        stats["batches"], stats["rolled_back"], stats["auto_mode_off"],
+        stats["batches"],
+        stats["rolled_back"],
+        stats["auto_mode_off"],
     )
     await cb.answer(
-        f"⏸ Массовая на паузе. Батчей: {stats['batches']}, откатил "
-        f"{stats['rolled_back']} running-шаг(ов).",
+        f"⏸ Массовая на паузе. Батчей: {stats['batches']}, откатил {stats['rolled_back']} running-шаг(ов).",
         show_alert=True,
     )
     try:
@@ -4066,7 +3904,8 @@ async def on_mass_global_resume(cb: CallbackQuery) -> None:
             logger.exception("resume_all_paused_batches failed: {}", e)
     logger.info(
         "MASS RESUME: enabled by user; batches={} auto_on={}",
-        stats["batches"], stats["auto_mode_on"],
+        stats["batches"],
+        stats["auto_mode_on"],
     )
     await cb.answer(
         f"▶ Массовая возобновлена. Батчей: {stats['batches']}, "
@@ -4102,10 +3941,8 @@ async def _render_test_root(message: Message | CallbackQuery) -> None:
 
     async with session_scope() as s:
         rows = (
-            await s.execute(
-                select(TestPromptProject).order_by(TestPromptProject.id.desc())
-            )
-        ).scalars().all()
+            (await s.execute(select(TestPromptProject).order_by(TestPromptProject.id.desc()))).scalars().all()
+        )
     kb = test_root_kb(rows)
     text = (
         "🧪 <b>Тестирование визуальных промтов</b>\n\n"
@@ -4119,18 +3956,12 @@ async def _render_test_root(message: Message | CallbackQuery) -> None:
         await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
-async def _render_test_project(
-    target: Message | CallbackQuery, project_id: int
-) -> None:
+async def _render_test_project(target: Message | CallbackQuery, project_id: int) -> None:
     from app.telegram.test_prompt_menu import test_project_kb
 
     async with session_scope() as s:
         p = (
-            await s.execute(
-                select(TestPromptProject).where(
-                    TestPromptProject.id == project_id
-                )
-            )
+            await s.execute(select(TestPromptProject).where(TestPromptProject.id == project_id))
         ).scalar_one_or_none()
     if p is None:
         msg = "Тестовый проект не найден."
@@ -4172,9 +4003,7 @@ async def on_test_new(cb: CallbackQuery) -> None:
         return
     await cb.answer()
     _pending_test_name[cb.from_user.id] = True
-    await cb.message.answer(
-        "Напиши название тестового проекта одним сообщением."
-    )
+    await cb.message.answer("Напиши название тестового проекта одним сообщением.")
 
 
 @dp.callback_query(F.data == "test:noop")
@@ -4262,9 +4091,7 @@ async def on_test_stop(cb: CallbackQuery) -> None:
         task.cancel()
     async with session_scope() as s:
         p = (
-            await s.execute(
-                select(TestPromptProject).where(TestPromptProject.id == tid)
-            )
+            await s.execute(select(TestPromptProject).where(TestPromptProject.id == tid))
         ).scalar_one_or_none()
         if p is not None:
             p.status = "stopped"
@@ -4285,9 +4112,7 @@ async def on_test_delete(cb: CallbackQuery) -> None:
         task.cancel()
     async with session_scope() as s:
         p = (
-            await s.execute(
-                select(TestPromptProject).where(TestPromptProject.id == tid)
-            )
+            await s.execute(select(TestPromptProject).where(TestPromptProject.id == tid))
         ).scalar_one_or_none()
         if p is not None:
             await s.delete(p)
@@ -4296,9 +4121,7 @@ async def on_test_delete(cb: CallbackQuery) -> None:
     await _render_test_root(cb)
 
 
-async def _kick_test_iteration(
-    bot_obj: Bot, user_id: int, tid: int, *, critique: str | None
-) -> None:
+async def _kick_test_iteration(bot_obj: Bot, user_id: int, tid: int, *, critique: str | None) -> None:
     """Запускает фоновую задачу test_prompt.run_iteration и регистрирует
     её в _test_running_tasks. Юзер получает результат и кнопки.
     """
@@ -4309,8 +4132,7 @@ async def _kick_test_iteration(
     if existing is not None and not existing.done():
         await bot_obj.send_message(
             user_id,
-            "⏳ Для этого проекта уже запущена итерация. "
-            "Дождись завершения или нажми 🛑 Стоп.",
+            "⏳ Для этого проекта уже запущена итерация. Дождись завершения или нажми 🛑 Стоп.",
         )
         return
 
@@ -4330,18 +4152,15 @@ async def _kick_test_iteration(
         try:
             async with session_scope() as s:
                 p = (
-                    await s.execute(
-                        select(TestPromptProject).where(
-                            TestPromptProject.id == tid
-                        )
-                    )
+                    await s.execute(select(TestPromptProject).where(TestPromptProject.id == tid))
                 ).scalar_one_or_none()
                 if p is None:
                     await bot_obj.send_message(user_id, "Проект не найден.")
                     return
                 # Запускаем итерацию (внутри коммитит и обновляет p).
                 txt_path, img_path = await tp.run_iteration(
-                    s, p,
+                    s,
+                    p,
                     critique=critique,
                     bot=bot_obj,
                     chat_id=user_id,
@@ -4358,20 +4177,14 @@ async def _kick_test_iteration(
                 await bot_obj.send_photo(
                     user_id,
                     photo,
-                    caption=(
-                        f"🧪 #{proj_id} «{proj_name}» — "
-                        f"итерация {iter_n}"
-                    ),
+                    caption=(f"🧪 #{proj_id} «{proj_name}» — итерация {iter_n}"),
                 )
                 await bot_obj.send_document(user_id, doc)
             except Exception as e:  # noqa: BLE001
-                logger.exception(
-                    "test_prompt: send result failed: {}", e
-                )
+                logger.exception("test_prompt: send result failed: {}", e)
                 await bot_obj.send_message(
                     user_id,
-                    f"❌ Не удалось отправить результат итерации "
-                    f"{iter_n}: {e}",
+                    f"❌ Не удалось отправить результат итерации {iter_n}: {e}",
                 )
             # Перерисуем меню — там теперь кнопка «✏ Добавить критику».
             await _render_test_project_to_user(bot_obj, user_id, tid)
@@ -4379,15 +4192,9 @@ async def _kick_test_iteration(
             logger.info("test_prompt #{}: cancelled by user", tid)
             async with session_scope() as s:
                 p = (
-                    await s.execute(
-                        select(TestPromptProject).where(
-                            TestPromptProject.id == tid
-                        )
-                    )
+                    await s.execute(select(TestPromptProject).where(TestPromptProject.id == tid))
                 ).scalar_one_or_none()
-                if p is not None and p.status in (
-                    "running_gpt", "running_outsee"
-                ):
+                if p is not None and p.status in ("running_gpt", "running_outsee"):
                     p.status = "stopped"
                     await s.flush()
             raise
@@ -4395,11 +4202,7 @@ async def _kick_test_iteration(
             logger.exception("test_prompt #{}: iteration failed: {}", tid, e)
             async with session_scope() as s:
                 p = (
-                    await s.execute(
-                        select(TestPromptProject).where(
-                            TestPromptProject.id == tid
-                        )
-                    )
+                    await s.execute(select(TestPromptProject).where(TestPromptProject.id == tid))
                 ).scalar_one_or_none()
                 if p is not None:
                     p.status = "error"
@@ -4420,17 +4223,13 @@ async def _kick_test_iteration(
     _test_running_tasks[tid] = task
 
 
-async def _render_test_project_to_user(
-    bot_obj: Bot, user_id: int, tid: int
-) -> None:
+async def _render_test_project_to_user(bot_obj: Bot, user_id: int, tid: int) -> None:
     """Шлёт меню тестового проекта в ЛС юзеру (без callback'а)."""
     from app.telegram.test_prompt_menu import test_project_kb
 
     async with session_scope() as s:
         p = (
-            await s.execute(
-                select(TestPromptProject).where(TestPromptProject.id == tid)
-            )
+            await s.execute(select(TestPromptProject).where(TestPromptProject.id == tid))
         ).scalar_one_or_none()
     if p is None:
         return
@@ -4441,7 +4240,10 @@ async def _render_test_project_to_user(
     )
     with contextlib.suppress(Exception):
         await bot_obj.send_message(
-            user_id, text, parse_mode="HTML", reply_markup=kb,
+            user_id,
+            text,
+            parse_mode="HTML",
+            reply_markup=kb,
         )
 
 
@@ -4455,9 +4257,7 @@ async def on_project_reload_xlsx(cb: CallbackQuery) -> None:
     from app.services.xlsx_v8_import import import_v8_xlsx
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -4472,8 +4272,11 @@ async def on_project_reload_xlsx(cb: CallbackQuery) -> None:
         summary_v7: dict = {}
         try:
             summary_v8 = await import_v8_xlsx(
-                s, project, xlsx_path,
-                keep_fields=False, update_frames_voiceover=True,
+                s,
+                project,
+                xlsx_path,
+                keep_fields=False,
+                update_frames_voiceover=True,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("reload_xlsx v8 import failed: {}", e)
@@ -4514,6 +4317,7 @@ async def on_project_reload_xlsx(cb: CallbackQuery) -> None:
 # ---------------------------------------------------------------------------
 # Подменю шага 4 «Объекты» — Персонажи / Предметы / + слот к Доп работа.
 
+
 @dp.callback_query(F.data.regexp(r"^proj:\d+:objects:persons$"))
 async def on_objects_persons(cb: CallbackQuery) -> None:
     """Клик «Персонажи» в submenu «Объекты» — перенаправляем на старую
@@ -4543,9 +4347,7 @@ async def on_objects_persons_xlsx(cb: CallbackQuery) -> None:
     from app.services.excel_characters import parse_persons_sheet
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -4580,9 +4382,7 @@ async def on_objects_persons_xlsx(cb: CallbackQuery) -> None:
 
     # Сохраняем заготовку в project.meta — promt_name пока None.
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -4594,8 +4394,7 @@ async def on_objects_persons_xlsx(cb: CallbackQuery) -> None:
         flag_modified(project, "meta")
         await s.flush()
     summary = "\n".join(
-        f"• <b>{c.id}</b>: {c.name or '—'}"
-        + (f" → реф {', '.join(c.ref_ids)}" if c.ref_ids else "")
+        f"• <b>{c.id}</b>: {c.name or '—'}" + (f" → реф {', '.join(c.ref_ids)}" if c.ref_ids else "")
         for c in chars
     )
     await cb.answer(f"Нашёл {len(chars)} персонажей")
@@ -4611,16 +4410,12 @@ async def on_objects_persons_xlsx(cb: CallbackQuery) -> None:
     await _excel_hero_show_next_picker(cb.message, pid)
 
 
-async def _excel_hero_show_next_picker(
-    msg: Message, project_id: int
-) -> None:
+async def _excel_hero_show_next_picker(msg: Message, project_id: int) -> None:
     """Шлёт picker для первого ещё не выбранного персонажа.
     Если все выбрали — стартует генерацию (status=generating_hero)."""
     logger.info("excel-hero: show_next_picker pid={}", project_id)
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == project_id))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
         if project is None:
             await msg.answer("Проект не найден")
             return
@@ -4634,7 +4429,8 @@ async def _excel_hero_show_next_picker(
                 break
         logger.info(
             "excel-hero: next_id={!r} total_chars={}",
-            next_id, len(chars),
+            next_id,
+            len(chars),
         )
         if next_id is None:
             # Все выбрали — стартуем.
@@ -4671,20 +4467,24 @@ def _excel_hero_prompt_kb(pid: int, char_id: str) -> InlineKeyboardMarkup:
         if len(cb_data.encode("utf-8")) > 64:
             # Имя промта слишком длинное — обрезаем.
             cb_data = cb_data.encode("utf-8")[:64].decode("utf-8", errors="ignore")
-        rows.append([
-            InlineKeyboardButton(
-                text=name,
-                callback_data=cb_data,
-            )
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=name,
+                    callback_data=cb_data,
+                )
+            ]
+        )
     if not rows:
         # На случай пустой папки — даём дефолт.
-        rows.append([
-            InlineKeyboardButton(
-                text="default",
-                callback_data=f"excel_prm:{pid}:{cid_safe}:default",
-            )
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="default",
+                    callback_data=f"excel_prm:{pid}:{cid_safe}:default",
+                )
+            ]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -4703,15 +4503,14 @@ async def on_excel_hero_prompt_pick(cb: CallbackQuery) -> None:
             await cb.answer("Битый callback", show_alert=True)
             logger.warning(
                 "excel-hero: битый callback parts={} cb.data={!r}",
-                len(parts), cb.data,
+                len(parts),
+                cb.data,
             )
             return
         _, pid_s, char_id, prompt_name = parts
         pid = int(pid_s)
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
             if project is None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
@@ -4730,15 +4529,14 @@ async def on_excel_hero_prompt_pick(cb: CallbackQuery) -> None:
             flag_modified(project, "meta")
             await s.flush()
             logger.info(
-                "excel-hero: saved prompt char_id={!r} prompt={!r} found={} "
-                "after_save_pmeta={!r}",
-                char_id, prompt_name, found,
-                [(c.get('id'), c.get('prompt_name')) for c in chars],
+                "excel-hero: saved prompt char_id={!r} prompt={!r} found={} after_save_pmeta={!r}",
+                char_id,
+                prompt_name,
+                found,
+                [(c.get("id"), c.get("prompt_name")) for c in chars],
             )
         await cb.answer(f"{char_id} → {prompt_name}")
-        await _hide_buttons_with_badge(
-            cb.message, f"✅ {char_id}: <code>{prompt_name}</code>"
-        )
+        await _hide_buttons_with_badge(cb.message, f"✅ {char_id}: <code>{prompt_name}</code>")
         await _excel_hero_show_next_picker(cb.message, pid)
     except Exception as e:  # noqa: BLE001
         logger.exception("excel-hero: prompt_pick failed")
@@ -4774,6 +4572,7 @@ async def on_objects_items(cb: CallbackQuery) -> None:
 # ---------------------------------------------------------------------------
 # Подменю шага 7 «Картинки» — «Сгенерировать все» / «Добить недостающие».
 
+
 @dp.callback_query(F.data.regexp(r"^proj:\d+:img:gen_all$"))
 async def on_img_gen_all(cb: CallbackQuery) -> None:
     """Клик «▶ Сгенерировать все» в подменю шага 7 — эквивалент
@@ -4786,9 +4585,7 @@ async def on_img_gen_all(cb: CallbackQuery) -> None:
         return
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -4825,9 +4622,7 @@ async def on_img_fill_missing(cb: CallbackQuery) -> None:
     from app.services.finish_missing import trigger_finish_missing_images
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -4890,9 +4685,7 @@ async def on_enrich_add_slot(cb: CallbackQuery) -> None:
     from app.telegram.menu import MAX_ENRICH_SLOTS, enrich_submenu_kb
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
@@ -4946,16 +4739,13 @@ async def on_enrich_run_all(cb: CallbackQuery) -> None:
     )
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Проект не найден", show_alert=True)
             return
         if is_running_status(project.status):
             await cb.answer(
-                f"Сейчас выполняется шаг (статус: {project.status.value}). "
-                "Сначала останови его кнопкой ⏹.",
+                f"Сейчас выполняется шаг (статус: {project.status.value}). Сначала останови его кнопкой ⏹.",
                 show_alert=True,
             )
             return
@@ -4980,7 +4770,10 @@ async def on_enrich_run_all(cb: CallbackQuery) -> None:
 
     logger.info(
         "[#{}] enrich_run_all: chain enriching_1..{} (slug={}, topic={!r})",
-        pid, n_slots, slug, topic,
+        pid,
+        n_slots,
+        slug,
+        topic,
     )
     await cb.answer(f"Стартую слот #1 → #{n_slots}")
     await cb.message.answer(
@@ -5007,16 +4800,13 @@ async def on_project_delete(cb: CallbackQuery) -> None:
                     text="❌ Удалить безвозвратно",
                     callback_data=f"proj:{pid}:delete_yes",
                 ),
-                InlineKeyboardButton(
-                    text="↩ Отмена", callback_data=f"proj:{pid}:menu"
-                ),
+                InlineKeyboardButton(text="↩ Отмена", callback_data=f"proj:{pid}:menu"),
             ]
         ]
     )
     await cb.answer()
     await cb.message.answer(
-        f"⚠️ Удалить проект #{pid}? "
-        "Удалятся все записи из БД. xlsx и файлы на диске останутся.",
+        f"⚠️ Удалить проект #{pid}? Удалятся все записи из БД. xlsx и файлы на диске останутся.",
         reply_markup=kb,
     )
 
@@ -5028,9 +4818,7 @@ async def on_project_delete_yes(cb: CallbackQuery) -> None:
         return
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await cb.answer("Уже удалён", show_alert=True)
             return
@@ -5042,15 +4830,16 @@ async def on_project_delete_yes(cb: CallbackQuery) -> None:
 # ---------------------------------------------------------------------------
 # Создание проекта: пользователь прислал тему текстом
 
+
 @dp.message(F.text & ~F.text.startswith("/"))
 async def on_text_message(msg: Message) -> None:
     """Обрабатывает текстовый ввод. Используется для:
-      0) кнопки постоянной reply-клавиатуры (Главное меню / Последний
-         проект / Назад) — ловятся по точному тексту до любых других
-         pending-стейтов, иначе нажатие могло бы попасть в «тему
-         проекта» или «имя промта».
-      1) ввод темы нового проекта (после клика на «📁 Новый проект»)
-      2) ответ на сообщение-запрос нового промта (HITL edit)
+    0) кнопки постоянной reply-клавиатуры (Главное меню / Последний
+       проект / Назад) — ловятся по точному тексту до любых других
+       pending-стейтов, иначе нажатие могло бы попасть в «тему
+       проекта» или «имя промта».
+    1) ввод темы нового проекта (после клика на «📁 Новый проект»)
+    2) ответ на сообщение-запрос нового промта (HITL edit)
     """
     if not is_owner(msg):
         return
@@ -5081,19 +4870,15 @@ async def on_text_message(msg: Message) -> None:
             pid = await _last_project_id_fallback()
         if pid is None:
             await msg.answer(
-                "Пока нет ни одного проекта. Жми «🏠 Главное меню» → "
-                "«📁 Новый проект».",
+                "Пока нет ни одного проекта. Жми «🏠 Главное меню» → «📁 Новый проект».",
                 reply_markup=persistent_reply_kb(),
             )
             return
         async with session_scope() as s:
-            project = (
-                await s.execute(select(Project).where(Project.id == pid))
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await msg.answer(
-                f"Проект #{pid} больше не существует. Жми «🏠 Главное "
-                "меню».",
+                f"Проект #{pid} больше не существует. Жми «🏠 Главное меню».",
                 reply_markup=persistent_reply_kb(),
             )
             return
@@ -5135,21 +4920,18 @@ async def on_text_message(msg: Message) -> None:
         # чтобы повторный клик «⬅ Назад» вёл ещё на уровень выше.
         if st == "picker" and scr_pid is not None:
             # Picker — определяем parent по step_code.
-            parent_is_enrich = (
-                extra is not None and _is_enrich_slot(extra)
-            )
+            parent_is_enrich = extra is not None and _is_enrich_slot(extra)
             if parent_is_enrich:
                 async with session_scope() as s:
                     project = (
-                        await s.execute(
-                            select(Project).where(Project.id == scr_pid)
-                        )
+                        await s.execute(select(Project).where(Project.id == scr_pid))
                     ).scalar_one_or_none()
                 if project is not None:
                     from app.telegram.menu import (
                         enabled_enrich_slots,
                         enrich_submenu_kb,
                     )
+
                     _set_user_screen(user_id, "enrich_submenu", scr_pid)
                     _remember_project(user_id, scr_pid)
                     n_slots = enabled_enrich_slots(project)
@@ -5163,11 +4945,7 @@ async def on_text_message(msg: Message) -> None:
                     return
             # Не-enrich picker → в меню проекта.
             async with session_scope() as s:
-                project = (
-                    await s.execute(
-                        select(Project).where(Project.id == scr_pid)
-                    )
-                ).scalar_one_or_none()
+                project = (await s.execute(select(Project).where(Project.id == scr_pid))).scalar_one_or_none()
             if project is not None:
                 _set_user_screen(user_id, "project_menu", scr_pid)
                 _remember_project(user_id, scr_pid)
@@ -5180,11 +4958,7 @@ async def on_text_message(msg: Message) -> None:
 
         if st in ("enrich_submenu", "step_submenu") and scr_pid is not None:
             async with session_scope() as s:
-                project = (
-                    await s.execute(
-                        select(Project).where(Project.id == scr_pid)
-                    )
-                ).scalar_one_or_none()
+                project = (await s.execute(select(Project).where(Project.id == scr_pid))).scalar_one_or_none()
             if project is not None:
                 _set_user_screen(user_id, "project_menu", scr_pid)
                 _remember_project(user_id, scr_pid)
@@ -5221,11 +4995,7 @@ async def on_text_message(msg: Message) -> None:
             # Объекты» снова поднимет hero-flow с нужного места).
             _clear_pending_state(user_id)
             async with session_scope() as s:
-                project = (
-                    await s.execute(
-                        select(Project).where(Project.id == scr_pid)
-                    )
-                ).scalar_one_or_none()
+                project = (await s.execute(select(Project).where(Project.id == scr_pid))).scalar_one_or_none()
             if project is not None:
                 _set_user_screen(user_id, "project_menu", scr_pid)
                 _remember_project(user_id, scr_pid)
@@ -5282,11 +5052,8 @@ async def on_text_message(msg: Message) -> None:
             await msg.answer("Пустое название — пришли ещё раз.")
             return
         async with session_scope() as s:
-            await batches_svc.set_permanent_product_field(
-                s, mass_pn_bid, name=new_name
-            )
-        await msg.answer(f"✏ Название продукта: <b>{_html_escape(new_name)}</b>",
-                         parse_mode="HTML")
+            await batches_svc.set_permanent_product_field(s, mass_pn_bid, name=new_name)
+        await msg.answer(f"✏ Название продукта: <b>{_html_escape(new_name)}</b>", parse_mode="HTML")
         await _show_mass_product(msg, mass_pn_bid)
         return
 
@@ -5299,9 +5066,7 @@ async def on_text_message(msg: Message) -> None:
             await msg.answer("Пустое описание — пришли ещё раз.")
             return
         async with session_scope() as s:
-            await batches_svc.set_permanent_product_field(
-                s, mass_pd_bid, description=new_desc
-            )
+            await batches_svc.set_permanent_product_field(s, mass_pd_bid, description=new_desc)
         await msg.answer("📝 Описание продукта сохранено.")
         await _show_mass_product(msg, mass_pd_bid)
         return
@@ -5341,11 +5106,7 @@ async def on_text_message(msg: Message) -> None:
             return
         async with session_scope() as s:
             p = (
-                await s.execute(
-                    select(TestPromptProject).where(
-                        TestPromptProject.id == test_visual_tid
-                    )
-                )
+                await s.execute(select(TestPromptProject).where(TestPromptProject.id == test_visual_tid))
             ).scalar_one_or_none()
             if p is None:
                 await msg.answer("Тестовый проект не найден.")
@@ -5366,11 +5127,7 @@ async def on_text_message(msg: Message) -> None:
             return
         async with session_scope() as s:
             p = (
-                await s.execute(
-                    select(TestPromptProject).where(
-                        TestPromptProject.id == test_system_tid
-                    )
-                )
+                await s.execute(select(TestPromptProject).where(TestPromptProject.id == test_system_tid))
             ).scalar_one_or_none()
             if p is None:
                 await msg.answer("Тестовый проект не найден.")
@@ -5389,12 +5146,8 @@ async def on_text_message(msg: Message) -> None:
         if not critique:
             await msg.answer("Пустая критика — пришли ещё раз.")
             return
-        await msg.answer(
-            f"✏ Критика принята, запускаю следующую итерацию #{test_critique_tid}…"
-        )
-        await _kick_test_iteration(
-            user_id, test_critique_tid, critique=critique
-        )
+        await msg.answer(f"✏ Критика принята, запускаю следующую итерацию #{test_critique_tid}…")
+        await _kick_test_iteration(user_id, test_critique_tid, critique=critique)
         return
 
     # 2) Если ждём описание героя N для конкретного проекта
@@ -5419,16 +5172,12 @@ async def on_text_message(msg: Message) -> None:
         _pending_plan_topic.pop(user_id, None)
         topic = (msg.text or "").strip()
         if not topic:
-            await msg.answer(
-                "Пустая тема. Нажми «1. План» в меню проекта ещё раз."
-            )
+            await msg.answer("Пустая тема. Нажми «1. План» в меню проекта ещё раз.")
             return
         # Сохраняем тему в project.topic в БД.
         async with session_scope() as s:
             project = (
-                await s.execute(
-                    select(Project).where(Project.id == pending_plan_pid)
-                )
+                await s.execute(select(Project).where(Project.id == pending_plan_pid))
             ).scalar_one_or_none()
             if project is None:
                 await msg.answer("Проект не найден.")
@@ -5446,15 +5195,14 @@ async def on_text_message(msg: Message) -> None:
             logger.warning("write_general(topic) failed: {}", e)
         chosen = overrides.get("plan")
         show_run = bool(
-            chosen
-            and plib.is_valid_prompt_name(chosen)
-            and plib.prompt_path("plan", chosen).exists()
+            chosen and plib.is_valid_prompt_name(chosen) and plib.prompt_path("plan", chosen).exists()
         )
         await msg.answer(
-            f"Тема сохранена: <b>{topic}</b>\n\n"
-            + _prompt_picker_text("plan", overrides),
+            f"Тема сохранена: <b>{topic}</b>\n\n" + _prompt_picker_text("plan", overrides),
             reply_markup=_prompt_picker_kb(
-                pending_plan_pid, "plan", overrides,
+                pending_plan_pid,
+                "plan",
+                overrides,
                 has_msg_override=has_msg_override,
                 show_run_button=show_run,
                 show_topic_button=True,
@@ -5468,9 +5216,7 @@ async def on_text_message(msg: Message) -> None:
     if pending_vo_pid is not None:
         _pending_voiceover_replace.pop(user_id, None)
         if not text:
-            await msg.answer(
-                "Пустой текст. Нажми «✏️ Заменить voiceover.txt» ещё раз."
-            )
+            await msg.answer("Пустой текст. Нажми «✏️ Заменить voiceover.txt» ещё раз.")
             return
         await _replace_voiceover(pending_vo_pid, text, msg)
         return
@@ -5495,16 +5241,16 @@ async def on_text_message(msg: Message) -> None:
         # Принимаем только если текст «отмена» либо длинный — иначе любая
         # короткая фраза могла бы случайно сработать как override.
         ed_user = _pending_gpt_text_edit_by_user.get(user_id)
-        if ed_user is not None and (
-            text.lower() == "отмена" or len(text) >= 80
-        ):
+        if ed_user is not None and (text.lower() == "отмена" or len(text) >= 80):
             ed_pid_step = ed_user
     if ed_pid_step is not None:
         pid_e, step_e = ed_pid_step
         logger.info(
-            "on_text_message: gpt-text-edit reply detected user={} pid={} "
-            "step={} len={}",
-            user_id, pid_e, step_e, len(text),
+            "on_text_message: gpt-text-edit reply detected user={} pid={} step={} len={}",
+            user_id,
+            pid_e,
+            step_e,
+            len(text),
         )
         await _on_gpt_text_edit_reply(msg, pid_e, step_e, from_text=text)
         return
@@ -5518,18 +5264,9 @@ def _hero_count_kb(pid: int) -> InlineKeyboardMarkup:
     """Клавиатура 0-9: сколько героев сгенерировать.
     Ноль — отдельным рядом (визуально подчёркиваем «пропустить»)."""
     rows = [
-        [InlineKeyboardButton(text="0 · без героев (пропустить шаг)",
-                              callback_data=f"hero_cnt:{pid}:0")],
-        [
-            InlineKeyboardButton(text=str(n),
-                                 callback_data=f"hero_cnt:{pid}:{n}")
-            for n in (1, 2, 3, 4, 5)
-        ],
-        [
-            InlineKeyboardButton(text=str(n),
-                                 callback_data=f"hero_cnt:{pid}:{n}")
-            for n in (6, 7, 8, 9)
-        ],
+        [InlineKeyboardButton(text="0 · без героев (пропустить шаг)", callback_data=f"hero_cnt:{pid}:0")],
+        [InlineKeyboardButton(text=str(n), callback_data=f"hero_cnt:{pid}:{n}") for n in (1, 2, 3, 4, 5)],
+        [InlineKeyboardButton(text=str(n), callback_data=f"hero_cnt:{pid}:{n}") for n in (6, 7, 8, 9)],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -5549,51 +5286,67 @@ def _hero_brief_question_text(idx: int, total: int) -> str:
 
 def _hero_variation_kb(pid: int, hero_idx: int) -> InlineKeyboardMarkup:
     """Клавиатура 1..5: кол-во вариаций для героя hero_idx."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text=str(n),
-                callback_data=f"hero_var:{pid}:{hero_idx}:{n}",
-            )
-            for n in (1, 2, 3, 4, 5)
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=str(n),
+                    callback_data=f"hero_var:{pid}:{hero_idx}:{n}",
+                )
+                for n in (1, 2, 3, 4, 5)
+            ]
         ]
-    ])
+    )
 
 
 def _hero_reset_menu_kb(pid: int) -> InlineKeyboardMarkup:
     """Подменю «4. Hero», когда параметры уже заданы:
     можно либо продолжить (запустить генерацию / достать недостающее),
     либо сбросить параметры и задать всё заново."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="▶ Продолжить",
-            callback_data=f"hero_menu:{pid}:continue",
-        )],
-        [InlineKeyboardButton(
-            text="✏ Изменить только описания и вариации",
-            callback_data=f"hero_menu:{pid}:reset_briefs",
-        )],
-        [InlineKeyboardButton(
-            text="🎨 Сменить стиль (всё с начала)",
-            callback_data=f"hero_menu:{pid}:reset_all",
-        )],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="▶ Продолжить",
+                    callback_data=f"hero_menu:{pid}:continue",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✏ Изменить только описания и вариации",
+                    callback_data=f"hero_menu:{pid}:reset_briefs",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎨 Сменить стиль (всё с начала)",
+                    callback_data=f"hero_menu:{pid}:reset_all",
+                )
+            ],
+        ]
+    )
 
 
 def _hero_run_kb(pid: int) -> InlineKeyboardMarkup:
     """Финальная кнопка «▶ Запустить генерацию Hero» — показывается когда
     все описания+вариации+модификаторы собраны. Без этой кнопки шаг 4a
     (Hero) не запускается автоматом — пользователь явно подтверждает."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="▶ Запустить генерацию Hero",
-            callback_data=f"hero_run:{pid}",
-        )],
-        [InlineKeyboardButton(
-            text="⬅ Меню проекта",
-            callback_data=f"proj:{pid}:menu",
-        )],
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="▶ Запустить генерацию Hero",
+                    callback_data=f"hero_run:{pid}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅ Меню проекта",
+                    callback_data=f"proj:{pid}:menu",
+                )
+            ],
+        ]
+    )
 
 
 def _step_run_kb(
@@ -5610,24 +5363,30 @@ def _step_run_kb(
     + downstream, вернёт project.status на «готов к этому шагу».
     """
     rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(
-            text=f"▶ Запустить шаг: {step_title}",
-            callback_data=f"step_run:{pid}:{step_code}",
-        )],
+        [
+            InlineKeyboardButton(
+                text=f"▶ Запустить шаг: {step_title}",
+                callback_data=f"step_run:{pid}:{step_code}",
+            )
+        ],
     ]
     if reset_step_svc.is_reset_supported(step_code):
-        rows.append([
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔁 Прогнать шаг с нуля",
+                    callback_data=f"reset_ask:{pid}:{step_code}",
+                ),
+            ]
+        )
+    rows.append(
+        [
             InlineKeyboardButton(
-                text="🔁 Прогнать шаг с нуля",
-                callback_data=f"reset_ask:{pid}:{step_code}",
+                text="⬅ Меню проекта",
+                callback_data=f"proj:{pid}:menu",
             ),
-        ])
-    rows.append([
-        InlineKeyboardButton(
-            text="⬅ Меню проекта",
-            callback_data=f"proj:{pid}:menu",
-        ),
-    ])
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -5643,9 +5402,7 @@ def _hero_reset_menu_text(project: Project) -> str:
         v = variations[i - 1] if i - 1 < len(variations) else None
         d_short = (d[:50] + "…") if d and len(d) > 50 else (d or "—")
         v_str = str(v) if v else "—"
-        desc_lines.append(
-            f"  • Герой {i}: «{d_short}», вариаций: <code>{v_str}</code>"
-        )
+        desc_lines.append(f"  • Герой {i}: «{d_short}», вариаций: <code>{v_str}</code>")
     body = (
         "<b>Шаг 4 (Hero) — что делаем?</b>\n\n"
         f"Стиль: <code>{style}</code>\n"
@@ -5675,9 +5432,7 @@ def _hero_variation_question_text(idx: int, total: int) -> str:
     )
 
 
-async def _save_hero_brief_and_run(
-    msg: Message, project_id: int, hero_idx: int
-) -> None:
+async def _save_hero_brief_and_run(msg: Message, project_id: int, hero_idx: int) -> None:
     """Сохраняет описание героя `hero_idx` (1..N) и сразу спрашивает
     кол-во вариаций для него (инлайн-кнопки 1..5).
 
@@ -5687,15 +5442,10 @@ async def _save_hero_brief_and_run(
     """
     text = (msg.text or "").strip()
     if len(text) < 5:
-        await msg.answer(
-            "Слишком короткое описание. Тыкни «4. Hero» в меню заново и "
-            "напиши подробнее."
-        )
+        await msg.answer("Слишком короткое описание. Тыкни «4. Hero» в меню заново и напиши подробнее.")
         return
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == project_id))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
         if project is None:
             await msg.answer(f"Проект #{project_id} не найден")
             return
@@ -5739,20 +5489,19 @@ async def _save_hero_var_modifier_and_continue(
     text = (msg.text or "").strip()
     if len(text) < 3:
         await msg.answer(
-            "Слишком коротко. Опиши отличия чуть подробнее (хотя бы 3 "
-            "символа) — отправь сообщение ещё раз."
+            "Слишком коротко. Опиши отличия чуть подробнее (хотя бы 3 символа) — отправь сообщение ещё раз."
         )
         # Возвращаем pending, чтобы перехватить следующее сообщение.
         user_id = msg.from_user.id if msg.from_user else 0
         if user_id:
             _pending_hero_var_modifier[user_id] = (
-                project_id, hero_idx, var_idx,
+                project_id,
+                hero_idx,
+                var_idx,
             )
         return
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == project_id))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
         if project is None:
             await msg.answer(f"Проект #{project_id} не найден")
             return
@@ -5760,10 +5509,7 @@ async def _save_hero_var_modifier_and_continue(
         variations = list(project.hero_variations or [])
         idx0 = hero_idx - 1
         # Кол-во вариаций героя.
-        count = (
-            int(variations[idx0]) if idx0 < len(variations) and variations[idx0]
-            else 1
-        )
+        count = int(variations[idx0]) if idx0 < len(variations) and variations[idx0] else 1
         modifiers_all = list(project.hero_variation_modifiers or [])
         while len(modifiers_all) <= idx0:
             modifiers_all.append([])
@@ -5776,16 +5522,15 @@ async def _save_hero_var_modifier_and_continue(
         modifiers_all[idx0] = cur
         project.hero_variation_modifiers = modifiers_all
     user_id = msg.from_user.id if msg.from_user else 0
-    await msg.answer(
-        f"Сохранено: герой {hero_idx}/{n_total}, отличия вариации "
-        f"{var_idx}/{count}."
-    )
+    await msg.answer(f"Сохранено: герой {hero_idx}/{n_total}, отличия вариации {var_idx}/{count}.")
     # Если у этого героя есть ещё вариации — спрашиваем следующую.
     next_var = var_idx + 1
     if next_var <= count:
         if user_id:
             _pending_hero_var_modifier[user_id] = (
-                project_id, hero_idx, next_var,
+                project_id,
+                hero_idx,
+                next_var,
             )
         await msg.answer(
             _hero_var_modifier_question_text(hero_idx, n_total, next_var, count),
@@ -5796,9 +5541,7 @@ async def _save_hero_var_modifier_and_continue(
     await _continue_hero_flow_after_step(msg, user_id, project_id, hero_idx, n_total)
 
 
-async def _run_plan_xlsx(
-    msg: Message, project_id: int, prompt_name: str, topic: str
-) -> None:
+async def _run_plan_xlsx(msg: Message, project_id: int, prompt_name: str, topic: str) -> None:
     """Запускает xlsx-flow для шага «План»:
 
     1) Бэкапим текущий project.xlsx в old/<timestamp>.xlsx.
@@ -5813,16 +5556,8 @@ async def _run_plan_xlsx(
     from datetime import datetime
     from pathlib import Path as _Path
 
-    from app.services.xlsx_versioning import (
-        backup_to_old,
-        replace_with,
-        validate_xlsx,
-    )
-
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == project_id))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
         if project is None:
             await msg.answer(f"Проект #{project_id} не найден")
             return
@@ -5846,6 +5581,7 @@ async def _run_plan_xlsx(
     # Мастер-промт → .md файл, сопр. сообщение → текст в чат.
     # Аналогично step 2 и step 5: промт уходит файлом, не текстом.
     from app.services.prompt_library import get_project_prompt
+
     try:
         master = get_project_prompt(project, "plan")
     except FileNotFoundError:
@@ -5867,18 +5603,20 @@ async def _run_plan_xlsx(
 
     # Сопр. сообщение — короткий текст в чат (без дублирования мастер-промта).
     accompanying = gtb.get_effective_text(
-        project, "plan", topic=topic, prompt_file_name=prompt_file.name,
+        project,
+        "plan",
+        topic=topic,
+        prompt_file_name=prompt_file.name,
     )
     text_was_overridden = gtb.has_override(project, "plan")
 
-    override_note = (
-        "\n<i>✏️ Сопр. сообщение: отредактировано пользователем</i>"
-        if text_was_overridden else ""
-    )
+    override_note = "\n<i>✏️ Сопр. сообщение: отредактировано пользователем</i>" if text_was_overridden else ""
     logger.info(
         "plan_xlsx: prompt_file={}, size={}, accompanying_len={}, xlsx={}",
-        prompt_file, prompt_file.stat().st_size,
-        len(accompanying), proj_xlsx,
+        prompt_file,
+        prompt_file.stat().st_size,
+        len(accompanying),
+        proj_xlsx,
     )
     await msg.answer(
         f"▶ <b>План</b> (xlsx-flow)\n"
@@ -5906,11 +5644,7 @@ async def _run_plan_xlsx(
         )
 
         async with session_scope() as s:
-            project = (
-                await s.execute(
-                    select(Project).where(Project.id == project_id)
-                )
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is not None:
                 from app.services import db_apply
 
@@ -5925,16 +5659,11 @@ async def _run_plan_xlsx(
     except Exception as e:  # noqa: BLE001
         logger.exception("plan_db failed: {}", e)
         await msg.answer(
-            f"❌ GPT вернул ошибку: {e}\n"
-            f"База не перезаписана планом — можно попробовать ещё раз."
+            f"❌ GPT вернул ошибку: {e}\nБаза не перезаписана планом — можно попробовать ещё раз."
         )
         return
 
-    backup_note = (
-        f"\nПредыдущая версия: <code>old/{backup.name}</code>"
-        if backup is not None
-        else ""
-    )
+    backup_note = f"\nПредыдущая версия: <code>old/{backup.name}</code>" if backup is not None else ""
     await msg.answer(
         f"✅ План готов (записан в базу, Excel — экспорт).{backup_note}",
         parse_mode="HTML",
@@ -5948,9 +5677,7 @@ async def _run_plan_xlsx(
         logger.warning("plan_xlsx send doc failed: {}", e)
 
 
-async def _run_script_xlsx(
-    msg: Message, project_id: int, prompt_name: str
-) -> None:
+async def _run_script_xlsx(msg: Message, project_id: int, prompt_name: str) -> None:
     """Запускает xlsx-flow для шага 2 «Закадровый текст»:
 
     1) Открываем новый чат ChatGPT, прикрепляем project.xlsx, шлём промт.
@@ -5962,14 +5689,11 @@ async def _run_script_xlsx(
 
     Никаких изменений в orchestrator — этот шаг полностью идёт мимо воркера.
     """
-    import shutil
     from datetime import datetime
     from pathlib import Path as _Path
 
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == project_id))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
         if project is None:
             await msg.answer(f"Проект #{project_id} не найден")
             return
@@ -6002,22 +5726,15 @@ async def _run_script_xlsx(
     # сообщении в чат остаётся короткая инструкция без дублирования данных.
     prompt_file = out_dir / f"prompt_script_{ts}.txt"
     prompt_file.write_text(
-        f"# Инструкция для GPT (шаг 2 «Закадровый текст»)\n"
-        f"# Тема ролика: «{topic}»\n\n"
-        f"{prompt_text}\n",
+        f"# Инструкция для GPT (шаг 2 «Закадровый текст»)\n# Тема ролика: «{topic}»\n\n{prompt_text}\n",
         encoding="utf-8",
     )
 
     # Сопр. сообщение — берём override юзера, либо собираем дефолт.
-    chat_msg = gtb.get_effective_text(
-        project, "script", prompt_file_name=prompt_file.name
-    )
+    chat_msg = gtb.get_effective_text(project, "script", prompt_file_name=prompt_file.name)
     text_was_overridden = gtb.has_override(project, "script")
 
-    override_note = (
-        "\n<i>✏️ Сопр. сообщение: отредактировано пользователем</i>"
-        if text_was_overridden else ""
-    )
+    override_note = "\n<i>✏️ Сопр. сообщение: отредактировано пользователем</i>" if text_was_overridden else ""
     await msg.answer(
         f"▶ <b>Закадровый текст</b> (xlsx-flow)\n"
         f"Проект #{project_id} «{topic}»\n"
@@ -6043,19 +5760,14 @@ async def _run_script_xlsx(
     except Exception as e:  # noqa: BLE001
         logger.exception("script_xlsx failed: {}", e)
         await msg.answer(
-            f"❌ ChatGPT вернул ошибку: {e}\n"
-            f"voiceover.txt не подменён, можно попробовать ещё раз."
+            f"❌ ChatGPT вернул ошибку: {e}\nvoiceover.txt не подменён, можно попробовать ещё раз."
         )
         return
 
     # Обновляем статус проекта + СОХРАНЯЕМ script_text в БД.
     try:
         async with session_scope() as s:
-            project = (
-                await s.execute(
-                    select(Project).where(Project.id == project_id)
-                )
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is not None:
                 if voiceover_text:
                     project.script_text = voiceover_text
@@ -6074,31 +5786,21 @@ async def _run_script_xlsx(
         backups = sorted(old_dir.glob("*_voiceover.txt"), reverse=True)
         backup = backups[0] if backups else None
 
-    backup_note = (
-        f"\nПредыдущая версия: <code>old/{backup.name}</code>"
-        if backup is not None
-        else ""
-    )
+    backup_note = f"\nПредыдущая версия: <code>old/{backup.name}</code>" if backup is not None else ""
     await msg.answer(
-        f"✅ Закадровый текст готов. voiceover.txt сохранён "
-        f"({voiceover.stat().st_size} байт).{backup_note}",
+        f"✅ Закадровый текст готов. voiceover.txt сохранён ({voiceover.stat().st_size} байт).{backup_note}",
         parse_mode="HTML",
     )
     try:
         await msg.answer_document(
             FSInputFile(str(voiceover)),
-            caption=(
-                f"voiceover.txt — закадровый текст "
-                f"(промт «{prompt_name}»)"
-            ),
+            caption=(f"voiceover.txt — закадровый текст (промт «{prompt_name}»)"),
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("script_xlsx send doc failed: {}", e)
 
 
-async def _run_split_xlsx(
-    msg: Message, project_id: int, prompt_name: str
-) -> None:
+async def _run_split_xlsx(msg: Message, project_id: int, prompt_name: str) -> None:
     """Запускает xlsx-flow для шага 3 «Разбивка на блоки»:
 
     1) Открываем новый чат ChatGPT, прикрепляем 3 файла —
@@ -6112,16 +5814,8 @@ async def _run_split_xlsx(
     from datetime import datetime
     from pathlib import Path as _Path
 
-    from app.services.xlsx_versioning import (
-        backup_to_old,
-        replace_with,
-        validate_xlsx,
-    )
-
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == project_id))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
         if project is None:
             await msg.answer(f"Проект #{project_id} не найден")
             return
@@ -6137,8 +5831,7 @@ async def _run_split_xlsx(
     voiceover = proj_xlsx.parent / "voiceover.txt"
     if not voiceover.exists():
         await msg.answer(
-            f"voiceover.txt не найден: <code>{voiceover}</code>\n"
-            "Сначала пройди Шаг 2 «Закадровый текст».",
+            f"voiceover.txt не найден: <code>{voiceover}</code>\nСначала пройди Шаг 2 «Закадровый текст».",
             parse_mode="HTML",
         )
         return
@@ -6162,21 +5855,14 @@ async def _run_split_xlsx(
     # (лист «Общий план» и т.п.), voiceover.txt — то, что режем на блоки.
     prompt_file = out_dir / f"prompt_split_{ts}.txt"
     prompt_file.write_text(
-        f"# Инструкция для GPT (шаг 3 «Разбивка на блоки»)\n"
-        f"# Тема ролика: «{topic}»\n\n"
-        f"{prompt_text}\n",
+        f"# Инструкция для GPT (шаг 3 «Разбивка на блоки»)\n# Тема ролика: «{topic}»\n\n{prompt_text}\n",
         encoding="utf-8",
     )
 
-    chat_msg = gtb.get_effective_text(
-        project, "split", prompt_file_name=prompt_file.name
-    )
+    chat_msg = gtb.get_effective_text(project, "split", prompt_file_name=prompt_file.name)
     text_was_overridden = gtb.has_override(project, "split")
 
-    override_note = (
-        "\n<i>✏️ Сопр. сообщение: отредактировано пользователем</i>"
-        if text_was_overridden else ""
-    )
+    override_note = "\n<i>✏️ Сопр. сообщение: отредактировано пользователем</i>" if text_was_overridden else ""
     await msg.answer(
         f"▶ <b>Разбивка на блоки</b> (xlsx-flow)\n"
         f"Проект #{project_id} «{topic}»\n"
@@ -6201,8 +5887,7 @@ async def _run_split_xlsx(
     except Exception as e:  # noqa: BLE001
         logger.exception("split_xlsx failed: {}", e)
         await msg.answer(
-            f"❌ ChatGPT вернул ошибку: {e}\n"
-            f"project.xlsx не подменён, можно попробовать ещё раз."
+            f"❌ ChatGPT вернул ошибку: {e}\nproject.xlsx не подменён, можно попробовать ещё раз."
         )
         return
 
@@ -6210,22 +5895,14 @@ async def _run_split_xlsx(
         from app.services import xlsx_step_runners as xsr
 
         async with session_scope() as s:
-            project = (
-                await s.execute(
-                    select(Project).where(Project.id == project_id)
-                )
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is not None:
                 await xsr.sync_after_split(s, project, proj_xlsx)
                 project.status = ProjectStatus.frames_ready
     except Exception as e:  # noqa: BLE001
         logger.warning("split_xlsx status update failed: {}", e)
 
-    backup_note = (
-        f"\nПредыдущая версия: <code>old/{backup.name}</code>"
-        if backup is not None
-        else ""
-    )
+    backup_note = f"\nПредыдущая версия: <code>old/{backup.name}</code>" if backup is not None else ""
     await msg.answer(
         f"✅ Разбивка готова. project.xlsx обновлён.{backup_note}",
         parse_mode="HTML",
@@ -6233,18 +5910,13 @@ async def _run_split_xlsx(
     try:
         await msg.answer_document(
             FSInputFile(str(proj_xlsx)),
-            caption=(
-                f"project.xlsx — разбивка на блоки "
-                f"(промт «{prompt_name}»)"
-            ),
+            caption=(f"project.xlsx — разбивка на блоки (промт «{prompt_name}»)"),
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("split_xlsx send doc failed: {}", e)
 
 
-async def _run_img_pr_xlsx(
-    msg: Message, project_id: int, prompt_name: str
-) -> None:
+async def _run_img_pr_xlsx(msg: Message, project_id: int, prompt_name: str) -> None:
     """Запускает xlsx-flow для шага 6 «Промты картинок»:
 
     1) Открываем новый чат ChatGPT, прикрепляем project.xlsx + мастер-промт.
@@ -6258,16 +5930,8 @@ async def _run_img_pr_xlsx(
     from datetime import datetime
     from pathlib import Path as _Path
 
-    from app.services.xlsx_versioning import (
-        backup_to_old,
-        replace_with,
-        validate_xlsx,
-    )
-
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == project_id))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
         if project is None:
             await msg.answer(f"Проект #{project_id} не найден")
             return
@@ -6290,6 +5954,7 @@ async def _run_img_pr_xlsx(
         return
 
     from app.services.prompt_library import get_project_prompt
+
     try:
         master = get_project_prompt(project, "img_pr")
     except FileNotFoundError:
@@ -6310,14 +5975,13 @@ async def _run_img_pr_xlsx(
     accompanying = gtb.get_effective_text(project, "img_pr")
     text_was_overridden = gtb.has_override(project, "img_pr")
 
-    override_note = (
-        "\n<i>✏️ Сопр. сообщение: отредактировано пользователем</i>"
-        if text_was_overridden else ""
-    )
+    override_note = "\n<i>✏️ Сопр. сообщение: отредактировано пользователем</i>" if text_was_overridden else ""
     logger.info(
         "img_pr_xlsx: prompt_file={}, size={}, accompanying_len={}, xlsx={}",
-        prompt_file, prompt_file.stat().st_size,
-        len(accompanying), proj_xlsx,
+        prompt_file,
+        prompt_file.stat().st_size,
+        len(accompanying),
+        proj_xlsx,
     )
     await msg.answer(
         f"▶ <b>Промты картинок</b> (xlsx-flow)\n"
@@ -6344,8 +6008,7 @@ async def _run_img_pr_xlsx(
     except Exception as e:  # noqa: BLE001
         logger.exception("img_pr_xlsx failed: {}", e)
         await msg.answer(
-            f"❌ ChatGPT вернул ошибку: {e}\n"
-            f"project.xlsx не подменён, можно попробовать ещё раз."
+            f"❌ ChatGPT вернул ошибку: {e}\nproject.xlsx не подменён, можно попробовать ещё раз."
         )
         return
 
@@ -6353,22 +6016,14 @@ async def _run_img_pr_xlsx(
         from app.services import xlsx_step_runners as xsr
 
         async with session_scope() as s:
-            project = (
-                await s.execute(
-                    select(Project).where(Project.id == project_id)
-                )
-            ).scalar_one_or_none()
+            project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
             if project is not None:
                 await xsr.sync_after_img_pr(s, project, proj_xlsx)
                 project.status = ProjectStatus.image_prompts_ready
     except Exception as e:  # noqa: BLE001
         logger.warning("img_pr_xlsx status update failed: {}", e)
 
-    backup_note = (
-        f"\nПредыдущая версия: <code>old/{backup.name}</code>"
-        if backup is not None
-        else ""
-    )
+    backup_note = f"\nПредыдущая версия: <code>old/{backup.name}</code>" if backup is not None else ""
     await msg.answer(
         f"✅ Промты картинок готовы. project.xlsx обновлён.{backup_note}",
         parse_mode="HTML",
@@ -6376,10 +6031,7 @@ async def _run_img_pr_xlsx(
     try:
         await msg.answer_document(
             FSInputFile(str(proj_xlsx)),
-            caption=(
-                f"project.xlsx — промты картинок "
-                f"(промт «{prompt_name}»)"
-            ),
+            caption=(f"project.xlsx — промты картинок (промт «{prompt_name}»)"),
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("img_pr_xlsx send doc failed: {}", e)
@@ -6398,23 +6050,16 @@ async def _create_new_project(msg: Message) -> None:
     topic = ""
     hero_mode = "auto"  # сохраняем в DB по умолчанию, больше не спрашиваем.
 
-    slug_base = (
-        re.sub(r"[^a-zа-я0-9]+", "-", name.lower(), flags=re.IGNORECASE).strip("-")[:40]
-        or "rolik"
-    )
+    slug_base = re.sub(r"[^a-zа-я0-9]+", "-", name.lower(), flags=re.IGNORECASE).strip("-")[:40] or "rolik"
     async with session_scope() as s:
         i = 1
         slug = slug_base
-        while (
-            await s.execute(select(Project).where(Project.slug == slug))
-        ).scalar_one_or_none():
+        while (await s.execute(select(Project).where(Project.slug == slug))).scalar_one_or_none():
             i += 1
             slug = f"{slug_base}-{i}"
         # Создаём со статусом `new` — воркер его не трогает, ждёт первого
         # клика «Запустить шаг 1» в меню проекта.
-        project = Project(
-            slug=slug, topic=topic, hero_mode=hero_mode, status=ProjectStatus.new
-        )
+        project = Project(slug=slug, topic=topic, hero_mode=hero_mode, status=ProjectStatus.new)
         s.add(project)
         await s.flush()
         pid = project.id
@@ -6433,9 +6078,7 @@ async def _create_new_project(msg: Message) -> None:
             logger.warning("project_sheet init failed: {}", e)
 
         # Перечитываем проект для рендера меню
-        proj_obj = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        proj_obj = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
     if proj_obj is None:
         await msg.answer("Не удалось создать проект — попробуй ещё раз.")
         return
@@ -6453,6 +6096,7 @@ async def _create_new_project(msg: Message) -> None:
 
 # ---------------------------------------------------------------------------
 # Старый HITL-callback (картинки кадров): hitl:<id>:<action>
+
 
 @dp.callback_query(F.data.startswith("hitl:"))
 async def on_hitl_callback(cb: CallbackQuery) -> None:
@@ -6474,9 +6118,7 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
         from aiogram.types import FSInputFile
 
         async with session_scope() as s:
-            req = (
-                await s.execute(select(HITLRequest).where(HITLRequest.id == hitl_id))
-            ).scalar_one_or_none()
+            req = (await s.execute(select(HITLRequest).where(HITLRequest.id == hitl_id))).scalar_one_or_none()
             if req is None:
                 await cb.answer("HITL не найден", show_alert=True)
                 return
@@ -6485,9 +6127,7 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
             await cb.answer("Нет исходного файла в payload", show_alert=True)
             return
         if not _Path(photo_path).exists():
-            await cb.answer(
-                f"Файл не найден: {photo_path}", show_alert=True
-            )
+            await cb.answer(f"Файл не найден: {photo_path}", show_alert=True)
             return
         try:
             await cb.bot.send_document(
@@ -6504,9 +6144,7 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
 
     if action == "edit":
         async with session_scope() as s:
-            req = (
-                await s.execute(select(HITLRequest).where(HITLRequest.id == hitl_id))
-            ).scalar_one_or_none()
+            req = (await s.execute(select(HITLRequest).where(HITLRequest.id == hitl_id))).scalar_one_or_none()
             if req is None:
                 await cb.answer("HITL не найден", show_alert=True)
                 return
@@ -6515,9 +6153,7 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
                 return
             frame = None
             if req.frame_id is not None:
-                frame = (
-                    await s.execute(select(Frame).where(Frame.id == req.frame_id))
-                ).scalar_one_or_none()
+                frame = (await s.execute(select(Frame).where(Frame.id == req.frame_id))).scalar_one_or_none()
             current_prompt = (frame.image_prompt if frame else None) or "(пусто)"
             ask_msg = await cb.bot.send_message(
                 settings.telegram_owner_chat_id,
@@ -6551,9 +6187,7 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
         return
 
     async with session_scope() as s:
-        req = (
-            await s.execute(select(HITLRequest).where(HITLRequest.id == hitl_id))
-        ).scalar_one_or_none()
+        req = (await s.execute(select(HITLRequest).where(HITLRequest.id == hitl_id))).scalar_one_or_none()
         if req is None:
             await cb.answer("HITL не найден", show_alert=True)
             return
@@ -6574,9 +6208,7 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
         regen_step_msg = ""
         if req.kind is HITLKind.approve_hero:
             project = (
-                await s.execute(
-                    select(Project).where(Project.id == req.project_id)
-                )
+                await s.execute(select(Project).where(Project.id == req.project_id))
             ).scalar_one_or_none()
             if project is not None:
                 payload = req.payload or {}
@@ -6588,9 +6220,7 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
                 if isinstance(excel_id, str) and excel_id:
                     if action == "regen":
                         project.status = ProjectStatus.generating_hero
-                        regen_step_msg = (
-                            f"\n\n▶ Перегенерирую персонажа {excel_id}."
-                        )
+                        regen_step_msg = f"\n\n▶ Перегенерирую персонажа {excel_id}."
                     elif action == "approve":
                         # Считаем сколько ещё не одобрено в excel-списке.
                         meta = dict(project.meta or {})
@@ -6601,23 +6231,25 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
                             if isinstance(c, dict)
                         ]
                         approved_rows = (
-                            await s.execute(
-                                select(HITLRequest).where(
-                                    HITLRequest.project_id == project.id,
-                                    HITLRequest.kind == HITLKind.approve_hero,
-                                    HITLRequest.decision == HITLDecision.approved,
+                            (
+                                await s.execute(
+                                    select(HITLRequest).where(
+                                        HITLRequest.project_id == project.id,
+                                        HITLRequest.kind == HITLKind.approve_hero,
+                                        HITLRequest.decision == HITLDecision.approved,
+                                    )
                                 )
                             )
-                        ).scalars().all()
+                            .scalars()
+                            .all()
+                        )
                         approved_ids = {
                             (r.payload or {}).get("excel_id")
                             for r in approved_rows
                             if (r.payload or {}).get("excel_id")
                         }
                         approved_ids.add(excel_id)
-                        remaining = [
-                            i for i in all_ids if i and i not in approved_ids
-                        ]
+                        remaining = [i for i in all_ids if i and i not in approved_ids]
                         if remaining:
                             project.status = ProjectStatus.generating_hero
                             regen_step_msg = (
@@ -6647,8 +6279,7 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
                         # одобрены, и перегенерит ровно её.
                         project.status = ProjectStatus.generating_hero
                         regen_step_msg = (
-                            f"\n\n▶ Перегенерирую герой {cur_hi}/{n_total} "
-                            f"вариацию {cur_vi}/{n_var}."
+                            f"\n\n▶ Перегенерирую герой {cur_hi}/{n_total} вариацию {cur_vi}/{n_var}."
                         )
                     elif action == "approve":
                         # ✅ — определяем что дальше: следующая вариация
@@ -6656,15 +6287,11 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
                         if cur_vi < n_var:
                             project.status = ProjectStatus.generating_hero
                             regen_step_msg = (
-                                f"\n\n▶ Перехожу к герою {cur_hi}/{n_total} "
-                                f"вариации {cur_vi + 1}/{n_var}."
+                                f"\n\n▶ Перехожу к герою {cur_hi}/{n_total} вариации {cur_vi + 1}/{n_var}."
                             )
                         elif cur_hi < n_total:
                             project.status = ProjectStatus.generating_hero
-                            regen_step_msg = (
-                                f"\n\n▶ Перехожу к герою "
-                                f"{cur_hi + 1}/{n_total}, вариация 1."
-                            )
+                            regen_step_msg = f"\n\n▶ Перехожу к герою {cur_hi + 1}/{n_total}, вариация 1."
                         # Если это последняя вариация последнего героя —
                         # статус остаётся hero_ready (шаг полностью завершён).
     await cb.answer(f"Решение: {action}")
@@ -6713,34 +6340,26 @@ async def _build_gpt_text_for_edit(pid: int, step_code: str) -> str:
     timestamp и не критично для редактирования.
     """
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             raise RuntimeError(f"Проект #{pid} не найден")
 
         ctx: dict = {}
         if step_code == "img_pr":
             frames = (
-                await s.execute(
-                    select(Frame)
-                    .where(Frame.project_id == pid)
-                    .order_by(Frame.number)
-                )
-            ).scalars().all()
+                (await s.execute(select(Frame).where(Frame.project_id == pid).order_by(Frame.number)))
+                .scalars()
+                .all()
+            )
             if frames:
-                ctx["voiceover_line"] = "-".join(
-                    (fr.voiceover_text or "").strip() for fr in frames
-                )
+                ctx["voiceover_line"] = "-".join((fr.voiceover_text or "").strip() for fr in frames)
                 ctx["n_frames"] = len(frames)
         if step_code == "anim_pr":
             frames = (
-                await s.execute(
-                    select(Frame)
-                    .where(Frame.project_id == pid)
-                    .order_by(Frame.number)
-                )
-            ).scalars().all()
+                (await s.execute(select(Frame).where(Frame.project_id == pid).order_by(Frame.number)))
+                .scalars()
+                .all()
+            )
             if frames:
                 ctx["frames"] = frames
         return gtb.get_effective_text(project, step_code, **ctx)
@@ -6758,9 +6377,7 @@ def _clear_pending_gpt_text_edit(user_id: int, pid: int, step_code: str) -> None
         _pending_gpt_text_edit_by_user.pop(user_id, None)
 
 
-async def _on_gpt_text_edit_reply(
-    msg: Message, pid: int, step_code: str, *, from_text: str
-) -> None:
+async def _on_gpt_text_edit_reply(msg: Message, pid: int, step_code: str, *, from_text: str) -> None:
     """Обработчик ответа юзера на «✏️ Сопр. сообщение». Сохраняет
     новый текст в `Project.gpt_text_overrides[step_code]`."""
     user_id = msg.from_user.id if msg.from_user else 0
@@ -6776,9 +6393,7 @@ async def _on_gpt_text_edit_reply(
         await msg.reply(f"Шаг {step_code!r} не поддерживает override.")
         return
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == pid))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
         if project is None:
             await msg.reply(f"Проект #{pid} не найден.")
             return
@@ -6787,7 +6402,10 @@ async def _on_gpt_text_edit_reply(
     human = plib.STEP_HUMAN_NAMES.get(step_code, step_code)
     logger.info(
         "gpt-text override saved: user={} pid={} step={} len={}",
-        user_id, pid, step_code, len(text),
+        user_id,
+        pid,
+        step_code,
+        len(text),
     )
     await msg.reply(
         f"✅ Отредактировано — сопр. сообщение для шага «{human}» "
@@ -6807,13 +6425,17 @@ async def _on_edit_reply(msg: Message) -> None:
         return
     async with session_scope() as s:
         rows = (
-            await s.execute(
-                select(HITLRequest)
-                .where(HITLRequest.decision == HITLDecision.pending)
-                .order_by(HITLRequest.id.desc())
-                .limit(30)
+            (
+                await s.execute(
+                    select(HITLRequest)
+                    .where(HITLRequest.decision == HITLDecision.pending)
+                    .order_by(HITLRequest.id.desc())
+                    .limit(30)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         req = None
         for r in rows:
             if (r.payload or {}).get("edit_ask_message_id") == reply_to_id:
@@ -6823,9 +6445,7 @@ async def _on_edit_reply(msg: Message) -> None:
             return
         if req.frame_id is None:
             return
-        frame = (
-            await s.execute(select(Frame).where(Frame.id == req.frame_id))
-        ).scalar_one_or_none()
+        frame = (await s.execute(select(Frame).where(Frame.id == req.frame_id))).scalar_one_or_none()
         if frame is None:
             return
         frame.image_prompt = new_prompt
@@ -6840,9 +6460,7 @@ async def _on_edit_reply(msg: Message) -> None:
         ).scalar_one_or_none()
         if project is not None:
             try:
-                _sheet_for_project(project).write_frame(
-                    frame.number, image_prompt=new_prompt
-                )
+                _sheet_for_project(project).write_frame(frame.number, image_prompt=new_prompt)
             except Exception as e:  # noqa: BLE001
                 logger.warning("xlsx write_frame(image_prompt) failed: {}", e)
     if hitl_tg_msg_id:
@@ -6910,13 +6528,9 @@ async def notify_step_done(
         )
         return
     async with session_scope() as s:
-        project = (
-            await s.execute(select(Project).where(Project.id == project_id))
-        ).scalar_one_or_none()
+        project = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
         if project is None:
-            logger.warning(
-                "notify_step_done: project #{} не найден", project_id
-            )
+            logger.warning("notify_step_done: project #{} не найден", project_id)
             return
         status_val = project.status.value
         # Этап 4 (A.3): vision-лимит исчерпан — конкретика вместо
@@ -6924,14 +6538,10 @@ async def notify_step_done(
         meta = project.meta if isinstance(project.meta, dict) else {}
         pr = meta.get("pause_reason")
         vision_pause = (
-            status_val == "paused"
-            and isinstance(pr, dict)
-            and pr.get("code") == "vision_rounds_exhausted"
+            status_val == "paused" and isinstance(pr, dict) and pr.get("code") == "vision_rounds_exhausted"
         )
         budget_pause = (
-            status_val == "paused"
-            and isinstance(pr, dict)
-            and pr.get("code") == "budget_exhausted"
+            status_val == "paused" and isinstance(pr, dict) and pr.get("code") == "budget_exhausted"
         )
         if budget_pause:
             # Этап 3 (E.3): бюджет прогона исчерпан — тот же канал, что
@@ -6978,17 +6588,13 @@ async def notify_step_done(
     # Для enrich-шагов (enrich_1_ready..enrich_5_ready) присылаем
     # обновлённый project.xlsx как документ.
     if new_status.startswith("enrich_") and new_status.endswith("_ready"):
-
         xlsx_path = project.data_dir / "project.xlsx"
         if xlsx_path.exists():
             try:
                 await bot.send_document(
                     settings.telegram_owner_chat_id,
                     FSInputFile(str(xlsx_path)),
-                    caption=(
-                        f"📥 Результат: project.xlsx после «{new_status}»\n"
-                        f"Проект #{project_id}"
-                    ),
+                    caption=(f"📥 Результат: project.xlsx после «{new_status}»\nПроект #{project_id}"),
                 )
             except Exception:  # noqa: BLE001
                 logger.exception(
@@ -7009,9 +6615,7 @@ async def build_bot() -> tuple[Bot, Dispatcher]:
             try:
                 from aiohttp_socks import ProxyConnector  # type: ignore[import-not-found]
             except ImportError as e:
-                raise RuntimeError(
-                    "Для SOCKS-прокси поставь aiohttp-socks: pip install aiohttp-socks"
-                ) from e
+                raise RuntimeError("Для SOCKS-прокси поставь aiohttp-socks: pip install aiohttp-socks") from e
             import aiohttp
             from aiogram.client.session.aiohttp import AiohttpSession
 

@@ -107,11 +107,9 @@ def _load_catalog_ts() -> str:
 def test_catalog_file_contains_exact_image_aspect_orders():
     src = _load_catalog_ts()
     # nano-banana порядок
-    assert '["16:9", "9:16", "1:1", "4:3", "5:4", "3:4", "4:5", "21:9"]' in src.replace(
-        "\n", " "
-    ).replace("  ", " ") or (
-        '"16:9"' in src and '"5:4"' in src and '"4:5"' in src
-    )
+    assert '["16:9", "9:16", "1:1", "4:3", "5:4", "3:4", "4:5", "21:9"]' in src.replace("\n", " ").replace(
+        "  ", " "
+    ) or ('"16:9"' in src and '"5:4"' in src and '"4:5"' in src)
     # gpt-image-2 без 5:4/4:5 в GPT_IMAGE_2_ASPECTS
     assert "GPT_IMAGE_2_ASPECTS" in src
     assert '"3:2"' in src and '"2:3"' in src

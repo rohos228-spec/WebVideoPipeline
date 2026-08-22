@@ -235,19 +235,13 @@ async def test_insert_fanout_after_split(mem_db) -> None:
         from app.models import NodeRun, WorkflowRun
 
         run = (
-            await session.execute(
-                select(WorkflowRun).where(WorkflowRun.project_id == project.id)
-            )
-        ).scalars().first()
+            (await session.execute(select(WorkflowRun).where(WorkflowRun.project_id == project.id)))
+            .scalars()
+            .first()
+        )
         assert run is not None
         nrs = (
-            (
-                await session.execute(
-                    select(NodeRun).where(NodeRun.workflow_run_id == run.id)
-                )
-            )
-            .scalars()
-            .all()
+            (await session.execute(select(NodeRun).where(NodeRun.workflow_run_id == run.id))).scalars().all()
         )
         by_key = {nr.node_key: nr.node_type for nr in nrs}
         assert by_key["n_excel_gpt_sd_camera"] == "sd_agent"
@@ -265,9 +259,7 @@ async def test_insert_duplicate_raises(mem_db) -> None:
 async def test_insert_explicit_after(mem_db) -> None:
     async with mem_db() as session:
         project = await _mk_project(session)
-        res = await insert_node_group(
-            session, project, "scene_design_fanout", after="n_plan"
-        )
+        res = await insert_node_group(session, project, "scene_design_fanout", after="n_plan")
     assert res["after"] == "n_plan"
     cg = project.meta["canvas_graph"]
     pairs = {(e["source"], e["target"]) for e in cg["edges"]}
@@ -339,8 +331,7 @@ async def test_insert_stamps_group_id(mem_db) -> None:
     }
     assert stamped
     assert all(
-        gid == "scene_design_fanout" and title == "Сцены: веер агентов"
-        for gid, title in stamped.values()
+        gid == "scene_design_fanout" and title == "Сцены: веер агентов" for gid, title in stamped.values()
     )
     # Старые ноды канваса без штампа.
     by_id = {n["id"]: n for n in cg["nodes"]}
@@ -378,9 +369,7 @@ def test_custom_group_crud() -> None:
     assert listed["my_chain"]["node_count"] == 2
     assert listed["scene_design_fanout"]["builtin"] is True
 
-    g2 = update_custom_group(
-        "my_chain", {"title": "Переименованная", "category": "media"}
-    )
+    g2 = update_custom_group("my_chain", {"title": "Переименованная", "category": "media"})
     assert g2.title == "Переименованная"
     assert g2.category == "media"
     assert g2.nodes[1].prompt_variant == "sd_style"  # spec не потёрся
@@ -422,7 +411,7 @@ def test_custom_group_validation_and_builtin_guard() -> None:
 
 def test_slugify_group_id() -> None:
     assert slugify_group_id("Моя связка GPT") == "moya_svyazka_gpt"
-    assert slugify_group_id("  ") .startswith("group_")
+    assert slugify_group_id("  ").startswith("group_")
     assert slugify_group_id("Chain 2/проверка") == "chain_2_proverka"
 
 
@@ -432,9 +421,7 @@ def test_group_detail_spec() -> None:
     assert d is not None
     assert d["builtin"] is True
     assert d["exit_key"] == "check_asm"
-    assert set(d["entry_keys"]) == {
-        "characters", "world", "style", "camera", "action"
-    }
+    assert set(d["entry_keys"]) == {"characters", "world", "style", "camera", "action"}
     by_key = {n["key"]: n for n in d["nodes"]}
     cam = by_key["camera"]
     assert cam["prompt_variant"] == "sd_camera"
@@ -467,15 +454,9 @@ async def test_backfill_group_stamps(mem_db) -> None:
     assert stats["nodes"] == 12  # 5 агентов + сборщик + 6 проверок
     assert stats["projects"] == 1
     cg = project.meta["canvas_graph"]
-    stamped = [
-        n
-        for n in cg["nodes"]
-        if (n.get("data") or {}).get("groupId") == "scene_design_fanout"
-    ]
+    stamped = [n for n in cg["nodes"] if (n.get("data") or {}).get("groupId") == "scene_design_fanout"]
     assert len(stamped) == 12
-    assert all(
-        n["data"]["groupTitle"] == "Сцены: веер агентов" for n in stamped
-    )
+    assert all(n["data"]["groupTitle"] == "Сцены: веер агентов" for n in stamped)
     # Посторонние ноды не тронуты.
     by_id = {n["id"]: n for n in cg["nodes"]}
     assert "groupId" not in by_id["n_split"]["data"]
@@ -565,10 +546,7 @@ async def test_group_from_canvas_and_reinsert(mem_db) -> None:
     assert by_id["n_g2"]["data"]["slotOverflow"] is True
     assert other.meta["prompt_slot_variants"]["n_g1"] == {"main": "sd_world"}
     assert other.meta["excel_gpt_nodes"]["n_g2"]["checkMode"] is True
-    kinds = {
-        (e["source"], e["target"]): (e.get("data") or {}).get("kind")
-        for e in cg["edges"]
-    }
+    kinds = {(e["source"], e["target"]): (e.get("data") or {}).get("kind") for e in cg["edges"]}
     assert kinds[("n_g1", "n_g2")] == "pass"
     assert ("n_split", "n_g1") in kinds
     assert ("n_g2", "n_hero") in kinds
@@ -578,10 +556,6 @@ async def test_group_from_canvas_and_reinsert(mem_db) -> None:
         project2 = await session.get(type(other), other.id)
         res2 = await insert_node_group(session, project2, "moya_svyazka")
     cg2 = project2.meta["canvas_graph"]
-    copies = [
-        n["data"]["groupId"]
-        for n in cg2["nodes"]
-        if (n.get("data") or {}).get("groupId")
-    ]
+    copies = [n["data"]["groupId"] for n in cg2["nodes"] if (n.get("data") or {}).get("groupId")]
     assert sorted(set(copies)) == ["moya_svyazka", "moya_svyazka#2"]
     assert res2["nodes"] != res["nodes"]  # id с суффиксами

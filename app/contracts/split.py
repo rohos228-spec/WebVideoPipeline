@@ -32,18 +32,12 @@ class FrameSpecItem(BaseModel):
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    voiceover_text: str = Field(
-        validation_alias=AliasChoices("voiceover_text", "закадр", "реплика")
-    )
+    voiceover_text: str = Field(validation_alias=AliasChoices("voiceover_text", "закадр", "реплика"))
     duration_seconds: float | int | str | None = Field(
         default=None,
-        validation_alias=AliasChoices(
-            "duration_seconds", "длительность", "время", "секунды"
-        ),
+        validation_alias=AliasChoices("duration_seconds", "длительность", "время", "секунды"),
     )
-    meaning: str | None = Field(
-        default=None, validation_alias=AliasChoices("meaning", "смысл")
-    )
+    meaning: str | None = Field(default=None, validation_alias=AliasChoices("meaning", "смысл"))
     uuid: str | None = None
 
     @field_validator("voiceover_text")
@@ -58,16 +52,12 @@ class ReplaceFramesOp(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     target: Literal["replace_frames"]
-    frames: list[FrameSpecItem] = Field(
-        validation_alias=AliasChoices("frames", "кадры")
-    )
+    frames: list[FrameSpecItem] = Field(validation_alias=AliasChoices("frames", "кадры"))
 
     @model_validator(mode="after")
-    def _min_two(self) -> "ReplaceFramesOp":
+    def _min_two(self) -> ReplaceFramesOp:
         if len(self.frames) < 2:
-            raise ValueError(
-                f"replace_frames: нужно ≥2 кадра, получили {len(self.frames)}"
-            )
+            raise ValueError(f"replace_frames: нужно ≥2 кадра, получили {len(self.frames)}")
         return self
 
 
@@ -76,17 +66,12 @@ class FrameSplitEnvelope(BaseModel):
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    ops: list[ReplaceFramesOp] = Field(
-        validation_alias=AliasChoices("ops", "actions")
-    )
+    ops: list[ReplaceFramesOp] = Field(validation_alias=AliasChoices("ops", "actions"))
 
     @model_validator(mode="after")
-    def _exactly_one(self) -> "FrameSplitEnvelope":
+    def _exactly_one(self) -> FrameSplitEnvelope:
         if len(self.ops) != 1:
-            raise ValueError(
-                "split: ровно одна операция replace_frames "
-                f"(получили {len(self.ops)})"
-            )
+            raise ValueError(f"split: ровно одна операция replace_frames (получили {len(self.ops)})")
         return self
 
     @property

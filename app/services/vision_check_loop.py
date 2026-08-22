@@ -20,6 +20,7 @@ Meta keys:
 from __future__ import annotations
 
 import re
+from datetime import UTC
 from pathlib import Path
 from typing import Any, Literal
 
@@ -67,15 +68,14 @@ def vision_check_max_rounds() -> int:
     except (TypeError, ValueError):
         return 2
 
+
 VisionKind = Literal["hero", "scenes", "videos"]
 _FRAME_KINDS = frozenset({"scenes", "videos"})
 
 
 def vision_check_loop_active(project: Project) -> bool:
     meta = project.meta if isinstance(project.meta, dict) else {}
-    return bool(
-        str(meta.get(META_RETURN) or meta.get(META_HERO_RETURN) or "").strip()
-    )
+    return bool(str(meta.get(META_RETURN) or meta.get(META_HERO_RETURN) or "").strip())
 
 
 def get_vision_return_node(project: Project) -> str:
@@ -131,9 +131,7 @@ def get_vision_passed(project: Project) -> set[str]:
     return {str(x).strip() for x in raw if str(x).strip()}
 
 
-def get_vision_operator_accepted(
-    project: Project, kind: VisionKind | None = None
-) -> set[str]:
+def get_vision_operator_accepted(project: Project, kind: VisionKind | None = None) -> set[str]:
     """Токены, принятые оператором («принять как есть», Этап 4 A.4).
 
     Хранятся с kind-namespace (``scenes:f3`` / ``videos:f3`` / ``hero:c01``)
@@ -178,11 +176,7 @@ def drop_vision_passed_for_frame(project: Project, frame_number: int) -> bool:
 
     meta = project.meta if isinstance(project.meta, dict) else {}
     op_raw = [str(x).strip() for x in (meta.get(META_OPERATOR_ACCEPTED) or [])]
-    op_keep = [
-        t
-        for t in op_raw
-        if t and not _is_frame_token(t.split(":", 1)[1] if ":" in t else t)
-    ]
+    op_keep = [t for t in op_raw if t and not _is_frame_token(t.split(":", 1)[1] if ":" in t else t)]
 
     if keep == passed and len(op_keep) == len([t for t in op_raw if t]):
         return False
@@ -195,8 +189,7 @@ def drop_vision_passed_for_frame(project: Project, frame_number: int) -> bool:
     except Exception:  # noqa: BLE001 — не-ORM объект (тесты/stub)
         pass
     logger.info(
-        "[#{}] vision_check_loop: кадр {} инвалидирован — снято {} passed "
-        "и {} operator-accepted токенов",
+        "[#{}] vision_check_loop: кадр {} инвалидирован — снято {} passed и {} operator-accepted токенов",
         project.id,
         frame_number,
         len(passed) - len(keep),
@@ -319,9 +312,7 @@ def _clear_check_node_completion(project: Project, node_key: str) -> None:
         meta["excel_gpt_completed_keys"] = [k for k in keys if k != key]
     slot = slot_for_excel_gpt_node_key(project, key)
     if slot is not None:
-        completed = [
-            int(x) for x in (meta.get("enrich_completed_slots") or []) if str(x).isdigit()
-        ]
+        completed = [int(x) for x in (meta.get("enrich_completed_slots") or []) if str(x).isdigit()]
         if slot in completed:
             meta["enrich_completed_slots"] = [s for s in completed if s != slot]
     meta["active_excel_gpt_node_key"] = key
@@ -408,11 +399,7 @@ async def _delete_scene_pngs(
     from app.services.plan_shot2 import SHOT2_STATUS_ATTR, effective_shot_from_artifact
 
     out_dir = Path(project.data_dir) / "scenes"
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id)
-        )
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     by_num = {fr.number: fr for fr in frames}
     removed = 0
     for t in targets:
@@ -432,11 +419,7 @@ async def _delete_scene_pngs(
         disk_paths: list[Path] = []
         if out_dir.is_dir():
             if shot == 2:
-                disk_paths = [
-                    p
-                    for p in out_dir.glob(f"frame_{num:03d}_s2_*.png")
-                    if p.is_file()
-                ]
+                disk_paths = [p for p in out_dir.glob(f"frame_{num:03d}_s2_*.png") if p.is_file()]
                 disk_paths.extend(
                     p
                     for p in out_dir.glob(f"frame_{num:03d}_*.png")
@@ -466,14 +449,18 @@ async def _delete_scene_pngs(
         if fr is None:
             continue
         arts = (
-            await session.execute(
-                select(Artifact).where(
-                    Artifact.project_id == project.id,
-                    Artifact.frame_id == fr.id,
-                    Artifact.kind == ArtifactKind.scene_image,
+            (
+                await session.execute(
+                    select(Artifact).where(
+                        Artifact.project_id == project.id,
+                        Artifact.frame_id == fr.id,
+                        Artifact.kind == ArtifactKind.scene_image,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for art in arts:
             ap = Path(str(art.path or ""))
             art_shot = effective_shot_from_artifact(art.meta, ap)
@@ -503,11 +490,7 @@ async def _delete_video_clips(
 
     out_dir = Path(project.data_dir) / "videos"
     sheets_dir = Path(project.data_dir) / "tmp_video_sheets"
-    frames = (
-        await session.execute(
-            select(Frame).where(Frame.project_id == project.id)
-        )
-    ).scalars().all()
+    frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
     by_num = {fr.number: fr for fr in frames}
     removed = 0
     for t in targets:
@@ -527,16 +510,10 @@ async def _delete_video_clips(
         disk_paths: list[Path] = []
         if out_dir.is_dir():
             if shot == 2:
-                disk_paths = [
-                    p
-                    for p in out_dir.glob(f"clip_{num:03d}_s2_*.mp4")
-                    if p.is_file()
-                ]
+                disk_paths = [p for p in out_dir.glob(f"clip_{num:03d}_s2_*.mp4") if p.is_file()]
             else:
                 disk_paths = [
-                    p
-                    for p in out_dir.glob(f"clip_{num:03d}_*.mp4")
-                    if p.is_file() and "_s2_" not in p.name
+                    p for p in out_dir.glob(f"clip_{num:03d}_*.mp4") if p.is_file() and "_s2_" not in p.name
                 ]
         for path in disk_paths:
             try:
@@ -550,11 +527,7 @@ async def _delete_video_clips(
                 )
 
         if sheets_dir.is_dir():
-            pat = (
-                f"video_sheet_{num:03d}_s2*"
-                if shot == 2
-                else f"video_sheet_{num:03d}*"
-            )
+            pat = f"video_sheet_{num:03d}_s2*" if shot == 2 else f"video_sheet_{num:03d}*"
             for sp in sheets_dir.glob(pat):
                 if shot == 1 and "_s2" in sp.name.lower():
                     continue
@@ -566,14 +539,18 @@ async def _delete_video_clips(
         if fr is None:
             continue
         arts = (
-            await session.execute(
-                select(Artifact).where(
-                    Artifact.project_id == project.id,
-                    Artifact.frame_id == fr.id,
-                    Artifact.kind == ArtifactKind.scene_video,
+            (
+                await session.execute(
+                    select(Artifact).where(
+                        Artifact.project_id == project.id,
+                        Artifact.frame_id == fr.id,
+                        Artifact.kind == ArtifactKind.scene_video,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for art in arts:
             ap = Path(str(art.path or ""))
             art_shot = effective_shot_from_artifact(art.meta, ap)
@@ -633,8 +610,7 @@ async def maybe_start_vision_check_loop_after_check(
         # отчёта — устранена этапом 5 (_finding_tag_for_check).
         if gate in ("pass", "fail") and gate != resolved:
             logger.warning(
-                "[#{}] vision_check_loop: конфликт гейта на {} "
-                "(meta={}, resolve={}) → работаем по fail",
+                "[#{}] vision_check_loop: конфликт гейта на {} (meta={}, resolve={}) → работаем по fail",
                 project.id,
                 key,
                 gate,
@@ -646,13 +622,10 @@ async def maybe_start_vision_check_loop_after_check(
 
     # Этап 4 (C.3): отбраковка дешёвых проб — regen независимо от гейта
     # (vision битые файлы не видел: они исключены из его входа).
-    probe_frames, probe_heroes, probe_reasons = probe_targets_from_meta(
-        project, kind
-    )
+    probe_frames, probe_heroes, probe_reasons = probe_targets_from_meta(project, kind)
     if (probe_frames or probe_heroes) and gate == "pass":
         logger.warning(
-            "[#{}] vision_check_loop: media_probe цели на {} ({}) — "
-            "гейт pass переопределён в fail",
+            "[#{}] vision_check_loop: media_probe цели на {} ({}) — гейт pass переопределён в fail",
             project.id,
             key,
             probe_reasons,
@@ -691,14 +664,10 @@ async def maybe_start_vision_check_loop_after_check(
     flag_modified(project, "meta")
 
     hero_ids = extract_critical_hero_regen_ids(reply) if kind == "hero" else []
-    frame_tgts = (
-        extract_critical_frame_regen_targets(reply) if kind in _FRAME_KINDS else []
-    )
+    frame_tgts = extract_critical_frame_regen_targets(reply) if kind in _FRAME_KINDS else []
     # Этап 4 (C.3): цели проб вливаются тем же механизмом, что critical.
     if probe_frames:
-        have_keys = {
-            (int(t["number"]), int(t.get("shot") or 1)) for t in frame_tgts
-        }
+        have_keys = {(int(t["number"]), int(t.get("shot") or 1)) for t in frame_tgts}
         for t in probe_frames:
             k = (int(t["number"]), int(t["shot"]))
             if k not in have_keys:
@@ -711,23 +680,16 @@ async def maybe_start_vision_check_loop_after_check(
 
     # Scores/severity: auto-regen при critical. Если цикл уже идёт, а critical
     # нет (overall < порога) — повторяем те же pending, пока не утвердят.
-    scored_no_critical = looks_like_scored_vision_report(
-        reply
-    ) and not has_critical_vision_issues(reply)
+    scored_no_critical = looks_like_scored_vision_report(reply) and not has_critical_vision_issues(reply)
     if scored_no_critical:
         if kind in _FRAME_KINDS and not frame_tgts:
             frame_tgts = list(get_scene_check_regen(project))
         if kind == "hero" and not hero_ids:
             meta0 = project.meta if isinstance(project.meta, dict) else {}
-            hero_ids = [
-                str(x).strip().lower()
-                for x in (meta0.get(META_HERO_IDS) or [])
-                if str(x).strip()
-            ]
+            hero_ids = [str(x).strip().lower() for x in (meta0.get(META_HERO_IDS) or []) if str(x).strip()]
         if not frame_tgts and not hero_ids and not patch:
             logger.info(
-                "[#{}] vision_check_loop: fail на {} без critical "
-                "(scores/threshold) — без auto-regen",
+                "[#{}] vision_check_loop: fail на {} без critical (scores/threshold) — без auto-regen",
                 project.id,
                 key,
             )
@@ -742,14 +704,11 @@ async def maybe_start_vision_check_loop_after_check(
         )
 
         try:
-            auto_ops = await build_auto_vision_db_patch(
-                session, project, reply, frame_tgts, kind=kind
-            )
+            auto_ops = await build_auto_vision_db_patch(session, project, reply, frame_tgts, kind=kind)
             merged = merge_db_patches(patch, auto_ops)
             if merged is not patch:
                 logger.info(
-                    "[#{}] vision_check_loop: auto prompt fixes ops={} "
-                    "(model_ops={})",
+                    "[#{}] vision_check_loop: auto prompt fixes ops={} (model_ops={})",
                     project.id,
                     len(auto_ops),
                     len((patch or {}).get("ops") or []),
@@ -769,9 +728,7 @@ async def maybe_start_vision_check_loop_after_check(
         try:
             hero_fixes = plan_hero_vision_fixes(reply, hero_ids)
         except Exception:  # noqa: BLE001
-            logger.exception(
-                "[#{}] vision_check_loop: hero prompt fix failed", project.id
-            )
+            logger.exception("[#{}] vision_check_loop: hero prompt fix failed", project.id)
             hero_fixes = {}
         if hero_fixes:
             meta_h = dict(project.meta or {})
@@ -817,21 +774,16 @@ async def maybe_start_vision_check_loop_after_check(
         regen_toks: list[str] = sorted(
             {_token_hero(c) for c in hero_ids}
             if kind == "hero"
-            else {
-                _token_frame(int(t["number"]), int(t.get("shot") or 1))
-                for t in frame_tgts
-            }
+            else {_token_frame(int(t["number"]), int(t.get("shot") or 1)) for t in frame_tgts}
         )
-        accepted = get_vision_passed(project) | get_vision_operator_accepted(
-            project, kind
-        )
+        accepted = get_vision_passed(project) | get_vision_operator_accepted(project, kind)
         all_toks: set[str] = set()
         for pth in _check_input_image_paths(project, key):
             tok = _parse_image_token(pth)
             if tok:
                 all_toks.add(tok)
         unverified = sorted(all_toks - accepted - set(regen_toks))
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         reason = {
             "code": PAUSE_CODE_VISION_ROUNDS,
@@ -841,7 +793,7 @@ async def maybe_start_vision_check_loop_after_check(
             "limit": limit,
             "regen_pending": regen_toks,
             "unverified": unverified,
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": datetime.now(UTC).isoformat(),
         }
         totals[key] = total_n - 1
         meta[META_ROUNDS_TOTAL] = totals
@@ -878,10 +830,8 @@ async def maybe_start_vision_check_loop_after_check(
     # deadlock петли). Снимок — ПОСЛЕ db_patch/авто-фиксов.
     if kind in _FRAME_KINDS and frame_tgts:
         frames_all = (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id)
-            )
-        ).scalars().all()
+            (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
+        )
         noop_toks = update_regen_prompt_snapshot(
             project, kind, frame_tgts, {fr.number: fr for fr in frames_all}
         )
@@ -1078,9 +1028,7 @@ def filter_image_paths_for_recheck(
         return paths
 
     kind = get_vision_kind(project)
-    accepted = get_vision_passed(project) | get_vision_operator_accepted(
-        project, kind
-    )
+    accepted = get_vision_passed(project) | get_vision_operator_accepted(project, kind)
     if not accepted:
         return paths
     out = []
@@ -1091,8 +1039,7 @@ def filter_image_paths_for_recheck(
         out.append(p)
     if len(out) != len(paths):
         logger.info(
-            "[#{}] vision_check_loop: recheck {} из {} PNG "
-            "(accepted исключены)",
+            "[#{}] vision_check_loop: recheck {} из {} PNG (accepted исключены)",
             project.id,
             len(out),
             len(paths),
@@ -1169,9 +1116,7 @@ async def preflight_media_for_check(
                 await probe_video(p, expect_aspect=aspect)
             else:
                 # hero-листы (turnaround 16:9) с проектным aspect не сверяем
-                await probe_image(
-                    p, expect_aspect=None if kind == "hero" else aspect
-                )
+                await probe_image(p, expect_aspect=None if kind == "hero" else aspect)
             ok_paths.append(p)
         except MediaProbeError as e:
             if tok:
@@ -1185,11 +1130,7 @@ async def preflight_media_for_check(
             )
     if bad:
         meta = dict(project.meta or {})
-        cur = [
-            t
-            for t in (meta.get(META_PROBE_REGEN) or [])
-            if isinstance(t, dict) and t.get("token")
-        ]
+        cur = [t for t in (meta.get(META_PROBE_REGEN) or []) if isinstance(t, dict) and t.get("token")]
         seen_toks = {str(t["token"]) for t in cur}
         for t in bad:
             if t["token"] not in seen_toks:
@@ -1221,9 +1162,7 @@ def probe_targets_from_meta(
         reasons.append(f"{tok}: {t.get('reason') or 'media_probe'}")
         m = re.match(r"^f(\d{1,4})(s2)?$", tok)
         if m and kind in _FRAME_KINDS:
-            frame_tgts.append(
-                {"number": int(m.group(1)), "shot": 2 if m.group(2) else 1}
-            )
+            frame_tgts.append({"number": int(m.group(1)), "shot": 2 if m.group(2) else 1})
         elif tok.startswith("c") and kind == "hero":
             hero_ids.append(tok)
     return frame_tgts, hero_ids, reasons
@@ -1268,13 +1207,8 @@ def apply_vision_decision(project: Project, action: str) -> dict[str, Any]:
     act = (action or "").strip().lower()
     meta = project.meta if isinstance(project.meta, dict) else {}
     pr = meta.get(META_PAUSE_REASON)
-    if not (
-        isinstance(pr, dict) and pr.get("code") == PAUSE_CODE_VISION_ROUNDS
-    ):
-        raise ValueError(
-            "нет активной vision-паузы (pause_reason.code != "
-            f"{PAUSE_CODE_VISION_ROUNDS})"
-        )
+    if not (isinstance(pr, dict) and pr.get("code") == PAUSE_CODE_VISION_ROUNDS):
+        raise ValueError(f"нет активной vision-паузы (pause_reason.code != {PAUSE_CODE_VISION_ROUNDS})")
     node = str(pr.get("node") or "") or get_vision_return_node(project)
     kind = str(pr.get("kind") or "") or (get_vision_kind(project) or "scenes")
 
@@ -1296,8 +1230,7 @@ def apply_vision_decision(project: Project, action: str) -> dict[str, Any]:
             except Exception:  # noqa: BLE001
                 pass
         logger.warning(
-            "[#{}] vision_check_loop: решение оператора more_rounds на {} — "
-            "счётчики кругов сброшены",
+            "[#{}] vision_check_loop: решение оператора more_rounds на {} — счётчики кругов сброшены",
             project.id,
             node,
         )
@@ -1363,9 +1296,7 @@ def update_regen_prompt_snapshot(
         if fr is None:
             continue
         tok = _token_frame(num, shot)
-        digest = hashlib.sha256(
-            base_prompt_for(fr, kind, shot).encode("utf-8")
-        ).hexdigest()
+        digest = hashlib.sha256(base_prompt_for(fr, kind, shot).encode("utf-8")).hexdigest()
         if prev.get(tok) == digest:
             noop.append(tok)
         new_snap[tok] = digest
@@ -1400,9 +1331,7 @@ def scene_regen_allows(project: Project, frame_number: int, shot: int = 1) -> bo
         return True
     tok = _token_frame(num, sh)
     kind = get_vision_kind(project) or "scenes"
-    if tok in get_vision_passed(project) or tok in get_vision_operator_accepted(
-        project, kind
-    ):
+    if tok in get_vision_passed(project) or tok in get_vision_operator_accepted(project, kind):
         return False
     # Не в regen и не passed — разрешаем (claim сам отсеет «уже есть PNG»).
     return True

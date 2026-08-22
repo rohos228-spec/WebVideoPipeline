@@ -91,6 +91,7 @@ _CHECK_OPERATOR_CONFIG: dict[str, Any] = {
     "transport": "api",
 }
 
+
 def _check_spec(local_key: str, label: str, descr: str, dx: float, dy: float) -> GroupNodeSpec:
     return GroupNodeSpec(
         local_key=local_key,
@@ -269,8 +270,7 @@ def _scene_design_chrono_dyn_group() -> NodeGroupDef:
 
 
 NODE_GROUPS: dict[str, NodeGroupDef] = {
-    g.group_id: g
-    for g in (_scene_design_group(), _scene_design_chrono_dyn_group())
+    g.group_id: g for g in (_scene_design_group(), _scene_design_chrono_dyn_group())
 }
 
 # Категории, которые понимает палитра (см. NODE_CATEGORY_LABELS на фронте).
@@ -310,23 +310,17 @@ def _spec_from_dict(raw: dict[str, Any], *, builtin: bool) -> GroupNodeSpec:
         dx=float(raw.get("dx") or 0.0),
         dy=float(raw.get("dy") or 0.0),
         marker=(str(raw["marker"]) if raw.get("marker") else None),
-        prompt_variant=(
-            str(raw["prompt_variant"]) if raw.get("prompt_variant") else None
-        ),
+        prompt_variant=(str(raw["prompt_variant"]) if raw.get("prompt_variant") else None),
         slot_overflow=bool(raw.get("slot_overflow")),
         operator_config=(
-            dict(raw["operator_config"])
-            if isinstance(raw.get("operator_config"), dict)
-            else None
+            dict(raw["operator_config"]) if isinstance(raw.get("operator_config"), dict) else None
         ),
     )
 
 
 def _group_from_dict(raw: dict[str, Any], *, builtin: bool) -> NodeGroupDef:
     nodes = tuple(_spec_from_dict(n, builtin=builtin) for n in raw["nodes"])
-    edges = tuple(
-        (str(s), str(t), str(k)) for s, t, k in raw.get("internal_edges") or []
-    )
+    edges = tuple((str(s), str(t), str(k)) for s, t, k in raw.get("internal_edges") or [])
     return NodeGroupDef(
         group_id=str(raw["group_id"]),
         title=str(raw.get("title") or raw["group_id"]),
@@ -365,11 +359,7 @@ def _group_to_dict(g: NodeGroupDef) -> dict[str, Any]:
                 **({"marker": n.marker} if n.marker else {}),
                 **({"prompt_variant": n.prompt_variant} if n.prompt_variant else {}),
                 **({"slot_overflow": True} if n.slot_overflow else {}),
-                **(
-                    {"operator_config": n.operator_config}
-                    if n.operator_config
-                    else {}
-                ),
+                **({"operator_config": n.operator_config} if n.operator_config else {}),
             }
             for n in g.nodes
         ],
@@ -390,9 +380,7 @@ def validate_group_payload(raw: dict[str, Any]) -> list[str]:
     if not gid:
         errors.append("group_id пуст")
     elif not re.fullmatch(r"[a-z0-9][a-z0-9_\-]{1,63}", gid):
-        errors.append(
-            "group_id: только латиница/цифры/дефис/подчёркивание (2–64 символа)"
-        )
+        errors.append("group_id: только латиница/цифры/дефис/подчёркивание (2–64 символа)")
     if not str(raw.get("title") or "").strip():
         errors.append("title пуст")
     cat = str(raw.get("category") or "planning")
@@ -518,11 +506,39 @@ def delete_custom_group(group_id: str) -> None:
 
 
 _RU_TRANSLIT = {
-    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
-    "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
-    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
-    "ф": "f", "х": "h", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sch",
-    "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+    "а": "a",
+    "б": "b",
+    "в": "v",
+    "г": "g",
+    "д": "d",
+    "е": "e",
+    "ё": "e",
+    "ж": "zh",
+    "з": "z",
+    "и": "i",
+    "й": "y",
+    "к": "k",
+    "л": "l",
+    "м": "m",
+    "н": "n",
+    "о": "o",
+    "п": "p",
+    "р": "r",
+    "с": "s",
+    "т": "t",
+    "у": "u",
+    "ф": "f",
+    "х": "h",
+    "ц": "c",
+    "ч": "ch",
+    "ш": "sh",
+    "щ": "sch",
+    "ъ": "",
+    "ы": "y",
+    "ь": "",
+    "э": "e",
+    "ю": "yu",
+    "я": "ya",
 }
 
 
@@ -561,10 +577,7 @@ def list_node_groups() -> list[dict[str, Any]]:
             "description": g.description,
             "category": g.category,
             "node_count": len(g.nodes),
-            "nodes": [
-                {"key": n.local_key, "label": n.label, "type": n.node_type}
-                for n in g.nodes
-            ],
+            "nodes": [{"key": n.local_key, "label": n.label, "type": n.node_type} for n in g.nodes],
             "default_after_type": g.default_after_type,
             "builtin": g.builtin,
             "updated_at": g.updated_at,
@@ -613,9 +626,7 @@ def get_group_detail(group_id: str) -> dict[str, Any] | None:
             }
             for n in g.nodes
         ],
-        "internal_edges": [
-            {"source": s, "target": t, "kind": k} for s, t, k in g.internal_edges
-        ],
+        "internal_edges": [{"source": s, "target": t, "kind": k} for s, t, k in g.internal_edges],
     }
 
 
@@ -651,9 +662,7 @@ async def backfill_group_stamps(session: AsyncSession) -> dict[str, int]:
             if not isinstance(data, dict) or data.get("groupId"):
                 continue
             nid = str(n.get("id") or "")
-            if sd_agent_marker(n) is None and not nid.startswith(
-                "n_excel_gpt_sd_check_"
-            ):
+            if sd_agent_marker(n) is None and not nid.startswith("n_excel_gpt_sd_check_"):
                 continue
             data["groupId"] = fanout.group_id
             data["groupTitle"] = fanout.title
@@ -700,11 +709,7 @@ async def group_from_canvas(
 
         from app.models import Workflow
 
-        wf = (
-            await session.execute(
-                select(Workflow).where(Workflow.is_default.is_(True))
-            )
-        ).scalars().first()
+        wf = (await session.execute(select(Workflow).where(Workflow.is_default.is_(True)))).scalars().first()
         if wf is None:
             raise ValueError("group_from_canvas: нет ни canvas_graph, ни workflow")
         nodes = [dict(n) for n in (wf.nodes or [])]
@@ -721,9 +726,7 @@ async def group_from_canvas(
     id_set = set(ids)
 
     min_x = min(float((n.get("position") or {}).get("x", 0.0)) for n in selected)
-    avg_y = sum(float((n.get("position") or {}).get("y", 0.0)) for n in selected) / len(
-        selected
-    )
+    avg_y = sum(float((n.get("position") or {}).get("y", 0.0)) for n in selected) / len(selected)
 
     variants = meta.get("prompt_slot_variants")
     variants = variants if isinstance(variants, dict) else {}
@@ -774,17 +777,13 @@ async def group_from_canvas(
             outgoing_ext.add(src)
 
     by_x = sorted(selected, key=lambda n: float((n.get("position") or {}).get("x", 0)))
-    entry_keys = tuple(
-        str(n["id"]) for n in by_x if str(n["id"]) in incoming_ext
-    ) or (str(by_x[0]["id"]),)
+    entry_keys = tuple(str(n["id"]) for n in by_x if str(n["id"]) in incoming_ext) or (str(by_x[0]["id"]),)
     exit_key = (
         str(max(outgoing_ext, key=lambda i: float((by_id[i].get("position") or {}).get("x", 0))))
         if outgoing_ext
         else str(by_x[-1]["id"])
     )
-    default_after_type = next(
-        (t for t in (incoming_ext.get(k) for k in entry_keys) if t), ""
-    )
+    default_after_type = next((t for t in (incoming_ext.get(k) for k in entry_keys) if t), "")
 
     gid = unique_group_id(slugify_group_id(group_id or title))
     raw = {
@@ -805,9 +804,7 @@ async def group_from_canvas(
                 **({"marker": s.marker} if s.marker else {}),
                 **({"prompt_variant": s.prompt_variant} if s.prompt_variant else {}),
                 **({"slot_overflow": True} if s.slot_overflow else {}),
-                **(
-                    {"operator_config": s.operator_config} if s.operator_config else {}
-                ),
+                **({"operator_config": s.operator_config} if s.operator_config else {}),
             }
             for s in specs
         ],
@@ -825,11 +822,7 @@ def _side_sink_ids(nodes: list[dict]) -> set[str]:
     from app.orchestrator.node_registry import CONFIG_NODE_TYPES
 
     side = set(CONFIG_NODE_TYPES) | {"excel_feed"}
-    return {
-        str(n.get("id"))
-        for n in nodes
-        if n.get("id") and str(n.get("type") or "") in side
-    }
+    return {str(n.get("id")) for n in nodes if n.get("id") and str(n.get("type") or "") in side}
 
 
 def _pipeline_targets(nodes: list[dict], edges: list[dict], src: str) -> list[str]:
@@ -882,9 +875,7 @@ async def insert_node_group(
     """
     group = get_node_group(group_id)
     if group is None:
-        raise ValueError(
-            f"неизвестная группа {group_id!r}; есть: {sorted(all_groups())}"
-        )
+        raise ValueError(f"неизвестная группа {group_id!r}; есть: {sorted(all_groups())}")
 
     from sqlalchemy import select
 
@@ -894,11 +885,7 @@ async def insert_node_group(
     graph = canvas_graph_from_meta(meta)
     workflow_id: int | None = None
     if graph is None:
-        wf = (
-            await session.execute(
-                select(Workflow).where(Workflow.is_default.is_(True))
-            )
-        ).scalars().first()
+        wf = (await session.execute(select(Workflow).where(Workflow.is_default.is_(True)))).scalars().first()
         if wf is None:
             raise ValueError("insert_group: нет ни canvas_graph, ни default workflow")
         nodes = [dict(n) for n in (wf.nodes or [])]
@@ -910,11 +897,7 @@ async def insert_node_group(
         edges = [dict(e) for e in graph["edges"]]
     if not workflow_id:
         # Фронт отбрасывает canvas_graph с чужим/нулевым workflow_id.
-        wf = (
-            await session.execute(
-                select(Workflow).where(Workflow.is_default.is_(True))
-            )
-        ).scalars().first()
+        wf = (await session.execute(select(Workflow).where(Workflow.is_default.is_(True)))).scalars().first()
         workflow_id = wf.id if wf else None
 
     by_id = {str(n.get("id")): n for n in nodes}
@@ -923,11 +906,7 @@ async def insert_node_group(
     # pipeline-рёбра перекидываем мостом вход→выход.
     removed_replaced: list[str] = []
     if group.replaces_types:
-        replace_ids = {
-            str(n.get("id"))
-            for n in nodes
-            if str(n.get("type") or "") in group.replaces_types
-        }
+        replace_ids = {str(n.get("id")) for n in nodes if str(n.get("type") or "") in group.replaces_types}
         if replace_ids:
             incoming: dict[str, list[str]] = {rid: [] for rid in replace_ids}
             outgoing: dict[str, list[str]] = {rid: [] for rid in replace_ids}
@@ -965,9 +944,7 @@ async def insert_node_group(
     existing_markers = {m for n in nodes if (m := sd_agent_marker(n))}
     overlap = group_markers & existing_markers
     if overlap:
-        raise ValueError(
-            f"группа «{group.title}» уже на канвасе (маркеры: {sorted(overlap)})"
-        )
+        raise ValueError(f"группа «{group.title}» уже на канвасе (маркеры: {sorted(overlap)})")
     # Повторная вставка группы без маркеров разрешена — но у каждой копии
     # свой instance-id (group_id#2, #3…), чтобы рамки копий не сливались.
     instance_id = group.group_id
@@ -981,8 +958,7 @@ async def insert_node_group(
         while f"{group.group_id}#{k}" in {
             str((n.get("data") or {}).get("groupId"))
             for n in nodes
-            if isinstance(n.get("data"), dict)
-            and (n.get("data") or {}).get("groupId")
+            if isinstance(n.get("data"), dict) and (n.get("data") or {}).get("groupId")
         }:
             k += 1
         instance_id = f"{group.group_id}#{k}"
@@ -1053,12 +1029,7 @@ async def insert_node_group(
     # Перешивка: старые pipeline-цели якоря → за выход группы.
     old_targets = _pipeline_targets(nodes, edges, anchor_id)
     out_edges: list[dict] = [
-        e
-        for e in edges
-        if not (
-            str(e.get("source")) == anchor_id
-            and str(e.get("target")) in old_targets
-        )
+        e for e in edges if not (str(e.get("source")) == anchor_id and str(e.get("target")) in old_targets)
     ]
 
     _EDGE_LABELS = {"pass": "Ок", "fail": "Не ок"}
@@ -1079,9 +1050,7 @@ async def insert_node_group(
         return e
 
     for key in group.entry_keys:
-        out_edges.append(
-            _edge(anchor_id, local_to_id[key], f"e_{anchor_id}_{local_to_id[key]}")
-        )
+        out_edges.append(_edge(anchor_id, local_to_id[key], f"e_{anchor_id}_{local_to_id[key]}"))
     for src_key, tgt_key, kind in group.internal_edges:
         out_edges.append(
             _edge(
@@ -1093,9 +1062,7 @@ async def insert_node_group(
         )
     exit_id = local_to_id[group.exit_key]
     for tgt in old_targets:
-        out_edges.append(
-            _edge(exit_id, tgt, f"e_{exit_id}_{tgt}", group.exit_edge_kind)
-        )
+        out_edges.append(_edge(exit_id, tgt, f"e_{exit_id}_{tgt}", group.exit_edge_kind))
 
     all_nodes = nodes + new_nodes
     new_ids = [n["id"] for n in new_nodes]
@@ -1150,17 +1117,10 @@ async def insert_node_group(
         "after": anchor_id,
         "nodes": new_ids,
         "replaced_nodes": removed_replaced,
-        "edges_added": len(group.entry_keys)
-        + len(group.internal_edges)
-        + len(old_targets)
-        + wired,
+        "edges_added": len(group.entry_keys) + len(group.internal_edges) + len(old_targets) + wired,
         "prompt_variants": {
-            local_to_id[s.local_key]: s.prompt_variant
-            for s in group.nodes
-            if s.prompt_variant
+            local_to_id[s.local_key]: s.prompt_variant for s in group.nodes if s.prompt_variant
         },
-        "check_nodes": [
-            local_to_id[s.local_key] for s in group.nodes if s.operator_config
-        ],
+        "check_nodes": [local_to_id[s.local_key] for s in group.nodes if s.operator_config],
         "project_meta": dict(group.project_meta),
     }

@@ -22,13 +22,13 @@ from app.services.ai_result_io import parse_json_object, text_job
 
 # Каталог видов звуков сопровождения (понятен и GPT, и локальному синтезу).
 SFX_KINDS: tuple[str, ...] = (
-    "whoosh",      # свист-переход (свип шума)
-    "hit",         # удар/акцент (импульс + затухание)
-    "riser",       # нарастание (подъём тона + шум)
-    "ambience",    # фон-атмосфера (шумовая подложка)
+    "whoosh",  # свист-переход (свип шума)
+    "hit",  # удар/акцент (импульс + затухание)
+    "riser",  # нарастание (подъём тона + шум)
+    "ambience",  # фон-атмосфера (шумовая подложка)
     "transition",  # короткий переход (спад вниз)
-    "stinger",     # акцент-стингер (короткий аккорд)
-    "foley",       # бытовой звук действия (шаги/стук — шумовые постукивания)
+    "stinger",  # акцент-стингер (короткий аккорд)
+    "foley",  # бытовой звук действия (шаги/стук — шумовые постукивания)
 )
 
 MAX_EVENTS_PER_FRAME = 3
@@ -70,9 +70,7 @@ def frame_timeline(frames: list[Frame]) -> list[dict[str, float]]:
     return out
 
 
-def validate_events(
-    events: list[SfxEvent], *, total_duration: float
-) -> list[str]:
+def validate_events(events: list[SfxEvent], *, total_duration: float) -> list[str]:
     """Проблемы плана (пустой список = ок)."""
     problems: list[str] = []
     if not events:
@@ -84,27 +82,19 @@ def validate_events(
         if e.kind not in SFX_KINDS:
             problems.append(f"{where}: вид {e.kind!r} не из каталога {sorted(SFX_KINDS)}")
         if not (0.0 <= e.t_start < total_duration):
-            problems.append(
-                f"{where}: t_start {e.t_start:.2f}с вне таймлайна 0..{total_duration:.2f}с"
-            )
+            problems.append(f"{where}: t_start {e.t_start:.2f}с вне таймлайна 0..{total_duration:.2f}с")
         if not (MIN_DUR_S <= e.duration <= MAX_DUR_S):
-            problems.append(
-                f"{where}: длительность {e.duration:.2f}с вне {MIN_DUR_S}..{MAX_DUR_S}с"
-            )
+            problems.append(f"{where}: длительность {e.duration:.2f}с вне {MIN_DUR_S}..{MAX_DUR_S}с")
         if not (0.05 <= e.gain <= 1.0):
             problems.append(f"{where}: gain {e.gain} вне 0.05..1.0")
         if not e.prompt.strip():
             problems.append(f"{where}: пустой prompt")
         if e.t_start < last_t + MIN_GAP_S:
-            problems.append(
-                f"{where}: ближе {MIN_GAP_S}с к предыдущему ({e.t_start:.2f} < {last_t:.2f})"
-            )
+            problems.append(f"{where}: ближе {MIN_GAP_S}с к предыдущему ({e.t_start:.2f} < {last_t:.2f})")
         last_t = max(last_t, e.t_start)
         per_frame[e.frame_number] = per_frame.get(e.frame_number, 0) + 1
         if per_frame[e.frame_number] > MAX_EVENTS_PER_FRAME:
-            problems.append(
-                f"кадр {e.frame_number}: больше {MAX_EVENTS_PER_FRAME} событий"
-            )
+            problems.append(f"кадр {e.frame_number}: больше {MAX_EVENTS_PER_FRAME} событий")
     return problems
 
 
@@ -200,9 +190,7 @@ async def plan_sfx_events(
         name="sfx_plan",
         prompt=prompt,
         parse=parse_json_object,
-        validate=lambda p: validate_events(
-            _parse_events(p), total_duration=total
-        ),
+        validate=lambda p: validate_events(_parse_events(p), total_duration=total),
         max_attempts=max_attempts,
     )
     events = _parse_events(result.payload)

@@ -27,7 +27,7 @@ class _SliceBase(BaseModel):
     error: str | None = None
 
     @model_validator(mode="after")
-    def _no_agent_error(self) -> "_SliceBase":
+    def _no_agent_error(self) -> _SliceBase:
         if (self.error or "").strip():
             raise ValueError(f"агент вернул error: {self.error}")
         return self
@@ -47,7 +47,7 @@ class SkeletonPayload(_SliceBase):
     cells: list[Any] | None = None
 
     @model_validator(mode="after")
-    def _scenes_or_cells(self) -> "SkeletonPayload":
+    def _scenes_or_cells(self) -> SkeletonPayload:
         if self.scenes is None and isinstance(self.model_extra, dict):
             alt = self.model_extra.get("сцены")
             if isinstance(alt, list):
@@ -61,7 +61,7 @@ class CharactersSlice(_SliceBase):
     characters: list[Any]
 
     @model_validator(mode="after")
-    def _non_empty(self) -> "CharactersSlice":
+    def _non_empty(self) -> CharactersSlice:
         _require_list("characters", self.characters)
         return self
 
@@ -72,7 +72,7 @@ class WorldSlice(_SliceBase):
     locations: list[Any]
 
     @model_validator(mode="after")
-    def _is_list(self) -> "WorldSlice":
+    def _is_list(self) -> WorldSlice:
         _require_list("locations", self.locations, allow_empty=True)
         return self
 
@@ -81,7 +81,7 @@ class CameraSlice(_SliceBase):
     shot_plan: list[Any]
 
     @model_validator(mode="after")
-    def _non_empty(self) -> "CameraSlice":
+    def _non_empty(self) -> CameraSlice:
         _require_list("shot_plan", self.shot_plan)
         return self
 
@@ -90,7 +90,7 @@ class ActionSlice(_SliceBase):
     scenes: list[Any]
 
     @model_validator(mode="after")
-    def _non_empty(self) -> "ActionSlice":
+    def _non_empty(self) -> ActionSlice:
         _require_list("scenes", self.scenes)
         return self
 
@@ -104,7 +104,7 @@ class AssemblePayload(_SliceBase):
     report: Any | None = None
 
     @model_validator(mode="after")
-    def _shape(self) -> "AssemblePayload":
+    def _shape(self) -> AssemblePayload:
         _require_list("characters", self.characters, allow_empty=True)
         _require_list("scenes", self.scenes)
         _require_list("ops", self.ops)

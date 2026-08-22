@@ -88,11 +88,7 @@ def load_chunk_checkpoint(
             return None
         return data
     list_key = ag.LIST_KEY.get(name)
-    if (
-        not list_key
-        or not isinstance(data.get(list_key), list)
-        or not data[list_key]
-    ):
+    if not list_key or not isinstance(data.get(list_key), list) or not data[list_key]:
         return None
     return data
 
@@ -178,9 +174,7 @@ def resolve_sd_node_key(project: Project, agent: str) -> str | None:
     return None
 
 
-def load_checkpoint(
-    project: Project, name: str, *, input_hash: str | None = None
-) -> dict[str, Any] | None:
+def load_checkpoint(project: Project, name: str, *, input_hash: str | None = None) -> dict[str, Any] | None:
     """Готовый срез агента с прошлого прогона (soft retry без повторного GPT).
 
     С ``input_hash`` (этап 2, C.3): срез валиден только для того же входа
@@ -195,8 +189,7 @@ def load_checkpoint(
         return None
     if input_hash is not None and info.get("input_hash") != input_hash:
         logger.info(
-            "[#{}] scene_design/{}: чекпоинт invalidated: input changed "
-            "(was={}, now={})",
+            "[#{}] scene_design/{}: чекпоинт invalidated: input changed (was={}, now={})",
             project.id,
             name,
             str(info.get("input_hash"))[:24],
@@ -211,11 +204,7 @@ def load_checkpoint(
     except Exception:  # noqa: BLE001
         return None
     list_key = ag.LIST_KEY[name]
-    if (
-        not isinstance(data, dict)
-        or not isinstance(data.get(list_key), list)
-        or not data[list_key]
-    ):
+    if not isinstance(data, dict) or not isinstance(data.get(list_key), list) or not data[list_key]:
         return None
     return data
 
@@ -228,9 +217,7 @@ def save_checkpoint(
     input_hash: str | None = None,
 ) -> None:
     _state_dir(project).mkdir(parents=True, exist_ok=True)
-    _agent_file(project, name).write_text(
-        json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8"
-    )
+    _agent_file(project, name).write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     # Полный агент готов — промежуточные чанки больше не нужны.
     clear_chunk_checkpoints(project, name)
     sd = _meta_state(project)
@@ -319,9 +306,7 @@ def agents_all_done(project: Project) -> bool:
     return all(load_checkpoint(project, name) is not None for name in needed)
 
 
-def _dump_agent_fail(
-    project: Project, name: str, reply: str, err: BaseException
-) -> Path | None:
+def _dump_agent_fail(project: Project, name: str, reply: str, err: BaseException) -> Path | None:
     """Сохранить сырой ответ при ошибке парса — иначе «нет JSON» не диагностировать.
 
     Пишет:
@@ -385,9 +370,7 @@ def agent_input_hash(
 
         prompt = ag.load_prompt(name, project)
         contract = SLICE_CONTRACTS.get(name)
-        fingerprint = (
-            contract_fingerprint(contract.name) if contract else f"sd:{name}"
-        )
+        fingerprint = contract_fingerprint(contract.name) if contract else f"sd:{name}"
         return compute_input_hash(
             unit_input={
                 "frames": sorted(
@@ -417,9 +400,7 @@ def agent_input_hash(
         return None
 
 
-def _finalize_agent_slice(
-    project: Project, name: str, data: dict[str, Any]
-) -> dict[str, Any]:
+def _finalize_agent_slice(project: Project, name: str, data: dict[str, Any]) -> dict[str, Any]:
     """Пост-обработка среза: world id только из locations_seed."""
     if name == "world":
         seed_ids = ag.skeleton_location_seed_ids(project)
@@ -518,16 +499,10 @@ async def _run_one_agent(
     return _finalize_agent_slice(project, name, parsed_holder["data"])
 
 
-def _append_slice_context(
-    base: str, *, title: str, payload: dict[str, Any] | None
-) -> str:
+def _append_slice_context(base: str, *, title: str, payload: dict[str, Any] | None) -> str:
     if not isinstance(payload, dict) or not payload:
         return base
-    return (
-        base
-        + f"\n\n# {title}\n"
-        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    )
+    return base + f"\n\n# {title}\n" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 async def _run_one_agent_adaptive(
@@ -553,18 +528,14 @@ async def _run_one_agent_adaptive(
     max_chunk = int(settings.scene_design_agent_chunk_frames)
     parallel = max(1, int(settings.scene_design_agent_chunk_parallel))
 
-    async def _run_parts(
-        batches: list[list[Any]], *, child_depth: int, prefix: str
-    ) -> dict[str, Any]:
+    async def _run_parts(batches: list[list[Any]], *, child_depth: int, prefix: str) -> dict[str, Any]:
         sem = asyncio.Semaphore(parallel)
 
         async def _one(i: int, batch: list[Any]) -> dict[str, Any]:
             part_label = f"{prefix}{i}"
             # Proactive-чанки: переживают soft-retry / 500 / рестарт.
             if prefix == "p":
-                cached = load_chunk_checkpoint(
-                    project, name, part_label, input_hash=input_hash
-                )
+                cached = load_chunk_checkpoint(project, name, part_label, input_hash=input_hash)
                 if cached is not None:
                     logger.info(
                         "[#{}] scene_design/{}: chunk {} — checkpoint, skip GPT",
@@ -588,9 +559,7 @@ async def _run_one_agent_adaptive(
                 )
             if prefix == "p":
                 try:
-                    save_chunk_checkpoint(
-                        project, name, part_label, data, input_hash=input_hash
-                    )
+                    save_chunk_checkpoint(project, name, part_label, data, input_hash=input_hash)
                 except Exception:  # noqa: BLE001
                     logger.debug(
                         "[#{}] scene_design/{}: chunk ckpt save failed {}",
@@ -601,18 +570,11 @@ async def _run_one_agent_adaptive(
                     )
             return data
 
-        parts = await asyncio.gather(
-            *(_one(i, b) for i, b in enumerate(batches, start=1))
-        )
+        parts = await asyncio.gather(*(_one(i, b) for i, b in enumerate(batches, start=1)))
         return ach.merge_agent_slices(name, list(parts))
 
     # Проактивно: не слать 65 кадров целиком (5 мин → 524 впустую).
-    if (
-        depth == 0
-        and max_chunk > 1
-        and len(frame_list) > max_chunk
-        and name in ach.SPLITTABLE_AGENTS
-    ):
+    if depth == 0 and max_chunk > 1 and len(frame_list) > max_chunk and name in ach.SPLITTABLE_AGENTS:
         batches = ach.split_frames_batches(frame_list, max_frames=max_chunk)
         logger.info(
             "[#{}] scene_design/{}: proactive {} chunks ×≤{} frames (parallel={})",
@@ -625,9 +587,7 @@ async def _run_one_agent_adaptive(
         return await _run_parts(batches, child_depth=1, prefix="p")
 
     slim = depth > 0
-    ctx = context_builder.build_shared_context(
-        project, frame_list, mode="chunk" if slim else "full"
-    )
+    ctx = context_builder.build_shared_context(project, frame_list, mode="chunk" if slim else "full")
     for title, payload in slice_extras:
         # camera: полный ACTION в extras не тащим — ниже фильтр по чанку.
         if name == "camera" and title.startswith("ACTION SCENES"):
@@ -640,9 +600,7 @@ async def _run_one_agent_adaptive(
         ctx = _append_slice_context(ctx, title=title, payload=use_payload)
     if name == "camera" and action_scenes is not None:
         full_vo = context_builder.full_voiceover(project, full_list)
-        filtered = ach.filter_action_scenes_for_frames(
-            list(action_scenes), frame_list, full_list, full_vo
-        )
+        filtered = ach.filter_action_scenes_for_frames(list(action_scenes), frame_list, full_list, full_vo)
         ctx = _append_slice_context(
             ctx,
             title="ACTION SCENES (JSON) — закон фаз для camera",
@@ -652,15 +610,12 @@ async def _run_one_agent_adaptive(
         ctx = ctx + "\n\n" + ach.chunk_instruction(label=label, depth=depth)
 
     attempt_to = float(settings.scene_design_agent_attempt_timeout_s)
-    call_timeout = (
-        min(float(timeout), attempt_to) if attempt_to > 0 else float(timeout)
-    )
+    call_timeout = min(float(timeout), attempt_to) if attempt_to > 0 else float(timeout)
 
     vo_nums = [
         int(f.number)
         for f in frame_list
-        if (getattr(f, "voiceover_text", None) or "").strip()
-        and getattr(f, "number", None) is not None
+        if (getattr(f, "voiceover_text", None) or "").strip() and getattr(f, "number", None) is not None
     ]
 
     async def _call_once() -> dict[str, Any]:
@@ -680,8 +635,7 @@ async def _run_one_agent_adaptive(
     except Exception as e:  # noqa: BLE001
         if ach.is_credits_failure(e):
             raise ach.CreditsExhausted(
-                f"scene_design/{name}: нет кредитов GPT (402) — "
-                f"пополни баланс; retry/split отключены. {e}"
+                f"scene_design/{name}: нет кредитов GPT (402) — пополни баланс; retry/split отключены. {e}"
             ) from e
         # 500/502/503: один повтор того же чанка (без /2), потом raise.
         if ach.is_transient_server_failure(e):
@@ -708,14 +662,9 @@ async def _run_one_agent_adaptive(
             and len(frame_list) >= 2
         )
         if not can_split:
-            if (
-                name in ach.SPLITTABLE_AGENTS
-                and ach.is_capacity_failure(e)
-                and depth >= ach.MAX_SPLIT_DEPTH
-            ):
+            if name in ach.SPLITTABLE_AGENTS and ach.is_capacity_failure(e) and depth >= ach.MAX_SPLIT_DEPTH:
                 raise ach.CapacitySplitExhausted(
-                    f"scene_design/{name}: capacity-failure после "
-                    f"{ach.MAX_SPLIT_DEPTH} дроблений (/4) — {e}"
+                    f"scene_design/{name}: capacity-failure после {ach.MAX_SPLIT_DEPTH} дроблений (/4) — {e}"
                 ) from e
             raise
         left, right = ach.split_frames_half(frame_list)
@@ -803,9 +752,7 @@ async def run_category_agents(
         )
         cached = load_checkpoint(project, name, input_hash=agent_hash)
         if cached is not None:
-            logger.info(
-                "[#{}] scene_design/{}: checkpoint — пропуск GPT", project.id, name
-            )
+            logger.info("[#{}] scene_design/{}: checkpoint — пропуск GPT", project.id, name)
             results[name] = cached
             return
         if target and name != target:
@@ -885,19 +832,9 @@ async def run_category_agents(
             wave_i + 1,
             ",".join(wave),
         )
-        await asyncio.gather(
-            *(
-                _one(n, ctx, slice_extras=extras, action_scenes=action_scenes)
-                for n in wave
-            )
-        )
+        await asyncio.gather(*(_one(n, ctx, slice_extras=extras, action_scenes=action_scenes) for n in wave))
         # Action обязан покрыть биты скелета (если волна 0 была).
-        if (
-            skeleton_on
-            and "action" in wave
-            and "action" in results
-            and (not target or target == "action")
-        ):
+        if skeleton_on and "action" in wave and "action" in results and (not target or target == "action"):
             try:
                 from app.services.scene_design.skeleton import (
                     validate_action_covers_skeleton_bits,
@@ -922,9 +859,7 @@ async def run_category_agents(
                 results.pop("action", None)
         # Жёсткий стоп: упала текущая волна — дальше не идём.
         # В only_agent режиме смотрим только целевого агента.
-        wave_failed = [
-            n for n in wave if n in errors and (not target or n == target)
-        ]
+        wave_failed = [n for n in wave if n in errors and (not target or n == target)]
         if wave_failed:
             failed = ", ".join(sorted(errors))
             raise ag.SceneDesignAgentError(
@@ -1041,19 +976,13 @@ async def run_assembler_chunked(
     from app.settings import settings
 
     frame_list = [f for f in frames if isinstance(f, Frame)]
-    n = (
-        int(max_frames)
-        if max_frames is not None
-        else int(settings.scene_design_assemble_chunk_frames)
-    )
+    n = int(max_frames) if max_frames is not None else int(settings.scene_design_assemble_chunk_frames)
     if n <= 1 or len(frame_list) <= n:
         # Legacy: полный shared context + весь assembly_input.
         from app.services.scene_design import context_builder
 
         context = context_builder.build_shared_context(project, frame_list)
-        return await run_assembler(
-            project, context, assembly_input, feedback=feedback, timeout=timeout
-        )
+        return await run_assembler(project, context, assembly_input, feedback=feedback, timeout=timeout)
 
     from app.services.scene_design import agent_chunks as ach
 
@@ -1084,14 +1013,10 @@ async def run_assembler_chunked(
             full_vo,
             include_characters=include_characters,
         )
-        chunk_ctx = chunks.build_chunk_context(
-            full_vo, batch, chunk_index=chunk_index, chunk_total=total
-        )
+        chunk_ctx = chunks.build_chunk_context(full_vo, batch, chunk_index=chunk_index, chunk_total=total)
         if depth > 0:
             chunk_ctx = (
-                chunk_ctx
-                + "\n\n"
-                + ach.chunk_instruction(label=label or str(chunk_index), depth=depth)
+                chunk_ctx + "\n\n" + ach.chunk_instruction(label=label or str(chunk_index), depth=depth)
             )
         try:
             # На adaptive-path: 1×524 → сразу half-split, без GPT_MAX_RETRIES кругов.
@@ -1104,11 +1029,7 @@ async def run_assembler_chunked(
                 max_retries=0,
             )
         except Exception as e:  # noqa: BLE001
-            if (
-                ach.is_capacity_failure(e)
-                and depth < ach.MAX_SPLIT_DEPTH
-                and len(batch) >= 2
-            ):
+            if ach.is_capacity_failure(e) and depth < ach.MAX_SPLIT_DEPTH and len(batch) >= 2:
                 left, right = ach.split_frames_half(batch)
                 logger.warning(
                     "[#{}] scene_design assemble chunk {}: {} — split depth {}→{}",

@@ -31,9 +31,7 @@ async def _load_frames(session: AsyncSession, project: Project) -> list[Frame]:
     return (
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         )
         .scalars()
@@ -119,17 +117,12 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
         # Волна 0: черновик→редактор скелета (до параллельных категорийных).
         from app.services.scene_design import skeleton as sd_skeleton
 
-        if (
-            sd_skeleton.skeleton_pipeline_enabled(project)
-            and (not only_agent or only_agent == "skeleton")
-        ):
+        if sd_skeleton.skeleton_pipeline_enabled(project) and (not only_agent or only_agent == "skeleton"):
             await sd_skeleton.run_skeleton(session, project, frames)
             await session.commit()
 
         context = context_builder.build_shared_context(project, frames)
-        slices = await runner.run_category_agents(
-            project, context, frames=frames, only_agent=only_agent
-        )
+        slices = await runner.run_category_agents(project, context, frames=frames, only_agent=only_agent)
         # Чекпоинты агентов уже в meta — зафиксировать до записи ячеек.
         await session.commit()
 
@@ -137,16 +130,10 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
         # В only_agent режиме пишем только целевого (остальные — старые чекпоинты).
         full_vo = context_builder.full_voiceover(project, frames)
         cell_stats: dict[str, dict[str, int]] = {}
-        to_store = (
-            {only_agent: slices[only_agent]}
-            if only_agent and only_agent in slices
-            else slices
-        )
+        to_store = {only_agent: slices[only_agent]} if only_agent and only_agent in slices else slices
         for agent_name, slice_data in to_store.items():
             converted = sd_cells.slice_to_cells(project, agent_name, slice_data, full_vo)
-            cell_stats[agent_name] = await sd_cells.store_cells(
-                session, project, agent_name, converted
-            )
+            cell_stats[agent_name] = await sd_cells.store_cells(session, project, agent_name, converted)
             # Ответ агента на диск ноды — материал для её ноды проверки.
             _write_sd_reply_file(project, agent_name, slice_data)
         logger.info("[#{}] scene_design cells: {}", project.id, cell_stats)
@@ -192,9 +179,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
     await session.commit()
 
 
-async def run_assemble(
-    session: AsyncSession, project: Project, bot: Bot | None = None
-) -> None:
+async def run_assemble(session: AsyncSession, project: Project, bot: Bot | None = None) -> None:
     """Фаза 2: финальный агент-сборщик → scene_registry + attrs кадров."""
     if project.status is not ProjectStatus.scene_assembling:
         return
@@ -239,9 +224,7 @@ async def run_assemble(
             await session.flush()
 
         # Ячейки → camera SET дробит VO-диапазон на кадры → сцены (≥VO).
-        backfill = await sd_cells.backfill_from_checkpoints(
-            session, project, full_vo
-        )
+        backfill = await sd_cells.backfill_from_checkpoints(session, project, full_vo)
         if backfill:
             logger.info(
                 "[#{}] scene_asm: cells backfill from checkpoints {}",
@@ -249,25 +232,17 @@ async def run_assemble(
                 {k: v.get("stored") for k, v in backfill.items()},
             )
         all_cells = await sd_cells.load_cells(session, project)
-        assembly_input = sd_chronology.build_assembly_input(
-            project, frames, all_cells, full_vo
-        )
+        assembly_input = sd_chronology.build_assembly_input(project, frames, all_cells, full_vo)
         if not assembly_input.get("characters"):
             from app.services.scene_design.apply import (
                 characters_from_payload_or_checkpoint,
             )
 
-            assembly_input["characters"] = characters_from_payload_or_checkpoint(
-                project, {}
-            )
+            assembly_input["characters"] = characters_from_payload_or_checkpoint(project, {})
         from app.services.scene_design import camera_expand as sd_camera_expand
 
         # Action-цепи ДО rebuild (rebuild перезапишет scenes_chrono).
-        action_scenes = [
-            sc
-            for sc in (assembly_input.get("scenes_chrono") or [])
-            if isinstance(sc, dict)
-        ]
+        action_scenes = [sc for sc in (assembly_input.get("scenes_chrono") or []) if isinstance(sc, dict)]
 
         frames, subdiv_report = await sd_camera_expand.subdivide_vo_frames_by_camera(
             session, project, frames, assembly_input, full_vo
@@ -287,9 +262,7 @@ async def run_assemble(
             list(assembly_input.get("scenes_chrono") or []),
             action_scenes,
         )
-        assembly_input = sd_assembler.merge_world_style_checkpoints(
-            project, assembly_input
-        )
+        assembly_input = sd_assembler.merge_world_style_checkpoints(project, assembly_input)
         logger.info(
             "[#{}] camera_expand report: {}",
             project.id,
@@ -302,9 +275,7 @@ async def run_assemble(
         # Локальная склейка из shot_plan/action — без повторных GPT.
         if uses_chrono_dyn(project):
             local = sd_assembler.build_local_assembler_payload(assembly_input, frames)
-            problems = sd_assembler.validate_payload(
-                project, frames, local, full_vo
-            )
+            problems = sd_assembler.validate_payload(project, frames, local, full_vo)
             payload = local
             if problems:
                 # Качество сценария судит n_excel_gpt_1 (check), не GPT-сборщик.
@@ -315,9 +286,7 @@ async def run_assemble(
                     problems[:12],
                 )
                 extra = "; ".join(problems[:8])
-                local["report"] = (
-                    f"{local.get('report') or 'local_assemble'}; warnings:{extra}"
-                )[:800]
+                local["report"] = (f"{local.get('report') or 'local_assemble'}; warnings:{extra}")[:800]
             else:
                 logger.info(
                     "[#{}] scene_design assemble: local chrono_dyn ok (no GPT)",
@@ -334,12 +303,8 @@ async def run_assemble(
                     feedback=feedback,
                 )
                 # Границы сцен — из camera_expand, не из GPT (ломает цитаты в чанках).
-                candidate = sd_assembler.force_scenes_from_chrono(
-                    candidate, assembly_input, frames=frames
-                )
-                problems = sd_assembler.validate_payload(
-                    project, frames, candidate, full_vo
-                )
+                candidate = sd_assembler.force_scenes_from_chrono(candidate, assembly_input, frames=frames)
+                problems = sd_assembler.validate_payload(project, frames, candidate, full_vo)
                 if not problems:
                     payload = candidate
                     break
@@ -352,9 +317,7 @@ async def run_assemble(
                     problems,
                 )
         if payload is None:
-            raise RuntimeError(
-                f"scene_design: сборка не прошла валидацию: {feedback}"
-            )
+            raise RuntimeError(f"scene_design: сборка не прошла валидацию: {feedback}")
 
         applied = await sd_apply.apply_scene_design(session, project, payload)
         # Пayload сборщика на диск ноды — материал для «Проверка: сборка сцен».
@@ -382,9 +345,7 @@ async def run_assemble(
     try:
         from app.services.storage_step_sync import sync_storage_after_step
 
-        await sync_storage_after_step(
-            session, project, "scene_design", log_prefix="scene_design"
-        )
+        await sync_storage_after_step(session, project, "scene_design", log_prefix="scene_design")
     except Exception as e:  # noqa: BLE001
         logger.warning("[#{}] scene_design: storage sync failed: {}", project.id, e)
 

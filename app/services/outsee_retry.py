@@ -85,8 +85,7 @@ from app.generation_options import (
     prepend_gen_id,
     strip_prompt_id_lines,
 )
-from app.services.step_cancel import abort_if_cancelled, sleep_cancellable
-from app.services.step_cancel import StepCancelledError
+from app.services.step_cancel import StepCancelledError, abort_if_cancelled, sleep_cancellable
 from app.services.video_error_policy import (
     VideoErrorAction,
     VideoLadderExhaustedError,
@@ -107,14 +106,11 @@ def _apply_local_prompt_sanitize(
     force_simplify: bool = True,
 ) -> str:
     """Локальная замена триггеров (+ упрощение). Без GPT."""
-    cleaned, stats = sanitize_video_prompt_after_errors(
-        prompt, simplify=force_simplify
-    )
+    cleaned, stats = sanitize_video_prompt_after_errors(prompt, simplify=force_simplify)
     if cleaned.strip() == (prompt or "").strip():
         return prompt
     logger.info(
-        "outsee_retry: локальная санация промта [{}]: "
-        "triggers={} simplified={} {}→{} симв",
+        "outsee_retry: локальная санация промта [{}]: triggers={} simplified={} {}→{} симв",
         where,
         stats["trigger_replacements"],
         stats["simplified"],
@@ -145,10 +141,10 @@ def _hard_truncate_prompt(text: str, body_limit: int) -> str:
         cut = cut[:sp]
     return cut
 
+
 # Fallback для rewrite не из-за модерации (редко — второй раунд после других сбоев).
 _GPT_REWRITE_META = (
-    "пришли только готовый текст без рассуждений: исправь промт ниже "
-    "и пришли только отредактированный текст."
+    "пришли только готовый текст без рассуждений: исправь промт ниже и пришли только отредактированный текст."
 )
 
 # Минимальная длина «осмысленного» rewrite — отсекает «ok», «готово» и
@@ -219,10 +215,7 @@ def _is_start_frame_content_policy_error(err: BaseException) -> bool:
         body = str(ctx.get("body") or ctx.get("status") or "").lower()
         code = str(ctx.get("code") or "").lower()
         if code == "content_policy" and (
-            "изображен" in reason
-            or "личност" in reason
-            or "известн" in reason
-            or "image" in reason
+            "изображен" in reason or "личност" in reason or "известн" in reason or "image" in reason
         ):
             return True
     blob = f"{reason}\n{body}"
@@ -429,8 +422,7 @@ async def _compress_prompt_for_outsee(
                 f"Прошлый промт:\n\n{last}"
             )
         logger.info(
-            "outsee_retry: GPT-сжатие attempt {}/{} — жду ответ ChatGPT "
-            "(промт {} симв, лимит {})",
+            "outsee_retry: GPT-сжатие attempt {}/{} — жду ответ ChatGPT (промт {} симв, лимит {})",
             attempt,
             3,
             len(ask),
@@ -441,17 +433,14 @@ async def _compress_prompt_for_outsee(
                 gpt.ask_fresh(ask, timeout=600, project_id=project_id),
                 timeout=_GPT_COMPRESS_OUTER_TIMEOUT_S,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(
-                "outsee_retry: GPT-сжатие таймаут {:.0f}с — кадр failed, "
-                "воркер идёт к следующему",
+                "outsee_retry: GPT-сжатие таймаут {:.0f}с — кадр failed, воркер идёт к следующему",
                 _GPT_COMPRESS_OUTER_TIMEOUT_S,
             )
             return None
         except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "outsee_retry: GPT-сжатие упало ({}: {})", type(e).__name__, e
-            )
+            logger.warning("outsee_retry: GPT-сжатие упало ({}: {})", type(e).__name__, e)
             return None
         last = strip_prompt_id_lines((reply or "").strip())
         if len(last) < _MIN_REWRITE_LEN:
@@ -459,12 +448,16 @@ async def _compress_prompt_for_outsee(
         if len(last) <= max_body:
             logger.info(
                 "outsee_retry: GPT-сжатие OK: {} → {} симв (лимит {})",
-                len(prompt_body), len(last), max_body,
+                len(prompt_body),
+                len(last),
+                max_body,
             )
             return last
         logger.warning(
             "outsee_retry: GPT-сжатие attempt {}: {} симв (нужно ≤{})",
-            attempt, len(last), max_body,
+            attempt,
+            len(last),
+            max_body,
         )
     return None
 
@@ -485,16 +478,11 @@ async def _prepare_prompt_for_outsee(
     prompt_body = strip_prompt_id_lines(prompt_body)
     full_limit = max_full if max_full is not None else OUTSEE_PROMPT_MAX_CHARS
     full = _outsee_full_prompt(prompt_body, prefix)
-    body_limit = (
-        max_body
-        if max_body is not None
-        else _max_body_for_prefix(prefix, cap=full_limit)
-    )
+    body_limit = max_body if max_body is not None else _max_body_for_prefix(prefix, cap=full_limit)
     if len(prompt_body) <= body_limit and len(full) <= full_limit:
         return prompt_body
     logger.warning(
-        "outsee_retry: промт {} симв (full {}), лимит body {} / outsee {} — "
-        "сжимаю через GPT",
+        "outsee_retry: промт {} симв (full {}), лимит body {} / outsee {} — сжимаю через GPT",
         len(prompt_body),
         len(full),
         body_limit,
@@ -550,15 +538,11 @@ async def _ask_gpt_to_rewrite(
     body_limit = _max_body_for_prefix(prefix)
     moderation = last_error is not None and outsee_error_is_moderation(last_error)
     if moderation:
-        full_request = (
-            f"{_gpt_moderation_rewrite_meta(body_limit)}\n\n{original_prompt}"
-        )
+        full_request = f"{_gpt_moderation_rewrite_meta(body_limit)}\n\n{original_prompt}"
     else:
         err_hint = ""
         if last_error is not None:
-            err_hint = (
-                f"\n\nПоследняя ошибка outsee:\n{last_error.reason[:500]}"
-            )
+            err_hint = f"\n\nПоследняя ошибка outsee:\n{last_error.reason[:500]}"
             if _is_prompt_related_error(last_error):
                 err_hint += (
                     f"\n\nOutsee не принимает такую длину — сожми до ≤{body_limit} "
@@ -569,47 +553,38 @@ async def _ask_gpt_to_rewrite(
             f"промта (без строки [ID: …]).\n\n"
             f"{original_prompt}{err_hint}"
         )
-    ask_timeout = (
-        _GPT_MODERATION_REWRITE_ASK_TIMEOUT_S if moderation else 600.0
-    )
-    outer_timeout = (
-        _GPT_MODERATION_REWRITE_OUTER_TIMEOUT_S
-        if moderation
-        else _GPT_REWRITE_OUTER_TIMEOUT_S
-    )
+    ask_timeout = _GPT_MODERATION_REWRITE_ASK_TIMEOUT_S if moderation else 600.0
+    outer_timeout = _GPT_MODERATION_REWRITE_OUTER_TIMEOUT_S if moderation else _GPT_REWRITE_OUTER_TIMEOUT_S
     try:
         reply = await asyncio.wait_for(
-            gpt.ask_fresh(
-                full_request, timeout=ask_timeout, project_id=project_id
-            ),
+            gpt.ask_fresh(full_request, timeout=ask_timeout, project_id=project_id),
             timeout=outer_timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error(
-            "outsee_retry: GPT-rewrite таймаут {:.0f}с{} — кадр дальше "
-            "не держим, очередь картинок продолжит",
+            "outsee_retry: GPT-rewrite таймаут {:.0f}с{} — кадр дальше не держим, очередь картинок продолжит",
             outer_timeout,
             " (модерация)" if moderation else "",
         )
         return None
     except Exception as e:  # noqa: BLE001
         logger.warning(
-            "outsee_retry: GPT-rewrite не получился ({}: {}) — "
-            "продолжать нечем",
-            type(e).__name__, e,
+            "outsee_retry: GPT-rewrite не получился ({}: {}) — продолжать нечем",
+            type(e).__name__,
+            e,
         )
         return None
     text = strip_prompt_id_lines((reply or "").strip())
     if len(text) < _MIN_REWRITE_LEN:
         logger.warning(
-            "outsee_retry: GPT-rewrite вернул слишком короткий ответ "
-            "({} симв) — игнорирую",
+            "outsee_retry: GPT-rewrite вернул слишком короткий ответ ({} симв) — игнорирую",
             len(text),
         )
         return None
     logger.info(
         "outsee_retry: GPT-rewrite OK, новый промт {} симв (был {})",
-        len(text), len(original_prompt),
+        len(text),
+        len(original_prompt),
     )
     if len(text) > body_limit:
         # После модерации НЕ зовём GPT-сжатие: очередь img последовательная,
@@ -630,8 +605,7 @@ async def _ask_gpt_to_rewrite(
             if overrun <= max(120, body_limit // 20):
                 cut = _hard_truncate_prompt(text, body_limit)
                 logger.warning(
-                    "outsee_retry: GPT-rewrite {} симв > лимит {} "
-                    "(+{}) — hard-truncate до {} симв",
+                    "outsee_retry: GPT-rewrite {} симв > лимит {} (+{}) — hard-truncate до {} симв",
                     len(text),
                     body_limit,
                     overrun,
@@ -652,8 +626,7 @@ async def _ask_gpt_to_rewrite(
             elif len(text) > body_limit:
                 cut = _hard_truncate_prompt(text, body_limit)
                 logger.warning(
-                    "outsee_retry: GPT-сжатие не удалось — hard-truncate "
-                    "{} → {} симв",
+                    "outsee_retry: GPT-сжатие не удалось — hard-truncate {} → {} симв",
                     len(text),
                     len(cut),
                 )
@@ -686,8 +659,7 @@ async def _fix_prompt_after_outsee_error(
         target = _target_body_chars_from_error(err, prefix)
         body_limit = target if target is not None else _max_body_for_prefix(prefix)
         logger.info(
-            "outsee_retry: лимит символов outsee после «{}» — "
-            "GPT-сжатие до ≤{} симв",
+            "outsee_retry: лимит символов outsee после «{}» — GPT-сжатие до ≤{} симв",
             err.reason[:80],
             body_limit,
         )
@@ -770,25 +742,24 @@ async def generate_image_with_retries(
     формат `[ID: P12-F3-a7f2b01c]`, где `a7f2b01c` = gen_id этой генерации.
     """
     from app.bots.grsai import generate_image as grsai_generate_image
-    from app.bots.grsai import studio_id_to_grsai_slug, grsai_key_configured
+    from app.bots.grsai import grsai_key_configured, studio_id_to_grsai_slug
     from app.bots.outsee_http import (
         generate_image as outsee_api_generate_image,
+    )
+    from app.bots.outsee_http import (
         outsee_api_configured,
         studio_id_to_outsee_image_slug,
     )
     from app.services.media_route import image_provider_for
     from app.settings import settings as _settings
 
-    raw_slug = kwargs.get("model_slug") or getattr(
-        _settings, "outsee_default_image_model", None
-    )
+    raw_slug = kwargs.get("model_slug") or getattr(_settings, "outsee_default_image_model", None)
     backend = image_provider_for(str(raw_slug) if raw_slug else None)
     use_grsai = backend == "grsai" and grsai_key_configured()
     use_outsee_api = backend == "outsee" and outsee_api_configured()
     if backend == "outsee" and not outsee_api_configured():
         raise OutseeImageError(
-            "OUTSEE_API_KEY пуст — GPT Image 2 / Nano Banana 2 / Veo 3.1 Lite "
-            "идут через ключ Outsee",
+            "OUTSEE_API_KEY пуст — GPT Image 2 / Nano Banana 2 / Veo 3.1 Lite идут через ключ Outsee",
             context={"error_kind": "no_key", "provider": "outsee"},
         )
     last_err: OutseeImageError | None = None
@@ -823,17 +794,11 @@ async def generate_image_with_retries(
                     raw_slug = attempt_kwargs.get("model_slug") or getattr(
                         _settings, "grsai_default_image_model", None
                     )
-                    slug = studio_id_to_grsai_slug(
-                        str(raw_slug) if raw_slug else None
-                    )
+                    slug = studio_id_to_grsai_slug(str(raw_slug) if raw_slug else None)
                     if slug not in GRSAI_WIRED_IMAGE_MODELS:
-                        slug = studio_id_to_grsai_slug(
-                            getattr(_settings, "grsai_default_image_model", None)
-                        )
+                        slug = studio_id_to_grsai_slug(getattr(_settings, "grsai_default_image_model", None))
                     ar = attempt_kwargs.get("aspect_ratio") or "9:16"
-                    res = attempt_kwargs.get("resolution") or attempt_kwargs.get(
-                        "image_resolution"
-                    )
+                    res = attempt_kwargs.get("resolution") or attempt_kwargs.get("image_resolution")
                     result = await grsai_generate_image(
                         send_prompt,
                         out_path,
@@ -882,13 +847,9 @@ async def generate_image_with_retries(
                     raw_slug = attempt_kwargs.get("model_slug") or getattr(
                         _settings, "outsee_default_image_model", None
                     )
-                    slug = studio_id_to_outsee_image_slug(
-                        str(raw_slug) if raw_slug else None
-                    )
+                    slug = studio_id_to_outsee_image_slug(str(raw_slug) if raw_slug else None)
                     ar = attempt_kwargs.get("aspect_ratio") or "9:16"
-                    res = attempt_kwargs.get("resolution") or attempt_kwargs.get(
-                        "image_resolution"
-                    )
+                    res = attempt_kwargs.get("resolution") or attempt_kwargs.get("image_resolution")
                     if ref_list:
                         logger.info(
                             "outsee_retry: {} ref(s) → Outsee HTTP API image_urls",
@@ -928,9 +889,7 @@ async def generate_image_with_retries(
                     except Exception:  # noqa: BLE001
                         logger.debug("outsee sidecar write skipped", exc_info=True)
                     return result
-                return await outsee.generate_image(
-                    send_prompt, out_path, **attempt_kwargs
-                )
+                return await outsee.generate_image(send_prompt, out_path, **attempt_kwargs)
             except StepCancelledError:
                 raise
             except OutseeDownloadError as e:
@@ -941,23 +900,17 @@ async def generate_image_with_retries(
                 from app.bots.outsee import _resolve_best_download_url
 
                 img_url = (
-                    _resolve_best_download_url(raw_url)
-                    if isinstance(raw_url, str) and raw_url
-                    else raw_url
+                    _resolve_best_download_url(raw_url) if isinstance(raw_url, str) and raw_url else raw_url
                 )
                 if isinstance(img_url, str) and img_url and gen_id:
                     for dl_try in range(1, _DOWNLOAD_ONLY_RETRIES + 1):
-                        abort_if_cancelled(
-                            pid if isinstance(pid, int) else None
-                        )
+                        abort_if_cancelled(pid if isinstance(pid, int) else None)
                         try:
                             return await outsee.retry_image_download(
                                 img_url=img_url,
                                 out_path=out_path,
                                 gen_id=gen_id,
-                                prompt_id_prefix=(
-                                    prefix if isinstance(prefix, str) else None
-                                ),
+                                prompt_id_prefix=(prefix if isinstance(prefix, str) else None),
                                 project_id=pid if isinstance(pid, int) else None,
                                 model_slug=attempt_kwargs.get("model_slug"),
                             )
@@ -1009,8 +962,7 @@ async def generate_image_with_retries(
                 is_moderation = outsee_error_is_moderation(e)
                 if is_moderation:
                     logger.warning(
-                        "outsee.generate_image [{}] МОДЕРАЦИЯ outsee "
-                        "попытка {}/{} (id={}): {}",
+                        "outsee.generate_image [{}] МОДЕРАЦИЯ outsee попытка {}/{} (id={}): {}",
                         round_label,
                         attempt,
                         max_attempts_per_prompt,
@@ -1020,7 +972,9 @@ async def generate_image_with_retries(
                 else:
                     logger.warning(
                         "outsee.generate_image [{}] попытка {}/{} ({}, id={}): {}",
-                        round_label, attempt, max_attempts_per_prompt,
+                        round_label,
+                        attempt,
+                        max_attempts_per_prompt,
                         err_kind,
                         attempt_kwargs.get("prompt_id_prefix") or "—",
                         e.reason,
@@ -1048,12 +1002,9 @@ async def generate_image_with_retries(
                         project_id=pid if isinstance(pid, int) else None,
                     )
                     if fixed and fixed.strip() != current_prompt.strip():
-                        action = (
-                            "GPT-rewrite" if is_moderation else "GPT-сжатие"
-                        )
+                        action = "GPT-rewrite" if is_moderation else "GPT-сжатие"
                         logger.info(
-                            "outsee.generate_image [{}]: {} OK "
-                            "({} → {} симв, ошибка={})",
+                            "outsee.generate_image [{}]: {} OK ({} → {} симв, ошибка={})",
                             round_label,
                             action,
                             len(current_prompt),
@@ -1071,8 +1022,7 @@ async def generate_image_with_retries(
                 elif is_moderation and gpt is None:
                     # Без GPT бессмысленно долбить тот же banned-промт 3×.
                     logger.warning(
-                        "outsee.generate_image [{}]: модерация без GPT — "
-                        "не повторяю тот же текст",
+                        "outsee.generate_image [{}]: модерация без GPT — не повторяю тот же текст",
                         round_label,
                     )
                     break
@@ -1104,9 +1054,7 @@ async def generate_image_with_retries(
             prefix=base_prompt_id,
         )
         if not rewritten:
-            logger.warning(
-                "outsee.generate_image: GPT-rewrite не вернул текст — выхожу"
-            )
+            logger.warning("outsee.generate_image: GPT-rewrite не вернул текст — выхожу")
             break
         current_prompt = rewritten
 
@@ -1140,15 +1088,19 @@ async def generate_video_with_retries(
     primary_kwargs = dict(kwargs)
     primary_slug = str(primary_kwargs.get("model_slug") or "veo")
 
-    from app.bots.grsai import grsai_video_enabled, generate_video as grsai_generate_video
-    from app.bots.grsai import studio_id_to_grsai_video_slug, grsai_key_configured
+    from app.bots.grsai import generate_video as grsai_generate_video
+    from app.bots.grsai import grsai_key_configured, studio_id_to_grsai_video_slug
     from app.bots.kie_kling import (
         generate_video as kie_kling_generate_video,
+    )
+    from app.bots.kie_kling import (
         kie_api_configured,
         truncate_kling_prompt,
     )
     from app.bots.outsee_http import (
         generate_video as outsee_api_generate_video,
+    )
+    from app.bots.outsee_http import (
         outsee_api_configured,
         studio_id_to_outsee_video_slug,
     )
@@ -1188,11 +1140,7 @@ async def generate_video_with_retries(
         if kling:
             send_prompt = truncate_kling_prompt(send_prompt)
             return ensure_silent_video_prompt(send_prompt)
-        api_full_cap = (
-            _OUTSEE_API_VIDEO_PROMPT_MAX
-            if use_outsee_api_video
-            else OUTSEE_PROMPT_MAX_CHARS
-        )
+        api_full_cap = _OUTSEE_API_VIDEO_PROMPT_MAX if use_outsee_api_video else OUTSEE_PROMPT_MAX_CHARS
         send_prompt = await _prepare_prompt_for_outsee(
             gpt,
             send_prompt,
@@ -1351,9 +1299,7 @@ async def generate_video_with_retries(
             except Exception:  # noqa: BLE001
                 logger.debug("outsee video sidecar skipped", exc_info=True)
             return result
-        return await outsee.generate_video(
-            send_prompt, out_path, project_id=project_id, **attempt_kwargs
-        )
+        return await outsee.generate_video(send_prompt, out_path, project_id=project_id, **attempt_kwargs)
 
     async def _rewrite_prompt_after_fail(err: BaseException) -> None:
         nonlocal current_prompt, local_sanitized
@@ -1370,9 +1316,7 @@ async def generate_video_with_retries(
             local_sanitized = True
             return
         # GPT недоступен / не помог — локальная санация (триггеры + simplify)
-        current_prompt = _apply_local_prompt_sanitize(
-            current_prompt, where="video ladder local sanitize"
-        )
+        current_prompt = _apply_local_prompt_sanitize(current_prompt, where="video ladder local sanitize")
         local_sanitized = True
 
     while True:
@@ -1424,11 +1368,7 @@ async def generate_video_with_retries(
         provider_label = (
             "kie-kling"
             if use_kling
-            else (
-                "grsai"
-                if use_grsai_video
-                else ("outsee-api" if use_outsee_api_video else "outsee-cdp")
-            )
+            else ("grsai" if use_grsai_video else ("outsee-api" if use_outsee_api_video else "outsee-cdp"))
         )
         logger.info(
             "outsee_retry: video [{}] попытка {}/{} model={} provider={} {}",
@@ -1445,9 +1385,7 @@ async def generate_video_with_retries(
             ),
         )
         try:
-            send_prompt = await _prepare_send(
-                current_prompt, attempt_kwargs, kling=use_kling
-            )
+            send_prompt = await _prepare_send(current_prompt, attempt_kwargs, kling=use_kling)
             return await _dispatch(send_prompt, attempt_kwargs, kling=use_kling)
         except StepCancelledError:
             raise
@@ -1504,9 +1442,7 @@ async def generate_video_with_retries(
         if action == VideoErrorAction.STOP_AUTH:
             raise last_err or OutseeImageError(classified.detail)
 
-        if action == VideoErrorAction.RETRY_SAME or (
-            action == VideoErrorAction.DOWNLOAD_RETRY and use_kling
-        ):
+        if action == VideoErrorAction.RETRY_SAME or (action == VideoErrorAction.DOWNLOAD_RETRY and use_kling):
             if _is_concurrency_limit_error(last_err or Exception()):
                 concurrency_waits += 1
                 if concurrency_waits > _CONCURRENCY_MAX_WAITS:
@@ -1525,13 +1461,8 @@ async def generate_video_with_retries(
             sf = primary_kwargs.get("start_frame")
             sf_path = sf if isinstance(sf, Path) else (Path(str(sf)) if sf else None)
             start_frame_policy_hits += 1
-            if (
-                sf_path is not None
-                and start_frame_policy_hits <= _START_FRAME_SOFTEN_MAX
-            ):
-                softened = _soften_start_frame_for_policy(
-                    sf_path, strength=start_frame_policy_hits
-                )
+            if sf_path is not None and start_frame_policy_hits <= _START_FRAME_SOFTEN_MAX:
+                softened = _soften_start_frame_for_policy(sf_path, strength=start_frame_policy_hits)
                 if softened is not None:
                     primary_kwargs = dict(primary_kwargs)
                     primary_kwargs["start_frame"] = softened
@@ -1550,9 +1481,7 @@ async def generate_video_with_retries(
 
         if action == VideoErrorAction.SILENT_AUDIO:
             current_prompt = ensure_silent_video_prompt(
-                _apply_local_prompt_sanitize(
-                    current_prompt, where="video audio CONTENT_POLICY"
-                )
+                _apply_local_prompt_sanitize(current_prompt, where="video audio CONTENT_POLICY")
             )
             local_sanitized = True
             action = VideoErrorAction.RETRY_REWRITE
@@ -1561,10 +1490,10 @@ async def generate_video_with_retries(
         transient_streak = 0
         if phase == "primary":
             primary_burns += 1
-            do_rewrite = (
-                action in (VideoErrorAction.RETRY_REWRITE, VideoErrorAction.RETRY_BURN)
-                and should_rewrite_after_primary_burn(primary_burns)
-            )
+            do_rewrite = action in (
+                VideoErrorAction.RETRY_REWRITE,
+                VideoErrorAction.RETRY_BURN,
+            ) and should_rewrite_after_primary_burn(primary_burns)
             # На попытках 1..3 после fail — всегда меняем текст (контракт).
             if primary_burns <= VIDEO_PRIMARY_REWRITE_ATTEMPTS:
                 do_rewrite = True
@@ -1580,9 +1509,7 @@ async def generate_video_with_retries(
         fallback_burns += 1
         if action == VideoErrorAction.RETRY_REWRITE or fallback_burns < VIDEO_FALLBACK_ATTEMPTS:
             current_prompt = truncate_kling_prompt(
-                _apply_local_prompt_sanitize(
-                    current_prompt, where=f"kling attempt {fallback_burns}"
-                ),
+                _apply_local_prompt_sanitize(current_prompt, where=f"kling attempt {fallback_burns}"),
                 max_chars=KIE_KLING_PROMPT_MAX_CHARS,
             )
         if fallback_burns >= VIDEO_FALLBACK_ATTEMPTS:
@@ -1606,4 +1533,3 @@ async def generate_video_with_retries(
             "last_error": detail[:300],
         },
     )
-

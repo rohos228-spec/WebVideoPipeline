@@ -91,6 +91,7 @@ def agent_waves(project: Any | None) -> tuple[tuple[str, ...], ...]:
         return (SKELETON_WAVE, *waves)
     return waves
 
+
 # Обязательный ключ-список в JSON-срезе агента (непустой при успехе).
 LIST_KEY: dict[str, str] = {
     SKELETON: "scenes",
@@ -144,11 +145,7 @@ def normalize_world_locations(
         if lid in seen:
             continue
         seen.add(lid)
-        cleaned = {
-            k: v
-            for k, v in loc.items()
-            if k not in _WORLD_DROP_KEYS and k in _WORLD_KEEP_KEYS
-        }
+        cleaned = {k: v for k, v in loc.items() if k not in _WORLD_DROP_KEYS and k in _WORLD_KEEP_KEYS}
         cleaned["id"] = lid
         out.append(cleaned)
     if seed_ids is not None and not seed_ids:
@@ -267,9 +264,7 @@ def load_prompt(agent: str, project: Any | None = None) -> str:
     for extra_name in PROMPT_INCLUDES.get(agent, ()):
         extra_path = prompts_dir() / extra_name
         if not extra_path.is_file():
-            raise SceneDesignAgentError(
-                f"scene_design: нет файла включаемого промпта {extra_path}"
-            )
+            raise SceneDesignAgentError(f"scene_design: нет файла включаемого промпта {extra_path}")
         extra = extra_path.read_text(encoding="utf-8").strip()
         if extra:
             text = f"{text}\n\n---\n\n{extra}"
@@ -293,9 +288,7 @@ def loads_json_loose(raw: str) -> Any:
         return json.loads(cleaned)
 
 
-def extract_json_object(
-    text: str, *, marker_keys: tuple[str, ...]
-) -> dict[str, Any] | None:
+def extract_json_object(text: str, *, marker_keys: tuple[str, ...]) -> dict[str, Any] | None:
     """Достать JSON-объект из ответа модели (fence или голый JSON с маркером).
 
     Если в ответе несколько JSON (пример в fence + рабочий объект), берём
@@ -363,9 +356,7 @@ def extract_json_object(
             v = d.get(k)
             if isinstance(v, list) and v:
                 score += 10  # непустой список — главный критерий
-            elif isinstance(v, list):
-                score += 1
-            elif k in d:
+            elif isinstance(v, list) or k in d:
                 score += 1
         return score
 
@@ -392,9 +383,7 @@ _PLACE_BUCKETS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 
 def _phase_action_text(ph: dict[str, Any]) -> str:
-    return " ".join(
-        str(ph.get(k) or "") for k in ("action", "действие", "продолжает")
-    )
+    return " ".join(str(ph.get(k) or "") for k in ("action", "действие", "продолжает"))
 
 
 def _place_buckets_in_text(text: str) -> set[str]:
@@ -503,6 +492,7 @@ def _is_metaphor_slop(action: str) -> bool:
 
 def _near_duplicate_actions(a: str, b: str) -> bool:
     """Соседние фазы почти одинаковые (одни корни глагола/предмета)."""
+
     def toks(s: str) -> set[str]:
         words = re.findall(r"[а-яёa-z0-9]{4,}", (s or "").lower())
         return set(words)
@@ -574,16 +564,12 @@ def repair_chrono_dyn_year_jumps(scenes: list[Any]) -> list[Any]:
                 ph["phase_index"] = j
             part["цепь_действия"] = gchain
             if total_sec > 0 and n_ph > 0:
-                part["время_сек"] = max(
-                    0.1, round(total_sec * len(gchain) / n_ph, 2)
-                )
+                part["время_сек"] = max(0.1, round(total_sec * len(gchain) / n_ph, 2))
             else:
                 # Не оставляем 0.0 — camera-агент бракует нулевой бюджет.
                 part["время_сек"] = round(2.0 * max(1, len(gchain)), 2)
             if gi > 0:
-                part["связь_с_прошлой"] = part.get("связь_с_прошлой") or (
-                    "продолжение после смены года"
-                )
+                part["связь_с_прошлой"] = part.get("связь_с_прошлой") or ("продолжение после смены года")
             if gi < len(groups) - 1:
                 part["крючок_в_следующую"] = part.get("крючок_в_следующую") or (
                     "время сдвигается — новая сцена"
@@ -592,9 +578,7 @@ def repair_chrono_dyn_year_jumps(scenes: list[Any]) -> list[Any]:
     return out
 
 
-def normalize_chrono_dyn_phase_budget(
-    scenes: list[Any], *, min_sec_per_phase: float = 2.0
-) -> list[Any]:
+def normalize_chrono_dyn_phase_budget(scenes: list[Any], *, min_sec_per_phase: float = 2.0) -> list[Any]:
     """Слить фазы, если ``время_сек / n < min`` — иначе camera GPT шлёт error.
 
     VO-бюджет (14 сим = 1 сек) священен: время не накручиваем, а уменьшаем
@@ -615,9 +599,7 @@ def normalize_chrono_dyn_phase_budget(
             out.append(sc)
             continue
         if sec <= 0.05:
-            vo = " ".join(
-                str(sc.get(k) or "") for k in ("start_words", "end_words", "цитата")
-            )
+            vo = " ".join(str(sc.get(k) or "") for k in ("start_words", "end_words", "цитата"))
             vo_len = len(" ".join(vo.split()))
             sec = max(min_sec_per_phase, vo_len / 14.0) if vo_len else min_sec_per_phase
             sc["время_сек"] = round(sec, 2)
@@ -714,7 +696,7 @@ def validate_chrono_dyn_action_scenes(scenes: list[Any]) -> None:
         # ≥2 разных календарных года в одной цепи = телепорт по времени
         if len(scene_years) >= 2:
             year_jump_scenes += 1
-            year_jump_ids.append(str(sc.get("id_scene") or f"#{i+1}"))
+            year_jump_ids.append(str(sc.get("id_scene") or f"#{i + 1}"))
         # ≥3 разных типа мест в одной сцене = коллаж локаций
         if len(scene_places) >= 3:
             teleport_scenes += 1
@@ -911,9 +893,7 @@ def validate_chrono_dyn_camera_shots(shots: list[Any]) -> None:
         )
 
 
-def validate_skeleton_one_vo_per_scene(
-    scenes: list[Any], expected_frame_numbers: list[int]
-) -> None:
+def validate_skeleton_one_vo_per_scene(scenes: list[Any], expected_frame_numbers: list[int]) -> None:
     """1 VO-ячейка = 1 сцена + полное покрытие без дыр. См. ``skeleton.validate_skeleton_coverage``."""
     from app.services.scene_design.skeleton import validate_skeleton_coverage
 
@@ -938,9 +918,7 @@ def parse_agent_slice(
         markers = ("cells", list_key, "сцены", "error")
     data = extract_json_object(text, marker_keys=markers)
     if data is None:
-        raise SceneDesignAgentError(
-            f"scene_design/{agent}: в ответе нет JSON (len={len(text or '')})"
-        )
+        raise SceneDesignAgentError(f"scene_design/{agent}: в ответе нет JSON (len={len(text or '')})")
     if agent == SKELETON:
         if not isinstance(data.get(list_key), list):
             alt = data.get("сцены")
@@ -965,15 +943,11 @@ def parse_agent_slice(
     if agent == "world":
         if not isinstance(items, list):
             keys = sorted(str(k) for k in data.keys())
-            raise SceneDesignAgentError(
-                f"scene_design/{agent}: нет списка «{list_key}» "
-                f"(keys={keys})"
-            )
+            raise SceneDesignAgentError(f"scene_design/{agent}: нет списка «{list_key}» (keys={keys})")
     elif not isinstance(items, list) or not items:
         keys = sorted(str(k) for k in data.keys())
         raise SceneDesignAgentError(
-            f"scene_design/{agent}: пустой «{list_key}» — срез не принят "
-            f"(keys={keys})"
+            f"scene_design/{agent}: пустой «{list_key}» — срез не принят (keys={keys})"
         )
     if agent == "action":
         items = repair_chrono_dyn_year_jumps(items)
@@ -995,17 +969,13 @@ def parse_assembler_payload(text: str) -> dict[str, Any]:
     """Финальный JSON сборщика: {characters, scenes, ops, report}."""
     data = extract_json_object(text, marker_keys=("scenes", "ops", "characters", "error"))
     if data is None:
-        raise SceneDesignAgentError(
-            f"scene_design/{ASSEMBLER}: в ответе нет JSON (len={len(text or '')})"
-        )
+        raise SceneDesignAgentError(f"scene_design/{ASSEMBLER}: в ответе нет JSON (len={len(text or '')})")
     err = str(data.get("error") or "").strip()
     if err:
         raise SceneDesignAgentError(f"scene_design/{ASSEMBLER}: error: {err}")
     for key in ("characters", "scenes", "ops"):
         if not isinstance(data.get(key), list):
-            raise SceneDesignAgentError(
-                f"scene_design/{ASSEMBLER}: ключ «{key}» — не список"
-            )
+            raise SceneDesignAgentError(f"scene_design/{ASSEMBLER}: ключ «{key}» — не список")
     if not data["scenes"]:
         raise SceneDesignAgentError(f"scene_design/{ASSEMBLER}: пустой scenes[]")
     if not data["ops"]:

@@ -27,9 +27,7 @@ def _reset_create_jobs(
 
 
 @pytest.mark.asyncio
-async def test_enqueue_dedups_identical_request_within_window(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_enqueue_dedups_identical_request_within_window(tmp_path: Path, monkeypatch) -> None:
     from app.services import create_jobs as cj
     from app.services import generation_storage as gs
 
@@ -62,9 +60,7 @@ async def test_enqueue_dedups_identical_request_within_window(
 
 
 @pytest.mark.asyncio
-async def test_enqueue_respects_max_parallel_and_unique_ids(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_enqueue_respects_max_parallel_and_unique_ids(tmp_path: Path, monkeypatch) -> None:
     from app.services import create_jobs as cj
     from app.services import generation_storage as gs
 
@@ -135,9 +131,7 @@ async def test_enqueue_respects_max_parallel_and_unique_ids(
 
 
 @pytest.mark.asyncio
-async def test_outsee_and_grsai_use_separate_pools(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_outsee_and_grsai_use_separate_pools(tmp_path: Path, monkeypatch) -> None:
     from app.services import create_jobs as cj
     from app.services import generation_storage as gs
 
@@ -191,17 +185,13 @@ async def test_outsee_and_grsai_use_separate_pools(
     for _ in range(50):
         so = cj.queue_snapshot(provider="outsee")
         sg = cj.queue_snapshot(provider="grsai")
-        if (
-            so["running_count"] == 1
-            and so["waiting_count"] == 1
-            and sg["running_count"] == 1
-        ):
+        if so["running_count"] == 1 and so["waiting_count"] == 1 and sg["running_count"] == 1:
             break
         await asyncio.sleep(0.02)
     else:
         so = cj.queue_snapshot(provider="outsee")
         sg = cj.queue_snapshot(provider="grsai")
-        pytest.fail(f"outsee={so} grsai={sg} statuses o={[o1.status,o2.status]} g={g1.status}")
+        pytest.fail(f"outsee={so} grsai={sg} statuses o={[o1.status, o2.status]} g={g1.status}")
 
     assert cj.max_parallel("outsee") == 1
     assert cj.max_parallel("grsai") == 2

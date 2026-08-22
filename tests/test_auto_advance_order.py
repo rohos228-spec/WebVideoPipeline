@@ -76,9 +76,7 @@ async def test_apply_running_if_data_ok_does_not_write_false_status(session) -> 
     )
     await session.flush()
 
-    nxt = await _apply_running_if_data_ok(
-        session, p, ProjectStatus.generating_images
-    )
+    nxt = await _apply_running_if_data_ok(session, p, ProjectStatus.generating_images)
     assert nxt is None
     assert p.status is ProjectStatus.plan_ready
 
@@ -106,9 +104,7 @@ async def test_leftover_image_prompt_blocks_early_images(session) -> None:
     )
     await session.flush()
 
-    ok, reason, _ = await can_enter_running(
-        session, p, ProjectStatus.generating_images
-    )
+    ok, reason, _ = await can_enter_running(session, p, ProjectStatus.generating_images)
     assert ok is False
     assert "img_pr" in reason
 
@@ -154,9 +150,7 @@ async def test_approve_plan_default_graph_goes_to_scripting(session) -> None:
     await session.flush()
     p.data_dir.mkdir(parents=True, exist_ok=True)
 
-    await _apply_approve(
-        session, p, None, TRANSITIONS[ProjectStatus.plan_ready], bot=None
-    )
+    await _apply_approve(session, p, None, TRANSITIONS[ProjectStatus.plan_ready], bot=None)
     assert p.status is ProjectStatus.scripting
 
 
@@ -203,9 +197,7 @@ async def test_approve_enrich2_follows_edge_to_hero_not_orphan_slot3(session) ->
     )
     await session.flush()
 
-    await _apply_approve(
-        session, p, None, TRANSITIONS[ProjectStatus.enrich_2_ready], bot=None
-    )
+    await _apply_approve(session, p, None, TRANSITIONS[ProjectStatus.enrich_2_ready], bot=None)
     assert p.status is ProjectStatus.generating_hero
 
 
@@ -248,7 +240,5 @@ async def test_approve_enrich1_goes_to_script_along_edges(session) -> None:
     await session.flush()
     p.data_dir.mkdir(parents=True, exist_ok=True)
 
-    await _apply_approve(
-        session, p, None, TRANSITIONS[ProjectStatus.enrich_1_ready], bot=None
-    )
+    await _apply_approve(session, p, None, TRANSITIONS[ProjectStatus.enrich_1_ready], bot=None)
     assert p.status is ProjectStatus.scripting

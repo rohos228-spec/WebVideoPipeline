@@ -9,16 +9,12 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def _fold_accents(text: str) -> str:
     """NFKD без combining marks — чтобы «Асаха́ры» / «Мацумо́то» ловились правилами."""
-    return "".join(
-        c
-        for c in unicodedata.normalize("NFKD", text)
-        if not unicodedata.combining(c)
-    )
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
 
 
 # (pattern, replacement) — длинные/специфичные первыми.
@@ -134,9 +130,7 @@ def sanitize_video_prompt_after_errors(
     # Запас под silent-guard в начале.
     guard_budget = len(_SILENT_VIDEO_GUARD) + 2
     body_cap = max(200, max_chars - guard_budget)
-    out = (
-        simplify_video_prompt(replaced, max_chars=body_cap) if simplify else replaced
-    )
+    out = simplify_video_prompt(replaced, max_chars=body_cap) if simplify else replaced
     out = ensure_silent_video_prompt(out)
     if len(out) > max_chars:
         out = simplify_video_prompt(out, max_chars=max_chars)

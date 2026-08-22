@@ -70,9 +70,7 @@ async def ensure_montage_words(
 
     cells = read_plan_voiceover_cells(project, frame_numbers)
     if not any(t.strip() for _, t in cells):
-        raise RuntimeError(
-            "не удалось прочитать текст кадров из project.xlsx (лист «план», строка 49)"
-        )
+        raise RuntimeError("не удалось прочитать текст кадров из project.xlsx (лист «план», строка 49)")
 
     words_path = audio_dir / f"words_{uuid.uuid4().hex[:8]}.json"
     dump_words_json(words, words_path)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Единый финальный прогон QA -> docs/QA-FINAL-REPORT.md"""
+
 from __future__ import annotations
 
 import json
@@ -8,7 +9,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -143,7 +144,7 @@ def run_cmd(lines: list[str], title: str, cmd: list[str], cwd: Path | None = Non
 
 def main() -> int:
     lines: list[str] = []
-    started = datetime.now(timezone.utc).isoformat()
+    started = datetime.now(UTC).isoformat()
     log(lines, f"==> FINAL QA {started}")
 
     # Health
@@ -160,13 +161,28 @@ def main() -> int:
     results["audit"] = run_cmd(
         lines,
         "Studio audit",
-        ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(ROOT / "scripts/guardian/run-studio-audit.ps1")],
+        [
+            "powershell",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ROOT / "scripts/guardian/run-studio-audit.ps1"),
+        ],
     )
 
     results["pytest_web"] = run_cmd(
         lines,
         "Web pytest",
-        [str(PY), "-m", "pytest", "tests/test_web_api_integration.py", "tests/test_web_dry_run_step.py", "tests/test_studio_version.py", "-q", "--tb=no"],
+        [
+            str(PY),
+            "-m",
+            "pytest",
+            "tests/test_web_api_integration.py",
+            "tests/test_web_dry_run_step.py",
+            "tests/test_studio_version.py",
+            "-q",
+            "--tb=no",
+        ],
     )
 
     results["api_matrix"] = run_cmd(
@@ -224,7 +240,7 @@ def main() -> int:
     failed = sum(1 for v in results.values() if v != 0)
     md = [
         "# QA FINAL REPORT",
-        f"Generated: {datetime.now(timezone.utc).isoformat()}",
+        f"Generated: {datetime.now(UTC).isoformat()}",
         "",
         "## Automation",
         f"- Studio audit: **{'PASS' if results.get('audit') == 0 else 'FAIL'}**",
@@ -248,7 +264,7 @@ def main() -> int:
     except Exception as e:
         log(lines, f"report write failed: {e}")
     log(lines, f"\n==> Report: {REPORT}")
-    log(lines, f"==> Automation {passed}/{passed+failed} green")
+    log(lines, f"==> Automation {passed}/{passed + failed} green")
     return 0 if failed == 0 else 1
 
 

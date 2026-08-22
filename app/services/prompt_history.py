@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +42,7 @@ def _index_path(step_code: str, name: str) -> Path:
 
 
 def _default_label(saved_at: float) -> str:
-    dt = datetime.fromtimestamp(saved_at, tz=timezone.utc).astimezone()
+    dt = datetime.fromtimestamp(saved_at, tz=UTC).astimezone()
     return dt.strftime("%d.%m.%Y %H:%M")
 
 
@@ -118,7 +118,7 @@ def _save_index(step_code: str, name: str, data: dict[str, Any]) -> None:
 
 
 def _new_version_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
 
 
 def archive_prompt_version(step_code: str, name: str, content: str) -> str | None:
@@ -129,7 +129,7 @@ def archive_prompt_version(step_code: str, name: str, content: str) -> str | Non
     hist_dir = _prompt_history_dir(step_code, name)
     idx = _load_index(step_code, name)
     (hist_dir / f"{vid}.md").write_text(text, encoding="utf-8")
-    saved_at = datetime.now(timezone.utc).timestamp()
+    saved_at = datetime.now(UTC).timestamp()
     versions: list[dict[str, Any]] = list(idx.get("versions") or [])
     versions.insert(
         0,
@@ -196,9 +196,7 @@ def read_prompt_version(step_code: str, name: str, version_id: str) -> str:
     return snap.read_text(encoding="utf-8")
 
 
-def rename_prompt_version_label(
-    step_code: str, name: str, version_id: str, label: str
-) -> dict[str, Any]:
+def rename_prompt_version_label(step_code: str, name: str, version_id: str, label: str) -> dict[str, Any]:
     clean = (label or "").strip()
     if not clean:
         raise ValueError("label required")

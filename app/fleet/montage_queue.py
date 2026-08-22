@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from loguru import logger
 from sqlalchemy import func, select
@@ -63,7 +63,7 @@ async def enqueue_for_montage(
         return False
 
     meta[META_ENQUEUED] = True
-    meta[META_ENQUEUED_AT] = datetime.now(timezone.utc).isoformat()
+    meta[META_ENQUEUED_AT] = datetime.now(UTC).isoformat()
     meta["montage_ready"] = True
     if source_node:
         meta["fleet_source_node"] = source_node
@@ -83,9 +83,7 @@ async def count_assembling(session) -> int:
     return int(
         (
             await session.execute(
-                select(func.count())
-                .select_from(Project)
-                .where(Project.status == ProjectStatus.assembling)
+                select(func.count()).select_from(Project).where(Project.status == ProjectStatus.assembling)
             )
         ).scalar()
         or 0
@@ -94,19 +92,19 @@ async def count_assembling(session) -> int:
 
 async def count_queued(session) -> int:
     rows = (
-        await session.execute(
-            select(Project).where(Project.status == ProjectStatus.music_ready)
-        )
-    ).scalars().all()
+        (await session.execute(select(Project).where(Project.status == ProjectStatus.music_ready)))
+        .scalars()
+        .all()
+    )
     return sum(1 for p in rows if (p.meta or {}).get(META_ENQUEUED))
 
 
 async def queued_projects_ordered(session) -> list[Project]:
     rows = (
-        await session.execute(
-            select(Project).where(Project.status == ProjectStatus.music_ready)
-        )
-    ).scalars().all()
+        (await session.execute(select(Project).where(Project.status == ProjectStatus.music_ready)))
+        .scalars()
+        .all()
+    )
     queued = [p for p in rows if (p.meta or {}).get(META_ENQUEUED)]
     queued.sort(key=lambda p: _parse_ts((p.meta or {}).get(META_ENQUEUED_AT)))
     return queued
@@ -135,10 +133,10 @@ async def process_montage_queue(session) -> int:
         return 0
 
     rows = (
-        await session.execute(
-            select(Project).where(Project.status == ProjectStatus.music_ready)
-        )
-    ).scalars().all()
+        (await session.execute(select(Project).where(Project.status == ProjectStatus.music_ready)))
+        .scalars()
+        .all()
+    )
     queued = [p for p in rows if (p.meta or {}).get(META_ENQUEUED)]
     queued.sort(key=lambda p: _parse_ts((p.meta or {}).get(META_ENQUEUED_AT)))
 
@@ -146,7 +144,7 @@ async def process_montage_queue(session) -> int:
     for project in queued[:slots]:
         meta = dict(project.meta or {})
         meta.pop(META_ENQUEUED, None)
-        meta["montage_queue_started_at"] = datetime.now(timezone.utc).isoformat()
+        meta["montage_queue_started_at"] = datetime.now(UTC).isoformat()
         project.meta = meta
         project.status = ProjectStatus.assembling
         await session.flush()

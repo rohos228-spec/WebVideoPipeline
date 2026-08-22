@@ -25,11 +25,7 @@ async def _pull_once() -> None:
         return
 
     async with session_scope() as session:
-        nodes = (
-            await session.execute(
-                select(FleetNode).where(FleetNode.is_main.is_(False))
-            )
-        ).scalars().all()
+        nodes = (await session.execute(select(FleetNode).where(FleetNode.is_main.is_(False)))).scalars().all()
 
     for node in nodes:
         if node.status not in {FleetNodeStatus.online, FleetNodeStatus.busy}:
@@ -63,9 +59,7 @@ async def _pull_once() -> None:
                 continue
 
             async with session_scope() as session:
-                project = await bundle_svc.import_project_bundle(
-                    session, blob, run_assemble=False
-                )
+                project = await bundle_svc.import_project_bundle(session, blob, run_assemble=False)
                 meta = dict(project.meta or {})
                 meta["fleet_source_node"] = node.name
                 meta["fleet_source_project_id"] = pid

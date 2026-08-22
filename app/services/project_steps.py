@@ -4,16 +4,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from loguru import logger
-
 from app.models import Project, ProjectStatus
-from app.services.mass_factory import assert_not_factory_template_for_generation
-from app.services.reset_step import clear_step_outputs_for_rerun, _WRAPPER_TO_CODES
 from app.services.chatgpt_xlsx import purge_tmp_gpt_for_step
-from app.services.step_cancel import clear_stop
+from app.services.mass_factory import assert_not_factory_template_for_generation
 from app.services.project_state import is_running_status
+from app.services.reset_step import _WRAPPER_TO_CODES, clear_step_outputs_for_rerun
+from app.services.step_cancel import clear_stop
 from app.telegram.menu import step_by_code, step_by_running_status
 
 
@@ -88,19 +87,13 @@ async def start_step(
                 sd_agent_marker,
             )
 
-            cg = canvas_graph_from_meta(
-                project.meta if isinstance(project.meta, dict) else {}
-            )
+            cg = canvas_graph_from_meta(project.meta if isinstance(project.meta, dict) else {})
             for n in (cg or {}).get("nodes") or []:
                 if str(n.get("id") or "") != str(node_key):
                     continue
                 marker = sd_agent_marker(n)
                 if marker:
-                    step_code = (
-                        "scene_asm"
-                        if marker == SCENE_AGENT_ASSEMBLER
-                        else "scene_d"
-                    )
+                    step_code = "scene_asm" if marker == SCENE_AGENT_ASSEMBLER else "scene_d"
                 break
         except Exception:  # noqa: BLE001
             logger.debug(
@@ -111,12 +104,12 @@ async def start_step(
     # Studio/явный UI: очередь и «уже running» не блокируют — preempt + старт.
     if explicit_ui_start:
         skip_queue_guard = True
+        from app.services.mass_factory import mass_parent_id
         from app.services.project_control import (
             clear_auto_await_manual_start,
             clear_mass_family_halt,
             clear_user_stop_gate,
         )
-        from app.services.mass_factory import mass_parent_id
         from app.services.sidebar_layout import clear_gen_queue_halted
 
         clear_user_stop_gate(project)
@@ -172,9 +165,7 @@ async def start_step(
 
             same_family = slot_from_running_status(project.status) is not None
         if explicit_ui_start and not same_family:
-            await _preempt_running_for_manual_start(
-                session, project, step.running_status
-            )
+            await _preempt_running_for_manual_start(session, project, step.running_status)
         elif not explicit_ui_start:
             other_title = cur_step.title if cur_step is not None else project.status.value
             raise ValueError(
@@ -220,9 +211,7 @@ async def start_step(
                 sd_agent_marker,
             )
 
-            cg = canvas_graph_from_meta(
-                project.meta if isinstance(project.meta, dict) else {}
-            )
+            cg = canvas_graph_from_meta(project.meta if isinstance(project.meta, dict) else {})
             for n in (cg or {}).get("nodes") or []:
                 if str(n.get("id") or "") != str(node_key):
                     continue
@@ -257,16 +246,14 @@ async def start_step(
     if sd_agent_name or step_code in ("scene_d", "scene_asm"):
         # Нода сборщика на канвасе → pending (сборка устарела).
         try:
-            from app.services.run_sync import _workflow_run_with_nodes
             from app.services.node_status_machine import reset_node_to_pending
+            from app.services.run_sync import _workflow_run_with_nodes
 
             run = await _workflow_run_with_nodes(session, project.id)
             if run is not None:
                 for nr in run.node_runs:
                     if nr.node_type == "sd_assemble" and nr.status.value == "done":
-                        reset_node_to_pending(
-                            nr, project_id=project.id, initiator="ui_restart"
-                        )
+                        reset_node_to_pending(nr, project_id=project.id, initiator="ui_restart")
         except Exception:  # noqa: BLE001
             logger.debug(
                 "[#{}] start_step {}: sd_assemble reset failed",
@@ -280,7 +267,8 @@ async def start_step(
     if step_code == "anim_pr":
         from sqlalchemy import select
 
-        from app.models import Frame, ProjectStatus as _PS
+        from app.models import Frame
+        from app.models import ProjectStatus as _PS
         from app.services.animation_prompt_gpt import (
             count_animation_prompt_stats,
             scan_missing_animation_prompts_all,
@@ -304,19 +292,17 @@ async def start_step(
         # Авто/очередь без missing — skip на ready (не прыгаем в video/images).
         if not explicit_ui_start:
             frames = (
-                await session.execute(
-                    select(Frame)
-                    .where(Frame.project_id == project.id)
-                    .order_by(Frame.number)
+                (
+                    await session.execute(
+                        select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                    )
                 )
-            ).scalars().all()
-            missing_s1, missing_s2 = scan_missing_animation_prompts_all(
-                project, frames
+                .scalars()
+                .all()
             )
+            missing_s1, missing_s2 = scan_missing_animation_prompts_all(project, frames)
             if not missing_s1 and not missing_s2:
-                ready, xlsx_filled, with_image = count_animation_prompt_stats(
-                    project, frames
-                )
+                ready, xlsx_filled, with_image = count_animation_prompt_stats(project, frames)
                 project.status = _PS.animation_prompts_ready
                 project.updated_at = datetime.utcnow()
                 await session.flush()
@@ -333,9 +319,7 @@ async def start_step(
     clear_stop(project.id)
     from app.services.step_failure_policy import clear_failure_backoff_for_manual_start
 
-    if clear_failure_backoff_for_manual_start(
-        project, running_key=step.running_status.value
-    ):
+    if clear_failure_backoff_for_manual_start(project, running_key=step.running_status.value):
         logger.info(
             "[#{}] start_step {}: снята пауза после ошибок (ручной запуск)",
             project.id,
@@ -376,13 +360,10 @@ async def start_step(
                 sd_agent_name,
             )
         else:
-            wiped = await clear_step_outputs_for_rerun(
-                session, project, step_code, force_wipe=force_wipe
-            )
+            wiped = await clear_step_outputs_for_rerun(session, project, step_code, force_wipe=force_wipe)
         if wiped:
             logger.info(
-                "[#{}] start_step {}: очищены выходы шага перед запуском: {} "
-                "(force_wipe={})",
+                "[#{}] start_step {}: очищены выходы шага перед запуском: {} (force_wipe={})",
                 project.id,
                 step_code,
                 list(wiped.keys()),
@@ -414,9 +395,7 @@ async def start_step(
         nk = str(node_key or meta.get("active_excel_gpt_node_key") or "")
         if not nk:
             excel_keys = [
-                k
-                for k, n in graph._by_id.items()
-                if str(n.get("type") or "") == EXCEL_GPT_NODE_TYPE
+                k for k, n in graph._by_id.items() if str(n.get("type") or "") == EXCEL_GPT_NODE_TYPE
             ]
             if len(excel_keys) == 1:
                 nk = excel_keys[0]
@@ -431,9 +410,7 @@ async def start_step(
                 meta.pop("active_excel_gpt_node_key", None)
                 project.meta = meta
                 await session.flush()
-            raise ValueError(
-                f"excel_gpt: нода {nk!r} не найдена в графе — сохраните workflow"
-            )
+            raise ValueError(f"excel_gpt: нода {nk!r} не найдена в графе — сохраните workflow")
         running_status = running_status_for_slot(slot_index_from_node(node))
         meta["active_excel_gpt_node_key"] = nk
         # Цепочка до последней excel_gpt + сброс «готово» у хвоста —
@@ -449,8 +426,7 @@ async def start_step(
         chain_to = ensure_enrich_auto_chain_to(project, started_slot)
         if cleared.get("slots_cleared") or cleared.get("keys_cleared"):
             logger.info(
-                "[#{}] start_step excel_gpt: cleared done for slots>={} "
-                "slots={} keys={}",
+                "[#{}] start_step excel_gpt: cleared done for slots>={} slots={} keys={}",
                 project.id,
                 started_slot,
                 cleared.get("slots_cleared"),
@@ -458,8 +434,7 @@ async def start_step(
             )
         if chain_to is not None:
             logger.info(
-                "[#{}] start_step excel_gpt: enrich_auto_chain_to={} "
-                "(from slot {}, node={})",
+                "[#{}] start_step excel_gpt: enrich_auto_chain_to={} (from slot {}, node={})",
                 project.id,
                 chain_to,
                 started_slot,
@@ -467,10 +442,11 @@ async def start_step(
             )
         # NodeRun done → pending для хвоста, иначе UI/FSM думают «уже готово».
         try:
-            from app.models import NodeRun, NodeRunStatus, WorkflowRun
-            from app.services.node_status_machine import reset_node_to_pending
             from sqlalchemy import select
             from sqlalchemy.orm import selectinload
+
+            from app.models import NodeRunStatus, WorkflowRun
+            from app.services.node_status_machine import reset_node_to_pending
 
             run = (
                 await session.execute(
@@ -492,9 +468,7 @@ async def start_step(
                         NodeRunStatus.waiting_hitl,
                         NodeRunStatus.skipped,
                     ):
-                        reset_node_to_pending(
-                            nr, project_id=project.id, initiator="ui_restart"
-                        )
+                        reset_node_to_pending(nr, project_id=project.id, initiator="ui_restart")
         except Exception:  # noqa: BLE001
             logger.debug(
                 "[#{}] start_step excel_gpt: NodeRun reset skipped",
@@ -504,9 +478,7 @@ async def start_step(
         try:
             from app.services.step_data_guard import can_enter_running
 
-            ok, reason, _fix = await can_enter_running(
-                session, project, running_status
-            )
+            ok, reason, _fix = await can_enter_running(session, project, running_status)
             if not ok:
                 logger.warning(
                     "[#{}] start_step excel_gpt: data-guard soft — {} (status={})",
@@ -525,9 +497,7 @@ async def start_step(
     prepare_key = node_key
     if step_code == "excel_gpt":
         meta = project.meta if isinstance(project.meta, dict) else {}
-        prepare_key = str(
-            node_key or meta.get("active_excel_gpt_node_key") or ""
-        ) or None
+        prepare_key = str(node_key or meta.get("active_excel_gpt_node_key") or "") or None
 
     await prepare_node_for_step_start(
         session,

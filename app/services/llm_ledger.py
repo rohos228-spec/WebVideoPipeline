@@ -22,11 +22,12 @@ import json
 import re
 import uuid
 from collections import defaultdict
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from loguru import logger
 
@@ -42,9 +43,7 @@ _PRICES_PATH = Path(__file__).resolve().parent / "llm_prices.json"
 # asyncio.gather (копия контекста). Guard [панель 3/3]: set только если
 # contextvar пуст, reset(token) в finally — иначе рекурсия перетёрла бы
 # id родителя, а последовательные операции слиплись бы в один.
-_logical_call: ContextVar[str | None] = ContextVar(
-    "llm_logical_call_id", default=None
-)
+_logical_call: ContextVar[str | None] = ContextVar("llm_logical_call_id", default=None)
 
 
 @contextmanager
@@ -70,9 +69,7 @@ def current_logical_call_id() -> str:
 # чекпоинтов этапа 2 (text_job, scene_design, img_pr, split): учёт и кэш
 # несут ОДИН хэш. Fallback — хэш prompt-аргумента внешнего chat()
 # (ставится в gpt_api.chat, если ничего не забиндено).
-_prompt_hash: ContextVar[str | None] = ContextVar(
-    "llm_prompt_version_hash", default=None
-)
+_prompt_hash: ContextVar[str | None] = ContextVar("llm_prompt_version_hash", default=None)
 
 
 @contextmanager
@@ -101,9 +98,7 @@ def current_prompt_hash() -> str:
 # (list) — дочерние задачи gather получают копию контекста на тот же
 # объект, append'ы видны родителю. record() дописывает id строки, если
 # коллектор установлен; set/reset строго в try/finally.
-_attempt_rows: ContextVar[list[int] | None] = ContextVar(
-    "llm_attempt_rows", default=None
-)
+_attempt_rows: ContextVar[list[int] | None] = ContextVar("llm_attempt_rows", default=None)
 
 
 @contextmanager
@@ -126,15 +121,10 @@ async def mark_contract_rejected(row_ids: list[int]) -> None:
         from sqlalchemy import update
 
         async with session_scope() as session:
-            await session.execute(
-                update(LlmCall)
-                .where(LlmCall.id.in_(ids))
-                .values(contract_rejected=True)
-            )
+            await session.execute(update(LlmCall).where(LlmCall.id.in_(ids)).values(contract_rejected=True))
     except Exception as e:  # noqa: BLE001
-        logger.warning(
-            "llm_ledger: contract_rejected не записан для {}: {}", ids, e
-        )
+        logger.warning("llm_ledger: contract_rejected не записан для {}: {}", ids, e)
+
 
 # Отказы записи учёта: видимы в API дашборда; стоимость незаписанных
 # строк входит в spent бюджет-проверки (project_id=None — adhoc).
@@ -252,9 +242,7 @@ async def record(
     """Записать один фактический HTTP-вызов. Best effort: сбой INSERT —
     WARNING + счётчики (вызов не валится). Возвращает id строки."""
     global _failed_inserts
-    cost, pt, ct, tt, unbilled = compute_cost(
-        usage, model=model, served_model=served_model
-    )
+    cost, pt, ct, tt, unbilled = compute_cost(usage, model=model, served_model=served_model)
     if not prompt_version_hash:
         prompt_version_hash = current_prompt_hash()
     try:
@@ -289,8 +277,7 @@ async def record(
         _failed_inserts += 1
         _unpersisted_spent[project_id] += cost
         logger.warning(
-            "llm_ledger: INSERT llm_calls упал (#{} всего): {} — "
-            "unpersisted_spent[{}]={:.4f}$",
+            "llm_ledger: INSERT llm_calls упал (#{} всего): {} — unpersisted_spent[{}]={:.4f}$",
             _failed_inserts,
             e,
             project_id,
@@ -334,10 +321,7 @@ class BudgetExhausted(Exception):
         self.project_id = project_id
         self.spent_usd = spent_usd
         self.budget_usd = budget_usd
-        super().__init__(
-            f"бюджет исчерпан: ${spent_usd:.2f} из ${budget_usd:.2f} "
-            f"(проект #{project_id})"
-        )
+        super().__init__(f"бюджет исчерпан: ${spent_usd:.2f} из ${budget_usd:.2f} (проект #{project_id})")
 
 
 def _now() -> float:
@@ -352,9 +336,7 @@ async def _sum_spent_db(project_id: int) -> float:
     async with session_scope() as session:
         total = (
             await session.execute(
-                select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(
-                    LlmCall.project_id == project_id
-                )
+                select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(LlmCall.project_id == project_id)
             )
         ).scalar_one()
     return float(total or 0.0)
@@ -409,9 +391,7 @@ async def budget_usd(project_id: int, *, fresh: bool = False) -> float:
 
             async with session_scope() as session:
                 meta = (
-                    await session.execute(
-                        select(Project.meta).where(Project.id == project_id)
-                    )
+                    await session.execute(select(Project.meta).where(Project.id == project_id))
                 ).scalar_one_or_none()
             if isinstance(meta, dict) and "llm_budget_usd" in meta:
                 override = budget_from_meta(meta)
@@ -437,6 +417,4 @@ async def check_budget(project_id: int | None) -> None:
         return
     spent = await spent_usd(project_id)
     if spent >= budget:
-        raise BudgetExhausted(
-            project_id=project_id, spent_usd=spent, budget_usd=budget
-        )
+        raise BudgetExhausted(project_id=project_id, spent_usd=spent, budget_usd=budget)
