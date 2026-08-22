@@ -117,10 +117,36 @@ def is_stub_prompt(text: str) -> bool:
     return False
 
 
+def stub_prompt_text(path: Path) -> str:
+    """Встроенная заглушка вместо отсутствующего чек-промта.
+
+    Чек-промты (`prompts/check_*/`) под .gitignore — они специфичны для
+    заказчика и в репо не хранятся. На чистом клоне файла нет: раньше
+    это был FileNotFoundError и мёртвый контур, теперь — заглушка с
+    маркером, которую caller обязан распознать (`is_stub_prompt`) и
+    вернуть skipped_stub, НЕ вызывая GPT.
+
+    Заглушка живёт в коде, а не в репо-файле: положить её на путь
+    `default.md` значит либо перетереть боевой промт оператора, либо
+    (при whitelist в .gitignore) утащить боевой промт в коммит.
+    """
+    return (
+        f"{_STUB_MARKER}: чек-промт не настроен ({path}).\n\n"
+        "Положите боевой промт в этот файл — контур проверки включится\n"
+        "сам. Пока файла нет, auto_review/verdict-review пропускаются,\n"
+        "проект остаётся на ручном HITL.\n"
+    )
+
+
 def load_check_prompt(kind: HITLKind, *, batch_snapshot_dir: Path | None = None) -> str:
     p = get_check_prompt_path(kind, batch_snapshot_dir=batch_snapshot_dir)
     if not p.exists():
-        raise FileNotFoundError(f"чек-промт не найден: {p}")
+        logger.warning(
+            "auto_review[{}]: чек-промт не найден ({}) — контур пропускается, ручной HITL",
+            kind.value,
+            p,
+        )
+        return stub_prompt_text(p)
     return p.read_text(encoding="utf-8")
 
 

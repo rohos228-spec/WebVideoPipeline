@@ -760,11 +760,12 @@ async def _await_background_tasks(tasks: list[asyncio.Task]) -> None:
 
 async def _startup_maintenance() -> None:
     """Тяжёлая инициализация в фоне — не блокирует /api/health."""
-    # W1-fix (minimax-all-fixes): STUB-промты check_* коммитятся в репо
-    # (см. prompts/check_*/default.md с маркером VP_CHECK_PROMPT_STUB).
-    # auto_review их видит и возвращает status=skipped_stub — pipeline
-    # не падает, остаётся на ручном HITL. Эта проверка — последний
-    # рубеж: если кто-то удалил каталог совсем, громко предупреждаем.
+    # Чек-промты контуров К2 (auto_review) и К3 (gpt_verdict_review)
+    # лежат под .gitignore — они специфичны для заказчика. Нет файла =
+    # `load_check_prompt` отдаёт встроенную заглушку, оба контура
+    # возвращают skipped_stub и проект остаётся на ручном HITL (не
+    # падает и не auto-approve'ится). Здесь просто делаем это видимым
+    # на старте, чтобы «проверки молча не работают» не было сюрпризом.
     try:
         from app.project_root import find_project_root
 
@@ -783,9 +784,9 @@ async def _startup_maintenance() -> None:
         ]
         if _missing:
             logger.warning(
-                "prompts/: нет каталогов {} — auto_review упадёт "
-                "FileNotFoundError до STUB-fallback; "
-                "верните default.md из git или верните каталог",
+                "prompts/: нет каталогов {} — контуры проверок К2/К3 "
+                "пропускаются (skipped_stub), проекты встанут на ручной "
+                "HITL; положите боевые default.md, чтобы включить",
                 _missing,
             )
     except Exception:  # noqa: BLE001

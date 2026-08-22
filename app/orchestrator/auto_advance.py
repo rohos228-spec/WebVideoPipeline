@@ -42,7 +42,12 @@ from app.models import (
     Project,
     ProjectStatus,
 )
-from app.services.auto_review import REVIEW_STATUS_APPLIED, ReviewResult
+from app.services.auto_review import (
+    REVIEW_STATUS_APPLIED,
+    REVIEW_STATUS_SKIPPED_STUB,
+    ReviewResult,
+    is_stub_prompt,
+)
 from app.services.disabled_nodes import skip_disabled_running, skip_disabled_running_async
 from app.services.project_state import compute_actual_status
 from app.services.step_data_guard import (
@@ -1586,6 +1591,22 @@ async def _run_verdict_review_for_step(
 
     template = verdict_template_for_project(project, step_code)
     check_prompt = load_verdict_check_prompt(step_code, template=template)
+    # Тот же гейт, что в auto_review.review_text/review_image: путь
+    # «Вердикт» читает те же prompts/check_*/ и на чистом клоне получал
+    # бы заглушку. Без этой проверки заглушка уходит в GPT, а её текст
+    # («decision: approved | …») даёт реальный шанс auto-approve.
+    if is_stub_prompt(check_prompt):
+        logger.warning(
+            "auto_advance: #{} verdict check step={} — чек-промт не настроен, пропускаю GPT",
+            project.id,
+            step_code,
+        )
+        return ReviewResult(
+            decision=HITLDecision.approved,
+            confidence=0.0,
+            reasons=[f"CHECK_PROMPT_NOT_CONFIGURED: {step_code} — verdict-review пропущен, ждём ручной HITL"],
+            status=REVIEW_STATUS_SKIPPED_STUB,
+        )
     logger.info(
         "auto_advance: #{} verdict check step={} template={!r} prompt_len={}",
         project.id,
