@@ -567,10 +567,10 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     )
 
     if not frames:
-        raise RuntimeError(
-            "нет кадров в БД. Сделай split или явный Импорт Excel "
-            "(кнопка Import / excel_io.import_project_xlsx)."
-        )
+        # Кнопки «Импорт Excel» в UI нет: `excel_io.import_project_xlsx`
+        # не подключён ни к одному роуту (docs/openspec/docs-inventory.md).
+        # Не отправляем оператора искать несуществующее.
+        raise RuntimeError("нет кадров в БД — сначала шаг «Разбивка на блоки» (split).")
 
     missing_prompts = [fr.number for fr in frames if is_skippable_empty_prompt(fr.image_prompt or "")]
 

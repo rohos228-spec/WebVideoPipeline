@@ -62,6 +62,46 @@ python3 -m pytest tests/ -q              # полный прогон (~5.5 ми�
 
 ---
 
+## 2.5. Промт-библиотека — её нет в git
+
+**Свежий клон конвейер не запустит.** Мастер-промты намеренно не
+версионируются: `.gitignore` содержит `prompts/*`, в репозитории лежат
+только два исключения — `prompts/scene_design/` (агенты дизайна сцен) и
+`prompts/05_excel_gpt/sd_*.md` (веер scene-агентов). Всё остальное —
+`01_plan`, `02_script`, `03_razbivka`, `04_hero`, `05_image_prompts`,
+`07_animation`, `prompts/steps|blocks|styles` (blocks v2) и
+`prompts/check_operator/` — приезжает вне git.
+
+Проверить состояние:
+
+```bash
+python3 scripts/check_prompts.py          # человекочитаемо, exit 1 если неполно
+python3 scripts/check_prompts.py --json   # для CI / агентов
+```
+
+Последствия отсутствия:
+
+| Чего нет | Что происходит |
+| --- | --- |
+| `<шаг>/default.md` | шаг падает `FileNotFoundError: prompt file not found` (`prompt_library.read_prompt`) — громко, не тихо |
+| `prompts/steps/` | `compose_step` недоступен, blocks v2 выключен; красными идут `test_prompt_composer`, `test_prompt_step_presets`, `test_update_step_preset` |
+| `prompts/check_operator/<шаг>/default.md` | проверка ноды «не настроена» → `auto_review` отдаёт `skipped` (fail-closed, stage-0 п.2), ноды проверок не попадают в каталог групп |
+
+**Откуда брать.** Источник — рабочая машина владельца; на Windows промты
+восстанавливаются `RECOVER-PROMPTS.cmd` →
+`scripts/return_prompts_from_stash.py` (aside-бэкап
+`%LOCALAPPDATA%\video-pipeline\prompts_aside_*` + `git stash`). Осмысленно
+это работает только там, где промты уже были: восстановление из stash не
+создаёт библиотеку с нуля. На новую машину папку `prompts/` переносят
+руками.
+
+> ⚠️ Практическое следствие: **«тесты зелёные» не воспроизводится ни у
+> кого, кроме держателя промтов.** Прежде чем чинить красноту — прогоните
+> `check_prompts.py` и сравните с базовой веткой; на 2026-08-22 из 59
+> собранных падений 57 воспроизводились и на `main`.
+
+---
+
 ## 3. Git: per-PC ветки
 
 Локальная ветка определяется **`ORCHESTRATOR_GIT_BRANCH`** из `.env` —
