@@ -1,0 +1,94 @@
+{
+  "_comment": "Gauntlet video-pipeline. Движок — ~/.agents/hooks/verify.sh, он же читает этот файл; здесь только ЧТО гонять. Ярусы: turn — Stop-хук агента (быстро), commit — pre-commit, push — pre-push. Контекст: до 2026-08-22 в проекте не было ни CI, ни pre-commit, ни git-хуков — ruff и mypy вывели в ноль руками, и удержать это было нечем. Проверить контракт: python3 ~/.agents/bin/check-verify.py <корень>.",
+  "version": 1,
+  "repos": [
+    {
+      "path": ".",
+      "when": ["*.py", "*.toml", "*.json"],
+      "turn": [
+        {
+          "_comment": "0.1 с на всём репозитории — сужать по $CHANGED смысла нет.",
+          "name": "ruff",
+          "run": "python3 -m ruff check .",
+          "timeout": 60
+        },
+        {
+          "name": "ruff-format",
+          "run": "python3 -m ruff format --check .",
+          "timeout": 60
+        },
+        {
+          "_comment": "1.4 с с кэшем. Держим в нуле: mypy было 409, ruff 888.",
+          "name": "mypy",
+          "run": "python3 -m mypy app/ --ignore-missing-imports",
+          "timeout": 180
+        }
+      ],
+      "commit": [
+        {
+          "name": "ruff",
+          "run": "python3 -m ruff check .",
+          "timeout": 60
+        },
+        {
+          "name": "ruff-format",
+          "run": "python3 -m ruff format --check .",
+          "timeout": 60
+        },
+        {
+          "name": "mypy",
+          "run": "python3 -m mypy app/ --ignore-missing-imports",
+          "timeout": 180
+        },
+        {
+          "_comment": "Секреты: живой VIBECODE_API_KEY уже уезжал значением в .env.example (stage-0 п.1.2) и остался в истории всех веток. Сканим добавленные строки индекса.",
+          "name": "secrets",
+          "run": "python3 ~/.agents/bin/scan-secrets.py --staged",
+          "timeout": 30
+        },
+        {
+          "_comment": "Тесты, задетые изменением. У pytest нет --findRelatedTests: гоняем файл tests/test_<модуль>.py, если он есть, иначе шаг пустой. Полная суита — на ярусе push.",
+          "name": "tests-touched",
+          "run": "python3 scripts/pytest_touched.py $CHANGED",
+          "timeout": 300,
+          "changed_filter": ["*.py"]
+        }
+      ],
+      "push": [
+        {
+          "_comment": "Храповик, а не 'должно быть зелено': промт-библиотека вне git (.gitignore: prompts/*), поэтому вне машины владельца часть тестов падает на отсутствии ДАННЫХ. Вечно красный гейт отключают в первый же день; храповик ловит ровно то, ради чего гейт нужен — рост красноты. База: .claude/baselines/pytest-failures.txt",
+          "name": "pytest-ratchet",
+          "run": "python3 scripts/pytest_ratchet.py",
+          "timeout": 900
+        },
+        {
+          "name": "ruff",
+          "run": "python3 -m ruff check .",
+          "timeout": 60
+        },
+        {
+          "name": "mypy",
+          "run": "python3 -m mypy app/ --ignore-missing-imports",
+          "timeout": 180
+        },
+        {
+          "name": "secrets",
+          "run": "python3 ~/.agents/bin/scan-secrets.py --diff",
+          "timeout": 60
+        },
+        {
+          "_comment": "Схема: каждая ревизия применяется на пустой и на унаследованной базе, downgrade baseline отказывает.",
+          "name": "migrations",
+          "run": "python3 -m pytest tests/test_db_migrations.py -q -p no:cacheprovider",
+          "timeout": 120
+        },
+        {
+          "_comment": "ai-pack — копии guide-файлов; расхождение с корнем означает, что агенты читают устаревший контракт.",
+          "name": "ai-pack",
+          "run": "python3 scripts/verify_ai_pack.py",
+          "timeout": 60
+        }
+      ]
+    }
+  ]
+}

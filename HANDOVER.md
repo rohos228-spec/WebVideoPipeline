@@ -1,6 +1,6 @@
 # Handover — video-pipeline
 
-> **Актуальная ветка:** `hygiene-rebuild` (HEAD `09c6826`).
+> **Актуальная ветка:** `hardening` (от `hygiene-rebuild`, `56897a4`).
 > **Аудитория:** новый разработчик / ИИ-агент, который впервые открывает
 > репозиторий и хочет понять «что это, как запустить, куда смотреть».
 > **Нормативные ссылки:** [`AGENTS.md`](AGENTS.md) (cloud/dev контракт),
@@ -112,7 +112,7 @@ python3 scripts/check_prompts.py --json   # для CI / агентов
 и сообщить пользователю `git HEAD: <sha> уже в <ветка>`. В другую ветку
 не пушить без явного запроса.
 
-Текущая ветка — **`hygiene-rebuild`**, см. раздел 7.
+Текущая ветка — **`hardening`**, см. раздел 7.
 
 ---
 
@@ -198,11 +198,48 @@ python3 scripts/check_prompts.py --json   # для CI / агентов
 > Ловушка: `ruff --fix --unsafe-fixes` умеет снести импорт, который
 > тесты monkeypatch-ят через модуль (см. noqa в `frame_timeline_sync`).
 
+### 6.1. Гейт
+
+До 2026-08-22 в проекте не было **ни CI, ни pre-commit, ни git-хуков**:
+ноль по ruff/mypy держался только вручную, и суита успела уехать в
+десятки падений незамеченной. Теперь есть два независимых механизма.
+
+**Переносимый (для машин заказчика)** — `.pre-commit-config.yaml`:
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit install --hook-type pre-push
+pre-commit run --all-files      # разово по всему дереву
+```
+
+commit: ruff + ruff format + mypy + тесты по изменённым модулям
+(`scripts/pytest_touched.py`).
+push: полная суита через храповик + сверка ai-pack.
+
+**Локальный gauntlet** (только там, где стоит `~/.agents`) —
+`.claude/verify.json`, ярусы turn / commit / push, плюс скан секретов.
+
+**Храповик по тестам** — `scripts/pytest_ratchet.py`. Гейт «должно быть
+зелено» здесь невозможен: без промт-библиотеки (§2.5) часть тестов падает
+на отсутствии данных, а вечно красный гейт отключают в первый же день.
+Проверка падает, только если появилось падение, которого нет в
+`.claude/baselines/pytest-failures.txt`.
+
+```bash
+python3 scripts/pytest_ratchet.py            # сверить
+python3 scripts/pytest_ratchet.py --update   # сузить базу после починки
+```
+
+База сама не обновляется: сужение должно быть видно в диффе, иначе
+храповик тихо проворачивается назад.
+
 ---
 
-## 7. Текущее состояние: ветка `hygiene-rebuild`
+## 7. Текущее состояние: ветка `hardening`
 
-Рабочая ветка `hygiene-rebuild` от `099933e` (`stage-3-cost-accounting`).
+Рабочая ветка — **`hardening`** от `hygiene-rebuild` (`56897a4`).
+Предыдущая — `hygiene-rebuild` от `099933e` (`stage-3-cost-accounting`).
 Семантика гигиенических правок перенесена из `minimax-all-fixes` поверх
 чистого format-коммита — там реформат был смешан с правками, а часть
 переименований «под mypy» оставила старые имена в использовании
@@ -222,20 +259,36 @@ python3 scripts/check_prompts.py --json   # для CI / агентов
 | 7   | harness-gate autouse ON + `@pytest.mark.no_harness_gate` opt-out                   | done                          |
 | 30  | docs cleanup — удаление/указатели устаревших файлов                                | done                          |
 
+Сверх Wave 1 в ветке `hardening` закрыто (2026-08-22):
+
+| #   | Пункт                                                                  | Где                                                   |
+| --- | ---------------------------------------------------------------------- | ----------------------------------------------------- |
+| —   | Кадр больше не уезжает на анонимные файлохостинги (Yandex-only)        | `app/bots/outsee_http.py`                             |
+| —   | Гейт: pre-commit + `.claude/verify.json` + храповик по тестам          | §6.1                                                  |
+| —   | Прогон не пишет в `logs/` и `data/library` репозитория                 | `app/services/log_paths.py`, `local_library.py`        |
+| 8   | Единый вход реконсайлеров + единый критерий живости (безопасная половина) | `app/services/reconciler.py`                        |
+| 11  | Alembic вместо `create_all` + ad-hoc `ALTER`                           | `migrations/`, `app/db_migrations.py`                 |
+| 16  | Схлопывание слепых ретраев: `Retry-After` вместо экспоненты            | `app/services/provider_breaker.py`                    |
+| 17  | Circuit breaker per-провайдер                                          | там же                                                |
+| 24  | Учёт денег за медиа (`media_calls`)                                    | `app/services/media_ledger.py`                        |
+
 **Wave 2 — состояние** (частично сделано в этапах 2/5, см. `app/services/`):
 lease с TTL/owner — `work_lease.py`, межпроцессный lock —
 `step_global_lock.py` + `startup_guard.py`, кэш по хэшу входа —
-`input_hash.py` + `orchestrator/step_dependencies.py`. Осталось: единый
-реконсайлер, alembic (каталога миграций нет), вынос воркер-цикла из
-`main.py` / `auto_advance.py`.
+`input_hash.py` + `orchestrator/step_dependencies.py`, alembic —
+`migrations/` + `app/db_migrations.py`, порядок реконсайлеров —
+`reconciler.py`. Осталось: реконсайлер **из журнала** (п.8 целиком —
+журнала событий в схеме нет), вынос воркер-цикла из `main.py` /
+`auto_advance.py`.
 
 **Wave 3 — качество / деньги** (частично): контракты LLM-ответов на
 Pydantic — `app/contracts/`, учёт стоимости и бюджет — `llm_ledger.py`,
-`web/routers/llm_costs.py`, `LLM_BUDGET_USD`. Осталось: prompt caching,
-900k trim, retry collapse, circuit breaker per-провайдер.
+`web/routers/llm_costs.py`, `LLM_BUDGET_USD`, брейкер и Retry-After —
+`provider_breaker.py`. Осталось: prompt caching, 900k trim.
 
-**Wave 4 — xlsx SoT + media fact:** SQLite WAL, xlsx только экспорт/импорт,
-media_ledger, ElevenLabs API.
+**Wave 4 — xlsx SoT + media fact:** SQLite WAL (есть, `db.py:36`),
+`media_ledger` (есть — цены в `media_prices.json` заполняет владелец),
+xlsx только экспорт/импорт, ElevenLabs API.
 
 **Wave 5 — $-долгострой:** golden-set тестов, RAG «память завода».
 
@@ -282,7 +335,7 @@ scripts/bump_studio_version.py`. `web/out/` в git НЕ хранится — с�
   `Dump-Recovered-Voiceovers.ps1`) — исторические одноразовые спасатели;
   план их архивации — п. 29 [`docs/TECH_DEBT_PLAN.md`](docs/TECH_DEBT_PLAN.md).
 - **Branch `devin/*` / старые ветки** — НЕ актуальны, работаем в
-  `hygiene-rebuild`.
+  `hardening`.
 
 ---
 

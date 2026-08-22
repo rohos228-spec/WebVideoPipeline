@@ -1,0 +1,72 @@
+# Гейт, переносимый на машины заказчика.
+#
+# В проекте не было ни CI, ни pre-commit, ни git-хуков: ruff и mypy вывели в
+# ноль руками, и удержать это было нечем — к 2026-08-22 суита успела уехать
+# в десятки падений незамеченной.
+#
+# Установка (один раз на машине):
+#     pip install pre-commit
+#     pre-commit install
+#     pre-commit install --hook-type pre-push
+#
+# Прогнать по всему дереву:  pre-commit run --all-files
+# Разово обойти (осознанно): git commit --no-verify
+#
+# repo: local — намеренно: хуки зовут ТОТ ЖЕ ruff/mypy/pytest из окружения
+# проекта, что и разработчик руками. Версии из pyproject, а не вторая копия
+# инструментов с расходящимися настройками.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check
+        entry: python3 -m ruff check --force-exclude
+        language: system
+        types: [python]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff format
+        entry: python3 -m ruff format --check --force-exclude
+        language: system
+        types: [python]
+        require_serial: true
+
+      - id: mypy
+        name: mypy app/
+        # Проверяем пакет целиком, а не переданные файлы: mypy по одному
+        # файлу не видит вызывающих и пропускает половину ошибок.
+        entry: python3 -m mypy app/ --ignore-missing-imports
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+
+      - id: pytest-touched
+        name: тесты по изменённым модулям
+        entry: python3 scripts/pytest_touched.py
+        language: system
+        types: [python]
+        require_serial: true
+
+      - id: pytest-ratchet
+        name: полная суита — краснота не растёт
+        # Только на push: ~4 мин, в бюджет коммита не влезает. Храповик, а не
+        # «должно быть зелено»: промт-библиотека вне git, и вне машины
+        # владельца часть тестов падает на отсутствии данных
+        # (см. scripts/pytest_ratchet.py и HANDOVER §2.5).
+        entry: python3 scripts/pytest_ratchet.py
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        require_serial: true
+
+      - id: ai-pack
+        name: ai-pack совпадает с корнем
+        # Копии guide-файлов для агентов. Расхождение = агенты читают
+        # устаревший контракт.
+        entry: python3 scripts/verify_ai_pack.py
+        language: system
+        files: '^(AGENTS\.md|docs/.*\.md|ai-pack/.*)$'
+        pass_filenames: false
+        require_serial: true
