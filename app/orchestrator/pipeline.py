@@ -235,7 +235,9 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
             try:
                 from app.services import work_lease as _wl_fin
 
-                await _wl_fin.release(project.id, _step_lease[0], owner=_step_lease[1])
+                # Сессией вызывающего: своя короткая встала бы на busy_timeout
+                # в ожидании транзакции, которую держит этот же advance.
+                await _wl_fin.release(project.id, _step_lease[0], owner=_step_lease[1], session=session)
             except Exception:  # noqa: BLE001
                 pass
         if _step_lock_cm is not None:

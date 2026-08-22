@@ -1116,6 +1116,13 @@ async def generate_video_with_retries(
         kie_api_configured,
         truncate_kling_prompt,
     )
+    from app.bots.minimax import generate_video as minimax_generate_video
+    from app.bots.minimax import (
+        minimax_key_configured,
+        normalize_video_duration,
+        normalize_video_resolution,
+        studio_id_to_minimax_video_slug,
+    )
     from app.bots.outsee_http import (
         generate_video as outsee_api_generate_video,
     )
@@ -1129,11 +1136,17 @@ async def generate_video_with_retries(
     primary_backend = video_provider_for(primary_slug)
     use_grsai_video = primary_backend == "grsai" and grsai_key_configured()
     use_outsee_api_video = primary_backend == "outsee" and outsee_api_configured()
+    use_minimax_video = primary_backend == "minimax" and minimax_key_configured()
     primary_is_kling = primary_backend == "kie"
     if primary_backend == "outsee" and not outsee_api_configured():
         raise OutseeImageError(
             "OUTSEE_API_KEY пуст — Veo 3.1 Lite идёт через ключ Outsee",
             context={"error_kind": "no_key", "provider": "outsee"},
+        )
+    if primary_backend == "minimax" and not minimax_key_configured():
+        raise OutseeImageError(
+            "MINIMAX_API_KEY пуст — VIDEO_PROVIDER=minimax требует ключ platform.minimax.io",
+            context={"error_kind": "no_key", "provider": "minimax"},
         )
 
     _DOWNLOAD_ONLY_RETRIES = 2
@@ -1225,6 +1238,47 @@ async def generate_video_with_retries(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("kie video sidecar skipped", exc_info=True)
+            return result
+        if use_minimax_video:
+            raw_slug = attempt_kwargs.get("model_slug") or getattr(
+                _settings, "minimax_default_video_model", None
+            )
+            mm_slug = studio_id_to_minimax_video_slug(str(raw_slug) if raw_slug else None)
+            mm_res = normalize_video_resolution(str(attempt_kwargs.get("resolution") or ""))
+            mm_dur = normalize_video_duration(attempt_kwargs.get("duration"))
+            # Стартовый кадр уходит base64 — публиковать его наружу не надо.
+            result = await minimax_generate_video(
+                send_prompt,
+                out_path,
+                model_slug=mm_slug,
+                duration=mm_dur,
+                resolution=mm_res,
+                reference_image=attempt_kwargs.get("start_frame"),
+                timeout=float(attempt_kwargs.get("timeout") or 900),
+                gen_id=attempt_kwargs.get("gen_id"),
+                project_id=project_id,
+            )
+            try:
+                from app.services.generation_storage import write_sidecar
+
+                write_sidecar(
+                    result.file_path,
+                    media="video",
+                    model=mm_slug,
+                    prompt=send_prompt,
+                    params={
+                        "aspect": str(attempt_kwargs.get("aspect_ratio") or "9:16"),
+                        "resolution": mm_res,
+                        "duration": mm_dur,
+                        "project_id": project_id,
+                        "ladder": "primary",
+                    },
+                    raw_url=result.raw_url,
+                    quote=None,
+                    provider="minimax",
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("minimax video sidecar skipped", exc_info=True)
             return result
         if use_grsai_video:
             raw_slug = attempt_kwargs.get("model_slug") or getattr(

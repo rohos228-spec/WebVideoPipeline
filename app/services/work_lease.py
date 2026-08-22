@@ -34,6 +34,7 @@ import time
 import uuid as _uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import delete, text, update
@@ -52,6 +53,12 @@ _HOST = socket.gethostname()
 
 # owner текущей asyncio-задачи (uuid на задачу, лениво).
 _task_owner: dict[int, str] = {}
+
+# owner'ы, которые ЭТОТ процесс реально держит прямо сейчас. Нужны, чтобы
+# отличить живой lease от осиротевшего: owner привязан к asyncio-задаче, и
+# после её смерти (например, release не смог записать в БД) строка висит до
+# конца TTL — час для шага, — а `expire_dead_local_leases` свой pid не трогает.
+_live_owners: set[str] = set()
 
 _LOCK_RETRIES = 3
 _LOCK_RETRY_SLEEP_S = 0.5
@@ -140,13 +147,58 @@ async def acquire(
                OR work_leases.owner = :me
         """
     )
-    rowcount = await _execute_with_retry(
-        stmt, {"pid": project_id, "key": unit_key, "me": me, "exp": expires, "now": now}
-    )
+    params = {"pid": project_id, "key": unit_key, "me": me, "exp": expires, "now": now}
+    rowcount = await _execute_with_retry(stmt, params)
     ok = rowcount > 0
-    if not ok:
+    if not ok and await _reclaim_local_orphan(project_id, unit_key):
+        rowcount = await _execute_with_retry(stmt, {**params, "now": time.time()})
+        ok = rowcount > 0
+    if ok:
+        _live_owners.add(me)
+    else:
         logger.debug("work_lease: {}/{} занят живым lease — пропуск", project_id, unit_key)
     return ok
+
+
+async def _reclaim_local_orphan(project_id: int, unit_key: str) -> bool:
+    """Просрочить lease, который держит ЭТОТ процесс, но уже никакая задача.
+
+    Owner привязан к asyncio-задаче, и каждый такт воркера — новая задача.
+    Значит свой же осиротевший lease (release не доехал до БД) процесс
+    перехватить не может: `expire_dead_local_leases` пропускает собственный
+    pid, а TTL шага — час. Живые owner'ы этого процесса лежат в
+    `_live_owners`, поэтому осиротевший отличается от рабочего.
+    """
+    from sqlalchemy import select
+
+    async with session_scope() as session:
+        row = (
+            await session.execute(
+                select(WorkLease).where(
+                    WorkLease.project_id == project_id,
+                    WorkLease.unit_key == unit_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None or float(row.expires_at) <= time.time():
+            return False
+        parts = (row.owner or "").split(":")
+        if len(parts) < 3 or parts[0] != _HOST:
+            return False
+        try:
+            pid = int(parts[1])
+        except ValueError:
+            return False
+        if pid != os.getpid() or row.owner in _live_owners:
+            return False
+        row.expires_at = 0.0
+        logger.warning(
+            "work_lease: {}/{} — осиротевший lease своего процесса (owner={}), перехватываю",
+            project_id,
+            unit_key,
+            row.owner,
+        )
+        return True
 
 
 async def renew(
@@ -181,8 +233,22 @@ async def renew(
     return ok
 
 
-async def release(project_id: int, unit_key: str, *, owner: str | None = None) -> bool:
-    """Освобождение ТОЛЬКО своего lease (чужой не трогаем — fencing)."""
+async def release(
+    project_id: int,
+    unit_key: str,
+    *,
+    owner: str | None = None,
+    session: Any | None = None,
+) -> bool:
+    """Освобождение ТОЛЬКО своего lease (чужой не трогаем — fencing).
+
+    `session` — сессия вызывающего. Её надо передавать всегда, когда она уже
+    открыта и что-то писала: SQLite пускает одного writer'а на файл, и своя
+    короткая сессия встанет на busy_timeout (60 с × ретраи) в ожидании
+    транзакции, которую держит сам вызывающий. Ровно этот самозахват
+    подвешивал `advance_project` на три минуты, а потом оставлял lease
+    висеть на весь TTL.
+    """
     me = owner or current_owner()
     stmt = delete(WorkLease).where(
         WorkLease.project_id == project_id,
@@ -190,10 +256,15 @@ async def release(project_id: int, unit_key: str, *, owner: str | None = None) -
         WorkLease.owner == me,
     )
     try:
+        if session is not None:
+            res = await session.execute(stmt)
+            return int(res.rowcount or 0) > 0
         return (await _execute_with_retry(stmt)) > 0
     except Exception as e:  # noqa: BLE001 — release не должен ронять шаг
         logger.warning("work_lease: release {}/{}: {}", project_id, unit_key, e)
         return False
+    finally:
+        _live_owners.discard(me)
 
 
 def _pid_alive(pid: int) -> bool:

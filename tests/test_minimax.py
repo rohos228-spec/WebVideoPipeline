@@ -122,7 +122,9 @@ async def test_image_writes_file_and_sends_base64_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: list[httpx.Request] = []
-    monkeypatch.setattr(mm.httpx, "AsyncClient", _mock_client([("/v1/image_generation", _ok_image())], captured))
+    monkeypatch.setattr(
+        mm.httpx, "AsyncClient", _mock_client([("/v1/image_generation", _ok_image())], captured)
+    )
 
     out = tmp_path / "f.png"
     res = await mm.generate_image("тестовый промт", out, aspect_ratio="9:16", project_id=1)
@@ -143,7 +145,9 @@ async def test_image_reference_goes_as_subject_reference(
 ) -> None:
     """Реф персонажа — base64 в subject_reference, никакой публикации наружу."""
     captured: list[httpx.Request] = []
-    monkeypatch.setattr(mm.httpx, "AsyncClient", _mock_client([("/v1/image_generation", _ok_image())], captured))
+    monkeypatch.setattr(
+        mm.httpx, "AsyncClient", _mock_client([("/v1/image_generation", _ok_image())], captured)
+    )
 
     ref = tmp_path / "c01.png"
     ref.write_bytes(b"\x89PNG" + b"\x00" * 200)
@@ -187,14 +191,19 @@ async def test_video_submit_poll_retrieve(tmp_path: Path, monkeypatch: pytest.Mo
     captured: list[httpx.Request] = []
     mp4 = b"\x00\x00\x00\x20ftypmp42" + b"\x00" * 4000
     routes = [
-        ("/v1/video_generation", httpx.Response(200, json={"task_id": "T1", "base_resp": {"status_code": 0}})),
+        (
+            "/v1/video_generation",
+            httpx.Response(200, json={"task_id": "T1", "base_resp": {"status_code": 0}}),
+        ),
         (
             "/v1/query/video_generation",
             httpx.Response(200, json={"status": "Success", "file_id": "F1", "base_resp": {"status_code": 0}}),
         ),
         (
             "/v1/files/retrieve",
-            httpx.Response(200, json={"file": {"download_url": "https://cdn/x.mp4"}, "base_resp": {"status_code": 0}}),
+            httpx.Response(
+                200, json={"file": {"download_url": "https://cdn/x.mp4"}, "base_resp": {"status_code": 0}}
+            ),
         ),
         ("cdn/x.mp4", httpx.Response(200, content=mp4)),
     ]
@@ -227,7 +236,9 @@ async def test_video_reports_pricing_variant(tmp_path: Path, monkeypatch: pytest
         ),
         (
             "/v1/files/retrieve",
-            httpx.Response(200, json={"file": {"download_url": "https://cdn/y.mp4"}, "base_resp": {"status_code": 0}}),
+            httpx.Response(
+                200, json={"file": {"download_url": "https://cdn/y.mp4"}, "base_resp": {"status_code": 0}}
+            ),
         ),
         ("cdn/y.mp4", httpx.Response(200, content=b"\x00" * 5000)),
     ]
@@ -260,7 +271,9 @@ async def test_unknown_resolution_falls_back_to_1080p(
         ),
         (
             "/v1/files/retrieve",
-            httpx.Response(200, json={"file": {"download_url": "https://cdn/z.mp4"}, "base_resp": {"status_code": 0}}),
+            httpx.Response(
+                200, json={"file": {"download_url": "https://cdn/z.mp4"}, "base_resp": {"status_code": 0}}
+            ),
         ),
         ("cdn/z.mp4", httpx.Response(200, content=b"\x00" * 5000)),
     ]
@@ -283,8 +296,14 @@ async def test_unknown_resolution_falls_back_to_1080p(
 @pytest.mark.asyncio
 async def test_video_fail_status_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     routes = [
-        ("/v1/video_generation", httpx.Response(200, json={"task_id": "T1", "base_resp": {"status_code": 0}})),
-        ("/v1/query/video_generation", httpx.Response(200, json={"status": "Fail", "base_resp": {"status_code": 0}})),
+        (
+            "/v1/video_generation",
+            httpx.Response(200, json={"task_id": "T1", "base_resp": {"status_code": 0}}),
+        ),
+        (
+            "/v1/query/video_generation",
+            httpx.Response(200, json={"status": "Fail", "base_resp": {"status_code": 0}}),
+        ),
     ]
     monkeypatch.setattr(mm.httpx, "AsyncClient", _mock_client(routes, []))
     with pytest.raises(mm.MinimaxError, match="провалилась"):
@@ -292,9 +311,7 @@ async def test_video_fail_status_raises(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
-async def test_video_submit_without_task_id_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_video_submit_without_task_id_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     routes = [("/v1/video_generation", httpx.Response(200, json={"base_resp": {"status_code": 0}}))]
     monkeypatch.setattr(mm.httpx, "AsyncClient", _mock_client(routes, []))
     with pytest.raises(mm.MinimaxError, match="task_id"):

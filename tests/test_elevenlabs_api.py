@@ -118,9 +118,7 @@ async def test_tts_writes_mp3_and_hits_right_endpoint(
 
 
 @pytest.mark.asyncio
-async def test_voice_settings_sent_when_configured(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_voice_settings_sent_when_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "elevenlabs_stability", 0.4)
     monkeypatch.setattr(settings, "elevenlabs_similarity_boost", 0.8)
     captured: list[httpx.Request] = []
@@ -137,18 +135,14 @@ async def test_voice_settings_sent_when_configured(
 @pytest.mark.asyncio
 async def test_http_error_is_loud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """401 — это ошибка шага, а не тихий пустой файл."""
-    monkeypatch.setattr(
-        ea.httpx, "AsyncClient", _client_returning([], status=401, body=b"unauthorized")
-    )
+    monkeypatch.setattr(ea.httpx, "AsyncClient", _client_returning([], status=401, body=b"unauthorized"))
     with pytest.raises(ea.ElevenLabsApiError, match="401"):
         await ea.ElevenLabsApi().tts("Текст.", tmp_path / "v.mp3", voice_id="V")
     assert not (tmp_path / "v.mp3").exists()
 
 
 @pytest.mark.asyncio
-async def test_suspiciously_short_audio_rejected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_suspiciously_short_audio_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Ответ 200 с огрызком вместо mp3 — брак, а не «озвучка готова»."""
     monkeypatch.setattr(ea.httpx, "AsyncClient", _client_returning([], body=b"nope"))
     with pytest.raises(ea.ElevenLabsApiError, match="короткий ответ"):
@@ -169,9 +163,7 @@ def test_no_key_means_no_client(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tts_is_recorded_in_media_ledger(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_tts_is_recorded_in_media_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Озвучка — платная генерация: должна попадать в media_calls."""
     monkeypatch.setattr(ea.httpx, "AsyncClient", _client_returning([]))
     recorded: list[dict] = []

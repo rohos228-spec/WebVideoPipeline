@@ -40,6 +40,12 @@ class OptionChoice:
 
 IMAGE_GENERATORS: list[OptionChoice] = [
     OptionChoice(
+        "minimax_image_01",
+        "+ MiniMax image-01",
+        "image-01",
+        "MiniMax · 9:16 → 720×1280, реф картинкой base64 (без файлохостингов)",
+    ),
+    OptionChoice(
         "nano_banana_2",
         "+ Nano Banana 2",
         "nano-banana-2",
@@ -129,6 +135,8 @@ IMAGE_RESOLUTIONS: list[OptionChoice] = [
 
 # Какие кнопки разрешения реально есть у модели на outsee.io/image (из UI JS).
 IMAGE_RESOLUTIONS_BY_GENERATOR: dict[str, tuple[str, ...]] = {
+    # image-01 отдаёт фиксированные 720×1280 на 9:16 — выбирать нечего.
+    "minimax_image_01": ("1k",),
     "nano_banana_2": ("1k", "2k", "4k"),
     "nano_banana_2_lite": ("1k", "2k"),
     "nano_banana_pro": ("1k", "2k", "4k"),

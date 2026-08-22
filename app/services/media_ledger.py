@@ -246,9 +246,7 @@ async def media_call(
     Исключение пробрасывается: учёт фиксирует строку с ``result="error"`` и
     отдаёт ошибку дальше.
     """
-    info = MediaCallInfo(
-        provider=provider, kind=kind, model=model, units=units, unit=unit, variant=variant
-    )
+    info = MediaCallInfo(provider=provider, kind=kind, model=model, units=units, unit=unit, variant=variant)
     started = time.monotonic()
     try:
         yield info

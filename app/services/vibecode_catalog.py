@@ -382,7 +382,14 @@ def resolve_node_choice(
     node = find_canvas_node(meta, node_key=node_key, node_type=node_type)
     mid, channel = read_node_model_fields(node)
     if not mid:
-        mid = default_model_id_for_node_type(str((node or {}).get("type") or node_type or ""))
+        if node is None:
+            # Канвас-ноды нет (проект из seed/TG, а не из Studio) — выбора не
+            # делали. Подставить сюда каталожный дефолт значит молча
+            # перебить TEXT_LLM_PROVIDER / IMAGE_PROVIDER / VIDEO_PROVIDER:
+            # дефолты каталога прибиты к vibecode и outsee. Пусть решают
+            # настройки проекта и .env.
+            return None
+        mid = default_model_id_for_node_type(str(node.get("type") or node_type or ""))
     found = find_model(mid, channel=channel)
     if found:
         found = {**found, "channel": channel}

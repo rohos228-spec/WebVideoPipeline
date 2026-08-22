@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,23 @@ MINIMAX_VIDEO_MODELS: tuple[str, ...] = (
     "MiniMax-Hailuo-2.3-Fast",
     "MiniMax-Hailuo-02",
 )
+
+# Ступени и длительности video_generation. Держим одним списком: и запрос,
+# и строка прайса (`minimax:<model>@<res>:<dur>`) должны совпадать, иначе в
+# учёт уедет не та цена.
+_VIDEO_RESOLUTIONS: tuple[str, ...] = ("512P", "768P", "1080P")
+_VIDEO_RESOLUTION_DEFAULT = "1080P"
+_VIDEO_DURATIONS: tuple[int, ...] = (6, 10)
+_VIDEO_DURATION_DEFAULT = 6
+
+# studio-id каталога (`app/generation_options.py`) → модель MiniMax.
+_VIDEO_STUDIO_ALIASES: dict[str, str] = {
+    "hailuo-2-3": "MiniMax-Hailuo-2.3",
+    "hailuo-2-3-pro": "MiniMax-Hailuo-2.3",
+    "hailuo-2-3-fast": "MiniMax-Hailuo-2.3-Fast",
+    "hailuo-02": "MiniMax-Hailuo-02",
+    "hailuo-2": "MiniMax-Hailuo-02",
+}
 
 # Оси, которые принимает image_generation. Всё прочее приводим к 9:16 —
 # конвейер вертикальный.
@@ -176,7 +194,38 @@ def studio_id_to_minimax_video_slug(studio_id: str | None) -> str:
     if s in MINIMAX_VIDEO_MODELS:
         return s
     lowered = {m.lower(): m for m in MINIMAX_VIDEO_MODELS}
-    return lowered.get(s.lower(), default)
+    key = s.lower().replace("_", "-")
+    return lowered.get(key, _VIDEO_STUDIO_ALIASES.get(key, default))
+
+
+def normalize_video_resolution(raw: str | None) -> str:
+    """Ступень MiniMax по запрошенной высоте кадра.
+
+    Каталог конвейера знает 720p/1080p, MiniMax — 512P/768P/1080P. Без
+    приведения 720p молча уезжал в 1080P: другой кадр и вдвое другая цена.
+    """
+    s = (raw or "").strip().upper()
+    if s in _VIDEO_RESOLUTIONS:
+        return s
+    m = re.fullmatch(r"(\d{3,4})P?", s)
+    if not m:
+        # «4K», пустая строка, мусор — берём документированный дефолт, а не
+        # ближайшую ступень: угадывать по нераспознанному значению нельзя.
+        return _VIDEO_RESOLUTION_DEFAULT
+    height = int(m.group(1))
+    for step in _VIDEO_RESOLUTIONS:
+        if height <= int(step[:-1]):
+            return step
+    return _VIDEO_RESOLUTIONS[-1]
+
+
+def normalize_video_duration(raw: int | float | None) -> int:
+    """MiniMax берёт только 6 или 10 секунд; 5 из лестницы — не длительность."""
+    try:
+        want = float(raw) if raw is not None else float(_VIDEO_DURATION_DEFAULT)
+    except (TypeError, ValueError):
+        want = float(_VIDEO_DURATION_DEFAULT)
+    return min(_VIDEO_DURATIONS, key=lambda d: (abs(d - want), d))
 
 
 def file_to_data_url(path: Path) -> str:
@@ -403,13 +452,12 @@ async def _generate_video_inner(
     body: dict[str, Any] = {
         "model": model,
         "prompt": (prompt or "")[:2000],
-        "duration": int(duration or 6),
+        "duration": normalize_video_duration(duration),
         # prompt_optimizer по умолчанию у API включён и переписывает промт.
         # Конвейер строит промт сам (шаг anim_pr) — чужие правки не нужны.
         "prompt_optimizer": bool(prompt_optimizer),
     }
-    res = (resolution or "1080P").strip().upper()
-    body["resolution"] = res if res in {"768P", "1080P"} else "1080P"
+    body["resolution"] = normalize_video_resolution(resolution)
 
     first = _as_data_url(reference_image) or (first_frame_url or None)
     if first:
@@ -454,9 +502,8 @@ async def generate_video(
     from app.services.media_ledger import media_call
 
     model = studio_id_to_minimax_video_slug(model_slug)
-    dur = int(duration or 6)
-    res = (resolution or "1080P").strip().upper()
-    res = res if res in {"512P", "768P", "1080P"} else "1080P"
+    dur = normalize_video_duration(duration)
+    res = normalize_video_resolution(resolution)
     async with media_call(
         "minimax",
         "video",
@@ -470,7 +517,7 @@ async def generate_video(
             prompt,
             out_path,
             model_slug=model_slug,
-            duration=duration,
+            duration=dur,
             resolution=res,
             project_id=project_id,
             **kwargs,

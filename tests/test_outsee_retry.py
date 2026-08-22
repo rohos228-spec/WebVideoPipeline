@@ -14,6 +14,7 @@ from app.bots.outsee import (
 )
 from app.generation_options import OUTSEE_PROMPT_MAX_CHARS
 from app.services import outsee_retry as mod
+from app.settings import settings as mod_settings
 
 
 def test_is_concurrency_limit_error() -> None:
@@ -417,3 +418,69 @@ async def test_image_download_exhaustion_does_not_regenerate(monkeypatch, tmp_pa
         )
     assert len(gen_calls) == 1
     assert dl_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_video_minimax_backend_gets_frame_and_res(monkeypatch, tmp_path: Path) -> None:
+    """VIDEO_PROVIDER=minimax: клип идёт в MiniMax, а не в браузерный Outsee.
+
+    Ловит регрессию, из-за которой `minimax.generate_video` не был подключён
+    к лестнице вовсе: провайдер выставлен, а вызов уезжал в Outsee CDP.
+    Заодно фиксирует приведение 720p (каталог конвейера) к 768P (ступень
+    MiniMax) — без него кадр и цена молча становились 1080P.
+    """
+    from PIL import Image
+
+    frame = tmp_path / "start.png"
+    Image.new("RGB", (640, 960), (10, 20, 30)).save(frame)
+    seen: dict[str, object] = {}
+
+    async def fake_minimax_video(prompt, out_path, **kwargs):
+        seen.update(kwargs)
+        seen["prompt"] = prompt
+        Path(out_path).write_bytes(b"mp4" * 40)
+        return GenerationResult(file_path=Path(out_path), raw_url=None, gen_id="mm1")
+
+    async def fake_prepare(gpt, body, prefix, *, project_id=None, max_full=None):
+        return body
+
+    monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
+    monkeypatch.setattr("app.bots.minimax.generate_video", fake_minimax_video)
+    monkeypatch.setattr("app.bots.minimax.minimax_key_configured", lambda: True)
+    monkeypatch.setattr(mod_settings, "video_provider", "minimax")
+
+    result = await mod.generate_video_with_retries(
+        None,
+        None,
+        prompt="silent vertical shot",
+        out_path=tmp_path / "clip.mp4",
+        gpt_rewrite=False,
+        project_id=7,
+        start_frame=frame,
+        model_slug="hailuo-2-3-fast",
+        resolution="720p",
+        aspect_ratio="9:16",
+    )
+    assert result.file_path.exists()
+    assert seen["model_slug"] == "MiniMax-Hailuo-2.3-Fast"
+    assert seen["resolution"] == "768P"
+    assert seen["duration"] == 6
+    assert seen["reference_image"] == frame
+    assert seen["project_id"] == 7
+
+
+@pytest.mark.asyncio
+async def test_video_minimax_without_key_fails_closed(monkeypatch, tmp_path: Path) -> None:
+    """Без ключа — явная ошибка, а не тихий откат на браузерный Outsee."""
+    monkeypatch.setattr("app.bots.minimax.minimax_key_configured", lambda: False)
+    monkeypatch.setattr(mod_settings, "video_provider", "minimax")
+
+    with pytest.raises(OutseeImageError) as err:
+        await mod.generate_video_with_retries(
+            None,
+            None,
+            prompt="silent vertical shot",
+            out_path=tmp_path / "clip.mp4",
+            gpt_rewrite=False,
+        )
+    assert err.value.context.get("provider") == "minimax"

@@ -146,3 +146,54 @@ async def test_task_owners_differ(lease_db):
 
     o1, o2 = await asyncio.gather(asyncio.create_task(owner_of()), asyncio.create_task(owner_of()))
     assert o1 != o2
+
+
+@pytest.mark.asyncio
+async def test_orphan_lease_of_this_process_is_reclaimed(lease_db):
+    """Свой же осиротевший lease перехватывается, а не ждёт TTL.
+
+    Owner привязан к asyncio-задаче, каждый такт воркера — новая задача.
+    Если release не доехал до БД (SQLite занят, откат транзакции), строка
+    висит до конца TTL — час для шага, — и проект стоит намертво.
+    """
+    import os
+    import socket
+
+    dead_owner = f"{socket.gethostname()}:{os.getpid()}:deadbeefdead"
+    assert await wl.acquire(1, "step:plan", owner=dead_owner, ttl_s=3600) is True
+    # задача умерла, не вызвав release: owner из реестра живых не убран сам
+    wl._live_owners.discard(dead_owner)
+
+    assert await wl.acquire(1, "step:plan", owner="next-task", ttl_s=3600) is True
+    assert await wl.is_held(1, "step:plan") is True
+
+
+@pytest.mark.asyncio
+async def test_live_lease_of_this_process_is_not_stolen(lease_db):
+    """Работающая задача того же процесса свой lease не отдаёт."""
+    import os
+    import socket
+
+    live_owner = f"{socket.gethostname()}:{os.getpid()}:aaaabbbbcccc"
+    assert await wl.acquire(1, "step:plan", owner=live_owner, ttl_s=3600) is True
+    assert await wl.acquire(1, "step:plan", owner="other-task", ttl_s=3600) is False
+
+
+@pytest.mark.asyncio
+async def test_release_with_caller_session(lease_db, monkeypatch):
+    """release чужой сессией не открывает вторую — иначе SQLite самозахват."""
+    calls: list[str] = []
+    orig = wl._execute_with_retry
+
+    async def spy(stmt, params=None):
+        calls.append("own-session")
+        return await orig(stmt, params)
+
+    monkeypatch.setattr(wl, "_execute_with_retry", spy)
+    assert await wl.acquire(2, "step:plan", owner="me", ttl_s=60) is True
+    calls.clear()
+
+    async with wl.session_scope() as session:
+        assert await wl.release(2, "step:plan", owner="me", session=session) is True
+    assert calls == []
+    assert await wl.is_held(2, "step:plan") is False
