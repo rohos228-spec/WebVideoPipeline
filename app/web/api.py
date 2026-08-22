@@ -202,11 +202,11 @@ async def _lifespan(app: FastAPI):
         logger.exception("fleet init failed (non-fatal)")
 
     try:
-        from app.services.montage_board_job_state import reconcile_stale_montage_jobs_on_startup
+        from app.services.reconciler import reconcile
 
-        await reconcile_stale_montage_jobs_on_startup()
+        await reconcile(scope="startup")
     except Exception:  # noqa: BLE001
-        logger.exception("montage job reconcile failed (non-fatal)")
+        logger.exception("startup reconcile failed (non-fatal)")
 
     try:
         yield

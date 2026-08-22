@@ -1318,9 +1318,11 @@ async def _reconcile_stale_node_runs(
     require_no_live_task: bool = False,
     grace_sec: float = _STALE_GRACE_SEC,
 ) -> int:
-    """NodeRun running/queued без живого воркера → failed (или heal → done)."""
-    from app.services.step_cancel import is_generation_active
+    """NodeRun running/queued без живого воркера → failed (или heal → done).
 
+    Зовётся через `app/services/reconciler.py` — он владеет порядком
+    проходов и критерием живости.
+    """
     fixed = 0
     healed = 0
     now = datetime.utcnow()
@@ -1337,27 +1339,17 @@ async def _reconcile_stale_node_runs(
             project = await session.get(Project, run.project_id)
             if project is None:
                 continue
-            live = is_generation_active(run.project_id)
-            # Этап 2 (E.3): «шаг живой» видно и из БД — step-lease другого
-            # процесса. Критерий осиротевшести: нет ни живой задачи
-            # in-process, ни живого lease.
-            if not live:
-                try:
-                    from app.orchestrator.node_registry import (
-                        NODE_TYPE_TO_STEP_CODE,
-                        RUNNING_TO_NODE_TYPE,
-                    )
-                    from app.services.work_lease import is_held
+            # Критерий живости — единый (app/services/reconciler.py):
+            # задача in-process ИЛИ step-lease другого процесса. Раньше
+            # вторая половина была копией прямо здесь.
+            from app.orchestrator.node_registry import (
+                NODE_TYPE_TO_STEP_CODE,
+                RUNNING_TO_NODE_TYPE,
+            )
+            from app.services.reconciler import is_work_live
 
-                    _code = NODE_TYPE_TO_STEP_CODE.get(RUNNING_TO_NODE_TYPE.get(project.status, ""), "")
-                    if _code and await is_held(run.project_id, f"step:{_code}"):
-                        live = True
-                except Exception:  # noqa: BLE001
-                    logger.debug(
-                        "[#{}] step-lease check failed",
-                        run.project_id,
-                        exc_info=True,
-                    )
+            step_code = NODE_TYPE_TO_STEP_CODE.get(RUNNING_TO_NODE_TYPE.get(project.status, ""), "")
+            live = await is_work_live(run.project_id, step_code=step_code or "")
             for nr in run.node_runs:
                 # Ложный failed после успеха: sd_* веер + линейные media-ноды
                 # (img/anim_pr/video…), когда Project уже доказывает ready/дальше.
@@ -1518,18 +1510,16 @@ async def _reconcile_stale_node_runs(
 
 
 async def reconcile_stale_node_runs_on_startup() -> int:
-    """NodeRun running/queued без живого воркера после перезапуска → failed."""
+    """Совместимость: один проход из `reconciler.reconcile(scope="startup")`.
+
+    Оставлено для существующих вызовов и тестов; новый код должен звать
+    `app.services.reconciler.reconcile`, который знает порядок проходов.
+    """
     return await _reconcile_stale_node_runs(initiator="startup_reconcile")
 
 
 async def background_node_run_reconcile_loop(*, interval_sec: float = 60.0) -> None:
-    """Фон: running/queued без живой задачи дольше N сек → failed."""
-    while True:
-        try:
-            await _reconcile_stale_node_runs(
-                initiator="background_reconcile",
-                require_no_live_task=True,
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("background_node_run_reconcile_loop failed")
-        await asyncio.sleep(interval_sec)
+    """Устарело: фоновый цикл теперь один — `reconciler.background_reconcile_loop`."""
+    from app.services.reconciler import background_reconcile_loop
+
+    await background_reconcile_loop(interval_sec=interval_sec)
