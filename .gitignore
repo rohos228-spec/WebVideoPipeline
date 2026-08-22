@@ -25,7 +25,7 @@ env/
 *.pem
 
 # MCP / local tools
-.ai-orchestra-mcp/node_modules/
+legacy/.ai-orchestra-mcp/node_modules/
 
 # IDE
 .idea/

@@ -11,16 +11,17 @@
 
 ## 1. Read first (always-on)
 
-| Файл | Зачем |
-|------|--------|
-| [`../ai-pack/START_HERE.md`](../ai-pack/START_HERE.md) | **Пакет для ИИ** (копии гайдов + как чинить/промпты). Пересборка: `python scripts/build_ai_pack.py` |
-| [`AGENTS.md`](../AGENTS.md) | Cloud/dev: git→main, providers, GPT API, UI version |
-| [`.cursor/rules/video-pipeline-ops.mdc`](../.cursor/rules/video-pipeline-ops.mdc) | Studio, anim_pr/R48, soft-retry, diagnose |
-| [`.cursor/rules/video-pipeline-map.mdc`](../.cursor/rules/video-pipeline-map.mdc) | Это правило: сначала карта |
-| [`NODE_SYSTEM.md`](NODE_SYSTEM.md) | Система нод оркестратора: доноры, контракты, harness-гейты, каталог нод/действий |
-| [`DB_V2.md`](DB_V2.md) | DB v2 = SoT: apply-ops контракт, алиасы, экспорт в Excel, руководство оператора |
-| [`PROMPT_CONTRACT.md`](PROMPT_CONTRACT.md) | Контракт промптов GPT↔DB: apply-ops / artifact / staging; стоп-лист Excel/TSV |
-| [`NODE_MODELS.md`](NODE_MODELS.md) | Пикер модели на ноде: vibecode vs kie vs Grsai/Outsee, какие ключи |
+| Файл                                                                              | Зачем                                                                                               |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [`../ai-pack/START_HERE.md`](../ai-pack/START_HERE.md)                            | **Пакет для ИИ** (копии гайдов + как чинить/промпты). Пересборка: `python scripts/build_ai_pack.py` |
+| [`AGENTS.md`](../AGENTS.md)                                                       | Cloud/dev: git→main, providers, GPT API, UI version                                                 |
+| [`.cursor/rules/video-pipeline-ops.mdc`](../.cursor/rules/video-pipeline-ops.mdc) | Studio, anim_pr/R48, soft-retry, diagnose                                                           |
+| [`.cursor/rules/video-pipeline-map.mdc`](../.cursor/rules/video-pipeline-map.mdc) | Это правило: сначала карта                                                                          |
+| [`.cursor/rules/scene-design-model.mdc`](../.cursor/rules/scene-design-model.mdc) | Модель scene_design (веер sd_agent + sd_assemble)                                                   |
+| [`NODE_SYSTEM.md`](NODE_SYSTEM.md)                                                | Система нод оркестратора: доноры, контракты, harness-гейты, каталог нод/действий                    |
+| [`DB_V2.md`](DB_V2.md)                                                            | DB v2 = SoT: apply-ops контракт, алиасы, экспорт в Excel, руководство оператора                     |
+| [`PROMPT_CONTRACT.md`](PROMPT_CONTRACT.md)                                        | Контракт промптов GPT↔DB: apply-ops / artifact / staging; стоп-лист Excel/TSV                       |
+| [`NODE_MODELS.md`](NODE_MODELS.md)                                                | Пикер модели на ноде: vibecode vs kie vs Grsai/Outsee, какие ключи                                  |
 
 ---
 
@@ -34,8 +35,10 @@
 
 ## 3. Run / update / diagnose
 
-- Windows: `STUDIO.cmd` → **[1]** Studio (`http://127.0.0.1:8765`), **[2]** update from `origin/main`.
-- Stop: `stop-backend.cmd` / `scripts/stop-backend.ps1`.
+- Windows: `STUDIO.cmd` → меню `scripts/studio.ps1`: **[1]** запустить студию
+  (`http://127.0.0.1:8765`), **[2]** остановить всё, **[4]** обновить и запустить
+  (`origin/<ветка ПК>`, не хардкод main), **[5]** сменить ветку ПК.
+- Stop: `[2]` в меню или `scripts/stop-backend.ps1`.
 - Логи: `data/backend-*.log`, `data/studio-live.log`.
 - Не использовать `scripts/legacy/`.
 - Меню в разных md может расходиться — **SoT: `STUDIO.cmd` + ops rule**.
@@ -64,31 +67,32 @@ docs/                     # human/agent docs
 ## 5. Pipeline steps & statuses
 
 > ⚠️ Таблица ниже отстала от SoT (сверка 2026-08-20): канон scene_design —
-> веер `sd_agent`×5 + `sd_assemble` (`node_registry.py:143-148`), ноды
-> `sfx_plan`/`sfx_gen` (`node_registry.py:107-112`) в таблице отсутствуют.
+> веер `sd_agent`×5 + `sd_assemble` (`node_registry.py:47-58`, коды —
+> `SD_AGENT_STEP_CODES` `node_registry.py:97-104`), ноды
+> `sfx_plan`/`sfx_gen` (`node_registry.py:82-85`) в таблице отсутствуют.
 
 **SoT:** [`app/orchestrator/node_registry.py`](../app/orchestrator/node_registry.py),
 [`pipeline.py`](../app/orchestrator/pipeline.py),
 [`steps/`](../app/orchestrator/steps/),
 [`auto_advance.py`](../app/orchestrator/auto_advance.py).
 
-| node_type | step_code | смысл |
-|-----------|-----------|--------|
-| plan | plan | план ролика |
-| script | script | сценарий / VO |
-| split | split | разбивка кадров |
-| scene_design | scene_d | мульти-агентный дизайн сцен: 5 GPT-агентов параллельно → staging-ячейки `scene_design_cells` (валидация при записи, `cells.py`) → хронология по закадру + привязка кадров (`chronology.py`) → сборщик → валидация → apply-ops. В боевые таблицы пишет только финальная сборка. Флаг `SCENE_DESIGN_ENABLED` / `meta.scene_design_enabled`; выключен — pass-through. Модуль: [`app/services/scene_design/`](../app/services/scene_design/), промпты `prompts/scene_design/*.md` |
-| hero | hero | hero-кадр |
-| items | items | предметы/рефы |
-| enrich_1…5 | enrich_* | доп. Excel-слоты |
-| image_prompts | img_pr | промты картинок |
-| images | img | генерация PNG |
-| animation_prompts | anim_pr | промты анимации → **R48/R64** |
-| videos | video | клипы |
-| audio | audio | TTS |
-| music | music | музыка |
-| assemble | assemble | монтаж |
-| publish | publish | выгрузка |
+| node_type         | step_code | смысл                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| plan              | plan      | план ролика                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| script            | script    | сценарий / VO                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| split             | split     | разбивка кадров                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| scene_design      | scene_d   | мульти-агентный дизайн сцен: 5 GPT-агентов параллельно → staging-ячейки `scene_design_cells` (валидация при записи, `cells.py`) → хронология по закадру + привязка кадров (`chronology.py`) → сборщик → валидация → apply-ops. В боевые таблицы пишет только финальная сборка. Флаг `SCENE_DESIGN_ENABLED` / `meta.scene_design_enabled`; выключен — pass-through. Модуль: [`app/services/scene_design/`](../app/services/scene_design/), промпты `prompts/scene_design/*.md` |
+| hero              | hero      | hero-кадр                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| items             | items     | предметы/рефы                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| enrich_1…5        | enrich_*  | доп. Excel-слоты                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| image_prompts     | img_pr    | промты картинок                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| images            | img       | генерация PNG                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| animation_prompts | anim_pr   | промты анимации → **R48/R64**                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| videos            | video     | клипы                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| audio             | audio     | TTS                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| music             | music     | музыка                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| assemble          | assemble  | монтаж                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| publish           | publish   | выгрузка                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 Canvas HITL/config nodes (`hitl_*`, `topic`, `storage`) — см. тот же registry.
 
@@ -102,15 +106,15 @@ Canvas HITL/config nodes (`hitl_*`, `topic`, `storage`) — см. тот же re
 
 Лист **«план»**, строки (1-based в комментариях кода):
 
-| Row | Константа / смысл |
-|-----|-------------------|
-| 15 | `ROW_TIMECODE_V8` — таймкоды |
-| 45 | `ROW_IMAGE_PROMPT_V8` — промт картинки shot_01 |
-| 46 | `ROW_IMAGE_PROMPT_2_V8` — shot_02 |
+| Row    | Константа / смысл                                                                                 |
+| ------ | ------------------------------------------------------------------------------------------------- |
+| 15     | `ROW_TIMECODE_V8` — таймкоды                                                                      |
+| 45     | `ROW_IMAGE_PROMPT_V8` — промт картинки shot_01                                                    |
+| 46     | `ROW_IMAGE_PROMPT_2_V8` — shot_02                                                                 |
 | **48** | anim_pr shot_01 (в UI/коде часто «промт для видео»; **источник правды для anim_pr**, не stale DB) |
-| 49 | `ROW_VOICEOVER_V8` — закадровый текст |
-| 50 | `ROW_DURATION_V8` — время на кадр |
-| **64** | anim / video prompt shot_02 |
+| 49     | `ROW_VOICEOVER_V8` — закадровый текст                                                             |
+| 50     | `ROW_DURATION_V8` — время на кадр                                                                 |
+| **64** | anim / video prompt shot_02                                                                       |
 
 Ops: при сбоях anim_pr смотреть **R48 в xlsx**, soft-retry без wipe.
 
@@ -139,39 +143,37 @@ Series workbook — отдельный трек: `docs/SERIES_XLSX_WORKBOOK.md`.
 
 ## 8. GPT: три разных пути
 
-| Путь | Назначение | SoT |
-|------|------------|-----|
-| Pipeline text | plan/script/checks/anim_pr/hero-prompt… | `gpt_client.py` → `gpt_api.py` (`GPT_API_KEY`) |
-| **gpt_workspace** | Свободный Studio-чат, файлы в «Готовые файлы» | `gpt_workspace.py`, `app/web/routers/gpt_workspace.py`, `data/gpt_workspace/` |
-| ChatGPT CDP | **Не** для текста; attach/CDP остаётся для media/TTS кейсов | `app/bots/chatgpt.py` (см. ops attach rules) |
+| Путь              | Назначение                                                  | SoT                                                                           |
+| ----------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Pipeline text     | plan/script/checks/anim_pr/hero-prompt…                     | `text_llm_catalog.py` (выбор провайдера) → `gpt_api.py`; ключи `GPT_API_KEY` (kie, дефолт) / `VIBECODE_API_KEY` / `TOKENROUTER_API_KEY` |
+| **gpt_workspace** | Свободный Studio-чат, файлы в «Готовые файлы»               | `gpt_workspace.py`, `app/web/routers/gpt_workspace.py`, `data/gpt_workspace/` |
+| ChatGPT CDP       | **Не** для текста; attach/CDP остаётся для media/TTS кейсов | `app/bots/chatgpt.py` (см. ops attach rules)                                  |
 
 Правила workspace (кратко): сообщение с `?`/`？` в конце → ответ в чате, не pack файла;
 картинки «пришли» → поиск/URL, не 1×1 stub; договор-shaped reply → авто pack.
-
-**Не доверять** `HANDOVER.md` про «текст через ChatGPT web».
 
 ---
 
 ## 9. Media providers / Create
 
-| Что | SoT |
-|-----|-----|
-| Outsee HTTP API | `app/bots/outsee_http.py`, `app/web/routers/outsee_http.py` |
-| Outsee CDP fallback | `OUTSEE_HTTP_FALLBACK_CDP`, `app/bots/outsee.py` |
-| Grsai | `app/bots/grsai.py`, `app/web/routers/grsai.py` |
-| Studio Create UI | `web/src/components/outsee/*`, settings `data/outsee_create_settings.json` |
-| Create REST | `app/web/routers/outsee_create.py` — `GET/PUT /api/outsee-create/settings`, generate |
-| Очередь Create | `app/web/routers/create_queue.py` |
-| Env | `IMAGE_PROVIDER` / `VIDEO_PROVIDER` = `outsee` \| `grsai` — см. `AGENTS.md` |
+| Что                 | SoT                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| Outsee HTTP API     | `app/bots/outsee_http.py`, `app/web/routers/outsee_http.py`                          |
+| Outsee CDP fallback | `OUTSEE_HTTP_FALLBACK_CDP`, `app/bots/outsee.py`                                     |
+| Grsai               | `app/bots/grsai.py`, `app/web/routers/grsai.py`                                      |
+| Studio Create UI    | `web/src/components/outsee/*`, settings `data/outsee_create_settings.json`           |
+| Create REST         | `app/web/routers/outsee_create.py` — `GET/PUT /api/outsee-create/settings`, generate |
+| Очередь Create      | `app/web/routers/create_queue.py`                                                    |
+| Env                 | `IMAGE_PROVIDER` / `VIDEO_PROVIDER` = `outsee` \| `grsai` — см. `AGENTS.md`          |
 
 ---
 
 ## 10. Mass: Studio factory ≠ Telegram `/mass`
 
-| Система | SoT |
-|---------|-----|
+| Система                    | SoT                                                                                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | **Studio «Фабрика видео»** | `app/services/mass_factory.py`, `web/src/components/inspector/mass-factory-panel.tsx`, inspector Project settings |
-| **Telegram `/mass`** | [`docs/MASS_CREATION.md`](MASS_CREATION.md), `app/services/batches.py`, `app/telegram/mass_menu.py` |
+| **Telegram `/mass`**       | [`docs/MASS_CREATION.md`](MASS_CREATION.md), `app/services/batches.py`, `app/telegram/mass_menu.py`               |
 
 Одинаковое слово — **разные** entry points. Mass Creation doc описывает Telegram-партию; Studio factory — Excel тем → lanes в UI.
 
@@ -182,13 +184,13 @@ Series workbook — отдельный трек: `docs/SERIES_XLSX_WORKBOOK.md`.
 
 ## 11. ASR & montage
 
-| Что | SoT |
-|-----|-----|
-| Сборка ролика | `app/orchestrator/steps/assemble.py` |
-| Таймлайн / sync | `app/services/frame_timeline_sync.py`, `mapper.py` |
-| Whisper / ASR | `app/services/whisper.py`; NVIDIA: `ASR_BACKEND=nvidia`, `.[nvidia]`, `scripts/download_nvidia_asr.py` |
-| Word-level в БД | таблица `asr_words` (`app/models.py` AsrWord), запись `app/services/asr_words_store.py`; API `GET /api/projects/{id}/asr-words` |
-| VO в xlsx | R49 (`ROW_VOICEOVER_V8`) + таймкоды R15 |
+| Что                | SoT                                                                                                                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Сборка ролика      | `app/orchestrator/steps/assemble.py`                                                                                                                                                                         |
+| Таймлайн / sync    | `app/services/frame_timeline_sync.py`, `mapper.py`                                                                                                                                                           |
+| Whisper / ASR      | `app/services/whisper.py`; NVIDIA: `ASR_BACKEND=nvidia`, `.[nvidia]`, `scripts/download_nvidia_asr.py`                                                                                                       |
+| Word-level в БД    | таблица `asr_words` (`app/models.py` AsrWord), запись `app/services/asr_words_store.py`; API `GET /api/projects/{id}/asr-words`                                                                              |
+| VO в xlsx          | R49 (`ROW_VOICEOVER_V8`) + таймкоды R15                                                                                                                                                                      |
 | **Regen на доске** | `montage_board_regen.py` → тот же API, что img/video (`outsee_retry`); промты из БД (`prompt_versions`/Frame), Excel fallback. CDP не нужен при `IMAGE/VIDEO_PROVIDER=outsee\|grsai`. См. `docs/DB_V2.md` §8 |
 
 ---
@@ -202,7 +204,7 @@ python scripts/bump_studio_version.py
 ```
 
 - Counter: `web/STUDIO_VERSION`
-- Baked UI: `web/out/` **коммитится**
+- Baked UI: `web/out/` собирается локально (в git не хранится)
 - Badge / stale: `/api/studio-version`
 
 ---
@@ -219,11 +221,22 @@ python scripts/bump_studio_version.py
 
 ## 14. Stale — do not trust
 
-| Документ | Почему |
-|----------|--------|
-| `HANDOVER.md` | Старые ветки + «текст через ChatGPT web» |
-| Старые QA/audit reports | Исторические срезы |
-| Части `README.md` | Могут расходиться с xlsx+API reality |
+| Документ                | Почему                               |
+| ----------------------- | ------------------------------------ |
+| Старые QA/audit reports | Исторические срезы                   |
+| Части `README.md`       | Могут расходиться с xlsx+API reality |
+
+`HANDOVER.md` обновлён 2026-08-21 под `minimax-all-fixes` (W1) — но
+канон остаётся `ai-pack/START_HERE.md` + `AGENTS.md`.
+
+**Наборы инструкций для агентов:** в `legacy/` убраны `clinerules.md`
+(дублировал `AGENTS.md`), `clineignore`, `START_AI_ORCHESTRA_PROMPT.txt` и
+`.ai-orchestra-mcp/` (Cline-роли сняты). Актуальный набор = 3 источника:
+
+1. `ai-pack/START_HERE.md` — ведётся руками (в `COPY_MAP` генератора его нет);
+   остальные файлы `ai-pack/` собирает `scripts/build_ai_pack.py`
+2. `.cursor/rules/*.mdc` + `.cursor/skills/` — Cursor-специфичный overlay
+3. `docs/AGENT_MAP.md` (этот файл) — указатели и cheats
 
 SoT по тексту GPT: `AGENTS.md` + этот map §8.
 
@@ -231,20 +244,24 @@ SoT по тексту GPT: `AGENTS.md` + этот map §8.
 
 ## 15. Quick «where is X»
 
-| Ищу | Открыть |
-|-----|---------|
-| **DB v2 / кнопка «База»** | [`DB_V2.md`](DB_V2.md), `app/services/db_v2.py` |
-| Монтаж regen img/video | `montage_board_regen.py` (API = ноды img/video; промты из БД) |
-| step_code / status | `node_registry.py` |
-| R48 anim | `plan_sheet_v8.py`, ops rule |
-| Prompt contract (GPT↔DB) | `PROMPT_CONTRACT.md` |
-| Prompt blocks | `PROMPTS_BLOCKS.md` |
-| Free GPT chat files | `gpt_workspace.py` |
-| Create settings | `outsee_create.py` + Create UI |
-| Mass Studio | `mass_factory.py` |
-| Mass Telegram | `MASS_CREATION.md` |
-| Soft retry steps | `step_failure_policy.py` |
-| Image style Cursor skills | `.cursor/skills/README.md` (opt-in, не пайплайн) |
-| Knowledge search | `scripts/build_knowledge_index.py`, `/api/knowledge/search` |
-| **GPT VPS-relay (только прокладка)** | [`../deploy/gpt-relay/README.md`](../deploy/gpt-relay/README.md) |
-| **Группы нод («+ Группа»)** | `app/services/node_groups.py` (каталог+вставка), `app/web/routers/node_groups.py`, веер scene_design = группа `scene_design_fanout` |
+| Ищу                                  | Открыть                                                                                                                             |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **DB v2 / кнопка «База»**            | [`DB_V2.md`](DB_V2.md), `app/services/db_v2.py`                                                                                     |
+| Монтаж regen img/video               | `montage_board_regen.py` (API = ноды img/video; промты из БД)                                                                       |
+| step_code / status                   | `node_registry.py`                                                                                                                  |
+| R48 anim                             | `plan_sheet_v8.py`, ops rule                                                                                                        |
+| Prompt contract (GPT↔DB)             | `PROMPT_CONTRACT.md`                                                                                                                |
+| Prompt blocks                        | `PROMPTS_BLOCKS.md`                                                                                                                 |
+| Free GPT chat files                  | `gpt_workspace.py`                                                                                                                  |
+| Create settings                      | `outsee_create.py` + Create UI                                                                                                      |
+| Mass Studio                          | `mass_factory.py`                                                                                                                   |
+| Mass Telegram                        | `MASS_CREATION.md`                                                                                                                  |
+| Soft retry steps                     | `step_failure_policy.py`                                                                                                            |
+| Image style Cursor skills            | `.cursor/skills/README.md` (opt-in, не пайплайн)                                                                                    |
+| Knowledge search                     | `scripts/build_knowledge_index.py`, `/api/knowledge/search`                                                                         |
+| **GPT VPS-relay (только прокладка)** | [`../deploy/gpt-relay/README.md`](../deploy/gpt-relay/README.md)                                                                    |
+| **Группы нод («+ Группа»)**          | `app/services/node_groups.py` (каталог+вставка), `app/web/routers/node_groups.py`, веер scene_design = группа `scene_design_fanout` |
+| **Стоимость LLM / бюджет**           | `app/services/llm_ledger.py` (таблица `llm_calls`), `app/web/routers/llm_costs.py` (`/llm-costs`, `/llm-budget`), `LLM_BUDGET_USD` |
+| **Lease / межпроцессный lock**       | `app/services/work_lease.py` (TTL+owner), `app/services/step_global_lock.py`, `app/services/startup_guard.py`                     |
+| **Контракты LLM-ответов**            | `app/contracts/` (Pydantic v2 + repair-политика `policy.py`)                                                                       |
+| **Кэш по хэшу входа / resume**       | `app/services/input_hash.py`, `input_hash` в `NodeRun`, DAG — `app/orchestrator/step_dependencies.py`                                                                      |
