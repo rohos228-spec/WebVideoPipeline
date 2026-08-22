@@ -302,7 +302,7 @@ def _status_of(payload: dict[str, Any]) -> str:
     return str(payload.get("status") or "")
 
 
-async def generate_image(
+async def _generate_image_inner(
     prompt: str,
     out_path: Path,
     *,
@@ -525,7 +525,7 @@ def _unwrap_submit(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-async def generate_video(
+async def _generate_video_inner(
     prompt: str,
     out_path: Path,
     *,
@@ -629,6 +629,61 @@ async def generate_video(
         gen_id,
     )
     return GenerationResult(file_path=out_path, raw_url=result_url, gen_id=gen_id)
+
+
+async def generate_image(
+    prompt: str,
+    out_path: Path,
+    *,
+    model_slug: str | None = None,
+    project_id: int | None = None,
+    **kwargs: Any,
+) -> GenerationResult:
+    """Картинка + учёт в media_calls (п.24)."""
+    from app.services.media_ledger import media_call
+
+    model = (model_slug or settings.grsai_default_image_model or "gpt-image-2").strip()
+    async with media_call(
+        "grsai", "image", model=model, units=1.0, unit="item", project_id=project_id
+    ) as call:
+        result = await _generate_image_inner(
+            prompt, out_path, model_slug=model_slug, project_id=project_id, **kwargs
+        )
+        call.external_id = result.gen_id or ""
+        return result
+
+
+async def generate_video(
+    prompt: str,
+    out_path: Path,
+    *,
+    model_slug: str | None = None,
+    duration: int | None = 10,
+    project_id: int | None = None,
+    **kwargs: Any,
+) -> GenerationResult:
+    """Видео + учёт в media_calls. Единица тарификации — секунда."""
+    from app.services.media_ledger import media_call
+
+    model = (model_slug or getattr(settings, "grsai_default_video_model", None) or "sora-2").strip()
+    async with media_call(
+        "grsai",
+        "video",
+        model=model,
+        units=float(duration or 10),
+        unit="second",
+        project_id=project_id,
+    ) as call:
+        result = await _generate_video_inner(
+            prompt,
+            out_path,
+            model_slug=model_slug,
+            duration=duration,
+            project_id=project_id,
+            **kwargs,
+        )
+        call.external_id = result.gen_id or ""
+        return result
 
 
 async def generate_audio(

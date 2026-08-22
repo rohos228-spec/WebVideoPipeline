@@ -1,10 +1,14 @@
-"""Этап 3 (E.4/E.5): дашборд стоимости LLM + поднятие бюджета.
+"""Этап 3 (E.4/E.5): дашборд стоимости LLM + медиа + поднятие бюджета.
 
 Один дашборд в смете: по нодам прогона (вызовы / токены / $ / из них
 неуспешные / unbilled количеством), сумма прогона, разбивка по моделям,
 статус бюджета; тоталы по прогонам (= проектам) для динамики + срез
 «adhoc» (project_id=NULL — workspace/чат оркестратора).
 Все цифры — агрегаты SUM по llm_calls, строк-сумм в БД нет.
+
+Ключ ``media`` — агрегат по ``media_calls`` (п.24): картинки, видео и
+озвучка. Учитывается отдельно, потому что тарификация другая (единицы,
+а не токены) и бюджет ``LLM_BUDGET_USD`` их не ограничивает.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models import LlmCall, Project
-from app.services import llm_ledger
+from app.services import llm_ledger, media_ledger
 from app.web.deps import get_session
 
 router = APIRouter(tags=["llm-costs"])
@@ -105,6 +109,11 @@ async def project_llm_costs(project_id: int, session: AsyncSession = Depends(get
         # Ненулевой = учёт неполный (INSERT падали) — данные занижены.
         "failed_inserts": llm_ledger.failed_insert_count(),
         "unpersisted_spent_usd": round(llm_ledger.unpersisted_spent(project_id), 6),
+        # Этап п.24: медиа (картинки/видео/озвучка) считаются отдельной
+        # таблицей — у провайдеров нет usage, платят за единицы. Бюджет
+        # LLM их НЕ покрывает: `unpriced_calls` > 0 означает, что единицы
+        # посчитаны, а цены в media_prices.json ещё не заполнены.
+        "media": await media_ledger.totals(project_id),
     }
 
 

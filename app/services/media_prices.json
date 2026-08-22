@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "Прайс медиа-провайдеров. Ключ — '<provider>:<model_slug>'.",
+    "",
+    "usd_per_unit = null означает 'цена неизвестна': учёт всё равно запишет",
+    "строку в media_calls с посчитанными units, но пометит unpriced=true и",
+    "не прибавит денег. Так дашборд честно показывает 'N генераций без",
+    "цены' вместо тихого нуля.",
+    "",
+    "Цены сюда вносит владелец по своим тарифам outsee.io / grsai /",
+    "ElevenLabs — они зависят от плана и меняются, выдумывать их в коде",
+    "нельзя. Смена цен применяется рестартом воркера (кэша с TTL нет).",
+    "",
+    "unit: 'item' — за генерацию (картинка), 'second' — за секунду видео,",
+    "'char' — за символ озвученного текста."
+  ],
+  "models": {
+    "outsee:gpt-image-2": { "unit": "item", "usd_per_unit": null },
+    "outsee:nano-banana": { "unit": "item", "usd_per_unit": null },
+    "outsee:nano-banana-2": { "unit": "item", "usd_per_unit": null },
+    "outsee:nano-banana-2-lite": { "unit": "item", "usd_per_unit": null },
+    "outsee:nano-banana-fast": { "unit": "item", "usd_per_unit": null },
+    "outsee:nano-banana-pro": { "unit": "item", "usd_per_unit": null },
+    "outsee:veo-3-1-lite": { "unit": "second", "usd_per_unit": null },
+    "outsee:veo-3-1-fast": { "unit": "second", "usd_per_unit": null },
+    "outsee:veo-3-fast": { "unit": "second", "usd_per_unit": null },
+
+    "grsai:gpt-image-2": { "unit": "item", "usd_per_unit": null },
+    "grsai:gpt-image-2-vip": { "unit": "item", "usd_per_unit": null },
+    "grsai:nano-banana": { "unit": "item", "usd_per_unit": null },
+    "grsai:nano-banana-2": { "unit": "item", "usd_per_unit": null },
+    "grsai:nano-banana-2-lite": { "unit": "item", "usd_per_unit": null },
+    "grsai:nano-banana-fast": { "unit": "item", "usd_per_unit": null },
+    "grsai:nano-banana-pro": { "unit": "item", "usd_per_unit": null },
+    "grsai:nano-banana-pro-vt": { "unit": "item", "usd_per_unit": null },
+    "grsai:sora-2": { "unit": "second", "usd_per_unit": null },
+    "grsai:sora2-portrait": { "unit": "second", "usd_per_unit": null },
+    "grsai:sora2-landscape": { "unit": "second", "usd_per_unit": null },
+    "grsai:veo3.1-fast": { "unit": "second", "usd_per_unit": null },
+    "grsai:veo3.1-pro": { "unit": "second", "usd_per_unit": null },
+
+    "elevenlabs:tts": { "unit": "char", "usd_per_unit": null }
+  }
+}

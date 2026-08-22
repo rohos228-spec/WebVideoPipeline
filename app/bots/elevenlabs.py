@@ -729,6 +729,30 @@ class ElevenLabsBot:
         voice_id: str | None = None,
         project_id: int | None = None,
     ) -> Path:
+        """Озвучка + учёт в media_calls (п.24). Единица тарификации — символ."""
+        from app.services.media_ledger import media_call
+
+        async with media_call(
+            "elevenlabs",
+            "tts",
+            model="tts",
+            units=float(len(text or "")),
+            unit="char",
+            project_id=project_id,
+        ):
+            return await self._tts_inner(
+                text, out_path, timeout=timeout, voice_id=voice_id, project_id=project_id
+            )
+
+    async def _tts_inner(
+        self,
+        text: str,
+        out_path: Path,
+        *,
+        timeout: float = 300,
+        voice_id: str | None = None,
+        project_id: int | None = None,
+    ) -> Path:
         vid = (voice_id or DEFAULT_ELEVENLABS_VOICE_ID).strip()
         page = await self.session.open_page(settings.elevenlabs_web_url, reuse=True)
         await _ensure_tts_page(page)

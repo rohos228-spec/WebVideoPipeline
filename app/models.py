@@ -867,6 +867,44 @@ class LlmCall(Base):
     duration_ms: Mapped[int] = mapped_column(default=0)
 
 
+class MediaCall(Base):
+    """Одна строка = одна фактическая генерация медиа (картинка/видео/озвучка).
+
+    Симметрична ``LlmCall``, но учёт другой: у медиа-провайдеров нет
+    ``usage`` — платят за единицы (кадр, секунда видео, символ текста).
+    Поэтому пишем ``units`` + ``unit`` всегда, а ``cost_usd`` — только если
+    модель есть в ``app/services/media_prices.json``; иначе строка идёт с
+    ``unpriced=True`` и нулевой ценой.
+
+    Без этой таблицы «стоимость ролика» показывала только текстовые LLM, а
+    для видеоконвейера основная статья — как раз картинки, видео и TTS
+    (``docs/TECH_DEBT_PLAN.md`` п.24).
+
+    Стоимость ноды/прогона — агрегат SUM по (project_id, node_key), как и
+    у llm_calls; строк-сумм нет.
+    """
+
+    __tablename__ = "media_calls"
+    __table_args__ = (Index("ix_media_calls_project_created", "project_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
+    project_id: Mapped[int | None] = mapped_column(index=True, default=None)
+    node_key: Mapped[str] = mapped_column(String(120), default="adhoc")
+    provider: Mapped[str] = mapped_column(String(40))  # outsee|grsai|elevenlabs
+    kind: Mapped[str] = mapped_column(String(20))  # image|video|music|tts
+    model: Mapped[str] = mapped_column(String(120), default="")
+    units: Mapped[float] = mapped_column(default=0.0)
+    unit: Mapped[str] = mapped_column(String(20), default="item")  # item|second|char
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    result: Mapped[str] = mapped_column(String(10), default="ok")  # ok|error
+    error_kind: Mapped[str] = mapped_column(String(60), default="")
+    # Модели нет в прайсе — единицы посчитаны, деньги неизвестны.
+    unpriced: Mapped[bool] = mapped_column(default=False)
+    external_id: Mapped[str] = mapped_column(String(120), default="")
+    duration_ms: Mapped[int] = mapped_column(default=0)
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Локальная библиотека промтов / блоков / конфигураций
 # ────────────────────────────────────────────────────────────────────────────

@@ -906,7 +906,7 @@ def _normalize_refs(refs: list[Any] | None) -> list[str] | None:
     return out[:9] or None
 
 
-async def generate_image(
+async def _generate_image_inner(
     prompt: str,
     out_path: Path,
     *,
@@ -1024,7 +1024,7 @@ async def generate_image(
     )
 
 
-async def generate_video(
+async def _generate_video_inner(
     prompt: str,
     out_path: Path,
     *,
@@ -1224,6 +1224,61 @@ async def generate_video(
         raw_url=url,
         gen_id=str(gen_id or task_id),
     )
+
+
+async def generate_image(
+    prompt: str,
+    out_path: Path,
+    *,
+    model_slug: str | None = None,
+    project_id: int | None = None,
+    **kwargs: Any,
+) -> GenerationResult:
+    """Картинка + учёт в media_calls (п.24: медиа считаются наравне с LLM)."""
+    from app.services.media_ledger import media_call
+
+    model = studio_id_to_outsee_image_slug(model_slug)
+    async with media_call(
+        "outsee", "image", model=model, units=1.0, unit="item", project_id=project_id
+    ) as call:
+        result = await _generate_image_inner(
+            prompt, out_path, model_slug=model_slug, project_id=project_id, **kwargs
+        )
+        call.external_id = result.gen_id or ""
+        return result
+
+
+async def generate_video(
+    prompt: str,
+    out_path: Path,
+    *,
+    model_slug: str | None = None,
+    duration: int | float | None = None,
+    project_id: int | None = None,
+    **kwargs: Any,
+) -> GenerationResult:
+    """Видео + учёт в media_calls. Единица тарификации — секунда."""
+    from app.services.media_ledger import media_call
+
+    model = studio_id_to_outsee_video_slug(model_slug)
+    async with media_call(
+        "outsee",
+        "video",
+        model=model,
+        units=float(int(duration or 8)),
+        unit="second",
+        project_id=project_id,
+    ) as call:
+        result = await _generate_video_inner(
+            prompt,
+            out_path,
+            model_slug=model_slug,
+            duration=duration,
+            project_id=project_id,
+            **kwargs,
+        )
+        call.external_id = result.gen_id or ""
+        return result
 
 
 async def generate_image_http(
