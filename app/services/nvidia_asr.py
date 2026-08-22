@@ -65,11 +65,20 @@ def normalize_nvidia_asr_model(model_name: str) -> str:
 
 
 def nvidia_asr_available() -> bool:
-    """Проверка NeMo без import nemo (import тянет transformers → HF temp manifest)."""
+    """Проверка NeMo без import nemo (import тянет transformers → HF temp manifest).
+
+    `find_spec` на ПОДмодуле не возвращает None, когда нет родителя: он
+    пытается импортировать `nemo`, не находит и бросает ModuleNotFoundError.
+    Проба возможностей, которая бросает, — это не проба: на машине без NeMo
+    падал весь шаг «Аудио», хотя рядом лежит откат на whisper.
+    """
     import importlib.util
 
     configure_nvidia_asr_environment(force=True)
-    return importlib.util.find_spec("nemo.collections.asr") is not None
+    try:
+        return importlib.util.find_spec("nemo.collections.asr") is not None
+    except (ImportError, ValueError):  # нет пакета / битый __spec__ у родителя
+        return False
 
 
 def _cache_root() -> Path:

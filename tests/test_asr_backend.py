@@ -150,3 +150,22 @@ def test_transcribe_words_fallback_whisper_when_nemo_missing(tmp_path: Path) -> 
         mock_whisper.assert_called_once()
     finally:
         monkeypatch.undo()
+
+
+def test_nvidia_probe_returns_false_without_nemo(monkeypatch) -> None:
+    """Проба доступности не имеет права бросать.
+
+    `importlib.util.find_spec` на ПОДмодуле пытается импортировать родителя
+    и бросает ModuleNotFoundError, если его нет. На машине без NeMo из-за
+    этого падал весь шаг «Аудио» — вместо документированного отката на
+    whisper.
+    """
+    import importlib.util
+
+    from app.services import nvidia_asr
+
+    def boom(name, *a, **kw):
+        raise ModuleNotFoundError("No module named 'nemo'")
+
+    monkeypatch.setattr(importlib.util, "find_spec", boom)
+    assert nvidia_asr.nvidia_asr_available() is False
