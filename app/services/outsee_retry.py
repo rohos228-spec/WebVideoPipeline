@@ -741,6 +741,8 @@ async def generate_image_with_retries(
     """
     from app.bots.grsai import generate_image as grsai_generate_image
     from app.bots.grsai import grsai_key_configured, studio_id_to_grsai_slug
+    from app.bots.minimax import generate_image as minimax_generate_image
+    from app.bots.minimax import minimax_key_configured
     from app.bots.outsee_http import (
         generate_image as outsee_api_generate_image,
     )
@@ -755,10 +757,16 @@ async def generate_image_with_retries(
     backend = image_provider_for(str(raw_slug) if raw_slug else None)
     use_grsai = backend == "grsai" and grsai_key_configured()
     use_outsee_api = backend == "outsee" and outsee_api_configured()
+    use_minimax = backend == "minimax" and minimax_key_configured()
     if backend == "outsee" and not outsee_api_configured():
         raise OutseeImageError(
             "OUTSEE_API_KEY пуст — GPT Image 2 / Nano Banana 2 / Veo 3.1 Lite идут через ключ Outsee",
             context={"error_kind": "no_key", "provider": "outsee"},
+        )
+    if backend == "minimax" and not minimax_key_configured():
+        raise OutseeImageError(
+            "MINIMAX_API_KEY пуст — IMAGE_PROVIDER=minimax требует ключ platform.minimax.io",
+            context={"error_kind": "no_key", "provider": "minimax"},
         )
     last_err: OutseeImageError | None = None
     current_prompt = prompt
@@ -786,6 +794,15 @@ async def generate_image_with_retries(
                     else None,
                     project_id=pid if isinstance(pid, int) else None,
                 )
+                if use_minimax:
+                    # MiniMax берёт реф base64 — публиковать кадр наружу не надо.
+                    result = await minimax_generate_image(
+                        send_prompt,
+                        out_path,
+                        **attempt_kwargs,
+                    )
+                    return result
+
                 if use_grsai:
                     from app.bots.grsai import GRSAI_WIRED_IMAGE_MODELS
 

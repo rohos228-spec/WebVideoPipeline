@@ -66,6 +66,34 @@ def test_library_roots_react_to_data_dir_change(monkeypatch, tmp_path) -> None:
     assert old_root() == moved / "library" / "old"
 
 
+def test_settings_ignore_dotenv_under_pytest() -> None:
+    """Прогон не должен зависеть от локальных настроек разработчика.
+
+    До 2026-08-22 на машине просто не было файла настроек, и проблему не
+    видели. Как только он появился (ключи провайдеров), пять тестов
+    `test_gpt_client_api` / `test_outsee_retry` покраснели — суита увидела
+    чужие провайдеры. Код был ни при чём.
+    """
+    from app.settings import Settings, _env_file_for_runtime
+
+    assert _env_file_for_runtime() is None, "под pytest локальные настройки читаться не должны"
+    assert Settings.model_config.get("env_file") is None
+
+
+def test_local_settings_used_outside_pytest(monkeypatch) -> None:
+    """Вне прогона файл настроек по-прежнему читается — иначе приложение нерабочее."""
+    import sys as _sys
+
+    import app.settings as settings_mod
+
+    without_pytest = {k: v for k, v in _sys.modules.items() if k != "pytest"}
+    monkeypatch.setattr(settings_mod.sys, "modules", without_pytest)
+
+    got = settings_mod._env_file_for_runtime()
+    assert got is not None
+    assert got.endswith(".env")
+
+
 def test_status_log_write_stays_in_tmp() -> None:
     """Реальная запись строки статуса не трогает logs/ репозитория."""
     from app.services import node_status_machine as nsm

@@ -157,6 +157,39 @@ class ResponseSchema:
     strict: bool = True
 
 
+def _minimax_body_tweaks(body: dict[str, Any], wants_json: bool) -> None:
+    """Особенности MiniMax поверх OpenAI-совместимого тела.
+
+    1. ``reasoning_split`` — M3 это reasoning-модель, и без флага блок
+       ``<think>…</think>`` приезжает ПРЯМО В ``content``. Все парсеры
+       проекта (apply-ops, extract_json_payload, отчёты проверок) на этом
+       спотыкаются. С флагом рассуждения уходят в отдельное поле
+       ``reasoning_content``, а ``content`` остаётся чистым.
+
+    2. ``response_format`` — MiniMax НЕ ПОДДЕРЖИВАЕТ structured outputs ни в
+       каком виде. Живые пробы 2026-08-22:
+
+       * ``json_schema`` + ``strict`` → HTTP 200, ответ в markdown-заборчике
+         ```json — схема проигнорирована;
+       * ``json_object`` → HTTP 200, на промт без слова «JSON» вернул
+         ```javascript с функцией. Тоже проигнорирован.
+
+       То есть оба режима принимаются молча и не соблюдаются — ровно та
+       тихая деградация, от которой предостерегает спека stage-5. Флаг
+       ставим (он безвреден и иногда помогает модели), но полагаться на
+       него нельзя: единственная гарантия формата для MiniMax — жёсткая
+       инструкция в самом промте плюс клиентская валидация контрактов
+       (`app/contracts/`) и repair-retry, то есть план Б целиком.
+
+       Практическое следствие: MiniMax НЕЛЬЗЯ добавлять в
+       ``GPT_STRUCTURED_RELAYS`` — там список релеев, которые схему реально
+       enforce'ят.
+    """
+    body["reasoning_split"] = True
+    if wants_json:
+        body["response_format"] = {"type": "json_object"}
+
+
 def _structured_outputs_active(url: str) -> bool:
     mode = (settings.gpt_structured_outputs or "auto").strip().lower()
     if mode == "off":
@@ -2402,6 +2435,9 @@ async def _chat_unscoped(
             response_schema.name,
             "responses" if responses_mode else "chat",
         )
+
+    if settings.text_llm_is_minimax:
+        _minimax_body_tweaks(body, response_schema is not None)
 
     # П.16-17: брейкер per-провайдер. Ключ — реальный текстовый провайдер
     # (kie/vibecode/tokenrouter/grsai), а не модель: лежит шлюз, не модель.

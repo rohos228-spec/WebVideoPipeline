@@ -15,30 +15,117 @@
     "'char' — за символ озвученного текста."
   ],
   "models": {
-    "outsee:gpt-image-2": { "unit": "item", "usd_per_unit": null },
-    "outsee:nano-banana": { "unit": "item", "usd_per_unit": null },
-    "outsee:nano-banana-2": { "unit": "item", "usd_per_unit": null },
-    "outsee:nano-banana-2-lite": { "unit": "item", "usd_per_unit": null },
-    "outsee:nano-banana-fast": { "unit": "item", "usd_per_unit": null },
-    "outsee:nano-banana-pro": { "unit": "item", "usd_per_unit": null },
-    "outsee:veo-3-1-lite": { "unit": "second", "usd_per_unit": null },
-    "outsee:veo-3-1-fast": { "unit": "second", "usd_per_unit": null },
-    "outsee:veo-3-fast": { "unit": "second", "usd_per_unit": null },
-
-    "grsai:gpt-image-2": { "unit": "item", "usd_per_unit": null },
-    "grsai:gpt-image-2-vip": { "unit": "item", "usd_per_unit": null },
-    "grsai:nano-banana": { "unit": "item", "usd_per_unit": null },
-    "grsai:nano-banana-2": { "unit": "item", "usd_per_unit": null },
-    "grsai:nano-banana-2-lite": { "unit": "item", "usd_per_unit": null },
-    "grsai:nano-banana-fast": { "unit": "item", "usd_per_unit": null },
-    "grsai:nano-banana-pro": { "unit": "item", "usd_per_unit": null },
-    "grsai:nano-banana-pro-vt": { "unit": "item", "usd_per_unit": null },
-    "grsai:sora-2": { "unit": "second", "usd_per_unit": null },
-    "grsai:sora2-portrait": { "unit": "second", "usd_per_unit": null },
-    "grsai:sora2-landscape": { "unit": "second", "usd_per_unit": null },
-    "grsai:veo3.1-fast": { "unit": "second", "usd_per_unit": null },
-    "grsai:veo3.1-pro": { "unit": "second", "usd_per_unit": null },
-
-    "elevenlabs:tts": { "unit": "char", "usd_per_unit": null }
+    "outsee:gpt-image-2": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "outsee:nano-banana": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "outsee:nano-banana-2": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "outsee:nano-banana-2-lite": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "outsee:nano-banana-fast": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "outsee:nano-banana-pro": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "outsee:veo-3-1-lite": {
+      "unit": "second",
+      "usd_per_unit": null
+    },
+    "outsee:veo-3-1-fast": {
+      "unit": "second",
+      "usd_per_unit": null
+    },
+    "outsee:veo-3-fast": {
+      "unit": "second",
+      "usd_per_unit": null
+    },
+    "grsai:gpt-image-2": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "grsai:gpt-image-2-vip": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "grsai:nano-banana": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "grsai:nano-banana-2": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "grsai:nano-banana-2-lite": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "grsai:nano-banana-fast": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "grsai:nano-banana-pro": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "grsai:nano-banana-pro-vt": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "grsai:sora-2": {
+      "unit": "second",
+      "usd_per_unit": null
+    },
+    "grsai:sora2-portrait": {
+      "unit": "second",
+      "usd_per_unit": null
+    },
+    "grsai:sora2-landscape": {
+      "unit": "second",
+      "usd_per_unit": null
+    },
+    "grsai:veo3.1-fast": {
+      "unit": "second",
+      "usd_per_unit": null
+    },
+    "grsai:veo3.1-pro": {
+      "unit": "second",
+      "usd_per_unit": null
+    },
+    "elevenlabs:tts": {
+      "unit": "char",
+      "usd_per_unit": null
+    },
+    "minimax:image-01": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "minimax:image-01-live": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "minimax:MiniMax-Hailuo-2.3": {
+      "unit": "second",
+      "usd_per_unit": null
+    },
+    "minimax:MiniMax-Hailuo-2.3-Fast": {
+      "unit": "second",
+      "usd_per_unit": null
+    },
+    "minimax:MiniMax-Hailuo-02": {
+      "unit": "second",
+      "usd_per_unit": null
+    }
   }
 }

@@ -136,9 +136,15 @@ python3 scripts/check_prompts.py --json   # для CI / агентов
 - **grsai** (`GRSAI_API_KEY`, см. [`app/bots/grsai.py`](app/bots/grsai.py));
 - CDP fallback для outsee — `OUTSEE_HTTP_FALLBACK_CDP=true`.
 
-Озвучка (TTS): сейчас через ElevenLabs CDP (`app/bots/elevenlabs.py`).
-План миграции на ElevenLabs API — [`docs/TECH_DEBT_PLAN.md`](docs/TECH_DEBT_PLAN.md)
-п. 25 (Wave 4).
+Озвучка (TTS): **через ElevenLabs HTTP API** (`app/bots/elevenlabs_api.py`,
+`ELEVENLABS_API_KEY`) — браузер не нужен, конвейер работает headless.
+Legacy-путь через Chrome CDP (`app/bots/elevenlabs.py`) остаётся за флагом
+`ELEVENLABS_USE_CDP=true` и включается автоматически, если ключа нет.
+
+**MiniMax** (`MINIMAX_API_KEY`) закрывает текст, картинки и видео одним
+ключом: `TEXT_LLM_PROVIDER=minimax` / `IMAGE_PROVIDER=minimax` /
+`VIDEO_PROVIDER=minimax` (`app/bots/minimax.py`). Кадры и рефы уходят
+base64 — публиковать их наружу не нужно.
 
 Браузер: одно Chrome-окно с `--remote-debugging-port=29229`,
 подключение по CDP. Не открывать второй Chrome.

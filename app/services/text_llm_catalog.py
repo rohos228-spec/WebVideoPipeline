@@ -124,13 +124,15 @@ def write_choice(
 
 
 def resolve_active_provider(cfg: Settings | None = None) -> str:
-    """kie по умолчанию; vibecode/tokenrouter — по явному выбору."""
+    """kie по умолчанию; vibecode/tokenrouter/minimax — по явному выбору."""
     s = cfg or settings
     raw_choice = str(read_choice(s).get("provider") or "").strip().lower()
     if raw_choice in {"tokenrouter", "kimi", "kimi-k3"}:
         return "tokenrouter"
     if raw_choice in {"vibecode", "vibe"}:
         return "vibecode"
+    if raw_choice in {"minimax", "hailuo", "m3"}:
+        return "minimax"
     if raw_choice in {"kie", "gpt", "openai"}:
         return "kie"
     raw = (s.text_llm_provider or "kie").strip().lower()
@@ -138,6 +140,8 @@ def resolve_active_provider(cfg: Settings | None = None) -> str:
         return "tokenrouter"
     if raw in {"vibecode", "vibe"}:
         return "vibecode"
+    if raw in {"minimax", "hailuo", "m3"}:
+        return "minimax"
     return "kie"
 
 
