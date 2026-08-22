@@ -27,10 +27,27 @@ from app.settings import settings
 
 REPO_ROOT = find_project_root()
 PROMPTS_ROOT = REPO_ROOT / "prompts"
-LIBRARY_ROOT = settings.data_dir / "library"
-CURRENT_ROOT = LIBRARY_ROOT / "current"
-OLD_ROOT = LIBRARY_ROOT / "old"
-LOGS_ROOT = LIBRARY_ROOT / "logs"
+
+
+# Пути считаются на каждый вызов, а не на импорте: `settings.data_dir`
+# подменяется autouse-фикстурой тестов (tests/conftest.py), а константа,
+# посчитанная при импорте, эту подмену не видела — прогон писал версии в
+# настоящий data/library/old репозитория (накопилось 136 каталогов).
+def library_root() -> Path:
+    return Path(settings.data_dir) / "library"
+
+
+def current_root() -> Path:
+    return library_root() / "current"
+
+
+def old_root() -> Path:
+    return library_root() / "old"
+
+
+def logs_root() -> Path:
+    return library_root() / "logs"
+
 
 TEXT_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml"}
 SAFE_KEY_RE = re.compile(r"[^a-zA-Z0-9а-яА-ЯёЁ_.-]+")
@@ -38,10 +55,10 @@ SAFE_KEY_RE = re.compile(r"[^a-zA-Z0-9а-яА-ЯёЁ_.-]+")
 
 def library_roots() -> dict[str, Path]:
     return {
-        "root": LIBRARY_ROOT,
-        "current": CURRENT_ROOT,
-        "old": OLD_ROOT,
-        "logs": LOGS_ROOT,
+        "root": library_root(),
+        "current": current_root(),
+        "old": old_root(),
+        "logs": logs_root(),
     }
 
 
@@ -78,12 +95,12 @@ def _ensure_safe_rel_path(value: str | Path) -> Path:
 
 def _materialized_path(file_path: str | Path) -> Path:
     rel = _ensure_safe_rel_path(file_path)
-    return CURRENT_ROOT / rel
+    return current_root() / rel
 
 
 def _old_snapshot_path(item: LibraryItem, version: int) -> Path:
     rel = _ensure_safe_rel_path(item.file_path)
-    return OLD_ROOT / f"{_now_stamp()}_item{item.id}_v{version}" / rel
+    return old_root() / f"{_now_stamp()}_item{item.id}_v{version}" / rel
 
 
 def classify_prompt_rel_path(rel: Path) -> str:
@@ -330,8 +347,8 @@ async def save_config(
     session.add(cfg)
     await session.flush()
     await log_event(session, "config_saved", payload={"config_id": cfg.id, "project_id": project_id})
-    _write_json(CURRENT_ROOT / "configs" / f"{cfg.id}.json", cfg.snapshot)
-    _write_json(OLD_ROOT / f"{_now_stamp()}_config{cfg.id}" / "config.json", cfg.snapshot)
+    _write_json(current_root() / "configs" / f"{cfg.id}.json", cfg.snapshot)
+    _write_json(old_root() / f"{_now_stamp()}_config{cfg.id}" / "config.json", cfg.snapshot)
     return cfg
 
 
@@ -568,11 +585,11 @@ async def import_existing_prompts(session: AsyncSession) -> dict[str, int]:
 
 
 def current_prompts_root() -> Path:
-    return CURRENT_ROOT / "prompts"
+    return current_root() / "prompts"
 
 
 def ensure_library_dirs() -> None:
-    for p in (LIBRARY_ROOT, CURRENT_ROOT, OLD_ROOT, LOGS_ROOT):
+    for p in (library_root(), current_root(), old_root(), logs_root()):
         p.mkdir(parents=True, exist_ok=True)
 
 

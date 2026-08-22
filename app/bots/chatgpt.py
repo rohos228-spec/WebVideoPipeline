@@ -26,7 +26,6 @@ from playwright.async_api import Download, Page
 from app.bots.browser import BrowserSession
 
 CHATGPT_URL = "https://chatgpt.com/"
-ERRORS_LOG_PATH = Path("logs/errors.log")
 
 CHATGPT_RATE_LIMIT_MARKERS: tuple[str, ...] = (
     "You've reached your limit",
@@ -111,6 +110,13 @@ ATTACHMENT_FAILURE_PHRASES: tuple[str, ...] = (
 _ATTACHMENT_DEDUP_SUFFIX = re.compile(r"\(\d+\)")
 
 
+def _log_path() -> Path:
+    """Путь журнала — из settings (см. app/services/log_paths.py)."""
+    from app.services.log_paths import errors_log_path
+
+    return errors_log_path()
+
+
 def composer_text_already_present(expected: str, draft: str) -> bool:
     """Текст промта уже в композере (не дублирован)."""
     exp = (expected or "").strip()
@@ -181,13 +187,13 @@ def chatgpt_login_page_text(text: str) -> bool:
 
 def _log_chatgpt_error(*, kind: str, text: str, node: str = "chatgpt") -> None:
     try:
-        ERRORS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _log_path().parent.mkdir(parents=True, exist_ok=True)
         ts = datetime.utcnow().isoformat(timespec="seconds")
         line = f"{ts}\tbot=chatgpt\tnode={node}\tkind={kind}\t{text}"
-        with ERRORS_LOG_PATH.open("a", encoding="utf-8") as f:
+        with _log_path().open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as e:
-        logger.warning("chatgpt: cannot write {}: {}", ERRORS_LOG_PATH, e)
+        logger.warning("chatgpt: cannot write {}: {}", _log_path(), e)
 
 
 def attachment_health_is_ok(health: dict) -> bool:

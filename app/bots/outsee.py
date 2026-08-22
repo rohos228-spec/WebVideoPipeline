@@ -31,8 +31,6 @@ from playwright.async_api import TimeoutError as PWTimeoutError
 from app.bots.browser import BrowserSession, browser_session
 from app.settings import settings
 
-ERRORS_LOG_PATH = Path("logs/errors.log")
-
 OUTSEE_LOGIN_URL_MARKERS: tuple[str, ...] = (
     "/login",
     "/sign-in",
@@ -50,6 +48,13 @@ OUTSEE_LOGIN_PAGE_MARKERS: tuple[str, ...] = (
     "пароль",
     "password",
 )
+
+
+def _log_path() -> Path:
+    """Путь журнала — из settings (см. app/services/log_paths.py)."""
+    from app.services.log_paths import errors_log_path
+
+    return errors_log_path()
 
 
 def _outsee_queue_mode() -> bool:
@@ -77,13 +82,13 @@ def outsee_login_page_text(text: str) -> bool:
 
 def _log_outsee_error(*, kind: str, text: str, node: str = "outsee") -> None:
     try:
-        ERRORS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _log_path().parent.mkdir(parents=True, exist_ok=True)
         ts = datetime.utcnow().isoformat(timespec="seconds")
         line = f"{ts}\tbot=outsee\tnode={node}\tkind={kind}\t{text}"
-        with ERRORS_LOG_PATH.open("a", encoding="utf-8") as f:
+        with _log_path().open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as e:
-        logger.warning("outsee: cannot write {}: {}", ERRORS_LOG_PATH, e)
+        logger.warning("outsee: cannot write {}: {}", _log_path(), e)
 
 
 def _outsee_download_timeout_s() -> float:

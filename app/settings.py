@@ -271,6 +271,10 @@ class Settings(BaseSettings):
 
     # Paths
     data_dir: Path = Field(Path("./data"), alias="DATA_DIR")
+    # Куда пишутся status.log / errors.log. Отдельная настройка, а не
+    # `Path("logs/…")` от CWD: константа, посчитанная на импорте, не видела
+    # подмену путей в тестах — прогон дописывал реальные логи репозитория.
+    logs_dir: Path = Field(Path("./logs"), alias="LOGS_DIR")
     # Центральный harness-гейт перед продвижением *_ready статусов (auto_advance).
     # True — выключить гейт (только диагностика, без блокировки продвижения).
     harness_gate_disabled: bool = Field(False, alias="HARNESS_GATE_DISABLED")
@@ -366,6 +370,7 @@ class Settings(BaseSettings):
     def _resolve_paths_from_repo_root(self) -> "Settings":
         object.__setattr__(self, "sqlite_path", resolve_project_path(self.sqlite_path))
         object.__setattr__(self, "data_dir", resolve_project_path(self.data_dir))
+        object.__setattr__(self, "logs_dir", resolve_project_path(self.logs_dir))
         if self.bgm_path is not None:
             object.__setattr__(self, "bgm_path", resolve_project_path(self.bgm_path))
         return self

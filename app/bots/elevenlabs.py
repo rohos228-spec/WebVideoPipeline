@@ -27,8 +27,6 @@ from app.services.elevenlabs_voices import (
 )
 from app.settings import settings
 
-ERRORS_LOG_PATH = Path("logs/errors.log")
-
 ELEVENLABS_LOGIN_URL_MARKERS: tuple[str, ...] = (
     "/login",
     "/sign-in",
@@ -106,6 +104,13 @@ VOICE_SETUP_WAIT_SEC = 7.0
 _PAGE_DUMP_DIR = Path("logs")
 
 
+def _log_path() -> Path:
+    """Путь журнала — из settings (см. app/services/log_paths.py)."""
+    from app.services.log_paths import errors_log_path
+
+    return errors_log_path()
+
+
 def elevenlabs_login_url(url: str) -> bool:
     u = (url or "").lower()
     return any(m in u for m in ELEVENLABS_LOGIN_URL_MARKERS)
@@ -135,13 +140,13 @@ def elevenlabs_error_in_text(text: str) -> str | None:
 
 def _log_elevenlabs_error(*, kind: str, text: str, node: str = "elevenlabs") -> None:
     try:
-        ERRORS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _log_path().parent.mkdir(parents=True, exist_ok=True)
         ts = datetime.utcnow().isoformat(timespec="seconds")
         line = f"{ts}\tbot=elevenlabs\tnode={node}\tkind={kind}\t{text}"
-        with ERRORS_LOG_PATH.open("a", encoding="utf-8") as f:
+        with _log_path().open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as e:
-        logger.warning("11Labs: cannot write {}: {}", ERRORS_LOG_PATH, e)
+        logger.warning("11Labs: cannot write {}: {}", _log_path(), e)
 
 
 async def _check_elevenlabs_session(page: Page) -> None:

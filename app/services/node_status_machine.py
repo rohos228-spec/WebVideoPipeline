@@ -25,8 +25,6 @@ from loguru import logger
 from app.models import NodeRun, NodeRunStatus
 from app.settings import settings
 
-STATUS_LOG_PATH = Path("logs/status.log")
-
 _FORWARD_TRANSITIONS: dict[NodeRunStatus, frozenset[NodeRunStatus]] = {
     NodeRunStatus.pending: frozenset({NodeRunStatus.queued, NodeRunStatus.skipped}),
     NodeRunStatus.queued: frozenset({NodeRunStatus.running}),
@@ -56,6 +54,13 @@ _status_machine_write: contextvars.ContextVar[bool] = contextvars.ContextVar(
 )
 
 
+def _log_path() -> Path:
+    """Путь журнала — из settings (см. app/services/log_paths.py)."""
+    from app.services.log_paths import status_log_path
+
+    return status_log_path()
+
+
 def is_status_write_allowed() -> bool:
     return _status_machine_write.get()
 
@@ -74,16 +79,16 @@ def guard_direct_status_write(nr: NodeRun, new_status: NodeRunStatus) -> None:
 
 
 def _ensure_log_dir() -> None:
-    STATUS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _log_path().parent.mkdir(parents=True, exist_ok=True)
 
 
 def _write_status_log(line: str) -> None:
     try:
         _ensure_log_dir()
-        with STATUS_LOG_PATH.open("a", encoding="utf-8") as f:
+        with _log_path().open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as e:
-        logger.warning("node_status_machine: cannot write {}: {}", STATUS_LOG_PATH, e)
+        logger.warning("node_status_machine: cannot write {}: {}", _log_path(), e)
 
 
 def _log_line(
