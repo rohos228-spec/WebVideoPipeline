@@ -105,9 +105,14 @@ def main() -> int:
     fixed = sorted(baseline - failures)
 
     if fixed:
-        print(f"pytest_ratchet: стало зелёным ({len(fixed)}) — сузьте базу через --update:")
+        print(f"pytest_ratchet: стало зелёным ({len(fixed)}):")
         for nodeid in fixed:
             print(f"    {nodeid}")
+        print(
+            "  Сузить базу (--update) можно, только если позеленело от правок КОДА.\n"
+            "  Если это следствие того, что у вас локально есть prompts/ — базу\n"
+            "  НЕ трогать: на чистом клоне тесты снова покраснеют."
+        )
 
     if not new:
         print(f"pytest_ratchet: новых падений нет ({len(failures)} известных)")

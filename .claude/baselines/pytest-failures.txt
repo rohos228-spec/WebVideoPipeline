@@ -8,6 +8,13 @@
 # Сузить базу: почините тест и прогоните
 #   python3 scripts/pytest_ratchet.py --update
 # Изменение должно быть видно в диффе — сам скрипт базу не правит.
+#
+# ВНИМАНИЕ. База описывает СВЕЖИЙ КЛОН, где prompts/ пуст. Если у вас
+# локально есть промт-библиотека, ~9 тестов check_* станут зелёными и
+# скрипт предложит сузить базу — НЕ делайте этого: на чистом клоне и в
+# CI они снова покраснеют, и храповик заблокирует чужой push.
+# Сужать базу можно только за счёт правок КОДА, не за счёт наличия
+# данных у вас на машине. Проверить: python3 scripts/check_prompts.py
 tests/test_artifact_recovery_newer_disk.py::test_recover_video_rebinds_when_disk_newer
 tests/test_assembly_sync.py::test_cut_clip_does_not_resize
 tests/test_audio_align_db_lock.py::test_r15_written_even_if_db_locked
