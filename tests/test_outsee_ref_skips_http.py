@@ -28,7 +28,7 @@ async def test_generate_with_reference_uses_http_api_refs(
         async def generate_image(self, *_a, **_k):
             raise AssertionError("CDP generate_image must not run when Outsee API on")
 
-    async def fake_prepare(gpt, body, prefix, *, project_id=None):
+    async def fake_prepare(gpt, body, prefix, *, project_id=None, max_full=None):
         return body
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -19,13 +20,42 @@ class _FakeBot:
 
 
 @pytest.fixture
-async def env(tmp_path):
-    """Отдельный SQLite + SessionLocal, подменённый на этот engine."""
+async def env(tmp_path, monkeypatch):
+    """Отдельный SQLite + SessionLocal, подменённый на этот engine.
+
+    `work_lease` берёт `session_scope` из `app.db`, поэтому без подмены
+    step-lease писался в БОЕВУЮ `data/state.db` репозитория — с TTL в час.
+    Следующий прогон суиты в пределах этого часа видел чужой живой lease на
+    `step:split` для проектов 1 и 2 и падал: шаг «занят», `order` пустой.
+    Гейт при этом краснел на ровном месте, а разработчику пачкалась рабочая БД.
+    """
     db_path = tmp_path / "slk.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    # Отдельный файл под lease: тест держит длинную транзакцию в своей
+    # сессии, а SQLite пускает одного writer'а на файл — своя короткая
+    # сессия lease встала бы на «database is locked». В приложении эти
+    # записи и правда идут в ту же БД, но там стоит busy_timeout и lease
+    # берётся до начала работы шага.
+    lease_engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'slk_lease.db'}")
+    async with lease_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    lease_factory = async_sessionmaker(lease_engine, expire_on_commit=False)
+
+    @asynccontextmanager
+    async def _lease_scope():
+        async with lease_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    monkeypatch.setattr("app.services.work_lease.session_scope", _lease_scope)
     return engine, factory
 
 

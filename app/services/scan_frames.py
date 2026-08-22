@@ -30,8 +30,18 @@ from app.services.plan_shot2 import (
     read_shot2_columns,
 )
 
-# Реальные outsee 2K PNG обычно 300 KB–5 MB; thumb/preview ~50–100 KB.
+# Отсечь превью/заглушку/обрывок, а не «слишком лёгкую» картинку. Байты для
+# этого плохой критерий: вес зависит и от разрешения, и от того, насколько
+# кадр тёмный. Живой прогон: MiniMax при 720×1280 отдаёт 170–240 КБ, и тёмный
+# кадр не дотянул до порога 200 КБ — сканер счёл файл невалидным и поставил
+# кадр обратно в очередь. Кадр перегенерировался бесконечно, каждый раз за
+# деньги. Настоящий признак сцены — разрешение; байты остаются запасным
+# критерием для файлов, у которых не читается заголовок.
 _MIN_SCENE_IMAGE_BYTES = 200_000
+# Файл меньше этого — точно обрывок, не картинка.
+_MIN_ANY_IMAGE_BYTES = 1_024
+# Меньше этого по длинной стороне — превью или иконка, не кадр конвейера.
+_MIN_SCENE_IMAGE_SIDE = 512
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC = b"\xff\xd8\xff"
 _RIFF_MAGIC = b"RIFF"
@@ -49,12 +59,12 @@ def newest_frame_image_path(scenes_dir: Path, frame_number: int) -> Path | None:
 
 
 def is_valid_scene_image(path: Path) -> bool:
-    """Настоящая сцена: достаточный размер и magic PNG/JPEG/WebP."""
+    """Настоящая сцена: не обрывок, известный формат, кадровое разрешение."""
     try:
         size = path.stat().st_size
     except OSError:
         return False
-    if size < _MIN_SCENE_IMAGE_BYTES:
+    if size < _MIN_ANY_IMAGE_BYTES:
         return False
     try:
         with path.open("rb") as f:
@@ -64,7 +74,32 @@ def is_valid_scene_image(path: Path) -> bool:
     is_png = head.startswith(_PNG_MAGIC)
     is_jpeg = head.startswith(_JPEG_MAGIC)
     is_webp = head[:4] == _RIFF_MAGIC and head[8:12] == _WEBP_TAG
-    return is_png or is_jpeg or is_webp
+    if not (is_png or is_jpeg or is_webp):
+        return False
+    side = _long_side(path)
+    if side:
+        return side >= _MIN_SCENE_IMAGE_SIDE
+    # Читаемого заголовка нет — остаётся старый байтовый критерий.
+    return size >= _MIN_SCENE_IMAGE_BYTES
+
+
+def _long_side(path: Path) -> int:
+    """Длинная сторона картинки; 0 — файл не читается как изображение.
+
+    `Image.open` читает только заголовок, пиксели не декодирует — проверка
+    остаётся дешёвой, а сканер вызывает её на каждый кадр каждый такт.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            side = max(im.size)
+            # verify() досчитывает файл до конца и ловит обрыв — без него
+            # «половина PNG» с целым заголовком выглядела бы валидной.
+            im.verify()
+        return side
+    except Exception:  # noqa: BLE001 — битый/чужой файл = не сцена
+        return 0
 
 
 def disk_has_valid_frame_image(scenes_dir: Path, frame_number: int) -> bool:
