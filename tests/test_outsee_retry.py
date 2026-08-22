@@ -218,7 +218,7 @@ async def test_generate_image_rewrite_after_moderation_stops_duplicate_retries(
                 return "rewritten prompt without triggers " * 3
             return ask
 
-    async def fake_prepare(gpt, body, prefix, *, project_id=None):
+    async def fake_prepare(gpt, body, prefix, *, project_id=None, max_full=None):
         return body
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
@@ -266,7 +266,7 @@ async def test_plain_image_error_moderation_banner_failfast(monkeypatch) -> None
                 return "neutral rewritten scene prompt " * 4
             return ask
 
-    async def fake_prepare(gpt, body, prefix, *, project_id=None):
+    async def fake_prepare(gpt, body, prefix, *, project_id=None, max_full=None):
         return body
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
@@ -353,7 +353,7 @@ async def test_image_download_error_retries_download_only(monkeypatch, tmp_path:
             out_path.write_bytes(b"x" * 100)
             return GenerationResult(file_path=out_path, raw_url=img_url, gen_id=gen_id)
 
-    async def fake_prepare(gpt, body, prefix, *, project_id=None):
+    async def fake_prepare(gpt, body, prefix, *, project_id=None, max_full=None):
         return body
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
@@ -399,7 +399,7 @@ async def test_image_download_exhaustion_does_not_regenerate(monkeypatch, tmp_pa
                 context={"gen_id": gen_id, "img_url": img_url},
             )
 
-    async def fake_prepare(gpt, body, prefix, *, project_id=None):
+    async def fake_prepare(gpt, body, prefix, *, project_id=None, max_full=None):
         return body
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
@@ -484,3 +484,38 @@ async def test_video_minimax_without_key_fails_closed(monkeypatch, tmp_path: Pat
             gpt_rewrite=False,
         )
     assert err.value.context.get("provider") == "minimax"
+
+
+@pytest.mark.asyncio
+async def test_minimax_image_prompt_compressed_to_provider_limit(monkeypatch, tmp_path: Path) -> None:
+    """Промт сжимается под лимит MiniMax, а не под лимит Outsee.
+
+    Живой прогон: шаг «Промты картинок» выдал 12 промтов по 1600–1900
+    символов, а `image_generation` режет по 1500 на своей стороне — молча и
+    по границе символа. Хвост промта — это свет, палитра и стиль.
+    """
+    seen_caps: list[int | None] = []
+
+    async def fake_prepare(gpt, body, prefix, *, project_id=None, max_full=None):
+        seen_caps.append(max_full)
+        return body
+
+    async def fake_minimax_image(prompt, out_path, **kwargs):
+        Path(out_path).write_bytes(b"png" * 40)
+        return GenerationResult(file_path=Path(out_path), raw_url=None, gen_id="i1")
+
+    monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
+    monkeypatch.setattr("app.bots.minimax.generate_image", fake_minimax_image)
+    monkeypatch.setattr("app.bots.minimax.minimax_key_configured", lambda: True)
+    monkeypatch.setattr(mod_settings, "image_provider", "minimax")
+
+    await mod.generate_image_with_retries(
+        None,
+        None,
+        prompt="очень длинный режиссёрский промт " * 60,
+        out_path=tmp_path / "frame.png",
+        gpt_rewrite=False,
+        model_slug="image-01",
+        project_id=3,
+    )
+    assert seen_caps == [mod.MINIMAX_IMAGE_PROMPT_MAX]

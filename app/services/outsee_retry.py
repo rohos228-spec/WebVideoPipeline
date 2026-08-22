@@ -463,6 +463,10 @@ async def _compress_prompt_for_outsee(
 # HTTP API /api/v1/videos/generate жёстко режет на 4096; CDP textarea — 4900.
 _OUTSEE_API_VIDEO_PROMPT_MAX = 4096
 
+# Жёсткие лимиты MiniMax: длиннее — API режет хвост само, молча.
+MINIMAX_IMAGE_PROMPT_MAX = 1500
+MINIMAX_VIDEO_PROMPT_MAX = 2000
+
 
 async def _prepare_prompt_for_outsee(
     gpt: Any | None,
@@ -793,6 +797,10 @@ async def generate_image_with_retries(
                     if isinstance(attempt_kwargs.get("prompt_id_prefix"), str)
                     else None,
                     project_id=pid if isinstance(pid, int) else None,
+                    # У MiniMax промт картинки жёстко режется по 1500 символов
+                    # на его стороне. Сжать осмысленно лучше, чем потерять
+                    # хвост с описанием света и стиля.
+                    max_full=MINIMAX_IMAGE_PROMPT_MAX if use_minimax else None,
                 )
                 if use_minimax:
                     # MiniMax берёт реф base64 — публиковать кадр наружу не надо.
@@ -1172,7 +1180,12 @@ async def generate_video_with_retries(
         if kling:
             send_prompt = truncate_kling_prompt(send_prompt)
             return ensure_silent_video_prompt(send_prompt)
-        api_full_cap = _OUTSEE_API_VIDEO_PROMPT_MAX if use_outsee_api_video else OUTSEE_PROMPT_MAX_CHARS
+        if use_minimax_video:
+            api_full_cap = MINIMAX_VIDEO_PROMPT_MAX
+        elif use_outsee_api_video:
+            api_full_cap = _OUTSEE_API_VIDEO_PROMPT_MAX
+        else:
+            api_full_cap = OUTSEE_PROMPT_MAX_CHARS
         send_prompt = await _prepare_prompt_for_outsee(
             gpt,
             send_prompt,
