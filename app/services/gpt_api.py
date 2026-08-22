@@ -1142,8 +1142,17 @@ def _raise_http_status(
     body_text: str,
     *,
     use_model: str,
+    retry_after: Any = None,
 ) -> None:
-    """Общая обработка HTTP-кодов GPT (fatal / retryable)."""
+    """Общая обработка HTTP-кодов GPT (fatal / retryable).
+
+    `retry_after` — сырое значение одноимённого заголовка. Раньше его никто
+    не читал, и 429 лечился той же экспонентой, что упавший шлюз; теперь
+    оно доезжает в context и его использует `provider_breaker` (п.17).
+    """
+    from app.services.provider_breaker import parse_retry_after
+
+    retry_after_s = parse_retry_after(retry_after)
     if status in _FATAL_STATUS:
         low = body_text.lower()
         hint = ""
@@ -1158,7 +1167,12 @@ def _raise_http_status(
     if status in _RETRY_STATUS or status >= 500:
         raise GptApiError(
             f"GPT HTTP {status}: {body_text[:300]}",
-            context={"status_code": status, "retryable": True, "model": use_model},
+            context={
+                "status_code": status,
+                "retryable": True,
+                "model": use_model,
+                "retry_after_s": retry_after_s,
+            },
         )
     if status >= 400:
         raise GptApiError(
@@ -1629,7 +1643,12 @@ async def _chat_responses_stream_impl(
                 cf_ray = resp.headers.get("cf-ray") or ""
                 if resp.status_code >= 400:
                     err_body = (await resp.aread()).decode("utf-8", errors="replace")
-                    _raise_http_status(resp.status_code, err_body, use_model=use_model)
+                    _raise_http_status(
+                        resp.status_code,
+                        err_body,
+                        use_model=use_model,
+                        retry_after=resp.headers.get("retry-after"),
+                    )
                 # Читаем до EOF сервера — сами цикл не прерываем.
                 async for line in resp.aiter_lines():
                     lines.append(line)
@@ -1846,7 +1865,12 @@ async def _chat_completions_stream_impl(
             async with client.stream("POST", url, headers=headers, json=stream_body) as resp:
                 if resp.status_code >= 400:
                     err_txt = (await resp.aread()).decode("utf-8", errors="replace")
-                    _raise_http_status(resp.status_code, err_txt, use_model=use_model)
+                    _raise_http_status(
+                        resp.status_code,
+                        err_txt,
+                        use_model=use_model,
+                        retry_after=resp.headers.get("retry-after"),
+                    )
                 async for raw in resp.aiter_lines():
                     if raw:
                         lines.append(raw)
@@ -1916,7 +1940,12 @@ async def _chat_completions_plain(
     """Non-stream POST chat/completions (kie/TokenRouter путь chat())."""
     async with _async_client(timeout=_http_timeout(timeout)) as client:
         resp = await client.post(url, headers=headers, json=body)
-    _raise_http_status(resp.status_code, resp.text, use_model=use_model)
+    _raise_http_status(
+        resp.status_code,
+        resp.text,
+        use_model=use_model,
+        retry_after=resp.headers.get("retry-after"),
+    )
     try:
         payload = resp.json()
     except Exception as e:  # noqa: BLE001
@@ -2374,6 +2403,12 @@ async def _chat_unscoped(
             "responses" if responses_mode else "chat",
         )
 
+    # П.16-17: брейкер per-провайдер. Ключ — реальный текстовый провайдер
+    # (kie/vibecode/tokenrouter/grsai), а не модель: лежит шлюз, не модель.
+    from app.services import provider_breaker
+
+    breaker_key = "vibecode" if _node_vibecode_override() else str(settings.text_llm_provider or "kie")
+
     attempt = 0
     last_exc: Exception | None = None
     while attempt <= retries:
@@ -2381,6 +2416,10 @@ async def _chat_unscoped(
         if attempt > 1:
             # Этап 3: ретраи одного вызова не пробивают бюджет.
             await _check_budget_before_call()
+        # Открытая цепь → падаем сразу, не тратя время и деньги на вызов,
+        # который заведомо упадёт. Лежащий провайдер раньше выгребал полный
+        # набор попыток на КАЖДОМ кадре.
+        await provider_breaker.acquire(breaker_key)
         try:
             if responses_mode:
                 result = await _chat_responses_stream(
@@ -2496,6 +2535,7 @@ async def _chat_unscoped(
                     attempt=attempt,
                     result=result,
                 )
+                provider_breaker.note_success(breaker_key)
                 return result
 
             if settings.text_llm_is_vibecode or _node_vibecode_override():
@@ -2593,6 +2633,7 @@ async def _chat_unscoped(
                     attempt=attempt,
                     result=result,
                 )
+                provider_breaker.note_success(breaker_key)
                 return result
 
             result = await _record_transport_call(
@@ -2633,8 +2674,10 @@ async def _chat_unscoped(
                 result=result,
                 include_task_id=False,
             )
+            provider_breaker.note_success(breaker_key)
             return result
         except httpx.TimeoutException:
+            provider_breaker.note_failure(breaker_key, error_kind="timeout")
             hint = ""
             if settings.text_llm_is_tokenrouter:
                 hint = (
@@ -2656,8 +2699,15 @@ async def _chat_unscoped(
                 f"GPT сетевая ошибка: {type(e).__name__}: {e}",
                 context={"error_kind": "network", "retryable": True, "model": use_model},
             )
+            provider_breaker.note_failure(breaker_key, error_kind="network")
             logger.warning(str(last_exc))
         except GptApiError as e:
+            provider_breaker.note_failure(
+                breaker_key,
+                status=int(e.context.get("status_code") or e.context.get("provider_code") or 0) or None,
+                error_kind=str(e.context.get("error_kind") or ""),
+                retry_after=e.context.get("retry_after_s"),
+            )
             if not e.retryable:
                 raise
             # kie иногда падает на PDF input_file → code=500; оставляем только текст.
@@ -2679,7 +2729,12 @@ async def _chat_unscoped(
             logger.warning("gpt_api.chat retryable: {}", e)
 
         if attempt <= retries:
-            backoff = min(2.0 * (2 ** (attempt - 1)), 30.0)
+            # Retry-After провайдера важнее нашей экспоненты: на 429 он
+            # говорит точное время, а слепой бэкофф либо ждёт лишнее, либо
+            # долбится раньше срока.
+            backoff = provider_breaker.suggest_delay(
+                breaker_key, attempt, default=min(2.0 * (2 ** (attempt - 1)), 30.0)
+            )
             await asyncio.sleep(backoff)
 
     raise last_exc or GptApiError("GPT: неизвестная ошибка", context={"model": use_model})

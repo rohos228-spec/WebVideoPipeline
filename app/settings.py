@@ -75,6 +75,16 @@ class Settings(BaseSettings):
     # Per-project override — project.meta["llm_budget_usd"] (0 = выключен
     # для проекта; ключа нет = этот default). Калибровка — решение заказчика.
     llm_budget_usd: float = Field(10.0, alias="LLM_BUDGET_USD")
+    # П.16-17: circuit breaker + лимитер темпа per-провайдер
+    # (`app/services/provider_breaker.py`). False — полностью прежнее
+    # поведение (слепые ретраи), на случай если брейкер мешает прогону.
+    provider_breaker_enabled: bool = Field(True, alias="PROVIDER_BREAKER_ENABLED")
+    # Сколько инфраструктурных отказов подряд (5xx/сеть/таймаут) размыкают
+    # цепь. 429 не считается: это «приходи позже», лечится Retry-After.
+    provider_breaker_failures: int = Field(5, alias="PROVIDER_BREAKER_FAILURES")
+    provider_breaker_cooldown_s: float = Field(60.0, alias="PROVIDER_BREAKER_COOLDOWN_S")
+    # Минимальный интервал между вызовами одного провайдера, мс. 0 = выкл.
+    provider_min_interval_ms: int = Field(0, alias="PROVIDER_MIN_INTERVAL_MS")
 
     # Grsai API (https://grsai.com / https://grsaiapi.com) — image/video без CDP
     grsai_api_key: str = Field("", alias="GRSAI_API_KEY")
