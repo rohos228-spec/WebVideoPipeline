@@ -614,6 +614,13 @@ async def _host_via_tmpfiles(client: httpx.AsyncClient, raw: bytes, mime: str, f
     return await _accept_hosted_url(client, direct, host="tmpfiles", raw_len=len(raw))
 
 
+def _public_hosts_allowed() -> bool:
+    """Опт-ин на анонимные файлохостинги для стартового кадра (default False)."""
+    from app.settings import settings
+
+    return bool(getattr(settings, "outsee_allow_public_hosts", False))
+
+
 async def ensure_public_image_url(
     url: str | None,
     *,
@@ -624,7 +631,13 @@ async def ensure_public_image_url(
 
     data: → публичный URL только через Yandex Object Storage.
     http(s) → как есть (кроме localhost), либо force_rehost=True → скачать и
-    залить в Yandex. Публичные хосты (litterbox/catbox/uguu) отключены.
+    залить в Yandex.
+
+    Анонимные файлохостинги (litterbox / catbox / uguu / 0x0.st) по умолчанию
+    ОТКЛЮЧЕНЫ: кадр лёг бы там по публичному URL без авторизации. S3 не
+    настроен → ``OutseeApiError``, а не тихий откат наружу. Осознанный опт-ин —
+    ``OUTSEE_ALLOW_PUBLIC_HOSTS=true``.
+
     ``yandex`` в skip_hosts игнорируется: новый PUT = новый URL.
     """
     if not url or not str(url).strip():
@@ -671,21 +684,28 @@ async def ensure_public_image_url(
     from app.bots.yandex_storage import yandex_storage_configured
 
     hosts: list[tuple[str, Any]] = []
+    allow_public = _public_hosts_allowed()
     if yandex_storage_configured():
         hosts.append(("yandex", _host_via_yandex))
-        # Резервные хосты на случай временного сбоя S3
-        hosts.extend(
-            [
-                ("litterbox", _host_via_litterbox),
-                ("catbox", _host_via_catbox),
-            ]
-        )
-        logger.info(
-            "outsee_api.frame: upload host=yandex (с fallback на litterbox/catbox, {} bytes)", len(raw)
-        )
-    else:
-        logger.info(
-            "outsee_api.frame: Yandex S3 не настроен, использую fallback (litterbox/catbox/uguu/0x0, {} bytes)",
+        if allow_public:
+            # Резервные хосты на случай временного сбоя S3 — только по опт-ину.
+            hosts.extend(
+                [
+                    ("litterbox", _host_via_litterbox),
+                    ("catbox", _host_via_catbox),
+                ]
+            )
+            logger.warning(
+                "outsee_api.frame: OUTSEE_ALLOW_PUBLIC_HOSTS=true — при сбое S3 кадр "
+                "уйдёт на анонимный публичный хост (litterbox/catbox), {} bytes",
+                len(raw),
+            )
+        else:
+            logger.info("outsee_api.frame: upload host=yandex ({} bytes)", len(raw))
+    elif allow_public:
+        logger.warning(
+            "outsee_api.frame: Yandex S3 не настроен, OUTSEE_ALLOW_PUBLIC_HOSTS=true — "
+            "кадр уходит на анонимный публичный хост (litterbox/catbox/uguu/0x0), {} bytes",
             len(raw),
         )
         hosts.extend(
@@ -695,6 +715,14 @@ async def ensure_public_image_url(
                 ("uguu", _host_via_uguu),
                 ("0x0", _host_via_0x0),
             ]
+        )
+    else:
+        raise OutseeApiError(
+            "стартовый кадр: публикация только через Yandex Object Storage, "
+            "а S3 не настроен (YANDEX_*). Анонимные файлохостинги отключены — "
+            "кадр лёг бы там по публичному URL. Осознанный опт-ин: "
+            "OUTSEE_ALLOW_PUBLIC_HOSTS=true.",
+            context={"mime": mime, "bytes": len(raw)},
         )
 
     variants = _upload_payload_variants(raw, mime)

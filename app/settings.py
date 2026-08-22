@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     outsee_default_video_model: str = Field("veo-3-1-lite", alias="OUTSEE_DEFAULT_VIDEO_MODEL")
     # при сбое Bearer API — откат на Playwright UI (нужен Chrome CDP)
     outsee_http_fallback_cdp: bool = Field(True, alias="OUTSEE_HTTP_FALLBACK_CDP")
+    # Публикация стартового кадра для Outsee: только Yandex Object Storage.
+    # True — разрешить откат на анонимные файлохостинги (litterbox / catbox /
+    # uguu / 0x0.st). Кадр там лежит по публичному URL без авторизации, то
+    # есть материал заказчика утекает наружу — включать только осознанно.
+    outsee_allow_public_hosts: bool = Field(False, alias="OUTSEE_ALLOW_PUBLIC_HOSTS")
     # legacy alias (cookie-era); ignored if OUTSEE_API_KEY set
     outsee_http_api: bool = Field(True, alias="OUTSEE_HTTP_API")
     # Create: параллель по провайдерам (остальные ждут status=queued).
