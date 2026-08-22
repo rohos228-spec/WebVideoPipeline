@@ -1065,7 +1065,8 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
 
 
 def analysis_from_dict(data: dict[str, Any]) -> CheckAnalysis:
-    checks_raw = data.get("checks") if isinstance(data.get("checks"), list) else []
+    checks_any = data.get("checks")
+    checks_raw = checks_any if isinstance(checks_any, list) else []
     checks: list[CheckItem] = []
     for item in checks_raw:
         if not isinstance(item, dict):
@@ -1078,13 +1079,16 @@ def analysis_from_dict(data: dict[str, Any]) -> CheckAnalysis:
                 note=str(item.get("note") or item.get("message") or "").strip(),
             )
         )
-    fwd_raw = data.get("forward") if isinstance(data.get("forward"), dict) else {}
-    paths = fwd_raw.get("paths") if isinstance(fwd_raw.get("paths"), list) else []
+    fwd_any = data.get("forward")
+    fwd_raw: dict[str, Any] = fwd_any if isinstance(fwd_any, dict) else {}
+    paths_any = fwd_raw.get("paths")
+    paths = paths_any if isinstance(paths_any, list) else []
     forward = ForwardSpec(
         mode=_norm_forward_mode(fwd_raw.get("mode")),
         paths=[str(p).strip().replace("\\", "/") for p in paths if str(p).strip()],
     )
-    fix_raw = data.get("fix") if isinstance(data.get("fix"), dict) else {}
+    fix_any = data.get("fix")
+    fix_raw: dict[str, Any] = fix_any if isinstance(fix_any, dict) else {}
     rewrite = fix_raw.get("rewrite_file")
     fix = FixSpec(
         target=_norm_fix_target(fix_raw.get("target")),
@@ -1491,17 +1495,6 @@ def append_txt_report_footer(
 def _load_footer_from_prompts() -> str:
     """Хвост из prompts/check_operator/_schema/response_footer.md, если есть."""
     try:
-        from app.settings import settings
-
-        path = Path(settings.prompts_dir) / "check_operator" / "_schema" / "response_footer.md"
-        if path.is_file():
-            text = path.read_text(encoding="utf-8").strip()
-            if SCHEMA_ID in text:
-                return text
-    except Exception:  # noqa: BLE001
-        pass
-    # fallback: рядом с репо
-    try:
         root = Path(__file__).resolve().parents[2]
         path = root / "prompts" / "check_operator" / "_schema" / "response_footer.md"
         if path.is_file():
@@ -1577,10 +1570,12 @@ def format_target_hint(
     """
     aspect = (aspect_ratio or "").strip() or "9:16"
     parts = [f"соотношение сторон = {aspect}"]
-    if (image_resolution or "").strip():
-        parts.append(f"разрешение картинок = {image_resolution.strip()}")
-    if (video_resolution or "").strip():
-        parts.append(f"разрешение видео = {video_resolution.strip()}")
+    img_res = (image_resolution or "").strip()
+    if img_res:
+        parts.append(f"разрешение картинок = {img_res}")
+    vid_res = (video_resolution or "").strip()
+    if vid_res:
+        parts.append(f"разрешение видео = {vid_res}")
     return "Целевой формат проекта: " + ", ".join(parts) + "."
 
 

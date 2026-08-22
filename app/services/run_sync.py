@@ -294,7 +294,7 @@ async def sync_run_for_project(project_id: int, session: AsyncSession | None = N
         for nr in run.node_runs:
             if nr.node_type in disabled:
                 if nr.status == NodeRunStatus.pending:
-                    old = nr.status
+                    old: NodeRunStatus = nr.status
                     if mark_node_skipped(nr, project_id=project_id):
                         await publish_node_event(
                             run.id,

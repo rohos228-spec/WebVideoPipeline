@@ -11,7 +11,7 @@ import asyncio
 import contextlib
 from collections.abc import Awaitable
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from loguru import logger
 
@@ -271,7 +271,7 @@ async def await_with_cancel(
         if is_stop_requested(project_id):
             raise StepCancelledError(_stop_cancel_message(project_id)) from exc
         raise exc
-    return task.result()
+    return cast("T", task.result())
 
 
 async def sleep_cancellable(

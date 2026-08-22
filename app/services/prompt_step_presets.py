@@ -173,7 +173,7 @@ def create_step_preset(
     *,
     label: str | None = None,
     description: str | None = None,
-    blocks: dict[str, str] | None = None,
+    blocks: dict[str, str | None] | None = None,
 ) -> dict[str, Any]:
     data = load_step_presets(step_code)
     if not data:
@@ -189,7 +189,7 @@ def create_step_preset(
     presets[clean_id] = {
         "label": (label or clean_id).strip() or clean_id,
         "description": (description or "").strip(),
-        "blocks": blocks or {},
+        "blocks": {k: v for k, v in (blocks or {}).items() if v},
     }
     order = data.get("preset_order")
     if isinstance(order, list):

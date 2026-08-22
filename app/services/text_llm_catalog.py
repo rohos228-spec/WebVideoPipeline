@@ -188,10 +188,10 @@ def catalog_status(cfg: Settings | None = None) -> dict[str, Any]:
         label = f"Kimi K3 · TokenRouter ({short})"
         active_model = s.tokenrouter_model
     elif active == "vibecode":
-        item_raw = catalog_item(active_id)
-        item: dict[str, Any] = item_raw if isinstance(item_raw, dict) else {}
-        api_model = (item or {}).get("api_model") or "gpt-5.6-sol"
-        pretty = (item or {}).get("label") or "GPT"
+        active_raw = catalog_item(active_id)
+        active_item: dict[str, Any] = active_raw if isinstance(active_raw, dict) else {}
+        api_model = active_item.get("api_model") or "gpt-5.6-sol"
+        pretty = active_item.get("label") or "GPT"
         label = f"{pretty} · vibecode.moe ({api_model})"
         active_model = api_model
     else:

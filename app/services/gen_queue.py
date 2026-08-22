@@ -365,9 +365,10 @@ async def gen_queue_reconcile(session: AsyncSession) -> int:
     for pid in queue:
         if pid in window_ids:
             continue
-        project = await _load_project(session, pid)
-        if project is None or is_mass_factory_child(project):
+        loaded = await _load_project(session, pid)
+        if loaded is None or is_mass_factory_child(loaded):
             continue
+        project = loaded
         if project.status not in GEN_QUEUE_BUSY_STATUSES:
             continue
         if await _rollback_running(session, project, reason="out-of-window"):

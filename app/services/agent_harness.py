@@ -575,9 +575,9 @@ def verify_project_disk(
     vo = data_dir / "voiceover.txt"
     if vo.is_file():
         text = vo.read_text(encoding="utf-8", errors="replace")
-        polluted = "# Лист:" in text or "vp.check.v1" in text or "ОТЧЁТ ПРОВЕРКИ" in text
-        checks.append(HarnessCheck("voiceover_clean", not polluted, "polluted" if polluted else "ok"))
-        if polluted:
+        vo_polluted = "# Лист:" in text or "vp.check.v1" in text or "ОТЧЁТ ПРОВЕРКИ" in text
+        checks.append(HarnessCheck("voiceover_clean", not vo_polluted, "polluted" if vo_polluted else "ok"))
+        if vo_polluted:
             repair.append("script")
 
     ok = all(c.ok for c in checks)

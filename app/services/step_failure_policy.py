@@ -263,10 +263,13 @@ async def record_step_failure(
     err_code_early, err_msg_early = describe_error(error)
     # 402 / нет кредитов — не soft-retry и не sleep 30 мин (только жечь баланс).
     try:
-        from app.services.scene_design.agent_chunks import is_credits_failure
+        from app.services.scene_design.agent_chunks import is_credits_failure as _is_credits_failure
     except Exception:  # noqa: BLE001
-        is_credits_failure = lambda _e: False  # noqa: E731
-    if is_credits_failure(error) or "credits insufficient" in (err_msg_early or "").lower():
+
+        def _is_credits_failure(exc: BaseException) -> bool:
+            return False
+
+    if _is_credits_failure(error) or "credits insufficient" in (err_msg_early or "").lower():
         from app.services.project_control import pause_project as pause_project_svc
         from app.services.run_sync import mark_running_node_failed
 

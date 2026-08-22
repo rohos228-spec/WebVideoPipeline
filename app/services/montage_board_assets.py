@@ -7,7 +7,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from loguru import logger
 from sqlalchemy import select
@@ -26,7 +26,19 @@ from app.services.plan_shot2 import (
 )
 
 
-def _archive_dir(project: Project, sub: str) -> Path:
+class HasDataDir(Protocol):
+    """Минимум, который нужен файловым операциям: каталог проекта.
+
+    `Project` ему удовлетворяет; artifact_recovery зовёт эти функции с
+    лёгким стендом (SimpleNamespace) — расписываем это в типах, а не
+    прячем за cast.
+    """
+
+    @property
+    def data_dir(self) -> Path: ...
+
+
+def _archive_dir(project: HasDataDir, sub: str) -> Path:
     d = project.data_dir / "old" / sub
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -55,7 +67,7 @@ def _sidecar_companions(path: Path) -> list[Path]:
 
 def archive_file(
     path: Path,
-    project: Project,
+    project: HasDataDir,
     sub: str,
     *,
     with_sidecars: bool = True,
@@ -120,7 +132,7 @@ def purge_replaced_media(
     *,
     patterns: list[str],
     keep: Path,
-    project: Project,
+    project: HasDataDir,
     sub: str,
     shot: int,
     also_json: bool = True,

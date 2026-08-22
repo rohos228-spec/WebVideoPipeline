@@ -161,7 +161,7 @@ def split_text_into_parts(text: str, n: int) -> list[str]:
         parts = words + [words[-1]] * (n - len(words))
         return parts[:n]
     base, rem = divmod(len(words), n)
-    parts: list[str] = []
+    parts = []
     i = 0
     for k in range(n):
         take = base + (1 if k < rem else 0)

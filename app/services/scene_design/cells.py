@@ -528,4 +528,4 @@ async def wipe_cells(session: AsyncSession, project: Project, *, agent: str | No
     if agent:
         stmt = stmt.where(SceneDesignCell.agent == agent)
     res = await session.execute(stmt)
-    return int(res.rowcount or 0)
+    return int(getattr(res, "rowcount", 0) or 0)

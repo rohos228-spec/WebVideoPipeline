@@ -487,12 +487,13 @@ async def save_prompt_bundle(
         item=manifest_item,
         payload=manifest,
     )
-    return {
+    out: dict[str, Any] = {
         "manifest": manifest_item,
         "source": source_item,
         "processed": processed_item,
         "blocks": block_items,
     }
+    return out
 
 
 async def list_configs(

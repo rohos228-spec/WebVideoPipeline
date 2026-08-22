@@ -202,11 +202,11 @@ async def build_vision_db_snapshot(
                     )
         else:
             for p in scene_paths:
-                fr_match, shot = match_frame_for_image(p, by_num)
-                fr = fr_match
-                if fr is None:
+                matched, shot = match_frame_for_image(p, by_num)
+                if matched is None:
                     lines.append(f"- file={p.name}: кадр не найден в БД")
                     continue
+                fr = matched
                 attrs = fr.attrs if isinstance(fr.attrs, dict) else {}
                 if want_videos or p.name.lower().startswith("video_sheet_"):
                     ap = (fr.animation_prompt or "").strip()

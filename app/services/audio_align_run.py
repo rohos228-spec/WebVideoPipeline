@@ -101,7 +101,7 @@ async def _load_align_inputs(
         cells = read_plan_voiceover_cells(project, [f.number for f in frames])
     except Exception:  # noqa: BLE001
         cells = [(f.number, (f.voiceover_text or "")) for f in frames]
-    cells = _voiceover_cells_for_frames(project, frames, cells)
+    cells = _voiceover_cells_for_frames(project, list(frames), cells)
     if not any(t.strip() for _, t in cells):
         raise RuntimeError("нет текста R49 / voiceover для align")
 

@@ -1585,7 +1585,7 @@ async def ask(
                 logger.warning("gpt_workspace: xlsx deliver: {}", e)
 
         # 3) .txt/.docx — документные запросы; длинный договор в ответе — тоже файл
-        delivered: Path | None = None
+        delivered = None
         pack_doc = (want_pack and _should_pack_text_document(text, reply, media_count=media_count)) or (
             media_count == 0 and _looks_like_document(reply) and not _is_meta_chat_question(text)
         )

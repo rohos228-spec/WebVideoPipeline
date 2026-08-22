@@ -8,9 +8,10 @@ UI и node.data — только кэш отрисовки; resolve всегда
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from app.models import Project
 from app.services.canvas_graph import canvas_graph_from_meta
@@ -93,7 +94,8 @@ def default_label_for_role(role: OperatorRole | str) -> str:
 
 
 def edge_kind_of(edge: dict[str, Any]) -> EdgeKind:
-    data = edge.get("data") if isinstance(edge.get("data"), dict) else {}
+    data_raw = edge.get("data")
+    data: dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}
     return normalize_edge_kind(data.get("kind") or edge.get("kind"))
 
 
@@ -103,7 +105,7 @@ def normalize_role(raw: Any, *, fallback: str = "assist") -> OperatorRole:
     if s == "assist":
         return "assist"
     if s in VALID_ROLES:
-        return s
+        return cast("OperatorRole", s)
     return "assist"
 
 
@@ -777,7 +779,7 @@ def _paths_for_emit_kinds(
     project: Project,
     source_key: str,
     entry: dict[str, Any],
-    kinds: list[EmitKind],
+    kinds: Sequence[EmitKind],
     *,
     limit: int,
 ) -> list[Path]:
@@ -905,7 +907,7 @@ def files_from_source_node(
                 return found[:limit]
         # Выбор «что отдаёт» на ноде-источнике (emitKinds).
         src_cfg = operator_config(project, source_key)
-        emit_kinds: list[EmitKind] = list(src_cfg.get("emitKinds") or [])
+        emit_kinds = list(src_cfg.get("emitKinds") or [])
         emitted = _paths_for_emit_kinds(project, source_key, entry, emit_kinds, limit=limit)
         if emitted:
             return emitted
@@ -960,7 +962,7 @@ def files_from_source_node(
     if is_excel_gpt_node_type(typ):
         # emitKinds с диска uploads — даже если meta.gpt_operator_results стёрта.
         src_cfg = operator_config(project, source_key)
-        emit_kinds: list[EmitKind] = list(src_cfg.get("emitKinds") or [])
+        emit_kinds = list(src_cfg.get("emitKinds") or [])
         synthetic: dict[str, Any] = {"outputPaths": [], "inputPaths": []}
         udir = upload_dir(project, source_key)
         if udir.is_dir():
@@ -1645,7 +1647,8 @@ def save_operator_result(
         entry["analysis"] = analysis_dict
         fwd = analysis_dict.get("forward") if isinstance(analysis_dict, dict) else None
         if isinstance(fwd, dict) and fwd.get("mode") == "explicit":
-            paths = fwd.get("paths") if isinstance(fwd.get("paths"), list) else []
+            paths_raw = fwd.get("paths")
+            paths = paths_raw if isinstance(paths_raw, list) else []
             entry["forwardPaths"] = [str(p) for p in paths]
         # Если агент сам исправил файл — запоминаем путь исправленной версии.
         fix = analysis_dict.get("fix") if isinstance(analysis_dict, dict) else None

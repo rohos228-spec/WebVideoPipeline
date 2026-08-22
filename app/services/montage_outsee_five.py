@@ -695,7 +695,7 @@ async def download_d0_hit_src_direct(
         if _is_real_generated_url(viewer):
             url = viewer
         else:
-            url = await _best_dom_full_url(page, hit)
+            url = await _best_dom_full_url(page, hit) or ""
     if not _is_real_generated_url(url):
         return False
     try:

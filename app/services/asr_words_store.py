@@ -21,10 +21,10 @@ def _frame_number_for_word(
         return None
     for seg in segments:
         try:
-            start = float(seg.get("start_ts"))
-            end = float(seg.get("end_ts"))
-            num = int(seg.get("frame_number"))
-        except (TypeError, ValueError):
+            start = float(seg["start_ts"])
+            end = float(seg["end_ts"])
+            num = int(seg["frame_number"])
+        except (KeyError, TypeError, ValueError):
             continue
         # Последний сегмент: включаем правую границу.
         if start <= mid_s < end or (mid_s == end and seg is segments[-1]):
@@ -34,10 +34,10 @@ def _frame_number_for_word(
     best_d = 1e18
     for seg in segments:
         try:
-            start = float(seg.get("start_ts"))
-            end = float(seg.get("end_ts"))
-            num = int(seg.get("frame_number"))
-        except (TypeError, ValueError):
+            start = float(seg["start_ts"])
+            end = float(seg["end_ts"])
+            num = int(seg["frame_number"])
+        except (KeyError, TypeError, ValueError):
             continue
         center = (start + end) / 2.0
         d = abs(mid_s - center)

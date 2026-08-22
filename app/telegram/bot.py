@@ -6594,31 +6594,28 @@ async def notify_step_done(
         # «шаг завершён» (машиночитаемая причина уже в meta.pause_reason).
         meta = project.meta if isinstance(project.meta, dict) else {}
         pr = meta.get("pause_reason")
-        vision_pause = (
-            status_val == "paused" and isinstance(pr, dict) and pr.get("code") == "vision_rounds_exhausted"
-        )
-        budget_pause = (
-            status_val == "paused" and isinstance(pr, dict) and pr.get("code") == "budget_exhausted"
-        )
+        pause_meta: dict[str, Any] = pr if isinstance(pr, dict) else {}
+        vision_pause = status_val == "paused" and pause_meta.get("code") == "vision_rounds_exhausted"
+        budget_pause = status_val == "paused" and pause_meta.get("code") == "budget_exhausted"
         if budget_pause:
             # Этап 3 (E.3): бюджет прогона исчерпан — тот же канал, что
             # vision-пауза этапа 4, второй не заводим.
             text = (
                 f"⏸ Проект #{project_id}: бюджет LLM исчерпан — "
-                f"${float(pr.get('spent_usd') or 0):.2f} из "
-                f"${float(pr.get('budget_usd') or 0):.2f} "
-                f"(нода {pr.get('node') or '?'}).\n"
+                f"${float(pause_meta.get('spent_usd') or 0):.2f} из "
+                f"${float(pause_meta.get('budget_usd') or 0):.2f} "
+                f"(нода {pause_meta.get('node') or '?'}).\n"
                 "Решение: поднять бюджет проекта (дашборд «Стоимость» / "
                 "POST llm-budget) и ▶; перезапуск без поднятия снова паузит "
                 "на первом же вызове."
             )
         elif vision_pause:
-            regen = ", ".join(str(x) for x in (pr.get("regen_pending") or [])[:12])
-            unv = ", ".join(str(x) for x in (pr.get("unverified") or [])[:12])
+            regen = ", ".join(str(x) for x in (pause_meta.get("regen_pending") or [])[:12])
+            unv = ", ".join(str(x) for x in (pause_meta.get("unverified") or [])[:12])
             text = (
                 f"⏸ Проект #{project_id}: vision-лимит исчерпан "
-                f"({pr.get('rounds')}/{pr.get('limit')} кругов, "
-                f"нода {pr.get('node')}).\n"
+                f"({pause_meta.get('rounds')}/{pause_meta.get('limit')} кругов, "
+                f"нода {pause_meta.get('node')}).\n"
                 f"На переген: {regen or '—'}\nНепроверенные: {unv or '—'}\n"
                 "Решение: «ещё N кругов» (vision-decision more_rounds + ▶ "
                 "check-ноды) или «принять как есть» (accept_pending + ▶ "

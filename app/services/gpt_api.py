@@ -1408,7 +1408,8 @@ def parse_retrieved_response_payload(payload: dict[str, Any]) -> tuple[str, str]
                 pass
             else:
                 return raw_json.strip(), str(data.get("state") or "success")
-        nested = data.get("response") if isinstance(data.get("response"), dict) else data
+        nested_raw = data.get("response")
+        nested: dict[str, Any] = nested_raw if isinstance(nested_raw, dict) else data
         if nested is not payload:
             text, status = parse_retrieved_response_payload(nested)
             if text:
@@ -1741,8 +1742,9 @@ async def _chat_responses_stream_impl(
             },
         )
 
-    usage = final_payload.get("usage") if isinstance(final_payload.get("usage"), dict) else {}
-    raw = dict(final_payload) if final_payload else {"stream_lines": len(lines)}
+    usage_raw = final_payload.get("usage") if final_payload else None
+    usage: dict[str, Any] = usage_raw if isinstance(usage_raw, dict) else {}
+    raw: dict[str, Any] = dict(final_payload) if final_payload else {"stream_lines": len(lines)}
     if response_id:
         raw.setdefault("id", response_id)
     if cf_ray:
@@ -1789,13 +1791,15 @@ def parse_chat_completions_sse_lines(lines: list[str]) -> tuple[str, str, dict[s
         fr = first.get("finish_reason")
         if isinstance(fr, str) and fr:
             finish = fr
-        delta = first.get("delta") if isinstance(first.get("delta"), dict) else {}
+        delta_raw = first.get("delta")
+        delta: dict[str, Any] = delta_raw if isinstance(delta_raw, dict) else {}
         piece = delta.get("content")
         if isinstance(piece, str) and piece:
             chunks.append(piece)
         elif isinstance(piece, list):
             chunks.append("".join(str(p.get("text") or "") for p in piece if isinstance(p, dict)))
-        msg = first.get("message") if isinstance(first.get("message"), dict) else {}
+        msg_raw = first.get("message")
+        msg: dict[str, Any] = msg_raw if isinstance(msg_raw, dict) else {}
         mc = msg.get("content")
         if isinstance(mc, str) and mc and not delta:
             chunks.append(mc)
@@ -1884,17 +1888,18 @@ async def _chat_completions_stream_impl(
             "GPT(chat/stream): пустой output",
             context={"retryable": True, "error_kind": "empty_stream", "sse_lines": len(lines)},
         )
-    usage = last.get("usage") if isinstance(last.get("usage"), dict) else {}
-    raw = dict(last) if last else {"stream_lines": len(lines)}
+    usage_raw = last.get("usage") if last else None
+    usage: dict[str, Any] = usage_raw if isinstance(usage_raw, dict) else {}
+    raw_payload: dict[str, Any] = dict(last) if last else {"stream_lines": len(lines)}
     if stream_err is not None:
-        raw["sse_salvaged"] = True
-        raw["sse_interrupt"] = type(stream_err).__name__
+        raw_payload["sse_salvaged"] = True
+        raw_payload["sse_interrupt"] = type(stream_err).__name__
     return GptChatResult(
         text=text,
         model=use_model,
         finish_reason=finish,
         usage=usage,
-        raw=raw,
+        raw=raw_payload,
         response_id=str(last.get("id") or ""),
         served_model=str(last.get("model") or ""),
     )
@@ -1939,7 +1944,8 @@ def _parse_choice(payload: dict[str, Any]) -> tuple[str, str]:
     if not isinstance(choices, list) or not choices:
         raise GptApiError("GPT: пустой choices в ответе", context={"payload": payload})
     first = choices[0] if isinstance(choices[0], dict) else {}
-    message = first.get("message") if isinstance(first.get("message"), dict) else {}
+    message_raw = first.get("message")
+    message: dict[str, Any] = message_raw if isinstance(message_raw, dict) else {}
     content = message.get("content")
     # content может быть строкой или списком частей (vision/tools)
     if isinstance(content, list):
@@ -2327,7 +2333,7 @@ async def _chat_unscoped(
         provider_label,
         use_model,
         url,
-        via if via != "proxy" else _mask_proxy_url(proxy),
+        via if via != "proxy" else _mask_proxy_url(proxy or ""),
     )
 
     responses_mode = is_responses_mode()

@@ -180,13 +180,13 @@ async def start_step(
         from app.services.project_state import clear_pipeline_progress_meta
         from app.services.run_sync import reset_nodes_from_step
 
-        cleared = clear_pipeline_progress_meta(project)
-        if cleared:
+        progress_cleared = clear_pipeline_progress_meta(project)
+        if progress_cleared:
             logger.info(
                 "[#{}] start_step {}: cleared progress meta {}",
                 project.id,
                 step_code,
-                cleared,
+                progress_cleared,
             )
         await reset_nodes_from_step(session, project.id, step_code)
         logger.info(
@@ -300,6 +300,7 @@ async def start_step(
                 .scalars()
                 .all()
             )
+            frames = list(frames)
             missing_s1, missing_s2 = scan_missing_animation_prompts_all(project, frames)
             if not missing_s1 and not missing_s2:
                 ready, xlsx_filled, with_image = count_animation_prompt_stats(project, frames)
@@ -332,18 +333,18 @@ async def start_step(
         purge_tmp_gpt_for_step(project, code)
 
     meta = dict(project.meta or {})
-    cleared: list[str] = []
+    stop_flags_cleared: list[str] = []
     if meta.pop("user_stop", None) is not None:
-        cleared.append("user_stop")
+        stop_flags_cleared.append("user_stop")
     if meta.pop("mass_lane_user_stop", None) is not None:
-        cleared.append("mass_lane_user_stop")
-    if cleared:
+        stop_flags_cleared.append("mass_lane_user_stop")
+    if stop_flags_cleared:
         project.meta = meta
         logger.info(
             "[#{}] start_step {}: cleared {}",
             project.id,
             step_code,
-            ", ".join(cleared),
+            ", ".join(stop_flags_cleared),
         )
     try:
         # Soft ▶ anim_pr / img / video: не wipe готовые пачки.
@@ -422,15 +423,15 @@ async def start_step(
 
         started_slot = slot_index_from_node(node)
         project.meta = meta
-        cleared = clear_excel_gpt_tail_completion(project, started_slot)
+        tail_cleared = clear_excel_gpt_tail_completion(project, started_slot)
         chain_to = ensure_enrich_auto_chain_to(project, started_slot)
-        if cleared.get("slots_cleared") or cleared.get("keys_cleared"):
+        if tail_cleared.get("slots_cleared") or tail_cleared.get("keys_cleared"):
             logger.info(
                 "[#{}] start_step excel_gpt: cleared done for slots>={} slots={} keys={}",
                 project.id,
                 started_slot,
-                cleared.get("slots_cleared"),
-                cleared.get("keys_cleared"),
+                tail_cleared.get("slots_cleared"),
+                tail_cleared.get("keys_cleared"),
             )
         if chain_to is not None:
             logger.info(
@@ -456,7 +457,7 @@ async def start_step(
                 )
             ).scalar_one_or_none()
             if run is not None:
-                keys_reset = set(cleared.get("keys_cleared") or [])
+                keys_reset = set(tail_cleared.get("keys_cleared") or [])
                 if nk:
                     keys_reset.add(nk)
                 for nr in run.node_runs:

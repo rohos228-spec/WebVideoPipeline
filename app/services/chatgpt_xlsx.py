@@ -11,6 +11,7 @@ from __future__ import annotations
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -335,7 +336,7 @@ async def sync_project_xlsx(
     *,
     keep_fields: bool = False,
     update_frames_voiceover: bool = False,
-) -> dict | None:
+) -> dict[str, Any]:
     """Импортирует project.xlsx в БД (v8 + fallback v7)."""
     validation_err = validate_xlsx(xlsx_path)
     if validation_err is not None:
