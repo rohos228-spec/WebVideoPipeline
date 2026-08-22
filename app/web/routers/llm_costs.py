@@ -113,7 +113,7 @@ async def project_llm_costs(project_id: int, session: AsyncSession = Depends(get
         # таблицей — у провайдеров нет usage, платят за единицы. Бюджет
         # LLM их НЕ покрывает: `unpriced_calls` > 0 означает, что единицы
         # посчитаны, а цены в media_prices.json ещё не заполнены.
-        "media": await media_ledger.totals(project_id),
+        "media": await media_ledger.totals(project_id, session),
     }
 
 

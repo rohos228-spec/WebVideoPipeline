@@ -34,6 +34,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -226,8 +227,14 @@ async def media_call(
     )
 
 
-async def totals(project_id: int) -> dict[str, object]:
-    """Сводка по проекту: деньги, единицы, сколько строк без цены."""
+async def totals(project_id: int, session: Any = None) -> dict[str, object]:
+    """Сводка по проекту: деньги, единицы, сколько строк без цены.
+
+    `session` передаёт вызывающий (роутер), если у него уже есть своя —
+    иначе открывается новая через `session_scope`. Без этого дашборд
+    читал ДРУГУЮ базу, чем та, в которую писал тест или запрос: у
+    `session_scope` свой движок по `settings.sqlite_path`.
+    """
     from sqlalchemy import case, func, select
 
     # SUM по Boolean-колонке нельзя: SQLAlchemy прогоняет результат через
@@ -236,21 +243,24 @@ async def totals(project_id: int) -> dict[str, object]:
     # `web/routers/llm_costs.py`.
     unpriced_n = func.sum(case((MediaCall.unpriced.is_(True), 1), else_=0))
 
-    async with session_scope() as session:
-        rows = (
-            await session.execute(
-                select(
-                    MediaCall.provider,
-                    MediaCall.kind,
-                    func.sum(MediaCall.cost_usd),
-                    func.sum(MediaCall.units),
-                    func.count(),
-                    unpriced_n,
-                )
-                .where(MediaCall.project_id == project_id)
-                .group_by(MediaCall.provider, MediaCall.kind)
-            )
-        ).all()
+    stmt = (
+        select(
+            MediaCall.provider,
+            MediaCall.kind,
+            func.sum(MediaCall.cost_usd),
+            func.sum(MediaCall.units),
+            func.count(),
+            unpriced_n,
+        )
+        .where(MediaCall.project_id == project_id)
+        .group_by(MediaCall.provider, MediaCall.kind)
+    )
+
+    if session is not None:
+        rows = (await session.execute(stmt)).all()
+    else:
+        async with session_scope() as own:
+            rows = (await own.execute(stmt)).all()
 
     by_provider: list[dict[str, object]] = []
     total_cost = 0.0

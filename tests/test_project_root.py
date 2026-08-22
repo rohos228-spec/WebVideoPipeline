@@ -33,7 +33,19 @@ def test_settings_db_not_under_web(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     import app.settings as settings_mod
 
-    importlib.reload(settings_mod)
-    db = settings_mod.settings.db_url
-    assert "/web/data/" not in db.replace("\\", "/")
-    assert "state.db" in db
+    original = settings_mod.settings
+    try:
+        importlib.reload(settings_mod)
+        db = settings_mod.settings.db_url
+        assert "/web/data/" not in db.replace("\\", "/")
+        assert "state.db" in db
+    finally:
+        # Reload подменяет `app.settings.settings` НОВЫМ объектом, а
+        # autouse-фикстура conftest монкипатчит тот, что был. Модули,
+        # которые импортируют settings внутри функции (их много —
+        # provider_breaker, media_ledger, local_library…), после этого
+        # читают неподменённый объект, и следующие тесты в прогоне
+        # тихо получают продовые значения вместо тестовых.
+        # Именно так ломались 5 тестов provider_breaker: по одному
+        # зелёные, в полной суите — красные.
+        settings_mod.settings = original
