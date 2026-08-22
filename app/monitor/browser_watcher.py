@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from playwright.async_api import (
     Browser,
     BrowserContext,
     Page,
+    Playwright,
     async_playwright,
 )
 
@@ -38,7 +40,7 @@ class BrowserWatcher:
         self.screenshot_interval = screenshot_interval
         self.screenshot_on_change = screenshot_on_change
 
-        self._pw = None
+        self._pw: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._running = False
@@ -92,20 +94,14 @@ class BrowserWatcher:
         self._running = False
         if self._task is not None:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
-            except (asyncio.CancelledError, Exception):
-                pass
         if self._browser is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await self._browser.close()
-            except Exception:
-                pass
         if self._pw is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await self._pw.stop()
-            except Exception:
-                pass
         logger.info("browser_watcher: остановлен")
 
     async def _loop(self) -> None:
@@ -161,10 +157,8 @@ class BrowserWatcher:
         for i, page in enumerate(self._context.pages):
             page_id = f"tab_{i}"
             url = ""
-            try:
+            with contextlib.suppress(Exception):
                 url = page.url or ""
-            except Exception:
-                pass
             p = await self._take_screenshot(page, page_id, url, label=label)
             if p:
                 paths.append(p)

@@ -39,9 +39,7 @@ def _is_header_cell(value: str) -> bool:
         return True
     if h in ("тема", "topic", "title", "name", "видео", "note", "примечание"):
         return True
-    if any(k in h for k in ("назван",)) and len(h) <= 25:
-        return True
-    return False
+    return bool(any(k in h for k in ("назван",)) and len(h) <= 25)
 
 
 def _is_likely_header_row(row: tuple) -> bool:

@@ -90,10 +90,7 @@ def compact_world_slice(payload: dict) -> dict:
         if not isinstance(loc, dict):
             continue
         zones = loc.get("zones") or loc.get("зоны") or []
-        if isinstance(zones, list):
-            ztxt = "; ".join(str(z)[:40] for z in zones[:4])
-        else:
-            ztxt = str(zones)[:120]
+        ztxt = "; ".join(str(z)[:40] for z in zones[:4]) if isinstance(zones, list) else str(zones)[:120]
         out.append(
             {
                 "id": loc.get("id") or loc.get("id_loc"),

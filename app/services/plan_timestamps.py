@@ -631,7 +631,7 @@ async def try_timeline_from_xlsx_row15(
     clips, master = await load_assembly_timeline_from_r15(project, frame_numbers, cells, voice_full_path)
     if clips is None:
         return None, await probe_duration(voice_full_path)
-    return clips, float(master)
+    return clips, float(master or 0.0)
 
 
 def write_asr_timestamps_to_r15(

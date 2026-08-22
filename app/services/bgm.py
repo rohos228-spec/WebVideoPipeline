@@ -53,9 +53,7 @@ def _explicitly_disabled(project: Project) -> bool:
     meta = project.meta or {}
     if _meta_bool(meta, "bgm_enabled") is False:
         return True
-    if project.batch_id is not None and _meta_bool(meta, "mass_bgm_enabled") is False:
-        return True
-    return False
+    return bool(project.batch_id is not None and _meta_bool(meta, "mass_bgm_enabled") is False)
 
 
 def _first_audio_in_dir(directory: Path) -> Path | None:

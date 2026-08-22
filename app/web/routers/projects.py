@@ -76,7 +76,7 @@ def _slugify(s: str) -> str:
         "yu",
         "ya",
     ]
-    table = dict(zip(cyr, lat))
+    table = dict(zip(cyr, lat, strict=False))
     out_chars: list[str] = []
     for ch in base:
         out_chars.append(table.get(ch, ch))
@@ -151,8 +151,8 @@ async def list_projects(
             continue
         pl = placements.get(str(p.id)) or {}
         try:
-            order = int(pl.get("order"))
-        except (TypeError, ValueError):
+            order = int(pl["order"])
+        except (KeyError, TypeError, ValueError):
             order = None
         fid = pl.get("folder_id")
         out.append(
@@ -189,7 +189,7 @@ async def get_project(project_id: int, session: AsyncSession = Depends(get_sessi
 async def create_project(
     body: Annotated[CreateProjectRequest, Body()],
     session: AsyncSession = Depends(get_session),
-) -> Project:
+) -> ProjectDetail:
     if not body.title or not body.title.strip():
         raise HTTPException(status_code=400, detail="title is required")
     display_title = body.title.strip()

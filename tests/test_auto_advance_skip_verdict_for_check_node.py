@@ -6,6 +6,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.models import HITLDecision, HITLKind, HITLRequest, Project, ProjectStatus
 from app.orchestrator.auto_advance import maybe_auto_advance
 from app.orchestrator.graph.planner import WorkflowGraph
@@ -68,6 +70,7 @@ def test_graph_next_after_plan_is_check_node() -> None:
     assert g.next_running_after_ready(p, ProjectStatus.plan_ready) is ProjectStatus.enriching_1
 
 
+@pytest.mark.no_harness_gate
 def test_maybe_auto_advance_skips_builtin_verdict_for_check_node(monkeypatch) -> None:
     from app.orchestrator import auto_advance as aa
 
@@ -125,6 +128,7 @@ def test_maybe_auto_advance_skips_builtin_verdict_for_check_node(monkeypatch) ->
     verdict_mock.assert_not_awaited()
 
 
+@pytest.mark.no_harness_gate
 def test_maybe_auto_advance_keeps_verdict_when_next_is_script(monkeypatch) -> None:
     from app.orchestrator import auto_advance as aa
 

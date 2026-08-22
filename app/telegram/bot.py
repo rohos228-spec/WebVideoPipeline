@@ -574,6 +574,7 @@ async def on_menu_root(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     _clear_pending_state(cb.from_user.id)
     _set_user_screen(cb.from_user.id, "main")
     await cb.answer()
@@ -591,6 +592,7 @@ async def on_menu_new(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     await cb.answer()
     _pending_topic_input[cb.from_user.id] = True
     await cb.message.answer(
@@ -604,6 +606,7 @@ async def on_menu_list(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     _set_user_screen(cb.from_user.id, "project_list")
     # ТОЛЬКО одиночные проекты (batch_id IS NULL). Бэтч-подпроекты
     # отображаются исключительно в mass:* меню — эти два раздела
@@ -694,6 +697,7 @@ async def on_mass_new(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     _pending_mass_name[cb.from_user.id] = True
     await cb.answer()
     await cb.message.answer(
@@ -705,6 +709,7 @@ async def on_mass_new(cb: CallbackQuery) -> None:
 
 async def _create_mass_from_name(msg: Message, name: str) -> None:
     """Создаёт BatchProject + папку на диске + topics.xlsx."""
+    assert msg.from_user is not None
     async with session_scope() as s:
         try:
             batch = await batches_svc.create_batch(s, name=name)
@@ -733,6 +738,7 @@ async def on_mass_open(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -757,6 +763,7 @@ async def on_mass_topics(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -780,6 +787,7 @@ async def on_mass_add_text(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -806,6 +814,7 @@ async def on_mass_upload_xlsx_btn(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -825,6 +834,7 @@ async def on_mass_dl_xlsx(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -877,6 +887,7 @@ async def on_mass_progress(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -902,6 +913,7 @@ async def on_mass_sub_open(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         _, _, _bid, pid_s = (cb.data or "").split(":", 3)
         pid = int(pid_s)
@@ -929,6 +941,7 @@ async def on_mass_settings(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -952,6 +965,7 @@ async def on_mass_settings_toggle(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert isinstance(cb.message, Message)
     parts = (cb.data or "").split(":")
     if len(parts) < 4:
         await cb.answer("Bad callback", show_alert=True)
@@ -983,6 +997,7 @@ async def on_mass_settings_setnum(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert isinstance(cb.message, Message)
     parts = (cb.data or "").split(":")
     if len(parts) < 5:
         await cb.answer("Bad callback", show_alert=True)
@@ -1018,7 +1033,7 @@ async def on_mass_settings_setnum(cb: CallbackQuery) -> None:
 
 @dp.callback_query(F.data == "mass:noop")
 async def on_mass_noop(cb: CallbackQuery) -> None:
-    await cb.answer()
+    await cb.answer("Заглушка — функция появится в PR #2")
 
 
 @dp.callback_query(F.data.startswith("mass:delete:"))
@@ -1026,6 +1041,7 @@ async def on_mass_delete_ask(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -1080,16 +1096,12 @@ async def on_mass_delete_keep(cb: CallbackQuery) -> None:
     await _show_mass_list(cb)
 
 
-@dp.callback_query(F.data == "mass:noop")
-async def on_mass_noop(cb: CallbackQuery) -> None:
-    await cb.answer("Заглушка — функция появится в PR #2")
-
-
 # --------- управление очередью (PR #2) ---------
 
 
 async def _refresh_mass_main(cb: CallbackQuery, bid: int) -> None:
     """Перерисовать главное меню массового после изменения очереди."""
+    assert cb.message is not None
     async with session_scope() as s:
         batch = await batches_svc.get_batch(s, bid)
         if batch is None:
@@ -1185,6 +1197,7 @@ async def on_mass_prod(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -1208,6 +1221,7 @@ async def on_mass_prod_name(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -1227,6 +1241,7 @@ async def on_mass_prod_desc(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -1247,6 +1262,7 @@ async def on_mass_prod_photo(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -1265,6 +1281,7 @@ async def on_mass_prod_clear(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     try:
         bid = int((cb.data or "").split(":")[2])
     except Exception:
@@ -1365,6 +1382,7 @@ async def _handle_mass_topics_text(msg: Message, batch_id: int) -> None:
 
 async def _handle_mass_xlsx_upload(msg: Message, batch_id: int, doc) -> None:
     """Принимает загруженный topics.xlsx и создаёт новые подпроекты."""
+    assert msg.bot is not None
     import tempfile
     from pathlib import Path as _Path
 
@@ -1475,6 +1493,7 @@ async def on_hero_count_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     parts = (cb.data or "").split(":")
     pid = int(parts[1])
     n = int(parts[2])
@@ -1528,6 +1547,7 @@ async def on_hero_variation_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert isinstance(cb.message, Message)
     parts = (cb.data or "").split(":")
     pid = int(parts[1])
     hero_idx = int(parts[2])
@@ -1664,6 +1684,7 @@ async def on_project_menu(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
         project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
@@ -1697,6 +1718,7 @@ async def on_hero_menu_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     parts = (cb.data or "").split(":")
     pid = int(parts[1])
     action = parts[2]
@@ -1877,6 +1899,7 @@ async def on_hero_run_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
         project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
@@ -1941,6 +1964,7 @@ async def on_step_run_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     parts = (cb.data or "").split(":")
     pid = int(parts[1])
     step_code = parts[2]
@@ -2019,6 +2043,7 @@ async def on_step_reset_ask(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     parts = (cb.data or "").split(":")
     pid = int(parts[1])
     step_code = parts[2]
@@ -2055,6 +2080,7 @@ async def on_step_reset_do(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     parts = (cb.data or "").split(":")
     pid = int(parts[1])
     step_code = parts[2]
@@ -2126,6 +2152,7 @@ async def on_project_step(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     parts = (cb.data or "").split(":")
     pid = int(parts[1])
     step_code = parts[3]
@@ -2199,7 +2226,7 @@ async def on_project_step(cb: CallbackQuery) -> None:
                     return
                 overrides = dict(project.prompt_overrides or {})
                 has_msg_override = gtb.has_override(project, "plan")
-                chosen = overrides.get("plan")
+                chosen = overrides.get("plan") or ""
                 show_run = bool(
                     chosen and plib.is_valid_prompt_name(chosen) and plib.prompt_path("plan", chosen).exists()
                 )
@@ -2538,6 +2565,7 @@ async def on_script_view(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
         project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
@@ -2569,6 +2597,7 @@ async def on_script_regen(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
         project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
@@ -2596,6 +2625,7 @@ async def on_script_replace(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
         project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
@@ -2642,6 +2672,7 @@ async def on_prompt_overview(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
         project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
@@ -2658,6 +2689,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert isinstance(cb.message, Message)
     try:
         pid, step_code, action, name = _parse_prm(cb.data or "")
     except Exception:
@@ -2679,7 +2711,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
             overrides = dict(project.prompt_overrides or {}) if project else {}
             has_msg_override = gtb.has_override(project, step_code) if project else False
             if step_code in ("plan", "script", "split", "img_pr", "anim_pr", "items") and project is not None:
-                chosen = overrides.get(step_code)
+                chosen = overrides.get(step_code) or ""
                 show_run = bool(
                     chosen
                     and plib.is_valid_prompt_name(chosen)
@@ -2735,7 +2767,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
                     await cb.answer("Проект не найден", show_alert=True)
                     return
                 overrides = dict(project.prompt_overrides or {})
-                chosen = overrides.get("plan")
+                chosen = overrides.get("plan") or ""
                 chosen_ok = (
                     chosen and plib.is_valid_prompt_name(chosen) and plib.prompt_path("plan", chosen).exists()
                 )
@@ -2776,7 +2808,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
                     await cb.answer("Проект не найден", show_alert=True)
                     return
                 overrides = dict(project.prompt_overrides or {})
-                chosen = overrides.get("script")
+                chosen = overrides.get("script") or ""
                 chosen_ok = (
                     chosen
                     and plib.is_valid_prompt_name(chosen)
@@ -2812,7 +2844,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
                     await cb.answer("Проект не найден", show_alert=True)
                     return
                 overrides = dict(project.prompt_overrides or {})
-                chosen = overrides.get("split")
+                chosen = overrides.get("split") or ""
                 chosen_ok = (
                     chosen
                     and plib.is_valid_prompt_name(chosen)
@@ -2848,7 +2880,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
                     await cb.answer("Проект не найден", show_alert=True)
                     return
                 overrides = dict(project.prompt_overrides or {})
-                chosen = overrides.get("img_pr")
+                chosen = overrides.get("img_pr") or ""
                 chosen_ok = (
                     chosen
                     and plib.is_valid_prompt_name(chosen)
@@ -2895,7 +2927,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
                     await cb.answer("Проект не найден", show_alert=True)
                     return
                 overrides = dict(project.prompt_overrides or {})
-                chosen = overrides.get(step_code)
+                chosen = overrides.get(step_code) or ""
                 chosen_ok = (
                     chosen
                     and plib.is_valid_prompt_name(chosen)
@@ -2953,7 +2985,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
                 await cb.answer("Проект не найден", show_alert=True)
                 return
             overrides = dict(project.prompt_overrides or {})
-            chosen = overrides.get(step_code)
+            chosen = overrides.get(step_code) or ""
             chosen_ok = (
                 chosen and plib.is_valid_prompt_name(chosen) and plib.prompt_path(step_code, chosen).exists()
             )
@@ -3320,6 +3352,7 @@ async def on_prompt_picker_cb(cb: CallbackQuery) -> None:
 async def _send_prompt_for_edit(cb: CallbackQuery, pid: int, step_code: str, name: str) -> None:
     """Отправляет файл `<step>/<name>.md` юзеру и переводит его в режим
     ожидания возврата отредактированного файла."""
+    assert cb.message is not None
     path = plib.prompt_path(step_code, name)
     if not path.exists():
         await cb.answer("Файл не найден", show_alert=True)
@@ -3382,6 +3415,7 @@ async def _handle_prompt_name_input(msg: Message, pid: int, step_code: str) -> N
 
 async def _handle_prompt_upload(msg: Message) -> None:
     """Юзер прислал .md-файл — сохраняем по адресу из _pending_prompt_upload."""
+    assert msg.bot is not None
     user_id = msg.from_user.id if msg.from_user else 0
     pending = _pending_prompt_upload.get(user_id)
     if pending is None:
@@ -3394,7 +3428,9 @@ async def _handle_prompt_upload(msg: Message) -> None:
     # Читаем содержимое файла через aiogram bot.download.
     try:
         buf = await msg.bot.download(doc)
-        raw = buf.read() if hasattr(buf, "read") else bytes(buf)
+        if buf is None:
+            return
+        raw = buf.read()
         content = raw.decode("utf-8")
     except Exception as e:  # noqa: BLE001
         await msg.answer(f"Не смог прочитать файл: {e}")
@@ -3461,6 +3497,7 @@ async def _replace_voiceover(pid: int, new_text: str, msg: Message) -> None:
 @dp.message(F.photo)
 async def on_photo_message(msg: Message) -> None:
     """Принимаем фото — пока только как референс постоянного продукта (PR #3)."""
+    assert msg.bot is not None
     if not is_owner(msg):
         return
     user_id = msg.from_user.id if msg.from_user else 0
@@ -3498,6 +3535,7 @@ async def on_photo_message(msg: Message) -> None:
 @dp.message(F.document)
 async def on_document_message(msg: Message) -> None:
     """Принимаем `.md`-файл (промт) или .txt (замена voiceover)."""
+    assert msg.bot is not None
     if not is_owner(msg):
         return
     user_id = msg.from_user.id if msg.from_user else 0
@@ -3604,6 +3642,7 @@ async def _handle_xlsx_replace(msg: Message, project_id: int, doc) -> None:
     4) Подменяем.
     5) Reload xlsx → БД.
     """
+    assert msg.bot is not None
     import tempfile
     from pathlib import Path as _Path
 
@@ -3687,6 +3726,7 @@ async def on_project_download_xlsx(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
         project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
@@ -3721,6 +3761,7 @@ async def on_project_stop_running(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     from app.services.project_control import stop_project_running
 
@@ -3751,7 +3792,8 @@ async def on_project_stop_running(cb: CallbackQuery) -> None:
                 f"{auto_note}"
             )
         else:
-            xlsx_stopped = info["xlsx_stopped"]
+            xlsx_stopped = info["xlsx_stopped"] or []
+            assert isinstance(xlsx_stopped, list)
             status_msg = (
                 f"⏹ <b>Остановлено</b>: xlsx-flow ({', '.join(xlsx_stopped)})\n"
                 f"Проект #{pid} «{_project_display_topic(project)}» "
@@ -3795,7 +3837,7 @@ async def on_project_pause(cb: CallbackQuery) -> None:
     logger.info("[#{}] PROJECT PAUSE: {} -> paused", pid, prev_value)
     await cb.answer(f"🛑 Проект #{pid} на паузе")
     try:
-        if cb.message:
+        if isinstance(cb.message, Message):
             await cb.message.edit_reply_markup(reply_markup=project_menu_kb(refreshed))
     except Exception:  # noqa: BLE001
         pass
@@ -3833,7 +3875,7 @@ async def on_project_resume(cb: CallbackQuery) -> None:
     logger.info("[#{}] PROJECT RESUME: paused -> {}", pid, target_value)
     await cb.answer(f"▶ Проект #{pid}: {target_value}")
     try:
-        if cb.message:
+        if isinstance(cb.message, Message):
             await cb.message.edit_reply_markup(reply_markup=project_menu_kb(refreshed))
     except Exception:  # noqa: BLE001
         pass
@@ -3879,7 +3921,7 @@ async def on_mass_global_pause(cb: CallbackQuery) -> None:
         show_alert=True,
     )
     try:
-        if cb.message:
+        if isinstance(cb.message, Message):
             await cb.message.edit_reply_markup(reply_markup=main_menu_kb())
     except Exception:  # noqa: BLE001
         pass
@@ -3912,7 +3954,7 @@ async def on_mass_global_resume(cb: CallbackQuery) -> None:
         f"auto_mode включён на {stats['auto_mode_on']} подпроекте(ах)."
     )
     try:
-        if cb.message:
+        if isinstance(cb.message, Message):
             await cb.message.edit_reply_markup(reply_markup=main_menu_kb())
     except Exception:  # noqa: BLE001
         pass
@@ -3940,7 +3982,7 @@ async def _render_test_root(message: Message | CallbackQuery) -> None:
     from app.telegram.test_prompt_menu import test_root_kb
 
     async with session_scope() as s:
-        rows = (
+        rows = list(
             (await s.execute(select(TestPromptProject).order_by(TestPromptProject.id.desc()))).scalars().all()
         )
     kb = test_root_kb(rows)
@@ -3951,6 +3993,7 @@ async def _render_test_root(message: Message | CallbackQuery) -> None:
         "прислать критику — следующая итерация учтёт её."
     )
     if isinstance(message, CallbackQuery):
+        assert message.message is not None
         await message.message.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
         await message.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -3966,6 +4009,7 @@ async def _render_test_project(target: Message | CallbackQuery, project_id: int)
     if p is None:
         msg = "Тестовый проект не найден."
         if isinstance(target, CallbackQuery):
+            assert target.message is not None
             await target.message.answer(msg)
         else:
             await target.answer(msg)
@@ -3981,6 +4025,7 @@ async def _render_test_project(target: Message | CallbackQuery, project_id: int)
     )
     kb = test_project_kb(p)
     if isinstance(target, CallbackQuery):
+        assert target.message is not None
         await target.message.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
         await target.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -4001,6 +4046,7 @@ async def on_test_new(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     await cb.answer()
     _pending_test_name[cb.from_user.id] = True
     await cb.message.answer("Напиши название тестового проекта одним сообщением.")
@@ -4026,6 +4072,7 @@ async def on_test_set_visual(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     tid = int((cb.data or "").split(":")[1])
     _pending_test_visual[cb.from_user.id] = tid
     await cb.answer()
@@ -4040,6 +4087,7 @@ async def on_test_set_system(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     tid = int((cb.data or "").split(":")[1])
     _pending_test_system[cb.from_user.id] = tid
     await cb.answer()
@@ -4059,6 +4107,7 @@ async def on_test_critique(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     tid = int((cb.data or "").split(":")[1])
     _pending_test_critique[cb.from_user.id] = tid
     await cb.answer()
@@ -4074,6 +4123,7 @@ async def on_test_start(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.bot is not None
     tid = int((cb.data or "").split(":")[1])
     await cb.answer("Стартую цикл…")
     await _kick_test_iteration(cb.bot, cb.from_user.id, tid, critique=None)
@@ -4252,6 +4302,7 @@ async def on_project_reload_xlsx(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     from app.services.xlsx_sync import reload_from_xlsx
     from app.services.xlsx_v8_import import import_v8_xlsx
@@ -4343,6 +4394,7 @@ async def on_objects_persons_xlsx(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert isinstance(cb.message, Message)
     pid = int((cb.data or "").split(":")[1])
     from app.services.excel_characters import parse_persons_sheet
 
@@ -4497,6 +4549,7 @@ async def on_excel_hero_prompt_pick(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert isinstance(cb.message, Message)
     try:
         parts = (cb.data or "").split(":", 3)
         if len(parts) != 4:
@@ -4583,6 +4636,7 @@ async def on_img_gen_all(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
         project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
@@ -4618,6 +4672,7 @@ async def on_img_fill_missing(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     from app.services.finish_missing import trigger_finish_missing_images
 
@@ -4681,6 +4736,7 @@ async def on_enrich_add_slot(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert isinstance(cb.message, Message)
     pid = int((cb.data or "").split(":")[1])
     from app.telegram.menu import MAX_ENRICH_SLOTS, enrich_submenu_kb
 
@@ -4729,12 +4785,13 @@ async def on_enrich_run_all(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
+    from app.services.project_state import is_running_status
     from app.telegram.menu import (
         ENRICH_RUNNING,
         _objects_requires_for_step5,
         enabled_enrich_slots,
-        is_running_status,
         status_order,
     )
 
@@ -4792,6 +4849,7 @@ async def on_project_delete(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -4816,6 +4874,7 @@ async def on_project_delete_yes(cb: CallbackQuery) -> None:
     if cb.from_user.id != settings.telegram_owner_chat_id:
         await cb.answer("Нет доступа", show_alert=True)
         return
+    assert cb.message is not None
     pid = int((cb.data or "").split(":")[1])
     async with session_scope() as s:
         project = (await s.execute(select(Project).where(Project.id == pid))).scalar_one_or_none()
@@ -4841,6 +4900,7 @@ async def on_text_message(msg: Message) -> None:
     1) ввод темы нового проекта (после клика на «📁 Новый проект»)
     2) ответ на сообщение-запрос нового промта (HITL edit)
     """
+    assert msg.bot is not None
     if not is_owner(msg):
         return
 
@@ -5147,7 +5207,7 @@ async def on_text_message(msg: Message) -> None:
             await msg.answer("Пустая критика — пришли ещё раз.")
             return
         await msg.answer(f"✏ Критика принята, запускаю следующую итерацию #{test_critique_tid}…")
-        await _kick_test_iteration(user_id, test_critique_tid, critique=critique)
+        await _kick_test_iteration(msg.bot, user_id, test_critique_tid, critique=critique)
         return
 
     # 2) Если ждём описание героя N для конкретного проекта
@@ -5193,7 +5253,7 @@ async def on_text_message(msg: Message) -> None:
                 sheet.write_general(topic=topic)
         except Exception as e:  # noqa: BLE001
             logger.warning("write_general(topic) failed: {}", e)
-        chosen = overrides.get("plan")
+        chosen = overrides.get("plan") or ""
         show_run = bool(
             chosen and plib.is_valid_prompt_name(chosen) and plib.prompt_path("plan", chosen).exists()
         )
@@ -5594,7 +5654,6 @@ async def _run_plan_xlsx(msg: Message, project_id: int, prompt_name: str, topic:
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     out_dir = proj_xlsx.parent / "tmp_gpt"
     out_dir.mkdir(parents=True, exist_ok=True)
-    downloaded = out_dir / f"plan_{ts}.xlsx"
 
     # Мастер-промт + тема → .md файл
     prompt_file = out_dir / f"prompt_plan_{ts}.md"
@@ -5720,7 +5779,6 @@ async def _run_script_xlsx(msg: Message, project_id: int, prompt_name: str) -> N
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     out_dir = proj_xlsx.parent / "tmp_gpt"
     out_dir.mkdir(parents=True, exist_ok=True)
-    downloaded = out_dir / f"voiceover_{ts}.txt"
 
     # Промт идёт отдельным .txt-файлом — так просил юзер. В самом
     # сообщении в чат остаётся короткая инструкция без дублирования данных.
@@ -5731,7 +5789,6 @@ async def _run_script_xlsx(msg: Message, project_id: int, prompt_name: str) -> N
     )
 
     # Сопр. сообщение — берём override юзера, либо собираем дефолт.
-    chat_msg = gtb.get_effective_text(project, "script", prompt_file_name=prompt_file.name)
     text_was_overridden = gtb.has_override(project, "script")
 
     override_note = "\n<i>✏️ Сопр. сообщение: отредактировано пользователем</i>" if text_was_overridden else ""
@@ -5848,7 +5905,6 @@ async def _run_split_xlsx(msg: Message, project_id: int, prompt_name: str) -> No
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     out_dir = proj_xlsx.parent / "tmp_gpt"
     out_dir.mkdir(parents=True, exist_ok=True)
-    downloaded = out_dir / f"split_{ts}.xlsx"
 
     # Промт идёт отдельным .txt-файлом, плюс project.xlsx и voiceover.txt —
     # так просил юзер. xlsx нужен, чтобы GPT видел исходную структуру
@@ -5859,7 +5915,6 @@ async def _run_split_xlsx(msg: Message, project_id: int, prompt_name: str) -> No
         encoding="utf-8",
     )
 
-    chat_msg = gtb.get_effective_text(project, "split", prompt_file_name=prompt_file.name)
     text_was_overridden = gtb.has_override(project, "split")
 
     override_note = "\n<i>✏️ Сопр. сообщение: отредактировано пользователем</i>" if text_was_overridden else ""
@@ -5967,7 +6022,6 @@ async def _run_img_pr_xlsx(msg: Message, project_id: int, prompt_name: str) -> N
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     out_dir = proj_xlsx.parent / "tmp_gpt"
     out_dir.mkdir(parents=True, exist_ok=True)
-    downloaded = out_dir / f"img_pr_{ts}.xlsx"
 
     prompt_file = out_dir / f"prompt_img_pr_{ts}.md"
     prompt_file.write_text(master.strip(), encoding="utf-8")
@@ -6041,6 +6095,7 @@ async def _create_new_project(msg: Message) -> None:
     """Создаёт новый проект. Вход — только название проекта (короткое),
     тема ролика спрашивается отдельно при запуске шага 1 «План».
     v8-шаблон копируется в data/videos/<slug>/project.xlsx."""
+    assert msg.bot is not None
     name = (msg.text or "").strip()
     if not name:
         await msg.answer("Пустое название. Нажми «📁 Новый проект» ещё раз.")
@@ -6109,6 +6164,7 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
     except Exception:
         await cb.answer("Плохой callback", show_alert=True)
         return
+    assert cb.bot is not None
 
     if action == "original":
         # Шлём оригинал (send_document, без TG-сжатия). Файл лежит в
@@ -6170,7 +6226,7 @@ async def on_hitl_callback(cb: CallbackQuery) -> None:
             }
             try:
                 orig = cb.message
-                if orig is not None:
+                if isinstance(orig, Message):
                     if orig.photo or orig.video:
                         new_caption = ((orig.caption or "") + "\n\n✏️ Жду новый промт…").strip()
                         await orig.edit_caption(caption=new_caption[:1024], reply_markup=None)
@@ -6417,6 +6473,7 @@ async def _on_gpt_text_edit_reply(msg: Message, pid: int, step_code: str, *, fro
 async def _on_edit_reply(msg: Message) -> None:
     """Если пользователь ответил на наше edit-запрос-сообщение — записываем
     новый текст в frame.image_prompt, ставим decision=edit_prompt."""
+    assert msg.bot is not None
     reply_to_id = msg.reply_to_message.message_id if msg.reply_to_message else None
     if reply_to_id is None:
         return
@@ -6613,7 +6670,7 @@ async def build_bot() -> tuple[Bot, Dispatcher]:
         logger.info("telegram: using proxy {}", _mask_proxy_url(proxy_url))
         if proxy_url.startswith(("socks4://", "socks5://", "socks5h://")):
             try:
-                from aiohttp_socks import ProxyConnector  # type: ignore[import-not-found]
+                from aiohttp_socks import ProxyConnector
             except ImportError as e:
                 raise RuntimeError("Для SOCKS-прокси поставь aiohttp-socks: pip install aiohttp-socks") from e
             import aiohttp
@@ -6624,7 +6681,7 @@ async def build_bot() -> tuple[Bot, Dispatcher]:
                     super().__init__()
                     self._proxy_url_socks = proxy
 
-                async def create_session(self) -> aiohttp.ClientSession:  # type: ignore[override]
+                async def create_session(self) -> aiohttp.ClientSession:
                     if self._session is None or self._session.closed:
                         connector = ProxyConnector.from_url(self._proxy_url_socks)
                         self._session = aiohttp.ClientSession(connector=connector)

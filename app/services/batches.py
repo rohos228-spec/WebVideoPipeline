@@ -743,9 +743,8 @@ async def set_mass_setting(
         if lo is not None and hi is not None:
             iv = max(lo, min(hi, iv))
         current[field] = iv
-    elif isinstance(default, list):
-        if isinstance(value, list):
-            current[field] = [x for x in value if isinstance(x, str) and x in _KNOWN_AUTO_REVIEW_KINDS]
+    elif isinstance(default, list) and isinstance(value, list):
+        current[field] = [x for x in value if isinstance(x, str) and x in _KNOWN_AUTO_REVIEW_KINDS]
     snap = dict(batch.settings_snapshot or {})
     snap["mass_settings"] = current
     batch.settings_snapshot = snap
@@ -993,10 +992,9 @@ async def pause_all_running_batches(
             out["rolled_back"] += 1
         # 2) Снимаем auto_mode у всех new и *_ready (после rollback это
         #    и есть бывшие running-подпроекты тоже).
-        if p.status is ProjectStatus.new or p.status.value.endswith("_ready"):
-            if p.auto_mode:
-                p.auto_mode = False
-                out["auto_mode_off"] += 1
+        if (p.status is ProjectStatus.new or p.status.value.endswith("_ready")) and p.auto_mode:
+            p.auto_mode = False
+            out["auto_mode_off"] += 1
 
     await session.flush()
     logger.info(

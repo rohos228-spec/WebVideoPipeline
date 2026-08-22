@@ -63,7 +63,8 @@ SCENE_AGENT_ASSEMBLER = "assemble"
 
 def sd_agent_marker(node: dict[str, Any]) -> str | None:
     """Имя scene-агента с ноды или None для обычной «Работы с GPT»."""
-    data = node.get("data") if isinstance(node.get("data"), dict) else {}
+    data_raw = node.get("data")
+    data: dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}
     raw = data.get(SCENE_AGENT_DATA_KEY) or data.get("agent")  # agent — legacy
     v = str(raw or "").strip()
     return v or None
@@ -117,7 +118,8 @@ def legacy_enrich_slot_from_type(node_type: str) -> int | None:
 
 
 def slot_index_from_node(node: dict[str, Any]) -> int:
-    data = node.get("data") if isinstance(node.get("data"), dict) else {}
+    data_raw = node.get("data")
+    data: dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}
     if sd_agent_marker(node):
         # scene-агенты не занимают enrich-слоты (шаги scene_d/scene_asm).
         return 0

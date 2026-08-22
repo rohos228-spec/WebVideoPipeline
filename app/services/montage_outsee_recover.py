@@ -282,7 +282,7 @@ async def recover_montage_images_from_outsee(
                 )
 
             board = montage_meta(project)
-            for key, hit in chosen.items():
+            for _key, hit in chosen.items():
                 path = await _download_hit(
                     page,
                     project,

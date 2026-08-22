@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import threading
@@ -195,10 +196,8 @@ def get_cached_plan_excel_cells(
         stem_prefix = disk.name.rsplit("_", 1)[0]  # montage_plan_excel_<hash>
         for old in disk.parent.glob(f"{stem_prefix}_*.json"):
             if old != disk:
-                try:
+                with contextlib.suppress(OSError):
                     old.unlink()
-                except OSError:
-                    pass
     except Exception as e:  # noqa: BLE001
         logger.debug("montage_board_cache: plan disk save {}: {}", disk, e)
     return data

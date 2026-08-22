@@ -314,7 +314,7 @@ def assign_frames_to_camera_beats(
         off = offsets.get(fr.uuid) if fr.uuid else None
         target = 0
         if off is not None:
-            for i, (lo, hi) in enumerate(spans):
+            for i, (lo, _hi) in enumerate(spans):
                 if lo >= 0 and lo <= off:
                     target = i
         buckets[target].append(fr)
@@ -340,7 +340,7 @@ def camera_beat_for_frame(
         if lo <= off < hi:
             return shots[i]
     best_i = 0
-    for i, (lo, hi) in enumerate(spans):
+    for i, (lo, _hi) in enumerate(spans):
         if lo >= 0 and lo <= off:
             best_i = i
     return shots[best_i]

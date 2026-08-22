@@ -402,9 +402,7 @@ def _is_compound_action(action: str) -> bool:
     if t.count(" и ") >= 2:
         return True
     # «встречаются у лифта, забирают письма и проходят»
-    if "," in t and " и " in t:
-        return True
-    return False
+    return bool("," in t and " и " in t)
 
 
 # «Стоит у двери» / «замирает» / «дышит» — дыра в blocking (V7/V9).
@@ -543,7 +541,7 @@ def repair_chrono_dyn_year_jumps(scenes: list[Any]) -> list[Any]:
         groups: list[list[dict[str, Any]]] = []
         buf: list[dict[str, Any]] = []
         buf_year: str | None = years_seq[0]
-        for ph, y in zip(chain, years_seq):
+        for ph, y in zip(chain, years_seq, strict=False):
             if buf and y != buf_year and y is not None and buf_year is not None:
                 groups.append(buf)
                 buf = [ph]
@@ -942,10 +940,10 @@ def parse_agent_slice(
     # world: пустой locations OK (нет повторяемых мест / пустой seed).
     if agent == "world":
         if not isinstance(items, list):
-            keys = sorted(str(k) for k in data.keys())
+            keys = sorted(str(k) for k in data)
             raise SceneDesignAgentError(f"scene_design/{agent}: нет списка «{list_key}» (keys={keys})")
     elif not isinstance(items, list) or not items:
-        keys = sorted(str(k) for k in data.keys())
+        keys = sorted(str(k) for k in data)
         raise SceneDesignAgentError(
             f"scene_design/{agent}: пустой «{list_key}» — срез не принят (keys={keys})"
         )

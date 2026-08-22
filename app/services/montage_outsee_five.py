@@ -476,9 +476,7 @@ def _is_junk_download_url(url: str | None) -> bool:
         return False
     if "outsee.io/videoexamples" in low or "freepreset" in low:
         return True
-    if low.endswith(".webp") and "generated/" not in low:
-        return True
-    return False
+    return bool(low.endswith(".webp") and "generated/" not in low)
 
 
 def _is_real_generated_url(url: str | None) -> bool:
@@ -680,7 +678,7 @@ async def download_d0_hit_src_direct(
     """D0: если hit.img_src уже full generated PNG — качаем без кликов."""
     from app.bots.outsee import _download_via_context
 
-    url = hit.img_src
+    url: str = hit.img_src or ""
     if not _is_real_generated_url(url):
         # После клика lightbox часто показывает full PNG — снимем его.
         await _click_thumb(page, hit.img_src, project_id=project_id)

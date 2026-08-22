@@ -584,10 +584,7 @@ def project_menu_kb(project: Project) -> InlineKeyboardMarkup:
             if audio is not None:
                 a_icon = step_icon(audio, project.status)
                 a_running = project.status is ProjectStatus.generating_audio
-                if a_running:
-                    a_label = f"{a_icon} Озвучка · идёт… (тык — управление)"
-                else:
-                    a_label = f"{a_icon} Озвучка"
+                a_label = f"{a_icon} Озвучка · идёт… (тык — управление)" if a_running else f"{a_icon} Озвучка"
                 rows.append(
                     [
                         InlineKeyboardButton(
@@ -860,10 +857,7 @@ def enrich_submenu_kb(project: Project) -> InlineKeyboardMarkup:
     for i in range(1, n_slots + 1):
         running = ENRICH_RUNNING[i - 1]
         ready = ENRICH_READY[i - 1]
-        if i == 1:
-            prereq = _objects_requires_for_step5()
-        else:
-            prereq = ENRICH_READY[i - 2]
+        prereq = _objects_requires_for_step5() if i == 1 else ENRICH_READY[i - 2]
 
         is_running = project.status is running
         is_done = status_order(project.status) >= status_order(ready)

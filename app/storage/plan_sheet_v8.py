@@ -62,10 +62,7 @@ def _cell_timecode_text(ws, row: int, col: int) -> str:
         minutes = int(sec // 60)
         return f"{minutes}:{sec - minutes * 60:05.2f}"
     if isinstance(v, (int, float)):
-        if 0 < float(v) < 1:
-            sec = float(v) * 86400.0
-        else:
-            sec = float(v)
+        sec = float(v) * 86400.0 if 0 < float(v) < 1 else float(v)
         minutes = int(sec // 60)
         return f"{minutes}:{sec - minutes * 60:05.2f}"
     return _normalize_timestamp_label(str(v))

@@ -163,10 +163,10 @@ async def _outsee_generate(
             relax=True,
             prompt_id_prefix=prompt_id_prefix,
         )
-    if not result.success or not out_image.exists():
+    if not out_image.exists():
         raise RuntimeError(
             f"Outsee не вернул картинку для test_prompt: "
-            f"success={result.success}, path_exists={out_image.exists()}"
+            f"path_exists={out_image.exists()}, raw_url={result.raw_url}"
         )
     return out_image
 

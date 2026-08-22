@@ -87,9 +87,7 @@ def looks_like_xlsx_tsv_writeback(text: str) -> bool:
         return True
     if headers and ("@row=" in raw.lower() or "\t" in raw):
         return True
-    if raw.lower().count("@row=") >= 2:
-        return True
-    return False
+    return raw.lower().count("@row=") >= 2
 
 
 def extract_voiceover_block(text: str) -> str | None:

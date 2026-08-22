@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import time
@@ -461,7 +462,9 @@ def xlsx_to_text(
                 continue
             all_rows.append((excel_row, cells))
 
-        def _append_line(excel_row: int, cells: list[str]) -> bool:
+        # B023: emitted_rows/used/sheet_lines/row_cap пересоздаются на КАЖДОЙ итерации ws;
+        # функция вызывается только в этой же итерации — capture безопасен.
+        def _append_line(excel_row: int, cells: list[str]) -> bool:  # noqa: B023
             """Return False if budget exhausted (caller marks truncated)."""
             nonlocal sheet_used, rows_written, sheet_truncated
             if excel_row in emitted_rows:
@@ -485,9 +488,8 @@ def xlsx_to_text(
         if pin_plan:
             by_num = {r: c for r, c in all_rows}
             for pr in _XLSX_PINNED_PLAN_ROWS:
-                if pr in by_num:
-                    if not _append_line(pr, by_num[pr]):
-                        break
+                if pr in by_num and not _append_line(pr, by_num[pr]):
+                    break
 
         # 2) Remaining nonempty rows
         if not sheet_truncated:
@@ -3159,9 +3161,7 @@ def needs_extension_fix(path: Path, sniffed: str | None) -> bool:
     cur = path.suffix.lower()
     if cur in _WEAK_SUFFIXES:
         return True
-    if sniffed in _IMAGE_SUFFIXES and cur not in _IMAGE_SUFFIXES:
-        return True
-    return False
+    return bool(sniffed in _IMAGE_SUFFIXES and cur not in _IMAGE_SUFFIXES)
 
 
 def suggested_name_and_mime(path: Path) -> tuple[str, str]:
@@ -3339,10 +3339,7 @@ def extract_image_urls_from_html(html: bytes | str, base_url: str) -> list[str]:
     """Достать реальные URL картинок из HTML (og:image, twitter:image, img/srcset)."""
     from urllib.parse import urljoin
 
-    if isinstance(html, bytes):
-        text = html.decode("utf-8", errors="replace")
-    else:
-        text = html
+    text = html.decode("utf-8", errors="replace") if isinstance(html, bytes) else html
     found: list[str] = []
     patterns = (
         r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
@@ -3465,10 +3462,8 @@ async def materialize_reply_assets(
                 except OSError:
                     html_bytes = b""
                 img_urls = extract_image_urls_from_html(html_bytes, url)
-                try:
+                with contextlib.suppress(OSError):
                     got.unlink(missing_ok=True)
-                except OSError:
-                    pass
                 pulled = False
                 for j, iurl in enumerate(img_urls[:4]):
                     idest = out_dir / f"{prefix}_url_{i}_img_{j}.download"
@@ -3481,10 +3476,8 @@ async def materialize_reply_assets(
                         igot = ensure_correct_extension(igot)
                         if igot.suffix.lower() in {".html", ".htm", ".txt", ".dat"}:
                             # не картинка — выкинуть
-                            try:
+                            with contextlib.suppress(OSError):
                                 igot.unlink(missing_ok=True)
-                            except OSError:
-                                pass
                             continue
                         if (
                             igot.suffix.lower() in _IMAGE_SUFFIXES
@@ -3499,10 +3492,8 @@ async def materialize_reply_assets(
                             )
                             break
                         # не image — тоже не оставляем мусор
-                        try:
+                        with contextlib.suppress(OSError):
                             igot.unlink(missing_ok=True)
-                        except OSError:
-                            pass
                     except Exception as e:  # noqa: BLE001
                         logger.warning(
                             "materialize: img from html fail {}: {}",
@@ -3518,10 +3509,8 @@ async def materialize_reply_assets(
 
             # не тащим html/пустые заглушки в Результаты
             if got.suffix.lower() in {".html", ".htm"}:
-                try:
+                with contextlib.suppress(OSError):
                     got.unlink(missing_ok=True)
-                except OSError:
-                    pass
                 continue
             saved.append(got)
         except Exception as e:  # noqa: BLE001
@@ -3609,10 +3598,7 @@ async def fetch_web_images(
     query_variants: list[str] | None = None,
 ) -> list[Path]:
     """Поиск + скачивание картинок по запросу пользователя."""
-    if query_variants:
-        joined = "||".join(query_variants)
-    else:
-        joined = query
+    joined = "||".join(query_variants) if query_variants else query
     urls = await search_web_image_urls(joined, limit=limit)
     if not urls:
         return []
@@ -3628,16 +3614,12 @@ async def fetch_web_images(
             got = await download_content(url, dest, timeout=timeout)
             got = ensure_correct_extension(got)
             if got.suffix.lower() in {".html", ".htm", ".bin", ".download"}:
-                try:
+                with contextlib.suppress(OSError):
                     got.unlink(missing_ok=True)
-                except OSError:
-                    pass
                 continue
             if got.stat().st_size < 64:
-                try:
+                with contextlib.suppress(OSError):
                     got.unlink(missing_ok=True)
-                except OSError:
-                    pass
                 continue
             saved.append(got)
             if len(saved) >= limit:

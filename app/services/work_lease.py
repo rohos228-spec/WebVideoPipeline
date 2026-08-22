@@ -89,7 +89,9 @@ async def _ensure_table() -> None:
     from app.db import engine
 
     async with engine.begin() as conn:
-        await conn.run_sync(lambda c: WorkLease.__table__.create(c, checkfirst=True))
+        await conn.run_sync(
+            lambda c: WorkLease.__table__.create(c, checkfirst=True)  # type: ignore[attr-defined]
+        )
 
 
 async def _execute_with_retry(stmt, params=None) -> int:
@@ -100,7 +102,7 @@ async def _execute_with_retry(stmt, params=None) -> int:
         try:
             async with session_scope() as session:
                 res = await session.execute(stmt, params or {})
-                return int(res.rowcount or 0)
+                return int(res.rowcount or 0)  # type: ignore[attr-defined]
         except Exception as e:  # noqa: BLE001
             msg = str(e).lower()
             if "no such table" in msg and not table_ensured:

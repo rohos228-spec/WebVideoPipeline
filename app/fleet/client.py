@@ -67,14 +67,16 @@ async def agent_post(
 ) -> dict[str, Any]:
     url = base_url.rstrip("/") + path
     timeout = aiohttp.ClientTimeout(total=timeout_sec)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, headers=_headers(token), json=json_body or {}) as resp:
-            text = await resp.text()
-            if resp.status >= 400:
-                raise FleetAgentError(resp.status, text)
-            if not text.strip():
-                return {}
-            return await resp.json()
+    async with (
+        aiohttp.ClientSession(timeout=timeout) as session,
+        session.post(url, headers=_headers(token), json=json_body or {}) as resp,
+    ):
+        text = await resp.text()
+        if resp.status >= 400:
+            raise FleetAgentError(resp.status, text)
+        if not text.strip():
+            return {}
+        return await resp.json()
 
 
 async def agent_delete(
@@ -87,14 +89,16 @@ async def agent_delete(
 ) -> dict[str, Any]:
     url = base_url.rstrip("/") + path
     timeout = aiohttp.ClientTimeout(total=timeout_sec)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.delete(url, headers=_headers(token), params=params) as resp:
-            text = await resp.text()
-            if resp.status >= 400:
-                raise FleetAgentError(resp.status, text)
-            if not text.strip():
-                return {}
-            return await resp.json()
+    async with (
+        aiohttp.ClientSession(timeout=timeout) as session,
+        session.delete(url, headers=_headers(token), params=params) as resp,
+    ):
+        text = await resp.text()
+        if resp.status >= 400:
+            raise FleetAgentError(resp.status, text)
+        if not text.strip():
+            return {}
+        return await resp.json()
 
 
 async def agent_upload_file(

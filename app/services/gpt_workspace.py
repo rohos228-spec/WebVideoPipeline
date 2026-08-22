@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import shutil
@@ -167,18 +168,18 @@ def _is_meta_chat_question(message: str) -> bool:
     # хвостовая пунктуация: «…файл???» / «файл？»
     if re.search(r"[?？]\s*$", t):
         return True
-    if re.search(
-        r"(?i)("
-        r"почему|зачем|как\s+так| wh?y\b|"
-        r"я\s+вопрос|это\s+(?:был\s+)?вопрос|ответь\s+на\s+вопрос|"
-        r"объясни|что\s+значит|"
-        r"с\s+первого\s+раза|"
-        r"не\s+(?:прислал|отправил|дал|положил)"
-        r")",
-        t,
-    ):
-        return True
-    return False
+    return bool(
+        re.search(
+            r"(?i)("
+            r"почему|зачем|как\s+так| wh?y\b|"
+            r"я\s+вопрос|это\s+(?:был\s+)?вопрос|ответь\s+на\s+вопрос|"
+            r"объясни|что\s+значит|"
+            r"с\s+первого\s+раза|"
+            r"не\s+(?:прислал|отправил|дал|положил)"
+            r")",
+            t,
+        )
+    )
 
 
 def _is_short_affirmative(message: str) -> bool:
@@ -351,13 +352,11 @@ def _reply_fails_file_delivery(reply: str, *, user_text: str) -> bool:
     if not cleaned:
         return True
     # Короткая мета-отписка вместо документа при явном «пришли файлом».
-    if len(cleaned) < 120 and (_asks_file(user_text) or _needs_work(user_text)):
-        if re.search(
-            r"(?i)инструмент|прикрепить|вложен|следующ|исправляю|подготов",
-            t,
-        ):
-            return True
-    return False
+    return bool(
+        len(cleaned) < 120
+        and (_asks_file(user_text) or _needs_work(user_text))
+        and re.search(r"(?i)инструмент|прикрепить|вложен|следующ|исправляю|подготов", t)
+    )
 
 
 def _last_assistant_document(prior_raw: list[Any]) -> str:
@@ -409,15 +408,13 @@ def _prior_turn_wanted_file(prior_raw: list[Any]) -> bool:
             continue
         if _asks_file(u) or _explicit_text_doc_ask(u) or _wants_docx(u):
             return True
-    if last_assistant and re.search(
-        r"(?i)("
-        r"\.txt|\.docx|файл|выдать|пришл|отправ|"
-        r"готовые\s+файлы|убрать\s+лишн"
-        r")",
-        last_assistant,
-    ):
-        return True
-    return False
+    return bool(
+        last_assistant
+        and re.search(
+            r"(?i)(" r"\.txt|\.docx|файл|выдать|пришл|отправ|" r"готовые\s+файлы|убрать\s+лишн" r")",
+            last_assistant,
+        )
+    )
 
 
 def _image_search_query(message: str) -> str:
@@ -493,14 +490,10 @@ def _is_placeholder_image(path: Path) -> bool:
         return True
     if data.startswith(b"\x89PNG") and len(data) >= 24:
         w, h = struct.unpack(">II", data[16:24])
-        if w <= 2 or h <= 2:
-            return True
-        return False
+        return bool(w <= 2 or h <= 2)
     if data.startswith(b"\xff\xd8\xff") and len(data) < 400:
         return True
-    if suf == ".svg" and len(data) < 80:
-        return True
-    return False
+    return bool(suf == ".svg" and len(data) < 80)
 
 
 def _filter_placeholder_images(out_dir: Path, names: list[str]) -> list[str]:
@@ -513,10 +506,8 @@ def _filter_placeholder_images(out_dir: Path, names: list[str]) -> list[str]:
                 p.name,
                 p.stat().st_size,
             )
-            try:
+            with contextlib.suppress(OSError):
                 p.unlink()
-            except OSError:
-                pass
             continue
         kept.append(name)
     return kept
@@ -1588,10 +1579,8 @@ async def ask(
                     if xlsx_path.name not in saved_files:
                         saved_files.append(xlsx_path.name)
                 elif xlsx_path.exists():
-                    try:
+                    with contextlib.suppress(OSError):
                         xlsx_path.unlink()
-                    except OSError:
-                        pass
             except Exception as e:  # noqa: BLE001
                 logger.warning("gpt_workspace: xlsx deliver: {}", e)
 

@@ -200,7 +200,7 @@ def _segment_time_bounds(
 
     idx_bounds = [0, *cuts_idx, n]
     out: list[tuple[float, float]] = []
-    for a, b in zip(idx_bounds[:-1], idx_bounds[1:]):
+    for a, b in zip(idx_bounds[:-1], idx_bounds[1:], strict=False):
         start = 0.0 if a == 0 else float(frame_ends[a - 1])
         end = float(frame_ends[b - 1])
         if end <= start + 0.05:
@@ -412,21 +412,21 @@ def _timings_from_speech_islands(
             pass
 
     raw: list[FrameTiming | None] = [None] * n
-    for i, ((s, e), group) in enumerate(zip(islands, assign)):
+    for _i, ((s, e), group) in enumerate(zip(islands, assign, strict=False)):
         if not group:
             continue
         g_weights = [weights[j] for j in group]
         g_total = sum(g_weights) or float(len(g_weights))
         pos = s
-        for j, w in zip(group, g_weights):
+        for j, w in zip(group, g_weights, strict=False):
             dur = (w / g_total) * (e - s)
             fn = cells[j][0]
             raw[j] = FrameTiming(fn, round(pos, 3), round(pos + dur, 3), round(dur, 3))
             pos += dur
         # snap last in group to island end
         last_j = group[-1]
-        assert raw[last_j] is not None
         prev = raw[last_j]
+        assert prev is not None
         raw[last_j] = FrameTiming(prev.frame_number, prev.start_ts, round(e, 3), round(e - prev.start_ts, 3))
 
     # Кадры без острова — равномерно в оставшиеся дыры позже через contiguous glue

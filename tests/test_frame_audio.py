@@ -48,7 +48,7 @@ def test_frame_clip_timeline_is_contiguous() -> None:
         FrameAudioClip(3, Path("c.mp3"), "three", 5.5, 6.0, 0.5),
     ]
     assert clips[0].start_ts == 0.0
-    for prev, cur in zip(clips, clips[1:]):
+    for prev, cur in zip(clips, clips[1:], strict=False):
         assert cur.start_ts == prev.end_ts
     assert clips[-1].end_ts == 6.0
 
@@ -62,7 +62,7 @@ def test_rescale_clips_to_master_matches_voice_full() -> None:
     assert out[-1].end_ts == 70.0
     assert abs(sum(c.duration for c in out) - 70.0) < 0.01
     assert out[0].start_ts == 0.0
-    for prev, cur in zip(out, out[1:]):
+    for prev, cur in zip(out, out[1:], strict=False):
         assert cur.start_ts == prev.end_ts
 
 

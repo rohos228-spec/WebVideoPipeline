@@ -136,10 +136,7 @@ def spawn_recover_job(project_id: int) -> asyncio.Task[None]:
                 errors = list(result.get("errors") or [])
                 ok = bool(result.get("ok")) and not errors
                 # Частичный успех: есть saved — не error, даже если errors.
-                if result.get("saved_count") or result.get("saved") or ok:
-                    status = "done"
-                else:
-                    status = "error"
+                status = "done" if result.get("saved_count") or result.get("saved") or ok else "error"
                 err_text = "; ".join(errors) if errors else None
                 if status == "done" and not (result.get("saved_count") or result.get("saved")):
                     err_text = err_text or (

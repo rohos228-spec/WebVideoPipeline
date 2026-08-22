@@ -119,7 +119,7 @@ def update_step_preset(
     *,
     label: str | None = None,
     description: str | None = None,
-    blocks: dict[str, str] | None = None,
+    blocks: dict[str, str | None] | None = None,
 ) -> dict[str, Any]:
     data = load_step_presets(step_code)
     if not data:

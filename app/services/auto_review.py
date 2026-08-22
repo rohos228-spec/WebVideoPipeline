@@ -6,6 +6,8 @@
      путь к видео).
   2) Загружаем чек-промт из prompts/check_<kind>/default.md
      (или из snapshot-а массового проекта, если есть).
+     W1-fix: если первая строка содержит маркер VP_CHECK_PROMPT_STUB —
+     возвращаем ReviewResult(status=skipped_stub) и НЕ зовём GPT.
   3) Шлём в ChatGPT (новый чат) пары `<чек-промт> + <артефакт>`.
      - Для текстовых артефактов — promt + текст inline.
      - Для картинок/видео — promt + файл через ChatGPTBot.ask_with_file.
@@ -14,7 +16,8 @@
      - все evidence_quote должны быть substring артефакта,
      - все числовые критерии (длина, временные интервалы) считает код,
      - GPT даёт scores, код выносит финальное решение.
-  6) Возвращаем ReviewResult.
+  6) Возвращаем ReviewResult. status="applied" → caller применяет,
+     status="skipped_*" → caller оставляет на ручной HITL.
 
 Не использует HITL-таблицу — это отдельный «контур качества». Решение
 auto_review подставляется в HITL вместо клика юзера в auto_advance.
@@ -52,6 +55,16 @@ CHECK_FOLDER_BY_KIND: dict[HITLKind, str] = {
     HITLKind.approve_final: "check_final",
 }
 
+# W1-fix auto_review: маркер STUB-промта, лежащего в репо. Пока первая
+# строка содержит этот маркер — auto_advance пропускает auto_review и
+# валит на ручной HITL (не auto-approve, не падает).
+_STUB_MARKER = "VP_CHECK_PROMPT_STUB"
+
+# Статусы результата. "applied" = обычный путь, остальные = скип.
+REVIEW_STATUS_APPLIED = "applied"
+REVIEW_STATUS_SKIPPED_STUB = "skipped_stub"
+REVIEW_STATUS_SKIPPED_ERROR = "skipped_error"
+
 
 @dataclass
 class ReviewResult:
@@ -65,6 +78,10 @@ class ReviewResult:
     numeric_facts: dict = field(default_factory=dict)
     fabricated_evidence: list[str] = field(default_factory=list)
     parse_error: str | None = None
+    # W1-fix: "applied" → caller применяет вердикт; "skipped_*" → caller
+    # не двигает pipeline (оставляет на ручной HITL / логирует).
+    status: str = REVIEW_STATUS_APPLIED
+    check_prompt_path: str = ""
 
 
 # ============================================================
@@ -83,6 +100,21 @@ def get_check_prompt_path(kind: HITLKind, *, batch_snapshot_dir: Path | None = N
         if snap.exists():
             return snap
     return PROMPTS_ROOT / folder / name
+
+
+def is_stub_prompt(text: str) -> bool:
+    """True, если первая непустая строка содержит маркер STUB-промта.
+
+    W1-fix: STUB-промты коммитятся в репо чтобы чистый клон не падал.
+    Caller (review_text / review_image) обязан увидеть stub и вернуть
+    skipped_stub, иначе GPT «одобрит» всё по пустому/шаблонному промту.
+    """
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        return _STUB_MARKER in s
+    return False
 
 
 def load_check_prompt(kind: HITLKind, *, batch_snapshot_dir: Path | None = None) -> str:
@@ -174,7 +206,23 @@ async def review_text(
     Принимает уже инициализированный ChatGPTBot — звено снаружи отвечает
     за `browser_session()`-контекст.
     """
+    prompt_path = get_check_prompt_path(kind, batch_snapshot_dir=batch_snapshot_dir)
     check_prompt = load_check_prompt(kind, batch_snapshot_dir=batch_snapshot_dir)
+    # W1-fix: STUB-промт в репо → пропускаем GPT, возвращаем
+    # skipped_stub. Caller (auto_advance) оставит проект на ручной HITL.
+    if is_stub_prompt(check_prompt):
+        logger.warning(
+            "auto_review[{}]: STUB-промт в {}, пропускаю GPT-чек (замените default.md на боевой промт)",
+            kind.value,
+            prompt_path,
+        )
+        return ReviewResult(
+            decision=HITLDecision.approved,
+            confidence=0.0,
+            reasons=[f"CHECK_PROMPT_NOT_CONFIGURED: {prompt_path} — auto_review пропущен, ждём ручной HITL"],
+            status=REVIEW_STATUS_SKIPPED_STUB,
+            check_prompt_path=str(prompt_path),
+        )
     full_prompt = _build_full_prompt(check_prompt, artifact_text)
 
     raw = await chatgpt_bot.ask_fresh(full_prompt, timeout=timeout)
@@ -186,7 +234,8 @@ async def review_text(
 
     gpt_decision = str(parsed.get("decision") or "").strip().lower()
     confidence = _safe_confidence(parsed.get("confidence"))
-    criteria = parsed.get("criteria") if isinstance(parsed.get("criteria"), dict) else {}
+    criteria_raw = parsed.get("criteria")
+    criteria: dict[Any, Any] = criteria_raw if isinstance(criteria_raw, dict) else {}
 
     fab = validate_evidence_quotes(artifact_text, criteria)
 
@@ -307,7 +356,21 @@ async def review_image(
     «auto-approve без vision-чека». Когда подтвердишь, что хочешь
     включить vision — переключим один флаг.
     """
+    prompt_path = get_check_prompt_path(kind, batch_snapshot_dir=batch_snapshot_dir)
     check_prompt = load_check_prompt(kind, batch_snapshot_dir=batch_snapshot_dir)
+    if is_stub_prompt(check_prompt):
+        logger.warning(
+            "auto_review[{}]: STUB-промт в {}, пропускаю vision-чек (замените default.md на боевой промт)",
+            kind.value,
+            prompt_path,
+        )
+        return ReviewResult(
+            decision=HITLDecision.approved,
+            confidence=0.0,
+            reasons=[f"CHECK_PROMPT_NOT_CONFIGURED: {prompt_path} — auto_review пропущен, ждём ручной HITL"],
+            status=REVIEW_STATUS_SKIPPED_STUB,
+            check_prompt_path=str(prompt_path),
+        )
     prompt = check_prompt.rstrip()
     if context_text:
         prompt += "\n\nКОНТЕКСТ:\n" + context_text.strip()

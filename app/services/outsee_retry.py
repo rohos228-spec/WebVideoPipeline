@@ -300,9 +300,7 @@ def _is_audio_content_policy_error(err: BaseException) -> bool:
     blob = f"{reason}\n{body}\n{code}"
     if "аудиодорож" in blob or "audio track" in blob or "audio moderation" in blob:
         return True
-    if "content_policy" in blob and "аудио" in blob:
-        return True
-    return False
+    return bool("content_policy" in blob and "аудио" in blob)
 
 
 def _is_transient_network_error(err: BaseException) -> bool:
@@ -889,6 +887,8 @@ async def generate_image_with_retries(
                     except Exception:  # noqa: BLE001
                         logger.debug("outsee sidecar write skipped", exc_info=True)
                     return result
+                if outsee is None:
+                    raise RuntimeError("outsee bot unavailable")
                 return await outsee.generate_image(send_prompt, out_path, **attempt_kwargs)
             except StepCancelledError:
                 raise
@@ -906,6 +906,8 @@ async def generate_image_with_retries(
                     for dl_try in range(1, _DOWNLOAD_ONLY_RETRIES + 1):
                         abort_if_cancelled(pid if isinstance(pid, int) else None)
                         try:
+                            if outsee is None:
+                                raise RuntimeError("outsee bot unavailable")
                             return await outsee.retry_image_download(
                                 img_url=img_url,
                                 out_path=out_path,
@@ -935,7 +937,7 @@ async def generate_image_with_retries(
                         prefix or "—",
                     )
                 # Карточка уже на outsee: повторный Generate только orphan'ит результат.
-                raise last_err or e
+                raise last_err or e from e
             except OutseeImageError as e:
                 last_err = e
                 if _is_concurrency_limit_error(e):
@@ -1299,6 +1301,8 @@ async def generate_video_with_retries(
             except Exception:  # noqa: BLE001
                 logger.debug("outsee video sidecar skipped", exc_info=True)
             return result
+        if outsee is None:
+            raise RuntimeError("outsee bot unavailable")
         return await outsee.generate_video(send_prompt, out_path, project_id=project_id, **attempt_kwargs)
 
     async def _rewrite_prompt_after_fail(err: BaseException) -> None:
@@ -1397,6 +1401,8 @@ async def generate_video_with_retries(
                 for dl_try in range(1, _DOWNLOAD_ONLY_RETRIES + 1):
                     abort_if_cancelled(project_id)
                     try:
+                        if outsee is None:
+                            raise RuntimeError("outsee bot unavailable")
                         return await outsee.retry_video_download(
                             video_url=video_url,
                             out_path=out_path,
@@ -1409,7 +1415,7 @@ async def generate_video_with_retries(
                         last_err = dl_err
                         if dl_try < _DOWNLOAD_ONLY_RETRIES:
                             await sleep_cancellable(2.0, project_id)
-                raise last_err
+                raise last_err from e
             # download без повторного Generate — считаем burn
             classified = classify_video_error(e)
         except OutseeImageError as e:

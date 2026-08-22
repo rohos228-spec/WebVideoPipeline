@@ -24,7 +24,7 @@ def _parse_number(value: object) -> float | None:
     if value is None or value == "":
         return None
     try:
-        n = float(value)
+        n = float(value) if isinstance(value, (int, float)) else float(str(value))
     except (TypeError, ValueError):
         return None
     if n <= 0:
@@ -111,9 +111,7 @@ def send_to_main_pc_for_project(project: Project) -> bool:
     По умолчанию выключено.
     """
     val = _step_bucket(project, "assemble").get("send_to_main_pc")
-    if val is True:
-        return True
-    return False
+    return val is True
 
 
 def subtitles_enabled_for_project(project: Project) -> bool:
@@ -122,16 +120,14 @@ def subtitles_enabled_for_project(project: Project) -> bool:
     По умолчанию выключены.
     """
     val = _step_bucket(project, "assemble").get("subtitles_enabled")
-    if val is True:
-        return True
-    return False
+    return val is True
 
 
 def _parse_nonneg_seconds(value: object, *, default: float = 0.0, cap: float = 120.0) -> float:
     if value is None or value == "":
         return default
     try:
-        n = float(value)
+        n = float(value) if isinstance(value, (int, float)) else float(str(value))
     except (TypeError, ValueError):
         return default
     return max(0.0, min(cap, n))

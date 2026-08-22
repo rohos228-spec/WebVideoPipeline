@@ -250,7 +250,7 @@ async def backfill_project_v2(session: AsyncSession, project: Project) -> dict[s
                         frame_id=fr.id,
                         kind=kind,
                         version=1,
-                        text=src.strip(),
+                        text=(src or "").strip(),
                         is_active=True,
                     )
                 )

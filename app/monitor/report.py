@@ -45,7 +45,7 @@ def analyze(events: list[dict]) -> dict:
     step_durations: dict[str, list[float]] = defaultdict(list)
     errors: list[dict] = []
     screenshots: list[dict] = []
-    event_counts = Counter()
+    event_counts: Counter[str] = Counter()
     project_steps: dict[int, list[dict]] = defaultdict(list)
 
     for ev in events:

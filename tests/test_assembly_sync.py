@@ -173,7 +173,7 @@ def test_subtitles_do_not_overlap() -> None:
     ]
     timings = [FrameTiming(1, 0.0, 2.0, 2.0)]
     cues = build_subtitle_cues_from_cells(cells, words, timings, lead_seconds=0.0)
-    for prev, cur in zip(cues, cues[1:]):
+    for prev, cur in zip(cues, cues[1:], strict=False):
         assert cur[0] >= prev[1] + 0.04 - 0.001, f"overlap {prev[2]!r} → {cur[2]!r}"
 
 
@@ -187,7 +187,7 @@ def test_lead_does_not_cause_overlap() -> None:
     timings = [FrameTiming(1, 0.0, 2.0, 2.0)]
     cues = build_subtitle_cues_from_cells(cells, words, timings, lead_seconds=0.18)
     assert len(cues) >= 2
-    for prev, cur in zip(cues, cues[1:]):
+    for prev, cur in zip(cues, cues[1:], strict=False):
         assert cur[0] >= prev[1] + 0.04 - 0.001, f"lead overlap {prev[2]!r} → {cur[2]!r}"
 
 

@@ -12,12 +12,15 @@
 
 from __future__ import annotations
 
+# isort: off
+import app.bootstrap_env  # noqa: F401  — TEMP/HF env до loguru, nemo, huggingface
+# isort: on
+
 import asyncio
 import contextlib
 
 from loguru import logger
 
-import app.bootstrap_env  # noqa: F401  — TEMP/HF env до loguru, nemo, huggingface
 from app.db import engine
 from app.models import Base, Project, ProjectStatus
 from app.prompts_loader import sync_prompts_from_files
@@ -104,6 +107,8 @@ async def _backfill_from_disk() -> None:
     Этот бэкфилл — идемпотентный: если поля уже заполнены и совпадают
     с xlsx, ничего не меняется.
     """
+    from pathlib import Path
+
     from sqlalchemy import func, select
 
     from app.db import session_scope
@@ -755,9 +760,11 @@ async def _await_background_tasks(tasks: list[asyncio.Task]) -> None:
 
 async def _startup_maintenance() -> None:
     """Тяжёлая инициализация в фоне — не блокирует /api/health."""
-    # Этап 4 (H.1, §9#19): промпты контуров К2 (auto_review) и К3
-    # (gpt_verdict_review) живут под .gitignore — на чистом клоне контуры
-    # молча мертвы. Не чиним (вне сметы), но делаем видимым.
+    # W1-fix (minimax-all-fixes): STUB-промты check_* коммитятся в репо
+    # (см. prompts/check_*/default.md с маркером VP_CHECK_PROMPT_STUB).
+    # auto_review их видит и возвращает status=skipped_stub — pipeline
+    # не падает, остаётся на ручном HITL. Эта проверка — последний
+    # рубеж: если кто-то удалил каталог совсем, громко предупреждаем.
     try:
         from app.project_root import find_project_root
 
@@ -776,9 +783,9 @@ async def _startup_maintenance() -> None:
         ]
         if _missing:
             logger.warning(
-                "prompts/: нет каталогов {} — контуры проверок К2/К3 "
-                "(auto_review / verdict-review) не будут работать "
-                "(промпты вне git, чистый клон)",
+                "prompts/: нет каталогов {} — auto_review упадёт "
+                "FileNotFoundError до STUB-fallback; "
+                "верните default.md из git или верните каталог",
                 _missing,
             )
     except Exception:  # noqa: BLE001

@@ -256,8 +256,8 @@ def _merge_prompt_history_dirs(old_hist: Path, new_hist: Path) -> None:
             snap.rename(dest)
     old_index = old_hist / _INDEX
     new_index = new_hist / _INDEX
-    old_data = {"versions": []}
-    new_data = {"versions": []}
+    old_data: dict[str, list] = {"versions": []}
+    new_data: dict[str, list] = {"versions": []}
     if old_index.is_file():
         try:
             raw = json.loads(old_index.read_text(encoding="utf-8"))

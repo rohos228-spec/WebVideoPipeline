@@ -450,7 +450,7 @@ def resolve_project_prompt_with_source(
                 bound = _clean_variant_name(str(node_slots.get(effective_slot) or ""))
                 if not bound and effective_slot == "main":
                     # Любой gpt-слот ноды, если main пуст.
-                    for sid, variant in node_slots.items():
+                    for _sid, variant in node_slots.items():
                         clean = _clean_variant_name(str(variant or ""))
                         if clean:
                             bound = clean

@@ -94,7 +94,7 @@ async def test_get_project_recompute_no_hero(client) -> None:
 
         from app.models import Artifact, ArtifactKind
 
-        p = await session.get(Project, pid)
+        await session.get(Project, pid)
         from sqlalchemy import select
 
         fr = (await session.execute(select(Frame).where(Frame.project_id == pid))).scalar_one()

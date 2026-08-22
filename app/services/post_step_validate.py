@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -340,10 +341,8 @@ async def mark_frames_for_video_regen(
         )
         for a in arts:
             if a.path:
-                try:
+                with contextlib.suppress(OSError):
                     Path(a.path).unlink(missing_ok=True)
-                except OSError:
-                    pass
             await session.delete(a)
         glob_delete_frame_video_clips(project.data_dir / "videos", fr.number)
         # Снимаем ladder-skip, иначе claim снова пропустит кадр и soft-retry

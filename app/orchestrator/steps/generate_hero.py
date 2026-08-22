@@ -464,8 +464,9 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             descriptions = [project.hero_description]
             n_total = 1
         else:
-            if (project.hero_description or "").strip():
-                descriptions = [project.hero_description.strip()]
+            desc = (project.hero_description or "").strip()
+            if desc:
+                descriptions = [desc]
                 n_total = 1
                 if not project.hero_count:
                     project.hero_count = 1
@@ -1086,7 +1087,8 @@ async def _run_excel(
         # Отпустить write-txn на время параллельной генерации.
         await session.commit()
 
-        async def _one(ch: ExcelCharacter) -> str:
+        # B023: chars — это весь список, не итерируемая переменная, capture безопасен
+        async def _one(ch: ExcelCharacter) -> str:  # noqa: B023
             async with SessionLocal() as s:
                 p = (await s.execute(select(Project).where(Project.id == project_id))).scalar_one()
                 p.status = ProjectStatus.generating_hero

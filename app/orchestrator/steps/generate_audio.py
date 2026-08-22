@@ -211,7 +211,7 @@ async def run(
     else:
         await recover_whisper_from_disk(session, project)
 
-    frames = (
+    frames = list(
         (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
         .scalars()
         .all()

@@ -207,7 +207,7 @@ async def enqueue_gen_queue(body: GenQueueEnqueue) -> dict:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         run_meta = (
-            dict(project.meta.get("gen_queue_run"))
+            dict(project.meta.get("gen_queue_run") or {})
             if isinstance(project.meta, dict) and isinstance(project.meta.get("gen_queue_run"), dict)
             else None
         )

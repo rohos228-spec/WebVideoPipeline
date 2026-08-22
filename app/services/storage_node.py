@@ -161,7 +161,8 @@ def _source_label(project: Project, source_key: str) -> str:
         if str(n.get("id") or "") != source_key:
             continue
         typ = str(n.get("type") or "")
-        data = n.get("data") if isinstance(n.get("data"), dict) else {}
+        data_raw = n.get("data")
+        data: dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}
         if typ == "excel_gpt":
             slot = data.get("slotIndex")
             if slot is None:

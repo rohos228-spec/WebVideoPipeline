@@ -202,8 +202,8 @@ def _project_layout_entry(layout: dict[str, Any], project_id: int) -> dict[str, 
         return {"folder_id": None, "order": 999999}
     folder_id = raw.get("folder_id")
     try:
-        order = int(raw.get("order"))
-    except (TypeError, ValueError):
+        order = int(raw["order"])
+    except (KeyError, TypeError, ValueError):
         order = 999999
     return {
         "folder_id": str(folder_id) if folder_id else None,

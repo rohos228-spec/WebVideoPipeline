@@ -19,6 +19,7 @@ Meta keys:
 
 from __future__ import annotations
 
+import contextlib
 import re
 from datetime import UTC
 from pathlib import Path
@@ -104,8 +105,10 @@ def get_scene_check_regen(project: Project) -> list[dict[str, Any]]:
     seen: set[tuple[int, int]] = set()
     for item in raw:
         if isinstance(item, dict):
+            if item.get("number") is None:
+                continue
             try:
-                num = int(item.get("number"))
+                num = int(item["number"])
                 shot = int(item.get("shot") or 1)
             except (TypeError, ValueError):
                 continue
@@ -531,10 +534,8 @@ async def _delete_video_clips(
             for sp in sheets_dir.glob(pat):
                 if shot == 1 and "_s2" in sp.name.lower():
                     continue
-                try:
+                with contextlib.suppress(OSError):
                     sp.unlink(missing_ok=True)
-                except OSError:
-                    pass
 
         if fr is None:
             continue

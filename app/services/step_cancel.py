@@ -246,7 +246,7 @@ async def await_with_cancel(
 ) -> T:
     if project_id is None:
         return await coro
-    task = asyncio.create_task(coro)
+    task: asyncio.Task[object] = asyncio.create_task(coro)  # type: ignore[arg-type]
     user_stop = False
     try:
         while not task.done():

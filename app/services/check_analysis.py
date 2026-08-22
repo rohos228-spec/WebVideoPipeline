@@ -17,7 +17,7 @@ CHECK_REPORT_NAME = "check_report.txt"
 
 Verdict = Literal["pass", "fail"]
 ForwardMode = Literal["inherit", "explicit"]
-FixTarget = Literal["source", "xlsx", "prompt", "none"]
+FixTarget = Literal["source", "xlsx", "prompt", "none", "db"]
 CheckFixMode = Literal["fix", "report_only"]
 
 # Хвост для промтов проверочных нод — модель обязана ответить только JSON.
@@ -742,9 +742,7 @@ def has_critical_vision_issues(text: str) -> bool:
     raw = text or ""
     if not any(i.get("severity") == "critical" for i in extract_vision_issues(raw)):
         return False
-    if re.search(r"(?im)^\s*verdict\s*:\s*pass\b", raw) and not re.search(r"(?i)\[critical\]", raw):
-        return False
-    return True
+    return not (re.search(r"(?im)^\s*verdict\s*:\s*pass\b", raw) and not re.search(r"(?i)\[critical\]", raw))
 
 
 _OK_LINE_RE = re.compile(r"(?im)^\s*[-*]\s*\[ok\]\s*(.+?)\s*$")
@@ -812,9 +810,7 @@ def looks_like_scored_vision_report(text: str) -> bool:
         return True
     if _VISION_SEV_TAG_RE.search(raw):
         return True
-    if re.search(r"(?im)^\s*##\s*scores\s*$", raw):
-        return True
-    return False
+    return bool(re.search(r"(?im)^\s*##\s*scores\s*$", raw))
 
 
 def resolve_vision_check_gate(
@@ -1125,9 +1121,7 @@ def looks_like_check_report_txt(text: str) -> bool:
     low = raw.lower()
     if "# отчёт проверки" in low or "# отчет проверки" in low:
         return True
-    if _HEADER_VERDICT_RE.search(raw) and "## summary" in low:
-        return True
-    return False
+    return bool(_HEADER_VERDICT_RE.search(raw) and "## summary" in low)
 
 
 def _json_looks_like_check(obj: dict[str, Any]) -> bool:
@@ -1137,9 +1131,7 @@ def _json_looks_like_check(obj: dict[str, Any]) -> bool:
     if "verdict" in obj and ("checks" in obj or "fix" in obj or "forward" in obj):
         return True
     decision = str(obj.get("decision") or "").strip()
-    if decision and ("criteria" in obj or "issues" in obj or "red_flags" in obj or "checks" in obj):
-        return True
-    return False
+    return bool(decision and ("criteria" in obj or "issues" in obj or "red_flags" in obj or "checks" in obj))
 
 
 def looks_like_check_payload(text: str) -> bool:

@@ -63,7 +63,6 @@ def spawn_apply_job(
 
     async def _runner() -> None:
         total_ops = len(pending_ops)
-        board_snapshot: dict[str, Any] = {}
 
         async def _on_progress(done: int, total: int, result: dict) -> None:
             try:
@@ -93,7 +92,6 @@ def spawn_apply_job(
                 project = await session.get(Project, project_id)
                 if project is None:
                     return
-                board_snapshot = dict(montage_meta(project))
                 _set_job(
                     project,
                     {

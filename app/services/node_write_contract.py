@@ -54,9 +54,7 @@ def _keep_field(key: str, node_kind: str) -> bool:
     norm = _norm_key(key)
     canon = _canon_field(key)
     if node_kind in ("excel_gpt", "excel_gpt_no_prompts"):
-        if canon in PROMPT_FIELDS or norm in _PROMPT_KEYS:
-            return False
-        return True
+        return not (canon in PROMPT_FIELDS or norm in _PROMPT_KEYS)
     if node_kind == "img_pr":
         return canon in IMAGE_PROMPT_FIELDS or canon in CHARACTER_FIELDS or norm in _IMG_PR_KEYS
     if node_kind == "anim_pr":

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from aiogram import Bot
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -179,10 +180,8 @@ async def send_hitl_photo(
         photo_kb = kb
 
     file_size = 0
-    try:
+    with contextlib.suppress(OSError):
         file_size = _os.path.getsize(photo_path)
-    except OSError:
-        pass
 
     use_document = file_size > PHOTO_LIMIT
     msg = None

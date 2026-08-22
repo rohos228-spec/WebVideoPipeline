@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -116,14 +117,10 @@ def clear_chunk_checkpoints(project: Project, name: str) -> None:
     if not d.is_dir():
         return
     for p in d.glob("*.json"):
-        try:
+        with contextlib.suppress(OSError):
             p.unlink()
-        except OSError:
-            pass
-    try:
+    with contextlib.suppress(OSError):
         d.rmdir()
-    except OSError:
-        pass
 
 
 def _meta_state(project: Project) -> dict[str, Any]:
@@ -183,7 +180,8 @@ def load_checkpoint(project: Project, name: str, *, input_hash: str | None = Non
     apply/assembler/cells после завершения шага).
     """
     sd = _meta_state(project)
-    agents_meta = sd.get("agents") if isinstance(sd.get("agents"), dict) else {}
+    agents_meta_raw = sd.get("agents")
+    agents_meta: dict[str, Any] = agents_meta_raw if isinstance(agents_meta_raw, dict) else {}
     info = agents_meta.get(name)
     if not isinstance(info, dict) or info.get("status") != "done":
         return None

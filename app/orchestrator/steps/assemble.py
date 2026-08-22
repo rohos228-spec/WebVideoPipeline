@@ -135,7 +135,7 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Bot) -> No
         await session.flush()
         raise RuntimeError(f"сборка невозможна: {reason}. Статус → {project.status.value}")
 
-    frames_all = (
+    frames_all = list(
         (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
         .scalars()
         .all()
@@ -150,7 +150,7 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Bot) -> No
                 project.id,
                 boot["frames_created"],
             )
-        frames_all = (
+        frames_all = list(
             (
                 await session.execute(
                     select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)

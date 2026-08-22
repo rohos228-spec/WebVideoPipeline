@@ -202,7 +202,8 @@ async def build_vision_db_snapshot(
                     )
         else:
             for p in scene_paths:
-                fr, shot = match_frame_for_image(p, by_num)
+                fr_match, shot = match_frame_for_image(p, by_num)
+                fr = fr_match
                 if fr is None:
                     lines.append(f"- file={p.name}: кадр не найден в БД")
                     continue

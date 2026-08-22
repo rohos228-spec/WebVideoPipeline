@@ -1309,9 +1309,7 @@ def _node_already_succeeded_for_project(project: Project, nr: NodeRun) -> bool:
         return True
     # ready-статус этой ноды уже пройден (project на следующем ready/running)
     ready = NODE_TYPE_TO_READY.get(eff)
-    if ready is not None and project.status == ready:
-        return True
-    return False
+    return bool(ready is not None and project.status == ready)
 
 
 async def _reconcile_stale_node_runs(

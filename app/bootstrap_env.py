@@ -33,7 +33,7 @@ def _patch_mkdtemp(pid_temp: str) -> None:
     def mkdtemp(suffix=None, prefix=None, dir=None):  # noqa: ANN001
         return original(suffix=suffix, prefix=prefix or "t", dir=dir or pid_temp)
 
-    tempfile.mkdtemp = mkdtemp  # type: ignore[assignment]
+    tempfile.mkdtemp = mkdtemp
     _mkdtemp_patched = True
 
 
@@ -55,7 +55,7 @@ def _patch_tempdir_cleanup_win32() -> None:
             else:
                 raise
 
-    tempfile.TemporaryDirectory.cleanup = safe_cleanup  # type: ignore[method-assign]
+    tempfile.TemporaryDirectory.cleanup = safe_cleanup
     _tempdir_patched = True
 
 

@@ -102,7 +102,8 @@ def _frame_complete(
     dense: bool,
     skip_if_field: str | None = None,
 ) -> bool:
-    attrs = frame.get("attrs") if isinstance(frame.get("attrs"), dict) else {}
+    attrs_raw = frame.get("attrs")
+    attrs: dict[str, Any] = attrs_raw if isinstance(attrs_raw, dict) else {}
     if skip_if_field:
         keys = (skip_if_field, *_IMG_SKIP_KEYS)
         for k in keys:

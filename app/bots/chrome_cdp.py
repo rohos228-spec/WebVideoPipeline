@@ -66,11 +66,10 @@ def cdp_port_from_url(url: str) -> int:
 async def fetch_cdp_version(cdp_url: str) -> dict:
     base = normalize_cdp_http_url(cdp_url)
     timeout = aiohttp.ClientTimeout(total=8)
-    async with aiohttp.ClientSession(timeout=timeout) as sess:
-        async with sess.get(f"{base}/json/version") as resp:
-            if resp.status != 200:
-                raise RuntimeError(f"CDP GET {base}/json/version → HTTP {resp.status}")
-            data = await resp.json()
+    async with aiohttp.ClientSession(timeout=timeout) as sess, sess.get(f"{base}/json/version") as resp:
+        if resp.status != 200:
+            raise RuntimeError(f"CDP GET {base}/json/version → HTTP {resp.status}")
+        data = await resp.json()
     if not isinstance(data, dict):
         raise RuntimeError("CDP /json/version: invalid JSON")
     return data

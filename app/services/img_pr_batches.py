@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import re
@@ -147,10 +148,8 @@ def save_checkpoint(
 def clear_checkpoint(project_dir: Path) -> None:
     path = _checkpoint_path(project_dir)
     if path.is_file():
-        try:
+        with contextlib.suppress(OSError):
             path.unlink()
-        except OSError:
-            pass
 
 
 def batch_attach_files(
@@ -325,9 +324,7 @@ def is_empty_ops_reply(reply: str) -> bool:
     if isinstance(data, dict) and isinstance(data.get("ops"), list):
         if data["ops"]:
             return False
-        if filter_prompt_ops(salvage_img_pr_ops(text)):
-            return False
-        return True
+        return not filter_prompt_ops(salvage_img_pr_ops(text))
     compact = re.sub(r"\s+", "", text)
     return compact == '{"ops":[]}'
 

@@ -573,9 +573,7 @@ def looks_like_fake_uniform_timestamps(words: list[WordTS]) -> bool:
     durs = [round(w.end - w.start, 3) for w in sample]
     if len(set(durs)) == 1 and durs[0] in (0.25, 0.2):
         return True
-    if max(durs) - min(durs) < 0.02 and max(durs) <= 0.26:
-        return True
-    return False
+    return bool(max(durs) - min(durs) < 0.02 and max(durs) <= 0.26)
 
 
 def transcribe_words_many_nvidia(

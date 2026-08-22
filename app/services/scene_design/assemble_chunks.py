@@ -182,7 +182,8 @@ def normalize_op_frame_uuid(op: dict[str, Any]) -> str:
         u = str(op.get(key) or "").strip()
         if u:
             return u
-    fields = op.get("fields") if isinstance(op.get("fields"), dict) else {}
+    fields_raw = op.get("fields")
+    fields: dict[str, Any] = fields_raw if isinstance(fields_raw, dict) else {}
     for key in ("frame_uuid", "uuid", "frame"):
         u = str(fields.get(key) or "").strip()
         if u:

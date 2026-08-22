@@ -243,10 +243,7 @@ def load_verdict_check_prompt(step_code: str, *, template: str = "default") -> s
     if kind is None:
         raise ValueError(f"нет GPT-проверки для шага {step_code!r}")
     path = verdict_template_path(step_code, template)
-    if path is None or not path.is_file():
-        base = load_check_prompt(kind)
-    else:
-        base = path.read_text(encoding="utf-8")
+    base = load_check_prompt(kind) if path is None or not path.is_file() else path.read_text(encoding="utf-8")
     return _strip_legacy_verdict_suffix(base)
 
 
@@ -346,9 +343,8 @@ async def attachments_for_step(
         "hero",
         "items",
     )
-    if step_code in excel_steps:
-        if xlsx.is_file():
-            paths.append(xlsx)
+    if step_code in excel_steps and xlsx.is_file():
+        paths.append(xlsx)
     if step_code in ("script", "music", "split"):
         from app.services import chatgpt_xlsx as cx
 

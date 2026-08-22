@@ -11,6 +11,7 @@ ChatGPT.ask_fresh, OutseeBot.generate_image, advance_project и т.д.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import time
 from collections.abc import Callable
@@ -57,10 +58,8 @@ def _wrap_async(
     async def wrapper(self, *args, **kwargs):
         params = {}
         if extract_params is not None:
-            try:
+            with contextlib.suppress(Exception):
                 params = extract_params(self, *args, **kwargs)
-            except Exception:
-                pass
 
         emit_event(
             f"{event_name}_start",

@@ -82,9 +82,8 @@ async def videos_are_duplicates(candidate: Path, reference: Path) -> bool:
     if candidate.resolve() == reference.resolve():
         return False
     cs, rs = candidate.stat().st_size, reference.stat().st_size
-    if cs == rs and cs > 0:
-        if await file_sha256(candidate) == await file_sha256(reference):
-            return True
+    if cs == rs and cs > 0 and await file_sha256(candidate) == await file_sha256(reference):
+        return True
     return await video_content_fingerprint(candidate) == await video_content_fingerprint(reference)
 
 

@@ -289,10 +289,12 @@ def sync_node_done_from_data(nr: NodeRun, *, project_id: int | None, initiator: 
         return False
     if nr.status == NodeRunStatus.failed:
         return heal_failed_node_done(nr, project_id=project_id)
-    if nr.status != NodeRunStatus.running:
-        if not start_node_running(nr, project_id=project_id, initiator=initiator):
-            if nr.status != NodeRunStatus.running:
-                return False
+    if (
+        nr.status != NodeRunStatus.running
+        and not start_node_running(nr, project_id=project_id, initiator=initiator)
+        and nr.status != NodeRunStatus.running
+    ):
+        return False
     return complete_node(nr, project_id=project_id, initiator="worker")
 
 

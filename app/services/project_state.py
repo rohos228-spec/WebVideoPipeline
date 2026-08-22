@@ -93,9 +93,7 @@ def _hero_step_required(project: Project) -> bool:
         return True
     if (project.hero_description or "").strip():
         return True
-    if _excel_hero_expected_count(project) > 0:
-        return True
-    return False
+    return _excel_hero_expected_count(project) > 0
 
 
 def _items_step_required(project: Project) -> bool:

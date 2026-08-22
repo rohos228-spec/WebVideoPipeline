@@ -983,7 +983,8 @@ async def run_img_pr_xlsx(
                 [len(b) for b, _ in wave],
             )
 
-            async def _one(idx: int, batch: list, level: int):
+            # B023: sem/bi_seq/batch_n — внешние зависимости, capture по ссылке безопасен
+            async def _one(idx: int, batch: list, level: int):  # noqa: B023
                 async with sem:
                     raise_if_cancelled(project.id)
                     bi = bi_seq + idx
@@ -996,7 +997,7 @@ async def run_img_pr_xlsx(
             )
             bi_seq += len(wave)
             any_ok = False
-            for item, (batch, level) in zip(gathered, wave):
+            for item, (batch, level) in zip(gathered, wave, strict=False):
                 if isinstance(item, BaseException):
                     # Отмена шага — не «провал батча»: наверх как отмена,
                     # не в failed_notes/гейт покрытия (edge панели).

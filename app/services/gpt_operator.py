@@ -103,8 +103,8 @@ def normalize_role(raw: Any, *, fallback: str = "assist") -> OperatorRole:
     if s == "assist":
         return "assist"
     if s in VALID_ROLES:
-        return s  # type: ignore[return-value]
-    return "assist"  # type: ignore[return-value]
+        return s
+    return "assist"
 
 
 def normalize_output_mode(raw: Any, *, role: OperatorRole) -> OutputMode:

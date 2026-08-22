@@ -89,9 +89,7 @@ def is_sleeping(project: Project) -> bool:
         dt = datetime.fromisoformat(str(until).replace("Z", "+00:00"))
     except ValueError:
         return False
-    if datetime.now(UTC) >= dt:
-        return False
-    return True
+    return not datetime.now(UTC) >= dt
 
 
 def clear_failure_backoff_for_manual_start(project: Project, *, running_key: str) -> bool:

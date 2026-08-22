@@ -195,10 +195,6 @@ async def test_sync_from_existing_words_json(
     session.add(fr)
     await session.flush()
 
-    words = [
-        WordTS(word="привет", start=0.0, end=0.5, prob=0.9),
-        WordTS(word="мир", start=0.5, end=1.0, prob=0.9),
-    ]
     words_path = audio / "words_test.json"
     words_path.write_text(
         '[{"word":"привет","start":0.0,"end":0.5,"prob":0.9},'

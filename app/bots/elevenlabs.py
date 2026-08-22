@@ -469,7 +469,7 @@ async def _open_voice_panel(page: Page) -> None:
 
 
 async def _voice_search_input(page: Page) -> Locator:
-    for attempt in range(8):
+    for _attempt in range(8):
         if await _panel_open(page, "Select a voice"):
             break
         await _open_voice_panel(page)

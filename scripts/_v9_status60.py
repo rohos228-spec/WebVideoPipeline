@@ -21,7 +21,7 @@ def main() -> None:
     want = [c for c in cols if c in ("status", "current_step", "pipeline_status", "error_text", "paused_at")]
     if want:
         q = "SELECT " + ",".join(want) + " FROM projects WHERE id=60"
-        print("fields:", dict(zip(want, con.execute(q).fetchone())))
+        print("fields:", dict(zip(want, con.execute(q).fetchone(), strict=False)))
     con.close()
 
     with urllib.request.urlopen(f"{BASE}/api/projects/60", timeout=30) as resp:

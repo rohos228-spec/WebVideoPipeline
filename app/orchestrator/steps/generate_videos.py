@@ -680,7 +680,7 @@ async def _shot1_job(
     gpt: Any,
     session_clip_paths: list[Path],
     clips_lock: asyncio.Lock,
-) -> bool:
+) -> bool | str:
     """Outsee ждёт минуты — SQLite-сессию НЕ держим (иначе parallel → database is locked).
 
     Returns True если клип записан, False если кадр пропущен после ошибки.
@@ -692,147 +692,146 @@ async def _shot1_job(
     # после слота провайдера, внутри задачи генерации. TTL покрывает
     # лестницу генерации (3×1200с + rewrite) — ревью [2/3]: дефолтные
     # 30 мин легально истекали в полёте.
-    async with acquire_outsee_slot():
-        async with lease_unit(project_id, f"video:{frame_id}", ttl_s=4500) as got:
-            if not got:
-                logger.info(
-                    "[#{}] frame_id={}: занят живым video-lease — пропуск",
-                    project_id,
-                    frame_id,
-                )
-                return "busy"
+    async with acquire_outsee_slot(), lease_unit(project_id, f"video:{frame_id}", ttl_s=4500) as got:
+        if not got:
+            logger.info(
+                "[#{}] frame_id={}: занят живым video-lease — пропуск",
+                project_id,
+                frame_id,
+            )
+            return "busy"
+        async with SessionLocal() as session:
+            project = await session.get(Project, project_id)
+            fr = await session.get(Frame, frame_id)
+            if project is None or fr is None:
+                return False
+            if not fr.animation_prompt:
+                raise RuntimeError(f"у кадра {fr.number} нет animation_prompt")
+            start = await _shot1_start_frame(session, project, fr, scenes_dir)
+            prompt = fr.animation_prompt
+            frame_number = fr.number
+            model_slug, res_slug, aspect, relax = _video_opts(project)
+            # Ревью [1/3]: hash — от входа, ИСПОЛЬЗОВАННОГО для генерации
+            # (снимок до вызова), а не от свежего Frame после 20-60 мин:
+            # правка промпта в полёте не должна помечать старый клип новым.
+            pre_video_hash = _frame_video_input_hash(fr)
+            # session закрывается здесь — до Outsee
+
+        short_uuid = uuid.uuid4().hex[:8]
+        file_path = out_dir / f"clip_{frame_number:03d}_{short_uuid}.mp4"
+        async with clips_lock:
+            dups = _dup_paths(out_dir, frame_number, list(session_clip_paths))
+        try:
+            result = await generate_video_with_retries(
+                outsee,
+                gpt,
+                prompt=prompt,
+                out_path=file_path,
+                max_attempts_per_prompt=3,
+                gpt_rewrite=True,
+                project_id=project_id,
+                start_frame=start,
+                aspect_ratio=aspect,
+                timeout=1200,
+                model_slug=model_slug,
+                resolution=res_slug,
+                relax=relax,
+                generate_audio=False,
+                prompt_id_prefix=build_gen_id_prefix(project_id, frame_number, short_uuid),
+                duplicate_check_paths=dups,
+            )
+        except Exception as e:
+            if isinstance(e, (StepCancelledError, asyncio.CancelledError)):
+                async with SessionLocal() as session:
+                    fr = await session.get(Frame, frame_id)
+                    if fr is not None:
+                        _clear_video_inflight(fr)
+                        await session.commit()
+                raise
+            # Один кадр (policy/сеть/длина) — не валим весь video-step.
+            await _note_video_fail_db(project_id, frame_id, e)
             async with SessionLocal() as session:
-                project = await session.get(Project, project_id)
                 fr = await session.get(Frame, frame_id)
-                if project is None or fr is None:
-                    return False
-                if not fr.animation_prompt:
-                    raise RuntimeError(f"у кадра {fr.number} нет animation_prompt")
-                start = await _shot1_start_frame(session, project, fr, scenes_dir)
-                prompt = fr.animation_prompt
-                frame_number = fr.number
-                model_slug, res_slug, aspect, relax = _video_opts(project)
-                # Ревью [1/3]: hash — от входа, ИСПОЛЬЗОВАННОГО для генерации
-                # (снимок до вызова), а не от свежего Frame после 20-60 мин:
-                # правка промпта в полёте не должна помечать старый клип новым.
-                pre_video_hash = _frame_video_input_hash(fr)
-                # session закрывается здесь — до Outsee
+                if fr is not None:
+                    _clear_video_inflight(fr)
+                    await session.commit()
+            return False
 
-            short_uuid = uuid.uuid4().hex[:8]
-            file_path = out_dir / f"clip_{frame_number:03d}_{short_uuid}.mp4"
-            async with clips_lock:
-                dups = _dup_paths(out_dir, frame_number, list(session_clip_paths))
+        # Этап 4 (C.4, ревью): проба mp4 и в ПАРАЛЛЕЛЬНОМ пути — до
+        # fencing/Artifact; брак = фейл кадра (лестница), не публикация.
+        from app.services.media_probe import MediaProbeError
+
+        try:
+            await _accept_video_or_raise(aspect, project_id, frame_number, Path(result.file_path))
+        except MediaProbeError as pe:
+            await _note_video_fail_db(project_id, frame_id, pe)
+            async with SessionLocal() as session:
+                fr = await session.get(Frame, frame_id)
+                if fr is not None:
+                    _clear_video_inflight(fr)
+                    await session.commit()
+            return False
+
+        # Fencing перед публикацией (ревью [2/3]): lease потерян → результат
+        # НЕ публикуем (другой владелец мог сгенерить свой клип).
+        if not await renew(project_id, f"video:{frame_id}", ttl_s=600):
+            logger.warning(
+                "[#{}] frame {}: video-lease потерян после генерации — клип {} в stale/, не публикуем",
+                project_id,
+                frame_number,
+                Path(result.file_path).name,
+            )
             try:
-                result = await generate_video_with_retries(
-                    outsee,
-                    gpt,
-                    prompt=prompt,
-                    out_path=file_path,
-                    max_attempts_per_prompt=3,
-                    gpt_rewrite=True,
-                    project_id=project_id,
-                    start_frame=start,
-                    aspect_ratio=aspect,
-                    timeout=1200,
-                    model_slug=model_slug,
-                    resolution=res_slug,
-                    relax=relax,
-                    generate_audio=False,
-                    prompt_id_prefix=build_gen_id_prefix(project_id, frame_number, short_uuid),
-                    duplicate_check_paths=dups,
-                )
-            except Exception as e:
-                if isinstance(e, (StepCancelledError, asyncio.CancelledError)):
-                    async with SessionLocal() as session:
-                        fr = await session.get(Frame, frame_id)
-                        if fr is not None:
-                            _clear_video_inflight(fr)
-                            await session.commit()
-                    raise
-                # Один кадр (policy/сеть/длина) — не валим весь video-step.
-                await _note_video_fail_db(project_id, frame_id, e)
-                async with SessionLocal() as session:
-                    fr = await session.get(Frame, frame_id)
-                    if fr is not None:
-                        _clear_video_inflight(fr)
-                        await session.commit()
-                return False
-
-            # Этап 4 (C.4, ревью): проба mp4 и в ПАРАЛЛЕЛЬНОМ пути — до
-            # fencing/Artifact; брак = фейл кадра (лестница), не публикация.
-            from app.services.media_probe import MediaProbeError
-
-            try:
-                await _accept_video_or_raise(aspect, project_id, frame_number, Path(result.file_path))
-            except MediaProbeError as pe:
-                await _note_video_fail_db(project_id, frame_id, pe)
-                async with SessionLocal() as session:
-                    fr = await session.get(Frame, frame_id)
-                    if fr is not None:
-                        _clear_video_inflight(fr)
-                        await session.commit()
-                return False
-
-            # Fencing перед публикацией (ревью [2/3]): lease потерян → результат
-            # НЕ публикуем (другой владелец мог сгенерить свой клип).
-            if not await renew(project_id, f"video:{frame_id}", ttl_s=600):
+                stale_dir = out_dir / "stale"
+                stale_dir.mkdir(parents=True, exist_ok=True)
+                Path(result.file_path).rename(stale_dir / Path(result.file_path).name)
+            except OSError as e:
                 logger.warning(
-                    "[#{}] frame {}: video-lease потерян после генерации — клип {} в stale/, не публикуем",
+                    "[#{}] frame {}: перенос в stale/ не удался: {}",
                     project_id,
                     frame_number,
-                    Path(result.file_path).name,
+                    e,
                 )
-                try:
-                    stale_dir = out_dir / "stale"
-                    stale_dir.mkdir(parents=True, exist_ok=True)
-                    Path(result.file_path).rename(stale_dir / Path(result.file_path).name)
-                except OSError as e:
-                    logger.warning(
-                        "[#{}] frame {}: перенос в stale/ не удался: {}",
-                        project_id,
-                        frame_number,
-                        e,
-                    )
-                return "busy"
+            return "busy"
 
-            async with SessionLocal() as session:
-                fr = await session.get(Frame, frame_id)
-                if fr is None:
-                    return False
-                session.add(
-                    Artifact(
-                        project_id=project_id,
-                        frame_id=fr.id,
-                        kind=ArtifactKind.scene_video,
-                        uuid=uuid.uuid4().hex,
-                        path=str(result.file_path),
-                        meta={"shot": 1},
-                    )
+        async with SessionLocal() as session:
+            fr = await session.get(Frame, frame_id)
+            if fr is None:
+                return False
+            session.add(
+                Artifact(
+                    project_id=project_id,
+                    frame_id=fr.id,
+                    kind=ArtifactKind.scene_video,
+                    uuid=uuid.uuid4().hex,
+                    path=str(result.file_path),
+                    meta={"shot": 1},
                 )
-                fr.status = FrameStatus.video_generated
-                if pre_video_hash is not None:
-                    attrs = dict(fr.attrs or {})
-                    attrs["video_input_hash"] = pre_video_hash
-                    fr.attrs = attrs
-                _clear_video_inflight(fr)
-                await session.commit()
-            await _reset_video_fail_db(project_id, frame_id)
-            out = Path(result.file_path)
-            archive_older_frame_clips(out_dir, frame_number, shot=1, keep=out)
-            async with clips_lock:
-                session_clip_paths.append(out)
-            logger.info("[#{}] frame {} video: {}", project_id, frame_number, result.file_path)
-            try:
-                from app.services.event_bus import publish_project_event
+            )
+            fr.status = FrameStatus.video_generated
+            if pre_video_hash is not None:
+                attrs = dict(fr.attrs or {})
+                attrs["video_input_hash"] = pre_video_hash
+                fr.attrs = attrs
+            _clear_video_inflight(fr)
+            await session.commit()
+        await _reset_video_fail_db(project_id, frame_id)
+        out = Path(result.file_path)
+        archive_older_frame_clips(out_dir, frame_number, shot=1, keep=out)
+        async with clips_lock:
+            session_clip_paths.append(out)
+        logger.info("[#{}] frame {} video: {}", project_id, frame_number, result.file_path)
+        try:
+            from app.services.event_bus import publish_project_event
 
-                await publish_project_event(
-                    project_id,
-                    event_type="video_generated",
-                    payload={"frame_number": frame_number, "path": str(result.file_path)},
-                )
-            except Exception:  # noqa: BLE001
-                pass
-            return True
+            await publish_project_event(
+                project_id,
+                event_type="video_generated",
+                payload={"frame_number": frame_number, "path": str(result.file_path)},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return True
 
 
 async def _shot2_job(

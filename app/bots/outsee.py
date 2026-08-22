@@ -351,9 +351,8 @@ async def _is_aspect_selected(page: Any, sel: str) -> bool | None:
         ):
             try:
                 v = await loc.get_attribute(attr, timeout=200)
-                if v is not None:
-                    if str(v).lower() == want:
-                        return True
+                if v is not None and str(v).lower() == want:
+                    return True
             except Exception:  # noqa: BLE001
                 continue
         # Класс с маркером "selected" / "active" / "checked".
@@ -998,9 +997,7 @@ def outsee_error_is_moderation(err: OutseeImageError) -> bool:
     failure = str(ctx.get("failure") or "")
     if failure and _outsee_failure_kind(failure) == "moderation":
         return True
-    if _outsee_failure_kind(err.reason or "") == "moderation":
-        return True
-    return False
+    return _outsee_failure_kind(err.reason or "") == "moderation"
 
 
 def outsee_error_kind(err: OutseeImageError) -> str:
@@ -1134,9 +1131,7 @@ def _outsee_failure_looks_like_prompt_body(text: str) -> bool:
         return False
     if "запрещено" in t or "кадревидео" in t.replace(" ", ""):
         return True
-    if t.endswith("видео") and "отклон" not in t and len(t) > 40:
-        return True
-    return False
+    return bool(t.endswith("видео") and "отклон" not in t and len(t) > 40)
 
 
 def _outsee_failure_text_is_noise(text: str) -> bool:
@@ -1150,9 +1145,7 @@ def _outsee_failure_text_is_noise(text: str) -> bool:
         return True
     if re.search(r"\[ID:\s*P\d+-F\d+", t, re.I) and re.search(r"veo", t, re.I):
         return True
-    if re.match(r"Ошибка\s*Veo", t, re.I):
-        return True
-    return False
+    return bool(re.match(r"Ошибка\s*Veo", t, re.I))
 
 
 def _outsee_failure_is_stale(
@@ -1270,7 +1263,7 @@ _RIFF_MAGIC = b"RIFF"
 _WEBP_TAG = b"WEBP"
 
 
-def _validate_downloaded_image(out_path: Path, *, gen_id: str, img_url: str) -> None:
+def _validate_downloaded_image(out_path: Path, *, gen_id: str | None, img_url: str) -> None:
     """Проверяет, что скачанный файл — настоящая картинка от nano-banana,
     а не placeholder/skeleton/error-page.
 
@@ -1827,9 +1820,7 @@ def _video_url_looks_like_result(url: str | None) -> bool:
     low = url.lower()
     if any(marker in low for marker in _UI_ASSET_MARKERS):
         return False
-    if any(marker in low for marker in _INPUT_REF_MARKERS):
-        return False
-    return True
+    return not any(marker in low for marker in _INPUT_REF_MARKERS)
 
 
 async def _first_visible(
@@ -2087,10 +2078,8 @@ class OutseeBot:
                 e,
             )
         await await_with_cancel(page.wait_for_load_state("domcontentloaded"), project_id)
-        try:
+        with contextlib.suppress(Exception):
             await await_with_cancel(page.wait_for_load_state("networkidle", timeout=15_000), project_id)
-        except Exception:
-            pass
         abort_if_cancelled(project_id)
         logger.info("outsee.generate_image: страница готова, гидрация ok")
 
@@ -2483,13 +2472,11 @@ class OutseeBot:
                 register_active_page(project_id, page)
             try:
                 await await_with_cancel(page.wait_for_load_state("domcontentloaded"), project_id)
-                try:
+                with contextlib.suppress(Exception):
                     await await_with_cancel(
                         page.wait_for_load_state("networkidle", timeout=15_000),
                         project_id,
                     )
-                except Exception:
-                    pass
                 abort_if_cancelled(project_id)
 
                 baseline_result_img = _strip_url_query(await self._result_img_src(page))
@@ -2853,7 +2840,7 @@ class OutseeBot:
                 attempt,
             )
 
-        dump_paths: list[Path] = []
+        dump_paths = []
         h, p = await _dump_page(page, f"{where}_generate_stuck")
         for x in (h, p):
             if x:
@@ -3696,7 +3683,6 @@ class OutseeBot:
         # это чужая из gallery, добавляем в rejected_candidates и ждём
         # дальше.
         fallback_candidate: str | None = None
-        fallback_source: str | None = None  # "result_block" | "new_dom"
         # URL'ы, для которых клик-верификация уже была проведена и
         # ID не совпал. Чтобы не кликать одну и ту же чужую картинку
         # снова и снова.
@@ -3708,7 +3694,7 @@ class OutseeBot:
 
         from app.services.step_cancel import abort_if_cancelled, sleep_cancellable
 
-        failure_baseline = frozenset()
+        failure_baseline: frozenset[str] = frozenset()
         if pre_rejected_text:
             failure_baseline = frozenset({_normalize_outsee_failure_text(pre_rejected_text)})
         stale_logged: set[str] = set()
@@ -3731,7 +3717,7 @@ class OutseeBot:
                         prompt_id_prefix=prompt_id_prefix,
                     )
                 if failure:
-                    ftext = failure["text"]
+                    ftext = str(failure["text"])
                     in_result = bool(failure.get("in_result"))
                     gen_idle = await self._generate_button_enabled(page)
                     if _outsee_failure_is_stale(
@@ -3851,7 +3837,6 @@ class OutseeBot:
                             # если ещё не отвергали этот URL (по норм.).
                             if _strip_url_query(current) not in rejected_candidates:
                                 fallback_candidate = current
-                                fallback_source = "result_block"
 
             new_srcs = await self._completed_new_imgs(page, baseline_all_srcs)
             if new_srcs:
@@ -3898,7 +3883,6 @@ class OutseeBot:
                         # С ID-верификацией — запоминаем как fallback,
                         # но click-verify всё равно сработает (или net_events).
                         fallback_candidate = chosen
-                        fallback_source = "new_dom"
                         # Диагностика: сколько «новых» набралось в список —
                         # если больше 1, то это признак re-sign или gallery
                         # refresh — логируем, чтобы было понятно в логе.
@@ -5250,7 +5234,7 @@ class OutseeBot:
 
         failure_after = await self._detect_outsee_failure(page)
         if failure_after:
-            ftext = failure_after["text"]
+            ftext = str(failure_after["text"])
             in_result = bool(failure_after.get("in_result"))
             is_new = in_result or not pre_rejected_text or ftext != pre_rejected_text
             if is_new:
@@ -7610,7 +7594,7 @@ async def _download_via_card_click(
                 e,
             )
 
-    card = None  # type: ignore[var-annotated]
+    card = None
 
     # Галерея часто появляется позже CDN-URL — ждём thumbs (hero и frames).
     # Если thumb URL уже есть (recover) — короткая пауза, не 45с.
@@ -7731,18 +7715,21 @@ async def _download_via_card_click(
                 "timeout_s": timeout_s,
             },
         )
+    assert card is not None
 
     try:
         card_tag = await card.evaluate("(el) => (el && el.tagName ? el.tagName.toLowerCase() : '')")
     except Exception:  # noqa: BLE001
         card_tag = ""
 
+    card_for_src: Any = card
+
     async def _card_img_src() -> str | None:
         try:
             if card_tag == "img":
-                src = await card.get_attribute("src")
+                src = await card_for_src.get_attribute("src")
                 return src if isinstance(src, str) and src else None
-            src = await card.locator("img").first.get_attribute("src")
+            src = await card_for_src.locator("img").first.get_attribute("src")
             return src if isinstance(src, str) and src else None
         except Exception:  # noqa: BLE001
             return None
@@ -8035,14 +8022,15 @@ async def _recon_generate_buttons(kind: str = "video") -> None:
             json.dumps(report, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        png_path = dumps_dir / f"{label}.png"
-        html_path = dumps_dir / f"{label}.html"
+        png_path: Path | None = dumps_dir / f"{label}.png"
+        html_path: Path | None = dumps_dir / f"{label}.html"
         try:
             await page.screenshot(path=str(png_path), full_page=True, timeout=15_000)
         except Exception as e:  # noqa: BLE001
             logger.warning("recon screenshot failed: {}", e)
             png_path = None
         try:
+            assert html_path is not None
             html_path.write_text(await page.content(), encoding="utf-8")
         except Exception as e:  # noqa: BLE001
             logger.warning("recon html failed: {}", e)

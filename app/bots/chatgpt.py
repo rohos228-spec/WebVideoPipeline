@@ -124,9 +124,7 @@ def composer_text_already_present(expected: str, draft: str) -> bool:
     if len(dr) >= len(exp) * 1.6:
         return False
     head = exp[: min(50, len(exp))]
-    if dr.startswith(head) and len(dr) <= len(exp) + 40:
-        return True
-    return False
+    return bool(dr.startswith(head) and len(dr) <= len(exp) + 40)
 
 
 def composer_text_is_duplicated(expected: str, draft: str) -> bool:
@@ -2507,9 +2505,12 @@ class ChatGPTBot:
             for idx in range(count - 1, -1, -1):
                 btn = loc.nth(idx)
                 aria = (await btn.get_attribute("aria-label")) or ""
-                if sel.endswith("behavior-btn") and aria:
-                    if not any(aria.lower().endswith(ext) for ext in _FILE_EXTENSIONS):
-                        continue
+                if (
+                    sel.endswith("behavior-btn")
+                    and aria
+                    and not any(aria.lower().endswith(ext) for ext in _FILE_EXTENSIONS)
+                ):
+                    continue
                 return btn
         return None
 

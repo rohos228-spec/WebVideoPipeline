@@ -17,7 +17,6 @@ async def ensure_default_project() -> int | None:
         if count and int(count) > 0:
             return None
 
-    auto = False
     pid = await seed(topic=DEFAULT_TOPIC, hero_mode=DEFAULT_HERO_MODE)
     if pid:
         logger.info("default project #{} created (auto_mode=False)", pid)

@@ -59,7 +59,7 @@ def test_segment_bounds_cap_at_eight() -> None:
     assert 1 <= len(segs) <= 8
     assert segs[0][0] == 0.0
     assert abs(segs[-1][1] - 508.81) < 0.02
-    for prev, cur in zip(segs, segs[1:]):
+    for prev, cur in zip(segs, segs[1:], strict=False):
         assert cur[0] >= prev[0]
         assert cur[1] > cur[0]
 
@@ -90,7 +90,7 @@ def test_nemo_timing_methods_cover_master(method_id: str) -> None:
     assert len(timings) == 5
     assert timings[0].start_ts == 0.0
     assert abs(timings[-1].end_ts - master) < 0.02
-    for prev, cur in zip(timings, timings[1:]):
+    for prev, cur in zip(timings, timings[1:], strict=False):
         assert cur.start_ts >= prev.end_ts - 0.001
     assert count_crumb_frames(timings) == 0
 

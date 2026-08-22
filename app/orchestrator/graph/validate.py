@@ -132,10 +132,10 @@ def normalize_check_feedback_edges(
         break
 
     if patches:
-        n = len(patches)
+        n_patches = len(patches)
         warnings.append(
-            f"петля через проверку: {n} стрелк"
-            f"{'а' if n == 1 else 'и'} «Связь»→«Не ок» (ветки «Ок» не трогали)"
+            f"петля через проверку: {n_patches} стрелк"
+            f"{'а' if n_patches == 1 else 'и'} «Связь»→«Не ок» (ветки «Ок» не трогали)"
         )
     return out_edges, warnings, patches, soft_exclude
 

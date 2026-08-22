@@ -381,9 +381,7 @@ def _looks_like_image_bytes(raw: bytes, content_type: str | None = None) -> bool
         return True
     if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
         return True
-    if ctype.startswith("image/"):
-        return True
-    return False
+    return bool(ctype.startswith("image/"))
 
 
 async def _verify_hosted_image(
@@ -442,7 +440,7 @@ def _jpeg_variant(raw: bytes, *, max_side: int = 2048, quality: int = 85) -> tup
     except Exception:  # noqa: BLE001
         return None
     try:
-        img = Image.open(BytesIO(raw))
+        img: Image.Image = Image.open(BytesIO(raw))
         img = img.convert("RGB")
         w, h = img.size
         scale = min(1.0, float(max_side) / float(max(w, h, 1)))
@@ -1047,9 +1045,8 @@ async def generate_video(
 
     # Veo: каталог Outsee фиксирует duration_sec=8; 4/6 шлём и потом режем ffmpeg.
     dur = int(duration or 8)
-    if model == "veo-3-1-lite":
-        if dur not in {4, 6, 8}:
-            dur = 8
+    if model == "veo-3-1-lite" and dur not in {4, 6, 8}:
+        dur = 8
     body["duration_sec"] = dur
 
     # Пайплайн / Studio: звук ВСЕГДА выкл. Veo всё равно может вшить AAC —

@@ -93,8 +93,11 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 #   xlsx_step_runners._one (sem/bi_seq/batch_n — фабрики), db_browser lambda
 #   (spec — snapshot до следующей итерации). Подавление per-line 14×
 #   noqa многословно, реальных багов нет.
+# UP042 (str, Enum → StrEnum): меняет str()/f-string всех статусов
+#   («ProjectStatus.new» → «new») — логи, сравнения, сериализация. Не
+#   косметика; включать только отдельным изменением с прогоном.
 ignore = [
-    "E501", "B008", "E402", "B023",
+    "E501", "B008", "E402", "B023", "UP042",
     "SIM102", "SIM103", "SIM105", "SIM108", "SIM115", "SIM117",
 ]
 

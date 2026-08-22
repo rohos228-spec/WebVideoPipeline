@@ -1101,12 +1101,13 @@ async def reset_step(
     cone_keys = _cascade_level_keys(project, step_code)
     if cone_keys is not None:
         wanted: set[str] | None = set(cone_keys)
-        start_idx = 0
+        start_idx: int = 0
     else:
         wanted = None
-        start_idx = _resolve_start_index(step_code)
-        if start_idx is None:
+        resolved = _resolve_start_index(step_code)
+        if resolved is None:
             return {"error": f"unknown step: {step_code}"}
+        start_idx = resolved
 
     summary: dict[str, Any] = {}
     steps_wiped: list[str] = []

@@ -47,6 +47,8 @@ def png_corners_look_sheet_bg(path: Path) -> bool | None:
         ]
         whiteish = 0
         for pix in pts:
+            if not isinstance(pix, (tuple, list)) or len(pix) < 3:
+                continue
             r, g, b = int(pix[0]), int(pix[1]), int(pix[2])
             if r >= 210 and g >= 210 and b >= 210:
                 whiteish += 1

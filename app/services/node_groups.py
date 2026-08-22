@@ -1091,8 +1091,10 @@ async def insert_node_group(
     meta["excel_gpt_nodes"] = egn
 
     # Флаги проекта из группы (например scene_design_enabled).
-    for k, v in group.project_meta.items():
-        meta[k] = v
+    pm = group.project_meta
+    for k_str in pm:
+        v: Any = pm[k_str]
+        meta[k_str] = v
 
     meta["canvas_graph"] = build_canvas_graph_payload(
         workflow_id=int(workflow_id or 0),

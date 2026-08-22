@@ -515,13 +515,7 @@ def is_skippable_empty_prompt(prompt: str) -> bool:
                 return True
             if rest.startswith("кадр ") and "prompt_" in rest and len(rest) < 80:
                 return True
-    if re.fullmatch(
-        r"(кадр\s*\d+\s*/\s*prompt_\d+\s*:?\s*)+",
-        low,
-        flags=re.IGNORECASE,
-    ):
-        return True
-    return False
+    return bool(re.fullmatch(r"(кадр\s*\d+\s*/\s*prompt_\d+\s*:?\s*)+", low, flags=re.IGNORECASE))
 
 
 def strip_prompt_id_lines(prompt: str) -> str:

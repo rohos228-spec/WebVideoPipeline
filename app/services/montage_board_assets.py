@@ -87,9 +87,9 @@ def archive_file(
         # Fallback: копия в old/, unlink исходника (если всё ещё locked — оставляем оба).
         try:
             shutil.copy2(str(path), str(dest))
-        except OSError:
+        except OSError as copy_err:
             if last_err is not None:
-                raise last_err
+                raise last_err from copy_err
             raise
         try:
             path.unlink()
@@ -195,10 +195,7 @@ async def finalize_scene_image(
     """После успешной генерации/upload: архив старых файлов, artifact на new_path."""
     _assert_new_file_ready(new_path)
     scenes = project.data_dir / "scenes"
-    if shot == 2:
-        patterns = [shot2_file_pattern(frame_number)]
-    else:
-        patterns = [f"frame_{frame_number:03d}_*.png"]
+    patterns = [shot2_file_pattern(frame_number)] if shot == 2 else [f"frame_{frame_number:03d}_*.png"]
     purged = purge_replaced_media(
         scenes,
         patterns=patterns,
@@ -258,10 +255,7 @@ async def finalize_scene_video(
     """После успешной генерации/upload: архив старых клипов, artifact на new_path."""
     _assert_new_file_ready(new_path, min_bytes=1024)
     videos = project.data_dir / "videos"
-    if shot == 2:
-        patterns = [shot2_video_file_pattern(frame_number)]
-    else:
-        patterns = [f"clip_{frame_number:03d}_*.mp4"]
+    patterns = [shot2_video_file_pattern(frame_number)] if shot == 2 else [f"clip_{frame_number:03d}_*.mp4"]
     purged = purge_replaced_media(
         videos,
         patterns=patterns,
@@ -317,10 +311,7 @@ async def delete_scene_image(
     shot: int,
 ) -> bool:
     scenes = project.data_dir / "scenes"
-    if shot == 2:
-        pattern = shot2_file_pattern(frame_number)
-    else:
-        pattern = f"frame_{frame_number:03d}_*.png"
+    pattern = shot2_file_pattern(frame_number) if shot == 2 else f"frame_{frame_number:03d}_*.png"
     deleted = False
     if scenes.is_dir():
         for p in list(scenes.glob(pattern)):
@@ -360,10 +351,7 @@ async def delete_scene_video(
     shot: int,
 ) -> bool:
     videos = project.data_dir / "videos"
-    if shot == 2:
-        globs = [shot2_video_file_pattern(frame_number)]
-    else:
-        globs = [f"clip_{frame_number:03d}_*.mp4"]
+    globs = [shot2_video_file_pattern(frame_number)] if shot == 2 else [f"clip_{frame_number:03d}_*.mp4"]
     deleted = False
     if videos.is_dir():
         for g in globs:

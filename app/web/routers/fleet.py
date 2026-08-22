@@ -215,7 +215,7 @@ async def sync_node(node_id: int, _user: AuthDep = None) -> dict:
             node.status = FleetNodeStatus.online
             node.last_seen = datetime.now(UTC)
             node.hostname = platform.node()
-            node.pipeline_version = ver.get("label") or str(ver.get("version"))
+            node.pipeline_version = str(ver.get("label") or ver.get("version") or "")
             await session.commit()
             return {
                 "ok": True,
@@ -345,8 +345,8 @@ async def node_upload_file(
             node.base_url,
             token,
             path,
-            file.filename or Path(path).name,
-            content,
+            filename=file.filename or Path(path).name,
+            file_bytes=content,
         )
     except FleetAgentError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc

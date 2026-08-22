@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TypeVar
@@ -128,10 +129,8 @@ async def telegram_style_ask_and_download(
             raise RuntimeError(f"скачанный xlsx невалиден: {err}")
         if dl_path != target:
             replace_with_backup(target, dl_path)
-            try:
+            with contextlib.suppress(OSError):
                 dl_path.unlink()
-            except OSError:
-                pass
             logger.info("xlsx-gpt-flow/api: {} обновлён (с бэкапом)", target.name)
 
     if download_path.suffix.lower() == ".txt":

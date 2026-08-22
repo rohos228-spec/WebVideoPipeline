@@ -50,9 +50,7 @@ def _cell_is_control_junk(value: object) -> bool:
         return True
     if _CONTROL_JUNK_RE.search(s):
         return True
-    if "CONTINUE_XLSX" in s.upper().replace(" ", ""):
-        return True
-    return False
+    return "CONTINUE_XLSX" in s.upper().replace(" ", "")
 
 
 def _row_has_control_junk(cells: list[str]) -> bool:

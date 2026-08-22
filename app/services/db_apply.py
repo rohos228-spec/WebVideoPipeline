@@ -641,8 +641,9 @@ def expand_scene_registry_onto_frames(
             scene_frames.setdefault(sid, []).append(fr)
 
     for sid, frs in scene_frames.items():
-        sc = by_id.get(sid)
-        if not sc or not frs:
+        sc_lookup = by_id.get(sid)
+        sc_inner: dict[str, Any] = sc_lookup if isinstance(sc_lookup, dict) else {}
+        if not sc_inner or not frs:
             continue
         # de-dupe preserving order
         seen: set[int] = set()
@@ -653,43 +654,46 @@ def expand_scene_registry_onto_frames(
                 continue
             seen.add(fid)
             ordered.append(fr)
-        shots = sc.get("shots") if isinstance(sc.get("shots"), list) else []
+        shots = sc_inner.get("shots") if isinstance(sc_inner.get("shots"), list) else []
         for idx, fr in enumerate(ordered):
             attrs = dict(fr.attrs or {})
             changed = False
             if _set(attrs, "shot01_id_scene", sid, overwrite=True):
                 changed = True
             for key, src in (
-                ("place", sc.get("место") or sc.get("place")),
-                ("scene_sense", sc.get("смысл_сцены") or sc.get("scene_sense")),
-                ("visual_type", sc.get("тип_сцены") or sc.get("visual_type")),
-                ("cluster", sc.get("номер_кластера") or sc.get("cluster")),
+                ("place", sc_inner.get("место") or sc_inner.get("place")),
+                ("scene_sense", sc_inner.get("смысл_сцены") or sc_inner.get("scene_sense")),
+                ("visual_type", sc_inner.get("тип_сцены") or sc_inner.get("visual_type")),
+                ("cluster", sc_inner.get("номер_кластера") or sc_inner.get("cluster")),
                 (
                     "scene_lighting",
-                    sc.get("освещение") or sc.get("lighting") or sc.get("scene_lighting"),
+                    sc_inner.get("освещение") or sc_inner.get("lighting") or sc_inner.get("scene_lighting"),
                 ),
                 (
                     "scene_structure",
-                    sc.get("структура_сцены") or sc.get("scene_structure"),
+                    sc_inner.get("структура_сцены") or sc_inner.get("scene_structure"),
                 ),
-                ("edit_type", sc.get("тип_стыка") or sc.get("edit_type")),
+                ("edit_type", sc_inner.get("тип_стыка") or sc_inner.get("edit_type")),
                 (
                     "scene_transition",
-                    sc.get("переход_в_сцену") or sc.get("переход_в_кадр") or sc.get("scene_transition"),
+                    sc_inner.get("переход_в_сцену")
+                    or sc_inner.get("переход_в_кадр")
+                    or sc_inner.get("scene_transition"),
                 ),
                 (
                     "scene_start_words",
-                    sc.get("start_words") or sc.get("scene_start_words"),
+                    sc_inner.get("start_words") or sc_inner.get("scene_start_words"),
                 ),
-                ("scene_end_words", sc.get("end_words") or sc.get("scene_end_words")),
-                ("scene_time_sec", sc.get("время_сек")),
+                ("scene_end_words", sc_inner.get("end_words") or sc_inner.get("scene_end_words")),
+                ("scene_time_sec", sc_inner.get("время_сек")),
             ):
                 if _set(attrs, key, src, overwrite=True):
                     changed = True
             # Один shot → один кадр (по порядку внутри сцены).
             # accent — с ШОТА, не клон сцены на все колонки.
-            if idx < len(shots) and isinstance(shots[idx], dict):
-                sh = shots[idx]
+            shots_list: list[Any] = shots if isinstance(shots, list) else []
+            if idx < len(shots_list) and isinstance(shots_list[idx], dict):
+                sh: dict[str, Any] = shots_list[idx]
                 shot_id = str(sh.get("id_shot") or f"shot_{idx + 1:02d}").strip()
                 if _set(attrs, "shot01_id_shot", shot_id, overwrite=True):
                     changed = True
@@ -699,8 +703,8 @@ def expand_scene_registry_onto_frames(
                 shot_lighting = (
                     sh.get("освещение")
                     or sh.get("lighting")
-                    or sc.get("освещение")
-                    or sc.get("lighting")
+                    or sc_inner.get("освещение")
+                    or sc_inner.get("lighting")
                     or ""
                 )
                 for key, src in (
@@ -723,13 +727,15 @@ def expand_scene_registry_onto_frames(
                 if sh.get("персонажи") is not None:
                     if _set(attrs, "characters", sh.get("персонажи"), overwrite=True):
                         changed = True
-                elif sc.get("персонажи_сцены") is not None:
-                    if _set(attrs, "characters", sc.get("персонажи_сцены"), overwrite=True):
-                        changed = True
+                elif sc_inner.get("персонажи_сцены") is not None and _set(
+                    attrs, "characters", sc_inner.get("персонажи_сцены"), overwrite=True
+                ):
+                    changed = True
             else:
                 # Кадр без своего shot — не копируем scene.accent (иначе все
                 # колонки сцены с одним акцентом).
-                if "accent" in attrs and len(shots) > 0:
+                shots_list = shots if isinstance(shots, list) else []
+                if "accent" in attrs and len(shots_list) > 0:
                     attrs.pop("accent", None)
                     changed = True
             if changed:
@@ -1113,7 +1119,7 @@ async def apply_ops(
             raise ApplyOpsError("для target=frame нужен frame_uuid")
         # Все кадры проекта — иначе near-miss не к чему привязать.
         frames = list((await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars())
-        by_uuid = {f.uuid: f for f in frames}
+        by_uuid = {str(f.uuid or ""): f for f in frames}
         # GPT часто пишет номер кадра ("78") вместо uuid — сначала remap по number.
         by_number: dict[int, list[str]] = {}
         for f in frames:

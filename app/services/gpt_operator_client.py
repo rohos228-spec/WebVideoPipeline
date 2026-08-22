@@ -11,6 +11,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -328,7 +329,7 @@ async def _run_operator_api_real(
         from app.contracts import APPLY_OPS
 
         apply_ops_contract = APPLY_OPS
-    result = await chat(
+    result: Any = await chat(
         prompt=prompt_for_model,
         accompanying=accomp,
         input_paths=chat_paths,

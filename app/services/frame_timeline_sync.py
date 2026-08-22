@@ -309,7 +309,9 @@ async def sync_frame_timestamps_from_voice(
             persist_words=persist_whisper or force_whisper,
         )
     else:
-        words = load_words_json(Path(whisper_art.path))  # type: ignore[arg-type]
+        if whisper_art is None or not whisper_art.path:
+            return {"skipped": "no whisper artifact"}
+        words = load_words_json(Path(whisper_art.path))
         clips = frame_clips_from_whisper(cells, words, master, voice_path)
         source = "words_json"
         if clips_look_equal_split(clips, master) and not whisper_fresh:
@@ -612,11 +614,12 @@ async def sync_frame_timestamps_for_board(
         if f.start_ts is not None and f.end_ts is not None and float(f.end_ts) > float(f.start_ts)
     )
     ts_ok = have_ts >= max(1, int(len(frames) * 0.85))
-    cache_mtime = _xlsx_mtime_key(float(cache.get("xlsx_mtime") or 0.0)) if cache else None
+    cache_dict: dict[str, Any] = cache if isinstance(cache, dict) else {}
+    cache_mtime = _xlsx_mtime_key(float(cache_dict.get("xlsx_mtime") or 0.0)) if cache else None
     cache_hit = (
         cache_mtime is not None
         and cache_mtime == xlsx_key
-        and int(cache.get("frame_count") or 0) == len(frames)
+        and int(cache_dict.get("frame_count") or 0) == len(frames)
         and ts_ok
     )
     mem_hit = ts_ok and _r15_memory_hit(int(project.id), xlsx_key, len(frames))

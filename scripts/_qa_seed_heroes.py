@@ -54,7 +54,7 @@ def main() -> None:
         ws.cell(7, col).value = ""
     # clear unused template cols 5+
     for col in range(5, 8):
-        for row in range(1, 8):
+        for _row in range(1, 8):
             if col > 4:
                 pass
     wb.save(XLSX)

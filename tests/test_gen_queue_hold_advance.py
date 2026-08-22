@@ -65,6 +65,7 @@ def test_should_not_hold_full_mode():
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_harness_gate
 async def test_maybe_auto_advance_holds_at_script_target(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,

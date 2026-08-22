@@ -203,7 +203,8 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
                     main_part = part
             if main_part is None and parts:
                 main_part = parts[-1]
-            glav = cell.get("главное") if isinstance(cell.get("главное"), dict) else {}
+            glav_raw_outer = cell.get("главное")
+            glav: dict[str, Any] = glav_raw_outer if isinstance(glav_raw_outer, dict) else {}
             glav = dict(glav)
             if main_part and not str(glav.get("якорь_в_кадрах") or "").strip():
                 glav = {
@@ -270,13 +271,15 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
             num = _cell_frame_number(sc)
             if num is None:
                 continue
-            parts = sc.get("смысловые_части")
-            if not isinstance(parts, list) or not parts:
-                parts = []
+            parts_list: list[dict[str, Any]] = []
+            sp_raw = sc.get("смысловые_части")
+            if isinstance(sp_raw, list):
+                parts_list = [p for p in sp_raw if isinstance(p, dict)]
+            if not parts_list:
                 for bit in sc.get("биты") or []:
                     if not isinstance(bit, dict):
                         continue
-                    parts.append(
+                    parts_list.append(
                         {
                             "порядок": bit.get("порядок"),
                             "тип": bit.get("тип") or "действие",
@@ -287,20 +290,23 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
                             "главный": False,
                         }
                     )
-                if parts:
-                    parts[-1]["главный"] = True
-            glav = sc.get("главное") if isinstance(sc.get("главное"), dict) else {}
-            if not parts and glav:
-                ank = str(glav.get("якорь_в_кадрах") or "").strip()
-                if ank or glav.get("глагол") or glav.get("что"):
-                    parts = [
+                if parts_list:
+                    parts_list[-1]["главный"] = True
+            glav_inner_raw = sc.get("главное")
+            glav_inner: dict[str, Any] = glav_inner_raw if isinstance(glav_inner_raw, dict) else {}
+            if not parts_list and glav_inner:
+                ank = str(glav_inner.get("якорь_в_кадрах") or "").strip()
+                if ank or glav_inner.get("глагол") or glav_inner.get("что"):
+                    parts_list = [
                         {
                             "порядок": 1,
-                            "тип": glav.get("тип") or "действие",
-                            "глагол_или_суть": str(glav.get("глагол") or glav.get("что") or "").strip(),
-                            "изменение": str(glav.get("изменение") or "").strip(),
+                            "тип": glav_inner.get("тип") or "действие",
+                            "глагол_или_суть": str(
+                                glav_inner.get("глагол") or glav_inner.get("что") or ""
+                            ).strip(),
+                            "изменение": str(glav_inner.get("изменение") or "").strip(),
                             "якорь": ank,
-                            "нить": str(glav.get("нить") or "").strip(),
+                            "нить": str(glav_inner.get("нить") or "").strip(),
                             "главный": True,
                         }
                     ]
@@ -310,22 +316,22 @@ def normalize_skeleton_draft(draft: dict[str, Any]) -> dict[str, Any]:
                 "связь_с_прошлой": sc.get("связь_с_прошлой")
                 or {"тип": "начало" if i == 0 else "продолжение", "что_связывает": ""},
                 "фокус": str(sc.get("фокус") or sc.get("суть") or "").strip(),
-                "смысловые_части": parts,
+                "смысловые_части": parts_list,
                 "предметы": sc.get("предметы") or [],
                 "персонажи": sc.get("персонажи") or [],
                 "время": sc.get("время") or "",
                 "длительность_сек": sc.get("длительность_сек"),
             }
-            if glav:
-                cell_out["главное"] = glav
+            if glav_inner:
+                cell_out["главное"] = glav_inner
             if sc.get("место_id"):
                 cell_out["место_id"] = sc.get("место_id")
             if sc.get("фон_разовый"):
                 cell_out["фон_разовый"] = sc.get("фон_разовый")
             # Слоты: переносим из legacy-сцены или синтезируем из битов.
             legacy_slots = [s for s in (sc.get("слоты") or []) if isinstance(s, dict)]
-            if not legacy_slots and parts:
-                legacy_slots = _slots_from_parts(parts, sc.get("длительность_сек"))
+            if not legacy_slots and parts_list:
+                legacy_slots = _slots_from_parts(parts_list, sc.get("длительность_сек"))
             if legacy_slots:
                 cell_out["слоты"] = legacy_slots
                 sc["слоты"] = legacy_slots
@@ -986,7 +992,8 @@ def explode_glued_vo_scenes(
         nums = _scene_frames(sc)
         n0 = nums[0] if nums else i + 1
         sc["id_scene"] = f"scene_{n0:02d}"
-        link = sc.get("связь_с_прошлой") if isinstance(sc.get("связь_с_прошлой"), dict) else {}
+        link_raw = sc.get("связь_с_прошлой")
+        link: dict[str, Any] = link_raw if isinstance(link_raw, dict) else {}
         bind = str(link.get("что_связывает") or sc.get("место_id") or "").strip()
         if i == 0:
             sc["связь_с_прошлой"] = {"тип": "начало", "что_связывает": bind}
@@ -1091,9 +1098,8 @@ def validate_skeleton_slots(scenes: list[Any]) -> None:
                 durs.append(float(s.get("длительность_сек") or 0))
             except (TypeError, ValueError):
                 durs.append(0.0)
-        if total > 0 and slots and any(d > 0 for d in durs):
-            if abs(sum(durs) - total) > 0.6:
-                problems.append(f"{sid}: сумма слотов {sum(durs):.1f}с != ячейка {total:.1f}с")
+        if total > 0 and slots and any(d > 0 for d in durs) and abs(sum(durs) - total) > 0.6:
+            problems.append(f"{sid}: сумма слотов {sum(durs):.1f}с != ячейка {total:.1f}с")
     if problems:
         raise ag.SceneDesignAgentError("scene_design/skeleton: слоты — " + "; ".join(problems[:8]))
 

@@ -132,7 +132,9 @@ def validate_plan_numeric(
             continue
     missing = [iv for iv in EXPECTED_PLAN_INTERVALS if iv not in found]
     product_required = bool(product_name and product_name.strip())
-    product_mentioned = quote_in_text(product_name.strip(), plan_text) if product_required else False
+    product_mentioned = (
+        quote_in_text(product_name.strip(), plan_text) if product_required and product_name else False
+    )
     return {
         "intervals_found": sorted(found),
         "missing_intervals": missing,
@@ -210,7 +212,9 @@ def validate_script_numeric(
             repeated.append(starts[i])
 
     product_required = bool(product_name and product_name.strip())
-    product_mentioned = quote_in_text(product_name.strip(), script_text) if product_required else False
+    product_mentioned = (
+        quote_in_text(product_name.strip(), script_text) if product_required and product_name else False
+    )
 
     return {
         "char_count": char_count,

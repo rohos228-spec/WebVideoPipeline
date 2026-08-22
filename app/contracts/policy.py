@@ -181,7 +181,6 @@ async def run_with_contract(
     attempts = 0
     rejected: list[Path] = []
     feedback: str | None = None
-    last_err: LlmContractError | None = None
 
     # Этап 3: строки llm_calls попытки собираются скоупом учёта; при
     # отказе контракта (HTTP успешен, ответ отвергнут) они помечаются
@@ -209,7 +208,6 @@ async def run_with_contract(
                     detail={"problems": problems[:20]},
                 )
         except LlmContractError as e:
-            last_err = e
             await llm_ledger.mark_contract_rejected(attempt_rows)
             if e.kind == "parse":
                 parse_fails += 1

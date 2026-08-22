@@ -84,7 +84,7 @@ def align_script_tokens(script_tokens: list[str], words: list[WordTS]) -> list[i
     last_i, last_w = known[-1]
     for i in range(last_i + 1, len(result)):
         result[i] = last_w
-    for (a_i, a_w), (b_i, b_w) in zip(known, known[1:]):
+    for (a_i, a_w), (b_i, b_w) in zip(known, known[1:], strict=False):
         gap = b_i - a_i
         if gap <= 1:
             continue
@@ -378,7 +378,7 @@ def _timings_proportional_to_tokens(
         weights = [1.0] * len(spans)
     else:
         weights = [max(len(s.lower_words), 1) for s in spans]
-    raw = [FrameTiming(s.frame_number, 0.0, 0.0, float(w)) for s, w in zip(spans, weights)]
+    raw = [FrameTiming(s.frame_number, 0.0, 0.0, float(w)) for s, w in zip(spans, weights, strict=False)]
     return normalize_contiguous(raw, audio_duration)
 
 
@@ -513,7 +513,7 @@ def timings_from_word_transitions(
         weights = [float(max(len(spans[k].lower_words), 1)) for k in range(i, j)]
         total_w = sum(weights) or float(len(weights))
         pos = group_start
-        for k, w in zip(range(i, j), weights):
+        for k, w in zip(range(i, j), weights, strict=False):
             dur = (w / total_w) * (group_end - group_start)
             starts[k] = pos
             ends[k] = pos + dur
@@ -525,7 +525,7 @@ def timings_from_word_transitions(
         i = j
 
     out: list[FrameTiming] = []
-    for span, s, e in zip(spans, starts, ends):
+    for span, s, e in zip(spans, starts, ends, strict=False):
         if e < s:
             e = s
         out.append(
@@ -639,7 +639,7 @@ def absorb_crumb_durations(
         total_w = sum(weights) or float(len(weights))
         pos = 0.0
         rebuilt: list[FrameTiming] = []
-        for t, w in zip(out, weights):
+        for t, w in zip(out, weights, strict=False):
             dur = (w / total_w) * ad
             rebuilt.append(
                 FrameTiming(
@@ -789,7 +789,7 @@ def map_frames(
 
     out: list[FrameTiming] = []
     pos = 0.0
-    for span, seg_dur in zip(spans, segments):
+    for span, seg_dur in zip(spans, segments, strict=False):
         end = pos + seg_dur
         out.append(
             FrameTiming(
@@ -898,7 +898,7 @@ def normalize_contiguous(timings: list[FrameTiming], audio_duration: float) -> l
     total_weight = sum(weights)
     pos = 0.0
     out: list[FrameTiming] = []
-    for timing, weight in zip(timings, weights):
+    for timing, weight in zip(timings, weights, strict=False):
         dur = (weight / total_weight) * audio_duration
         out.append(
             FrameTiming(

@@ -97,42 +97,41 @@ async def drain_anim_pr_from_image_prompts(
     from app.orchestrator.steps.make_animation_prompts import fill_animation_prompts
     from app.services import animation_prompt_gpt as apg
 
-    async with _lock_for(project_id):
-        async with SessionLocal() as session:
-            project = await session.get(Project, project_id)
-            if project is None:
-                return {"batches": 0, "pending": 0}
-            frames = (
-                (
-                    await session.execute(
-                        select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)
-                    )
+    async with _lock_for(project_id), SessionLocal() as session:
+        project = await session.get(Project, project_id)
+        if project is None:
+            return {"batches": 0, "pending": 0}
+        frames = (
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)
                 )
-                .scalars()
-                .all()
             )
-            pending = apg.collect_batch_items(project, list(frames))
-            if not pending:
-                await sync_anim_pr_noderun_done(session, project)
-                await session.commit()
-                return {"batches": 0, "pending": 0}
-            logger.info(
-                "[#{}] anim_pr_sidecar: drain pending={} (status={})",
-                project_id,
-                len(pending),
-                project.status.value,
-            )
-            stats = await fill_animation_prompts(
-                session,
-                project,
-                finalize_status=False,
-                max_batches=max_batches,
-            )
-            left = len(apg.collect_batch_items(project, list(frames)))
-            if left == 0:
-                await sync_anim_pr_noderun_done(session, project)
+            .scalars()
+            .all()
+        )
+        pending = apg.collect_batch_items(project, list(frames))
+        if not pending:
+            await sync_anim_pr_noderun_done(session, project)
             await session.commit()
-            return {"batches": int(stats.get("batches") or 0), "pending": left}
+            return {"batches": 0, "pending": 0}
+        logger.info(
+            "[#{}] anim_pr_sidecar: drain pending={} (status={})",
+            project_id,
+            len(pending),
+            project.status.value,
+        )
+        stats = await fill_animation_prompts(
+            session,
+            project,
+            finalize_status=False,
+            max_batches=max_batches,
+        )
+        left = len(apg.collect_batch_items(project, list(frames)))
+        if left == 0:
+            await sync_anim_pr_noderun_done(session, project)
+        await session.commit()
+        return {"batches": int(stats.get("batches") or 0), "pending": left}
 
 
 async def _sidecar_loop(project_id: int) -> None:

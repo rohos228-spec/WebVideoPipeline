@@ -9,6 +9,7 @@ Duck-typed под методы, которыми пользуются шаги �
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -308,10 +309,8 @@ class ApiGptClient:
                         magic[:4].hex() if magic else "?",
                         url[:120],
                     )
-                    try:
+                    with contextlib.suppress(OSError):
                         got.unlink(missing_ok=True)
-                    except OSError:
-                        pass
                     continue
             downloaded.append(got)
 
@@ -349,10 +348,8 @@ class ApiGptClient:
 
                 shutil.copy2(src, target)
             if staging.exists() and staging.resolve() != target.resolve():
-                try:
+                with contextlib.suppress(OSError):
                     staging.unlink()
-                except OSError:
-                    pass
             return target
 
         # txt / прочее — текст ответа

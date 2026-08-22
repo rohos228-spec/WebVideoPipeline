@@ -675,12 +675,11 @@ def _human_reply_from_diagnostics(diag_lines: list[str]) -> str:
             sleep = s.split(":", 1)[-1].strip()
         elif s.startswith("- active excel_gpt:"):
             node = s.split(":", 1)[-1].strip()
-        elif s.startswith("- n_") or (s.startswith("- ") and ":" in s and "excel_gpt" in s):
-            if not err:
-                parts = s[2:].split(":", 1)
-                if len(parts) == 2:
-                    node = node or parts[0].strip()
-                    err = parts[1].strip()
+        elif (s.startswith("- n_") or (s.startswith("- ") and ":" in s and "excel_gpt" in s)) and not err:
+            parts = s[2:].split(":", 1)
+            if len(parts) == 2:
+                node = node or parts[0].strip()
+                err = parts[1].strip()
     if hero_bits and any("ОШИБКИ" in h or "c0" in h for h in hero_bits):
         return (
             "Проблема в персонажах (не в статусе ноды): "
@@ -1323,7 +1322,7 @@ def _pipeline_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
     sinks = _side_sink_ids(nodes)
     out: list[dict] = []
     for e in edges:
-        src, tgt = str(e.get("source")), str(e.get("target"))
+        _src, tgt = str(e.get("source")), str(e.get("target"))
         if tgt in sinks:
             continue
         out.append(e)
@@ -2251,15 +2250,15 @@ async def orchestrator_chat(
                 elif "remove_node" in act:
                     # Удаление — только с подтверждением человеком (кнопка в чате).
                     spec = act.get("remove_node") or {}
-                    _nodes, _edges, targets = await _remove_node_targets(session, project, spec)
+                    _nodes, _edges, remove_targets = await _remove_node_targets(session, project, spec)
                     pending_confirm.append(
                         {
                             "kind": "remove_node",
                             "node_key": spec.get("node_key"),
                             "node_type": spec.get("node_type"),
                             "only": spec.get("only"),
-                            "count": len(targets),
-                            "nodes": sorted(targets)[:20],
+                            "count": len(remove_targets),
+                            "nodes": sorted(remove_targets)[:20],
                         }
                     )
                 elif act.get("run_harness"):
@@ -2276,8 +2275,10 @@ async def orchestrator_chat(
                     if isinstance(spec, str):
                         spec = {"path": spec}
                     try:
+                        # B023: lambda capture spec по ссылке — вызывается сразу в to_thread,
+                        # до следующей итерации цикла. Безопасно.
                         rfile = await asyncio.to_thread(
-                            lambda: read_file(
+                            lambda: read_file(  # noqa: B023
                                 str(spec.get("path") or ""),
                                 start_line=spec.get("start_line"),
                                 end_line=spec.get("end_line"),
@@ -2320,7 +2321,8 @@ async def orchestrator_chat(
                     paths = spec if isinstance(spec, list) else None
                     try:
                         # pytest sync — не блокировать event loop (зависание всего UI)
-                        tres = await asyncio.to_thread(lambda: run_tests(paths, timeout=90.0))
+                        # B023: см. выше, lambda вызывается сразу в to_thread.
+                        tres = await asyncio.to_thread(lambda: run_tests(paths, timeout=90.0))  # noqa: B023
                     except CodeAutofixError as e:
                         raise db_apply.ApplyOpsError(str(e)) from None
                     # FAIL не рвёт весь батч — модель видит вывод и чинит дальше
@@ -2344,7 +2346,7 @@ async def orchestrator_chat(
                             "git_commit_push: ожидается объект {message, files?, auto?}"
                         )
                     message = str(spec.get("message") or "").strip()
-                    files = spec.get("files") or []
+                    files: list = spec.get("files") or []
                     if files is not None and not isinstance(files, list):
                         raise db_apply.ApplyOpsError("git_commit_push.files: список путей")
                     auto = bool(spec.get("auto"))
@@ -2373,7 +2375,7 @@ async def orchestrator_chat(
                             }
                         )
                 else:
-                    keys = sorted(str(k) for k in act.keys())
+                    keys = sorted(str(k) for k in act)
                     raise db_apply.ApplyOpsError(
                         f"неизвестное действие {keys}; есть: run_step, stop_step, "
                         "set_option, set_prompt, set_text_llm, open_ui, hitl_decision, "

@@ -71,9 +71,8 @@ async def _latest_words_artifact(
         if method_id in SHARED_NEMO_FULL_METHODS:
             if kind == "nemo_full" or am in SHARED_NEMO_FULL_METHODS:
                 return art
-        elif method_id == "nemo_chunks":
-            if kind == "nemo_chunks" or am == "nemo_chunks":
-                return art
+        elif method_id == "nemo_chunks" and (kind == "nemo_chunks" or am == "nemo_chunks"):
+            return art
     return None
 
 
@@ -348,6 +347,9 @@ async def run_audio_align_for_project(
         words_path = audio_dir / f"words_{method_id}_{uuid.uuid4().hex[:8]}.json"
         dump_words_json(result.words, words_path)
 
+    # R15 сейчас не пишется (см. summary["r15_written"]=0 выше) — оставлено
+    # для совместимости сигнатуры `_persist_align_db_with_retry` и логов.
+    written = 0
     try:
         await _persist_align_db_with_retry(
             project_id,

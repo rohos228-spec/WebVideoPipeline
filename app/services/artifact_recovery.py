@@ -42,10 +42,7 @@ def archive_older_frame_clips(
     from app.services.montage_board_assets import purge_replaced_media
     from app.services.plan_shot2 import shot2_video_file_pattern
 
-    if shot == 2:
-        patterns = [shot2_video_file_pattern(frame_number)]
-    else:
-        patterns = [f"clip_{frame_number:03d}_*.mp4"]
+    patterns = [shot2_video_file_pattern(frame_number)] if shot == 2 else [f"clip_{frame_number:03d}_*.mp4"]
     project = SimpleNamespace(data_dir=videos_dir.parent)
     return purge_replaced_media(
         videos_dir,
@@ -687,7 +684,7 @@ async def recover_hero_references_from_hitl(
         .scalars()
         .all()
     )
-    by_id = _latest_approved_hero_hitl(rows)
+    by_id = _latest_approved_hero_hitl(list(rows))
     if not by_id:
         return []
 

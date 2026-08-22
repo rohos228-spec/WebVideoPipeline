@@ -174,10 +174,7 @@ def _montage_apply_parallel(project: Project) -> int:
     from app.services.img_streams import META_KEY, META_KEY_ALIAS
 
     meta = project.meta if isinstance(project.meta, dict) else {}
-    if META_KEY_ALIAS in meta or META_KEY in meta:
-        n = get_img_streams(project)
-    else:
-        n = max_parallel("outsee")
+    n = get_img_streams(project) if META_KEY_ALIAS in meta or META_KEY in meta else max_parallel("outsee")
     if n <= 0:
         return 1
     return max(1, min(4, n))

@@ -151,8 +151,8 @@ async def trigger_resume_animation_prompts(session: AsyncSession, project: Proje
         .scalars()
         .all()
     )
-    missing_shot1 = scan_missing_animation_prompts(project, frames)
-    missing_shot2 = scan_missing_animation_prompts_shot2(project, frames)
+    missing_shot1 = scan_missing_animation_prompts(project, list(frames))
+    missing_shot2 = scan_missing_animation_prompts_shot2(project, list(frames))
     already_done = sum(1 for fr in frames if (fr.animation_prompt or "").strip())
     if not missing_shot1 and not missing_shot2:
         project.status = ProjectStatus.animation_prompts_ready

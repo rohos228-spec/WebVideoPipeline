@@ -7,6 +7,7 @@ data/monitor/logs/ с ротацией по дате и размеру.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 from datetime import UTC, datetime
@@ -38,10 +39,8 @@ def init(monitor_dir: Path | None = None) -> Path:
     events_dir = _ensure_dir(monitor_dir / "events")
 
     if _sink_id is not None:
-        try:
+        with contextlib.suppress(ValueError):
             logger.remove(_sink_id)
-        except ValueError:
-            pass
 
     _sink_id = logger.add(
         str(logs_dir / "pipeline_{time:YYYY-MM-DD}.log"),
@@ -65,10 +64,8 @@ def init(monitor_dir: Path | None = None) -> Path:
     events_path = events_dir / f"events_{today}.jsonl"
     with _lock:
         if _events_file is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _events_file.close()
-            except Exception:
-                pass
         _events_file = open(events_path, "a", encoding="utf-8")
 
     logger.info("monitor log_sink initialized → {}", monitor_dir)
@@ -129,8 +126,6 @@ def close() -> None:
     global _events_file
     with _lock:
         if _events_file is not None:
-            try:
+            with contextlib.suppress(Exception):
                 _events_file.close()
-            except Exception:
-                pass
             _events_file = None

@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -248,10 +249,8 @@ def normalize_xlsx_to_reference_layout(source: Path, reference: Path) -> bool:
     except Exception as e:  # noqa: BLE001
         logger.warning("xlsx_versioning: normalize failed {}: {}", source, e)
         if tmp.exists():
-            try:
+            with contextlib.suppress(OSError):
                 tmp.unlink()
-            except OSError:
-                pass
         return False
 
     dropped = sorted(actual - expected)

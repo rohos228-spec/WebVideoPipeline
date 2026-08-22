@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import uuid
@@ -305,10 +306,8 @@ def import_legacy_create_media() -> int:
             changed = True
             moved += 1
     if changed:
-        try:
+        with contextlib.suppress(OSError):
             marker.write_text("\n".join(sorted(imported)) + "\n", encoding="utf-8")
-        except OSError:
-            pass
     return moved
 
 
@@ -390,10 +389,7 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
         status = str(meta.get("status") or ("done" if fp.is_file() else "queued"))
         # Не статим файл на каждый poll, если sidecar уже знает bytes.
         meta_bytes = int(meta.get("bytes") or 0)
-        if status == "done" and meta_bytes > 32:
-            has_file = True
-        else:
-            has_file = fp.is_file() and fp.stat().st_size > 32
+        has_file = True if status == "done" and meta_bytes > 32 else fp.is_file() and fp.stat().st_size > 32
         if status == "done" and not has_file:
             status = "failed"
         if status in {"queued", "processing"} and not has_file:
@@ -410,10 +406,8 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
         resolved = str(fp.resolve()) if fp.is_absolute() or fp.exists() else str(fp)
         file_mtime = mtime
         if has_file:
-            try:
+            with contextlib.suppress(OSError):
                 file_mtime = fp.stat().st_mtime
-            except OSError:
-                pass
         elapsed_sec, elapsed_label, persist = resolve_item_elapsed(meta, status=status, mtime=file_mtime)
         if persist and fp is not None:
             try:

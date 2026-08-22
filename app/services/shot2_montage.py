@@ -180,7 +180,7 @@ def build_video_clip_specs(
                 f"кадр {num}: сегмент {segment:.1f}s — битая метка R15 ({ac.start_ts:.2f}–{ac.end_ts:.2f})"
             )
 
-        last_src = _append_scene_clips(
+        _append_scene_clips(
             specs,
             project=project,
             frame_number=num,

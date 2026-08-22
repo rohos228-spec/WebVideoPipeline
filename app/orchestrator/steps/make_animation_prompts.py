@@ -169,7 +169,7 @@ async def fill_animation_prompts(
 
     # Не синкаем из R48 в DB — Excel только экспорт после apply-ops.
     await db_v2.backfill_project_v2(session, project)
-    frames = (
+    frames = list(
         (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
         .scalars()
         .all()

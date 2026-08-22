@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 from typing import Any
 
@@ -549,10 +550,8 @@ def force_scenes_from_chrono(
         # SoT времени — сумма кадров после camera_subdivide, не stale action.время_сек.
         kid_sec = 0.0
         for kid in kids:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 kid_sec += float(kid.get("время_сек") or 0.0)
-            except (TypeError, ValueError):
-                pass
         if kid_sec <= 0:
             try:
                 kid_sec = float(sc.get("время_сек") or 0.0)
@@ -596,7 +595,8 @@ def force_scenes_from_chrono(
         acc: dict[str, float] = defaultdict(float)
         for fr in frames:
             uid = str(getattr(fr, "uuid", "") or "").strip()
-            sid = uuid_to_scene.get(uid)
+            sid_val = uuid_to_scene.get(uid)
+            sid = sid_val if sid_val is not None else ""
             if not sid:
                 continue
             sec, _src = frame_seconds(fr)
@@ -637,9 +637,10 @@ def force_scenes_from_chrono(
     for op in out.get("ops") or []:
         if not isinstance(op, dict):
             continue
-        fields = op.get("fields") if isinstance(op.get("fields"), dict) else {}
-        sid = str(fields.get("id_scene") or "").strip()
-        raw = str(fields.get("персонажи") or "")
+        fields2_raw = op.get("fields")
+        fields2: dict[str, Any] = fields2_raw if isinstance(fields2_raw, dict) else {}
+        sid = str(fields2.get("id_scene") or "").strip()
+        raw = str(fields2.get("персонажи") or "")
         if not sid or not raw:
             continue
         bucket = by_sid_chars.setdefault(sid, [])
@@ -698,7 +699,7 @@ def validate_payload(
         scene_ids.add(sid)
         time_raw = sc.get("время_сек")
         try:
-            declared = float(time_raw)
+            declared = float(time_raw or 0)
         except (TypeError, ValueError):
             declared = 0.0
         if declared <= 0:
@@ -799,8 +800,9 @@ def validate_payload(
         sec, _source = frame_seconds(fr)
         expected_time[sid] = expected_time.get(sid, 0.0) + sec
     for sid, expected in expected_time.items():
-        declared = declared_time.get(sid)
-        if declared is None:
+        declared_raw = declared_time.get(sid)
+        declared = float(declared_raw or 0)
+        if declared_raw is None:
             continue  # про отсутствие время_сек уже reported выше
         if expected <= 0:
             continue  # у кадров нет хронометража — сверять не с чем

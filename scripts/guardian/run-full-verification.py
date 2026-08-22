@@ -301,7 +301,7 @@ def main() -> int:
             "regress",
             "R15-status",
             "project 15 not frames_ready with videos",
-            not (st == "frames_ready"),
+            st != "frames_ready",
             f"status={st}",
         )
         code, vids = http("GET", "/api/projects/15/assets?kind=videos")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -641,10 +642,7 @@ async def preview_xlsx(
             headers_trimmed = _trim_trailing_empty_cols([headers])
             headers = headers_trimmed[0] if headers_trimmed else []
             width = max((len(r) for r in rows), default=len(headers))
-            if len(headers) < width:
-                headers = headers + [""] * (width - len(headers))
-            else:
-                headers = headers[:width]
+            headers = headers + [""] * (width - len(headers)) if len(headers) < width else headers[:width]
 
     wb.close()
     width = max((len(r) for r in rows), default=len(headers))
@@ -720,7 +718,7 @@ async def montage_board_save_queue(
         if not t.startswith(("image_", "video_")):
             continue
         try:
-            fr = int(raw.get("frame_number"))
+            fr = int(raw.get("frame_number") or 0)
         except (TypeError, ValueError):
             continue
         if fr < 1:
@@ -1597,10 +1595,8 @@ async def upload_excel_gpt_file(
         # Удалить старые xlsx в папке uploads этой ноды (кроме нового).
         for old in list(dest_dir.iterdir()):
             if old.is_file() and old.suffix.lower() in {".xlsx", ".xlsm", ".xls"} and old.name != safe_name:
-                try:
+                with contextlib.suppress(OSError):
                     old.unlink()
-                except OSError:
-                    pass
     else:
         names = list(prev_names)
         if safe_name not in names:

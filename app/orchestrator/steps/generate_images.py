@@ -560,7 +560,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         )
 
     # Excel не bootstrap'им: кадры/промты только из БД (явный Import отдельно).
-    frames = (
+    frames = list(
         (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
         .scalars()
         .all()
@@ -793,15 +793,16 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                                     num = int(t["number"])
                                     if disk_has_shot2_image(out_dir, num):
                                         continue
-                                    fr = by_num.get(num)
-                                    if fr is None:
+                                    frame = by_num.get(num)
+                                    if frame is None:
                                         continue
-                                    attrs = dict(fr.attrs or {})
+                                    assert frame is not None
+                                    attrs = dict(frame.attrs or {})
                                     if not (attrs.get(SHOT2_PROMPT_ATTR) or "").strip():
                                         # shot2 без промта — скипаем
                                         continue
                                     attrs[SHOT2_STATUS_ATTR] = "image_prompt_ready"
-                                    fr.attrs = attrs
+                                    frame.attrs = attrs
                                     need_s2 = True
                                 if need_s2:
                                     await session.flush()
@@ -1147,45 +1148,47 @@ async def _generate_frame_job(
     # img_gen_inflight): упавший процесс отдаёт кадр по TTL, два
     # процесса/задачи не генерят дважды. Acquire — после слота провайдера
     # (не жечь TTL в очереди), внутри задачи генерации (owner = задача).
-    async with acquire_image_slot():
-        async with lease_unit(project_id, f"img:{frame_id}" + (":s2" if shot == 2 else "")) as got:
-            if not got:
-                logger.info(
-                    "[#{}] frame_id={} shot={}: занят живым lease — пропуск",
-                    project_id,
-                    frame_id,
-                    shot,
-                )
+    async with (
+        acquire_image_slot(),
+        lease_unit(project_id, f"img:{frame_id}" + (":s2" if shot == 2 else "")) as got,
+    ):
+        if not got:
+            logger.info(
+                "[#{}] frame_id={} shot={}: занят живым lease — пропуск",
+                project_id,
+                frame_id,
+                shot,
+            )
+            return
+        async with SessionLocal() as session:
+            project = await session.get(Project, project_id)
+            frame = await session.get(Frame, frame_id)
+            if project is None or frame is None:
                 return
-            async with SessionLocal() as session:
-                project = await session.get(Project, project_id)
-                frame = await session.get(Frame, frame_id)
-                if project is None or frame is None:
-                    return
+            try:
+                await _generate_and_send(
+                    session,
+                    bot,
+                    outsee,
+                    gpt,
+                    project,
+                    frame,
+                    out_dir,
+                    shot=shot,
+                    shot1_reference=shot1_reference,
+                )
+            finally:
+                # _generate_and_send уже commit'ит; освежим и снимем
+                # legacy-маркер (одноразовая чистка).
                 try:
-                    await _generate_and_send(
-                        session,
-                        bot,
-                        outsee,
-                        gpt,
-                        project,
-                        frame,
-                        out_dir,
-                        shot=shot,
-                        shot1_reference=shot1_reference,
-                    )
-                finally:
-                    # _generate_and_send уже commit'ит; освежим и снимем
-                    # legacy-маркер (одноразовая чистка).
-                    try:
-                        await session.refresh(frame)
-                    except Exception:  # noqa: BLE001
-                        pass
-                    _clear_inflight(frame)
-                    try:
-                        await session.commit()
-                    except Exception:  # noqa: BLE001
-                        pass
+                    await session.refresh(frame)
+                except Exception:  # noqa: BLE001
+                    pass
+                _clear_inflight(frame)
+                try:
+                    await session.commit()
+                except Exception:  # noqa: BLE001
+                    pass
 
 
 async def _run_claimed_batch(
@@ -1223,27 +1226,29 @@ async def _run_claimed_batch(
             # кадра — тот же lease, что в _generate_frame_job.
             from app.services.work_lease import lease_unit
 
-            async with acquire_image_slot():
-                async with lease_unit(project.id, f"img:{fr.id}" + (":s2" if shot == 2 else "")) as got:
-                    if not got:
-                        logger.info(
-                            "[#{}] frame {} shot={}: занят живым lease — пропуск (serial)",
-                            project.id,
-                            fr.number,
-                            shot,
-                        )
-                        return
-                    await _generate_and_send(
-                        session,
-                        bot,
-                        outsee,
-                        gpt,
-                        project,
-                        fr,
-                        out_dir,
-                        shot=shot,
-                        shot1_reference=ref,
+            async with (
+                acquire_image_slot(),
+                lease_unit(project.id, f"img:{fr.id}" + (":s2" if shot == 2 else "")) as got,
+            ):
+                if not got:
+                    logger.info(
+                        "[#{}] frame {} shot={}: занят живым lease — пропуск (serial)",
+                        project.id,
+                        fr.number,
+                        shot,
                     )
+                    return
+                await _generate_and_send(
+                    session,
+                    bot,
+                    outsee,
+                    gpt,
+                    project,
+                    fr,
+                    out_dir,
+                    shot=shot,
+                    shot1_reference=ref,
+                )
         finally:
             try:
                 await session.refresh(fr)

@@ -63,9 +63,7 @@ def is_protected_voice_or_music_file(path: Path) -> bool:
     if path.parent.name == "audio" and path.suffix.lower() in _VOICE_EXTENSIONS:
         if path.stem.lower().startswith("words_"):
             return False
-        if path.stem.lower().startswith(FRAME_AUDIO_PREFIX):
-            return False
-        return True
+        return not path.stem.lower().startswith(FRAME_AUDIO_PREFIX)
     return False
 
 
@@ -216,10 +214,10 @@ def _rescale_clips_to_master(clips: list[FrameAudioClip], master: float) -> list
 
     factor = master / raw_sum
     pos = 0.0
-    out: list[FrameAudioClip] = []
+    scaled: list[FrameAudioClip] = []
     for clip in clips:
         dur = round(clip.duration * factor, 3)
-        out.append(
+        scaled.append(
             FrameAudioClip(
                 frame_number=clip.frame_number,
                 path=clip.path,
@@ -230,9 +228,9 @@ def _rescale_clips_to_master(clips: list[FrameAudioClip], master: float) -> list
             )
         )
         pos += dur
-    out[-1].end_ts = round(master, 3)
-    out[-1].duration = round(out[-1].end_ts - out[-1].start_ts, 3)
-    return out
+    scaled[-1].end_ts = round(master, 3)
+    scaled[-1].duration = round(scaled[-1].end_ts - scaled[-1].start_ts, 3)
+    return scaled
 
 
 def frame_clips_from_whisper(
@@ -394,7 +392,6 @@ def _voiceover_cells_for_frames(
 ) -> list[tuple[int, str]]:
     """Ячейки R49; если пусто — voiceover.txt, БД, локальный split."""
     cell_map = {n: (t or "").strip() for n, t in cells}
-    frame_by_num = {fr.number: fr for fr in frames}
     out: list[tuple[int, str]] = []
     for fr in frames:
         text = cell_map.get(fr.number, "")

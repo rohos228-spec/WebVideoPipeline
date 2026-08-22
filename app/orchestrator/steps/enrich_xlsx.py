@@ -143,7 +143,14 @@ def _synthetic_probe_fail_result(
         "\n## issues\n"
         f"{issues}\n"
     )
-    out_dir = upload_dir(project, node_key)
+    if not node_key:
+        # Раньше падало TypeError внутри upload_dir. Пишем в корень
+        # excel_gpt_uploads/ (петля читает оттуда же), но громко.
+        logger.warning(
+            "[#{}] _synthetic_probe_fail_result без node_key — отчёт в корень excel_gpt_uploads/",
+            project.id,
+        )
+    out_dir = upload_dir(project, node_key or "")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "gpt_reply_raw.txt").write_text(reply, encoding="utf-8")
     analysis = parse_check_analysis(reply)
@@ -934,7 +941,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                             attrs.get("characters") or attrs.get("персонажи") or attrs.get("persons") or ""
                         )
                     frame_rows.append(row)
-                db_ctx: dict = {
+                db_ctx = {
                     "source": "db_v2",
                     "project_id": project.id,
                     "slug": project.slug,

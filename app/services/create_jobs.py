@@ -9,6 +9,7 @@ status=processing когда реально ушёл в API
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -324,10 +325,8 @@ async def _run_job(
             elif final_path != job.path:
                 old_side = job.path.with_suffix(".json")
                 if old_side.is_file() and not final_path.with_suffix(".json").is_file():
-                    try:
+                    with contextlib.suppress(OSError):
                         old_side.replace(final_path.with_suffix(".json"))
-                    except OSError:
-                        pass
 
             job.path = final_path
             job.history_id = f"gen-{final_path.name}"

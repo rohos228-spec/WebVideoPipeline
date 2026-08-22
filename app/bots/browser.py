@@ -14,7 +14,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from loguru import logger
-from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    Page,
+    Playwright,
+    async_playwright,
+)
 
 from app.bots import chrome_cdp as cdp
 from app.settings import settings
@@ -45,7 +51,7 @@ class BrowserSession:
     """Playwright → Browser (CDP) → первый default context."""
 
     def __init__(self) -> None:
-        self._pw = None
+        self._pw: Playwright | None = None
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
         self.force_new_window: bool = False

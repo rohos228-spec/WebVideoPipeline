@@ -242,7 +242,7 @@ def list_block_catalog() -> list[dict[str, Any]]:
     for category, names in list_block_categories().items():
         for name in names:
             path = _first_existing("blocks", category, f"{name}.md")
-            if not path.is_file():
+            if path is None or not path.is_file():
                 continue
             body = path.read_text(encoding="utf-8")
             items.append(

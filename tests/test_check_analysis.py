@@ -112,7 +112,7 @@ def test_save_voiceover_rejects_check_payload(tmp_path: Path, monkeypatch) -> No
     )
     try:
         save_voiceover_text(p, dest, bad)
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError as e:
         assert "отчёт проверки" in str(e).lower() or "проверк" in str(e).lower()
     assert dest.read_text(encoding="utf-8") == "старый нормальный закадр"
@@ -135,7 +135,7 @@ def test_save_voiceover_rejects_tsv_writeback(tmp_path: Path, monkeypatch) -> No
     )
     try:
         save_voiceover_text(p, dest, bad)
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError as e:
         assert "tsv" in str(e).lower() or "лист" in str(e).lower()
     assert dest.read_text(encoding="utf-8") == "старый нормальный закадр"

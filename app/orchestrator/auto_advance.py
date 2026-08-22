@@ -42,7 +42,7 @@ from app.models import (
     Project,
     ProjectStatus,
 )
-from app.services.auto_review import ReviewResult
+from app.services.auto_review import REVIEW_STATUS_APPLIED, ReviewResult
 from app.services.disabled_nodes import skip_disabled_running, skip_disabled_running_async
 from app.services.project_state import compute_actual_status
 from app.services.step_data_guard import (
@@ -813,7 +813,7 @@ async def _apply_approve(
     # одна HITL-карточка ≠ переход к следующему шагу. Зеркалим логику
     # из bot.py callback (parity #1 + #2 — multi-hero / excel-hero).
     if transition.ready_status is ProjectStatus.hero_ready:
-        nxt = await _next_status_after_hero_approve(session, project, hitl)
+        nxt: ProjectStatus | None = await _next_status_after_hero_approve(session, project, hitl)
         if nxt is not ProjectStatus.generating_hero:
             # Цикл check(hero)→regen→check: не идём «дальше», а обратно в check.
             try:
@@ -1254,7 +1254,7 @@ async def _harness_gate(session: AsyncSession, project: Project, status: Project
 
 
 async def maybe_auto_advance(
-    session: AsyncSession, project: Project, bot: Bot, *, force: bool = False
+    session: AsyncSession, project: Project, bot: Bot | None, *, force: bool = False
 ) -> bool:
     """Возвращает True если проект был продвинут (или поставлен в paused).
 
@@ -1631,7 +1631,7 @@ async def _run_text_review(project: Project, kind: HITLKind, artifact: str) -> R
 
         from app.settings import settings as _s
 
-        snap = Path(_s.data_dir) / "batches" / project.batch_slug / "prompts"
+        snap = Path(_s.data_dir) / "batches" / (project.batch_slug or "") / "prompts"
         if not snap.exists():
             snap = None
 
@@ -1667,7 +1667,22 @@ async def _apply_review_result(
     *,
     bot: Bot | None = None,
 ) -> bool:
-    """Применяет ReviewResult к проекту + уведомляет (опционально)."""
+    """Применяет ReviewResult к проекту + уведомляет (опционально).
+
+    W1-fix: status="skipped_*" → контур auto_review не сработал (промт
+    STUB/ошибка). Не двигаем pipeline (не approve, не regen) и не
+    засыпаем ручной HITL — возвращаем False, оставляем проект в
+    текущем ready-состоянии, оператор увидит warning в логах и либо
+    заменит default.md, либо кликнет руками.
+    """
+    if result.status != REVIEW_STATUS_APPLIED:
+        logger.warning(
+            "auto_advance: #{} review SKIPPED ({}): {}",
+            project.id,
+            result.status,
+            "; ".join(result.reasons) or "<no reason>",
+        )
+        return False
     if result.decision is HITLDecision.approved:
         await _apply_approve(session, project, hitl, transition, bot=bot)
     elif result.decision is HITLDecision.regenerate:

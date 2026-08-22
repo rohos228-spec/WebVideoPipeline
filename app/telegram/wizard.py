@@ -584,6 +584,7 @@ async def handle_wizard_callback(cb: CallbackQuery) -> None:
     except ValueError:
         await cb.answer("wizard: плохой pid", show_alert=True)
         return
+    assert cb.bot is not None and cb.message is not None
     action = parts[2]
 
     if action == "start":

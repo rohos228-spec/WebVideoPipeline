@@ -182,16 +182,14 @@ async def can_enter_running(
 
     Возвращает (ok, reason, suggested_status при ok=False).
     """
-    if target is ProjectStatus.scripting:
-        if not is_meaningful_general_plan(project.general_plan):
-            return False, "сценарий не готов (нет general_plan)", ProjectStatus.new
+    if target is ProjectStatus.scripting and not is_meaningful_general_plan(project.general_plan):
+        return False, "сценарий не готов (нет general_plan)", ProjectStatus.new
 
-    if target is ProjectStatus.splitting:
-        if not (project.script_text or "").strip():
-            voice = project.data_dir / "voiceover.txt"
-            if not voice.is_file() or voice.stat().st_size < 50:
-                actual = await compute_actual_status(session, project)
-                return False, "закадровый текст не готов", actual
+    if target is ProjectStatus.splitting and not (project.script_text or "").strip():
+        voice = project.data_dir / "voiceover.txt"
+        if not voice.is_file() or voice.stat().st_size < 50:
+            actual = await compute_actual_status(session, project)
+            return False, "закадровый текст не готов", actual
 
     if target is ProjectStatus.scene_assembling:
         # Сборщик требует готовых чекпоинтов всех агентов (или выключенную

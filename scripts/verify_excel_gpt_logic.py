@@ -67,7 +67,6 @@ def test_migration() -> None:
 def test_attachments(tmp: Path) -> None:
     print("[2] attachment_paths per inputSource")
     p = Project(id=99, slug="verify", topic="t", status=ProjectStatus.new)
-    base = Path(__file__).resolve().parents[1]
     import os
 
     os.environ.setdefault("DATA_DIR", str(tmp / "data"))

@@ -100,7 +100,7 @@ def test_video_sheet_raises_on_bad_clip_not_8s(tmp_path: Path) -> None:
 
     bad = tmp_path / "clip_003_junk.mp4"
     bad.write_bytes(b"garbage" * 100)
-    with pytest.raises(Exception):
+    with pytest.raises((ValueError, RuntimeError, OSError)):
         asyncio.run(build_video_sheet(bad, tmp_path / "sheets", frame_number=3))
 
 

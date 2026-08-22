@@ -306,9 +306,7 @@ def has_animation_prompt_for_frame(project: Project, frame: Frame) -> bool:
     if len(text) < MIN_ANIM_PROMPT_LEN:
         return False
     # Целый JSON-ответ GPT ≠ готовый промт кадра (баг старого парсера).
-    if is_apply_ops_blob(text):
-        return False
-    return True
+    return not is_apply_ops_blob(text)
 
 
 _VIDEO_DONE_STATUSES = frozenset(
@@ -719,6 +717,7 @@ def unpack_animation_prompt_blobs(frames: list[Frame]) -> int:
             target = next((f for f in frames if f.number == pair.frame_number), None)
             if target is None or not (target.uuid or "").strip():
                 continue
+            assert target.uuid is not None
             uid = target.uuid.strip()
             existing = (target.animation_prompt or "").strip()
             # Уже чистый промт — не затираем распаковкой чужого blob.
@@ -730,14 +729,14 @@ def unpack_animation_prompt_blobs(frames: list[Frame]) -> int:
 
     n = 0
     for uid, text in collected.items():
-        fr = by_uuid.get(uid)
-        if fr is None:
+        target_fr = by_uuid.get(uid)
+        if target_fr is None:
             continue
-        if (fr.animation_prompt or "").strip() == text:
+        if (target_fr.animation_prompt or "").strip() == text:
             continue
-        fr.animation_prompt = text
-        if fr.status is not FrameStatus.animation_prompt_ready:
-            fr.status = FrameStatus.animation_prompt_ready
+        target_fr.animation_prompt = text
+        if target_fr.status is not FrameStatus.animation_prompt_ready:
+            target_fr.status = FrameStatus.animation_prompt_ready
         n += 1
 
     # Хвосты, где blob так и не разобрался — сбрасываем, чтобы GPT переделал.
