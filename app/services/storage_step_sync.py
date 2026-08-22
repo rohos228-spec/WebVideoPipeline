@@ -22,7 +22,22 @@ async def sync_storage_after_step(
 
     Без refresh воркер может не видеть свежие стрелки UI (script→storage),
     и voiceover попадает в хранилище только позже через poll autoSync.
+
+    ВАЖНО: `refresh` выбрасывает несохранённые изменения объекта. Шаг,
+    который выставил `project.status` и не сделал flush (например `hero
+    skipped` при hero_count=0), терял новый статус — воркер видел прежний
+    running-статус и запускал шаг снова каждые 5 секунд, до бесконечности.
+    Поэтому перед refresh — flush.
     """
+    try:
+        await session.flush()
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "[#{}] {}: flush before storage sync failed",
+            project.id,
+            log_prefix,
+            exc_info=True,
+        )
     try:
         await session.refresh(project)
     except Exception:  # noqa: BLE001

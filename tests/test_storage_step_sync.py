@@ -98,3 +98,26 @@ def test_sync_storage_after_script_uses_canvas_fallback(
     assert synced
     names = [f["originalName"] for f in list_stored_files(p, store)]
     assert "voiceover.txt" in names
+
+
+def test_flush_precedes_refresh_so_step_status_survives(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`refresh` выбрасывает несохранённые правки — flush обязан идти первым.
+
+    Регрессия живого прогона: `hero skipped (hero_count=0)` выставлял
+    `project.status = hero_ready` без flush, а `_sync_storage_after_advance`
+    сразу делал refresh. Статус откатывался к `generating_hero`, воркер
+    запускал шаг снова — и так каждые 5 секунд, бесконечно.
+    """
+    p = _project(tmp_path, monkeypatch)
+    calls: list[str] = []
+    session = AsyncMock()
+    session.flush = AsyncMock(side_effect=lambda *a, **k: calls.append("flush"))
+    session.refresh = AsyncMock(side_effect=lambda *a, **k: calls.append("refresh"))
+    monkeypatch.setattr(
+        "app.services.storage_step_sync.find_node_key_for_type",
+        AsyncMock(return_value=None),
+    )
+    asyncio.run(sync_storage_after_step(session, p, "hero", log_prefix="advance/hero"))
+    assert calls == ["flush", "refresh"]
