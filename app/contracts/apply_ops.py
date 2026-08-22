@@ -96,6 +96,22 @@ class ApplyOp(BaseModel):
         return self
 
 
+# Ключи, которые конверт умеет применить. Всё прочее на верхнем уровне —
+# болтовня модели (`report`, `notes`, `summary`), а не данные.
+_ENVELOPE_KEYS = frozenset({"ops", "actions", "characters", "scenes"})
+# Признаки того, что модель прислала ОДНУ операцию без конверта.
+_BARE_OP_KEYS = frozenset({"target", "frame_uuid", "fields", "frames", "кадры"})
+
+
+def _looks_like_payload(value: Any) -> bool:
+    """Похоже ли значение на операции/кадры, а не на текст-комментарий."""
+    if isinstance(value, dict):
+        return bool(_BARE_OP_KEYS & value.keys())
+    if isinstance(value, list):
+        return any(isinstance(v, dict) and (_BARE_OP_KEYS & v.keys()) for v in value)
+    return False
+
+
 class ApplyOpsEnvelope(BaseModel):
     """Конверт ответа apply-ops: ops + опц. characters/scenes."""
 
@@ -104,6 +120,42 @@ class ApplyOpsEnvelope(BaseModel):
     ops: list[ApplyOp] = Field(default_factory=list, validation_alias=AliasChoices("ops", "actions"))
     characters: list[dict[str, Any]] | None = None
     scenes: list[dict[str, Any]] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate_wrapper_noise(cls, data: Any) -> Any:
+        """Починить форму конверта, не трогая содержимое операций.
+
+        Провайдер без structured outputs (MiniMax) регулярно добавляет к
+        валидному пакету поле-комментарий или отдаёт одну операцию без
+        конверта. Ронять из-за этого 16 КБ разобранной работы и жечь
+        repair-ретраи — дороже, чем выкинуть болтовню с предупреждением.
+
+        Строгость там, где она защищает данные, остаётся: внутри `ApplyOp`
+        лишний ключ по-прежнему ошибка — там он означает поле, которое
+        конвейер молча не применит.
+        """
+        if not isinstance(data, dict):
+            return data
+        if not (_ENVELOPE_KEYS & data.keys()) and (_BARE_OP_KEYS & data.keys()):
+            logger.warning("contracts/apply_ops: операция без конверта — оборачиваю в ops[]")
+            return {"ops": [data]}
+        extra = {k: v for k, v in data.items() if k not in _ENVELOPE_KEYS}
+        if not extra:
+            return data
+        misplaced = sorted(k for k, v in extra.items() if _looks_like_payload(v))
+        if misplaced:
+            # Под чужим именем лежит структура операций — выбросить её значит
+            # потерять работу молча. Это по-прежнему ошибка контракта.
+            raise ValueError(
+                f"поля {misplaced} похожи на операции, но лежат вне ops[]. "
+                f"Разрешённые ключи конверта: {sorted(_ENVELOPE_KEYS)}"
+            )
+        logger.warning(
+            "contracts/apply_ops: комментарии в конверте {} — выброшены (не данные)",
+            sorted(extra),
+        )
+        return {k: v for k, v in data.items() if k in _ENVELOPE_KEYS}
 
     @model_validator(mode="after")
     def _not_empty_and_replace_rules(self) -> ApplyOpsEnvelope:

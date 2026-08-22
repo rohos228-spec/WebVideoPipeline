@@ -139,9 +139,37 @@ def test_salvaged_marker_moved_to_meta() -> None:
     assert parsed.meta == {"_salvaged_partial": True}
 
 
-def test_extra_top_level_key_rejected() -> None:
+def test_extra_top_level_comment_is_dropped_not_rejected() -> None:
+    """Комментарий рядом с ops — не повод потерять весь пакет.
+
+    Живой прогон на MiniMax (без structured outputs): модель дважды подряд
+    добавляла к валидным 12 операциям поле-отчёт, и repair-ретраи сжигали
+    по вызову и по две минуты каждый. Болтовня выбрасывается с
+    предупреждением; операции применяются.
+    """
+    parsed = APPLY_OPS.parse(
+        '{"ops":[{"frame_uuid":"x","fields":{"закадр":"т"}}],"report":"готово, 12 кадров"}'
+    )
+    assert len(parsed.payload.ops) == 1
+
+
+def test_extra_top_level_key_with_operations_still_rejected() -> None:
+    """А вот операции под чужим именем — по-прежнему ошибка.
+
+    Выбросить их молча значит потерять работу, которую модель сделала.
+    """
     with pytest.raises(LlmContractError):
-        APPLY_OPS.parse('{"ops":[{"frame_uuid":"x","fields":{"закадр":"т"}}],"comment":"…"}')
+        APPLY_OPS.parse(
+            '{"ops":[{"frame_uuid":"x","fields":{"закадр":"т"}}],'
+            '"updates":[{"frame_uuid":"y","fields":{"закадр":"т2"}}]}'
+        )
+
+
+def test_bare_operation_without_envelope_is_wrapped() -> None:
+    """Одна операция без конверта — форма чинится, данные сохраняются."""
+    parsed = APPLY_OPS.parse('{"target":"frame","frame_uuid":"x","fields":{"закадр":"т"}}')
+    assert len(parsed.payload.ops) == 1
+    assert parsed.payload.ops[0].frame_uuid == "x"
 
 
 # ── паритет с normalize_fields (единый источник алиасов) ─────────────────

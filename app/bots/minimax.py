@@ -173,6 +173,24 @@ def _raise_on_base_resp(payload: dict[str, Any], *, where: str) -> None:
     )
 
 
+def _clip_prompt(prompt: str | None, limit: int, *, where: str) -> str:
+    """Обрезка под лимит MiniMax — но не молча.
+
+    Промт длиннее лимита значит, что часть режиссёрского задания до модели не
+    доехала: кадр будет не тот, а в логе — «успех».
+    """
+    body = prompt or ""
+    if len(body) <= limit:
+        return body
+    logger.warning(
+        "minimax.{}: промт {} симв. > лимита {} — хвост обрезан, кадр может разойтись с заданием",
+        where,
+        len(body),
+        limit,
+    )
+    return body[:limit]
+
+
 def normalize_image_aspect(aspect_ratio: str | None) -> str:
     a = (aspect_ratio or "9:16").replace("_", ":").strip()
     return a if a in _IMAGE_ASPECTS else "9:16"
@@ -273,7 +291,7 @@ async def _generate_image_inner(
     model = studio_id_to_minimax_image_slug(model_slug)
     body: dict[str, Any] = {
         "model": model,
-        "prompt": (prompt or "")[:1500],
+        "prompt": _clip_prompt(prompt, 1500, where="image"),
         "aspect_ratio": normalize_image_aspect(aspect_ratio),
         "response_format": "base64",
         "n": 1,
@@ -451,7 +469,7 @@ async def _generate_video_inner(
     model = studio_id_to_minimax_video_slug(model_slug)
     body: dict[str, Any] = {
         "model": model,
-        "prompt": (prompt or "")[:2000],
+        "prompt": _clip_prompt(prompt, 2000, where="video"),
         "duration": normalize_video_duration(duration),
         # prompt_optimizer по умолчанию у API включён и переписывает промт.
         # Конвейер строит промт сам (шаг anim_pr) — чужие правки не нужны.
