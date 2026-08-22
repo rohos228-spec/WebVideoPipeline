@@ -91,6 +91,7 @@ async def test_maybe_auto_advance_holds_at_script_target(
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_harness_gate  # без него гейт держит проект раньше проверяемой логики
 async def test_maybe_auto_advance_does_not_pass_script_target(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
