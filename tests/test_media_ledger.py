@@ -168,9 +168,68 @@ async def test_totals_groups_and_counts_unpriced(session) -> None:
 
 @pytest.mark.asyncio
 async def test_shipped_price_table_is_parseable() -> None:
-    """Файл прайса в репо читается и все записи имеют unit."""
+    """Файл прайса в репо читается и все записи осмысленны."""
     prices = media_ledger._prices()
     assert prices, "media_prices.json не прочитан"
-    for key, (unit, value) in prices.items():
-        assert unit, key
-        assert value is None or value >= 0.0, key
+    for key, entry in prices.items():
+        assert entry.unit, key
+        for value in (entry.per_unit, entry.per_call):
+            assert value is None or value >= 0.0, key
+        # Обе ставки сразу — двусмысленность: неясно, за что берут деньги.
+        assert not (entry.per_unit is not None and entry.per_call is not None), key
+
+
+# ── тариф за генерацию и варианты ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_per_call_price_ignores_units(session, monkeypatch, tmp_path) -> None:
+    """Видео тарифицируется за клип: умножать на секунды нельзя."""
+    prices = tmp_path / "media_prices.json"
+    prices.write_text(
+        json.dumps({"models": {"minimax:Vid": {"unit": "second", "usd_per_call": 0.49}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(media_ledger, "_PRICES_PATH", prices)
+
+    await media_ledger.record(provider="minimax", kind="video", model="Vid", units=10.0)
+
+    rows = await _rows(session)
+    # 10 секунд, но цена — за клип, а не 10 × ставка
+    assert rows[0].units == 10.0
+    assert rows[0].cost_usd == pytest.approx(0.49)
+    assert rows[0].unpriced is False
+
+
+def test_variant_key_wins_over_model_key(monkeypatch, tmp_path) -> None:
+    """@variant уточняет тариф: 1080P/6с и 768P/6с стоят по-разному."""
+    prices = tmp_path / "media_prices.json"
+    prices.write_text(
+        json.dumps(
+            {
+                "models": {
+                    "minimax:Vid": {"unit": "second", "usd_per_call": 0.49},
+                    "minimax:Vid@768P:6": {"unit": "second", "usd_per_call": 0.28},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(media_ledger, "_PRICES_PATH", prices)
+
+    assert media_ledger.price_for("minimax", "Vid", "768P:6").per_call == pytest.approx(0.28)
+    # Неизвестный вариант — падаем на общий ключ модели, а не в «цены нет»
+    assert media_ledger.price_for("minimax", "Vid", "512P:10").per_call == pytest.approx(0.49)
+    assert media_ledger.price_for("minimax", "Vid").per_call == pytest.approx(0.49)
+
+
+def test_shipped_minimax_video_prices_are_per_call() -> None:
+    """Реальные ставки MiniMax: за клип, с вариантами по разрешению."""
+    prices = media_ledger._prices()
+    entry = prices["minimax:MiniMax-Hailuo-2.3@1080P:6"]
+    assert entry.per_call == pytest.approx(0.49)
+    assert entry.per_unit is None
+    # Картинка — наоборот, плоская ставка за штуку
+    img = prices["minimax:image-01"]
+    assert img.per_unit == pytest.approx(0.0035)
+    assert img.per_call is None

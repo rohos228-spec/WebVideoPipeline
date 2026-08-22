@@ -217,6 +217,70 @@ async def test_video_submit_poll_retrieve(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
+async def test_video_reports_pricing_variant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """MiniMax берёт за клип: в учёт уходит variant «<разрешение>:<секунды>»."""
+    routes = [
+        ("/v1/video_generation", httpx.Response(200, json={"task_id": "T", "base_resp": {"status_code": 0}})),
+        (
+            "/v1/query/video_generation",
+            httpx.Response(200, json={"status": "Success", "file_id": "F", "base_resp": {"status_code": 0}}),
+        ),
+        (
+            "/v1/files/retrieve",
+            httpx.Response(200, json={"file": {"download_url": "https://cdn/y.mp4"}, "base_resp": {"status_code": 0}}),
+        ),
+        ("cdn/y.mp4", httpx.Response(200, content=b"\x00" * 5000)),
+    ]
+    monkeypatch.setattr(mm.httpx, "AsyncClient", _mock_client(routes, []))
+
+    seen: list[dict] = []
+
+    async def fake_record(**kw):
+        seen.append(kw)
+        return 1
+
+    monkeypatch.setattr("app.services.media_ledger.record", fake_record)
+
+    await mm.generate_video("анимация", tmp_path / "c.mp4", duration=6, resolution="768P")
+
+    assert seen[0]["variant"] == "768P:6"
+    assert seen[0]["unit"] == "second"
+    assert seen[0]["units"] == 6.0
+
+
+@pytest.mark.asyncio
+async def test_unknown_resolution_falls_back_to_1080p(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    routes = [
+        ("/v1/video_generation", httpx.Response(200, json={"task_id": "T", "base_resp": {"status_code": 0}})),
+        (
+            "/v1/query/video_generation",
+            httpx.Response(200, json={"status": "Success", "file_id": "F", "base_resp": {"status_code": 0}}),
+        ),
+        (
+            "/v1/files/retrieve",
+            httpx.Response(200, json={"file": {"download_url": "https://cdn/z.mp4"}, "base_resp": {"status_code": 0}}),
+        ),
+        ("cdn/z.mp4", httpx.Response(200, content=b"\x00" * 5000)),
+    ]
+    captured: list[httpx.Request] = []
+    monkeypatch.setattr(mm.httpx, "AsyncClient", _mock_client(routes, captured))
+    seen: list[dict] = []
+
+    async def fake_record(**kw):
+        seen.append(kw)
+        return 1
+
+    monkeypatch.setattr("app.services.media_ledger.record", fake_record)
+
+    await mm.generate_video("анимация", tmp_path / "c.mp4", duration=6, resolution="4K")
+
+    assert seen[0]["variant"] == "1080P:6"
+    assert json.loads(captured[0].content)["resolution"] == "1080P"
+
+
+@pytest.mark.asyncio
 async def test_video_fail_status_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     routes = [
         ("/v1/video_generation", httpx.Response(200, json={"task_id": "T1", "base_resp": {"status_code": 0}})),

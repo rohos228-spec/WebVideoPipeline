@@ -47,6 +47,20 @@ _failed_inserts = 0
 _warned_models: set[str] = set()
 
 
+@dataclass(frozen=True)
+class PriceEntry:
+    """Строка прайса: либо ставка за единицу, либо цена за генерацию.
+
+    ``per_unit`` — цена за единицу (кадр, секунда, символ).
+    ``per_call`` — цена за генерацию целиком (так тарифицируется видео).
+    Оба ``None`` — цена неизвестна: единицы считаем, деньги нет.
+    """
+
+    unit: str
+    per_unit: float | None
+    per_call: float | None
+
+
 @dataclass
 class MediaCallInfo:
     """Мутируемый «черновик» строки — заполняется по ходу генерации."""
@@ -56,61 +70,95 @@ class MediaCallInfo:
     model: str = ""
     units: float = 0.0
     unit: str = ""
+    # Уточнение тарифа внутри модели, напр. "1080P:6" — см. price_for().
+    variant: str = ""
     external_id: str = ""
     extra: dict[str, object] = field(default_factory=dict)
 
 
-def _prices() -> dict[str, tuple[str, float | None]]:
-    """{'provider:model' → (unit, usd_per_unit|None)}."""
+def _price_entry(spec: dict[str, Any], key: str) -> PriceEntry:
+    unit = str(spec.get("unit") or "item")
+
+    def _num(field: str) -> float | None:
+        raw = spec.get(field)
+        if raw is None:
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            logger.warning("media_ledger: битая цена {} для {}", field, key)
+            return None
+
+    return PriceEntry(unit=unit, per_unit=_num("usd_per_unit"), per_call=_num("usd_per_call"))
+
+
+def _prices() -> dict[str, PriceEntry]:
+    """{'provider:model' или 'provider:model@variant' → PriceEntry}."""
     try:
         doc = json.loads(_PRICES_PATH.read_text(encoding="utf-8"))
         models = doc.get("models") or {}
     except (OSError, json.JSONDecodeError) as e:
         logger.warning("media_ledger: прайс не прочитан ({}) — все цены неизвестны", e)
         return {}
-    out: dict[str, tuple[str, float | None]] = {}
+    out: dict[str, PriceEntry] = {}
     for key, spec in models.items():
         if not isinstance(spec, dict):
             logger.warning("media_ledger: битая строка прайса для {}", key)
             continue
-        unit = str(spec.get("unit") or "item")
-        raw = spec.get("usd_per_unit")
-        price: float | None
-        if raw is None:
-            price = None
-        else:
-            try:
-                price = float(raw)
-            except (TypeError, ValueError):
-                logger.warning("media_ledger: битая цена для {}", key)
-                price = None
-        out[key] = (unit, price)
+        out[key] = _price_entry(spec, key)
     return out
 
 
-def price_for(provider: str, model: str) -> tuple[str, float | None]:
-    """(unit, usd_per_unit|None). None — модель не в прайсе или цена не задана."""
-    key = f"{(provider or '').strip().lower()}:{(model or '').strip()}"
+def price_for(provider: str, model: str, variant: str = "") -> PriceEntry:
+    """Цена модели. `variant` уточняет тариф внутри модели.
+
+    У видео-провайдеров ставка зависит не только от модели: MiniMax берёт
+    за КЛИП, и цена меняется с разрешением и длительностью (768P/6s — одна,
+    1080P/6s — другая). Поэтому ключ прайса может быть уточнённым:
+    ``minimax:MiniMax-Hailuo-2.3@1080P:6``. Если такого ключа нет, падаем на
+    общий ``provider:model`` — так провайдеры с плоским тарифом (картинки,
+    символы TTS) не требуют вариантов вовсе.
+    """
+    prov = (provider or "").strip().lower()
+    base_key = f"{prov}:{(model or '').strip()}"
+    keys = [f"{base_key}@{variant.strip()}"] if variant.strip() else []
+    keys.append(base_key)
+
     prices = _prices()
-    if key in prices:
-        return prices[key]
-    if key not in _warned_models:
-        _warned_models.add(key)
+    for key in keys:
+        if key in prices:
+            return prices[key]
+
+    warn_key = keys[0]
+    if warn_key not in _warned_models:
+        _warned_models.add(warn_key)
         logger.warning(
             "media_ledger: {} нет в media_prices.json — единицы посчитаны, цена неизвестна",
-            key,
+            warn_key,
         )
-    return ("item", None)
+    return PriceEntry(unit="item", per_unit=None, per_call=None)
 
 
-def compute_cost(provider: str, model: str, units: float, unit_hint: str = "") -> tuple[float, str, bool]:
-    """(cost_usd, unit, unpriced)."""
-    unit, per_unit = price_for(provider, model)
-    if unit_hint:
-        unit = unit_hint
-    if per_unit is None:
+def compute_cost(
+    provider: str,
+    model: str,
+    units: float,
+    unit_hint: str = "",
+    variant: str = "",
+) -> tuple[float, str, bool]:
+    """(cost_usd, unit, unpriced).
+
+    ``usd_per_call`` важнее ``usd_per_unit``: если провайдер берёт за
+    генерацию целиком, умножать на секунды нельзя — 10-секундный клип у
+    MiniMax стоит не вдвое дороже шестисекундного.
+    """
+    entry = price_for(provider, model, variant)
+    unit = unit_hint or entry.unit
+    if entry.per_call is not None:
+        return (round(entry.per_call, 6), unit, False)
+    if entry.per_unit is None:
         return (0.0, unit, True)
-    return (round(max(0.0, float(units)) * per_unit, 6), unit, False)
+    return (round(max(0.0, float(units)) * entry.per_unit, 6), unit, False)
 
 
 def _accounting() -> tuple[int | None, str]:
@@ -139,6 +187,7 @@ async def record(
     duration_ms: int = 0,
     project_id: int | None = None,
     node_key: str = "",
+    variant: str = "",
 ) -> int | None:
     """Записать одну медиа-генерацию. Best effort: сбой INSERT не валит вызов."""
     global _failed_inserts
@@ -147,7 +196,7 @@ async def record(
     pid = project_id if project_id is not None else ctx_project
     node = node_key or ctx_node
 
-    cost, resolved_unit, unpriced = compute_cost(provider, model, units, unit)
+    cost, resolved_unit, unpriced = compute_cost(provider, model, units, unit, variant)
     try:
         async with session_scope() as session:
             row = MediaCall(
@@ -187,6 +236,7 @@ async def media_call(
     model: str = "",
     units: float = 0.0,
     unit: str = "",
+    variant: str = "",
     project_id: int | None = None,
 ) -> AsyncIterator[MediaCallInfo]:
     """Обернуть генерацию: замерить время, записать ok/error.
@@ -196,7 +246,9 @@ async def media_call(
     Исключение пробрасывается: учёт фиксирует строку с ``result="error"`` и
     отдаёт ошибку дальше.
     """
-    info = MediaCallInfo(provider=provider, kind=kind, model=model, units=units, unit=unit)
+    info = MediaCallInfo(
+        provider=provider, kind=kind, model=model, units=units, unit=unit, variant=variant
+    )
     started = time.monotonic()
     try:
         yield info
@@ -212,6 +264,7 @@ async def media_call(
             external_id=info.external_id,
             duration_ms=int((time.monotonic() - started) * 1000),
             project_id=project_id,
+            variant=info.variant,
         )
         raise
     await record(
@@ -224,6 +277,7 @@ async def media_call(
         external_id=info.external_id,
         duration_ms=int((time.monotonic() - started) * 1000),
         project_id=project_id,
+        variant=info.variant,
     )
 
 

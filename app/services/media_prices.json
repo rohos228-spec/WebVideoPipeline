@@ -1,18 +1,24 @@
 {
   "_comment": [
-    "Прайс медиа-провайдеров. Ключ — '<provider>:<model_slug>'.",
+    "Прайс медиа-провайдеров. Ключ — '<provider>:<model>' либо уточнённый",
+    "'<provider>:<model>@<variant>' (см. media_ledger.price_for).",
     "",
-    "usd_per_unit = null означает 'цена неизвестна': учёт всё равно запишет",
-    "строку в media_calls с посчитанными units, но пометит unpriced=true и",
-    "не прибавит денег. Так дашборд честно показывает 'N генераций без",
-    "цены' вместо тихого нуля.",
+    "usd_per_unit — ставка за единицу (кадр / секунда / символ).",
+    "usd_per_call — цена за ГЕНЕРАЦИЮ целиком; важнее usd_per_unit.",
+    "  Так тарифицируется видео: 10-секундный клип стоит не вдвое дороже",
+    "  шестисекундного, поэтому умножать на секунды нельзя.",
+    "null в обоих — 'цена неизвестна': учёт запишет строку с посчитанными",
+    "units и пометит unpriced=true, но денег не прибавит. Так дашборд честно",
+    "показывает 'N генераций без цены' вместо тихого нуля.",
     "",
-    "Цены сюда вносит владелец по своим тарифам outsee.io / grsai /",
-    "ElevenLabs — они зависят от плана и меняются, выдумывать их в коде",
-    "нельзя. Смена цен применяется рестартом воркера (кэша с TTL нет).",
+    "MiniMax: цены с platform.minimax.io/docs/guides/pricing-paygo,",
+    "сверено 2026-08-22. Общий ключ модели без @variant — тариф по",
+    "умолчанию конвейера (1080P, 6 с).",
     "",
-    "unit: 'item' — за генерацию (картинка), 'second' — за секунду видео,",
-    "'char' — за символ озвученного текста."
+    "outsee / grsai / elevenlabs: тарифы зависят от плана владельца и",
+    "меняются — вносит владелец, выдумывать их в коде нельзя.",
+    "",
+    "Смена цен применяется рестартом воркера (кэша с TTL нет)."
   ],
   "models": {
     "outsee:gpt-image-2": {
@@ -109,23 +115,75 @@
     },
     "minimax:image-01": {
       "unit": "item",
-      "usd_per_unit": null
+      "usd_per_unit": 0.0035
     },
     "minimax:image-01-live": {
       "unit": "item",
-      "usd_per_unit": null
+      "usd_per_unit": 0.0035
     },
     "minimax:MiniMax-Hailuo-2.3": {
       "unit": "second",
-      "usd_per_unit": null
+      "usd_per_call": 0.49
     },
     "minimax:MiniMax-Hailuo-2.3-Fast": {
       "unit": "second",
-      "usd_per_unit": null
+      "usd_per_call": 0.33
     },
     "minimax:MiniMax-Hailuo-02": {
       "unit": "second",
-      "usd_per_unit": null
+      "usd_per_call": 0.49
+    },
+    "minimax:MiniMax-Hailuo-2.3@768P:6": {
+      "unit": "second",
+      "usd_per_call": 0.28
+    },
+    "minimax:MiniMax-Hailuo-2.3@768P:10": {
+      "unit": "second",
+      "usd_per_call": 0.56
+    },
+    "minimax:MiniMax-Hailuo-2.3@1080P:6": {
+      "unit": "second",
+      "usd_per_call": 0.49
+    },
+    "minimax:MiniMax-Hailuo-2.3-Fast@512P:6": {
+      "unit": "second",
+      "usd_per_call": 0.1
+    },
+    "minimax:MiniMax-Hailuo-2.3-Fast@512P:10": {
+      "unit": "second",
+      "usd_per_call": 0.15
+    },
+    "minimax:MiniMax-Hailuo-2.3-Fast@768P:6": {
+      "unit": "second",
+      "usd_per_call": 0.19
+    },
+    "minimax:MiniMax-Hailuo-2.3-Fast@768P:10": {
+      "unit": "second",
+      "usd_per_call": 0.32
+    },
+    "minimax:MiniMax-Hailuo-2.3-Fast@1080P:6": {
+      "unit": "second",
+      "usd_per_call": 0.33
+    },
+    "minimax:MiniMax-Hailuo-02@512P:6": {
+      "unit": "second",
+      "usd_per_call": 0.1
+    },
+    "minimax:MiniMax-Hailuo-02@512P:10": {
+      "unit": "second",
+      "usd_per_call": 0.15
+    },
+    "minimax:MiniMax-Hailuo-02@768P:6": {
+      "unit": "second",
+      "usd_per_call": 0.28
+    },
+    "minimax:MiniMax-Hailuo-02@768P:10": {
+      "unit": "second",
+      "usd_per_call": 0.56
+    },
+    "minimax:MiniMax-Hailuo-02@1080P:6": {
+      "unit": "second",
+      "usd_per_call": 0.49
     }
   }
 }

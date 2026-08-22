@@ -440,19 +440,30 @@ async def generate_video(
     *,
     model_slug: str | None = None,
     duration: int | float | None = 6,
+    resolution: str | None = "1080P",
     project_id: int | None = None,
     **kwargs: Any,
 ) -> GenerationResult:
-    """Видео + учёт в media_calls. Единица тарификации — секунда."""
+    """Видео + учёт в media_calls.
+
+    MiniMax берёт за КЛИП, а не за секунду, и ставка меняется с разрешением
+    и длительностью. Поэтому в учёт уходит `variant` — им прайс выбирает
+    нужную строку (`minimax:<model>@1080P:6`). `units` остаётся в секундах:
+    это по-прежнему полезная информация о том, сколько наснимали.
+    """
     from app.services.media_ledger import media_call
 
     model = studio_id_to_minimax_video_slug(model_slug)
+    dur = int(duration or 6)
+    res = (resolution or "1080P").strip().upper()
+    res = res if res in {"512P", "768P", "1080P"} else "1080P"
     async with media_call(
         "minimax",
         "video",
         model=model,
-        units=float(int(duration or 6)),
+        units=float(dur),
         unit="second",
+        variant=f"{res}:{dur}",
         project_id=project_id,
     ) as call:
         result = await _generate_video_inner(
@@ -460,6 +471,7 @@ async def generate_video(
             out_path,
             model_slug=model_slug,
             duration=duration,
+            resolution=res,
             project_id=project_id,
             **kwargs,
         )
