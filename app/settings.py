@@ -269,9 +269,19 @@ class Settings(BaseSettings):
         return bool(self.gpt_api_effective_key and self.gpt_api_effective_base_url)
 
     elevenlabs_web_url: str = Field("https://elevenlabs.io/app/speech-synthesis", alias="ELEVENLABS_WEB_URL")
-    # Опциональный API-ключ 11Labs — SFX-генерация звуков сопровождения
-    # (POST /v1/sound-effects). Без ключа — локальный синтез (wave, офлайн).
+    # Ключ 11Labs. Используется и SFX (POST /v1/sound-effects), и озвучкой
+    # (POST /v1/text-to-speech/{voice_id}). Без ключа SFX уходит в локальный
+    # синтез, а озвучка — в legacy-путь через Chrome CDP.
     elevenlabs_api_key: str = Field("", alias="ELEVENLABS_API_KEY")
+    # Озвучка через браузер (Playwright + залогиненный Chrome на :29229).
+    # True — legacy-путь. По умолчанию озвучка идёт по API: он не требует
+    # окна браузера, значит конвейер работает headless и из cron.
+    elevenlabs_use_cdp: bool = Field(False, alias="ELEVENLABS_USE_CDP")
+    elevenlabs_tts_model: str = Field("eleven_multilingual_v2", alias="ELEVENLABS_TTS_MODEL")
+    elevenlabs_output_format: str = Field("mp3_44100_128", alias="ELEVENLABS_OUTPUT_FORMAT")
+    # None = не слать voice_settings, пусть решает пресет голоса.
+    elevenlabs_stability: float | None = Field(None, alias="ELEVENLABS_STABILITY")
+    elevenlabs_similarity_boost: float | None = Field(None, alias="ELEVENLABS_SIMILARITY_BOOST")
     # Звуки сопровождения в пайплайне (sfx_plan → sfx_gen → микс в сборке).
     sfx_enabled: bool = Field(True, alias="SFX_ENABLED")
 

@@ -310,10 +310,32 @@ async def run(
             "11Labs отключён: AUDIO_USE_ELEVENLABS_FALLBACK=0"
         )
 
-    async with browser_session() as bs:
-        el = ElevenLabsBot(bs)
+    # П.25: озвучка по HTTP API — браузер не нужен, конвейер работает
+    # headless. Chrome остаётся только как legacy-путь (ELEVENLABS_USE_CDP).
+    from app.bots.elevenlabs_api import ElevenLabsApi, elevenlabs_api_configured
+
+    use_cdp = bool(settings.elevenlabs_use_cdp) or not elevenlabs_api_configured()
+    if use_cdp and not elevenlabs_api_configured():
+        logger.warning(
+            "[#{}] generate_audio: ELEVENLABS_API_KEY пуст — откат на озвучку "
+            "через Chrome CDP (нужно окно браузера, залогиненное в 11Labs)",
+            project.id,
+        )
+
+    if use_cdp:
+        async with browser_session() as bs:
+            el = ElevenLabsBot(bs)
+            clips, full_audio_path, words = await synthesize_per_frame_audio(
+                el,
+                project=project,
+                frames=timeline_frames,
+                cells=cells,
+                audio_dir=audio_dir,
+                whisper_model=settings.whisper_model,
+            )
+    else:
         clips, full_audio_path, words = await synthesize_per_frame_audio(
-            el,
+            ElevenLabsApi(),
             project=project,
             frames=timeline_frames,
             cells=cells,

@@ -10,6 +10,7 @@ from pathlib import Path
 from loguru import logger
 
 from app.bots.elevenlabs import ElevenLabsBot
+from app.bots.elevenlabs_api import ElevenLabsApi
 from app.models import Frame, Project
 from app.services.asr import active_asr_backend, transcribe_words, transcribe_words_many
 from app.services.elevenlabs_voices import resolve_elevenlabs_voice_id
@@ -482,7 +483,7 @@ async def _extract_mp3_segment(
 
 
 async def synthesize_per_frame_audio(
-    el: ElevenLabsBot,
+    el: ElevenLabsBot | ElevenLabsApi,
     *,
     project: Project,
     frames: list[Frame],
@@ -492,7 +493,12 @@ async def synthesize_per_frame_audio(
     whisper_model: str = "large-v3",
     language: str = "ru",
 ) -> tuple[list[FrameAudioClip], Path, list[WordTS]]:
-    """Озвучка: весь voiceover одним запросом в 11Labs, тайминги — Whisper."""
+    """Озвучка: весь voiceover одним запросом в 11Labs, тайминги — Whisper.
+
+    `el` — любой объект с методом ``tts(text, out_path, *, timeout, voice_id,
+    project_id)``: HTTP-клиент `ElevenLabsApi` (основной путь) или
+    legacy-бот `ElevenLabsBot` через Chrome CDP.
+    """
     audio_dir.mkdir(parents=True, exist_ok=True)
     # Только frame_NNN.mp3 от прошлого 11Labs — не трогаем voice_full/voice*.wav
     delete_frame_audio_files(audio_dir)
