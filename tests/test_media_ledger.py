@@ -233,3 +233,50 @@ def test_shipped_minimax_video_prices_are_per_call() -> None:
     img = prices["minimax:image-01"]
     assert img.per_unit == pytest.approx(0.0035)
     assert img.per_call is None
+
+
+@pytest.mark.asyncio
+async def test_locked_db_row_is_queued_and_flushed_later(session, monkeypatch) -> None:
+    """`database is locked` во время шага — строка не теряется, а дозаписывается.
+
+    Шаг конвейера держит одну длинную транзакцию, а SQLite пускает одного
+    writer'а на файл: INSERT из середины генерации падает ровно тогда, когда
+    идёт работа. Генерация при этом состоялась и деньги ушли.
+    """
+    media_ledger._pending_rows.clear()
+    real_scope = media_ledger.session_scope
+
+    @asynccontextmanager
+    async def locked_scope():
+        raise RuntimeError("(sqlite3.OperationalError) database is locked")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(media_ledger, "session_scope", locked_scope)
+    assert await media_ledger.record(provider="minimax", kind="video", model="X", units=6.0) is None
+    assert media_ledger.pending_count() == 1
+    assert await _rows(session) == []
+
+    monkeypatch.setattr(media_ledger, "session_scope", real_scope)
+    assert await media_ledger.flush_pending() == 1
+    assert media_ledger.pending_count() == 0
+    rows = await _rows(session)
+    assert len(rows) == 1
+    assert rows[0].provider == "minimax"
+    assert rows[0].units == 6.0
+
+
+@pytest.mark.asyncio
+async def test_failed_flush_keeps_rows_in_queue(session, monkeypatch) -> None:
+    """Не вышло дозаписать — строки остаются в очереди, а не исчезают."""
+    media_ledger._pending_rows.clear()
+    media_ledger._queue_pending({"project_id": 1, "provider": "minimax", "kind": "image"})
+
+    @asynccontextmanager
+    async def locked_scope():
+        raise RuntimeError("(sqlite3.OperationalError) database is locked")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(media_ledger, "session_scope", locked_scope)
+    assert await media_ledger.flush_pending() == 0
+    assert media_ledger.pending_count() == 1
+    media_ledger._pending_rows.clear()

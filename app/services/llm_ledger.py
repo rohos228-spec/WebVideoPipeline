@@ -131,6 +131,11 @@ async def mark_contract_rejected(row_ids: list[int]) -> None:
 _failed_inserts: int = 0
 _unpersisted_spent: dict[int | None, float] = defaultdict(float)
 
+# Строки учёта, не доехавшие до БД (SQLite занят транзакцией шага).
+# Дозаписываются, когда транзакция закрыта — см. `flush_pending`.
+_pending_rows: list[dict[str, Any]] = []
+_PENDING_MAX = 2000
+
 
 def _norm_model(name: str) -> str:
     # Как gpt_api._norm_model_name (не импортируем — цикл): провайдер-
@@ -276,15 +281,83 @@ async def record(
     except Exception as e:  # noqa: BLE001 — учёт не валит платный вызов
         _failed_inserts += 1
         _unpersisted_spent[project_id] += cost
+        _queue_pending(
+            {
+                "project_id": project_id,
+                "node_key": node_key or "adhoc",
+                "logical_call_id": logical_call_id,
+                "model": model or "",
+                "served_model": served_model or "",
+                "relay": relay or "",
+                "endpoint": endpoint or "chat",
+                "prompt_tokens": pt,
+                "completion_tokens": ct,
+                "total_tokens": tt,
+                "cost_usd": cost,
+                "result": result,
+                "error_kind": (error_kind or "")[:60],
+                "unbilled": unbilled,
+                "prompt_version_hash": prompt_version_hash or "",
+                "response_id": (response_id or "")[:120],
+                "duration_ms": int(duration_ms),
+            }
+        )
         logger.warning(
-            "llm_ledger: INSERT llm_calls упал (#{} всего): {} — unpersisted_spent[{}]={:.4f}$",
+            "llm_ledger: INSERT llm_calls упал (#{} всего): {} — unpersisted_spent[{}]={:.4f}$, "
+            "строка в очереди на дозапись ({} шт.)",
             _failed_inserts,
             e,
             project_id,
             _unpersisted_spent[project_id],
+            len(_pending_rows),
         )
         return None
     return row_id
+
+
+def _queue_pending(row_kwargs: dict[str, Any]) -> None:
+    """Строку, не доехавшую до БД, — в очередь на дозапись.
+
+    Шаг конвейера держит одну длинную транзакцию (`advance_project_job`), а
+    SQLite пускает одного writer'а на файл: INSERT из вызова LLM встаёт на
+    `database is locked` ровно тогда, когда идёт работа, то есть всегда.
+    Терять при этом факт платного вызова нельзя — деньги-то ушли.
+    """
+    if len(_pending_rows) >= _PENDING_MAX:
+        _pending_rows.pop(0)
+        logger.warning("llm_ledger: очередь дозаписи переполнена — самая старая строка потеряна")
+    _pending_rows.append(row_kwargs)
+
+
+async def flush_pending() -> int:
+    """Дозаписать накопленные строки. Зовётся, когда транзакция шага закрыта."""
+    if not _pending_rows:
+        return 0
+    batch = list(_pending_rows)
+    del _pending_rows[:]
+    try:
+        async with session_scope() as session:
+            for kw in batch:
+                session.add(LlmCall(**kw))
+            await session.flush()
+    except Exception as e:  # noqa: BLE001 — не вышло, вернём в очередь
+        _pending_rows[:0] = batch
+        logger.warning("llm_ledger: дозапись {} строк не удалась: {}", len(batch), e)
+        return 0
+    for kw in batch:
+        pid = kw.get("project_id")
+        cost = float(kw.get("cost_usd") or 0.0)
+        if cost > 0:
+            _unpersisted_spent[pid] -= cost
+            if _unpersisted_spent[pid] <= 1e-12:
+                _unpersisted_spent.pop(pid, None)
+            _bump_spent(pid if isinstance(pid, int) else None, cost)
+    logger.info("llm_ledger: дозаписано {} строк учёта", len(batch))
+    return len(batch)
+
+
+def pending_count() -> int:
+    return len(_pending_rows)
 
 
 def failed_insert_count() -> int:

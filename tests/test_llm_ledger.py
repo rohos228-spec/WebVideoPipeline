@@ -158,3 +158,45 @@ async def test_record_best_effort_on_db_failure(monkeypatch):
     assert ledger.failed_insert_count() == 1
     assert ledger.unpersisted_spent(3) > 0.0
     assert ledger.unpersisted_spent(99) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_locked_db_row_is_queued_and_flushed_later(ledger_db, monkeypatch) -> None:
+    """Строка учёта, отбитая на `database is locked`, дозаписывается позже.
+
+    Пока идёт шаг, `advance_project_job` держит транзакцию, и своё соединение
+    учёта в SQLite не пускают. Вызов LLM при этом уже оплачен.
+    """
+    ledger._pending_rows.clear()
+    real_scope = ledger.session_scope
+
+    @asynccontextmanager
+    async def locked_scope():
+        raise RuntimeError("(sqlite3.OperationalError) database is locked")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(ledger, "session_scope", locked_scope)
+    assert (
+        await ledger.record(
+            project_id=1,
+            node_key="n_plan",
+            logical_call_id="L1",
+            model="MiniMax-M3",
+            usage={"prompt_tokens": 1000, "completion_tokens": 1000},
+        )
+        is None
+    )
+    assert ledger.pending_count() == 1
+    unpersisted = ledger.unpersisted_spent(1)
+    assert unpersisted > 0
+
+    monkeypatch.setattr(ledger, "session_scope", real_scope)
+    assert await ledger.flush_pending() == 1
+    assert ledger.pending_count() == 0
+    # деньги переехали из «незаписанных» в БД — не задвоились
+    assert ledger.unpersisted_spent(1) == 0.0
+    async with ledger_db() as reader:
+        rows = list((await reader.execute(select(LlmCall))).scalars().all())
+    assert len(rows) == 1
+    assert rows[0].model == "MiniMax-M3"
+    assert rows[0].cost_usd == pytest.approx(unpersisted)

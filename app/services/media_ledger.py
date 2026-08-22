@@ -46,6 +46,10 @@ _PRICES_PATH = Path(__file__).resolve().parent / "media_prices.json"
 _failed_inserts = 0
 _warned_models: set[str] = set()
 
+# Строки, не доехавшие до БД (SQLite занят транзакцией шага) — см. `_queue_pending`.
+_pending_rows: list[dict[str, Any]] = []
+_PENDING_MAX = 2000
+
 
 @dataclass(frozen=True)
 class PriceEntry:
@@ -197,30 +201,73 @@ async def record(
     node = node_key or ctx_node
 
     cost, resolved_unit, unpriced = compute_cost(provider, model, units, unit, variant)
+    row_kwargs = {
+        "project_id": pid,
+        "node_key": node or "adhoc",
+        "provider": (provider or "")[:40],
+        "kind": (kind or "")[:20],
+        "model": (model or "")[:120],
+        "units": float(units),
+        "unit": resolved_unit[:20],
+        "cost_usd": cost,
+        "result": result,
+        "error_kind": (error_kind or "")[:60],
+        "unpriced": unpriced,
+        "external_id": (external_id or "")[:120],
+        "duration_ms": int(duration_ms),
+    }
     try:
         async with session_scope() as session:
-            row = MediaCall(
-                project_id=pid,
-                node_key=node or "adhoc",
-                provider=(provider or "")[:40],
-                kind=(kind or "")[:20],
-                model=(model or "")[:120],
-                units=float(units),
-                unit=resolved_unit[:20],
-                cost_usd=cost,
-                result=result,
-                error_kind=(error_kind or "")[:60],
-                unpriced=unpriced,
-                external_id=(external_id or "")[:120],
-                duration_ms=int(duration_ms),
-            )
+            row = MediaCall(**row_kwargs)
             session.add(row)
             await session.flush()
             return row.id
     except Exception as e:  # noqa: BLE001 — учёт не валит платную генерацию
         _failed_inserts += 1
-        logger.warning("media_ledger: INSERT media_calls упал (#{} всего): {}", _failed_inserts, e)
+        _queue_pending(row_kwargs)
+        logger.warning(
+            "media_ledger: INSERT media_calls упал (#{} всего): {} — строка в очереди на дозапись ({} шт.)",
+            _failed_inserts,
+            e,
+            len(_pending_rows),
+        )
         return None
+
+
+def _queue_pending(row_kwargs: dict[str, Any]) -> None:
+    """Генерация состоялась и деньги ушли — строку нельзя терять.
+
+    Шаг держит одну длинную транзакцию, SQLite пускает одного writer'а:
+    INSERT из середины генерации встаёт на `database is locked` ровно тогда,
+    когда идёт работа. Дозапись — когда транзакция шага закрыта.
+    """
+    if len(_pending_rows) >= _PENDING_MAX:
+        _pending_rows.pop(0)
+        logger.warning("media_ledger: очередь дозаписи переполнена — самая старая строка потеряна")
+    _pending_rows.append(row_kwargs)
+
+
+async def flush_pending() -> int:
+    """Дозаписать накопленные строки. Зовётся, когда транзакция шага закрыта."""
+    if not _pending_rows:
+        return 0
+    batch = list(_pending_rows)
+    del _pending_rows[:]
+    try:
+        async with session_scope() as session:
+            for kw in batch:
+                session.add(MediaCall(**kw))
+            await session.flush()
+    except Exception as e:  # noqa: BLE001 — не вышло, вернём в очередь
+        _pending_rows[:0] = batch
+        logger.warning("media_ledger: дозапись {} строк не удалась: {}", len(batch), e)
+        return 0
+    logger.info("media_ledger: дозаписано {} строк учёта", len(batch))
+    return len(batch)
+
+
+def pending_count() -> int:
+    return len(_pending_rows)
 
 
 def failed_insert_count() -> int:

@@ -53,3 +53,18 @@ async def advance_project_job(project_id: int, bot: Bot) -> AdvanceJobResult:
         except Exception:  # noqa: BLE001
             logger.warning("advance_project_job: refresh #{} after cancel failed", project_id)
         raise
+    finally:
+        # Транзакция шага закрыта — только теперь SQLite пускает чужой writer.
+        # Учёт платных вызовов, отбитый на `database is locked` во время шага,
+        # дозаписывается здесь: деньги ушли, строка потеряться не должна.
+        await _flush_ledgers()
+
+
+async def _flush_ledgers() -> None:
+    from app.services import llm_ledger, media_ledger
+
+    for ledger in (llm_ledger, media_ledger):
+        try:
+            await ledger.flush_pending()
+        except Exception:  # noqa: BLE001 — дозапись учёта не валит такт воркера
+            logger.warning("advance_project_job: дозапись учёта не удалась", exc_info=True)
