@@ -27,6 +27,7 @@ from app.models import Project
 from app.orchestrator.node_registry import step_code_of_running_status
 from app.orchestrator.pipeline import advance_project
 from app.services.credit_ledger import InsufficientCredits
+from app.services.free_tier import FreeTierExhausted
 from app.services.run_sync import complete_active_node_for_step
 from app.services.step_billing import step_billing
 
@@ -77,8 +78,10 @@ async def advance_project_job(project_id: int, bot: Bot) -> AdvanceJobResult:
                         logger.debug("advance_project_job: #{} {} -> {}", project_id, prev, new)
                         return AdvanceJobResult(project_id, prev, new)
                     return AdvanceJobResult(project_id, prev, None)
-        except InsufficientCredits as exc:
+        except (InsufficientCredits, FreeTierExhausted) as exc:
             # Не ошибка шага, а отсутствие денег: проект ждёт пополнения.
+            # Исчерпанный бесплатный уровень — то же самое с точки зрения
+            # клиента: платить нечем, работа не потеряна, нужен баланс.
             # Такт возвращается без изменения статуса — иначе счётчик неудач
             # воркера откатил бы проект на предыдущий шаг за то, что клиент
             # не пополнил баланс.

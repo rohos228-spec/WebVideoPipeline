@@ -471,6 +471,19 @@ class Settings(BaseSettings):
     # с нулевой дельтой. Ненулевое значение здесь — подарок живыми деньгами.
     tenant_start_credits: float = Field(0.0, alias="TENANT_START_CREDITS")
 
+    # ── Бесплатный уровень (docs/SAAS-PIVOT.md §5.7) ──────────────────────
+    # Бесплатно всё до первой генерации видео НА АККАУНТЕ. Граница по
+    # аккаунту, а не по проекту: иначе подарок повторяется с каждым новым
+    # проектом и стоит $0.97 за штуку без предела.
+    free_tier_enabled: bool = Field(True, alias="FREE_TIER_ENABLED")
+    # Потолок подаренной СЕБЕСТОИМОСТИ на аккаунт, доллары. Раскадровку можно
+    # перезапускать, и каждый перезапуск стоит платформе денег: без потолка
+    # бесплатный аккаунт — открытый кран. Ноль снимает ограничение.
+    free_tier_spend_cap_usd: float = Field(3.0, alias="FREE_TIER_SPEND_CAP_USD")
+    # Сколько проектов можно вести бесплатно. Тот же кран с другой стороны:
+    # двадцать проектов по $0.97 дешевле, чем один за $3.
+    free_tier_max_projects: int = Field(1, alias="FREE_TIER_MAX_PROJECTS")
+
     @model_validator(mode="after")
     def _resolve_paths_from_repo_root(self) -> "Settings":
         object.__setattr__(self, "sqlite_path", resolve_project_path(self.sqlite_path))

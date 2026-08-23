@@ -1216,5 +1216,12 @@ class CreditEntry(Base):
     margin: Mapped[float | None] = mapped_column(Numeric(6, 3), default=None)
     ref_table: Mapped[str] = mapped_column(String(20), default="")
     ref_ids: Mapped[list] = mapped_column(JSON, default=list)
+    # Проект и шаг проводки. У списания их несёт холд, но у промо-проводки
+    # бесплатного уровня холда нет вовсе — она пишется с нулевой дельтой и
+    # без резерва. Без этих полей она была бы безадресной: нельзя ни сказать,
+    # сколько стоило привлечение одного проекта, ни сосчитать бесплатные
+    # проекты арендатора, а §5.7 требует ровно и того и другого.
+    project_id: Mapped[int | None] = mapped_column(default=None, index=True)
+    step_code: Mapped[str] = mapped_column(String(40), default="", index=True)
     memo: Mapped[str] = mapped_column(String(240), default="")
     created_at: Mapped[datetime] = mapped_column(default=_now, index=True)

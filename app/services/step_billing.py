@@ -24,6 +24,12 @@
 могла упасть, откатиться или держать блокировку, а деньги обязаны быть
 записаны в любом случае.
 
+**Бесплатный уровень проходит здесь же и без резерва.** Пока подарок
+действует (§5.7), шаг идёт без холда, а после него пишется промо-проводка с
+нулевой дельтой и фактической себестоимостью. Резервировать нечего: платит
+платформа. Отдельной ветки исполнения при этом не появляется — шаг не должен
+знать, кто за него платит.
+
 **Объём касса выясняет сама.** Медийная часть сметы точна ровно настолько,
 насколько известно число генераций: 24 клипа по прайсу — это цент в цент, а
 «шаг video» без числа кадров — справочная величина из §6.1. Требовать это
@@ -49,6 +55,7 @@ from app.db import session_scope
 from app.models import Frame, LlmCall, MediaCall
 from app.services.credit_ledger import open_hold, release_hold, settle_hold
 from app.services.credits import format_credits
+from app.services.free_tier import check_step_allowed, record_promo
 from app.services.quote import quote_step
 from app.services.tenant import current_tenant
 
@@ -119,16 +126,63 @@ async def step_billing(
         estimate = await quote_step(
             project, step_code, frames=frames, voice_chars=voice_chars, session=session
         )
-        hold = await open_hold(
+        # Бесплатный уровень решается здесь и только здесь: это единственное
+        # место, где известны и шаг, и арендатор, и цена. Проверка идёт по
+        # p90, а не по медиане, — потолок должен ловить худший исход, иначе
+        # он ловит средний, а платит платформа за худший.
+        free = await check_step_allowed(
             session,
             tenant,
-            project_id=project_id,
             step_code=step_code,
-            amount_micro=estimate.hold_micro,
-            node_key=node_key,
+            project_id=project_id,
+            cost_usd=estimate.p90_usd,
         )
-        hold_id = hold.id
-        held = int(hold.amount_micro)
+        if not free:
+            hold = await open_hold(
+                session,
+                tenant,
+                project_id=project_id,
+                step_code=step_code,
+                amount_micro=estimate.hold_micro,
+                node_key=node_key,
+            )
+            hold_id = hold.id
+            held = int(hold.amount_micro)
+
+    if free:
+        async with session_scope() as session:
+            mark = await _ledger_mark(session, project_id)
+        logger.info(
+            "касса: #{} шаг {} — бесплатный уровень, резерв не ставится",
+            project_id,
+            step_code,
+        )
+        bill = StepBill(tenant_id=tenant, hold_id=None, quoted_micro=estimate.price_micro)
+        # Падение внутри блока уносит исполнение мимо записи подарка, и это
+        # правильно: платформа за неудавшийся шаг провайдеру заплатила, но
+        # приписать клиенту подарок, которого он не получил, значит завысить
+        # стоимость привлечения в собственном же отчёте.
+        yield bill
+        await _flush_ledgers()
+        async with session_scope() as session:
+            cost, refs = await _spent_since(session, project_id, mark)
+            await record_promo(
+                session,
+                tenant,
+                project_id=project_id,
+                step_code=step_code,
+                cost_usd=cost,
+                ref_table="llm_calls+media_calls",
+                ref_ids=refs,
+            )
+        bill.cost_usd = cost
+        logger.info(
+            "касса: #{} шаг {} — подарено ${:.4f} себестоимости",
+            project_id,
+            step_code,
+            cost,
+        )
+        return
 
     bill = StepBill(
         tenant_id=tenant,

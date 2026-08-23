@@ -58,6 +58,17 @@ class CascadePrice(BaseModel):
     steps: list[StepPrice] = []
 
 
+class FreeTierOut(BaseModel):
+    """Состояние подарка. Пока он действует, цену показывать нечего."""
+
+    active: bool = False
+    granted_usd: float = 0.0
+    cap_usd: float = 0.0
+    projects: int = 0
+    max_projects: int = 0
+    reason: str = ""
+
+
 class BalanceOut(BaseModel):
     """Остаток и последние проводки."""
 
@@ -65,6 +76,7 @@ class BalanceOut(BaseModel):
     balance_micro: int = 0
     balance_credits: str = "0"
     held_micro: int = 0
+    free_tier: FreeTierOut = FreeTierOut()
     entries: list[dict] = []
 
 
@@ -120,7 +132,9 @@ async def balance(limit: int = 20, session: AsyncSession = Depends(get_session))
     from app.models import CreditEntry, CreditHold
     from app.services.credit_ledger import balance_micro
     from app.services.credits import format_credits
+    from app.services.free_tier import free_tier_state
     from app.services.tenant import current_tenant
+    from app.settings import settings
 
     tenant = current_tenant()
     if tenant is None:
@@ -148,11 +162,20 @@ async def balance(limit: int = 20, session: AsyncSession = Depends(get_session))
         .all()
     )
     available = await balance_micro(session, tenant)
+    free = await free_tier_state(session, tenant)
     return BalanceOut(
         tenant_id=tenant,
         balance_micro=available,
         balance_credits=format_credits(available, rounding="down"),
         held_micro=int(held or 0),
+        free_tier=FreeTierOut(
+            active=free.active,
+            granted_usd=round(free.granted_usd, 4),
+            cap_usd=float(settings.free_tier_spend_cap_usd),
+            projects=free.project_count,
+            max_projects=int(settings.free_tier_max_projects),
+            reason=free.reason,
+        ),
         entries=[
             {
                 "kind": r.kind,
