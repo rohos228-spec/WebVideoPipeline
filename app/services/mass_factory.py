@@ -8,11 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import Integer, cast, func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models import NodeRun, Project, ProjectStatus, Workflow, WorkflowRun, WorkflowRunStatus
+from app.services.db_json import json_field_int
 from app.storage import ProjectSheet
 
 COPY_PROJECT_FIELDS = (
@@ -344,7 +345,7 @@ async def create_mass_child(
 
 
 async def list_mass_children(session: AsyncSession, parent_id: int) -> list[Project]:
-    parent_expr = cast(func.json_extract(Project.meta, "$.mass_parent_id"), Integer)
+    parent_expr = json_field_int(Project.meta, "mass_parent_id")
     rows = (await session.execute(select(Project).where(parent_expr == parent_id))).scalars().all()
     out = list(rows)
     out.sort(key=lambda p: (p.meta or {}).get("mass_lane_position") or 999)

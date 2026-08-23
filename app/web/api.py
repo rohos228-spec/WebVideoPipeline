@@ -126,6 +126,22 @@ async def _lifespan(app: FastAPI):
         # падать в lifespan значит не показать пользователю ни одной страницы
         # с причиной. Логируем и продолжаем — роуты отдадут ошибку сами.
         logger.exception("миграции не прошли — схема может быть неактуальной")
+
+    # Изоляция арендаторов — единственная проверка, после которой не
+    # продолжают. Все три способа её потерять бесшумны: таблица без политики
+    # видна всем, политика без FORCE не действует на владельца, роль с
+    # BYPASSRLS игнорирует политики. Ни один не даст ошибки в логе — он даст
+    # утечку чужого ролика. Падение на старте чинится за минуту, утечка не
+    # чинится вовсе.
+    from app.settings import settings
+
+    if settings.is_postgres:
+        from app.db import session_scope as _scope
+        from app.services.rls_check import assert_rls_or_die
+
+        async with _scope() as s:
+            await assert_rls_or_die(s)
+
     try:
         from app.db import session_scope
         from app.services.local_library import ensure_library_dirs, import_existing_prompts

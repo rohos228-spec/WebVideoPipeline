@@ -10,10 +10,11 @@ import copy
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import Integer, cast, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Project, ProjectStatus
+from app.services.db_json import json_field_int
 from app.services.mass_factory import (
     COPY_META_KEYS,
     COPY_PROJECT_FIELDS,
@@ -147,7 +148,7 @@ async def finalize_child_data_dir(_parent: Project, child: Project) -> None:
 
 
 async def count_children(session: AsyncSession, parent_id: int) -> int:
-    parent_expr = cast(func.json_extract(Project.meta, "$.mass_parent_id"), Integer)
+    parent_expr = json_field_int(Project.meta, "mass_parent_id")
     return int(
         (
             await session.execute(select(func.count()).select_from(Project).where(parent_expr == parent_id))

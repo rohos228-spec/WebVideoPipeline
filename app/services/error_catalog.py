@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.services.db_busy import is_db_busy
+
 
 @dataclass(frozen=True)
 class ErrorSpec:
@@ -208,7 +210,7 @@ def _match_code(exc: Exception) -> str:  # noqa: C901
         return "media_credits"
     if "rate limit" in low or "429" in low:
         return "media_rate_limit"
-    if "database is locked" in low or "database locked" in low:
+    if is_db_busy(low):
         return "infra_db_locked"
     if name in ("FileNotFoundError",) or "нет файл" in low or "не найден" in low:
         return "file_missing"

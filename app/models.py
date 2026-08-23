@@ -6,7 +6,18 @@ import enum
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import JSON, Enum, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Enum,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, validates
 
 from app.settings import settings
@@ -216,6 +227,9 @@ class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     # Короткое имя в сайдбаре (не путать с topic — тема для шага «Тема ролика»).
     title: Mapped[str | None] = mapped_column(String(240), default=None)
@@ -324,6 +338,9 @@ class Frame(Base):
     __table_args__ = (UniqueConstraint("project_id", "number", name="uq_frame_number"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     number: Mapped[int] = mapped_column()  # уникальный номер внутри проекта (1..N)
     voiceover_text: Mapped[str] = mapped_column(Text)
@@ -359,6 +376,9 @@ class Scene(Base):
     __tablename__ = "scenes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     sort_key: Mapped[float] = mapped_column(default=1.0, index=True)
     title: Mapped[str | None] = mapped_column(String(240), default=None)
@@ -378,6 +398,9 @@ class FrameText(Base):
     __tablename__ = "frame_texts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     frame_id: Mapped[int] = mapped_column(ForeignKey("frames.id", ondelete="CASCADE"), index=True)
     kind: Mapped[str] = mapped_column(String(32), default="voiceover", index=True)
@@ -393,6 +416,9 @@ class PromptVersion(Base):
     __tablename__ = "prompt_versions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     frame_id: Mapped[int] = mapped_column(ForeignKey("frames.id", ondelete="CASCADE"), index=True)
     kind: Mapped[str] = mapped_column(String(24), default="img", index=True)  # img/video/hero
@@ -408,6 +434,9 @@ class Entity(Base):
     __tablename__ = "entities"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     type: Mapped[str] = mapped_column(String(24), index=True)  # character/background/prop
     code: Mapped[str | None] = mapped_column(String(24), default=None, index=True)  # c01/f01/p01
@@ -424,6 +453,9 @@ class FrameEdge(Base):
     __tablename__ = "frame_edges"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     from_frame_id: Mapped[int] = mapped_column(ForeignKey("frames.id", ondelete="CASCADE"), index=True)
     to_frame_id: Mapped[int] = mapped_column(ForeignKey("frames.id", ondelete="CASCADE"), index=True)
@@ -443,6 +475,9 @@ class SceneDesignCell(Base):
     __tablename__ = "scene_design_cells"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     agent: Mapped[str] = mapped_column(String(16), index=True)  # characters/world/style/camera/action
     kind: Mapped[str] = mapped_column(String(24), index=True)  # character/location/style_stage/scene/shot
@@ -460,6 +495,9 @@ class Artifact(Base):
     __tablename__ = "artifacts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     frame_id: Mapped[int | None] = mapped_column(ForeignKey("frames.id", ondelete="CASCADE"), index=True)
     kind: Mapped[ArtifactKind] = mapped_column(Enum(ArtifactKind, name="artifact_kind"), index=True)
@@ -487,6 +525,9 @@ class AsrWord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     run_uuid: Mapped[str] = mapped_column(String(64), index=True)
     idx: Mapped[int] = mapped_column()  # 0-based порядок в полном audio
@@ -508,6 +549,9 @@ class MasterPrompt(Base):
     __table_args__ = (UniqueConstraint("key", "version", name="uq_prompt_key_version"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     key: Mapped[PromptKey] = mapped_column(Enum(PromptKey, name="prompt_key"), index=True)
     version: Mapped[int] = mapped_column()
     text: Mapped[str] = mapped_column(Text)
@@ -519,6 +563,9 @@ class Attempt(Base):
     __tablename__ = "attempts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     frame_id: Mapped[int | None] = mapped_column(ForeignKey("frames.id", ondelete="CASCADE"), index=True)
     task_name: Mapped[str] = mapped_column(String(120), index=True)
@@ -545,6 +592,9 @@ class BatchProject(Base):
     __tablename__ = "batch_projects"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     # Человеческое название (вводит юзер в TG, любые символы).
     name: Mapped[str] = mapped_column(String(120))
     # Слаг для путей на диске: latin/cyrillic→ASCII, без пробелов, unique.
@@ -597,6 +647,9 @@ class HITLRequest(Base):
     __tablename__ = "hitl_requests"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     frame_id: Mapped[int | None] = mapped_column(ForeignKey("frames.id", ondelete="CASCADE"), index=True)
     kind: Mapped[HITLKind] = mapped_column(Enum(HITLKind, name="hitl_kind"), index=True)
@@ -633,6 +686,9 @@ class TestPromptProject(Base):
     __tablename__ = "test_prompt_projects"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
     # Стартовый визуальный промт от юзера. Используется в первой
@@ -690,6 +746,9 @@ class Workflow(Base):
     __tablename__ = "workflows"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str | None] = mapped_column(Text, default=None)
     # Граф. Дефолт: пустой граф; шаблонные дефолты создаются seed-функцией.
@@ -720,6 +779,9 @@ class WorkflowRun(Base):
     __tablename__ = "workflow_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     workflow_id: Mapped[int] = mapped_column(ForeignKey("workflows.id", ondelete="CASCADE"), index=True)
     project_id: Mapped[int] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), unique=True, index=True
@@ -753,6 +815,9 @@ class NodeRun(Base):
     __table_args__ = (UniqueConstraint("workflow_run_id", "node_key", name="uq_node_runs_run_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     workflow_run_id: Mapped[int] = mapped_column(
         ForeignKey("workflow_runs.id", ondelete="CASCADE"), index=True
     )
@@ -844,6 +909,9 @@ class LlmCall(Base):
     __table_args__ = (Index("ix_llm_calls_project_created", "project_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
     project_id: Mapped[int | None] = mapped_column(index=True, default=None)
     node_key: Mapped[str] = mapped_column(String(120), default="adhoc")
@@ -888,6 +956,9 @@ class MediaCall(Base):
     __table_args__ = (Index("ix_media_calls_project_created", "project_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
     project_id: Mapped[int | None] = mapped_column(index=True, default=None)
     node_key: Mapped[str] = mapped_column(String(120), default="adhoc")
@@ -917,6 +988,9 @@ class LibraryItem(Base):
     __table_args__ = (UniqueConstraint("kind", "key", name="uq_library_item_kind_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     kind: Mapped[str] = mapped_column(String(40), index=True)
     key: Mapped[str] = mapped_column(String(300), index=True)
     title: Mapped[str] = mapped_column(String(300))
@@ -938,6 +1012,9 @@ class LibraryVersion(Base):
     __table_args__ = (UniqueConstraint("item_id", "version", name="uq_library_version_item"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     item_id: Mapped[int] = mapped_column(ForeignKey("library_items.id", ondelete="CASCADE"), index=True)
     version: Mapped[int] = mapped_column(index=True)
     content: Mapped[str] = mapped_column(Text)
@@ -958,6 +1035,9 @@ class LibraryEvent(Base):
     __tablename__ = "library_events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     item_id: Mapped[int | None] = mapped_column(
         ForeignKey("library_items.id", ondelete="SET NULL"), default=None, index=True
     )
@@ -974,6 +1054,9 @@ class LibraryConfig(Base):
     __tablename__ = "library_configs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     name: Mapped[str] = mapped_column(String(240), index=True)
     project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"), default=None, index=True
@@ -991,6 +1074,9 @@ class WorkflowVersion(Base):
     __table_args__ = (UniqueConstraint("workflow_id", "version", name="uq_workflow_version"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
+    # RLS-политика пропускает их только в режиме одного арендатора.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     workflow_id: Mapped[int] = mapped_column(ForeignKey("workflows.id", ondelete="CASCADE"), index=True)
     version: Mapped[int] = mapped_column(index=True)
     name: Mapped[str | None] = mapped_column(String(200), default=None)
@@ -998,4 +1084,93 @@ class WorkflowVersion(Base):
     nodes: Mapped[list] = mapped_column(JSON, default=list)
     edges: Mapped[list] = mapped_column(JSON, default=list)
     message: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Кредиты: счёт, резерв, проводка (docs/SAAS-PIVOT.md §5.3)
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Три таблицы вместо одной колонки «баланс», потому что баланс — производная,
+# а не факт. Факт — это проводки: по каждой списанной доле кредита должно быть
+# видно, из каких вызовов провайдера она сложилась. Без этого маржа считается
+# задним числом и на глаз, а спор с клиентом нечем закрыть.
+#
+# Деньги хранятся целыми микрокредитами (10⁻⁶ кредита, см. `services/credits`).
+# `BigInteger` обязателен: при курсе 1 кредит = $1 миллион долларов оборота —
+# это 10¹² микрокредитов, в 32 бита не влезает.
+
+
+class CreditAccount(Base):
+    """Счёт арендатора. Баланс материализован ради скорости.
+
+    Правда — сумма проводок; эта колонка её кэш. Расхождение обязано быть
+    аварией, а не «поправим потом»: сверка идёт тестом инварианта
+    `balance = Σ delta − Σ held` и ночной задачей.
+    """
+
+    __tablename__ = "credit_accounts"
+
+    tenant_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    balance_micro: Mapped[int] = mapped_column(BigInteger, default=0)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+
+
+class CreditHold(Base):
+    """Резерв под шаг. Живёт от старта шага до его конца.
+
+    Резервируется оценка p90, а не медиана: холд, которого не хватило,
+    означает либо баланс в минусе, либо шаг, вставший на середине. Излишек
+    возвращается при списании той же операцией.
+    """
+
+    __tablename__ = "credit_holds"
+    __table_args__ = (
+        Index("ix_credit_holds_open", "tenant_id", "state"),
+        Index("ix_credit_holds_project", "project_id", "step_code"),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), index=True)
+    project_id: Mapped[int] = mapped_column(index=True)
+    step_code: Mapped[str] = mapped_column(String(40))
+    node_key: Mapped[str] = mapped_column(String(120), default="")
+    amount_micro: Mapped[int] = mapped_column(BigInteger)
+    # held | settled | released | expired
+    state: Mapped[str] = mapped_column(String(12), default="held", index=True)
+    # Страховка от зависшего шага: деньги не зависают никогда.
+    expires_at: Mapped[datetime] = mapped_column(index=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
+
+
+class CreditEntry(Base):
+    """Проводка. Единственный источник правды по деньгам.
+
+    ``ref_table`` / ``ref_ids`` смотрят в существующие журналы вызовов
+    (`llm_calls`, `media_calls`). Благодаря этому по каждой списанной доле
+    видно, из каких вызовов она сложилась: маржа считается по продукту, по
+    клиенту и по шагу с первого дня.
+
+    ``ref_ids`` — JSON-массив, а не `bigint[]` из §5.3: массивы есть только
+    в Postgres, а таблица обязана существовать и на SQLite, иначе на нём
+    нельзя ни прогнать тесты, ни поднять систему владельца.
+    """
+
+    __tablename__ = "credit_entries"
+    __table_args__ = (Index("ix_credit_entries_tenant_time", "tenant_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), index=True)
+    hold_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
+    # + пополнение, − списание. Знак несёт смысл, `kind` его поясняет.
+    delta_micro: Mapped[int] = mapped_column(BigInteger)
+    # topup | settle | release | refund | adjust | promo
+    kind: Mapped[str] = mapped_column(String(12), index=True)
+    # Фактическая себестоимость операции и применённая маржа — для аудита:
+    # без них нельзя ответить, почему списано именно столько.
+    cost_usd: Mapped[float | None] = mapped_column(Numeric(18, 8), default=None)
+    margin: Mapped[float | None] = mapped_column(Numeric(6, 3), default=None)
+    ref_table: Mapped[str] = mapped_column(String(20), default="")
+    ref_ids: Mapped[list] = mapped_column(JSON, default=list)
+    memo: Mapped[str] = mapped_column(String(240), default="")
     created_at: Mapped[datetime] = mapped_column(default=_now, index=True)

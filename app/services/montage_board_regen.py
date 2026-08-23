@@ -32,6 +32,7 @@ from app.generation_options import (
 )
 from app.models import Frame, Project, PromptVersion
 from app.orchestrator.steps.generate_images import _load_refs_for_frame
+from app.services.db_busy import is_db_busy
 from app.services.gpt_client import get_gpt_client
 from app.services.montage_board_assets import (
     finalize_scene_image,
@@ -260,8 +261,7 @@ async def _persist_video_prompt(
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("montage regen: prompt_versions video write failed: {}", e)
-            low = str(e).lower()
-            if "database is locked" in low or "database is busy" in low:
+            if is_db_busy(e):
                 try:
                     await session.rollback()
                 except Exception:  # noqa: BLE001
@@ -270,8 +270,7 @@ async def _persist_video_prompt(
     try:
         await session.flush()
     except Exception as e:  # noqa: BLE001
-        low = str(e).lower()
-        if "database is locked" in low or "database is busy" in low:
+        if is_db_busy(e):
             try:
                 await session.rollback()
             except Exception:  # noqa: BLE001

@@ -46,8 +46,14 @@ _FRAME_V2_COLS: list[tuple[str, str]] = [
 
 async def migrate_db_v2_schema(conn: Any) -> None:
     """Добавить v2-колонки в frames (create_all не умеет ALTER)."""
-    rows = (await conn.exec_driver_sql("PRAGMA table_info(frames)")).fetchall()
-    existing = {r[1] for r in rows}
+    # Список колонок через инспектор, а не `PRAGMA table_info`: PRAGMA —
+    # синтаксис SQLite, на Postgres запрос упал бы.
+    from sqlalchemy import inspect as sa_inspect
+
+    existing = {
+        col["name"]
+        for col in await conn.run_sync(lambda sync_conn: sa_inspect(sync_conn).get_columns("frames"))
+    }
     for col, ctype in _FRAME_V2_COLS:
         if col in existing:
             continue

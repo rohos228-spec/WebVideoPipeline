@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Frame, FrameStatus, Project, ProjectStatus
+from app.services.db_busy import is_db_busy
 from app.services.step_cancel import StepCancelledError, raise_if_cancelled
 from app.storage import for_project as _sheet_for_project
 
@@ -178,8 +179,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         break
                     except Exception as apply_err:  # noqa: BLE001
                         last_apply_err = apply_err
-                        msg = str(apply_err).lower()
-                        locked = "database is locked" in msg or "database locked" in msg
+                        locked = is_db_busy(apply_err)
                         if not locked or apply_try >= 5:
                             raise
                         wait_s = min(2 * apply_try, 10)

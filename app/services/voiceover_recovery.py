@@ -19,10 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import Integer, cast, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Frame, Project
+from app.services.db_json import json_field_int
 from app.services.mass_factory import list_mass_children, mass_parent_id
 
 _BACKUP_RE = re.compile(r"^(\d{8}_\d{6})_.*voiceover.*\.txt$", re.I)
@@ -445,7 +446,7 @@ async def restore_all_parent_voiceovers(
 
 
 async def count_parent_projects(session: AsyncSession) -> int:
-    parent_expr = cast(func.json_extract(Project.meta, "$.mass_parent_id"), Integer)
+    parent_expr = json_field_int(Project.meta, "mass_parent_id")
     total = (
         await session.execute(select(func.count()).select_from(Project).where(parent_expr.is_(None)))
     ).scalar_one()

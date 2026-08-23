@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0002"
@@ -62,8 +63,13 @@ _FRAME_COLS: list[tuple[str, str]] = [
 
 
 def _existing(bind, table: str) -> set[str]:
-    rows = bind.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
-    return {row[1] for row in rows}
+    """Колонки таблицы. Через инспектор, а не `PRAGMA table_info`: PRAGMA —
+    синтаксис SQLite, и на Postgres ревизия падала бы при первом же
+    прогоне (docs/SAAS-PIVOT.md §11, этап 1)."""
+    inspector = sa.inspect(bind)
+    if table not in inspector.get_table_names():
+        return set()
+    return {col["name"] for col in inspector.get_columns(table)}
 
 
 def _add_missing(bind, table: str, cols: list[tuple[str, str]]) -> None:

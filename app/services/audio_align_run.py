@@ -24,6 +24,7 @@ from app.services.audio_align_methods import (
     resolve_align_method,
     run_speech_align,
 )
+from app.services.db_busy import is_db_busy
 from app.services.frame_audio import (
     FrameAudioClip,
     _voiceover_cells_for_frames,
@@ -37,8 +38,9 @@ from app.services.whisper import dump_words_json, load_words_json
 
 
 def _is_sqlite_locked(exc: BaseException) -> bool:
-    msg = str(exc).lower()
-    return "database is locked" in msg or "database is busy" in msg
+    """Конкурент держит базу. Имя историческое: на Postgres это код
+    SQLSTATE, а не текст, — распознаёт `db_busy.is_db_busy`."""
+    return is_db_busy(exc)
 
 
 async def _latest_words_artifact(

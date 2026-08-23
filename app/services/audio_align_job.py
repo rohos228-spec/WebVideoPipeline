@@ -11,6 +11,7 @@ from loguru import logger
 from app.db import session_scope
 from app.models import Project
 from app.services.audio_align_run import run_audio_align_for_project
+from app.services.db_busy import is_db_busy
 from app.services.event_bus import publish_project_event
 from app.services.montage_board_job_state import resolve_job_status
 from app.services.montage_board_meta import montage_meta, set_montage_meta
@@ -29,8 +30,9 @@ def _utc_now() -> str:
 
 
 def _is_sqlite_locked(exc: BaseException) -> bool:
-    msg = str(exc).lower()
-    return "database is locked" in msg or "database is busy" in msg
+    """Конкурент держит базу. Имя историческое: на Postgres это код
+    SQLSTATE, а не текст, — распознаёт `db_busy.is_db_busy`."""
+    return is_db_busy(exc)
 
 
 def get_audio_align_job(project: Project) -> dict[str, Any]:

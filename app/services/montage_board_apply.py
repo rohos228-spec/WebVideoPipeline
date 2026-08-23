@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session_scope
 from app.models import Project
+from app.services.db_busy import is_db_busy
 from app.services.img_streams import acquire_image_slot, get_img_streams
 from app.services.montage_ai_change import rewrite_prompt_via_gpt
 from app.services.montage_board_meta import (
@@ -71,8 +72,9 @@ def _ready_local_asset(path: Path, *, min_bytes: int) -> bool:
 
 
 def _is_sqlite_locked(exc: BaseException) -> bool:
-    msg = str(exc).lower()
-    return "database is locked" in msg or "database is busy" in msg
+    """Конкурент держит базу. Имя историческое: на Postgres это код
+    SQLSTATE, а не текст, — распознаёт `db_busy.is_db_busy`."""
+    return is_db_busy(exc)
 
 
 def _is_sqlite_transient(exc: BaseException) -> bool:

@@ -28,8 +28,8 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    existing = {r[0] for r in bind.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'")}
-    if "media_calls" in existing:
+    # Инспектор вместо `sqlite_master`: этой таблицы нет в Postgres.
+    if "media_calls" in set(sa.inspect(bind).get_table_names()):
         return
 
     op.create_table(

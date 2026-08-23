@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0003"
@@ -31,8 +32,8 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    rows = bind.exec_driver_sql("PRAGMA table_info(projects)").fetchall()
-    if not rows:
+    # Инспектор вместо PRAGMA: ревизия обязана проходить и на Postgres.
+    if "projects" not in sa.inspect(bind).get_table_names():
         return
     bind.exec_driver_sql("UPDATE projects SET status = 'new' WHERE status = 'failed'")
 

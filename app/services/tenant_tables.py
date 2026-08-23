@@ -1,0 +1,68 @@
+"""Какие таблицы принадлежат арендатору — один список на всю систему.
+
+Список нужен в трёх местах: миграция добавляет колонку, миграция политик
+включает RLS, проверка целостности сверяет, что первое и второе не разошлись.
+Три копии разошлись бы на первой же новой таблице — и разошлись бы молча:
+таблица без политики не ломается, она просто видна всем.
+
+Поэтому список объявлен здесь, а `check_coverage` сверяет его с моделями и
+называет забытые таблицы поимённо.
+"""
+
+from __future__ import annotations
+
+#: Данные клиента. §4.1 плюс дочерние таблицы: RLS проверяет каждую строку
+#: сам и наследовать арендатора через проект не умеет.
+TENANT_TABLES: tuple[str, ...] = (
+    "projects",
+    "frames",
+    "scenes",
+    "frame_texts",
+    "frame_edges",
+    "scene_design_cells",
+    "entities",
+    "artifacts",
+    "asr_words",
+    "attempts",
+    "prompt_versions",
+    "master_prompts",
+    "hitl_requests",
+    "node_runs",
+    "llm_calls",
+    "media_calls",
+    "batch_projects",
+    "test_prompt_projects",
+    "workflows",
+    "workflow_runs",
+    "workflow_versions",
+    "library_items",
+    "library_versions",
+    "library_events",
+    "library_configs",
+)
+
+#: Касса. Отдельно, потому что колонка арендатора у неё не добавляется —
+#: она там с рождения, и в 0005 эти таблицы создаются целиком.
+CREDIT_TABLES: tuple[str, ...] = ("credit_accounts", "credit_holds", "credit_entries")
+
+#: Инфраструктура узла, а не данные клиента. Арендатор у лизинга шага был бы
+#: бессмыслицей: лизинг принадлежит воркеру, а не заказчику ролика.
+INFRA_TABLES: frozenset[str] = frozenset({"fleet_nodes", "work_leases", "alembic_version"})
+
+
+def all_isolated() -> tuple[str, ...]:
+    """Всё, что закрывается политикой RLS."""
+    return TENANT_TABLES + CREDIT_TABLES
+
+
+def check_coverage() -> list[str]:
+    """Таблицы моделей, не попавшие ни в один список. Пусто — всё учтено.
+
+    Новая таблица без арендатора не падает — она просто видна всем сразу.
+    Отказ бесшумный, поэтому проверка нужна автоматическая
+    (`tests/test_tenant_isolation.py`).
+    """
+    from app.models import Base
+
+    known = set(all_isolated()) | INFRA_TABLES
+    return sorted(name for name in Base.metadata.tables if name not in known)

@@ -59,6 +59,7 @@ from app.models import (
     ProjectStatus,
 )
 from app.services import gpt_text_builder as gtb
+from app.services.db_busy import is_db_busy
 from app.services.excel_characters import ExcelCharacter
 from app.services.gpt_client import get_gpt_client
 from app.services.hitl import send_hitl_photo
@@ -1101,13 +1102,15 @@ async def _run_excel(
                     approved=set(),
                     batch_auto=True,
                 )
-                # SQLite: параллельные commit 4× иногда ловят database is locked.
+                # Параллельные commit 4× иногда упираются в конкурента:
+                # на SQLite это `database is locked`, на Postgres — код
+                # сериализации. Различает `db_busy`.
                 for attempt in range(1, 8):
                     try:
                         await s.commit()
                         break
                     except OperationalError as e:
-                        if "locked" not in str(e).lower() or attempt >= 7:
+                        if not is_db_busy(e) or attempt >= 7:
                             raise
                         await asyncio.sleep(0.15 * attempt)
                 return ch.id

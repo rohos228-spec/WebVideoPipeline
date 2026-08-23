@@ -91,13 +91,27 @@ async def upgrade_to_head() -> None:
 
 
 def upgrade_to_head_sync(sqlite_path: Path | None = None) -> None:
-    """Синхронный вариант для скриптов/CLI (не из event loop)."""
+    """Синхронный вариант для скриптов/CLI (не из event loop).
+
+    ``sqlite_path`` — явный файл SQLite (нужен инструментам, которые чинят
+    конкретную базу). Без него берётся `DATABASE_URL`, то есть на SaaS
+    миграции идут в Postgres. Захардкоженный `sqlite+pysqlite` здесь означал
+    бы, что новая инсталляция на Postgres не поднимается вовсе: прогон
+    миграций — первое, что она делает.
+    """
     from sqlalchemy import create_engine
 
     from app.settings import settings
 
-    path = Path(sqlite_path) if sqlite_path else Path(settings.sqlite_path)
-    engine = create_engine(f"sqlite+pysqlite:///{path}", future=True)
+    if sqlite_path is not None:
+        url = f"sqlite+pysqlite:///{Path(sqlite_path)}"
+    elif settings.is_postgres:
+        # Синхронный драйвер для того же сервера: alembic ходит без loop.
+        url = settings.db_url.replace("+asyncpg", "+psycopg").replace("+psycopg_async", "+psycopg")
+    else:
+        url = f"sqlite+pysqlite:///{Path(settings.sqlite_path)}"
+
+    engine = create_engine(url, future=True)
     try:
         with engine.begin() as conn:
             _upgrade_sync(conn)

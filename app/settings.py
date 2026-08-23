@@ -433,6 +433,21 @@ class Settings(BaseSettings):
     credit_usd_rate: float = Field(1.0, alias="CREDIT_USD_RATE")
     credit_margin: float = Field(3.0, alias="CREDIT_MARGIN")
 
+    # ── База данных ───────────────────────────────────────────────────────
+    # Пусто — SQLite по `sqlite_path` (одна машина, режим владельца). Задано —
+    # берётся как есть: `postgresql+asyncpg://user:pass@host/db`. SaaS живёт
+    # на Postgres, потому что изоляция арендаторов делается row-level security,
+    # а её в SQLite нет вовсе (docs/SAAS-PIVOT.md §4.2, §11).
+    database_url: str = Field("", alias="DATABASE_URL")
+    # Размер пула для Postgres. У SQLite пула нет — там один writer на файл.
+    db_pool_size: int = Field(10, alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(20, alias="DB_MAX_OVERFLOW")
+    # Разрешить арендаторов там, где изоляции движка нет (SQLite). В проде
+    # это дыра: RLS не существует, разделение держится на честном слове
+    # кода. Нужно ровно тестам механики кассы, которым арендатор нужен как
+    # ключ учёта, а не как граница безопасности. По умолчанию — fail-closed.
+    allow_unisolated_tenants: bool = Field(False, alias="ALLOW_UNISOLATED_TENANTS")
+
     @model_validator(mode="after")
     def _resolve_paths_from_repo_root(self) -> "Settings":
         object.__setattr__(self, "sqlite_path", resolve_project_path(self.sqlite_path))
@@ -479,9 +494,29 @@ class Settings(BaseSettings):
 
     @property
     def db_url(self) -> str:
-        p = self.sqlite_path
-        as_posix = p.as_posix()
-        return f"sqlite+aiosqlite:///{as_posix}"
+        """URL движка. `DATABASE_URL` перекрывает SQLite целиком."""
+        explicit = (self.database_url or "").strip()
+        if explicit:
+            return explicit
+        return f"sqlite+aiosqlite:///{self.sqlite_path.as_posix()}"
+
+    @property
+    def db_dialect(self) -> str:
+        """`postgresql` | `sqlite` — по URL, без подключения.
+
+        Нужен там, где поведение обязано отличаться: PRAGMA против
+        RLS-политик, `json_extract` против `->>`, разбор «занятой базы».
+        Спрашивать диалект у живого соединения дороже и не всегда возможно
+        (миграции, тесты, конфигурация движка до первого коннекта).
+        """
+        url = self.db_url
+        if url.startswith("postgresql") or url.startswith("postgres://"):
+            return "postgresql"
+        return "sqlite"
+
+    @property
+    def is_postgres(self) -> bool:
+        return self.db_dialect == "postgresql"
 
 
 settings = Settings()  # type: ignore[call-arg]
