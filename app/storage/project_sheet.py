@@ -240,6 +240,18 @@ class ProjectSheet:
     Все методы синхронные (openpyxl читает файл целиком) и идемпотентные —
     вызвать `write_frame` дважды с одними данными безопасно. Перед каждой
     записью файл открывается под блокировкой, изменяется и сохраняется.
+
+    **В SaaS запись выключена целиком** (`docs/SAAS-PIVOT.md` §9.3). Файл
+    существует ради человека за той же машиной: открыть, поправить,
+    сохранить и закрыть. У клиента студии этого человека нет — некому
+    открыть, некому закрыть, — а openpyxl читает и пишет книгу целиком на
+    каждую ячейку, то есть на каждом кадре тратится диск и время на файл,
+    который никто не откроет.
+
+    Выключается запись, а не чтение. Данные, заведённые в Excel до перехода,
+    остаются читаемыми: шаги уже спрашивают сначала базу и идут в книгу
+    только запасным путём. Так развязка не требует переписать шестьдесят
+    семь файлов разом — она требует перестать писать.
     """
 
     def __init__(self, file_path: Path, *, template_path: Path | None = None) -> None:
@@ -248,6 +260,13 @@ class ProjectSheet:
             Path(template_path) if template_path is not None else resolve_default_template_path()
         )
 
+    @property
+    def writable(self) -> bool:
+        """Пишем ли мы вообще в книгу. В SaaS — нет."""
+        from app.settings import settings
+
+        return bool(getattr(settings, "xlsx_enabled", True))
+
     # ---- инициализация --------------------------------------------------
 
     def ensure_initialized(self, *, project_id: int, slug: str) -> Path:
@@ -255,6 +274,10 @@ class ProjectSheet:
         Гарантирует, что в файле есть оба листа и нужная разметка (для
         старого шаблона). Для v8-шаблона разметку enforce-ить не надо —
         её формирует GPT."""
+        if not self.writable:
+            # Путь возвращается всё равно: вызывающие строят от него другие
+            # пути и ожидают строку, а не None. Файла на нём просто не будет.
+            return self.file_path
         from app.services.xlsx_versioning import repair_project_xlsx_if_corrupt
 
         repair_project_xlsx_if_corrupt(self.file_path, template_path=self.template_path)
@@ -489,7 +512,13 @@ class ProjectSheet:
 
     def _save(self, wb: Any) -> None:
         """Сохраняем атомарно через временный файл, с ретраями на
-        PermissionError (Windows + открытый Excel)."""
+        PermissionError (Windows + открытый Excel).
+
+        Последний рубеж выключения: даже если запись пришла мимо публичных
+        методов, в SaaS она не доедет до диска.
+        """
+        if not self.writable:
+            return
         import os as _os
         import time as _t
 

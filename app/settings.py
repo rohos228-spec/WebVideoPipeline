@@ -499,6 +499,14 @@ class Settings(BaseSettings):
     # совершенно рабочем бакете, поэтому вынесена в настройку.
     s3_force_path_style: bool = Field(False, alias="S3_FORCE_PATH_STYLE")
 
+    # ── Excel (docs/SAAS-PIVOT.md §9.3) ───────────────────────────────────
+    # Книга проекта существует ради человека за той же машиной: открыть,
+    # поправить, сохранить и закрыть. У клиента студии такого человека нет.
+    # Пусто (по умолчанию) — включено в режиме владельца и выключено в SaaS;
+    # явное значение перекрывает. Выключается ЗАПИСЬ: чтение остаётся, чтобы
+    # данные, заведённые в Excel до перехода, не пропали.
+    xlsx_write: bool | None = Field(None, alias="XLSX_WRITE")
+
     @model_validator(mode="after")
     def _resolve_paths_from_repo_root(self) -> "Settings":
         object.__setattr__(self, "sqlite_path", resolve_project_path(self.sqlite_path))
@@ -568,6 +576,13 @@ class Settings(BaseSettings):
     @property
     def is_postgres(self) -> bool:
         return self.db_dialect == "postgresql"
+
+    @property
+    def xlsx_enabled(self) -> bool:
+        """Пишем ли книгу проекта. По умолчанию — да у владельца, нет в SaaS."""
+        if self.xlsx_write is not None:
+            return bool(self.xlsx_write)
+        return not self.sso_enabled
 
     @property
     def s3_configured(self) -> bool:
