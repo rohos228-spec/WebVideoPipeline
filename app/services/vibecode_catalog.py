@@ -382,14 +382,13 @@ def resolve_node_choice(
     node = find_canvas_node(meta, node_key=node_key, node_type=node_type)
     mid, channel = read_node_model_fields(node)
     if not mid:
-        if node is None:
-            # Канвас-ноды нет (проект из seed/TG, а не из Studio) — выбора не
-            # делали. Подставить сюда каталожный дефолт значит молча
-            # перебить TEXT_LLM_PROVIDER / IMAGE_PROVIDER / VIDEO_PROVIDER:
-            # дефолты каталога прибиты к vibecode и outsee. Пусть решают
-            # настройки проекта и .env.
-            return None
-        mid = default_model_id_for_node_type(str(node.get("type") or node_type or ""))
+        # Выбора не делали — ни ноды нет (проект из seed/TG), ни `modelId`
+        # на ноде (нода пришла из шаблона графа или «+ Группа», человек её
+        # пикер не открывал). Подставить сюда каталожный дефолт значит молча
+        # перебить TEXT_LLM_PROVIDER / IMAGE_PROVIDER / VIDEO_PROVIDER:
+        # дефолты каталога прибиты к vibecode и outsee. Пусть решают
+        # настройки проекта и .env. Выбор — только то, что человек выбрал.
+        return None
     found = find_model(mid, channel=channel)
     if found:
         found = {**found, "channel": channel}
@@ -411,6 +410,22 @@ def resolve_image_generator_id(
     return str(gid).strip() if gid else None
 
 
+# Дефолт «когда никто ничего не выбирал» обязан слушать .env: DEFAULTS в
+# generation_options прибит к outsee-моделям, и на ключе MiniMax шаг падает
+# «OUTSEE_API_KEY пуст», хотя IMAGE_PROVIDER=minimax стоит явно.
+_PROVIDER_DEFAULT_IMAGE: dict[str, str] = {"minimax": "minimax_image_01"}
+_PROVIDER_DEFAULT_VIDEO: dict[str, str] = {"minimax": "hailuo_2_3_fast"}
+
+
+def _provider_default(kind: str) -> str | None:
+    from app.settings import settings
+
+    attr = "image_provider" if kind == "image" else "video_provider"
+    provider = str(getattr(settings, attr, "") or "").strip().lower()
+    table = _PROVIDER_DEFAULT_IMAGE if kind == "image" else _PROVIDER_DEFAULT_VIDEO
+    return table.get(provider)
+
+
 def effective_image_generator_id(
     project: Any,
     *,
@@ -421,6 +436,7 @@ def effective_image_generator_id(
 
     gid = (
         resolve_image_generator_id(project, node_key=node_key, node_type=node_type)
+        or _provider_default("image")
         or DEFAULTS["image_generator"]
     )
     if gid == "gpt_image_2":
@@ -455,5 +471,6 @@ def effective_video_generator_id(
 
     return (
         resolve_video_generator_id(project, node_key=node_key, node_type=node_type)
+        or _provider_default("video")
         or DEFAULTS["video_generator"]
     )

@@ -409,12 +409,40 @@ async def _collect_ref_paths(
     return refs
 
 
+async def _ref_ids_from_db(
+    session: AsyncSession | None,
+    project: Project,
+    frame_number: int,
+) -> tuple[list[str], list[str]]:
+    """Персонажи и предметы кадра из БД — источника истины после apply-ops.
+
+    Раньше id рефов читались только из xlsx, а xlsx-путь в контракте помечен
+    deprecated (docs/PROMPT_CONTRACT.md): сцены и персонажи пишет apply-ops в
+    БД, лист при этом может остаться пустым. Тогда рефов не находилось вовсе
+    (`refs=0`), и генератор рисовал новое лицо в каждом кадре — та самая
+    рассинхронизация героя, ради которой референсы и заводились.
+    """
+    if session is None:
+        return [], []
+    fr = (
+        await session.execute(
+            select(Frame).where(Frame.project_id == project.id, Frame.number == frame_number)
+        )
+    ).scalar_one_or_none()
+    if fr is None:
+        return [], []
+    attrs = fr.attrs if isinstance(fr.attrs, dict) else {}
+    persons = _parse_ref_ids(attrs.get("characters") or attrs.get("персонажи") or "")
+    items = _parse_ref_ids(attrs.get("shot01_props") or attrs.get("предметы") or "")
+    return persons, items
+
+
 async def _load_refs_for_frame(
     session: AsyncSession | None,
     project: Project,
     frame_number: int,
 ) -> list[Path]:
-    """Читает xlsx-ячейки «персонажи» / «предметы» для столбца кадра.
+    """Персонажи / предметы кадра: сначала БД, затем xlsx как запасной путь.
 
     Outsee — максимум 2 рефа на генерацию. Порядок заполнения слотов:
       1) персонажи из ячейки (c01, c02 через запятую — до 2 найденных);
@@ -423,9 +451,16 @@ async def _load_refs_for_frame(
     """
     refs: list[Path] = []
     xlsx_path = project.data_dir / "project.xlsx"
-    persons_ids: list[str] = []
-    items_ids: list[str] = []
-    if xlsx_path.exists():
+    persons_ids, items_ids = await _ref_ids_from_db(session, project, frame_number)
+    if persons_ids or items_ids:
+        logger.debug(
+            "[#{}] frame {}: рефы из БД persons={} items={}",
+            project.id,
+            frame_number,
+            persons_ids,
+            items_ids,
+        )
+    if not persons_ids and not items_ids and xlsx_path.exists():
         try:
             from openpyxl import load_workbook  # ленивый импорт
 

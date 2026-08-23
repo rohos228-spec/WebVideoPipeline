@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from datetime import UTC, datetime
 
 from aiogram import Bot
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -56,6 +57,32 @@ def _keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+async def _auto_approve(session: AsyncSession, req: HITLRequest) -> None:
+    """HITL_AUTO_APPROVE=1 — решить карточку сразу, как это сделал бы человек.
+
+    Флаг существовал, но до сих пор влиял только на переход между шагами
+    (``auto_advance``), а сами карточки оставались pending. Для шага
+    «Персонажи» это тупик: следующая пара (герой, вариация) берётся ТОЛЬКО
+    из одобренных, а явный перезапуск шага сносит уже готовых героев
+    (``reset_step._wipe_hero``). Каст больше одного человека в автономном
+    прогоне не собирался никогда.
+    """
+    if not getattr(settings, "hitl_auto_approve", False):
+        return
+    from app.services.hitl_apply import apply_hitl_side_effects
+
+    req.decision = HITLDecision.approved
+    req.decided_at = datetime.now(UTC).replace(tzinfo=None)
+    await session.flush()
+    await apply_hitl_side_effects(session, req, HITLDecision.approved)
+    logger.info(
+        "[#{}] hitl_auto_approve: {} #{} одобрена автоматически",
+        req.project_id,
+        req.kind.value if hasattr(req.kind, "value") else req.kind,
+        req.id,
+    )
+
+
 async def create_hitl(
     session: AsyncSession,
     project: Project,
@@ -71,6 +98,7 @@ async def create_hitl(
     )
     session.add(req)
     await session.flush()
+    await _auto_approve(session, req)
     return req
 
 

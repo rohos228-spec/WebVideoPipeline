@@ -35,15 +35,26 @@ VO_CHARS_PER_BATCH = 3_500
 OUTPUT_TOKEN_BUDGET = IMG_PR_BATCH_CHAR_BUDGET
 
 
+# Бюджет вывода на один запрос у провайдеров разный. 228k рассчитаны на
+# быстрый релей; MiniMax на таком объёме не отвечает за 600 с и уходит в
+# пять холостых ретраев по 10 минут. Лимит по бэкенду здесь — тот же приём,
+# что уже применён к длине промта картинки (`outsee_retry`).
+PROVIDER_BATCH_CHAR_BUDGET: dict[str, int] = {"minimax": 40_000}
+
+
+def _batch_char_budget() -> int:
+    from app.settings import settings
+
+    provider = str(getattr(settings, "text_llm_provider", "") or "").strip().lower()
+    return PROVIDER_BATCH_CHAR_BUDGET.get(provider, IMG_PR_BATCH_CHAR_BUDGET)
+
+
 def batch_count_img_pr(n_frames: int) -> int:
-    """ceil(n_frames * 4000 / 228000), минимум 1."""
+    """ceil(n_frames * 4000 / бюджет провайдера), минимум 1."""
     n = max(0, int(n_frames))
     if n <= 0:
         return 1
-    return max(
-        1,
-        math.ceil(n * IMG_PR_CHARS_PER_FRAME / IMG_PR_BATCH_CHAR_BUDGET),
-    )
+    return max(1, math.ceil(n * IMG_PR_CHARS_PER_FRAME / _batch_char_budget()))
 
 
 def batch_count_by_voiceover(vo_chars: int) -> int:
@@ -81,7 +92,7 @@ def pack_frames_img_pr(frames: Sequence[T], *, n_batches: int | None = None) -> 
         "output_batch_plan img_pr: frames={} chars/frame={} budget={} batches={} sizes={}",
         len(frames),
         IMG_PR_CHARS_PER_FRAME,
-        IMG_PR_BATCH_CHAR_BUDGET,
+        _batch_char_budget(),
         len(batches),
         [len(b) for b in batches],
     )
