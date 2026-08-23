@@ -119,6 +119,39 @@ async def quote(
     )
 
 
+@router.get("/projects/{project_id}/steps/quotes")
+async def quotes(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
+    """Цены всех шагов разом — для карточек канваса.
+
+    Одним запросом, а не по запросу на узел: на холсте два десятка нод, и
+    двадцать отдельных смет означали бы двадцать обходов истории вызовов на
+    каждое открытие проекта. Здесь история читается один раз.
+
+    Отдаётся и раскладка «тип ноды → код шага»: канвас знает про типы нод, а
+    прайс — про коды шагов, и переводить одно в другое на фронте значит
+    завести там вторую копию реестра, которая разойдётся с первой.
+    """
+    from app.models import Project
+    from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
+    from app.orchestrator.step_dependencies import TOPO_ORDER
+    from app.services.quote import quote_step
+
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="проект не найден")
+
+    frames, chars = await _cascade_volume(session, project_id)
+    out: dict[str, dict] = {}
+    for code in TOPO_ORDER:
+        est = await quote_step(project, code, frames=frames, voice_chars=chars, session=session)
+        if est.median_usd <= 0:
+            # Локальные шаги (сборка, монтаж) денег не стоят. Показывать им
+            # «0.00 кр» значит приучить не читать цену там, где она есть.
+            continue
+        out[code] = _as_price(est).model_dump()
+    return {"prices": out, "by_node_type": dict(NODE_TYPE_TO_STEP_CODE)}
+
+
 @router.get("/billing/balance")
 async def balance(limit: int = 20, session: AsyncSession = Depends(get_session)) -> BalanceOut:
     """Остаток, сумма живых резервов и последние проводки.

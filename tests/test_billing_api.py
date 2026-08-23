@@ -241,3 +241,34 @@ async def test_quote_is_closed_by_identity_in_saas(tmp_path, monkeypatch) -> Non
         assert (await c.get("/api/projects/1/steps/video/quote")).status_code == 401
         assert (await c.get("/api/billing/balance")).status_code == 401
     await engine.dispose()
+
+
+async def test_all_step_prices_come_in_one_request(client) -> None:
+    """Канвасу нужны цены всех шагов сразу, а не по запросу на узел.
+
+    На холсте два десятка нод, и двадцать отдельных смет — это двадцать
+    обходов истории вызовов на каждое открытие проекта. Цена, которую платит
+    сервер за то, чтобы нарисовать цифру.
+    """
+    res = await client.get("/api/projects/1/steps/quotes")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["prices"], "смета пуста — цену показать нечем"
+    # Раскладка «тип ноды → код шага» приходит с сервера: вторая её копия во
+    # фронте разошлась бы с реестром, и цена встала бы не на ту карточку.
+    # Тип ноды и код шага не совпадают по имени: на канвасе нода «videos»,
+    # в прайсе шаг «video». Ровно поэтому раскладку и отдаёт сервер.
+    assert body["by_node_type"].get("videos") == "video"
+    assert body["by_node_type"].get("images") == "img"
+    assert all("price_credits" in p for p in body["prices"].values())
+
+
+async def test_free_steps_have_no_price_tag(client) -> None:
+    """Локальные шаги денег не стоят, и «0.00 кр» им не рисуется.
+
+    Цифра на карточке, которая всегда ноль, учит не читать цену вообще — а
+    читать её надо там, где она 14 кредитов.
+    """
+    body = (await client.get("/api/projects/1/steps/quotes")).json()
+    for local_step in ("assemble", "publish"):
+        assert local_step not in body["prices"]

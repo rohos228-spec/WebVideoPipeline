@@ -22,6 +22,7 @@ import {
 } from "./canvas-actions-context";
 import { NodeVMenu } from "./node-v-menu";
 import { NodeResultBadge } from "./node-result-badge";
+import { NodePriceBadge } from "./node-price-badge";
 import { hideResultBadgeForNodeType } from "@/lib/xlsx-sheets";
 import { isHitlNodeType } from "@/lib/gpt-text-steps";
 import { ExcelFeedPanel } from "./excel-feed-panel";
@@ -171,6 +172,15 @@ export function PipelineNode({ data, selected }: NodeProps) {
                   e.stopPropagation();
                   actions.onOpenNodeResult(d.nodeKey, d.type);
                 }}
+              />
+            )}
+            {/* Цену видно в чате, а нажимают шаги здесь: §7.3 выполняется
+                только там, где кнопка. */}
+            {actions && (
+              <NodePriceBadge
+                projectId={actions.projectId}
+                nodeType={d.type}
+                className="absolute right-1.5 top-1.5"
               />
             )}
             {actions && !isHitlNodeType(d.type) && !isExcelFeed && !isStorage && (
