@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
@@ -77,3 +77,29 @@ async def list_tools() -> list[dict]:
     from app.services.studio_agent.tools import tool_manifest
 
     return tool_manifest()
+
+
+class ToolCall(BaseModel):
+    args: dict = {}
+
+
+@router.post("/tools/{name}")
+async def call_tool_directly(name: str, body: ToolCall, session: AsyncSession = Depends(get_session)) -> dict:
+    """Выполнить инструмент без модели. Это кнопка, а не разговор.
+
+    Нужно там, где решение принимает человек, а не агент: он нажал
+    «подтверждаю» под ценой, и дальше пересказывать это решение модели —
+    значит дать ей шанс понять его иначе. Согласие на списание должно
+    доезжать до кассы буквой, а не пересказом.
+
+    Прав это не добавляет. Инструменты держат свои правила сами: шаг вне
+    достижимости не запустится, дорогой без `confirm` вернёт требование
+    подтверждения, чужой проект не найдётся под политикой RLS. Разница с
+    чатом ровно одна — из петли убрана модель.
+    """
+    from app.services.studio_agent.tools import ToolError, call_tool
+
+    try:
+        return await call_tool(session, name, body.args or {})
+    except ToolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

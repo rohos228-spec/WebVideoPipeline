@@ -302,3 +302,65 @@ async def test_chat_tools_endpoint_matches_registry(db) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         tools = (await c.get("/api/chat/tools")).json()
     assert {t["name"] for t in tools} == set(TOOLS)
+
+
+async def test_tool_can_be_called_without_the_model(db) -> None:
+    """Кнопка «подтверждаю» идёт прямо в инструмент, а не пересказом модели.
+
+    Согласие человека на списание обязано доезжать до кассы буквой: пересказ
+    даёт модели шанс понять его иначе, а цена ошибки здесь — деньги клиента.
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    from app.models import Project, ProjectStatus
+    from app.web.api import create_app
+    from app.web.deps import get_session
+
+    async with db() as s:
+        project = await s.get(Project, 1)
+        project.status = ProjectStatus.animation_prompts_ready
+        await s.commit()
+
+    async def _gen():
+        async with db() as s:
+            yield s
+
+    app = create_app()
+    app.dependency_overrides[get_session] = _gen
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        without = await c.post(
+            "/api/chat/tools/runStep", json={"args": {"project_id": 1, "step_code": "video"}}
+        )
+        assert without.json()["needs_confirmation"] is True
+
+        with_confirm = await c.post(
+            "/api/chat/tools/runStep",
+            json={"args": {"project_id": 1, "step_code": "video", "confirm": True}},
+        )
+        assert with_confirm.json()["started"] is True
+
+
+async def test_direct_call_adds_no_privileges(db) -> None:
+    """Прав кнопка не добавляет: инструменты держат свои правила сами.
+
+    Иначе кнопка стала бы обходным путём мимо порядка шагов — тем самым,
+    который §8.2 запрещает агенту.
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    from app.web.api import create_app
+    from app.web.deps import get_session
+
+    async def _gen():
+        async with db() as s:
+            yield s
+
+    app = create_app()
+    app.dependency_overrides[get_session] = _gen
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        res = await c.post(
+            "/api/chat/tools/runStep",
+            json={"args": {"project_id": 1, "step_code": "assemble", "confirm": True}},
+        )
+    assert res.status_code == 400
+    assert "недоступен" in res.json()["detail"]

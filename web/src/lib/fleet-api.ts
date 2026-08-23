@@ -1,6 +1,13 @@
+import { authHeaders as billingHeaders } from "./identity-api";
+
 const TOKEN_KEY = "vp_fleet_token";
 
 function authHeaders(): Record<string, string> {
+  // Токен биллинга важнее локального: в режиме SaaS панель парка закрыта для
+  // арендаторов совсем, а у владельца токена биллинга нет — и работает
+  // прежний, локальный.
+  const billing = billingHeaders();
+  if (billing.Authorization) return billing;
   const token = getAuthToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }

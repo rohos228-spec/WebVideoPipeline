@@ -4,6 +4,7 @@
  * сам отдаёт фронт + API из одного origin.
  */
 
+import { authHeaders } from "./identity-api";
 import type {
   ArtifactDTO,
   ExcelHeroCharacter,
@@ -107,6 +108,11 @@ async function http<T>(
       signal: controller.signal,
       headers: {
         ...(isFormData ? {} : { "Content-Type": "application/json" }),
+        // Токен биллинга — на КАЖДОМ запросе, а не только там, где вспомнили.
+        // В режиме SaaS без него не отвечает ни одна ручка `/api/*`, и
+        // добавлять заголовок по месту значит забыть его в одном вызове из
+        // сотни и получить одинокий 401 без объяснения.
+        ...authHeaders(),
         ...(options.headers || {}),
       },
     });
@@ -719,7 +725,7 @@ export const api = {
       resolve?: import("@/lib/gpt-operator").OperatorResolve;
     }>(
       `/api/projects/${projectId}/excel-gpt/${encodeURIComponent(nodeKey)}/upload`,
-      { method: "POST", body: fd },
+      { method: "POST", body: fd, headers: authHeaders() },
     );
   },
   remapExcelGptNodes: (projectId: number, mapping: Record<string, string>) =>
@@ -754,7 +760,7 @@ export const api = {
       resolve: import("@/lib/gpt-operator").OperatorResolve;
     }>(
       `/api/projects/${projectId}/gpt-operator/${encodeURIComponent(nodeKey)}/check-agent`,
-      { method: "POST", body: fd },
+      { method: "POST", body: fd, headers: authHeaders() },
     );
   },
   clearCheckAgentFile: (projectId: number, nodeKey: string) =>
@@ -896,7 +902,7 @@ export const api = {
     fd.append("file", file);
     return http<{ ok: boolean; fileName: string; path: string }>(
       `/api/projects/${projectId}/storage/${encodeURIComponent(nodeKey)}/upload`,
-      { method: "POST", body: fd },
+      { method: "POST", body: fd, headers: authHeaders() },
     );
   },
   clearStorageFiles: (projectId: number, nodeKey: string) =>
@@ -1137,7 +1143,7 @@ export const api = {
     fd.append("file", file);
     const res = await fetch(
       `/api/projects/${projectId}/montage-board/upload-image?frame_number=${frameNumber}&shot=${shot}`,
-      { method: "POST", body: fd },
+      { method: "POST", body: fd, headers: authHeaders() },
     );
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ ok: boolean; preview_url: string }>;
@@ -1148,7 +1154,7 @@ export const api = {
     fd.append("file", file);
     const res = await fetch(
       `/api/projects/${projectId}/montage-board/upload-video?frame_number=${frameNumber}&shot=${shot}`,
-      { method: "POST", body: fd },
+      { method: "POST", body: fd, headers: authHeaders() },
     );
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ ok: boolean; preview_url: string }>;
@@ -1160,6 +1166,7 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/montage-board/upload-voice`, {
       method: "POST",
       body: fd,
+      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ ok: boolean; path: string }>;
@@ -1171,6 +1178,7 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/montage-board/upload-music`, {
       method: "POST",
       body: fd,
+      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ ok: boolean; path: string }>;
@@ -1537,6 +1545,7 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/mass-lanes/parse-topics`, {
       method: "POST",
       body: fd,
+      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{
@@ -1875,6 +1884,7 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/xlsx/upload${q}`, {
       method: "POST",
       body: fd,
+      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<ProjectDetail>;
@@ -1915,6 +1925,7 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/assets/hero/replace${q}`, {
       method: "POST",
       body: fd,
+      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ path: string; preview_url: string; id: string }>;
@@ -1967,6 +1978,7 @@ export const api = {
     const res = await fetch(`/api/prompt-files/${stepCode}/upload${q}`, {
       method: "POST",
       body: fd,
+      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<PromptFileInfo>;
@@ -2092,7 +2104,7 @@ export const api = {
     }
     const res = await fetch(
       `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/attachments`,
-      { method: "POST", body: fd },
+      { method: "POST", body: fd, headers: authHeaders() },
     );
     if (!res.ok) throw new ApiError(res.status, await res.text());
     const body = await res.json();

@@ -13,6 +13,8 @@
  * обновления и её же поломки.
  */
 
+import { authHeaders } from "./identity-api";
+
 export type AgentEventType =
   | "tool_call"
   | "tool_result"
@@ -32,12 +34,8 @@ export interface ChatHistoryItem {
   content: string;
 }
 
-/** Токен биллинга, если студия работает в режиме SaaS. */
-function authHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = window.localStorage.getItem("vp_session");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+// Заголовок авторизации — общий с остальным фронтом (`identity-api`):
+// два места, где живёт имя ключа в localStorage, однажды разойдутся.
 
 /**
  * Отправить сообщение и получать события по мере готовности.
@@ -107,6 +105,26 @@ export interface ToolInfo {
   name: string;
   description: string;
   args: Record<string, unknown>;
+}
+
+/**
+ * Выполнить инструмент напрямую — это кнопка, а не разговор.
+ *
+ * Человек нажал «подтверждаю» под ценой; пересказывать его решение модели
+ * значит дать ей шанс понять его иначе. Согласие на списание доезжает до
+ * кассы буквой.
+ */
+export async function callTool(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`/api/chat/tools/${name}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ args }),
+  });
+  if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+  return (await res.json()) as Record<string, unknown>;
 }
 
 export async function fetchAgentTools(): Promise<ToolInfo[]> {

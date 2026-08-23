@@ -8,6 +8,7 @@ import { FramesGrid } from "@/components/frames/frames-grid";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 import { BugReportButton } from "@/components/shell/bug-report-button";
+import { BalanceBadge } from "@/components/shell/balance-badge";
 
 interface UiState {
   framesProjectId: number | null;
@@ -115,6 +116,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
             <Network className="h-3.5 w-3.5" />
             Сеть
           </Button>
+          <BalanceBadge className="mr-1" />
           <Button
             variant="outline"
             size="sm"

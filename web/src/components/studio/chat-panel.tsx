@@ -23,7 +23,7 @@ import { AlertCircle, Coins, Loader2, Send, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { streamChat, type AgentEvent, type ChatHistoryItem } from "@/lib/chat-api";
+import { callTool, streamChat, type AgentEvent, type ChatHistoryItem } from "@/lib/chat-api";
 
 interface FeedItem {
   id: string;
@@ -31,6 +31,7 @@ interface FeedItem {
   text?: string;
   tool?: string;
   payload?: Record<string, unknown>;
+  onConfirmed?: (result: Record<string, unknown>) => void;
 }
 
 let seq = 0;
@@ -196,10 +197,10 @@ function FeedRow({ item }: { item: FeedItem }) {
       </div>
     );
   }
-  return <ToolCard item={item} />;
+  return <ToolCard item={item} onConfirmed={item.onConfirmed} />;
 }
 
-function ToolCard({ item }: { item: FeedItem }) {
+function ToolCard({ item, onConfirmed }: { item: FeedItem; onConfirmed?: (r: Record<string, unknown>) => void }) {
   const result = (item.payload?.result ?? {}) as Record<string, unknown>;
   const price = typeof result.price_credits === "string" ? result.price_credits : null;
   const needsConfirm = result.needs_confirmation === true;
@@ -225,15 +226,71 @@ function ToolCard({ item }: { item: FeedItem }) {
         </div>
       )}
       {needsConfirm && (
-        <p className="mt-2 text-muted-foreground">
-          Дороже порога — нужно подтверждение.
-        </p>
+        <ConfirmRow item={item} result={result} onConfirmed={onConfirmed} />
       )}
       {typeof result.frames === "object" && Array.isArray(result.frames) && (
         <p className="mt-2 text-muted-foreground">
           кадров: {(result.frames as unknown[]).length}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * Кнопка «подтверждаю» под ценой.
+ *
+ * Нажатие идёт прямо в инструмент, а не пересказывается модели репликой
+ * «да, давай». Согласие на списание обязано доезжать до кассы буквой:
+ * пересказ даёт модели шанс понять его иначе, а цена ошибки здесь — деньги
+ * клиента.
+ */
+function ConfirmRow({
+  item,
+  result,
+  onConfirmed,
+}: {
+  item: FeedItem;
+  result: Record<string, unknown>;
+  onConfirmed?: (r: Record<string, unknown>) => void;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [done, setDone] = React.useState(false);
+
+  const args = (item.payload?.args ?? {}) as Record<string, unknown>;
+  const price = typeof result.price_credits === "string" ? result.price_credits : "";
+
+  if (done) {
+    return <p className="mt-2 text-muted-foreground">Запущено.</p>;
+  }
+
+  return (
+    <div className="mt-3 space-y-2">
+      <p className="text-muted-foreground">
+        {price ? `Спишется ${price} кр.` : "Шаг дороже порога."} Продолжить?
+      </p>
+      <Button
+        size="sm"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          try {
+            const res = await callTool(item.tool ?? "runStep", { ...args, confirm: true });
+            setDone(true);
+            onConfirmed?.(res);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? <Loader2 className="animate-spin" /> : null}
+        Подтверждаю{price ? ` — ${price} кр` : ""}
+      </Button>
+      {error && <p className="text-destructive">{error}</p>}
     </div>
   );
 }
