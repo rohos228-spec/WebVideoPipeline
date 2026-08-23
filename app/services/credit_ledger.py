@@ -59,8 +59,7 @@ class InsufficientCredits(RuntimeError):
         self.need_micro = need_micro
         self.have_micro = have_micro
         super().__init__(
-            f"нужно {format_credits(need_micro, rounding='up')} кр, "
-            f"доступно {format_credits(have_micro)} кр"
+            f"нужно {format_credits(need_micro, rounding='up')} кр, доступно {format_credits(have_micro)} кр"
         )
 
 

@@ -157,10 +157,24 @@ async def test_only_this_project_is_charged(no_history) -> None:
     with tenant_scope(tenant):
         async with step_billing(_project(id=mine_id), "img_pr") as bill:
             async with session_scope() as s:
-                s.add(LlmCall(project_id=mine_id, node_key="image_prompts", logical_call_id="a",
-                              model="m", cost_usd=0.10))
-                s.add(LlmCall(project_id=other_id, node_key="image_prompts", logical_call_id="b",
-                              model="m", cost_usd=9.99))
+                s.add(
+                    LlmCall(
+                        project_id=mine_id,
+                        node_key="image_prompts",
+                        logical_call_id="a",
+                        model="m",
+                        cost_usd=0.10,
+                    )
+                )
+                s.add(
+                    LlmCall(
+                        project_id=other_id,
+                        node_key="image_prompts",
+                        logical_call_id="b",
+                        model="m",
+                        cost_usd=9.99,
+                    )
+                )
         assert bill.cost_usd == pytest.approx(0.10)
 
 
@@ -175,14 +189,28 @@ async def test_spend_before_the_step_is_not_recharged(no_history) -> None:
         s.add(project)
         await s.flush()
         project_id = project.id
-        s.add(LlmCall(project_id=project_id, node_key="image_prompts", logical_call_id="old",
-                      model="m", cost_usd=5.00))
+        s.add(
+            LlmCall(
+                project_id=project_id,
+                node_key="image_prompts",
+                logical_call_id="old",
+                model="m",
+                cost_usd=5.00,
+            )
+        )
 
     with tenant_scope(tenant):
         async with step_billing(_project(id=project_id), "img_pr") as bill:
             async with session_scope() as s:
-                s.add(LlmCall(project_id=project_id, node_key="image_prompts",
-                              logical_call_id="new", model="m", cost_usd=0.02))
+                s.add(
+                    LlmCall(
+                        project_id=project_id,
+                        node_key="image_prompts",
+                        logical_call_id="new",
+                        model="m",
+                        cost_usd=0.02,
+                    )
+                )
         assert bill.cost_usd == pytest.approx(0.02)
 
 

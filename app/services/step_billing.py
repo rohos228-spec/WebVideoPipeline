@@ -166,9 +166,7 @@ async def _ledger_mark(session: Any, project_id: int) -> _Mark:
     ).scalar_one()
     media_id = (
         await session.execute(
-            select(func.coalesce(func.max(MediaCall.id), 0)).where(
-                MediaCall.project_id == project_id
-            )
+            select(func.coalesce(func.max(MediaCall.id), 0)).where(MediaCall.project_id == project_id)
         )
     ).scalar_one()
     return _Mark(int(llm_id or 0), int(media_id or 0))
@@ -181,9 +179,7 @@ async def _spent_since(session: Any, project_id: int, mark: _Mark) -> tuple[floa
     for model, floor in ((LlmCall, mark.llm_id), (MediaCall, mark.media_id)):
         rows = (
             await session.execute(
-                select(model.id, model.cost_usd).where(
-                    model.project_id == project_id, model.id > floor
-                )
+                select(model.id, model.cost_usd).where(model.project_id == project_id, model.id > floor)
             )
         ).all()
         for row_id, cost in rows:

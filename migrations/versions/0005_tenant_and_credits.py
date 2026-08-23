@@ -108,9 +108,7 @@ def upgrade() -> None:
         op.create_index("ix_credit_entries_hold_id", "credit_entries", ["hold_id"])
         op.create_index("ix_credit_entries_kind", "credit_entries", ["kind"])
         op.create_index("ix_credit_entries_created_at", "credit_entries", ["created_at"])
-        op.create_index(
-            "ix_credit_entries_tenant_time", "credit_entries", ["tenant_id", "created_at"]
-        )
+        op.create_index("ix_credit_entries_tenant_time", "credit_entries", ["tenant_id", "created_at"])
 
 
 def downgrade() -> None:

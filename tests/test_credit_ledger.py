@@ -35,9 +35,7 @@ async def test_topup_then_hold_then_settle_returns_the_rest() -> None:
         await _assert_consistent(s, tenant)
 
         # Шаг «Видео»: резерв по p90 $5.00, факт вышел $4.56.
-        hold = await cl.open_hold(
-            s, tenant, project_id=1, step_code="video", amount_micro=price_micro(5.00)
-        )
+        hold = await cl.open_hold(s, tenant, project_id=1, step_code="video", amount_micro=price_micro(5.00))
         after_hold = await _assert_consistent(s, tenant)
         assert after_hold == 20 * 10**6 - price_micro(5.00)
 
@@ -158,14 +156,10 @@ async def test_settle_records_cost_and_margin_for_audit() -> None:
     async with session_scope() as s:
         await cl.topup(s, tenant, 10 * 10**6)
         hold = await cl.open_hold(s, tenant, project_id=7, step_code="video", amount_micro=10**6)
-        await cl.settle_hold(
-            s, hold.id, cost_usd=0.19, ref_table="media_calls", ref_ids=[11, 12, 13]
-        )
+        await cl.settle_hold(s, hold.id, cost_usd=0.19, ref_table="media_calls", ref_ids=[11, 12, 13])
         entry = (
             await s.execute(
-                select(CreditEntry).where(
-                    CreditEntry.tenant_id == tenant, CreditEntry.kind == "settle"
-                )
+                select(CreditEntry).where(CreditEntry.tenant_id == tenant, CreditEntry.kind == "settle")
             )
         ).scalar_one()
         assert float(entry.cost_usd) == pytest.approx(0.19)

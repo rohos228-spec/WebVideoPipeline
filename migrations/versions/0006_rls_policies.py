@@ -67,10 +67,7 @@ def upgrade() -> None:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
         op.execute(f"DROP POLICY IF EXISTS {POLICY} ON {table}")
-        op.execute(
-            f"CREATE POLICY {POLICY} ON {table} "
-            f"USING {_PREDICATE} WITH CHECK {_PREDICATE}"
-        )
+        op.execute(f"CREATE POLICY {POLICY} ON {table} USING {_PREDICATE} WITH CHECK {_PREDICATE}")
 
 
 def downgrade() -> None:

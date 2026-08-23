@@ -73,9 +73,9 @@ PRIOR_TEXT_USD: dict[str, float] = {
 #: Справочная МЕДИЙНАЯ часть, $ за прогон. Нужна, только пока неизвестно
 #: число генераций: как только оно есть, медиа считается точно по прайсу.
 PRIOR_MEDIA_USD: dict[str, float] = {
-    "hero": 0.025,   # ~7 портретов
+    "hero": 0.025,  # ~7 портретов
     "items": 0.007,  # ~2 предмета
-    "img": 0.084,    # 24 кадра
+    "img": 0.084,  # 24 кадра
     "video": 4.560,  # 24 клипа 768P/6s
     "audio": 0.095,  # ~950 символов
 }
@@ -341,9 +341,7 @@ async def quote_step(
     if step_code in LOCAL_STEPS:
         return StepEstimate(step_code, 0.0, 0.0, "unknown", note="считается локально")
 
-    exact_media, media_note = _media_estimate(
-        project, step_code, frames=frames, voice_chars=voice_chars
-    )
+    exact_media, media_note = _media_estimate(project, step_code, frames=frames, voice_chars=voice_chars)
     text_median, text_p90, text_basis, samples, text_note = await _text_estimate(step_code, session=session)
 
     media_exact = exact_media is not None

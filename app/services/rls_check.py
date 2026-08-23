@@ -44,11 +44,7 @@ class RlsReport:
             # одного владельца — стережёт `tenant.require_isolation`.
             return True
         return not (
-            self.superuser
-            or self.bypassrls
-            or self.unprotected
-            or self.unforced
-            or self.missing_policy
+            self.superuser or self.bypassrls or self.unprotected or self.unforced or self.missing_policy
         )
 
     def problems(self) -> list[str]:
@@ -77,10 +73,7 @@ async def check_rls(session) -> RlsReport:
 
     role_row = (
         await session.execute(
-            text(
-                "select current_user, rolsuper, rolbypassrls "
-                "from pg_roles where rolname = current_user"
-            )
+            text("select current_user, rolsuper, rolbypassrls from pg_roles where rolname = current_user")
         )
     ).first()
     if role_row is not None:

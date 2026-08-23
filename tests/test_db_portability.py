@@ -85,11 +85,9 @@ def test_migrations_are_free_of_sqlite_only_sql() -> None:
     offenders: list[str] = []
     for path in sorted(Path("migrations/versions").glob("*.py")):
         text = path.read_text(encoding="utf-8")
-        code = "\n".join(
-            line for line in text.split("\n") if not line.strip().startswith("#")
-        )
+        code = "\n".join(line for line in text.split("\n") if not line.strip().startswith("#"))
         # Строки документации упоминают PRAGMA намеренно — ищем выполняемое.
-        for marker in ("exec_driver_sql(\"PRAGMA", "exec_driver_sql(f\"PRAGMA", "sqlite_master"):
+        for marker in ('exec_driver_sql("PRAGMA', 'exec_driver_sql(f"PRAGMA', "sqlite_master"):
             if marker in code:
                 offenders.append(f"{path.name}: {marker}")
     assert offenders == []

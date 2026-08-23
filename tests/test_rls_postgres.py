@@ -8,17 +8,22 @@
 
     podman run -d --name vp-pg -p 5432:5432 \\
         -e POSTGRES_PASSWORD=vp -e POSTGRES_USER=vp -e POSTGRES_DB=vp postgres:16
-    pip install asyncpg
-    TEST_DATABASE_URL=postgresql+asyncpg://vp:vp@127.0.0.1/vp pytest tests/test_rls_postgres.py
+    pip install asyncpg psycopg[binary]
+    podman exec vp-pg psql -U vp -d vp \\
+        -c "create role app login password 'app'" \\
+        -c "grant all on schema public to app"
+    TEST_DATABASE_URL=postgresql+asyncpg://app:app@127.0.0.1/vp pytest tests/test_rls_postgres.py
 
 **Роль в URL не должна быть суперпользователем.** `POSTGRES_USER` образа —
 как раз суперпользователь, а RLS его не касается по определению: тесты
 изоляции прошли бы «зелёными», не проверив ровно ничего. Это худший исход из
 возможных, поэтому он вынесен в отдельную проверку, которая падает первой.
-Обычную роль завести так::
+В URL выше поэтому стоит `app`, а не `vp`: роль обычная, схему она создаёт
+себе сама при прогоне миграций и потому владеет таблицами — а владельца
+достаёт как раз `FORCE ROW LEVEL SECURITY`.
 
-    psql -c "create role app login password 'app'"
-    psql -c "grant all on all tables in schema public to app"
+Слаги проектов уникальны в каждом прогоне: тест, который проходит только на
+пустой базе, перестают запускать, а пересоздание базы забывают.
 """
 
 from __future__ import annotations
@@ -68,8 +73,7 @@ async def test_role_is_not_superuser(pg_engine) -> None:
     async with factory() as session:
         report = await check_rls(session)
     assert not report.superuser, (
-        f"роль {report.role} — суперпользователь: RLS её не касается, "
-        "проверка изоляции бессмысленна"
+        f"роль {report.role} — суперпользователь: RLS её не касается, проверка изоляции бессмысленна"
     )
     assert not report.bypassrls, f"роль {report.role} имеет BYPASSRLS"
 
@@ -111,9 +115,10 @@ async def test_foreign_rows_are_invisible(pg_engine) -> None:
 
     _, factory = pg_engine
     alice, bob = str(uuid.uuid4()), str(uuid.uuid4())
+    mine, theirs = f"alice-{alice[:8]}", f"bob-{bob[:8]}"
 
     async with factory() as session:
-        for tenant, slug in ((alice, "alice-film"), (bob, "bob-film")):
+        for tenant, slug in ((alice, mine), (bob, theirs)):
             await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": tenant})
             session.add(Project(slug=slug, topic="тест", tenant_id=tenant))
             await session.commit()
@@ -121,7 +126,7 @@ async def test_foreign_rows_are_invisible(pg_engine) -> None:
     async with factory() as session:
         await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": alice})
         rows = (await session.execute(select(Project.slug))).scalars().all()
-        assert rows == ["alice-film"]
+        assert rows == [mine]
         total = (await session.execute(select(func.count()).select_from(Project))).scalar_one()
         assert total == 1, "COUNT тоже обязан считать только своё"
 
@@ -142,7 +147,7 @@ async def test_writing_into_foreign_tenant_is_refused(pg_engine) -> None:
 
     async with factory() as session:
         await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": alice})
-        session.add(Project(slug="sneaky", topic="чужое", tenant_id=bob))
+        session.add(Project(slug=f"sneaky-{bob[:8]}", topic="чужое", tenant_id=bob))
         with pytest.raises(DBAPIError):
             await session.commit()
 
@@ -159,19 +164,20 @@ async def test_owner_mode_sees_only_unowned_rows(pg_engine) -> None:
 
     _, factory = pg_engine
     tenant = str(uuid.uuid4())
+    legacy, owned = f"owner-legacy-{tenant[:8]}", f"tenant-film-{tenant[:8]}"
 
     async with factory() as session:
-        session.add(Project(slug="owner-legacy", topic="до SaaS", tenant_id=None))
+        session.add(Project(slug=legacy, topic="до SaaS", tenant_id=None))
         await session.commit()
     async with factory() as session:
         await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": tenant})
-        session.add(Project(slug="tenant-film", topic="клиент", tenant_id=tenant))
+        session.add(Project(slug=owned, topic="клиент", tenant_id=tenant))
         await session.commit()
 
     async with factory() as session:
         slugs = (await session.execute(select(Project.slug))).scalars().all()
-    assert "owner-legacy" in slugs
-    assert "tenant-film" not in slugs
+    assert legacy in slugs
+    assert owned not in slugs
 
 
 async def test_ledger_invariant_holds_on_postgres(pg_engine) -> None:
@@ -185,7 +191,9 @@ async def test_ledger_invariant_holds_on_postgres(pg_engine) -> None:
     tenant = str(uuid.uuid4())
     async with factory() as session:
         await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": tenant})
-        await cl.topup(session, tenant, 10 * 10**6)
+        # Пополнение обязано покрывать холд: `price_micro(5.0)` — это цена
+        # с маржой ×3, то есть 15 кредитов, а не 5.
+        await cl.topup(session, tenant, 20 * 10**6)
         hold = await cl.open_hold(
             session, tenant, project_id=1, step_code="video", amount_micro=price_micro(5.0)
         )
