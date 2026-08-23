@@ -190,6 +190,19 @@ def spec_for_node(node: dict[str, Any]) -> WorkNodeSpec | None:
     return spec_for_type(typ)
 
 
+def step_code_of_running_status(status: ProjectStatus) -> str | None:
+    """Какой шаг идёт, когда проект в этом статусе. `None` — статус не рабочий.
+
+    Нужно кассе: холд ставится под код шага, а воркер знает только статус.
+    Обратный путь (`step_code → running_status`) уже был, прямого не хватало,
+    и его каждый раз собирали на месте из двух словарей.
+    """
+    node_type = RUNNING_TO_NODE_TYPE.get(status)
+    if node_type is None:
+        return None
+    return NODE_TYPE_TO_STEP_CODE.get(node_type)
+
+
 def spec_for_step_code(step_code: str) -> WorkNodeSpec | None:
     if step_code == EXCEL_GPT_STEP_CODE:
         return WorkNodeSpec(

@@ -23,6 +23,16 @@
 **Собственная сессия.** Списание идёт отдельной транзакцией: сессия шага
 могла упасть, откатиться или держать блокировку, а деньги обязаны быть
 записаны в любом случае.
+
+**Объём касса выясняет сама.** Медийная часть сметы точна ровно настолько,
+насколько известно число генераций: 24 клипа по прайсу — это цент в цент, а
+«шаг video» без числа кадров — справочная величина из §6.1. Требовать это
+число от вызывающего значит требовать помнить, что «Видео» тарифицируется по
+кадрам, «Озвучка» — по символам, а «Картинки» — по кадрам, но с другой
+ставкой. Забыть можно в одном месте, а недосчитается холд у всех. Поэтому
+`frames` и `voice_chars` по умолчанию берутся из базы, а параметры оставлены
+для случая, когда вызывающий знает точнее (перегенерация трёх кадров из
+двадцати четырёх — не двадцать четыре кадра).
 """
 
 from __future__ import annotations
@@ -36,7 +46,7 @@ from loguru import logger
 from sqlalchemy import func, select
 
 from app.db import session_scope
-from app.models import LlmCall, MediaCall
+from app.models import Frame, LlmCall, MediaCall
 from app.services.credit_ledger import open_hold, release_hold, settle_hold
 from app.services.credits import format_credits
 from app.services.quote import quote_step
@@ -88,12 +98,24 @@ async def step_billing(
     одну неудачную попытку (§5.4 п.5) — и пробрасывается дальше.
     """
     tenant = current_tenant()
-    if tenant is None:
+    if tenant is None or not step_code:
+        # Нет арендатора — режим владельца. Нет кода шага — такт пришёлся на
+        # статус, который шагом не является: тарифицировать нечего.
+        #
+        # Незнакомый прайсу код — другое дело, и он сюда доходит: смета выйдет
+        # нулевой, резерв нулевым, а списание всё равно посчитается по факту
+        # из журналов. То есть деньги соберутся, потеряется лишь гарантия, что
+        # их хватило. Так и задумано: молча не брать хуже, чем взять с
+        # перерасходом, — перерасход виден в `Settlement.overran`.
         yield StepBill(tenant_id=None, hold_id=None)
         return
 
     project_id = int(getattr(project, "id", 0) or 0)
     async with session_scope() as session:
+        if frames is None or voice_chars is None:
+            auto_frames, auto_chars = await step_volume(session, project_id, step_code)
+            frames = auto_frames if frames is None else frames
+            voice_chars = auto_chars if voice_chars is None else voice_chars
         estimate = await quote_step(
             project, step_code, frames=frames, voice_chars=voice_chars, session=session
         )
@@ -155,6 +177,39 @@ async def step_billing(
         format_credits(result.returned_micro),
         ", ПЕРЕРАСХОД" if result.overran else "",
     )
+
+
+#: Что именно измеряет медийную часть шага. Ключ — код шага, значение —
+#: какой объём для него имеет смысл. Шага нет в таблице — медиа у него нет.
+_VOLUME_BY_STEP: dict[str, str] = {
+    "img": "frames",
+    "video": "frames",
+    "audio": "chars",
+}
+
+
+async def step_volume(session: Any, project_id: int, step_code: str) -> tuple[int | None, int | None]:
+    """Объём шага из базы: кадров и символов закадра. `None` — неприменимо.
+
+    Возвращается пара, а не одно число, потому что у шага бывает ровно один
+    осмысленный объём, и какой именно — знает шаг, а не вызывающий.
+    """
+    kind = _VOLUME_BY_STEP.get(step_code)
+    if kind is None:
+        return (None, None)
+    if kind == "frames":
+        total = (
+            await session.execute(select(func.count(Frame.id)).where(Frame.project_id == project_id))
+        ).scalar_one()
+        return (int(total or 0) or None, None)
+    chars = (
+        await session.execute(
+            select(func.coalesce(func.sum(func.length(Frame.voiceover_text)), 0)).where(
+                Frame.project_id == project_id
+            )
+        )
+    ).scalar_one()
+    return (None, int(chars or 0) or None)
 
 
 async def _ledger_mark(session: Any, project_id: int) -> _Mark:
