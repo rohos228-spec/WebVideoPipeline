@@ -180,6 +180,24 @@ async def _lifespan(app: FastAPI):
         async with session_scope() as s:
             info = await import_existing_prompts(s)
             logger.info("web lifespan: local library import {}", info)
+
+        # Промт-библиотека поднимается в память один раз за старт: чтение
+        # промта синхронно и идёт из глубины шагов, а запрос к базе оттуда
+        # означал бы переписать половину конвейера на async ради десятка
+        # килобайт, которые между шагами не меняются (§9.4).
+        from app.services import prompt_store
+
+        async with session_scope() as s:
+            loaded = await prompt_store.refresh(s)
+            if not loaded:
+                # Пустая база — наполняем системный уровень с диска. Уже
+                # загруженное не трогаем: файл мог остаться от прошлой
+                # версии, а в базе промт могли править.
+                stats = await prompt_store.import_from_disk(s)
+                await prompt_store.refresh(s)
+                logger.info("web lifespan: промт-библиотека с диска {}", stats)
+            else:
+                logger.info("web lifespan: промт-библиотека из базы, {} строк", loaded)
     except Exception:  # noqa: BLE001
         logger.exception("local library import failed (non-fatal)")
     try:

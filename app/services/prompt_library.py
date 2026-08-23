@@ -301,6 +301,21 @@ def prompt_path(step_code: str, name: str) -> Path:
 
 
 def read_prompt(step_code: str, name: str) -> str:
+    """Текст мастер-промта. Сначала база, потом файл на диске.
+
+    Порядок именно такой, потому что в SaaS диска у клиента нет, а промт —
+    то, что он приходит править (`docs/SAAS-PIVOT.md` §9.4). База даёт
+    переопределение на арендатора и проект; файл остаётся источником правды
+    режима владельца и наполняет системный уровень при первом запуске.
+
+    Пока библиотека в базу не загружена, `resolve` возвращает `None`, и всё
+    работает ровно как работало.
+    """
+    from app.services import prompt_store
+
+    from_db = prompt_store.resolve(step_code, name)
+    if from_db is not None:
+        return from_db
     if is_excel_gpt_prompt_step(step_code):
         p = resolve_excel_gpt_prompt_path(name)
         if not p.is_file():

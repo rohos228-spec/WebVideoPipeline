@@ -565,6 +565,47 @@ class MasterPrompt(Base):
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
+class PromptLibraryEntry(Base):
+    """Мастер-промт как данные, а не файл на диске.
+
+    Сегодня библиотека живёт в `prompts/`, каталог намеренно вне git, и это
+    даёт две беды сразу. На чистом клоне её нет — падает полсотни тестов на
+    отсутствии данных, а не кода. В SaaS её нет тем более: у клиента нет
+    доступа к диску узла, а «поменять промпт на более лучший» — это ровно то,
+    зачем он приходит (`docs/SAAS-PIVOT.md` §9.4).
+
+    **Разрешение идёт от частного к общему**: проект → арендатор → бренд →
+    системный → файл на диске. Четыре уровня, а не два, потому что каждый
+    отвечает на свой вопрос: системный — «как правильно», бренд — «как принято
+    у нас», арендатор — «как хочу я», проект — «как в этом ролике». Схлопнуть
+    их в один значит однажды переписать всё вместо того, чтобы добавить
+    строку.
+
+    Файл на диске остаётся последним звеном намеренно: он источник правды для
+    режима владельца и он же наполняет системный уровень при первом запуске.
+    """
+
+    __tablename__ = "prompt_library"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "brand", "project_id", "step_code", "name", name="uq_prompt_scope"
+        ),
+        Index("ix_prompt_library_lookup", "step_code", "name"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # NULL — системный уровень: промт платформы, общий для всех.
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
+    # Пусто — уровень не брендовый. Бренд живёт строкой, как в биллинге.
+    brand: Mapped[str] = mapped_column(String(40), default="")
+    # NULL — не привязан к проекту.
+    project_id: Mapped[int | None] = mapped_column(default=None, index=True)
+    step_code: Mapped[str] = mapped_column(String(40), index=True)
+    name: Mapped[str] = mapped_column(String(80), default="default")
+    text: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+
+
 class Attempt(Base):
     __tablename__ = "attempts"
 
