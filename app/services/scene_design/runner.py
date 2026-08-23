@@ -431,7 +431,15 @@ async def _run_one_agent(
     from app.services import gpt_client
 
     prompt = ag.load_prompt(name, project)
+    # Требования приёмки уезжают в промт из того же объявления, по которому
+    # срез потом проверяется (``acceptance.INVARIANTS``). Разойтись тексту и
+    # чекеру негде — это единственный источник обоих.
+    from app.services.scene_design.acceptance import requirements_text
+
+    acceptance = requirements_text(name)
     text = f"{prompt}\n\n---\n\n{context}"
+    if acceptance:
+        text = f"{text}\n\n---\n\n{acceptance}"
     contract = SLICE_CONTRACTS[name]
     n_vo = len(expected_frame_numbers or [])
     skeleton_hint = (
@@ -495,6 +503,113 @@ async def _run_one_agent(
         # контрактная причина внутри.
         raise ag.SceneDesignAgentError(str(e)) from e
     return _finalize_agent_slice(project, name, parsed_holder["data"])
+
+
+def _scene_cast_from_skeleton(
+    skeleton: Any,
+    action_scenes: list[Any] | None = None,
+    frames: list[Any] | None = None,
+) -> dict[str, list[str]]:
+    """``id_scene`` сцены action → каст ячейки скелета.
+
+    Сцеплять по индексу нельзя: при склейке чанков сцены перенумеровываются
+    (``scene_01…``), а ячеек скелета может быть больше — 13 ячеек против 9
+    сцен на живом прогоне. По индексу сцене доставался чужой каст, и второй
+    герой то появлялся раньше времени, то пропадал.
+
+    Надёжная связь — закадр: ``start_words`` сцены дословно взяты из VO своей
+    ячейки, а ячейка знает номера своих кадров. Идём тем же путём.
+    """
+    from app.services.scene_design.continuity import parse_character_ids
+
+    cells: list[Any] = []
+    if isinstance(skeleton, dict):
+        for key in ("scenes", "cells", "сцены"):
+            raw = skeleton.get(key)
+            if isinstance(raw, list):
+                cells = raw
+                break
+    if not cells:
+        return {}
+
+    # Каст по порядковому номеру VO-ячейки. Через ``кадры`` скелета нельзя:
+    # там нумерация ДО разворота камеры (13 ячеек), а в базе кадры уже
+    # развёрнуты (24 с дырами) — номера не совпадают.
+    cast_by_ordinal: dict[int, list[str]] = {}
+    cast_by_cell_id: dict[str, list[str]] = {}
+    for i, cell in enumerate(cells, start=1):
+        if not isinstance(cell, dict):
+            continue
+        ids = parse_character_ids(cell.get("персонажи") or cell.get("characters"))
+        if not ids:
+            continue
+        cast_by_ordinal[i] = ids
+        cast_by_cell_id[str(cell.get("id_scene") or f"scene_{i:02d}")] = ids
+
+    if not action_scenes or not frames or not cast_by_ordinal:
+        return cast_by_cell_id
+
+    # Сцены action и VO-ячейки идут в одном порядке. Ищем вперёд от курсора,
+    # иначе короткое «Вагон пуст.» цепляется к первому совпадению в ролике.
+    vo_frames = [
+        fr
+        for fr in sorted(frames, key=lambda f: int(getattr(f, "number", 0) or 0))
+        if str(getattr(fr, "voiceover_text", None) or "").strip()
+    ]
+    out: dict[str, list[str]] = {}
+    cursor = 0
+    for i, sc in enumerate(action_scenes, start=1):
+        if not isinstance(sc, dict):
+            continue
+        sid = str(sc.get("id_scene") or f"scene_{i:02d}")
+        head = " ".join(str(sc.get("start_words") or "").split()).casefold()
+        matched: list[str] | None = None
+        if head:
+            for pos in range(cursor, len(vo_frames)):
+                vo = " ".join(str(getattr(vo_frames[pos], "voiceover_text", None) or "").split()).casefold()
+                if vo and head in vo:
+                    matched = cast_by_ordinal.get(pos + 1)
+                    cursor = pos + 1
+                    break
+        out[sid] = matched if matched else cast_by_cell_id.get(sid, [])
+    return out
+
+
+def _character_names_from_slice(characters: Any, project: Any = None) -> dict[str, str]:
+    """``cNN`` → имя. Нужно, чтобы узнать героя в тексте фазы по имени.
+
+    В точечном режиме (``only_agent=action``) срез characters не перезапускался
+    и в ``results`` его может не быть — тогда читаем чекпоинт с диска. Без имён
+    «женщина входит в вагон» не опознаётся как c02, и расчёт присутствия
+    деградирует до одних ``subject``.
+    """
+    if characters is None and project is not None:
+        import json as _json
+
+        path = getattr(project, "data_dir", None)
+        if path is not None:
+            cp = path / "scene_design" / "characters.json"
+            if cp.is_file():
+                try:
+                    characters = _json.loads(cp.read_text(encoding="utf-8"))
+                except Exception:  # noqa: BLE001
+                    characters = None
+    rows = []
+    if isinstance(characters, dict):
+        raw = characters.get("characters")
+        if isinstance(raw, list):
+            rows = raw
+    elif isinstance(characters, list):
+        rows = characters
+    out: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("id") or "").strip().lower()
+        name = str(row.get("имя") or row.get("name") or "").strip()
+        if cid and name:
+            out[cid] = name
+    return out
 
 
 def _append_slice_context(base: str, *, title: str, payload: dict[str, Any] | None) -> str:
@@ -569,7 +684,11 @@ async def _run_one_agent_adaptive(
             return data
 
         parts = await asyncio.gather(*(_one(i, b) for i, b in enumerate(batches, start=1)))
-        return ach.merge_agent_slices(name, list(parts))
+        return ach.merge_agent_slices(
+            name,
+            list(parts),
+            action_scenes_for_ids=(list(action_scenes or []) if name == "camera" else None),
+        )
 
     # Проактивно: не слать 65 кадров целиком (5 мин → 524 впустую).
     if depth == 0 and max_chunk > 1 and len(frame_list) > max_chunk and name in ach.SPLITTABLE_AGENTS:
@@ -754,12 +873,30 @@ async def run_category_agents(
             results[name] = cached
             return
         if target and name != target:
-            logger.info(
-                "[#{}] scene_design/{}: skip GPT (only_agent={})",
-                project.id,
-                name,
-                target,
-            )
+            # Точечный ▶ не пересчитывает этот срез — но целевой агент обязан
+            # его ВИДЕТЬ. Раньше пропущенный агент просто выходил, и camera
+            # шла без фаз action, которые обслуживает: на живом прогоне она
+            # схлопывала девять сцен в две и выдумывала им id (scene_p1).
+            # Хэш здесь не сверяем: срез берётся как контекст, а не как
+            # готовый результат, и наружу (to_store) он всё равно не уедет.
+            stale = load_checkpoint(project, name)
+            if stale is not None:
+                results[name] = stale
+                logger.info(
+                    "[#{}] scene_design/{}: skip GPT (only_agent={}) — срез из чекпоинта как контекст",
+                    project.id,
+                    name,
+                    target,
+                )
+            else:
+                logger.warning(
+                    "[#{}] scene_design/{}: skip GPT (only_agent={}) и чекпоинта нет — "
+                    "{} пойдёт без этого среза",
+                    project.id,
+                    name,
+                    target,
+                    target,
+                )
             return
         async with sem:
             try:
@@ -835,13 +972,44 @@ async def run_category_agents(
         if skeleton_on and "action" in wave and "action" in results and (not target or target == "action"):
             try:
                 from app.services.scene_design.skeleton import (
+                    repair_action_phases_from_bits,
                     validate_action_covers_skeleton_bits,
                 )
 
-                validate_action_covers_skeleton_bits(
-                    list(results["action"].get("scenes") or []),
-                    results.get(ag.SKELETON),
+                # Сначала чиним, потом судим: недобор фаз — расхождение двух
+                # законов (скелет режет по смыслу, action по времени), а не
+                # брак модели. Повтор того же промпта даёт тот же ответ.
+                scenes = list(results["action"].get("scenes") or [])
+                repairs = repair_action_phases_from_bits(scenes, results.get(ag.SKELETON))
+                if repairs:
+                    results["action"]["scenes"] = scenes
+                    save_checkpoint(project, "action", results["action"])
+                    logger.info(
+                        "[#{}] scene_design/action: добор фаз по битам скелета — {}",
+                        project.id,
+                        "; ".join(repairs[:8]),
+                    )
+                validate_action_covers_skeleton_bits(scenes, results.get(ag.SKELETON))
+
+                # Состав кадра — учёт, а не режиссура: считаем кодом. Просить
+                # его у агента пробовали, и контракт с шестью проверками не
+                # выдержал: модель добывала второго героя пассивом, склейкой
+                # глаголов и терей payoff (живой прогон 2026-08-23).
+                from app.services.scene_design.presence import fill_in_frame
+
+                filled = fill_in_frame(
+                    scenes,
+                    scene_cast=_scene_cast_from_skeleton(results.get(ag.SKELETON), scenes, frame_list),
+                    names=_character_names_from_slice(results.get("characters"), project),
                 )
+                if filled:
+                    results["action"]["scenes"] = scenes
+                    save_checkpoint(project, "action", results["action"])
+                    logger.info(
+                        "[#{}] scene_design/action: в_кадре посчитан кодом для {} сцен",
+                        project.id,
+                        len(filled),
+                    )
             except ag.SceneDesignAgentError as e:
                 errors["action"] = str(e)
                 # Не оставлять бракованный checkpoint — иначе soft-retry

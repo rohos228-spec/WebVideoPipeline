@@ -162,8 +162,19 @@ def _proportional_slice(
     return copy.deepcopy(items[a:b])
 
 
-def merge_agent_slices(agent: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
-    """Склеить частичные JSON-срезы action/camera и провалидировать целиком."""
+def merge_agent_slices(
+    agent: str,
+    parts: list[dict[str, Any]],
+    *,
+    action_scenes_for_ids: list[Any] | None = None,
+) -> dict[str, Any]:
+    """Склеить частичные JSON-срезы action/camera и провалидировать целиком.
+
+    ``action_scenes_for_ids`` — фазы action: по ним чинятся ``id_scene`` и по
+    ним же приёмка считает долю двухсоставных шотов. Считать по составу,
+    который назвала сама камера, нельзя: знаменатель не должен выбирать
+    проверяемый.
+    """
     list_key = ag.LIST_KEY[agent]
     merged: list[Any] = []
     for part in parts:
@@ -180,12 +191,38 @@ def merge_agent_slices(agent: str, parts: list[dict[str, Any]]) -> dict[str, Any
         for i, sc in enumerate(merged, start=1):
             if isinstance(sc, dict):
                 sc["id_scene"] = f"scene_{i:02d}"
+        payoff_fixed = ag.repair_missing_payoff(merged)
+        if payoff_fixed:
+            logger.info(
+                "scene_design/action: payoff доставлен последней фазе — {}",
+                "; ".join(payoff_fixed[:8]),
+            )
         ag.validate_chrono_dyn_action_scenes(merged)
     elif agent == "camera":
         for i, sh in enumerate(merged, start=1):
             if isinstance(sh, dict) and sh.get("id_shot") is not None:
                 sh["id_shot"] = f"shot_{i:02d}"
         ag.validate_chrono_dyn_camera_shots(merged)
+        # Долю двухсоставных шотов можно считать только на всей раскадровке:
+        # чанк из восьми шотов ничего о ней не говорит. В ``parse_agent_slice``
+        # эта проверка стоит для нечанкованного пути — сюда её надо звать
+        # отдельно, иначе на реальном (чанкованном) прогоне она мертва.
+        if action_scenes_for_ids:
+            id_fixes = ag.repair_camera_scene_ids(merged, action_scenes_for_ids)
+            if id_fixes:
+                logger.warning(
+                    "scene_design/camera: id сцен приведены к action — {}",
+                    "; ".join(id_fixes[:8]),
+                )
+        # Приёмка среза: инварианты объявлены в ``acceptance`` вместе с текстом
+        # требования, который уезжает в промт. Одна точка на собранный артефакт.
+        from app.services.scene_design.acceptance import accept_slice
+
+        accept_slice(
+            "camera",
+            merged,
+            upstream={"action": {"scenes": list(action_scenes_for_ids or [])}},
+        )
     logger.info(
         "scene_design/{}: merged {} chunks → {} {}",
         agent,

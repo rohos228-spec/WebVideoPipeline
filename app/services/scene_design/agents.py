@@ -616,6 +616,36 @@ def normalize_chrono_dyn_phase_budget(scenes: list[Any], *, min_sec_per_phase: f
     return out
 
 
+def repair_missing_payoff(scenes: list[Any]) -> list[str]:
+    """Сцена без payoff → последняя фаза и есть итог. Возвращает список починок.
+
+    «Сначала чиним, потом судим» — тот же принцип, что у добора фаз по битам
+    (``repair_action_phases_from_bits``). Гейт «сцен без payoff» повторным
+    промтом не лечится: на живом прогоне модель три попытки подряд роняла то
+    payoff, то что-то другое, торгуя одним требованием за другое. При этом
+    чинить тут нечего — последняя фаза сцены по построению и есть её видимый
+    итог, надо просто назвать бит правильно.
+
+    Не трогаем сцены, где payoff уже есть, и сцены без фаз.
+    """
+    fixed: list[str] = []
+    for i, sc in enumerate(scenes or [], start=1):
+        if not isinstance(sc, dict):
+            continue
+        chain = [ph for ph in _chain_phases(sc) if isinstance(ph, dict)]
+        if not chain:
+            continue
+        beats = [str(ph.get("beat") or "").strip().lower() for ph in chain]
+        if "payoff" in beats:
+            continue
+        # Бит ставим последней фазе — она замыкает цепь.
+        last = chain[-1]
+        was = str(last.get("beat") or "").strip() or "—"
+        last["beat"] = "payoff"
+        fixed.append(f"{sc.get('id_scene') or f'#{i}'}: последняя фаза {was} → payoff")
+    return fixed
+
+
 def validate_chrono_dyn_action_scenes(scenes: list[Any]) -> None:
     """Брак: склейка действий, коллаж мест/лет, нет арки/связей, мало cNN."""
     if not scenes:
@@ -891,6 +921,195 @@ def validate_chrono_dyn_camera_shots(shots: list[Any]) -> None:
         )
 
 
+_CNN_RE = re.compile(r"c\d{2}", re.IGNORECASE)
+
+# Ниже этого числа шотов «в сценах с двумя людьми» доля ничего не значит.
+_TWO_SHOT_MIN_SHOTS = 8
+# Пол, а не цель. Контракт просит 40%; гейт ловит развал — диалог, снятый как
+# два монолога. Живой прогон #2 дал ровно 4 двухсоставных шота из 16 (25%),
+# поэтому порог выше этой отметки: на ней конвейер и выдал портретную галерею.
+_TWO_SHOT_MIN_SHARE = 1 / 3
+
+
+def _shot_cast(shot: dict[str, Any]) -> list[str]:
+    """Люди в шоте. Контракт разрешает и `cNN`, и просто имя/роль.
+
+    Считать только `cNN` нельзя: живой прогон вернул ``кто_в_кадре: «Игнат»``
+    — по контракту это законно, а счётчик намерил ноль, и проверка доли молча
+    прошла на пустом знаменателе.
+    """
+    raw = str(shot.get("кто_в_кадре") or shot.get("персонажи") or shot.get("who") or "")
+    ids: list[str] = []
+    for m in _CNN_RE.findall(raw):
+        cid = m.lower()
+        if cid not in ids:
+            ids.append(cid)
+    if ids:
+        return ids
+    # Имён без id может быть несколько через запятую — считаем людей по ним.
+    people: list[str] = []
+    for tok in re.split(r"[,;]| и ", raw):
+        name = re.sub(r"\([^)]*\)", " ", tok).strip(" .·—-").casefold()
+        if not name or not re.search(r"[^\W\d_]", name):
+            continue
+        if name in {"нет", "никого", "пусто", "-"}:
+            continue
+        if name not in people:
+            people.append(name)
+    return people
+
+
+def scenes_with_two_people(action_scenes: list[Any] | None) -> set[str]:
+    """``id_scene`` сцен, где по данным action в кадре двое и больше.
+
+    Считается по ``в_кадре`` фаз — его заполняет ``presence.fill_in_frame``,
+    то есть это факт постановки, а не мнение камеры о самой себе.
+    """
+    out: set[str] = set()
+    for i, sc in enumerate(action_scenes or [], start=1):
+        if not isinstance(sc, dict):
+            continue
+        sid = str(sc.get("id_scene") or f"scene_{i:02d}")
+        for ph in _chain_phases(sc):
+            if not isinstance(ph, dict):
+                continue
+            ids = {m.lower() for m in _CNN_RE.findall(str(ph.get("в_кадре") or ""))}
+            if len(ids) >= 2:
+                out.add(sid)
+                break
+    return out
+
+
+def repair_camera_scene_ids(shots: list[Any], action_scenes: list[Any] | None) -> list[str]:
+    """Привести ``id_scene`` шотов к сценам action. Возвращает список починок.
+
+    Камера обслуживает фазы action и обязана называть их сцены теми же id.
+    Живой прогон вернул ``scene_p1`` / ``scene_21`` при сценах ``scene_01…09``:
+    сборщик после этого не связывает шот со сценой (падает на позиционное
+    выравнивание — та самая ошибка, из-за которой в кадре оказывались описание
+    одного шота и персонажи другого), а проверка доли двухсоставных шотов
+    меряет пустой знаменатель.
+
+    Чиним по порядку первого появления: камера идёт по сценам подряд, поэтому
+    k-й уникальный id её плана — это k-я сцена action.
+    """
+    known = [
+        str(sc.get("id_scene") or f"scene_{i:02d}")
+        for i, sc in enumerate(action_scenes or [], start=1)
+        if isinstance(sc, dict)
+    ]
+    if not known or not shots:
+        return []
+    known_set = set(known)
+    seen: list[str] = []
+    for sh in shots:
+        if not isinstance(sh, dict):
+            continue
+        sid = str(sh.get("id_scene") or "").strip()
+        if sid and sid not in seen:
+            seen.append(sid)
+    if not seen or all(sid in known_set for sid in seen):
+        return []
+    mapping: dict[str, str] = {}
+    for i, sid in enumerate(seen):
+        mapping[sid] = sid if sid in known_set else (known[i] if i < len(known) else known[-1])
+    fixed: list[str] = []
+    for sh in shots:
+        if not isinstance(sh, dict):
+            continue
+        sid = str(sh.get("id_scene") or "").strip()
+        new_sid = mapping.get(sid)
+        if new_sid and new_sid != sid:
+            sh["id_scene"] = new_sid
+    for old_sid, new_sid in mapping.items():
+        if old_sid != new_sid:
+            fixed.append(f"{old_sid} → {new_sid}")
+    return fixed
+
+
+def validate_chrono_dyn_camera_two_shots(
+    shots: list[Any],
+    *,
+    expect_scenes: set[str] | None = None,
+) -> None:
+    """V13: сцена с двумя людьми не снимается как галерея портретов.
+
+    ``expect_scenes`` — сцены, где двое есть по данным action. Без него
+    считаем по составу, который назвала сама камера, и это слабее.
+
+    Заказчик называет нерешёнными два барьера, и первый — смена планов при
+    сохранении позиции актёров. Читать её зрителю неоткуда, если обоих ни разу
+    не показали вместе: расстановка задаётся именно двухсоставным шотом.
+    Живой прогон #2 — разговор двоих в вагоне, 26 шотов из 32 про одного.
+
+    Считаем только по сценам, где камера сама назвала двух разных ``cNN``:
+    сцена про одного человека под правило не попадает и ошибкой не станет.
+    """
+    if not shots:
+        return
+    by_scene: dict[str, list[list[str]]] = {}
+    for sh in shots:
+        if not isinstance(sh, dict):
+            continue
+        sid = str(sh.get("id_scene") or sh.get("scene") or "").strip() or "_"
+        by_scene.setdefault(sid, []).append(_shot_cast(sh))
+
+    total = 0
+    together = 0
+    worst: list[str] = []
+    for sid, casts in by_scene.items():
+        people = {cid for cast in casts for cid in cast}
+        # Знаменатель не должен выбирать сам проверяемый: камера удовлетворяет
+        # правило, просто перестав называть двоих там, где не показывает их.
+        # Поэтому если известно, где двое ЕСТЬ по данным action, — считаем по
+        # этому списку, а не по тому, кого камера соизволила упомянуть.
+        expected = expect_scenes is not None and sid in expect_scenes
+        if not expected and (expect_scenes is not None or len(people) < 2):
+            continue
+        n = len(casts)
+        pairs = sum(1 for cast in casts if len(cast) >= 2)
+        total += n
+        together += pairs
+        if pairs < max(1, int(0.4 * n)):
+            worst.append(f"{sid}: {pairs}/{n}")
+    if expect_scenes and total == 0:
+        # Камера назвала сцены иначе, чем action, — измерить по её данным
+        # нечем. Молча пройти нельзя: это ровно та ситуация, где проверка
+        # выглядит зелёной, ничего не проверив.
+        from loguru import logger
+
+        logger.warning(
+            "scene_design/camera: id сцен не совпали с action ({} против {}) — "
+            "доля двухсоставных шотов не измерена",
+            sorted({str(sh.get("id_scene") or "") for sh in shots if isinstance(sh, dict)})[:6],
+            sorted(expect_scenes)[:6],
+        )
+        expect_scenes = None
+        total = together = 0
+        worst = []
+        for sid, casts in by_scene.items():
+            if len({cid for cast in casts for cid in cast}) < 2:
+                continue
+            n = len(casts)
+            pairs = sum(1 for cast in casts if len(cast) >= 2)
+            total += n
+            together += pairs
+            if pairs < max(1, int(0.4 * n)):
+                worst.append(f"{sid}: {pairs}/{n}")
+    if total < _TWO_SHOT_MIN_SHOTS:
+        return
+    if together / total >= _TWO_SHOT_MIN_SHARE:
+        return
+    raise SceneDesignAgentError(
+        f"scene_design/camera: в сценах с двумя людьми только {together}/{total} шотов "
+        f"показывают обоих — это галерея портретов, а не диалог. Нужно ≥40% на сцену: "
+        f"первый шот с двумя — общий/средний, оба целиком, дальше лестница "
+        f"общий → средний → крупный. Реакция молчащего — тоже шот. "
+        f"`кто_в_кадре` перечисляет всех видимых, а не только субъекта фазы. "
+        f"Хуже всего: {'; '.join(worst[:6])}."
+    )
+
+
 def validate_skeleton_one_vo_per_scene(scenes: list[Any], expected_frame_numbers: list[int]) -> None:
     """1 VO-ячейка = 1 сцена + полное покрытие без дыр. См. ``skeleton.validate_skeleton_coverage``."""
     from app.services.scene_design.skeleton import validate_skeleton_coverage
@@ -955,9 +1174,12 @@ def parse_agent_slice(
             if isinstance(sc, dict):
                 sc["id_scene"] = f"scene_{i:02d}"
     if validate and agent == "action":
+        # Чиним до суда: бит последней фазы — вопрос названия, не режиссуры.
+        repair_missing_payoff(items)
         validate_chrono_dyn_action_scenes(items)
     if validate and agent == "camera":
         validate_chrono_dyn_camera_shots(items)
+        validate_chrono_dyn_camera_two_shots(items)
     if validate and agent == SKELETON and expected_frame_numbers is not None:
         validate_skeleton_one_vo_per_scene(items, expected_frame_numbers)
     return data
