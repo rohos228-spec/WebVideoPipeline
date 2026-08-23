@@ -20,6 +20,9 @@ dependencies = [
   "pypdf>=5,<7",
   "playwright>=1.48,<2",
   "pydantic>=2.9,<3",
+  # Приём JWT биллинга (SSO). Разбирать подпись руками — тот самый случай,
+  # где своя реализация дешевле ошибается: `alg: none` и подмена алгоритма.
+  "pyjwt>=2.9,<3",
   "pydantic-settings>=2.6,<3",
   "python-dateutil>=2.9,<3",
   "pyyaml>=6.0,<7",
@@ -42,6 +45,14 @@ nvidia = [
   "nemo_toolkit[asr]>=2.3,<3",
   "torch>=2.1,<3",
   "huggingface_hub>=0.23,<1",
+]
+# Postgres (SaaS-режим, DATABASE_URL=postgresql+asyncpg://...):
+#   pip install -e ".[postgres]"
+# asyncpg — рабочий драйвер приложения; psycopg — синхронный, им alembic
+# гонит миграции вне event loop.
+postgres = [
+  "asyncpg>=0.29,<1",
+  "psycopg[binary]>=3.1,<4",
 ]
 dev = [
   "pytest>=8",

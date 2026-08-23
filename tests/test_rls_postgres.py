@@ -201,3 +201,80 @@ async def test_ledger_invariant_holds_on_postgres(pg_engine) -> None:
         cached, computed = await cl.reconcile(session, tenant)
         assert cached == computed
         await session.commit()
+
+
+async def test_http_request_is_isolated_by_its_token(pg_engine) -> None:
+    """Вся цепочка разом: заголовок → контекст задачи → политика в SQL.
+
+    Каждое звено проверено по отдельности — подпись в `test_billing_sso`,
+    закрытие входа в `test_sso_middleware`, невидимость строки выше в этом
+    файле. Но склеены они через ContextVar и событие `after_begin`, а склейка
+    и есть то место, где обычно рвётся: контекст не доезжает до задачи,
+    событие не срабатывает на чужой сессии, роутер открывает сессию мимо
+    привязки. Поэтому здесь — один запрос по HTTP, от заголовка до ответа.
+    """
+    import time
+
+    import jwt
+    from httpx import ASGITransport, AsyncClient
+
+    from app.models import Project, ProjectStatus
+    from app.settings import settings
+    from app.web.api import create_app
+    from app.web.deps import get_session
+
+    secret = "секрет-биллинга-длиною-в-тридцать-два-байта-и-более"
+    _, factory = pg_engine
+    alice, bob = str(uuid.uuid4()), str(uuid.uuid4())
+    mine, theirs = f"http-a-{alice[:8]}", f"http-b-{bob[:8]}"
+
+    def token(sub: str) -> str:
+        return jwt.encode(
+            {
+                "sub": sub,
+                "email": "client@example.com",
+                "brand": "videostudio",
+                "iat": int(time.time()),
+                "exp": int(time.time()) + 600,
+            },
+            secret,
+            algorithm="HS256",
+        )
+
+    from app.services.tenant import tenant_scope
+
+    for tenant, slug in ((alice, mine), (bob, theirs)):
+        with tenant_scope(tenant):
+            async with factory() as session:
+                session.add(
+                    Project(
+                        slug=slug,
+                        topic="сквозняк",
+                        tenant_id=tenant,
+                        status=ProjectStatus.new,
+                        hero_mode="no_hero",
+                    )
+                )
+                await session.commit()
+
+    prev_secret, prev_brand = settings.billing_jwt_secret, settings.studio_brand
+    settings.billing_jwt_secret, settings.studio_brand = secret, "videostudio"
+    app = create_app()
+
+    async def _gen():
+        # Сессия роутера идёт на живой Postgres, а не на движок из настроек:
+        # `app.db.engine` создан на импорте модуля, до подмены URL.
+        async with factory() as s:
+            yield s
+
+    app.dependency_overrides[get_session] = _gen
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            assert (await client.get("/api/projects")).status_code == 401
+            for tenant, slug in ((alice, mine), (bob, theirs)):
+                res = await client.get("/api/projects", headers={"Authorization": f"Bearer {token(tenant)}"})
+                assert res.status_code == 200
+                assert [p["slug"] for p in res.json()] == [slug]
+    finally:
+        settings.billing_jwt_secret, settings.studio_brand = prev_secret, prev_brand

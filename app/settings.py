@@ -448,6 +448,29 @@ class Settings(BaseSettings):
     # ключ учёта, а не как граница безопасности. По умолчанию — fail-closed.
     allow_unisolated_tenants: bool = Field(False, alias="ALLOW_UNISOLATED_TENANTS")
 
+    # ── Личность: SSO из биллинга (docs/SAAS-PIVOT.md §4.1, §11 этап 2) ──
+    # Единственный источник личности в SaaS — `llm-gateway/billing`. Он
+    # подписывает JWT (HS256) с полями `sub` (UUID пользователя), `email` и
+    # `brand`. Секрет общий, тот же `JWT_SECRET`, которым подписывает биллинг.
+    #
+    # Пусто — режим владельца: арендатора нет, изоляции нет, работает старый
+    # вход по одному паролю. Задано — режим SaaS: каждый запрос обязан нести
+    # токен, своя форма входа отключается. Промежуточного состояния нет
+    # намеренно: «половина ручек за токеном» и есть та утечка, ради защиты от
+    # которой выбран RLS.
+    billing_jwt_secret: str = Field("", alias="BILLING_JWT_SECRET")
+    # Бренд этой студии. Биллинг мультибрендовый: один и тот же email живёт в
+    # разных брендах как РАЗНЫЕ пользователи (уникальность по паре
+    # `(email, brand)`). Токен чужого бренда — валидная подпись и чужой
+    # продукт, поэтому бренд сверяется, а не принимается на веру.
+    studio_brand: str = Field("", alias="STUDIO_BRAND")
+    # Запас на расхождение часов между биллингом и студией, секунды.
+    billing_jwt_leeway_sec: int = Field(30, alias="BILLING_JWT_LEEWAY_SEC")
+    # Сколько кредитов кладётся на счёт при первом входе. Ноль — по решению
+    # владельца: бесплатный уровень (§5.7) это не кредиты, а промо-проводки
+    # с нулевой дельтой. Ненулевое значение здесь — подарок живыми деньгами.
+    tenant_start_credits: float = Field(0.0, alias="TENANT_START_CREDITS")
+
     @model_validator(mode="after")
     def _resolve_paths_from_repo_root(self) -> "Settings":
         object.__setattr__(self, "sqlite_path", resolve_project_path(self.sqlite_path))
@@ -517,6 +540,11 @@ class Settings(BaseSettings):
     @property
     def is_postgres(self) -> bool:
         return self.db_dialect == "postgresql"
+
+    @property
+    def sso_enabled(self) -> bool:
+        """Режим SaaS: личность приходит из биллинга, своей формы входа нет."""
+        return bool(self.billing_jwt_secret.strip())
 
 
 settings = Settings()  # type: ignore[call-arg]

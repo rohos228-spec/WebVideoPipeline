@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from app.services.event_bus import get_bus
+from app.web.identity import IdentityMiddleware
 from app.web.routers import (
     artifacts as artifacts_router,
 )
@@ -63,6 +64,9 @@ from app.web.routers import (
 )
 from app.web.routers import (
     llm_costs as llm_costs_router,
+)
+from app.web.routers import (
+    me as me_router,
 )
 from app.web.routers import (
     node_groups as node_groups_router,
@@ -141,6 +145,26 @@ async def _lifespan(app: FastAPI):
 
         async with _scope() as s:
             await assert_rls_or_die(s)
+
+    # SaaS на SQLite — не «пока не переехали», а работа с арендаторами там,
+    # где политик нет физически. `require_isolation` поймает это на первом же
+    # запросе, но лучше не подняться: упавший старт видно, а 500 на одной
+    # ручке из тридцати можно не заметить неделю.
+    if settings.sso_enabled and not settings.is_postgres:
+        raise RuntimeError(
+            "BILLING_JWT_SECRET задан, а база — SQLite: row-level security в "
+            "этом движке не существует, изоляция арендаторов не обеспечена. "
+            "Задайте DATABASE_URL на Postgres (docs/SAAS-PIVOT.md §11)."
+        )
+
+    # Секрет короче 32 байт для HS256 — не запрет, а предупреждение: RFC 7518
+    # §3.2 требует ключ не короче размера хеша. Секрет общий с биллингом,
+    # менять его в одиночку нельзя, поэтому здесь именно предупреждение.
+    if settings.sso_enabled and len(settings.billing_jwt_secret.encode("utf-8")) < 32:
+        logger.warning(
+            "BILLING_JWT_SECRET короче 32 байт — для HS256 это ниже нормы "
+            "RFC 7518 §3.2. Секрет общий с биллингом: менять там и здесь."
+        )
 
     try:
         from app.db import session_scope
@@ -239,6 +263,16 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
+    # Личность и арендатор. Порядок здесь имеет значение и он обратный
+    # интуиции: `add_middleware` вставляет слой в НАЧАЛО списка, поэтому
+    # добавленный ПОСЛЕДНИМ оказывается снаружи всех. Слой личности нужен
+    # внутри CORS, а не снаружи: браузерный preflight (`OPTIONS`) не несёт
+    # заголовка `Authorization` — снаружи он получал бы 401 без единого
+    # CORS-заголовка, и кросс-доменный фронт ложился бы целиком, ещё не
+    # успев отправить токен. Проверено `test_cors_preflight_is_not_refused`.
+    # В режиме владельца слой не делает ничего (`settings.sso_enabled`).
+    app.add_middleware(IdentityMiddleware)
+
     # Локальный фронт ходит с localhost:3000 в dev — открываем CORS.
     app.add_middleware(
         CORSMiddleware,
@@ -275,6 +309,7 @@ def create_app() -> FastAPI:
     app.include_router(bug_reports_router.router, prefix=API_PREFIX)
     app.include_router(fleet_router.router, prefix=API_PREFIX)
     app.include_router(auth_router.router, prefix=API_PREFIX)
+    app.include_router(me_router.router, prefix=API_PREFIX)
     app.include_router(db_browser_router.router, prefix=API_PREFIX)
     app.include_router(node_groups_router.router, prefix=API_PREFIX)
 

@@ -42,6 +42,14 @@ def _extract_bearer(request: Request) -> str | None:
 
 
 async def require_web_user(request: Request) -> str | None:
+    """Локальный вход. В режиме SaaS уступает место токену биллинга.
+
+    Проверять здесь второй раз нечего: `IdentityMiddleware` уже закрыл весь
+    `/api/*` и положил арендатора в контекст. Оставить старую проверку
+    означало бы требовать ДВА токена сразу — локальный и биллинга.
+    """
+    if settings.sso_enabled:
+        return None
     if not settings.web_auth_enabled:
         return None
     token = _extract_bearer(request)
