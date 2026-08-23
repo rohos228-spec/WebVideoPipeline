@@ -187,6 +187,40 @@ async def test_empty_balance_waits_instead_of_failing_the_step(db, monkeypatch) 
         assert (await s.execute(select(CreditHold))).scalars().all() == []
 
 
+async def test_empty_balance_is_reported_outward(db, monkeypatch) -> None:
+    """Ожидание пополнения обязано быть видно, а не только записано в журнал.
+
+    Без сигнала наружу оно неотличимо от зависшего проекта: воркер тикает,
+    статус не меняется, интерфейс молчит — и человек идёт жаловаться вместо
+    того, чтобы пополнить баланс.
+    """
+    from app.services.advance_runner import _NO_CREDITS_LOGGED, advance_project_job
+    from app.services.tenant import tenant_scope
+    from app.telegram.noop_bot import get_worker_bot
+
+    events: list[dict] = []
+
+    async def _capture(project_id, *, event_type, payload=None):
+        events.append({"project_id": project_id, "type": event_type, **(payload or {})})
+
+    monkeypatch.setattr("app.services.event_bus.publish_project_event", _capture)
+    monkeypatch.setattr("app.services.advance_runner.advance_project", _noop_advance)
+
+    project_id = await _project(db)
+    _NO_CREDITS_LOGGED.pop(project_id, None)
+    with tenant_scope(str(uuid.uuid4())):
+        await advance_project_job(project_id, get_worker_bot(None))
+
+    assert [e["type"] for e in events] == ["credits_required"]
+    assert events[0]["step_code"] == "video"
+
+    # Второй тик подряд молчит: воркер тикает каждые пять секунд, и событие
+    # на каждый тик — не сигнал, а шум, который перестают замечать.
+    with tenant_scope(str(uuid.uuid4())):
+        await advance_project_job(project_id, get_worker_bot(None))
+    assert len(events) == 1
+
+
 async def _noop_advance(session, project, bot) -> None:
     """Шаг, который ничего не делает: касса проверяется отдельно от шага."""
     return None

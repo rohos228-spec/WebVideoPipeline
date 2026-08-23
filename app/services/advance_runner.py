@@ -86,7 +86,7 @@ async def advance_project_job(project_id: int, bot: Bot) -> AdvanceJobResult:
             # Такт возвращается без изменения статуса — иначе счётчик неудач
             # воркера откатил бы проект на предыдущий шаг за то, что клиент
             # не пополнил баланс.
-            _log_no_credits(project_id, step_code or "", exc)
+            await _report_no_credits(project_id, step_code or "", exc)
             return AdvanceJobResult(project_id, prev, None)
     except asyncio.CancelledError:
         logger.info("advance_project_job: #{} hard-cancelled (⏹)", project_id)
@@ -112,13 +112,33 @@ _NO_CREDITS_LOGGED: dict[int, float] = {}
 _NO_CREDITS_QUIET_SEC = 300.0
 
 
-def _log_no_credits(project_id: int, step_code: str, exc: Exception) -> None:
+async def _report_no_credits(project_id: int, step_code: str, exc: Exception) -> None:
+    """Сказать наружу, что проект ждёт денег, а не сломался.
+
+    Без этого ожидание пополнения неотличимо от зависшего проекта: воркер
+    тикает, статус не меняется, интерфейс молчит. Клиент видит остановившуюся
+    работу и идёт жаловаться, хотя нужно было нажать «пополнить».
+
+    Глушилка на том же счётчике, что и журнал: воркер тикает каждые пять
+    секунд, и событие на каждый тик — это не сигнал, а шум, который перестают
+    замечать.
+    """
     now = time.monotonic()
     last = _NO_CREDITS_LOGGED.get(project_id, 0.0)
     if now - last < _NO_CREDITS_QUIET_SEC:
         return
     _NO_CREDITS_LOGGED[project_id] = now
     logger.info("касса: #{} шаг {} ждёт пополнения — {}", project_id, step_code, exc)
+    try:
+        from app.services.event_bus import publish_project_event
+
+        await publish_project_event(
+            project_id,
+            event_type="credits_required",
+            payload={"step_code": step_code, "reason": str(exc)},
+        )
+    except Exception:  # noqa: BLE001 — молчание шины не должно ронять такт
+        logger.debug("касса: событие credits_required не отправлено", exc_info=True)
 
 
 async def _publish_artifacts(session, project_id: int) -> None:

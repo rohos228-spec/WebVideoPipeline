@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { subscribeWS } from "@/lib/api";
@@ -28,6 +29,18 @@ export function useGlobalEvents() {
       }
       if (type === "hitl_pending" || type === "hitl_decided") {
         qc.invalidateQueries({ queryKey: ["hitl"] });
+      }
+      // Проект остановился не из-за поломки, а из-за денег. Без явного
+      // сигнала это неотличимо от зависшего шага: воркер тикает, статус не
+      // меняется, интерфейс молчит — и человек идёт жаловаться вместо того,
+      // чтобы пополнить баланс.
+      if (type === "credits_required") {
+        const step = (evt as { step_code?: string }).step_code ?? "шаг";
+        toast.warning("Нужно пополнить баланс", {
+          description: `«${step}» ждёт кредитов и продолжится сразу после пополнения.`,
+          duration: 10000,
+        });
+        qc.invalidateQueries({ queryKey: ["billing-balance"] });
       }
     });
     return unsubscribe;
