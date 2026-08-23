@@ -587,9 +587,7 @@ class PromptLibraryEntry(Base):
 
     __tablename__ = "prompt_library"
     __table_args__ = (
-        UniqueConstraint(
-            "tenant_id", "brand", "project_id", "step_code", "name", name="uq_prompt_scope"
-        ),
+        UniqueConstraint("tenant_id", "brand", "project_id", "step_code", "name", name="uq_prompt_scope"),
         Index("ix_prompt_library_lookup", "step_code", "name"),
     )
 
