@@ -295,9 +295,17 @@ def _assert_step_is_reachable(project: Any, step_code: str) -> None:
 
 
 async def _show_storyboard(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    """Лента кадров — с картинками, а не только с текстом.
+
+    Раскадровка это то, ради чего человек пришёл смотреть, и «24 кадра, у
+    третьего статус image_generated» не говорит ему ничего. Ссылка берётся из
+    артефакта — та же, что переключится на подписанную, когда появится
+    объектное хранилище.
+    """
     from sqlalchemy import select
 
-    from app.models import Frame
+    from app.models import Artifact, ArtifactKind, Frame
+    from app.services.artifact_storage import artifact_url
 
     project_id = _int(args, "project_id")
     rows = (
@@ -305,18 +313,42 @@ async def _show_storyboard(session: Any, args: dict[str, Any]) -> dict[str, Any]
         .scalars()
         .all()
     )
-    return {
-        "project_id": project_id,
-        "frames": [
+
+    # Одним запросом на весь проект, а не по запросу на кадр: двадцать четыре
+    # обращения к базе ради ленты — цена, которую платит сервер за то, чтобы
+    # показать картинки.
+    art_rows = (
+        (
+            await session.execute(
+                select(Artifact)
+                .where(
+                    Artifact.project_id == project_id,
+                    Artifact.kind == ArtifactKind.scene_image,
+                    Artifact.frame_id.is_not(None),
+                )
+                .order_by(Artifact.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Побеждает последний: кадр могли перерисовать, и показать надо то, что
+    # человек увидит в ролике, а не первую пробу.
+    latest = {int(a.frame_id): a for a in art_rows if a.frame_id is not None}
+
+    frames = []
+    for f in rows:
+        art = latest.get(int(f.id))
+        frames.append(
             {
                 "number": f.number,
                 "status": f.status.value if hasattr(f.status, "value") else str(f.status),
                 "voiceover": (f.voiceover_text or "")[:200],
                 "image_prompt": (getattr(f, "image_prompt", "") or "")[:400],
+                "image_url": (await artifact_url(art)) if art is not None else "",
             }
-            for f in rows
-        ],
-    }
+        )
+    return {"project_id": project_id, "frames": frames}
 
 
 async def _edit_frame_prompt(session: Any, args: dict[str, Any]) -> dict[str, Any]:

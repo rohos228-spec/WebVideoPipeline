@@ -228,11 +228,59 @@ function ToolCard({ item, onConfirmed }: { item: FeedItem; onConfirmed?: (r: Rec
       {needsConfirm && (
         <ConfirmRow item={item} result={result} onConfirmed={onConfirmed} />
       )}
-      {typeof result.frames === "object" && Array.isArray(result.frames) && (
-        <p className="mt-2 text-muted-foreground">
-          кадров: {(result.frames as unknown[]).length}
-        </p>
-      )}
+      {Array.isArray(result.frames) && <ContactSheet frames={result.frames as Frame[]} />}
+    </div>
+  );
+}
+
+interface Frame {
+  number: number;
+  status: string;
+  image_url?: string;
+  voiceover?: string;
+}
+
+/**
+ * Контактный лист прямо в ленте.
+ *
+ * «Кадров: 24» не отвечает на вопрос, ради которого человек попросил
+ * раскадровку. Он пришёл посмотреть, что получилось, и решить, что
+ * перерисовать, — значит видеть надо кадры, а не их количество.
+ *
+ * Пустые клетки показываются наравне с готовыми: дыра в ленте это тоже
+ * ответ — «этот кадр ещё не нарисован», и прятать её значит делать вид, что
+ * раскадровка полная.
+ */
+function ContactSheet({ frames }: { frames: Frame[] }) {
+  if (!frames.length) return null;
+  return (
+    <div className="mt-3 grid grid-cols-4 gap-1.5">
+      {frames.map((f) => (
+        <div
+          key={f.number}
+          className="relative aspect-[9/16] overflow-hidden rounded border border-white/10 bg-white/[0.03]"
+          title={f.voiceover ? `${f.number}. ${f.voiceover}` : `кадр ${f.number}`}
+        >
+          {f.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={f.image_url}
+              alt={`кадр ${f.number}`}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <span className="flex h-full items-center justify-center text-[10px] text-muted-foreground">
+              {f.number}
+            </span>
+          )}
+          {f.image_url && (
+            <span className="absolute bottom-0 left-0 rounded-tr bg-background/80 px-1 text-[10px] tabular-nums">
+              {f.number}
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
