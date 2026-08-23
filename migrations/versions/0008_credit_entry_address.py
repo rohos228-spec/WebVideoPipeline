@@ -53,9 +53,7 @@ def upgrade() -> None:
         op.add_column(TABLE, sa.Column("project_id", sa.Integer(), nullable=True))
         op.create_index(f"ix_{TABLE}_project_id", TABLE, ["project_id"])
     if "step_code" not in existing:
-        op.add_column(
-            TABLE, sa.Column("step_code", sa.String(length=40), nullable=False, server_default="")
-        )
+        op.add_column(TABLE, sa.Column("step_code", sa.String(length=40), nullable=False, server_default=""))
         op.create_index(f"ix_{TABLE}_step_code", TABLE, ["step_code"])
 
 

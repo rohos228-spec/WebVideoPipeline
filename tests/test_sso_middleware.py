@@ -79,6 +79,65 @@ async def test_api_without_token_is_refused(client) -> None:
         assert res.status_code == 401, f"{path} отдал {res.status_code}"
 
 
+async def test_owner_tools_are_closed_to_tenants(client) -> None:
+    """Инструменты владельца не продукт, и токен арендатора их не открывает.
+
+    `/api/fleet` запускает команды на машинах парка, `/api/db` листает базу
+    напрямую, `/api/text-llm` и `/api/grsai` ходят к провайдерам мимо кассы,
+    `/api/prompts` правит промты платформы сразу для всех. Клиент студии
+    приходит с законным токеном — и не должен доставать ничего из этого.
+    """
+    headers = {"Authorization": f"Bearer {_token()}"}
+    for path in (
+        "/api/fleet/nodes",
+        "/api/db/tables",
+        "/api/text-llm/models",
+        "/api/grsai/models",
+        "/api/prompts",
+        "/api/prompt-files",
+        "/api/library/items",
+        "/api/gpt-workspace/sessions",
+        "/api/generation-options",
+    ):
+        res = await client.get(path, headers=headers)
+        assert res.status_code == 404, f"{path} отдал {res.status_code} арендатору"
+
+
+async def test_product_surface_stays_open_to_tenants(client) -> None:
+    """Обратная половина: то, ради чего клиент пришёл, закрывать нельзя.
+
+    Список разрешённого легко ужать до безопасного и бесполезного — этот
+    тест держит его с другой стороны.
+    """
+    headers = {"Authorization": f"Bearer {_token()}"}
+    for path in ("/api/me", "/api/billing/balance", "/api/projects"):
+        res = await client.get(path, headers=headers)
+        assert res.status_code != 404, f"{path} закрыт для клиента студии"
+
+
+async def test_owner_mode_keeps_its_tools(tmp_path, monkeypatch) -> None:
+    """На машине владельца инструменты остаются на месте.
+
+    Список разрешённого действует только в SaaS: иначе правка безопасности
+    отняла бы у владельца его же панель.
+    """
+    monkeypatch.setattr(settings, "billing_jwt_secret", "")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tools.db'}", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def _gen():
+        async with factory() as s:
+            yield s
+
+    app = create_app()
+    app.dependency_overrides[get_session] = _gen
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        assert (await c.get("/api/fleet/nodes")).status_code != 404
+    await engine.dispose()
+
+
 async def test_health_and_auth_status_stay_open(client) -> None:
     """До входа клиенту нужно узнать, куда входить, а мониторингу — жив ли."""
     assert (await client.get("/api/health")).status_code == 200

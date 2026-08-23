@@ -24,6 +24,12 @@ SSE (`sse-starlette`) и WebSocket на каждом прогоне шага, а
 умеют. Запросный параметр не поддерживается намеренно: токен из query-строки
 оседает в логах прокси и в истории браузера, а живёт он неделю.
 
+**Список разрешённого, а не запрещённого.** Половина API — инструменты
+владельца, а не продукт: парк машин с запуском команд, прямой обозреватель
+базы, ручки к провайдерам мимо кассы. Список запрещённого означал бы, что
+каждый новый роутер открыт арендаторам, пока кто-нибудь не вспомнит его
+закрыть. См. `TENANT_ALLOWED_PREFIXES`.
+
 **Режим владельца.** Пока `BILLING_JWT_SECRET` не задан, слой не делает
 ничего: арендатора нет, изоляции нет, работает старый вход одним паролем.
 Это состояние сегодняшней установки на машине владельца, и ломать её до того,
@@ -62,6 +68,45 @@ DOC_PATHS: frozenset[str] = frozenset({"/api/docs", "/api/openapi.json", "/api/d
 #: Что закрывается. Остальное — оболочка SPA и статика: без неё пользователю
 #: нечем показать даже приглашение войти.
 PROTECTED_PREFIXES: tuple[str, ...] = ("/api/", "/ws/")
+
+#: Что арендатору РАЗРЕШЕНО. Именно список разрешённого, а не запрещённого, и
+#: это не педантизм.
+#:
+#: API писался под одного владельца за своей машиной, и половина его —
+#: инструменты, а не продукт: `/api/fleet` запускает PowerShell на машинах
+#: парка, `/api/db` листает базу напрямую, `/api/text-llm` и `/api/grsai`
+#: ходят к провайдерам мимо кассы, `/api/prompts` правит промты платформы для
+#: всех сразу. В SaaS клиент приходит с законным токеном, и список запрещённого
+#: означал бы, что каждый новый роутер открыт, пока кто-нибудь не вспомнит его
+#: закрыть. Ровно этот способ терять изоляцию разбирается в §4.2 спеки, и
+#: ровно поэтому там выбран RLS вместо фильтра в коде.
+#:
+#: Добавлять сюда путь — значит утверждать, что он безопасен для чужого
+#: клиента: отдаёт только его данные, тратит только его деньги.
+TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
+    "/api/me",
+    "/api/billing/",
+    "/api/projects",  # проекты и всё вложенное: кадры, шаги, смета, холст
+    "/api/artifacts",
+    "/api/files",
+    "/api/hitl",
+    "/api/runs",
+    "/api/runtime-streams",
+    "/api/workflows",
+    "/api/node-groups",
+    "/api/llm-costs",
+    "/api/sidebar-layout",
+    "/api/bug-reports",
+)
+
+
+def path_is_owner_only(path: str) -> bool:
+    """Инструмент владельца, а не продукт. В SaaS закрыт наглухо."""
+    if not path.startswith(PROTECTED_PREFIXES):
+        return False
+    if path in PUBLIC_PATHS or path in DOC_PATHS:
+        return False
+    return not path.startswith(TENANT_ALLOWED_PREFIXES)
 
 
 def identity_from_scope(scope: dict) -> BillingIdentity | None:
@@ -127,6 +172,18 @@ class IdentityMiddleware:
             await self.app(scope, receive, send)
             return
 
+        if path_is_owner_only(path):
+            # 404, а не 403: существование инструментов владельца — тоже
+            # сведения. Клиенту студии знать про парк машин незачем.
+            await _refuse(
+                scope,
+                receive,
+                send,
+                "ручка недоступна арендаторам",
+                status=404,
+            )
+            return
+
         set_tenant(identity.tenant_id)
         scope["billing_identity"] = identity
         await self.app(scope, receive, send)
@@ -151,8 +208,8 @@ def _token_from_scope(scope: dict) -> str:
     return ""
 
 
-async def _refuse(scope, receive, send, detail: str) -> None:
-    """401 для HTTP, закрытие для WebSocket. Причина — в теле, не в коде."""
+async def _refuse(scope, receive, send, detail: str, *, status: int = 401) -> None:
+    """Отказ: 401 по умолчанию, закрытие для WebSocket."""
     if _is_websocket(scope):
         # Протокол ASGI требует сначала принять `websocket.connect`, и лишь
         # потом отвечать `accept` или `close`. Закрыть, не забрав событие,
@@ -168,7 +225,7 @@ async def _refuse(scope, receive, send, detail: str) -> None:
     await send(
         {
             "type": "http.response.start",
-            "status": 401,
+            "status": status,
             "headers": [
                 (b"content-type", b"application/json; charset=utf-8"),
                 (b"content-length", str(len(body)).encode("ascii")),
