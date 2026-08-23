@@ -735,7 +735,10 @@ class ElevenLabsBot:
         async with media_call(
             "elevenlabs",
             "tts",
-            model="tts",
+            # Модель — фактическая: ставка за символ у multilingual_v2 вдвое
+            # выше, чем у flash/turbo, и она переключается настройкой. Писать
+            # сюда «tts» значило бы считать деньги по старому тарифу молча.
+            model=settings.elevenlabs_tts_model or "tts",
             units=float(len(text or "")),
             unit="char",
             project_id=project_id,

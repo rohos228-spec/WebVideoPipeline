@@ -232,6 +232,7 @@ class ElevenLabsApi:
         """Озвучить текст в `out_path` (mp3). Возвращает путь к файлу."""
         from app.bots.elevenlabs import DEFAULT_ELEVENLABS_VOICE_ID
         from app.services.media_ledger import media_call
+        from app.settings import settings
 
         vid = (voice_id or DEFAULT_ELEVENLABS_VOICE_ID).strip()
         chunks = split_text_for_tts(text)
@@ -249,7 +250,10 @@ class ElevenLabsApi:
         async with media_call(
             "elevenlabs",
             "tts",
-            model="tts",
+            # Модель — фактическая: ставка за символ у multilingual_v2 вдвое
+            # выше, чем у flash/turbo, и она переключается настройкой. Писать
+            # сюда «tts» значило бы считать деньги по старому тарифу молча.
+            model=settings.elevenlabs_tts_model or "tts",
             units=float(len(text or "")),
             unit="char",
             project_id=project_id,

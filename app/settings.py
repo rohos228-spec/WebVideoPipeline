@@ -426,6 +426,13 @@ class Settings(BaseSettings):
     web_host: str = Field("127.0.0.1", alias="WEB_HOST")
     web_port: int = Field(8765, alias="WEB_PORT")
 
+    # ── Кредиты (docs/SAAS-PIVOT.md §5.1) ────────────────────────────────
+    # Курс: сколько долларов СЕБЕСТОИМОСТИ в одном кредите. Маржа — наценка
+    # поверх. Решение владельца: 1 кредит = $1, маржа ×3. Вынесено в
+    # настройки, потому что менять придётся без правки кода.
+    credit_usd_rate: float = Field(1.0, alias="CREDIT_USD_RATE")
+    credit_margin: float = Field(3.0, alias="CREDIT_MARGIN")
+
     @model_validator(mode="after")
     def _resolve_paths_from_repo_root(self) -> "Settings":
         object.__setattr__(self, "sqlite_path", resolve_project_path(self.sqlite_path))
