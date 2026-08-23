@@ -68,6 +68,15 @@ async def _finish_success(session: AsyncSession, project: Project, frames: list[
 
     await enforce_continuity_in_prompts(session, project)
 
+    # Второй герой и фон — та же болезнь, что была у расстановки. Фотография
+    # у провайдера одна на кадр, поэтому сходство второго держит только текст,
+    # а текст модель сочиняет заново в каждом батче: c02 из первых кадров и
+    # c02 из последних описаны разными словами. Канон собирается из паспорта
+    # героя и фона сцены один раз и вставляется дословно.
+    from app.services.img_pr_canon import enforce_canon_in_prompts
+
+    await enforce_canon_in_prompts(session, project)
+
     from app.services.agent_harness import harness_gate_or_raise
 
     await harness_gate_or_raise(session, project, step="img_pr")
