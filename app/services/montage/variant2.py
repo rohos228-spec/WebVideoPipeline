@@ -815,6 +815,45 @@ async def _mux(
     await _run(cmd, context="mux")
 
 
+async def _load_markers_db_first(
+    project: Project,
+    frame_numbers: list[int],
+) -> tuple[list[R15Marker], int | None]:
+    """Тайминг монтажа: сначала БД, xlsx — запасной путь для старых проектов."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Frame
+    from app.services.montage.r15 import db_markers
+
+    try:
+        async with SessionLocal() as session:
+            frames = list(
+                (
+                    await session.execute(
+                        select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[#{}] montage: БД недоступна для тайминга ({}) — беру R15", project.id, e)
+        frames = []
+
+    markers = db_markers(frames)
+    if markers:
+        logger.info(
+            "[#{}] montage: тайминг из БД — {} кадров, до {:.2f}s",
+            project.id,
+            len(markers),
+            markers[-1].end_s,
+        )
+        return markers, None
+    logger.warning("[#{}] montage: тайминга в БД нет — падаю на R15 из xlsx", project.id)
+    return load_r15_markers(project, frame_numbers)
+
+
 async def run_variant2(
     project: Project,
     frame_numbers: list[int],
@@ -830,7 +869,11 @@ async def run_variant2(
     final_dir = project.data_dir / "final"
     final_dir.mkdir(parents=True, exist_ok=True)
 
-    markers, ts_row = load_r15_markers(project, frame_numbers)
+    # SoT = База: тайминг берём из ``Frame.start_ts/end_ts``, xlsx остаётся
+    # экспортом. Лист «план» держит по колонке на ячейку закадра, шотов в нём
+    # нет — пока монтаж читал R15, веер схлопывался обратно (живой прогон
+    # 2026-08-23: 13 клипов из 24, метки до 37.9 с при озвучке 70.0 с).
+    markers, ts_row = await _load_markers_db_first(project, frame_numbers)
     voice_s = await probe_duration(voice)
     marker_end = markers[-1].end_s
     gap = voice_s - marker_end

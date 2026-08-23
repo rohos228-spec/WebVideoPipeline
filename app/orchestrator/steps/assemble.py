@@ -395,10 +395,33 @@ async def _assemble_body(
         timeline_mode = "per-frame"
     else:
         from app.services.frame_audio import FrameAudioClip
-        from app.services.montage.r15 import load_r15_markers, resolve_montage_frame_numbers
+        from app.services.montage.r15 import (
+            db_markers,
+            load_r15_markers,
+            resolve_montage_frame_numbers,
+        )
 
-        frame_numbers = resolve_montage_frame_numbers(project, frame_numbers)
-        markers, ts_row = load_r15_markers(project, frame_numbers)
+        # SoT = База. Лист «план» держит по колонке на ячейку закадра, шотов
+        # в нём нет — пока тайминг брался оттуда, веер схлопывался обратно и
+        # в ролик попадала половина клипов (живой прогон 2026-08-23).
+        markers = db_markers(frames_all)
+        ts_row = None
+        if markers:
+            frame_numbers = [m.frame_number for m in markers]
+            timeline_mode = "db-frames"
+            logger.info(
+                "[#{}] assemble: тайминг из БД — {} кадров, {:.2f}s",
+                project.id,
+                len(markers),
+                markers[-1].end_s,
+            )
+        else:
+            logger.warning(
+                "[#{}] assemble: тайминга в БД нет — падаем на R15 из xlsx",
+                project.id,
+            )
+            frame_numbers = resolve_montage_frame_numbers(project, frame_numbers)
+            markers, ts_row = load_r15_markers(project, frame_numbers)
         audio_duration = await probe_duration(audio_path)
         audio_clips = [
             FrameAudioClip(
