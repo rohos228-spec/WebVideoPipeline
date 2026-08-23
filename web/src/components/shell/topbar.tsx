@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, createContext, useContext } from "react";
-import { Sparkles, Activity, Network, Wand2, Bot, Database, CircleDollarSign } from "lucide-react";
+import { Activity, Bot, CircleDollarSign, Database, MessagesSquare, Network, Sparkles, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LogPanel } from "@/components/logs/log-panel";
 import { FramesGrid } from "@/components/frames/frames-grid";
@@ -114,6 +114,16 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
           >
             <Network className="h-3.5 w-3.5" />
             Сеть
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-chat"))}
+            className="gap-2 text-xs"
+            title="Разговор с агентом: цена шага до запуска, лента кадров, перерисовка"
+          >
+            <MessagesSquare className="h-3.5 w-3.5" />
+            Чат
           </Button>
           <Button
             variant="outline"

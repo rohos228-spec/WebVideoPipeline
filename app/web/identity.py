@@ -86,6 +86,7 @@ PROTECTED_PREFIXES: tuple[str, ...] = ("/api/", "/ws/")
 TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/me",
     "/api/billing/",
+    "/api/chat",
     "/api/projects",  # проекты и всё вложенное: кадры, шаги, смета, холст
     "/api/artifacts",
     "/api/files",

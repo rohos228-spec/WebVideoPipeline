@@ -105,6 +105,9 @@ from app.web.routers import (
     sidebar_layout as sidebar_layout_router,
 )
 from app.web.routers import (
+    studio_chat as studio_chat_router,
+)
+from app.web.routers import (
     text_llm as text_llm_router,
 )
 from app.web.routers import (
@@ -314,6 +317,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router.router, prefix=API_PREFIX)
     app.include_router(me_router.router, prefix=API_PREFIX)
     app.include_router(billing_router.router, prefix=API_PREFIX)
+    app.include_router(studio_chat_router.router, prefix=API_PREFIX)
     app.include_router(db_browser_router.router, prefix=API_PREFIX)
     app.include_router(node_groups_router.router, prefix=API_PREFIX)
 

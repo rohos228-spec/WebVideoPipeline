@@ -6,6 +6,7 @@ import { AppShell } from "@/components/shell/app-shell";
 import { ProjectSidebar } from "@/components/sidebar/project-sidebar";
 import { Inspector } from "@/components/inspector/inspector";
 import { StudioWorkspace } from "@/components/studio/studio-workspace";
+import { ChatPanel } from "@/components/studio/chat-panel";
 import { FleetPanelSheet } from "@/components/fleet/fleet-panel-sheet";
 import { CostsPanelSheet } from "@/components/costs/costs-panel-sheet";
 import { FleetTransferBanner } from "@/components/fleet/fleet-transfer-banner";
@@ -30,6 +31,10 @@ export default function HomePage() {
     false,
   );
   const [studioOpen, setStudioOpen] = useState(false);
+  // Разговор слева, живой граф справа (SAAS-PIVOT §8.1). По умолчанию
+  // свёрнут: на машине владельца канвас — основной инструмент, и отбирать у
+  // него треть экрана ради панели, которой он не пользуется, незачем.
+  const [chatOpen, setChatOpen] = usePersistedState("vp-studio-chat-open", false);
   const [fleetOpen, setFleetOpen] = useState(false);
   const [costsOpen, setCostsOpen] = useState(false);
   const [outseeOpen, setOutseeOpen] = useState(false);
@@ -44,6 +49,12 @@ export default function HomePage() {
     window.addEventListener("studio-open-projects-sidebar", openSidebar);
     return () => window.removeEventListener("studio-open-projects-sidebar", openSidebar);
   }, []);
+
+  useEffect(() => {
+    const toggleChat = () => setChatOpen((open) => !open);
+    window.addEventListener("studio-toggle-chat", toggleChat);
+    return () => window.removeEventListener("studio-toggle-chat", toggleChat);
+  }, [setChatOpen]);
 
   useEffect(() => {
     const openFleet = () => setFleetOpen(true);
@@ -111,6 +122,11 @@ export default function HomePage() {
           collapsed={sidebarCollapsed}
           onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
         />
+        {chatOpen && (
+          <aside className="w-[380px] shrink-0 border-r border-white/8">
+            <ChatPanel />
+          </aside>
+        )}
         <main className="relative min-w-0 flex-1 overflow-hidden">
           <StudioWorkspace
             projectId={selectedProjectId}
