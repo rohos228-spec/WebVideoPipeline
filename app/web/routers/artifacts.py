@@ -104,10 +104,29 @@ async def get_artifact(artifact_uuid: str, session: AsyncSession = Depends(get_s
 
 
 @router.get("/{artifact_uuid}/file")
-async def download_artifact(artifact_uuid: str, session: AsyncSession = Depends(get_session)) -> FileResponse:
+async def download_artifact(artifact_uuid: str, session: AsyncSession = Depends(get_session)):
+    """Отдать артефакт. Опубликованный — подписанной ссылкой, мимо приложения.
+
+    Ролик это десятки мегабайт, и каждый просмотр через FastAPI занимает
+    воркер на всё время скачивания. Пока объектного хранилища нет (режим
+    владельца), поведение прежнее: файл с диска.
+
+    Чужой артефакт сюда не доходит — `artifacts` под политикой RLS, и запрос
+    по uuid чужой строки просто не найдёт.
+    """
     a = (await session.execute(select(Artifact).where(Artifact.uuid == artifact_uuid))).scalar_one_or_none()
     if a is None:
         raise HTTPException(status_code=404, detail="artifact not found")
+
+    if getattr(a, "storage_key", ""):
+        from fastapi.responses import RedirectResponse
+
+        from app.services.artifact_storage import artifact_url
+
+        # 307, а не 302: метод обязан сохраниться, а ссылка одноразовая по
+        # сроку — кэшировать перенаправление на неё нельзя.
+        return RedirectResponse(await artifact_url(a), status_code=307)
+
     path = Path(a.path)
     if not path.is_file():
         raise HTTPException(status_code=410, detail="file gone from disk")

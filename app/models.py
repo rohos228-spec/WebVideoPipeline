@@ -503,6 +503,12 @@ class Artifact(Base):
     kind: Mapped[ArtifactKind] = mapped_column(Enum(ArtifactKind, name="artifact_kind"), index=True)
     uuid: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     path: Mapped[str] = mapped_column(Text)
+    # Ключ в объектном хранилище. Пусто — объект живёт только на диске узла:
+    # так работает режим владельца и так же выглядит артефакт, который ещё не
+    # успели опубликовать. Путь на диске остаётся при этом всегда: ffmpeg
+    # монтирует с диска, а не из сети, и отбирать у него локальный файл ради
+    # чистоты значило бы сломать монтаж (docs/SAAS-PIVOT.md §9.2).
+    storage_key: Mapped[str] = mapped_column(Text, default="")
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
     approved_at: Mapped[datetime | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(default=_now)

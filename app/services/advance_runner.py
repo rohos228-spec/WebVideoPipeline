@@ -76,6 +76,7 @@ async def advance_project_job(project_id: int, bot: Bot) -> AdvanceJobResult:
                             new_status=project.status,
                         )
                         logger.debug("advance_project_job: #{} {} -> {}", project_id, prev, new)
+                        await _publish_artifacts(session, project_id)
                         return AdvanceJobResult(project_id, prev, new)
                     return AdvanceJobResult(project_id, prev, None)
         except (InsufficientCredits, FreeTierExhausted) as exc:
@@ -118,6 +119,21 @@ def _log_no_credits(project_id: int, step_code: str, exc: Exception) -> None:
         return
     _NO_CREDITS_LOGGED[project_id] = now
     logger.info("касса: #{} шаг {} ждёт пополнения — {}", project_id, step_code, exc)
+
+
+async def _publish_artifacts(session, project_id: int) -> None:
+    """Результат шага — в объектное хранилище. Одно место на все шаги.
+
+    Публикация не должна ронять такт: ролик уже сгенерирован и уже оплачен,
+    и уронить шаг из-за недоступного бакета значит списать деньги и не отдать
+    результат. Следующий шаг подхватит неопубликованное.
+    """
+    from app.services.artifact_storage import publish_project_artifacts
+
+    try:
+        await publish_project_artifacts(session, project_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("хранилище: публикация артефактов #{} не удалась", project_id, exc_info=True)
 
 
 async def _flush_ledgers() -> None:

@@ -484,6 +484,21 @@ class Settings(BaseSettings):
     # двадцать проектов по $0.97 дешевле, чем один за $3.
     free_tier_max_projects: int = Field(1, alias="FREE_TIER_MAX_PROJECTS")
 
+    # ── Объектное хранилище (docs/SAAS-PIVOT.md §9.2) ─────────────────────
+    # Пусто — локальный диск узла: режим владельца, ffmpeg монтирует рядом.
+    # Задано — S3-совместимое хранилище (Cloudflare R2 и прочие). Признак
+    # «настроено» выводится из наличия ключей, а не из отдельного флага:
+    # флаг разошёлся бы с реальностью и уронил бы приложение на первом кадре.
+    s3_endpoint: str = Field("", alias="S3_ENDPOINT")
+    s3_region: str = Field("auto", alias="S3_REGION")
+    s3_access_key: str = Field("", alias="S3_ACCESS_KEY")
+    s3_secret_key: str = Field("", alias="S3_SECRET_KEY")
+    s3_bucket: str = Field("", alias="S3_BUCKET")
+    # Провайдеры без wildcard-DNS на поддомены бакета требуют path-style;
+    # R2 работает virtual-hosted. Ошибка выглядит как «бакет не найден» на
+    # совершенно рабочем бакете, поэтому вынесена в настройку.
+    s3_force_path_style: bool = Field(False, alias="S3_FORCE_PATH_STYLE")
+
     @model_validator(mode="after")
     def _resolve_paths_from_repo_root(self) -> "Settings":
         object.__setattr__(self, "sqlite_path", resolve_project_path(self.sqlite_path))
@@ -553,6 +568,16 @@ class Settings(BaseSettings):
     @property
     def is_postgres(self) -> bool:
         return self.db_dialect == "postgresql"
+
+    @property
+    def s3_configured(self) -> bool:
+        """Есть ли всё, чтобы говорить с объектным хранилищем."""
+        return bool(
+            self.s3_endpoint.strip()
+            and self.s3_access_key.strip()
+            and self.s3_secret_key
+            and self.s3_bucket.strip()
+        )
 
     @property
     def sso_enabled(self) -> bool:
