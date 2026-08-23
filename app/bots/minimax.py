@@ -305,6 +305,21 @@ async def _generate_image_inner(
     if refs:
         # Идентичность персонажа: реф уходит base64, без публикации наружу.
         body["subject_reference"] = [{"type": "character", "image_file": file_to_data_url(refs[0])}]
+        if len(refs) > 1:
+            # image-01 берёт ОДНУ character-ссылку («provide a single
+            # front-facing portrait photo»). Второй файл послать некуда, и
+            # без описания внешности в промте модель дорисовывает второго
+            # героя от первого: живой прогон #2, кадр 12 — «женщина в сером
+            # пальто» вышла мужчиной с лицом c01. Сходство для них теперь
+            # держит контракт img_pr (`describe_appearance`), а не реф;
+            # здесь — чтобы потеря файла не была молчаливой.
+            logger.warning(
+                "minimax.image: рефов {} — провайдер берёт один ({}); сходство "
+                "остальных ({}) держится только описанием в промте",
+                len(refs),
+                refs[0].name,
+                ", ".join(p.name for p in refs[1:]),
+            )
 
     logger.info(
         "minimax.image model={} aspect={} refs={} project={}",

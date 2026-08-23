@@ -8,8 +8,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.frame_cast import characters_needing_description, reference_character
+
 # Поля постановки кадра после scene_grammar v1.6 (whitelist — не тащим весь attrs).
 _IMG_PR_ATTR_KEYS: tuple[str, ...] = (
+    # Расстановка и предметы, посчитанные кодом (scene_design/continuity):
+    # где стоит каждый, куда смотрит, у кого предмет. Первым в списке — это
+    # факт постановки, а не пожелание, и он не должен теряться при обрезке.
+    "continuity",
     "place",
     "accent",
     "scene_sense",
@@ -161,6 +167,16 @@ def build_img_pr_db_context(
             row["animation_prompt"] = anim
         picked = _pick_attrs(getattr(fr, "attrs", None))
         row.update(picked)
+        # Кому приедет фотореференс, а кого генератор увидит только со слов.
+        # MiniMax берёт одну character-ссылку: второй герой кадра без описания
+        # внешности рисуется от лица первого (живой прогон #2, кадр 12).
+        cast_raw = picked.get("characters") or picked.get("персонажи") or ""
+        ref_cid = reference_character(cast_raw)
+        if ref_cid:
+            row["ref_character"] = ref_cid
+        needs = characters_needing_description(cast_raw)
+        if needs:
+            row["describe_appearance"] = ", ".join(needs)
         frame_rows.append(row)
     out: dict[str, Any] = {
         "source": "db_v2",
@@ -176,6 +192,9 @@ def build_img_pr_db_context(
         out["characters"] = list(characters or [])
     if include_field_map:
         out["field_map"] = {
+            "continuity": "BLOCKING (дословно, отдельной строкой после фона)",
+            "ref_character": "REFERENCE PHOTO (внешность НЕ описывать)",
+            "describe_appearance": "NO PHOTO (внешность описать обязательно)",
             "place": "SETTING",
             "lighting|scene_lighting": "LIGHT",
             "shot01_bg": "BG",

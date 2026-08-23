@@ -7,6 +7,18 @@ from types import SimpleNamespace
 
 from app.services import img_pr_batches as ipb
 
+_FILLER = "Детали кадра: пар от дыхания, царапина на поручне, блик на стекле. " * 8
+
+
+def _body(head: str) -> str:
+    """Промт длиной с настоящий.
+
+    Отбор ops роняет всё короче ``MIN_IMAGE_PROMPT_CHARS``: на живом прогоне
+    кадр получил промт «...» и стал мусорной картинкой. Здесь проверяется не
+    длина, а разбор ответа, — поэтому тела добиты до правдоподобных.
+    """
+    return f"{head} {_FILLER}".strip()
+
 
 def test_chunk_frames_size() -> None:
     frames = [SimpleNamespace(n=i) for i in range(90)]
@@ -18,16 +30,16 @@ def test_chunk_frames_size() -> None:
 def test_parse_img_pr_ops_does_not_wrap_style() -> None:
     reply = """
     {"ops":[
-      {"frame_uuid":"aaa","fields":{"промт_картинки":"Background: metro car"}},
+      {"frame_uuid":"aaa","fields":{"промт_картинки":"BODY_A"}},
       {"frame_uuid":"bbb","fields":{"meaning":"skip"}},
-      {"frame_uuid":"ccc","fields":{"image_prompt":"Action: reading"}}
+      {"frame_uuid":"ccc","fields":{"image_prompt":"BODY_C"}}
     ]}
-    """
+    """.replace("BODY_A", _body("Background: metro car")).replace("BODY_C", _body("Action: reading"))
     ops = ipb.parse_img_pr_ops(reply, style_id="noir")
     assert len(ops) == 2
     assert {ipb.uuid_of_op(o) for o in ops} == {"aaa", "ccc"}
     body = ops[0]["fields"]["промт_картинки"]
-    assert body == "Background: metro car"
+    assert body == _body("Background: metro car")
     assert "Archival Noir" not in body
     assert "Final style lock" not in body
 
@@ -35,9 +47,9 @@ def test_parse_img_pr_ops_does_not_wrap_style() -> None:
 def test_parse_img_pr_ops_no_style_does_not_inject_noir() -> None:
     reply = """
     {"ops":[
-      {"frame_uuid":"aaa","fields":{"промт_картинки":"Background: metro car"}}
+      {"frame_uuid":"aaa","fields":{"промт_картинки":"BODY_A"}}
     ]}
-    """
+    """.replace("BODY_A", _body("Background: metro car"))
     ops = ipb.parse_img_pr_ops(reply)
     body = ops[0]["fields"]["промт_картинки"]
     assert "Archival Noir" not in body
@@ -47,9 +59,11 @@ def test_parse_img_pr_ops_no_style_does_not_inject_noir() -> None:
 def test_parse_img_pr_ops_skips_wrap_for_plastilin() -> None:
     reply = """
     {"ops":[
-      {"frame_uuid":"aaa","fields":{"промт_картинки":"Minimalist Claymation Plasticine 2D-Look Miniature Illustration. Scene of a shop."}}
+      {"frame_uuid":"aaa","fields":{"промт_картинки":"BODY_A"}}
     ]}
-    """
+    """.replace(
+        "BODY_A", _body("Minimalist Claymation Plasticine 2D-Look Miniature Illustration. Scene of a shop.")
+    )
     ops = ipb.parse_img_pr_ops(reply, wrap_style=False)
     body = ops[0]["fields"]["промт_картинки"]
     assert "Claymation" in body
@@ -99,9 +113,11 @@ def test_salvage_broken_json_персонажи_outside_fields() -> None:
     # Битый ответ: лишняя } и персонажи вне fields (как в проде).
     reply = (
         '{"ops":['
-        '{"frame_uuid":"aaaaaaaaaaaaaaaaaaaaaaaa","fields":{"промт_картинки":"Background: a"},'
+        '{"frame_uuid":"aaaaaaaaaaaaaaaaaaaaaaaa","fields":{"промт_картинки":"'
+        + _body("Background: a")
+        + '"},'
         '"персонажи":"c01"}},'
-        '{"frame_uuid":"bbbbbbbbbbbbbbbbbbbbbbbb","fields":{"промт_картинки":"Action: b"}}'
+        '{"frame_uuid":"bbbbbbbbbbbbbbbbbbbbbbbb","fields":{"промт_картинки":"' + _body("Action: b") + '"}}'
         "]}"
     )
     # extract/salvage может вытащить куски; parse_img_pr_ops чинит fields.

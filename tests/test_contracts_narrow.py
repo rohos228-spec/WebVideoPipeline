@@ -14,6 +14,12 @@ from app.contracts import (
     LlmContractError,
 )
 
+# Промт короче MIN_IMAGE_PROMPT_CHARS контракт теперь отбивает как заглушку
+# (живой прогон: кадр с промтом «...» доехал до генератора). Тесты ниже про
+# алиасы и null-поля, не про длину, — тела добиты до правдоподобных.
+_PROMPT_BODY = "закат над вагоном, " + "иней на стекле, тень на полу, " * 15
+
+
 # ── FRAME_SPLIT ──────────────────────────────────────────────────────────
 
 
@@ -83,20 +89,23 @@ def test_img_pr_ok_russian_alias_and_characters() -> None:
             "ops": [
                 {
                     "frame_uuid": "u1",
-                    "fields": {"промт_картинки": "закат", "персонажи": "c01"},
+                    "fields": {"промт_картинки": _PROMPT_BODY, "персонажи": "c01"},
                 }
             ]
         },
         ensure_ascii=False,
     )
     op = IMG_PR.parse(raw).payload.ops[0]
-    assert op.fields == {"image_prompt": "закат", "characters": "c01"}
+    assert op.fields == {"image_prompt": _PROMPT_BODY, "characters": "c01"}
 
 
 def test_img_pr_null_characters_dropped() -> None:
-    raw = '{"ops":[{"frame_uuid":"u1","fields":{"image_prompt":"x","characters":null}}]}'
+    raw = json.dumps(
+        {"ops": [{"frame_uuid": "u1", "fields": {"image_prompt": _PROMPT_BODY, "characters": None}}]},
+        ensure_ascii=False,
+    )
     op = IMG_PR.parse(raw).payload.ops[0]
-    assert op.fields == {"image_prompt": "x"}
+    assert op.fields == {"image_prompt": _PROMPT_BODY}
 
 
 def test_img_pr_foreign_field_rejected() -> None:
@@ -127,12 +136,23 @@ def test_img_pr_strict_schema_override() -> None:
 
 def test_img_pr_shot2_only_op_with_nulls() -> None:
     # Ответ enforced-релея: неиспользуемые поля = null (required-all)
-    raw = (
-        '{"ops":[{"frame_uuid":"u1","fields":{"image_prompt":null,'
-        '"image_prompt_shot2":"второй шот","characters":null}}]}'
+    raw = json.dumps(
+        {
+            "ops": [
+                {
+                    "frame_uuid": "u1",
+                    "fields": {
+                        "image_prompt": None,
+                        "image_prompt_shot2": _PROMPT_BODY,
+                        "characters": None,
+                    },
+                }
+            ]
+        },
+        ensure_ascii=False,
     )
     op = IMG_PR.parse(raw).payload.ops[0]
-    assert op.fields == {"image_prompt_shot2": "второй шот"}
+    assert op.fields == {"image_prompt_shot2": _PROMPT_BODY}
 
 
 def test_anim_pr_strict_schema_has_shot2() -> None:

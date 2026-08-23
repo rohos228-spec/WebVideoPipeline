@@ -570,12 +570,21 @@ _IMG_PR_DB_HINT = (
     "Одна операция = один кадр. Пиши только полные ops; если не все влезли — "
     "верни сколько полных влезло, остальное не трогай. "
     'Пустой {"ops":[]} запрещён.\n'
-    "Сборка кадра (порядок): ref(cXX?) → shot01_bg → shot01_action → "
-    "lighting/scene_lighting → accent → scene_sense → scene_feature → "
-    "shot01_description/props → place/время → STYLE. "
+    "Сборка кадра (порядок): ref(cXX?) → shot01_bg → continuity → "
+    "shot01_action → lighting/scene_lighting → accent → scene_sense → "
+    "scene_feature → shot01_description/props → place/время → STYLE. "
     "accent/scene_sense/scene_feature — отдельные строки. "
-    "В промт_картинки пиши ПОЛНЫЙ промт: сцена + STYLE LOCK / Final style "
-    "lock / Negative из мастера. Оркестратор НИЧЕГО не дописывает. "
+    "continuity — ДОСЛОВНАЯ копия поля кадра, целиком, отдельной строкой "
+    "сразу после фона: это посчитанная кодом геометрия (кто где стоит, куда "
+    "смотрит, у кого предмет). Не перефразировать, не сокращать, не "
+    "переставлять; нет поля — нет строки. "
+    "ref_character — кому приедет единственная фотография кадра. "
+    "describe_appearance пусто — внешность не описывай; непусто — опиши ВСЕХ "
+    "перечисленных, включая владельца фотографии (100–150 симв. на человека "
+    "из карточки characters). Пропустишь одного — он выйдет с лицом соседа. "
+    "В промт_картинки пиши ПОЛНЫЙ промт: сцена + стилевой замок из мастера "
+    "(какую пару блоков копировать — сказано ниже). "
+    "Оркестратор НИЧЕГО не дописывает. "
     "characters[] Entity. Не копируй voiceover_text.\n"
 )
 
@@ -592,6 +601,19 @@ _PLASTILIN_IMG_PR_HINT = (
     "+ Negative. Пайплайн НЕ допишет watercolor/noir — не копируй Archival Noir. "
     "Не копируй voiceover_text. Без ASCII двойных кавычек в тексте промта.\n"
 )
+
+
+def _is_real_shot(fr: Frame) -> bool:
+    """Кадру нужен промт: он несёт закадр либо он шот многокадровой сцены.
+
+    Второй такой же отбор живёт в ``orchestrator.steps.generate_image_prompts``
+    — шаг считает готовность по нему, а батчи собираются здесь. Разойдутся —
+    шаг зациклится: «не хватает кадров», а посылать нечего.
+    """
+    if (fr.voiceover_text or "").strip():
+        return True
+    attrs = fr.attrs if isinstance(fr.attrs, dict) else {}
+    return isinstance(attrs.get("camera_subdivide"), dict)
 
 
 async def _load_img_pr_context(
@@ -631,7 +653,7 @@ async def _load_img_pr_context(
             continue
         if skip_uuids and uuid in skip_uuids:
             continue
-        if not (fr.voiceover_text or "").strip():
+        if not _is_real_shot(fr):
             continue
         # Уже заполненные пропускаем (resume / soft retry).
         if (fr.image_prompt or "").strip():
@@ -738,7 +760,26 @@ async def run_img_pr_xlsx(
     plastilin = is_plastilin_master(prompt_file.name, master_head)
     style_id = resolve_project_img_style(project, variant=prompt_file.name, master=master_head)
     logger.info("img_pr_db: style_id={!r} plastilin={}", style_id, plastilin)
-    img_pr_hint = _PLASTILIN_IMG_PR_HINT if plastilin else _IMG_PR_DB_HINT
+    # Промты пишутся под потолок ТОГО генератора, куда поедут кадры. Иначе
+    # агент выдавал 3400 знаков, MiniMax брал 1500, а между ними работал
+    # компрессор — лишний вызов на кадр и вторая точка потери задания.
+    from app.services.img_pr_budget import STYLE_COMPACT, image_prompt_budget
+
+    prompt_limit, style_mode, img_provider = image_prompt_budget(project)
+    img_pr_hint = (_PLASTILIN_IMG_PR_HINT if plastilin else _IMG_PR_DB_HINT) + (
+        f"Лимит тела промта — {prompt_limit} символов (генератор {img_provider}); "
+        + (
+            "стилевой замок бери КОРОТКИЙ (раздел «короткий замок» мастера).\n"
+            if style_mode == STYLE_COMPACT
+            else "стилевой замок бери полный.\n"
+        )
+    )
+    logger.info(
+        "img_pr_db: provider={} prompt_limit={} style={}",
+        img_provider,
+        prompt_limit,
+        style_mode,
+    )
     if plastilin:
         logger.info("img_pr_db: plastilin master — keep clay style in prompt, no watercolor wrap")
 
@@ -861,7 +902,14 @@ async def run_img_pr_xlsx(
             include_characters=True,
         )
         uuid_lines = "\n".join(f"кадр {fr.number} = {fr.uuid}" for fr in batch if fr.uuid)
-        footer = ipb.batch_footer(batch_i=bi, batch_n=batch_n, n=len(batch), plastilin=plastilin)
+        footer = ipb.batch_footer(
+            batch_i=bi,
+            batch_n=batch_n,
+            n=len(batch),
+            plastilin=plastilin,
+            limit=prompt_limit,
+            style_mode=style_mode,
+        )
         chat_msg = cx.chat_message(
             project,
             "img_pr",

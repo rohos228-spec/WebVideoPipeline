@@ -12,12 +12,28 @@ from app.services.step_cancel import StepCancelledError, raise_if_cancelled
 from app.storage import for_project as _sheet_for_project
 
 
+def _is_real_shot(fr: Frame) -> bool:
+    """Кадру нужна картинка: либо он несёт закадр, либо он шот многокадровой сцены.
+
+    Правило «есть закадр» осталось от времён, когда кадр = ячейка закадра.
+    После ``camera_expand`` сцена разворачивается в несколько шотов, и по
+    устройству закадр остаётся только у родителя — дети пустые (см. докстринг
+    ``camera_expand``). С проверкой по одному закадру шаг молча пропускал их:
+    24 кадра, 13 промтов, а многокадровые сцены схлопывались обратно в один
+    кадр на ячейку — то самое слайдшоу, ради которого веер и включали.
+    """
+    if (fr.voiceover_text or "").strip():
+        return True
+    attrs = fr.attrs if isinstance(fr.attrs, dict) else {}
+    return isinstance(attrs.get("camera_subdivide"), dict)
+
+
 def _frames_needing_image_prompt(frames: list[Frame]) -> list[Frame]:
-    return [fr for fr in frames if (fr.voiceover_text or "").strip() and not (fr.image_prompt or "").strip()]
+    return [fr for fr in frames if _is_real_shot(fr) and not (fr.image_prompt or "").strip()]
 
 
 def _frames_with_image_prompt(frames: list[Frame]) -> list[Frame]:
-    return [fr for fr in frames if (fr.voiceover_text or "").strip() and (fr.image_prompt or "").strip()]
+    return [fr for fr in frames if _is_real_shot(fr) and (fr.image_prompt or "").strip()]
 
 
 async def _reload_frames(session: AsyncSession, project_id: int) -> list[Frame]:
@@ -43,6 +59,13 @@ async def _finish_success(session: AsyncSession, project: Project, frames: list[
         raise RuntimeError(f"GPT не заполнил image_prompt для кадров: {missing_nums}")
     if not filled:
         raise RuntimeError("GPT не заполнил ни одного image_prompt")
+
+    # Расстановка (continuity) посчитана кодом и обязана быть в промте. Агент
+    # её игнорировал на живом прогоне #2 (1 промт из 24) — здесь требование
+    # стоит проверкой, а не только просьбой в мастер-промте.
+    from app.services.img_pr_continuity import enforce_continuity_in_prompts
+
+    await enforce_continuity_in_prompts(session, project)
 
     from app.services.agent_harness import harness_gate_or_raise
 

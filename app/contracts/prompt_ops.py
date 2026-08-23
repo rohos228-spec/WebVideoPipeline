@@ -20,6 +20,14 @@ from pydantic import model_validator
 from app.contracts.apply_ops import ApplyOpsEnvelope
 from app.contracts.base import LlmContract
 
+# Ниже этой длины «промт» не промт. Живой прогон #2: кадр 9 приехал как «...»
+# (3 символа), прошёл проверки и превратился в мусорную картинку за деньги.
+# Настоящие промты этого конвейера — 1800–3400 знаков вместе со STYLE/Negative;
+# порог взят с большим запасом вниз, чтобы ловить только вырожденный ответ,
+# а не короткий стиль другого проекта. То же число читает отбор ops в
+# ``services.img_pr_batches`` — контракт и парсер обязаны считать одинаково.
+MIN_IMAGE_PROMPT_CHARS = 400
+
 _IMG_PR_FIELDS = frozenset({"image_prompt", "image_prompt_shot2", "characters"})
 _ANIM_PR_FIELDS = frozenset({"animation_prompt", "animation_prompt_shot2"})
 
@@ -30,8 +38,14 @@ def _check_ops_allowlist(
     allowed: frozenset[str],
     required_one_of: frozenset[str],
     node: str,
+    min_chars: int = 0,
 ) -> None:
-    """Все ops — target=frame; canon-поля ⊆ allowed; хотя бы одно из required."""
+    """Все ops — target=frame; canon-поля ⊆ allowed; хотя бы одно из required.
+
+    ``min_chars`` — пол длины для required-полей. Без него «непустой» проходит
+    ответ вида «...»: на живом прогоне #2 такой промт доехал до генератора и
+    кадр 9 вышел мусором, а шаг отчитался успехом.
+    """
     for op in env.ops:
         if op.target != "frame":
             raise ValueError(f"{node}: допустим только target=frame, получен {op.target}")
@@ -46,6 +60,14 @@ def _check_ops_allowlist(
         present = {k for k, v in fields.items() if k in required_one_of and str(v or "").strip()}
         if not present:
             raise ValueError(f"{node}: кадр {op.frame_uuid}: нет непустого {sorted(required_one_of)}")
+        if min_chars:
+            short = {k: len(str(fields[k] or "").strip()) for k in present}
+            if all(n < min_chars for n in short.values()):
+                raise ValueError(
+                    f"{node}: кадр {op.frame_uuid}: промт короче {min_chars} символов "
+                    f"({short}) — это не задание генератору, а заглушка. Верни полный "
+                    f"промт: сцена + расстановка + STYLE LOCK + Negative."
+                )
 
 
 class ImgPrEnvelope(ApplyOpsEnvelope):
@@ -63,6 +85,7 @@ class ImgPrEnvelope(ApplyOpsEnvelope):
             allowed=_IMG_PR_FIELDS,
             required_one_of=frozenset({"image_prompt", "image_prompt_shot2"}),
             node="img_pr",
+            min_chars=MIN_IMAGE_PROMPT_CHARS,
         )
         return self
 

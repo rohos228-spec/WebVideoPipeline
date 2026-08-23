@@ -13,7 +13,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
+from app.contracts.prompt_ops import MIN_IMAGE_PROMPT_CHARS
 from app.services.db_apply import extract_apply_ops_json
+from app.services.img_pr_budget import (
+    OUTSEE_IMAGE_PROMPT_MAX,
+    STYLE_COMPACT,
+    STYLE_FULL,
+)
 from app.services.volume_batches import (
     MIN_CONTINUE_SIZE,
     plan_remainder_batches,
@@ -38,14 +44,34 @@ _BATCH_FOOTER = """
   верни сколько полных влезло, остальные uuid не включай;
 - пустой {{"ops":[]}} запрещён.
 
-В `промт_картинки` пиши ПОЛНЫЙ промт: сцена на русском (Референс?/Фон/Действие/
-Свет/Акцент/Смысл/План-ракурс/Эмоция/Детали/Место) + STYLE LOCK / Final style
-lock / Negative из мастера. Оркестратор НИЧЕГО не дописывает.
-Тело ≤ 4877 символов (режь сюжет, не STYLE/Negative).
+В `промт_картинки` пиши ПОЛНЫЙ промт: сцена на русском (Референс?/Фон/
+Расстановка/Действие/Свет/Акцент/Смысл/План-ракурс/Эмоция/Детали/Место) +
+стилевой замок из мастера. Оркестратор НИЧЕГО не дописывает.
+{style_rule}
+Тело ≤ {limit} символов — это потолок генератора, куда поедет кадр: длиннее
+он режет хвост сам и молча. Режь сюжет, не расстановку и не замок.
+
+=== РАССТАНОВКА (КРИТИЧНО, ПРОВЕРЯЕТСЯ) ===
+- У кадра есть поле `continuity` — его значение уходит в промт ДОСЛОВНО,
+  целиком, отдельной строкой сразу после `Фон:` и ДО `Действие:`.
+- Копируй как есть, вместе со словом «Непрерывность.». Не перефразируй,
+  не сокращай, не переставляй людей и предметы, не дописывай своих.
+- Это посчитанная кодом геометрия кадра (ось действия, взгляды, владелец
+  предмета), а не пожелание: композиция подчиняется ей, не наоборот.
+- Нет `continuity` у кадра — строки нет, выдумывать её запрещено.
+
+=== ФОТО ПРОТИВ СЛОВ (КРИТИЧНО, ПРОВЕРЯЕТСЯ) ===
+- Генератор берёт ОДНУ фотографию персонажа на кадр (`ref_character`).
+- `describe_appearance` пусто — внешность не описывай, фотография справится.
+- `describe_appearance` непусто — опиши ВСЕХ перечисленных, включая того, у
+  кого фотография есть: 100–150 символов на человека из карточки `characters`
+  (возраст, телосложение, лицо, волосы, одежда). Пропустишь одного — он
+  выйдет с лицом и полом соседа.
+- Не влезает в лимит — режь детали и эмоцию, не внешность.
 
 === ФОН / ПЛАН / РЕФ / ТЕКСТ (КРИТИЧНО) ===
 - Фон = подробно из shot01_bg (священно); план/ракурс = scene_feature + shot01_description.
-- При укорачивании до 4877 НЕ выкидывай фон, план/ракурс и STYLE LOCK.
+- При укорачивании до {limit} НЕ выкидывай расстановку, фон, план/ракурс и STYLE LOCK.
 - Один cXX = один референс = одно тело; запрет клонов/идентичных лиц.
 - Без читаемого текста, если надпись не задана во входе (никакой каши/латиницы).
 
@@ -59,7 +85,9 @@ lock / Negative из мастера. Оркестратор НИЧЕГО не д
 
 _FOLLOWUP_MSG = """
 Следующий батч. Те же правила. Полный промт: сцена + STYLE LOCK / Negative.
-Фон и план священны; ≤4877; 1 cXX = 1 тело; mid-motion; анти-twin.
+`continuity` кадра — дословной строкой после «Фон:», до «Действие:».
+`describe_appearance` непусто — внешность ВСЕХ перечисленных обязательна.
+Фон и план священны; 1 cXX = 1 тело; mid-motion; анти-twin.
 Мастер-промт и db_frames.json во вложении — только кадры этого батча.
 {footer}
 """.strip()
@@ -79,12 +107,13 @@ _PLASTILIN_BATCH_FOOTER = """
 
 В `промт_картинки` пиши ПОЛНЫЙ промт: стиль пластилина ТРИ раза + сцена + Negative.
 Пайплайн НЕ допишет watercolor/noir. Не копируй Archival Noir.
-Тело ≤ 5000 символов. Без текста на картинке. Либо люди, либо крупный план предмета без рук.
+Тело ≤ {limit} символов — потолок генератора, длиннее он режет хвост сам.
+Без текста на картинке. Либо люди, либо крупный план предмета без рук.
 """.strip()
 
 _PLASTILIN_FOLLOWUP_MSG = """
 Следующий батч. Те же правила. Стиль пластилина оставь в промт_картинки (три раза).
-Watercolor/noir не пиши. ≤5000; 1 cXX = 1 тело; без текста на картинке.
+Watercolor/noir не пиши. 1 cXX = 1 тело; без текста на картинке.
 Мастер-промт и db_frames.json во вложении — только кадры этого батча.
 {footer}
 """.strip()
@@ -220,6 +249,15 @@ _PROMPT_FIELD_KEYS = (
 )
 
 
+def is_degenerate_prompt(text: Any) -> bool:
+    """Ответ формально есть, а задания в нём нет: «...», «—», обрывок строки."""
+    body = str(text or "").strip()
+    if len(body) < MIN_IMAGE_PROMPT_CHARS:
+        return True
+    # Одни знаки препинания и пробелы — длина ничего не значит.
+    return not re.search(r"[^\W\d_]", body, flags=re.UNICODE)
+
+
 def filter_prompt_ops(ops: list[Any]) -> list[dict]:
     clean: list[dict] = []
     for op in ops:
@@ -243,6 +281,27 @@ def filter_prompt_ops(ops: list[Any]) -> list[dict]:
             for k in _PROMPT_FIELD_KEYS:
                 if k in op and str(op.get(k) or "").strip():
                     fields[k] = op.get(k)
+        if not any(k in fields for k in _PROMPT_FIELD_KEYS):
+            continue
+        # Вырожденный промт хуже отсутствующего: кадр считается готовым, шаг
+        # зеленеет, а картинка рисуется по трём точкам. Выбрасываем op — кадр
+        # остаётся пустым, и батч-цикл переспросит именно его.
+        degenerate = {
+            k: len(str(fields.get(k) or "").strip())
+            for k in _PROMPT_FIELD_KEYS
+            if k in fields and is_degenerate_prompt(fields.get(k))
+        }
+        for k in degenerate:
+            fields.pop(k, None)
+        if degenerate:
+            from loguru import logger
+
+            logger.warning(
+                "img_pr: кадр {} — промт короче {} симв. ({}), поле отброшено",
+                str(op.get("frame_uuid") or op.get("uuid") or "?"),
+                MIN_IMAGE_PROMPT_CHARS,
+                ", ".join(f"{k}={n}" for k, n in degenerate.items()),
+            )
         if not any(k in fields for k in _PROMPT_FIELD_KEYS):
             continue
         out = {**op, "fields": fields}
@@ -348,14 +407,55 @@ def parse_img_pr_ops(
     return clean
 
 
-def batch_footer(*, batch_i: int, batch_n: int, n: int, plastilin: bool = False) -> str:
+_STYLE_RULE = {
+    STYLE_FULL: "Замок — ПОЛНАЯ пара блоков мастера (STYLE + Final style lock / Negative).",
+    STYLE_COMPACT: (
+        "Замок — КОРОТКАЯ пара блоков мастера (раздел «короткий замок»): полная "
+        "пара занимает ≈1065 знаков и при этом лимите не оставит места кадру. "
+        "Копируй короткую дословно, не смешивай с полной."
+    ),
+}
+
+
+def batch_footer(
+    *,
+    batch_i: int,
+    batch_n: int,
+    n: int,
+    plastilin: bool = False,
+    limit: int = OUTSEE_IMAGE_PROMPT_MAX,
+    style_mode: str = STYLE_FULL,
+) -> str:
     tmpl = _PLASTILIN_BATCH_FOOTER if plastilin else _BATCH_FOOTER
-    return tmpl.format(batch_i=batch_i, batch_n=batch_n, n=n)
+    return tmpl.format(
+        batch_i=batch_i,
+        batch_n=batch_n,
+        n=n,
+        limit=int(limit),
+        style_rule=_STYLE_RULE.get(style_mode, _STYLE_RULE[STYLE_FULL]),
+    )
 
 
-def followup_message(*, batch_i: int, batch_n: int, n: int, plastilin: bool = False) -> str:
+def followup_message(
+    *,
+    batch_i: int,
+    batch_n: int,
+    n: int,
+    plastilin: bool = False,
+    limit: int = OUTSEE_IMAGE_PROMPT_MAX,
+    style_mode: str = STYLE_FULL,
+) -> str:
     tmpl = _PLASTILIN_FOLLOWUP_MSG if plastilin else _FOLLOWUP_MSG
-    return tmpl.format(footer=batch_footer(batch_i=batch_i, batch_n=batch_n, n=n, plastilin=plastilin))
+    return tmpl.format(
+        footer=batch_footer(
+            batch_i=batch_i,
+            batch_n=batch_n,
+            n=n,
+            plastilin=plastilin,
+            limit=limit,
+            style_mode=style_mode,
+        )
+    )
 
 
 def write_rejected_reply(tmp_dir: Path, *, batch_i: int, attempt: int, reply: str, reason: str) -> Path:
