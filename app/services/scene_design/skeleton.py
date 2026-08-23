@@ -1238,6 +1238,86 @@ def _phase_blob(scene: dict[str, Any]) -> str:
     )
 
 
+def _phase_key(scene: dict[str, Any]) -> str:
+    for key in ("цепь_действия", "phases", "фазы"):
+        if isinstance(scene.get(key), list):
+            return key
+    return "цепь_действия"
+
+
+def _phase_from_bit(bit: dict[str, Any], index: int) -> dict[str, Any]:
+    """Бит скелета → фаза action. Бит и есть фаза: «глагол» + «было → стало»."""
+    verb = str(bit.get("глагол") or bit.get("глагол_или_суть") or "").strip()
+    change = str(bit.get("изменение") or "").strip()
+    tail = change.split("→")[-1].strip() if "→" in change else change
+    # «кажется, ошибся — кажется, ошибся»: бит без стрелки повторяет глагол,
+    # склейка даёт мусор. Хвост берём, только если он что-то добавляет.
+    if tail and verb and (tail.casefold() == verb.casefold() or tail.casefold() in verb.casefold()):
+        tail = ""
+    text = " — ".join(part for part in (verb, tail) if part) or str(bit.get("якорь") or "").strip()
+    return {
+        "phase_index": index,
+        "beat": "develop",
+        "action": text,
+        "subject": "",
+        "продолжает": "",
+        "переход_к_следующей": "cut",
+        "из_бита_скелета": True,
+    }
+
+
+def repair_action_phases_from_bits(
+    action_scenes: list[Any],
+    skeleton: dict[str, Any] | None,
+) -> list[str]:
+    """Добить фазы action до числа битов скелета. Возвращает список починок.
+
+    Скелет режет ячейку по смысловым сдвигам («1 бит = 1 слот = 1 будущий
+    кадр»), а action считает фазы по времени («фаз ≈ время_сек / 3»). На
+    короткой плотной ячейке два закона дают разные числа, и жёсткий гейт
+    «фаз ≥ битов» рубил весь шаг. Модели про это сказать нечего — повтор
+    того же промпта даёт тот же ответ, и шаг умирает по кругу.
+
+    Приоритет объявлен сборщиком: скелет выше action. Значит недостающую
+    фазу берём из бита, а не выпрашиваем у модели: бит уже описывает
+    видимое изменение, ради которого кадр и нужен.
+    """
+    if not isinstance(skeleton, dict):
+        return []
+    acts = [s for s in action_scenes if isinstance(s, dict)]
+    if not acts:
+        return []
+    by_id = {str(s.get("id_scene") or "").strip(): s for s in acts if str(s.get("id_scene") or "").strip()}
+    fixed: list[str] = []
+    for i, sc in enumerate(skeleton.get("scenes") or []):
+        if not isinstance(sc, dict):
+            continue
+        sid = str(sc.get("id_scene") or "").strip() or f"scene_{i + 1:02d}"
+        bits = [b for b in (sc.get("биты") or []) if isinstance(b, dict)]
+        act = by_id.get(sid) or (acts[i] if i < len(acts) else None)
+        if act is None or not bits:
+            continue
+        phases = _action_phases(act)
+        if len(phases) >= len(bits):
+            continue
+        key = _phase_key(act)
+        chain = list(act.get(key) or [])
+        added = 0
+        for bit in bits[len(phases) :]:
+            phase = _phase_from_bit(bit, len(phases) + added + 1)
+            if not phase["action"]:
+                continue
+            chain.append(phase)
+            added += 1
+        if not added:
+            continue
+        act[key] = chain
+        if not any(str(ph.get("beat") or "") == "payoff" for ph in _action_phases(act)):
+            chain[-1]["beat"] = "payoff"
+        fixed.append(f"{sid}: +{added} фаз из битов скелета")
+    return fixed
+
+
 def validate_action_covers_skeleton_bits(
     action_scenes: list[Any],
     skeleton: dict[str, Any] | None,

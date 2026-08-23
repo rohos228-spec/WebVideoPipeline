@@ -315,6 +315,16 @@ async def run_assemble(session: AsyncSession, project: Project, bot: Bot | None 
             raise RuntimeError(f"scene_design: сборка не прошла валидацию: {feedback}")
 
         applied = await sd_apply.apply_scene_design(session, project, payload)
+        # Непрерывность считаем кодом поверх записанных кадров: ось сцены даёт
+        # расстановку и направление взгляда, реестр — владельца предмета.
+        # Промт картинки получит факт постановки, а не правило «держи ось».
+        from app.services.scene_design.continuity_apply import apply_continuity
+
+        continuity_report = await apply_continuity(session, project)
+        if continuity_report.get("violations"):
+            payload["report"] = (
+                f"{payload.get('report') or ''}; continuity_fixed:{len(continuity_report['violations'])}"
+            )[:800]
         # Пayload сборщика на диск ноды — материал для «Проверка: сборка сцен».
         _write_sd_reply_file(project, "assemble", payload)
         runner.mark_done(project, str(payload.get("report") or ""))

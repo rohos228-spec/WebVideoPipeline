@@ -205,6 +205,19 @@ def _ensure_extra_ids(
     return out, extras
 
 
+def _phase_order(shot: dict[str, Any]) -> tuple[int, int]:
+    """Порядок шотов внутри сцены: phase_index, потом шаг лестницы крупности."""
+    try:
+        phase = int(shot.get("phase_index") or 0)
+    except (TypeError, ValueError):
+        phase = 0
+    try:
+        step = int(shot.get("шаг_лестницы") or shot.get("ladder_step") or 0)
+    except (TypeError, ValueError):
+        step = 0
+    return (phase, step)
+
+
 def _parse_action_chain(raw: Any) -> list[str]:
     if isinstance(raw, list):
         return [_as_plain_text(x) for x in raw if _as_plain_text(x)]
@@ -224,6 +237,81 @@ def _parse_action_chain(raw: Any) -> list[str]:
         if sep in text:
             return [p.strip() for p in text.split(sep) if p.strip()]
     return [text]
+
+
+def _parse_action_subjects(raw: Any) -> list[str]:
+    """Субъекты фаз параллельно ``_parse_action_chain``: индекс к индексу.
+
+    Фаза action несёт ``subject`` (cNN). ``_parse_action_chain`` плющит фазу в
+    строку и субъект теряет — а ``персонажи`` кадра потом берутся из шота
+    камеры, выровненного отдельно. Два выравнивания расходятся, и в кадре
+    оказывается «руки женщины» с персонажем c01. Держим субъект рядом с
+    текстом, чтобы поле и действие приезжали из одного места.
+    """
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for x in raw:
+        if not _as_plain_text(x):
+            continue
+        subject = ""
+        if isinstance(x, dict):
+            subject = _as_plain_text(x.get("subject") or x.get("субъект") or x.get("кто") or "")
+        out.append(subject)
+    return out
+
+
+def _parse_action_in_frame(raw: Any) -> list[str]:
+    """Кто ещё в кадре фазы — параллельно ``_parse_action_subjects``.
+
+    ``subject`` — один человек: тот, кто действует. Диалог двоих в замкнутом
+    пространстве при этом честно раскладывается на односубъектные фазы, камера
+    обслуживает их 1:1, и сцена выходит галереей портретов — при том что оба
+    героя всё время рядом. ``в_кадре`` фазы называет всех, кто физически
+    попадает в кадр, и второй человек перестаёт исчезать.
+    """
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for x in raw:
+        if not _as_plain_text(x):
+            continue
+        who = ""
+        if isinstance(x, dict):
+            who = _as_plain_text(x.get("в_кадре") or x.get("in_frame") or x.get("кто_в_кадре") or "")
+        out.append(who)
+    return out
+
+
+def _cnn_ids(text: str) -> list[str]:
+    seen: list[str] = []
+    for m in re.findall(r"c\d{2}", _as_plain_text(text), flags=re.I):
+        cid = m.lower()
+        if cid not in seen:
+            seen.append(cid)
+    return seen
+
+
+def _cast_for_shot(subject: str, in_frame: str, framed: str) -> str:
+    """Кто в кадре шота: субъект фазы, ``в_кадре`` фазы и `кто_в_кадре` камеры.
+
+    Раньше субъект просто затирал список камеры. Двухсоставный шот («c01 и c02
+    у окна») превращался в кадр про одного, расстановка непрерывности теряла
+    второго — и заказчик видел ту самую портретную галерею вместо диалога.
+
+    Право решать, кого видно, у камеры: крупный план одного — это осознанный
+    выбор, а не потеря. Но верим ей только пока она согласна с action в том,
+    кто действует; разошлись — берём данные фазы (фикс «персонажи не из той
+    фазы, что действие»).
+    """
+    subj_ids = _cnn_ids(subject)
+    framed_ids = _cnn_ids(framed)
+    if subj_ids and framed_ids and set(subj_ids) <= set(framed_ids):
+        return ", ".join(framed_ids)
+    phase_ids = subj_ids + [c for c in _cnn_ids(in_frame) if c not in subj_ids]
+    if phase_ids:
+        return ", ".join(phase_ids)
+    return subject or in_frame or framed
 
 
 def attach_action_chains_to_scenes(
@@ -397,23 +485,37 @@ def stamp_actions_onto_ops(
             sid, idx = pos
             sc = by_scene.get(sid) or {}
             chain = _parse_action_chain(sc.get("цепь_действия"))
+            subjects = _parse_action_subjects(sc.get("цепь_действия"))
+            in_frames = _parse_action_in_frame(sc.get("цепь_действия"))
             action = ""
+            chosen = -1
             if chain:
-                action = chain[idx] if idx < len(chain) else chain[-1]
+                chosen = idx if idx < len(chain) else len(chain) - 1
+                action = chain[chosen]
             # Анти-повтор: если фаза уже была — дописать отличие по индексу шота.
             key = _norm_words(action)
             if action and key in seen_actions and len(chain) > 1:
                 # взять следующую неиспользованную фазу
-                for cand in chain:
+                for ci, cand in enumerate(chain):
                     ck = _norm_words(cand)
                     if ck not in seen_actions:
                         action = cand
                         key = ck
+                        chosen = ci
                         break
             if action:
                 seen_actions.add(key)
                 fields["действие"] = action
                 fields["shot01_action"] = action
+                # Субъект той же фазы, а не соседнего шота камеры.
+                subject = subjects[chosen] if 0 <= chosen < len(subjects) else ""
+                in_frame = in_frames[chosen] if 0 <= chosen < len(in_frames) else ""
+                if subject or in_frame:
+                    framed = _as_plain_text(fields.get("персонажи") or fields.get("characters") or "")
+                    cast = _cast_for_shot(subject, in_frame, framed)
+                    if cast:
+                        fields["персонажи"] = cast
+                        fields["characters"] = cast
                 # Фаза несёт новую информацию — не копировать общий смысл сцены
                 # во все кадры (иначе акцент=смысл=особенность).
                 fields["смысл_сцены"] = action
@@ -450,13 +552,33 @@ def build_local_assembler_payload(
             if uid and sid:
                 uuid_to_sid[uid] = sid
 
-    # shot_plan в хронологии ≈ 1:1 с кадрами после camera_subdivide.
+    # Шот кадру подбираем внутри его сцены, а не по позиции в общем списке:
+    # camera_expand разворачивает лестницу крупностей и на 24 кадра может
+    # отдать 32 строки shot_plan. Позиционный zip после первого расхождения
+    # сдвигает всё до конца ролика — описание берётся от одного шота,
+    # персонажи от другого, и в кадре «руки женщины» оказываются у c01.
+    shots_by_scene: dict[str, list[dict[str, Any]]] = {}
+    for sh_row in shots:
+        sid = str(sh_row.get("id_scene") or "").strip()
+        if sid:
+            shots_by_scene.setdefault(sid, []).append(sh_row)
+    for rows in shots_by_scene.values():
+        rows.sort(key=lambda r: _phase_order(r))
+    scene_cursor: dict[str, int] = {}
+
     ops: list[dict[str, Any]] = []
     for i, fr in enumerate(frames):
         uid = str(getattr(fr, "uuid", "") or "").strip()
         if not uid:
             continue
-        sh = shots[i] if i < len(shots) else {}
+        sid = uuid_to_sid.get(uid, "")
+        scene_shots = shots_by_scene.get(sid) or []
+        if scene_shots:
+            pos = scene_cursor.get(sid, 0)
+            sh = scene_shots[min(pos, len(scene_shots) - 1)]
+            scene_cursor[sid] = pos + 1
+        else:
+            sh = shots[i] if i < len(shots) else {}
         if not sh:
             # fallback: цитата шота пересекается с закадром кадра
             vo = _fold_ru(getattr(fr, "voiceover_text", None) or "")
