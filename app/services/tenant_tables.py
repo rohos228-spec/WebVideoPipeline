@@ -49,10 +49,33 @@ CREDIT_TABLES: tuple[str, ...] = ("credit_accounts", "credit_holds", "credit_ent
 #: бессмыслицей: лизинг принадлежит воркеру, а не заказчику ролика.
 INFRA_TABLES: frozenset[str] = frozenset({"fleet_nodes", "work_leases", "alembic_version"})
 
+#: Маршрутные таблицы: закрыты политикой, но политика **обратная**. Сессия
+#: без арендатора видит всё, сессия с арендатором — только своё.
+#:
+#: Так сделано ровно для воркера. Он ищет работу сканированием, а сканирование
+#: межарендно по природе — под обычной политикой он видел бы проекты владельца
+#: и ни одного клиентского, причём молча. Чтобы асимметрия не стоила дорого, в
+#: таких таблицах нет содержимого: только номер проекта, арендатор и статус.
+#: Разбор — `app/models.py::ProjectRoute`.
+ROUTE_TABLES: tuple[str, ...] = ("project_routes",)
+
+#: Имя политики по таблице. Разные имена не косметика: `rls_check` сверяет
+#: наличие политики поимённо, и таблица с обычным именем, но обратным
+#: предикатом прошла бы проверку молча.
+POLICY_BY_TABLE: dict[str, str] = {t: "tenant_routes" for t in ROUTE_TABLES}
+
+#: Имя политики по умолчанию — у всех, кроме маршрутных.
+DEFAULT_POLICY = "tenant_isolation"
+
+
+def policy_for(table: str) -> str:
+    """Как называется политика этой таблицы."""
+    return POLICY_BY_TABLE.get(table, DEFAULT_POLICY)
+
 
 def all_isolated() -> tuple[str, ...]:
-    """Всё, что закрывается политикой RLS."""
-    return TENANT_TABLES + CREDIT_TABLES
+    """Всё, что закрывается политикой RLS — включая маршрутные таблицы."""
+    return TENANT_TABLES + CREDIT_TABLES + ROUTE_TABLES
 
 
 def check_coverage() -> list[str]:

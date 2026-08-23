@@ -278,3 +278,135 @@ async def test_http_request_is_isolated_by_its_token(pg_engine) -> None:
                 assert [p["slug"] for p in res.json()] == [slug]
     finally:
         settings.billing_jwt_secret, settings.studio_brand = prev_secret, prev_brand
+
+
+async def test_routes_mirror_projects_by_trigger(pg_engine) -> None:
+    """Маршрут проекта ведёт триггер, а не приложение.
+
+    Статус меняют десятки мест, часть — массовыми `UPDATE` мимо ORM. Если бы
+    зеркалирование делал код, оно разошлось бы на первой забытой строке, и
+    разошлось бы молча: воркер просто перестал бы видеть чей-то проект.
+    Поэтому проверка идёт **сырым SQL** — так, как ходят те самые места.
+
+    Настройка `app.tenant_id` выставляется в каждом блоке заново: после
+    `commit` сессия отдаёт соединение пулу, и вместе с ним теряется всё, что
+    на нём было выставлено. Это не тонкость теста, а причина, по которой
+    привязка арендатора висит на начале транзакции, а не на входе в сессию.
+    """
+    from sqlalchemy import text
+
+    from app.models import Project, ProjectStatus
+
+    _, factory = pg_engine
+    tenant = str(uuid.uuid4())
+    slug = f"route-{tenant[:8]}"
+
+    async def _route(project_id: int) -> tuple | None:
+        async with factory() as session:
+            return (
+                await session.execute(
+                    text("select tenant_id::text, status_value from project_routes where project_id = :i"),
+                    {"i": project_id},
+                )
+            ).first()
+
+    async with factory() as session:
+        await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": tenant})
+        session.add(Project(slug=slug, topic="маршрут", tenant_id=tenant, status=ProjectStatus.new))
+        await session.flush()
+        project_id = (
+            await session.execute(text("select id from projects where slug = :s"), {"s": slug})
+        ).scalar_one()
+        await session.commit()
+
+    assert await _route(project_id) == (tenant, "new"), "триггер не создал маршрут"
+
+    async with factory() as session:
+        # Массовый UPDATE мимо ORM — ровно тот путь, который забывают.
+        await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": tenant})
+        await session.execute(
+            text("update projects set status = 'planning' where id = :i"), {"i": project_id}
+        )
+        await session.commit()
+
+    assert await _route(project_id) == (tenant, "planning"), "маршрут отстал от статуса"
+
+    async with factory() as session:
+        await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": tenant})
+        await session.execute(text("delete from projects where id = :i"), {"i": project_id})
+        await session.commit()
+
+    assert await _route(project_id) is None, "маршрут пережил проект"
+
+
+async def test_worker_sees_every_tenant_with_work(pg_engine) -> None:
+    """То, ради чего таблица заведена: воркер находит работу у всех сразу.
+
+    Запрос идёт без арендатора — это единственный межарендный запрос в
+    системе. Под обычной политикой он вернул бы проекты владельца и ни
+    одного клиентского, причём молча.
+    """
+    from sqlalchemy import text
+
+    from app.models import Project, ProjectStatus
+    from app.services.work_routing import tenants_with_active_work
+
+    _, factory = pg_engine
+    alice, bob, idle = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+
+    async with factory() as session:
+        for tenant, status in (
+            (alice, ProjectStatus.planning),
+            (bob, ProjectStatus.scripting),
+            (idle, ProjectStatus.new),  # не рабочий статус — воркеру не нужен
+        ):
+            await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": tenant})
+            session.add(
+                Project(
+                    slug=f"work-{tenant[:8]}",
+                    topic="работа",
+                    tenant_id=tenant,
+                    status=status,
+                )
+            )
+            await session.commit()
+
+    async with factory() as session:  # БЕЗ арендатора — служебный режим
+        found = await tenants_with_active_work(session, ["planning", "scripting"])
+    assert alice in found
+    assert bob in found
+    assert idle not in found, "проект вне рабочего статуса разбудил воркер"
+
+
+async def test_tenant_cannot_enumerate_foreign_routes(pg_engine) -> None:
+    """Плата за обратную политику ограничена: чужие маршруты клиенту не видны.
+
+    Таблица вне обычной изоляции нужна воркеру, а не клиенту. Если бы
+    арендатор мог её прочитать целиком, он перечислил бы номера и статусы
+    чужих проектов — содержимого не получив, но узнав, сколько их и что с
+    ними происходит.
+    """
+    from sqlalchemy import select, text
+
+    from app.models import Project, ProjectRoute, ProjectStatus
+
+    _, factory = pg_engine
+    alice, bob = str(uuid.uuid4()), str(uuid.uuid4())
+
+    async with factory() as session:
+        for tenant in (alice, bob):
+            await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": tenant})
+            session.add(
+                Project(
+                    slug=f"enum-{tenant[:8]}",
+                    topic="перечисление",
+                    tenant_id=tenant,
+                    status=ProjectStatus.planning,
+                )
+            )
+            await session.commit()
+
+    async with factory() as session:
+        await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": alice})
+        seen = (await session.execute(select(ProjectRoute.tenant_id))).scalars().all()
+    assert set(seen) == {alice}, f"арендатор видит чужие маршруты: {set(seen)}"

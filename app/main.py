@@ -252,29 +252,22 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         record_step_failure,
         resume_expired_error_sleeps,
     )
+    from app.services.tenant import tenant_scope
     from app.settings import settings as _settings
     from app.telegram.bot import notify_step_done
 
-    # ── Воркер и арендаторы: то, чего пока нет ────────────────────────────
-    # Петля сканирует `projects` по статусу, не назначив арендатора. Под RLS
-    # это означает буквально следующее: видны только строки с
-    # `tenant_id IS NULL`, то есть проекты владельца, и ни одного проекта
-    # клиента. Отказ бесшумный — воркер живёт, крутится и ничего не находит.
+    # ── Воркер и арендаторы ───────────────────────────────────────────────
+    # Проход воркера идёт от чьего-то имени, а не безымянно. Причина в том,
+    # что сканирование «дай все проекты в рабочем статусе» под RLS
+    # невозможно по построению: оно межарендно, а политика запрещает
+    # межарендное чтение. Безымянный проход находил бы проекты владельца и
+    # ни одного клиентского, причём молча.
     #
-    # Починить это фильтром нельзя: сканирование по своей природе
-    # межарендное, а RLS запрещает межарендное чтение — в том и смысл.
-    # Правильная развязка — очередь заданий как инфраструктурная таблица
-    # (рядом с `work_leases` и `fleet_nodes`, вне политик), из которой воркер
-    # берёт `tenant_id` и уже под ним делает работу через `tenant_scope`.
-    # Это Этап 3 (docs/SAAS-PIVOT.md §11), и до него SaaS не исполняет шаги.
-    # Пока — громкое предупреждение вместо тишины.
-    if _settings.sso_enabled:
-        logger.warning(
-            "воркер конвейера работает без арендатора: под RLS он видит "
-            "только проекты владельца и НЕ подхватит ни одного проекта "
-            "клиента. Нужна очередь заданий вне политик (SAAS-PIVOT §11, "
-            "этап 3)."
-        )
+    # Поэтому тик разбит надвое. Сначала межарендный запрос к маршрутной
+    # таблице `project_routes` — у кого есть работа (там только номера,
+    # арендаторы и статусы, содержимого нет). Потом обычный проход под
+    # каждым из них через `tenant_scope`. Разбор — `app/models.py`
+    # ::ProjectRoute и ревизия 0007.
 
     async def _handle_one_advance(
         project_id: int,
@@ -416,20 +409,32 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
             unregister_advance_task(project_id)
 
     _last_mass_pause_log = False
-    while True:
-        # Пауза МАССОВОЙ генерации (маркер `data/.mass_pause`):
-        # пропускаем serial_tick_batches и auto_advance подпроектов с
-        # `batch_id != NULL`. Индивидуальные проекты продолжают работать
-        # как обычно. Сами running-шаги batch-подпроектов (planning/
-        # scripting/...) не прерываем — дорабатывают до *_ready, дальше
-        # auto_advance их уже не двинет пока пауза.
-        mass_paused = _mass_pause_active()
-        if mass_paused and not _last_mass_pause_log:
-            logger.info("worker: mass pause active — batches frozen, individual projects keep running")
-            _last_mass_pause_log = True
-        elif not mass_paused and _last_mass_pause_log:
-            logger.info("worker: mass pause снята")
-            _last_mass_pause_log = False
+
+    async def _tenants_to_serve(statuses: list) -> list[str | None]:
+        """Кому воркер служит в этом тике.
+
+        В режиме владельца — всегда `[None]`, то есть ровно прежнее
+        поведение и ни одного лишнего запроса. В SaaS список приходит из
+        маршрутной таблицы `project_routes`, и запрос обязан идти БЕЗ
+        арендатора: под назначенным политика вернёт строки одного клиента,
+        и воркер снова будет обслуживать одного вместо всех.
+        """
+        if not _settings.is_postgres:
+            return [None]
+        from app.services.work_routing import tenants_with_active_work
+
+        async with session_scope() as s:
+            return await tenants_with_active_work(s, [st.value for st in statuses])
+
+    async def _tick_for_current_tenant(mass_paused: bool) -> None:
+        """Один проход воркера от имени текущего арендатора.
+
+        Тело вынесено из петли не ради красоты. Под RLS проход обязан
+        идти от чьего-то имени: `session_scope` внутри читает арендатора
+        из контекста задачи, а политика на таблице — из транзакции.
+        Раньше проход был один и безымянный, то есть в SaaS находил
+        только проекты владельца.
+        """
         try:
             async with session_scope() as s:
                 from app.services.gen_queue import gen_queue_reconcile, gen_queue_tick
@@ -699,6 +704,33 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                     logger.exception("auto_mode tick failed")
         except Exception:  # noqa: BLE001
             logger.exception("worker loop iteration failed")
+
+    while True:
+        # Пауза МАССОВОЙ генерации (маркер `data/.mass_pause`):
+        # пропускаем serial_tick_batches и auto_advance подпроектов с
+        # `batch_id != NULL`. Индивидуальные проекты продолжают работать
+        # как обычно. Сами running-шаги batch-подпроектов (planning/
+        # scripting/...) не прерываем — дорабатывают до *_ready, дальше
+        # auto_advance их уже не двинет пока пауза.
+        mass_paused = _mass_pause_active()
+        if mass_paused and not _last_mass_pause_log:
+            logger.info("worker: mass pause active — batches frozen, individual projects keep running")
+            _last_mass_pause_log = True
+        elif not mass_paused and _last_mass_pause_log:
+            logger.info("worker: mass pause снята")
+            _last_mass_pause_log = False
+        # Кому служить в этом тике. В режиме владельца ответ всегда один —
+        # `[None]`, и поведение остаётся ровно прежним. В SaaS список берётся
+        # из маршрутной таблицы: это единственный межарендный запрос в
+        # системе, и он читает только номера, арендаторов и статусы.
+        try:
+            serve = await _tenants_to_serve(active)
+        except Exception:  # noqa: BLE001
+            logger.exception("worker: не удалось получить список арендаторов")
+            serve = [None]
+        for _tenant in serve:
+            with tenant_scope(_tenant):
+                await _tick_for_current_tenant(mass_paused)
         await asyncio.sleep(5)
 
 

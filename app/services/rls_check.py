@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy import text
 
-from app.services.tenant_tables import all_isolated
+from app.services.tenant_tables import all_isolated, policy_for
 
 
 @dataclass
@@ -93,13 +93,13 @@ async def check_rls(session) -> RlsReport:
     ).all()
     state = {str(r[0]): (bool(r[1]), bool(r[2])) for r in rows if str(r[0]) in wanted}
 
+    # Политика сверяется поимённо: у маршрутных таблиц она называется иначе,
+    # потому что и предикат у неё обратный. Ищи мы одно имя на всех —
+    # таблица с чужой политикой считалась бы незакрытой, а таблица с
+    # правильным именем и неправильным предикатом прошла бы молча.
     policies = {
-        str(r[0])
-        for r in (
-            await session.execute(
-                text("select tablename from pg_policies where policyname = 'tenant_isolation'")
-            )
-        ).all()
+        (str(r[0]), str(r[1]))
+        for r in (await session.execute(text("select tablename, policyname from pg_policies"))).all()
     }
 
     for table in sorted(wanted):
@@ -110,8 +110,8 @@ async def check_rls(session) -> RlsReport:
             report.unprotected.append(table)
         elif not forced:
             report.unforced.append(table)
-        if table not in policies:
-            report.missing_policy.append(table)
+        if (table, policy_for(table)) not in policies:
+            report.missing_policy.append(f"{table} ({policy_for(table)})")
     return report
 
 
