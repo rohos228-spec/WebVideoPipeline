@@ -16,6 +16,22 @@
 пропустил бы его к чужим данным. Это ровно тот класс ошибки, ради защиты от
 которого RLS и выбран.
 
+**Арендатор проставляется на записи, а не вызывающим.** Политика RLS
+фильтрует чтение сама, а вот `WITH CHECK` при вставке требует, чтобы строка
+УЖЕ несла верный `tenant_id`, — и заполнить его должно приложение. Первая
+редакция этого не делала: чтение было изолировано, а любая вставка в SaaS
+падала с «new row violates row-level security policy». Нашлось только живым
+прогоном: во всех тестах `tenant_id` проставляли руками, и требование
+«не забудь проставить» выглядело выполненным.
+
+Это тот же класс требования к разработчику, ради ухода от которого выбран
+RLS (`docs/SAAS-PIVOT.md` §4.2): двадцать шесть мест создают артефакты, ещё
+сколько-то — кадры и проекты, и забыть можно в любом. Поэтому проставление
+висит на `before_flush` сессии: новая строка получает арендатора из контекста
+задачи, и вызывающему помнить не о чем. Заданный явно НЕ перетирается —
+запись в чужого арендатора должна упереться в `WITH CHECK`, а не быть тихо
+исправлена.
+
 **Привязка висит на начале транзакции, а не на входе в `session_scope`.**
 Первая редакция ставила `SET LOCAL` в одном месте — в `session_scope`. Мимо
 неё ходят шестнадцать роутеров через `deps.get_session` и двадцать пять
@@ -113,6 +129,27 @@ def _bind_tenant_on_begin(session: Session, transaction, connection) -> None:
     if tenant_id is None or not settings.is_postgres:
         return
     connection.execute(_BIND_TENANT_SQL, {"tid": tenant_id})
+
+
+@event.listens_for(Session, "before_flush")
+def _stamp_tenant_on_new_rows(session: Session, flush_context, instances) -> None:
+    """Проставить арендатора новым строкам. Без этого RLS их не пустит.
+
+    Политика читает `app.tenant_id` и требует совпадения в `WITH CHECK`.
+    Строка без арендатора нарушает политику, и вставка падает — в SaaS это
+    означало бы, что не создаётся ничего вообще.
+
+    Уже заданный `tenant_id` не трогаем: попытка записать в чужого арендатора
+    обязана упереться в политику, а не быть молча исправлена на свою.
+    """
+    from app.services.tenant import current_tenant
+
+    tenant_id = current_tenant()
+    if tenant_id is None:
+        return
+    for obj in session.new:
+        if getattr(obj, "tenant_id", "нет такого поля") is None:
+            obj.tenant_id = tenant_id
 
 
 async def bind_tenant(session: AsyncSession) -> str | None:

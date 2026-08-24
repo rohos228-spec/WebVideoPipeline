@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -25,12 +24,21 @@ from app.web.deps import get_session
 
 # Только ASCII: секрет едет в HTTP-заголовке, а туда кириллица не влезает.
 SECRET = "s2s-secret-at-least-32-bytes-long-0123456789"
+#: Секрет арендаторских токенов — другой. Ручка пополнения не должна
+#: открываться клиентским токеном, и это проверяется отдельно.
+JWT_SECRET = "jwt-secret-at-least-32-bytes-long-0123456789"
 
 
 @pytest_asyncio.fixture
 async def client(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "billing_webhook_secret", SECRET)
     monkeypatch.setattr(settings, "allow_unisolated_tenants", True)
+    # SaaS, а не режим владельца. Первая редакция теста этого не делала, и
+    # ручка проверялась там, где слой личности выключен: в бою middleware
+    # резал её до роутера, и пополнение не работало вовсе. Поймалось живым
+    # прогоном — тест обязан гонять её в том режиме, в котором она живёт.
+    monkeypatch.setattr(settings, "billing_jwt_secret", JWT_SECRET)
+    monkeypatch.setattr(settings, "studio_brand", "multik")
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'hook.db'}", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -151,13 +159,36 @@ async def test_broken_tenant_id_is_refused(client) -> None:
     assert res.status_code == 400
 
 
-@pytest.mark.no_harness_gate
-async def test_hook_is_not_a_tenant_surface(tmp_path, monkeypatch) -> None:
-    """Ручка не открыта арендаторам даже с валидным токеном.
+async def test_a_tenant_token_does_not_open_the_hook(client) -> None:
+    """Ручка публична для слоя личности и закрыта своим секретом.
 
-    Она в списке разрешённого отсутствует намеренно: это сервер-сервер, а не
-    продукт.
+    Это два разных вопроса, и их легко перепутать. Слой личности её
+    пропускает — иначе вебхук был бы недостижим: у биллинга нет и не может
+    быть токена арендатора, платёж принимает он, а не клиент. Значит
+    проверять доступ обязана сама ручка, и токен клиента ей не подходит.
     """
-    from app.web.identity import path_is_owner_only
+    import time
 
-    assert path_is_owner_only("/api/billing-hook/topup")
+    import jwt
+
+    from app.web.identity import path_requires_identity
+
+    # Слой личности её не режет — иначе пополнение не работало бы вовсе.
+    assert not path_requires_identity("/api/billing-hook/topup")
+
+    tenant_token = jwt.encode(
+        {
+            "sub": str(uuid.uuid4()),
+            "brand": "multik",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 600,
+        },
+        JWT_SECRET,
+        algorithm="HS256",
+    )
+    refused = await client.post(
+        "/api/billing-hook/topup",
+        json=_body(str(uuid.uuid4())),
+        headers={"Authorization": f"Bearer {tenant_token}"},
+    )
+    assert refused.status_code == 401, "клиентский токен открыл пополнение"

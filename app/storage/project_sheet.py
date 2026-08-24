@@ -309,6 +309,9 @@ class ProjectSheet:
 
     def reset_from_template(self, *, project_id: int, slug: str) -> Path:
         """Копирует шаблон заново. Старый project.xlsx уходит в old/."""
+        if not self.writable:
+            # SaaS: книги нет и не будет — открывать нечего.
+            return self.file_path
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         if self.file_path.exists():
             old_dir = self.file_path.parent / "old"
@@ -349,6 +352,9 @@ class ProjectSheet:
           final_video_path
         Любые другие ключи будут добавлены в конец листа как-есть.
         """
+        if not self.writable:
+            # SaaS: книги нет и не будет — открывать нечего.
+            return
         labels_order = [
             ("topic", "Тема ролика"),
             ("slug", "Slug"),
@@ -403,6 +409,9 @@ class ProjectSheet:
 
     def ensure_frame_columns(self, count: int) -> None:
         """Гарантирует, что в шапке листа `Кадры` есть столбцы для кадров 1..count."""
+        if not self.writable:
+            # SaaS: книги нет и не будет — открывать нечего.
+            return
         with _file_lock(self.file_path):
             wb = self._open()
             if SHEET_FRAMES not in wb.sheetnames:
@@ -440,6 +449,9 @@ class ProjectSheet:
         """Записывает в столбец кадра `n` любые непустые поля.
         None-значения пропускаются — это позволяет вызывать метод многократно
         с разными подмножествами полей по мере прохождения шагов пайплайна."""
+        if not self.writable:
+            # SaaS: книги нет и не будет — открывать нечего.
+            return
         col = _frame_col(n)
         with _file_lock(self.file_path):
             wb = self._open()
