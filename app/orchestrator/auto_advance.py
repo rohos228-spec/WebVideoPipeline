@@ -1284,6 +1284,21 @@ async def maybe_auto_advance(
         )
         return False
 
+    # Стадия из простого интерфейса гонится до своего финишного статуса и
+    # там останавливается: пользователь смотрит результат и решает, платить
+    # ли за следующую. Без активной цели (meta.stage_run) гейт молчит.
+    from app.services.pipeline_stages import clear_stage_run, stage_gate_reached
+
+    if stage_gate_reached(project):
+        if clear_stage_run(project):
+            await session.flush()
+        logger.info(
+            "auto_advance: #{} {} — конец стадии, автопродвижение выключено",
+            project.id,
+            project.status.value,
+        )
+        return False
+
     from app.services.montage_board_meta import montage_meta
 
     board = montage_meta(project)

@@ -179,47 +179,16 @@ def test_resolve_node_media_settings_from_images_node() -> None:
     assert media["quality_slug"] == "Высокое"
 
 
-def test_frontend_picker_wired() -> None:
-    node = Path("web/src/components/canvas/pipeline-node.tsx").read_text(encoding="utf-8")
-    assert "NodeModelPicker" in node
-    picker = Path("web/src/components/canvas/node-model-picker.tsx").read_text(encoding="utf-8")
-    assert "Дешёвый канал" not in picker
-    assert "Стабильный канал" not in picker
-    assert "catalog_channels" not in picker
-    assert "вход" in picker
-    assert "выход" in picker
-    # Вкладки вендоров: не сбрасывать setVendor из‑за нового catalog каждый рендер
-    assert "[open, selectedId]" in picker
-    assert "[open, selectedId, catalog]" not in picker
-    assert "Соотношение" in picker
-    assert "MiniMenu" in picker
-    media_opts = Path("web/src/lib/node-media-options.ts").read_text(encoding="utf-8")
-    assert "mediaOptionsForModel" in media_opts
-    assert "мало" in media_opts
-    assert "максимум" in media_opts
-    assert "1:1" in media_opts and "21:9" in media_opts and "5:4" in media_opts
-    assert "veo-3-1-lite" in media_opts and "kling-2-6" in media_opts
-    settings = Path("web/src/components/inspector/project-settings.tsx").read_text(encoding="utf-8")
-    assert "GenerationModelsPanel" not in settings
-    merge = Path("web/src/lib/canvas-node-merge.ts").read_text(encoding="utf-8")
-    assert "modelId: n.data.modelId ?? old.data.modelId" in merge
-    assert "aspectRatio" in merge
-    serialize = Path("web/src/lib/workflow-node-serialize.ts").read_text(encoding="utf-8")
-    assert "data.modelId" in serialize
-    assert "imageResolution" in serialize
-    catalog_ts = Path("web/src/lib/node-model-catalog.ts").read_text(encoding="utf-8")
-    assert "PRICE_MARKUP = 3" in catalog_ts
-    assert "PRICE_MARKUP_CHEAP" not in catalog_ts
-    snap = Path("web/src/lib/vibecode-models-snapshot.ts").read_text(encoding="utf-8")
-    assert "GPT Image 2 SLOW" not in snap
-    assert "GPT Image 2 FAST" not in snap
-    assert '"gpt-image-2-vip"' in snap
-    streams = Path("web/src/components/inspector/streams-panel.tsx").read_text(encoding="utf-8")
-    assert "Картинки + Видео" in streams
-    assert "текстовые модели" in streams
-    assert "Проверка GPT · проект" not in streams
-    assert "Outsee (img + video)" not in streams
-    assert "PRICE_MARKUP_CHEAP" not in catalog_ts
+def test_pipeline_binds_project_llm() -> None:
+    """Оркестратор обязан привязывать LLM проекта, а не брать глобальную.
+
+    Раньше это проверялось хвостом теста про старый канвас-пикер вместе с
+    десятком утверждений о файлах `web/src/components/canvas/*`. Канвас
+    удалён переездом фронта, а новый интерфейс берёт каталог моделей из API
+    (`/api/generation-options`), поэтому второй копии таблицы во фронте
+    больше нет и сверять её не с чем. Единственное утверждение из того
+    теста, у которого остался контрагент, — вот это.
+    """
     pipeline = Path("app/orchestrator/pipeline.py").read_text(encoding="utf-8")
     assert "bind_project_llm" in pipeline
 

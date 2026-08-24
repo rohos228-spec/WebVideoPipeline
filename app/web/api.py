@@ -111,6 +111,9 @@ from app.web.routers import (
     sidebar_layout as sidebar_layout_router,
 )
 from app.web.routers import (
+    stages as stages_router,
+)
+from app.web.routers import (
     studio_chat as studio_chat_router,
 )
 from app.web.routers import (
@@ -346,6 +349,7 @@ def create_app() -> FastAPI:
     app.include_router(studio_chat_router.router, prefix=API_PREFIX)
     app.include_router(db_browser_router.router, prefix=API_PREFIX)
     app.include_router(node_groups_router.router, prefix=API_PREFIX)
+    app.include_router(stages_router.router, prefix=API_PREFIX)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
     async def api_write_not_found(rest: str) -> None:

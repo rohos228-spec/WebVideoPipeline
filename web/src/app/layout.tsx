@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Manrope, IBM_Plex_Mono } from "next/font/google";
+import { Manrope, Literata, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 
@@ -9,26 +9,33 @@ const manrope = Manrope({
   display: "swap",
 });
 
-const ibmPlexMono = IBM_Plex_Mono({
-  variable: "--font-ibm-plex-mono",
+// Засечный шрифт с кириллицей — заголовки и сам текст ролика читаются как
+// рукопись, а не как интерфейс. Ради этого и весь светлый лист.
+const literata = Literata({
+  variable: "--font-literata",
+  subsets: ["latin", "cyrillic"],
+  weight: ["400", "500", "600"],
+  display: "swap",
+});
+
+const mono = JetBrains_Mono({
+  variable: "--font-mono-src",
   subsets: ["latin", "cyrillic"],
   weight: ["400", "500"],
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "video-pipeline",
-  description: "Node-based короткие ролики 60–75 сек: план → сценарий → видео → публикация",
+  title: "Видеостудия",
+  description: "Идея → сценарий → кадры → видео. Каждый шаг с ценой.",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // Переменные шрифтов вешаются на <html>: токены в globals.css считаются
+  // на :root, и на <body> они бы до них не дошли.
   return (
-    <html lang="ru" suppressHydrationWarning className="dark">
-      <body className={`${manrope.variable} ${ibmPlexMono.variable} antialiased`}>
+    <html lang="ru" className={`${manrope.variable} ${literata.variable} ${mono.variable}`}>
+      <body>
         <Providers>{children}</Providers>
       </body>
     </html>

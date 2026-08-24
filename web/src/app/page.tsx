@@ -1,219 +1,62 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
-import { AppShell } from "@/components/shell/app-shell";
-import { ProjectSidebar } from "@/components/sidebar/project-sidebar";
-import { Inspector } from "@/components/inspector/inspector";
-import { StudioWorkspace } from "@/components/studio/studio-workspace";
-import { ChatPanel } from "@/components/studio/chat-panel";
-import { FleetPanelSheet } from "@/components/fleet/fleet-panel-sheet";
-import { CostsPanelSheet } from "@/components/costs/costs-panel-sheet";
-import { FleetTransferBanner } from "@/components/fleet/fleet-transfer-banner";
-import { OutseeCreateWorkspace } from "@/components/outsee/outsee-create-workspace";
-import { GptWorkspace } from "@/components/gpt/gpt-workspace";
-import { BazaWorkspace } from "@/components/baza/baza-workspace";
-import { OrchestratorPanel } from "@/components/orchestrator/orchestrator-panel";
-import { useGlobalEvents } from "@/hooks/use-bus";
-import { useFleetTransfer, FLEET_TRANSFER_PUSH_START, optimisticPushTransfer } from "@/hooks/use-fleet-transfer";
-import { usePersistedState } from "@/hooks/use-persisted-state";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { fleetPushToHub } from "@/lib/fleet-api";
+import { ProjectRail } from "@/components/project-rail";
+import { IdeaComposer } from "@/components/idea-composer";
+import { ProjectView } from "@/components/project-view";
+import { credits } from "@/lib/format";
 
-export default function HomePage() {
-  const [selectedProjectId, setSelectedProjectId] = usePersistedState<number | null>(
-    "vp-studio-selected-project-id",
-    null,
-  );
-  const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = usePersistedState(
-    "vp-studio-sidebar-collapsed",
-    false,
-  );
-  const [studioOpen, setStudioOpen] = useState(false);
-  // Разговор слева, живой граф справа (SAAS-PIVOT §8.1). По умолчанию
-  // свёрнут: на машине владельца канвас — основной инструмент, и отбирать у
-  // него треть экрана ради панели, которой он не пользуется, незачем.
-  const [chatOpen, setChatOpen] = usePersistedState("vp-studio-chat-open", false);
-  const [fleetOpen, setFleetOpen] = useState(false);
-  const [costsOpen, setCostsOpen] = useState(false);
-  const [outseeOpen, setOutseeOpen] = useState(false);
-  const [gptOpen, setGptOpen] = useState(false);
-  const [bazaOpen, setBazaOpen] = useState(false);
-  const { transfer, dismiss } = useFleetTransfer(selectedProjectId);
+const LAST_PROJECT_KEY = "vp.last-project";
 
-  useGlobalEvents();
+export default function Page() {
+  // null = экран новой идеи; число = открытый ролик.
+  const [current, setCurrent] = useState<number | null>(null);
+  const [restored, setRestored] = useState(false);
 
+  const { data: projects } = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+  const { data: balance } = useQuery({ queryKey: ["balance"], queryFn: api.balance });
+
+  // Возвращаемся туда, где были: перезагрузка не должна стоить контекста.
   useEffect(() => {
-    const openSidebar = () => setSidebarCollapsed(false);
-    window.addEventListener("studio-open-projects-sidebar", openSidebar);
-    return () => window.removeEventListener("studio-open-projects-sidebar", openSidebar);
-  }, []);
+    if (restored || !projects) return;
+    const saved = Number(localStorage.getItem(LAST_PROJECT_KEY) ?? "");
+    const exists = projects.some((p) => p.id === saved);
+    if (exists) setCurrent(saved);
+    setRestored(true);
+  }, [projects, restored]);
 
-  useEffect(() => {
-    const toggleChat = () => setChatOpen((open) => !open);
-    window.addEventListener("studio-toggle-chat", toggleChat);
-    return () => window.removeEventListener("studio-toggle-chat", toggleChat);
-  }, [setChatOpen]);
-
-  useEffect(() => {
-    const openFleet = () => setFleetOpen(true);
-    window.addEventListener("studio-open-fleet", openFleet);
-    return () => window.removeEventListener("studio-open-fleet", openFleet);
-  }, []);
-
-  // Этап 3: дашборд стоимости LLM (кнопка «Стоимость» в topbar).
-  useEffect(() => {
-    const openCosts = () => setCostsOpen(true);
-    window.addEventListener("studio-open-costs", openCosts);
-    return () => window.removeEventListener("studio-open-costs", openCosts);
-  }, []);
-
-  useEffect(() => {
-    const openOutsee = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ projectId?: number | null }>).detail;
-      if (detail?.projectId != null) setSelectedProjectId(detail.projectId);
-      setOutseeOpen(true);
-    };
-    window.addEventListener("studio-open-outsee", openOutsee);
-    return () => window.removeEventListener("studio-open-outsee", openOutsee);
-  }, [setSelectedProjectId]);
-
-  useEffect(() => {
-    const openGpt = () => setGptOpen(true);
-    window.addEventListener("studio-open-gpt", openGpt);
-    return () => window.removeEventListener("studio-open-gpt", openGpt);
-  }, []);
-
-  useEffect(() => {
-    const openBaza = () => setBazaOpen(true);
-    window.addEventListener("studio-open-baza", openBaza);
-    return () => window.removeEventListener("studio-open-baza", openBaza);
-  }, []);
-
-  // Оркестратор создал проект → выделяем его в пайплайне.
-  useEffect(() => {
-    const onSelectProject = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ projectId?: number | null }>).detail;
-      if (detail?.projectId != null) {
-        setSelectedProjectId(detail.projectId);
-        setSelectedNodeKey(null);
-        setStudioOpen(false);
-      }
-    };
-    window.addEventListener("studio-select-project", onSelectProject);
-    return () => window.removeEventListener("studio-select-project", onSelectProject);
-  }, [setSelectedProjectId]);
-
-  const onSelectNode = (key: string | null) => {
-    setSelectedNodeKey(key);
+  const open = (id: number | null) => {
+    setCurrent(id);
+    if (id === null) localStorage.removeItem(LAST_PROJECT_KEY);
+    else localStorage.setItem(LAST_PROJECT_KEY, String(id));
   };
 
+  const showBalance = Boolean(balance?.tenant_id);
+
   return (
-    <AppShell>
-      <div className="flex h-[calc(100vh-48px)] min-h-0">
-        <ProjectSidebar
-          selectedProjectId={selectedProjectId}
-          onSelect={(id) => {
-            setSelectedProjectId(id);
-            setSelectedNodeKey(null);
-            setStudioOpen(false);
-          }}
-          collapsed={sidebarCollapsed}
-          onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
-        />
-        {chatOpen && (
-          <aside className="w-[380px] shrink-0 border-r border-white/8">
-            <ChatPanel />
-          </aside>
-        )}
-        <main className="relative min-w-0 flex-1 overflow-hidden">
-          <StudioWorkspace
-            projectId={selectedProjectId}
-            selectedNodeKey={selectedNodeKey}
-            onSelectNode={onSelectNode}
-            studioOpen={studioOpen}
-            onStudioOpenChange={setStudioOpen}
-          />
-          <FleetTransferBanner
-            transfer={transfer}
-            onPushToHub={
-              (transfer?.project_id ?? selectedProjectId) != null
-                ? async () => {
-                    const pid = transfer?.project_id ?? selectedProjectId!;
-                    window.dispatchEvent(
-                      new CustomEvent(FLEET_TRANSFER_PUSH_START, {
-                        detail: optimisticPushTransfer(pid, transfer?.slug),
-                      }),
-                    );
-                    const res = await fleetPushToHub(pid);
-                    if ("started" in res && res.started) {
-                      toast.message("Отправка идёт — смотри полоску внизу");
-                      return;
-                    }
-                    toast.success(
-                      res.size_mb
-                        ? `Отправлено на главный ПК (${res.size_mb} MB)`
-                        : "Отправлено на главный ПК",
-                    );
-                  }
-                : undefined
-            }
-            onCancelTransfer={
-              (transfer?.project_id ?? selectedProjectId) != null
-                ? async () => {
-                    await api.stopProject(transfer?.project_id ?? selectedProjectId!);
-                  }
-                : undefined
-            }
-            onDismiss={dismiss}
-          />
-          <OrchestratorPanel projectId={selectedProjectId} />
+    <div className="grid h-screen grid-cols-[240px_1fr]">
+      <ProjectRail currentId={current} onSelect={open} onNew={() => open(null)} />
+
+      <div className="flex min-h-0 flex-col">
+        <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-6">
+          <span className="font-display text-[15px] text-content">Видеостудия</span>
+          {showBalance && (
+            <span className="font-mono text-[12px] tabular-nums text-content-muted">
+              баланс {credits(balance!.balance_credits)}
+            </span>
+          )}
+        </header>
+
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          {current === null ? (
+            <IdeaComposer onCreated={open} />
+          ) : (
+            <ProjectView projectId={current} onDeleted={() => open(null)} />
+          )}
         </main>
-        <FleetPanelSheet
-          open={fleetOpen}
-          onOpenChange={setFleetOpen}
-          onOpenProject={(projectId) => {
-            setSelectedProjectId(projectId);
-            setSelectedNodeKey(null);
-            setStudioOpen(false);
-          }}
-        />
-        <CostsPanelSheet
-          open={costsOpen}
-          onOpenChange={setCostsOpen}
-          selectedProjectId={selectedProjectId}
-        />
-        <Inspector
-          projectId={selectedProjectId}
-          selectedNodeKey={selectedNodeKey}
-          onOpenNodeStudio={() => {
-            if (selectedNodeKey) {
-              window.dispatchEvent(
-                new CustomEvent("studio-open-node-prompts", {
-                  detail: { nodeKey: selectedNodeKey },
-                }),
-              );
-            } else {
-              setStudioOpen(true);
-            }
-          }}
-        />
       </div>
-      <OutseeCreateWorkspace
-        open={outseeOpen}
-        onOpenChange={setOutseeOpen}
-        projectId={selectedProjectId}
-      />
-      <GptWorkspace
-        open={gptOpen}
-        onOpenChange={setGptOpen}
-      />
-      <BazaWorkspace
-        open={bazaOpen}
-        onOpenChange={setBazaOpen}
-        projectId={selectedProjectId}
-      />
-    </AppShell>
+    </div>
   );
 }
