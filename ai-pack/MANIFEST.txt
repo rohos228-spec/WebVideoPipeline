@@ -1,6 +1,6 @@
 ai-pack build
-git_head: 4e023fc
-built_at: 2026-08-24 21:30 UTC
+git_head: ca43408
+built_at: 2026-08-24 22:52 UTC
 repo: /home/admin/Projects/video-pipeline
 
 copied:

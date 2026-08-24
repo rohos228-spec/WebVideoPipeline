@@ -259,3 +259,57 @@ async def test_password_change_needs_a_token(env) -> None:
         json={"current_password": ah.PASSWORD, "new_password": NEW_PASSWORD},
     )
     assert res.status_code == 401
+
+
+async def test_password_change_after_the_account_disappeared(env) -> None:
+    """Токен подписан верно, а учётки уже нет.
+
+    Ветка выглядит недостижимой — middleware ходит в базу и отсекает такое
+    раньше. Но `find_by_email` в смене пароля ищет по АДРЕСУ из токена, а не
+    по id: смена адреса учётки оставляет живой токен со старым адресом, и
+    ручка обязана ответить отказом, а не упасть на `None.email`.
+    """
+    from app.services import studio_users
+
+    async with env["factory"]() as s:
+        user = await studio_users.find_by_email(s, "member@studio.local")
+        user.email = "renamed@studio.local"
+        await s.commit()
+
+    res = await env["client"].post(
+        "/api/auth/password",
+        json={"current_password": ah.PASSWORD, "new_password": NEW_PASSWORD},
+        headers=env["member"].auth,
+    )
+    assert res.status_code == 401
+    assert "больше нет" in res.json()["detail"]
+
+
+async def test_lockout_expires_after_the_window(env, monkeypatch) -> None:
+    """Блокировка временная, а не вечная.
+
+    Без истечения восьмая опечатка за месяц запирала бы человека навсегда, и
+    чинилось бы это перезапуском сервера.
+    """
+    from app.web.routers import auth as auth_router
+
+    for _ in range(auth_router.MAX_ATTEMPTS):
+        await env["client"].post(
+            "/api/auth/login", json={"email": "member@studio.local", "password": "не тот"}
+        )
+    assert (
+        await env["client"].post(
+            "/api/auth/login", json={"email": "member@studio.local", "password": ah.PASSWORD}
+        )
+    ).status_code == 429
+
+    # Отматываем время последней неудачи за пределы окна.
+    count, _ = auth_router._FAILURES["member@studio.local"]
+    import time as _time
+
+    auth_router._FAILURES["member@studio.local"] = (count, _time.time() - auth_router.LOCKOUT_SEC - 1)
+
+    ok = await env["client"].post(
+        "/api/auth/login", json={"email": "member@studio.local", "password": ah.PASSWORD}
+    )
+    assert ok.status_code == 200

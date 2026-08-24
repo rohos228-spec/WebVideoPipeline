@@ -79,4 +79,3 @@ tests/test_update_step_preset.py::test_resolve_script_default_preset
 tests/test_update_step_preset.py::test_resolve_script_long_preset
 tests/test_user_stop_iron_gate.py::test_user_stop_blocks_later_in_gen_queue
 tests/test_web_api_integration.py::test_get_project_recompute_no_hero
-tests/test_xlsx_studio_full_sheet.py::test_studio_defaults_to_full_sheet_params

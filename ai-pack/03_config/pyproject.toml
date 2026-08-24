@@ -127,3 +127,19 @@ markers = [
   # Тесты механики продвижения без on-disk артефактов помечают себя.
   "no_harness_gate: отключить harness_gate_disabled для теста",
 ]
+
+[tool.coverage.run]
+# SQLAlchemy asyncio исполняет обращения к базе внутри greenlet'ов
+# (`greenlet_spawn`), а coverage.py по умолчанию за переключением greenlet не
+# следит: всё, что идёт ПОСЛЕ первого `await session.<...>` в теле функции,
+# остаётся неучтённым. Проявилось на `studio_auth.assert_not_revoked` —
+# отчёт показывал строки непокрытыми, хотя тесты доказуемо проходили именно
+# по ним. Без этой строки храповик покрытия ведётся по заниженным цифрам,
+# то есть держит не то, что думает.
+concurrency = ["greenlet", "thread"]
+source = ["app"]
+branch = false
+omit = [
+  "app/main.py",
+  "*/__init__.py",
+]

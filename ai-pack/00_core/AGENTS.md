@@ -34,12 +34,18 @@ Do **not** push to a different branch than `ORCHESTRATOR_GIT_BRANCH` unless the 
 | Type check | `mypy app/ --ignore-missing-imports` |
 | Seed pilot project | `python3 -m app.seed_pilot` |
 | Завести админа студии | `python3 -m app.seed_admin` |
+| Голденсеты промтов | `.venv/bin/python -m pytest tests/test_prompt_goldens.py` |
+| Состояние корпуса голденов | `python3 scripts/goldens.py show` |
+| Эвалы промтов (сеть, деньги) | `python3 scripts/eval_prompts.py --all` |
+| Изоляция на живом Postgres | `podman start vp-pg && TEST_DATABASE_URL=postgresql+asyncpg://app:app@127.0.0.1/vp .venv/bin/python -m pytest tests/test_rls_postgres.py` |
 | Run application | `STUDIO.cmd` (Windows) or `python3 -m app.main` from repo root |
 
 ### Key caveats
 
 - **Учётные записи и роли.** Личность живёт в `studio_users`, токен подписывает сама студия (`app/services/studio_auth.py`), пароли — argon2id (`app/services/passwords.py`). Включается заданием `STUDIO_SESSION_SECRET` (не короче 32 байт, иначе старт откажет); пусто — режим владельца: личностей нет, изоляции нет, вход отключён. Первый админ — `python3 -m app.seed_admin` (пароль генерируется и печатается ОДИН раз). Ролей две: `admin` ходит везде, включая инструменты владельца (`/api/fleet`, `/api/db`, `/api/prompts`), и **не тарифицируется вовсе** — у него не бесконечный баланс, а отсутствие кассы (`docs/SAAS-PIVOT.md` §5.8); `member` видит только продуктовую поверхность (`identity.TENANT_ALLOWED_PREFIXES`). Отзыв доступа — `token_epoch`: смена пароля и отключение учётки гасят все выданные токены немедленно.
 - **Связи с `llm-gateway` (Chattiq) нет.** Приём JWT биллинга, вебхук пополнения, `BILLING_JWT_SECRET` / `BILLING_WEBHOOK_SECRET` и пара `WEB_AUTH_USER`/`WEB_AUTH_PASSWORD` выпилены 2026-08-24 (таблица в `docs/SAAS-PIVOT.md` §3). Оплат студия не принимает: сервис внутренний. Леджер, холды и котировки остались — себестоимость считается, цена шага видна до нажатия. `chattiq.ru` в дефолте `GPT_STRUCTURED_RELAYS` — это ДРУГОЕ: текстовый релей с подтверждённым structured outputs, к биллингу отношения не имеет.
+- **Голденсеты и эвалы — разные вещи, путать дорого** (`evals/README.md`). Голденсет меряет НАШ код: реальный ответ модели из живого прогона обязан разобраться в те же данные; сети нет, секунда на корпус, стоит в гейте на ярусе хода. Эвал меряет МОДЕЛЬ: ходит в сеть, тратит деньги, оценка плавает — в гейте его нет и быть не должно. Сырьё для голденов даёт `LLM_RECORD_DIR=<каталог>` (`app/services/llm_recorder.py`): `llm_calls` пишет метаданные, но НЕ текст ответа, поэтому историю приходится собирать прогоном.
+- **Покрытие считается с `concurrency = ["greenlet", "thread"]`** (`pyproject.toml`). Без этого coverage теряет трассировку внутри greenlet-ов SQLAlchemy asyncio: всё после первого `await session.<...>` в теле функции числится непокрытым, хотя исполняется. Проявилось на `studio_auth.assert_not_revoked` — отчёт показывал строки пустыми при доказуемо проходящих тестах.
 - **`WEB_HOST=0.0.0.0` без учётных записей — отказ на старте.** Раньше открытый порт закрывался паролем открытым текстом в `.env`; пары больше нет, и молча остаться с открытым `/api/fleet` нельзя.
 - **Telegram optional**: set `TELEGRAM_ENABLED=false` (and leave `TELEGRAM_BOT_TOKEN` empty) for web-only mode — worker + FastAPI on `:8765`, HITL via web UI. Use `STUDIO.cmd` → пункт 1 on Windows. With a valid token, `python -m app.main` in `.venv` runs bot + worker + web.
 - **SQLite DB** is at `data/state.db` (auto-created on first run). Delete it to reset state: `rm -f data/state.db`.

@@ -264,7 +264,13 @@ async def test_deactivated_user_loses_access_immediately(env) -> None:
         await studio_users.deactivate(s, user)
         await s.commit()
 
-    assert (await env["client"].get("/api/me", headers=env["member"].auth)).status_code == 401
+    refused = await env["client"].get("/api/me", headers=env["member"].auth)
+    # Не только код, но и ПРИЧИНА. Один 401 отдают три разные ветки: нет
+    # токена, подпись не сошлась, доступ отозван. Тест на голый код проходит
+    # при любой из них — то есть и тогда, когда проверка отзыва вообще не
+    # исполняется, а токен отвергается раньше по другой причине.
+    assert refused.status_code == 401
+    assert "отключена" in refused.json()["detail"], refused.text
 
 
 async def test_password_change_kills_older_tokens(env) -> None:
@@ -276,7 +282,9 @@ async def test_password_change_kills_older_tokens(env) -> None:
         await studio_users.set_password(s, user, "Qn8v-Ld3x-Bm6t-Wr2z")
         await s.commit()
 
-    assert (await env["client"].get("/api/me", headers=env["member"].auth)).status_code == 401
+    refused = await env["client"].get("/api/me", headers=env["member"].auth)
+    assert refused.status_code == 401
+    assert "обесценен" in refused.json()["detail"], refused.text
 
 
 async def test_deleted_user_token_is_refused(env) -> None:
@@ -288,6 +296,7 @@ async def test_deleted_user_token_is_refused(env) -> None:
     )
     res = await env["client"].get("/api/me", headers={"Authorization": f"Bearer {ghost}"})
     assert res.status_code == 401
+    assert "больше нет" in res.json()["detail"], res.text
 
 
 async def test_role_forged_in_the_token_does_not_grant_owner_tools(env) -> None:
@@ -308,7 +317,9 @@ async def test_role_forged_in_the_token_does_not_grant_owner_tools(env) -> None:
         )
     )
     headers = {"Authorization": f"Bearer {forged}"}
-    assert (await env["client"].get("/api/me", headers=headers)).status_code == 401
+    refused = await env["client"].get("/api/me", headers=headers)
+    assert refused.status_code == 401
+    assert "роль изменилась" in refused.json()["detail"], refused.text
 
 
 # ── режим владельца ──────────────────────────────────────────────────────────
@@ -339,3 +350,63 @@ async def test_owner_mode_says_there_is_no_login(owner_client) -> None:
         "/api/auth/login", json={"email": "a@studio.local", "password": ah.PASSWORD}
     )
     assert res.status_code == 410
+
+
+async def test_revoked_token_does_not_break_the_public_path(env) -> None:
+    """Отозванный токен на ПУБЛИЧНОМ пути — не повод отказывать.
+
+    Фронт со старым токеном в localStorage идёт спрашивать `/api/auth/status`
+    именно затем, чтобы понять, что делать дальше. Ответить ему 401 значит
+    запереть его в цикле: войти он не может, а узнать, что вход существует, —
+    тоже. Ровно та же логика, что для протухшей подписи, но ветка другая:
+    здесь подпись верна, а доступ отозван базой.
+    """
+    from app.services import studio_users
+
+    async with env["factory"]() as s:
+        user = await studio_users.find_by_email(s, "member@studio.local")
+        await studio_users.deactivate(s, user)
+        await s.commit()
+
+    assert (await env["client"].get("/api/auth/status", headers=env["member"].auth)).status_code == 200
+    assert (await env["client"].get("/api/health", headers=env["member"].auth)).status_code == 200
+    # А на закрытом — по-прежнему отказ.
+    assert (await env["client"].get("/api/me", headers=env["member"].auth)).status_code == 401
+
+
+async def test_defensive_branches_answer_instead_of_crashing(env) -> None:
+    """Ручки, до которых без токена не доходят, всё равно обязаны отвечать.
+
+    `/api/me` и смена пароля читают личность из `scope`. Middleware закрывает
+    `/api/*` и до этих веток не пускает — но «не пускает» держится на списке
+    путей, а список правят. Если путь однажды окажется публичным по недосмотру,
+    ветка обязана дать пустой ответ и 401, а не 500: пятисотка на форме входа
+    выглядит как поломка сервера и уводит разбор не туда.
+
+    Зовём функции напрямую, минуя middleware, — иначе проверить нечего.
+    """
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    from app.web.routers.auth import PasswordBody, change_password
+    from app.web.routers.me import me
+
+    def _bare_request() -> Request:
+        return Request({"type": "http", "method": "GET", "path": "/api/me", "headers": []})
+
+    async with env["factory"]() as session:
+        answer = await me(_bare_request(), session=session)
+        assert answer.accounts_enabled is True
+        assert answer.tenant_id is None
+        assert answer.balance_micro == 0
+
+    async with env["factory"]() as session:
+        with pytest.raises(HTTPException) as exc:
+            await change_password(
+                PasswordBody(current_password="a" * 12, new_password="b" * 12),
+                _bare_request(),
+                response=None,
+                session=session,
+            )
+        assert exc.value.status_code == 401
+        assert "нужен вход" in exc.value.detail

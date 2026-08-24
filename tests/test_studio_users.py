@@ -241,3 +241,57 @@ async def test_address_without_at_sign_is_refused(factory) -> None:
     async with factory() as s:
         with pytest.raises(studio_users.UserError, match="почтовый"):
             await studio_users.create_user(s, email="ivan", password=PASSWORD)
+
+
+async def test_find_by_email_on_blank_address(factory) -> None:
+    """Пустой адрес — не «найди первого», а «никого».
+
+    Ветка выглядит лишней ровно до того дня, когда форму входа отправят с
+    пустым полем: `select where email == ''` вернул бы учётку, если бы такая
+    в базе завелась, а завестись пустая может при прямой правке.
+    """
+    async with factory() as s:
+        assert await studio_users.find_by_email(s, "") is None
+        assert await studio_users.find_by_email(s, "   ") is None
+
+
+async def test_login_rehashes_a_password_stored_with_a_weaker_profile(factory) -> None:
+    """Успешный вход — единственный момент, когда открытый пароль в руках.
+
+    Перехешируем сейчас или не перехешируем никогда: из хеша пароль не
+    достать, а профиль argon2 со временем поднимают. Без этой ветки учётки,
+    заведённые год назад, навсегда остаются на старых параметрах.
+    """
+    from argon2 import PasswordHasher
+
+    from app.services import passwords
+
+    async with factory() as s:
+        user = await studio_users.create_user(s, email="ivan@studio.local", password=PASSWORD)
+        # Подменяем хеш на посчитанный по заведомо слабому профилю.
+        user.password_hash = PasswordHasher(time_cost=1, memory_cost=8, parallelism=1).hash(PASSWORD)
+        await s.commit()
+        weak = user.password_hash
+
+    async with factory() as s:
+        result = await studio_users.authenticate(s, email="ivan@studio.local", password=PASSWORD)
+        assert result.rehashed is True
+        await s.commit()
+
+    async with factory() as s:
+        user = await studio_users.find_by_email(s, "ivan@studio.local")
+        assert user.password_hash != weak
+        assert passwords.needs_rehash(user.password_hash) is False
+        # И пароль после перехеширования всё ещё тот же самый.
+        await studio_users.authenticate(s, email="ivan@studio.local", password=PASSWORD)
+
+
+async def test_login_does_not_rehash_a_current_hash(factory) -> None:
+    """Обратная сторона: лишний argon2 на каждом входе — это 64 МиБ впустую."""
+    async with factory() as s:
+        await studio_users.create_user(s, email="ivan@studio.local", password=PASSWORD)
+        await s.commit()
+
+    async with factory() as s:
+        result = await studio_users.authenticate(s, email="ivan@studio.local", password=PASSWORD)
+        assert result.rehashed is False

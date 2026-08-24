@@ -223,3 +223,40 @@ async def test_empty_stdin_is_refused(env, monkeypatch) -> None:
     monkeypatch.setattr("sys.stdin", io.StringIO("   \n"))
     with pytest.raises(SystemExit):
         await seed_admin.run(seed_admin.parse_args(["--email", "boss@studio.local", "--password-stdin"]))
+
+
+async def test_weak_password_on_reset_is_refused(env, capsys) -> None:
+    """Слабый пароль отвергается и при СМЕНЕ, а не только при заведении.
+
+    Ветки две, и вторая — та, которую зовут в аварии: доступ потерян, человек
+    торопится и ставит `admin12345`. Пропустить её здесь значит получить
+    установку с подбираемым паролем ровно в тот момент, когда она уже под
+    подозрением.
+    """
+    await seed_admin.run(seed_admin.parse_args(["--email", "boss@studio.local", "--password", ah.PASSWORD]))
+    capsys.readouterr()
+
+    code = await seed_admin.run(
+        seed_admin.parse_args(["--email", "boss@studio.local", "--reset-password", "--password", "korotko1"])
+    )
+    assert code == 1
+    assert "короче" in capsys.readouterr().err
+
+    async with env() as s:
+        # Старый пароль остался рабочим: неудачная смена не должна запирать.
+        await studio_users.authenticate(s, email="boss@studio.local", password=ah.PASSWORD)
+
+
+def test_main_wraps_run_in_its_own_loop(monkeypatch, capsys) -> None:
+    """`main` — это `asyncio.run(run(...))` и точка входа `python -m`.
+
+    Обёртка тривиальна ровно до того момента, когда кто-нибудь позовёт её из
+    уже работающего цикла и получит `RuntimeError` вместо заведённого админа.
+    Тест фиксирует, что снаружи цикла она работает, и заодно — что разбор
+    аргументов и исполнение разделены не зря.
+    """
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "studio_session_secret", "")
+    assert seed_admin.main(["--email", "boss@studio.local"]) == 2
+    assert "STUDIO_SESSION_SECRET" in capsys.readouterr().err

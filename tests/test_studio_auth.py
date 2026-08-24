@@ -158,3 +158,36 @@ def test_owner_mode_issues_no_tokens(monkeypatch) -> None:
 def test_empty_token_is_refused() -> None:
     with pytest.raises(AuthError, match="пуст"):
         decode_token("")
+
+
+def test_token_without_sub_is_refused() -> None:
+    """`sub` — это арендатор. Без него данным некому принадлежать.
+
+    PyJWT требует `sub` через `options={"require": [...]}`, но пустая строка
+    требование проходит: ключ есть, значение ложное. Проверка нужна отдельная.
+    """
+    token = jwt.encode(
+        {"sub": "", "role": ROLE_MEMBER, "exp": int(time.time()) + 3600}, SECRET, algorithm="HS256"
+    )
+    with pytest.raises(AuthError):
+        decode_token(token)
+
+
+def test_current_identity_is_empty_outside_a_request() -> None:
+    """Фоновая задача воркера личности не имеет — и не должна её унаследовать.
+
+    ContextVar копируется в задачу при создании; если бы личность где-то
+    залипала, воркер разбирал бы чужое задание от чужого имени.
+    """
+    from app.services.studio_auth import current_identity, set_identity
+
+    set_identity(None)
+    assert current_identity() is None
+
+    who = _identity()
+    set_identity(who)
+    try:
+        assert current_identity() == who
+    finally:
+        set_identity(None)
+    assert current_identity() is None

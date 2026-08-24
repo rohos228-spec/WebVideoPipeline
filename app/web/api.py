@@ -133,6 +133,52 @@ async def _lifespan(app: FastAPI):
     Безопасно повторно вызывается. В дев-режиме (uvicorn `--reload` без app.main)
     этот lifespan единственный гарантирует актуальную схему.
     """
+    # ── Конфигурация проверяется ПЕРВОЙ, до миграций и до подключения.
+    #
+    # Порядок не косметический. Миграции на живой базе идут минутами, а
+    # подключение к Postgres может не состояться по десятку причин — и его
+    # ошибка накрывает собой все остальные. Слабый секрет обязан быть назван
+    # слабым секретом сразу, а не после трёх минут ожидания и не под видом
+    # «could not connect to server»: иначе чинить будут не то.
+    from app.settings import settings
+
+    # Секрет короче 32 байт для HS256 — отказ, а не предупреждение. RFC 7518
+    # §3.2 требует ключ не короче размера хеша, и раньше здесь стояло
+    # предупреждение по единственной причине: секрет был общим с биллингом, и
+    # сменить его в одиночку было нельзя. Общего секрета больше нет — студия
+    # подписывает свои токены сама, и слабый ключ на входной двери это не
+    # «ниже нормы», а подделываемый токен админа.
+    if settings.accounts_enabled and len(settings.studio_session_secret.encode("utf-8")) < 32:
+        raise RuntimeError(
+            "STUDIO_SESSION_SECRET короче 32 байт — для HS256 это ниже нормы "
+            "RFC 7518 §3.2. Сгенерировать: python3 -c "
+            "'import secrets; print(secrets.token_urlsafe(48))'"
+        )
+
+    # Открытый порт без учётных записей. До 2026-08-24 его закрывала пара
+    # WEB_AUTH_USER/WEB_AUTH_PASSWORD — пароль открытым текстом в окружении,
+    # сравниваемый оператором `!=`. Пара удалена вместе с этим способом
+    # защиты, и молча остаться с открытым API нельзя: `/api/fleet` запускает
+    # команды на машинах парка, `/api/db` листает базу.
+    if not settings.accounts_enabled and settings.web_host.strip() in ("0.0.0.0", "::", "*"):
+        raise RuntimeError(
+            f"WEB_HOST={settings.web_host} без учётных записей: API открыт всей сети без "
+            "какой-либо проверки. Либо задайте STUDIO_SESSION_SECRET и заведите "
+            "учётки (python3 -m app.seed_admin), либо верните WEB_HOST=127.0.0.1."
+        )
+
+    # Учётные записи на SQLite — не «пока не переехали», а работа с
+    # арендаторами там, где политик нет физически. `require_isolation` поймает
+    # это на первом же запросе, но лучше не подняться: упавший старт видно, а
+    # 500 на одной ручке из тридцати можно не заметить неделю. Проверка тоже
+    # чисто конфигурационная — гнать ради неё миграции незачем.
+    if settings.accounts_enabled and not settings.is_postgres:
+        raise RuntimeError(
+            "STUDIO_SESSION_SECRET задан, а база — SQLite: row-level security "
+            "в этом движке не существует, изоляция арендаторов не обеспечена. "
+            "Задайте DATABASE_URL на Postgres (docs/SAAS-PIVOT.md §11)."
+        )
+
     try:
         from app.db_migrations import upgrade_to_head
 
@@ -149,51 +195,12 @@ async def _lifespan(app: FastAPI):
     # BYPASSRLS игнорирует политики. Ни один не даст ошибки в логе — он даст
     # утечку чужого ролика. Падение на старте чинится за минуту, утечка не
     # чинится вовсе.
-    from app.settings import settings
-
     if settings.is_postgres:
         from app.db import session_scope as _scope
         from app.services.rls_check import assert_rls_or_die
 
         async with _scope() as s:
             await assert_rls_or_die(s)
-
-    # SaaS на SQLite — не «пока не переехали», а работа с арендаторами там,
-    # где политик нет физически. `require_isolation` поймает это на первом же
-    # запросе, но лучше не подняться: упавший старт видно, а 500 на одной
-    # ручке из тридцати можно не заметить неделю.
-    if settings.accounts_enabled and not settings.is_postgres:
-        raise RuntimeError(
-            "STUDIO_SESSION_SECRET задан, а база — SQLite: row-level security "
-            "в этом движке не существует, изоляция арендаторов не обеспечена. "
-            "Задайте DATABASE_URL на Postgres (docs/SAAS-PIVOT.md §11)."
-        )
-
-    # Секрет короче 32 байт для HS256 — теперь отказ, а не предупреждение.
-    # RFC 7518 §3.2 требует ключ не короче размера хеша, и раньше здесь стояло
-    # предупреждение по единственной причине: секрет был общим с биллингом, и
-    # сменить его в одиночку было нельзя. Общего секрета больше нет — студия
-    # подписывает свои токены сама, менять некому мешать, и слабый ключ на
-    # входной двери внутреннего сервиса это не «ниже нормы», а подделываемый
-    # токен админа.
-    # Открытый порт без учётных записей. До 2026-08-24 его закрывала пара
-    # WEB_AUTH_USER/WEB_AUTH_PASSWORD — пароль открытым текстом в окружении,
-    # сравниваемый оператором `!=`. Пара удалена вместе с этим способом
-    # защиты, и молча остаться с открытым API нельзя: `/api/fleet` запускает
-    # команды на машинах парка, `/api/db` листает базу.
-    if not settings.accounts_enabled and settings.web_host.strip() in ("0.0.0.0", "::", "*"):
-        raise RuntimeError(
-            f"WEB_HOST={settings.web_host} без учётных записей: API открыт всей сети без "
-            "какой-либо проверки. Либо задайте STUDIO_SESSION_SECRET и заведите "
-            "учётки (python3 -m app.seed_admin), либо верните WEB_HOST=127.0.0.1."
-        )
-
-    if settings.accounts_enabled and len(settings.studio_session_secret.encode("utf-8")) < 32:
-        raise RuntimeError(
-            "STUDIO_SESSION_SECRET короче 32 байт — для HS256 это ниже нормы "
-            "RFC 7518 §3.2. Сгенерировать: python3 -c "
-            "'import secrets; print(secrets.token_urlsafe(48))'"
-        )
 
     try:
         from app.db import session_scope
