@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { callTool, streamChat, type AgentEvent, type ChatHistoryItem } from "@/lib/chat-api";
+import { VideoResolutionPicker } from "@/components/studio/video-resolution-picker";
 
 interface FeedItem {
   id: string;
@@ -305,9 +306,15 @@ function ConfirmRow({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [done, setDone] = React.useState(false);
+  const [resolution, setResolution] = React.useState("");
 
   const args = (item.payload?.args ?? {}) as Record<string, unknown>;
   const price = typeof result.price_credits === "string" ? result.price_credits : "";
+  // Разрешение выбирается на шаге генерации, и выбор уезжает вместе с
+  // запуском: сохранённый заранее, он разъехался бы с ценой, которую человек
+  // только что видел.
+  const isVideo = String(result.step_code ?? args.step_code ?? "") === "video";
+  const projectId = Number(args.project_id ?? 0);
 
   if (done) {
     return <p className="mt-2 text-muted-foreground">Запущено.</p>;
@@ -315,6 +322,13 @@ function ConfirmRow({
 
   return (
     <div className="mt-3 space-y-2">
+      {isVideo && projectId > 0 && (
+        <VideoResolutionPicker
+          projectId={projectId}
+          value={resolution}
+          onChange={setResolution}
+        />
+      )}
       <p className="text-muted-foreground">
         {price ? `Спишется ${price} кр.` : "Шаг дороже порога."} Продолжить?
       </p>
@@ -325,7 +339,11 @@ function ConfirmRow({
           setBusy(true);
           setError(null);
           try {
-            const res = await callTool(item.tool ?? "runStep", { ...args, confirm: true });
+            const res = await callTool(item.tool ?? "runStep", {
+              ...args,
+              confirm: true,
+              ...(isVideo && resolution ? { resolution } : {}),
+            });
             setDone(true);
             onConfirmed?.(res);
           } catch (e) {

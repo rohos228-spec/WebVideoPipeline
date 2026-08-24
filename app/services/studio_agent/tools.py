@@ -81,6 +81,8 @@ TOOLS: dict[str, Tool] = {
         description=(
             "Сколько стоит шаг. cascade=true — сколько стоит переделать шаг "
             "вместе со всем, что от него зависит (радиус поражения). "
+            "resolution (720p/1080p) — «а если так»: смета для другого "
+            "разрешения, выбор проекта при этом не меняется. "
             "Зови ПЕРЕД runStep на дорогих шагах."
         ),
         args={
@@ -89,8 +91,22 @@ TOOLS: dict[str, Tool] = {
                 "project_id": {"type": "integer"},
                 "step_code": {"type": "string", "description": "код шага, например video"},
                 "cascade": {"type": "boolean"},
+                "resolution": {"type": "string", "enum": ["720p", "1080p"]},
             },
             "required": ["project_id", "step_code"],
+        },
+    ),
+    "videoOptions": Tool(
+        name="videoOptions",
+        description=(
+            "Во что обойдётся видео при каждом разрешении. Показывай ПЕРЕД "
+            "запуском видео: 720p и 1080p отличаются вдвое по деньгам, и "
+            "выбор между ними — это выбор цены, а не только качества."
+        ),
+        args={
+            "type": "object",
+            "properties": {"project_id": {"type": "integer"}},
+            "required": ["project_id"],
         },
     ),
     "runStep": Tool(
@@ -98,7 +114,9 @@ TOOLS: dict[str, Tool] = {
         description=(
             "Запустить шаг. Порядок шагов задан конвейером — запустить можно "
             "только тот, который разрешён сейчас. Дороже 1 кредита требует "
-            "confirm=true: сначала покажи цену человеку и спроси."
+            "confirm=true: сначала покажи цену человеку и спроси. "
+            "resolution (720p/1080p) на шаге video — выбор человека, он "
+            "сохраняется в проекте и по нему считается списание."
         ),
         args={
             "type": "object",
@@ -106,6 +124,7 @@ TOOLS: dict[str, Tool] = {
                 "project_id": {"type": "integer"},
                 "step_code": {"type": "string"},
                 "confirm": {"type": "boolean", "description": "человек согласился с ценой"},
+                "resolution": {"type": "string", "enum": ["720p", "1080p"]},
             },
             "required": ["project_id", "step_code"],
         },
@@ -215,8 +234,21 @@ async def _estimate_step(session: Any, args: dict[str, Any]) -> dict[str, Any]:
 
     project_id = _int(args, "project_id")
     step_code = _str(args, "step_code")
-    result = await quote(project_id, step_code, bool(args.get("cascade")), session)
+    result = await quote(
+        project_id,
+        step_code,
+        cascade=bool(args.get("cascade")),
+        resolution=str(args.get("resolution") or ""),
+        session=session,
+    )
     return result.model_dump()
+
+
+async def _video_options(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from app.web.routers.billing import video_options
+
+    project_id = _int(args, "project_id")
+    return {"project_id": project_id, "options": await video_options(project_id, session)}
 
 
 async def _run_step(session: Any, args: dict[str, Any]) -> dict[str, Any]:
@@ -237,7 +269,23 @@ async def _run_step(session: Any, args: dict[str, Any]) -> dict[str, Any]:
         raise ToolError(f"шага {step_code!r} в конвейере нет")
     _assert_step_is_reachable(project, step_code)
 
-    price = await quote(project_id, step_code, False, session)
+    # Разрешение выбирается на шаге генерации (решение владельца), поэтому
+    # выбор сохраняется ДО сметы: иначе человеку покажут цену одного
+    # разрешения, а спишут по другому.
+    resolution = str(args.get("resolution") or "").strip()
+    if resolution:
+        from app.generation_options import VIDEO_RESOLUTIONS_BY_ID
+
+        if resolution not in VIDEO_RESOLUTIONS_BY_ID:
+            raise ToolError(
+                f"разрешение {resolution!r} неизвестно; есть: {', '.join(VIDEO_RESOLUTIONS_BY_ID)}"
+            )
+        project.video_resolution = resolution
+        await session.flush()
+
+    # Только именованные: у `quote` есть необязательные параметры, и
+    # позиционный вызов уже один раз молча подставил сессию в разрешение.
+    price = await quote(project_id, step_code, cascade=False, session=session)
     if price.price_micro > CONFIRM_THRESHOLD_MICRO and not args.get("confirm"):
         # Не отказ, а требование спросить человека. Модель получит цену и
         # обязана показать её прежде, чем звать инструмент снова.
@@ -266,6 +314,7 @@ async def _run_step(session: Any, args: dict[str, Any]) -> dict[str, Any]:
         "step_code": step_code,
         "status": status.value if hasattr(status, "value") else str(status),
         "price_credits": price.price_credits,
+        "resolution": project.video_resolution or "",
     }
 
 
@@ -443,6 +492,7 @@ def _str(args: dict[str, Any], key: str) -> str:
 _HANDLERS = {
     "createProject": _create_project,
     "estimateStep": _estimate_step,
+    "videoOptions": _video_options,
     "runStep": _run_step,
     "showStoryboard": _show_storyboard,
     "editFramePrompt": _edit_frame_prompt,

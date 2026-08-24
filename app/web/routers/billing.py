@@ -80,14 +80,65 @@ class BalanceOut(BaseModel):
     entries: list[dict] = []
 
 
+@router.get("/projects/{project_id}/steps/video/options")
+async def video_options(project_id: int, session: AsyncSession = Depends(get_session)) -> list[dict]:
+    """Во что обойдётся видео при каждом доступном разрешении.
+
+    Решение владельца: разрешение выбирается на шаге генерации, а не задаётся
+    один раз на проект. Значит выбор обязан быть выбором ЦЕНЫ, а не качества
+    в вакууме: 720p и 1080p отличаются вдвое по деньгам, и человек, которому
+    показали только два слова, выбирает не то.
+
+    Цена считается для каждого варианта отдельно и в тех же кредитах, что
+    спишет касса, — иначе выбор делается по одной цифре, а платится другая.
+    """
+    from app.generation_options import VIDEO_RESOLUTIONS_BY_ID
+    from app.models import Project
+    from app.services.quote import quote_step
+
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="проект не найден")
+
+    frames, _ = await _cascade_volume(session, project_id)
+    original = project.video_resolution
+    out: list[dict] = []
+    try:
+        for res_id, choice in VIDEO_RESOLUTIONS_BY_ID.items():
+            # Смета читает разрешение с проекта, поэтому подменяем поле в
+            # памяти. В базу это не уезжает: смета — вопрос, а не выбор.
+            project.video_resolution = res_id
+            est = await quote_step(project, "video", frames=frames, session=session)
+            out.append(
+                {
+                    "id": res_id,
+                    "label": getattr(choice, "label", res_id),
+                    "price_micro": est.price_micro,
+                    "price_credits": _up(est.price_micro),
+                    "exact": est.exact,
+                    "current": res_id == (original or ""),
+                    "note": est.note,
+                }
+            )
+    finally:
+        project.video_resolution = original
+    return out
+
+
 @router.get("/projects/{project_id}/steps/{step_code}/quote")
 async def quote(
     project_id: int,
     step_code: str,
+    *,
     cascade: bool = False,
+    resolution: str = "",
     session: AsyncSession = Depends(get_session),
 ) -> StepPrice | CascadePrice:
-    """Сколько стоит шаг — и, по флагу, весь каскад под ним."""
+    """Сколько стоит шаг — и, по флагу, весь каскад под ним.
+
+    ``resolution`` спрашивает «а если так»: смета считается для указанного
+    разрешения, но выбор проекта не меняется. Смета — вопрос, а не решение.
+    """
     from app.models import Project
     from app.services.quote import quote_cascade, quote_step
     from app.services.step_billing import step_volume
@@ -95,6 +146,9 @@ async def quote(
     project = await session.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="проект не найден")
+    if resolution:
+        _assert_known_resolution(resolution)
+        project.video_resolution = resolution
 
     frames, voice_chars = await step_volume(session, project_id, step_code)
     if cascade:
@@ -244,6 +298,21 @@ def _as_price(est) -> StepPrice:
         exact=est.exact,
         note=est.note,
     )
+
+
+def _assert_known_resolution(value: str) -> None:
+    """Разрешение из списка, а не любая строка.
+
+    Значение уезжает в ключ прайса; неизвестное дало бы не ошибку, а тихий
+    откат к справочной цене — то есть неверную цифру, показанную как точную.
+    """
+    from app.generation_options import VIDEO_RESOLUTIONS_BY_ID
+
+    if value not in VIDEO_RESOLUTIONS_BY_ID:
+        raise HTTPException(
+            status_code=400,
+            detail=f"разрешение {value!r} неизвестно; есть: {', '.join(VIDEO_RESOLUTIONS_BY_ID)}",
+        )
 
 
 def _up(micro: int) -> str:

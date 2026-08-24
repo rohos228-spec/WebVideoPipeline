@@ -272,3 +272,54 @@ async def test_free_steps_have_no_price_tag(client) -> None:
     body = (await client.get("/api/projects/1/steps/quotes")).json()
     for local_step in ("assemble", "publish"):
         assert local_step not in body["prices"]
+
+
+async def test_each_resolution_has_its_own_price(client, monkeypatch) -> None:
+    """Разрешение выбирается на шаге генерации, значит это выбор ЦЕНЫ.
+
+    720p и 1080p отличаются вдвое по деньгам. Человек, которому показали два
+    слова без цифр, выбирает не то — и узнаёт об этом из счёта.
+    """
+    monkeypatch.setattr(
+        "app.services.vibecode_catalog.effective_video_generator_id",
+        lambda project, node_type=None: "hailuo_2_3_fast",
+    )
+    monkeypatch.setattr("app.services.media_route.video_provider_for", lambda slug: "minimax")
+
+    options = (await client.get("/api/projects/1/steps/video/options")).json()
+    by_id = {o["id"]: o for o in options}
+    assert set(by_id) == {"720p", "1080p"}
+    assert by_id["720p"]["price_credits"] == "13.68"
+    assert by_id["1080p"]["price_credits"] == "23.76"
+    assert by_id["720p"]["exact"] is True
+
+
+async def test_asking_the_price_does_not_change_the_choice(client, monkeypatch) -> None:
+    """Смета — вопрос, а не решение.
+
+    «Сколько будет в 720p» не должно молча переводить проект на 720p: иначе
+    любопытство человека меняет то, что он получит.
+    """
+    monkeypatch.setattr(
+        "app.services.vibecode_catalog.effective_video_generator_id",
+        lambda project, node_type=None: "hailuo_2_3_fast",
+    )
+    monkeypatch.setattr("app.services.media_route.video_provider_for", lambda slug: "minimax")
+
+    asked = (await client.get("/api/projects/1/steps/video/quote?resolution=720p")).json()
+    assert asked["price_credits"] == "13.68"
+
+    async with client.factory() as s:  # type: ignore[attr-defined]
+        project = await s.get(Project, 1)
+        assert project.video_resolution is None, "вопрос о цене изменил выбор проекта"
+
+
+async def test_unknown_resolution_is_refused_not_silently_ignored(client) -> None:
+    """Неизвестное разрешение дало бы тихий откат к справочной цене.
+
+    То есть неверную цифру, показанную как точную, — худший вид ошибки в
+    деньгах.
+    """
+    res = await client.get("/api/projects/1/steps/video/quote?resolution=4k")
+    assert res.status_code == 400
+    assert "неизвестно" in res.json()["detail"]

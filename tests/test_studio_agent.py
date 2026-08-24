@@ -364,3 +364,67 @@ async def test_direct_call_adds_no_privileges(db) -> None:
         )
     assert res.status_code == 400
     assert "недоступен" in res.json()["detail"]
+
+
+async def test_resolution_chosen_at_the_video_step_is_saved(db) -> None:
+    """Разрешение выбирается на шаге генерации и сохраняется ДО сметы.
+
+    Решение владельца: выбор делается там, где нажимают кнопку, а не один раз
+    на проект. Сохранять его после сметы значило бы показать человеку цену
+    одного разрешения, а списать по другому.
+    """
+    from app.models import Project, ProjectStatus
+
+    async with db() as s:
+        project = await s.get(Project, 1)
+        project.status = ProjectStatus.animation_prompts_ready
+        await s.commit()
+
+    async with db() as s:
+        result = await call_tool(
+            s,
+            "runStep",
+            {"project_id": 1, "step_code": "video", "resolution": "720p", "confirm": True},
+        )
+    assert result["started"] is True
+    assert result["resolution"] == "720p"
+
+    async with db() as s:
+        project = await s.get(Project, 1)
+        assert project.video_resolution == "720p"
+
+
+async def test_unknown_resolution_never_reaches_the_step(db) -> None:
+    """Неизвестное разрешение — отказ, а не тихий откат к цене по умолчанию."""
+    from app.models import Project, ProjectStatus
+
+    async with db() as s:
+        project = await s.get(Project, 1)
+        project.status = ProjectStatus.animation_prompts_ready
+        await s.commit()
+
+    async with db() as s:
+        with pytest.raises(ToolError, match="неизвестно"):
+            await call_tool(
+                s,
+                "runStep",
+                {"project_id": 1, "step_code": "video", "resolution": "4k", "confirm": True},
+            )
+
+
+async def test_video_options_tool_shows_both_prices(db, monkeypatch) -> None:
+    """Агент обязан показать обе цены, а не назвать два слова.
+
+    Выбор между 720p и 1080p — это выбор вдвое разной суммы; без цифр он
+    делается вслепую.
+    """
+    monkeypatch.setattr(
+        "app.services.vibecode_catalog.effective_video_generator_id",
+        lambda project, node_type=None: "hailuo_2_3_fast",
+    )
+    monkeypatch.setattr("app.services.media_route.video_provider_for", lambda slug: "minimax")
+
+    async with db() as s:
+        result = await call_tool(s, "videoOptions", {"project_id": 1})
+    prices = {o["id"]: o["price_credits"] for o in result["options"]}
+    assert prices == {"720p": "13.68", "1080p": "23.76"}
