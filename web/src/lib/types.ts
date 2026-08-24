@@ -89,8 +89,38 @@ export interface Asset {
 
 export interface Balance {
   tenant_id: string | null;
+  /**
+   * true — кассы у этого пользователя нет: админ студии или установка без
+   * учётных записей. Рисуется как «∞», а не как число: у админа не большой
+   * баланс, а отсутствие тарификации (docs/SAAS-PIVOT.md §5.8).
+   */
+  unlimited: boolean;
   balance_credits: string;
   free_tier: { active: boolean; projects: number; max_projects: number };
+}
+
+/** Единственная ручка, которую можно спросить до входа. */
+export interface AuthStatus {
+  auth_required: boolean;
+  accounts: boolean;
+}
+
+export interface LoginResult {
+  token: string;
+  email: string;
+  role: "admin" | "member";
+  expires_in: number;
+}
+
+export interface Me {
+  accounts_enabled: boolean;
+  tenant_id: string | null;
+  email: string;
+  role: "" | "admin" | "member";
+  display_name: string;
+  unlimited: boolean;
+  balance_micro: number;
+  balance_credits: string;
 }
 
 export interface Choice {

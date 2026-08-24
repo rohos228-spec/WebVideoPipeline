@@ -7,6 +7,7 @@ import { ProjectRail } from "@/components/project-rail";
 import { IdeaComposer } from "@/components/idea-composer";
 import { ProjectView } from "@/components/project-view";
 import { credits } from "@/lib/format";
+import { Button } from "@/components/ui/button";
 
 const LAST_PROJECT_KEY = "vp.last-project";
 
@@ -17,6 +18,7 @@ export default function Page() {
 
   const { data: projects } = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const { data: balance } = useQuery({ queryKey: ["balance"], queryFn: api.balance });
+  const { data: me } = useQuery({ queryKey: ["me"], queryFn: api.me });
 
   // Возвращаемся туда, где были: перезагрузка не должна стоить контекста.
   useEffect(() => {
@@ -33,7 +35,13 @@ export default function Page() {
     else localStorage.setItem(LAST_PROJECT_KEY, String(id));
   };
 
-  const showBalance = Boolean(balance?.tenant_id);
+  // Три состояния, а не два. У админа кассы нет вовсе — это «∞», а не число
+  // и не пустое место: пустое место читалось бы как «баланс не загрузился».
+  const money = balance?.unlimited
+    ? "∞"
+    : balance?.tenant_id
+      ? credits(balance.balance_credits)
+      : null;
 
   return (
     <div className="grid h-screen grid-cols-[240px_1fr]">
@@ -42,11 +50,31 @@ export default function Page() {
       <div className="flex min-h-0 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-6">
           <span className="font-display text-[15px] text-content">Видеостудия</span>
-          {showBalance && (
-            <span className="font-mono text-[12px] tabular-nums text-content-muted">
-              баланс {credits(balance!.balance_credits)}
-            </span>
-          )}
+          <div className="flex items-center gap-4">
+            {money !== null && (
+              <span
+                className="font-mono text-[12px] tabular-nums text-content-muted"
+                title={balance?.unlimited ? "У администратора шаги не тарифицируются" : undefined}
+              >
+                баланс {money}
+              </span>
+            )}
+            {me?.accounts_enabled && me.email && (
+              <>
+                <span className="text-[12px] text-content-faint">{me.email}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    await api.logout();
+                    window.location.reload();
+                  }}
+                >
+                  Выйти
+                </Button>
+              </>
+            )}
+          </div>
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto">

@@ -39,7 +39,6 @@ from app.models import FleetNode, FleetNodeStatus, Project, ProjectStatus
 from app.project_root import find_project_root
 from app.services.node_step_params import send_to_main_pc_for_project
 from app.settings import settings
-from app.web.auth_sessions import AuthDep
 
 router = APIRouter(prefix="/fleet", tags=["fleet"])
 
@@ -139,7 +138,7 @@ async def _get_node(session, node_id: int) -> FleetNode:
 
 
 @router.get("/nodes", response_model=list[FleetNodeOut])
-async def list_nodes(_user: AuthDep = None) -> list[FleetNodeOut]:
+async def list_nodes() -> list[FleetNodeOut]:
     async with session_scope() as session:
         rows = (await session.execute(select(FleetNode).order_by(FleetNode.name))).scalars().all()
         return [_node_out(n) for n in rows]
@@ -205,7 +204,7 @@ async def register_heartbeat(body: FleetRegister, authorization: str | None = He
 
 
 @router.post("/nodes/{node_id}/sync")
-async def sync_node(node_id: int, _user: AuthDep = None) -> dict:
+async def sync_node(node_id: int) -> dict:
     async with session_scope() as session:
         node = await _get_node(session, node_id)
         if is_local_fleet_node(node):
@@ -247,7 +246,7 @@ async def _proxy_node(node_id: int) -> FleetNode:
 
 
 @router.get("/nodes/{node_id}/pipeline")
-async def node_pipeline(node_id: int, _user: AuthDep = None) -> dict:
+async def node_pipeline(node_id: int) -> dict:
     node = await _proxy_node(node_id)
     if is_local_fleet_node(node):
         return await local_pipeline()
@@ -259,7 +258,7 @@ async def node_pipeline(node_id: int, _user: AuthDep = None) -> dict:
 
 
 @router.get("/nodes/{node_id}/files")
-async def node_files(node_id: int, path: str = ".", _user: AuthDep = None) -> dict:
+async def node_files(node_id: int, path: str = ".") -> dict:
     node = await _proxy_node(node_id)
     if is_local_fleet_node(node):
         return await local_files(path=path)
@@ -271,7 +270,7 @@ async def node_files(node_id: int, path: str = ".", _user: AuthDep = None) -> di
 
 
 @router.get("/nodes/{node_id}/files/download")
-async def node_files_download(node_id: int, path: str, _user: AuthDep = None):
+async def node_files_download(node_id: int, path: str):
     node = await _proxy_node(node_id)
     if is_local_fleet_node(node):
         return await local_files_download(path=path)
@@ -295,7 +294,7 @@ async def node_files_download(node_id: int, path: str, _user: AuthDep = None):
 
 
 @router.get("/nodes/{node_id}/files/content")
-async def node_files_content(node_id: int, path: str, _user: AuthDep = None) -> dict:
+async def node_files_content(node_id: int, path: str) -> dict:
     node = await _proxy_node(node_id)
     if is_local_fleet_node(node):
         return await local_files_content(path=path)
@@ -312,7 +311,7 @@ async def node_files_content(node_id: int, path: str, _user: AuthDep = None) -> 
 
 
 @router.delete("/nodes/{node_id}/files")
-async def node_delete_file(node_id: int, path: str, _user: AuthDep = None) -> dict:
+async def node_delete_file(node_id: int, path: str) -> dict:
     node = await _proxy_node(node_id)
     if is_local_fleet_node(node):
         return await local_delete_file(path=path)
@@ -333,7 +332,6 @@ async def node_upload_file(
     node_id: int,
     path: str,
     file: UploadFile = File(...),
-    _user: AuthDep = None,
 ) -> dict:
     node = await _proxy_node(node_id)
     if is_local_fleet_node(node):
@@ -353,7 +351,7 @@ async def node_upload_file(
 
 
 @router.post("/nodes/{node_id}/powershell")
-async def node_powershell(node_id: int, body: PowerShellRun, _user: AuthDep = None) -> dict:
+async def node_powershell(node_id: int, body: PowerShellRun) -> dict:
     node = await _proxy_node(node_id)
     if is_local_fleet_node(node):
         return await local_powershell(body)
@@ -370,7 +368,7 @@ async def node_powershell(node_id: int, body: PowerShellRun, _user: AuthDep = No
 
 
 @router.post("/nodes/{node_id}/powershell/stream")
-async def node_powershell_stream(node_id: int, body: PowerShellRun, _user: AuthDep = None):
+async def node_powershell_stream(node_id: int, body: PowerShellRun):
     node = await _proxy_node(node_id)
     if is_local_fleet_node(node):
         return StreamingResponse(
@@ -386,7 +384,7 @@ async def node_powershell_stream(node_id: int, body: PowerShellRun, _user: AuthD
 
 
 @router.get("/nodes/{node_id}/logs/stream")
-async def node_pipeline_logs_stream(node_id: int, _user: AuthDep = None):
+async def node_pipeline_logs_stream(node_id: int):
     node = await _proxy_node(node_id)
     if is_local_fleet_node(node):
         return StreamingResponse(
@@ -402,9 +400,7 @@ async def node_pipeline_logs_stream(node_id: int, _user: AuthDep = None):
 
 
 @router.post("/nodes/{node_id}/projects/{project_id}/pull-to-main")
-async def pull_project_to_main(
-    node_id: int, project_id: int, body: MontagePull, _user: AuthDep = None
-) -> dict:
+async def pull_project_to_main(node_id: int, project_id: int, body: MontagePull) -> dict:
     """Скачать bundle с agent или запустить монтаж локально (hub+worker)."""
     node = await _proxy_node(node_id)
 
@@ -960,6 +956,6 @@ async def fleet_config() -> dict:
         "hub_is_worker": settings.fleet_hub_is_worker,
         "self_node": self_node_name(),
         "public_url": settings.fleet_public_url or settings.fleet_agent_base_url,
-        "auth_required": settings.web_auth_enabled,
+        "auth_required": settings.accounts_enabled,
         "montage_max_parallel": settings.fleet_montage_max_parallel,
     }

@@ -30,9 +30,6 @@ from app.web.routers import (
     billing as billing_router,
 )
 from app.web.routers import (
-    billing_hook as billing_hook_router,
-)
-from app.web.routers import (
     bug_reports as bug_reports_router,
 )
 from app.web.routers import (
@@ -165,20 +162,37 @@ async def _lifespan(app: FastAPI):
     # где политик нет физически. `require_isolation` поймает это на первом же
     # запросе, но лучше не подняться: упавший старт видно, а 500 на одной
     # ручке из тридцати можно не заметить неделю.
-    if settings.sso_enabled and not settings.is_postgres:
+    if settings.accounts_enabled and not settings.is_postgres:
         raise RuntimeError(
-            "BILLING_JWT_SECRET задан, а база — SQLite: row-level security в "
-            "этом движке не существует, изоляция арендаторов не обеспечена. "
+            "STUDIO_SESSION_SECRET задан, а база — SQLite: row-level security "
+            "в этом движке не существует, изоляция арендаторов не обеспечена. "
             "Задайте DATABASE_URL на Postgres (docs/SAAS-PIVOT.md §11)."
         )
 
-    # Секрет короче 32 байт для HS256 — не запрет, а предупреждение: RFC 7518
-    # §3.2 требует ключ не короче размера хеша. Секрет общий с биллингом,
-    # менять его в одиночку нельзя, поэтому здесь именно предупреждение.
-    if settings.sso_enabled and len(settings.billing_jwt_secret.encode("utf-8")) < 32:
-        logger.warning(
-            "BILLING_JWT_SECRET короче 32 байт — для HS256 это ниже нормы "
-            "RFC 7518 §3.2. Секрет общий с биллингом: менять там и здесь."
+    # Секрет короче 32 байт для HS256 — теперь отказ, а не предупреждение.
+    # RFC 7518 §3.2 требует ключ не короче размера хеша, и раньше здесь стояло
+    # предупреждение по единственной причине: секрет был общим с биллингом, и
+    # сменить его в одиночку было нельзя. Общего секрета больше нет — студия
+    # подписывает свои токены сама, менять некому мешать, и слабый ключ на
+    # входной двери внутреннего сервиса это не «ниже нормы», а подделываемый
+    # токен админа.
+    # Открытый порт без учётных записей. До 2026-08-24 его закрывала пара
+    # WEB_AUTH_USER/WEB_AUTH_PASSWORD — пароль открытым текстом в окружении,
+    # сравниваемый оператором `!=`. Пара удалена вместе с этим способом
+    # защиты, и молча остаться с открытым API нельзя: `/api/fleet` запускает
+    # команды на машинах парка, `/api/db` листает базу.
+    if not settings.accounts_enabled and settings.web_host.strip() in ("0.0.0.0", "::", "*"):
+        raise RuntimeError(
+            f"WEB_HOST={settings.web_host} без учётных записей: API открыт всей сети без "
+            "какой-либо проверки. Либо задайте STUDIO_SESSION_SECRET и заведите "
+            "учётки (python3 -m app.seed_admin), либо верните WEB_HOST=127.0.0.1."
+        )
+
+    if settings.accounts_enabled and len(settings.studio_session_secret.encode("utf-8")) < 32:
+        raise RuntimeError(
+            "STUDIO_SESSION_SECRET короче 32 байт — для HS256 это ниже нормы "
+            "RFC 7518 §3.2. Сгенерировать: python3 -c "
+            "'import secrets; print(secrets.token_urlsafe(48))'"
         )
 
     try:
@@ -303,7 +317,7 @@ def create_app() -> FastAPI:
     # заголовка `Authorization` — снаружи он получал бы 401 без единого
     # CORS-заголовка, и кросс-доменный фронт ложился бы целиком, ещё не
     # успев отправить токен. Проверено `test_cors_preflight_is_not_refused`.
-    # В режиме владельца слой не делает ничего (`settings.sso_enabled`).
+    # В режиме владельца слой не делает ничего (`settings.accounts_enabled`).
     app.add_middleware(IdentityMiddleware)
 
     # Локальный фронт ходит с localhost:3000 в dev — открываем CORS.
@@ -344,7 +358,6 @@ def create_app() -> FastAPI:
     app.include_router(auth_router.router, prefix=API_PREFIX)
     app.include_router(me_router.router, prefix=API_PREFIX)
     app.include_router(billing_router.router, prefix=API_PREFIX)
-    app.include_router(billing_hook_router.router, prefix=API_PREFIX)
     app.include_router(my_prompts_router.router, prefix=API_PREFIX)
     app.include_router(studio_chat_router.router, prefix=API_PREFIX)
     app.include_router(db_browser_router.router, prefix=API_PREFIX)

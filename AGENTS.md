@@ -33,10 +33,14 @@ Do **not** push to a different branch than `ORCHESTRATOR_GIT_BRANCH` unless the 
 | Tests | `python3 -m pytest tests/ -v` |
 | Type check | `mypy app/ --ignore-missing-imports` |
 | Seed pilot project | `python3 -m app.seed_pilot` |
+| Завести админа студии | `python3 -m app.seed_admin` |
 | Run application | `STUDIO.cmd` (Windows) or `python3 -m app.main` from repo root |
 
 ### Key caveats
 
+- **Учётные записи и роли.** Личность живёт в `studio_users`, токен подписывает сама студия (`app/services/studio_auth.py`), пароли — argon2id (`app/services/passwords.py`). Включается заданием `STUDIO_SESSION_SECRET` (не короче 32 байт, иначе старт откажет); пусто — режим владельца: личностей нет, изоляции нет, вход отключён. Первый админ — `python3 -m app.seed_admin` (пароль генерируется и печатается ОДИН раз). Ролей две: `admin` ходит везде, включая инструменты владельца (`/api/fleet`, `/api/db`, `/api/prompts`), и **не тарифицируется вовсе** — у него не бесконечный баланс, а отсутствие кассы (`docs/SAAS-PIVOT.md` §5.8); `member` видит только продуктовую поверхность (`identity.TENANT_ALLOWED_PREFIXES`). Отзыв доступа — `token_epoch`: смена пароля и отключение учётки гасят все выданные токены немедленно.
+- **Связи с `llm-gateway` (Chattiq) нет.** Приём JWT биллинга, вебхук пополнения, `BILLING_JWT_SECRET` / `BILLING_WEBHOOK_SECRET` и пара `WEB_AUTH_USER`/`WEB_AUTH_PASSWORD` выпилены 2026-08-24 (таблица в `docs/SAAS-PIVOT.md` §3). Оплат студия не принимает: сервис внутренний. Леджер, холды и котировки остались — себестоимость считается, цена шага видна до нажатия. `chattiq.ru` в дефолте `GPT_STRUCTURED_RELAYS` — это ДРУГОЕ: текстовый релей с подтверждённым structured outputs, к биллингу отношения не имеет.
+- **`WEB_HOST=0.0.0.0` без учётных записей — отказ на старте.** Раньше открытый порт закрывался паролем открытым текстом в `.env`; пары больше нет, и молча остаться с открытым `/api/fleet` нельзя.
 - **Telegram optional**: set `TELEGRAM_ENABLED=false` (and leave `TELEGRAM_BOT_TOKEN` empty) for web-only mode — worker + FastAPI on `:8765`, HITL via web UI. Use `STUDIO.cmd` → пункт 1 on Windows. With a valid token, `python -m app.main` in `.venv` runs bot + worker + web.
 - **SQLite DB** is at `data/state.db` (auto-created on first run). Delete it to reset state: `rm -f data/state.db`.
 - **No `python` alias** — use `python3` on Linux. The system has Python 3.12 which satisfies the `>=3.11,<3.13` constraint.
@@ -47,6 +51,8 @@ Do **not** push to a different branch than `ORCHESTRATOR_GIT_BRANCH` unless the 
 - **Стартовый кадр для Outsee** публикуется только через Yandex Object Storage (`YANDEX_STORAGE_*`). Без него `ensure_public_image_url` падает `OutseeApiError` — это не баг. Анонимные файлохостинги (litterbox/catbox/uguu/0x0) отключены; опт-ин `OUTSEE_ALLOW_PUBLIC_HOSTS=true` кладёт кадр в публичный доступ без авторизации.
 - Studio Create: provider **outsee** → `POST /api/outsee/generate`; provider **grsai** → `/api/grsai/generate`.
 - **Lint/type — держим в нуле**: `ruff check .` и `mypy app/ --ignore-missing-imports` оба чистые (было 888 / 409). Правка, которая их ломает, в main не едет. Гейт — `.claude/verify.json` + `.pre-commit-config.yaml`, ловушка: `ruff --fix --unsafe-fixes` умеет снести импорт, который тесты monkeypatch-ят через модуль (см. noqa в `frame_timeline_sync`).
+- **Прогонять тесты только из `.venv`** (`.venv/bin/python -m pytest`): системный `python3` — 3.14 без `PyJWT`, суита на нём не собирается вовсе. То же относится к гейту (`.claude/verify.json`).
+- **Изоляция арендаторов проверяется только на живом Postgres** (`tests/test_rls_postgres.py`, 12 тестов, по умолчанию skip). Поднять: `podman start vp-pg`, затем `TEST_DATABASE_URL=postgresql+asyncpg://app:app@127.0.0.1/vp .venv/bin/python -m pytest tests/test_rls_postgres.py`. На SQLite политик нет, и там баги RLS невидимы — так был пропущен отказ вставки счёта при заведении учётки.
 - Tests use in-memory SQLite and don't require external services or a `.env` file. **НО** им нужна промт-библиотека: без `prompts/` десятки тестов падают на данных, а не на коде — `python3 scripts/check_prompts.py` перед разбором красноты (см. `HANDOVER.md` §2.5).
 - **Parallel projects**: `WORKER_MAX_PARALLEL` (default `1`) — top-N window in `app/services/gen_queue.py` + concurrent advances in `_run_worker_loop`. `1` keeps legacy serial behavior; `paused`/`user_stop` on an earlier slot still hard-blocks the rest of the queue.
 - **API xlsx write-back — DEPRECATED fallback** (см. `docs/PROMPT_CONTRACT.md`): контракт — apply-ops в DB; `xlsx_text_writeback.py` (downloaded `.xlsx` / TSV `# Лист:`) остаётся только как fallback-ветка в `gpt_operator_client`, не учить модель TSV.

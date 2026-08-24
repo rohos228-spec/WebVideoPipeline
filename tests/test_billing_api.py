@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-import uuid
-
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -179,23 +177,17 @@ async def test_balance_shows_where_the_money_went(tmp_path, monkeypatch) -> None
     слой личности сбрасывает арендатора на каждом запросе, и подменённый
     контекст до ручки просто не доедет.
     """
-    import time
-
-    import jwt
-
     from app.services import credit_ledger as cl
+    from tests import accounts_harness as ah
 
-    secret = "секрет-биллинга-длиною-в-тридцать-два-байта-и-более"
-    monkeypatch.setattr(settings, "billing_jwt_secret", secret)
-    monkeypatch.setattr(settings, "studio_brand", "")
-    monkeypatch.setattr(settings, "allow_unisolated_tenants", True)
+    ah.configure(monkeypatch)
+    engine, factory = await ah.make_engine(tmp_path / "bal.db")
+    ah.bind_identity_session(monkeypatch, factory)
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'bal.db'}", echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-
-    tenant = str(uuid.uuid4())
+    # Участник, а не админ: у админа кассы нет вовсе, и проверять на нём
+    # раскладку остатка значило бы проверять пустой ответ (§5.8).
+    account = await ah.make_account(factory, email="client@studio.local")
+    tenant = account.user_id
     async with factory() as s:
         await cl.topup(s, tenant, 20 * 10**6, memo="стартовый пакет")
         await cl.open_hold(s, tenant, project_id=1, step_code="video", amount_micro=13_680_000)
@@ -207,21 +199,11 @@ async def test_balance_shows_where_the_money_went(tmp_path, monkeypatch) -> None
 
     app = create_app()
     app.dependency_overrides[get_session] = _gen
-    token = jwt.encode(
-        {
-            "sub": tenant,
-            "email": "client@example.com",
-            "brand": "videostudio",
-            "iat": int(time.time()),
-            "exp": int(time.time()) + 600,
-        },
-        secret,
-        algorithm="HS256",
-    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        body = (await c.get("/api/billing/balance", headers={"Authorization": f"Bearer {token}"})).json()
+        body = (await c.get("/api/billing/balance", headers=account.auth)).json()
     await engine.dispose()
 
+    assert body["unlimited"] is False
     assert body["tenant_id"] == tenant
     assert body["held_micro"] == 13_680_000
     assert body["balance_micro"] == 20 * 10**6 - 13_680_000
@@ -232,7 +214,7 @@ async def test_balance_shows_where_the_money_went(tmp_path, monkeypatch) -> None
 @pytest.mark.no_harness_gate
 async def test_quote_is_closed_by_identity_in_saas(tmp_path, monkeypatch) -> None:
     """Смета — тоже данные проекта: без токена её не отдают."""
-    monkeypatch.setattr(settings, "billing_jwt_secret", "секрет-длиною-в-тридцать-два-байта-точно")
+    monkeypatch.setattr(settings, "studio_session_secret", "секрет-длиною-в-тридцать-два-байта-точно")
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'closed.db'}", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

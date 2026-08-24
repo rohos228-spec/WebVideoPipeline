@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Manrope, Literata, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { AuthGate } from "@/components/auth-gate";
 
 const manrope = Manrope({
   variable: "--font-manrope",
@@ -36,7 +37,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="ru" className={`${manrope.variable} ${literata.variable} ${mono.variable}`}>
       <body>
-        <Providers>{children}</Providers>
+        {/* Дверь стоит ВНУТРИ провайдеров: экран входа сам ходит по сети
+            и показывает состояние загрузки теми же средствами. */}
+        <Providers>
+          <AuthGate>{children}</AuthGate>
+        </Providers>
       </body>
     </html>
   );

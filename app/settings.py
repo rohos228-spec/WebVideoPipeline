@@ -370,10 +370,6 @@ class Settings(BaseSettings):
     # Tailscale URL этого ПК для agents (например http://100.x.x.x:8765)
     fleet_public_url: str = Field("", alias="FLEET_PUBLIC_URL")
 
-    # Web auth (fleet + удалённое управление)
-    web_auth_user: str = Field("", alias="WEB_AUTH_USER")
-    web_auth_password: str = Field("", alias="WEB_AUTH_PASSWORD")
-
     # Background music — auto if bgm.mp3 / music.mp3 found in project folder
     bgm_default_enabled: bool = Field(True, alias="BGM_DEFAULT_ENABLED")
     bgm_default_level: int = Field(35, alias="BGM_DEFAULT_LEVEL")  # 0..100
@@ -423,8 +419,18 @@ class Settings(BaseSettings):
 
     # Web UI (локальный FastAPI + Next.js)
     web_enabled: bool = Field(True, alias="WEB_ENABLED")
+    # По умолчанию только петля. Выставить сюда `0.0.0.0` без учётных записей
+    # нельзя: старт откажет (см. `app/web/api.py`). До 2026-08-24 открытый
+    # порт закрывался парой WEB_AUTH_USER/WEB_AUTH_PASSWORD — паролем
+    # открытым текстом в окружении, который сравнивался оператором `!=`.
+    # Пара удалена вместе с этим способом защиты.
     web_host: str = Field("127.0.0.1", alias="WEB_HOST")
     web_port: int = Field(8765, alias="WEB_PORT")
+    # Ставить ли cookie сессии с флагом `Secure`. По умолчанию нет: студия
+    # живёт на `127.0.0.1:8765` без TLS, и cookie с `Secure` там не
+    # установится вовсе — вход выглядел бы сломанным без единой ошибки.
+    # За обратным прокси с TLS — включить.
+    session_cookie_secure: bool = Field(False, alias="SESSION_COOKIE_SECURE")
 
     # ── Кредиты (docs/SAAS-PIVOT.md §5.1) ────────────────────────────────
     # Курс: сколько долларов СЕБЕСТОИМОСТИ в одном кредите. Маржа — наценка
@@ -448,33 +454,41 @@ class Settings(BaseSettings):
     # ключ учёта, а не как граница безопасности. По умолчанию — fail-closed.
     allow_unisolated_tenants: bool = Field(False, alias="ALLOW_UNISOLATED_TENANTS")
 
-    # ── Личность: SSO из биллинга (docs/SAAS-PIVOT.md §4.1, §11 этап 2) ──
-    # Единственный источник личности в SaaS — `llm-gateway/billing`. Он
-    # подписывает JWT (HS256) с полями `sub` (UUID пользователя), `email` и
-    # `brand`. Секрет общий, тот же `JWT_SECRET`, которым подписывает биллинг.
+    # ── Личность: учётные записи студии (docs/SAAS-PIVOT.md §4.1) ────────
+    # Секрет подписи сессионного токена. Личность заводится в `studio_users`
+    # и токен студия подписывает сама (`app/services/studio_auth.py`).
     #
-    # Пусто — режим владельца: арендатора нет, изоляции нет, работает старый
-    # вход по одному паролю. Задано — режим SaaS: каждый запрос обязан нести
-    # токен, своя форма входа отключается. Промежуточного состояния нет
-    # намеренно: «половина ручек за токеном» и есть та утечка, ради защиты от
-    # которой выбран RLS.
-    billing_jwt_secret: str = Field("", alias="BILLING_JWT_SECRET")
-    # Бренд этой студии. Биллинг мультибрендовый: один и тот же email живёт в
-    # разных брендах как РАЗНЫЕ пользователи (уникальность по паре
-    # `(email, brand)`). Токен чужого бренда — валидная подпись и чужой
-    # продукт, поэтому бренд сверяется, а не принимается на веру.
+    # До 2026-08-24 здесь стоял `BILLING_JWT_SECRET` — общий ключ с
+    # `llm-gateway/billing`. Связь снята решением владельца: платежей студия
+    # не принимает, продукт внутренний, и зависеть от чужого сервиса ради
+    # строки «кто пришёл» незачем.
+    #
+    # Пусто — режим владельца: арендатора нет, изоляции нет, вход отключён.
+    # Задано — режим учётных записей: каждый запрос обязан нести токен.
+    # Промежуточного состояния нет намеренно: «половина ручек за токеном» и
+    # есть та утечка, ради защиты от которой выбран RLS.
+    studio_session_secret: str = Field("", alias="STUDIO_SESSION_SECRET")
+    # Срок сессии. Двенадцать часов — рабочий день: человек входит утром и не
+    # переспрашивается до вечера. Больше делать не стоит: отзыв токена держит
+    # `token_epoch`, но истечение срока — второй рубеж, и он тем полезнее, чем
+    # короче. Меньше — раздражает без выигрыша: сессию всё равно закрывает
+    # смена пароля.
+    session_ttl_hours: int = Field(12, alias="SESSION_TTL_HOURS")
+    # Запас на расхождение часов между узлами, секунды.
+    session_leeway_sec: int = Field(30, alias="SESSION_LEEWAY_SEC")
+    # Ярлык этой студии. Единственный его потребитель — уровень «бренд» в
+    # промт-библиотеке (`app/services/prompt_store.py`): переопределение
+    # «как принято у нас» между системным уровнем и личным.
+    #
+    # До 2026-08-24 значение было существенным иначе: биллинг Chattiq
+    # мультибрендовый, уникальность пользователя там — по паре (email, brand),
+    # и токен чужого бренда сверялся, чтобы не отдать продукт соседней
+    # воронке. Той сверки больше нет вместе с самим биллингом; осталась
+    # строка-ярлык, и по умолчанию она пустая.
     studio_brand: str = Field("", alias="STUDIO_BRAND")
-    # Запас на расхождение часов между биллингом и студией, секунды.
-    billing_jwt_leeway_sec: int = Field(30, alias="BILLING_JWT_LEEWAY_SEC")
-    # Сколько кредитов кладётся на счёт при первом входе. Ноль — по решению
-    # владельца: бесплатный уровень (§5.7) это не кредиты, а промо-проводки
-    # с нулевой дельтой. Ненулевое значение здесь — подарок живыми деньгами.
+    # Сколько кредитов кладётся на счёт при заведении учётной записи. Админа
+    # это не касается: у него не бесконечный баланс, а отсутствие кассы.
     tenant_start_credits: float = Field(0.0, alias="TENANT_START_CREDITS")
-    # Общий секрет сервер-сервер для приёма пополнений из биллинга. ОТДЕЛЬНЫЙ
-    # от BILLING_JWT_SECRET намеренно: токен клиента подписан тем же ключом,
-    # и приём пополнения по нему означал бы, что клиент пополняет себе баланс
-    # собственным токеном. Пусто — ручка пополнения не работает вовсе.
-    billing_webhook_secret: str = Field("", alias="BILLING_WEBHOOK_SECRET")
 
     # ── Бесплатный уровень (docs/SAAS-PIVOT.md §5.7) ──────────────────────
     # Бесплатно всё до первой генерации видео НА АККАУНТЕ. Граница по
@@ -546,10 +560,6 @@ class Settings(BaseSettings):
         return hub or self.fleet_local_web_url
 
     @property
-    def web_auth_enabled(self) -> bool:
-        return bool(self.web_auth_user.strip() and self.web_auth_password)
-
-    @property
     def telegram_active(self) -> bool:
         """Нужен ли живой Telegram-бот (поллинг + уведомления)."""
         if not self.telegram_enabled:
@@ -584,10 +594,15 @@ class Settings(BaseSettings):
 
     @property
     def xlsx_enabled(self) -> bool:
-        """Пишем ли книгу проекта. По умолчанию — да у владельца, нет в SaaS."""
+        """Пишем ли книгу проекта. Да у владельца, нет при учётных записях.
+
+        Книга проекта — файл на диске узла, и открывать его умеет только тот,
+        у кого этот диск есть. Как только пользователей больше одного, xlsx
+        превращается в артефакт, до которого никто не дотянется.
+        """
         if self.xlsx_write is not None:
             return bool(self.xlsx_write)
-        return not self.sso_enabled
+        return not self.accounts_enabled
 
     @property
     def s3_configured(self) -> bool:
@@ -600,9 +615,13 @@ class Settings(BaseSettings):
         )
 
     @property
-    def sso_enabled(self) -> bool:
-        """Режим SaaS: личность приходит из биллинга, своей формы входа нет."""
-        return bool(self.billing_jwt_secret.strip())
+    def accounts_enabled(self) -> bool:
+        """Режим учётных записей: у каждого запроса есть личность и арендатор.
+
+        Пусто — режим владельца: одна машина, SQLite, арендатора нет вовсе.
+        Это состояние сегодняшней установки, и ломать его незачем.
+        """
+        return bool(self.studio_session_secret.strip())
 
 
 settings = Settings()  # type: ignore[call-arg]

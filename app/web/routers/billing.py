@@ -73,6 +73,11 @@ class BalanceOut(BaseModel):
     """Остаток и последние проводки."""
 
     tenant_id: str | None = None
+    #: true — кассы для этого пользователя нет (админ или режим владельца).
+    #: Интерфейс рисует по этому флагу «∞», а не число: выдать сюда огромный
+    #: остаток значило бы соврать леджеру, и ночная сверка
+    #: `balance = Σ delta − Σ held` перестала бы сходиться.
+    unlimited: bool = False
     balance_micro: int = 0
     balance_credits: str = "0"
     held_micro: int = 0
@@ -220,6 +225,7 @@ async def balance(limit: int = 20, session: AsyncSession = Depends(get_session))
     from app.services.credit_ledger import balance_micro
     from app.services.credits import format_credits
     from app.services.free_tier import free_tier_state
+    from app.services.studio_auth import current_is_admin
     from app.services.tenant import current_tenant
     from app.settings import settings
 
@@ -227,7 +233,13 @@ async def balance(limit: int = 20, session: AsyncSession = Depends(get_session))
     if tenant is None:
         # Режим владельца: кредитов нет вовсе, владелец платит провайдерам
         # напрямую. Пустой ответ честнее нуля, выданного за остаток.
-        return BalanceOut()
+        return BalanceOut(unlimited=True)
+    if current_is_admin():
+        # У админа не бесконечный баланс, а отсутствие кассы: `step_billing`
+        # его не тарифицирует, холдов под его шагами не возникает, проводок
+        # не появляется. Показывать ему ноль было бы неверно — это не «денег
+        # нет», а «денег здесь не считают».
+        return BalanceOut(tenant_id=tenant, unlimited=True)
 
     held = (
         await session.execute(

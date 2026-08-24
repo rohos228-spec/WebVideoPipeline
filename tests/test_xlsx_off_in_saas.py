@@ -29,7 +29,7 @@ def sheet(tmp_path):
 
 def test_owner_mode_writes_the_workbook(sheet, monkeypatch) -> None:
     """На машине владельца книга остаётся: это его рабочий инструмент."""
-    monkeypatch.setattr(settings, "billing_jwt_secret", "")
+    monkeypatch.setattr(settings, "studio_session_secret", "")
     monkeypatch.setattr(settings, "xlsx_write", None)
     assert sheet.writable
     sheet.ensure_initialized(project_id=1, slug="owner-film")
@@ -43,7 +43,7 @@ def test_saas_writes_nothing_to_disk(sheet, monkeypatch) -> None:
     на диске выглядит как испорченная и однажды приведёт кого-нибудь к мысли
     её починить.
     """
-    monkeypatch.setattr(settings, "billing_jwt_secret", "секрет-длиною-в-тридцать-два-байта-точно")
+    monkeypatch.setattr(settings, "studio_session_secret", "секрет-длиною-в-тридцать-два-байта-точно")
     monkeypatch.setattr(settings, "xlsx_write", None)
     assert not sheet.writable
     path = sheet.ensure_initialized(project_id=1, slug="saas-film")
@@ -57,11 +57,11 @@ def test_explicit_setting_beats_the_mode(sheet, monkeypatch) -> None:
     Нужно и для отладки SaaS у себя, и для владельца, который захочет
     перестать плодить книги, не переезжая в SaaS.
     """
-    monkeypatch.setattr(settings, "billing_jwt_secret", "секрет-длиною-в-тридцать-два-байта-точно")
+    monkeypatch.setattr(settings, "studio_session_secret", "секрет-длиною-в-тридцать-два-байта-точно")
     monkeypatch.setattr(settings, "xlsx_write", True)
     assert sheet.writable
 
-    monkeypatch.setattr(settings, "billing_jwt_secret", "")
+    monkeypatch.setattr(settings, "studio_session_secret", "")
     monkeypatch.setattr(settings, "xlsx_write", False)
     assert not sheet.writable
 
@@ -73,7 +73,7 @@ def test_save_is_the_last_line_of_defence(sheet, monkeypatch) -> None:
     закрыть шестьдесят шесть и забыть одну. Поэтому выключение стоит и на
     самом сохранении.
     """
-    monkeypatch.setattr(settings, "billing_jwt_secret", "")
+    monkeypatch.setattr(settings, "studio_session_secret", "")
     monkeypatch.setattr(settings, "xlsx_write", True)
     sheet.ensure_initialized(project_id=1, slug="film")
     assert sheet.file_path.is_file()

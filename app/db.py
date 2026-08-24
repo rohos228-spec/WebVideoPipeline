@@ -163,6 +163,32 @@ async def bind_tenant(session: AsyncSession) -> str | None:
     return current_tenant()
 
 
+async def rebind_tenant(session: AsyncSession) -> str | None:
+    """Перепривязать арендатора ВНУТРИ уже открытой транзакции.
+
+    `after_begin` срабатывает один раз — в начале транзакции, — и этого хватает
+    всем, кто получает сессию уже с назначенным арендатором. Не хватает одному
+    случаю: когда арендатор появляется ПОСЛЕ первого запроса. Ровно так
+    устроено заведение учётки — сперва проверка «адрес не занят» (транзакция
+    открылась, арендатора нет), потом генерация UUID, и только потом вставка
+    счёта, которая уже под политикой RLS.
+
+    Без этой функции вставка падает `new row violates row-level security policy
+    for table "credit_accounts"`, и падает только на Postgres: на SQLite
+    политик нет, и в тестах это невидимо. Поймано `tests/test_rls_postgres.py`.
+
+    На SQLite ничего не делает — там нечего привязывать.
+    """
+    from app.services.tenant import current_tenant, require_isolation
+
+    require_isolation()
+    tenant_id = current_tenant()
+    if tenant_id is None or not settings.is_postgres:
+        return tenant_id
+    await session.execute(_BIND_TENANT_SQL, {"tid": tenant_id})
+    return tenant_id
+
+
 @asynccontextmanager
 async def session_scope() -> AsyncIterator[AsyncSession]:
     async with SessionLocal() as session:

@@ -151,6 +151,30 @@ def _write_reject(
         return None
 
 
+def _record(contract: str, reply: str, *, label: str, verdict: str, error: str = "") -> None:
+    """Сохранить сырой ответ в корпус, если запись включена.
+
+    Пишутся и удачные ответы, и брак. Брак и так падал в `llm_rejects/`, но
+    только он: истории успешной работы у конвейера не было вовсе, а голденсет
+    из одних поломок проверяет обработку ошибок и ничего не говорит про
+    нормальный путь.
+
+    Вызов намеренно ничего не возвращает и не может бросить: рекордер не имеет
+    права быть причиной падения шага (см. `app/services/llm_recorder.py`).
+    """
+    from app.services import llm_recorder
+
+    if not llm_recorder.enabled():
+        return
+    llm_recorder.record(
+        contract=contract,
+        reply=reply,
+        node_key=label,
+        verdict=verdict,
+        error=error,
+    )
+
+
 async def run_with_contract(
     *,
     contract: LlmContract[TModel],
@@ -215,6 +239,7 @@ async def run_with_contract(
             else:
                 validate_fails += 1
                 exhausted = validate_fails > validate_limit
+            _record(contract.name, reply, label=label, error=str(e), verdict=e.kind)
             rp = _write_reject(
                 reject_dir,
                 label=label or contract.name,
@@ -260,6 +285,7 @@ async def run_with_contract(
             feedback = e.feedback
             continue
 
+        _record(contract.name, reply, label=label, verdict="ok")
         _write_metrics(
             reject_dir,
             contract=contract.name,

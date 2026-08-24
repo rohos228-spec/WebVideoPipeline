@@ -2,10 +2,13 @@
 
 import type {
   Asset,
+  AuthStatus,
   Balance,
   Frame,
   GenerationOptions,
+  LoginResult,
   MediaFrame,
+  Me,
   Project,
   ProjectSummary,
   StageId,
@@ -21,11 +24,61 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Ключ сессии в хранилище браузера.
+ *
+ * Тот же токен сервер кладёт в cookie `HttpOnly` — она нужна `EventSource` и
+ * WebSocket, которым заголовок поставить нечем. Здесь копия для заголовка
+ * `Authorization`: cookie из скрипта не читается, а без неё каждый запрос
+ * зависел бы от того, отправил ли браузер cookie на этот путь.
+ */
+const TOKEN_KEY = "vp.token";
+
+function readToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(TOKEN_KEY);
+  } catch {
+    // Приватное окно, запрет на хранилище — вход просто не переживёт
+    // перезагрузку. Ронять страницу из-за этого незачем.
+    return null;
+  }
+}
+
+function saveToken(token: string): void {
+  try {
+    window.localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    /* см. readToken */
+  }
+}
+
+function forgetToken(): void {
+  try {
+    window.localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* см. readToken */
+  }
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = readToken();
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: init?.body ? { "content-type": "application/json", ...init?.headers } : init?.headers,
+    headers: {
+      ...(init?.body ? { "content-type": "application/json" } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   });
+
+  // Токен протух или отозван (сменили пароль, отключили учётку). Держать его
+  // дальше незачем: каждый следующий запрос получит тот же 401, а человек
+  // будет видеть пустой интерфейс вместо формы входа.
+  if (res.status === 401 && token && !path.startsWith("/auth/")) {
+    forgetToken();
+    if (typeof window !== "undefined") window.location.reload();
+  }
   if (!res.ok) {
     let detail = `${res.status}`;
     try {
@@ -67,6 +120,18 @@ export const api = {
 
   balance: () => req<Balance>("/billing/balance"),
   options: () => req<GenerationOptions>("/generation-options/wizard"),
+
+  authStatus: () => req<AuthStatus>("/auth/status"),
+  login: (email: string, password: string) => post<LoginResult>("/auth/login", { email, password }),
+  logout: async () => {
+    await post<unknown>("/auth/logout");
+    forgetToken();
+  },
+  me: () => req<Me>("/me"),
+
+  readToken,
+  saveToken,
+  forgetToken,
 };
 
 /** Живые события проекта. Возвращает функцию отписки. */

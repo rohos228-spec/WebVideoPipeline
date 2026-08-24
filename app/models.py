@@ -1177,6 +1177,61 @@ class WorkflowVersion(Base):
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# Учётные записи студии (docs/SAAS-PIVOT.md §4.1)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+class StudioUser(Base):
+    """Кто заходит в студию. Он же арендатор своих данных.
+
+    **Почему id — это сразу tenant_id.** Изоляция уже построена на
+    `tenant_id UUID` во всех верхних таблицах и на политиках RLS
+    (`migrations/versions/0006_rls_policies.py`). Заводить отдельный ключ
+    пользователя и таблицу соответствия значило бы добавить джойн ради ничего:
+    один человек — один арендатор, и другого отношения здесь не будет.
+    Первичный ключ поэтому `Uuid`, а не автоинкремент.
+
+    **Почему email в нижнем регистре — инвариант, а не привычка.** Уникальность
+    держит индекс по колонке. Если регистр не нормализовать при записи,
+    `Ivan@studio.ru` и `ivan@studio.ru` станут двумя аккаунтами, а человек
+    будет уверен, что у него один. Нормализация стоит в `@validates`, то есть
+    срабатывает и в тестах, и в сидере, и в любом будущем вызывающем.
+
+    **Роль строкой, а не булевым `is_admin`.** Ролей уже сейчас две, и первая
+    же просьба «дай смотреть, но не запускать» превратит булев флаг в пару
+    флагов, которые начнут противоречить друг другу. Значения перечислены в
+    `app/services/studio_auth.py::ROLES`.
+
+    **`is_active` вместо удаления.** Проекты, проводки и журналы вызовов
+    ссылаются на арендатора; удалить строку пользователя значит осиротить их и
+    потерять историю расходов. Отключённый вход — то же самое для человека и
+    честнее для данных.
+    """
+
+    __tablename__ = "studio_users"
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    # argon2id, параметры внутри строки (см. `app/services/passwords.py`).
+    password_hash: Mapped[str] = mapped_column(Text, default="")
+    # admin | member
+    role: Mapped[str] = mapped_column(String(16), default="member", index=True)
+    display_name: Mapped[str] = mapped_column(String(120), default="")
+    is_active: Mapped[bool] = mapped_column(default=True, index=True)
+    # Смена пароля обязана обесценить выданные токены: иначе увольнение или
+    # утечка пароля не закрывают доступ до конца срока токена. Счётчик едет в
+    # токен и сверяется на каждом запросе (`studio_auth`).
+    token_epoch: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+    last_login_at: Mapped[datetime | None] = mapped_column(default=None)
+
+    @validates("email")
+    def _normalize_email(self, _key: str, value: str) -> str:
+        return (value or "").strip().lower()
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # Кредиты: счёт, резерв, проводка (docs/SAAS-PIVOT.md §5.3)
 # ────────────────────────────────────────────────────────────────────────────
 #

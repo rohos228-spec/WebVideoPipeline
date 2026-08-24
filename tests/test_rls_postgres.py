@@ -206,78 +206,78 @@ async def test_ledger_invariant_holds_on_postgres(pg_engine) -> None:
 async def test_http_request_is_isolated_by_its_token(pg_engine) -> None:
     """Вся цепочка разом: заголовок → контекст задачи → политика в SQL.
 
-    Каждое звено проверено по отдельности — подпись в `test_billing_sso`,
-    закрытие входа в `test_sso_middleware`, невидимость строки выше в этом
-    файле. Но склеены они через ContextVar и событие `after_begin`, а склейка
-    и есть то место, где обычно рвётся: контекст не доезжает до задачи,
-    событие не срабатывает на чужой сессии, роутер открывает сессию мимо
-    привязки. Поэтому здесь — один запрос по HTTP, от заголовка до ответа.
+    Каждое звено проверено по отдельности — подпись в `test_studio_auth`,
+    закрытие входа в `test_identity_middleware`, невидимость строки выше в
+    этом файле. Но склеены они через ContextVar и событие `after_begin`, а
+    склейка и есть то место, где обычно рвётся: контекст не доезжает до
+    задачи, событие не срабатывает на чужой сессии, роутер открывает сессию
+    мимо привязки. Поэтому здесь — один запрос по HTTP, от заголовка до ответа.
     """
-    import time
-
-    import jwt
     from httpx import ASGITransport, AsyncClient
 
     from app.models import Project, ProjectStatus
     from app.settings import settings
     from app.web.api import create_app
     from app.web.deps import get_session
+    from tests import accounts_harness as ah
 
-    secret = "секрет-биллинга-длиною-в-тридцать-два-байта-и-более"
     _, factory = pg_engine
-    alice, bob = str(uuid.uuid4()), str(uuid.uuid4())
-    mine, theirs = f"http-a-{alice[:8]}", f"http-b-{bob[:8]}"
 
-    def token(sub: str) -> str:
-        return jwt.encode(
-            {
-                "sub": sub,
-                "email": "client@example.com",
-                "brand": "videostudio",
-                "iat": int(time.time()),
-                "exp": int(time.time()) + 600,
-            },
-            secret,
-            algorithm="HS256",
-        )
+    prev_secret, prev_brand = settings.studio_session_secret, settings.studio_brand
+    settings.studio_session_secret, settings.studio_brand = ah.SECRET, ""
 
+    import app.db as db_mod
     from app.services.tenant import tenant_scope
 
-    for tenant, slug in ((alice, mine), (bob, theirs)):
-        with tenant_scope(tenant):
-            async with factory() as session:
-                session.add(
-                    Project(
-                        slug=slug,
-                        topic="сквозняк",
-                        tenant_id=tenant,
-                        status=ProjectStatus.new,
-                        hero_mode="no_hero",
-                    )
-                )
-                await session.commit()
-
-    prev_secret, prev_brand = settings.billing_jwt_secret, settings.studio_brand
-    settings.billing_jwt_secret, settings.studio_brand = secret, "videostudio"
-    app = create_app()
-
-    async def _gen():
-        # Сессия роутера идёт на живой Postgres, а не на движок из настроек:
-        # `app.db.engine` создан на импорте модуля, до подмены URL.
-        async with factory() as s:
-            yield s
-
-    app.dependency_overrides[get_session] = _gen
+    prev_session_local = db_mod.SessionLocal
+    db_mod.SessionLocal = factory
     try:
+        # Учётки заводятся НАСТОЯЩИЕ: слой личности сверяет `is_active` и
+        # `token_epoch` по базе, и собранный руками токен до политики бы не
+        # доехал — упёрся бы в отзыв. `studio_users` вне RLS (это список
+        # арендаторов, а не их данные), поэтому заводятся они без контекста.
+        # Адреса уникальны в каждом прогоне по той же причине, что и слаги
+        # (см. шапку файла): база между тестами не пересоздаётся, а тест,
+        # который проходит только на пустой базе, перестают запускать.
+        mark = uuid.uuid4().hex[:8]
+        alice = await ah.make_account(factory, email=f"alice-{mark}@studio.local")
+        bob = await ah.make_account(factory, email=f"bob-{mark}@studio.local")
+        mine, theirs = f"http-a-{alice.user_id[:8]}", f"http-b-{bob.user_id[:8]}"
+
+        for account, slug in ((alice, mine), (bob, theirs)):
+            with tenant_scope(account.user_id):
+                async with factory() as session:
+                    session.add(
+                        Project(
+                            slug=slug,
+                            topic="сквозняк",
+                            tenant_id=account.user_id,
+                            status=ProjectStatus.new,
+                            hero_mode="no_hero",
+                        )
+                    )
+                    await session.commit()
+
+        app = create_app()
+
+        async def _gen():
+            # Сессия роутера идёт на живой Postgres, а не на движок из
+            # настроек: `app.db.engine` создан на импорте модуля, до подмены
+            # URL.
+            async with factory() as s:
+                yield s
+
+        app.dependency_overrides[get_session] = _gen
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             assert (await client.get("/api/projects")).status_code == 401
-            for tenant, slug in ((alice, mine), (bob, theirs)):
-                res = await client.get("/api/projects", headers={"Authorization": f"Bearer {token(tenant)}"})
+            for account, slug in ((alice, mine), (bob, theirs)):
+                res = await client.get("/api/projects", headers=account.auth)
                 assert res.status_code == 200
                 assert [p["slug"] for p in res.json()] == [slug]
     finally:
-        settings.billing_jwt_secret, settings.studio_brand = prev_secret, prev_brand
+        db_mod.SessionLocal = prev_session_local
+        settings.studio_session_secret, settings.studio_brand = prev_secret, prev_brand
 
 
 async def test_routes_mirror_projects_by_trigger(pg_engine) -> None:
@@ -410,3 +410,36 @@ async def test_tenant_cannot_enumerate_foreign_routes(pg_engine) -> None:
         await session.execute(text("select set_config('app.tenant_id', :t, false)"), {"t": alice})
         seen = (await session.execute(select(ProjectRoute.tenant_id))).scalars().all()
     assert set(seen) == {alice}, f"арендатор видит чужие маршруты: {set(seen)}"
+
+
+async def test_creating_a_user_creates_their_account_under_rls(pg_engine) -> None:
+    """Заведение учётки вставляет счёт — и вставка идёт под политикой.
+
+    Регрессия, найденная этим файлом 2026-08-24. `create_user` сперва
+    проверяет «адрес не занят» (транзакция открывается, арендатора ещё нет),
+    потом генерирует UUID и только потом пишет в `credit_accounts`, которая
+    под RLS. `after_begin` к этому моменту уже отработал с пустым арендатором,
+    и вставка падала:
+
+        new row violates row-level security policy for table "credit_accounts"
+
+    На SQLite политик нет, поэтому все двадцать тестов заведения учёток были
+    зелёными, а на живой базе не завёлся бы ни один пользователь — включая
+    первого админа. Лечится явной перепривязкой (`app.db.rebind_tenant`).
+    """
+    from app.models import CreditAccount
+    from app.services import studio_users
+    from app.services.tenant import tenant_scope
+    from tests import accounts_harness as ah
+
+    _, factory = pg_engine
+    email = f"rls-{uuid.uuid4().hex[:8]}@studio.local"
+
+    async with factory() as session:
+        user = await studio_users.create_user(session, email=email, password=ah.PASSWORD)
+        await session.commit()
+        user_id = user.id
+
+    with tenant_scope(user_id):
+        async with factory() as session:
+            assert await session.get(CreditAccount, user_id) is not None

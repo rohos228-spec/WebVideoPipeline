@@ -124,13 +124,11 @@ async def test_http_answers_404_not_403(db, tmp_path, monkeypatch) -> None:
     403 подтверждает, что слаг угадан верно, — то есть отдаёт сведения о
     чужом проекте вместо самого файла.
     """
-    import time
+    from tests import accounts_harness as ah
 
-    import jwt
-
-    secret = "секрет-биллинга-длиною-в-тридцать-два-байта-и-более"
-    monkeypatch.setattr(settings, "billing_jwt_secret", secret)
-    monkeypatch.setattr(settings, "studio_brand", "")
+    ah.configure(monkeypatch)
+    ah.bind_identity_session(monkeypatch, db)
+    account = await ah.make_account(db, email="client@studio.local")
 
     theirs = tmp_path / "data" / "videos" / "someone-else" / "clip.mp4"
     theirs.parent.mkdir(parents=True, exist_ok=True)
@@ -142,22 +140,7 @@ async def test_http_answers_404_not_403(db, tmp_path, monkeypatch) -> None:
 
     app = create_app()
     app.dependency_overrides[get_session] = _gen
-    token = jwt.encode(
-        {
-            "sub": str(uuid.uuid4()),
-            "email": "c@example.com",
-            "brand": "videostudio",
-            "iat": int(time.time()),
-            "exp": int(time.time()) + 600,
-        },
-        secret,
-        algorithm="HS256",
-    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        res = await c.get(
-            "/api/files",
-            params={"path": str(theirs)},
-            headers={"Authorization": f"Bearer {token}"},
-        )
+        res = await c.get("/api/files", params={"path": str(theirs)}, headers=account.auth)
     assert res.status_code == 404, res.status_code
     assert "not found" in res.text

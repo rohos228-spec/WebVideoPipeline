@@ -57,6 +57,7 @@ from app.services.credit_ledger import open_hold, release_hold, settle_hold
 from app.services.credits import format_credits
 from app.services.free_tier import check_step_allowed, record_promo
 from app.services.quote import quote_step
+from app.services.studio_auth import current_is_admin
 from app.services.tenant import current_tenant
 
 
@@ -105,9 +106,17 @@ async def step_billing(
     одну неудачную попытку (§5.4 п.5) — и пробрасывается дальше.
     """
     tenant = current_tenant()
-    if tenant is None or not step_code:
+    if tenant is None or not step_code or current_is_admin():
         # Нет арендатора — режим владельца. Нет кода шага — такт пришёлся на
         # статус, который шагом не является: тарифицировать нечего.
+        #
+        # Админ — третий случай, и он не «баланс побольше», а отсутствие
+        # кассы. Выдать админу огромный остаток было бы проще, но это ложь в
+        # леджере: проводки перестали бы сходиться с себестоимостью, и ночная
+        # сверка `balance = Σ delta − Σ held` показывала бы расхождение на
+        # ровном месте, то есть перестала бы быть сигналом. Себестоимость
+        # вызовов при этом пишется как обычно — она живёт в `llm_calls` и
+        # `media_calls` и от кассы не зависит.
         #
         # Незнакомый прайсу код — другое дело, и он сюда доходит: смета выйдет
         # нулевой, резерв нулевым, а списание всё равно посчитается по факту

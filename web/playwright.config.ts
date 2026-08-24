@@ -15,5 +15,16 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    // Вход отдельным проектом-зависимостью: он выполняется один раз и кладёт
+    // состояние в e2e/.auth/user.json, откуда его берут все спеки. Логиниться
+    // внутри каждого теста значило бы тратить argon2-проверку на каждый —
+    // это десятки миллисекунд по построению, а не по недосмотру.
+    { name: "setup", testMatch: /auth\.setup\.ts/ },
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"], storageState: "e2e/.auth/user.json" },
+      dependencies: ["setup"],
+    },
+  ],
 });

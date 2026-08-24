@@ -1,5 +1,6 @@
 {
   "_comment": "Gauntlet video-pipeline. Движок — ~/.agents/hooks/verify.sh, он же читает этот файл; здесь только ЧТО гонять. Ярусы: turn — Stop-хук агента (быстро), commit — pre-commit, push — pre-push. Контекст: до 2026-08-22 в проекте не было ни CI, ни pre-commit, ни git-хуков — ruff и mypy вывели в ноль руками, и удержать это было нечем. Проверить контракт: python3 ~/.agents/bin/check-verify.py <корень>.",
+  "_python": "ВСЁ зовётся через .venv/bin/python, а не через python3. Системный python3 на этой машине — 3.14 без PyJWT: суита на нём не собирается вовсе, а `scripts/pytest_ratchet.py` в такой ситуации отдаёт не 'красноты нет', а 'тестов нет'. До 2026-08-25 гейт был именно в этом состоянии — зелёный и слепой.",
   "version": 1,
   "repos": [
     {
@@ -9,83 +10,130 @@
         {
           "_comment": "0.1 с на всём репозитории — сужать по $CHANGED смысла нет.",
           "name": "ruff",
-          "run": "python3 -m ruff check .",
+          "run": ".venv/bin/python -m ruff check .",
           "timeout": 60
         },
         {
           "name": "ruff-format",
-          "run": "python3 -m ruff format --check .",
+          "run": ".venv/bin/python -m ruff format --check .",
           "timeout": 60
         },
         {
           "_comment": "1.4 с с кэшем. Держим в нуле: mypy было 409, ruff 888.",
           "name": "mypy",
-          "run": "python3 -m mypy app/ --ignore-missing-imports",
+          "run": ".venv/bin/python -m mypy app/ --ignore-missing-imports",
           "timeout": 180
+        },
+        {
+          "_comment": "Голденсеты: живые ответы моделей против контрактов, без сети. Секунда на весь корпус, поэтому стоит уже на ярусе хода — правка контракта видна сразу, а не на push.",
+          "name": "goldens",
+          "run": ".venv/bin/python -m pytest tests/test_prompt_goldens.py -q -p no:cacheprovider",
+          "timeout": 120
         }
       ],
       "commit": [
         {
           "name": "ruff",
-          "run": "python3 -m ruff check .",
+          "run": ".venv/bin/python -m ruff check .",
           "timeout": 60
         },
         {
           "name": "ruff-format",
-          "run": "python3 -m ruff format --check .",
+          "run": ".venv/bin/python -m ruff format --check .",
           "timeout": 60
         },
         {
           "name": "mypy",
-          "run": "python3 -m mypy app/ --ignore-missing-imports",
+          "run": ".venv/bin/python -m mypy app/ --ignore-missing-imports",
           "timeout": 180
         },
         {
           "_comment": "Секреты: живой VIBECODE_API_KEY уже уезжал значением в .env.example (stage-0 п.1.2) и остался в истории всех веток. Сканим добавленные строки индекса.",
           "name": "secrets",
-          "run": "python3 ~/.agents/bin/scan-secrets.py --staged",
+          "run": ".venv/bin/python ~/.agents/bin/scan-secrets.py --staged",
           "timeout": 30
+        },
+        {
+          "_comment": "Голденсеты и конфигурация эвалов. Первое — что разбор живых ответов не поехал; второе — что наборы эвалов не превратились в декорацию: опечатка в kind даёт критерий, который молча не считается, и оценка от этого РАСТЁТ.",
+          "name": "goldens",
+          "run": ".venv/bin/python -m pytest tests/test_prompt_goldens.py tests/test_eval_suites.py -q -p no:cacheprovider",
+          "timeout": 180
         },
         {
           "_comment": "Тесты, задетые изменением. У pytest нет --findRelatedTests: гоняем файл tests/test_<модуль>.py, если он есть, иначе шаг пустой. Полная суита — на ярусе push.",
           "name": "tests-touched",
-          "run": "python3 scripts/pytest_touched.py $CHANGED",
+          "run": ".venv/bin/python scripts/pytest_touched.py $CHANGED",
           "timeout": 300,
           "changed_filter": ["*.py"]
         }
       ],
       "push": [
         {
-          "_comment": "Храповик, а не 'должно быть зелено': промт-библиотека вне git (.gitignore: prompts/*), поэтому вне машины владельца часть тестов падает на отсутствии ДАННЫХ. Вечно красный гейт отключают в первый же день; храповик ловит ровно то, ради чего гейт нужен — рост красноты. База: .claude/baselines/pytest-failures.txt",
+          "_comment": "Храповик, а не 'должно быть зелено': промт-библиотека вне git (.gitignore: prompts/*), поэтому вне машины владельца часть тестов падает на отсутствии ДАННЫХ. Вечно красный гейт отключают в первый же день; храповик ловит ровно то, ради чего гейт нужен — рост красноты. База: .claude/baselines/pytest-failures.txt. Тот же прогон собирает покрытие для двух следующих шагов — второй прогон суиты стоил бы ещё десять минут.",
           "name": "pytest-ratchet",
-          "run": "python3 scripts/pytest_ratchet.py",
-          "timeout": 900
+          "run": ".venv/bin/python scripts/pytest_ratchet.py -- --cov=app --cov-report=json:coverage/coverage.json --cov-report=lcov:coverage/lcov.info -p no:cacheprovider",
+          "timeout": 1500
+        },
+        {
+          "_comment": "Просадка покрытия существующего файла — красный; пропажа файла из отчёта — тоже (так покрытие и теряют: файл переименовали, цифры «не просели», потому что их больше нет). Рост подтягивается сам и просит закоммитить.",
+          "name": "cov-ratchet",
+          "run": ".venv/bin/python scripts/coverage_ratchet.py",
+          "timeout": 120
+        },
+        {
+          "_comment": "Изменённые строки покрыты тестами. Храповик выше ловит просадку СУЩЕСТВУЮЩИХ файлов; новый файл входит в базу со своими нулями и живёт так вечно. Этот шаг смотрит только на дифф — центральное правило режима «владелец не читает реализацию».",
+          "name": "diff-cov",
+          "run": ".venv/bin/python scripts/diff_coverage.py --lcov coverage/lcov.info",
+          "timeout": 120
         },
         {
           "name": "ruff",
-          "run": "python3 -m ruff check .",
+          "run": ".venv/bin/python -m ruff check .",
           "timeout": 60
         },
         {
           "name": "mypy",
-          "run": "python3 -m mypy app/ --ignore-missing-imports",
+          "run": ".venv/bin/python -m mypy app/ --ignore-missing-imports",
           "timeout": 180
         },
         {
           "name": "secrets",
-          "run": "python3 ~/.agents/bin/scan-secrets.py --diff",
+          "run": ".venv/bin/python ~/.agents/bin/scan-secrets.py --diff",
           "timeout": 60
         },
         {
           "_comment": "Схема: каждая ревизия применяется на пустой и на унаследованной базе, downgrade baseline отказывает.",
           "name": "migrations",
-          "run": "python3 -m pytest tests/test_db_migrations.py -q -p no:cacheprovider",
+          "run": ".venv/bin/python -m pytest tests/test_db_migrations.py -q -p no:cacheprovider",
           "timeout": 120
+        },
+        {
+          "_comment": "Изоляция арендаторов — единственная проверка, которую нельзя сделать на SQLite: политик RLS в этом движке не существует физически. Гоняется, когда пуш трогает данные, кассу или личность. Без живого Postgres шаг пропускается сам (тесты помечены skipif), и это не тишина: pytest печатает 12 skipped. Поднять: podman start vp-pg.",
+          "name": "rls",
+          "run": "TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgresql+asyncpg://app:app@127.0.0.1/vp} .venv/bin/python -m pytest tests/test_rls_postgres.py -q -p no:cacheprovider",
+          "timeout": 300,
+          "only_if_changed": [
+            "app/db.py",
+            "app/models.py",
+            "app/services/tenant*.py",
+            "app/services/studio_*.py",
+            "app/services/credit*.py",
+            "app/services/step_billing.py",
+            "app/web/identity.py",
+            "app/web/routers/**",
+            "migrations/**"
+          ]
+        },
+        {
+          "_comment": "Поверхность API: каждый путь, который зовёт фронт, обязан быть либо разрешён участнику, либо назван инструментом владельца ЯВНО. Кнопка, ведущая в 404, хуже отсутствующей — она обещает возможность.",
+          "name": "api-surface",
+          "run": ".venv/bin/python -m pytest tests/test_front_api_surface.py tests/test_identity_middleware.py -q -p no:cacheprovider",
+          "timeout": 180
         },
         {
           "_comment": "ai-pack — копии guide-файлов; расхождение с корнем означает, что агенты читают устаревший контракт.",
           "name": "ai-pack",
-          "run": "python3 scripts/verify_ai_pack.py",
+          "run": ".venv/bin/python scripts/verify_ai_pack.py",
           "timeout": 60
         }
       ]

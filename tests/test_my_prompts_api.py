@@ -1,54 +1,30 @@
 """Редактор промтов клиента: то место, куда он идёт «менять промпт».
 
 Ручки `/api/prompts` и `/api/prompt-files` для этого не годятся: они правят
-промты ПЛАТФОРМЫ, одни на всех, и потому в SaaS закрыты. Здесь у клиента свой
-вход, пишущий в его область.
+промты ПЛАТФОРМЫ, одни на всех, и потому закрыты от роли `member`. Здесь у
+участника свой вход, пишущий в его область.
 """
 
 from __future__ import annotations
 
-import time
-import uuid
-
-import jwt
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models import Base
 from app.services import prompt_store
 from app.settings import settings
 from app.web.api import create_app
 from app.web.deps import get_session
-
-SECRET = "s2s-jwt-secret-at-least-32-bytes-long-0123456789"
-TENANT = str(uuid.uuid4())
-
-
-def _token(sub: str = TENANT) -> str:
-    return jwt.encode(
-        {
-            "sub": sub,
-            "email": "c@example.com",
-            "brand": "multik",
-            "iat": int(time.time()),
-            "exp": int(time.time()) + 600,
-        },
-        SECRET,
-        algorithm="HS256",
-    )
+from tests import accounts_harness as ah
 
 
 @pytest_asyncio.fixture
-async def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "billing_jwt_secret", SECRET)
+async def env(tmp_path, monkeypatch):
+    ah.configure(monkeypatch)
     monkeypatch.setattr(settings, "studio_brand", "multik")
-    monkeypatch.setattr(settings, "allow_unisolated_tenants", True)
     prompt_store.reset_cache()
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'mp.db'}", echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    engine, factory = await ah.make_engine(tmp_path / "mp.db")
+    ah.bind_identity_session(monkeypatch, factory)
 
     async def _gen():
         async with factory() as s:
@@ -56,11 +32,21 @@ async def client(tmp_path, monkeypatch):
 
     app = create_app()
     app.dependency_overrides[get_session] = _gen
+
+    mine = await ah.make_account(factory, email="mine@studio.local")
+    neighbour = await ah.make_account(factory, email="neighbour@studio.local")
+
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        c.headers["Authorization"] = f"Bearer {_token()}"
-        yield c
+        c.headers["Authorization"] = f"Bearer {mine.token}"
+        yield {"client": c, "mine": mine, "neighbour": neighbour}
     prompt_store.reset_cache()
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def client(env):
+    """Совместимость с прежним именем фикстуры — тела тестов не переписываем."""
+    return env["client"]
 
 
 async def test_editing_my_prompt_does_not_touch_the_platform(client) -> None:
@@ -82,12 +68,11 @@ async def test_editing_my_prompt_does_not_touch_the_platform(client) -> None:
     assert resolve("plan", "default", PromptScope()) is None
 
 
-async def test_another_tenant_does_not_see_my_edit(client) -> None:
+async def test_another_tenant_does_not_see_my_edit(env) -> None:
     """Промт соседа — это его промт, а не общий."""
+    client = env["client"]
     await client.put("/api/my-prompts/plan", json={"text": "мой план"})
-    other = await client.get(
-        "/api/my-prompts/plan", headers={"Authorization": f"Bearer {_token(str(uuid.uuid4()))}"}
-    )
+    other = await client.get("/api/my-prompts/plan", headers=env["neighbour"].auth)
     assert other.json()["text"] != "мой план"
     assert other.json()["overridden"] is False
 
