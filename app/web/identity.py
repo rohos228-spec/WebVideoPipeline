@@ -87,6 +87,10 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/me",
     "/api/billing/",
     "/api/chat",
+    # Промты КЛИЕНТА, а не платформы: пишут в его область, читают его
+    # переопределение. `/api/prompts` и `/api/prompt-files` рядом остаются
+    # закрытыми — они правят промты платформы сразу для всех.
+    "/api/my-prompts",
     "/api/projects",  # проекты и всё вложенное: кадры, шаги, смета, холст
     "/api/artifacts",
     "/api/files",

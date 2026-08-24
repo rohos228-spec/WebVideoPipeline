@@ -1,6 +1,6 @@
 ai-pack build
-git_head: cad830c
-built_at: 2026-08-24 07:45 UTC
+git_head: 739d83b
+built_at: 2026-08-24 07:58 UTC
 repo: /home/admin/Projects/video-pipeline
 
 copied:

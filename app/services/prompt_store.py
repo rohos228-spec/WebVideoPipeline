@@ -61,6 +61,46 @@ def resolve(step_code: str, name: str, scope: PromptScope | None = None) -> str 
     return None
 
 
+#: Как называется уровень человеку. Внутреннее «tenant_id is None» ему ничего
+#: не говорит, а вопрос «почему у меня не мой промт» задаётся первым.
+LEVEL_NAMES = {
+    "project": "этот проект",
+    "tenant": "мои",
+    "brand": "бренд",
+    "system": "системный",
+    "disk": "файл на диске",
+}
+
+
+def resolve_with_source(
+    step_code: str, name: str, scope: PromptScope | None = None
+) -> tuple[str | None, str]:
+    """Текст и УРОВЕНЬ, с которого он взят.
+
+    Уровень нужен интерфейсу: «правлю, а не меняется» — первый вопрос
+    человека, у которого есть проектное переопределение поверх личного.
+    Показать текст, не сказав чей он, значит гарантировать этот вопрос.
+    """
+    sc = scope or _scope_from_context()
+    for level, key in zip(_level_names(sc), _lookup_order(step_code, name, sc), strict=True):
+        text = _CACHE.get(key)
+        if text is not None:
+            return text, level
+    return None, "disk"
+
+
+def _level_names(sc: PromptScope) -> list[str]:
+    out = []
+    if sc.tenant_id and sc.project_id:
+        out.append("project")
+    if sc.tenant_id:
+        out.append("tenant")
+    if sc.brand:
+        out.append("brand")
+    out.append("system")
+    return out
+
+
 def _lookup_order(
     step_code: str, name: str, sc: PromptScope
 ) -> list[tuple[str | None, str, int | None, str, str]]:
@@ -196,6 +236,45 @@ async def import_from_disk(session: Any, *, overwrite: bool = False) -> dict[str
             stats["skipped"],
         )
     return stats
+
+
+async def drop(session: Any, step_code: str, name: str, *, scope: PromptScope | None = None) -> bool:
+    """Убрать переопределение своего уровня. Возвращает True, если было что убирать.
+
+    Снимается ровно свой уровень, и это важно: «сбросить к системному» для
+    арендатора означает удалить СВОЮ строку, а не системную. Удалить чужую он
+    не может по построению — область та же, что и при записи.
+    """
+    from sqlalchemy import select
+
+    from app.models import PromptLibraryEntry
+
+    sc = scope or _scope_from_context()
+    tenant = sc.tenant_id
+    brand = "" if tenant else sc.brand
+    project_id = sc.project_id if tenant else None
+
+    row = (
+        await session.execute(
+            select(PromptLibraryEntry).where(
+                PromptLibraryEntry.tenant_id.is_(None)
+                if tenant is None
+                else PromptLibraryEntry.tenant_id == tenant,
+                PromptLibraryEntry.brand == brand,
+                PromptLibraryEntry.project_id.is_(None)
+                if project_id is None
+                else PromptLibraryEntry.project_id == project_id,
+                PromptLibraryEntry.step_code == step_code,
+                PromptLibraryEntry.name == name,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return False
+    await session.delete(row)
+    await session.flush()
+    _CACHE.pop((tenant, brand, project_id, step_code, name), None)
+    return True
 
 
 def reset_cache() -> None:

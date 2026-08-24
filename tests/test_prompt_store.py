@@ -154,3 +154,55 @@ async def test_read_prompt_prefers_the_base(db, monkeypatch) -> None:
 
     monkeypatch.setattr("app.services.prompt_library.prompt_path", _boom)
     assert read_prompt("plan", "default") == "из базы"
+
+
+async def test_source_says_whose_prompt_is_in_force(db) -> None:
+    """«Правлю, а не меняется» — первый вопрос человека с проектной правкой.
+
+    Отдать текст, не сказав, чей он, значит гарантировать этот вопрос.
+    """
+    from app.services.prompt_store import resolve_with_source
+
+    tenant_scope = PromptScope(tenant_id=TENANT)
+    project_scope = PromptScope(tenant_id=TENANT, project_id=5)
+
+    async with db() as s:
+        await prompt_store.save(s, "plan", "default", "системный", scope=SYSTEM)
+        await s.commit()
+    assert resolve_with_source("plan", "default", tenant_scope) == ("системный", "system")
+
+    async with db() as s:
+        await prompt_store.save(s, "plan", "default", "мой", scope=tenant_scope)
+        await s.commit()
+    assert resolve_with_source("plan", "default", tenant_scope) == ("мой", "tenant")
+
+    async with db() as s:
+        await prompt_store.save(s, "plan", "default", "для ролика", scope=project_scope)
+        await s.commit()
+    assert resolve_with_source("plan", "default", project_scope) == ("для ролика", "project")
+    # Личный при этом на месте: проектный его не съел.
+    assert resolve_with_source("plan", "default", tenant_scope) == ("мой", "tenant")
+
+
+async def test_reset_removes_only_my_own_override(db) -> None:
+    """«Вернуть как было» убирает СВОЮ строку, а не системную.
+
+    Удалить чужую арендатор не может по построению: область та же, что и при
+    записи.
+    """
+    tenant_scope = PromptScope(tenant_id=TENANT)
+    async with db() as s:
+        await prompt_store.save(s, "script", "default", "системный", scope=SYSTEM)
+        await prompt_store.save(s, "script", "default", "мой", scope=tenant_scope)
+        await s.commit()
+    assert prompt_store.resolve("script", "default", tenant_scope) == "мой"
+
+    async with db() as s:
+        removed = await prompt_store.drop(s, "script", "default", scope=tenant_scope)
+        await s.commit()
+    assert removed is True
+    assert prompt_store.resolve("script", "default", tenant_scope) == "системный"
+
+    # Повторный сброс не ошибка: нечего убирать — значит уже как надо.
+    async with db() as s:
+        assert await prompt_store.drop(s, "script", "default", scope=tenant_scope) is False

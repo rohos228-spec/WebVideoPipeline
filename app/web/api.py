@@ -75,6 +75,9 @@ from app.web.routers import (
     me as me_router,
 )
 from app.web.routers import (
+    my_prompts as my_prompts_router,
+)
+from app.web.routers import (
     node_groups as node_groups_router,
 )
 from app.web.routers import (
@@ -339,6 +342,7 @@ def create_app() -> FastAPI:
     app.include_router(me_router.router, prefix=API_PREFIX)
     app.include_router(billing_router.router, prefix=API_PREFIX)
     app.include_router(billing_hook_router.router, prefix=API_PREFIX)
+    app.include_router(my_prompts_router.router, prefix=API_PREFIX)
     app.include_router(studio_chat_router.router, prefix=API_PREFIX)
     app.include_router(db_browser_router.router, prefix=API_PREFIX)
     app.include_router(node_groups_router.router, prefix=API_PREFIX)
