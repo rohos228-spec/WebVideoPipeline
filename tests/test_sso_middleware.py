@@ -296,3 +296,17 @@ async def test_owner_mode_keeps_everything_open(tmp_path, monkeypatch) -> None:
             "provisioned_now": False,
         }
     await engine.dispose()
+
+
+async def test_cost_of_goods_is_not_a_tenant_surface(client) -> None:
+    """Себестоимость — не данные клиента, а наши.
+
+    `/api/llm-costs` отдаёт `cost_usd` по нодам и моделям. Данные при этом
+    честно свои, деньги тоже, и путь выглядел безопасным — он и был у меня
+    в списке разрешённого. Но клиент, увидевший $0.19 за клип, который стоит
+    ему 0.57 кредита, узнаёт маржу ×3. Проверяя новый путь, спрашивай и это:
+    не видно ли отсюда, сколько зарабатывает платформа.
+    """
+    headers = {"Authorization": f"Bearer {_token()}"}
+    assert (await client.get("/api/projects/1/llm-costs", headers=headers)).status_code == 404
+    assert (await client.get("/api/llm-costs/projects", headers=headers)).status_code == 404

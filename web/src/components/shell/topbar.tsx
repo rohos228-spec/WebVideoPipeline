@@ -9,6 +9,7 @@ import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 import { BugReportButton } from "@/components/shell/bug-report-button";
 import { BalanceBadge } from "@/components/shell/balance-badge";
+import { useOwnerMode } from "@/hooks/use-identity";
 
 interface UiState {
   framesProjectId: number | null;
@@ -25,6 +26,9 @@ export function useUi(): UiState {
 }
 
 export function Topbar({ children }: { children?: React.ReactNode }) {
+  // Инструменты владельца в SaaS не показываются вовсе: их ручки закрыты, и
+  // кнопка, ведущая в 404, хуже отсутствующей — она обещает возможность.
+  const ownerMode = useOwnerMode();
   const [logsOpen, setLogsOpen] = useState(false);
   const [framesOpen, setFramesOpen] = useState(false);
   const [framesProjectId, setFramesProjectId] = useState<number | null>(null);
@@ -61,61 +65,65 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <TextLlmPicker />
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => openOutsee()}
-            className="gap-2 text-xs font-semibold"
-            title="Полный интерфейс генерации outsee"
-          >
-            <Wand2 className="h-3.5 w-3.5" />
-            Генерация
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))}
-            className="gap-2 text-xs font-semibold"
-            title="Свободный чат с активной текстовой моделью (GPT или Kimi)"
-          >
-            <Bot className="h-3.5 w-3.5" />
-            Чат
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
+          {ownerMode && (
+            <>
+              <TextLlmPicker />
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => openOutsee()}
+                className="gap-2 text-xs font-semibold"
+                title="Полный интерфейс генерации outsee"
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+                Генерация
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))}
+                className="gap-2 text-xs font-semibold"
+                title="Свободный чат с активной текстовой моделью (GPT или Kimi)"
+              >
+                <Bot className="h-3.5 w-3.5" />
+                Чат
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
               window.dispatchEvent(
                 new CustomEvent("studio-open-node-prompts", { detail: {} }),
               )
-            }
-            className="gap-2 text-xs"
-            title="Промты выбранной ноды на канвасе"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Промты
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.dispatchEvent(new CustomEvent("studio-open-baza"))}
-            className="gap-2 text-xs"
-            title="Визуализация базы данных: карточки кадров, связи, версии промтов"
-          >
-            <Database className="h-3.5 w-3.5" />
-            База
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.dispatchEvent(new CustomEvent("studio-open-fleet"))}
-            className="gap-2 text-xs"
-            title="Станции Tailscale и очередь монтажа"
-          >
-            <Network className="h-3.5 w-3.5" />
-            Сеть
-          </Button>
+                }
+                className="gap-2 text-xs"
+                title="Промты выбранной ноды на канвасе"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Промты
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.dispatchEvent(new CustomEvent("studio-open-baza"))}
+                className="gap-2 text-xs"
+                title="Визуализация базы данных: карточки кадров, связи, версии промтов"
+              >
+                <Database className="h-3.5 w-3.5" />
+                База
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.dispatchEvent(new CustomEvent("studio-open-fleet"))}
+                className="gap-2 text-xs"
+                title="Станции Tailscale и очередь монтажа"
+              >
+                <Network className="h-3.5 w-3.5" />
+                Сеть
+              </Button>
+            </>
+          )}
           <BalanceBadge className="mr-1" />
           <Button
             variant="outline"
@@ -127,25 +135,29 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
             <MessagesSquare className="h-3.5 w-3.5" />
             Чат
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.dispatchEvent(new CustomEvent("studio-open-costs"))}
-            className="gap-2 text-xs"
-            title="Стоимость LLM по нодам, моделям и прогонам; бюджет прогона"
-          >
-            <CircleDollarSign className="h-3.5 w-3.5" />
-            Стоимость
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setLogsOpen(true)}
-            className="gap-2 text-xs"
-          >
-            <Activity className="h-3.5 w-3.5" />
-            Логи
-          </Button>
+          {ownerMode && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.dispatchEvent(new CustomEvent("studio-open-costs"))}
+                className="gap-2 text-xs"
+                title="Стоимость LLM по нодам, моделям и прогонам; бюджет прогона"
+              >
+                <CircleDollarSign className="h-3.5 w-3.5" />
+                Стоимость
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLogsOpen(true)}
+                className="gap-2 text-xs"
+              >
+                <Activity className="h-3.5 w-3.5" />
+                Логи
+              </Button>
+            </>
+          )}
           <BugReportButton />
           <Button variant="ghost" size="sm" className="gap-2 text-xs" asChild>
             <a href="/api/docs" target="_blank" rel="noreferrer">
