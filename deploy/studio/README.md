@@ -203,6 +203,11 @@ Settings → Secrets and variables → Actions.
 | `VPS_KNOWN_HOSTS` | secret | вывод `ssh-keyscan <host>` |
 | `VPS_PATH` | variable | каталог, по умолчанию `/opt/studio` |
 | `STUDIO_URL` | variable | `https://studio.example.com` — по нему проверяется выкладка |
+| `DEPLOY_ENABLED` | variable | `true` — включить выкладку. Без неё образ собирается, а деплой пропускается |
+
+`DEPLOY_ENABLED` выключен по умолчанию намеренно: пока VPS не заведён, шаг
+выкладки падал бы на каждом релизе, «красный деплой» стал бы нормой, и
+настоящую поломку в нём перестали бы замечать.
 
 Ключ деплоя стоит ограничить в `~/.ssh/authorized_keys` на VPS:
 

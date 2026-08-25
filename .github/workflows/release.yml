@@ -136,7 +136,16 @@ jobs:
   deploy:
     name: Выкладка на VPS
     needs: build
-    if: github.event_name != 'workflow_dispatch' || inputs.deploy
+    # Выкладка включается ЯВНО переменной `DEPLOY_ENABLED=true`
+    # (Settings → Secrets and variables → Actions → Variables).
+    #
+    # По умолчанию выключена намеренно: пока VPS не заведён, шаг падал бы на
+    # каждом релизе — «красный деплой» стал бы нормой, и настоящую поломку в
+    # нём перестали бы замечать. Образ при этом собирается и кладётся в GHCR
+    # как обычно.
+    if: |
+      vars.DEPLOY_ENABLED == 'true' &&
+      (github.event_name != 'workflow_dispatch' || inputs.deploy)
     runs-on: ubuntu-latest
     environment:
       name: production
