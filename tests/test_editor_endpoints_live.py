@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import shutil
+
 import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -52,8 +54,11 @@ async def client(tmp_path):
     try:
         yield TestClient(app)
     finally:
+        # Файл — и его историю: `.history/<имя>/` остаётся после unlink и
+        # копится в рабочей библиотеке от прогона к прогону.
         if target.exists():
             target.unlink()
+        shutil.rmtree(target.parent / ".history" / NAME, ignore_errors=True)
         await engine.dispose()
 
 

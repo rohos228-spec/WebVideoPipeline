@@ -228,6 +228,13 @@ async def _lifespan(app: FastAPI):
                 logger.info("web lifespan: промт-библиотека с диска {}", stats)
             else:
                 logger.info("web lifespan: промт-библиотека из базы, {} строк", loaded)
+
+            # Встроенные промты — в базу, если их там нет. Именно в базу, а не
+            # на диск: на сервере диск только для чтения, и шаг без файла
+            # иначе оставался бы невидим для редактора.
+            from app.services.builtin_prompts import seed_builtin_prompts
+
+            await seed_builtin_prompts(s)
     except Exception:  # noqa: BLE001
         logger.exception("local library import failed (non-fatal)")
     try:

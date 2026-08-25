@@ -186,13 +186,39 @@ def step_folder_name(step_code: str) -> str | None:
     return STEP_FOLDERS.get(step_code)
 
 
+def prompts_writable() -> bool:
+    """Можно ли писать в `prompts/` на диске.
+
+    На сервере каталог смонтирован `:ro` (deploy/studio/docker-compose.yml):
+    библиотека там только семя для базы, а правится она в базе. Любой код,
+    который хочет писать на диск, обязан спросить здесь — иначе `OSError:
+    Read-only file system` из глубины роутера, а снаружи 500 без объяснения.
+    """
+    try:
+        if PROMPTS_ROOT.is_dir():
+            return os.access(PROMPTS_ROOT, os.W_OK)
+        PROMPTS_ROOT.mkdir(parents=True, exist_ok=True)
+        return True
+    except OSError:
+        return False
+
+
 def step_dir(step_code: str) -> Path:
-    """Абсолютный путь к папке промтов для шага. Создаёт её при отсутствии."""
+    """Абсолютный путь к папке промтов для шага.
+
+    Создаёт её, если может. Не может — возвращает путь всё равно: на диске
+    только для чтения папки нового шага (например `04c_cast`) нет и не будет,
+    а промт при этом лежит в базе и читается оттуда. Падать здесь значило бы
+    ронять список промтов целиком из-за одного шага без файлов.
+    """
     folder = STEP_FOLDERS.get(step_code)
     if folder is None:
         raise ValueError(f"step_code {step_code!r} не имеет мастер-промта")
     path = PROMPTS_ROOT / folder
-    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     return path
 
 
@@ -212,10 +238,15 @@ def load_file_meta(step_code: str) -> dict[str, Any]:
 
 
 def _save_file_meta(step_code: str, data: dict[str, Any]) -> None:
+    # Мета — только про диск: дата сохранения файла. На диске только для
+    # чтения её негде хранить, и это не ошибка: источник правды там база.
     path = _file_meta_path(step_code)
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
 
 
 def touch_prompt_meta(step_code: str, name: str, size: int) -> float:
@@ -292,6 +323,8 @@ def list_excel_gpt_prompts() -> list[str]:
 
 def _list_prompts_in_dir(step_code: str) -> list[str]:
     d = step_dir(step_code)
+    if not d.is_dir():
+        return []
     names = sorted(p.stem for p in d.glob("*.md"))
     if DEFAULT_NAME in names:
         names.remove(DEFAULT_NAME)

@@ -72,6 +72,28 @@ LEVEL_NAMES = {
 }
 
 
+def list_names(step_code: str, scope: PromptScope | None = None) -> list[str]:
+    """Имена промтов шага, видимые из области: все уровни цепочки разом.
+
+    Нужно редактору: он показывает файлы, а на сервере файлов нет — диск
+    только для чтения, и промт нового шага живёт лишь в базе. Без этого
+    списка редактор отвечал бы «не заведено» про промт, который прямо сейчас
+    работает.
+    """
+    sc = scope or _scope_from_context()
+    wanted = {key[:3] for key in _lookup_order(step_code, "", sc)}
+    names = {
+        name
+        for (tenant, brand, project_id, step, name) in _CACHE
+        if step == step_code and (tenant, brand, project_id) in wanted
+    }
+    out = sorted(names)
+    if "default" in out:
+        out.remove("default")
+        out.insert(0, "default")
+    return out
+
+
 def resolve_with_source(
     step_code: str, name: str, scope: PromptScope | None = None
 ) -> tuple[str | None, str]:
