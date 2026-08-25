@@ -319,10 +319,30 @@ def verify_project_disk(
     checks: list[HarnessCheck] = []
     repair: list[str] = []
 
+    # Книга проекта — deprecated fallback, и при учётных записях её не пишут
+    # вовсе (`settings.xlsx_enabled`): файл лежал бы на диске узла, куда
+    # пользователю не дотянуться. Требовать его там значит валить КАЖДЫЙ шаг:
+    # гейт поднимает RuntimeError, `record_step_failure` считает это поломкой
+    # конвейера, три раза подряд — и проект уходит в паузу на полчаса.
+    #
+    # Поймано живым прогоном 2026-08-25, уже ПОСЛЕ того, как то же самое
+    # починили в `_ensure_project_xlsx`. Там отказ убрали, а здесь остался —
+    # снаружи это выглядело как «шаг упал», хотя план был сгенерирован и
+    # сохранён: MiniMax ответил, `general_plan` записан, статус стал
+    # `plan_ready`, и следом гейт объявил шаг несостоявшимся.
+    from app.settings import settings
+
     xlsx = data_dir / "project.xlsx"
-    checks.append(HarnessCheck("project_xlsx", xlsx.is_file(), str(xlsx) if xlsx.is_file() else "missing"))
-    if not xlsx.is_file():
-        repair.append("plan")
+    xlsx_required = bool(getattr(settings, "xlsx_enabled", True))
+    if xlsx_required:
+        detail = str(xlsx) if xlsx.is_file() else "missing"
+        checks.append(HarnessCheck("project_xlsx", xlsx.is_file(), detail))
+        if not xlsx.is_file():
+            repair.append("plan")
+    else:
+        # Проверка остаётся в отчёте: «не требуется» и «не проверяли» — разные
+        # вещи, и по отчёту должно быть видно, какое правило сработало.
+        checks.append(HarnessCheck("project_xlsx", True, "запись книги выключена — файл не нужен"))
 
     scenes = list((data_dir / "scenes").glob("*.png")) if (data_dir / "scenes").is_dir() else []
     videos = list((data_dir / "videos").glob("*.mp4")) if (data_dir / "videos").is_dir() else []

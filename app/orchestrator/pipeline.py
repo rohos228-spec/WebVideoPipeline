@@ -99,6 +99,7 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
     _step_lock_cm = None
     _step_lease: tuple[str, str] | None = None
     _lease_renewer: asyncio.Task | None = None
+    _step_failed = False
     try:
         abort_if_cancelled(project.id)
         status = project.status
@@ -222,6 +223,11 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
 
         if ran_status is not None:
             await _sync_storage_after_advance(session, project, ran_status)
+    except BaseException:
+        # Не для обработки — только чтобы finally знал, каким путём мы уходим:
+        # от этого зависит, можно ли освобождать lease сессией вызывающего.
+        _step_failed = True
+        raise
     finally:
         if _lease_renewer is not None:
             # Ревью [3/4]: без await renew в полёте доигрывал после release
@@ -235,11 +241,44 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
             try:
                 from app.services import work_lease as _wl_fin
 
-                # Сессией вызывающего: своя короткая встала бы на busy_timeout
-                # в ожидании транзакции, которую держит этот же advance.
-                await _wl_fin.release(project.id, _step_lease[0], owner=_step_lease[1], session=session)
+                if _step_failed:
+                    # Шаг упал — сессия вызывающего для release непригодна, и
+                    # молчаливая попытка стоила часа простоя на живом сервере.
+                    #
+                    # Два независимых механизма съедали удаление. На Postgres
+                    # ошибка шага переводит транзакцию в aborted, и следующий
+                    # DELETE в ней не выполняется вообще. А если бы и
+                    # выполнился — исключение сейчас улетит в `session_scope`
+                    # воркера, где `except: await session.rollback()`, и
+                    # удаление откатится вместе с шагом. То есть на упавшем
+                    # шаге lease не освобождался НИКОГДА, ни на одной СУБД.
+                    #
+                    # Дальше он висит весь TTL (час), и каждый следующий такт
+                    # пишет «занят живым step-lease (другой процесс)» — при
+                    # том, что процесс тот же самый. Снаружи это выглядит как
+                    # намертво вставший проект без единой ошибки в журнале.
+                    #
+                    # Откатываем сами: транзакция всё равно обречена, а после
+                    # отката своя короткая сессия уже не упрётся в writer-lock
+                    # SQLite — ровно та причина, по которой release изначально
+                    # ходил через сессию вызывающего.
+                    try:
+                        await session.rollback()
+                    except Exception:  # noqa: BLE001
+                        logger.debug("[#{}] rollback перед release не удался", project.id)
+                    await _wl_fin.release(project.id, _step_lease[0], owner=_step_lease[1])
+                else:
+                    # Успешный путь: вызывающий сейчас коммитит, и удаление
+                    # уедет вместе с его транзакцией. Своя короткая сессия
+                    # встала бы на busy_timeout в ожидании этой же транзакции.
+                    await _wl_fin.release(project.id, _step_lease[0], owner=_step_lease[1], session=session)
             except Exception:  # noqa: BLE001
-                pass
+                logger.warning(
+                    "[#{}] не удалось освободить step-lease {} — до конца TTL шаг будет "
+                    "пропускаться как занятый",
+                    project.id,
+                    _step_lease[0],
+                )
         if _step_lock_cm is not None:
             try:
                 await _step_lock_cm.__aexit__(None, None, None)

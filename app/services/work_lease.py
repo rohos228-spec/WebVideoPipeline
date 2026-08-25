@@ -49,7 +49,31 @@ DEFAULT_TTL_S = {
     "step": 60 * 60,
 }
 
-_HOST = socket.gethostname()
+
+def _node_identity() -> tuple[str, bool]:
+    """(имя узла, объявлено ли оно явно).
+
+    По умолчанию — `socket.gethostname()`, и в контейнере это его id, который
+    **меняется при каждой пересборке**. Owner'ы прошлого контейнера после
+    выкладки выглядят как чужой узел: `expire_dead_local_leases` их пропускает
+    (`parts[0] != _HOST`), `_reclaim_local_orphan` тоже. Значит любая выкладка
+    поверх идущего шага морозила проект на весь TTL — час, — и снаружи это
+    неотличимо от «ничего не происходит».
+
+    `FLEET_NODE_NAME` даёт узлу имя, переживающее пересборку. Второй элемент
+    кортежа говорит, объявлено ли оно человеком: от этого зависит право
+    считать узел однопроцессным (см. `expire_dead_local_leases`).
+    """
+    try:
+        from app.settings import settings
+
+        name = (settings.fleet_node_name or "").strip()
+    except Exception:  # noqa: BLE001 — на голых тестовых стендах settings может не подняться
+        name = ""
+    return (name, True) if name else (socket.gethostname(), False)
+
+
+_HOST, _HOST_IS_DECLARED = _node_identity()
 
 # owner текущей asyncio-задачи (uuid на задачу, лениво).
 _task_owner: dict[int, str] = {}
@@ -278,8 +302,11 @@ def _pid_alive(pid: int) -> bool:
 
 
 async def expire_dead_local_leases() -> int:
-    """Lease'ы мёртвых pid ЭТОЙ машины → просроченные (startup: перехват
-    осиротевших единиц без ожидания полного TTL)."""
+    """Lease'ы прошлых поколений ЭТОГО узла → просроченные.
+
+    Зовётся на старте (`startup_guard`): перехват осиротевших единиц без
+    ожидания полного TTL, который для шага равен часу.
+    """
     from sqlalchemy import select
 
     now = time.time()
@@ -296,8 +323,25 @@ async def expire_dead_local_leases() -> int:
                 pid = int(parts[1])
             except ValueError:
                 continue
-            if pid == os.getpid() or _pid_alive(pid):
+            if pid == os.getpid():
                 continue
+            if _pid_alive(pid) and not _HOST_IS_DECLARED:
+                continue
+            # `_pid_alive` смотрит в СВОЁ пространство pid. У пересобранного
+            # контейнера оно новое: приложение прошлого поколения было pid 6, и
+            # pid 6 у нового поколения тоже занят — своим же процессом. Проверка
+            # уверенно отвечает «жив» про давно убитый процесс, и lease висит
+            # весь TTL.
+            #
+            # Спасает только объявленное имя узла. Оно означает «здесь один
+            # экземпляр приложения», а мы сейчас на старте — то есть этот
+            # экземпляр и есть мы. Любой lease под нашим именем с чужим pid
+            # остался от прошлого поколения, чем бы оно ни кончилось.
+            #
+            # Без объявленного имени правило неверно: на машине разработчика два
+            # запущенных экземпляра делят hostname, и мы отобрали бы живую
+            # работу у соседа. Там остаётся прежнее поведение — только мёртвые
+            # pid.
             lease_row.expires_at = 0.0
             expired += 1
     if expired:
