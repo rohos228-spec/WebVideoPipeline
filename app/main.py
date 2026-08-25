@@ -795,6 +795,29 @@ async def _startup_maintenance() -> None:
             )
     except Exception:  # noqa: BLE001
         pass
+
+    # Встроенные промты — на диск, если их там ещё нет.
+    #
+    # Шаг разбора состава работает и без файла: текст лежит в
+    # `cast_extract.DEFAULT_PROMPT`. Но редактор промтов показывает файлы, и
+    # без него человек увидел бы «промтов не заведено» у шага, который прямо
+    # сейчас работает — то есть править было бы нечем именно то, что хочется
+    # править первым.
+    #
+    # Записываем один раз: файл, once created, побеждает встроенный
+    # (`read_prompt` идёт «база, потом диск»), и перезапись затирала бы правки
+    # пользователя на каждом рестарте.
+    try:
+        from app.services.cast_extract import DEFAULT_PROMPT as _CAST_PROMPT
+        from app.services.prompt_library import prompt_path, write_prompt
+
+        _cast_file = prompt_path("cast", "default")
+        if not _cast_file.exists():
+            write_prompt("cast", "default", _CAST_PROMPT)
+            logger.info("prompts/: создан {} из встроенного промта", _cast_file.name)
+    except Exception:  # noqa: BLE001
+        logger.debug("prompts/: не удалось материализовать встроенный промт cast", exc_info=True)
+
     try:
         # Safe recover: aside backup (LOCALAPPDATA/TEMP) + studio git stash → prompts/.
         # Idempotent; does not clobber non-stock local edits. No data/ overlay.

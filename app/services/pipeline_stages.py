@@ -152,7 +152,7 @@ STAGES: tuple[Stage, ...] = (
         price_keys=("scene_d", "scene_asm", "hero", "items"),
         editor="cast",
         dynamic_price="enrich",
-        prompt_steps=("scene_d", "hero", "hero_style", "items", "excel_gpt"),
+        prompt_steps=("cast", "scene_d", "hero", "hero_style", "items", "excel_gpt"),
     ),
     Stage(
         id="images",
