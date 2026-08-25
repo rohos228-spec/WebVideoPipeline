@@ -110,6 +110,18 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      - name: ffmpeg
+        # На раннере его нет, а `pip install ffmpeg-python` ставит только
+        # обёртку — сами бинарники приходят из системы. Без них
+        # `verify_audio_file` не может позвать ffprobe, и падает
+        # `test_generate_sfx_files_local`: файл сгенерирован, а проверить его
+        # нечем. Поймано первым же прогоном в CI — на машине владельца и в
+        # образе ffmpeg есть, и локально этого не видно.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffprobe -version | head -1
+
       - name: Установка
         run: pip install -e ".[dev,postgres,s3]"
 
