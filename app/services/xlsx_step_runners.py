@@ -217,12 +217,37 @@ def _ts() -> str:
 
 
 def _ensure_project_xlsx(project: Project) -> Path:
+    """Путь к книге проекта. Файла может НЕ БЫТЬ — и это законный режим.
+
+    Книга — deprecated fallback: контракт шага это apply-ops в базу
+    (`docs/PROMPT_CONTRACT.md`), а `settings.xlsx_enabled` выключает её запись
+    везде, где заведены учётные записи: открыть файл на диске узла там всё
+    равно некому. `ProjectSheet.ensure_initialized` в этом режиме намеренно
+    возвращает путь, НЕ создавая файла, — «вызывающие строят от него другие
+    пути и ожидают строку, а не None».
+
+    Прежняя версия добавляла сверху безусловное `if not exists: raise`, и это
+    ломало замысел: при выключенной книге падал ЛЮБОЙ шаг конвейера —
+
+        FileNotFoundError: project.xlsx не найден: …/project.xlsx
+
+    — а проект уходил в паузу на три цикла по тридцать минут. Локально это
+    невидимо: у владельца учётных записей нет, книга пишется, файл есть.
+    Поймано первым живым прогоном на сервере.
+
+    Теперь отказ только там, где книга ДОЛЖНА была появиться и не появилась,
+    то есть при включённой записи — это настоящая поломка. Каталог проекта
+    создаётся всегда: от него считаются `voiceover.txt` и прочие пути, а в
+    свежем проекте его ещё нет.
+    """
     proj_xlsx = project.data_dir / "project.xlsx"
+    proj_xlsx.parent.mkdir(parents=True, exist_ok=True)
     if proj_xlsx.exists():
         return proj_xlsx
+
     sheet = _sheet_for_project(project)
     proj_xlsx = sheet.ensure_initialized(project_id=project.id, slug=project.slug)
-    if not proj_xlsx.exists():
+    if not proj_xlsx.exists() and sheet.writable:
         raise FileNotFoundError(f"project.xlsx не найден: {proj_xlsx}")
     return proj_xlsx
 
@@ -288,11 +313,17 @@ async def run_plan_xlsx(
         len(chat_msg),
     )
 
+    # Книга прикладывается КОНТЕКСТОМ и только если она есть на диске. При
+    # выключенной записи (учётные записи) файла нет, и несуществующий путь в
+    # списке вложений уронил бы вызов — уже на стороне отправки, где причина
+    # читается хуже.
+    attachments = [f for f in (prompt_file, proj_xlsx) if f.is_file()]
+
     async def _gpt() -> str:
         # Промт + xlsx только как контекст; запись — JSON apply-ops, не файл.
         return await xgf.telegram_style_ask_with_files(
             chat_msg,
-            [prompt_file, proj_xlsx],
+            attachments,
             project_id=project_id or project.id,
         )
 
