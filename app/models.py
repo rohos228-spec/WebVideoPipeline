@@ -1314,7 +1314,12 @@ class CreditEntry(Base):
     # без них нельзя ответить, почему списано именно столько.
     cost_usd: Mapped[float | None] = mapped_column(Numeric(18, 8), default=None)
     margin: Mapped[float | None] = mapped_column(Numeric(6, 3), default=None)
-    ref_table: Mapped[str] = mapped_column(String(20), default="")
+    # 40, а не 20. Код пишет сюда `llm_calls+media_calls` — 21 символ, и на
+    # Postgres это `value too long for type character varying(20)`, то есть
+    # отказ проводки и вставший шаг. На SQLite та же строка проходит: длину
+    # VARCHAR он не проверяет вообще. Поймано первым живым прогоном на
+    # Postgres; вся суита при этом зелёная, потому что гоняется на SQLite.
+    ref_table: Mapped[str] = mapped_column(String(40), default="")
     ref_ids: Mapped[list] = mapped_column(JSON, default=list)
     # Проект и шаг проводки. У списания их несёт холд, но у промо-проводки
     # бесплатного уровня холда нет вовсе — она пишется с нулевой дельтой и
