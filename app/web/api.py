@@ -235,6 +235,21 @@ async def _lifespan(app: FastAPI):
             from app.services.builtin_prompts import seed_builtin_prompts
 
             await seed_builtin_prompts(s)
+
+        # Контракт промтов проверяется по тому, что реально уйдёт в модель —
+        # по базе, не по диску. Промт, который просит приложить xlsx, здесь
+        # не блокируется (правят люди, и ошибку надо увидеть, а не спрятать),
+        # но и молчать о нём нельзя: снаружи это «шаг вернул мусор».
+        from app.services.prompt_contract import audit_store
+
+        for step, name, bad in audit_store():
+            logger.warning(
+                "промт {}/{} расходится с PROMPT_CONTRACT ({} мест), первое — {}",
+                step,
+                name,
+                len(bad),
+                bad[0],
+            )
     except Exception:  # noqa: BLE001
         logger.exception("local library import failed (non-fatal)")
     try:

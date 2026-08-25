@@ -5,7 +5,11 @@
   "repos": [
     {
       "path": ".",
-      "when": ["*.py", "*.toml", "*.json"],
+      "when": [
+        "*.py",
+        "*.toml",
+        "*.json"
+      ],
       "turn": [
         {
           "_comment": "0.1 с на всём репозитории — сужать по $CHANGED смысла нет.",
@@ -29,6 +33,12 @@
           "name": "goldens",
           "run": ".venv/bin/python -m pytest tests/test_prompt_goldens.py -q -p no:cacheprovider",
           "timeout": 120
+        },
+        {
+          "_comment": "Контракт промтов (docs/PROMPT_CONTRACT.md) по библиотеке на диске. В CI библиотеки нет — там тест пропускается; держит гейт владелец. Меньше секунды.",
+          "name": "prompt-contract",
+          "run": ".venv/bin/python -m pytest tests/test_prompt_contract_gate.py -q -p no:cacheprovider",
+          "timeout": 60
         }
       ],
       "commit": [
@@ -64,7 +74,15 @@
           "name": "tests-touched",
           "run": ".venv/bin/python scripts/pytest_touched.py $CHANGED",
           "timeout": 300,
-          "changed_filter": ["*.py"]
+          "changed_filter": [
+            "*.py"
+          ]
+        },
+        {
+          "_comment": "Контракт промтов (docs/PROMPT_CONTRACT.md) по библиотеке на диске. В CI библиотеки нет — там тест пропускается; держит гейт владелец. Меньше секунды.",
+          "name": "prompt-contract",
+          "run": ".venv/bin/python -m pytest tests/test_prompt_contract_gate.py -q -p no:cacheprovider",
+          "timeout": 60
         }
       ],
       "push": [

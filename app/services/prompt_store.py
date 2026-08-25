@@ -72,6 +72,11 @@ LEVEL_NAMES = {
 }
 
 
+def entries():
+    """Все поднятые промты: ((арендатор, бренд, проект, шаг, имя), текст)."""
+    return list(_CACHE.items())
+
+
 def list_names(step_code: str, scope: PromptScope | None = None) -> list[str]:
     """Имена промтов шага, видимые из области: все уровни цепочки разом.
 
