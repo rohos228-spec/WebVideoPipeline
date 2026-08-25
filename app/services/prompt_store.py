@@ -237,7 +237,25 @@ async def import_from_disk(session: Any, *, overwrite: bool = False) -> dict[str
     диске мог остаться от прошлой версии, а в базе промт уже правили — и
     затереть правку файлом значит потерять работу человека без вопроса.
     """
-    from app.services.prompt_library import STEP_FOLDERS, list_prompts, read_prompt
+    from app.services.prompt_library import (
+        STEP_FOLDERS,
+        is_excel_gpt_prompt_step,
+        list_prompts,
+        prompt_path,
+        resolve_excel_gpt_prompt_path,
+    )
+
+    def _from_disk(step_code: str, name: str) -> str:
+        # Именно с диска, не через `read_prompt`: тот идёт «база, потом диск»,
+        # и при перезаписи вернул бы кэш — импорт переписал бы базу базой.
+        # Ровно так первая досинхронизация на сервере и «прошла», ничего не
+        # изменив: 135 записано, default остался старым.
+        p = (
+            resolve_excel_gpt_prompt_path(name)
+            if is_excel_gpt_prompt_step(step_code)
+            else prompt_path(step_code, name)
+        )
+        return p.read_text(encoding="utf-8")
 
     stats = {"seen": 0, "written": 0, "skipped": 0}
     for step_code in STEP_FOLDERS:
@@ -251,8 +269,8 @@ async def import_from_disk(session: Any, *, overwrite: bool = False) -> dict[str
                 stats["skipped"] += 1
                 continue
             try:
-                text = read_prompt(step_code, name)
-            except (FileNotFoundError, ValueError):
+                text = _from_disk(step_code, name)
+            except (FileNotFoundError, OSError, ValueError):
                 continue
             await save(session, step_code, name, text, scope=PromptScope())
             stats["written"] += 1

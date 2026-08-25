@@ -85,3 +85,27 @@ async def test_seeded_prompt_survives_refresh(db) -> None:
     async with db() as s:
         await prompt_store.refresh(s)
     assert prompt_store.resolve("cast", "default", PromptScope()) is not None
+
+
+@pytest.mark.asyncio
+async def test_import_overwrite_reads_the_disk_not_the_cache(db, tmp_path, monkeypatch) -> None:
+    """`import_from_disk(overwrite=True)` берёт файл, а не то, что уже в базе.
+
+    Первая досинхронизация на сервере «прошла» (135 записано) и ничего не
+    изменила: импорт читал через `read_prompt`, а тот идёт «база первая» и
+    вернул старый кэш. База была переписана базой.
+    """
+    from app.services import prompt_library
+
+    monkeypatch.setattr(prompt_library, "PROMPTS_ROOT", tmp_path)
+    (tmp_path / prompt_library.STEP_FOLDERS["plan"]).mkdir(parents=True)
+    (tmp_path / prompt_library.STEP_FOLDERS["plan"] / "default.md").write_text("с диска", encoding="utf-8")
+
+    async with db() as s:
+        await prompt_store.save(s, "plan", "default", "старое из базы", scope=PromptScope())
+    assert prompt_library.read_prompt("plan", "default") == "старое из базы"
+
+    async with db() as s:
+        stats = await prompt_store.import_from_disk(s, overwrite=True)
+    assert stats["written"] >= 1
+    assert prompt_store.resolve("plan", "default", PromptScope()) == "с диска"
