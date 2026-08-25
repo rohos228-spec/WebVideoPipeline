@@ -28,7 +28,7 @@ services:
   app:
     # Подставляет deploy.sh: дайджест из прогона, а не подвижный тег. Значение
     # по умолчанию — на случай ручного `docker compose up` на месте.
-    image: ${STUDIO_IMAGE:-ghcr.io/OWNER/REPO:latest}
+    image: ${STUDIO_IMAGE:-ghcr.io/multikco/video-pipeline:latest}
     restart: unless-stopped
     env_file:
       - ./env

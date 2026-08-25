@@ -17,7 +17,7 @@ from tests import accounts_harness as ah
 # asyncio_mode = "auto" в pyproject: асинхронные тесты подхватываются сами,
 # а модульная метка вешала бы её и на синхронные — pytest на это ругается.
 
-NEW_PASSWORD = "Qn8v-Ld3x-Bm6t-Wr2z"
+NEW_PASSWORD = "Qn8v-Ld3x-Bm6t-Wr2z"  # gitleaks:allow — фикстура, живёт только в тестах
 
 
 @pytest_asyncio.fixture

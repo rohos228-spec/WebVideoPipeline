@@ -26,10 +26,10 @@ from app.services.studio_auth import ROLE_ADMIN, ROLE_MEMBER
 
 #: Секрет для тестов. Не короче 32 байт: приложение отказывается стартовать со
 #: слабым ключом, и тест на слабом ключе проверял бы не то, что в проде.
-SECRET = "тестовый-секрет-подписи-длиною-заведомо-больше-тридцати-двух-байт"
+SECRET = "тестовый-секрет-подписи-длиною-заведомо-больше-тридцати-двух-байт"  # gitleaks:allow
 
 #: Пароль для заведённых в тесте учёток. Проходит `passwords.assert_strong`.
-PASSWORD = "gT7k-mQ2p-Xw9d-Rn4s"
+PASSWORD = "gT7k-mQ2p-Xw9d-Rn4s"  # gitleaks:allow — фикстура, живёт только в тестах
 
 
 @dataclass(frozen=True)

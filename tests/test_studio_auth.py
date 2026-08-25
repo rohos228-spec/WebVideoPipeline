@@ -27,7 +27,7 @@ from app.services.studio_auth import (
 )
 from app.settings import settings
 
-SECRET = "тестовый-секрет-подписи-длиною-заведомо-больше-тридцати-двух-байт"
+SECRET = "тестовый-секрет-подписи-длиною-заведомо-больше-тридцати-двух-байт"  # gitleaks:allow
 
 
 @pytest.fixture(autouse=True)
