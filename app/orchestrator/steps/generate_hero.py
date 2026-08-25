@@ -84,7 +84,6 @@ def _cast_template() -> str | None:
 from app.services.hitl import send_hitl_photo
 from app.services.outsee_retry import generate_image_with_retries
 from app.services.prompt_library import (
-    prompt_path,
     resolve_project_prompt_name,
 )
 from app.settings import settings
@@ -117,20 +116,26 @@ async def _optional_browser_session(
 
 
 def _read_hero_style(project: Project) -> str | None:
-    """Возвращает содержимое выбранного для проекта пресета стиля
-    из prompts/04_hero_style/. Если стиль не задан или файл отсутствует
-    — возвращает None (вызывающий должен решить, как фоллбэчить)."""
+    """Стиль персонажей для проекта. None — стиль не задан.
+
+    Читается той же дорогой, что и любой промт, — `read_prompt`, «база,
+    потом диск». Первая редакция читала только файл: на сервере диск только
+    для чтения, и стиль, сохранённый через редактор, шаг бы не увидел —
+    предупреждал «не найден на диске» про промт, который лежит в базе.
+    """
     overrides = getattr(project, "prompt_overrides", None) or {}
     meta = getattr(project, "meta", None) or {}
     name = resolve_project_prompt_name(overrides, "hero_style", meta=meta)
-    p = prompt_path("hero_style", name)
-    if not p.exists():
-        return None
     try:
-        return p.read_text(encoding="utf-8")
-    except Exception as e:  # noqa: BLE001
-        logger.warning("[#{}] hero_style read failed ({}): {}", project.id, p, e)
+        from app.services.prompt_library import read_prompt
+
+        text = read_prompt("hero_style", name)
+    except (FileNotFoundError, ValueError):
         return None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[#{}] hero_style read failed ({}): {}", project.id, name, e)
+        return None
+    return text or None
 
 
 def _hero_target_pairs(n_total: int, variations_cfg: list[int]) -> list[tuple[int, int]]:

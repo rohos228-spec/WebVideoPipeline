@@ -68,10 +68,11 @@ async def test_seed_puts_builtin_prompt_into_the_store(db) -> None:
 async def test_seed_is_idempotent_and_keeps_user_edits(db) -> None:
     """Главное свойство: перезапуск не затирает правку."""
     async with db() as s:
+        await seed_builtin_prompts(s)
         await prompt_store.save(s, "cast", "default", "мой промт", scope=PromptScope())
 
     async with db() as s:
-        assert await seed_builtin_prompts(s) == 0
+        assert await seed_builtin_prompts(s) == 0, "повторный посев не должен ничего писать"
 
     assert prompt_store.resolve("cast", "default", PromptScope()) == "мой промт"
 
@@ -109,3 +110,29 @@ async def test_import_overwrite_reads_the_disk_not_the_cache(db, tmp_path, monke
         stats = await prompt_store.import_from_disk(s, overwrite=True)
     assert stats["written"] >= 1
     assert prompt_store.resolve("plan", "default", PromptScope()) == "с диска"
+
+
+@pytest.mark.asyncio
+async def test_hero_style_is_read_from_the_store(db) -> None:
+    """Стиль, сохранённый в базу (через редактор), шаг видит без файла на диске.
+
+    `_read_hero_style` читал только диск. На сервере диск только для чтения,
+    и стиль из редактора шаг бы не увидел — предупреждал «не найден на
+    диске» про промт, который лежит в базе.
+    """
+    from types import SimpleNamespace
+
+    from app.orchestrator.steps.generate_hero import _read_hero_style
+
+    async with db() as s:
+        await prompt_store.save(s, "hero_style", "default", "мой стиль из базы", scope=PromptScope())
+
+    project = SimpleNamespace(id=1, prompt_overrides={}, meta={})
+    assert _read_hero_style(project) == "мой стиль из базы"
+
+
+@pytest.mark.asyncio
+async def test_hero_style_default_is_seeded(db) -> None:
+    async with db() as s:
+        await seed_builtin_prompts(s)
+    assert prompt_store.resolve("hero_style", "default", PromptScope())
