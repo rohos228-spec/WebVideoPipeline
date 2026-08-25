@@ -102,6 +102,14 @@ class Stage:
     editor: str = ""
     #: Динамические ключи смет — считаются от проекта (enrich-слоты).
     dynamic_price: str = ""
+    #: Коды шагов, чьи промты относятся к этой стадии.
+    #:
+    #: Стадия сворачивает несколько статусов, и промтов у неё столько же.
+    #: Список объявлен здесь, а не на фронте, потому что фронт не может знать
+    #: состав стадии: он видит семь карточек, а за «Героями и предметами»
+    #: стоят шесть разных папок промтов. Пустой кортеж — честное «править
+    #: нечего» (у озвучки и сборки промтов нет вовсе).
+    prompt_steps: tuple[str, ...] = ()
 
 
 STAGES: tuple[Stage, ...] = (
@@ -113,6 +121,7 @@ STAGES: tuple[Stage, ...] = (
         entry_step="plan",
         price_keys=("plan",),
         editor="plan",
+        prompt_steps=("plan",),
     ),
     Stage(
         id="script",
@@ -122,6 +131,7 @@ STAGES: tuple[Stage, ...] = (
         entry_step="script",
         price_keys=("script",),
         editor="script",
+        prompt_steps=("script",),
     ),
     Stage(
         id="frames",
@@ -131,6 +141,7 @@ STAGES: tuple[Stage, ...] = (
         entry_step="split",
         price_keys=("split",),
         editor="frames",
+        prompt_steps=("split",),
     ),
     Stage(
         id="cast",
@@ -141,6 +152,7 @@ STAGES: tuple[Stage, ...] = (
         price_keys=("scene_d", "scene_asm", "hero", "items"),
         editor="cast",
         dynamic_price="enrich",
+        prompt_steps=("scene_d", "hero", "hero_style", "items", "excel_gpt"),
     ),
     Stage(
         id="images",
@@ -150,6 +162,7 @@ STAGES: tuple[Stage, ...] = (
         entry_step="img_pr",
         price_keys=("img_pr", "img"),
         editor="images",
+        prompt_steps=("img_pr",),
     ),
     Stage(
         id="videos",
@@ -159,6 +172,7 @@ STAGES: tuple[Stage, ...] = (
         entry_step="anim_pr",
         price_keys=("anim_pr", "video"),
         editor="videos",
+        prompt_steps=("anim_pr",),
     ),
     Stage(
         id="final",

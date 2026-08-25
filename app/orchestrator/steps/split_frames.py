@@ -142,6 +142,15 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
                 exported.get("frames"),
                 exported.get("cells"),
             )
+    except db_apply.ApplyOpsError as e:
+        # Книга выключена настройкой — это не сбой, а режим работы. WARNING
+        # здесь появлялся на КАЖДОМ прогоне шага и приучал не читать журнал.
+        from app.settings import settings
+
+        if getattr(settings, "xlsx_enabled", True):
+            logger.warning("[#{}] split_frames: export_project_xlsx failed: {}", project.id, e)
+        else:
+            logger.debug("[#{}] split_frames: экспорт книги пропущен — запись выключена", project.id)
     except Exception as e:  # noqa: BLE001
         logger.warning("[#{}] split_frames: export_project_xlsx failed: {}", project.id, e)
 

@@ -7,6 +7,7 @@ import { ProjectRail } from "@/components/project-rail";
 import { IdeaComposer } from "@/components/idea-composer";
 import { ProjectView } from "@/components/project-view";
 import { credits } from "@/lib/format";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
 const LAST_PROJECT_KEY = "vp.last-project";
@@ -51,6 +52,13 @@ export default function Page() {
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-6">
           <span className="font-display text-[15px] text-content">Видеостудия</span>
           <div className="flex items-center gap-4">
+            <Link
+              href="/pipeline"
+              className="text-[12px] text-content-faint transition-colors hover:text-accent"
+              title="Схема шагов: порядок, включение, промты"
+            >
+              Конвейер
+            </Link>
             {money !== null && (
               <span
                 className="font-mono text-[12px] tabular-nums text-content-muted"

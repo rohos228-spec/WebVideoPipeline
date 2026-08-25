@@ -90,8 +90,26 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     descriptions = [d.strip() for d in descriptions if isinstance(d, str)]
     descriptions = [d for d in descriptions if d]
     if not descriptions:
+        # Метка обязательна, иначе получается вечный цикл — ровно тот, что уже
+        # чинили для героя (см. `hero_skipped_empty` в generate_hero).
+        #
+        # Без неё стороны читают одно и то же поле и расходятся во мнении:
+        # шаг видит пустой `item_descriptions` и считает работу сделанной, а
+        # `_items_step_required` из того же пустого списка заключает, что шага
+        # нет вовсе — и `compute_actual_status` НИКОГДА не возвращает
+        # `items_ready`, только `hero_ready`. Дальше страж откатывает статус,
+        # авто-продвижение снова одобряет `hero_ready` → `generating_items`, и
+        # так каждые пять секунд без конца.
+        #
+        # Отказом это не считается: формально ничего не падает, счётчик
+        # `step_failure_policy` не растёт, паузы не наступает. Поймано живым
+        # прогоном 2026-08-25 — проект крутился семь минут, пока не посмотрели
+        # в журнал.
+        meta = dict(project.meta or {})
+        meta["items_skipped_empty"] = True
+        project.meta = meta
         logger.info(
-            "[#{}] items: item_descriptions пуст — items_ready без работы",
+            "[#{}] items: item_descriptions пуст — items_ready без работы (items_skipped_empty)",
             project.id,
         )
         project.status = ProjectStatus.items_ready

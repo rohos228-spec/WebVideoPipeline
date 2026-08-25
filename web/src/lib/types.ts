@@ -4,11 +4,19 @@ export type StageId = "plan" | "script" | "frames" | "cast" | "images" | "videos
 
 export type StageState = "locked" | "ready" | "running" | "done" | "failed" | "paused";
 
+/** Промт одного шага внутри стадии. */
+export interface StagePrompt {
+  step: string;
+  label: string;
+}
+
 export interface Stage {
   id: StageId;
   label: string;
   hint: string;
   editor: string;
+  /** Какие промты правятся на этой стадии. Пустой список — править нечего. */
+  prompts: StagePrompt[];
   state: StageState;
   target_status: string;
   price_micro: number;
@@ -136,4 +144,98 @@ export interface GenerationOptions {
   image_resolutions_by_generator: Record<string, string[]>;
   video_generators: Choice[];
   video_resolutions: Choice[];
+}
+
+
+// ── Библиотека промтов ──────────────────────────────────────────────────
+
+export interface PromptFileInfo {
+  name: string;
+  filename: string;
+  size: number;
+  modified: number | null;
+  is_default: boolean;
+}
+
+export interface PromptFileContent {
+  name: string;
+  filename: string;
+  content: string;
+  size: number;
+  modified: number | null;
+}
+
+/** Какой файл реально возьмёт шаг: свой, проектный или общий по умолчанию. */
+export interface PromptResolveInfo {
+  name: string;
+  source: string;
+  source_label: string;
+  modified: number | null;
+}
+
+export interface PromptVersion {
+  id: string;
+  label: string;
+  saved_at: number;
+  size: number;
+}
+
+export interface PromptVersionContent {
+  id: string;
+  label: string;
+  content: string;
+}
+
+// ── Конструктор конвейера ───────────────────────────────────────────────
+
+export interface GraphNode {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  data: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+}
+
+export interface WorkflowSummary {
+  id: number;
+  name: string;
+  description: string | null;
+  version: number;
+  is_default: boolean;
+  updated_at: string;
+}
+
+export interface Workflow extends WorkflowSummary {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  meta: Record<string, unknown>;
+}
+
+/** Ответ проверки графа: что сломано и где. */
+export interface GraphValidation {
+  valid: boolean;
+  errors: string[];
+  warnings?: string[];
+}
+
+
+/** Тип узла, доступный конструктору. Приходит с сервера — см. /workflows/catalog. */
+export interface NodeKindInfo {
+  type: string;
+  label: string;
+  kind: string;
+  step_code: string | null;
+  has_prompt: boolean;
+}
+
+export interface NodeCatalog {
+  kinds: Record<string, string>;
+  nodes: NodeKindInfo[];
 }

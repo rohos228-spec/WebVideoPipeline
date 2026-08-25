@@ -22,6 +22,88 @@ from app.web.schemas import (
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 
+# Человеческие имена типов узлов. Держать их на фронте значило бы завести
+# вторую копию реестра, которая молча разъедется с первой: тип добавят в
+# `node_registry`, а подпись — нет, и в палитре появится «sfx_gen».
+NODE_LABELS: dict[str, str] = {
+    "topic": "Тема",
+    "storage": "Хранилище",
+    "plan": "Сценарий",
+    "script": "Закадровый текст",
+    "split": "Разбивка на кадры",
+    "scene_design": "Дизайн сцен (старый)",
+    "sd_agent": "Агент сцен",
+    "sd_assemble": "Сборка сцен",
+    "excel_gpt": "Работа с GPT",
+    # Слоты доработки таблицы. Номер в подписи важнее позиции в конвейере:
+    # слоты одинаковые, и различает их только он.
+    "enrich_1": "Доработка №1",
+    "enrich_2": "Доработка №2",
+    "enrich_3": "Доработка №3",
+    "enrich_4": "Доработка №4",
+    "enrich_5": "Доработка №5",
+    "hero": "Персонажи",
+    "items": "Предметы",
+    "image_prompts": "Промты картинок",
+    "images": "Картинки",
+    "animation_prompts": "Промты анимации",
+    "videos": "Видео",
+    "audio": "Озвучка",
+    "music": "Музыка",
+    "sfx_plan": "План звуков",
+    "sfx_gen": "Звуки",
+    "assemble": "Сборка ролика",
+    "publish": "Публикация",
+    "hitl_hero": "Проверка: персонажи",
+    "hitl_images": "Проверка: картинки",
+    "hitl_videos": "Проверка: видео",
+    "hitl_final": "Проверка: финал",
+    "hitl_gate": "Проверка человеком",
+}
+
+#: Разделы палитры. Порядок — порядок появления в конвейере, а не алфавит:
+#: палитрой пользуются, чтобы дособрать цепочку, и искать узел проще там, где
+#: он стоит по смыслу.
+NODE_KINDS: dict[str, str] = {
+    "work": "Шаги",
+    "hitl": "Проверки",
+    "config": "Настройка",
+}
+
+
+@router.get("/catalog")
+async def node_catalog() -> dict:
+    """Типы узлов, доступные конструктору.
+
+    Отдаётся с сервера, потому что реестр узлов живёт здесь: у типа есть код
+    шага, running- и ready-статус, и всё это фронт восстановить не может.
+    """
+    from app.orchestrator.node_registry import (
+        CONFIG_NODE_TYPES,
+        HITL_NODE_TYPES,
+        NODE_TYPE_TO_STEP_CODE,
+        WORK_NODES,
+    )
+    from app.services.prompt_library import STEP_FOLDERS
+
+    def entry(node_type: str, kind: str) -> dict:
+        step = NODE_TYPE_TO_STEP_CODE.get(node_type)
+        return {
+            "type": node_type,
+            "label": NODE_LABELS.get(node_type, node_type),
+            "kind": kind,
+            "step_code": step,
+            # Есть ли у узла промт — от этого зависит, показывать ли в
+            # инспекторе вкладку правки текста или честное «нечего править».
+            "has_prompt": bool(step and step in STEP_FOLDERS),
+        }
+
+    nodes = [entry(t, "config") for t in sorted(CONFIG_NODE_TYPES)]
+    nodes += [entry(t, "work") for t in WORK_NODES]
+    nodes += [entry(t, "hitl") for t in sorted(HITL_NODE_TYPES)]
+    return {"kinds": NODE_KINDS, "nodes": nodes}
+
+
 @router.get("", response_model=list[WorkflowSummary])
 async def list_workflows(session: AsyncSession = Depends(get_session)) -> list[Workflow]:
     rows = (await session.execute(select(Workflow).order_by(Workflow.id.desc()))).scalars().all()

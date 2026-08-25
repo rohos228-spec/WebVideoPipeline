@@ -6,13 +6,24 @@ import type {
   Balance,
   Frame,
   GenerationOptions,
+  GraphEdge,
+  GraphNode,
+  GraphValidation,
   LoginResult,
   MediaFrame,
   Me,
   Project,
   ProjectSummary,
+  PromptFileContent,
+  PromptFileInfo,
+  PromptResolveInfo,
+  PromptVersion,
+  PromptVersionContent,
   StageId,
   StagesResponse,
+  NodeCatalog,
+  Workflow,
+  WorkflowSummary,
 } from "./types";
 
 export class ApiError extends Error {
@@ -99,6 +110,11 @@ const post = <T>(path: string, body?: unknown) =>
 const patch = <T>(path: string, body: unknown) =>
   req<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 
+const put = <T>(path: string, body: unknown) =>
+  req<T>(path, { method: "PUT", body: JSON.stringify(body) });
+
+const del = <T>(path: string) => req<T>(path, { method: "DELETE" });
+
 export const api = {
   projects: () => req<ProjectSummary[]>("/projects"),
   project: (id: number) => req<Project>(`/projects/${id}`),
@@ -128,6 +144,58 @@ export const api = {
     forgetToken();
   },
   me: () => req<Me>("/me"),
+
+  // ── Библиотека промтов ────────────────────────────────────────────────
+  //
+  // Промт — главный рычаг: им задаётся всё, что модель делает на шаге. До
+  // сих пор его правили только на диске узла, то есть никто, кроме владельца
+  // машины.
+
+  promptFiles: (step: string) => req<PromptFileInfo[]>(`/prompts/${step}`),
+  promptContent: (step: string, name: string) =>
+    req<PromptFileContent>(`/prompts/${step}/${name}/content`),
+  /** Какой файл реально возьмёт шаг — с учётом проектных переопределений. */
+  promptResolve: (step: string, projectId?: number) =>
+    req<PromptResolveInfo>(
+      `/prompts/${step}/resolve${projectId ? `?project_id=${projectId}` : ""}`,
+    ),
+  savePrompt: (step: string, name: string, content: string) =>
+    put<PromptFileContent>(`/prompts/${step}/${name}`, { content }),
+  deletePrompt: (step: string, name: string) => del<unknown>(`/prompts/${step}/${name}`),
+  renamePrompt: (step: string, name: string, next: string) =>
+    patch<PromptFileInfo>(`/prompts/${step}/${name}/rename`, { name: next }),
+
+  // История: каждое сохранение оставляет версию. Без отката правка промта
+  // была бы необратимой — а промт правят наощупь, пробуя формулировки.
+  promptHistory: (step: string, name: string) =>
+    req<PromptVersion[]>(`/prompts/${step}/${name}/history`),
+  promptVersion: (step: string, name: string, versionId: string) =>
+    req<PromptVersionContent>(`/prompts/${step}/${name}/history/${versionId}/content`),
+  restorePromptVersion: (step: string, name: string, versionId: string) =>
+    post<PromptFileContent>(`/prompts/${step}/${name}/history/${versionId}/restore`),
+
+  // ── Конструктор конвейера ─────────────────────────────────────────────
+
+  nodeCatalog: () => req<NodeCatalog>("/workflows/catalog"),
+  workflows: () => req<WorkflowSummary[]>("/workflows"),
+  workflow: (id: number) => req<Workflow>(`/workflows/${id}`),
+  saveWorkflow: (body: {
+    id?: number;
+    name: string;
+    description?: string | null;
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+  }) =>
+    body.id === undefined
+      ? post<Workflow>("/workflows", body)
+      : put<Workflow>(`/workflows/${body.id}`, body),
+  deleteWorkflow: (id: number) => del<unknown>(`/workflows/${id}`),
+  duplicateWorkflow: (id: number) => post<Workflow>(`/workflows/${id}/duplicate`),
+  /** Проверка графа до сохранения: цикл или висящая нода видны сразу. */
+  validateGraph: (nodes: GraphNode[], edges: GraphEdge[]) =>
+    post<GraphValidation>("/workflows/validate", { name: "проверка", nodes, edges }),
+  /** Вернуть штатную схему — путь назад, если конструктором всё сломали. */
+  resetDefaultWorkflow: () => post<Workflow>("/workflows/default/reset"),
 
   readToken,
   saveToken,

@@ -943,6 +943,18 @@ def export_project_xlsx(
 
     ROW_PERSONS_PRIMARY = 8  # как в generate_images / baza
 
+    from app.settings import settings
+
+    # При учётных записях книгу не пишут вовсе, и экспортировать некуда. Без
+    # этой ветки вызывающий получал «сначала сгенерируй лист «план»» — совет,
+    # который невыполним: лист не появится ни при каких действиях
+    # пользователя. Ручная кнопка показывала его как ошибку 400, а шаг
+    # `split_frames` писал в журнал WARNING на каждом прогоне.
+    if not getattr(settings, "xlsx_enabled", True):
+        raise ApplyOpsError(
+            "запись книги выключена (режим учётных записей) — экспорт в project.xlsx недоступен"
+        )
+
     path = project.data_dir / "project.xlsx"
     if not path.is_file():
         raise ApplyOpsError("project.xlsx не найден — сначала сгенерируй лист «план»")

@@ -100,6 +100,17 @@ def _items_step_required(project: Project) -> bool:
     return len(_nonempty_item_descriptions(project)) > 0
 
 
+def _items_skipped_empty(project: Project) -> bool:
+    """Шаг предметов прошёл вхолостую и зафиксировал это (см. generate_items).
+
+    Без такой отметки `items_ready` не подтверждается данными никогда: артефактов
+    нет, потому что и описаний не было. Статус откатывается, авто-продвижение
+    возвращает его обратно — вечный цикл. Тот же приём, что `hero_skipped_empty`.
+    """
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    return bool(meta.get("items_skipped_empty"))
+
+
 def _enrich_ready_from_meta(project: Project) -> ProjectStatus | None:
     """Максимальный enrich_*_ready по ``meta.enrich_completed_slots``."""
     meta = project.meta if isinstance(project.meta, dict) else {}
@@ -552,6 +563,8 @@ async def compute_actual_status(session, project: Project) -> ProjectStatus:
             if item_arts < len(item_descs):
                 return ProjectStatus.hero_ready
             return ProjectStatus.items_ready
+        if _items_skipped_empty(project):
+            return ProjectStatus.items_ready
         return ProjectStatus.hero_ready
     elif hero_required:
         n_excel = _excel_hero_expected_count(project)
@@ -586,6 +599,8 @@ async def compute_actual_status(session, project: Project) -> ProjectStatus:
         item_descs = _nonempty_item_descriptions(project)
         if item_arts < len(item_descs):
             return ProjectStatus.hero_ready
+        return ProjectStatus.items_ready
+    if _items_skipped_empty(project):
         return ProjectStatus.items_ready
     if hero_required:
         return ProjectStatus.hero_ready

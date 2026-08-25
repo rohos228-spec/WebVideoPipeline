@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, subscribeProject } from "@/lib/api";
@@ -10,6 +10,7 @@ import { FramesEditor } from "@/components/editors/frames-editor";
 import { MediaEditor } from "@/components/editors/media-editor";
 import { CastEditor } from "@/components/editors/cast-editor";
 import { FinalView } from "@/components/editors/final-view";
+import { PromptEditor } from "@/components/editors/prompt-editor";
 import { Working } from "@/components/ui/bits";
 import type { Project, Stage, StageId } from "@/lib/types";
 
@@ -72,6 +73,7 @@ export function StageFlow({ project }: { project: Project }) {
           onStop={() => stop.mutate()}
         >
           <StageBody stage={stage} project={project} />
+          <StagePrompts stage={stage} projectId={project.id} />
         </StageCard>
       ))}
     </div>
@@ -82,6 +84,38 @@ export function StageFlow({ project }: { project: Project }) {
 function isLast(stages: Stage[], i: number): boolean {
   const lastDone = stages.map((s) => s.state).lastIndexOf("done");
   return i === lastDone && !stages.some((s) => s.state === "running");
+}
+
+/**
+ * Промты стадии — под результатом, за отдельным раскрытием.
+ *
+ * Раскрытием, потому что порядок работы обратный порядку важности: смотрят на
+ * результат, а к промту идут, когда результат не устроил. Развёрнутый по
+ * умолчанию, он оттеснял бы то, ради чего экран открыли.
+ *
+ * Состав стадии приходит с сервера (`stage.prompts`): за одной карточкой
+ * стоит от нуля до шести папок промтов, и знать это фронт сам не может.
+ */
+function StagePrompts({ stage, projectId }: { stage: Stage; projectId: number }) {
+  const [open, setOpen] = useState(false);
+  const prompts = stage.prompts ?? [];
+  if (prompts.length === 0) return null;
+
+  return (
+    <div className="mt-5 border-t border-border pt-3">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-[12px] text-content-faint hover:text-accent"
+      >
+        {open ? "скрыть промт" : `промт шага${prompts.length > 1 ? ` (${prompts.length})` : ""}`}
+      </button>
+      {open && (
+        <div className="rise mt-3">
+          <PromptEditor prompts={prompts} projectId={projectId} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 function StageBody({ stage, project }: { stage: Stage; project: Project }) {

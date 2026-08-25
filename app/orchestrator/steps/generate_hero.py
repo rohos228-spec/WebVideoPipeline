@@ -62,6 +62,25 @@ from app.services import gpt_text_builder as gtb
 from app.services.db_busy import is_db_busy
 from app.services.excel_characters import ExcelCharacter
 from app.services.gpt_client import get_gpt_client
+
+
+def _cast_template() -> str | None:
+    """Промт разбора состава из библиотеки; None — сработает встроенный.
+
+    Папки `prompts/04c_cast/` может не быть: библиотека монтируется томом и у
+    заказчика неполна. Это не ошибка — встроенный промт лежит в
+    `cast_extract.DEFAULT_PROMPT`, а файл, если его заведут через интерфейс,
+    просто побеждает.
+    """
+    try:
+        from app.services.prompt_library import read_prompt
+
+        text = (read_prompt("cast", "default") or "").strip()
+        return text or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 from app.services.hitl import send_hitl_photo
 from app.services.outsee_retry import generate_image_with_retries
 from app.services.prompt_library import (
@@ -480,17 +499,53 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 if loaded:
                     await _run_excel(session, project, bot, loaded)
                     return
-                # Пустой skip: помечаем meta, иначе clamp откатит hero_ready →
-                # frames_ready и auto_advance снова запустит generating_hero
-                # (бесконечный цикл каждые ~5 с).
+                # Описаний нет ниоткуда. Раньше здесь шаг молча сдавался, а
+                # совет в сообщении («заполни лист «Персонажи»») указывал на
+                # книгу проекта — поверхность, которой при учётных записях не
+                # существует. Снаружи это выглядело как «нажал кнопку, ничего
+                # не произошло».
+                #
+                # Между тем материал есть: план и закадровый текст уже
+                # написаны, и персонажи в них названы прямым текстом. Спросим
+                # модель — и положим ответ в проект как ПРЕДЛОЖЕНИЕ: человек
+                # увидит его в редакторе, поправит формулировки или уберёт
+                # лишнее, и только потом запустит генерацию референсов.
+                # Рисовать сразу нельзя: каждый персонаж стоит денег, а
+                # «прохожий №3» модель придумывает охотно.
+                from app.services.cast_extract import extract_cast
+
+                people, things = await extract_cast(project, get_gpt_client(), template=_cast_template())
+                if people or things:
+                    if people:
+                        project.hero_descriptions = people
+                        project.hero_count = len(people)
+                    if things and not (project.item_descriptions or []):
+                        project.item_descriptions = things
+                    # Метку пропуска НЕ ставим: работа появилась, и шаг
+                    # должен запуститься заново — уже с описаниями.
+                    project.status = ProjectStatus.hero_ready
+                    await session.flush()
+                    logger.info(
+                        "[#{}] hero: персонажи выведены из сценария "
+                        "(героев={}, предметов={}) — проверьте и запустите шаг заново",
+                        project.id,
+                        len(people),
+                        len(things),
+                    )
+                    return
+
+                # Модель тоже ничего не нашла — тогда честный пропуск.
+                #
+                # Метка обязательна: без неё clamp откатит hero_ready →
+                # frames_ready, auto_advance снова запустит generating_hero, и
+                # так каждые ~5 с без конца.
                 meta = dict(project.meta or {})
                 meta["hero_skipped_empty"] = True
                 project.meta = meta
                 logger.warning(
-                    "[#{}] hero: hero_count/description пусты и лист "
-                    "«Персонажи» без данных — пропускаю шаг (hero_ready, "
-                    "hero_skipped_empty). Заполни «Описание героя» на листе "
-                    "«Общий план» или столбцы на «Персонажи», затем ▶ Hero",
+                    "[#{}] hero: описаний нет и вывести из сценария не вышло — "
+                    "пропускаю шаг (hero_ready, hero_skipped_empty). "
+                    "Добавьте персонажей вручную и запустите шаг заново",
                     project.id,
                 )
                 project.status = ProjectStatus.hero_ready
