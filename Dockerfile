@@ -109,9 +109,15 @@ COPY --chown=studio:studio app/ ./app/
 COPY --chown=studio:studio migrations/ ./migrations/
 COPY --chown=studio:studio scripts/ ./scripts/
 COPY --chown=studio:studio evals/ ./evals/
-# Часть библиотеки, которая законно лежит в git (scene_design и прочее). Том с
-# полной библиотекой монтируется поверх.
-COPY --chown=studio:studio prompts/ ./prompts/
+# Промты в образ НЕ кладутся. Раньше здесь стоял `COPY prompts/`, и это была
+# ошибка: команда копирует то, что есть в git, — четыре каталога
+# (scene_design, 05_image_prompts, 04_hero, 05_excel_gpt). То есть заметная
+# часть библиотеки уезжала в реестр вместе с образом, хотя весь смысл
+# `.gitignore: prompts/*` в том, чтобы она туда не уезжала.
+#
+# На работу это не влияет: полная библиотека монтируется томом и на первом
+# старте импортируется в базу (`app/web/api.py::_lifespan`). Каталог создаётся
+# ниже пустым — точкой монтирования.
 COPY --chown=studio:studio --from=web /web/out ./web/out
 COPY --chown=studio:studio web/STUDIO_VERSION ./web/STUDIO_VERSION
 
