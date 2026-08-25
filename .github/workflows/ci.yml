@@ -38,6 +38,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks смотрит ИСТОРИЮ, а не рабочее дерево. При обычном
+          # чекауте глубиной 1 он просканировал бы один коммит и радостно
+          # сообщил, что всё чисто.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -52,14 +57,27 @@ jobs:
       - run: python -m ruff format --check .
       - run: python -m mypy app/ --ignore-missing-imports
 
-      - name: Секреты в диффе
-        # Свой сканер живёт в харнессе владельца и в репозиторий не входит.
-        # Здесь его роль исполняет gitleaks: правило то же — добавленные строки
-        # не содержат ключей. Поводом было живое значение VIBECODE_API_KEY,
-        # уехавшее в .env.example и оставшееся в истории всех веток.
-        uses: gitleaks/gitleaks-action@v2
+      - name: Секреты в истории
+        # Бинарник, а не `gitleaks/gitleaks-action@v2`.
+        #
+        # Обёртка-action платная для ОРГАНИЗАЦИЙ: первый же прогон здесь упал
+        # с «[multikco] is an organization. License key is required.». Сам
+        # gitleaks свободен, и всё, что делает обёртка, — скачивает его и
+        # запускает. Делаем это сами: то же покрытие, без лицензии и без
+        # зависимости от чужого релиза.
+        #
+        # Известные находки перечислены в `.gitleaksignore`; настоящая там
+        # одна — VIBECODE_API_KEY, уехавший значением в `.env.example` и
+        # оставшийся в истории. Он требует ротации у провайдера, а не
+        # вычёркивания: копия истории есть у каждого, кто делал clone.
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: "8.30.0"
+        run: |
+          set -euo pipefail
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL "$url" | tar -xz -C /tmp gitleaks
+          /tmp/gitleaks version
+          /tmp/gitleaks detect --no-banner --redact --exit-code 1
 
   tests:
     name: Суита, храповик, изоляция
