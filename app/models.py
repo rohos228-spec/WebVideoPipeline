@@ -552,7 +552,11 @@ class AsrWord(Base):
 
 class MasterPrompt(Base):
     __tablename__ = "master_prompts"
-    __table_args__ = (UniqueConstraint("key", "version", name="uq_prompt_key_version"),)
+    # Ключ включает арендатора. Без него системная строка (tenant_id IS
+    # NULL), невидимая под RLS для сессии арендатора, блокировала бы его
+    # собственную: код не видит — вставляет — Postgres отбивает. Ревизия
+    # 0013 ставит на Postgres пару частичных индексов; здесь — для свежих баз.
+    __table_args__ = (UniqueConstraint("tenant_id", "key", "version", name="uq_prompt_tenant_key_version"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:
@@ -1074,7 +1078,8 @@ class LibraryItem(Base):
     """Единица локальной библиотеки."""
 
     __tablename__ = "library_items"
-    __table_args__ = (UniqueConstraint("kind", "key", name="uq_library_item_kind_key"),)
+    # Ключ с арендатором — см. пояснение у MasterPrompt и ревизию 0013.
+    __table_args__ = (UniqueConstraint("tenant_id", "kind", "key", name="uq_library_item_tenant_kind_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # Арендатор. NULL — данные владельца, заведённые до перехода в SaaS:

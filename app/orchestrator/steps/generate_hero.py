@@ -99,11 +99,10 @@ HERO_RELAX = True
 
 
 def _excel_hero_http_primary() -> bool:
-    """Outsee/Grsai HTTP — без Chrome CDP (параллельные волны не валятся)."""
-    from app.bots.grsai import grsai_enabled
-    from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_image
+    """HTTP-провайдер картинок есть — Chrome CDP не нужен."""
+    from app.services.image_transport import http_image_primary
 
-    return bool(grsai_enabled() or outsee_api_enabled_for_image() or outsee_api_configured())
+    return http_image_primary()
 
 
 @asynccontextmanager
@@ -640,7 +639,9 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                     len(hero_prompt),
                 )
 
-    async with browser_session() as bs:
+    # Chrome — только если нет HTTP-провайдера. На сервере его нет вовсе, и
+    # безусловная сессия здесь роняла шаг при `IMAGE_PROVIDER=minimax`.
+    async with _optional_browser_session(need_cdp=not _excel_hero_http_primary()) as bs:
         # `gpt` нужен ОБОИМ путям:
         #   - v=1 / cache miss — для генерации hero_prompt из ChatGPT;
         #   - любой v — для GPT-rewrite внутри generate_image_with_retries
@@ -791,8 +792,9 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                     hero_idx,
                 )
 
-        # 4) Генерация в outsee.
-        outsee = OutseeBot(bs)
+        # 4) Генерация. Без браузера `outsee` = None: HTTP-провайдеры в
+        # `generate_image_with_retries` выбираются раньше, чем он понадобится.
+        outsee = OutseeBot(bs) if bs is not None else None
         out_dir = project.data_dir / "characters"
         from app.services.vibecode_catalog import resolve_node_media_settings
 
@@ -812,7 +814,8 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         result = None
         # Этап 4 (B.4, ревью): при VISION_FIX «Повторить» пропускаем —
         # UI-повтор регенерит СТАРЫМ промптом, фикс бы не применился.
-        if v_idx == 1 and is_regen and not _pair_vfix:
+        # Кнопка «Повторить» есть только в браузере; по HTTP — сразу fresh.
+        if v_idx == 1 and is_regen and not _pair_vfix and outsee is not None:
             logger.info(
                 "[#{}] regenerate hero {}/{} v1: пробую кнопку «Повторить»",
                 project.id,

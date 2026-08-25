@@ -92,9 +92,16 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
         unregister_advance_task,
     )
 
+    # Номер проекта — в локальную переменную ДО работы. После `rollback()` в
+    # `finally` ORM-объект протухает, и `project.id` идёт в базу синхронно —
+    # вне greenlet: «greenlet_spawn has not been called». На живом сервере
+    # это заменило собой настоящую ошибку шага и сорвало освобождение lease
+    # — проект простоял час. В тестах объект был свежесозданным и не
+    # протухал, поэтому они молчали.
+    pid = project.id
     task = asyncio.current_task()
     if task is not None:
-        register_advance_task(project.id, task)
+        register_advance_task(pid, task)
     ran_status: ProjectStatus | None = None
     _step_lock_cm = None
     _step_lease: tuple[str, str] | None = None
@@ -265,18 +272,18 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
                     try:
                         await session.rollback()
                     except Exception:  # noqa: BLE001
-                        logger.debug("[#{}] rollback перед release не удался", project.id)
-                    await _wl_fin.release(project.id, _step_lease[0], owner=_step_lease[1])
+                        logger.debug("[#{}] rollback перед release не удался", pid)
+                    await _wl_fin.release(pid, _step_lease[0], owner=_step_lease[1])
                 else:
                     # Успешный путь: вызывающий сейчас коммитит, и удаление
                     # уедет вместе с его транзакцией. Своя короткая сессия
                     # встала бы на busy_timeout в ожидании этой же транзакции.
-                    await _wl_fin.release(project.id, _step_lease[0], owner=_step_lease[1], session=session)
+                    await _wl_fin.release(pid, _step_lease[0], owner=_step_lease[1], session=session)
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "[#{}] не удалось освободить step-lease {} — до конца TTL шаг будет "
                     "пропускаться как занятый",
-                    project.id,
+                    pid,
                     _step_lease[0],
                 )
         if _step_lock_cm is not None:
@@ -284,4 +291,4 @@ async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> 
                 await _step_lock_cm.__aexit__(None, None, None)
             except Exception:  # noqa: BLE001
                 pass
-        unregister_advance_task(project.id)
+        unregister_advance_task(pid)

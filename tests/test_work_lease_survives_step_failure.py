@@ -229,3 +229,40 @@ def test_declared_node_name_wins_over_hostname(monkeypatch):
     name, declared = wl._node_identity()
     assert declared is False
     assert name  # какой-то hostname всё же есть
+
+
+@pytest.mark.asyncio
+async def test_failed_step_releases_lease_for_a_persistent_project(lease_db, monkeypatch):
+    """Проект, загруженный из базы, а не свежесозданный — как на сервере.
+
+    Отличие решающее. После `session.rollback()` персистентный объект
+    протухает, и любое `project.id` в `finally` идёт в базу синхронно — вне
+    greenlet. Первая редакция освобождения так и упала:
+    «greenlet_spawn has not been called» заменил собой ошибку шага, lease
+    остался, проект простоял час при 302 пропущенных тактах. Свежесозданный
+    объект из соседнего теста после rollback просто становится transient и
+    хранит `id` в памяти — потому тот тест молчал.
+    """
+    from app.models import Project, ProjectStatus
+
+    pipeline = pytest.importorskip("app.orchestrator.pipeline")
+
+    async with lease_db() as s:
+        s.add(Project(id=11, slug="persist", topic="тема", status=ProjectStatus.planning))
+        await s.commit()
+
+    async def _boom(session, proj, bot=None):
+        raise RuntimeError("шаг упал на живом объекте")
+
+    monkeypatch.setattr(pipeline.make_plan, "run", _boom)
+
+    async with lease_db() as session:
+        project = await session.get(Project, 11)
+        assert project is not None
+        # Именно исходная ошибка шага, а не подмена из finally.
+        with pytest.raises(RuntimeError, match="на живом объекте"):
+            await pipeline.advance_project(session, project, None)
+        await session.rollback()
+
+    assert await _rows(lease_db) == [], "lease персистентного проекта не освобождён после падения"
+    assert await wl.acquire(11, "step:plan", owner="next", ttl_s=3600) is True

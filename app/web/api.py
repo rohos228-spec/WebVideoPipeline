@@ -479,6 +479,24 @@ def create_app() -> FastAPI:
 
         return read_studio_version()
 
+    # Необработанное исключение — в журнал, всегда. Первый живой 500 на сервере
+    # (сохранение промта, UniqueViolation под RLS) ушёл клиенту как голый
+    # «Internal Server Error», а в `docker logs` не осталось ни строки: журнал
+    # ведёт loguru, а стандартный логгер uvicorn, куда Starlette пишет трейс,
+    # в него не заведён. Диагностика заняла бы минуту с трейсом и заняла час
+    # без него.
+    from fastapi.responses import JSONResponse as _JSONResponse
+
+    @app.exception_handler(Exception)
+    async def _log_unhandled(request, exc: Exception):
+        logger.opt(exception=exc).error(
+            "500 {} {} — необработанное исключение {}", request.method, request.url.path, type(exc).__name__
+        )
+        return _JSONResponse(
+            {"detail": f"внутренняя ошибка сервера ({type(exc).__name__}); подробности в журнале"},
+            status_code=500,
+        )
+
     # ── Статика Next.js (export → ./web/out) ──
     _mount_frontend(app)
 

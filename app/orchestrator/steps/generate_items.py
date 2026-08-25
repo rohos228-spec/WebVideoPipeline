@@ -17,6 +17,7 @@ hero_ready (предметы опциональны), юзер правит оп
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 
 from aiogram import Bot
 from loguru import logger
@@ -24,6 +25,18 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.browser import browser_session
+from app.services.image_transport import http_image_primary
+
+
+@asynccontextmanager
+async def _optional_browser(need_cdp: bool):
+    if not need_cdp:
+        yield None
+        return
+    async with browser_session() as bs:
+        yield bs
+
+
 from app.bots.outsee import (
     OutseeBot,
     OutseeContentRejectedError,
@@ -158,8 +171,9 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         prompt_id_prefix = f"[ID: P{project.id}-ITEM{idx}-{short_uuid}]"
 
         try:
-            async with browser_session() as bs:
-                outsee = OutseeBot(bs)
+            # Chrome — только если нет HTTP-провайдера (см. image_transport).
+            async with _optional_browser(need_cdp=not http_image_primary()) as bs:
+                outsee = OutseeBot(bs) if bs is not None else None
                 gpt = get_gpt_client()
                 result = await generate_image_with_retries(
                     outsee,
