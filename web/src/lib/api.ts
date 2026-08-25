@@ -151,28 +151,28 @@ export const api = {
   // сих пор его правили только на диске узла, то есть никто, кроме владельца
   // машины.
 
-  promptFiles: (step: string) => req<PromptFileInfo[]>(`/prompts/${step}`),
+  promptFiles: (step: string) => req<PromptFileInfo[]>(`/prompt-files/${step}`),
   promptContent: (step: string, name: string) =>
-    req<PromptFileContent>(`/prompts/${step}/${name}/content`),
+    req<PromptFileContent>(`/prompt-files/${step}/${name}/content`),
   /** Какой файл реально возьмёт шаг — с учётом проектных переопределений. */
   promptResolve: (step: string, projectId?: number) =>
     req<PromptResolveInfo>(
-      `/prompts/${step}/resolve${projectId ? `?project_id=${projectId}` : ""}`,
+      `/prompt-files/${step}/resolve${projectId ? `?project_id=${projectId}` : ""}`,
     ),
   savePrompt: (step: string, name: string, content: string) =>
-    put<PromptFileContent>(`/prompts/${step}/${name}`, { content }),
-  deletePrompt: (step: string, name: string) => del<unknown>(`/prompts/${step}/${name}`),
+    put<PromptFileContent>(`/prompt-files/${step}/${name}`, { content }),
+  deletePrompt: (step: string, name: string) => del<unknown>(`/prompt-files/${step}/${name}`),
   renamePrompt: (step: string, name: string, next: string) =>
-    patch<PromptFileInfo>(`/prompts/${step}/${name}/rename`, { name: next }),
+    patch<PromptFileInfo>(`/prompt-files/${step}/${name}/rename`, { name: next }),
 
   // История: каждое сохранение оставляет версию. Без отката правка промта
   // была бы необратимой — а промт правят наощупь, пробуя формулировки.
   promptHistory: (step: string, name: string) =>
-    req<PromptVersion[]>(`/prompts/${step}/${name}/history`),
+    req<PromptVersion[]>(`/prompt-files/${step}/${name}/history`),
   promptVersion: (step: string, name: string, versionId: string) =>
-    req<PromptVersionContent>(`/prompts/${step}/${name}/history/${versionId}/content`),
+    req<PromptVersionContent>(`/prompt-files/${step}/${name}/history/${versionId}/content`),
   restorePromptVersion: (step: string, name: string, versionId: string) =>
-    post<PromptFileContent>(`/prompts/${step}/${name}/history/${versionId}/restore`),
+    post<PromptFileContent>(`/prompt-files/${step}/${name}/history/${versionId}/restore`),
 
   // ── Конструктор конвейера ─────────────────────────────────────────────
 

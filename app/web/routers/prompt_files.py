@@ -134,7 +134,7 @@ def _prompt_modified(step_code: str, name: str, p: Path) -> float | None:
 @router.get("/{step_code}/resolve", response_model=PromptResolveInfo)
 async def resolve_prompt_for_project(
     step_code: str,
-    project_id: int = Query(...),
+    project_id: int | None = Query(None),
     node_key: str | None = Query(None),
     slot_id: str | None = Query(None),
     session: AsyncSession = Depends(get_session),
@@ -142,11 +142,21 @@ async def resolve_prompt_for_project(
     from app.models import Project
 
     _ensure_step(step_code)
-    project = await session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="project not found")
-    overrides = project.prompt_overrides if isinstance(project.prompt_overrides, dict) else {}
-    meta = project.meta if isinstance(project.meta, dict) else {}
+
+    # Без проекта — общий уровень: «какой вариант возьмёт шаг, если проектных
+    # переопределений нет». Спрашивает конструктор конвейера: там правится
+    # промт узла, а не ролика, и подставлять туда чужой проект было бы враньём.
+    #
+    # Раньше параметр был обязательным, и такой вызов возвращал 422 — то есть
+    # ветка просто не работала, а в интерфейсе стояло «промт не читается».
+    overrides: dict = {}
+    meta: dict = {}
+    if project_id is not None:
+        project = await session.get(Project, project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="project not found")
+        overrides = project.prompt_overrides if isinstance(project.prompt_overrides, dict) else {}
+        meta = project.meta if isinstance(project.meta, dict) else {}
     name, source = resolve_project_prompt_with_source(
         overrides,
         step_code,
