@@ -1,64 +1,38 @@
-# Студия на VPS: приложение, Postgres и обратный прокси с TLS.
+# Студия на VPS: приложение и обратный прокси с TLS.
+#
+# **Postgres здесь НЕТ намеренно — он стоит на самом хосте** (решение владельца
+# 2026-08-25). Ставится один раз: `sudo ./setup-postgres.sh`. Обновление базы,
+# её настройка и бэкап уходят к системному администратору и не зависят от того,
+# что происходит с контейнерами.
+#
+# **Как контейнер достаёт базу.** Через смонтированный unix-сокет, а не по TCP.
+# TCP потребовал бы поднять `listen_addresses`, открыть порт на интерфейсе
+# docker-моста и разрешить его подсеть в `pg_hba.conf` — то есть завести
+# слушающий сокет там, где его не было, и дальше следить, чтобы фаервол не
+# отстал от docker. Смонтированный сокет не требует ничего из этого: TCP у базы
+# остаётся выключенным, снаружи её не видно в принципе.
+#
+# Проверено связкой «база вне контейнера + приложение в контейнере»: миграции,
+# импорт промт-библиотеки и проверка RLS проходят.
 #
 # Содержимое `deploy/studio/` кладётся в /opt/studio на VPS вместе с файлом
-# окружения `env` (шаблон — `env.template`) и каталогом `prompts/`. Обновление делает `deploy.sh`, его же зовёт
-# GitHub Actions по ssh.
+# окружения `env` (шаблон — `env.template`) и каталогом `prompts/`.
+# Обновление делает `deploy.sh`, его же зовёт GitHub Actions по ssh.
 #
-# **Почему Postgres обязателен.** Учётные записи включаются заданием
-# `STUDIO_SESSION_SECRET`, а изоляция арендаторов держится на row-level
-# security. В SQLite политик RLS не существует физически, и приложение
-# отказывается стартовать в такой позе — это не перестраховка, а единственный
-# способ не отдать чужой ролик.
-#
-# **Почему база в контейнере, а не managed.** Для внутреннего инструмента
-# студии managed-Postgres — лишние деньги и лишняя точка отказа. Цена решения:
-# бэкап на вас (см. `deploy.sh backup`). Переезд на managed — это смена
-# `DATABASE_URL` и удаление одной службы отсюда.
+# ВАЖНО: гонять compose руками только с `--env-file ./env` — файл назван `env`,
+# а не `.env`, и без флага подстановка `${…}` не сработает.
 
 name: studio
 
 services:
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-videopipeline}
-      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_SUPERPASSWORD:?нужен POSTGRES_SUPERPASSWORD}
-      # Явная локаль: сравнение строк и сортировка зависят от неё, а менять
-      # collation на живой базе — это переиндексация всего.
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
-      # Читает initdb/10-app-role.sh при первом создании тома.
-      POSTGRES_USER_APP: ${POSTGRES_USER:-app}
-      POSTGRES_PASSWORD_APP: ${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}
-    volumes:
-      - db-data:/var/lib/postgresql/data
-      # Заводит роль приложения при ПЕРВОМ создании тома. Роль обычная, не
-      # суперпользователь и без BYPASSRLS: и то и другое обходит политики
-      # молча, то есть даёт утечку без единой ошибки в журнале.
-      - ./initdb:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER:-postgres} -d ${POSTGRES_DB:-videopipeline}"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-    # Наружу база не смотрит. Приложение ходит по внутренней сети compose.
-    expose:
-      - "5432"
-
   app:
     # Подставляет deploy.sh: дайджест из прогона, а не подвижный тег. Значение
     # по умолчанию — на случай ручного `docker compose up` на месте.
     image: ${STUDIO_IMAGE:-ghcr.io/OWNER/REPO:latest}
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     env_file:
       - ./env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-videopipeline}
       WEB_HOST: 0.0.0.0
       WEB_PORT: "8765"
       # За прокси с TLS cookie сессии обязана быть Secure. Без TLS её ставить
@@ -66,6 +40,10 @@ services:
       SESSION_COOKIE_SECURE: "true"
       TELEGRAM_ENABLED: "false"
     volumes:
+      # Сокет хостового Postgres. Каталог, а не файл: postgres пересоздаёт
+      # сокет при рестарте, и bind на сам файл после этого указывал бы в
+      # никуда — контейнер пришлось бы перезапускать вслед за базой.
+      - ${POSTGRES_SOCKET_DIR:-/var/run/postgresql}:/var/run/postgresql
       # Ролики, кадры, звук. Гигабайты — том, а не bind: снапшот тома снимается
       # одной командой, а bind-каталог на VPS однажды окажется на / без места.
       - app-data:/app/data
@@ -81,7 +59,11 @@ services:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/api/health"]
       interval: 30s
       timeout: 5s
-      start_period: 90s
+      # Дольше, чем было с базой в контейнере: `depends_on: service_healthy`
+      # больше некому ждать. Если postgres на хосте ещё поднимается (перезагрузка
+      # VPS), приложение упадёт на старте и его поднимет `restart: unless-stopped`
+      # — на это нужен запас.
+      start_period: 120s
       retries: 3
     # Конвейер льёт подробный журнал; без ограничения он съедает диск за
     # неделю, и узнают об этом по остановившейся студии.
@@ -112,7 +94,6 @@ services:
         max-file: "3"
 
 volumes:
-  db-data:
   app-data:
   app-logs:
   caddy-data:
