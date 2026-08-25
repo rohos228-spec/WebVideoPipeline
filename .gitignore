@@ -72,3 +72,9 @@ coverage/
 # Отчёты Playwright: артефакты прогона.
 web/playwright-report/
 web/test-results/
+
+# Секреты и состояние выкладки на VPS.
+deploy/studio/env
+deploy/studio/prompts/
+deploy/studio/backups/
+deploy/studio/.last-image

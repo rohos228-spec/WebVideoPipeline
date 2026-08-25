@@ -1,0 +1,37 @@
+# Обратный прокси с автоматическим TLS.
+#
+# Caddy сам получает и продлевает сертификат Let's Encrypt — отдельного certbot
+# и cron для продления не нужно. Домен обязан резолвиться в этот VPS ДО первого
+# запуска, иначе выдача сертификата не пройдёт и Caddy будет ретраить.
+{$STUDIO_DOMAIN} {
+	encode zstd gzip
+
+	# Стримы прогона: SSE и WebSocket. Буферизация ответа убила бы и то и
+	# другое — reverse_proxy в Caddy её не делает, но таймаут по умолчанию
+	# оборвал бы длинный шаг конвейера.
+	reverse_proxy app:8765 {
+		flush_interval -1
+		transport http {
+			# Шаг генерации видео идёт минутами. Значение по умолчанию (без
+			# ограничения на чтение) здесь и нужно, но пишем явно: правка
+			# «поставим таймаут поменьше» обязана быть осознанной.
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+
+	header {
+		# Внутренний инструмент: в поиск ему не надо.
+		X-Robots-Tag "noindex, nofollow"
+		# HSTS включаем, потому что домен обслуживается только по TLS.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

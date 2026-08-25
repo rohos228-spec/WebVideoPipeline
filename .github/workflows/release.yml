@@ -1,0 +1,204 @@
+# Сборка образа в GHCR и выкладка на VPS.
+#
+# **Порядок обязателен: сперва гейт, потом образ.** Workflow вызывает `ci.yml`
+# и продолжает только если тот зелёный. Собрать образ параллельно проверкам
+# быстрее ровно до первого раза, когда сломанный образ окажется в реестре с
+# тегом `latest`: `docker compose pull` на VPS не спрашивает, проходил ли код
+# тесты.
+#
+# **Деплой отдельным job с environment.** GitHub спросит подтверждение, если у
+# environment `production` настроен reviewer — и это единственное место, где
+# человек может остановить выкладку. Настраивается в Settings → Environments,
+# кодом не задаётся намеренно: право на паузу не должно править тот же, кто
+# правит код.
+name: Release
+
+on:
+  push:
+    branches: ["main"]
+    # Тег вида v1.4.0 даёт неподвижный образ, к которому можно откатиться.
+    tags: ["v*"]
+    # Правки документации не двигают образ. Дорого не время сборки, а
+    # перезапуск студии посреди работы оператора.
+    paths-ignore:
+      - "docs/**"
+      - "ai-pack/**"
+      - "**/*.md"
+      - ".claude/**"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Выкатывать на VPS после сборки"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  gate:
+    name: Гейт
+    uses: ./.github/workflows/ci.yml
+    # Вызванный workflow получает свои разрешения, а не наследует их: без
+    # этой строки gitleaks внутри останется без GITHUB_TOKEN и упадёт на
+    # первом же прогоне.
+    permissions:
+      contents: read
+      security-events: write
+
+  build:
+    name: Образ → GHCR
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # Нужен для подписи образа через OIDC (cosign keyless).
+      id-token: write
+
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Вход в реестр
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          # Токен job-а, отдельный секрет заводить не нужно: пакет живёт в том
+          # же аккаунте, что и репозиторий.
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Теги и метки
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=Видеостудия
+            org.opencontainers.image.description=Конвейер коротких вертикальных роликов
+
+      - name: Сборка и публикация
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Кэш слоёв в самом реестре: раннер каждый раз чистый, без него
+          # `npm ci` и установка колёс идут заново на каждую сборку.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Установка cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Подпись образа
+        # Keyless: ключей хранить не надо, подпись привязана к workflow и репо.
+        # Подписывается ДАЙДЖЕСТ, а не тег: тег подвижен, и подпись под ним
+        # означала бы «подписано то, что сейчас называется latest».
+        #
+        # Проверить на VPS:
+        #   cosign verify ghcr.io/<owner>/<repo>@sha256:… \
+        #     --certificate-identity-regexp '^https://github.com/<owner>/<repo>/' \
+        #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+        run: |
+          cosign sign --yes \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+
+      - name: Что уехало
+        run: |
+          echo "### Образ собран" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "digest: ${{ steps.push.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Выкладка на VPS
+    needs: build
+    if: github.event_name != 'workflow_dispatch' || inputs.deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.STUDIO_URL }}
+
+    steps:
+      - name: Ключ SSH
+        # Ключ отдельный, только под деплой, и лучше с ограничением команды в
+        # authorized_keys (`command="…deploy.sh"`). Секреты и переменные:
+        #   secrets.VPS_SSH_KEY   — приватный ключ деплой-пользователя
+        #   secrets.VPS_HOST      — адрес VPS
+        #   secrets.VPS_USER      — пользователь на VPS
+        #   secrets.VPS_KNOWN_HOSTS — вывод `ssh-keyscan <host>`
+        #   vars.VPS_PATH         — каталог с docker-compose.yml (по умолчанию /opt/studio)
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # known_hosts из секрета, а не `StrictHostKeyChecking=no`: отключить
+          # проверку значит согласиться на подмену сервера при первом же
+          # перехвате, а деплой ходит с правом запускать контейнеры.
+          echo "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Pull и рестарт
+        env:
+          VPS_PATH: ${{ vars.VPS_PATH || '/opt/studio' }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          set -euo pipefail
+          # Образ передаётся ДАЙДЖЕСТОМ, а не тегом `latest`. Тег к моменту
+          # выкладки может уже указывать на следующую сборку — и уедет не то,
+          # что прошло гейт в этом прогоне.
+          #
+          # Команда собирается локально и уходит одной строкой: вкладывать
+          # кавычки в кавычки внутри ssh — верный способ получить `cd` в
+          # домашний каталог вместо каталога студии, причём молча.
+          remote_cmd=$(printf 'cd %q && STUDIO_IMAGE=%q ./deploy.sh' \
+            "$VPS_PATH" "${IMAGE}@${DIGEST}")
+          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- "$remote_cmd"
+
+      - name: Проверка после выкладки
+        # Деплой без проверки — это «команда прошла», а не «студия работает».
+        # Контейнер может подняться и упасть на миграциях, и узнают об этом
+        # от оператора.
+        env:
+          URL: ${{ vars.STUDIO_URL }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "::warning::vars.STUDIO_URL не задан — проверить снаружи нечем"
+            exit 0
+          fi
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 5 "$URL/api/health" | grep -q '"ok"'; then
+              echo "студия отвечает"
+              exit 0
+            fi
+            echo "попытка $i: ещё не отвечает"
+            sleep 6
+          done
+          echo "::error::после выкладки /api/health не ответил за две минуты"
+          exit 1

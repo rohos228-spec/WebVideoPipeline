@@ -1,0 +1,119 @@
+# Студия на VPS: приложение, Postgres и обратный прокси с TLS.
+#
+# Содержимое `deploy/studio/` кладётся в /opt/studio на VPS вместе с файлом
+# окружения `env` (шаблон — `env.template`) и каталогом `prompts/`. Обновление делает `deploy.sh`, его же зовёт
+# GitHub Actions по ssh.
+#
+# **Почему Postgres обязателен.** Учётные записи включаются заданием
+# `STUDIO_SESSION_SECRET`, а изоляция арендаторов держится на row-level
+# security. В SQLite политик RLS не существует физически, и приложение
+# отказывается стартовать в такой позе — это не перестраховка, а единственный
+# способ не отдать чужой ролик.
+#
+# **Почему база в контейнере, а не managed.** Для внутреннего инструмента
+# студии managed-Postgres — лишние деньги и лишняя точка отказа. Цена решения:
+# бэкап на вас (см. `deploy.sh backup`). Переезд на managed — это смена
+# `DATABASE_URL` и удаление одной службы отсюда.
+
+name: studio
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-videopipeline}
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERPASSWORD:?нужен POSTGRES_SUPERPASSWORD}
+      # Явная локаль: сравнение строк и сортировка зависят от неё, а менять
+      # collation на живой базе — это переиндексация всего.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+      # Читает initdb/10-app-role.sh при первом создании тома.
+      POSTGRES_USER_APP: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD_APP: ${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # Заводит роль приложения при ПЕРВОМ создании тома. Роль обычная, не
+      # суперпользователь и без BYPASSRLS: и то и другое обходит политики
+      # молча, то есть даёт утечку без единой ошибки в журнале.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER:-postgres} -d ${POSTGRES_DB:-videopipeline}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    # Наружу база не смотрит. Приложение ходит по внутренней сети compose.
+    expose:
+      - "5432"
+
+  app:
+    # Подставляет deploy.sh: дайджест из прогона, а не подвижный тег. Значение
+    # по умолчанию — на случай ручного `docker compose up` на месте.
+    image: ${STUDIO_IMAGE:-ghcr.io/OWNER/REPO:latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-videopipeline}
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: "8765"
+      # За прокси с TLS cookie сессии обязана быть Secure. Без TLS её ставить
+      # нельзя — браузер молча не сохранит, и вход будет выглядеть сломанным.
+      SESSION_COOKIE_SECURE: "true"
+      TELEGRAM_ENABLED: "false"
+    volumes:
+      # Ролики, кадры, звук. Гигабайты — том, а не bind: снапшот тома снимается
+      # одной командой, а bind-каталог на VPS однажды окажется на / без места.
+      - app-data:/app/data
+      - app-logs:/app/logs
+      # Библиотека мастер-промтов. Намеренно вне git и вне образа: это
+      # содержательная часть продукта, а образ уезжает в реестр. Читается
+      # только на первом старте — дальше источник база (`prompt_library`),
+      # поэтому монтируется на чтение.
+      - ./prompts:/app/prompts:ro
+    expose:
+      - "8765"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+    # Конвейер льёт подробный журнал; без ограничения он съедает диск за
+    # неделю, и узнают об этом по остановившейся студии.
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      STUDIO_DOMAIN: ${STUDIO_DOMAIN:?нужен STUDIO_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  db-data:
+  app-data:
+  app-logs:
+  caddy-data:
+  caddy-config:

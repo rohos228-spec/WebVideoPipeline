@@ -1,0 +1,198 @@
+# Гейт на каждый push и pull request.
+#
+# Зеркалит `.claude/verify.json` — тот же набор проверок, что стоит локально на
+# ярусах commit и push. Два отличия, и оба в пользу CI:
+#
+# 1. **Изоляция арендаторов реально проверяется.** `tests/test_rls_postgres.py`
+#    на машине разработчика пропускается — нужен живой Postgres. Здесь он
+#    поднимается сервисом, и двенадцать тестов, которые единственные могут
+#    подтвердить, что чужая строка невидима, наконец исполняются на каждом
+#    push. Локально их гоняют, когда вспомнят.
+# 2. **Чистый чекаут.** Промт-библиотека намеренно вне git
+#    (`.gitignore: prompts/*`), и на машине владельца она есть, а здесь — нет.
+#    Именно поэтому гейт устроен храповиком: список известных падений лежит в
+#    `.claude/baselines/pytest-failures.txt`, и красным становится только
+#    появление нового. Требовать здесь зелёной суиты значит требовать
+#    невозможного и получить отключённый гейт.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call: {}
+
+# Новый push в ту же ветку отменяет предыдущий прогон: суита идёт десять минут,
+# и держать очередь из устаревших прогонов незачем. `main` — исключение: его
+# прогон кормит сборку образа, и обрывать его на середине нельзя.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    name: Формат, стиль, типы
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Установка
+        run: pip install -e ".[dev,postgres,s3]"
+
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+      - run: python -m mypy app/ --ignore-missing-imports
+
+      - name: Секреты в диффе
+        # Свой сканер живёт в харнессе владельца и в репозиторий не входит.
+        # Здесь его роль исполняет gitleaks: правило то же — добавленные строки
+        # не содержат ключей. Поводом было живое значение VIBECODE_API_KEY,
+        # уехавшее в .env.example и оставшееся в истории всех веток.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  tests:
+    name: Суита, храповик, изоляция
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vp
+          POSTGRES_PASSWORD: vp
+          POSTGRES_DB: vp
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vp -d vp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Храповик покрытия и diff-cov сравнивают с базой ветки. Без истории
+          # `git diff origin/main` не с чем считать.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Установка
+        run: pip install -e ".[dev,postgres,s3]"
+
+      - name: Роль без суперпользователя
+        # POSTGRES_USER образа — суперпользователь, а RLS его не касается по
+        # определению: тесты изоляции прошли бы «зелёными», не проверив
+        # ничего. Это худший исход из возможных, поэтому роль заводится
+        # отдельная и обычная — схему она создаёт себе сама прогоном миграций
+        # и потому владеет таблицами, а владельца достаёт FORCE ROW LEVEL
+        # SECURITY.
+        run: |
+          PGPASSWORD=vp psql -h 127.0.0.1 -U vp -d vp \
+            -c "create role app login password 'app'" \
+            -c "grant all on schema public to app"
+
+      - name: Голденсеты и конфигурация эвалов
+        # Отдельным шагом до суиты: секунда на весь корпус, а ломается он от
+        # правки контракта — такую поломку хочется видеть первой строкой в
+        # отчёте, а не двенадцатой минутой прогона.
+        run: |
+          python -m pytest tests/test_prompt_goldens.py tests/test_eval_suites.py \
+            -q -p no:cacheprovider
+
+      - name: Изоляция арендаторов на живом Postgres
+        # Единственная проверка, которую нельзя сделать на SQLite: политик RLS
+        # в этом движке не существует физически. Локально она пропускается.
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://app:app@127.0.0.1:5432/vp
+        run: python -m pytest tests/test_rls_postgres.py -q -p no:cacheprovider
+
+      - name: Миграции на пустой и унаследованной базе
+        run: python -m pytest tests/test_db_migrations.py -q -p no:cacheprovider
+
+      - name: Храповик суиты с покрытием
+        # Красное не растёт. Промт-библиотека вне git, поэтому здесь падает
+        # больше тестов, чем на машине владельца, — и все они в базе.
+        run: |
+          python scripts/pytest_ratchet.py -- \
+            --cov=app \
+            --cov-report=json:coverage/coverage.json \
+            --cov-report=lcov:coverage/lcov.info \
+            -p no:cacheprovider
+
+      - name: Храповик покрытия
+        run: python scripts/coverage_ratchet.py
+
+      - name: Изменённые строки покрыты
+        # Только для pull request: на прямой push в ветку базой оказался бы
+        # весь дифф от main, а на долгоживущей ветке это вся её история.
+        if: github.event_name == 'pull_request'
+        run: |
+          python scripts/diff_coverage.py \
+            --lcov coverage/lcov.info \
+            --base "origin/${{ github.base_ref }}"
+
+      - name: Отчёт о покрытии
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
+  frontend:
+    name: Фронт
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Установка
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Типы
+        working-directory: web
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Никакого hex вне токенов
+        # Правило из web/Design.md: цвет живёт в globals.css и больше нигде.
+        # Гейт стоит здесь, а не в ревью: разъезжается палитра тихо и потом
+        # не собирается обратно.
+        working-directory: web
+        run: |
+          if grep -rIn --include='*.css' --include='*.tsx' --include='*.ts' \
+               -E '#[0-9a-fA-F]{3,8}\b|rgb\(|hsl\(' src/ | grep -v 'globals.css'; then
+            echo "::error::найден цвет мимо токенов — значение переезжает в globals.css"
+            exit 1
+          fi
+
+      - name: Сборка статики
+        working-directory: web
+        run: npm run build
+
+      - name: Экспорт существует
+        # `output: "export"` молча не срабатывает, если в дерево попал
+        # серверный код (route handler, `dynamic`): сборка зелёная, а out/
+        # пустой — и образ уезжает без интерфейса.
+        run: test -d web/out && test -f web/out/index.html

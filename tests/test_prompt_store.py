@@ -131,10 +131,21 @@ async def test_disk_import_does_not_overwrite_edited_prompts(db) -> None:
         await s.commit()
 
     assert prompt_store.resolve("plan", "default", SYSTEM) == "правленый в базе"
-    if stats["seen"]:
-        # Каталог `prompts/` есть только на машине владельца; там, где он
-        # есть, пропуск обязан быть посчитан.
-        assert stats["skipped"] >= 1
+
+    # Пропуск считается ТОЛЬКО если на диске есть тот самый промт, который
+    # тест положил в базу. Прежнее условие смотрело на `stats["seen"]` — «файлы
+    # вообще нашлись», — и на чистом чекауте давало ложное падение: библиотека
+    # намеренно вне git (`.gitignore: prompts/*`), но часть её в git есть
+    # (`scene_design/` и прочее). То есть файлы находились, а `01_plan` среди
+    # них не было, и `skipped` честно оставался нулём. Поймано симуляцией CI на
+    # свежем клоне; на машине владельца, где библиотека полная, тест был зелён.
+    from app.services.prompt_library import prompt_path
+
+    if prompt_path("plan", "default").is_file():
+        assert stats["skipped"] >= 1, (
+            "файл prompts/01_plan/default.md на диске есть, но импорт его не пропустил — "
+            "значит правка в базе была бы затёрта"
+        )
 
 
 async def test_read_prompt_prefers_the_base(db, monkeypatch) -> None:
