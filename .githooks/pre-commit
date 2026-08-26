@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Gauntlet, ярус commit (.claude/verify.json → ~/.agents/hooks/verify.sh).
+# Подключение — один раз на клон:  git config core.hooksPath .githooks
+# Без движка (машина заказчика) хук молчит: тот же контракт гоняет CI.
+engine="$HOME/.agents/hooks/verify.sh"
+[ -x "$engine" ] || { echo "pre-commit: нет $engine — gauntlet пропущен" >&2; exit 0; }
+exec "$engine" --stage commit
