@@ -854,6 +854,20 @@ async def _load_markers_db_first(
     return load_r15_markers(project, frame_numbers)
 
 
+def _xlsx_stamp_lines(xlsx: Path) -> list[str]:
+    """Строки штампа про книгу проекта — информационные, книга не обязательна.
+
+    Живой прогон 2026-08-26: ролик собран до последнего шага, и сборка упала
+    на `xlsx.stat()` ради строки `xlsx_mtime=` в MONTAGE_STAMP.txt. При
+    учётных записях книги не существует — тайминг идёт из базы (см.
+    `_load_markers_db_first`), и штамп обязан это просто записать.
+    """
+    if xlsx.is_file():
+        st = xlsx.stat()
+        return [f"xlsx={xlsx}", f"xlsx_mtime={datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat()}"]
+    return [f"xlsx={xlsx}", "xlsx_mtime=нет (книга выключена, тайминг из базы)"]
+
+
 async def run_variant2(
     project: Project,
     frame_numbers: list[int],
@@ -910,7 +924,6 @@ async def run_variant2(
     )
 
     xlsx = project.data_dir / "project.xlsx"
-    st = xlsx.stat()
     (final_dir / "MONTAGE_STAMP.txt").write_text(
         "\n".join(
             [
@@ -918,8 +931,7 @@ async def run_variant2(
                 "variant=3-slots",
                 f"gap_policy={GAP_POLICY}",
                 f"at={datetime.now(UTC).isoformat()}",
-                f"xlsx={xlsx}",
-                f"xlsx_mtime={datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat()}",
+                *_xlsx_stamp_lines(xlsx),
                 f"overlay_slots={len(slots)}",
                 f"timeline_segments={len(segments)}",
                 f"markers={len(markers)}",
