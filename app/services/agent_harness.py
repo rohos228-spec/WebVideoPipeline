@@ -311,10 +311,90 @@ def _append_prompt_nn_checks(
         )
 
 
+@dataclass
+class DbSnapshot:
+    """Что харнессу нужно знать о базе — снято ДО синхронной проверки.
+
+    Проверка (`verify_project_disk`) синхронна и исторически читала базу сама
+    — сырым `sqlite3.connect` по файлу `state.db`. На сервере база Postgres,
+    файла нет, и все счётчики молча становились нулями: харнесс жил с
+    представлением, что кадров в базе нет. Живой прогон 2026-08-26 встал на
+    `r48_anim(filled=0 scenes=12)` при двенадцати промптах анимации в базе.
+
+    Снимок собирает `run_harness_verify` через SQLAlchemy — у него есть
+    сессия, и ей всё равно, что за движок. Синхронный путь по SQLite остаётся
+    для CLI без сессии.
+    """
+
+    frame_rows: list[tuple[int, str, str, str]] = field(default_factory=list)
+    node_runs_failed: int = 0
+
+    @property
+    def frames_total(self) -> int:
+        return len(self.frame_rows)
+
+    @property
+    def img_pr_db(self) -> int:
+        return sum(1 for r in self.frame_rows if r[2].strip())
+
+    @property
+    def anim_pr_db(self) -> int:
+        return sum(1 for r in self.frame_rows if r[3].strip())
+
+    @property
+    def vo_db(self) -> int:
+        return sum(1 for r in self.frame_rows if r[1].strip())
+
+
+async def snapshot_db(session: Any, project_id: int) -> DbSnapshot:
+    """Снять `DbSnapshot` через сессию — на любом движке."""
+    from sqlalchemy import func, select
+
+    from app.models import Frame, NodeRun, WorkflowRun
+
+    rows = (
+        await session.execute(
+            select(Frame.number, Frame.voiceover_text, Frame.image_prompt, Frame.animation_prompt)
+            .where(Frame.project_id == project_id)
+            .order_by(Frame.number)
+        )
+    ).all()
+    frame_rows = [(int(n or 0), str(vo or ""), str(ip or ""), str(ap or "")) for n, vo, ip, ap in rows]
+
+    failed = 0
+    run_id = (
+        await session.execute(
+            select(WorkflowRun.id)
+            .where(WorkflowRun.project_id == project_id)
+            .order_by(WorkflowRun.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if run_id is not None:
+        failed = int(
+            (
+                await session.execute(
+                    select(func.count()).where(NodeRun.workflow_run_id == run_id, NodeRun.status == "failed")
+                )
+            ).scalar_one()
+            or 0
+        )
+    return DbSnapshot(frame_rows=frame_rows, node_runs_failed=failed)
+
+
 def verify_project_disk(
-    project_id: int, data_dir: Path, status: str, *, step: str | None = None
+    project_id: int,
+    data_dir: Path,
+    status: str,
+    *,
+    step: str | None = None,
+    db: DbSnapshot | None = None,
 ) -> HarnessReport:
-    """Синхронная проверка диска/БД без HTTP (для CLI и сервиса)."""
+    """Синхронная проверка диска/БД без HTTP (для CLI и сервиса).
+
+    `db` — снимок базы от вызывающего. Без него счётчики берутся сырым
+    чтением SQLite (режим владельца и CLI); на Postgres без снимка они нули.
+    """
     run_id = uuid.uuid4().hex[:12]
     checks: list[HarnessCheck] = []
     repair: list[str] = []
@@ -450,7 +530,15 @@ def verify_project_disk(
     if videos_required and not videos:
         repair.append("video")
 
+    from app.settings import settings as _settings
+
+    xlsx_is_source = bool(getattr(_settings, "xlsx_enabled", True))
     r48 = _count_r48_filled(xlsx) if xlsx.is_file() else 0
+    if db is not None and not xlsx_is_source:
+        # Книга не пишется — Excel всего лишь экспорт, и считать промты
+        # анимации по ней значит требовать файл, которого не будет. Считаем
+        # по базе: это и есть контракт (docs/PROMPT_CONTRACT.md, DB SoT).
+        r48 = db.anim_pr_db
     # R48 обязателен только на/после anim_pr. На hero_ready старые scenes/
     # пустой R48 НЕ должны PAUSE'ить генерацию c02.
     _R48_REQUIRED_STATUSES = {
@@ -488,29 +576,36 @@ def verify_project_disk(
     vo_xlsx = plan_rows[ROW_VOICEOVER_V8]
     frames_total = img_pr_db = anim_pr_db = vo_db = 0
     parity_err = ""
-    try:
-        db_file = _db_path()
-        if not db_file.is_file():
-            # БД ещё нет — для ранних статусов это не блок (0 кадров).
-            frames_total = img_pr_db = anim_pr_db = vo_db = 0
-        else:
-            db = sqlite3.connect(str(db_file))
-            row = db.execute(
-                "SELECT COUNT(*), "
-                "SUM(CASE WHEN image_prompt IS NOT NULL AND trim(image_prompt)<>'' THEN 1 ELSE 0 END), "
-                "SUM(CASE WHEN animation_prompt IS NOT NULL AND trim(animation_prompt)<>'' THEN 1 ELSE 0 END), "
-                "SUM(CASE WHEN voiceover_text IS NOT NULL AND trim(voiceover_text)<>'' THEN 1 ELSE 0 END) "
-                "FROM frames WHERE project_id=?",
-                (project_id,),
-            ).fetchone()
-            db.close()
-            if row:
-                frames_total = int(row[0] or 0)
-                img_pr_db = int(row[1] or 0)
-                anim_pr_db = int(row[2] or 0)
-                vo_db = int(row[3] or 0)
-    except Exception as e:  # noqa: BLE001
-        parity_err = str(e)
+    if db is not None:
+        frames_total, img_pr_db, anim_pr_db, vo_db = db.frames_total, db.img_pr_db, db.anim_pr_db, db.vo_db
+        if not xlsx_is_source:
+            # Excel — экспорт из базы; без книги сверять базу не с чем, кроме
+            # неё самой. Паритет сводится к полноте самой базы.
+            r45, vo_xlsx = img_pr_db, vo_db
+    else:
+        try:
+            db_file = _db_path()
+            if not db_file.is_file():
+                # БД ещё нет — для ранних статусов это не блок (0 кадров).
+                frames_total = img_pr_db = anim_pr_db = vo_db = 0
+            else:
+                sq = sqlite3.connect(str(db_file))
+                row = sq.execute(
+                    "SELECT COUNT(*), "
+                    "SUM(CASE WHEN image_prompt IS NOT NULL AND trim(image_prompt)<>'' THEN 1 ELSE 0 END), "
+                    "SUM(CASE WHEN animation_prompt IS NOT NULL AND trim(animation_prompt)<>'' THEN 1 ELSE 0 END), "
+                    "SUM(CASE WHEN voiceover_text IS NOT NULL AND trim(voiceover_text)<>'' THEN 1 ELSE 0 END) "
+                    "FROM frames WHERE project_id=?",
+                    (project_id,),
+                ).fetchone()
+                sq.close()
+                if row:
+                    frames_total = int(row[0] or 0)
+                    img_pr_db = int(row[1] or 0)
+                    anim_pr_db = int(row[2] or 0)
+                    vo_db = int(row[3] or 0)
+        except Exception as e:  # noqa: BLE001
+            parity_err = str(e)
     if parity_err:
         checks.append(HarnessCheck("frames_xlsx_parity", False, parity_err))
     else:
@@ -540,7 +635,7 @@ def verify_project_disk(
             )
         )
 
-    nn_rows, nn_err = _load_frame_prompt_rows(project_id)
+    nn_rows, nn_err = (db.frame_rows, "") if db is not None else _load_frame_prompt_rows(project_id)
     if nn_err:
         step_key = (step or "").strip().lower()
         if step_key in _IMG_PR_STEPS or status == "image_prompts_ready":
@@ -562,25 +657,29 @@ def verify_project_disk(
 
     # node_runs failed
     failed_n = 0
-    try:
-        db_file = _db_path()
-        if not db_file.is_file():
-            checks.append(HarnessCheck("node_runs_failed", True, "failed=0 db_missing"))
-        else:
-            db = sqlite3.connect(str(db_file))
-            row = db.execute(
-                "SELECT id FROM workflow_runs WHERE project_id=? ORDER BY id DESC LIMIT 1",
-                (project_id,),
-            ).fetchone()
-            if row:
-                failed_n = db.execute(
-                    "SELECT COUNT(*) FROM node_runs WHERE workflow_run_id=? AND status='failed'",
-                    (row[0],),
-                ).fetchone()[0]
-            db.close()
-            checks.append(HarnessCheck("node_runs_failed", failed_n == 0, f"failed={failed_n}"))
-    except Exception as e:  # noqa: BLE001
-        checks.append(HarnessCheck("node_runs", False, str(e)))
+    if db is not None:
+        failed_n = db.node_runs_failed
+        checks.append(HarnessCheck("node_runs_failed", failed_n == 0, f"failed={failed_n}"))
+    else:
+        try:
+            db_file = _db_path()
+            if not db_file.is_file():
+                checks.append(HarnessCheck("node_runs_failed", True, "failed=0 db_missing"))
+            else:
+                sq = sqlite3.connect(str(db_file))
+                row = sq.execute(
+                    "SELECT id FROM workflow_runs WHERE project_id=? ORDER BY id DESC LIMIT 1",
+                    (project_id,),
+                ).fetchone()
+                if row:
+                    failed_n = sq.execute(
+                        "SELECT COUNT(*) FROM node_runs WHERE workflow_run_id=? AND status='failed'",
+                        (row[0],),
+                    ).fetchone()[0]
+                sq.close()
+                checks.append(HarnessCheck("node_runs_failed", failed_n == 0, f"failed={failed_n}"))
+        except Exception as e:  # noqa: BLE001
+            checks.append(HarnessCheck("node_runs", False, str(e)))
 
     log_hits, log_name = _count_project_log_errors(project_id, data_dir.name)
     checks.append(
@@ -770,7 +869,12 @@ async def run_harness_verify(
     """Verify + optional soft repair (POST step run via project_steps)."""
     data_dir = Path(project.data_dir)
     status = str(getattr(project.status, "value", project.status) or "")
-    report = verify_project_disk(int(project.id), data_dir, status, step=step)
+    try:
+        db_snapshot: DbSnapshot | None = await snapshot_db(session, int(project.id))
+    except Exception:  # noqa: BLE001 — без снимка проверка идёт старым путём
+        logger.debug("[#{}] harness: снимок базы не снят", project.id, exc_info=True)
+        db_snapshot = None
+    report = verify_project_disk(int(project.id), data_dir, status, step=step, db=db_snapshot)
     if include_http:
         try:
             import anyio
