@@ -88,18 +88,18 @@ class VideoRegenPrep:
 
 def _image_api_enabled() -> bool:
     """Montage image: любой HTTP-путь (grsai / outsee API). Chrome не используем."""
-    from app.bots.grsai import grsai_enabled
-    from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_image
 
-    return bool(grsai_enabled() or outsee_api_enabled_for_image() or outsee_api_configured())
+    from app.services.image_transport import http_image_primary
+
+    return http_image_primary()
 
 
 def _video_api_enabled() -> bool:
     """Montage video: любой HTTP-путь. Chrome не используем."""
-    from app.bots.grsai import grsai_video_enabled
-    from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_video
 
-    return bool(grsai_video_enabled() or outsee_api_enabled_for_video() or outsee_api_configured())
+    from app.services.image_transport import http_video_primary
+
+    return http_video_primary()
 
 
 class _ApiOnlyOutseeStub:
