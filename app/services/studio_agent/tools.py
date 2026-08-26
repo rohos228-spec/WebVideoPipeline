@@ -229,8 +229,9 @@ TOOLS: dict[str, Tool] = {
         name="editGraph",
         description=(
             "Предложить точечные правки графа списком операций. Ничего не применяет: возвращает разницу и "
-            "список шагов, которые сгорят, — покажи их человеку и жди согласия, потом applyGraph. Операции: "
-            "add_node{type, after|before, label?, model_id?}, remove_node{id}, connect{source,target,kind?}, "
+            "список шагов, которые сгорят, — покажи их человеку и жди согласия, потом applyGraph. "
+            'Каждая операция — объект с ключом op, например {"op": "set_node", "id": "n_music", "disabled": true}. '
+            "Операции: add_node{type, after|before, label?, model_id?}, remove_node{id}, connect{source,target,kind?}, "
             "disconnect{source,target}, set_edge_kind{source,target,kind: after|pass|fail|gate}, "
             "set_node{id, label?, disabled?, model_id?}."
         ),

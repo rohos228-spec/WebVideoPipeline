@@ -69,7 +69,11 @@ export async function* streamChat(
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    // sse-starlette разделяет строки `\r\n`, а не `\n`: без нормализации
+    // граница события `\n\n` не находится никогда, и лента остаётся пустой,
+    // хотя сервер всё отдал. Нормализуем буфер целиком, а не чанк: `\r` в
+    // конце одного чанка и `\n` в начале следующего должны склеиться.
+    buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
     let split = buffer.indexOf("\n\n");
     while (split !== -1) {
       const chunk = buffer.slice(0, split);

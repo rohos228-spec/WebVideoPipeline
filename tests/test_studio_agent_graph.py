@@ -95,6 +95,26 @@ async def test_edit_graph_proposes_and_apply_needs_confirm(db):
             await call_tool(s, "applyGraph", {"project_id": 1, "proposal_id": pid, "confirm": True})
 
 
+async def test_edit_graph_accepts_op_aliases(db):
+    """Живая модель пишет ключ операции как `type` или опускает его для set_node."""
+    async with db() as s:
+        for ops in (
+            [{"type": "set_node", "id": "n_music", "disabled": True}],
+            [{"action": "set_node", "id": "n_music", "disabled": True}],
+            [{"id": "n_music", "disabled": True}],
+        ):
+            card = await call_tool(s, "editGraph", {"project_id": 1, "ops": ops})
+            assert card["needs_confirmation"] is True
+            assert card["diff"]["summary"] == "~1 узл."
+            await call_tool(s, "discardGraph", {"project_id": 1})
+
+        with pytest.raises(ToolError, match="нет ключа op"):
+            await call_tool(s, "editGraph", {"project_id": 1, "ops": [{"disabled": True}]})
+        # `type` в add_node — тип узла, не имя операции: без op это по-прежнему отказ.
+        with pytest.raises(ToolError, match="нет ключа op"):
+            await call_tool(s, "editGraph", {"project_id": 1, "ops": [{"type": "images", "after": "n_plan"}]})
+
+
 async def test_propose_whole_graph_without_positions_and_bad_graph_is_refused(db):
     async with db() as s:
         nodes = [

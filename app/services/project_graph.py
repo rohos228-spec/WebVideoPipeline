@@ -504,7 +504,7 @@ def apply_graph_ops(
     for raw in ops:
         if not isinstance(raw, dict):
             raise GraphError("операция должна быть объектом")
-        op = str(raw.get("op") or "").strip()
+        op = _op_name(raw)
 
         if op == "add_node":
             typ = str(raw.get("type") or "").strip()
@@ -612,12 +612,39 @@ def apply_graph_ops(
             node["data"] = data
             applied.append(f"set_node {node['id']}")
 
+        elif not op:
+            raise GraphError(f"у операции нет ключа op; есть: {', '.join(GRAPH_OPS)}")
         else:
-            raise GraphError(
-                f"неизвестная операция {op!r}; есть: add_node, remove_node, connect, disconnect, set_edge_kind, set_node"
-            )
+            raise GraphError(f"неизвестная операция {op!r}; есть: {', '.join(GRAPH_OPS)}")
 
     return nodes, edges, applied
+
+
+GRAPH_OPS = ("add_node", "remove_node", "connect", "disconnect", "set_edge_kind", "set_node")
+_SET_NODE_FIELDS = frozenset({"label", "disabled", "model_id"})
+
+
+def _op_name(raw: dict[str, Any]) -> str:
+    """Имя операции из объекта модели.
+
+    Канон — ключ `op`. Живой прогон (MiniMax-M3, 2026-08-26) показал, что
+    модель пишет ключ как `type`/`action`, а для set_node вовсе опускает его:
+    `{"id": "n_music", "disabled": true}` — ровно так операцию описывает
+    системный промт («set_node disabled=true»). Пять отказов подряд на одном
+    и том же — это не защита контракта, а глухота к очевидному. `type`
+    берём как имя операции только при значении из списка: в add_node тот
+    же ключ означает тип узла.
+    """
+    op = str(raw.get("op") or "").strip()
+    if op:
+        return op
+    for key in ("action", "type"):
+        alias = str(raw.get(key) or "").strip()
+        if alias in GRAPH_OPS:
+            return alias
+    if raw.get("id") and (set(raw) - {"id"}) and (set(raw) - {"id"}) <= _SET_NODE_FIELDS:
+        return "set_node"
+    return ""
 
 
 def _is_sink(by_id: dict[str, dict[str, Any]], edge: dict[str, Any]) -> bool:
