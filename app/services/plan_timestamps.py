@@ -279,22 +279,43 @@ async def require_assembly_timeline_from_excel(
     ts_cells: list[tuple[int, str]] | None = None,
     ts_row: int | None = None,
 ) -> tuple[list, float, list[tuple[int, str]], int]:
-    """Единственный источник таймингов монтажа: строка 15 project.xlsx (всегда с диска)."""
-    xlsx_path = project.data_dir / "project.xlsx"
-    if not xlsx_path.is_file():
-        raise RuntimeError(f"[#{project.id}] нет файла {xlsx_path} — положите project.xlsx в папку проекта")
+    """Источник таймингов монтажа.
 
-    # Каждый запуск — заново с диска; кэш preflight не подставляем.
-    ts_cells, ts_row = read_plan_timestamps_cells(project, frame_numbers)
-    st = xlsx_path.stat()
-    logger.info(
-        "[#{}] Excel R{} fresh read {} (mtime={}, {} bytes)",
-        project.id,
-        ts_row,
-        xlsx_path,
-        datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
-        st.st_size,
-    )
+    Режим владельца: строка 15 project.xlsx, всегда заново с диска — кэш
+    preflight не подставляем, человек мог поправить метки в Excel.
+
+    Учётные записи (`xlsx_enabled` ложно): книги нет, и тайминги приходят от
+    `ensure_r15_from_asr` через `ts_cells`. Перечитывать нечего — файл не
+    существует, и требовать его значило бы валить сборку на последнем шаге
+    при полностью готовом ролике.
+    """
+    from app.settings import settings as _settings
+
+    xlsx_path = project.data_dir / "project.xlsx"
+    if not getattr(_settings, "xlsx_enabled", True):
+        if ts_cells is None or ts_row is None:
+            raise RuntimeError(
+                f"[#{project.id}] книга выключена, а тайминги монтажа не переданы — "
+                "сначала ensure_r15_from_asr"
+            )
+        logger.info("[#{}] тайминги монтажа из ASR ({} кадров), книга выключена", project.id, len(ts_cells))
+    else:
+        if not xlsx_path.is_file():
+            raise RuntimeError(
+                f"[#{project.id}] нет файла {xlsx_path} — положите project.xlsx в папку проекта"
+            )
+
+        # Каждый запуск — заново с диска; кэш preflight не подставляем.
+        ts_cells, ts_row = read_plan_timestamps_cells(project, frame_numbers)
+        st = xlsx_path.stat()
+        logger.info(
+            "[#{}] Excel R{} fresh read {} (mtime={}, {} bytes)",
+            project.id,
+            ts_row,
+            xlsx_path,
+            datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
+            st.st_size,
+        )
 
     master = await probe_duration(voice_full_path)
     clips = clips_from_timestamp_cells(cells, ts_cells, voice_full_path, master=master)
@@ -425,6 +446,23 @@ async def ensure_r15_from_asr(
         )
 
     ranges = [(t.frame_number, format_timecode_range(t.start_ts, t.end_ts)) for t in timings]
+
+    from app.settings import settings as _settings
+
+    if not getattr(_settings, "xlsx_enabled", True):
+        # Книга не пишется — при учётных записях её нет и не будет. Тайминги
+        # посчитаны из ASR прямо здесь; отдаём их вызывающему, а не гоняем
+        # через файл, которого нет. Живой прогон 2026-08-26 падал ровно тут:
+        # «не удалось записать R15 в project.xlsx — закрой Excel» при том, что
+        # Excel не открыт ни у кого, потому что его не существует.
+        logger.info(
+            "[#{}] R{} по ASR: {} кадров — книга выключена, тайминги в память и в базу (сборка)",
+            project.id,
+            ts_row,
+            len(ranges),
+        )
+        return ranges, ts_row
+
     written = write_plan_timestamps(project, ranges)
     if written <= 0:
         raise RuntimeError(f"[#{project.id}] не удалось записать R{ts_row} в project.xlsx — закрой Excel")
