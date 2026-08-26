@@ -38,6 +38,19 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         return
     logger.info("[#{}] generate_music starting", project.id)
 
+    if not settings.music_enabled:
+        # Метка обязательна: без неё `compute_actual_status` не подтвердит
+        # `music_ready` (артефакта-то нет), страж откатит статус, авто-
+        # продвижение вернёт — и так каждые пять секунд без конца. Ровно
+        # этот цикл уже ловили на предметах.
+        meta = dict(project.meta or {})
+        meta["music_skipped"] = True
+        project.meta = meta
+        project.status = ProjectStatus.music_ready
+        await session.flush()
+        logger.info("[#{}] generate_music: MUSIC_ENABLED=false — без музыки (music_skipped)", project.id)
+        return
+
     music_dir = project.data_dir / "music"
     music_dir.mkdir(parents=True, exist_ok=True)
     disk_music = _find_music_on_disk(music_dir)

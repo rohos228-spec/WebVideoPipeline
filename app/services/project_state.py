@@ -100,6 +100,12 @@ def _items_step_required(project: Project) -> bool:
     return len(_nonempty_item_descriptions(project)) > 0
 
 
+def _music_skipped(project: Project) -> bool:
+    """Шаг музыки прошёл вхолостую по `MUSIC_ENABLED=false` (см. generate_music)."""
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    return bool(meta.get("music_skipped"))
+
+
 def _items_skipped_empty(project: Project) -> bool:
     """Шаг предметов прошёл вхолостую и зафиксировал это (см. generate_items).
 
@@ -531,7 +537,7 @@ async def compute_actual_status(session, project: Project) -> ProjectStatus:
                 return ProjectStatus.videos_ready
             # audio ✓
             if final_arts == 0:
-                if music_arts > 0:
+                if music_arts > 0 or _music_skipped(project):
                     return ProjectStatus.music_ready
                 return ProjectStatus.audio_ready
             # final ✓

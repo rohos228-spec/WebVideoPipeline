@@ -165,6 +165,9 @@ async def ready_status_confirmed_by_data(
         if ready_status is ProjectStatus.audio_ready and audio_ok:
             return True
         if ready_status is ProjectStatus.music_ready and audio_ok:
+            meta_m = project.meta if isinstance(project.meta, dict) else {}
+            if meta_m.get("music_skipped"):
+                return True  # MUSIC_ENABLED=false — музыки нет по решению, не по недоработке
             music_n = await _count_kind(session, project.id, ArtifactKind.music)
             if music_n > 0:
                 return True

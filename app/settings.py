@@ -324,6 +324,13 @@ class Settings(BaseSettings):
     elevenlabs_similarity_boost: float | None = Field(None, alias="ELEVENLABS_SIMILARITY_BOOST")
     # Звуки сопровождения в пайплайне (sfx_plan → sfx_gen → микс в сборке).
     sfx_enabled: bool = Field(True, alias="SFX_ENABLED")
+    # Музыка (Suno через Outsee) идёт ТОЛЬКО через браузер — на сервере, где
+    # Chrome нет, шаг упирался в CDP так же, как герои до правки. Сборка
+    # подмешивает музыку только если файл есть, так что без неё ролик
+    # собирается. Выключено — шаг проходит вхолостую и ставит метку
+    # `meta.music_skipped`, по которой стражи статусов считают `music_ready`
+    # подтверждённым (иначе откат в вечный цикл, см. `items_skipped_empty`).
+    music_enabled: bool = Field(True, alias="MUSIC_ENABLED")
 
     # MoreLogin / социалки
     morelogin_profile_id: str | None = Field(None, alias="MORELOGIN_PROFILE_ID")

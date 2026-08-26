@@ -216,6 +216,9 @@ async def validate_after_images(session: AsyncSession, project: Project) -> Vali
 async def validate_after_music(session: AsyncSession, project: Project) -> ValidationResult:
     from app.services.bgm import find_bgm_file
 
+    meta_m = project.meta if isinstance(project.meta, dict) else {}
+    if meta_m.get("music_skipped"):
+        return ValidationResult(ok=True, messages=["музыка выключена (MUSIC_ENABLED=false)"])
     path = find_bgm_file(project)
     if path is not None and path.is_file():
         return ValidationResult(ok=True, messages=[])
