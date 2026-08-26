@@ -90,7 +90,8 @@ def _items_style_prompt(project: Project) -> str:
         return get_project_prompt(project, "items").strip()
     except FileNotFoundError:
         logger.warning(
-            "items: prompts/04b_items/default.md не найден — генерирую только из описаний без стиля"
+            "[#{}] items: стиля предметов нет ни в базе, ни на диске — генерирую из описаний без стиля",
+            project.id,
         )
         return ""
 

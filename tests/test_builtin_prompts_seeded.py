@@ -136,3 +136,16 @@ async def test_hero_style_default_is_seeded(db) -> None:
     async with db() as s:
         await seed_builtin_prompts(s)
     assert prompt_store.resolve("hero_style", "default", PromptScope())
+
+
+@pytest.mark.asyncio
+async def test_items_style_default_is_seeded_and_read_by_the_step(db) -> None:
+    """Стиль предметов сеется и доходит до шага той же дорогой, что у героев."""
+    from types import SimpleNamespace
+
+    from app.orchestrator.steps.generate_items import _items_style_prompt
+
+    async with db() as s:
+        await seed_builtin_prompts(s)
+    project = SimpleNamespace(id=1, prompt_overrides={}, meta={})
+    assert "предмет" in _items_style_prompt(project).lower()
