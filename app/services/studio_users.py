@@ -203,3 +203,44 @@ async def _grant_start_credits(session: Any, user: StudioUser) -> None:
     amount = price_micro(start, with_margin=False)
     if amount > 0:
         await cl.topup(session, user.id, amount, memo="стартовый баланс при заведении учётки")
+
+
+# ── Админ по арендатору — для кассы в воркере ────────────────────────────
+#
+# `current_is_admin()` знает личность только внутри HTTP-запроса. Воркер
+# идёт без запроса, с одним `tenant_id`, и для него админ неотличим от
+# клиента с нулём на счету: в интерфейсе «∞», а в журнале «шаг video ждёт
+# пополнения — доступно 0 кр». Так первый живой прогон встал на видео
+# (2026-08-26), при том что все дешёвые шаги прошли бесплатным уровнем.
+#
+# Кэш — на минуту. Роль меняется редко, а спрашивать базу на каждом такте
+# воркера (раз в пять секунд) незачем. Минута — потолок опоздания, с которым
+# отобранная роль ещё считается админской.
+_ADMIN_CACHE: dict[str, tuple[float, bool]] = {}
+_ADMIN_CACHE_TTL = 60.0
+
+
+async def tenant_is_admin(session: Any, tenant_id: str | None) -> bool:
+    """Арендатор — активный админ? Для кассы там, где личности запроса нет."""
+    import time
+
+    if not tenant_id:
+        return False
+    now = time.monotonic()
+    hit = _ADMIN_CACHE.get(tenant_id)
+    if hit is not None and now - hit[0] < _ADMIN_CACHE_TTL:
+        return hit[1]
+    row = (
+        await session.execute(select(StudioUser.role, StudioUser.is_active).where(StudioUser.id == tenant_id))
+    ).first()
+    is_admin = bool(row and row[0] == ROLE_ADMIN and row[1])
+    _ADMIN_CACHE[tenant_id] = (now, is_admin)
+    return is_admin
+
+
+def forget_admin_cache(tenant_id: str | None = None) -> None:
+    """Сбросить кэш роли — после смены роли или в тестах."""
+    if tenant_id is None:
+        _ADMIN_CACHE.clear()
+    else:
+        _ADMIN_CACHE.pop(tenant_id, None)

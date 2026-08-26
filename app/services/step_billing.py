@@ -106,7 +106,16 @@ async def step_billing(
     одну неудачную попытку (§5.4 п.5) — и пробрасывается дальше.
     """
     tenant = current_tenant()
-    if tenant is None or not step_code or current_is_admin():
+    admin = current_is_admin()
+    if tenant is not None and step_code and not admin:
+        # В воркере личности запроса нет — только арендатор. Роль смотрим по
+        # нему (с кэшем), иначе админ в очереди «ждёт пополнения» при «∞» в
+        # интерфейсе. См. `studio_users.tenant_is_admin`.
+        from app.services.studio_users import tenant_is_admin
+
+        async with session_scope() as _s:
+            admin = await tenant_is_admin(_s, tenant)
+    if tenant is None or not step_code or admin:
         # Нет арендатора — режим владельца. Нет кода шага — такт пришёлся на
         # статус, который шагом не является: тарифицировать нечего.
         #
