@@ -81,7 +81,8 @@ async def test_continuation_x2_usage_is_sum_of_three(monkeypatch):
     _mock_httpx(monkeypatch, handler)
     # Этап 3: склейка сохраняется (stitch), usage — сумма трёх, не первого.
     monkeypatch.setattr(gpt_api, "stitch_llm_continuation", lambda a, b: a + b)
-    r = await gpt_api.chat(prompt="q", auto_pack=False, volume_complete=False)
+    # Явно GPT: дефолт vibecode теперь Claude Opus 5 (/v1/messages, без continuation).
+    r = await gpt_api.chat(prompt="q", auto_pack=False, volume_complete=False, model="gpt-5.6-sol")
     assert calls["n"] == 3
     assert r.finish_reason == "stream_continued"
     assert r.usage == {"prompt_tokens": 150, "completion_tokens": 22}

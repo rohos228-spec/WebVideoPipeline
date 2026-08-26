@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from app.bots import minimax as mm
-from app.settings import Settings, settings
+from app.settings import settings
 
 _JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 4000
 
@@ -316,45 +316,3 @@ async def test_video_submit_without_task_id_raises(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr(mm.httpx, "AsyncClient", _mock_client(routes, []))
     with pytest.raises(mm.MinimaxError, match="task_id"):
         await mm.generate_video("анимация", tmp_path / "c.mp4")
-
-
-# ── текстовый провайдер ───────────────────────────────────────────────────
-
-
-def test_text_provider_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TEXT_LLM_PROVIDER", "minimax")
-    monkeypatch.setenv("MINIMAX_API_KEY", "k")
-    s = Settings()
-    assert s.resolved_text_llm_provider() == "minimax"
-    assert s.text_llm_is_minimax is True
-    assert s.gpt_api_effective_base_url == "https://api.minimax.io/v1"
-    assert s.gpt_chat_path_effective == "/chat/completions"
-    # responses-режим у MiniMax нет — только chat/completions
-    assert s.gpt_api_mode_effective == "chat"
-    assert s.gpt_model_effective == "MiniMax-M3"
-    assert s.gpt_api_effective_key == "k"
-
-
-def test_reasoning_split_always_on() -> None:
-    """Без флага блок <think> приезжает прямо в content и ломает парсеры."""
-    from app.services.gpt_api import _minimax_body_tweaks
-
-    body: dict = {}
-    _minimax_body_tweaks(body, False)
-    assert body["reasoning_split"] is True
-    assert "response_format" not in body
-
-
-def test_json_request_sets_json_object() -> None:
-    """Флаг ставим, но MiniMax его НЕ соблюдает — гарантия только в контрактах."""
-    from app.services.gpt_api import _minimax_body_tweaks
-
-    body: dict = {}
-    _minimax_body_tweaks(body, True)
-    assert body["response_format"] == {"type": "json_object"}
-
-
-def test_minimax_not_in_structured_relays() -> None:
-    """MiniMax не enforce'ит схему — в allowlist structured outputs ему нельзя."""
-    relays = (settings.gpt_structured_relays or "").lower()
-    assert "minimax" not in relays

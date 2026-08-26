@@ -157,39 +157,6 @@ class ResponseSchema:
     strict: bool = True
 
 
-def _minimax_body_tweaks(body: dict[str, Any], wants_json: bool) -> None:
-    """Особенности MiniMax поверх OpenAI-совместимого тела.
-
-    1. ``reasoning_split`` — M3 это reasoning-модель, и без флага блок
-       ``<think>…</think>`` приезжает ПРЯМО В ``content``. Все парсеры
-       проекта (apply-ops, extract_json_payload, отчёты проверок) на этом
-       спотыкаются. С флагом рассуждения уходят в отдельное поле
-       ``reasoning_content``, а ``content`` остаётся чистым.
-
-    2. ``response_format`` — MiniMax НЕ ПОДДЕРЖИВАЕТ structured outputs ни в
-       каком виде. Живые пробы 2026-08-22:
-
-       * ``json_schema`` + ``strict`` → HTTP 200, ответ в markdown-заборчике
-         ```json — схема проигнорирована;
-       * ``json_object`` → HTTP 200, на промт без слова «JSON» вернул
-         ```javascript с функцией. Тоже проигнорирован.
-
-       То есть оба режима принимаются молча и не соблюдаются — ровно та
-       тихая деградация, от которой предостерегает спека stage-5. Флаг
-       ставим (он безвреден и иногда помогает модели), но полагаться на
-       него нельзя: единственная гарантия формата для MiniMax — жёсткая
-       инструкция в самом промте плюс клиентская валидация контрактов
-       (`app/contracts/`) и repair-retry, то есть план Б целиком.
-
-       Практическое следствие: MiniMax НЕЛЬЗЯ добавлять в
-       ``GPT_STRUCTURED_RELAYS`` — там список релеев, которые схему реально
-       enforce'ят.
-    """
-    body["reasoning_split"] = True
-    if wants_json:
-        body["response_format"] = {"type": "json_object"}
-
-
 def _structured_outputs_active(url: str) -> bool:
     mode = (settings.gpt_structured_outputs or "auto").strip().lower()
     if mode == "off":
@@ -330,6 +297,17 @@ def _override_vibecode_base_url() -> str:
     # только api.kie.ai. Тогда vibecode-ключ даёт HTTP 200 + {"code":401}
     # без choices → «пустой output» в chat/stream.
     return (settings.vibecode_base_url or "https://vibecode.moe/v1").strip().rstrip("/")
+
+
+def _anthropic_route(use_model: str) -> bool:
+    """Claude на vibecode идёт через /v1/messages (формат Anthropic).
+
+    Шлюз отдаёт `claude-*` только там — на chat/completions 400. Транспорт:
+    `app/services/anthropic_messages.py` (официальный SDK, base_url шлюза).
+    """
+    from app.services.anthropic_messages import is_anthropic_model
+
+    return is_anthropic_model(use_model) and (settings.text_llm_is_vibecode or _node_vibecode_override())
 
 
 def _headers() -> dict[str, str]:
@@ -2384,6 +2362,15 @@ async def _chat_unscoped(
 
     use_model = (model or current_text_model_id() or settings.gpt_model_effective or "gpt-5.5").strip()
     url = _chat_url(use_model)
+    anthropic_route = _anthropic_route(use_model)
+    if anthropic_route:
+        from app.services.anthropic_messages import messages_url
+
+        url = messages_url(
+            _override_vibecode_base_url()
+            if _node_vibecode_override()
+            else settings.gpt_api_effective_base_url
+        )
     use_timeout = float(timeout if timeout is not None else settings.gpt_timeout_s)
     retries = int(max_retries if max_retries is not None else settings.gpt_max_retries)
     ov_model = current_text_model_id()
@@ -2435,9 +2422,6 @@ async def _chat_unscoped(
             response_schema.name,
             "responses" if responses_mode else "chat",
         )
-
-    if settings.text_llm_is_minimax:
-        _minimax_body_tweaks(body, response_schema is not None)
 
     # П.16-17: брейкер per-провайдер. Ключ — реальный текстовый провайдер
     # (kie/vibecode/tokenrouter/grsai), а не модель: лежит шлюз, не модель.
@@ -2537,6 +2521,71 @@ async def _chat_unscoped(
                         response_id=result.response_id or cont.response_id,
                     )
                 if response_schema is not None and looks_truncated_llm_text(result.text or ""):
+                    raise GptApiError(
+                        "GPT: ответ обрезан в контрактном режиме — "
+                        "continuation отключён, нужен ретрай целого вызова",
+                        context={
+                            "retryable": True,
+                            "error_kind": "truncated_contract",
+                            "model": use_model,
+                        },
+                    )
+                _check_served_model(
+                    result,
+                    use_model=use_model,
+                    contract_active=response_schema is not None,
+                )
+                result = await _maybe_volume_complete_chat_result(
+                    result,
+                    prompt=prompt,
+                    accompanying=accompanying,
+                    input_paths=input_paths,
+                    system=system,
+                    history=history,
+                    model=use_model,
+                    temperature=temperature,
+                    timeout=use_timeout,
+                    xlsx_write_contract=xlsx_write_contract,
+                    volume_complete=volume_complete,
+                    response_schema=response_schema,
+                )
+                _log_chat_finished(
+                    provider_label=provider_label,
+                    use_model=use_model,
+                    attempt=attempt,
+                    result=result,
+                )
+                provider_breaker.note_success(breaker_key)
+                return result
+
+            if anthropic_route:
+                from app.services import anthropic_messages
+
+                structured = response_schema is not None and _structured_outputs_active(url)
+                result = await _record_transport_call(
+                    lambda: anthropic_messages.chat_messages(
+                        base_url=(
+                            _override_vibecode_base_url()
+                            if _node_vibecode_override()
+                            else settings.gpt_api_effective_base_url
+                        ),
+                        api_key=(settings.vibecode_api_key or "").strip(),
+                        body=body,
+                        timeout=use_timeout,
+                        use_model=use_model,
+                        response_schema=response_schema,
+                        structured=structured,
+                    ),
+                    url=url,
+                    use_model=use_model,
+                    endpoint="messages",
+                )
+                # Continuation здесь не нужен: SDK-стрим не рвётся Cloudflare'ом,
+                # обрез — только по max_tokens. В контрактном режиме это ретрай
+                # целого вызова, как и у остальных транспортов.
+                if response_schema is not None and (
+                    result.finish_reason == "length" or looks_truncated_llm_text(result.text or "")
+                ):
                     raise GptApiError(
                         "GPT: ответ обрезан в контрактном режиме — "
                         "continuation отключён, нужен ретрай целого вызова",

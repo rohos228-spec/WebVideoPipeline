@@ -12,12 +12,11 @@ from app.services.gpt_api import _MAX_VISION_BYTES, image_to_data_url
 
 def test_image_to_data_url_compresses_large_png(tmp_path: Path) -> None:
     path = tmp_path / "huge.png"
-    img = Image.new("RGB", (2000, 2000))
-    pix = img.load()
+    # Шум в КАЖДОМ пикселе: с шумом через один deflate ужимал файл до
+    # 3.8 МБ (< лимита 4 МБ) в зависимости от версии zlib — тест падал
+    # не по делу. Несжимаемый шум даёт ~12 МБ при любом кодеке.
     rng = random.Random(1)
-    for y in range(0, 2000, 2):
-        for x in range(0, 2000, 2):
-            pix[x, y] = (rng.randint(0, 255), rng.randint(0, 255), rng.randint(0, 255))
+    img = Image.frombytes("RGB", (2000, 2000), rng.randbytes(2000 * 2000 * 3))
     img.save(path, format="PNG")
     assert path.stat().st_size > _MAX_VISION_BYTES
 

@@ -207,7 +207,8 @@ async def test_vibecode_stream_path_records(ledger_db, monkeypatch):
         return httpx.Response(200, content=sse.encode(), headers={"content-type": "text/event-stream"})
 
     _mock_httpx(monkeypatch, handler)
-    await gpt_api.chat(prompt="q", auto_pack=False, volume_complete=False)
+    # Явно GPT: дефолт vibecode теперь Claude Opus 5, а тот идёт в /v1/messages.
+    await gpt_api.chat(prompt="q", auto_pack=False, volume_complete=False, model="gpt-5.6-sol")
     rows = await _rows(ledger_db)
     assert len(rows) == 1
     assert rows[0].endpoint == "chat" and rows[0].relay == "vibe.test"

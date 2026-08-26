@@ -9,6 +9,9 @@ dependencies = [
   "aiohttp-socks>=0.10,<1",
   "aiosqlite>=0.20,<1",
   "alembic>=1.13,<2",
+  # Claude через vibecode.moe: шлюз отдаёт claude-* только на /v1/messages
+  # (формат Anthropic), см. app/services/anthropic_messages.py.
+  "anthropic>=1.1,<2",
   "fastapi>=0.115,<1",
   "ffmpeg-python>=0.2,<1",
   "greenlet>=3.0,<4",

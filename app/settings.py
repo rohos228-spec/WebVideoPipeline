@@ -103,14 +103,15 @@ class Settings(BaseSettings):
     # Минимальный интервал между вызовами одного провайдера, мс. 0 = выкл.
     provider_min_interval_ms: int = Field(0, alias="PROVIDER_MIN_INTERVAL_MS")
 
-    # MiniMax (https://platform.minimax.io) — текст, картинки и видео на одном
-    # ключе. Медиа берут стартовый кадр base64 data URL, поэтому публиковать
+    # MiniMax (https://platform.minimax.io) — картинки и видео (медиа-контур).
+    # Текстовый контур MiniMax выведен 2026-08-26 решением владельца: модель
+    # врала на расплывчатых запросах и не соблюдала structured outputs.
+    # Медиа берут стартовый кадр base64 data URL, поэтому публиковать
     # кадры наружу (Yandex S3 / файлохостинги) для него не нужно.
     minimax_api_key: str = Field("", alias="MINIMAX_API_KEY")
     minimax_base_url: str = Field("https://api.minimax.io", alias="MINIMAX_BASE_URL")
     minimax_default_image_model: str = Field("image-01", alias="MINIMAX_DEFAULT_IMAGE_MODEL")
     minimax_default_video_model: str = Field("MiniMax-Hailuo-2.3", alias="MINIMAX_DEFAULT_VIDEO_MODEL")
-    minimax_text_model: str = Field("MiniMax-M3", alias="MINIMAX_TEXT_MODEL")
 
     # Grsai API (https://grsai.com / https://grsaiapi.com) — image/video без CDP
     grsai_api_key: str = Field("", alias="GRSAI_API_KEY")
@@ -124,13 +125,16 @@ class Settings(BaseSettings):
 
     # Текстовый LLM: GPT (kie) по умолчанию. Kimi K3 (TokenRouter) — доп. модель.
     # Переключение: Studio UI / data/text_llm_choice.json / TEXT_LLM_PROVIDER.
-    # TEXT_LLM_PROVIDER=kie|tokenrouter|kimi|vibecode|minimax — default kie.
+    # TEXT_LLM_PROVIDER=kie|tokenrouter|kimi|vibecode — default kie.
+    # vibecode: Claude Opus 5 / Sonnet 5 (через /v1/messages,
+    # app/services/anthropic_messages.py) и GPT 5.5 / 5.6 Sol — каталог
+    # app/services/text_llm_catalog.py.
     text_llm_provider: str = Field("kie", alias="TEXT_LLM_PROVIDER")
     tokenrouter_api_key: str = Field("", alias="TOKENROUTER_API_KEY")
     tokenrouter_base_url: str = Field("https://api.tokenrouter.com/v1", alias="TOKENROUTER_BASE_URL")
     tokenrouter_model: str = Field("moonshotai/kimi-k3-free", alias="TOKENROUTER_MODEL")
 
-    # vibecode.moe — OpenAI-совместимый chat/completions (GPT 5.5 / 5.6 Sol).
+    # vibecode.moe — chat/completions для GPT, /v1/messages для Claude.
     vibecode_api_key: str = Field("", alias="VIBECODE_API_KEY")
     vibecode_base_url: str = Field("https://vibecode.moe/v1", alias="VIBECODE_BASE_URL")
 
@@ -180,7 +184,7 @@ class Settings(BaseSettings):
     gpt_relay_token: str = Field("", alias="GPT_RELAY_TOKEN")
 
     def resolved_text_llm_provider(self) -> str:
-        """Активный текстовый провайдер: kie | vibecode | tokenrouter | minimax.
+        """Активный текстовый провайдер: kie | vibecode | tokenrouter.
 
         Default — kie. vibecode/Kimi только по явному выбору (UI / choice.json / env).
         """
@@ -197,28 +201,22 @@ class Settings(BaseSettings):
         return self.resolved_text_llm_provider() == "vibecode"
 
     @property
-    def text_llm_is_minimax(self) -> bool:
-        """MiniMax — OpenAI-совместимый /v1/chat/completions на своём ключе."""
-        return self.resolved_text_llm_provider() == "minimax"
-
-    @property
     def text_llm_label(self) -> str:
         """Человекочитаемая метка для UI/логов (не «GPT», если это Kimi)."""
-        if self.text_llm_is_minimax:
-            return f"MiniMax ({(self.minimax_text_model or 'MiniMax-M3').strip()})"
         if self.text_llm_is_tokenrouter:
             model = (self.tokenrouter_model or "moonshotai/kimi-k3-free").strip()
             short = model.split("/")[-1] if "/" in model else model
             return f"Kimi K3 · TokenRouter ({short})"
         if self.text_llm_is_vibecode:
             from app.services.text_llm_catalog import (
+                VIBECODE_DEFAULT_API_MODEL,
                 catalog_item,
                 resolve_active_model_id,
             )
 
             item = catalog_item(resolve_active_model_id(self))
-            api_model = (item or {}).get("api_model") or "gpt-5.6-sol"
-            pretty = (item or {}).get("label") or "GPT"
+            api_model = (item or {}).get("api_model") or VIBECODE_DEFAULT_API_MODEL
+            pretty = (item or {}).get("label") or "Claude"
             return f"{pretty} · vibecode.moe ({api_model})"
         model = (self.gpt_model or "gpt").strip()
         base = (self.gpt_base_url or "").strip().lower()
@@ -228,8 +226,6 @@ class Settings(BaseSettings):
     @property
     def gpt_api_effective_key(self) -> str:
         """Ключ активного текстового LLM."""
-        if self.text_llm_is_minimax:
-            return (self.minimax_api_key or "").strip()
         if self.text_llm_is_tokenrouter:
             return (self.tokenrouter_api_key or "").strip() or (self.gpt_api_key or "").strip()
         if self.text_llm_is_vibecode:
@@ -255,9 +251,6 @@ class Settings(BaseSettings):
         kie — через VPS-relay, если задан. vibecode — всегда прямиком на
         vibecode.moe (VPS часто ещё только на api.kie.ai; иначе 401-envelope).
         """
-        if self.text_llm_is_minimax:
-            base = (self.minimax_base_url or "https://api.minimax.io").strip().rstrip("/")
-            return base if base.endswith("/v1") else f"{base}/v1"
         if self.text_llm_is_tokenrouter:
             base = (self.tokenrouter_base_url or "https://api.tokenrouter.com/v1").strip()
             return base.rstrip("/")
@@ -271,8 +264,6 @@ class Settings(BaseSettings):
 
     @property
     def gpt_model_effective(self) -> str:
-        if self.text_llm_is_minimax:
-            return (self.minimax_text_model or "MiniMax-M3").strip()
         if self.text_llm_is_tokenrouter:
             return (self.tokenrouter_model or "moonshotai/kimi-k3-free").strip()
         if self.text_llm_is_vibecode:
@@ -290,7 +281,7 @@ class Settings(BaseSettings):
         if self.text_llm_is_tokenrouter:
             # base уже …/v1 → финальный URL …/v1/chat/completions
             return "/chat/completions"
-        if self.text_llm_is_vibecode or self.text_llm_is_minimax:
+        if self.text_llm_is_vibecode:
             base = self.gpt_api_effective_base_url.lower()
             if base.endswith("/v1"):
                 return "/chat/completions"
@@ -299,7 +290,7 @@ class Settings(BaseSettings):
 
     @property
     def gpt_api_mode_effective(self) -> str:
-        if self.text_llm_is_tokenrouter or self.text_llm_is_vibecode or self.text_llm_is_minimax:
+        if self.text_llm_is_tokenrouter or self.text_llm_is_vibecode:
             return "chat"
         return (self.gpt_api_mode or "auto").strip().lower() or "auto"
 
