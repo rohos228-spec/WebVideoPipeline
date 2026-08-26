@@ -100,6 +100,45 @@ def _items_step_required(project: Project) -> bool:
     return len(_nonempty_item_descriptions(project)) > 0
 
 
+def _sfx_status(project: Project) -> ProjectStatus | None:
+    """`sfx_ready` / `sfx_plan_ready` по данным звуков; None — звуков ещё нет.
+
+    Звуки добавили в конвейер позже стражей, и расчёт статуса о них не знал:
+    `sfx_plan` делал 8 событий, ставил `sfx_plan_ready`, расчёт возвращал
+    `music_ready`, страж откатывал, авто-продвижение одобряло — и так каждые
+    пять секунд. Тот же вечный цикл, что у предметов и музыки; живой прогон
+    финала 2026-08-26.
+
+    План — `load_sfx_plan` (чекпоинт в meta или `sfx_plan.json`), звуки —
+    файлы в `data_dir/sfx/`. При `SFX_ENABLED=false` шаги проходят вхолостую
+    и данных не оставляют; тогда верим текущему статусу, если он из звуковых.
+    """
+    from app.settings import settings
+
+    if not settings.sfx_enabled:
+        cur = getattr(project, "status", None)
+        if cur in (ProjectStatus.sfx_plan_ready, ProjectStatus.sfx_ready):
+            return cur
+        return None
+    from app.services.sfx_plan import load_sfx_plan
+
+    try:
+        plan = load_sfx_plan(project)
+    except Exception:  # noqa: BLE001 — битый план = плана нет
+        plan = None
+    if not plan:
+        return None
+    data_dir = getattr(project, "data_dir", None)
+    sfx_dir = (data_dir / "sfx") if data_dir is not None else None
+    if (
+        sfx_dir is not None
+        and sfx_dir.is_dir()
+        and any(f.suffix.lower() in {".wav", ".mp3"} for f in sfx_dir.iterdir() if f.is_file())
+    ):
+        return ProjectStatus.sfx_ready
+    return ProjectStatus.sfx_plan_ready
+
+
 def _music_skipped(project: Project) -> bool:
     """Шаг музыки прошёл вхолостую по `MUSIC_ENABLED=false` (см. generate_music)."""
     meta = project.meta if isinstance(project.meta, dict) else {}
@@ -538,7 +577,7 @@ async def compute_actual_status(session, project: Project) -> ProjectStatus:
             # audio ✓
             if final_arts == 0:
                 if music_arts > 0 or _music_skipped(project):
-                    return ProjectStatus.music_ready
+                    return _sfx_status(project) or ProjectStatus.music_ready
                 return ProjectStatus.audio_ready
             # final ✓
             return ProjectStatus.assembled

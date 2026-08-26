@@ -172,6 +172,16 @@ async def ready_status_confirmed_by_data(
             if music_n > 0:
                 return True
 
+    # Звуки: подтверждаются планом и файлами, а при SFX_ENABLED=false —
+    # самим статусом (шаги проходят вхолостую). Без этого `sfx_plan_ready`
+    # откатывался в `music_ready` каждые пять секунд — см. `_sfx_status`.
+    if ready_status in (ProjectStatus.sfx_plan_ready, ProjectStatus.sfx_ready):
+        from app.services.project_state import _sfx_status
+
+        got = _sfx_status(project)
+        if got is not None and status_order(got) >= status_order(ready_status):
+            return True
+
     actual = await compute_actual_status(session, project)
     return status_order(actual) >= status_order(ready_status)
 
