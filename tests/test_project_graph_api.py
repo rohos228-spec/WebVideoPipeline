@@ -36,6 +36,7 @@ async def client(tmp_path, monkeypatch):
     app = create_app()
     app.dependency_overrides[get_session] = _gen
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        c.factory = factory  # type: ignore[attr-defined]
         yield c
     await engine.dispose()
 
@@ -103,3 +104,55 @@ async def test_reset_to_default_and_proposal_endpoints(client) -> None:
     res = await client.post("/api/projects/1/graph/proposal/apply", json={"proposal_id": "nope"})
     assert res.status_code == 400
     assert (await client.delete("/api/projects/1/graph/proposal")).status_code == 204
+
+
+async def test_missing_project_brief_and_broken_catalog(client, monkeypatch) -> None:
+    assert (await client.get("/api/projects/77/graph")).status_code == 404
+    brief = await client.get("/api/projects/1/graph/brief")
+    assert brief.status_code == 200 and any(n["id"] == "n_plan" for n in brief.json()["nodes"])
+
+    def boom():
+        raise RuntimeError("no catalog")
+
+    monkeypatch.setattr("app.services.vibecode_catalog.models_for_channel", boom)
+    g = (await client.get("/api/projects/1/graph")).json()
+    assert g["models"] == {"text": [], "image": [], "video": []}
+
+    bad = await client.post(
+        "/api/projects/1/graph/diff", json={"nodes": [{"id": "x", "type": "warp"}], "edges": []}
+    )
+    assert bad.status_code == 400 and bad.json()["detail"]["graph"]
+
+
+async def test_agent_proposal_is_applied_through_the_button_endpoint(client) -> None:
+    from app.services.studio_agent import call_tool
+
+    async with client.factory() as s:  # type: ignore[attr-defined]
+        card = await call_tool(
+            s, "editGraph", {"project_id": 1, "ops": [{"op": "set_node", "id": "n_music", "disabled": True}]}
+        )
+    res = await client.post("/api/projects/1/graph/proposal/apply", json={"proposal_id": card["proposal_id"]})
+    assert res.status_code == 200, res.text
+    assert res.json()["diff"]["summary"] == "~1 узл."
+    assert (await client.get("/api/projects/1/graph")).json()["proposal"] is None
+
+
+async def test_stage_run_and_stop_go_through_the_graph(client) -> None:
+    run = await client.post("/api/projects/1/stages/plan/run")
+    assert run.status_code == 200, run.text
+    assert run.json()["step"] == "plan" and run.json()["project"]["status"] == "planning"
+    stop = await client.post("/api/projects/1/stages/stop")
+    assert stop.status_code == 200
+    assert (await client.post("/api/projects/1/stages/nope/run")).status_code == 404
+
+
+async def test_models_of_unknown_kind_are_not_offered(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.vibecode_catalog.models_for_channel",
+        lambda *a, **k: [
+            {"id": "a", "kind": "audio", "label": "A"},
+            {"id": "t", "kind": "text", "label": "T"},
+        ],
+    )
+    g = (await client.get("/api/projects/1/graph")).json()
+    assert [m["id"] for m in g["models"]["text"]] == ["t"] and g["models"]["image"] == []

@@ -433,9 +433,7 @@ def reset_plan(
         if node is not None and is_work_node_type(str(node.get("type") or "")):
             mark(node_step_code(node), f"узел «{item['label']}» удалён")
     for item in diff.changed_nodes:
-        node = new_by.get(item["id"])
-        if node is None:
-            continue
+        node = new_by[item["id"]]  # изменённый узел есть в новом графе по построению
         meaningful = [c for c in item.get("changes", []) if c not in _COSMETIC_DATA_KEYS and c != "disabled"]
         if meaningful and is_work_node_type(str(node.get("type") or "")):
             mark(node_step_code(node), f"узел «{item['label']}» изменён ({', '.join(meaningful)})")

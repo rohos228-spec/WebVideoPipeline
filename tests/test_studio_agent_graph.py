@@ -182,3 +182,98 @@ async def test_loop_shows_graph_then_answers(db):
         )
     kinds = [e.type for e in turn.events]
     assert kinds == ["tool_call", "tool_result", "message"]
+
+
+# ── ветки отказов и успешные пути остальных инструментов ─────────────────
+
+
+async def test_graph_tools_refuse_bad_arguments(db):
+    async with db() as s:
+        with pytest.raises(ToolError):
+            await call_tool(s, "showGraph", {"project_id": 999})
+        with pytest.raises(ToolError):
+            await call_tool(s, "editGraph", {"project_id": 1, "ops": []})
+        with pytest.raises(ToolError):
+            await call_tool(s, "proposeGraph", {"project_id": 1, "nodes": [], "edges": []})
+        with pytest.raises(ToolError):
+            await call_tool(
+                s, "proposeGraph", {"project_id": 1, "nodes": [{"id": "t", "type": "topic"}], "edges": "x"}
+            )
+        with pytest.raises(ToolError):
+            await call_tool(s, "applyGraph", {"project_id": 1, "proposal_id": "none"})
+        with pytest.raises(ToolError):
+            await call_tool(s, "runStage", {"project_id": 1, "stage_id": "warp"})
+        with pytest.raises(ToolError) as exc:
+            await call_tool(s, "runStage", {"project_id": 1, "stage_id": "videos"})
+        assert "недоступна" in str(exc.value)
+        with pytest.raises(ToolError):
+            await call_tool(s, "setProjectOptions", {"project_id": 1, "options": []})
+        with pytest.raises(ToolError):
+            await call_tool(
+                s, "setProjectOptions", {"project_id": 1, "options": {"enrich_slots_count": "many"}}
+            )
+        with pytest.raises(ToolError):
+            await call_tool(s, "setProjectOptions", {"project_id": 1, "options": {"enrich_slots_count": 9}})
+
+
+async def test_show_graph_mentions_pending_proposal_and_discard_clears_it(db):
+    async with db() as s:
+        await call_tool(
+            s, "editGraph", {"project_id": 1, "ops": [{"op": "set_node", "id": "n_music", "disabled": True}]}
+        )
+        shown = await call_tool(s, "showGraph", {"project_id": 1})
+        assert shown["pending_proposal"]["diff"] == "~1 узл."
+        out = await call_tool(s, "discardGraph", {"project_id": 1})
+        assert out["discarded"] is True
+        assert "pending_proposal" not in await call_tool(s, "showGraph", {"project_id": 1})
+
+
+async def test_run_stage_asks_when_expensive_then_runs_stops_and_resets(db, monkeypatch):
+    async with db() as s:
+        monkeypatch.setattr("app.services.studio_agent.tools.CONFIRM_THRESHOLD_MICRO", -1)
+        card = await call_tool(s, "runStage", {"project_id": 1, "stage_id": "plan"})
+        assert card["needs_confirmation"] is True and card["stage_id"] == "plan"
+
+        started = await call_tool(s, "runStage", {"project_id": 1, "stage_id": "plan", "confirm": True})
+        assert started["started"] is True and started["step_code"] == "plan"
+        p = await s.get(Project, 1)
+        await s.refresh(p)
+        assert p.status is ProjectStatus.planning
+
+        stopped = await call_tool(s, "stopStep", {"project_id": 1})
+        assert stopped["stopped"] is True
+
+        reset = await call_tool(s, "resetStep", {"project_id": 1, "step_code": "plan", "confirm": True})
+        assert reset["reset"] is True and reset["status"]
+
+
+async def test_set_project_options_accepts_choices_and_flags(db):
+    from app.generation_options import IMAGE_GENERATORS_BY_ID
+
+    gen = next(iter(IMAGE_GENERATORS_BY_ID))
+    async with db() as s:
+        out = await call_tool(
+            s, "setProjectOptions", {"project_id": 1, "options": {"image_generator": gen, "auto_mode": False}}
+        )
+        assert out["set"] == {"image_generator": gen, "auto_mode": False}
+
+
+async def test_tool_errors_from_routers_become_tool_errors(db, monkeypatch):
+    """Пятисотка роутера не должна долетать до чата: модель получает текст отказа."""
+    from fastapi import HTTPException
+
+    async def refuse(*_a, **_k):
+        raise HTTPException(status_code=400, detail="занято")
+
+    monkeypatch.setattr("app.web.routers.stages.run_stage", refuse)
+    monkeypatch.setattr("app.web.routers.project_ops.reset_project_step", refuse)
+    monkeypatch.setattr("app.web.routers.projects.patch_project", refuse)
+    async with db() as s:
+        for name, args in (
+            ("runStage", {"project_id": 1, "stage_id": "plan", "confirm": True}),
+            ("resetStep", {"project_id": 1, "step_code": "plan", "confirm": True}),
+            ("setProjectOptions", {"project_id": 1, "options": {"auto_mode": True}}),
+        ):
+            with pytest.raises(ToolError) as exc:
+                await call_tool(s, name, args)
+            assert "занято" in str(exc.value)
