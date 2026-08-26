@@ -21,8 +21,18 @@
 #   образ значит выложить содержательную часть продукта в реестр. Она
 #   монтируется томом и на первом старте импортируется в базу
 #   (`app/web/api.py::_lifespan`), дальше источник — база.
-# * *`[nvidia]` и `[whisper]`.* Это ASR на CUDA и модель на 100+ МБ; монтаж на
-#   сервере не идёт, а `ASR_BACKEND` по умолчанию их не требует.
+# * *`[nvidia]`.* NeMo Parakeet — ASR на CUDA для монтажного ПК. На сервере
+#   CUDA нет.
+#
+# **Что есть, хотя сначала не было:** `[whisper]` (faster-whisper на CPU).
+# Первая редакция исключала его как «ASR нужен только монтажу». Живой прогон
+# финала показал обратное: озвучка (ElevenLabs API) записалась, а следующий
+# же шаг — выравнивание голоса по кадрам — требует пословных таймкодов, и без
+# ASR ролик не собирается вовсе. Модель `small`/int8 на CPU обрабатывает
+# минуту речи за десятки секунд; веса тянутся при первом вызове в
+# `data/.cache/huggingface` — том, переживает пересборку. Настройки —
+# `ASR_BACKEND=whisper`, `WHISPER_MODEL=small`, `WHISPER_DEVICE=cpu`
+# (deploy/studio/env.template).
 #
 # **Что есть:** ffmpeg (сборка и монтаж ролика — `app/services/assembly.py`),
 # драйверы Postgres и клиент S3.
@@ -65,7 +75,7 @@ RUN mkdir -p app && touch app/__init__.py
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --upgrade pip && pip install ".[postgres,s3]"
+RUN pip install --upgrade pip && pip install ".[postgres,s3,whisper]"
 
 
 # ── Рантайм ─────────────────────────────────────────────────────────────────
