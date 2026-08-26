@@ -660,7 +660,8 @@ async def _project(session: Any, args: dict[str, Any]):
 async def _show_stages(session: Any, args: dict[str, Any]) -> dict[str, Any]:
     from app.web.routers.stages import list_stages
 
-    project_id = _int(args, "project_id")
+    project = await _project(session, args)
+    project_id = int(project.id)
     data = await list_stages(project_id, session)
     stages = []
     for st in data["stages"]:
@@ -682,6 +683,9 @@ async def _show_stages(session: Any, args: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "project_id": project_id,
+        # Название и идея — иначе модель не знает, о чём ролик, и выдумывает.
+        "title": project.title,
+        "topic": (project.topic or "")[:600],
         "status": data["status"],
         "stages": stages,
         "remaining_credits": data["remaining_credits"],

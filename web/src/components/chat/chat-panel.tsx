@@ -47,13 +47,7 @@ export function ChatPanel({ projectId }: { projectId: number | null }) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [feed]);
 
-  const history = useMemo<ChatHistoryItem[]>(
-    () =>
-      feed
-        .filter((i) => i.kind === "user" || i.kind === "assistant")
-        .map((i) => ({ role: i.kind === "user" ? "user" : "assistant", content: i.text ?? "" })),
-    [feed],
-  );
+  const history = useMemo<ChatHistoryItem[]>(() => historyFromFeed(feed), [feed]);
 
   const refresh = () => {
     if (projectId === null) {
@@ -149,6 +143,44 @@ function EmptyState({ hasProject }: { hasProject: boolean }) {
       )}
     </div>
   );
+}
+
+// Сколько символов результата инструмента уезжает в историю. Результат
+// showStages — сотни символов, showStoryboard — тысячи; модели важна суть,
+// а не полный дамп, и контекст не резиновый.
+const HISTORY_RESULT_LIMIT = 3000;
+// Сколько реплик истории отдаём. Хвост разговора важнее его начала.
+const HISTORY_LIMIT = 40;
+
+function clip(value: unknown): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
+  return text.length > HISTORY_RESULT_LIMIT ? `${text.slice(0, HISTORY_RESULT_LIMIT)}…` : text;
+}
+
+// История для модели — в том же контракте, в каком её строит петля на
+// бэкенде: вызов инструмента как реплика ассистента, результат — как
+// наблюдение. Без этого модель на следующем сообщении не помнит, что уже
+// вызывала и что ей вернулось, и повторяет или «доделывает» прошлый ход.
+export function historyFromFeed(feed: FeedItem[]): ChatHistoryItem[] {
+  const out: ChatHistoryItem[] = [];
+  for (const item of feed) {
+    if (item.kind === "user" || item.kind === "assistant") {
+      out.push({ role: item.kind, content: item.text ?? "" });
+      continue;
+    }
+    if (item.kind === "tool") {
+      const { tool, args, result } = (item.payload ?? {}) as { tool?: string; args?: unknown; result?: unknown };
+      out.push({ role: "assistant", content: JSON.stringify({ tool: tool ?? item.tool, args: args ?? {} }) });
+      if (result !== undefined) {
+        out.push({ role: "user", content: JSON.stringify({ tool: tool ?? item.tool, result: clip(result) }) });
+      }
+      continue;
+    }
+    if (item.kind === "tool-error" && item.tool) {
+      out.push({ role: "user", content: JSON.stringify({ tool: item.tool, error: item.text ?? "" }) });
+    }
+  }
+  return out.slice(-HISTORY_LIMIT);
 }
 
 function appendEvent(feed: FeedItem[], event: AgentEvent): FeedItem[] {

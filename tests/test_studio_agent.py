@@ -428,3 +428,104 @@ async def test_video_options_tool_shows_both_prices(db, monkeypatch) -> None:
         result = await call_tool(s, "videoOptions", {"project_id": 1})
     prices = {o["id"]: o["price_credits"] for o in result["options"]}
     assert prices == {"720p": "13.68", "1080p": "23.76"}
+
+
+# ── честность реплики: обещание без действия, контекст ролика ─────────────
+
+
+async def test_promise_without_action_goes_back_to_the_model(db) -> None:
+    """«Запускаю» в say без вызова инструмента — не ответ, а обрыв.
+
+    say завершает ход; модель, написавшая «запускаю» и остановившаяся, ничего
+    не запустила. Ей один раз возвращают это как наблюдение — и человеку
+    уходит уже честная реплика.
+    """
+    seen: list[list[dict[str, str]]] = []
+
+    async def _ask(prompt, system, history):
+        seen.append(list(history))
+        if len(seen) == 1:
+            return json.dumps({"say": "Запускаю сценарий, вернусь с планом."})
+        return json.dumps({"say": "Сценарий стоит 0,03 кр. Запустить?"})
+
+    async with db() as s:
+        turn = await collect_turn(s, "давай", ask=_ask, project_id=1)
+    assert [e.type for e in turn.events] == ["message"]
+    assert turn.reply == "Сценарий стоит 0,03 кр. Запустить?"
+    assert any("не вызвал" in m["content"] for m in seen[1])
+
+
+async def test_promise_reminder_is_sent_once(db) -> None:
+    """Упрямая модель получает напоминание один раз — дальше её слово уходит как есть.
+
+    Второй и третий круг тратили бы деньги на тот же ответ.
+    """
+    ask = _scripted(json.dumps({"say": "Запускаю."}))
+    async with db() as s:
+        turn = await collect_turn(s, "давай", ask=ask, project_id=1)
+    assert [e.type for e in turn.events] == ["message"]
+    assert turn.reply == "Запускаю."
+
+
+async def test_promise_after_a_real_action_passes(db, monkeypatch) -> None:
+    """После настоящего действия «запускаю» — правда, и напоминание не нужно."""
+    from app.services.studio_agent import loop as loop_mod
+    from app.services.studio_agent import tools as tools_mod
+
+    async def _fake(session, args):
+        return {"ok": True}
+
+    monkeypatch.setitem(tools_mod.TOOLS, "doThing", tools_mod.TOOLS["showBalance"])
+    monkeypatch.setitem(tools_mod._HANDLERS, "doThing", _fake)
+    monkeypatch.setattr(loop_mod, "ACTION_TOOLS", frozenset({"doThing"}))
+    ask = _scripted(
+        json.dumps({"tool": "doThing", "args": {}}),
+        json.dumps({"say": "Запускаю, шаг пошёл."}),
+    )
+    async with db() as s:
+        turn = await collect_turn(s, "запусти", ask=ask, project_id=1)
+    assert [e.type for e in turn.events] == ["tool_call", "tool_result", "message"]
+    assert turn.reply == "Запускаю, шаг пошёл."
+
+
+async def test_open_project_context_carries_title_and_topic(db) -> None:
+    """Модель знает, о чём ролик, из контекста — иначе выдумывает название."""
+    seen: list[str] = []
+
+    async def _ask(prompt, system, history):
+        seen.append(prompt)
+        return json.dumps({"say": "ок"})
+
+    async with db() as s:
+        p = await s.get(Project, 1)
+        p.title = "Ночной обмен"
+        await s.commit()
+        await collect_turn(s, "о чём ролик?", ask=_ask, project_id=1)
+    assert "название: «Ночной обмен»" in seen[0]
+    assert "идея: агент" in seen[0]
+    assert "project_id для инструментов — 1" in seen[0]
+
+
+async def test_show_stages_carries_title_and_topic(db) -> None:
+    """showStages отдаёт название и идею вместе со стадиями."""
+    async with db() as s:
+        out = await call_tool(s, "showStages", {"project_id": 1})
+    assert out["topic"] == "агент"
+    assert "title" in out
+    with pytest.raises(ToolError):
+        async with db() as s:
+            await call_tool(s, "showStages", {"project_id": 999})
+
+
+async def test_project_context_survives_missing_project_and_broken_session(db) -> None:
+    """Контекст ролика — вспомогательный: без проекта или без базы ход идёт дальше."""
+    from app.services.studio_agent.loop import _project_context
+
+    async with db() as s:
+        assert await _project_context(s, 999) == "[открыт проект #999; project_id для инструментов — 999]"
+
+    class _Broken:
+        async def get(self, *_a, **_k):
+            raise RuntimeError("база недоступна")
+
+    assert await _project_context(_Broken(), 7) == "[открыт проект #7; project_id для инструментов — 7]"

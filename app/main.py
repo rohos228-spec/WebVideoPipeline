@@ -879,6 +879,27 @@ async def _preload_nvidia_asr_on_startup() -> None:
         logger.warning("nvidia_asr startup preload skipped: {}", exc)
 
 
+def _redact_db_url(url: str) -> str:
+    """URL базы для лога: пароль заменяется звёздочками.
+
+    `postgresql+asyncpg://app:секрет@/db?host=…` в стартовой строке уезжал в
+    `docker logs` как есть.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return "<db url>"
+    if not parts.password:
+        return url
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    netloc = f"{parts.username or ''}:***@{host}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
 async def main() -> None:
     import sys
 
@@ -892,7 +913,7 @@ async def main() -> None:
     logger.info(
         "starting video-pipeline, owner chat_id={}, db={}",
         settings.telegram_owner_chat_id,
-        settings.db_url,
+        _redact_db_url(settings.db_url),
     )
     await _init_db()
 

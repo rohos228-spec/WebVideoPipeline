@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -63,8 +64,16 @@ SYSTEM_PROMPT = """\
 просил убирать; выключай (set_node disabled=true) вместо удаления, когда
 сомневаешься.
 
-С ЧЕГО НАЧИНАТЬ. Если человек говорит о конкретном ролике — сначала
-showStages: там видно, где проект, что готово и что дальше.
+С ЧЕГО НАЧИНАТЬ. Если человек просит что-то СДЕЛАТЬ с роликом или
+спрашивает, где он сейчас, — сначала showStages: там видно, где проект, что
+готово и что дальше. На вопрос, замечание или упрёк отвечай через say
+сразу, инструменты для этого не нужны.
+
+ПРО ЧЕСТНОСТЬ. Название и идея ролика даны в контексте сообщения — не
+придумывай их. Не пиши «запускаю», «стартую», «сделал», если в этом же
+ответе не вызвал runStep/runStage: say завершает твой ход, и обещанное
+после него не произойдёт. Сначала вызови инструмент, потом расскажи о
+результате.
 
 ПРО ДЕНЬГИ. У каждого шага есть цена в кредитах, и человек обязан видеть её
 ДО запуска, а не после списания. Всё, что дороже 1 кредита, требует явного
@@ -133,14 +142,29 @@ async def run_turn(
     dialogue: list[dict[str, str]] = list(history or [])
     prompt = message
     if project_id:
-        prompt = f"[открыт проект #{project_id}; project_id для инструментов — {project_id}]\n{message}"
+        prompt = f"{await _project_context(session, project_id)}\n{message}"
 
+    acted = False  # вызывался ли в этом ходе инструмент, который что-то делает
+    reminded = False  # напоминание про обещание без действия — один раз на ход
     for turn in range(max_turns):
         raw = await asker(prompt, system, dialogue)
         action = _parse_action(raw)
 
         if "say" in action:
-            yield AgentEvent("message", {"text": str(action["say"])})
+            text = str(action["say"])
+            if not acted and not reminded and _promises_action(text):
+                # Модель написала «запускаю» и на этом остановилась бы: say
+                # завершает ход. Один раз возвращаем ей это как наблюдение —
+                # пусть либо вызовет инструмент, либо перепишет без обещания.
+                reminded = True
+                dialogue = dialogue + [
+                    {"role": "assistant", "content": json.dumps(action, ensure_ascii=False)},
+                    {"role": "user", "content": PROMISE_REMINDER},
+                ]
+                prompt = PROMISE_REMINDER
+                logger.debug("агент: виток {}/{} обещание без действия", turn + 1, max_turns)
+                continue
+            yield AgentEvent("message", {"text": text})
             return
 
         name = str(action.get("tool") or "")
@@ -158,6 +182,7 @@ async def run_turn(
         else:
             yield AgentEvent("tool_result", {"tool": name, "result": result})
             observation = {"tool": name, "result": result}
+            acted = acted or _is_action(name)
 
         dialogue = dialogue + [
             {"role": "assistant", "content": json.dumps(action, ensure_ascii=False)},
@@ -197,6 +222,67 @@ async def collect_turn(
         if event.type in ("message", "limit"):
             result.reply = str(event.payload.get("text") or "")
     return result
+
+
+#: «Запускаю», «стартую» и т.п. в реплике человеку. Слово-обещание само по
+#: себе не ошибка — ошибка сказать его, не вызвав инструмент в том же ходе.
+_PROMISE_RE = re.compile(r"\b(запуска(ю|ем)|запущу|стартую|стартуем|применяю|применил[аи]?)\b", re.IGNORECASE)
+
+PROMISE_REMINDER = (
+    "Ты пообещал действие («запускаю», «применяю»), но инструмент не вызвал — "
+    "say завершает ход, и обещанное не произойдёт. Либо вызови runStep/runStage/"
+    "applyGraph сейчас, либо ответь человеку без обещания."
+)
+
+
+def _promises_action(text: str) -> bool:
+    return bool(_PROMISE_RE.search(text))
+
+
+#: Инструменты, которые что-то делают, а не показывают или считают. Предложение
+#: графа (editGraph/proposeGraph) сюда не входит: оно не применяется само.
+ACTION_TOOLS: frozenset[str] = frozenset(
+    {
+        "runStep",
+        "runStage",
+        "applyGraph",
+        "discardGraph",
+        "resetStep",
+        "stopStep",
+        "regenerateFrame",
+        "editFramePrompt",
+        "approveStage",
+        "setProjectOptions",
+        "createProject",
+    }
+)
+
+
+def _is_action(tool_name: str) -> bool:
+    return tool_name in ACTION_TOOLS
+
+
+async def _project_context(session: Any, project_id: int) -> str:
+    """Строка контекста об открытом ролике: номер, название, идея.
+
+    Без названия и идеи модель их выдумывает: showStages отдаёт стадии и
+    цены, и спросить, о чём ролик, ей было неоткуда.
+    """
+    head = f"[открыт проект #{project_id}; project_id для инструментов — {project_id}"
+    try:
+        from app.models import Project
+
+        project = await session.get(Project, project_id)
+    except Exception:  # noqa: BLE001 — контекст вспомогательный, ход важнее
+        project = None
+    if project is None:
+        return head + "]"
+    parts = [head]
+    if project.title:
+        parts.append(f"название: «{project.title}»")
+    if project.topic:
+        parts.append(f"идея: {str(project.topic)[:600]}")
+    return "; ".join(parts) + "]"
 
 
 def _parse_action(raw: str) -> dict[str, Any]:
