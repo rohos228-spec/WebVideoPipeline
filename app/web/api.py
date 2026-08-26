@@ -84,6 +84,9 @@ from app.web.routers import (
     outsee_http as outsee_http_router,
 )
 from app.web.routers import (
+    project_graph as project_graph_router,
+)
+from app.web.routers import (
     project_ops as project_ops_router,
 )
 from app.web.routers import (
@@ -392,6 +395,7 @@ def create_app() -> FastAPI:
     app.include_router(db_browser_router.router, prefix=API_PREFIX)
     app.include_router(node_groups_router.router, prefix=API_PREFIX)
     app.include_router(stages_router.router, prefix=API_PREFIX)
+    app.include_router(project_graph_router.router, prefix=API_PREFIX)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
     async def api_write_not_found(rest: str) -> None:

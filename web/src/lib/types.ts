@@ -2,7 +2,7 @@
 
 export type StageId = "plan" | "script" | "frames" | "cast" | "images" | "videos" | "final";
 
-export type StageState = "locked" | "ready" | "running" | "done" | "failed" | "paused";
+export type StageState = "locked" | "ready" | "running" | "done" | "failed" | "paused" | "skipped";
 
 /** Промт одного шага внутри стадии. */
 export interface StagePrompt {
@@ -23,7 +23,32 @@ export interface Stage {
   price_credits: string;
   exact: boolean;
   active: boolean;
+  /** Узлы графа проекта, которые эта стадия сворачивает. */
+  nodes: StageNode[];
 }
+
+/** Узел графа внутри стадии — то, из чего стадия на самом деле состоит. */
+export interface StageNode {
+  id: string;
+  type: string;
+  label: string;
+  step_code: string | null;
+  state: NodeState;
+  disabled: boolean;
+  model_id: string | null;
+  price_micro: number;
+  price_credits: string;
+  has_prompt: boolean;
+}
+
+export type NodeState =
+  | "pending"
+  | "queued"
+  | "running"
+  | "waiting_hitl"
+  | "done"
+  | "failed"
+  | "skipped";
 
 export interface StagesResponse {
   project_id: number;
@@ -33,6 +58,8 @@ export interface StagesResponse {
   stages: Stage[];
   remaining_micro: number;
   remaining_credits: string;
+  graph_source: GraphSource;
+  graph_proposal: GraphProposal | null;
 }
 
 export interface ProjectSummary {
@@ -201,6 +228,103 @@ export interface GraphEdge {
   target: string;
   sourceHandle?: string | null;
   targetHandle?: string | null;
+  /** `kind`: after — связь; pass/fail — ветки «Ок»/«Не ок» проверки; gate — шлагбаум. */
+  data?: Record<string, unknown>;
+}
+
+export type EdgeKind = "after" | "pass" | "fail" | "gate";
+
+/** Откуда взят граф проекта: свой (canvas) или ещё шаблонный. */
+export type GraphSource = "canvas" | "run" | "workflow" | "default";
+
+export interface StepPrice {
+  price_micro: number;
+  hold_micro: number;
+  exact: boolean;
+  price_credits: string;
+}
+
+export interface ModelChoice {
+  id: string;
+  label: string;
+  vendor?: string | null;
+}
+
+/** Граф конкретного ролика — то, по чему он на самом деле идёт. */
+export interface ProjectGraph {
+  project_id: number;
+  status: string;
+  source: GraphSource;
+  workflow_id: number | null;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  states: Record<string, NodeState>;
+  prices: Record<string, StepPrice>;
+  catalog: NodeKindInfo[];
+  models: { text: ModelChoice[]; image: ModelChoice[]; video: ModelChoice[] };
+  proposal: GraphProposal | null;
+}
+
+export interface GraphDiffNode {
+  id: string;
+  type: string;
+  label: string;
+  changes?: string[];
+}
+
+export interface GraphDiffEdge {
+  source: string;
+  target: string;
+  kind: string;
+  was?: string;
+}
+
+export interface GraphDiff {
+  added_nodes: GraphDiffNode[];
+  removed_nodes: GraphDiffNode[];
+  changed_nodes: GraphDiffNode[];
+  added_edges: GraphDiffEdge[];
+  removed_edges: GraphDiffEdge[];
+  changed_edges: GraphDiffEdge[];
+  summary: string;
+  empty: boolean;
+}
+
+export interface ResetPlan {
+  first_step: string | null;
+  steps: string[];
+  reasons: Record<string, string>;
+}
+
+/** Что будет, если применить граф: разница и что сгорит. */
+export interface GraphDiffResponse {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  diff: GraphDiff;
+  reset: ResetPlan;
+}
+
+/** Предложение агента по графу — ждёт решения человека. */
+export interface GraphProposal {
+  id: string;
+  author: string;
+  reason: string;
+  created_at: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  diff: GraphDiff;
+  reset: ResetPlan;
+  warnings: string[];
+}
+
+export interface GraphApplyResult {
+  diff: GraphDiff;
+  reset: ResetPlan;
+  reset_done: boolean;
+  warnings: string[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
 }
 
 export interface WorkflowSummary {
@@ -233,6 +357,7 @@ export interface NodeKindInfo {
   kind: string;
   step_code: string | null;
   has_prompt: boolean;
+  stage?: StageId | null;
 }
 
 export interface NodeCatalog {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, subscribeProject } from "@/lib/api";
@@ -12,7 +13,7 @@ import { CastEditor } from "@/components/editors/cast-editor";
 import { FinalView } from "@/components/editors/final-view";
 import { PromptEditor } from "@/components/editors/prompt-editor";
 import { Working } from "@/components/ui/bits";
-import type { Project, Stage, StageId } from "@/lib/types";
+import type { Project, Stage, StageId, StageNode } from "@/lib/types";
 
 /** Семь шагов проекта сверху вниз. Всё живое обновление — здесь. */
 export function StageFlow({ project }: { project: Project }) {
@@ -49,6 +50,26 @@ export function StageFlow({ project }: { project: Project }) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Один узел вместо стадии: «перегенери только промты картинок» не должно
+  // стоить как все картинки заново.
+  const runNode = useMutation({
+    mutationFn: (n: StageNode) => api.runStep(project.id, n.step_code as string, n.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["stages", project.id] });
+      toast.success("Шаг запущен");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const resetNode = useMutation({
+    mutationFn: (n: StageNode) => api.resetStep(project.id, n.step_code as string),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["stages", project.id] });
+      toast.success("Результат сброшен");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   if (isLoading || !data) return <Working label="читаю шаги" />;
 
   const needsIdea = !project.topic?.trim();
@@ -57,6 +78,14 @@ export function StageFlow({ project }: { project: Project }) {
 
   return (
     <div>
+      {data.graph_proposal && (
+        <p className="mb-6 rounded-md border border-accent bg-accent-muted px-4 py-3 text-[13px] text-content">
+          Оркестратор предложил изменить схему ролика ({data.graph_proposal.diff.summary}).{" "}
+          <Link href={`/pipeline?project=${project.id}`} className="text-accent underline">
+            Посмотреть и решить
+          </Link>
+        </p>
+      )}
       {needsIdea && (
         <p className="mb-6 rounded-md border border-warn bg-warn-muted px-4 py-3 text-[13px] text-warn">
           Сначала опишите идею ролика выше — без неё сценарий писать не из чего.
@@ -71,6 +100,10 @@ export function StageFlow({ project }: { project: Project }) {
           busy={run.isPending || needsIdea || somethingRuns}
           onRun={() => run.mutate(stage.id)}
           onStop={() => stop.mutate()}
+          onRunNode={(n) => runNode.mutate(n)}
+          onResetNode={(n) => {
+            if (confirm(`Сбросить «${n.label}» и всё, что от него зависит? Результаты сгорят.`)) resetNode.mutate(n);
+          }}
         >
           <StageBody stage={stage} project={project} />
           <StagePrompts stage={stage} projectId={project.id} />

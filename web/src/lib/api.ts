@@ -6,6 +6,8 @@ import type {
   Balance,
   Frame,
   GenerationOptions,
+  GraphApplyResult,
+  GraphDiffResponse,
   GraphEdge,
   GraphNode,
   GraphValidation,
@@ -13,6 +15,7 @@ import type {
   MediaFrame,
   Me,
   Project,
+  ProjectGraph,
   ProjectSummary,
   PromptFileContent,
   PromptFileInfo,
@@ -125,6 +128,31 @@ export const api = {
   stages: (id: number) => req<StagesResponse>(`/projects/${id}/stages`),
   runStage: (id: number, stage: StageId) => post<unknown>(`/projects/${id}/stages/${stage}/run`),
   stopStage: (id: number) => post<unknown>(`/projects/${id}/stages/stop`),
+
+  // ── Шаги по одному ─────────────────────────────────────────────────────
+  //
+  // Стадия — свёртка нескольких шагов. Когда нужен один из них — «перегенери
+  // только промты картинок», — стадия целиком означала бы платить за всё.
+  runStep: (id: number, stepCode: string, nodeKey?: string) =>
+    post<Project>(
+      `/projects/${id}/steps/${stepCode}/run${nodeKey ? `?node_key=${encodeURIComponent(nodeKey)}` : ""}`,
+    ),
+  /** Сброс шага и всего, что от него зависит. Необратим — спрашивайте. */
+  resetStep: (id: number, stepCode: string) => post<Project>(`/projects/${id}/steps/${stepCode}/reset`),
+
+  // ── Граф ролика ────────────────────────────────────────────────────────
+  //
+  // Не шаблон `/workflows`, а граф именно этого проекта: по нему он идёт.
+  projectGraph: (id: number) => req<ProjectGraph>(`/projects/${id}/graph`),
+  /** Что изменится и какие шаги сгорят — до применения. */
+  projectGraphDiff: (id: number, nodes: GraphNode[], edges: GraphEdge[]) =>
+    post<GraphDiffResponse>(`/projects/${id}/graph/diff`, { nodes, edges }),
+  saveProjectGraph: (id: number, nodes: GraphNode[], edges: GraphEdge[], reset: boolean) =>
+    put<GraphApplyResult>(`/projects/${id}/graph`, { nodes, edges, reset }),
+  resetProjectGraph: (id: number) => post<GraphApplyResult>(`/projects/${id}/graph/reset`),
+  applyGraphProposal: (id: number, proposalId: string, reset = true) =>
+    post<GraphApplyResult>(`/projects/${id}/graph/proposal/apply`, { proposal_id: proposalId, reset }),
+  discardGraphProposal: (id: number) => del<void>(`/projects/${id}/graph/proposal`),
 
   frames: (id: number) => req<Frame[]>(`/projects/${id}/frames`),
   patchFrame: (projectId: number, frameId: number, body: Partial<Frame>) =>

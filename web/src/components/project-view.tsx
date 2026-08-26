@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -87,12 +88,21 @@ export function ProjectView({ projectId, onDeleted }: { projectId: number; onDel
           </div>
         </div>
 
-        {stages && stages.remaining_micro > 0 && (
-          <div className="mt-4 text-[12px] text-content-muted">
-            Осталось шагов на{" "}
-            <span className="font-mono tabular-nums">{credits(stages.remaining_credits)}</span>
-          </div>
-        )}
+        <div className="mt-4 flex items-center gap-4 text-[12px] text-content-muted">
+          {stages && stages.remaining_micro > 0 && (
+            <span>
+              Осталось шагов на{" "}
+              <span className="font-mono tabular-nums">{credits(stages.remaining_credits)}</span>
+            </span>
+          )}
+          <Link
+            href={`/pipeline?project=${projectId}`}
+            className="text-content-faint transition-colors hover:text-accent"
+            title="Узлы, связи, модели и промты именно этого ролика"
+          >
+            схема ролика{stages?.graph_source && stages.graph_source !== "canvas" ? " (шаблонная)" : ""}
+          </Link>
+        </div>
       </header>
 
       <ProjectSettings project={project} />

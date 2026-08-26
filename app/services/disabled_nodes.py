@@ -25,11 +25,26 @@ def node_type_from_key(node_key: str) -> str | None:
 
 
 def disabled_node_types(project: Project) -> set[str]:
+    """Типы выключенных узлов.
+
+    Ключ ищется сначала в графе проекта: id узла с холста или из чата
+    (`n-plan-k3x`, `check_1`) по имени не разбирается, а тип у него есть.
+    Разбор по имени остаётся для проектов без своего графа.
+    """
     meta = project.meta if isinstance(project.meta, dict) else {}
     keys = meta.get("disabled_nodes") or []
+    if not keys:
+        return set()
+    graph_types: dict[str, str] = {}
+    cg = meta.get("canvas_graph")
+    if isinstance(cg, dict):
+        for n in cg.get("nodes") or []:
+            if isinstance(n, dict) and n.get("id"):
+                graph_types[str(n["id"])] = str(n.get("type") or "")
     out: set[str] = set()
     for k in keys:
-        t = node_type_from_key(str(k))
+        key = str(k)
+        t = graph_types.get(key) or node_type_from_key(key)
         if t:
             out.add(t)
     return out

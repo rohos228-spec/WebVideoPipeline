@@ -43,6 +43,8 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     history: list[ChatMessage] = []
+    #: Открытый у человека ролик — чтобы «сделай картинки» не требовало номера.
+    project_id: int | None = None
 
 
 @router.post("")
@@ -54,7 +56,7 @@ async def chat_stream(body: ChatRequest, session: AsyncSession = Depends(get_ses
 
     async def _events() -> AsyncIterator[dict]:
         try:
-            async for event in run_turn(session, body.message, history=history):
+            async for event in run_turn(session, body.message, history=history, project_id=body.project_id):
                 yield {
                     "event": event.type,
                     "data": json.dumps(event.payload, ensure_ascii=False, default=str),

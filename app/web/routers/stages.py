@@ -75,15 +75,28 @@ async def list_stages(project_id: int, session: AsyncSession = Depends(get_sessi
     await session.commit()
     await session.refresh(p)
 
+    from app.services.project_graph import load_project_graph, node_states, stage_nodes
+
     prices = await _prices(session, p)
     run = stage_run_meta(p)
+    # Стадии — представление графа: узлы карточки берутся с холста проекта,
+    # и выключенный там узел здесь виден выключенным, а не «следующим».
+    graph = await load_project_graph(session, p)
+    nodes_by_stage = stage_nodes(graph, node_states(p, graph))
     stages: list[dict] = []
     total_micro = 0
-    for st in stage_states(p):
+    for st in stage_states(p, graph):
         price_micro = sum(int(prices.get(k, {}).get("price_micro") or 0) for k in st.price_keys)
         exact = all(bool(prices.get(k, {}).get("exact")) for k in st.price_keys if k in prices)
-        if st.state != "done":
+        if st.state not in ("done", "skipped"):
             total_micro += price_micro
+        stage_items = nodes_by_stage.get(st.stage.id, [])
+        for item in stage_items:
+            code = item.get("step_code")
+            price = prices.get(code or "", {}) if code else {}
+            item["price_micro"] = int(price.get("price_micro") or 0)
+            item["price_credits"] = _credits(item["price_micro"])
+            item["has_prompt"] = bool(code and code in STEP_FOLDERS)
         stages.append(
             {
                 "id": st.stage.id,
@@ -104,14 +117,19 @@ async def list_stages(project_id: int, session: AsyncSession = Depends(get_sessi
                 "price_credits": _credits(price_micro),
                 "exact": exact,
                 "active": bool(run and run.get("stage") == st.stage.id),
+                "nodes": stage_items,
             }
         )
+    from app.services.project_graph import proposal_from_meta
+
     return {
         "project_id": p.id,
         "status": p.status.value,
         "generation_active": bool(getattr(p, "generation_active", False)),
         "stage_run": run,
         "stages": stages,
+        "graph_source": graph.source,
+        "graph_proposal": proposal_from_meta(p),
         "remaining_micro": total_micro,
         "remaining_credits": _credits(total_micro),
     }
@@ -128,9 +146,17 @@ async def run_stage(
     if stage is None:
         raise HTTPException(status_code=404, detail=f"неизвестная стадия: {stage_id}")
     p = await _project_or_404(session, project_id)
+    from app.services.pipeline_stages import stage_is_skipped
+    from app.services.project_graph import load_project_graph
+
+    graph = await load_project_graph(session, p)
+    if stage_is_skipped(graph, stage.id):
+        raise HTTPException(
+            status_code=400, detail="стадия выключена на схеме — включите её узлы или уберите из схемы"
+        )
 
     begin_stage_run(p, stage)
-    code = entry_step_code(p, stage)
+    code = entry_step_code(p, stage, graph)
     try:
         await start_step(session, p, code, require_node_fsm=False, explicit_ui_start=True)
     except ValueError as e:

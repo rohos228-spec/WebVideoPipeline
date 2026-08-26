@@ -9,13 +9,36 @@ import { ProjectView } from "@/components/project-view";
 import { credits } from "@/lib/format";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { ChatPanel } from "@/components/chat/chat-panel";
 
 const LAST_PROJECT_KEY = "vp.last-project";
+const CHAT_KEY = "vp.chat-open";
 
 export default function Page() {
   // null = экран новой идеи; число = открытый ролик.
   const [current, setCurrent] = useState<number | null>(null);
   const [restored, setRestored] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+
+  // Чат — колонка справа, а не окно поверх: разговор об этом ролике идёт
+  // рядом с самим роликом, и результат инструмента виден в стадиях сразу.
+  useEffect(() => {
+    try {
+      setChatOpen(localStorage.getItem(CHAT_KEY) === "1");
+    } catch {
+      /* без хранилища — закрыт */
+    }
+  }, []);
+  const toggleChat = () => {
+    setChatOpen((v) => {
+      try {
+        localStorage.setItem(CHAT_KEY, v ? "0" : "1");
+      } catch {
+        /* см. выше */
+      }
+      return !v;
+    });
+  };
 
   const { data: projects } = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const { data: balance } = useQuery({ queryKey: ["balance"], queryFn: api.balance });
@@ -45,19 +68,26 @@ export default function Page() {
       : null;
 
   return (
-    <div className="grid h-screen grid-cols-[240px_1fr]">
+    <div className={`grid h-screen ${chatOpen ? "grid-cols-[240px_1fr_380px]" : "grid-cols-[240px_1fr]"}`}>
       <ProjectRail currentId={current} onSelect={open} onNew={() => open(null)} />
 
       <div className="flex min-h-0 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-6">
           <span className="font-display text-[15px] text-content">Видеостудия</span>
           <div className="flex items-center gap-4">
-            <Link
-              href="/pipeline"
-              className="text-[12px] text-content-faint transition-colors hover:text-accent"
-              title="Схема шагов: порядок, включение, промты"
+            <button
+              onClick={toggleChat}
+              className={`text-[12px] transition-colors hover:text-accent ${chatOpen ? "text-accent" : "text-content-faint"}`}
+              title="Оркестратор: скажите, что сделать с роликом"
             >
-              Конвейер
+              Оркестратор
+            </button>
+            <Link
+              href={current === null ? "/pipeline" : `/pipeline?project=${current}`}
+              className="text-[12px] text-content-faint transition-colors hover:text-accent"
+              title={current === null ? "Шаблон схемы для новых роликов" : "Схема этого ролика"}
+            >
+              Схема
             </Link>
             {money !== null && (
               <span
@@ -93,6 +123,18 @@ export default function Page() {
           )}
         </main>
       </div>
+
+      {chatOpen && (
+        <aside className="flex min-h-0 flex-col border-l border-border bg-surface-raised">
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+            <span className="font-display text-[14px] text-content">Оркестратор</span>
+            <button onClick={toggleChat} className="text-[12px] text-content-faint hover:text-content">
+              закрыть
+            </button>
+          </div>
+          <ChatPanel key={current ?? "none"} projectId={current} />
+        </aside>
+      )}
     </div>
   );
 }

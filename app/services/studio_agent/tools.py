@@ -195,6 +195,160 @@ TOOLS: dict[str, Tool] = {
         description="Остаток кредитов, сумма резервов под идущими шагами и последние проводки.",
         args={"type": "object", "properties": {}},
     ),
+    # ── Стадии и граф ролика ──────────────────────────────────────────────
+    #
+    # Граф — форма конвейера конкретного ролика: какие узлы есть, что за чем,
+    # что выключено. Агент может граф ПРЕДЛОЖИТЬ (целиком или операциями),
+    # человек видит разницу и что сгорит, и применяет. Порядок исполнения
+    # внутри графа по-прежнему считает планировщик, а не модель.
+    "showStages": Tool(
+        name="showStages",
+        description=(
+            "Семь стадий ролика (сценарий → текст → кадры → герои → картинки → видео → сборка): "
+            "состояние, цена, узлы каждой. С этого начинай, чтобы понять, где проект."
+        ),
+        args={
+            "type": "object",
+            "properties": {"project_id": {"type": "integer"}},
+            "required": ["project_id"],
+        },
+    ),
+    "showGraph": Tool(
+        name="showGraph",
+        description=(
+            "Граф ролика: узлы (id, тип, состояние, выключен ли, модель) и связи (source→target, вид). "
+            "Нужен перед editGraph/proposeGraph — id узлов берутся отсюда."
+        ),
+        args={
+            "type": "object",
+            "properties": {"project_id": {"type": "integer"}},
+            "required": ["project_id"],
+        },
+    ),
+    "editGraph": Tool(
+        name="editGraph",
+        description=(
+            "Предложить точечные правки графа списком операций. Ничего не применяет: возвращает разницу и "
+            "список шагов, которые сгорят, — покажи их человеку и жди согласия, потом applyGraph. Операции: "
+            "add_node{type, after|before, label?, model_id?}, remove_node{id}, connect{source,target,kind?}, "
+            "disconnect{source,target}, set_edge_kind{source,target,kind: after|pass|fail|gate}, "
+            "set_node{id, label?, disabled?, model_id?}."
+        ),
+        args={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "integer"},
+                "ops": {"type": "array", "items": {"type": "object"}},
+                "reason": {"type": "string", "description": "зачем — одной фразой, человек это увидит"},
+            },
+            "required": ["project_id", "ops"],
+        },
+        mutating=True,
+    ),
+    "proposeGraph": Tool(
+        name="proposeGraph",
+        description=(
+            "Предложить граф целиком (пересборка): nodes=[{id,type,data?}], edges=[{source,target,kind?}]. "
+            "Позиции не нужны. Ничего не применяет — возвращает разницу и что сгорит; применение только "
+            "через applyGraph после согласия человека. Для мелких правок используй editGraph."
+        ),
+        args={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "integer"},
+                "nodes": {"type": "array", "items": {"type": "object"}},
+                "edges": {"type": "array", "items": {"type": "object"}},
+                "reason": {"type": "string"},
+            },
+            "required": ["project_id", "nodes", "edges"],
+        },
+        mutating=True,
+    ),
+    "applyGraph": Tool(
+        name="applyGraph",
+        description=(
+            "Применить предложенный граф (proposal_id из editGraph/proposeGraph). Требует confirm=true — "
+            "только после того, как человек увидел разницу и согласился. Сбрасывает устаревшие шаги."
+        ),
+        args={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "integer"},
+                "proposal_id": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["project_id", "proposal_id"],
+        },
+        mutating=True,
+    ),
+    "discardGraph": Tool(
+        name="discardGraph",
+        description="Отозвать предложение по графу, если человек передумал.",
+        args={
+            "type": "object",
+            "properties": {"project_id": {"type": "integer"}},
+            "required": ["project_id"],
+        },
+        mutating=True,
+    ),
+    "runStage": Tool(
+        name="runStage",
+        description=(
+            "Прогнать стадию целиком (plan|script|frames|cast|images|videos|final) до её конца. "
+            "Дороже 1 кредита — сначала покажи цену, потом confirm=true."
+        ),
+        args={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "integer"},
+                "stage_id": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["project_id", "stage_id"],
+        },
+        mutating=True,
+    ),
+    "resetStep": Tool(
+        name="resetStep",
+        description=(
+            "Сбросить шаг и всё, что от него зависит (результаты сгорят, деньги не вернутся). "
+            "Всегда требует confirm=true; без него возвращает список того, что сгорит."
+        ),
+        args={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "integer"},
+                "step_code": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["project_id", "step_code"],
+        },
+        mutating=True,
+    ),
+    "stopStep": Tool(
+        name="stopStep",
+        description="Остановить идущую генерацию проекта.",
+        args={
+            "type": "object",
+            "properties": {"project_id": {"type": "integer"}},
+            "required": ["project_id"],
+        },
+        mutating=True,
+    ),
+    "setProjectOptions": Tool(
+        name="setProjectOptions",
+        description=(
+            "Поменять параметры ролика: image_generator, image_resolution, aspect_ratio, video_generator, "
+            "video_resolution, hero_mode (auto|no_hero|manual), enrich_slots_count (1..5), auto_mode. "
+            "Неизвестные значения отклоняются с подсказкой допустимых."
+        ),
+        args={
+            "type": "object",
+            "properties": {"project_id": {"type": "integer"}, "options": {"type": "object"}},
+            "required": ["project_id", "options"],
+        },
+        mutating=True,
+    ),
 }
 
 
@@ -489,6 +643,310 @@ def _str(args: dict[str, Any], key: str) -> str:
     return value
 
 
+# ── стадии и граф ───────────────────────────────────────────────────────────
+
+
+async def _project(session: Any, args: dict[str, Any]):
+    from app.models import Project
+
+    project_id = _int(args, "project_id")
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise ToolError(f"проекта #{project_id} нет")
+    return project
+
+
+async def _show_stages(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from app.web.routers.stages import list_stages
+
+    project_id = _int(args, "project_id")
+    data = await list_stages(project_id, session)
+    stages = []
+    for st in data["stages"]:
+        stages.append(
+            {
+                "id": st["id"],
+                "label": st["label"],
+                "state": st["state"],
+                "price_credits": st["price_credits"],
+                "nodes": [
+                    {
+                        k: v
+                        for k, v in n.items()
+                        if k in ("id", "type", "label", "step_code", "state", "disabled")
+                    }
+                    for n in st.get("nodes", [])
+                ],
+            }
+        )
+    return {
+        "project_id": project_id,
+        "status": data["status"],
+        "stages": stages,
+        "remaining_credits": data["remaining_credits"],
+        "graph_proposal_pending": bool(data.get("graph_proposal")),
+    }
+
+
+async def _show_graph(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from app.services.project_graph import describe_graph, load_project_graph, proposal_from_meta
+
+    project = await _project(session, args)
+    graph = await load_project_graph(session, project)
+    out = describe_graph(project, graph)
+    out["project_id"] = project.id
+    proposal = proposal_from_meta(project)
+    if proposal:
+        out["pending_proposal"] = {"id": proposal["id"], "diff": proposal["diff"].get("summary")}
+    return out
+
+
+def _proposal_card(proposal: dict[str, Any]) -> dict[str, Any]:
+    """Что вернуть модели и нарисовать человеку: разница, сброс, кнопка."""
+    reset = proposal.get("reset") or {}
+    return {
+        "needs_confirmation": True,
+        "proposal_id": proposal["id"],
+        "project_id": None,
+        "diff": proposal.get("diff"),
+        "will_reset": list(reset.get("steps") or []),
+        "reset_reasons": reset.get("reasons") or {},
+        "warnings": proposal.get("warnings") or [],
+        "reason": (
+            "Это предложение, не применение. Перескажи человеку разницу и какие шаги сгорят "
+            "(will_reset), и зови applyGraph с confirm=true только после его согласия."
+        ),
+    }
+
+
+async def _edit_graph(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from app.services.project_graph import (
+        GraphError,
+        apply_graph_ops,
+        load_project_graph,
+        propose_project_graph,
+    )
+
+    project = await _project(session, args)
+    ops = args.get("ops")
+    if not isinstance(ops, list) or not ops:
+        raise ToolError("нужен непустой список ops")
+    graph = await load_project_graph(session, project)
+    try:
+        nodes, edges, applied = apply_graph_ops(graph.nodes, graph.edges, ops)
+        proposal = await propose_project_graph(
+            session, project, nodes, edges, reason=str(args.get("reason") or ""), author="agent"
+        )
+    except GraphError as exc:
+        raise ToolError(str(exc)) from exc
+    await session.commit()
+    card = _proposal_card(proposal)
+    card["project_id"] = project.id
+    card["applied_ops"] = applied
+    return card
+
+
+async def _propose_graph(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from app.services.project_graph import GraphError, propose_project_graph
+
+    project = await _project(session, args)
+    nodes, edges = args.get("nodes"), args.get("edges")
+    if not isinstance(nodes, list) or not nodes:
+        raise ToolError("нужен непустой список nodes")
+    if not isinstance(edges, list):
+        raise ToolError("нужен список edges (можно пустой)")
+    try:
+        proposal = await propose_project_graph(
+            session, project, nodes, edges, reason=str(args.get("reason") or ""), author="agent"
+        )
+    except GraphError as exc:
+        raise ToolError(str(exc)) from exc
+    await session.commit()
+    card = _proposal_card(proposal)
+    card["project_id"] = project.id
+    return card
+
+
+async def _apply_graph(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from app.services.event_bus import publish_project_event
+    from app.services.project_graph import GraphError, apply_proposal, proposal_from_meta
+    from app.services.run_sync import sync_run_for_project
+
+    project = await _project(session, args)
+    proposal_id = _str(args, "proposal_id")
+    if not args.get("confirm"):
+        proposal = proposal_from_meta(project)
+        if proposal is None or str(proposal.get("id")) != proposal_id:
+            raise ToolError("такого предложения нет — сначала editGraph или proposeGraph")
+        card = _proposal_card(proposal)
+        card["project_id"] = project.id
+        return card
+    try:
+        result = await apply_proposal(session, project, proposal_id, reset=True)
+    except GraphError as exc:
+        raise ToolError(str(exc)) from exc
+    await session.commit()
+    await sync_run_for_project(project.id)
+    await publish_project_event(
+        project.id,
+        event_type="graph_changed",
+        payload={"summary": result["diff"].get("summary"), "reset": result.get("reset")},
+    )
+    return {
+        "applied": True,
+        "project_id": project.id,
+        "proposal_id": proposal_id,
+        "diff": result["diff"].get("summary"),
+        "reset_steps": list((result.get("reset") or {}).get("steps") or []),
+        "reset_done": result.get("reset_done"),
+        "status": result.get("reset_summary", {}).get("__project_status")
+        if result.get("reset_summary")
+        else None,
+    }
+
+
+async def _discard_graph(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from app.services.project_graph import discard_proposal
+
+    project = await _project(session, args)
+    had = discard_proposal(project)
+    await session.commit()
+    return {"project_id": project.id, "discarded": had}
+
+
+async def _run_stage(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from fastapi import HTTPException
+
+    from app.services.pipeline_stages import STAGE_BY_ID
+    from app.web.routers.stages import list_stages, run_stage
+
+    project = await _project(session, args)
+    stage_id = _str(args, "stage_id")
+    if stage_id not in STAGE_BY_ID:
+        raise ToolError(f"стадии {stage_id!r} нет; есть: {', '.join(STAGE_BY_ID)}")
+    data = await list_stages(project.id, session)
+    stage = next(s for s in data["stages"] if s["id"] == stage_id)
+    if stage["state"] == "skipped":
+        raise ToolError(f"стадия {stage_id} выключена на схеме")
+    if stage["state"] == "locked":
+        raise ToolError(f"стадия {stage_id} ещё недоступна: сначала предыдущие")
+    if int(stage.get("price_micro") or 0) > CONFIRM_THRESHOLD_MICRO and not args.get("confirm"):
+        return {
+            "needs_confirmation": True,
+            "project_id": project.id,
+            "stage_id": stage_id,
+            "price_credits": stage["price_credits"],
+            "reason": (
+                f"стадия стоит {stage['price_credits']} кр — дороже порога. Покажи цену человеку "
+                "и позови снова с confirm=true, если он согласен."
+            ),
+        }
+    try:
+        result = await run_stage(project.id, stage_id, session)
+    except HTTPException as exc:
+        raise ToolError(str(exc.detail)) from exc
+    return {
+        "started": True,
+        "project_id": project.id,
+        "stage_id": stage_id,
+        "step_code": result["step"],
+        "price_credits": stage["price_credits"],
+    }
+
+
+async def _reset_step(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from fastapi import HTTPException
+
+    from app.orchestrator.step_dependencies import canonical_codes, dependents_cone
+    from app.web.routers.project_ops import reset_project_step
+
+    project = await _project(session, args)
+    step_code = _str(args, "step_code")
+    if not canonical_codes(step_code):
+        raise ToolError(f"шага {step_code!r} нет в конвейере")
+    cone = list(dependents_cone(step_code))
+    if not args.get("confirm"):
+        return {
+            "needs_confirmation": True,
+            "project_id": project.id,
+            "step_code": step_code,
+            "will_reset": cone,
+            "reason": "сброс необратим: результаты этих шагов сгорят. Покажи список и позови снова с confirm=true.",
+        }
+    try:
+        await reset_project_step(project.id, step_code, session)
+    except HTTPException as exc:
+        raise ToolError(str(exc.detail)) from exc
+    await session.refresh(project)
+    return {
+        "reset": True,
+        "project_id": project.id,
+        "step_code": step_code,
+        "steps": cone,
+        "status": project.status.value,
+    }
+
+
+async def _stop_step(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from app.web.routers.stages import stop_stage
+
+    project = await _project(session, args)
+    result = await stop_stage(project.id, session)
+    return {"stopped": True, "project_id": project.id, "message": result.get("message", "")}
+
+
+async def _set_project_options(session: Any, args: dict[str, Any]) -> dict[str, Any]:
+    from fastapi import HTTPException
+
+    from app.generation_options import (
+        ASPECT_RATIOS_BY_ID,
+        IMAGE_GENERATORS_BY_ID,
+        IMAGE_RESOLUTIONS_BY_ID,
+        VIDEO_GENERATORS_BY_ID,
+        VIDEO_RESOLUTIONS_BY_ID,
+    )
+    from app.web.routers.projects import patch_project
+
+    project = await _project(session, args)
+    options = args.get("options")
+    if not isinstance(options, dict) or not options:
+        raise ToolError("нужен объект options")
+    choices: dict[str, Any] = {
+        "image_generator": IMAGE_GENERATORS_BY_ID,
+        "image_resolution": IMAGE_RESOLUTIONS_BY_ID,
+        "aspect_ratio": ASPECT_RATIOS_BY_ID,
+        "video_generator": VIDEO_GENERATORS_BY_ID,
+        "video_resolution": VIDEO_RESOLUTIONS_BY_ID,
+        "hero_mode": {"auto": 1, "no_hero": 1, "manual": 1},
+    }
+    payload: dict[str, Any] = {}
+    for key, value in options.items():
+        if key in choices:
+            if str(value) not in choices[key]:
+                raise ToolError(f"{key}: значение {value!r} неизвестно; есть: {', '.join(choices[key])}")
+            payload[key] = str(value)
+        elif key == "enrich_slots_count":
+            try:
+                n = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ToolError("enrich_slots_count — целое от 1 до 5") from exc
+            if not 1 <= n <= 5:
+                raise ToolError("enrich_slots_count — целое от 1 до 5")
+            payload[key] = n
+        elif key == "auto_mode":
+            payload[key] = bool(value)
+        else:
+            raise ToolError(
+                f"параметр {key!r} менять нельзя; можно: {', '.join([*choices, 'enrich_slots_count', 'auto_mode'])}"
+            )
+    try:
+        await patch_project(project.id, payload, session)
+    except HTTPException as exc:
+        raise ToolError(str(exc.detail)) from exc
+    await session.refresh(project)
+    return {"project_id": project.id, "set": payload}
+
+
 _HANDLERS = {
     "createProject": _create_project,
     "estimateStep": _estimate_step,
@@ -499,4 +957,14 @@ _HANDLERS = {
     "regenerateFrame": _regenerate_frame,
     "approveStage": _approve_stage,
     "showBalance": _show_balance,
+    "showStages": _show_stages,
+    "showGraph": _show_graph,
+    "editGraph": _edit_graph,
+    "proposeGraph": _propose_graph,
+    "applyGraph": _apply_graph,
+    "discardGraph": _discard_graph,
+    "runStage": _run_stage,
+    "resetStep": _reset_step,
+    "stopStep": _stop_step,
+    "setProjectOptions": _set_project_options,
 }

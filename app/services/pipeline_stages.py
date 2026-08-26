@@ -224,12 +224,20 @@ def stage_price_keys(project: Project, stage: Stage) -> list[str]:
     return keys
 
 
-def entry_step_code(project: Project, stage: Stage) -> str:
+def entry_step_code(project: Project, stage: Stage, graph: Any | None = None) -> str:
     """Код шага, с которого стадия стартует заново.
 
-    Сцен-дизайн включается флагом: когда он включён, «герои и предметы»
-    начинаются с веера агентов, иначе — сразу с персонажей.
+    С графом проекта (`graph` — `ProjectGraph`) вход стадии — её первый
+    включённый рабочий узел: человек мог выключить сценарий и начать со
+    своего текста, и стартовать стадию с выключенного узла значило бы
+    запустить то, что он выключил. Без графа — прежние правила: сцен-дизайн
+    включается флагом, и «герои и предметы» начинаются с веера агентов,
+    иначе — сразу с персонажей.
     """
+    if graph is not None:
+        first = _first_enabled_step(graph, stage.id)
+        if first:
+            return first
     if stage.id == "cast":
         try:
             from app.services.scene_design import scene_design_enabled
@@ -248,7 +256,7 @@ def entry_step_code(project: Project, stage: Stage) -> str:
 @dataclass
 class StageState:
     stage: Stage
-    state: str  # locked | ready | running | done | failed | paused
+    state: str  # locked | ready | running | done | failed | paused | skipped
     target: ProjectStatus
     price_keys: list[str] = field(default_factory=list)
 
@@ -258,8 +266,38 @@ def _stage_bounds(project: Project) -> list[tuple[Stage, int]]:
     return [(s, status_rank(stage_target(project, s))) for s in STAGES]
 
 
-def stage_states(project: Project) -> list[StageState]:
-    """Разложить текущий статус проекта по семи стадиям."""
+def _first_enabled_step(graph: Any, stage_id: str) -> str | None:
+    """Первый включённый рабочий узел стадии по слоям графа."""
+    from app.services.project_graph import stage_nodes
+
+    for item in stage_nodes(graph, {}).get(stage_id, []):
+        if item.get("disabled") or not item.get("step_code"):
+            continue
+        return str(item["step_code"])
+    return None
+
+
+def stage_is_skipped(graph: Any, stage_id: str) -> bool:
+    """Стадия выключена целиком: все её рабочие узлы выключены или их нет.
+
+    Это и есть «стадии — представление графа»: карточка обязана отражать
+    выключенный на холсте узел, а не предлагать сгенерировать то, чего в
+    графе больше нет.
+    """
+    from app.services.project_graph import stage_nodes
+
+    items = stage_nodes(graph, {}).get(stage_id, [])
+    work = [i for i in items if i.get("step_code")]
+    return not work or all(i.get("disabled") for i in work)
+
+
+def stage_states(project: Project, graph: Any | None = None) -> list[StageState]:
+    """Разложить текущий статус проекта по семи стадиям.
+
+    С графом проекта стадия, все узлы которой выключены, показывается как
+    `skipped`, а не как «следующая»: кнопка «Сгенерировать» у неё вела бы в
+    шаг, который планировщик всё равно пропустит.
+    """
     from app.services.project_state import is_running_status
 
     status = project.status
@@ -281,8 +319,14 @@ def stage_states(project: Project) -> list[StageState]:
     for stage, end_rank in bounds:
         target = stage_target(project, stage)
         keys = stage_price_keys(project, stage)
+        skipped = graph is not None and stage_is_skipped(graph, stage.id)
         if rank >= end_rank >= 0 and rank >= 0:
             state = "done"
+        elif skipped:
+            # Выключенная стадия не занимает очередь: следующая за ней
+            # становится «следующей», как если бы этой не было.
+            state = "skipped"
+            keys = []
         elif running and rank >= 0 and rank < end_rank and first_open:
             state = "running"
             first_open = False
