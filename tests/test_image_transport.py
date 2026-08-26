@@ -65,3 +65,33 @@ async def test_items_step_skips_browser_when_http(monkeypatch) -> None:
     monkeypatch.setattr(generate_items, "browser_session", _boom)
     async with generate_items._optional_browser(need_cdp=not http_image_primary()) as bs:
         assert bs is None
+
+
+def test_minimax_video_counts_as_http(monkeypatch) -> None:
+    from app.services.image_transport import http_video_primary
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "video_provider", "minimax")
+    monkeypatch.setattr(settings, "minimax_api_key", "sk-проба")
+    assert http_video_primary() is True
+
+
+def test_no_step_keeps_its_own_copy_of_the_check() -> None:
+    """Гейт на класс: решение «нужен ли Chrome» живёт в одном месте.
+
+    Копии этой проверки лежали в трёх шагах — герои, картинки, видео, — и
+    каждая по отдельности не знала про MiniMax. Живой прогон ловил их по
+    одной, стадия за стадией: герои, потом картинки. Новая копия появится
+    тихо и сломается так же тихо; здесь она не пройдёт.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "app"
+    pattern = re.compile(r"grsai(_video)?_enabled\(\)\s*or\s*outsee_api_enabled_for_(image|video)\(\)")
+    offenders = [
+        str(f.relative_to(root.parent))
+        for f in root.rglob("*.py")
+        if f.name != "image_transport.py" and pattern.search(f.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, f"собственная проверка HTTP-провайдера вместо image_transport: {offenders}"

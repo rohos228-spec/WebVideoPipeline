@@ -152,11 +152,10 @@ def _stash_stale_frame_images(out_dir: Path, frame_number: int, *, include_shot2
 
 
 def _img_http_primary() -> bool:
-    """Outsee/Grsai HTTP — без Chrome CDP (как excel_hero)."""
-    from app.bots.grsai import grsai_enabled
-    from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_image
+    """HTTP-провайдер картинок есть — Chrome не нужен. Один источник правды."""
+    from app.services.image_transport import http_image_primary
 
-    return bool(grsai_enabled() or outsee_api_enabled_for_image() or outsee_api_configured())
+    return http_image_primary()
 
 
 @asynccontextmanager
