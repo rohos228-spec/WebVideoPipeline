@@ -23,6 +23,13 @@
 #   (`app/web/api.py::_lifespan`), дальше источник — база.
 # * *`[nvidia]`.* NeMo Parakeet — ASR на CUDA для монтажного ПК. На сервере
 #   CUDA нет.
+# * *`scripts/`, `evals/`, `tests/`, `docs/`, `.github/`.* Обвязка
+#   разработчика и владельца: QA-скрипты, Windows-лаунчеры, голденсеты,
+#   храповики. Приложение из них ничего не импортирует; единственный вызов
+#   (`app/main.py` → `scripts/return_prompts_from_stash.py`) восстанавливает
+#   промты из git stash, а в контейнере нет ни git, ни репозитория — он и
+#   так пропускался. Список исключений — `.dockerignore`; там же почему
+#   шаблоны обязаны начинаться с `**/`.
 #
 # **Что есть, хотя сначала не было:** `[whisper]` (faster-whisper на CPU).
 # Первая редакция исключала его как «ASR нужен только монтажу». Живой прогон
@@ -68,7 +75,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
+COPY pyproject.toml ./
 # Пустой пакет: `pip install .` требует, чтобы модуль существовал, а копировать
 # ради этого весь код значит терять кэш слоя при каждой правке.
 RUN mkdir -p app && touch app/__init__.py
@@ -114,11 +121,11 @@ RUN useradd --create-home --uid 10001 studio \
     && mkdir -p /app/data /app/logs /app/prompts \
     && chown -R studio:studio /app
 
-COPY --chown=studio:studio pyproject.toml README.md alembic.ini ./
+COPY --chown=studio:studio pyproject.toml alembic.ini ./
 COPY --chown=studio:studio app/ ./app/
 COPY --chown=studio:studio migrations/ ./migrations/
-COPY --chown=studio:studio scripts/ ./scripts/
-COPY --chown=studio:studio evals/ ./evals/
+# `scripts/` и `evals/` в образ НЕ кладутся (см. шапку). README.md тоже:
+# pyproject его не объявляет (`readme` не задан), pip без него собирает.
 # Промты в образ НЕ кладутся. Раньше здесь стоял `COPY prompts/`, и это была
 # ошибка: команда копирует то, что есть в git, — четыре каталога
 # (scene_design, 05_image_prompts, 04_hero, 05_excel_gpt). То есть заметная

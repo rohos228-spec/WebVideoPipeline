@@ -805,7 +805,13 @@ async def _startup_maintenance() -> None:
             from app.project_root import find_project_root
 
             _helper = find_project_root() / "scripts" / "return_prompts_from_stash.py"
-            _spec = importlib.util.spec_from_file_location("return_prompts_from_stash", _helper)
+            # spec_from_file_location не проверяет существование файла —
+            # без exists() отсутствие хелпера выглядело бы как сбой.
+            _spec = (
+                importlib.util.spec_from_file_location("return_prompts_from_stash", _helper)
+                if _helper.is_file()
+                else None
+            )
             if _spec and _spec.loader:
                 _mod = importlib.util.module_from_spec(_spec)
                 _spec.loader.exec_module(_mod)
@@ -816,7 +822,10 @@ async def _startup_maintenance() -> None:
                 else:
                     logger.info("prompts startup recover: ok (nothing to restore)")
             else:
-                logger.warning("prompts recover helper missing: {}", _helper)
+                # В образе студии scripts/ нет намеренно (Dockerfile): хелпер
+                # чинит промты после git-обновления на ПК владельца, в
+                # контейнере ни git, ни stash. Это не сбой — не пугаем WARNING.
+                logger.info("prompts recover helper absent (dev-only): {}", _helper)
         except Exception as stash_exc:  # noqa: BLE001
             logger.warning("prompts startup recover skipped: {}", stash_exc)
 

@@ -17,32 +17,49 @@ web/playwright-report/
 web/test-results/
 web/e2e/.auth/
 **/__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+web/tsconfig.tsbuildinfo
+web/pnpm-lock.yaml
 
 # ── Секреты. Ни при каких обстоятельствах ───────────────────────────────────
 .env
 .env.*
 !.env.example
-*.pem
-*.key
+**/*.pem
+**/*.key
 deploy/env
 
 # ── История и инструменты разработчика ──────────────────────────────────────
+#
+# ВАЖНО про синтаксис: шаблон без `**/` матчит ТОЛЬКО корень контекста.
+# `*.ps1` не исключит `scripts/Foo.ps1` — так в образ на боевом стенде
+# уехали 42 .ps1, 37 .cmd и README'шки (проверено 2026-08-27, `find` в
+# контейнере). Всё, что должно исключаться на любой глубине, — через `**/`.
 .git/
 .github/
+.githooks/
 .claude/
 .cursor/
 ai-pack/
 docs/
-*.md
-!README.md
+**/*.md
 
-# ── Тесты: в рантайме не нужны, гоняет их CI до сборки ──────────────────────
+# ── Тесты, эвалы, служебные скрипты: в рантайме не нужны ────────────────────
+# tests/ гоняет CI до сборки. evals/ — голденсеты и сьюты, читает их
+# scripts/eval_prompts.py, не приложение. scripts/ — QA/Windows-обвязка
+# владельца, храповики покрытия, загрузчики моделей; единственная ссылка из
+# рантайма (`app/main.py`, return_prompts_from_stash) — восстановление промтов
+# из git stash, в контейнере нет ни git, ни stash. Остальные упоминания —
+# тексты диагностик.
 tests/
+evals/
+scripts/
+web/e2e/
+web/playwright.config.ts
 
 # ── Windows-обвязка владельца ───────────────────────────────────────────────
-*.cmd
-*.ps1
+**/*.cmd
+**/*.ps1
