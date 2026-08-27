@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Working } from "@/components/ui/bits";
@@ -21,6 +21,12 @@ import type { GraphDiff, ResetPlan } from "@/lib/types";
  *    доезжает до инструмента буквой, минуя модель.
  * 3. Предложение по графу рисуется той же карточкой разницы, что и на
  *    холсте: «+2 узла, сгорят видео и сборка», и кнопка «Применить».
+ *
+ * История для модели и лента для человека — разные вещи. Лента рисуется из
+ * событий; историю собирает сервер и отдаёт событием `history` в конце хода
+ * (блоки в формате модели, с id вызовов инструментов). Клиент хранит её
+ * непрозрачно и возвращает со следующим сообщением: собирать её из ленты
+ * значило бы терять id и подделывать формат, который знает только сервер.
  */
 
 interface FeedItem {
@@ -37,6 +43,7 @@ const nextId = () => `item-${++seq}`;
 export function ChatPanel({ projectId }: { projectId: number | null }) {
   const qc = useQueryClient();
   const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [history, setHistory] = useState<ChatHistoryItem[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,8 +53,6 @@ export function ChatPanel({ projectId }: { projectId: number | null }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [feed]);
-
-  const history = useMemo<ChatHistoryItem[]>(() => historyFromFeed(feed), [feed]);
 
   const refresh = () => {
     if (projectId === null) {
@@ -73,6 +78,11 @@ export function ChatPanel({ projectId }: { projectId: number | null }) {
     abortRef.current = ctrl;
     try {
       for await (const event of streamChat(message, history, projectId, ctrl.signal)) {
+        if (event.type === "history") {
+          const added = (event.payload.messages ?? []) as ChatHistoryItem[];
+          setHistory((h) => [...h, ...added]);
+          continue;
+        }
         setFeed((f) => appendEvent(f, event));
         if (event.type === "tool_result") refresh();
       }
@@ -145,44 +155,6 @@ function EmptyState({ hasProject }: { hasProject: boolean }) {
   );
 }
 
-// Сколько символов результата инструмента уезжает в историю. Результат
-// showStages — сотни символов, showStoryboard — тысячи; модели важна суть,
-// а не полный дамп, и контекст не резиновый.
-const HISTORY_RESULT_LIMIT = 3000;
-// Сколько реплик истории отдаём. Хвост разговора важнее его начала.
-const HISTORY_LIMIT = 40;
-
-function clip(value: unknown): string {
-  const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
-  return text.length > HISTORY_RESULT_LIMIT ? `${text.slice(0, HISTORY_RESULT_LIMIT)}…` : text;
-}
-
-// История для модели — в том же контракте, в каком её строит петля на
-// бэкенде: вызов инструмента как реплика ассистента, результат — как
-// наблюдение. Без этого модель на следующем сообщении не помнит, что уже
-// вызывала и что ей вернулось, и повторяет или «доделывает» прошлый ход.
-export function historyFromFeed(feed: FeedItem[]): ChatHistoryItem[] {
-  const out: ChatHistoryItem[] = [];
-  for (const item of feed) {
-    if (item.kind === "user" || item.kind === "assistant") {
-      out.push({ role: item.kind, content: item.text ?? "" });
-      continue;
-    }
-    if (item.kind === "tool") {
-      const { tool, args, result } = (item.payload ?? {}) as { tool?: string; args?: unknown; result?: unknown };
-      out.push({ role: "assistant", content: JSON.stringify({ tool: tool ?? item.tool, args: args ?? {} }) });
-      if (result !== undefined) {
-        out.push({ role: "user", content: JSON.stringify({ tool: tool ?? item.tool, result: clip(result) }) });
-      }
-      continue;
-    }
-    if (item.kind === "tool-error" && item.tool) {
-      out.push({ role: "user", content: JSON.stringify({ tool: item.tool, error: item.text ?? "" }) });
-    }
-  }
-  return out.slice(-HISTORY_LIMIT);
-}
-
 function appendEvent(feed: FeedItem[], event: AgentEvent): FeedItem[] {
   switch (event.type) {
     case "message":
@@ -190,12 +162,29 @@ function appendEvent(feed: FeedItem[], event: AgentEvent): FeedItem[] {
       return [...feed, { id: nextId(), kind: "assistant", text: String(event.payload.text ?? "") }];
     case "tool_call":
       return [...feed, { id: nextId(), kind: "tool", tool: String(event.payload.tool ?? ""), payload: event.payload }];
-    case "tool_result":
+    case "tool_result": {
+      // Результат — к своему вызову по id; без id (текстовый протокол
+      // старых моделей) — к последней карточке инструмента.
+      const id = event.payload.id;
+      let target = feed.length - 1;
+      if (id !== undefined) {
+        const byId = feed.findLastIndex((item) => item.kind === "tool" && item.payload?.id === id);
+        if (byId !== -1) target = byId;
+      }
       return feed.map((item, index) =>
-        index === feed.length - 1 && item.kind === "tool" ? { ...item, payload: { ...item.payload, ...event.payload } } : item,
+        index === target && item.kind === "tool" ? { ...item, payload: { ...item.payload, ...event.payload } } : item,
       );
-    case "tool_error":
+    }
+    case "tool_error": {
+      // Ошибка — к карточке своего вызова: иначе карточка крутит «думаю»
+      // вечно, а ошибка висит отдельной строкой под ней.
+      const id = event.payload.id;
+      const byId = id === undefined ? -1 : feed.findLastIndex((item) => item.kind === "tool" && item.payload?.id === id);
+      if (byId !== -1) {
+        return feed.map((item, index) => (index === byId ? { ...item, payload: { ...item.payload, error: event.payload.error } } : item));
+      }
       return [...feed, { id: nextId(), kind: "tool-error", tool: String(event.payload.tool ?? ""), text: String(event.payload.error ?? "") }];
+    }
     case "error":
       return [...feed, { id: nextId(), kind: "tool-error", tool: "", text: String(event.payload.error ?? "ошибка") }];
     default:
@@ -246,6 +235,7 @@ const TOOL_TITLES: Record<string, string> = {
 
 function ToolCard({ item, onChanged }: { item: FeedItem; onChanged: () => void }) {
   const result = (item.payload?.result ?? null) as Record<string, unknown> | null;
+  const error = typeof item.payload?.error === "string" ? item.payload.error : null;
   const args = (item.payload?.args ?? {}) as Record<string, unknown>;
   const price = result && typeof result.price_credits === "string" ? result.price_credits : null;
   const needsConfirm = result?.needs_confirmation === true;
@@ -255,8 +245,9 @@ function ToolCard({ item, onChanged }: { item: FeedItem; onChanged: () => void }
     <div className={`rounded-sm border px-3 py-2 text-[13px] ${needsConfirm ? "border-warn bg-warn-muted" : "border-border bg-surface-raised"}`}>
       <div className="flex items-center justify-between gap-3 text-[12px] text-content-muted">
         <span>{TOOL_TITLES[item.tool ?? ""] ?? item.tool}</span>
-        {!result && <Working />}
+        {!result && !error && <Working />}
       </div>
+      {error && <p className="mt-1 text-[12px] text-warn">{error}</p>}
       {price && !isGraph && (
         <div className="mt-1 font-mono text-[15px] tabular-nums text-content">
           {price.replace(".", ",")} <span className="text-[12px] text-content-muted">кр</span>

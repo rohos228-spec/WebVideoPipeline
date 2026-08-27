@@ -4,6 +4,8 @@
 клиенту сразу, а не после того, как модель договорит: вызов инструмента
 виден в ленте в момент вызова, результат — в момент результата. Иначе
 человек десять секунд смотрит на пустой экран и не знает, живо ли вообще.
+Последним перед `done` идёт `history` — канонические сообщения хода; клиент
+хранит их и присылает обратно в `history` следующего запроса.
 
 **SSE, а не WebSocket.** Разговор односторонний: клиент отправил сообщение,
 дальше только слушает. У SSE есть переподключение из коробки и он проходит
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -34,10 +37,15 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 class ChatMessage(BaseModel):
-    """Одна реплика истории. Роли те же, что у провайдеров."""
+    """Одна реплика истории — то, что клиент получил в событии `history`.
+
+    Текст или блоки (text / tool_use / tool_result). Клиент хранит их
+    непрозрачно; чистит и проверяет парность блоков сервер
+    (`studio_agent.loop.sanitize_history`).
+    """
 
     role: str = Field(pattern="^(user|assistant)$")
-    content: str
+    content: str | list[dict[str, Any]]
 
 
 class ChatRequest(BaseModel):

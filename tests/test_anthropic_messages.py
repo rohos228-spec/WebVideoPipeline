@@ -485,3 +485,132 @@ async def test_chat_messages_timeout_retryable(monkeypatch: pytest.MonkeyPatch) 
         )
     assert ei.value.context.get("error_kind") == "timeout"
     assert ei.value.retryable is True
+
+
+# ── нативный tool-calling (агент студии) ────────────────────────────────────
+
+
+def test_tool_blocks_pass_through_untouched() -> None:
+    """tool_use / tool_result в истории уходят как есть: без id вызова API откажет."""
+    use = {"type": "tool_use", "id": "toolu_1", "name": "showStages", "input": {"project_id": 1}}
+    res = {"type": "tool_result", "tool_use_id": "toolu_1", "content": "{}", "is_error": True}
+    _, out = am.convert_messages(
+        [
+            {"role": "user", "content": "где мы?"},
+            {"role": "assistant", "content": [use]},
+            {"role": "user", "content": [res, {"type": "text", "text": "продолжай"}]},
+        ]
+    )
+    assert out[1]["content"] == [use]
+    assert out[2]["content"][0] == res
+    assert out[2]["content"][1] == {"type": "text", "text": "продолжай"}
+
+
+def test_build_request_carries_tools() -> None:
+    tools = [{"name": "showStages", "description": "где проект", "input_schema": {"type": "object"}}]
+    body = {"model": "claude-opus-5", "messages": [{"role": "user", "content": "u"}], "tools": tools}
+    req = am.build_request(body)
+    assert req["tools"] == tools
+    assert "tool_choice" not in req
+    req = am.build_request({**body, "tool_choice": {"type": "auto"}})
+    assert req["tool_choice"] == {"type": "auto"}
+    assert "tools" not in am.build_request({"model": "m", "messages": []})
+
+
+@pytest.mark.asyncio
+async def test_chat_messages_tool_use_is_not_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ответ из одних tool_use — штатный, а не «пустой output»; блоки отдаются целиком."""
+    msg = SimpleNamespace(
+        id="msg_2",
+        model="claude-opus-5",
+        stop_reason="tool_use",
+        stop_details=None,
+        content=[
+            SimpleNamespace(type="text", text="Смотрю."),
+            SimpleNamespace(type="tool_use", id="toolu_9", name="showStages", input={"project_id": 1}),
+        ],
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+    )
+    _install(monkeypatch, msg)
+    body = {"model": "claude-opus-5", "messages": [{"role": "user", "content": "u"}]}
+    r = await am.chat_messages(
+        base_url="https://vibecode.moe/v1", api_key="vk", body=body, timeout=5, use_model="claude-opus-5"
+    )
+    assert r.finish_reason == "tool_use"
+    assert r.text == "Смотрю."
+    assert r.raw["content"] == [
+        {"type": "text", "text": "Смотрю."},
+        {"type": "tool_use", "id": "toolu_9", "name": "showStages", "input": {"project_id": 1}},
+    ]
+
+    only_tool = SimpleNamespace(**{**msg.__dict__, "content": [msg.content[1]]})
+    _install(monkeypatch, only_tool)
+    r = await am.chat_messages(
+        base_url="https://vibecode.moe/v1", api_key="vk", body=body, timeout=5, use_model="claude-opus-5"
+    )
+    assert r.text == "" and r.raw["content"][0]["type"] == "tool_use"
+
+
+@pytest.mark.asyncio
+async def test_chat_passes_tools_only_to_claude(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`chat(tools=…)`: на Claude — в тело, история с блоками — целиком, пустой prompt не становится сообщением."""
+    import app.services.gpt_api as gpt_api
+
+    _vibecode_settings(monkeypatch, tmp_path)
+    called: dict[str, Any] = {}
+
+    async def fake_messages(**kw):
+        called.update(kw)
+        return GptChatResult(
+            text="ok", model=kw["use_model"], finish_reason="stop", served_model="claude-opus-5"
+        )
+
+    monkeypatch.setattr(am, "chat_messages", fake_messages)
+    tools = [{"name": "showStages", "description": "d", "input_schema": {"type": "object"}}]
+    history = [
+        {"role": "user", "content": "где мы?"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "t1", "name": "showStages", "input": {}}],
+        },
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]},
+    ]
+    assert gpt_api.native_tools_available() is True
+    await gpt_api.chat(prompt="", history=history, tools=tools, timeout=5, max_retries=0, auto_pack=False)
+    assert called["body"]["tools"] == tools
+    assert called["body"]["messages"] == history
+
+
+def test_block_to_dict_unknown_block_is_text_not_crash() -> None:
+    from types import SimpleNamespace
+
+    assert am._block_to_dict(SimpleNamespace(type="thinking", text="")) == {"type": "text", "text": ""}
+    assert am._block_to_dict(SimpleNamespace(type="text", text="a")) == {"type": "text", "text": "a"}
+
+
+@pytest.mark.asyncio
+async def test_tools_ignored_off_claude_route(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Не-Claude маршрут: tools в тело не попадают, вызов идёт как обычно."""
+    import app.services.gpt_api as gpt_api
+    from app.services import text_llm_catalog as cat
+
+    s = _vibecode_settings(monkeypatch, tmp_path)
+    cat.write_choice(provider="vibecode", model_id="gpt-5.6-sol", cfg=s)
+    assert gpt_api.native_tools_available() is False
+
+    called: dict[str, Any] = {}
+
+    async def fake_stream(**kw):
+        called.update(kw)
+        return GptChatResult(text='{"say": "ok"}', model=kw["use_model"], finish_reason="stop")
+
+    monkeypatch.setattr(gpt_api, "_chat_completions_stream", fake_stream)
+    r = await gpt_api.chat(
+        prompt="x",
+        tools=[{"name": "t", "description": "d", "input_schema": {"type": "object"}}],
+        timeout=5,
+        max_retries=0,
+        auto_pack=False,
+    )
+    assert r.text == '{"say": "ok"}'
+    assert "tools" not in called["body"]

@@ -38,7 +38,7 @@ async def db(tmp_path, monkeypatch):
 def _scripted(*replies: str):
     queue = list(replies)
 
-    async def _ask(prompt, system, history):
+    async def _ask(messages, system, tools):
         return queue.pop(0) if len(queue) > 1 else queue[0]
 
     return _ask
@@ -181,8 +181,8 @@ async def test_run_stage_refuses_skipped_stage(db):
 async def test_loop_carries_the_open_project_into_the_prompt(db):
     seen: list[str] = []
 
-    async def _ask(prompt, system, history):
-        seen.append(prompt)
+    async def _ask(messages, system, tools):
+        seen.append(system)
         return json.dumps({"say": "ок"})
 
     async with db() as s:
@@ -201,7 +201,7 @@ async def test_loop_shows_graph_then_answers(db):
             ),
         )
     kinds = [e.type for e in turn.events]
-    assert kinds == ["tool_call", "tool_result", "message"]
+    assert kinds == ["tool_call", "tool_result", "history", "message", "history"]
 
 
 # ── ветки отказов и успешные пути остальных инструментов ─────────────────

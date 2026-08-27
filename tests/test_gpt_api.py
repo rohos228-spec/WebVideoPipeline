@@ -1163,3 +1163,80 @@ async def test_download_content_html_renamed_off_xlsx(monkeypatch, tmp_path: Pat
     got = await download_content("https://cdn.test/file", out)
     assert got.suffix == ".html"
     assert got.read_bytes().startswith(b"<!DOCTYPE")
+
+
+def test_normalize_history_keeps_tool_blocks_but_flattens_multimodal() -> None:
+    """Блоки tool_use/tool_result — как есть (id нужен API), прочий список — текстом."""
+    from app.services.gpt_api import build_messages, normalize_history
+
+    use = [{"type": "tool_use", "id": "t1", "name": "x", "input": {}}]
+    res = [{"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]
+    out = normalize_history(
+        [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "a"}, {"type": "image_url", "image_url": {}}],
+            },
+            {"role": "assistant", "content": use},
+            {"role": "user", "content": res},
+            {"role": "tool", "content": "чужая роль"},
+        ]
+    )
+    assert out == [
+        {"role": "user", "content": "a"},
+        {"role": "assistant", "content": use},
+        {"role": "user", "content": res},
+    ]
+    # Пустой prompt при непустой истории — не сообщение (ход кончается tool_result).
+    msgs = build_messages(prompt="", system="s", history=out)
+    assert msgs[-1] == {"role": "user", "content": res}
+    # Без истории пустой prompt по-прежнему становится сообщением: старое поведение не трогаем.
+    assert build_messages(prompt="", history=None)[-1]["role"] == "user"
+
+
+def test_normalize_history_never_splits_a_tool_pair() -> None:
+    """Обрезка по числу сообщений или символам не оставляет сирот: 400 от API не ретраится."""
+    from app.services.gpt_api import normalize_history
+
+    def pair(i: int, size: int = 10) -> list[dict]:
+        return [
+            {"role": "assistant", "content": [{"type": "tool_use", "id": f"t{i}", "name": "x", "input": {}}]},
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": f"t{i}", "content": "y" * size}],
+            },
+        ]
+
+    history = [{"role": "user", "content": "старт"}]
+    for i in range(5):
+        history += pair(i)
+    # Нечётный лимит режет ровно между tool_use и tool_result первой попавшей пары.
+    out = normalize_history(history, max_messages=7)
+    assert out[0]["content"][0]["type"] != "tool_result"
+    assert len(out) == 6
+    ids = [b["id"] for m in out if m["role"] == "assistant" for b in m["content"]]
+    answered = [
+        b["tool_use_id"]
+        for m in out
+        if m["role"] == "user"
+        for b in m["content"]
+        if isinstance(m["content"], list)
+    ]
+    assert ids == answered
+
+    # Обрез по символам: хвост уложился в лимит, а tool_use остался без места.
+    big = [{"role": "user", "content": "старт"}] + pair(0, size=50) + pair(1, size=50)
+    out = normalize_history(big, max_chars=140)
+    # В лимит влез только tool_result последней пары — сирота, уходит целиком.
+    assert out == []
+    # Хвостовой tool_use без результата — тоже сирота.
+    out = normalize_history([{"role": "user", "content": "u"}] + pair(9)[:1])
+    assert out == [{"role": "user", "content": "u"}]
+
+
+def test_history_size_survives_unserializable_content() -> None:
+    from app.services.gpt_api import _history_size
+
+    assert _history_size("abc") == 3
+    assert _history_size([{"type": "text", "text": "ab"}]) == len('[{"type": "text", "text": "ab"}]')
+    assert _history_size({"x": object()}) > 0

@@ -17,6 +17,7 @@ export type AgentEventType =
   | "tool_error"
   | "message"
   | "limit"
+  | "history"
   | "error"
   | "done";
 
@@ -25,9 +26,14 @@ export interface AgentEvent {
   payload: Record<string, unknown>;
 }
 
+/**
+ * Реплика истории — то, что сервер отдал в событии `history`. Текст или
+ * блоки (text / tool_use / tool_result) в формате модели. Клиент их не
+ * разбирает и не собирает сам: хранит и возвращает как есть.
+ */
 export interface ChatHistoryItem {
   role: "user" | "assistant";
-  content: string;
+  content: string | Record<string, unknown>[];
 }
 
 function headers(): Record<string, string> {

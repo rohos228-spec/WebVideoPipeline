@@ -57,7 +57,7 @@ def _scripted(*replies: str):
     """Модель, отвечающая заранее заданным. Последний ответ повторяется."""
     queue = list(replies)
 
-    async def _ask(prompt, system, history):
+    async def _ask(messages, system, tools):
         return queue.pop(0) if len(queue) > 1 else queue[0]
 
     return _ask
@@ -172,7 +172,7 @@ async def test_loop_runs_tool_then_answers(db) -> None:
     async with db() as s:
         turn = await collect_turn(s, "покажи раскадровку", ask=ask)
     kinds = [e.type for e in turn.events]
-    assert kinds == ["tool_call", "tool_result", "message"]
+    assert kinds == ["tool_call", "tool_result", "history", "message", "history"]
     assert turn.reply == "В раскадровке 24 кадра."
 
 
@@ -188,7 +188,7 @@ async def test_tool_error_goes_back_to_the_model(db) -> None:
     )
     async with db() as s:
         turn = await collect_turn(s, "запусти", ask=ask)
-    assert [e.type for e in turn.events] == ["tool_call", "tool_error", "message"]
+    assert [e.type for e in turn.events] == ["tool_call", "tool_error", "history", "message", "history"]
     assert "нет" in turn.reply.lower()
 
 
@@ -213,7 +213,7 @@ async def test_thinking_models_do_not_break_the_contract(db) -> None:
     ask = _scripted(noisy, json.dumps({"say": "24 кадра."}))
     async with db() as s:
         turn = await collect_turn(s, "кадры", ask=ask)
-    assert [e.type for e in turn.events] == ["tool_call", "tool_result", "message"]
+    assert [e.type for e in turn.events] == ["tool_call", "tool_result", "history", "message", "history"]
 
 
 async def test_looping_model_is_stopped_and_says_so(db) -> None:
@@ -226,7 +226,7 @@ async def test_looping_model_is_stopped_and_says_so(db) -> None:
     ask = _scripted(json.dumps({"tool": "showStoryboard", "args": {"project_id": 1}}))
     async with db() as s:
         turn = await collect_turn(s, "зациклись", ask=ask)
-    assert turn.events[-1].type == "limit"
+    assert [e.type for e in turn.events][-2:] == ["limit", "history"]
     assert len([e for e in turn.events if e.type == "tool_call"]) == 8
     assert turn.reply, "предел без объяснения — молчаливый обрыв"
 
@@ -281,7 +281,9 @@ async def test_chat_endpoint_streams_events(db, monkeypatch) -> None:
     assert "event: tool_call" in body
     assert "event: tool_result" in body
     assert "event: message" in body
+    assert "event: history" in body
     assert "event: done" in body
+    assert body.index("event: history") < body.index("event: done")
     # Порядок важнее наличия: реплика после инструмента, а не наоборот.
     assert body.index("event: tool_call") < body.index("event: message")
 
@@ -440,19 +442,19 @@ async def test_promise_without_action_goes_back_to_the_model(db) -> None:
     не запустила. Ей один раз возвращают это как наблюдение — и человеку
     уходит уже честная реплика.
     """
-    seen: list[list[dict[str, str]]] = []
+    seen: list[list[dict]] = []
 
-    async def _ask(prompt, system, history):
-        seen.append(list(history))
+    async def _ask(messages, system, tools):
+        seen.append(list(messages))
         if len(seen) == 1:
             return json.dumps({"say": "Запускаю сценарий, вернусь с планом."})
         return json.dumps({"say": "Сценарий стоит 0,03 кр. Запустить?"})
 
     async with db() as s:
         turn = await collect_turn(s, "давай", ask=_ask, project_id=1)
-    assert [e.type for e in turn.events] == ["message"]
+    assert [e.type for e in turn.events] == ["message", "history"]
     assert turn.reply == "Сценарий стоит 0,03 кр. Запустить?"
-    assert any("не вызвал" in m["content"] for m in seen[1])
+    assert any("не вызвал" in str(m["content"]) for m in seen[1])
 
 
 async def test_promise_reminder_is_sent_once(db) -> None:
@@ -463,7 +465,7 @@ async def test_promise_reminder_is_sent_once(db) -> None:
     ask = _scripted(json.dumps({"say": "Запускаю."}))
     async with db() as s:
         turn = await collect_turn(s, "давай", ask=ask, project_id=1)
-    assert [e.type for e in turn.events] == ["message"]
+    assert [e.type for e in turn.events] == ["message", "history"]
     assert turn.reply == "Запускаю."
 
 
@@ -484,7 +486,7 @@ async def test_promise_after_a_real_action_passes(db, monkeypatch) -> None:
     )
     async with db() as s:
         turn = await collect_turn(s, "запусти", ask=ask, project_id=1)
-    assert [e.type for e in turn.events] == ["tool_call", "tool_result", "message"]
+    assert [e.type for e in turn.events] == ["tool_call", "tool_result", "history", "message", "history"]
     assert turn.reply == "Запускаю, шаг пошёл."
 
 
@@ -492,8 +494,9 @@ async def test_open_project_context_carries_title_and_topic(db) -> None:
     """Модель знает, о чём ролик, из контекста — иначе выдумывает название."""
     seen: list[str] = []
 
-    async def _ask(prompt, system, history):
-        seen.append(prompt)
+    async def _ask(messages, system, tools):
+        seen.append(system)
+        assert messages[-1] == {"role": "user", "content": "о чём ролик?"}
         return json.dumps({"say": "ок"})
 
     async with db() as s:
@@ -501,6 +504,7 @@ async def test_open_project_context_carries_title_and_topic(db) -> None:
         p.title = "Ночной обмен"
         await s.commit()
         await collect_turn(s, "о чём ролик?", ask=_ask, project_id=1)
+    assert "КОНТЕКСТ. открыт проект #1" in seen[0]
     assert "название: «Ночной обмен»" in seen[0]
     assert "идея: агент" in seen[0]
     assert "project_id для инструментов — 1" in seen[0]
@@ -522,10 +526,360 @@ async def test_project_context_survives_missing_project_and_broken_session(db) -
     from app.services.studio_agent.loop import _project_context
 
     async with db() as s:
-        assert await _project_context(s, 999) == "[открыт проект #999; project_id для инструментов — 999]"
+        assert await _project_context(s, 999) == "открыт проект #999; project_id для инструментов — 999"
 
     class _Broken:
         async def get(self, *_a, **_k):
             raise RuntimeError("база недоступна")
 
-    assert await _project_context(_Broken(), 7) == "[открыт проект #7; project_id для инструментов — 7]"
+    assert await _project_context(_Broken(), 7) == "открыт проект #7; project_id для инструментов — 7"
+
+
+# ── нативный протокол, история, промт ───────────────────────────────────────
+
+
+async def test_native_protocol_keeps_blocks_and_echoes_the_request(db) -> None:
+    """Claude зовёт инструменты блоками; история хода — те же блоки, парные по id.
+
+    После результата инструмента модели уходит исходная просьба человека:
+    между вопросом и ответом лежат килобайты JSON, и без напоминания модель
+    доисполняет свой прошлый план вместо ответа на вопрос — ровно тот случай,
+    когда «закадровый голос не нужен» превратилось в запуск следующего шага.
+    """
+    from app.services.studio_agent.loop import ModelReply, ToolCall
+
+    seen: list[tuple[list[dict], list[dict] | None]] = []
+
+    async def _ask(messages, system, tools):
+        seen.append((list(messages), tools))
+        if len(seen) == 1:
+            return ModelReply(
+                text="Смотрю раскадровку.",
+                calls=[ToolCall(id="toolu_1", name="showStoryboard", args={"project_id": 1})],
+            )
+        return ModelReply(text="Кадров 24, озвучка одна — закадровая.")
+
+    async with db() as s:
+        turn = await collect_turn(s, "а можно озвучить персонажей?", ask=_ask, native=True)
+
+    kinds = [e.type for e in turn.events]
+    assert kinds == ["message", "tool_call", "tool_result", "history", "message", "history"]
+    assert turn.events[1].payload["id"] == "toolu_1"
+    assert turn.reply == "Кадров 24, озвучка одна — закадровая."
+
+    # Инструменты ушли схемами, а не текстом промта.
+    assert seen[0][1] and seen[0][1][0]["input_schema"]["type"] == "object"
+    # Второй вызов: assistant с tool_use, user с tool_result того же id и эхом просьбы.
+    messages = seen[1][0]
+    assistant, observation = messages[-2], messages[-1]
+    assert assistant["role"] == "assistant"
+    assert [b["type"] for b in assistant["content"]] == ["text", "tool_use"]
+    assert assistant["content"][1]["id"] == "toolu_1"
+    assert observation["role"] == "user"
+    assert observation["content"][0]["type"] == "tool_result"
+    assert observation["content"][0]["tool_use_id"] == "toolu_1"
+    assert "«а можно озвучить персонажей?»" in observation["content"][-1]["text"]
+
+    # История уходит по шагам: виток с инструментом — сразу, целой парой;
+    # финальная реплика — отдельно. Обрыв хода не теряет сделанного.
+    deltas = [e.payload["messages"] for e in turn.events if e.type == "history"]
+    assert [len(d) for d in deltas] == [3, 1]
+    history = [m for d in deltas for m in d]
+    assert history[0] == {"role": "user", "content": "а можно озвучить персонажей?"}
+    assert history[-1] == {"role": "assistant", "content": "Кадров 24, озвучка одна — закадровая."}
+
+
+async def test_native_tool_error_is_marked_for_the_model(db) -> None:
+    from app.services.studio_agent.loop import ModelReply, ToolCall
+
+    replies = iter(
+        [
+            ModelReply(calls=[ToolCall(id="t1", name="нетТакого", args={})]),
+            ModelReply(text="Такого инструмента нет."),
+        ]
+    )
+
+    async def _ask(messages, system, tools):
+        return next(replies)
+
+    async with db() as s:
+        turn = await collect_turn(s, "сделай красиво", ask=_ask, native=True)
+    assert [e.type for e in turn.events] == ["tool_call", "tool_error", "history", "message", "history"]
+    result_block = turn.events[2].payload["messages"][2]["content"][0]
+    assert result_block["is_error"] is True
+    assert "не существует" in result_block["content"]
+
+
+def test_sanitize_history_drops_orphans_and_junk() -> None:
+    """История от клиента чистится: непарные блоки — 400 от API, чужие типы — мусор."""
+    from app.services.studio_agent.loop import sanitize_history
+
+    raw = [
+        {"role": "system", "content": "взлом"},
+        {"role": "user", "content": "  "},
+        {"role": "user", "content": "привет"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "смотрю"},
+                {"type": "tool_use", "id": "a", "name": "showStages", "input": {"project_id": 1}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "a", "content": "{}"},
+                {"type": "image", "x": 1},
+            ],
+        },
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "b", "name": "showGraph", "input": {}}]},
+        {"role": "user", "content": "а это оборвалось"},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "zzz", "content": "сирота"}]},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "", "name": "x", "input": {}}]},
+    ]
+    out = sanitize_history(raw)
+    assert out[0] == {"role": "user", "content": "привет"}
+    assert [b["type"] for b in out[1]["content"]] == ["text", "tool_use"]
+    assert out[2]["content"] == [{"type": "tool_result", "tool_use_id": "a", "content": "{}"}]
+    # tool_use «b» без результата следом — выброшен вместе с сообщением.
+    assert out[3] == {"role": "user", "content": "а это оборвалось"}
+    assert len(out) == 4
+
+
+def test_sanitize_history_keeps_only_the_tail() -> None:
+    from app.services.studio_agent.loop import sanitize_history
+
+    raw = [{"role": "user", "content": f"m{i}"} for i in range(50)]
+    out = sanitize_history(raw, limit=5)
+    assert [m["content"] for m in out] == ["m45", "m46", "m47", "m48", "m49"]
+
+
+def test_render_for_text_shows_the_json_protocol() -> None:
+    """Текстовый протокол видит историю в том формате, которого от него ждут."""
+    from app.services.studio_agent.loop import render_for_text
+
+    canonical = [
+        {"role": "user", "content": "покажи"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "a", "name": "showStages", "input": {"project_id": 1}}],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "a",
+                    "content": '{"tool": "showStages", "result": {}}',
+                },
+                {"type": "text", "text": "Продолжай."},
+            ],
+        },
+        {"role": "assistant", "content": "Готово."},
+    ]
+    out = render_for_text(canonical)
+    assert out[0] == {"role": "user", "content": "покажи"}
+    assert json.loads(out[1]["content"]) == {"tool": "showStages", "args": {"project_id": 1}}
+    assert out[2]["content"].startswith('{"tool": "showStages"')
+    assert out[2]["content"].endswith("Продолжай.")
+    assert json.loads(out[3]["content"]) == {"say": "Готово."}
+
+
+def test_observations_are_clipped(db) -> None:
+    from app.services.studio_agent.loop import OBSERVATION_LIMIT, clip_observation
+
+    big = {"frames": ["x" * 100] * 200}
+    text = clip_observation(big)
+    assert len(text) < OBSERVATION_LIMIT + 100
+    assert "обрезано" in text
+    assert clip_observation({"a": 1}) == '{"a": 1}'
+
+
+def test_system_prompt_knows_what_the_pipeline_cannot_do() -> None:
+    """Лист возможностей и правило «вопрос ≠ разрешение» — в промте обоих протоколов.
+
+    Модель без этого судила о конвейере по названиям стадий и на «озвучим
+    персонажей?» запускала следующий шаг.
+    """
+    from app.services.pipeline_stages import STAGES
+
+    for native in (False, True):
+        prompt = build_system_prompt(native=native)
+        assert "реплики персонажей" in prompt
+        assert "не заменяет просьбу" in prompt
+        assert "hero_mode (auto | no_hero | manual)" in prompt
+        for stage in STAGES:
+            assert f"{stage.id} «{stage.label}»" in prompt
+    text_prompt = build_system_prompt(native=False)
+    native_prompt = build_system_prompt(native=True, context="открыт проект #3")
+    assert '{"tool": "имя"' in text_prompt
+    assert '{"tool": "имя"' not in native_prompt
+    assert "Не пиши JSON" in native_prompt
+    assert native_prompt.rstrip().endswith("КОНТЕКСТ. открыт проект #3")
+
+
+def test_native_tool_specs_match_registry() -> None:
+    from app.services.studio_agent.loop import native_tool_specs
+
+    specs = native_tool_specs()
+    assert {t["name"] for t in specs} == set(TOOLS)
+    assert all(set(t) == {"name", "description", "input_schema"} for t in specs)
+
+
+async def test_default_ask_routes_both_protocols(monkeypatch) -> None:
+    """Нативный путь: история целиком + tools, prompt пустой; текстовый: prompt = последняя реплика."""
+    from app.services import gpt_api
+    from app.services.studio_agent import loop as loop_mod
+
+    calls: list[dict] = []
+
+    async def fake_chat(**kw):
+        calls.append(kw)
+        if kw.get("tools"):
+            return gpt_api.GptChatResult(
+                text="",
+                model="claude-opus-5",
+                finish_reason="tool_use",
+                raw={
+                    "content": [
+                        {"type": "tool_use", "id": "t9", "name": "showStages", "input": {"project_id": 1}}
+                    ]
+                },
+            )
+        return gpt_api.GptChatResult(text='{"say": "ок"}', model="gpt")
+
+    monkeypatch.setattr(gpt_api, "chat", fake_chat)
+    messages = [
+        {"role": "user", "content": "раньше"},
+        {"role": "assistant", "content": "ага"},
+        {"role": "user", "content": "сейчас"},
+    ]
+
+    reply = await loop_mod._default_ask(messages, "sys", loop_mod.native_tool_specs())
+    assert isinstance(reply, loop_mod.ModelReply)
+    assert reply.calls[0].id == "t9" and reply.calls[0].args == {"project_id": 1}
+    assert calls[0]["prompt"] == "" and calls[0]["history"] == messages and calls[0]["tools"]
+
+    text = await loop_mod._default_ask(messages, "sys", None)
+    assert text == '{"say": "ок"}'
+    assert calls[1]["prompt"] == "сейчас" and calls[1]["history"] == messages[:-1]
+    assert "tools" not in calls[1]
+
+
+async def test_protocol_follows_the_active_model(db, monkeypatch) -> None:
+    """Без подмены ask протокол выбирает маршрут: Claude — нативный, остальные — текст."""
+    from app.services import gpt_api
+
+    seen: list[dict] = []
+
+    async def fake_chat(**kw):
+        seen.append(kw)
+        return gpt_api.GptChatResult(text='{"say": "ок"}', model="x")
+
+    monkeypatch.setattr(gpt_api, "chat", fake_chat)
+    monkeypatch.setattr(gpt_api, "native_tools_available", lambda: True)
+    async with db() as s:
+        await collect_turn(s, "привет")
+    assert seen[-1]["tools"] and seen[-1]["prompt"] == ""
+
+    monkeypatch.setattr(gpt_api, "native_tools_available", lambda: False)
+    async with db() as s:
+        await collect_turn(s, "привет")
+    assert "tools" not in seen[-1] and seen[-1]["prompt"] == "привет"
+
+
+async def test_native_promise_reminder_and_parallel_calls(db) -> None:
+    """Нативный протокол: несколько tool_use в одном ответе и «запускаю» без действия.
+
+    Обе ветки общие для протоколов, но регрессия в блоках прошла бы молча.
+    """
+    from app.services.studio_agent.loop import ModelReply, ToolCall
+
+    seen: list[list[dict]] = []
+    replies = iter(
+        [
+            ModelReply(
+                calls=[
+                    ToolCall(id="t1", name="showStages", args={"project_id": 1}),
+                    ToolCall(id="t2", name="showBalance", args={}),
+                ]
+            ),
+            ModelReply(text="Запускаю картинки."),
+            ModelReply(text="Картинки стоят денег — запустить?"),
+        ]
+    )
+
+    async def _ask(messages, system, tools):
+        seen.append(list(messages))
+        return next(replies)
+
+    async with db() as s:
+        turn = await collect_turn(s, "где мы?", ask=_ask, native=True)
+    kinds = [e.type for e in turn.events]
+    assert kinds == ["tool_call", "tool_result", "tool_call", "tool_result", "history", "message", "history"]
+    assert turn.reply == "Картинки стоят денег — запустить?"
+
+    # Оба вызова — в одном assistant-сообщении, оба результата — в одном user.
+    assistant, observation = seen[1][-2], seen[1][-1]
+    assert [b["id"] for b in assistant["content"] if b["type"] == "tool_use"] == ["t1", "t2"]
+    assert [b["tool_use_id"] for b in observation["content"] if b["type"] == "tool_result"] == ["t1", "t2"]
+    # Напоминание про обещание — текстом, после реплики модели, и уехало в историю хода.
+    assert seen[2][-1]["content"] == PROMISE_REMINDER_TEXT()
+    final = turn.events[-1].payload["messages"]
+    assert [m["role"] for m in final] == ["assistant", "user", "assistant"]
+    assert final[0]["content"] == "Запускаю картинки."
+
+
+def PROMISE_REMINDER_TEXT() -> str:
+    from app.services.studio_agent.loop import PROMISE_REMINDER
+
+    return PROMISE_REMINDER
+
+
+def test_sanitize_and_parse_edge_cases() -> None:
+    """Мусор в истории и в ответе модели — молча мимо, а не исключение."""
+    from app.services.studio_agent.loop import (
+        parse_text_reply,
+        reply_from_blocks,
+        sanitize_history,
+    )
+
+    raw = [
+        "не словарь",
+        {"role": "user", "content": 42},
+        {"role": "user", "content": ["строка-блок", 7, {"type": "tool_result", "content": "без id"}]},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "a", "name": "showStages", "input": "не объект"}],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "a", "content": {"k": 1}, "is_error": True}],
+        },
+    ]
+    out = sanitize_history(raw)
+    assert out[0] == {"role": "user", "content": [{"type": "text", "text": "строка-блок"}]}
+    assert out[1]["content"][0]["input"] == {}
+    assert out[2]["content"][0] == {
+        "type": "tool_result",
+        "tool_use_id": "a",
+        "content": '{"k": 1}',
+        "is_error": True,
+    }
+    assert len(out) == 3
+
+    assert parse_text_reply('{"other": 1}').text == '{"other": 1}'
+    assert parse_text_reply("").text == "Не понял, повтори иначе."
+    reply = reply_from_blocks([{"type": "text", "text": "смотрю"}, {"type": "thinking", "x": 1}])
+    assert reply.text == "смотрю" and reply.calls == []
+
+
+def test_native_default_survives_broken_route(monkeypatch) -> None:
+    from app.services import gpt_api
+    from app.services.studio_agent.loop import _native_by_default
+
+    def boom():
+        raise RuntimeError("каталог недоступен")
+
+    monkeypatch.setattr(gpt_api, "native_tools_available", boom)
+    assert _native_by_default() is False

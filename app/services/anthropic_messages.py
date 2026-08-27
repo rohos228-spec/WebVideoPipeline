@@ -39,6 +39,9 @@ MAX_TOKENS = 32_000
 
 _DATA_URL_RE = re.compile(r"^data:(?P<mime>[^;,]+);base64,(?P<data>.+)$", re.S)
 
+#: Блоки нативного tool-calling: в истории они идут как есть (см. `_content_block`).
+TOOL_BLOCK_TYPES: frozenset[str] = frozenset({"tool_use", "tool_result"})
+
 
 def is_anthropic_model(model: str | None) -> bool:
     return (model or "").strip().lower().startswith("claude")
@@ -69,6 +72,12 @@ def _content_block(part: Any) -> dict[str, Any]:
     kind = str(part.get("type") or "")
     if kind == "text":
         return {"type": "text", "text": str(part.get("text") or "")}
+    if kind in TOOL_BLOCK_TYPES:
+        # Нативный tool-calling (агент студии): блоки уже в формате Messages,
+        # переводить нечего. `tool_use` — просьба модели, `tool_result` —
+        # наш ответ ей; оба должны доехать до API как есть, иначе история
+        # разговора с инструментами не восстановится.
+        return dict(part)
     if kind == "image_url":
         raw = part.get("image_url")
         url = str((raw or {}).get("url") if isinstance(raw, dict) else raw or "")
@@ -129,6 +138,7 @@ def build_request(
     """Тело chat/completions (из `gpt_api`) → аргументы `messages.stream`.
 
     `temperature` не переносится: Opus 5 / Sonnet 5 отвечают на него 400.
+    `tools`/`tool_choice` переносятся как есть — они уже в формате Messages.
     `response_format` из OpenAI-тела игнорируется — схема прикрепляется
     через `output_config.format`, и только когда релей в allowlist
     `GPT_STRUCTURED_RELAYS` (`structured=True`); иначе, как и у остальных
@@ -142,6 +152,12 @@ def build_request(
     }
     if system:
         req["system"] = system
+    # Нативные инструменты: схемы уже в формате Messages
+    # ({name, description, input_schema}) — их собирает агент студии.
+    if body.get("tools"):
+        req["tools"] = list(body["tools"])
+        if body.get("tool_choice"):
+            req["tool_choice"] = body["tool_choice"]
     if structured and response_schema is not None:
         req["output_config"] = {
             "format": {"type": "json_schema", "schema": response_schema.schema},
@@ -229,7 +245,9 @@ async def chat_messages(
             context={"retryable": True, "error_kind": "network", "model": use_model},
         ) from e
 
-    text = "".join(getattr(b, "text", "") for b in (msg.content or []) if getattr(b, "type", "") == "text")
+    blocks = [_block_to_dict(b) for b in (msg.content or [])]
+    text = "".join(str(b.get("text") or "") for b in blocks if b.get("type") == "text")
+    tool_calls = [b for b in blocks if b.get("type") == "tool_use"]
     stop = str(msg.stop_reason or "")
     if stop == "refusal":
         details = getattr(msg, "stop_details", None)
@@ -238,12 +256,19 @@ async def chat_messages(
             f"Claude Messages: модель отказала (refusal, category={category!r})",
             context={"retryable": False, "error_kind": "refusal", "model": use_model},
         )
-    if not text.strip():
+    # Ответ из одних tool_use — штатный: модель просит инструмент, текста
+    # ей говорить незачем. Пустым считается ответ без текста И без инструментов.
+    if not text.strip() and not tool_calls:
         raise GptApiError(
             f"Claude Messages: пустой output (stop_reason={stop or '-'})",
             context={"retryable": True, "error_kind": "empty_stream", "model": use_model},
         )
-    finish = {"end_turn": "stop", "max_tokens": "length", "stop_sequence": "stop"}.get(stop, stop)
+    finish = {
+        "end_turn": "stop",
+        "max_tokens": "length",
+        "stop_sequence": "stop",
+        "tool_use": "tool_use",
+    }.get(stop, stop)
     if finish == "length":
         logger.warning("Claude Messages: ответ упёрся в max_tokens={} model={}", req["max_tokens"], use_model)
     return GptChatResult(
@@ -256,7 +281,26 @@ async def chat_messages(
             "model": msg.model,
             "stop_reason": stop,
             "transport": "anthropic_messages",
+            # Блоки ответа целиком: агенту нужны tool_use с их id, а не
+            # только склеенный текст.
+            "content": blocks,
         },
         response_id=str(msg.id or ""),
         served_model=str(msg.model or ""),
     )
+
+
+def _block_to_dict(block: Any) -> dict[str, Any]:
+    """Блок ответа SDK → словарь. Текст и tool_use; прочее — текстом, не молча."""
+    kind = str(getattr(block, "type", "") or "")
+    if kind == "text":
+        return {"type": "text", "text": str(getattr(block, "text", "") or "")}
+    if kind == "tool_use":
+        raw_input = getattr(block, "input", None)
+        return {
+            "type": "tool_use",
+            "id": str(getattr(block, "id", "") or ""),
+            "name": str(getattr(block, "name", "") or ""),
+            "input": dict(raw_input) if isinstance(raw_input, dict) else {},
+        }
+    return {"type": "text", "text": str(getattr(block, "text", "") or "")}

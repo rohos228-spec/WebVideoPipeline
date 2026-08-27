@@ -299,6 +299,18 @@ def _override_vibecode_base_url() -> str:
     return (settings.vibecode_base_url or "https://vibecode.moe/v1").strip().rstrip("/")
 
 
+def native_tools_available(model: str | None = None) -> bool:
+    """Умеет ли активный текстовый маршрут нативный tool-calling.
+
+    Сейчас — только Claude через `/v1/messages`. Агент студии по этому
+    признаку выбирает протокол: нативные `tool_use` или JSON в тексте.
+    """
+    from app.services.llm_override import current_text_model_id
+
+    use_model = (model or current_text_model_id() or settings.gpt_model_effective or "gpt-5.5").strip()
+    return _anthropic_route(use_model)
+
+
 def _anthropic_route(use_model: str) -> bool:
     """Claude на vibecode идёт через /v1/messages (формат Anthropic).
 
@@ -882,16 +894,31 @@ def _compose_user_text(
     return "\n\n".join(parts) or "(пусто)"
 
 
+def _history_size(content: Any) -> int:
+    if isinstance(content, str):
+        return len(content)
+    try:
+        return len(json.dumps(content, ensure_ascii=False))
+    except (TypeError, ValueError):
+        return len(str(content))
+
+
 def normalize_history(
     history: list[dict[str, Any]] | None,
     *,
     max_messages: int = 40,
     max_chars: int = 120_000,
-) -> list[dict[str, str]]:
-    """Оставить user/assistant реплики для multi-turn (хвост, лимит символов)."""
+) -> list[dict[str, Any]]:
+    """Оставить user/assistant реплики для multi-turn (хвост, лимит символов).
+
+    Реплика с блоками нативного tool-calling (`tool_use` / `tool_result`,
+    агент студии на Claude) сохраняется списком как есть: сплющить её в
+    текст значит потерять id вызова, и API откажет на следующем же ходе.
+    Прочий список (multimodal leftover) по-прежнему сводится к тексту.
+    """
     if not history:
         return []
-    cleaned: list[dict[str, str]] = []
+    cleaned: list[dict[str, Any]] = []
     for raw in history:
         if not isinstance(raw, dict):
             continue
@@ -900,8 +927,13 @@ def normalize_history(
             continue
         content = raw.get("content")
         if isinstance(content, list):
+            parts = [p for p in content if isinstance(p, dict)]
+            if any(str(p.get("type") or "") in ("tool_use", "tool_result") for p in parts):
+                if parts:
+                    cleaned.append({"role": role, "content": parts})
+                continue
             # multimodal leftover — берём только текст
-            text = "".join(str(p.get("text") or "") for p in content if isinstance(p, dict)).strip()
+            text = "".join(str(p.get("text") or "") for p in parts).strip()
         else:
             text = str(content or "").strip()
         if not text:
@@ -912,15 +944,48 @@ def normalize_history(
     # с хвоста: уложиться в max_chars, выкидывая самые старые
     if max_chars > 0:
         total = 0
-        kept_rev: list[dict[str, str]] = []
+        kept_rev: list[dict[str, Any]] = []
         for item in reversed(cleaned):
-            n = len(item["content"])
+            n = _history_size(item["content"])
             if kept_rev and total + n > max_chars:
                 break
             kept_rev.append(item)
             total += n
         cleaned = list(reversed(kept_rev))
-    return cleaned
+    return _drop_orphan_tool_blocks(cleaned)
+
+
+def _drop_orphan_tool_blocks(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Убрать `tool_use` без ответа следом и `tool_result` без вызова перед ним.
+
+    Обрезка по числу сообщений или символам режет историю где придётся —
+    в том числе между вызовом инструмента и его результатом. Anthropic на
+    непарный блок отвечает 400, и это не ретраится: чат ломался бы до
+    перезагрузки вкладки, потому что клиент присылает ту же историю снова.
+    """
+    out: list[dict[str, Any]] = []
+    for idx, msg in enumerate(messages):
+        content = msg["content"]
+        if not isinstance(content, list):
+            out.append(msg)
+            continue
+        if msg["role"] == "assistant":
+            nxt = messages[idx + 1] if idx + 1 < len(messages) else None
+            answered = _tool_block_ids(nxt, "user", "tool_result", "tool_use_id")
+            kept = [b for b in content if b.get("type") != "tool_use" or b.get("id") in answered]
+        else:
+            prev = messages[idx - 1] if idx > 0 else None
+            asked = _tool_block_ids(prev, "assistant", "tool_use", "id")
+            kept = [b for b in content if b.get("type") != "tool_result" or b.get("tool_use_id") in asked]
+        if kept:
+            out.append({"role": msg["role"], "content": kept})
+    return out
+
+
+def _tool_block_ids(msg: dict[str, Any] | None, role: str, kind: str, key: str) -> set[Any]:
+    if not msg or msg.get("role") != role or not isinstance(msg.get("content"), list):
+        return set()
+    return {b.get(key) for b in msg["content"] if isinstance(b, dict) and b.get("type") == kind}
 
 
 def build_input(
@@ -1022,14 +1087,22 @@ def build_messages(
     history: list[dict[str, Any]] | None = None,
     xlsx_write_contract: str = "tsv",
 ) -> list[dict[str, Any]]:
-    """Собрать messages для chat/completions (текст + optional vision + история)."""
+    """Собрать messages для chat/completions (текст + optional vision + история).
+
+    Пустой ``prompt`` при непустой истории — не сообщение: реплика человека
+    уже лежит в истории последней (нативный tool-calling: ход заканчивается
+    блоками `tool_result`, а не текстом). Пустое сообщение API отвергает.
+    """
     messages: list[dict[str, Any]] = []
     if system:
         messages.append({"role": "system", "content": system})
-    for m in normalize_history(history):
+    prior = normalize_history(history)
+    for m in prior:
         messages.append({"role": m["role"], "content": m["content"]})
 
     others, images = split_input_paths(input_paths)
+    if prior and not prompt.strip() and not accompanying and not others and not images:
+        return messages
     text = _compose_user_text(
         prompt=prompt,
         accompanying=accompanying,
@@ -2330,8 +2403,16 @@ async def _chat_unscoped(
     auto_pack: bool = True,
     pack_kind: str | None = None,
     response_schema: ResponseSchema | None = None,
+    tools: list[dict[str, Any]] | None = None,
 ) -> GptChatResult:
     """Вызвать текстовый LLM (kie GPT / TokenRouter Kimi) с ретраями.
+
+    ``tools``: нативные инструменты в формате Messages
+    ({name, description, input_schema}). Уходят только маршрутом Claude
+    (`/v1/messages`); на остальных транспортах игнорируются — вызывающий
+    обязан проверить :func:`native_tools_available` и иначе держать
+    инструменты в промте. Ответ с `tool_use` приходит блоками в
+    ``result.raw["content"]``, ``finish_reason="tool_use"``.
 
     ``volume_complete``: True — после частичного apply-ops добрать остаток.
     По умолчанию выключено (None/False), чтобы не плодить десятки вызовов.
@@ -2415,6 +2496,13 @@ async def _chat_unscoped(
         }
     if temperature is not None:
         body["temperature"] = temperature
+    if tools:
+        if anthropic_route:
+            body["tools"] = list(tools)
+        else:
+            logger.warning(
+                "gpt_api.chat: tools заданы, но маршрут {} их не поддерживает — игнорирую", use_model
+            )
     if response_schema is not None and _structured_outputs_active(url):
         _schema_into_body(body, response_schema, responses_mode=responses_mode)
         logger.info(
