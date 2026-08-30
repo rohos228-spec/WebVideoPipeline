@@ -519,3 +519,27 @@ async def test_minimax_image_prompt_compressed_to_provider_limit(monkeypatch, tm
         project_id=3,
     )
     assert seen_caps == [mod.MINIMAX_IMAGE_PROMPT_MAX]
+
+
+@pytest.mark.asyncio
+async def test_compress_empty_reply_keeps_original_and_rejects_absurd_shrink() -> None:
+    """Прод 2026-08-27, CH02: релей отдал пустой ответ, `last` стал "", вторая
+    попытка сжимала пустоту, модель выдумала 165 символов — и они ушли в
+    генератор. Исходник должен пережить пустой ответ, а сжатие в 30 раз —
+    отклоняться."""
+    body = "y" * 5100
+    asks: list[str] = []
+
+    class FakeGpt:
+        def __init__(self) -> None:
+            self.replies = ["", "z" * 165, "w" * 4000]
+
+        async def ask_fresh(self, ask: str, *, timeout: float = 300, project_id=None) -> str:
+            asks.append(ask)
+            return self.replies.pop(0)
+
+    out = await mod._compress_prompt_for_outsee(FakeGpt(), body, prefix="[ID: P1-F1-abc]", project_id=1)
+    assert out == "w" * 4000
+    assert len(asks) == 3
+    # Каждая повторная попытка несёт исходный промт, а не пустоту.
+    assert all(body in a for a in asks)

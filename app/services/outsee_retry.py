@@ -446,9 +446,31 @@ async def _compress_prompt_for_outsee(
         except Exception as e:  # noqa: BLE001
             logger.warning("outsee_retry: GPT-сжатие упало ({}: {})", type(e).__name__, e)
             return None
-        last = strip_prompt_id_lines((reply or "").strip())
-        if len(last) < _MIN_REWRITE_LEN:
+        candidate = strip_prompt_id_lines((reply or "").strip())
+        # Пустой или куцый ответ НЕ становится «прошлым промтом»: иначе
+        # следующая попытка просит сжать пустоту, модель выдумывает промт с
+        # нуля, и он проходит по длине. Так на проде 2026-08-27 персонаж CH02
+        # («4873 → 165 симв») стал стоковой картинкой Excel. Исходник
+        # остаётся, попытка повторяется с ним.
+        if len(candidate) < _MIN_REWRITE_LEN:
+            logger.warning(
+                "outsee_retry: GPT-сжатие attempt {}: ответ {} симв — пустой, повторяю с исходником",
+                attempt,
+                len(candidate),
+            )
             continue
+        # Сжатие «в разы» — не сжатие, а другой промт: из описания персонажа
+        # на 4.9k не получается 165 символов без потери всего. Порог —
+        # четверть лимита: столько сохраняет хотя бы сам предмет и его вид.
+        if len(candidate) < max_body // 4:
+            logger.warning(
+                "outsee_retry: GPT-сжатие attempt {}: {} → {} симв — подозрительно коротко, отклоняю",
+                attempt,
+                len(last),
+                len(candidate),
+            )
+            continue
+        last = candidate
         if len(last) <= max_body:
             logger.info(
                 "outsee_retry: GPT-сжатие OK: {} → {} симв (лимит {})",

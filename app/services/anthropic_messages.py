@@ -256,9 +256,14 @@ async def chat_messages(
             f"Claude Messages: модель отказала (refusal, category={category!r})",
             context={"retryable": False, "error_kind": "refusal", "model": use_model},
         )
-    # Ответ из одних tool_use — штатный: модель просит инструмент, текста
-    # ей говорить незачем. Пустым считается ответ без текста И без инструментов.
-    if not text.strip() and not tool_calls:
+    # Ответ из одних tool_use — штатный, когда инструменты были в запросе:
+    # модель просит инструмент, текста ей говорить незачем. Но релей отдавал
+    # `stop_reason=tool_use` с пустым content и на запрос БЕЗ инструментов
+    # (прод 2026-08-27, сжатие промта персонажа CH02): вызывающий получил ""
+    # и дальше сжимал пустоту — в генератор ушёл выдуманный промт, референсом
+    # персонажа стала стоковая картинка Excel. Для запроса без инструментов
+    # такой ответ — пустой, и он ретраится.
+    if not text.strip() and not (tool_calls and req.get("tools")):
         raise GptApiError(
             f"Claude Messages: пустой output (stop_reason={stop or '-'})",
             context={"retryable": True, "error_kind": "empty_stream", "model": use_model},

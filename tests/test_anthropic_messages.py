@@ -543,10 +543,20 @@ async def test_chat_messages_tool_use_is_not_empty(monkeypatch: pytest.MonkeyPat
         {"type": "tool_use", "id": "toolu_9", "name": "showStages", "input": {"project_id": 1}},
     ]
 
+    # Одни tool_use без текста — норма только когда инструменты были в запросе
+    # (агент студии). Без них тот же ответ — пустой, см. тест ниже.
     only_tool = SimpleNamespace(**{**msg.__dict__, "content": [msg.content[1]]})
     _install(monkeypatch, only_tool)
+    with_tools = {
+        **body,
+        "tools": [{"name": "showStages", "description": "d", "input_schema": {"type": "object"}}],
+    }
     r = await am.chat_messages(
-        base_url="https://vibecode.moe/v1", api_key="vk", body=body, timeout=5, use_model="claude-opus-5"
+        base_url="https://vibecode.moe/v1",
+        api_key="vk",
+        body=with_tools,
+        timeout=5,
+        use_model="claude-opus-5",
     )
     assert r.text == "" and r.raw["content"][0]["type"] == "tool_use"
 
@@ -614,3 +624,55 @@ async def test_tools_ignored_off_claude_route(monkeypatch: pytest.MonkeyPatch, t
     )
     assert r.text == '{"say": "ok"}'
     assert "tools" not in called["body"]
+
+
+@pytest.mark.asyncio
+async def test_chat_messages_tool_use_without_tools_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Релей отдал `stop_reason=tool_use` без текста на запрос без инструментов
+    (прод 2026-08-27, сжатие промта CH02). Для текстового вызова это пустой
+    ответ — ретраится, а не возвращается как ""."""
+    msg = SimpleNamespace(
+        id="msg_1",
+        model="claude-opus-5",
+        stop_reason="tool_use",
+        stop_details=None,
+        content=[SimpleNamespace(type="tool_use", id="tu_1", name="ghost", input={})],
+        usage=SimpleNamespace(input_tokens=7, output_tokens=3),
+    )
+    _install(monkeypatch, msg)
+    with pytest.raises(GptApiError) as ei:
+        await am.chat_messages(
+            base_url="https://vibecode.moe/v1",
+            api_key="vk",
+            body={"model": "claude-opus-5", "messages": [{"role": "user", "content": "u"}]},
+            timeout=5,
+            use_model="claude-opus-5",
+        )
+    assert ei.value.context.get("error_kind") == "empty_stream"
+    assert ei.value.retryable is True
+
+
+@pytest.mark.asyncio
+async def test_chat_messages_tool_use_with_tools_is_fine(monkeypatch: pytest.MonkeyPatch) -> None:
+    msg = SimpleNamespace(
+        id="msg_1",
+        model="claude-opus-5",
+        stop_reason="tool_use",
+        stop_details=None,
+        content=[SimpleNamespace(type="tool_use", id="tu_1", name="edit", input={"a": 1})],
+        usage=SimpleNamespace(input_tokens=7, output_tokens=3),
+    )
+    _install(monkeypatch, msg)
+    r = await am.chat_messages(
+        base_url="https://vibecode.moe/v1",
+        api_key="vk",
+        body={
+            "model": "claude-opus-5",
+            "messages": [{"role": "user", "content": "u"}],
+            "tools": [{"name": "edit", "description": "d", "input_schema": {"type": "object"}}],
+        },
+        timeout=5,
+        use_model="claude-opus-5",
+    )
+    assert r.finish_reason == "tool_use"
+    assert r.raw["content"][0]["name"] == "edit"
