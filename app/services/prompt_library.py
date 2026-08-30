@@ -458,15 +458,13 @@ def node_prompt_variants(meta: dict | None) -> dict[str, str]:
     return out
 
 
-def _canvas_node_steps(meta: dict | None, step_code: str) -> dict[str, str]:
+def _canvas_node_steps(meta: dict, step_code: str) -> dict[str, str]:
     """node_key → код шага по `meta.canvas_graph` (типы из реестра нод).
 
     Пусто, если у самого `step_code` нет ноды в реестре: у `hero_style` её
     нет, промт живёт на узле `hero`, и отсекать такой слот по несовпадению
     кодов значило бы выключить его вовсе.
     """
-    if not isinstance(meta, dict):
-        return {}
     cg = meta.get("canvas_graph")
     nodes = cg.get("nodes") if isinstance(cg, dict) else None
     if not isinstance(nodes, list):

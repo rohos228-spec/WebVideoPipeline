@@ -99,3 +99,25 @@ def test_node_prompt_variants_reads_main_then_any_slot() -> None:
     }
     assert node_prompt_variants(meta) == {"n1": "sd_action", "n2": "my_style"}
     assert node_prompt_variants(None) == {}
+
+
+def test_garbage_entry_in_canvas_nodes_is_skipped() -> None:
+    """`canvas_graph.nodes` приходит из браузера: строка или null в списке
+    не должны ронять резолвер и не отменяют отсечку чужих слотов."""
+    meta = {
+        "canvas_graph": {
+            "nodes": [
+                "мусор",
+                None,
+                {"id": "n_hero", "type": "hero"},
+                {"id": "n_plan", "type": "plan"},
+            ]
+        },
+        "prompt_slot_variants": {"n_hero": {"main": "character_sheet"}},
+    }
+    with patch(
+        "app.services.prompt_library.prompt_path",
+        side_effect=lambda step, name: type("P", (), {"exists": lambda self: True})(),
+    ):
+        assert resolve_project_prompt_name({}, "hero", meta=meta) == "character_sheet"
+        assert resolve_project_prompt_name({}, "plan", meta=meta) == "default"
