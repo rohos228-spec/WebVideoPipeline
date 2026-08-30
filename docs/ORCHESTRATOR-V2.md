@@ -1,0 +1,595 @@
+# Оркестратор v2: граф как исполняемая спецификация
+
+> **Статус:** план, 2026-08-27. Код не начат. Основание — разведка по коду
+> (карты в §2), `docs/openspec/system-map.md`, `docs/SAAS-PIVOT.md` §8/§9.3/§11,
+> `docs/NODE_SYSTEM.md` §3 (контракт ноды — описан, в коде отсутствует).
+> Решение владельца: Excel в рантайме не нужен — только экспорт.
+> Прогнан через панель рецензентов (`plan-critic`, 2 независимых голоса)
+> 2026-08-27; пять блокеров и риски вшиты — отмечены «⚠ панель».
+
+---
+
+## 0. Одним абзацем
+
+Сегодня «граф ролика» — картинка над линейной лестницей из 52 статусов.
+Планировщик честно ходит по рёбрам, но «что сделано» берёт из
+`Project.status`, диспетчер — `if/elif` по статусу, зависимости, цены,
+сброс, стадии, проверки и подписи — двадцать с лишним таблиц по всему
+`app/`. Нода не может встретиться в графе дважды, параллельных ветвей нет,
+новый тип узла = 8 точек правки на сервере, а оркестратор-агент узнаёт
+типы узлов из текста ошибки. План: **один реестр `NodeSpec`, состояние
+на узле, данные через типизированные порты, немного универсальных узлов
+вместо 24 частных, каталог и схемы — в промт агента, Excel — вон.** Порядок
+и инвалидацию по-прежнему считает код, применяет граф — человек (§8.2
+пивота не отменяется, а получает наконец основание).
+
+---
+
+## 1. Цель и границы
+
+**Цель.** Ролик описывается графом из каталога узлов: любой узел, любое
+число экземпляров, любая ациклическая топология (в т.ч. параллельные
+ветви), конфиг узла по схеме, данные ходят по рёбрам. Оркестратор в чате
+может собрать схему с нуля или перекроить текущую, и получит от кода
+внятный отказ, если схема не сходится по данным (а не по «так не принято»).
+
+**Что получается «бесплатно» после этого** (сегодня — невозможно):
+два узла генерации картинок в разных стилях с выбором лучшего; ролик без
+диктора; слайд-шоу из своих фото; музыка параллельно картинкам; LLM-проверка
+в любом месте; реплики персонажей разными голосами (узел `tts` с голосом
+на сущность); монтаж из загруженных клипов.
+
+**Что НЕ входит.** Произвольный пользовательский код в узлах (узел — только
+из реестра). Липсинк, длинные форматы, серии — это новые *узлы*, каждый
+своя работа; план даёт им место, не их самих. AI SDK / AI Elements (решено
+в пивоте §11 этап 3.1). Отдельный оркестратор из `db_browser.py` —
+остаётся не подключённым.
+
+---
+
+## 2. Как есть: где зашито (сводка трёх карт)
+
+Полные карты — в разведке 2026-08-27; здесь — то, что определяет план.
+
+### 2.1 Модель исполнения
+
+| Хардкод | Где | Ключ | Размер |
+|---|---|---|---|
+| Диспетчер `if/elif` | `pipeline.py:176-229` | status | 18 веток |
+| Реестр `WORK_NODES` + 8 карт-дериватов | `node_registry.py:33-148` | node_type | 23 ноды — **база** |
+| `StepDef`/`steps_for` (пререквизиты запуска) | `telegram/menu.py:79-326` | status | 9 модулей-потребителей |
+| `_STATUS_ORDER` / `STATUS_ORDER` / `NODE_TYPE_ORDER` / `LINEAR_NODE_TYPES` | `menu.py:98`, `pipeline_stages.py:28`, `run_sync.py:1238`, `node_registry.py:123` | status / type | **четыре** линейных порядка, расходятся |
+| `_build_transitions` (ready → next running + HITLKind) | `auto_advance.py:110-213` | ready_status | 18 записей, 5 внешних модулей |
+| `_LINEAR_MEDIA_READY/RUNNING` — «таблица важнее графа» | `auto_advance.py:632-654` | status | глушат граф на медиа-хвосте |
+| `expected_status_progression` | `auto_advance.py:253-311` | status | 58 строк, графа не знает |
+| `compute_actual_status` — теневая FSM из артефактов | `project_state.py:389-654` | status | 265 строк |
+| `step_data_guard` — данные *перед* запуском шага | `step_data_guard.py:69-450` | status | ~350 строк |
+| `verify_project_disk` — харнес одной функцией | `agent_harness.py:385-717` | status-строки | 330 строк, не реестр |
+| `STAGES` + `STAGE_OF_NODE_TYPE` | `pipeline_stages.py:115`, `project_graph.py:48` | status + step_code | 7 стадий |
+| `PRIOR_*_USD`, `NODE_KEY_STEP` | `quote.py:46-84`, `cost_attribution.py:28-59` | step_code / node_key | расход custom-ноды **теряется** |
+| `_PIPELINE_RESET_LEVELS` + 25 `_wipe_*` | `reset_step.py:165-1006` | step_code | 28 пар |
+| `STEP_DEPENDENCIES` / `TOPO_ORDER` | `step_dependencies.py:39-114` | step_code | 22 узла — **самое чистое место**, но живёт отдельно от графа |
+| SQL по `Project.status` (`.in_`, `==`) | `main.py`, `montage_queue.py`, `auto_advance.py`, `startup_guard.py`, `step_failure_policy.py`, `work_routing.py`, `batches.py`, … | status в запросах | 26 мест в 9 файлах |
+| Воркер: 4 точки подъёма + legacy `app/worker.py` со своим `ACTIVE_STATUSES` | system-map §3 | status | — |
+
+`ProjectStatus.` — 903 вхождения в 54 файлах `app/`; в тестах — 128 файлов
+из 408. `Project.status` — **нативный PG-enum `project_status`**
+(`models.py:238-240`); триггер `project_routes` кастует `NEW.status::text`
+(`migrations/versions/0007_project_routes.py:65-85`), и воркер ищет работу
+**только** через эту таблицу — межарендный scan под RLS невозможен
+(`main.py:244-270`).
+
+**Ключевой факт.** `NodeRun` (`models.py:856-919`) с машиной переходов
+(`node_status_machine.py`) **уже есть** и `run_sync.py:1-8` объявляет его
+единственным источником правды — но `planner._work_types_done()`
+(`planner.py:222-270`) и `derived_node_states()` (`:493-572`) состояние
+**выводят из `Project.status`**, а `run_sync._node_already_succeeded_for_project`
+(`:1264-1312`) — наоборот, чинит NodeRun по статусу. Две правды.
+Следствие: тип узла = статус, значит тип встречается в графе один раз,
+а один running-статус на проект = параллельных ветвей не бывает.
+
+Второе, что уже есть и что план **переиспользует, а не заводит заново**:
+`input_hash.py:127 compute_input_hash(unit_input, fingerprint, prompt_hash,
+model, params)` — 113 ссылок, per-step реализации; `WorkLease` с
+`UniqueConstraint(project_id, unit_key)` (`models.py:933`).
+
+### 2.2 Данные и Excel
+
+Шаги читают фиксированные поля/файлы, рёбра — только порядок и ветвление.
+Сигнатура шага `run(session, project, bot)` (`pipeline.py:176-229`) — шаг
+**не знает, какой он узел**; ~20 модулей шагов сами ставят статусы
+(`generate_hero.py` — 21 вхождение).
+
+Excel: 112 файлов упоминают `xlsx`, 24 зовут `openpyxl`. В **горячем пути**
+как *вход* книгу читают 9 шагов; единственные данные, которых **нет в БД**:
+shot_02-промты (R46/R64: `plan_shot2.py:65`, `animation_prompt_gpt.py:448`)
+и таймкоды R15 (`plan_timestamps.py`, `plan_sheet_v8.py:161`). У старых
+проектов они живут *только* в книге. Остальное — legacy-фолбэки с уже
+существующим DB-путём (`resolve_plan_voiceover_cells`, `parse_persons_sheet`
+↔ `Entity`, `frames_xlsx_parity` с `xlsx_is_source=False`). Writeback уже
+мёртв (`xlsx_text_writeback.py:546`).
+
+Универсальная нода `excel_gpt` (`gpt_operator.py`) — прототип того, что
+нужно всем узлам: роли, `inputSource`, `takeFromEdges`, `emitKinds`,
+`outputMode`, ветки `pass/fail`, промт из библиотеки, per-node конфиг в
+`meta.excel_gpt_nodes`. Вторая параллельная схема конфига —
+`meta.node_step_params`. Обе — прообраз `data.config` по схеме.
+`disabled` тоже в двух местах: `node.data.disabled` и `meta.disabled_nodes`
+(читает оба `planner.skipped_keys:154-164`).
+
+### 2.3 Фронт и агент
+
+Фронт **уже data-driven**: один `StepNode`, палитра из
+`GET /api/workflows/catalog`, инспектор без per-type веток (кроме
+`IMAGE_TYPES/VIDEO_TYPES` в `node-inspector.tsx:32`). Пульта `excel_gpt`
+в `web/src` нет вовсе — только серверные ручки. `node_groups` («+ Группа»)
+— готовый механизм вставки подграфов, агенту не дан. Системный промт
+агента (`loop.py:113-131`) — лист возможностей **прозой руками**; каталога
+узлов в нём нет, типы модель узнаёт из ошибки `apply_graph_ops:513`.
+`set_node` мержит произвольный `data` без схемы (`project_graph.py:617`,
+`_SET_NODE_FIELDS` не применяется). `apply_proposal` (`project_graph.py:837`)
+сверяет только `proposal_id` — граф, изменённый другим клиентом после
+предложения, перезаписывается снимком.
+
+---
+
+## 3. Целевая модель
+
+### 3.1 Принципы
+
+1. **Один реестр.** `NodeSpec` — источник диспетчера, стадии,
+   зависимостей, цены, сброса, проверок, промта, конфиг-схемы, подписи и
+   описания для агента. Таблица по типам/статусам вне реестра — дефект,
+   ловится тестом-гейтом (как `tests/test_node_catalog.py`, но шире).
+2. **Состояние — на узле.** `NodeRun` = правда. `Project.status`
+   сжимается до проекции.
+3. **Данные — через порты.** Узел объявляет входы/выходы типами;
+   планировщик связывает по рёбрам; зависимости, конус сброса и
+   `input_hash` — из привязок, не из таблицы.
+4. **Мощь — из универсальных узлов и пресетов**, а не из 24 частных
+   типов. Старые типы остаются как пресеты (граф мигрирует 1:1).
+5. **Агент — дирижёр с каталогом.** Знает узлы, порты, схемы; предлагает;
+   валидатор по портам отвечает *почему нельзя*; применяет человек.
+6. **Excel — экспорт.** `openpyxl` живёт в `excel_io.py` и импорте.
+7. **Не заводить второго определения того, что уже есть:** `input_hash`,
+   `WorkLease`, `NodeRun`, `node_status_machine`, `project_routes`.
+
+### 3.2 `NodeSpec`
+
+```python
+@dataclass(frozen=True)
+class NodeSpec:
+    type: str  # "image_gen"
+    label: str  # «Картинки»
+    description: str  # для агента и палитры
+    kind: Literal["work", "check", "hitl", "config", "import"]
+    stage: str | None  # "images" — представление, не порядок
+    inputs: dict[str, Port]  # name → Port(type, required=True, many=False)
+    outputs: dict[str, Port]
+    config_schema: dict  # JSON Schema для node.data.config
+    run: Callable[[NodeContext], Awaitable[NodeResult]]
+    price: PriceModel  # fixed | per_frame | history(price_key)
+    preconditions: tuple[Check, ...]  # входы пригодны → можно стартовать (замена step_data_guard)
+    postconditions: tuple[Check, ...]  # выходы на месте → done (замена harness по статусу)
+    wipe: Callable[[NodeContext], Awaitable[None]] | None
+    retry: RetryPolicy
+    hitl: HitlKind | None
+    prompt_folder: str | None  # 05_image_prompts
+    model_kind: Literal["text", "image", "video", "audio"] | None
+    multi: bool = True  # может встречаться в графе не раз
+    not_supported: tuple[str, ...] = ()  # для листа «чего не умеет»
+```
+
+`NodeContext` = `(session, project, node_key, node, config, inputs, bot)`.
+**Каждый шаг получает `node_key`** — без этого `multi` невозможен (⚠ панель).
+
+Регистрация — декоратор `@node_spec(...)` в модуле узла; реестр собирает
+модули пакета `app/nodes/`. Каталог (`GET /api/nodes/catalog`) и лист для
+промта агента — рендер реестра, руками не пишутся.
+
+### 3.3 Порты и привязки
+
+Словарь типов маленький и закрытый (расширяется кодом, не пользователем):
+
+| Тип порта | Что это | Где живёт |
+|---|---|---|
+| `text.topic`, `text.plan`, `text.script` | тексты проекта | `Project.*` |
+| `frames` | таблица кадров (есть/нет) | `Frame` |
+| `frame.<field>` | поле кадра: `voiceover_text`, `image_prompt`, `animation_prompt`, `meaning`, произвольное `attrs.<k>` | `Frame` / `PromptVersion` |
+| `entity.character`, `entity.prop` | сущности с референсами | `Entity` + `Artifact` |
+| `artifact.<kind>[]` | медиа по кадрам: `scene_image`, `scene_video`, `audio`, `music`, `sfx`, `final_video` | `Artifact` (с `meta.node_key`) |
+| `doc.<schema>` | JSON-документ (план sfx, срез сцены, реестр сцен) | `NodeOutput` |
+| `verdict` | ок/не ок → рёбра `pass`/`fail` | `NodeRun.meta` |
+
+**Привязка.** Вход узла Y типа T связывается с производителем T *вверх по
+рёбрам* (BFS по `after`-рёбрам, side-sink `storage` пропускается).
+
+- `Port(many=False)` — ровно один источник. Если по BFS нашлось несколько
+  на **разной** глубине — берётся ближайший (детерминированный тай-брейкер:
+  глубина, затем порядок в `edges`); на **одной** глубине — ошибка
+  валидации с подсказкой «укажи привязку».
+- `Port(many=True)` — **fan-in**: собираются все производители-предки в
+  топологическом порядке (⚠ панель: без этого канонический веер
+  `sd_agent ×5 → sd_assemble` и `select ×N` не проходят валидацию).
+- Явные привязки — `edge.data.bindings: [{input, output}, …]` — **список**,
+  потому что `normalize_graph` дедуплицирует рёбра по `(source, target)`
+  (`project_graph.py:681-688`), а `image_gen → video_gen` несёт и промт,
+  и картинки (⚠ панель).
+- Переписывание поля вверх по цепочке (`frame.voiceover_text` от `split`
+  и после `enrich`) — это **тот же порт от более близкого производителя**;
+  тай-брейкер по глубине это и выражает. Два производителя одного поля
+  кадра на одной глубине — ошибка.
+
+**Пространства имён.** Выходы-артефакты помечаются `node_key`, поэтому два
+`image_gen` в графе не затирают друг друга; узел-потребитель берёт по
+привязке. Поля кадра — общие по имени.
+
+**Выводится из привязок:** `deps(Y)` — множество источников её входов;
+конус сброса = потомки по этому отношению (заменяет `STEP_DEPENDENCIES`);
+`unit_input` для `compute_input_hash` = значения привязанных входов
+(`input_hash.py` остаётся, per-step реализации `unit_input` заменяются
+одной, по портам) — это и есть определение входа, о котором договорились
+`specs/cache-resume/spec.md:19-22` и код.
+
+**Ветвление.** Порт `verdict` — единственный механизм: `gate_blocks_edge`,
+`BRANCHING_ROLES`, `verdict_edge_blocks` (`planner.py:108-129`,
+`gpt_operator.py`) и состояние чек-петли в `meta.gpt_operator_results`
+уезжают в `NodeRun.meta.verdict` узла `kind=check`; `vision_check_loop`
+(К1–К4 из system-map §5) становится парой `check → fail → image_gen` с
+лимитом раундов в конфиге ребра, а не отдельным контуром (⚠ панель).
+
+### 3.4 Состояние и исполнение
+
+`NodeRunStatus` — **как есть**: `pending / queued / running / waiting_hitl /
+done / failed / skipped` (`models.py:162-174`); «готов к запуску» = `queued`,
+нового значения enum не нужно (⚠ панель).
+
+**Воркер.** Тик остаётся двухфазным, как требует RLS (`main.py:244-270`):
+(1) межарендный запрос к `project_routes` — у кого есть работа; (2) под
+`tenant_scope` каждого — выбрать `queued`-узлы проекта (все привязанные
+входы `done`, `preconditions` зелёные, шлагбаумы не режут, узел не
+`disabled`, лизинг `(project_id, node_key)` свободен) и запустить до
+`project.parallel_nodes` штук (дефолт **1** — сегодняшнее поведение).
+`project_routes` получает поле `has_work` (триггер по `NodeRun`), статус
+проекта в маршруте больше не нужен. Четыре точки подъёма воркера
+(system-map §3) сводятся к одной; `app/worker.py` умирает (⚠ панель).
+
+**Восстановление после рестарта** (замена `startup_guard`,
+`_backfill_from_disk`, `recompute_all`): узел `running` без живого лизинга
+→ `postconditions` зелёные ? `done` : `queued`. Это единственное правило.
+
+**Гейты.** `preconditions` — вместо `step_data_guard.can_enter_running`
+/ `ready_status_confirmed_by_data` / `clamp_status_to_data`;
+`postconditions` — вместо `verify_project_disk` по статусу и
+`compute_actual_status`. Инварианты уровня графа (например, «у кадра со
+сценой есть картинка») — `graph_invariants` в отдельном модуле, гоняются
+центральным гейтом (⚠ панель: guard-слой не удаляется, пока замена не
+стоит).
+
+**`Project.status` → проекция** `draft | running | waiting | paused |
+failed | done` + `Project.current_node_key` + `Project.reached_stage`
+(последняя завершённая стадия — mass различает «assembled или дальше»,
+`mass_factory.py:77-83`). Это **миграция enum** `project_status` (новый
+тип, `USING … ::text`, перепись триггера 0007) и **26 SQL-мест** в 9 файлах
+— `legacy_status()` их не покрывает, их переписывать (⚠ панель).
+`legacy_status()` для Telegram живёт, пока жив старый бот (§7, вопрос 2).
+
+HITL — узел `kind=hitl`, состояние `waiting_hitl`, resume идемпотентен.
+
+### 3.5 Универсальные узлы (конструктор)
+
+| Узел | Конфиг | Входы → выходы |
+|---|---|---|
+| `llm` | промт (библиотека/инлайн), режим `project`/`per_frame`/`batch`, выход `text.* \| frame.<field> \| doc.<schema> \| verdict`, схема structured-output, модель | по конфигу → по конфигу |
+| `frames_split` | параметры разбивки | `text.script` → `frames`, `frame.voiceover_text` |
+| `image_gen` | провайдер, модель, разрешение, N вариантов, стиль | `frame.<prompt>`, `entity.*` → `artifact.scene_image[]` |
+| `video_gen` | провайдер, модель, длительность | `frame.<prompt>`, `artifact.scene_image[]` → `artifact.scene_video[]` |
+| `tts` | голос (один / по сущности — `Entity.attrs.voice`), провайдер | `frame.voiceover_text` (+ `entity.character`) → `artifact.audio[]`, тайминги |
+| `music_gen`, `sfx_plan`, `sfx_gen` | как сейчас | … |
+| `import` | что загружено (картинки/клипы/аудио/голос) | ∅ → объявленный тип порта |
+| `select` | критерий (LLM-судья / vision / первый успешный) | `artifact.X[]` (many) → `artifact.X[]` |
+| `check` | критерии (промт/агент), лимит раундов | любой вход → `verdict` |
+| `hitl` | что показать | любой выход → тот же выход (пауза) |
+| `assemble` | дорожки: видео `scene_video \| scene_image+kenburns`, голос `audio \| none`, музыка, sfx, субтитры | по дорожкам → `artifact.final_video` |
+| `publish` | площадки | `artifact.final_video` → отметки |
+
+**Пресеты.** `plan` = `llm{prompt: 01_plan, out: text.plan}`, `img_pr` =
+`llm{per_frame, prompt: 05_image_prompts, out: frame.image_prompt}`,
+`sd_agent ×5 + sd_assemble` = группа `llm → doc.scene_slice` ×5 →
+`llm{in: doc.scene_slice (many), out: doc.scene_registry}`, `enrich_N` =
+`llm{role: transform}`, `images` = `image_gen{...}`. Пресет — `type` +
+зафиксированный `config` + `price_key` (сохраняет историю цен `quote.py`).
+Слоты `enrich 1..5` как понятие уходят: `slot_index_from_node`,
+`active_excel_gpt_node_key`, `excel_gpt_force_rerun_slots`
+(`planner.py:285-297, 358-371`) заменяются состоянием `NodeRun` по
+`node_key` (⚠ панель: замена названа).
+
+**Схемы (workflow templates).** `Workflow` становится параметризованной
+схемой с описанием для агента: «стандартный ролик с диктором», «без
+диктора», «слайд-шоу из своих фото», «две картинки на кадр + выбор»,
+«реплики персонажей». `node_groups` сливаются в ту же библиотеку как
+подграфы-фрагменты.
+
+**25 логических агентов → один узел `llm`** — это не одна строка: у них
+четыре несовместимых поведения при ошибке (system-map §4.4: salvage
+apply-ops, feedback-loop, fail-open, текстовый вердикт). Узел `llm` несёт
+одну политику ошибок (`llm-contracts`); каждый агент мигрирует как
+пресет с явным решением, что из его особого поведения сохраняется
+(⚠ панель, учтено в смете этапа 5).
+
+### 3.6 Оркестратор-агент
+
+- В системный промт — сгенерированный лист: типы узлов (описание, порты,
+  ключи конфига одной строкой), пресеты, схемы, группы. **Компактный
+  формат**, не JSON Schema: `OBSERVATION_LIMIT=6000` (`loop.py:62`)
+  усечёт полную схему (⚠ панель). Полная схема узла — по запросу
+  `describeNode{type}`.
+- Абзац «чего не умеет» не пишется руками: нет узла — нет умения;
+  исключения — `not_supported` в реестре.
+- Инструменты: `describeNode`, `setNodeConfig {node_key, config}`
+  (валидация по `config_schema` → proposal), `applyScheme {scheme_id,
+  params}` → proposal, `insertGroup {group_id, after}` → proposal;
+  `editGraph.add_node` принимает `config`.
+- Валидатор отвечает на языке портов: «`video_gen n_video_2` требует
+  `artifact.scene_image[]`, выше по графу его никто не производит».
+- §8.2 без изменений: proposal → диф + конус сброса (по привязкам) →
+  `applyGraph confirm=true`. Плюс два предохранителя (⚠ панель):
+  proposal хранит `base_revision` графа и отклоняется, если граф с тех пор
+  менялся; применение ждёт **quiesce** — узлы в `running` под удаляемым/
+  меняемым участком останавливаются или применение откладывается.
+
+### 3.7 Фронт
+
+Один `StepNode` остаётся. Добавляются: форма конфига по JSON Schema (одна
+компонента на все узлы), палитра с разделами «узлы / пресеты / схемы»,
+`model_kind` из каталога вместо `IMAGE_TYPES/VIDEO_TYPES`, `TOOL_TITLES`
+из `GET /api/chat/tools`, отображение параллельных ветвей (состояние на
+узле уже есть, `derived_node_states` просто начинает читать `NodeRun`),
+карточка привязок на ребре.
+
+---
+
+## 4. Этапы
+
+Каждый этап — отдельно выкатываемый, с зелёным гейтом (`.claude/verify.json`)
+и без потери сегодняшнего поведения на стандартном ролике. Оценки — чистые
+дни одного разработчика, знакомого с кодом, **после** поправки панели
+(первая версия была занижена ~×2 на этапах 3 и 5).
+
+### Этап 0. Опоры (2 дня)
+
+- Три эталонных проекта (стандартный, с веером scene_design, mass-ребёнок)
+  → снимки `canvas_graph`, `meta`, статусов, артефактов, `NodeRun`. Тест:
+  v2 на них даёт тот же порядок узлов и тот же конус сброса.
+- Флаг `ORCHESTRATOR_V2` на проект (`meta`), не глобально: миграция по
+  одному ролику.
+- Гейт-тест «таблиц по статусам вне реестра нет» — пока падающий, список
+  разрешённых исключений сокращается по этапам (храповик, как покрытие).
+
+### Этап 1. Excel из рантайма (6–9 дней) — независим, идёт первым
+
+Уменьшает код, который потом придётся переносить в узлы. **Вложение книги
+в GPT (`xlsx_step_runners.py:320/379/509/876`) здесь НЕ трогаем** — эти
+четыре call-site целиком заменяет узел `llm` на этапе 5, делать дважды
+незачем (⚠ панель).
+
+1. **Backfill** для существующих проектов (⚠ панель): shot_02-промты из
+   R46/R64 → `PromptVersion` с новыми `kind=img_shot2|video_shot2`
+   (миграция enum `models.py:424`), R15 → `Frame.start_ts/end_ts`; маркер
+   `meta.xlsx_backfilled`. Без этого снятие чтения = пустые промты у
+   старых роликов.
+2. Снять чтение уникальных данных из книги: `plan_timestamps.py`,
+   `plan_sheet_v8.py:161/729`, `plan_shot2.py:65`,
+   `animation_prompt_gpt.py:448-462`.
+3. Инвертировать приоритет там, где DB-путь уже есть:
+   `resolve_plan_voiceover_cells`, `generate_hero.py:420-428` → `Entity`,
+   `generate_images.py:452-490` → `Frame.attrs`; `excel_gpt_node.py:770`
+   (`inputSource=project_xlsx` → `db_frames.json`),
+   `gpt_operator._snapshot_xlsx_for_node` → снимок `db_frames.json`.
+4. Запись: удалить `project_sheet.write_general`, `plan_sheet_v8.write_*`,
+   `split_frames.py:138`, `sheet_cell_edit` (правка «Базы» пишет в БД,
+   экспорт по кнопке); инвалидацию по mtime книги
+   (`frame_timeline_sync.py:113/606`) → по `input_hash`.
+5. Харнес: `frames_xlsx_parity`, `project_xlsx`, `_count_r48_filled`,
+   `xlsx_http` — снять; паритет «DB ↔ диск» остаётся.
+6. Остаётся: `excel_io.py` + `GET /projects/{id}/xlsx` (экспорт),
+   `xlsx_v8_import` как импорт по кнопке, `mass_topics` (уже импорт по
+   кнопке, `project_ops.py:162`). `montage_board.py` (4 `load_workbook`)
+   — по ответу на §7 в.3; если жива — переводится на БД в этом же этапе,
+   иначе критерий «`openpyxl` в 3 модулях» не выполняется.
+7. `XLSX_WRITE` и `xlsx_enabled` удаляются.
+
+**Результат:** книгу не открывает ни один шаг, кроме четырёх вложений в
+GPT (уходят на этапе 5). Тесты R45/R48/R49 переписываются на БД.
+
+### Этап 2. Реестр как единый источник (8–10 дней) — поведение не меняется
+
+1. `WorkNodeSpec` → `NodeSpec` (§3.2) без `inputs/outputs` (этап 4):
+   `run`, `stage`, `price`, `wipe`, `pre/postconditions` (пока обёртки над
+   существующими проверками), `hitl`, `prompt_folder`, `model_kind`,
+   `label`, `description`, `config_schema`, временно `depends_on`
+   (перенос `STEP_DEPENDENCIES`) и `requires` (перенос `StepDef`).
+2. **`NodeContext` с `node_key` во все ~20 шагов**; шаги перестают ставить
+   `project.status` сами — возвращают `NodeResult`, статус ставит
+   диспетчер (⚠ панель: это и есть основная стоимость этапа).
+   Диспетчер `pipeline.py:176-229` → `spec.run`. `StepDef`/`steps_for` →
+   рендер из реестра (9 потребителей не меняются). `NODE_LABELS`,
+   `STAGE_OF_NODE_TYPE`, `STEP_FOLDERS`, `PRIOR_*_USD`, `NODE_KEY_STEP`,
+   `_PIPELINE_RESET_LEVELS`, `RESET_SUPPORTED_STEP_CODES`,
+   `READY_VERDICT_STEP`, `HARNESS_REPAIRABLE_STEPS` — поля спеки, таблицы
+   удаляются. `_build_transitions` строится из реестра + `LINEAR_NODE_TYPES`
+   (пока), не руками.
+3. Per-node конфиг: `meta.excel_gpt_nodes` + `meta.node_step_params` →
+   `node.data.config` по `config_schema` (миграция JSON в `meta`);
+   `set_node` валидирует (`project_graph.py:604`), `_SET_NODE_FIELDS`
+   удаляется. `disabled` — SoT `node.data.disabled`, `meta.disabled_nodes`
+   становится производным и затем удаляется (⚠ панель). `PATCH
+   /excel-gpt/{node_key}` и `/gpt-operator/{node_key}` → один `PATCH
+   /projects/{id}/graph/nodes/{key}/config`.
+4. `GET /api/nodes/catalog` (расширение `/workflows/catalog`) отдаёт
+   описание, `config_schema`, `model_kind`, `stage`. Фронт: форма по схеме
+   (минимум), `model_kind` вместо `IMAGE_TYPES`.
+5. Агент: компактный каталог в промт, `describeNode`, `setNodeConfig`,
+   `insertGroup`.
+
+**Результат:** новый тип узла = один модуль в `app/nodes/` (пока с парой
+статусов в `ProjectStatus` — снимается этапом 3). Агент видит каталог и
+крутит конфиг узлов.
+
+### Этап 3. Состояние на узле (25–35 дней) — самый тяжёлый
+
+1. **Слияние правды** (⚠ панель: не «backfill из статуса»): для каждого
+   проекта `NodeRun` собирается merge-ом из существующих `NodeRun`
+   (создаются на узел при прогоне и правке графа, `run_sync.py:71-146`),
+   `meta.scene_design.agents[*].status`, `enrich_completed_slots`,
+   `excel_gpt_completed_keys`, `gpt_operator_results` и артефактов на
+   диске через `postconditions`. Одноразовая миграция; после неё
+   `run_sync._node_already_succeeded_for_project` и все перечисленные
+   ключи `meta` удаляются.
+2. `planner._work_types_done` / `_is_ready` / `derived_node_states` →
+   читают `NodeRun` по `node_key`.
+3. Воркер по §3.4: `project_routes.has_work`, `queued`-узлы под
+   `tenant_scope`, лизинг `(project_id, node_key)`, `parallel_nodes=1`,
+   одна точка подъёма, `app/worker.py` удалён.
+4. Миграция `Project.status` → проекция (§3.4): новый PG-enum, триггер
+   0007, 26 SQL-мест. `gen_queue` (33 вхождения), `montage_queue`,
+   `step_failure_policy`, `work_routing`, `batches` — на `NodeRun`.
+5. Восстановление после рестарта по одному правилу (§3.4);
+   `startup_guard`, `_backfill_from_disk`, `recompute_all`,
+   `compute_actual_status`, `step_data_guard` удаляются **после** того,
+   как `pre/postconditions` заданы для всех legacy-типов (в этом этапе,
+   не в 5-м).
+6. Удаляются: `_LINEAR_MEDIA_*`, `expected_status_progression`,
+   `_next_running_with_enrich_cap`, `_STATUS_ORDER`,
+   `pipeline_stages.STATUS_ORDER` + `OFF_LINE_STATUSES` (от него зависит
+   `project_rank` → `reset_plan`), `NODE_TYPE_ORDER`, `LINEAR_NODE_TYPES`,
+   `verify_project_disk` (→ сумма `postconditions` + `graph_invariants`).
+7. Стадии = группировка узлов по `spec.stage`; `reached_stage` для mass.
+8. Касса: холд под `node_key` (леджер уже так), `price_key` пресета для
+   истории.
+9. Тесты: 128 файлов упоминают `ProjectStatus` — переписывание в смете.
+
+**`multi=True` здесь НЕ включается** — до портов два узла одного типа
+затирают друг друга (⚠ панель). Включается на этапе 4.
+
+**Результат:** граф исполняется как граф; `ProjectStatus.` с 903 вхождений
+падает до проекции.
+
+### Этап 4. Порты и привязки (10–14 дней)
+
+1. Словарь портов (§3.3), `inputs/outputs` у каждого спека, резолвер
+   привязок с `many` и тай-брейкером, `edge.data.bindings`.
+2. `STEP_DEPENDENCIES`/`TOPO_ORDER` удаляются; `dependents_cone`,
+   `reset_plan`, `project_cone` — по привязкам. `unit_input` для
+   `compute_input_hash` — по портам, per-step реализации удаляются.
+3. `validate_workflow_graph` — совместимость портов с человеческими/
+   модельными сообщениями; неоднозначные привязки — ошибка.
+4. `verdict` как единственный механизм ветвления (§3.3); `vision_check_loop`
+   → `check → fail → image_gen`; `gate_blocks_edge`/`BRANCHING_ROLES`
+   удаляются.
+5. `multi=True`; артефакты с `meta.node_key`; `PromptVersion` с `node_key`.
+6. `parallel_nodes` > 1 — включить на медиа-ветках (`music ∥ images`);
+   `gen_queue` и `montage_queue` считают узлы.
+7. `applyGraph`: `base_revision` + quiesce.
+
+### Этап 5. Универсальные узлы, пресеты, схемы (20–30 дней)
+
+1. `llm` (обобщение `excel_gpt` + `xlsx_step_runners`: режимы
+   `project/per_frame/batch`, выход по конфигу, одна политика ошибок из
+   `llm-contracts`), `image_gen`, `video_gen`, `tts` (голос на сущность —
+   `Entity.attrs.voice`), `import`, `select`, `check`, `hitl`, `assemble`
+   с дорожками.
+2. 25 логических агентов → пресеты `llm`, **по одному с явным решением по
+   особому поведению** (salvage, feedback-loop, fail-open — §3.5).
+   Четыре вложения книги в GPT из этапа 1 уходят здесь.
+3. 24 старых типа → пресеты; миграция `canvas_graph` 1:1 (тип остаётся
+   как алиас пресета, `config` заполняется дефолтами). Веер scene_design —
+   группа `llm`-узлов с `many`-входом сборщика; проверить на эталоне №2.
+4. Библиотека схем (Workflow с параметрами и описанием) + `node_groups`
+   в неё же; 5 стартовых схем (§3.5).
+5. Промты: `STEP_FOLDERS` по `prompt_folder`; для `llm` — промт из
+   библиотеки по имени или инлайн в `config`.
+
+### Этап 6. Оркестратор (5–7 дней)
+
+`applyScheme`, ошибки валидатора в ответ модели, сгенерированный лист
+возможностей вместо `loop.py:113-131`, `not_supported` в реестре,
+`TOOL_TITLES` с сервера. **Живой прогон** на трёх сценариях: «без
+диктора», «две картинки на кадр, выбери лучшую», «слайд-шоу из моих фото»
+— от запроса в чате до финального ролика.
+
+### Этап 7. Фронт (5–7 дней)
+
+Форма по схеме — полная; палитра «узлы / пресеты / схемы»; параллельные
+ветви и `multi`-узлы на холсте; карточка привязок на ребре; `excel_gpt`
+пульт — та же форма по схеме.
+
+**Итого: 80–110 дней** одного разработчика, последовательно (6 и 7 для
+одного человека не параллель). Порядок 1 → 2 → 3 → 4 → 5 → 6 → 7.
+Ценность после каждого: 1 — минус Excel; 2 — агент видит каталог и крутит
+конфиги, новый узел = один модуль; 3 — граф исполняется честно; 4 — любая
+топология с проверкой по данным; 5 — конструктор; 6 — агент собирает схемы.
+
+**Дешёвая альтернатива** (если полный объём не проходит): этапы 1 + 2 +
+часть 6 ≈ **20 дней**. Даёт «кастомизировать всё, что есть» (конфиг,
+модель, промт, вкл/выкл, вставка GPT-узлов и групп через агента), **не
+даёт** «ролик по другой схеме» — узел по-прежнему один на тип, ветвей нет,
+новый узел тянет статусы. Рекомендация — полный объём именно в этом
+порядке: дешёвая часть в него входит первой и не выбрасывается.
+
+---
+
+## 5. Совместимость и миграция
+
+- **Существующие ролики.** `canvas_graph` не переписывается; типы узлов
+  живут как пресеты; `NodeRun` сливается один раз (этап 3.1);
+  `meta.excel_gpt_nodes`/`node_step_params` → `data.config` миграцией
+  Alembic. **Схема БД меняется**: enum `project_status`, `PromptVersion.kind`,
+  `project_routes.has_work`, `Entity.attrs.voice` (JSON, без DDL).
+- **Telegram-бот** (`menu.py` 123 + `bot.py` 31 вхождения): на
+  `legacy_status()` + кнопки HITL по `waiting`-узлу. Полное меню шагов —
+  отдельное решение (§7, вопрос 2).
+- **Mass/серии.** `MASS_CHILD_DONE_STATUSES` → `reached_stage >= final`;
+  `ensure_child_workflow_from_parent` уже создаёт `NodeRun` на узел —
+  становится основным путём.
+- **OpenSpec.** `cache-resume`: определение входа не меняется, меняется
+  реализация `unit_input` (этап 4). `llm-contracts`: единственный узел
+  `llm` вместо 25 агентов (этап 5) — контракт становится дешевле, порядок
+  5 → 2 из `openspec/project.md` сохраняется. Заводить
+  `changes/orchestrator-v2` после утверждения этого плана.
+
+---
+
+## 6. Риски
+
+| Риск | Оценка | Что делаем |
+|---|---|---|
+| Этап 3 расползётся (903 вхождения, 128 тест-файлов, PG-enum, 26 SQL-мест) | высокий | флаг на проект, три эталона, `legacy_status` для TG; тесты и миграция в смете (25–35 дней) |
+| Планировщик по портам даст другой порядок на стандартном ролике | средний | тест этапа 0: v2 = v1 на эталонах; `_LINEAR_MEDIA_*` снимается только после него |
+| Fan-in / неоднозначные привязки на веере и `select` | закрыт в дизайне | `many=True`, тай-брейкер по глубине, `bindings` списком |
+| Два узла пишут одно поле кадра | средний | ошибка валидации + `PromptVersion.node_key` |
+| Параллельные ветви ломают холды/очереди | средний | `parallel_nodes=1` до этапа 4; лизинг на узел |
+| Рестарт воркера после этапа 3 оставляет проект в `running` | закрыт в дизайне | одно правило восстановления по лизингу + `postconditions` |
+| `applyGraph` под работающим узлом / поверх чужой правки | средний | `base_revision` + quiesce (этап 4) |
+| История цен по `step_code` теряется | низкий | `price_key` в пресете; новым узлам — объявленный prior |
+| Промты в `prompts/` вне git, зависят от имён папок | низкий | `prompt_folder` в спеке, имена не меняются |
+| scene_design-веер не ляжет на `llm`+`doc` | средний | эталон №2; при провале веер остаётся частным узлом-группой |
+| 25 агентов с разным поведением при ошибке не сведутся к одной политике | средний | миграция по одному, с явным решением на каждый (этап 5) |
+
+---
+
+## 7. Вопросы владельцу (нужны до этапа 3)
+
+1. **Параллельное исполнение внутри ролика** — берём в v2 (этап 4) или
+   оставляем `parallel_nodes=1` навсегда? Влияет на воркер, холды и
+   `gen_queue`. Рекомендация: берём, дефолт 1.
+2. **Telegram-бот** — остаётся полноценным интерфейсом (тогда меню шагов
+   переписывать под граф, +3–5 дней) или сводится к уведомлениям и HITL?
+   Рекомендация: уведомления + HITL.
+3. **`montage_board`** (доска монтажа на xlsx) — жива? Если да — на БД в
+   этапе 1 (+2 дня); если нет — удаляется.
+4. **Слоты enrich 1..5 и статусы `enriching_N`** — удаляем как понятие
+   (любое число `llm`-узлов). Подтвердить: старые ролики с 5 слотами
+   мигрируют в 5 `llm`-узлов.
+5. **Объём:** полный (80–110 дней) или дешёвая альтернатива (≈20)?
+   Рекомендация — полный, в этом порядке.
