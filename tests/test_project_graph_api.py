@@ -46,8 +46,30 @@ async def test_graph_roundtrip_and_stages_reflect_it(client) -> None:
     assert res.status_code == 200, res.text
     g = res.json()
     assert g["source"] == "default" and g["proposal"] is None
-    assert {"nodes", "edges", "states", "prices", "catalog", "models"} <= set(g)
+    assert {"nodes", "edges", "states", "prices", "catalog", "models", "voices", "settings"} <= set(g)
     assert any(c["type"] == "images" and c["stage"] == "images" for c in g["catalog"])
+    # Инспектор узла читает настройки шага отсюда, а пишет через PATCH /projects.
+    assert g["voices"] and {"id", "name"} <= set(g["voices"][0])
+    assert g["settings"] == {
+        "step_params": {},
+        "auto_review_kinds": None,
+        "ai_new_window_per_check": False,
+        "auto_mode": False,
+        "bgm_level": None,
+    }
+    patched = await client.patch(
+        "/api/projects/1",
+        json={
+            "meta": {
+                "node_step_params": {"assemble": {"bgm_level": 40}},
+                "auto_review_kinds": ["approve_plan"],
+            }
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    g2 = (await client.get("/api/projects/1/graph")).json()
+    assert g2["settings"]["step_params"] == {"assemble": {"bgm_level": 40}}
+    assert g2["settings"]["auto_review_kinds"] == ["approve_plan"]
 
     # Выключаем весь сценарий: стадия «Сценарий» обязана стать skipped.
     nodes = [

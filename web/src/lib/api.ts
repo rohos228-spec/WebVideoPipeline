@@ -27,6 +27,11 @@ import type {
   NodeCatalog,
   Workflow,
   WorkflowSummary,
+  HitlDecision,
+  HitlRequest,
+  NodeGroupSummary,
+  OperatorResolve,
+  StorageResolve,
 } from "./types";
 
 export class ApiError extends Error {
@@ -118,6 +123,13 @@ const put = <T>(path: string, body: unknown) =>
 
 const del = <T>(path: string) => req<T>(path, { method: "DELETE" });
 
+/** Файл — multipart; content-type ставит браузер, вместе с boundary. */
+const upload = <T>(path: string, file: File, field = "file") => {
+  const body = new FormData();
+  body.append(field, file, file.name);
+  return req<T>(path, { method: "POST", body });
+};
+
 export const api = {
   projects: () => req<ProjectSummary[]>("/projects"),
   project: (id: number) => req<Project>(`/projects/${id}`),
@@ -154,6 +166,69 @@ export const api = {
     post<GraphApplyResult>(`/projects/${id}/graph/proposal/apply`, { proposal_id: proposalId, reset }),
   discardGraphProposal: (id: number) => del<void>(`/projects/${id}/graph/proposal`),
 
+  // ── Ход ролика ─────────────────────────────────────────────────────────
+  pauseProject: (id: number) => post<unknown>(`/projects/${id}/pause`),
+  continueProject: (id: number) => post<unknown>(`/projects/${id}/continue`),
+  stopProject: (id: number) => post<unknown>(`/projects/${id}/stop`),
+
+  // ── Проверка человеком ────────────────────────────────────────────────
+  //
+  // Та же модель, что у кнопок в Telegram: одна запись HITL, одно решение.
+  hitlForProject: (id: number) => req<HitlRequest[]>(`/hitl/project/${id}`),
+  hitlDecide: (hitlId: number, decision: HitlDecision, editedPrompt?: string) =>
+    post<HitlRequest>(`/hitl/${hitlId}/decision`, { decision, edited_prompt: editedPrompt ?? null }),
+
+  // ── Группы узлов ──────────────────────────────────────────────────────
+  //
+  // Пресеты палитры: веер агентов сцен и то, что человек сохранил сам.
+  nodeGroups: () => req<NodeGroupSummary[]>("/node-groups"),
+  insertNodeGroup: (projectId: number, groupId: string, after?: string | null) =>
+    post<{ ok?: boolean; inserted?: string[] }>(`/projects/${projectId}/canvas/groups/${groupId}`, {
+      after: after ?? null,
+    }),
+  createNodeGroupFromSelection: (
+    projectId: number,
+    body: { node_ids: string[]; title: string; description?: string; category?: string },
+  ) => post<NodeGroupSummary>(`/projects/${projectId}/node-groups/from-selection`, body),
+  deleteNodeGroup: (groupId: string) => del<{ deleted: string }>(`/node-groups/${groupId}`),
+
+  // ── Узел «Хранилище» ──────────────────────────────────────────────────
+  storageResolve: (id: number, nodeKey: string) =>
+    req<StorageResolve>(`/projects/${id}/storage/${encodeURIComponent(nodeKey)}/resolve`),
+  storageSync: (id: number, nodeKey: string) =>
+    post<{ ok: boolean; copied?: unknown[] }>(`/projects/${id}/storage/${encodeURIComponent(nodeKey)}/sync`),
+  storageUpload: (id: number, nodeKey: string, file: File) =>
+    upload<{ ok: boolean; fileName: string }>(`/projects/${id}/storage/${encodeURIComponent(nodeKey)}/upload`, file),
+  storageClear: (id: number, nodeKey: string) =>
+    del<{ ok: boolean; removed: number }>(`/projects/${id}/storage/${encodeURIComponent(nodeKey)}/files`),
+  storageZipUrl: (id: number, nodeKey: string) =>
+    `/api/projects/${id}/storage/${encodeURIComponent(nodeKey)}/download.zip`,
+
+  // ── Узел «Работа с GPT» ───────────────────────────────────────────────
+  //
+  // Конфиг живёт в `meta.excel_gpt_nodes[nodeKey]`, а не в графе: граф
+  // говорит, что узел есть, конфиг — как он работает с файлами со стрелок.
+  operatorResolve: (id: number, nodeKey: string) =>
+    req<OperatorResolve>(`/projects/${id}/gpt-operator/${encodeURIComponent(nodeKey)}/resolve`),
+  operatorPatch: (id: number, nodeKey: string, body: Record<string, unknown>) =>
+    patch<OperatorResolve>(`/projects/${id}/gpt-operator/${encodeURIComponent(nodeKey)}`, body),
+  operatorUpload: (id: number, nodeKey: string, file: File) =>
+    upload<{ fileName: string; inputSource?: string }>(
+      `/projects/${id}/excel-gpt/${encodeURIComponent(nodeKey)}/upload`,
+      file,
+    ),
+  operatorCheckAgentUpload: (id: number, nodeKey: string, file: File) =>
+    upload<{ ok?: boolean; fileName?: string; chars?: number }>(
+      `/projects/${id}/gpt-operator/${encodeURIComponent(nodeKey)}/check-agent`,
+      file,
+    ),
+  operatorCheckAgentClear: (id: number, nodeKey: string) =>
+    del<unknown>(`/projects/${id}/gpt-operator/${encodeURIComponent(nodeKey)}/check-agent`),
+  operatorCheckPromptPreview: (id: number, nodeKey: string) =>
+    req<{ prompt?: string; text?: string; preview?: string }>(
+      `/projects/${id}/gpt-operator/${encodeURIComponent(nodeKey)}/check-prompt-preview`,
+    ),
+
   frames: (id: number) => req<Frame[]>(`/projects/${id}/frames`),
   patchFrame: (projectId: number, frameId: number, body: Partial<Frame>) =>
     patch<Frame>(`/projects/${projectId}/frames/${frameId}`, body),
@@ -161,6 +236,7 @@ export const api = {
   media: (id: number, kind: "images" | "videos") =>
     req<MediaFrame[]>(`/projects/${id}/media-review?kind=${kind}`),
   assets: (id: number) => req<Asset[]>(`/projects/${id}/assets`),
+  assetsOf: (id: number, kind: string) => req<Asset[]>(`/projects/${id}/assets?kind=${encodeURIComponent(kind)}`),
 
   balance: () => req<Balance>("/billing/balance"),
   options: () => req<GenerationOptions>("/generation-options/wizard"),

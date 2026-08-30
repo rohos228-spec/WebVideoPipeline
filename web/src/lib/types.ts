@@ -262,6 +262,8 @@ export interface ProjectGraph {
   prices: Record<string, StepPrice>;
   catalog: NodeKindInfo[];
   models: { text: ModelChoice[]; image: ModelChoice[]; video: ModelChoice[] };
+  voices: ElevenLabsVoice[];
+  settings: GraphSettings;
   proposal: GraphProposal | null;
 }
 
@@ -363,4 +365,138 @@ export interface NodeKindInfo {
 export interface NodeCatalog {
   kinds: Record<string, string>;
   nodes: NodeKindInfo[];
+}
+
+// ── Настройки узлов вне графа ───────────────────────────────────────────
+//
+// Параметры шага, GPT-проверка перед авто-апрувом, автопродвижение — живут в
+// `meta` проекта, а не в узле: узел описывает форму конвейера, а это —
+// поведение конкретного ролика. Читаются из `/graph`, пишутся через
+// `PATCH /projects/{id}` с `meta`.
+
+export interface ElevenLabsVoice {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/** `meta.node_step_params[step]` — то, что читают сами шаги. */
+export type StepParams = Record<string, Record<string, unknown>>;
+
+export interface GraphSettings {
+  step_params: StepParams;
+  /** null — GPT-проверка не настроена, действует поведение по умолчанию. */
+  auto_review_kinds: string[] | null;
+  ai_new_window_per_check: boolean;
+  auto_mode: boolean;
+  bgm_level: number | null;
+}
+
+/** Виды проверок человеком / GPT — один список на сервер и Telegram. */
+export type HitlKind =
+  | "approve_plan"
+  | "approve_script"
+  | "approve_hero"
+  | "approve_images"
+  | "approve_videos"
+  | "approve_final";
+
+export interface HitlRequest {
+  id: number;
+  project_id: number;
+  frame_id: number | null;
+  kind: HitlKind | string;
+  decision: "pending" | "approved" | "regenerate" | "rejected" | string;
+  payload: Record<string, unknown>;
+  decided_at: string | null;
+  created_at: string;
+}
+
+export type HitlDecision = "approve" | "regenerate" | "reject" | "edit_prompt";
+
+// ── Группы узлов ────────────────────────────────────────────────────────
+
+export interface NodeGroupSummary {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  node_count: number;
+  nodes: { key: string; label: string; type: string }[];
+  default_after_type: string | null;
+  builtin: boolean;
+  updated_at: string | null;
+}
+
+// ── Узел «Хранилище» ────────────────────────────────────────────────────
+
+export interface StoredFile {
+  name: string;
+  path: string;
+  size: number;
+  kind: string;
+  ok: boolean;
+  fromNode: string | null;
+  fromLabel: string | null;
+  savedAt: string | null;
+  originalName: string;
+  preview_url: string | null;
+  download_url: string;
+}
+
+export interface StorageResolve {
+  nodeKey: string;
+  label: string;
+  formats: string[];
+  autoSync: boolean;
+  files: StoredFile[];
+  okFileCount: number;
+  incomingSources: { source?: string; label?: string; kind?: string; fileCount?: number }[];
+  storageDir: string;
+  lastSyncAt: string | null;
+  lastSyncCopied?: number | null;
+}
+
+// ── Узел «Работа с GPT» ─────────────────────────────────────────────────
+
+export type OperatorRole = "assist" | "review" | "transform" | "extract" | "compare" | "gate";
+export type OperatorOutputMode = "text" | "project_file" | "sidecar";
+export type OperatorEmitKind = "result" | "reply_txt" | "analysis" | "inputs";
+
+export interface OperatorFile {
+  name: string;
+  path?: string;
+  kind?: string;
+  ok?: boolean;
+  fromNode?: string | null;
+  error?: string | null;
+}
+
+export interface OperatorResolve {
+  nodeKey: string;
+  role: OperatorRole;
+  outputMode: OperatorOutputMode;
+  emitKinds: OperatorEmitKind[];
+  useSnapshot: boolean;
+  takeFromEdges: boolean;
+  checkMode: boolean;
+  checkFix: boolean;
+  checkPromptSource: "upstream" | "agent";
+  checkAgentStep?: string | null;
+  checkAgentFileName: string | null;
+  checkAgentChars?: number | null;
+  sourcePrompts?: { step?: string; label?: string; nodeKey?: string; ok?: boolean }[];
+  label: string;
+  files: OperatorFile[];
+  okFileCount: number;
+  incomingEdges: { id: string; source: string; kind: string; fileCount: number; ok: boolean; errors: string[] }[];
+  outgoingEdges?: { id?: string; target?: string; kind?: string }[];
+  branching: { hasPass?: boolean; hasFail?: boolean; verdict?: string | null; passEdges?: unknown[]; failEdges?: unknown[] };
+  analysis?: { summary?: string; checks?: unknown[]; raw_error?: string | null } | null;
+  errors: string[];
+  warnings: string[];
+  consistent: boolean;
+  canRun: boolean;
+  lastResult?: { replyPreview?: string; at?: string; ok?: boolean } | null;
+  config: Record<string, unknown>;
 }

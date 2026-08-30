@@ -109,6 +109,38 @@ def _models() -> dict[str, list[dict[str, Any]]]:
     return out
 
 
+def _voices() -> list[dict[str, str]]:
+    """Голоса озвучки — каталог живёт на сервере, инспектор его только показывает."""
+    from app.services.elevenlabs_voices import ELEVENLABS_VOICES
+
+    return [dict(v) for v in ELEVENLABS_VOICES]
+
+
+def _settings(project: Project) -> dict[str, Any]:
+    """Настройки узлов, которые хранятся не в графе, а в `meta` проекта.
+
+    Параметры шага (`node_step_params`), какие проверки делает GPT перед
+    авто-апрувом (`auto_review_kinds`) и автопродвижение. Инспектор узла
+    правит их через `PATCH /projects/{id}`, а читает отсюда — иначе ему
+    пришлось бы тянуть весь `meta`, где лежат и результаты, и снимки.
+    """
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    raw_params = meta.get("node_step_params")
+    params = (
+        {k: dict(v) for k, v in raw_params.items() if isinstance(v, dict)}
+        if isinstance(raw_params, dict)
+        else {}
+    )
+    kinds = meta.get("auto_review_kinds")
+    return {
+        "step_params": params,
+        "auto_review_kinds": [str(k) for k in kinds] if isinstance(kinds, list) else None,
+        "ai_new_window_per_check": bool(meta.get("ai_new_window_per_check")),
+        "auto_mode": bool(project.auto_mode),
+        "bgm_level": meta.get("bgm_level"),
+    }
+
+
 async def _prices(session: AsyncSession, project: Project) -> dict[str, dict[str, Any]]:
     from app.web.routers.stages import _prices as stage_prices
 
@@ -133,6 +165,8 @@ def _payload(project: Project, graph: ProjectGraph, prices: dict[str, dict[str, 
         },
         "catalog": _catalog(),
         "models": _models(),
+        "voices": _voices(),
+        "settings": _settings(project),
         "proposal": proposal_from_meta(project),
     }
 
