@@ -35,11 +35,11 @@ def test_plan_prompt_file_contains_master_not_in_chat(project: Project) -> None:
     assert "Тема теста" in content
     assert master not in chat
     assert "unique-token-xyz" not in chat
-    assert "Общий план" in content
     assert "ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ВЫВОДА" in content
-    assert "Лист «план» на этом шаге НЕ трогай" in content
-    assert "Общий план" in chat
-    assert "не лист «план»" in chat
+    assert "общий план" in chat
+    # Таблицы в контуре нет — модель не должна слышать о ней ни словом.
+    assert "xlsx" not in chat.lower() and "excel" not in chat.lower()
+    assert "xlsx" not in content.lower() and "excel" not in content.lower()
 
 
 def test_chat_message_uses_override_only(project: Project) -> None:

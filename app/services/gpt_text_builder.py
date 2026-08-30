@@ -58,7 +58,7 @@ SUPPORTED_STEPS: tuple[str, ...] = (
     "img_pr",
     "anim_pr",
     "music",
-    # Слоты «Доп работа с EXCEL» (шаг 5). Каждый слот хранит свой
+    # Слоты «Доработка данных» (шаг 5). Каждый слот хранит свой
     # override в `Project.gpt_text_overrides["enrich_<i>"]`. В отличие
     # от других шагов, тут «сопр. сообщение» = ТОЛЬКО сопровождающий
     # текст (без мастер-промта). Мастер-промт лежит отдельно в
@@ -79,7 +79,7 @@ SUPPORTED_STEPS: tuple[str, ...] = (
 ENRICH_DEFAULT_ACCOMPANYING_TEXT = (
     "Внеси изменения в данные проекта согласно инструкциям выше.\n"
     "ВАЖНО: ответ — только JSON apply-ops "
-    '({"ops":[{"frame_uuid":"…","fields":{…}}]}), без xlsx и без TSV # Лист:.'
+    '({"ops":[{"frame_uuid":"…","fields":{…}}]}), без прозы вокруг JSON.'
 )
 
 # Плейсхолдеры в шаблоне «сопр. сообщения» шага `hero`. Подставляются
@@ -214,30 +214,31 @@ def _build_plan_default(
     topic: str | None = None,
     prompt_file_name: str = "prompt_plan.md",
 ) -> str:
-    """Шаг 1 «План» (xlsx-flow): к чату прикладываются prompt_plan.md и
-    project.xlsx. Возвращает «сопр. сообщение» — короткий текст в чат,
-    без дублирования содержимого мастер-промта (он идёт файлом).
+    """Шаг 1 «План»: к чату прикладывается файл инструкции. Возвращает
+    «сопр. сообщение» — короткий текст в чат, без дублирования содержимого
+    мастер-промта (он идёт файлом). Формат ответа дописывает код
+    (`xlsx_step_runners._PLAN_DB_HINT`).
+
+    До 2026-08-27 текст просил «заполнить лист „Общий план“ и вернуть
+    .xlsx», а следом код дописывал «верни только JSON, не Excel» — модель
+    получала два противоречащих указания. Таблицы в контуре больше нет.
     """
     actual_topic = topic if topic is not None else (project.topic or "")
     context_block = _build_topic_context_block(project)
     return (
         f"Тема ролика: ({actual_topic}).\n\n"
         f"{context_block}"
-        f"Прикреплены 2 файла:\n"
-        f"  1. {prompt_file_name} — инструкция, что именно делать.\n"
-        f"  2. project.xlsx — рабочая таблица ролика.\n\n"
-        "Сделай всё, что написано в первом файле (инструкция), опираясь на "
-        "второй (project.xlsx). Заполни лист «Общий план» (не лист «план»), "
-        "остальные листы не меняй, и пришли мне обратно полный .xlsx "
-        "(без обрезок и компрессии). Кратким текстом ответь — что сделал — "
-        "но главное верни файл."
+        f"Прикреплён файл {prompt_file_name} — инструкция, что именно делать.\n\n"
+        "Сделай всё, что в ней написано: нужен общий план ролика. "
+        "Формат ответа — ниже."
     )
 
 
 def _build_script_default(project: Project, *, prompt_file_name: str = "prompt.txt") -> str:
-    """Шаг 2 — закадровый текст. В xlsx-flow к чату прикладываются
-    `prompt.txt` (мастер-промт + тема) и `project.xlsx`. Возвращаем
-    «сопр. сообщение» — основной текст письма в чат.
+    """Шаг 2 — закадровый текст. К чату прикладываются `prompt.txt`
+    (мастер-промт + тема), общий план текстом и прошлый закадр, если был
+    (см. `xlsx_step_runners.run_script_xlsx`). Возвращаем «сопр. сообщение»
+    — основной текст письма в чат.
     """
     topic = (project.topic or "").strip()
     context_block = _build_topic_context_block(project)
@@ -246,36 +247,30 @@ def _build_script_default(project: Project, *, prompt_file_name: str = "prompt.t
     return (
         f"Тема ролика: «{topic}».\n\n"
         f"{context_block}"
-        f"Прикреплены 2 файла:\n"
+        f"Прикреплены файлы:\n"
         f"  1. {prompt_file_name} — инструкция, что именно делать.\n"
-        f"  2. project.xlsx — рабочая таблица ролика (план, структура).\n\n"
-        "Сделай всё, что написано в первом файле (инструкция), опираясь на "
-        "второй (project.xlsx).\n\n"
-        "Пришли результат txt файлом в чат.\n\n"
+        f"  2. general_plan_*.txt — общий план ролика (решения шага 1).\n"
+        f"  3. voiceover.txt — прошлый закадр, если он был.\n\n"
+        "Сделай всё, что написано в инструкции, опираясь на общий план.\n\n"
         f"{VOICEOVER_OUTPUT_FORMAT}"
     )
 
 
 def _build_split_default(project: Project, *, prompt_file_name: str = "prompt.txt") -> str:
-    """Шаг 3 — разбивка на блоки (xlsx-flow). К чату прикладываются
-    `prompt.txt`, `project.xlsx`, `voiceover.txt`. Возвращаем chat_msg.
+    """Шаг 3 — разбивка на кадры. К чату прикладываются `prompt.txt` и
+    `voiceover.txt`. Формат ответа дописывает код (`_SPLIT_DB_HINT`).
     """
     topic = (project.topic or "").strip()
     context_block = _build_topic_context_block(project)
     return (
         f"Тема ролика: «{topic}».\n\n"
         + (context_block + "\n\n" if context_block else "")
-        + f"Прикреплены 3 файла:\n"
+        + f"Прикреплены 2 файла:\n"
         f"  1. {prompt_file_name} — инструкция, что именно делать.\n"
-        f"  2. project.xlsx — рабочая таблица ролика (план, структура).\n"
-        f"  3. voiceover.txt — закадровый текст, который нужно разбить "
-        f"на блоки.\n\n"
-        "Сделай всё, что написано в первом файле (инструкция), опираясь "
-        "на структуру из project.xlsx и применяя к voiceover.txt.\n\n"
-        "Все результаты ЗАПИШИ В project.xlsx (в нужные листы и ячейки) и "
-        "пришли мне обратно ОБНОВЛЁННЫЙ project.xlsx как .xlsx-файл "
-        "(без обрезок и компрессии). Кратким текстом ответь — что сделал — "
-        "но главное верни файл."
+        f"  2. voiceover.txt — закадровый текст, который нужно разбить "
+        f"на кадры.\n\n"
+        "Сделай всё, что написано в инструкции, применяя её к voiceover.txt. "
+        "Формат ответа — ниже."
     )
 
 
@@ -379,9 +374,9 @@ def _build_img_pr_default(
     n_frames: int = 0,
     prompt_file_name: str = "prompt_img_pr.md",
 ) -> str:
-    """Шаг 6 «Промты картинок» (xlsx-flow).
+    """Шаг 6 «Промты картинок».
 
-    К чату прикладываются prompt_img_pr.md и project.xlsx.
+    К чату прикладываются prompt_img_pr.md, db_frames.json и voiceover.txt.
     Возвращает «сопр. сообщение» — короткий текст в чат,
     без дублирования содержимого мастер-промта (он идёт файлом).
     """
@@ -396,7 +391,7 @@ def _build_img_pr_default(
         f"Кадров в этом запросе: {n_frames or 'см. db_frames'}.\n"
         "Сделай всё по инструкции. Верни ТОЛЬКО JSON apply-ops "
         '{"ops":[{"frame_uuid":"…","fields":{"промт_картинки":"…"}}]} '
-        "для каждого uuid из db_frames.json. Без xlsx, без TSV, без markdown."
+        "для каждого uuid из db_frames.json. Без прозы и markdown вокруг JSON."
     )
 
 

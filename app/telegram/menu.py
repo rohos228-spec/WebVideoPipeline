@@ -150,7 +150,7 @@ _STATUS_ORDER: dict[ProjectStatus, int] = {
 
 # Список (running_status, ready_status) для каждого enrich-слота 1..5.
 # Используется при динамической сборке STEPS_FOR(project) (см. ниже),
-# чтобы количество кнопок «Доп работа с EXCEL #i» соответствовало
+# чтобы количество кнопок «Доработка данных #i» соответствовало
 # projects.enrich_slots_count (по умолчанию 3, до 5).
 ENRICH_RUNNING: list[ProjectStatus] = [
     ProjectStatus.enriching_1,
@@ -190,8 +190,8 @@ def steps_for(project: Project | None) -> list[StepDef]:
     """Динамический список шагов меню для проекта.
 
     После последнего редизайна все enrich-слоты схлопнуты в ОДИН пункт
-    меню «5. Доп работа с EXCEL» (wrapper). При клике открывается
-    суб-меню с N кнопками «Доп работа с EXCEL #i» и кнопкой
+    меню «5. Доработка данных» (wrapper). При клике открывается
+    суб-меню с N кнопками «Доработка данных #i» и кнопкой
     «➕ Добавить слот». Сами слоты ПО-ПРЕЖНЕМУ имеют отдельные коды
     `enrich_1..enrich_5` в `_STEP_BY_CODE` — это нужно, чтобы
     `step_by_code("enrich_1")` находил StepDef для запуска нужного
@@ -202,7 +202,7 @@ def steps_for(project: Project | None) -> list[StepDef]:
     по умолчанию.
     """
     n_slots = enabled_enrich_slots(project)
-    # Wrapper-шаг 5 «Доп работа с EXCEL»:
+    # Wrapper-шаг 5 «Доработка данных»:
     #   - running_status:  enriching_1 (плейсхолдер, иконка «⏳»
     #     спец-кейсом обрабатывается в step_icon: ⏳ если статус ∈
     #     enriching_1..5)
@@ -246,7 +246,7 @@ def steps_for(project: Project | None) -> list[StepDef]:
         StepDef(
             5,
             "enrich",
-            "Доп работа с EXCEL",
+            "Доработка данных",
             ProjectStatus.enriching_1,  # плейсхолдер; ⏳ спец-кейсом
             enrich_ready,
             _objects_requires_for_step5(),
@@ -309,10 +309,10 @@ def _enrich_slot_step(slot: int) -> StepDef:
     """Создать StepDef для отдельного enrich-слота 1..5."""
     return StepDef(
         # Номер шага «-1» означает «не присутствует в основном списке»
-        # (под кнопкой 5 «Доп работа с EXCEL» — sub-step).
+        # (под кнопкой 5 «Доработка данных» — sub-step).
         -1,
         f"enrich_{slot}",
-        f"Доп работа с EXCEL #{slot}",
+        f"Доработка данных #{slot}",
         ENRICH_RUNNING[slot - 1],
         ENRICH_READY[slot - 1],
         # Префиквизит:
@@ -322,7 +322,7 @@ def _enrich_slot_step(slot: int) -> StepDef:
     )
 
 
-# Базовый список (wrapper «Доп работа с EXCEL») — для обратной
+# Базовый список (wrapper «Доработка данных») — для обратной
 # совместимости импортов `from app.telegram.menu import STEPS`.
 # Большинство мест в коде ходят через `step_by_code()`, который
 # работает поверх этого базового списка + sub-step'ы enrich_1..5.
@@ -333,7 +333,7 @@ STEPS: list[StepDef] = steps_for(None)
 # плюс sub-step'ы:
 #   - "hero"  — старая Hero-логика (sub-step под «Объекты»)
 #   - "items" — реф-картинки предметов (sub-step под «Объекты»)
-#   - "enrich_1..5" — sub-step'ы под «Доп работа с EXCEL»
+#   - "enrich_1..5" — sub-step'ы под «Доработка данных»
 # Они недоступны напрямую из основного меню (n=-1), но нужны для:
 #   - step_by_code("hero") при эмуляции через on_objects_persons
 #   - step_by_code("enrich_1") при клике в enrich submenu
@@ -603,7 +603,7 @@ def project_menu_kb(project: Project) -> InlineKeyboardMarkup:
                 ProjectStatus.generating_hero,
                 ProjectStatus.generating_items,
             )
-        # Спец-кейс шаг 5 «Доп работа с EXCEL» (wrapper):
+        # Спец-кейс шаг 5 «Доработка данных» (wrapper):
         # «running», если статус в любом из enriching_1..5.
         elif s.code == "enrich":
             is_running_now = project.status in ENRICH_RUNNING
@@ -628,7 +628,7 @@ def project_menu_kb(project: Project) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text=label, callback_data=cb)])
 
     # NB: кнопки «➕ Добавить слот» в основном меню больше нет —
-    # она переехала внутрь подменю «Доп работа с EXCEL» (enrich_submenu_kb).
+    # она переехала внутрь подменю «Доработка данных» (enrich_submenu_kb).
 
     # Шестая строка: настройки (пересмотреть / сбросить)
     if wiz_ok:
@@ -732,7 +732,7 @@ def objects_submenu_kb(project: Project) -> InlineKeyboardMarkup:
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="🧾 Из EXCEL",
+                    text="🧾 Из реестра",
                     callback_data=f"proj:{project.id}:objects:persons_xlsx",
                 )
             ]
@@ -829,10 +829,10 @@ def images_submenu_kb(project: Project) -> InlineKeyboardMarkup:
 
 
 def enrich_submenu_kb(project: Project) -> InlineKeyboardMarkup:
-    """Подменю шага 5 «Доп работа с EXCEL».
+    """Подменю шага 5 «Доработка данных».
 
     Содержит:
-      - N кнопок «Доп работа с EXCEL #1..#N» (N = enrich_slots_count).
+      - N кнопок «Доработка данных #1..#N» (N = enrich_slots_count).
         ВСЕ слоты доступны для клика — даже «заблокированные» (юзер
         может заранее сконфигурить шаблон/сопр. сообщение, а запуск
         будет проверен только в picker'е по нажатию «▶ Запустить шаг»).
@@ -864,15 +864,15 @@ def enrich_submenu_kb(project: Project) -> InlineKeyboardMarkup:
         can_run = status_order(project.status) >= status_order(prereq)
 
         if is_running:
-            label = f"⏳ Доп работа с EXCEL #{i} · идёт…"
+            label = f"⏳ Доработка данных #{i} · идёт…"
         elif is_done:
-            label = f"✅ Доп работа с EXCEL #{i} (перезапустить)"
+            label = f"✅ Доработка данных #{i} (перезапустить)"
         elif can_run:
-            label = f"▶ Доп работа с EXCEL #{i}"
+            label = f"▶ Доработка данных #{i}"
         else:
             # Раньше тут стоял noop-замок. Теперь даём войти в
             # picker — настроить шаблон + сопр. сообщение заранее.
-            label = f"⚙ Доп работа с EXCEL #{i} (настроить заранее)"
+            label = f"⚙ Доработка данных #{i} (настроить заранее)"
         # ВСЕ слоты ведут на step-handler — он покажет picker.
         cb = f"proj:{project.id}:step:enrich_{i}"
         rows.append([InlineKeyboardButton(text=label, callback_data=cb)])

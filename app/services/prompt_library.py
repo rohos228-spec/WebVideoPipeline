@@ -43,6 +43,10 @@ PROMPTS_ROOT = Path(__file__).resolve().parent.parent.parent / "prompts"
 # Ключи совпадают с `StepDef.code` в `app/telegram/menu.py`.
 STEP_FOLDERS: dict[str, str] = {
     "plan": "01_plan",
+    # 1a. Режим героя: тема → hero | no_hero, один вызов до плана. Папки на
+    # диске может не быть — встроенный промт в `app/services/hero_decision.py`,
+    # файл его лишь замещает.
+    "hero_decision": "01a_hero_decision",
     "script": "02_script",
     "split": "03_razbivka",
     "hero": "04_hero",
@@ -60,7 +64,7 @@ STEP_FOLDERS: dict[str, str] = {
     # некому. Папка на диске может отсутствовать — у шага есть встроенный
     # промт (`app/services/cast_extract.py`), файл его лишь замещает.
     "cast": "04c_cast",
-    # Слоты «Доп работа с EXCEL» (xlsx round-trip с ChatGPT) — каждый
+    # Слоты «Доработка данных» (xlsx round-trip с ChatGPT) — каждый
     # слот имеет свою папку, чтобы юзер мог хранить разные промты.
     "enrich_1": "05a_enrich_1",
     "enrich_2": "05b_enrich_2",
@@ -82,21 +86,22 @@ STEP_FOLDERS: dict[str, str] = {
 # Человеческое имя шага (для текстовых сообщений в TG).
 STEP_HUMAN_NAMES: dict[str, str] = {
     "plan": "1. Сценарий",
+    "hero_decision": "1a. Режим героя (hero / no_hero)",
     "script": "2. Закадровый текст",
     "split": "3. Разбивка на блоки",
     "hero": "4. Персонажи (Объекты)",
     "hero_style": "4. Hero — стиль персонажа",
     "items": "4. Предметы (Объекты)",
     "cast": "4. Разбор состава (кого рисовать)",
-    # Все слоты — суб-шаги одного wrapper-шага «5. Доп работа с EXCEL»,
+    # Все слоты — суб-шаги одного wrapper-шага «5. Доработка данных»,
     # поэтому в названии номер шага не указываем (он зависит от
     # n_slots, и для UX-промтов важен номер слота, а не позиция в меню).
-    "enrich_1": "Доп работа с EXCEL #1",
-    "enrich_2": "Доп работа с EXCEL #2",
-    "enrich_3": "Доп работа с EXCEL #3",
-    "enrich_4": "Доп работа с EXCEL #4",
-    "enrich_5": "Доп работа с EXCEL #5",
-    "excel_gpt": "Доп работа с Excel",
+    "enrich_1": "Доработка данных #1",
+    "enrich_2": "Доработка данных #2",
+    "enrich_3": "Доработка данных #3",
+    "enrich_4": "Доработка данных #4",
+    "enrich_5": "Доработка данных #5",
+    "excel_gpt": "Доработка данных",
     "img_pr": "6. Промты картинок",
     "anim_pr": "8. Промты анимации",
     "music": "10. Музыка",

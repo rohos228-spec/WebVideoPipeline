@@ -15,6 +15,21 @@ from app.services.hitl import send_hitl_text
 from app.storage import for_project as _sheet_for_project
 
 
+def _hero_decision_template() -> str | None:
+    """Промт решения о герое из библиотеки; None — сработает встроенный.
+
+    Папки `prompts/01a_hero_decision/` может не быть — встроенный промт лежит
+    в `hero_decision.DEFAULT_PROMPT`, файл или запись в базе его замещает.
+    """
+    try:
+        from app.services.prompt_library import read_prompt
+
+        text = (read_prompt("hero_decision", "default") or "").strip()
+        return text or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     if project.status is not ProjectStatus.planning:
         return
@@ -24,6 +39,15 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         xsr.XLSX_STEP_RUNNERS_ID,
         project.topic,
     )
+
+    # Режим героя решается здесь, один раз, и попадает в промт плана готовым
+    # указанием — модель внутри плана его больше не выбирает. Явный выбор
+    # человека (`hero` / `no_hero`) не трогаем; решается только `auto`.
+    from app.services.gpt_client import get_gpt_client
+    from app.services.hero_decision import ensure_hero_mode
+
+    await ensure_hero_mode(project, get_gpt_client(), template=_hero_decision_template())
+    await session.flush()
 
     result = await xsr.run_plan_xlsx(project)
     plan_text = (result.plan_text or "").strip()

@@ -710,7 +710,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         logger.warning(
             "[#{}] generate_images: очередь пуста — кадров в БД={}, "
             "с image_prompt={}, валидных PNG на диске={}, без PNG но с промтом={}. "
-            "Нужны промты в БД (img_pr / Импорт Excel).",
+            "Нужны промты в БД (шаг img_pr или импорт).",
             project.id,
             len(frames),
             with_prompt,
@@ -718,7 +718,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             missing,
         )
         if with_prompt == 0:
-            raise RuntimeError("в БД нет image_prompt. Сделай img_pr или явный Импорт Excel.")
+            raise RuntimeError("в БД нет image_prompt. Сделай img_pr или импорт.")
         if missing:
             raise RuntimeError(
                 f"в БД есть промты, на диске нет картинок, но очередь outsee=0 "

@@ -8,7 +8,9 @@
 
 from __future__ import annotations
 
+import re
 import shutil
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -155,6 +157,121 @@ def _get_master_or_fallback(project: Project, step_code: str, fallback: str) -> 
         return fallback
 
 
+# ── Режим героя: указание вместо выбора ─────────────────────────────────
+#
+# До 2026-08-27 при `hero_mode=auto` промт плана содержал раздел «hero_needed —
+# как решать», промт закадра — «РЕЖИМ ОПРЕДЕЛИ САМ», и модель решала сама,
+# причём на каждом шаге заново. Теперь режим решается один раз до плана
+# (`app/services/hero_decision.py`) и ложится в `project.hero_mode`; сюда
+# приходит готовый режим, и промт получает прямое указание, а разделы про
+# выбор из него вырезаются — в том числе из промтов в базе и старых файлов
+# библиотеки, которые их ещё содержат.
+#
+# `auto` сюда доезжает только если решение не состоялось (легаси-путь
+# Telegram идёт мимо `make_plan`). Тогда правила выбора подставляются из
+# кода — тот же текст, что раньше жил в промте, — чтобы шаг не сломался.
+
+_PLAN_HOW_TO_DECIDE = (
+    "Реши сам, нужен ли ролику сквозной персонаж, и поставь `hero_needed=true` "
+    "или `hero_needed=false`.\n"
+    "`true` — если у ролика есть индивидуальный герой, за которым зритель "
+    "следит: конкретный человек (названный или узнаваемый по роли), животное, "
+    "персонаж. Он появляется больше чем в одном кадре и с ним что-то происходит.\n"
+    "`false` — если ролик про явление, процесс, место, список фактов, "
+    "устройство чего-либо; люди в кадре есть, но они взаимозаменяемы.\n"
+    "Не ставь `true` «чтобы было живее»: сквозной герой — это обязательство "
+    "держать одинаковое лицо во всех кадрах, без сюжетной нужды он только "
+    "добавляет брака."
+)
+
+PLAN_HERO_DIRECTIVES: dict[str, str] = {
+    "hero": (
+        "hero_needed=true. У ролика есть сквозной герой — конкретный человек, "
+        "животное или персонаж, за которым зритель следит. Строй крючок, ход и "
+        "финал вокруг него: он появляется больше чем в одном кадре, с ним "
+        "что-то происходит, зритель понимает, чем он рискует. В блоке про "
+        "героя поставь `hero_needed=true` и назови его одной строкой: кто он "
+        "и что с ним происходит."
+    ),
+    "no_hero": (
+        "hero_needed=false. Сквозного героя нет: ролик про явление, процесс, "
+        "место, факты или устройство чего-либо; люди в кадре, если есть, "
+        "взаимозаменяемы. Не вводи персонажа «чтобы было живее». В блоке про "
+        "героя поставь `hero_needed=false`."
+    ),
+    "auto": _PLAN_HOW_TO_DECIDE,
+}
+
+SCRIPT_HERO_DIRECTIVES: dict[str, str] = {
+    "hero": (
+        "РЕЖИМ: A (герой). В плане hero_needed=true. "
+        "Найди главного персонажа по теме и плану, "
+        "пиши персонажный сценарий — см. раздел «РЕЖИМ A» в инструкции."
+    ),
+    "no_hero": (
+        "РЕЖИМ: B (тема). hero_needed=false. "
+        "Без биографического героя — подробно раскрой тему, "
+        "см. раздел «РЕЖИМ B» в инструкции."
+    ),
+    "auto": ("РЕЖИМ: определи сам по общему плану (hero_needed и содержание плана) — A или B."),
+}
+
+#: Заголовок раздела мастер-промта: строка `## …`.
+_SECTION_HEAD = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+#: Несколько разделителей подряд после вырезания раздела → один.
+_DUP_RULES = re.compile(r"(?:\n[ \t]*---[ \t]*\n\s*){2,}")
+
+
+def _hero_mode(project: Project) -> str:
+    mode = (getattr(project, "hero_mode", None) or "auto").strip()
+    return mode if mode in ("hero", "no_hero") else "auto"
+
+
+def drop_sections(text: str, should_drop: Callable[[str], bool]) -> str:
+    """Убрать из мастер-промта разделы `## …`, для заголовка которых предикат
+    вернул True. Раздел — от своего заголовка до следующего `## ` или конца.
+    Текст до первого заголовка не трогаем.
+    """
+    heads = list(_SECTION_HEAD.finditer(text))
+    if not heads:
+        return text
+    out: list[str] = [text[: heads[0].start()]]
+    for i, h in enumerate(heads):
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+        if not should_drop(h.group(1)):
+            out.append(text[h.start() : end])
+    return _DUP_RULES.sub("\n---\n\n", "".join(out))
+
+
+def select_plan_sections(master: str, mode: str) -> str:
+    """При известном режиме раздел «hero_needed — как решать» не нужен."""
+    if mode == "auto":
+        return master
+    return drop_sections(master, lambda t: t.lower().startswith("hero_needed"))
+
+
+def select_script_sections(master: str, mode: str) -> str:
+    """Оставить только раздел выбранного режима: A при hero, B при no_hero.
+
+    «РЕЖИМ ОПРЕДЕЛИ САМ» уходит всегда, когда режим известен. Имена разделов
+    зафиксированы в шапке `prompts/02_script/default.md`.
+    """
+    if mode == "auto":
+        return master
+
+    def _drop(title: str) -> bool:
+        t = title.upper()
+        if not t.startswith("РЕЖИМ"):
+            return False
+        if "ОПРЕДЕЛИ" in t:
+            return True
+        tag = t[len("РЕЖИМ") :].strip().split(" ")[0] if len(t) > len("РЕЖИМ") else ""
+        keep = "A" if mode == "hero" else "B"
+        return tag in ("A", "B") and tag != keep
+
+    return drop_sections(master, _drop)
+
+
 # Footer для plan: DB/текст SoT (не xlsx/TSV). См. docs/PROMPT_CONTRACT.md.
 PLAN_XLSX_OUTPUT_FOOTER = (
     "\n\n---\n"
@@ -163,8 +280,6 @@ PLAN_XLSX_OUTPUT_FOOTER = (
     "(не короче ~200 символов).\n"
     '2. Можно обернуть в JSON {"general_plan":"…"} '
     "или просто связный текст плана.\n"
-    "3. Не прикладывай xlsx и не используй блоки TSV «# Лист:…» — "
-    "данные пишутся в DB проекта, Excel только экспорт.\n"
 )
 
 
@@ -181,16 +296,14 @@ def write_plan_prompt_file(
         "plan",
         "# plan\n\nМастер-промт для шага «План» ещё не настроен.",
     )
-    hero_hint = {
-        "hero": ("Игнорируй автоматическое определение hero_needed, выставь hero_needed=true."),
-        "no_hero": ("Игнорируй автоматическое определение hero_needed, выставь hero_needed=false."),
-        "auto": "",
-    }.get(project.hero_mode, "")
-    extra = f"\n\nДополнительное указание: {hero_hint}" if hero_hint else ""
+    mode = _hero_mode(project)
+    hero_hint = PLAN_HERO_DIRECTIVES.get(mode, "")
+    extra = f"\n\n---\n\nУКАЗАНИЕ ПРОЕКТА:\n{hero_hint}\n" if hero_hint else ""
     prompt_file = tmp_dir / f"prompt_plan_{ts or _timestamp()}.txt"
     from app.services.gpt_text_builder import inject_topic_placeholders
 
     master = inject_topic_placeholders(master, actual_topic)
+    master = select_plan_sections(master, mode)
     prompt_file.write_text(
         f"Тема ролика: ({actual_topic})\n\n{master}{extra}{PLAN_XLSX_OUTPUT_FOOTER}",
         encoding="utf-8",
@@ -205,24 +318,12 @@ def write_script_prompt_file(project: Project, tmp_dir: Path, *, ts: str | None 
         "script",
         "Мастер-промт для шага «Закадровый текст» ещё не настроен.",
     )
-    hero_hint = {
-        "hero": (
-            "РЕЖИМ: A (герой). В плане hero_needed=true. "
-            "Найди главного персонажа по теме и плану, "
-            "пиши персонажный сценарий — см. раздел «РЕЖИМ A» в инструкции."
-        ),
-        "no_hero": (
-            "РЕЖИМ: B (тема). hero_needed=false. "
-            "Без биографического героя — подробно раскрой тему, "
-            "см. раздел «РЕЖИМ B» в инструкции."
-        ),
-        "auto": (
-            "РЕЖИМ: определи сам по листу «Общий план» в xlsx (hero_needed и содержание плана) — A или B."
-        ),
-    }.get(project.hero_mode or "auto", "")
+    mode = _hero_mode(project)
+    hero_hint = SCRIPT_HERO_DIRECTIVES.get(mode, "")
     from app.services.gpt_text_builder import inject_topic_placeholders
 
     prompt_text = inject_topic_placeholders(prompt_text, topic)
+    prompt_text = select_script_sections(prompt_text, mode)
     extra = f"\n\n---\n\nУКАЗАНИЕ ПРОЕКТА:\n{hero_hint}\n" if hero_hint else ""
     prompt_file = tmp_dir / f"prompt_script_{ts or _timestamp()}.txt"
     prompt_file.write_text(

@@ -249,7 +249,7 @@ async def run(
     timeline_frames, cells = timeline_frames_and_cells(project, frames)
     if not timeline_frames:
         raise RuntimeError(
-            "нет закадрового текста в БД (Frame.voiceover_text) — сделай split/Импорт Excel или заполни Базу"
+            "нет закадрового текста в БД (Frame.voiceover_text) — сделай split или заполни базу"
         )
 
     if voice_path is not None and voice_path.is_file():
