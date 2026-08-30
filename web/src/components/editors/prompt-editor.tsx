@@ -22,7 +22,19 @@ import type { StagePrompt } from "@/lib/types";
  * случайного нажатия не должен. Отсюда явное «Сохранить» и видимая пометка
  * о несохранённом.
  */
-export function PromptEditor({ prompts, projectId }: { prompts: StagePrompt[]; projectId: number }) {
+export function PromptEditor({
+  prompts,
+  projectId,
+  name,
+  nodeKey,
+}: {
+  prompts: StagePrompt[];
+  projectId: number;
+  /** Править ровно этот файл: выбор варианта живёт снаружи (инспектор узла). */
+  name?: string | null;
+  /** Узел, за который отвечает редактор — для честного «какой файл возьмёт шаг». */
+  nodeKey?: string;
+}) {
   const [step, setStep] = useState(prompts[0]?.step ?? "");
 
   if (prompts.length === 0) {
@@ -48,12 +60,22 @@ export function PromptEditor({ prompts, projectId }: { prompts: StagePrompt[]; p
           ))}
         </div>
       )}
-      <OnePrompt key={step} step={step} projectId={projectId} />
+      <OnePrompt key={`${step}::${name ?? ""}`} step={step} projectId={projectId} fixedName={name ?? null} nodeKey={nodeKey} />
     </div>
   );
 }
 
-function OnePrompt({ step, projectId }: { step: string; projectId: number }) {
+function OnePrompt({
+  step,
+  projectId,
+  fixedName,
+  nodeKey,
+}: {
+  step: string;
+  projectId: number;
+  fixedName: string | null;
+  nodeKey?: string;
+}) {
   const qc = useQueryClient();
   const [name, setName] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
@@ -62,8 +84,8 @@ function OnePrompt({ step, projectId }: { step: string; projectId: number }) {
   // Какой файл шаг возьмёт на самом деле. Вариантов может быть несколько, и
   // без этого пользователь правил бы не тот, что применяется.
   const resolved = useQuery({
-    queryKey: ["prompt-resolve", step, projectId],
-    queryFn: () => api.promptResolve(step, projectId),
+    queryKey: ["prompt-resolve", step, projectId, nodeKey ?? ""],
+    queryFn: () => api.promptResolve(step, projectId, nodeKey),
   });
 
   const files = useQuery({
@@ -71,7 +93,7 @@ function OnePrompt({ step, projectId }: { step: string; projectId: number }) {
     queryFn: () => api.promptFiles(step),
   });
 
-  const active = name ?? resolved.data?.name ?? null;
+  const active = fixedName ?? name ?? resolved.data?.name ?? null;
 
   const content = useQuery({
     queryKey: ["prompt-content", step, active],
@@ -85,7 +107,7 @@ function OnePrompt({ step, projectId }: { step: string; projectId: number }) {
       setDraft(null);
       qc.invalidateQueries({ queryKey: ["prompt-content", step, active] });
       qc.invalidateQueries({ queryKey: ["prompt-history", step, active] });
-      qc.invalidateQueries({ queryKey: ["prompt-resolve", step, projectId] });
+      qc.invalidateQueries({ queryKey: ["prompt-resolve", step, projectId, nodeKey ?? ""] });
       toast.success("Промт сохранён — следующий прогон пойдёт по нему");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -120,25 +142,32 @@ function OnePrompt({ step, projectId }: { step: string; projectId: number }) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {(files.data ?? []).map((f) => (
-            <button
-              key={f.name}
-              onClick={() => {
-                setName(f.name);
-                setDraft(null);
-              }}
-              className={`font-mono text-[11px] ${
-                f.name === active ? "text-content" : "text-content-faint hover:text-content-muted"
-              }`}
-            >
-              {f.name}
-            </button>
-          ))}
-          {resolved.data && resolved.data.name === active && (
-            <Chip tone="ok">{resolved.data.source_label}</Chip>
-          )}
-        </div>
+        {/* Список файлов — переключатель библиотеки. Когда файл задан снаружи
+            (инспектор узла), эти кнопки врали бы: они меняли бы только то,
+            что видно, а узел всё равно берёт свой вариант. */}
+        {fixedName ? (
+          <span className="font-mono text-[11px] text-content">{active}</span>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            {(files.data ?? []).map((f) => (
+              <button
+                key={f.name}
+                onClick={() => {
+                  setName(f.name);
+                  setDraft(null);
+                }}
+                className={`font-mono text-[11px] ${
+                  f.name === active ? "text-content" : "text-content-faint hover:text-content-muted"
+                }`}
+              >
+                {f.name}
+              </button>
+            ))}
+            {resolved.data && resolved.data.name === active && (
+              <Chip tone="ok">{resolved.data.source_label}</Chip>
+            )}
+          </div>
+        )}
         <button
           onClick={() => setShowHistory((v) => !v)}
           className="text-[12px] text-content-faint hover:text-accent"

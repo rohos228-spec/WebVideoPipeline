@@ -61,6 +61,35 @@ NODE_LABELS: dict[str, str] = {
     "hitl_gate": "Проверка человеком",
 }
 
+#: Роли узла «Работа с GPT» в веере сцен — то, что лежит в `data.sd_agent`.
+#: Реестр самих агентов — `app/services/scene_design/agents.py`; здесь только
+#: подписи, по той же причине, что и у типов узлов: держать список на фронте
+#: значило бы завести вторую копию, которая разъедется с первой.
+SCENE_AGENT_LABELS: dict[str, str] = {
+    "skeleton": "скелет · нити",
+    "characters": "персонажи",
+    "world": "мир",
+    "action": "действие",
+    "camera": "камера",
+    "assemble": "сборка сцен",
+}
+
+
+def scene_agent_choices() -> list[dict[str, str]]:
+    """Маркеры веера в порядке волн; снятые с волн (style) не предлагаются.
+
+    Агент, появившийся в реестре без подписи, показывается кодом, а не
+    пропадает: пропажа означала бы, что новую ноду веера нельзя собрать
+    руками, и понять это можно было бы только по исходникам.
+    """
+    from app.services.scene_design.agents import ALL_AGENTS, ASSEMBLER, DEPRECATED_AGENTS
+
+    known = {*ALL_AGENTS, ASSEMBLER} - set(DEPRECATED_AGENTS)
+    out = [{"id": a, "label": SCENE_AGENT_LABELS[a]} for a in SCENE_AGENT_LABELS if a in known]
+    out += [{"id": a, "label": a} for a in sorted(known - set(SCENE_AGENT_LABELS))]
+    return out
+
+
 #: Разделы палитры. Порядок — порядок появления в конвейере, а не алфавит:
 #: палитрой пользуются, чтобы дособрать цепочку, и искать узел проще там, где
 #: он стоит по смыслу.
@@ -101,7 +130,7 @@ async def node_catalog() -> dict:
     nodes = [entry(t, "config") for t in sorted(CONFIG_NODE_TYPES)]
     nodes += [entry(t, "work") for t in WORK_NODES]
     nodes += [entry(t, "hitl") for t in sorted(HITL_NODE_TYPES)]
-    return {"kinds": NODE_KINDS, "nodes": nodes}
+    return {"kinds": NODE_KINDS, "nodes": nodes, "scene_agents": scene_agent_choices()}
 
 
 @router.get("", response_model=list[WorkflowSummary])

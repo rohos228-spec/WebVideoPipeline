@@ -9,6 +9,7 @@ import { HitlPanel, hitlKindForNodeType } from "./hitl-panel";
 import { StoragePanel } from "./storage-panel";
 import { OperatorPanel } from "./operator-panel";
 import { NodeResult } from "./node-result";
+import { NodePrompt } from "./node-prompt";
 import type {
   ElevenLabsVoice,
   GenerationOptions,
@@ -17,6 +18,7 @@ import type {
   ModelChoice,
   NodeKindInfo,
   NodeState,
+  SceneAgentChoice,
 } from "@/lib/types";
 
 /**
@@ -77,6 +79,7 @@ export function NodeInspector({
   node,
   count,
   catalog,
+  sceneAgents,
   project,
   onChange,
   onRemove,
@@ -87,6 +90,8 @@ export function NodeInspector({
   /** Сколько узлов выделено — при нескольких инспектор показывает групповые действия. */
   count: number;
   catalog: NodeKindInfo[];
+  /** Роли веера сцен для «Работы с GPT»; список приезжает с сервера. */
+  sceneAgents?: SceneAgentChoice[];
   /** Режим проекта: состояние, цена, запуск, сброс, модель, параметры. */
   project?: InspectorProject;
   onChange: (next: GraphNode) => void;
@@ -146,6 +151,8 @@ export function NodeInspector({
   const canRun = Boolean(project && step && !disabled && project.state !== "running");
   const canReset = Boolean(project && step && (project.state === "done" || project.state === "failed"));
   const hitlKind = hitlKindForNodeType(node.type);
+  // Маркер веера: `agent` — ключ старых канвасов, читается наравне с новым.
+  const marker = (data.sd_agent as string) || (data.agent as string) || "";
   const setData = (patch: Record<string, unknown>) => {
     const next = { ...data, ...patch };
     for (const k of Object.keys(patch)) if (patch[k] === undefined || patch[k] === "") delete next[k];
@@ -311,12 +318,49 @@ export function NodeInspector({
           </Section>
         )}
 
+        {node.type === "excel_gpt" && (sceneAgents?.length ?? 0) > 0 && (
+          <Section title="Веер сцен" open={Boolean(marker)}>
+            <select
+              value={marker}
+              // `agent` снимаем вместе с новым ключом: иначе «обычная нода»
+              // на старом канвасе не снимала бы роль — маркер остался бы в нём.
+              onChange={(e) => setData({ sd_agent: e.target.value || undefined, agent: undefined })}
+              className="w-full rounded-sm border border-border bg-surface-raised px-2 py-1 text-[13px] text-content"
+            >
+              <option value="">обычная нода</option>
+              {(sceneAgents ?? []).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-content-faint">
+              {marker
+                ? `Ответ узла уйдёт сборщику сцен как срез этого агента. Промт выберите парный — обычно sd_${marker}.`
+                : "Обычная нода работает по своему промту сама по себе. Роль делает её частью веера сцен: срез уходит сборщику, а шаг ищет узел именно по ней."}
+            </p>
+          </Section>
+        )}
+
         <Section title="Промт" open={!project}>
           {info?.has_prompt && step ? (
-            // Тот же редактор, что в ленте стадий: это буквально один файл, и
-            // правка из схемы обязана быть видна в стадии. Без проекта правится
-            // общий промт, не переопределение.
-            <PromptEditor prompts={[{ step, label: "Промт узла" }]} projectId={project?.id ?? 0} />
+            project ? (
+              // В ролике у узла есть свой выбор варианта — им и собран веер
+              // агентов. Редактор внутри тот же, что в ленте стадий: файл
+              // один, и правка из схемы обязана быть видна в стадии.
+              <NodePrompt
+                projectId={project.id}
+                step={step}
+                nodeKey={node.id}
+                variant={project.settings.prompt_variants?.[node.id] ?? ""}
+                perNode={node.type === "excel_gpt"}
+                onVariant={(name) => project.onMeta({ prompt_slot_variants: { [node.id]: { main: name } } })}
+              />
+            ) : (
+              // Без проекта привязывать нечего: в шаблоне нет ни meta, ни
+              // прогонов — правится общий промт шага.
+              <PromptEditor prompts={[{ step, label: "Промт узла" }]} projectId={0} />
+            )
           ) : (
             <Empty>У этого узла нет промта — он не обращается к модели, а делает работу кодом.</Empty>
           )}

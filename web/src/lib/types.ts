@@ -261,6 +261,7 @@ export interface ProjectGraph {
   states: Record<string, NodeState>;
   prices: Record<string, StepPrice>;
   catalog: NodeKindInfo[];
+  scene_agents: SceneAgentChoice[];
   models: { text: ModelChoice[]; image: ModelChoice[]; video: ModelChoice[] };
   voices: ElevenLabsVoice[];
   settings: GraphSettings;
@@ -365,6 +366,13 @@ export interface NodeKindInfo {
 export interface NodeCatalog {
   kinds: Record<string, string>;
   nodes: NodeKindInfo[];
+  scene_agents: SceneAgentChoice[];
+}
+
+/** Роль узла «Работа с GPT» в веере сцен — значение `data.sd_agent`. */
+export interface SceneAgentChoice {
+  id: string;
+  label: string;
 }
 
 // ── Настройки узлов вне графа ───────────────────────────────────────────
@@ -390,6 +398,8 @@ export interface GraphSettings {
   ai_new_window_per_check: boolean;
   auto_mode: boolean;
   bgm_level: number | null;
+  /** node id → назначенный узлу вариант промта (`meta.prompt_slot_variants`). */
+  prompt_variants: Record<string, string>;
 }
 
 /** Виды проверок человеком / GPT — один список на сервер и Telegram. */

@@ -106,6 +106,21 @@ def _node_data(node: dict[str, Any]) -> dict[str, Any]:
     return dict(data) if isinstance(data, dict) else {}
 
 
+#: Типы, у которых маркер веера вообще что-то значит (`effective_node_type`).
+_MARKED_NODE_TYPES: frozenset[str] = frozenset({"excel_gpt", "sd_agent", "sd_assemble"})
+
+
+def _scene_agent_markers() -> set[str]:
+    """Допустимые значения `data.sd_agent`.
+
+    Снятые с волн агенты (style) остаются допустимыми: они лежат в графах
+    старых роликов, и запрет означал бы, что такой ролик больше не сохранить.
+    """
+    from app.services.scene_design.agents import ALL_AGENTS, ASSEMBLER, DEPRECATED_AGENTS
+
+    return {*ALL_AGENTS, ASSEMBLER, *DEPRECATED_AGENTS}
+
+
 def edge_kind(edge: dict[str, Any]) -> str:
     data = edge.get("data") if isinstance(edge.get("data"), dict) else {}
     kind = str((data or {}).get("kind") or edge.get("kind") or "after").strip().lower()
@@ -664,6 +679,7 @@ def normalize_graph(
     from app.services.excel_gpt_node import assign_slot_indices, migrate_enrich_nodes
 
     valid_types = all_node_types()
+    valid_markers = _scene_agent_markers()
     clean_nodes: list[dict[str, Any]] = []
     for n in nodes:
         if not isinstance(n, dict) or not n.get("id"):
@@ -673,7 +689,18 @@ def normalize_graph(
             raise GraphError(
                 f"неизвестный тип узла {typ!r} у {n.get('id')}; есть: {', '.join(sorted(valid_types))}"
             )
-        clean = {"id": str(n["id"]), "type": typ, "data": _node_data(n)}
+        data = _node_data(n)
+        if typ in _MARKED_NODE_TYPES:
+            marker = str(data.get("sd_agent") or data.get("agent") or "").strip()
+            if marker and marker not in valid_markers:
+                # Опечатка в маркере не видна ничем: планировщик посчитает
+                # ноду обычной «Работой с GPT», а сцен-дизайн просто не найдёт
+                # агента — веер молча соберётся без него.
+                raise GraphError(
+                    f"неизвестная роль в веере сцен {marker!r} у {n['id']}; "
+                    f"есть: {', '.join(sorted(valid_markers))}"
+                )
+        clean = {"id": str(n["id"]), "type": typ, "data": data}
         if isinstance(n.get("position"), dict):
             clean["position"] = dict(n["position"])
         clean_nodes.append(clean)

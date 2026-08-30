@@ -211,6 +211,25 @@ def test_normalize_rejects_unknown_types_and_cycles():
     assert not check["valid"] and any("цикл" in e for e in check["errors"])
 
 
+def test_normalize_checks_scene_agent_marker():
+    """Опечатка в роли веера ничем не видна: планировщик посчитает ноду
+    обычной «Работой с GPT», а сцен-дизайн просто не найдёт агента."""
+    from app.services.excel_gpt_node import effective_node_type
+
+    ok, _, _ = normalize_graph([{"id": "a", "type": "excel_gpt", "data": {"sd_agent": "world"}}], [])
+    assert effective_node_type(ok[0]) == "sd_agent"
+    # Сборщик — свой тип: планировщик разводит веер и сборку по статусам.
+    asm, _, _ = normalize_graph([{"id": "a", "type": "excel_gpt", "data": {"sd_agent": "assemble"}}], [])
+    assert effective_node_type(asm[0]) == "sd_assemble"
+    # style снят с волн, но лежит в графах старых роликов — их надо сохранять.
+    legacy, _, _ = normalize_graph([{"id": "a", "type": "excel_gpt", "data": {"agent": "style"}}], [])
+    assert legacy[0]["data"]["agent"] == "style"
+    with pytest.raises(GraphError, match="роль в веере"):
+        normalize_graph([{"id": "a", "type": "excel_gpt", "data": {"sd_agent": "wolrd"}}], [])
+    # На типах без веера ключ ничего не значит и проверке не подлежит.
+    assert normalize_graph([{"id": "a", "type": "images", "data": {"agent": "кто угодно"}}], [])[0]
+
+
 def test_node_step_code_knows_enrich_slots_and_scene_agents():
     assert node_step_code({"id": "x", "type": "images", "data": {}}) == "img"
     assert node_step_code({"id": "x", "type": "excel_gpt", "data": {"slotIndex": 2}}) == "enrich_2"

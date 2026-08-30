@@ -426,24 +426,93 @@ _STEP_PREFERRED_SLOT: dict[str, str] = {
 }
 
 
+def node_prompt_variants(meta: dict | None) -> dict[str, str]:
+    """node_key → назначенный ноде вариант промта (слот `main`, иначе любой).
+
+    Читает инспектор узла: он показывает, какой файл берёт именно этот узел,
+    и пишет выбор туда же. Форма хранения — общая с Node Studio и группами
+    узлов (`app/services/node_groups.py`), поэтому вариант, проставленный
+    вставкой веера агентов, виден в интерфейсе как выбранный.
+    """
+    if not isinstance(meta, dict):
+        return {}
+    slot_variants = meta.get("prompt_slot_variants")
+    if not isinstance(slot_variants, dict):
+        return {}
+    out: dict[str, str] = {}
+    for node_key, slots in slot_variants.items():
+        if not isinstance(slots, dict):
+            continue
+        name = ""
+        for slot_id in ("main", "gpt", "prompt"):
+            name = _clean_variant_name(str(slots.get(slot_id) or ""))
+            if name:
+                break
+        if not name:
+            for raw in slots.values():
+                name = _clean_variant_name(str(raw or ""))
+                if name:
+                    break
+        if name:
+            out[str(node_key)] = name
+    return out
+
+
+def _canvas_node_steps(meta: dict | None, step_code: str) -> dict[str, str]:
+    """node_key → код шага по `meta.canvas_graph` (типы из реестра нод).
+
+    Пусто, если у самого `step_code` нет ноды в реестре: у `hero_style` её
+    нет, промт живёт на узле `hero`, и отсекать такой слот по несовпадению
+    кодов значило бы выключить его вовсе.
+    """
+    if not isinstance(meta, dict):
+        return {}
+    cg = meta.get("canvas_graph")
+    nodes = cg.get("nodes") if isinstance(cg, dict) else None
+    if not isinstance(nodes, list):
+        return {}
+    from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
+
+    if step_code not in set(NODE_TYPE_TO_STEP_CODE.values()):
+        return {}
+    out: dict[str, str] = {}
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_id = str(node.get("id") or "").strip()
+        step = NODE_TYPE_TO_STEP_CODE.get(str(node.get("type") or "").strip())
+        if node_id and step:
+            out[node_id] = step
+    return out
+
+
 def _variant_from_studio_meta(meta: dict | None, step_code: str) -> str | None:
     """Вариант из Node Studio: `meta.prompt_slot_variants[node][slot]`.
 
     Зеркало `web/src/lib/prompt-slot-storage.ts` → `activeVariantForSlot`:
     для hero_style — слот `style`; иначе сначала `main`, потом любой
     существующий файл шага.
+
+    Слоты чужих шагов пропускаются: `default` лежит в папке каждого шага, и
+    без этой проверки привязка, выбранная на одном узле, молча становилась
+    промтом всех остальных. Узлы, которых нет в `canvas_graph` (метаданные
+    времён Node Studio), считаются как раньше — своими.
     """
     if not meta or step_code not in STEP_FOLDERS:
         return None
     slot_variants = meta.get("prompt_slot_variants")
     if not isinstance(slot_variants, dict):
         return None
+    node_steps = _canvas_node_steps(meta, step_code)
     preferred_slot = _STEP_PREFERRED_SLOT.get(step_code, "main")
     found_preferred: str | None = None
     found_main: str | None = None
     found_other: str | None = None
-    for slots in slot_variants.values():
+    for node_key, slots in slot_variants.items():
         if not isinstance(slots, dict):
+            continue
+        node_step = node_steps.get(str(node_key))
+        if node_step and node_step != step_code:
             continue
         for slot_id, variant in slots.items():
             clean = _clean_variant_name(str(variant or ""))

@@ -230,6 +230,9 @@ function ProjectGraphPage({ projectId }: { projectId: number }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["graph", projectId] });
       qc.invalidateQueries({ queryKey: ["project", projectId] });
+      // Промт узла тоже живёт в meta: без этого «сейчас узел берёт …»
+      // осталось бы показывать прежний файл до перезагрузки страницы.
+      qc.invalidateQueries({ queryKey: ["prompt-resolve"] });
     },
     onError: fail,
   });
@@ -337,7 +340,11 @@ function ProjectGraphPage({ projectId }: { projectId: number }) {
   const selectedInfo = gd.catalog.find((c) => c.type === selectedNode?.type);
   const selectedPrice = selectedInfo?.step_code ? gd.prices[selectedInfo.step_code]?.price_credits : undefined;
   const proposal = gd.proposal;
-  const catalog: NodeCatalog = { kinds: { work: "Шаги", hitl: "Проверки", config: "Настройка" }, nodes: gd.catalog };
+  const catalog: NodeCatalog = {
+    kinds: { work: "Шаги", hitl: "Проверки", config: "Настройка" },
+    nodes: gd.catalog,
+    scene_agents: gd.scene_agents,
+  };
   const busy = runStep.isPending || resetStep.isPending || save.isPending || patchMeta.isPending;
   const running = p.generation_active;
   const paused = p.status === "paused";
@@ -527,6 +534,7 @@ function ProjectGraphPage({ projectId }: { projectId: number }) {
             node={selectedNode}
             count={selected.length}
             catalog={gd.catalog}
+            sceneAgents={gd.scene_agents}
             project={{
               id: projectId,
               state: selectedNode ? gd.states[selectedNode.id] : undefined,
@@ -817,6 +825,7 @@ function TemplatePage() {
             node={selectedNode}
             count={selected.length}
             catalog={catalog.data?.nodes ?? []}
+            sceneAgents={catalog.data?.scene_agents ?? []}
             onChange={g.updateNode}
             onRemove={() => g.remove()}
             onDetach={() => g.detach()}

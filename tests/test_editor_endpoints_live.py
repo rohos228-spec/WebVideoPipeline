@@ -104,6 +104,9 @@ def test_catalog_is_not_empty(client) -> None:
     body = r.json()
     assert len(body["nodes"]) > 20
     assert body["kinds"]
+    # Роли веера сцен нужны и шаблону: маркер живёт в данных узла, а не в meta.
+    assert {"characters", "world", "assemble"} <= {a["id"] for a in body["scene_agents"]}
+    assert "style" not in {a["id"] for a in body["scene_agents"]}  # снят с волн
 
 
 def test_graph_validation_separates_good_from_broken(client) -> None:

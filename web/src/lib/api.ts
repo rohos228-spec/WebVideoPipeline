@@ -258,11 +258,16 @@ export const api = {
   promptFiles: (step: string) => req<PromptFileInfo[]>(`/prompt-files/${step}`),
   promptContent: (step: string, name: string) =>
     req<PromptFileContent>(`/prompt-files/${step}/${name}/content`),
-  /** Какой файл реально возьмёт шаг — с учётом проектных переопределений. */
-  promptResolve: (step: string, projectId?: number) =>
-    req<PromptResolveInfo>(
-      `/prompt-files/${step}/resolve${projectId ? `?project_id=${projectId}` : ""}`,
-    ),
+  /** Какой файл реально возьмёт шаг — с учётом проектных переопределений.
+   *  `nodeKey` важен там, где узлов одного типа несколько («Работа с GPT»):
+   *  без него все они отвечали бы одним переопределением на весь ролик. */
+  promptResolve: (step: string, projectId?: number, nodeKey?: string) => {
+    const q = new URLSearchParams();
+    if (projectId) q.set("project_id", String(projectId));
+    if (nodeKey) q.set("node_key", nodeKey);
+    const tail = q.toString();
+    return req<PromptResolveInfo>(`/prompt-files/${step}/resolve${tail ? `?${tail}` : ""}`);
+  },
   savePrompt: (step: string, name: string, content: string) =>
     put<PromptFileContent>(`/prompt-files/${step}/${name}`, { content }),
   deletePrompt: (step: string, name: string) => del<unknown>(`/prompt-files/${step}/${name}`),

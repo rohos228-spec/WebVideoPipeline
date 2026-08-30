@@ -120,10 +120,13 @@ def _settings(project: Project) -> dict[str, Any]:
     """Настройки узлов, которые хранятся не в графе, а в `meta` проекта.
 
     Параметры шага (`node_step_params`), какие проверки делает GPT перед
-    авто-апрувом (`auto_review_kinds`) и автопродвижение. Инспектор узла
-    правит их через `PATCH /projects/{id}`, а читает отсюда — иначе ему
-    пришлось бы тянуть весь `meta`, где лежат и результаты, и снимки.
+    авто-апрувом (`auto_review_kinds`), автопродвижение и промт, назначенный
+    узлу (`prompt_slot_variants`). Инспектор узла правит их через
+    `PATCH /projects/{id}`, а читает отсюда — иначе ему пришлось бы тянуть
+    весь `meta`, где лежат и результаты, и снимки.
     """
+    from app.services.prompt_library import node_prompt_variants
+
     meta = project.meta if isinstance(project.meta, dict) else {}
     raw_params = meta.get("node_step_params")
     params = (
@@ -138,6 +141,7 @@ def _settings(project: Project) -> dict[str, Any]:
         "ai_new_window_per_check": bool(meta.get("ai_new_window_per_check")),
         "auto_mode": bool(project.auto_mode),
         "bgm_level": meta.get("bgm_level"),
+        "prompt_variants": node_prompt_variants(meta),
     }
 
 
@@ -149,6 +153,7 @@ async def _prices(session: AsyncSession, project: Project) -> dict[str, dict[str
 
 def _payload(project: Project, graph: ProjectGraph, prices: dict[str, dict[str, Any]]) -> dict[str, Any]:
     from app.web.routers.stages import _credits
+    from app.web.routers.workflows import scene_agent_choices
 
     states = node_states(project, graph)
     return {
@@ -164,6 +169,9 @@ def _payload(project: Project, graph: ProjectGraph, prices: dict[str, dict[str, 
             for code, p in prices.items()
         },
         "catalog": _catalog(),
+        # Роль узла в веере сцен: список тот же, что в палитре шаблона —
+        # маркер живёт в данных узла и едет с графом, а не в meta ролика.
+        "scene_agents": scene_agent_choices(),
         "models": _models(),
         "voices": _voices(),
         "settings": _settings(project),
