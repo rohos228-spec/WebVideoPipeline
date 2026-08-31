@@ -28,6 +28,20 @@ class CapacitySplitExhausted(ag.SceneDesignAgentError):
     """Уже дробили /2 и /4 — дальше только hard-fail, без повторного split."""
 
 
+class ShortChunkAnswer(ag.SceneDesignAgentError):
+    """Кусок вернул заметно меньше объектов, чем в него отдали кадров.
+
+    У чанков `validate=False` (валидируется только склейка), поэтому обрыв
+    ответа доезжал до `merge_agent_slices` как «валидный» результат: сцены
+    молча терялись, а падало это через пять минут и совсем в другом месте —
+    «биты скелета без фазы». Живой прогон 2026-08-31: gpt-5.6-sol на один и
+    тот же кусок отдавал то 4500 токенов, то 700, и 28 сцен превращались в 19.
+
+    Наследуется от капасити-семейства (`is_capacity_failure` ниже пускает
+    его в split): не влезло в ответ — дроби кусок, а не повторяй целиком.
+    """
+
+
 class CreditsExhausted(ag.SceneDesignAgentError):
     """402 / нет кредитов — стоп без retry и без split (не жечь баланс)."""
 
@@ -74,6 +88,8 @@ def is_capacity_failure(exc: BaseException) -> bool:
     """
     if isinstance(exc, (CapacitySplitExhausted, CreditsExhausted)):
         return False
+    if isinstance(exc, ShortChunkAnswer):
+        return True
     if is_credits_failure(exc):
         return False
     kind, code = _gpt_codes(exc)
@@ -231,3 +247,25 @@ def merge_agent_slices(
         list_key,
     )
     return {list_key: merged}
+
+
+def short_chunk_problem(agent: str, data: Any, *, frames_in_chunk: int, label: str) -> str | None:
+    """Описание недобора, если кусок вернул подозрительно мало объектов.
+
+    ``None`` — всё в порядке. Порог сознательно грубый (меньше половины):
+    задача не поймать «на одну сцену меньше», а отличить обрыв ответа от
+    результата. Считаем только для дробимых агентов и только когда кадров
+    в куске достаточно, чтобы доля что-то значила.
+    """
+    if agent not in SPLITTABLE_AGENTS or frames_in_chunk < 4:
+        return None
+    key = ag.LIST_KEY.get(agent)
+    if not key:
+        return None
+    items = data.get(key) if isinstance(data, dict) else None
+    got = len(items) if isinstance(items, list) else 0
+    if got * 2 >= frames_in_chunk:
+        return None
+    return (
+        f"кусок {label} вернул {got} «{key}» на {frames_in_chunk} кадров — это обрыв ответа, а не результат"
+    )

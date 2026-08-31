@@ -329,6 +329,25 @@ async def start_step(
 
     # Excel → DB только через явный Import (excel_io), не на старте шага.
 
+    # Ноды «Работы с GPT» вне слотов 1..5 (data.slotOverflow — все проверки,
+    # включая те, что приходят в штатной группе «Сцены: веер агентов») дают
+    # slot=0, а running-статуса под такой слот не существует. Проверяем это
+    # ЗДЕСЬ, до wipe: раньше `running_status_for_slot(0)` падал `KeyError: 0`
+    # ниже по функции — уже после `clear_step_outputs_for_rerun`, и неудачный
+    # старт стирал результат шага.
+    if step_code == "excel_gpt" and node_key:
+        from app.orchestrator.graph.planner import load_graph_for_project
+        from app.services.excel_gpt_node import slot_index_from_node as _slot_of
+
+        _graph = await load_graph_for_project(session, project)
+        _node = _graph._by_id.get(str(node_key))
+        if _node is not None and _slot_of(_node) == 0:
+            raise ValueError(
+                f"excel_gpt: нода {node_key!r} стоит вне слотов доработки (1..5) и "
+                "не может быть запущена шагом — снимите у неё «вне слотов» "
+                "(data.slotOverflow) или поставьте на свободный слот"
+            )
+
     for code in _WRAPPER_TO_CODES.get(step_code, [step_code]):
         purge_tmp_gpt_for_step(project, code)
 

@@ -2513,9 +2513,18 @@ async def _chat_unscoped(
 
     # П.16-17: брейкер per-провайдер. Ключ — реальный текстовый провайдер
     # (kie/vibecode/tokenrouter/grsai), а не модель: лежит шлюз, не модель.
+    #
+    # …но не только шлюз: у одного шлюза транспорты живут независимо. Живой
+    # прогон 2026-08-31: vibecode отдавал 502 на `/v1/messages` (формат
+    # Anthropic) и одновременно нормально отвечал на `/v1/chat/completions`
+    # тем же объёмом. Общий ключ гасил здоровый транспорт вместе с больным и
+    # ронял проект в получасовую паузу. Поэтому ключ = провайдер + транспорт;
+    # модель по-прежнему в ключ не входит.
     from app.services import provider_breaker
 
-    breaker_key = "vibecode" if _node_vibecode_override() else str(settings.text_llm_provider or "kie")
+    _provider = "vibecode" if _node_vibecode_override() else str(settings.text_llm_provider or "kie")
+    _transport = "messages" if anthropic_route else ("responses" if responses_mode else "chat")
+    breaker_key = f"{_provider}:{_transport}"
 
     attempt = 0
     last_exc: Exception | None = None

@@ -737,7 +737,7 @@ async def _run_one_agent_adaptive(
 
     async def _call_once() -> dict[str, Any]:
         # max_retries=0: первый 524 сразу в /2 split, не жечь GPT_MAX_RETRIES.
-        return await _run_one_agent(
+        data = await _run_one_agent(
             project,
             name,
             ctx,
@@ -746,6 +746,14 @@ async def _run_one_agent_adaptive(
             max_retries=0,
             expected_frame_numbers=vo_nums if name == ag.SKELETON else None,
         )
+        # У чанка `validate=False` — целиком проверяется только склейка.
+        # Поэтому обрыв ответа доезжал до merge как валидный результат и
+        # сцены терялись молча. Дешёвая проверка покрытия здесь превращает
+        # тихую недостачу в capacity-failure, который умеет дробить кусок.
+        problem = ach.short_chunk_problem(name, data, frames_in_chunk=len(frame_list), label=label)
+        if problem:
+            raise ach.ShortChunkAnswer(f"scene_design/{name}: {problem}")
+        return data
 
     try:
         return await _call_once()

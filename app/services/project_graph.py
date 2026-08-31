@@ -841,7 +841,12 @@ async def apply_project_graph(
             logger.warning(
                 "[#{}] graph apply: reset {} failed: {}", project.id, plan.first_step, reset_summary["error"]
             )
-    await session.flush()
+    # Коммит здесь, а не у вызывающего. Соседний `insert_node_group` фиксирует
+    # транзакцию сам, и асимметрия стоила отладки: программный вызов (агент,
+    # скрипт, миграция) отрабатывал «успешно», печатал верный диф и не менял
+    # ничего — правки уезжали при закрытии сессии. Веб-роут вызывает
+    # `_after_change` с ещё одним commit; повторный commit безвреден.
+    await session.commit()
     logger.info(
         "[#{}] graph applied ({}): {}; reset={}",
         project.id,

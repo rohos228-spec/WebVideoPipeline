@@ -1321,8 +1321,13 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
     # а gpt_reply.txt остаётся — иначе UI «результат пуст» при готовом ответе.
     last = hydrate_check_result_from_disk(project, node_key, last)
 
-    pass_edges = [e for e in outgoing if is_pass_edge_kind(str(e.get("kind") or ""))]
-    fail_edges = [e for e in outgoing if is_fail_edge_kind(str(e.get("kind") or ""))]
+    # Вид связи канон живёт в edge["data"]["kind"] — туда его кладут и
+    # apply_graph_ops, и node_groups._edge(). Верхнеуровневый edge["kind"]
+    # заполняет только фронт, поэтому чтение мимо `edge_kind_of` врало
+    # «нет стрелки Ок» на корректно связанной ноде — в том числе на
+    # проверках из штатной группы «Сцены: веер агентов».
+    pass_edges = [e for e in outgoing if is_pass_edge_kind(edge_kind_of(e))]
+    fail_edges = [e for e in outgoing if is_fail_edge_kind(edge_kind_of(e))]
     branching_enabled = role in BRANCHING_ROLES or check_mode
     if branching_enabled:
         if not pass_edges:
