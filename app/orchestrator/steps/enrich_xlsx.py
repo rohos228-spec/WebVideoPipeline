@@ -852,6 +852,29 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                     image_paths=data_paths,
                     kind=kind_hint,
                 )
+                # Картинки — в ленты, как видео уже уходит сеткой выше.
+                # Строго ПОСЛЕ снапшота: «База» строится пофреймово по именам
+                # файлов, и лента её обнулила бы.
+                #
+                # Сырые PNG на полном разрешении (2K ≈ 3 МБ) в запрос не
+                # влезали вовсе: и 33 кадра, и даже 8 давали HTTP 413
+                # (`anthropic.RequestTooLargeError`) — то есть весь контур
+                # проверки кадров на ролике штатной длины не запускался.
+                # Лента 768 px с подписанными панелями решает и вес, и
+                # путаницу «какая панель какой кадр» — тем же приёмом, что
+                # `animation_prompt_gpt` и `video_sheet`.
+                if kind_hint in ("scenes", "hero"):
+                    from app.services.vision_check_media import pack_images_for_vision
+
+                    packed = pack_images_for_vision(data_paths, project.data_dir / "tmp_vision_strips")
+                    if packed != data_paths:
+                        logger.info(
+                            "[#{}] enrich_xlsx: {} картинок → {} лент(ы) для vision",
+                            project.id,
+                            len(data_paths),
+                            len(packed),
+                        )
+                        data_paths = packed
             except Exception:  # noqa: BLE001
                 logger.exception(
                     "[#{}] enrich_xlsx: vision DB snapshot failed",

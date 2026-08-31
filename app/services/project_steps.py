@@ -402,6 +402,23 @@ async def start_step(
 
         sd_runner.set_only_agent(project, sd_agent_name)
     running_status = step.running_status
+    # Явный node_key обязан побеждать `meta.active_excel_gpt_node_key` на любом
+    # коде шага, а не только на «excel_gpt». Раньше при `enrich_1..5` ключ молча
+    # выбрасывался, а `enrich_xlsx` брал узел из протухшей meta: запрошенный
+    # слот 2 (`n_check_images`) исполнялся как `n_check_hero` — оплаченная
+    # vision-проверка не по адресу, без ошибки и предупреждения.
+    if step_code != "excel_gpt" and node_key and str(step_code).startswith("enrich_"):
+        meta = dict(project.meta or {})
+        if meta.get("active_excel_gpt_node_key") != str(node_key):
+            meta["active_excel_gpt_node_key"] = str(node_key)
+            project.meta = meta
+            await session.flush()
+            logger.info(
+                "[#{}] start_step {}: активная нода → {} (явный node_key)",
+                project.id,
+                step_code,
+                node_key,
+            )
     if step_code == "excel_gpt":
         from app.orchestrator.graph.planner import load_graph_for_project
         from app.services.excel_gpt_node import (

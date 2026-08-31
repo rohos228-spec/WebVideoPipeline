@@ -862,6 +862,33 @@ async def upsert_characters(
             en.type = "character"
         n += 1
     await session.flush()
+
+    # Инвариант «один cNN — одно тело» кодом не проверялся нигде, хотя на нём
+    # стоит раздача фотореференсов. Живой прогон 2026-08-31: агент положил в
+    # c02 «трое взрослых круглых существ», кадр получил одну фотографию и
+    # расстановку на троих — брак стал бы виден только на готовых картинках.
+    # Шумим и складываем в meta, но не роняем запись: карточки пишет модель,
+    # а поправить формулировку человек ещё успевает.
+    try:
+        from loguru import logger
+        from sqlalchemy.orm.attributes import flag_modified
+
+        from app.services.cast_invariants import check_cast_cards
+
+        problems = check_cast_cards([_normalize_character_card(raw) for raw in characters])
+        if problems:
+            logger.warning(
+                "[#{}] реестр персонажей: {}",
+                project.id,
+                "; ".join(problems[:5]),
+            )
+            meta = dict(project.meta or {}) if isinstance(project.meta, dict) else {}
+            meta["cast_invariant_warnings"] = problems
+            project.meta = meta
+            flag_modified(project, "meta")
+            await session.flush()
+    except Exception:  # noqa: BLE001 — проверка не должна ронять применение
+        logger.exception("[#{}] проверка инвариантов реестра упала", project.id)
     return n
 
 

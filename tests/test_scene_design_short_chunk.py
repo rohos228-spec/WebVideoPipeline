@@ -61,3 +61,19 @@ def test_garbage_payload_counts_as_short() -> None:
 def test_short_answer_routes_to_split_not_to_plain_retry() -> None:
     """Не влезло в ответ — дроби кусок; это capacity-семейство."""
     assert is_capacity_failure(ShortChunkAnswer("scene_design/action: кусок p2/3 вернул 2"))
+
+
+def test_vibecode_batch_budget_is_below_measured_ceiling() -> None:
+    """33 кадра больше не уходят одним пограничным вызовом.
+
+    Измерено живым прогоном: потолок ответа ~94k символов, и на нём провайдер
+    недетерминирован — тот же запрос то проходил, то обрезался.
+    """
+    from app.services.output_batch_plan import (
+        IMG_PR_CHARS_PER_FRAME,
+        PROVIDER_BATCH_CHAR_BUDGET,
+    )
+
+    budget = PROVIDER_BATCH_CHAR_BUDGET["vibecode"]
+    assert budget < 94_000, "бюджет обязан быть ниже измеренной границы, а не впритык"
+    assert 33 * IMG_PR_CHARS_PER_FRAME / budget > 1, "33 кадра должны дробиться"

@@ -134,10 +134,49 @@ async def drain_anim_pr_from_image_prompts(
         return {"batches": int(stats.get("batches") or 0), "pending": left}
 
 
+async def _pending_now(project_id: int) -> int | None:
+    """Сколько кадров ещё без промта анимации. ``None`` — посчитать не вышло.
+
+    Нужно после исключения: `drain_...` бросает и не возвращает stats, а
+    отличить «упал, но часть сохранил» от «упал вхолостую» можно только по
+    остатку очереди.
+    """
+    from app.db import SessionLocal
+    from app.services import animation_prompt_gpt as apg
+
+    try:
+        async with SessionLocal() as session:
+            project = await session.get(Project, project_id)
+            if project is None:
+                return None
+            frames = (
+                (
+                    await session.execute(
+                        select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            return len(apg.collect_batch_items(project, list(frames)))
+    except Exception:  # noqa: BLE001 — диагностика не должна ронять цикл
+        return None
+
+
+#: Сколько проходов подряд разрешено упасть БЕЗ движения очереди, прежде чем
+#: сайдкар сдастся. Каждый проход — оплаченный вызов модели, а цикл ничем не
+#: ограничен: живой прогон 2026-08-31 встал на восьми кадрах и жёг вызов
+#: каждые ~70 секунд до конца шага картинок. Падения при этом чередовались с
+#: прогрессом (33 → 27 → 24 → 8), поэтому считаем именно застой, а не отказы.
+_MAX_STUCK_ROUNDS = 3
+
+
 async def _sidecar_loop(project_id: int) -> None:
     from app.db import SessionLocal
 
     idle_rounds = 0
+    stuck_rounds = 0
+    pending_before_fail: int | None = None
     try:
         while True:
             try:
@@ -146,8 +185,27 @@ async def _sidecar_loop(project_id: int) -> None:
                 raise
             except Exception:  # noqa: BLE001
                 logger.exception("[#{}] anim_pr_sidecar: drain failed", project_id)
+                left = await _pending_now(project_id)
+                if left is not None and left != pending_before_fail:
+                    # Очередь сдвинулась — проход был не вхолостую.
+                    stuck_rounds = 0
+                    pending_before_fail = left
+                else:
+                    stuck_rounds += 1
+                    if stuck_rounds >= _MAX_STUCK_ROUNDS:
+                        logger.warning(
+                            "[#{}] anim_pr_sidecar: {} проходов подряд без движения "
+                            "очереди (осталось {}) — останавливаюсь, добьёт штатный "
+                            "шаг anim_pr",
+                            project_id,
+                            stuck_rounds,
+                            left if left is not None else "?",
+                        )
+                        break
                 await asyncio.sleep(20)
                 continue
+            stuck_rounds = 0
+            pending_before_fail = None
 
             batches = int(stats.get("batches") or 0)
             pending = int(stats.get("pending") or 0)
