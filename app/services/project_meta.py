@@ -147,6 +147,17 @@ def merge_project_meta(
             merged[key] = _merge_canvas_graph(base.get(key), patch.get(key))
             continue
         merged[key] = _merge_protected_bucket(base.get(key), patch.get(key))
+    if "prompt_slot_variants" in patch or "canvas_graph" in patch:
+        # Инспектор узла пишет привязку промта патчем в `meta`, а не в
+        # `node.data.config`. Без переноса свежий выбор человека остался бы
+        # в старом месте, а чтение брало бы устаревший контейнер с узла —
+        # тот же дефект наизнанку. Перенос идёт только legacy → контейнер и
+        # только по узлам, у которых запись в бакете есть: конфиг из ниоткуда
+        # не появляется, а привязка скопированного узла (она едет в `data`,
+        # записи в бакете у неё нет) не затирается.
+        from app.services.node_config import sync_prompt_slots_into_graph
+
+        sync_prompt_slots_into_graph(merged)
     audit_prompt_meta_change(
         source=source,
         project_id=project_id,

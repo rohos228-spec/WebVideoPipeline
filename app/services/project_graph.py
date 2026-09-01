@@ -85,6 +85,14 @@ LAYOUT_BASE_Y = 200
 #: Подпись и описание — оформление; позиция вообще не в data.
 _COSMETIC_DATA_KEYS: frozenset[str] = frozenset({"label", "description", "title"})
 
+#: Поля `data`, которые только зеркалят правду из других полей и потому не
+#: судят об устаревании сами. `config` (см. `app/services/node_config`) —
+#: контейнер конфига узла: модель в нём дублирует `data.modelId`, привязка
+#: промта — `meta.prompt_slot_variants`. Инвалидацию по-прежнему решают
+#: исходные поля, иначе первое же сохранение после переезда сожгло бы
+#: результаты всех настроенных узлов разом.
+_MIRRORED_DATA_KEYS: frozenset[str] = frozenset({"config"})
+
 
 class GraphError(ValueError):
     """Граф не принят: ошибки валидации или операция не имеет смысла."""
@@ -104,6 +112,13 @@ def all_node_types() -> set[str]:
 def _node_data(node: dict[str, Any]) -> dict[str, Any]:
     data = node.get("data")
     return dict(data) if isinstance(data, dict) else {}
+
+
+def node_model_id(node: dict[str, Any]) -> str | None:
+    """Модель узла с приоритетом `data.config.modelId` (см. `node_config`)."""
+    from app.services.node_config import model_id_of
+
+    return model_id_of(node)
 
 
 #: Типы, у которых маркер веера вообще что-то значит (`effective_node_type`).
@@ -449,7 +464,11 @@ def reset_plan(
             mark(node_step_code(node), f"узел «{item['label']}» удалён")
     for item in diff.changed_nodes:
         node = new_by[item["id"]]  # изменённый узел есть в новом графе по построению
-        meaningful = [c for c in item.get("changes", []) if c not in _COSMETIC_DATA_KEYS and c != "disabled"]
+        meaningful = [
+            c
+            for c in item.get("changes", [])
+            if c not in _COSMETIC_DATA_KEYS and c not in _MIRRORED_DATA_KEYS and c != "disabled"
+        ]
         if meaningful and is_work_node_type(str(node.get("type") or "")):
             mark(node_step_code(node), f"узел «{item['label']}» изменён ({', '.join(meaningful)})")
     for item in diff.added_nodes:
@@ -731,6 +750,23 @@ def normalize_graph(
     return clean_nodes, clean_edges, check
 
 
+def _migrated_pair(
+    old_nodes: list[dict[str, Any]],
+    new_nodes: list[dict[str, Any]],
+    meta: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Обе стороны дифа с проставленным `data.config`.
+
+    Симметрия обязательна. Мигрируй только новую сторону — и `graph_diff`
+    увидел бы у каждого настроенного узла новый ключ `config`, а
+    `reset_plan` посчитал бы это правкой узла: первое же сохранение графа
+    после выката сожгло бы результаты всей цепочки.
+    """
+    from app.services.node_config import migrate_graph_configs
+
+    return migrate_graph_configs(old_nodes, meta), migrate_graph_configs(new_nodes, meta)
+
+
 # ── Предложение (proposal) ───────────────────────────────────────────────
 
 
@@ -759,8 +795,10 @@ async def propose_project_graph(
     if not check["valid"]:
         raise GraphError("граф не проходит проверку: " + "; ".join(check["errors"]), check["errors"])
     current = await load_project_graph(session, project)
-    diff = graph_diff(current.nodes, current.edges, clean_nodes, clean_edges)
-    plan = reset_plan(project, current.nodes, clean_nodes, diff)
+    meta_now = project.meta if isinstance(project.meta, dict) else {}
+    current_nodes, clean_nodes = _migrated_pair(current.nodes, clean_nodes, meta_now)
+    diff = graph_diff(current_nodes, current.edges, clean_nodes, clean_edges)
+    plan = reset_plan(project, current_nodes, clean_nodes, diff)
     proposal = {
         "id": uuid.uuid4().hex[:8],
         "author": author,
@@ -809,15 +847,27 @@ async def apply_project_graph(
     удалением половины узлов, если человек так решил.
     """
     from app.services.canvas_graph import build_canvas_graph_payload, sync_run_snapshot_from_canvas_graph
+    from app.services.node_config import prune_configs_for_removed_nodes
 
     clean_nodes, clean_edges, check = normalize_graph(nodes, edges)
     if not check["valid"]:
         raise GraphError("граф не проходит проверку: " + "; ".join(check["errors"]), check["errors"])
     current = await load_project_graph(session, project)
-    diff = graph_diff(current.nodes, current.edges, clean_nodes, clean_edges)
-    plan = reset_plan(project, current.nodes, clean_nodes, diff)
-
     meta = dict(project.meta or {}) if isinstance(project.meta, dict) else {}
+    # Переезд конфига узла в `data.config` — здесь, при сохранении графа, и
+    # только здесь: миграция на чтении меняла бы состояние проекта от опроса
+    # UI. Обе стороны прогоняются одной и той же функцией, иначе первое
+    # сохранение показало бы «изменены все узлы» на пустом месте.
+    current_nodes, clean_nodes = _migrated_pair(current.nodes, clean_nodes, meta)
+    diff = graph_diff(current_nodes, current.edges, clean_nodes, clean_edges)
+    plan = reset_plan(project, current_nodes, clean_nodes, diff)
+
+    # Узел ушёл — конфиг уходит с ним. В `data.config` это происходит само,
+    # а старые бакеты в `meta` переживали удаление и доставались следующему
+    # узлу с тем же id (находка 12 живого прогона 2026-08-31).
+    dropped = prune_configs_for_removed_nodes(meta, [str(n["id"]) for n in diff.removed_nodes])
+    if dropped:
+        logger.info("[#{}] graph apply: конфиг удалённых узлов снят — {}", project.id, ", ".join(dropped))
     meta["canvas_graph"] = build_canvas_graph_payload(
         workflow_id=int(current.workflow_id or 0),
         nodes=clean_nodes,
@@ -956,8 +1006,9 @@ def describe_graph(project: Project, graph: ProjectGraph) -> dict[str, Any]:
             item["stage"] = stage
         if data.get("disabled") is True:
             item["disabled"] = True
-        if data.get("modelId"):
-            item["model_id"] = str(data["modelId"])
+        model_id = node_model_id(n)
+        if model_id:
+            item["model_id"] = model_id
         nodes.append(item)
     edges = [_edge_brief(e) for e in graph.edges]
     return {"source": graph.source, "nodes": nodes, "edges": edges}
@@ -981,7 +1032,7 @@ def stage_nodes(graph: ProjectGraph, states: dict[str, str]) -> dict[str, list[d
                 "step_code": node_step_code(n),
                 "state": states.get(str(n.get("id")), "pending"),
                 "disabled": node_disabled(n),
-                "model_id": _node_data(n).get("modelId") or None,
+                "model_id": node_model_id(n),
             }
         )
     return out

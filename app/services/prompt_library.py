@@ -436,13 +436,10 @@ def node_prompt_variants(meta: dict | None) -> dict[str, str]:
     """
     if not isinstance(meta, dict):
         return {}
-    slot_variants = meta.get("prompt_slot_variants")
-    if not isinstance(slot_variants, dict):
-        return {}
+    from app.services.node_config import all_prompt_slots
+
     out: dict[str, str] = {}
-    for node_key, slots in slot_variants.items():
-        if not isinstance(slots, dict):
-            continue
+    for node_key, slots in all_prompt_slots(meta).items():
         name = ""
         for slot_id in ("main", "gpt", "prompt"):
             name = _clean_variant_name(str(slots.get(slot_id) or ""))
@@ -498,8 +495,10 @@ def _variant_from_studio_meta(meta: dict | None, step_code: str) -> str | None:
     """
     if not meta or step_code not in STEP_FOLDERS:
         return None
-    slot_variants = meta.get("prompt_slot_variants")
-    if not isinstance(slot_variants, dict):
+    from app.services.node_config import all_prompt_slots
+
+    slot_variants = all_prompt_slots(meta)
+    if not slot_variants:
         return None
     node_steps = _canvas_node_steps(meta, step_code)
     preferred_slot = _STEP_PREFERRED_SLOT.get(step_code, "main")
@@ -507,8 +506,6 @@ def _variant_from_studio_meta(meta: dict | None, step_code: str) -> str | None:
     found_main: str | None = None
     found_other: str | None = None
     for node_key, slots in slot_variants.items():
-        if not isinstance(slots, dict):
-            continue
         node_step = node_steps.get(str(node_key))
         if node_step and node_step != step_code:
             continue
@@ -570,26 +567,28 @@ def resolve_project_prompt_with_source(
     effective_slot = (slot_id or "").strip() or ("main" if node_key else None)
 
     if node_key and effective_slot:
-        slot_variants = (meta or {}).get("prompt_slot_variants")
-        if isinstance(slot_variants, dict):
-            node_slots = slot_variants.get(node_key)
-            if isinstance(node_slots, dict):
-                bound = _clean_variant_name(str(node_slots.get(effective_slot) or ""))
-                if not bound and effective_slot == "main":
-                    # Любой gpt-слот ноды, если main пуст.
-                    for _sid, variant in node_slots.items():
-                        clean = _clean_variant_name(str(variant or ""))
-                        if clean:
-                            bound = clean
-                            break
-                if bound:
-                    exists = (
-                        excel_gpt_prompt_exists(bound)
-                        if is_excel_gpt_prompt_step(step_code)
-                        else prompt_path(step_code, bound).exists()
-                    )
-                    if exists:
-                        return bound, "slot"
+        from app.services.node_config import prompt_slots_for_node
+
+        # Привязка узла: `node.data.config.promptSlots` важнее
+        # `meta.prompt_slot_variants` — один слой доступа, находка 12.
+        node_slots = prompt_slots_for_node(meta, node_key)
+        if node_slots:
+            bound = _clean_variant_name(str(node_slots.get(effective_slot) or ""))
+            if not bound and effective_slot == "main":
+                # Любой gpt-слот ноды, если main пуст.
+                for _sid, variant in node_slots.items():
+                    clean = _clean_variant_name(str(variant or ""))
+                    if clean:
+                        bound = clean
+                        break
+            if bound:
+                exists = (
+                    excel_gpt_prompt_exists(bound)
+                    if is_excel_gpt_prompt_step(step_code)
+                    else prompt_path(step_code, bound).exists()
+                )
+                if exists:
+                    return bound, "slot"
         if effective_slot and effective_slot != "main":
             preferred = _clean_variant_name(effective_slot)
             if preferred:

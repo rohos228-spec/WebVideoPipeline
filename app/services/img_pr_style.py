@@ -167,14 +167,12 @@ def _local_variant_name(project: Any | None, meta: dict | None) -> str:
             if isinstance(chosen, str) and chosen.strip():
                 parts.append(chosen.strip())
     if isinstance(meta, dict):
-        slots = meta.get("prompt_slot_variants")
-        if isinstance(slots, dict):
-            for node_slots in slots.values():
-                if not isinstance(node_slots, dict):
-                    continue
-                for val in node_slots.values():
-                    if isinstance(val, str) and val.strip():
-                        parts.append(val.strip())
+        from app.services.node_config import all_prompt_slots
+
+        for node_slots in all_prompt_slots(meta).values():
+            for val in node_slots.values():
+                if val.strip():
+                    parts.append(val.strip())
     return "\n".join(parts)
 
 

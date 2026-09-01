@@ -39,15 +39,13 @@ def project_scene_design_variant(project: Any | None) -> str:
     raw = str(meta.get("scene_design_variant") or "").strip()
     if raw:
         return raw
-    slots = meta.get("prompt_slot_variants")
-    if isinstance(slots, dict):
-        for per in slots.values():
-            if not isinstance(per, dict):
-                continue
-            for v in per.values():
-                name = str(v or "")
-                if name.endswith("_chrono_dyn") or "chrono_dyn" in name:
-                    return "chrono_dyn"
+    from app.services.node_config import all_prompt_slots
+
+    for per in all_prompt_slots(meta).values():
+        for v in per.values():
+            name = str(v or "")
+            if name.endswith("_chrono_dyn") or "chrono_dyn" in name:
+                return "chrono_dyn"
     return ""
 
 
@@ -205,8 +203,12 @@ def _excel_gpt_prompts_dir() -> Path:
 
 
 def _node_prompt_variant(project: Any, agent: str) -> str | None:
-    """Вариант промпта, назначенный на ноду агента на канвасе (SSoT —
-    meta.prompt_slot_variants[node_key], как у всех нод «Работа с GPT»)."""
+    """Вариант промпта, назначенный на ноду агента на канвасе.
+
+    SSoT — `node.data.config.promptSlots`, старое место
+    (`meta.prompt_slot_variants[node_key]`) читается как fallback; приоритет
+    держит `app/services/node_config`.
+    """
     from app.services.excel_gpt_node import sd_agent_marker
 
     meta = getattr(project, "meta", None)
@@ -222,12 +224,9 @@ def _node_prompt_variant(project: Any, agent: str) -> str | None:
             break
     if not node_key:
         return None
-    slots = meta.get("prompt_slot_variants")
-    if not isinstance(slots, dict):
-        return None
-    per_node = slots.get(node_key)
-    if not isinstance(per_node, dict):
-        return None
+    from app.services.node_config import prompt_slots_for_node
+
+    per_node = prompt_slots_for_node(meta, node_key)
     for slot_id in ("main", "gpt", "prompt"):
         v = str(per_node.get(slot_id) or "").strip()
         if v:

@@ -259,13 +259,20 @@ def default_model_id_for_node_type(node_type: str | None) -> str:
 
 
 def read_node_model_fields(node: dict[str, Any] | None) -> tuple[str | None, str]:
+    """Модель узла. ``data.config.modelId`` важнее старого ``data.modelId``.
+
+    Приоритет держит :func:`app.services.node_config.model_id_of` — один
+    слой доступа на все три хранилища конфига узла (находка 12).
+    """
     if not isinstance(node, dict):
         return None, "stable"
-    data = node.get("data") if isinstance(node.get("data"), dict) else node
-    if not isinstance(data, dict):
-        return None, "stable"
-    mid = str(data.get("modelId") or data.get("model_id") or "").strip() or None
-    return mid, "stable"
+    if not isinstance(node.get("data"), dict):
+        # Передали сразу data-словарь, а не узел: обернём, чтобы accessor
+        # увидел привычную форму `node["data"]`.
+        node = {"data": node}
+    from app.services.node_config import model_id_of
+
+    return model_id_of(node), "stable"
 
 
 def _node_data_dict(node: dict[str, Any] | None) -> dict[str, Any]:

@@ -516,12 +516,17 @@ def active_node_key(project: Project) -> str | None:
 
 
 def node_config(project: Project, node_key: str) -> dict[str, Any]:
+    """Конфиг «Работы с GPT»: ``node.data.config.excelGpt``, иначе ``meta``.
+
+    Читающая сторона переезда (находка 12) — приоритет у контейнера на узле.
+    Само хранилище пока остаётся в ``meta.excel_gpt_nodes``: там же лежит
+    состояние прогона (``lastReplyPath``, ``uploadedFileNames``), а ему в
+    графе не место. Подробности — в docstring ``app/services/node_config``.
+    """
+    from app.services.node_config import excel_gpt_config_for_node
+
     meta = project.meta if isinstance(project.meta, dict) else {}
-    configs = meta.get("excel_gpt_nodes")
-    if not isinstance(configs, dict):
-        return {}
-    cfg = configs.get(node_key)
-    return dict(cfg) if isinstance(cfg, dict) else {}
+    return excel_gpt_config_for_node(meta, node_key)
 
 
 def input_source(project: Project, node_key: str | None) -> InputSource:
