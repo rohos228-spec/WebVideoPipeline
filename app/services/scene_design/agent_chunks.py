@@ -183,6 +183,7 @@ def merge_agent_slices(
     parts: list[dict[str, Any]],
     *,
     action_scenes_for_ids: list[Any] | None = None,
+    acceptance: Any = None,
 ) -> dict[str, Any]:
     """Склеить частичные JSON-срезы action/camera и провалидировать целиком.
 
@@ -213,7 +214,7 @@ def merge_agent_slices(
                 "scene_design/action: payoff доставлен последней фазе — {}",
                 "; ".join(payoff_fixed[:8]),
             )
-        ag.validate_chrono_dyn_action_scenes(merged)
+        ag.validate_chrono_dyn_action_scenes(merged, acceptance)
     elif agent == "camera":
         for i, sh in enumerate(merged, start=1):
             if isinstance(sh, dict) and sh.get("id_shot") is not None:

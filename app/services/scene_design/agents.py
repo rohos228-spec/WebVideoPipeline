@@ -646,10 +646,21 @@ def repair_missing_payoff(scenes: list[Any]) -> list[str]:
     return fixed
 
 
-def validate_chrono_dyn_action_scenes(scenes: list[Any]) -> None:
-    """Брак: склейка действий, коллаж мест/лет, нет арки/связей, мало cNN."""
+def validate_chrono_dyn_action_scenes(scenes: list[Any], acceptance: Any = None) -> None:
+    """Брак: склейка действий, коллаж мест/лет, нет арки/связей, мало cNN.
+
+    ``acceptance`` — профиль порогов (`scene_design.acceptance.ActionAcceptance`).
+    ``None`` = дефолтный профиль, то есть ровно прежние числа: пороги вынесены
+    в конфиг, но поведение существующих роликов не меняется. Смысл выноса — в
+    том, что критерий приёмки описывал один жанр (докдрама) и резал корректный
+    вывод любого другого; см. докстроку модуля `acceptance`.
+    """
     if not scenes:
         return
+    if acceptance is None:
+        from app.services.scene_design.acceptance_profile import ActionAcceptance
+
+        acceptance = ActionAcceptance()
     phase_counts: list[int] = []
     object_phases = 0
     cnn_phases = 0
@@ -775,20 +786,20 @@ def validate_chrono_dyn_action_scenes(scenes: list[Any]) -> None:
                 f"фазами (avg={avg:.1f}). Нужно больше фаз на длинный VO "
                 f"(1 кадр ≈ 2–4 сек, 14 сим = 1 сек)."
             )
-        if avg < 3.2 and n >= 5:
+        if avg < acceptance.min_avg_phases and n >= 5:
             raise SceneDesignAgentError(
-                f"scene_design/action: avg фаз {avg:.1f} < 3.2 — действия слиты; "
+                f"scene_design/action: avg фаз {avg:.1f} < {acceptance.min_avg_phases} — действия слиты; "
                 f"разбей под тайминг VO (2–4 сек на кадр)."
             )
     # 0.25: после split-чанков модель часто даёт ~26–30% cNN; жёсткие 0.35
     # крутили soft-retry часами. Промпт V6 требует ≥50% — это цель, не брак.
-    if object_phases >= 10 and cnn_phases / object_phases < 0.25:
+    if object_phases >= 10 and cnn_phases / object_phases < acceptance.min_cnn_share:
         raise SceneDesignAgentError(
             f"scene_design/action: персонажи cNN только в {cnn_phases}/"
             f"{object_phases} фазах — задействуй героев текста, не crowd/prop."
         )
     # Арочные поля — обязательны, когда модель уже пишет объекты-фазы.
-    if object_phases >= 8 and with_beats / object_phases < 0.7:
+    if object_phases >= 8 and with_beats / object_phases < acceptance.min_beat_share:
         raise SceneDesignAgentError(
             "scene_design/action: у фаз нет beat setup|develop|turn|payoff — "
             "сцена должна иметь начало/середину/конец."
@@ -798,12 +809,12 @@ def validate_chrono_dyn_action_scenes(scenes: list[Any]) -> None:
             "scene_design/action: нет переход_к_следующей между фазами — "
             "нужна монтажная последовательность, не набор кадров."
         )
-    if dict_scenes >= 3 and missing_links / max(1, dict_scenes - 1) > 0.4:
+    if dict_scenes >= 3 and missing_links / max(1, dict_scenes - 1) > acceptance.max_missing_links_share:
         raise SceneDesignAgentError(
             "scene_design/action: сцены не связаны (нет связь_с_прошлой) — "
             "нужна сквозная последовательность сюжета."
         )
-    if dict_scenes >= 3 and missing_hooks / dict_scenes > 0.4:
+    if dict_scenes >= 3 and missing_hooks / dict_scenes > acceptance.max_missing_hooks_share:
         raise SceneDesignAgentError(
             "scene_design/action: нет крючок_в_следующую — сцены не ведут сюжет дальше."
         )
@@ -812,20 +823,20 @@ def validate_chrono_dyn_action_scenes(scenes: list[Any]) -> None:
             f"scene_design/action: {missing_payoff} сцен без payoff — "
             f"у каждой сцены должен быть видимый итог бита."
         )
-    if year_jump_scenes > 0:
+    if acceptance.forbid_year_jumps and year_jump_scenes > 0:
         ids = ", ".join(year_jump_ids[:8])
         raise SceneDesignAgentError(
             f"scene_design/action: {year_jump_scenes} сцен прыгают по годам "
             f"внутри одной цепи ({ids}) — смена года = новая сцена, не фаза. "
             f"Нужна непрерывная цепочка в одном месте (вход→жест→стол→итог)."
         )
-    if teleport_scenes > 0:
+    if acceptance.forbid_location_collage and teleport_scenes > 0:
         raise SceneDesignAgentError(
             f"scene_design/action: {teleport_scenes} сцен — коллаж локаций "
             f"(больница/милиция/дом в одной цепи). Одна сцена = одно пространство "
             f"и непрерывный blocking, не набор кадров из разных мест."
         )
-    if object_phases >= 8 and compound_phases / object_phases >= 0.2:
+    if object_phases >= 8 and compound_phases / object_phases >= acceptance.max_compound_share:
         raise SceneDesignAgentError(
             f"scene_design/action: {compound_phases}/{object_phases} фаз склеивают "
             f"несколько действий («…, … и …»). 1 кадр = 1 действие — разбей фазы."
@@ -833,7 +844,7 @@ def validate_chrono_dyn_action_scenes(scenes: list[Any]) -> None:
     # V10: соя (ходит/проходит мимо/лестница) = пассив.
     # 0.08 резал валидные chrono_dyn срезы (3/32≈9% при лифте/взгляде в VO).
     # 0.15 — ещё режет «проходит мимо»-простыни, но допускает 2–4 B-roll фазы.
-    if object_phases >= 10 and passive_phases / object_phases >= 0.15:
+    if object_phases >= 10 and passive_phases / object_phases >= acceptance.max_passive_share:
         raise SceneDesignAgentError(
             f"scene_design/action: {passive_phases}/{object_phases} фаз — соя/"
             f"пассив («проходит мимо/лестница/лифт/отводит взгляд/смотрит»). "
@@ -842,27 +853,27 @@ def validate_chrono_dyn_action_scenes(scenes: list[Any]) -> None:
         )
     # V11: дверной конвейер / одна локация — только на полном (или крупном)
     # срезе. На чанках из 8–12 сцен один loc03 на 4 сцены — нормальный кластер.
-    if object_phases >= 40 and door_phases / object_phases > 0.18:
+    if object_phases >= 40 and door_phases / object_phases > acceptance.max_door_share:
         raise SceneDesignAgentError(
             f"scene_design/action: {door_phases}/{object_phases} фаз про "
             f"дверь/звонок/засов — дверной конвейер. Чередуй больницу, суд, "
             f"милицию, улицу, пустырь, комнату; ≤15% фаз про дверь."
         )
-    if object_phases >= 40 and door_slam_phases / object_phases > 0.12:
+    if object_phases >= 40 and door_slam_phases / object_phases > acceptance.max_door_slam_share:
         raise SceneDesignAgentError(
             f"scene_design/action: {door_slam_phases}/{object_phases} фаз — "
             f"повтор «захлопывает дверь/засов». Придумай разные конфликты и "
             f"эмоции людей, не один и тот же хлопок двери."
         )
-    if dict_scenes >= 28 and loc_counts:
+    if dict_scenes >= acceptance.location_variety_min_scenes and loc_counts:
         top_loc, top_n = max(loc_counts.items(), key=lambda kv: kv[1])
-        if top_n / dict_scenes > 0.32 and len(loc_counts) >= 3:
+        if top_n / dict_scenes > acceptance.max_top_location_share and len(loc_counts) >= 3:
             raise SceneDesignAgentError(
                 f"scene_design/action: локация {top_loc} в {top_n}/{dict_scenes} "
                 f"сцен — слишком однообразно. Разнеси события по разным locNN "
                 f"из world; абстрактный VO → выдумай яркую сцену в другом месте."
             )
-    if object_phases >= 8 and metaphor_phases / object_phases >= 0.12:
+    if object_phases >= 8 and metaphor_phases / object_phases >= acceptance.max_metaphor_share:
         raise SceneDesignAgentError(
             f"scene_design/action: {metaphor_phases}/{object_phases} фаз — "
             f"метафорический нейрослоп (папки/карточки «как символ»). "
@@ -1123,6 +1134,7 @@ def parse_agent_slice(
     *,
     validate: bool = True,
     expected_frame_numbers: list[int] | None = None,
+    acceptance: Any = None,
 ) -> dict[str, Any]:
     """Распарсить и провалидировать JSON-срез категорийного агента.
 
@@ -1176,7 +1188,7 @@ def parse_agent_slice(
     if validate and agent == "action":
         # Чиним до суда: бит последней фазы — вопрос названия, не режиссуры.
         repair_missing_payoff(items)
-        validate_chrono_dyn_action_scenes(items)
+        validate_chrono_dyn_action_scenes(items, acceptance)
     if validate and agent == "camera":
         validate_chrono_dyn_camera_shots(items)
         validate_chrono_dyn_camera_two_shots(items)

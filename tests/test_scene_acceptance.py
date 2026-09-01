@@ -1,115 +1,140 @@
-"""Приёмка среза: одно объявление на требование в промте и на проверку.
+"""Критерий приёмки — конфигурация, а не константа кода.
 
-Разбор 2026-08-23: пять дефектов подряд имели одну форму — требование
-адресовали модели и не проверили, что оно доехало. Тесты держат саму
-конструкцию, а не отдельные правила: текст требования и проверка обязаны
-жить в одной записи, апстрим обязан быть объявлен, проверка обязана стоять
-на собранном артефакте.
+Живой прогон 2026-08-31: пороги веера описывают докдраму и трижды забраковали
+корректный вывод влога (склейки от разговорной речи, «смотрит» из b-roll,
+маршрут одного места). Промт настраивался, судящий его критерий — нет.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from app.services.scene_design.acceptance import (
-    INVARIANTS,
-    REQUIRES,
-    accept_slice,
-    requirements_text,
+from app.services.scene_design.acceptance_profile import (
+    PRESETS,
+    ActionAcceptance,
+    acceptance_from_dict,
+    resolve_action_acceptance,
 )
-from app.services.scene_design.agents import SceneDesignAgentError
+from app.services.scene_design.agents import (
+    SceneDesignAgentError,
+    validate_chrono_dyn_action_scenes,
+)
+
+#: Заметно разные фразы: соседние фазы не должны попадать под проверку
+#: «почти одинаковы» (пересечение слов ≥55%) — она тут ни при чём.
+_PLAIN = [
+    "шагает по утоптанной тропе",
+    "приседает у корзины с шишками",
+    "оборачивается на свист позади",
+    "вытирает объектив рукавом",
+    "поднимает крышку с горшка",
+    "перешагивает через жёлоб",
+]
+#: Склейка нескольких действий — запятая вместе с « и » (см. _is_compound_action).
+_COMPOUND = [
+    "тянется к прилавку, берёт шишку и роняет",
+    "приподнимает полог, заглядывает внутрь и пятится",
+    "хватает ремешок, дёргает вверх и упускает",
+    "нагибается к луже, черпает ладонью и отряхивает",
+]
 
 
-def _action(scenes: list[tuple[str, list[str]]]) -> dict:
-    return {
-        "scenes": [
+def _scenes(n_scenes: int, compound_per_scene: int, phases_per_scene: int = 4) -> list[dict]:
+    """Сцены с заданной долей «склеенных» фаз («…, … и …»)."""
+    out: list[dict] = []
+    plain = iter(_PLAIN * 20)
+    comp = iter(_COMPOUND * 20)
+    for i in range(1, n_scenes + 1):
+        chain = []
+        for k in range(phases_per_scene):
+            is_compound = k < compound_per_scene
+            chain.append(
+                {
+                    "subject": "c01",
+                    "beat": "payoff" if k == phases_per_scene - 1 else "setup",
+                    "действие": next(comp) if is_compound else next(plain),
+                    "переход_к_следующей": "склейка",
+                }
+            )
+        out.append(
             {
-                "id_scene": sid,
-                "цепь_действия": [{"phase_index": 1, "action": "толкает конверт", "в_кадре": ", ".join(who)}],
+                "id_scene": f"scene_{i:02d}",
+                "связь_с_прошлой": "оттуда же",
+                "крючок_в_следующую": "дальше",
+                "location": f"loc{i:02d}",
+                "цепь_действия": chain,
             }
-            for sid, who in scenes
-        ]
-    }
+        )
+    return out
 
 
-def _shot(sid: str, who: str) -> dict:
-    return {"id_scene": sid, "кто_в_кадре": who, "крупность": "средний план"}
+class _Project:
+    def __init__(self, meta: dict) -> None:
+        self.meta = meta
 
 
-def test_every_invariant_carries_its_own_prompt_text() -> None:
-    """Расходиться промту и чекеру негде — они в одной записи."""
-    for agent, invs in INVARIANTS.items():
-        assert invs, agent
-        text = requirements_text(agent)
-        for inv in invs:
-            assert inv.requirement.strip()
-            assert inv.requirement in text
-            assert callable(inv.check)
+def test_default_profile_repeats_todays_numbers() -> None:
+    """Дефолты обязаны совпадать с кодом до выноса — иначе поедут все ролики."""
+    d = ActionAcceptance()
+    assert (d.max_compound_share, d.max_passive_share, d.max_top_location_share) == (0.2, 0.15, 0.32)
+    assert d.forbid_year_jumps and d.forbid_location_collage
 
 
-def test_missing_upstream_is_an_error_not_silence() -> None:
-    """Точечный ▶ оставлял камеру без фаз action, и это выглядело успехом."""
-    with pytest.raises(SceneDesignAgentError) as err:
-        accept_slice("camera", [_shot("scene_01", "c01")], upstream={})
-    assert "action" in str(err.value)
-    assert "camera" in REQUIRES
+def test_default_preset_is_empty_override() -> None:
+    assert PRESETS["default"] == {}
+    assert acceptance_from_dict(PRESETS["default"]) == ActionAcceptance()
 
 
-def test_invented_scene_ids_are_rejected() -> None:
-    up = {"action": _action([("scene_01", ["c01"]), ("scene_02", ["c01"])])}
-    with pytest.raises(SceneDesignAgentError) as err:
-        accept_slice("camera", [_shot("scene_p1", "c01")], upstream=up)
-    assert "scene_p1" in str(err.value)
+def test_same_slice_fails_by_default_and_passes_for_vlog() -> None:
+    """Один и тот же срез: докдраме брак, влогу — норма. Это и есть смысл."""
+    scenes = _scenes(n_scenes=4, compound_per_scene=1)  # 4/16 = 25% склеек
+
+    with pytest.raises(SceneDesignAgentError, match="склеивают"):
+        validate_chrono_dyn_action_scenes(scenes, ActionAcceptance())
+
+    vlog = acceptance_from_dict(PRESETS["vlog"])
+    validate_chrono_dyn_action_scenes(scenes, vlog)
 
 
-def test_shots_without_people_are_rejected_in_bulk_but_not_singly() -> None:
-    """Кадр-деталь без людей законен; план, где их нет у трети, — нет."""
-    up = {"action": _action([("scene_01", ["c01"])])}
-    ok = [_shot("scene_01", "c01") for _ in range(9)] + [_shot("scene_01", "")]
-    accept_slice("camera", ok, upstream=up)
-    bad = [_shot("scene_01", "") for _ in range(6)] + [_shot("scene_01", "c01") for _ in range(4)]
-    with pytest.raises(SceneDesignAgentError):
-        accept_slice("camera", bad, upstream=up)
+def test_none_means_default_profile() -> None:
+    """Вызов без профиля обязан вести себя как раньше."""
+    scenes = _scenes(n_scenes=4, compound_per_scene=1)
+    with pytest.raises(SceneDesignAgentError, match="склеивают"):
+        validate_chrono_dyn_action_scenes(scenes)
 
 
-def test_two_shot_share_is_measured_against_action_not_camera() -> None:
-    """Знаменатель не выбирает проверяемый: камера не может «не заметить» второго."""
-    up = {"action": _action([("scene_01", ["c01", "c02"])])}
-    monologues = [_shot("scene_01", "c01 Игнат") for _ in range(9)] + [_shot("scene_01", "c02 женщина")]
-    with pytest.raises(SceneDesignAgentError) as err:
-        accept_slice("camera", monologues, upstream=up)
-    assert "показывают обоих" in str(err.value)
-
-    dialogue = [_shot("scene_01", "c01 Игнат, c02 женщина") for _ in range(5)] + [
-        _shot("scene_01", "c01 Игнат") for _ in range(5)
-    ]
-    accept_slice("camera", dialogue, upstream=up)
+def test_clean_slice_passes_both_profiles() -> None:
+    scenes = _scenes(n_scenes=4, compound_per_scene=0)
+    validate_chrono_dyn_action_scenes(scenes, ActionAcceptance())
+    validate_chrono_dyn_action_scenes(scenes, acceptance_from_dict(PRESETS["vlog"]))
 
 
-def test_people_named_without_ids_still_count() -> None:
-    """Контракт разрешает «имя/роль» — счётчик обязан это понимать."""
-    up = {"action": _action([("scene_01", ["c01", "c02"])])}
-    dialogue = [_shot("scene_01", "Игнат, женщина в сером пальто") for _ in range(5)] + [
-        _shot("scene_01", "Игнат") for _ in range(5)
-    ]
-    accept_slice("camera", dialogue, upstream=up)
+def test_preset_resolved_from_project_meta() -> None:
+    p = _Project({"acceptance": {"preset": "vlog"}})
+    assert resolve_action_acceptance(p).max_compound_share == PRESETS["vlog"]["max_compound_share"]
 
 
-def test_solo_scenes_are_not_judged_by_the_two_shot_rule() -> None:
-    up = {"action": _action([("scene_01", ["c01"])])}
-    accept_slice("camera", [_shot("scene_01", "c01 Игнат") for _ in range(20)], upstream=up)
+def test_point_override_wins_over_preset() -> None:
+    p = _Project({"acceptance": {"preset": "vlog", "action": {"max_passive_share": 0.5}}})
+    prof = resolve_action_acceptance(p)
+    assert prof.max_passive_share == 0.5
+    assert prof.max_compound_share == PRESETS["vlog"]["max_compound_share"]
 
 
-def test_requirements_reach_the_prompt_from_the_same_declaration() -> None:
-    """Контур замкнут: промт собирается из ``requirements_text``, не из копии.
+def test_unknown_preset_falls_back_to_defaults() -> None:
+    p = _Project({"acceptance": {"preset": "нет-такого"}})
+    assert resolve_action_acceptance(p) == ActionAcceptance()
 
-    Ровно этого не хватало расстановке: поле приехало в контекст, а в список
-    требований промта его никто не внёс — 0 промтов из 23.
-    """
-    import inspect
 
-    from app.services.scene_design import runner
+def test_unknown_threshold_key_ignored() -> None:
+    assert acceptance_from_dict({"нет_такого_порога": 1}) == ActionAcceptance()
 
-    src = inspect.getsource(runner._run_one_agent)
-    assert "requirements_text(name)" in src
-    assert "acceptance" in src
+
+def test_project_without_meta_gets_defaults() -> None:
+    assert resolve_action_acceptance(object()) == ActionAcceptance()
+
+
+def test_location_collage_can_be_allowed() -> None:
+    """Влогу коллаж мест не запрещён: маршрут идёт по разным точкам."""
+    assert acceptance_from_dict(PRESETS["vlog"]).forbid_location_collage is False
+    assert ActionAcceptance().forbid_location_collage is True

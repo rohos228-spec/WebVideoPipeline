@@ -18,6 +18,7 @@ from loguru import logger
 
 from app.models import Project
 from app.services.scene_design import agents as ag
+from app.services.scene_design.acceptance_profile import resolve_action_acceptance
 from app.settings import settings
 
 
@@ -475,6 +476,7 @@ async def _run_one_agent(
                 last_reply["text"],
                 validate=validate,
                 expected_frame_numbers=expected_frame_numbers,
+                acceptance=resolve_action_acceptance(project),
             )
         except ag.SceneDesignAgentError as e:
             _dump_agent_fail(project, name, last_reply["text"], e)
@@ -688,6 +690,7 @@ async def _run_one_agent_adaptive(
             name,
             list(parts),
             action_scenes_for_ids=(list(action_scenes or []) if name == "camera" else None),
+            acceptance=resolve_action_acceptance(project),
         )
 
     # Проактивно: не слать 65 кадров целиком (5 мин → 524 впустую).
