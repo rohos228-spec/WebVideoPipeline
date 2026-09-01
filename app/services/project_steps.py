@@ -329,6 +329,30 @@ async def start_step(
 
     # Excel → DB только через явный Import (excel_io), не на старте шага.
 
+    # Отпечаток промта, с которым шаг реально пойдёт. В графе лежит только имя
+    # варианта, а текст — в `prompts/` вне git: один и тот же JSON графа на
+    # двух машинах даёт разные ролики, и заметить это было нечем. Здесь одна
+    # точка на все шаги: запомнить хэш и сказать вслух, если он разошёлся с
+    # прошлым прогоном узла. Воспроизводимости это ещё не даёт (тексты
+    # переезжают в базу следующим шагом) — но объясняет, почему результат
+    # поехал, не заставляя подозревать модель.
+    try:
+        from app.services.prompt_drift import note_prompt_used
+        from app.services.prompt_library import STEP_FOLDERS, read_resolved_project_prompt
+
+        if step_code in STEP_FOLDERS:
+            _name, _path, _text, _src = read_resolved_project_prompt(project, step_code, node_key=node_key)
+            note_prompt_used(
+                project,
+                node_key=str(node_key or step_code),
+                step_code=step_code,
+                variant=_name,
+                text=_text,
+            )
+            await session.flush()
+    except Exception:  # noqa: BLE001 — отпечаток не повод не запускать шаг
+        logger.debug("[#{}] отпечаток промта {} не снят", project.id, step_code, exc_info=True)
+
     # Ноды «Работы с GPT» вне слотов 1..5 (data.slotOverflow — все проверки,
     # включая те, что приходят в штатной группе «Сцены: веер агентов») дают
     # slot=0, а running-статуса под такой слот не существует. Проверяем это
