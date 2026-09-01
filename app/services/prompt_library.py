@@ -610,10 +610,19 @@ def resolve_project_prompt_with_source(
                     return clean, "override"
         # Слоты проекта (в т.ч. унаследованные ребёнком) важнее global —
         # иначе active_variants.json с «default» перекрывает выбор родителя.
-        for key in excel_gpt_source_steps():
-            from_meta = _variant_from_studio_meta(meta, key)
-            if from_meta:
-                return from_meta, "slot"
+        #
+        # НО только когда узел не назван. Спросили про конкретный узел, у него
+        # своей привязки нет — значит её нет, и брать чужую нельзя: перебор
+        # ниже идёт по ВСЕМ узлам графа. Живой прогон 2026-08-31: нода
+        # «Проверка кадров», встав в слот 2, получила `sd_assemble_chrono_dyn`
+        # — промт сборщика сцен. Там это было безвредно (checkPromptSource
+        # =agent перебивает встроенным агентом), но течь та же, что чинил
+        # коммит 5b747d1, и в другом месте она молча подменит промт.
+        if not node_key:
+            for key in excel_gpt_source_steps():
+                from_meta = _variant_from_studio_meta(meta, key)
+                if from_meta:
+                    return from_meta, "slot"
         from app.services.prompt_active_global import get_global_active
 
         global_name = get_global_active(EXCEL_GPT_UNIFIED_STEP)
@@ -628,9 +637,12 @@ def resolve_project_prompt_with_source(
             return clean, "override"
 
     # Project-level слоты Node Studio / child inheritance — до global.
-    from_meta = _variant_from_studio_meta(meta, step_code)
-    if from_meta:
-        return from_meta, "slot"
+    # Тот же запрет, что и в excel_gpt-ветке выше: спросили про конкретный
+    # узел и своей привязки у него нет — чужую не берём.
+    if not node_key:
+        from_meta = _variant_from_studio_meta(meta, step_code)
+        if from_meta:
+            return from_meta, "slot"
 
     from app.services.prompt_active_global import get_global_active
 

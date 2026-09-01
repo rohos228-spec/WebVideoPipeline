@@ -179,11 +179,48 @@ def _objects_requires_for_step5() -> ProjectStatus:
 
 def enabled_enrich_slots(project: Project | None) -> int:
     """Сколько enrich-слотов реально включено у проекта (1..5).
-    Если project=None или поле не выставлено — дефолт 3."""
+
+    **Правда одна — граф.** Если у проекта есть свой канвас, слоты уже
+    посчитаны по узлам (`assign_slot_indices` нумерует «Работу с GPT» слева
+    направо), и колонка `enrich_slots_count` становится вторым, расходящимся
+    мнением. Живой прогон 2026-08-31: в графе осталось два узла, в колонке
+    стояло три — линейный `auto_advance` искал несуществующий третий слот.
+
+    Колонка остаётся дефолтом для проектов без канваса (и для `None`, откуда
+    зовут списки меню): там считать не по чему.
+    """
     if project is None:
         return 3
+    graph_slots = _enrich_slots_in_canvas(project)
+    if graph_slots is not None:
+        return max(1, min(MAX_ENRICH_SLOTS, graph_slots))
     n = project.enrich_slots_count or 3
     return max(1, min(MAX_ENRICH_SLOTS, n))
+
+
+def _enrich_slots_in_canvas(project: Project) -> int | None:
+    """Сколько слотов доработки в канвасе проекта. ``None`` — канваса нет.
+
+    Считаются только узлы, которые действительно занимают слот: агенты веера
+    сцен и ноды «вне слотов» (проверки) из нумерации исключены — ровно так же,
+    как это делает `assign_slot_indices`.
+    """
+    try:
+        from app.services.canvas_graph import canvas_graph_from_meta
+        from app.services.excel_gpt_node import slot_index_from_node
+
+        meta = project.meta if isinstance(project.meta, dict) else {}
+        cg = canvas_graph_from_meta(meta)
+        if not cg:
+            return None
+        slots = {
+            slot
+            for node in cg.get("nodes") or []
+            if isinstance(node, dict) and (slot := slot_index_from_node(node)) >= 1
+        }
+        return len(slots) or None
+    except Exception:  # noqa: BLE001 — счёт слотов не повод ронять меню
+        return None
 
 
 def steps_for(project: Project | None) -> list[StepDef]:

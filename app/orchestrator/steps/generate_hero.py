@@ -478,10 +478,34 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         project.status = ProjectStatus.hero_ready
         return
 
-    # Конфиг героев из проекта.
-    descriptions: list[str] = list(project.hero_descriptions or [])
+    # Конфиг героев. Источник — реестр `entities`, если он не пуст: по нему же
+    # судит vision-проверка, и рисовать по другому тексту значит гарантировать
+    # расхождение. Живой прогон 2026-08-31: пять листов забракованы не за
+    # качество, а за несовпадение с параллельной правдой; после выравнивания
+    # те же файлы дали pass без единой перерисовки. `hero_descriptions`
+    # остаётся входом человека и работает, пока реестра нет.
+    from app.services.cast_source import cast_descriptions
+
+    descriptions, cast_from = await cast_descriptions(session, project)
+    if cast_from == "registry" and descriptions:
+        logger.info(
+            "[#{}] hero: описания из реестра персонажей ({} шт)",
+            project.id,
+            len(descriptions),
+        )
     variations_cfg: list[int] = list(project.hero_variations or [])
     n_total = project.hero_count or (1 if project.hero_description else 0)
+    # Источник каста — реестр, значит и число героев из него: иначе колонка
+    # `hero_count` (свой писатель, свои расхождения) оставит часть реестра
+    # без листов, а vision потом честно скажет «hero sheet отсутствует».
+    if cast_from == "registry" and descriptions and n_total != len(descriptions):
+        logger.info(
+            "[#{}] hero: героев по реестру {} (в hero_count было {})",
+            project.id,
+            len(descriptions),
+            n_total,
+        )
+        n_total = len(descriptions)
     if n_total == 0:
         # legacy fallback: hero_description есть, hero_count не задан → 1.
         if project.hero_description:
