@@ -77,3 +77,25 @@ def test_hash_matches_ledger_definition() -> None:
     from app.services.input_hash import prompt_version_hash
 
     assert prompt_fingerprint("текст") == prompt_version_hash("текст")
+
+
+def test_project_without_dict_meta_is_ignored() -> None:
+    """Объект без meta-словаря не должен ронять снятие отпечатка."""
+
+    class _NoMeta:
+        id = 3
+        meta = None
+
+    p = _NoMeta()
+    assert note_prompt_used(p, node_key="n", step_code="plan", variant="v", text="раз") is None
+    assert drifted_nodes(p) == []
+
+
+def test_drifted_nodes_survives_garbage_in_meta() -> None:
+    """В meta лежит не словарь — читаем как «записей нет», а не падаем."""
+
+    class _Garbage:
+        id = 4
+        meta = {"prompt_fingerprints": "строка вместо словаря"}
+
+    assert drifted_nodes(_Garbage()) == []

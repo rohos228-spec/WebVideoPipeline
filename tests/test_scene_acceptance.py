@@ -138,3 +138,34 @@ def test_location_collage_can_be_allowed() -> None:
     """Влогу коллаж мест не запрещён: маршрут идёт по разным точкам."""
     assert acceptance_from_dict(PRESETS["vlog"]).forbid_location_collage is False
     assert ActionAcceptance().forbid_location_collage is True
+
+
+def test_broken_override_keeps_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Если применить переопределения не вышло — работаем на прежнем профиле."""
+
+    def boom(*_a, **_k):
+        raise TypeError("dataclasses.replace сломался")
+
+    monkeypatch.setattr("app.services.scene_design.acceptance_profile.replace", boom)
+    assert acceptance_from_dict({"max_compound_share": 0.9}) == ActionAcceptance()
+
+
+def test_location_variety_threshold_is_configurable() -> None:
+    """Маршрут одного места — брак для докдрамы и норма для влога."""
+    scenes = _scenes(n_scenes=30, compound_per_scene=0)
+    for i, sc in enumerate(scenes):
+        # 12 сцен из 30 в одной локации = 40%: докдраме много, влогу нет.
+        sc["location"] = "loc01" if i < 12 else f"loc{i:02d}"
+
+    with pytest.raises(SceneDesignAgentError, match="однообразно"):
+        validate_chrono_dyn_action_scenes(scenes, ActionAcceptance())
+
+    validate_chrono_dyn_action_scenes(scenes, acceptance_from_dict(PRESETS["vlog"]))
+
+
+def test_location_variety_needs_three_locations() -> None:
+    """Две локации — не «однообразие», а двухчастная сцена: правило молчит."""
+    scenes = _scenes(n_scenes=30, compound_per_scene=0)
+    for i, sc in enumerate(scenes):
+        sc["location"] = "loc01" if i < 20 else "loc02"
+    validate_chrono_dyn_action_scenes(scenes, ActionAcceptance())

@@ -105,3 +105,36 @@ def check_cast_cards(cards: list[dict[str, Any]]) -> list[str]:
         if problem:
             problems.append(problem)
     return problems
+
+
+def too_many_characters(codes: list[str], slots: int) -> str | None:
+    """В кадре больше персонажей, чем у провайдера слотов референса.
+
+    Правило не эстетическое. Фотореференсов провайдер принимает ровно
+    ``slots`` штук (`generation_options.ref_slots_for_provider`), остальных
+    в кадре держит только текстовое описание — и они плывут. Живой прогон
+    2026-08-31: у героя с единственным рефом лицо всё равно уехало в трёх
+    кадрах из тридцати трёх; у персонажа вовсе без рефа шансов нет.
+
+    Поэтому число персонажей в кадре — не «сколько захотелось сцене», а
+    свойство контура генерации. Сцену на троих физически можно снять двумя
+    кадрами по двое, и это дешевле, чем ловить клонов на приёмке.
+    """
+    n = len(codes)
+    if slots < 1 or n <= slots:
+        return None
+    return (
+        f"персонажей в кадре {n} ({', '.join(codes)}), а слотов референса у "
+        f"провайдера {slots}: лишних держит только текст, и они поплывут. "
+        f"Раздели на кадры по {slots}"
+    )
+
+
+def frames_over_ref_slots(frames_codes: dict[int, list[str]], slots: int) -> list[tuple[int, str]]:
+    """Кадры, где персонажей больше, чем слотов. ``[(номер, проблема), …]``."""
+    out: list[tuple[int, str]] = []
+    for number in sorted(frames_codes):
+        problem = too_many_characters(frames_codes[number], slots)
+        if problem:
+            out.append((number, problem))
+    return out

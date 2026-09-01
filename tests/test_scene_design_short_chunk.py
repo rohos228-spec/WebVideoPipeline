@@ -77,3 +77,11 @@ def test_vibecode_batch_budget_is_below_measured_ceiling() -> None:
     budget = PROVIDER_BATCH_CHAR_BUDGET["vibecode"]
     assert budget < 94_000, "бюджет обязан быть ниже измеренной границы, а не впритык"
     assert 33 * IMG_PR_CHARS_PER_FRAME / budget > 1, "33 кадра должны дробиться"
+
+
+def test_agent_without_list_key_is_skipped(monkeypatch) -> None:
+    """Нет известного ключа списка — проверять нечего, а не падать."""
+    from app.services.scene_design import agents as ag
+
+    monkeypatch.setattr(ag, "LIST_KEY", {}, raising=False)
+    assert short_chunk_problem("action", {"scenes": []}, frames_in_chunk=10, label="p") is None

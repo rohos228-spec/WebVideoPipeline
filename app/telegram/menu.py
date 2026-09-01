@@ -207,17 +207,31 @@ def _enrich_slots_in_canvas(project: Project) -> int | None:
     """
     try:
         from app.services.canvas_graph import canvas_graph_from_meta
-        from app.services.excel_gpt_node import slot_index_from_node
+        from app.services.excel_gpt_node import (
+            is_excel_gpt_node_type,
+            sd_agent_marker,
+            slot_index_from_node,
+        )
 
         meta = project.meta if isinstance(project.meta, dict) else {}
         cg = canvas_graph_from_meta(meta)
         if not cg:
             return None
-        slots = {
-            slot
-            for node in cg.get("nodes") or []
-            if isinstance(node, dict) and (slot := slot_index_from_node(node)) >= 1
-        }
+        slots: set[int] = set()
+        for node in cg.get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            # Фильтр по типу обязателен: `slot_index_from_node` отдаёт 1 для
+            # ЛЮБОГО узла без маркеров — и `plan` со `split` попадали в счёт,
+            # завышая число слотов. Считаем ровно то же, что нумерует
+            # `assign_slot_indices`: «Работа с GPT» без маркера веера.
+            if not is_excel_gpt_node_type(str(node.get("type") or "")):
+                continue
+            if sd_agent_marker(node):
+                continue
+            slot = slot_index_from_node(node)
+            if slot >= 1:
+                slots.add(slot)
         return len(slots) or None
     except Exception:  # noqa: BLE001 — счёт слотов не повод ронять меню
         return None

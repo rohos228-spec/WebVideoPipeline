@@ -85,3 +85,54 @@ def test_check_cards_clean_registry() -> None:
 def test_check_cards_reads_russian_attr_keys() -> None:
     cards = [{"code": "c02", "attrs": {"внешность": "трое круглых существ"}}]
     assert check_cast_cards(cards) != []
+
+
+# ── персонажей в кадре не больше, чем слотов референса ───────────────────
+
+
+def test_within_slots_is_fine() -> None:
+    from app.services.cast_invariants import too_many_characters
+
+    assert too_many_characters(["c01", "c02"], 2) is None
+    assert too_many_characters(["c01"], 2) is None
+    assert too_many_characters([], 2) is None
+
+
+def test_over_slots_names_the_codes_and_the_limit() -> None:
+    from app.services.cast_invariants import too_many_characters
+
+    problem = too_many_characters(["c01", "c02", "c03"], 2)
+    assert problem is not None
+    assert "c03" in problem and "2" in problem
+
+
+def test_single_slot_provider_allows_only_one() -> None:
+    """На MiniMax слот один — двое в кадре уже брак."""
+    from app.services.cast_invariants import too_many_characters
+
+    assert too_many_characters(["c01", "c02"], 1) is not None
+    assert too_many_characters(["c01"], 1) is None
+
+
+def test_zero_slots_disables_the_rule() -> None:
+    """Провайдер без референсов — правило неприменимо, а не «всё брак»."""
+    from app.services.cast_invariants import too_many_characters
+
+    assert too_many_characters(["c01", "c02", "c03"], 0) is None
+
+
+def test_frames_over_slots_reports_only_offenders_in_order() -> None:
+    from app.services.cast_invariants import frames_over_ref_slots
+
+    frames = {5: ["c01", "c02", "c03"], 2: ["c01"], 9: ["c01", "c02", "c03", "c04"]}
+    assert [n for n, _ in frames_over_ref_slots(frames, 2)] == [5, 9]
+
+
+def test_limit_matches_provider_catalog() -> None:
+    """Правило и каталог — одна величина, а не два мнения."""
+    from app.generation_options import ref_slots_for_provider
+    from app.services.cast_invariants import too_many_characters
+
+    slots = ref_slots_for_provider("outsee")
+    assert too_many_characters(["c01"] * slots, slots) is None
+    assert too_many_characters(["c01"] * (slots + 1), slots) is not None
