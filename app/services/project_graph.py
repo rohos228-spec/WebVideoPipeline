@@ -900,6 +900,12 @@ async def reset_project_graph_to_default(session: AsyncSession, project: Project
 # ── Состояния и представления ────────────────────────────────────────────
 
 
+#: Уже названные причины отказа `node_states` — (project_id, тип, текст).
+#: Опрос графа идёт с каждым тиком UI; без дедупликации одна и та же поломка
+#: залила бы лог, а с прежним `debug` без текста её просто не было видно.
+_NODE_STATES_SEEN: set[tuple[int, str, str]] = set()
+
+
 def node_states(project: Project, graph: ProjectGraph) -> dict[str, str]:
     """Состояние каждого узла в терминах прогона: pending/running/done/skipped…"""
     from app.orchestrator.graph.planner import WorkflowGraph
@@ -907,8 +913,26 @@ def node_states(project: Project, graph: ProjectGraph) -> dict[str, str]:
     wg = WorkflowGraph(graph.nodes, graph.edges)
     try:
         return {k: v.value for k, v in wg.derived_node_states(project).items()}
-    except Exception:  # noqa: BLE001 — состояние узлов подсказка, не данные
-        logger.debug("[#{}] node_states failed", project.id, exc_info=True)
+    except Exception as e:  # noqa: BLE001 — состояние узлов подсказка, не данные
+        # Раньше здесь был `logger.debug(..., exc_info=True)` без текста ошибки.
+        # Опрос графа идёт с каждым тиком UI, поэтому в логе копилась строка
+        # «node_states failed» без единого указания на причину, а на уровне
+        # DEBUG её и не видно. Живой прогон 2026-08-31: падало регулярно и
+        # осталось нерасследованным именно поэтому.
+        #
+        # Поведение не меняем — пустой словарь по-прежнему деградация, а не
+        # отказ. Но причина теперь называется, и один раз на связку
+        # (проект, тип, текст): опрос частый, а сообщение одно и то же.
+        signature = (project.id, type(e).__name__, str(e)[:200])
+        if signature not in _NODE_STATES_SEEN:
+            _NODE_STATES_SEEN.add(signature)
+            logger.warning(
+                "[#{}] node_states: {} — {} (узлы покажутся без состояний)",
+                project.id,
+                type(e).__name__,
+                str(e)[:200],
+            )
+            logger.debug("[#{}] node_states traceback", project.id, exc_info=True)
         return {}
 
 

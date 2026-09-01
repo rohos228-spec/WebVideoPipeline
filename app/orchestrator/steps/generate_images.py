@@ -178,7 +178,22 @@ _XLSX_SHEET_PLAN = "план"
 # читаем ВСЕ три строки и сливаем (с dedupe сохраняя порядок).
 _XLSX_ROWS_PERSONS = (8, 23, 38)  # «персонажи» — id c01..c05
 _XLSX_ROWS_ITEMS = (9, 24, 39)  # «предметы» — id i01 / predmet1
-_OUTSEE_MAX_REFS = 2  # лимит Outsee на одну генерацию картинки
+
+
+def _max_refs() -> int:
+    """Слотов референса у действующего провайдера картинок.
+
+    Было константой `_OUTSEE_MAX_REFS = 2`. Число зависит от провайдера, а он
+    меняется: под MiniMax слот был один, и именно на том правиле построен
+    разбор в `frame_cast.py` («фотография достаётся первому cNN, остальных
+    держит текст»). Теперь величина живёт в каталоге провайдеров рядом с
+    бюджетами батчей — одно место на все свойства провайдера.
+    """
+    from app.generation_options import ref_slots_for_provider
+    from app.settings import settings
+
+    return ref_slots_for_provider(getattr(settings, "image_provider", None))
+
 
 _REF_ID_RE = re.compile(r"^(c\d+|i\d+|predmet\d+)$", re.IGNORECASE)
 
@@ -443,7 +458,8 @@ async def _load_refs_for_frame(
 ) -> list[Path]:
     """Персонажи / предметы кадра: сначала БД, затем xlsx как запасной путь.
 
-    Outsee — максимум 2 рефа на генерацию. Порядок заполнения слотов:
+    Слотов референса — сколько принимает провайдер (`ref_slots_for_provider`).
+    Порядок заполнения слотов:
       1) персонажи из ячейки (c01, c02 через запятую — до 2 найденных);
       2) предметы — в оставшиеся слоты;
       3) постоянный продукт массового — если остался свободный слот.
@@ -507,11 +523,11 @@ async def _load_refs_for_frame(
             kind="character",
             base_dir=chars_dir,
             frame_number=frame_number,
-            max_count=_OUTSEE_MAX_REFS,
+            max_count=_max_refs(),
         )
     )
 
-    slots_left = _OUTSEE_MAX_REFS - len(refs)
+    slots_left = _max_refs() - len(refs)
     if slots_left > 0:
         refs.extend(
             await _collect_ref_paths(
@@ -532,7 +548,7 @@ async def _load_refs_for_frame(
     meta = getattr(project, "meta", None) or {}
     prod = meta.get("permanent_product") or {}
     prod_ref_path = prod.get("reference_image_path")
-    if prod_ref_path and len(refs) < 2:
+    if prod_ref_path and len(refs) < _max_refs():
         prod_path = Path(prod_ref_path)
         if prod_path.exists():
             refs.append(prod_path)
@@ -551,16 +567,16 @@ async def _load_refs_for_frame(
                 frame_number,
                 prod_ref_path,
             )
-    elif prod_ref_path and len(refs) >= _OUTSEE_MAX_REFS:
+    elif prod_ref_path and len(refs) >= _max_refs():
         logger.warning(
             "[#{}] frame {}: у кадра уже {} ref'ов, продукт-референс "
-            "не помещается — Outsee лимит. Кадр уйдёт без продукта.",
+            "не помещается — лимит провайдера. Кадр уйдёт без продукта.",
             project.id,
             frame_number,
-            _OUTSEE_MAX_REFS,
+            _max_refs(),
         )
 
-    return refs[:_OUTSEE_MAX_REFS]
+    return refs[: _max_refs()]
 
 
 async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
