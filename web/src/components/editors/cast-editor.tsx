@@ -1,10 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api } from "@/lib/stage-api";
 import { Label, Working } from "@/components/ui/bits";
 import { DescriptionListEditor } from "./text-editors";
-import type { Project } from "@/lib/types";
+import type { Project } from "@/lib/stage-types";
 
 /** Герои и предметы: описания правятся текстом, референсы просто показаны. */
 export function CastEditor({ project }: { project: Project }) {

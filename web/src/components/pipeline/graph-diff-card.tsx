@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import type { GraphDiff, ResetPlan } from "@/lib/types";
+import { Button } from "@/components/ui/bits";
+import type { GraphDiff, ResetPlan } from "@/lib/stage-types";
 
 /**
  * Разница графа и что сгорит — одна карточка на два места.

@@ -9,7 +9,7 @@
  * `data:`, разделённые пустой строкой.
  */
 
-import { api } from "./api";
+import { api } from "./stage-api";
 
 export type AgentEventType =
   | "tool_call"

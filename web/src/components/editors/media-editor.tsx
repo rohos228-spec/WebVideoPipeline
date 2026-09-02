@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api } from "@/lib/stage-api";
 import { AutoTextarea, Empty, Working } from "@/components/ui/bits";
-import type { MediaFrame } from "@/lib/types";
+import type { MediaFrame } from "@/lib/stage-types";
 
 /**
  * Сетка кадров: превью + промт, которым оно сделано.

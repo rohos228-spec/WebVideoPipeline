@@ -1,10 +1,10 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api } from "@/lib/stage-api";
 import { saveHint, useDraft } from "@/lib/use-draft";
 import { AutoTextarea, Empty } from "@/components/ui/bits";
-import type { Project } from "@/lib/types";
+import type { Project } from "@/lib/stage-types";
 
 function SaveMark({ hint }: { hint: string }) {
   if (!hint) return null;

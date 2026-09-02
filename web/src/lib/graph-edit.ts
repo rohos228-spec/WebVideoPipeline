@@ -7,7 +7,7 @@
  * было бы ни проверить, ни вызвать с клавиатуры.
  */
 
-import type { GraphEdge, GraphNode } from "./types";
+import type { GraphEdge, GraphNode } from "./stage-types";
 
 export type Graph = { nodes: GraphNode[]; edges: GraphEdge[] };
 

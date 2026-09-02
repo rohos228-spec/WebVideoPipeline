@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./studio-theme.css";
 
 /*
  * video-pipeline studio — единственный источник цвета, шрифта и ритма.

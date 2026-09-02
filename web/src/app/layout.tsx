@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Manrope, Literata, JetBrains_Mono } from "next/font/google";
+import { Manrope, Literata, JetBrains_Mono, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { AuthGate } from "@/components/auth-gate";
@@ -26,6 +26,15 @@ const mono = JetBrains_Mono({
   display: "swap",
 });
 
+// Моно конструктора (Canon C): в скоупе конструктора --typeface-mono
+// переключается на него, лист остаётся на JetBrains Mono.
+const ibmPlexMono = IBM_Plex_Mono({
+  variable: "--font-ibm-plex-mono",
+  subsets: ["latin", "cyrillic"],
+  weight: ["400", "500"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "Видеостудия",
   description: "Идея → сценарий → кадры → видео. Каждый шаг с ценой.",
@@ -35,7 +44,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   // Переменные шрифтов вешаются на <html>: токены в globals.css считаются
   // на :root, и на <body> они бы до них не дошли.
   return (
-    <html lang="ru" className={`${manrope.variable} ${literata.variable} ${mono.variable}`}>
+    <html lang="ru" className={`${manrope.variable} ${literata.variable} ${mono.variable} ${ibmPlexMono.variable}`}>
       <body>
         {/* Дверь стоит ВНУТРИ провайдеров: экран входа сам ходит по сети
             и показывает состояние загрузки теми же средствами. */}

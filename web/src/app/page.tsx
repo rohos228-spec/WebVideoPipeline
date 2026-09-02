@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api } from "@/lib/stage-api";
 import { ProjectRail } from "@/components/project-rail";
 import { IdeaComposer } from "@/components/idea-composer";
 import { ProjectView } from "@/components/project-view";
 import { credits } from "@/lib/format";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/bits";
 import { ChatPanel } from "@/components/chat/chat-panel";
 
 const LAST_PROJECT_KEY = "vp.last-project";
@@ -45,11 +45,18 @@ export default function Page() {
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: api.me });
 
   // Возвращаемся туда, где были: перезагрузка не должна стоить контекста.
+  // ?project=N («← к ролику» из конструктора схемы) важнее сохранённого:
+  // ссылка обязана открывать именно тот ролик, даже в чужом браузере.
   useEffect(() => {
     if (restored || !projects) return;
+    const fromUrl = Number(new URLSearchParams(window.location.search).get("project") ?? "");
     const saved = Number(localStorage.getItem(LAST_PROJECT_KEY) ?? "");
-    const exists = projects.some((p) => p.id === saved);
-    if (exists) setCurrent(saved);
+    const want = projects.some((p) => p.id === fromUrl)
+      ? fromUrl
+      : projects.some((p) => p.id === saved)
+        ? saved
+        : null;
+    if (want != null) setCurrent(want);
     setRestored(true);
   }, [projects, restored]);
 

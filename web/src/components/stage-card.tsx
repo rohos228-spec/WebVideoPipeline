@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/bits";
 import { Chip, Working } from "@/components/ui/bits";
 import { credits } from "@/lib/format";
-import type { Stage, StageNode } from "@/lib/types";
+import type { Stage, StageNode } from "@/lib/stage-types";
 
 const STATE_CHIP: Record<string, { tone: "neutral" | "ok" | "warn" | "danger" | "accent"; text: string }> = {
   done: { tone: "ok", text: "готово" },

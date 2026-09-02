@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api } from "@/lib/stage-api";
 import { Label } from "@/components/ui/bits";
-import type { Choice, Project } from "@/lib/types";
+import type { Choice, Project } from "@/lib/stage-types";
 
 /**
  * Параметры ролика: формат, модели, разрешение.

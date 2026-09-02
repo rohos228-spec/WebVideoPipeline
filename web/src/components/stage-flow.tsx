@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, subscribeProject } from "@/lib/api";
+import { api, subscribeProject } from "@/lib/stage-api";
 import { StageCard } from "@/components/stage-card";
 import { ProjectTextEditor } from "@/components/editors/text-editors";
 import { FramesEditor } from "@/components/editors/frames-editor";
@@ -13,7 +13,7 @@ import { CastEditor } from "@/components/editors/cast-editor";
 import { FinalView } from "@/components/editors/final-view";
 import { PromptEditor } from "@/components/editors/prompt-editor";
 import { Working } from "@/components/ui/bits";
-import type { Project, Stage, StageId, StageNode } from "@/lib/types";
+import type { Project, Stage, StageId, StageNode } from "@/lib/stage-types";
 
 /** Семь шагов проекта сверху вниз. Всё живое обновление — здесь. */
 export function StageFlow({ project }: { project: Project }) {

@@ -1,9 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api } from "@/lib/stage-api";
 import { projectName, relativeDate } from "@/lib/format";
-import type { ProjectSummary } from "@/lib/types";
+import type { ProjectSummary } from "@/lib/stage-types";
 
 const DONE_STATUSES = new Set(["assembled", "published"]);
 

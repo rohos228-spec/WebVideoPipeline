@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api } from "@/lib/stage-api";
 import { credits, projectName } from "@/lib/format";
 import { saveHint, useDraft } from "@/lib/use-draft";
 import { AutoTextarea, Working } from "@/components/ui/bits";

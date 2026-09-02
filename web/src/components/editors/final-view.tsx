@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api } from "@/lib/stage-api";
 import { Empty, Label, Working } from "@/components/ui/bits";
 
 /** Финал: готовый ролик и озвучка. Здесь уже нечего править — только смотреть. */

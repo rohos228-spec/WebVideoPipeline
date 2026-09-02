@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api } from "@/lib/stage-api";
 import { titleFromIdea } from "@/lib/format";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/bits";
 
 const EXAMPLE =
   "Ночной обмен в последнем вагоне метро, 03:40. Курьер держит на коленях конверт, которого по документам не существует…";

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { api } from "@/lib/stage-api";
+import { Button } from "@/components/ui/bits";
 import { Working } from "@/components/ui/bits";
 
 /**

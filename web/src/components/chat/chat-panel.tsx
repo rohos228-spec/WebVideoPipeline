@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/bits";
 import { Working } from "@/components/ui/bits";
 import { GraphDiffCard } from "@/components/pipeline/graph-diff-card";
 import { callTool, streamChat, type AgentEvent, type ChatHistoryItem } from "@/lib/chat-api";
-import type { GraphDiff, ResetPlan } from "@/lib/types";
+import type { GraphDiff, ResetPlan } from "@/lib/stage-types";
 
 /**
  * Чат с оркестратором ролика.

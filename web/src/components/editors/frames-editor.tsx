@@ -1,10 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api } from "@/lib/stage-api";
 import { seconds } from "@/lib/format";
 import { AutoTextarea, Empty, Working } from "@/components/ui/bits";
-import type { Frame } from "@/lib/types";
+import type { Frame } from "@/lib/stage-types";
 
 /** Кадры: номер, длительность и закадровый текст — правится на месте. */
 export function FramesEditor({ projectId }: { projectId: number }) {

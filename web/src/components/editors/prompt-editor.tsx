@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { api } from "@/lib/stage-api";
+import { Button } from "@/components/ui/bits";
 import { Chip, Empty, Working } from "@/components/ui/bits";
-import type { StagePrompt } from "@/lib/types";
+import type { StagePrompt } from "@/lib/stage-types";
 
 /**
  * Правка промта шага — прямо в стадии, где этот промт работает.
