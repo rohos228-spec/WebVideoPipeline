@@ -76,3 +76,23 @@ async def test_clean_registry_leaves_no_warnings(mem_db) -> None:
             ],
         )
         assert not (p.meta or {}).get("cast_invariant_warnings")
+
+
+@pytest.mark.asyncio
+async def test_broken_checker_does_not_cancel_the_write(mem_db, monkeypatch) -> None:
+    """Исключение самой проверки — в лог, запись реестра не отменяется."""
+
+    def _boom(_cards):
+        raise RuntimeError("чекер сломан")
+
+    monkeypatch.setattr("app.services.cast_invariants.check_cast_cards", _boom)
+    async with mem_db() as session:
+        p = await _project(session)
+        res = await apply_ops(
+            session,
+            p,
+            [],
+            characters=[{"id": "c01", "внешность": "высокий лесник"}],
+        )
+        assert res.get("characters") == 1
+        assert "cast_invariant_warnings" not in (p.meta or {})

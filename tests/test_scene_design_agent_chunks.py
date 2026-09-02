@@ -115,7 +115,9 @@ async def test_action_splits_twice_then_errors() -> None:
     )
     depths_seen: list[int] = []
 
-    async def fake_one(project, name, context, *, timeout, validate=True, max_retries=None):
+    async def fake_one(
+        project, name, context, *, timeout, validate=True, max_retries=None, expected_frame_numbers=None
+    ):
         # depth inferred from chunk marker
         depth = 0
         if "split_depth=2" in context:
@@ -162,7 +164,9 @@ async def test_action_split_once_then_merge() -> None:
     )
     n = {"calls": 0}
 
-    async def fake_one(project, name, context, *, timeout, validate=True, max_retries=None):
+    async def fake_one(
+        project, name, context, *, timeout, validate=True, max_retries=None, expected_frame_numbers=None
+    ):
         n["calls"] += 1
         if "split_depth=" not in context:
             raise boom
@@ -205,7 +209,9 @@ async def test_500_same_chunk_retry_no_split() -> None:
     )
     n = {"calls": 0}
 
-    async def fake_one(project, name, context, *, timeout, validate=True, max_retries=None):
+    async def fake_one(
+        project, name, context, *, timeout, validate=True, max_retries=None, expected_frame_numbers=None
+    ):
         n["calls"] += 1
         if n["calls"] == 1:
             raise boom
@@ -277,7 +283,9 @@ async def test_proactive_chunk_checkpoint_skips_gpt(tmp_path) -> None:
     runner.save_chunk_checkpoint(project, "action", "p1", {"scenes": [_scene(1)]})
     calls: list[str] = []
 
-    async def fake_one(project, name, context, *, timeout, validate=True, max_retries=None):
+    async def fake_one(
+        project, name, context, *, timeout, validate=True, max_retries=None, expected_frame_numbers=None
+    ):
         if "часть «p1»" in context:
             calls.append("p1")
             raise AssertionError("p1 must come from checkpoint")
@@ -319,7 +327,9 @@ async def test_proactive_chunks_skip_full_payload(tmp_path) -> None:
     )
     labels: list[str] = []
 
-    async def fake_one(project, name, context, *, timeout, validate=True, max_retries=None):
+    async def fake_one(
+        project, name, context, *, timeout, validate=True, max_retries=None, expected_frame_numbers=None
+    ):
         assert "split_depth=" in context  # всегда чанк, не full
         assert timeout <= 240  # attempt abort
         if "часть «p1»" in context:
@@ -355,3 +365,45 @@ async def test_proactive_chunks_skip_full_payload(tmp_path) -> None:
         "scene_02",
         "scene_03",
     ]
+
+
+@pytest.mark.asyncio
+async def test_short_answer_triggers_split_like_capacity() -> None:
+    """Обрыв ответа (сцен меньше половины кадров) дробит кусок, а не мержится молча."""
+    frames = [_fr(i, f"u{i}", f"кусок {i} старт. кусок {i} финиш.") for i in range(1, 5)]
+    project = SimpleNamespace(
+        id=60,
+        meta={"scene_design_variant": "chrono_dyn"},
+        script_text="",
+        general_plan="",
+        data_dir=SimpleNamespace(),  # unused — load_prompt patched
+    )
+    n = {"calls": 0}
+
+    async def fake_one(
+        project, name, context, *, timeout, validate=True, max_retries=None, expected_frame_numbers=None
+    ):
+        n["calls"] += 1
+        if "split_depth=" not in context:
+            # полный вызов «оборвался»: 1 сцена на 4 кадра
+            return {"scenes": [_scene(1)]}
+        idx = 1 if "часть «a»" in context else 2
+        return {"scenes": [_scene(idx)]}
+
+    with (
+        patch.object(ag, "load_prompt", return_value="PROMPT"),
+        patch.object(runner, "_run_one_agent", side_effect=fake_one),
+        patch("asyncio.sleep", new_callable=AsyncMock),
+        patch.object(runner.settings, "scene_design_agent_chunk_frames", 0),
+    ):
+        data = await runner._run_one_agent_adaptive(
+            project,
+            "action",
+            frames=frames,
+            full_frames=frames,
+            slice_extras=[],
+            action_scenes=None,
+            timeout=10,
+        )
+    assert n["calls"] == 3  # оборванный full + 2 половины
+    assert [s["id_scene"] for s in data["scenes"]] == ["scene_01", "scene_02"]

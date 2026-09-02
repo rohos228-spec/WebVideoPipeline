@@ -79,3 +79,12 @@ def test_broken_graph_does_not_break_the_menu(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr("app.services.excel_gpt_node.slot_index_from_node", boom)
     p = _P(_canvas([{"id": "n1", "type": "excel_gpt", "data": {"slotIndex": 1}}]), column=3)
     assert enabled_enrich_slots(p) == 3
+
+
+def test_garbage_entry_in_nodes_is_skipped() -> None:
+    """Не-dict в списке узлов пропускается, а не роняет подсчёт."""
+    p = _P(
+        _canvas(["мусор", {"id": "n1", "type": "excel_gpt", "data": {"slotIndex": 1}}]),
+        column=3,
+    )
+    assert enabled_enrich_slots(p) == 1

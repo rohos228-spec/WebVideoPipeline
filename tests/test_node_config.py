@@ -302,3 +302,58 @@ async def test_saving_the_graph_migrates_config_into_the_node(db):
         await apply_project_graph(s, p, nodes, edges, reset=False)
         plan = next(n for n in p.meta["canvas_graph"]["nodes"] if n["id"] == "n_plan")
         assert plan["data"]["config"] == {"modelId": "gpt-5.6-sol", CONFIG_PROMPT_SLOTS: {"main": "my_plan"}}
+
+
+# ── Рамки на мусор: гейт diff-cov показал, что защитные ветки не исполнялись ──
+
+
+def test_migrate_passes_non_dict_nodes_through():
+    """Мусор в списке узлов уезжает как есть, а не роняет миграцию."""
+    meta = _legacy_meta()
+    nodes = ["строка", None, {"id": "n_plan", "type": "plan", "data": {"modelId": "m"}}]
+    out = migrate_graph_configs(nodes, meta)
+    assert out[0] == "строка" and out[1] is None
+    assert out[2]["data"]["config"]["modelId"] == "m"
+
+
+def test_set_prompt_slot_without_node_id_writes_nothing():
+    meta = _legacy_meta()
+    before = dict(meta["prompt_slot_variants"])
+    assert set_prompt_slot(meta, "", "main", "v") is False
+    assert meta["prompt_slot_variants"] == before
+
+
+def test_write_survives_broken_canvas_and_missing_node():
+    """canvas_graph не dict / nodes не list / узла нет — запись в зеркало, не падение."""
+    for meta in (
+        {"canvas_graph": "мусор"},
+        {"canvas_graph": {"nodes": "не список"}},
+        {"canvas_graph": _graph([{"id": "другой", "type": "plan", "data": {}}])},
+    ):
+        assert set_prompt_slot(meta, "n_plan", "main", "v") is True
+        assert meta["prompt_slot_variants"]["n_plan"]["main"] == "v"
+
+
+def test_sync_respects_node_ids_filter():
+    """`node_ids` сужает перенос: чужой узел остаётся со старым контейнером."""
+    meta = _legacy_meta()
+    meta["prompt_slot_variants"] = {"n_plan": {"main": "a"}, "n_script": {"main": "b"}}
+    changed = sync_prompt_slots_into_graph(meta, node_ids=["n_script"])
+    assert changed == ["n_script"]
+
+
+def test_sync_skips_nodes_already_in_agreement():
+    """Контейнер совпадает с зеркалом — узел не переписывается повторно."""
+    meta = _legacy_meta()
+    assert sync_prompt_slots_into_graph(meta) == ["n_plan"]
+    assert sync_prompt_slots_into_graph(meta) == []
+
+
+def test_write_node_data_guards_against_broken_graph():
+    """Прямые рамки `_write_node_data`: сломанный граф и пропавший узел → False."""
+    from app.services.node_config import _write_node_data
+
+    assert _write_node_data({"canvas_graph": "мусор"}, "n", {}) is False
+    assert _write_node_data({"canvas_graph": {"nodes": "не список"}}, "n", {}) is False
+    meta = {"canvas_graph": _graph([{"id": "другой", "type": "plan", "data": {}}])}
+    assert _write_node_data(meta, "n", {}) is False

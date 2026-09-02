@@ -116,3 +116,17 @@ async def test_prompt_fingerprint_is_recorded_on_start(mem_db) -> None:
         await start_step(session, p, "plan", node_key="n_plan")
         rec = (p.meta or {}).get(META_KEY, {}).get("n_plan")
         assert rec and rec["step"] == "plan" and rec["hash"]
+
+
+@pytest.mark.asyncio
+async def test_broken_fingerprint_does_not_block_the_start(mem_db, monkeypatch) -> None:
+    """Отпечаток — не повод не запускать шаг: его падение глотается в лог."""
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("ledger сломан")
+
+    monkeypatch.setattr("app.services.prompt_drift.note_prompt_used", _boom)
+    async with mem_db() as session:
+        p = await _project(session, _canvas([{"id": "n_plan", "type": "plan"}]), status=ProjectStatus.new)
+        await start_step(session, p, "plan", node_key="n_plan")  # не подняло
+        assert p.status is not ProjectStatus.new

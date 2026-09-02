@@ -28,7 +28,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-API_TS = ROOT / "web" / "src" / "lib" / "api.ts"
+LIB = ROOT / "web" / "src" / "lib"
 
 #: `${...}` в шаблонной строке → `{param}`: путь FastAPI записан так же.
 _INTERP = re.compile(r"\$\{[^}]*\}")
@@ -37,21 +37,36 @@ _INTERP = re.compile(r"\$\{[^}]*\}")
 #: Разбор «любая строка со слэша» ловил заодно проверки префиксов вроде
 #: `path.startsWith("/auth/")`, то есть ругался на то, что маршрутом и не
 #: притворялось.
-_CALL = re.compile(r"\b(?:req|post|patch|put|del)\s*<[^>]*>\s*\(\s*[`\"](/[^`\"]*)")
+#:
+#: Два клиента с разной записью пути (с возвратом старого канваса 2026-08-29):
+#: - stage-api.ts — `req<T>("/projects")`, префикс `/api` дописывает сама
+#:   обёртка, поэтому путь в вызове голый;
+#: - api.ts — `http<T>("/api/projects")`, префикс написан в вызове руками,
+#:   срезаем его перед сверкой с бэкендом.
+_CALLS = {
+    LIB / "stage-api.ts": re.compile(r"\b(?:req|post|patch|put|del)\s*<[^>]*>\s*\(\s*[`\"](/[^`\"]*)"),
+    LIB / "api.ts": re.compile(r"\bhttp\s*<[^>]*>\s*\(\s*[`\"]/api(/[^`\"]*)"),
+}
 
 
 def _frontend_paths() -> set[str]:
-    src = API_TS.read_text(encoding="utf-8")
     out: set[str] = set()
-    for raw in _CALL.findall(src):
-        path = _INTERP.sub("{p}", raw)
-        # Обрезаем всё, что к маршруту не относится: строку запроса и хвост
-        # вложенной шаблонной вставки (`?project_id=` собирается тернарником
-        # прямо внутри пути, и закрывающей кавычки regex там не видит).
-        path = path.split("?", 1)[0].split("$", 1)[0].rstrip("/") or "/"
-        if path.startswith("/api"):  # сама обёртка req(), не маршрут
-            continue
-        out.add(path)
+    for source, call in _CALLS.items():
+        src = source.read_text(encoding="utf-8")
+        for raw in call.findall(src):
+            path = _INTERP.sub("{p}", raw)
+            # Обрезаем всё, что к маршруту не относится: строку запроса и хвост
+            # вложенной шаблонной вставки (`?project_id=` собирается тернарником
+            # прямо внутри пути, и закрывающей кавычки regex там не видит).
+            path = path.split("?", 1)[0].split("$", 1)[0].rstrip("/") or "/"
+            # Хвостовой `{p}` не после слэша — это `${q}` с готовой строкой
+            # запроса (`?node_key=…` или пустая), приклеенной к пути, а не
+            # сегмент маршрута: `…/run${q}` → `…/run`. Настоящий параметр
+            # всегда живёт за слэшем и остаётся на месте.
+            path = re.sub(r"(?<=[^/])\{p\}$", "", path)
+            if path.startswith("/api"):  # сама обёртка, не маршрут
+                continue
+            out.add(path)
     return out
 
 
