@@ -38,6 +38,12 @@ def test_without_node_key_project_binding_still_works() -> None:
     assert resolve({}, "excel_gpt", meta=meta) == ("sd_action", "slot")
 
 
-def test_override_wins_over_slots_for_plain_step() -> None:
+def test_override_wins_over_slots_for_plain_step(tmp_path, monkeypatch) -> None:
+    # Вариант кладём в подменённую библиотеку: настоящая prompts/ вне git,
+    # и на чистом клоне (CI) файла vlog.md не существует — тест падал бы
+    # на отсутствии ДАННЫХ, а не кода.
+    (tmp_path / "01_plan").mkdir()
+    (tmp_path / "01_plan" / "vlog.md").write_text("# план-влог", encoding="utf-8")
+    monkeypatch.setattr("app.services.prompt_library.PROMPTS_ROOT", tmp_path)
     meta = {"prompt_slot_variants": {"n_a": {"main": "vlog"}}}
     assert resolve({"plan": "vlog"}, "plan", meta=meta, node_key="n_a")[1] in ("slot", "override")

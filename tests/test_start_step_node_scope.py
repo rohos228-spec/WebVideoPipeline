@@ -107,9 +107,15 @@ async def test_explicit_node_key_wins_on_enrich_step(mem_db) -> None:
 
 
 @pytest.mark.asyncio
-async def test_prompt_fingerprint_is_recorded_on_start(mem_db) -> None:
+async def test_prompt_fingerprint_is_recorded_on_start(mem_db, tmp_path, monkeypatch) -> None:
     """После старта у шага есть отпечаток промта — иначе дрейф не заметить."""
     from app.services.prompt_drift import META_KEY
+
+    # Настоящая prompts/ вне git: на чистом клоне (CI) чтение промта падает,
+    # отпечаток молча не снимается и тест краснеет данными, а не кодом.
+    (tmp_path / "01_plan").mkdir()
+    (tmp_path / "01_plan" / "default.md").write_text("# план", encoding="utf-8")
+    monkeypatch.setattr("app.services.prompt_library.PROMPTS_ROOT", tmp_path)
 
     async with mem_db() as session:
         p = await _project(session, _canvas([{"id": "n_plan", "type": "plan"}]), status=ProjectStatus.new)

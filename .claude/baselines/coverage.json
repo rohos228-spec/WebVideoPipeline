@@ -71,7 +71,7 @@
  "app/services/advance_runner.py": 69.41,
  "app/services/agent_harness.py": 64.71,
  "app/services/ai_result_io.py": 77.84,
- "app/services/anim_pr_sidecar.py": 74.62,
+ "app/services/anim_pr_sidecar.py": 96.92,
  "app/services/animation_prompt_gpt.py": 60.04,
  "app/services/animation_prompt_local.py": 85.71,
  "app/services/anthropic_messages.py": 100.0,

@@ -222,14 +222,34 @@ jobs:
         run: npx tsc --noEmit -p tsconfig.json
 
       - name: Никакого hex вне токенов
-        # Правило из web/Design.md: цвет живёт в globals.css и больше нигде.
-        # Гейт стоит здесь, а не в ревью: разъезжается палитра тихо и потом
-        # не собирается обратно.
+        # Правило из web/Design.md: ЛИТЕРАЛ цвета живёт в токен-файле и больше
+        # нигде. Гейт стоит здесь, а не в ревью: разъезжается палитра тихо и
+        # потом не собирается обратно.
+        #
+        # Токен-файлов два с возвратом старого канваса (7e0ca40): globals.css
+        # (лист) и studio-theme.css (дизайн заказчика, скоуп body:has).
+        # Потребление токена — `hsl(var(--x) / 0.4)` — литералом не считается,
+        # поэтому ловим только числовое начало: `hsl(0 …`, `rgba(0,…`, hex.
+        #
+        # Хвост `grep -v` — храповик, не индульгенция: девять файлов старого
+        # канваса вернулись «как были» (решение заказчика) со старыми
+        # литералами внутри. Новым файлам в этот список дороги нет; вычистил
+        # литералы из файла — убери его отсюда.
         working-directory: web
         run: |
           if grep -rIn --include='*.css' --include='*.tsx' --include='*.ts' \
-               -E '#[0-9a-fA-F]{3,8}\b|rgb\(|hsl\(' src/ | grep -v 'globals.css'; then
-            echo "::error::найден цвет мимо токенов — значение переезжает в globals.css"
+               -E '#[0-9a-fA-F]{3,8}\b|rgba?\(\s*[0-9]|hsla?\(\s*[0-9.]' src/ \
+             | grep -v -e 'globals.css' -e 'studio-theme.css' \
+                       -e 'components/canvas/edge-kind-controls.tsx' \
+                       -e 'components/canvas/flow-canvas.tsx' \
+                       -e 'components/canvas/group-preview.tsx' \
+                       -e 'components/canvas/node-model-picker.tsx' \
+                       -e 'components/canvas/node-v-menu.tsx' \
+                       -e 'components/canvas/pipeline-node.tsx' \
+                       -e 'components/studio/asset-tray.tsx' \
+                       -e 'components/studio/studio-excel-grid.tsx' \
+                       -e 'components/ui/dialog.tsx'; then
+            echo "::error::найден цвет мимо токенов — значение переезжает в globals.css/studio-theme.css"
             exit 1
           fi
 
