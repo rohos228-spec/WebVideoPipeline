@@ -10,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import NodeRunStatus, Project, ProjectStatus, WorkflowRun
 from app.orchestrator.node_registry import (
+    LINEAR_NODE_TYPES,
     READY_TO_NODE_TYPE,
     RUNNING_TO_NODE_TYPE,
+    UI_MENU_NODE_TYPES,
     is_config_node_type,
     is_hitl_node_type,
     is_work_node_type,
@@ -35,7 +37,7 @@ from app.services.excel_gpt_node import (
 # excel_feed — прозрачный вход. storage — НЕ passthrough: это side-sink
 # (много рёбер work→storage), иначе predecessors раздуваются на весь граф.
 PASSTHROUGH_NODE_TYPES: frozenset[str] = frozenset({"excel_feed"})
-SIDE_SINK_NODE_TYPES: frozenset[str] = frozenset({"storage"})
+SIDE_SINK_NODE_TYPES: frozenset[str] = frozenset({"storage"}) | UI_MENU_NODE_TYPES
 
 
 def is_side_sink_node_type(node_type: str) -> bool:
@@ -295,7 +297,19 @@ class WorkflowGraph:
                 if project.status is ready:
                     return True
             return False
-        return typ in done
+        if typ in done:
+            return True
+        # План/скрипт уже позади Project.status, даже если ноду
+        # переподключили (plan → сценарист, а не plan → script → split).
+        # Иначе стрелка split → excel_gpt ждёт n_plan, который «не в done».
+        spec = spec_for_type(typ)
+        if spec is not None and typ in LINEAR_NODE_TYPES:
+            from app.telegram.menu import status_order as _ord
+
+            st = project.status
+            if st is not None and _ord(st) >= _ord(spec.ready_status):
+                return True
+        return False
 
     def next_work_node_after_ready(
         self,

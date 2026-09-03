@@ -32,7 +32,10 @@ def test_pick_result_url_missing() -> None:
 
 def test_studio_image_slug_mapping() -> None:
     assert oh.studio_id_to_outsee_image_slug("gpt_image_2") == "gpt-image-2"
-    assert oh.studio_id_to_outsee_image_slug("nano-banana-pro") == "nano-banana-pro"
+    # Nano Banana Pro на Outsee запрещена (перенос форка 2026-09, a7496b35):
+    # маппинг не отдаёт slug, а бросает — роутер превращает это в 400.
+    with pytest.raises(oh.NanoBananaProOutseeBannedError):
+        oh.studio_id_to_outsee_image_slug("nano-banana-pro")
     assert oh.studio_id_to_outsee_image_slug("unknown-xyz") == "gpt-image-2"
 
 

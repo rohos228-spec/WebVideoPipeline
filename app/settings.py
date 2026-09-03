@@ -28,6 +28,10 @@ def _env_file_for_runtime() -> str | None:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=_env_file_for_runtime(),
+        # BOM от Windows-редакторов и пустые VAR= не должны ронять/затирать
+        # значения (перенос форка заказчика 2026-09).
+        env_file_encoding="utf-8-sig",
+        env_ignore_empty=True,
         extra="ignore",
     )
 

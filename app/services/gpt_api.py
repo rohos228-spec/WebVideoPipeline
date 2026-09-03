@@ -84,6 +84,23 @@ _XLSX_PRIORITY_SHEET_RE = re.compile(
 _XLSX_PINNED_PLAN_ROWS: tuple[int, ...] = (15, 45, 46, 48, 49, 50, 64)
 
 
+_REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
+
+
+def _responses_reasoning_block() -> dict[str, str] | None:
+    """``reasoning.effort`` для Codex/Responses (kie gpt-5-6-sol)."""
+    raw = str(getattr(settings, "gpt_reasoning_effort", "") or "").strip().lower()
+    if not raw or raw in {"off", "none", "0", "false"}:
+        return None
+    # алиасы из RU-доки
+    aliases = {"середина": "medium", "mid": "medium", "низкий": "low", "высокий": "high"}
+    effort = aliases.get(raw, raw)
+    if effort not in _REASONING_EFFORTS:
+        logger.warning("gpt_api: unknown GPT_REASONING_EFFORT={!r} — skip", raw)
+        return None
+    return {"effort": effort}
+
+
 class GptApiError(Exception):
     """Ошибка GPT API с контекстом для логов/повторов."""
 
@@ -1158,7 +1175,16 @@ def _check_provider_envelope(payload: dict[str, Any]) -> None:
     retryable = code_int in _RETRY_STATUS or code_int >= 500
     hint = ""
     low = msg.lower()
-    if "not authorized" in low or "apikey" in low or code_int in (401, 403):
+    if (
+        code_int == 402
+        or "credits insufficient" in low
+        or "top up" in low
+        or "balance isn't enough" in low
+        or "balance isn" in low
+    ):
+        hint = " — на счёте GPT кончились кредиты, пополни баланс у провайдера"
+        retryable = False
+    elif "not authorized" in low or "apikey" in low or code_int in (401, 403):
         hint = " — ключ не авторизован на эту модель (проверь GPT_API_KEY/модель у провайдера)"
     raise GptApiError(
         f"GPT провайдер code={code_int}: {msg}{hint}",
@@ -1276,6 +1302,22 @@ def parse_responses_sse_lines(
     Если stream оборвался после дельт / ``output_text.done``, но до
     целого ``response.completed`` — берём уже накопленный текст (salvage).
     """
+    cleaned: list[str] = []
+    for ln in lines:
+        piece = (ln or "").strip()
+        if piece.startswith("data:"):
+            piece = piece[5:].strip()
+        if piece and piece != "[DONE]":
+            cleaned.append(piece)
+    blob = "\n".join(cleaned)
+    if blob.startswith("{") and "code" in blob:
+        try:
+            payload = json.loads(blob)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict) and payload.get("code") is not None:
+            _check_provider_envelope(payload)
+
     delta_parts: list[str] = []
     done_text = ""
     response_id = ""
@@ -1680,6 +1722,7 @@ async def _chat_responses_stream(
     body: dict[str, Any],
     timeout: float,
     use_model: str,
+    on_delta: Any | None = None,
 ) -> GptChatResult:
     return await _record_transport_call(
         lambda: _chat_responses_stream_impl(
@@ -1688,6 +1731,7 @@ async def _chat_responses_stream(
             body=body,
             timeout=timeout,
             use_model=use_model,
+            on_delta=on_delta,
         ),
         url=url,
         use_model=use_model,
@@ -1702,6 +1746,7 @@ async def _chat_responses_stream_impl(
     body: dict[str, Any],
     timeout: float,
     use_model: str,
+    on_delta: Any | None = None,
 ) -> GptChatResult:
     """POST Responses API с stream=true и сборкой текста из SSE.
 
@@ -1745,7 +1790,19 @@ async def _chat_responses_stream_impl(
                     if not isinstance(ev, dict):
                         continue
                     et = str(ev.get("type") or "")
-                    if et == "response.output_text.done":
+                    if et == "response.output_text.delta":
+                        # Живой стрим в чат студии (перенос форка 2026-09):
+                        # on_delta получает кусок текста, ошибки колбэка не
+                        # роняют разбор — итог всё равно собирается из lines.
+                        delta = str(ev.get("delta") or "")
+                        if delta and on_delta:
+                            try:
+                                res = on_delta(delta)
+                                if asyncio.iscoroutine(res):
+                                    await res
+                            except Exception:  # noqa: BLE001
+                                pass
+                    elif et == "response.output_text.done":
                         saw_text_done = True
                     elif et == "response.completed":
                         saw_completed = True
@@ -1916,6 +1973,7 @@ async def _chat_completions_stream(
     body: dict[str, Any],
     timeout: float,
     use_model: str,
+    on_delta: Any | None = None,
 ) -> GptChatResult:
     return await _record_transport_call(
         lambda: _chat_completions_stream_impl(
@@ -1924,6 +1982,7 @@ async def _chat_completions_stream(
             body=body,
             timeout=timeout,
             use_model=use_model,
+            on_delta=on_delta,
         ),
         url=url,
         use_model=use_model,
@@ -1938,6 +1997,7 @@ async def _chat_completions_stream_impl(
     body: dict[str, Any],
     timeout: float,
     use_model: str,
+    on_delta: Any | None = None,
 ) -> GptChatResult:
     """POST chat/completions с stream=true (длинные ответы vibecode / OpenAI)."""
     stream_body = {**body, "stream": True}
@@ -1958,6 +2018,23 @@ async def _chat_completions_stream_impl(
                 async for raw in resp.aiter_lines():
                     if raw:
                         lines.append(raw)
+                        if on_delta and raw.startswith("data:"):
+                            piece = raw[5:].strip()
+                            if piece and piece != "[DONE]":
+                                try:
+                                    chunk_obj = json.loads(piece)
+                                    choices = chunk_obj.get("choices") or []
+                                    content = (
+                                        (choices[0].get("delta") or {}).get("content")
+                                        if choices and isinstance(choices, list)
+                                        else None
+                                    )
+                                    if content:
+                                        res = on_delta(content)
+                                        if asyncio.iscoroutine(res):
+                                            await res
+                                except Exception:  # noqa: BLE001
+                                    pass
         except GptApiError:
             raise
         except BaseException as e:
@@ -2254,6 +2331,7 @@ async def _chat_adaptive_1_2_4(
     pack_kind: str | None,
     level: int = 1,
     response_schema: ResponseSchema | None = None,
+    on_delta: Any | None = None,
 ) -> GptChatResult:
     """Сначала один вызов. Ошибка/обрез → этот кусок пополам (2). Снова → 4."""
     from app.services.adaptive_llm_batches import next_split_level
@@ -2275,6 +2353,7 @@ async def _chat_adaptive_1_2_4(
         auto_pack=False,
         pack_kind=pack_kind,
         response_schema=response_schema,
+        on_delta=on_delta,
     )
     try:
         result = await chat(**kwargs)
@@ -2334,6 +2413,7 @@ async def _chat_adaptive_1_2_4(
                 pack_kind=pack_kind,
                 level=nxt,
                 response_schema=response_schema,
+                on_delta=on_delta,
             )
             parts.append(part)
         merged = _merge_packed_apply_ops([p.text for p in parts])
@@ -2404,6 +2484,7 @@ async def _chat_unscoped(
     pack_kind: str | None = None,
     response_schema: ResponseSchema | None = None,
     tools: list[dict[str, Any]] | None = None,
+    on_delta: Any | None = None,
 ) -> GptChatResult:
     """Вызвать текстовый LLM (kie GPT / TokenRouter Kimi) с ретраями.
 
@@ -2436,6 +2517,7 @@ async def _chat_unscoped(
             xlsx_write_contract=xlsx_write_contract,
             pack_kind=pack_kind,
             response_schema=response_schema,
+            on_delta=on_delta,
         )
 
     headers = _headers()
@@ -2481,7 +2563,12 @@ async def _chat_unscoped(
                 xlsx_write_contract=xlsx_write_contract,
             ),
             "stream": True,
+            # kie: store=true → market job / CF-долгое хранение; dev советует false.
+            "store": False,
         }
+        reasoning = _responses_reasoning_block()
+        if reasoning is not None:
+            body["reasoning"] = reasoning
     else:
         body = {
             "model": use_model,
@@ -2545,6 +2632,7 @@ async def _chat_unscoped(
                     body=body,
                     timeout=use_timeout,
                     use_model=use_model,
+                    on_delta=on_delta,
                 )
                 # Cloudflare/kie рвёт длинный SSE: дельты уже есть, но JSON
                 # незакрыт — добираем хвост коротким continue (без тяжёлых файлов).
@@ -2571,7 +2659,11 @@ async def _chat_unscoped(
                             }
                         ],
                         "stream": True,
+                        "store": False,
                     }
+                    cont_reasoning = _responses_reasoning_block()
+                    if cont_reasoning is not None:
+                        cont_body["reasoning"] = cont_reasoning
                     if temperature is not None:
                         cont_body["temperature"] = temperature
                     logger.warning(
@@ -2727,6 +2819,7 @@ async def _chat_unscoped(
                     body=body,
                     timeout=use_timeout,
                     use_model=use_model,
+                    on_delta=on_delta,
                 )
                 # Контрактный режим: continuation выключен (см. responses-ветку).
                 cont_round = 0

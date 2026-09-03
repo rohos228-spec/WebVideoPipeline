@@ -199,3 +199,39 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def commit_with_retry(session: AsyncSession, *, max_retries: int = 5, base_delay: float = 0.2) -> None:
+    """Commit с повтором на sqlite «database is locked / busy».
+
+    Перенос форка заказчика 2026-09 (47d62fbd): студия на SQLite ловила
+    блокировку при параллельных записях из воркера и веба. На Postgres
+    ветка повтора не срабатывает — ошибка другая, сразу rollback + raise.
+    """
+    import asyncio
+
+    from loguru import logger
+    from sqlalchemy.exc import OperationalError
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            await session.commit()
+            return
+        except OperationalError as e:
+            err_msg = str(e).lower()
+            if "locked" in err_msg or "busy" in err_msg:
+                if attempt < max_retries:
+                    delay = base_delay * (1.5 ** (attempt - 1))
+                    logger.warning(
+                        "db: database is locked on commit (attempt {}/{}) — retry in {:.2f}s",
+                        attempt,
+                        max_retries,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+            await session.rollback()
+            raise
+        except Exception:
+            await session.rollback()
+            raise

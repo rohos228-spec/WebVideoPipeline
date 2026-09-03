@@ -50,6 +50,12 @@ def canonical_media_id(raw: str | None) -> str:
     return _ALIASES.get(s, s)
 
 
+def is_nano_banana_pro(model_slug: str | None) -> bool:
+    """Любой slug Nano Banana Pro (pro / vt / cl / vip / 4k-vip)."""
+    cid = canonical_media_id(model_slug)
+    return cid == "nano-banana-pro" or cid.startswith("nano-banana-pro-")
+
+
 def image_provider_for(model_slug: str | None) -> str:
     cid = canonical_media_id(model_slug)
     if cid in OUTSEE_IMAGE_IDS:

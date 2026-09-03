@@ -78,3 +78,6 @@ deploy/studio/env
 deploy/studio/prompts/
 deploy/studio/backups/
 deploy/studio/.last-image
+
+# ключи в любом dotenv-файле с любым суффиксом — не в git (у заказчика такой файл читался кодом)
+.env.env

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
+from app.db import commit_with_retry
 from app.models import ArtifactKind, BatchProject, Frame, Project, ProjectStatus
 from app.services.default_project import default_auto_mode_for_new_project
 from app.services.event_bus import publish_project_event
@@ -179,6 +180,11 @@ async def get_project(project_id: int, session: AsyncSession = Depends(get_sessi
         raise HTTPException(status_code=404, detail="project not found")
     # Свежий meta (user_stop) — иначе stale recompute затирает ⏹ и снова крутит ноду.
     await session.refresh(p)
+    from app.services.node_groups import upgrade_script_frames_qc_on_project
+
+    if await upgrade_script_frames_qc_on_project(session, p):
+        await session.commit()
+        await session.refresh(p)
     await recompute_status(session, p, log_prefix="recompute(web_get)")
     await session.commit()
     await session.refresh(p)
@@ -208,7 +214,7 @@ async def create_project(
     p = Project(
         slug=slug,
         title=display_title,
-        topic="",
+        topic=(body.topic.strip() if body.topic and body.topic.strip() else ""),
         hero_mode=body.hero_mode,
         status=ProjectStatus.new,
         auto_mode=auto_mode,
@@ -336,6 +342,20 @@ async def patch_project(
         clamp_image_resolution_id,
     )
 
+    # Нормализация camelCase алиасов из React Flow канваса / фронтенда
+    if "imageResolution" in payload and "image_resolution" not in payload:
+        payload["image_resolution"] = payload.pop("imageResolution")
+    if "aspectRatio" in payload and "aspect_ratio" not in payload:
+        payload["aspect_ratio"] = payload.pop("aspectRatio")
+    if "videoResolution" in payload and "video_resolution" not in payload:
+        payload["video_resolution"] = payload.pop("videoResolution")
+    if "imageGenerator" in payload and "image_generator" not in payload:
+        payload["image_generator"] = payload.pop("imageGenerator")
+    if "videoGenerator" in payload and "video_generator" not in payload:
+        payload["video_generator"] = payload.pop("videoGenerator")
+    if "autoMode" in payload and "auto_mode" not in payload:
+        payload["auto_mode"] = payload.pop("autoMode")
+
     img_gid = payload.get("image_generator")
     if "image_generator" in payload and img_gid and img_gid not in IMAGE_GENERATORS_BY_ID:
         raise HTTPException(status_code=400, detail=f"unknown image_generator: {img_gid}")
@@ -444,7 +464,7 @@ async def patch_project(
 
         sync_global_active_from_overrides(p.prompt_overrides if isinstance(p.prompt_overrides, dict) else {})
     p.updated_at = datetime.utcnow()
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(project_id, event_type="project_updated")
     return p
@@ -497,9 +517,14 @@ async def run_project_step(
     step_code: str,
     dry_run: bool = False,
     node_key: str | None = None,
+    mode: str = Query("full", pattern="^(full|resume)$"),
+    force_wipe: bool | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> Project:
-    """Запустить шаг: статус → running, воркер выполнит advance_project."""
+    """Запустить шаг: статус → running, воркер выполнит advance_project.
+    mode='full' (по умолчанию) — полный чистый перезапуск шага с нуля (force_wipe=True).
+    mode='resume' — мягкое продолжение/доделка недостающих кадров (force_wipe=False).
+    """
     p = await session.get(Project, project_id)
     if p is None:
         raise HTTPException(status_code=404, detail="project not found")
@@ -516,6 +541,7 @@ async def run_project_step(
             payload=payload,
         )
         return p
+    resolved_force_wipe = force_wipe if force_wipe is not None else (mode != "resume")
     try:
         await start_step(
             session,
@@ -524,6 +550,7 @@ async def run_project_step(
             node_key=node_key,
             require_node_fsm=True,
             explicit_ui_start=True,
+            force_wipe=resolved_force_wipe,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

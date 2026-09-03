@@ -71,6 +71,8 @@ import {
   kieMainTextField,
 } from "@/lib/kie-pricing";
 
+const KIE_CREATE_ENABLED = process.env.NEXT_PUBLIC_KIE_CREATE === "1";
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -301,16 +303,20 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     refetchInterval: open ? 1200 : false,
   });
 
+  // kie.ai в «Генерации» — за флагом сборки: бэкенда /api/kie-create у нас
+  // нет (решение владельца 2026-09-03). Без каталога kie-модели не попадают
+  // в пикер, kieConfigured=false, ветки ниже спят. Код остаётся ради
+  // следующего переноса от заказчика.
   const kieCatalogQ = useQuery({
     queryKey: ["kie-catalog"],
     queryFn: api.kieCatalog,
-    enabled: open,
+    enabled: open && KIE_CREATE_ENABLED,
     staleTime: 60_000,
   });
   const kieCreditsQ = useQuery({
     queryKey: ["kie-credits"],
     queryFn: api.kieCredits,
-    enabled: open,
+    enabled: open && KIE_CREATE_ENABLED,
     refetchInterval: open ? 60_000 : false,
   });
 

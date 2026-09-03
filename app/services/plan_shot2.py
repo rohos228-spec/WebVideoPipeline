@@ -106,21 +106,26 @@ def read_shot2_columns(xlsx_path: Path) -> dict[int, Shot2ColumnInfo]:
     return out
 
 
+_IMG_EXTENSIONS: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+
+
 def shot2_file_pattern(frame_number: int) -> str:
-    return f"frame_{frame_number:03d}_s2_*.png"
+    return f"frame_{frame_number:03d}_s2_*"
 
 
 def disk_has_shot2_image(scenes_dir: Path, frame_number: int) -> bool:
     if not scenes_dir.is_dir():
         return False
-    return any(scenes_dir.glob(shot2_file_pattern(frame_number)))
+    return any(p.suffix.lower() in _IMG_EXTENSIONS for p in scenes_dir.glob(shot2_file_pattern(frame_number)))
 
 
 def find_shot2_image(scenes_dir: Path, frame_number: int) -> Path | None:
-    """Последний PNG shot_02 (``frame_NNN_s2_*.png``)."""
+    """Последний файл изображения shot_02 (``frame_NNN_s2_*``)."""
     if not scenes_dir.is_dir():
         return None
-    candidates = list(scenes_dir.glob(shot2_file_pattern(frame_number)))
+    candidates = [
+        p for p in scenes_dir.glob(shot2_file_pattern(frame_number)) if p.suffix.lower() in _IMG_EXTENSIONS
+    ]
     if not candidates:
         return None
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
@@ -138,14 +143,39 @@ def disk_has_shot2_video(videos_dir: Path, frame_number: int) -> bool:
 
 
 def find_shot1_image(scenes_dir: Path, frame_number: int) -> Path | None:
-    """Последний PNG первого кадра (без ``_s2_`` в имени)."""
+    """Последний файл изображения первого кадра (без ``_s2_`` в имени)."""
     if not scenes_dir.is_dir():
         return None
-    candidates = [p for p in scenes_dir.glob(f"frame_{frame_number:03d}_*.png") if "_s2_" not in p.name]
+    candidates = [
+        p
+        for p in scenes_dir.glob(f"frame_{frame_number:03d}_*")
+        if p.suffix.lower() in _IMG_EXTENSIONS and "_s2_" not in p.name
+    ]
     if not candidates:
         return None
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0]
+
+
+def find_shot2_reference_image(
+    scenes_dir: Path,
+    frame_number: int,
+    *,
+    parent_frame_number: int | None = None,
+) -> Path | None:
+    """Реф для shot_02: свой shot1, иначе PNG родителя (дочерний кадр покрытия)."""
+    own = find_shot1_image(scenes_dir, frame_number)
+    if own is not None:
+        return own
+    if parent_frame_number is None:
+        return None
+    try:
+        parent_no = int(parent_frame_number)
+    except (TypeError, ValueError):
+        return None
+    if parent_no == int(frame_number):
+        return None
+    return find_shot1_image(scenes_dir, parent_no)
 
 
 def effective_shot_from_artifact(meta: dict | None, path: str | Path) -> int:

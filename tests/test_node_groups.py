@@ -122,6 +122,9 @@ async def _mk_project(session: AsyncSession, *, with_canvas: bool = True) -> Pro
     return project
 
 
+# Веер без sd_style с 2026-08 (стиль ушёл в промт сборщика); шаг сетки 380px —
+# студия заказчика (перенос форка 2026-09). Тесты отставали от кода с точки
+# развилки — 4 красных на main до переноса.
 _AGENTS = ("characters", "world", "camera", "action")
 
 
@@ -129,7 +132,7 @@ def test_catalog_has_scene_fanout() -> None:
     groups = list_node_groups()
     fan = next(g for g in groups if g["id"] == "scene_design_fanout")
     assert fan["category"] == "planning"
-    assert fan["node_count"] == 12  # 5 агентов + 5 проверок + сборщик + его проверка
+    assert fan["node_count"] == 10  # 4 агента + 4 проверки + сборщик + его проверка
     assert fan["default_after_type"] == "split"
     keys = {n["key"] for n in fan["nodes"]}
     assert keys == {
@@ -171,7 +174,7 @@ async def test_insert_fanout_after_split(mem_db) -> None:
         res = await insert_node_group(session, project, "scene_design_fanout")
 
     assert res["after"] == "n_split"
-    assert len(res["nodes"]) == 12
+    assert len(res["nodes"]) == 10
     cg = project.meta["canvas_graph"]
     by_id = {n["id"]: n for n in cg["nodes"]}
     split_x = by_id["n_split"]["position"]["x"]
@@ -182,14 +185,14 @@ async def test_insert_fanout_after_split(mem_db) -> None:
         assert n["type"] == "excel_gpt"
         assert n["data"]["sd_agent"] == agent
         assert "slotIndex" not in n["data"]  # веер слоты enrich не занимает
-        assert n["position"]["x"] == split_x + 290.0
+        assert n["position"]["x"] == split_x + 380.0
         assert project.meta["prompt_slot_variants"][nid] == {"main": f"sd_{agent}"}
         # проверка агента — рядом, вне enrich-слотов, с тумблером «Проверка»
         chk = by_id[f"n_excel_gpt_sd_check_{agent}"]
         assert chk["type"] == "excel_gpt"
         assert "sd_agent" not in chk["data"]
         assert chk["data"]["slotOverflow"] is True
-        assert chk["position"]["x"] == split_x + 580.0
+        assert chk["position"]["x"] == split_x + 760.0
         assert chk["position"]["y"] == n["position"]["y"]
         cfg = project.meta["excel_gpt_nodes"][f"n_excel_gpt_sd_check_{agent}"]
         assert cfg["checkMode"] is True
@@ -199,10 +202,10 @@ async def test_insert_fanout_after_split(mem_db) -> None:
         assert f"n_excel_gpt_sd_check_{agent}" not in project.meta["prompt_slot_variants"]
     asm = by_id["n_excel_gpt_sd_asm"]
     assert asm["data"]["sd_agent"] == "assemble"
-    assert asm["position"]["x"] == split_x + 870.0
+    assert asm["position"]["x"] == split_x + 1140.0
     assert asm["position"]["y"] == split_y
     check_asm = by_id["n_excel_gpt_sd_check_asm"]
-    assert check_asm["position"]["x"] == split_x + 1160.0
+    assert check_asm["position"]["x"] == split_x + 1520.0
     assert check_asm["position"]["y"] == split_y
     assert project.meta["excel_gpt_nodes"]["n_excel_gpt_sd_check_asm"]["checkMode"] is True
 
@@ -421,12 +424,12 @@ def test_group_detail_spec() -> None:
     assert d is not None
     assert d["builtin"] is True
     assert d["exit_key"] == "check_asm"
-    assert set(d["entry_keys"]) == {"characters", "world", "style", "camera", "action"}
+    assert set(d["entry_keys"]) == {"characters", "world", "camera", "action"}
     by_key = {n["key"]: n for n in d["nodes"]}
     cam = by_key["camera"]
     assert cam["prompt_variant"] == "sd_camera"
     assert cam["marker"] == "camera"
-    assert cam["dx"] == 290.0
+    assert cam["dx"] == 380.0
     chk = by_key["check_camera"]
     assert chk["slot_overflow"] is True
     assert chk["has_operator_config"] is True
@@ -451,11 +454,11 @@ async def test_backfill_group_stamps(mem_db) -> None:
 
         stats = await backfill_group_stamps(session)
 
-    assert stats["nodes"] == 12  # 5 агентов + сборщик + 6 проверок
+    assert stats["nodes"] == 10  # 4 агента + сборщик + 5 проверок
     assert stats["projects"] == 1
     cg = project.meta["canvas_graph"]
     stamped = [n for n in cg["nodes"] if (n.get("data") or {}).get("groupId") == "scene_design_fanout"]
-    assert len(stamped) == 12
+    assert len(stamped) == 10
     assert all(n["data"]["groupTitle"] == "Сцены: веер агентов" for n in stamped)
     # Посторонние ноды не тронуты.
     by_id = {n["id"]: n for n in cg["nodes"]}

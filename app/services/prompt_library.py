@@ -130,6 +130,13 @@ def excel_gpt_source_steps() -> tuple[str, ...]:
     return (EXCEL_GPT_UNIFIED_STEP, *(f"enrich_{i}" for i in range(1, 6)))
 
 
+def excel_gpt_template_dir() -> Path:
+    """Git SoT промтов excel_gpt (prompts/05_excel_gpt часто gitignored)."""
+    from app.project_root import find_project_root
+
+    return find_project_root() / "templates" / "excel_gpt_agents"
+
+
 def excel_gpt_prompt_exists(name: str) -> bool:
     clean = _clean_variant_name(name) if name else ""
     if not clean:
@@ -140,21 +147,55 @@ def excel_gpt_prompt_exists(name: str) -> bool:
                 return True
         except ValueError:
             continue
-    return False
+    return (excel_gpt_template_dir() / f"{clean}.md").is_file()
+
+
+# Локальная копия 05_excel_gpt иногда остаётся v1 (пишет закадр) или
+# «1 сцена = 1 кадр». Git-шаблон — SoT для цепочки script_frames_qc.
+_STALE_EXCEL_GPT_MARKERS: dict[str, tuple[str, ...]] = {
+    "script_writer_ru": ("Агент: сценарист закадра",),
+    "scenes_to_frames_ru": (
+        "Не плоди покрытие",
+        "одна сцена, одно действие",
+    ),
+    "frame_prompts_continuity_ru": ('"frame_uuid": "u002"',),
+}
+
+
+def _excel_gpt_local_is_stale(name: str, path: Path) -> bool:
+    markers = _STALE_EXCEL_GPT_MARKERS.get(name)
+    if not markers or not path.is_file():
+        return False
+    try:
+        head = path.read_text(encoding="utf-8")[:1200]
+    except OSError:
+        return False
+    return any(m in head for m in markers)
 
 
 def resolve_excel_gpt_prompt_path(name: str) -> Path:
-    """Читать из 05_excel_gpt или legacy enrich_*; запись — всегда в excel_gpt."""
+    """Читать из 05_excel_gpt, legacy enrich_* или templates/excel_gpt_agents."""
     clean = _sanitize_name(name) if not is_valid_prompt_name(name) else name
     if not clean:
         raise ValueError(f"некорректное имя промта: {name!r}")
     primary = step_dir(EXCEL_GPT_UNIFIED_STEP) / f"{clean}.md"
-    if primary.is_file():
+    tmpl = excel_gpt_template_dir() / f"{clean}.md"
+    if primary.is_file() and not (tmpl.is_file() and _excel_gpt_local_is_stale(clean, primary)):
         return primary
+    if tmpl.is_file() and _excel_gpt_local_is_stale(clean, primary):
+        logger.warning(
+            "excel_gpt {}: локальный {} устарел, берём git-шаблон {}",
+            clean,
+            primary,
+            tmpl,
+        )
+        return tmpl
     for code in (f"enrich_{i}" for i in range(1, 6)):
         legacy = step_dir(code) / f"{clean}.md"
         if legacy.is_file():
             return legacy
+    if tmpl.is_file():
+        return tmpl
     return primary
 
 
@@ -314,12 +355,15 @@ def list_prompts(step_code: str) -> list[str]:
 
 
 def list_excel_gpt_prompts() -> list[str]:
-    """Все .md для «Работа с GPT» — единый список из 05_excel_gpt + legacy enrich_*."""
-    merged: dict[str, None] = {}
-    for code in excel_gpt_source_steps():
-        for n in _list_prompts_in_dir(code):
-            merged.setdefault(n, None)
-    names = sorted(merged.keys())
+    """Список «Работа с GPT»: 05_excel_gpt + git-шаблоны excel_gpt_agents."""
+    names = _list_prompts_in_dir(EXCEL_GPT_UNIFIED_STEP)
+    seen = set(names)
+    tmpl = excel_gpt_template_dir()
+    if tmpl.is_dir():
+        for extra in sorted(p.stem for p in tmpl.glob("*.md")):
+            if extra not in seen:
+                names.append(extra)
+                seen.add(extra)
     if DEFAULT_NAME in names:
         names.remove(DEFAULT_NAME)
         names.insert(0, DEFAULT_NAME)

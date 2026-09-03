@@ -81,6 +81,7 @@ class ApiGptClient:
         max_retries: int | None = None,
         auto_pack: bool = True,
         response_schema: Any | None = None,
+        on_delta: Any | None = None,
     ) -> str:
         require_gpt_api()
         from app.services.gpt_api import (
@@ -186,6 +187,7 @@ class ApiGptClient:
                     pack_kind=pack_kind,
                     auto_pack=auto_pack,
                     response_schema=response_schema,
+                    on_delta=on_delta,
                 )
             except Exception as e:  # noqa: BLE001
                 if pdfs and is_pdf_provider_failure(e):
