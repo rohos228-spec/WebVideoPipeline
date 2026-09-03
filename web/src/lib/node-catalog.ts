@@ -48,7 +48,7 @@ export interface NodeSpec {
   iconKey:
     | "plan" | "script" | "split" | "user-round" | "package"
     | "wand" | "image" | "film" | "audio-waveform"
-    | "scissors" | "send" | "check-square" | "sparkles" | "music";
+    | "scissors" | "send" | "check-square" | "sparkles" | "music" | "menu";
 }
 
 export const NODE_CATALOG: Record<string, NodeSpec> = {
@@ -70,10 +70,19 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
     accent: "200 55% 55%",
     iconKey: "package",
   },
+  shot_menu: {
+    type: "shot_menu",
+    label: "Меню съёмки",
+    description:
+      "Нода-меню: горизонтальная лента ячеек закадра и шотов. Строки — поля БД (действие, камера, SET, промты…). Соседний VO не склеивается.",
+    category: "planning",
+    accent: "190 70% 55%",
+    iconKey: "menu",
+  },
   topic: {
     type: "topic",
     label: "Тема ролика",
-    description: "Тема, с которой начинается ролик (как в боте перед планом).",
+    description: "Тема задаёт направление всего ролика.",
     category: "planning",
     accent: "25 45% 72%",
     iconKey: "plan",
@@ -106,7 +115,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
     type: "scene_design",
     label: "Сцены (агенты)",
     description:
-      "Legacy-нода старых канвасов: весь мульти-агентный дизайн сцен одной нодой. Новые канвасы — веер sd_agent ×5 + sd_assemble.",
+      "Дизайн сцен: комплексная генерация персонажей, локаций, стиля, камеры и действий.",
     category: "planning",
     accent: "175 60% 55%",
     iconKey: "sparkles",

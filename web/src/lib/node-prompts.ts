@@ -19,10 +19,11 @@ export interface NodePromptSlot {
   preferredFile?: string;
 }
 
-const NO_EXCEL_NODE_TYPES = new Set(["topic", "excel_feed", "excel_gpt", "storage"]);
+const NO_EXCEL_NODE_TYPES = new Set(["topic", "excel_feed", "excel_gpt", "storage", "shot_menu"]);
 
 const BASE: Record<string, NodePromptSlot[]> = {
   topic: [],
+  shot_menu: [],
   plan: [
     { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "plan" },
     { id: "main", title: "Промт сценария", kind: "gpt", stepCode: "plan" },
@@ -67,7 +68,7 @@ const BASE: Record<string, NodePromptSlot[]> = {
   ],
   excel_gpt: [
     { id: "excel", title: "Excel", kind: "excel", stepCode: "excel_gpt" },
-    { id: "main", title: "Промт GPT", kind: "gpt", stepCode: "excel_gpt" },
+    { id: "main", title: "Промты", kind: "gpt", stepCode: "excel_gpt" },
   ],
   image_prompts: [
     { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "img_pr" },
@@ -107,11 +108,9 @@ const BASE: Record<string, NodePromptSlot[]> = {
   ],
   assemble: [
     { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "assemble" },
-    { id: "ffmpeg", title: "Сборка FFmpeg", kind: "gpt" },
   ],
   publish: [
     { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "publish" },
-    { id: "social", title: "Публикация", kind: "gpt" },
   ],
 };
 
@@ -128,7 +127,7 @@ export function sceneAgentFromNodeKey(nodeKey?: string | null): string | undefin
 }
 
 export function defaultPromptSlots(nodeType: string): NodePromptSlot[] {
-  if (isHitlNodeType(nodeType)) return [];
+  if (isHitlNodeType(nodeType) || nodeType === "shot_menu") return [];
   const base = BASE[nodeType];
   if (base?.length) return base;
   if (nodeTypeRequiresExcel(nodeType)) {
@@ -256,7 +255,7 @@ function applyExcelGptNodeContext(
             ? s.title
             : s.custom
               ? s.title
-              : "Промт GPT",
+              : "Промты",
       };
     }
     if (!s.stepCode) return { ...s, stepCode: enrichStep };

@@ -86,33 +86,35 @@ export function AutoAdvanceToggle({
       onClick={() => patch.mutate(!autoOn)}
       className={
         className ??
-        "pointer-events-auto flex w-full items-start justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors " +
+        "pointer-events-auto flex items-center justify-between gap-3.5 rounded-2xl border px-3.5 py-2.5 text-left transition-all backdrop-blur-md shadow-md " +
           (autoOn
-            ? "border-primary/40 bg-primary/10"
-            : "border-border/60 bg-card/70 hover:bg-accent/40")
+            ? "border-emerald-500/60 bg-emerald-950/30 ring-1 ring-emerald-500/40 shadow-emerald-950/40"
+            : "border-zinc-700/80 bg-zinc-900/90 hover:border-zinc-600 hover:bg-zinc-900")
       }
     >
-      <span className="flex flex-col">
-        <span className="text-xs font-medium">Автопродвижение</span>
-        <span className="text-[10px] text-muted-foreground">
-          После ▶ продолжает шаги; контроль — ИИ
+      <span className="flex flex-col gap-0.5">
+        <span className="text-xs sm:text-[13px] font-bold text-zinc-100">Автозапуск шагов</span>
+        <span className="text-xs text-zinc-400 font-medium leading-tight">
+          {autoOn ? "Авто-переход к следующей ноде" : "Остановка после завершения шага"}
         </span>
       </span>
       <span
         className={
-          "mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors " +
-          (autoOn ? "bg-primary" : "bg-muted")
+          "h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors border " +
+          (autoOn
+            ? "bg-emerald-600 border-emerald-400/60 shadow-sm shadow-emerald-500/30"
+            : "bg-zinc-950/90 border-zinc-700 shadow-inner")
         }
       >
         <span
           className={
-            "block h-4 w-4 rounded-full bg-white shadow transition-transform " +
-            (autoOn ? "translate-x-4" : "")
+            "block h-4.5 w-4.5 rounded-full bg-white shadow-md transition-transform duration-200 " +
+            (autoOn ? "translate-x-5" : "")
           }
         />
       </span>
       {patch.isPending ? (
-        <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-zinc-400" />
       ) : null}
     </button>
   );

@@ -29,7 +29,7 @@ export interface CanvasActions {
   onViewAllPrompts: (nodeKey: string, nodeType: string) => void;
   onAddPrompt: (nodeKey: string, nodeType: string) => void;
   onRemovePrompt: (nodeKey: string, nodeType: string, slot: NodePromptSlot) => void;
-  onRunNode: (nodeKey: string, nodeType: string) => void;
+  onRunNode: (nodeKey: string, nodeType: string, mode?: "full" | "resume") => void;
   onToggleDisable: (nodeKey: string, disabled: boolean) => void;
   onDeleteNode: (nodeKey: string) => void;
   onDetachNode: (nodeKey: string) => void;
@@ -44,6 +44,9 @@ export interface CanvasActions {
   montageBusy: boolean;
   onOpenMontageBoard: () => void;
   onCloseMontageBoard: () => void;
+  shotMenuOpen: boolean;
+  onOpenShotMenu: (cellIndex?: number) => void;
+  onCloseShotMenu: () => void;
 }
 
 const Ctx = createContext<CanvasActions | null>(null);

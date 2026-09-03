@@ -231,33 +231,38 @@ jobs:
         # Потребление токена — `hsl(var(--x) / 0.4)` — литералом не считается,
         # поэтому ловим только числовое начало: `hsl(0 …`, `rgba(0,…`, hex.
         #
-        # Хвост `grep -v` — храповик, не индульгенция: девять файлов старого
-        # канваса вернулись «как были» (решение заказчика) со старыми
-        # литералами внутри. Новым файлам в этот список дороги нет; вычистил
-        # литералы из файла — убери его отсюда.
+        # Граница строгости — по каталогам, не по файлам (перенос форка
+        # заказчика 2026-09, спека merge-customer-fork §1.2). Каталоги студии
+        # заказчика — его дизайн и его литералы (183 hex на момент переноса);
+        # чинить их у себя значит сделать следующий перенос невозможным.
+        # Наше — `app/`, `components/ui`, `components/{editors,pipeline,chat}`,
+        # файлы верхнего уровня `components/`, `hooks/`, остальное `lib/` —
+        # держится строго: литерал = красный гейт.
         working-directory: web
         run: |
           if grep -rIn --include='*.css' --include='*.tsx' --include='*.ts' \
                -E '#[0-9a-fA-F]{3,8}\b|rgba?\(\s*[0-9]|hsla?\(\s*[0-9.]' src/ \
              | grep -v -e 'globals.css' -e 'studio-theme.css' \
-                       -e 'components/canvas/edge-kind-controls.tsx' \
-                       -e 'components/canvas/flow-canvas.tsx' \
-                       -e 'components/canvas/group-preview.tsx' \
-                       -e 'components/canvas/node-model-picker.tsx' \
-                       -e 'components/canvas/node-v-menu.tsx' \
-                       -e 'components/canvas/pipeline-node.tsx' \
-                       -e 'components/studio/asset-tray.tsx' \
-                       -e 'components/studio/studio-excel-grid.tsx' \
+                       -e 'components/canvas/' \
+                       -e 'components/gpt/' \
+                       -e 'components/outsee/' \
+                       -e 'components/inspector/' \
+                       -e 'components/sidebar/' \
+                       -e 'components/studio/' \
+                       -e 'components/shell/' \
+                       -e 'components/hitl/' \
+                       -e 'components/frames/' \
+                       -e 'components/baza/' \
+                       -e 'components/fleet/' \
+                       -e 'components/costs/' \
+                       -e 'components/logs/' \
+                       -e 'components/prompts/' \
+                       -e 'components/orchestrator/' \
                        -e 'components/ui/dialog.tsx' \
-                       -e 'components/baza/baza-timeline.tsx' \
-                       -e 'components/baza/baza-workspace.tsx' \
-                       -e 'components/gpt/gpt-workspace.tsx' \
-                       -e 'components/inspector/outsee-gen-panel.tsx' \
-                       -e 'components/orchestrator/orchestrator-panel.tsx' \
-                       -e 'components/outsee/outsee-create-workspace.tsx' \
-                       -e 'components/sidebar/project-sidebar.tsx' \
                        -e 'components/ui/sheet.tsx' \
-                       -e 'lib/outsee-catalog.ts'; then
+                       -e 'lib/outsee-catalog.ts' \
+                       -e 'lib/node-model-catalog.ts' \
+                       -e 'lib/kie-pricing.ts'; then
             echo "::error::найден цвет мимо токенов — значение переезжает в globals.css/studio-theme.css"
             exit 1
           fi

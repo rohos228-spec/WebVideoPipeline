@@ -7,8 +7,8 @@ export type ModelVendorId =
   | "anthropic"
   | "openai"
   | "gemini"
+  | "deepseek"
   | "xai"
-  | "moonshot"
   | "images"
   | "video"
   | "other";
@@ -38,6 +38,7 @@ export type CatalogModel = {
   vendor: ModelVendorId;
   kind: ModelKind;
   online: boolean;
+  is_top?: boolean;
   resolution?: string | null;
   pricing: DisplayPricing;
   api_model: string;
@@ -70,8 +71,35 @@ export const DEFAULT_IMAGE_MODEL_ID = "gpt-image-2-vip";
 export const DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite";
 export const IMAGE_NODE_TYPES = new Set(["images", "hero", "items", "hitl_images"]);
 export const VIDEO_NODE_TYPES = new Set(["videos", "hitl_videos"]);
+export const MEDIA_NODE_TYPES = new Set([
+  "images",
+  "hero",
+  "items",
+  "hitl_images",
+  "videos",
+  "hitl_videos",
+  "audio",
+  "music",
+  "sfx_plan",
+  "sfx_gen",
+  "sfx",
+  "storage",
+  "topic",
+  "excel_feed",
+  "shot_menu",
+]);
+export function isTextNodeType(nodeType: string): boolean {
+  return !MEDIA_NODE_TYPES.has(nodeType);
+}
 export const IMAGE_MODEL_ALIASES: Record<string, string> = { "gpt-image-2": "gpt-image-2-vip" };
-export const HIDDEN_IMAGE_IDS = new Set(["gpt-image-2"]);
+export const HIDDEN_IMAGE_IDS = new Set([
+  "gpt-image-2",
+  "nano-banana",
+  "nano-banana-pro",
+  "seedream-4.5",
+  "seedream-5-lite",
+  "gpt-image-1.5",
+]);
 
 export const VENDOR_META: Record<
   Exclude<ModelVendorId, "other">,
@@ -80,8 +108,8 @@ export const VENDOR_META: Record<
   anthropic: { id: "anthropic", label: "Anthropic", icon: "A" },
   openai: { id: "openai", label: "OpenAI", icon: "hex" },
   gemini: { id: "gemini", label: "Gemini", icon: "spark" },
+  deepseek: { id: "deepseek", label: "DeepSeek", icon: "D" },
   xai: { id: "xai", label: "xAI", icon: "X" },
-  moonshot: { id: "moonshot", label: "Moonshot", icon: "moon" },
   images: { id: "images", label: "Изображения", icon: "image" },
   video: { id: "video", label: "Видео", icon: "image" },
 };
@@ -90,8 +118,8 @@ const VENDOR_ORDER: Exclude<ModelVendorId, "other">[] = [
   "anthropic",
   "openai",
   "gemini",
+  "deepseek",
   "xai",
-  "moonshot",
   "images",
   "video",
 ];
@@ -104,8 +132,8 @@ function vendorOf(id: string, isImage: boolean, isVideo = false): ModelVendorId 
   const mid = id.toLowerCase();
   if (mid.startsWith("claude")) return "anthropic";
   if (mid.startsWith("gemini")) return "gemini";
+  if (mid.startsWith("deepseek")) return "deepseek";
   if (mid.startsWith("grok")) return "xai";
-  if (mid.startsWith("kimi")) return "moonshot";
   return "openai";
 }
 
@@ -166,31 +194,225 @@ function kindOf(row: SnapshotRow, isVideo = false): ModelKind {
   return row.is_image ? "image" : "text";
 }
 
-const VIDEO_EXTRA: CatalogModel[] = [
+const TOP_MODEL_IDS = new Set([
+  "flux-2-pro",
+  "seedream-5-pro",
+  "gpt-image-2-vip",
+  "gpt-image-2",
+  "nano-banana-2",
+  "seedance-2-5",
+  "seedance-1-5-pro",
+  "kling-3-0",
+  "kling-v3-turbo-t2v",
+  "kling-v3-turbo-i2v",
+  "kling-3-0-omni-t2v",
+  "hailuo-2-3-i2v",
+  "wan-2-7-t2v",
+  "pixverse-v6-t2v",
+  "topaz-video-upscale",
+  "veo-3-1-lite",
+]);
+
+const IMAGE_EXTRA: CatalogModel[] = [
   {
-    id: "veo-3-1-lite",
-    label: "Veo 3.1 Lite",
-    vendor: "video",
-    kind: "video",
+    id: "flux-2-pro",
+    label: "Flux 2 Pro",
+    vendor: "images",
+    kind: "image",
     online: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP },
-    api_model: "veo-3-1-lite",
-    provider: "outsee",
-    video_generator: "veo_3_1_lite",
+    is_top: true,
+    resolution: "1K/2K",
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.05 },
+    api_model: "flux-2-pro",
+    provider: "kie",
+    image_generator: "flux_2_pro",
     channel: "stable",
   },
   {
-    id: "kling-2-6",
-    label: "Kling 2.6",
+    id: "seedream-5-pro",
+    label: "ByteDance Seedream 5 Pro",
+    vendor: "images",
+    kind: "image",
+    online: true,
+    is_top: true,
+    resolution: "1K/2K",
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.045 },
+    api_model: "seedream-5-pro",
+    provider: "kie",
+    image_generator: "seedream_5_pro",
+    channel: "stable",
+  },
+  {
+    id: "z-image",
+    label: "Z-Image",
+    vendor: "images",
+    kind: "image",
+    online: true,
+    resolution: "1K/2K",
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.02 },
+    api_model: "z-image",
+    provider: "kie",
+    image_generator: "z_image",
+    channel: "stable",
+  },
+  {
+    id: "qwen3-image",
+    label: "Alibaba Qwen Image 3",
+    vendor: "images",
+    kind: "image",
+    online: true,
+    resolution: "2K",
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.035 },
+    api_model: "qwen3-image",
+    provider: "kie",
+    image_generator: "qwen3_image",
+    channel: "stable",
+  },
+];
+
+const VIDEO_EXTRA: CatalogModel[] = [
+  {
+    id: "seedance-2-5",
+    label: "Seedance 2.5 (ByteDance)",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP },
+    api_model: "seedance-2-5",
+    provider: "kie",
+    video_generator: "seedance_2_5",
+    channel: "stable",
+  },
+  {
+    id: "seedance-1-5-pro",
+    label: "Seedance 1.5 Pro",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP },
+    api_model: "seedance-1-5-pro",
+    provider: "kie",
+    video_generator: "seedance_1_5_pro",
+    channel: "stable",
+  },
+  {
+    id: "kling-3-0",
+    label: "Kling 3.0 Pro (1080p + звук)",
     vendor: "video",
     kind: "video",
     // Релей kie мёртв (баланс −2.15, решение 2026-08-26 — не возвращаться);
     // модель остаётся в списке, но выбрать её нельзя.
     online: false,
     pricing: { currency: "usd", markup: PRICE_MARKUP },
-    api_model: "kling-2-6",
+    api_model: "kling-3-0",
     provider: "kie",
-    video_generator: "kling_2_6",
+    video_generator: "kling_3_0",
+    channel: "stable",
+  },
+  {
+    id: "kling-v3-turbo-t2v",
+    label: "Kling 3.0 Turbo (текст)",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP },
+    api_model: "kling-v3-turbo-t2v",
+    provider: "kie",
+    video_generator: "kling_v3_turbo_t2v",
+    channel: "stable",
+  },
+  {
+    id: "kling-v3-turbo-i2v",
+    label: "Kling 3.0 Turbo (оживление фото)",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP },
+    api_model: "kling-v3-turbo-i2v",
+    provider: "kie",
+    video_generator: "kling_v3_turbo_i2v",
+    channel: "stable",
+  },
+  {
+    id: "kling-3-0-omni-t2v",
+    label: "Kling 3.0 Omni (со звуком)",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP },
+    api_model: "kling-3-0-omni-t2v",
+    provider: "kie",
+    video_generator: "kling_3_0_omni_t2v",
+    channel: "stable",
+  },
+  {
+    id: "hailuo-2-3-i2v",
+    label: "MiniMax Hailuo 2.3 (фото)",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP },
+    api_model: "hailuo-2-3-i2v",
+    provider: "kie",
+    video_generator: "hailuo_2_3_i2v",
+    channel: "stable",
+  },
+  {
+    id: "wan-2-7-t2v",
+    label: "Alibaba WAN 2.7 (текст)",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP },
+    api_model: "wan-2-7-t2v",
+    provider: "kie",
+    video_generator: "wan_2_7_t2v",
+    channel: "stable",
+  },
+  {
+    id: "pixverse-v6-t2v",
+    label: "PixVerse V6 (текст)",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP },
+    api_model: "pixverse-v6-t2v",
+    provider: "kie",
+    video_generator: "pixverse_v6_t2v",
+    channel: "stable",
+  },
+  {
+    id: "topaz-video-upscale",
+    label: "Topaz Video AI (апскейл)",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP },
+    api_model: "topaz-video-upscale",
+    provider: "kie",
+    video_generator: "topaz_video_upscale",
+    channel: "stable",
+  },
+  {
+    id: "veo-3-1-lite",
+    label: "Veo 3.1 Lite",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP },
+    api_model: "veo-3-1-lite",
+    provider: "outsee",
+    video_generator: "veo_3_1_lite",
     channel: "stable",
   },
 ];
@@ -205,10 +427,11 @@ function normalizeSnapshot(row: SnapshotRow): CatalogModel {
     vendor: vendorOf(row.id, isImage),
     kind: kindOf(row),
     online: true,
+    is_top: TOP_MODEL_IDS.has(row.id),
     resolution: resolutionBadge(row.display_name, row.id),
     pricing,
     api_model: row.id,
-    provider: isImage ? (row.id.startsWith("nano-banana-2") || row.id.startsWith("gpt-image-2") ? "outsee" : "grsai") : "vibecode",
+    provider: isImage ? "outsee" : "vibecode",
     channel: "stable",
   };
 }
@@ -218,6 +441,7 @@ export function localCatalog(): ModelCatalogPayload {
     ...VIBECODE_MODELS_SNAPSHOT.filter((row) => !HIDDEN_IMAGE_IDS.has(row.id)).map((row) =>
       normalizeSnapshot(row),
     ),
+    ...IMAGE_EXTRA,
     ...VIDEO_EXTRA,
   ];
   const vendors: CatalogVendor[] = [];

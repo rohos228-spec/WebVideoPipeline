@@ -9,15 +9,16 @@ import {
   GitBranch,
   UserRound,
   Package,
-  Wand2,
+  Cpu,
   ImageIcon,
   Film,
   AudioWaveform,
   Scissors,
   Send,
   CheckSquare,
-  Sparkles,
+  Bot,
   Music2,
+  LayoutList,
   type LucideIcon,
 } from "lucide-react";
 
@@ -27,7 +28,7 @@ const ICONS: Record<string, LucideIcon> = {
   split: GitBranch,
   "user-round": UserRound,
   package: Package,
-  wand: Wand2,
+  wand: Cpu,
   image: ImageIcon,
   film: Film,
   "audio-waveform": AudioWaveform,
@@ -35,7 +36,8 @@ const ICONS: Record<string, LucideIcon> = {
   scissors: Scissors,
   send: Send,
   "check-square": CheckSquare,
-  sparkles: Sparkles,
+  sparkles: Bot,
+  menu: LayoutList,
 };
 
 export function getNodeIcon(key: string): LucideIcon {

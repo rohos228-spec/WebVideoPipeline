@@ -33,6 +33,7 @@ import {
 } from "@/lib/node-result-resolver";
 import { NodeResultPanel } from "@/components/canvas/node-result-panel";
 import { AssembleMontageBoard } from "@/components/canvas/assemble-montage-board";
+import { ShotMenuBoard } from "@/components/canvas/shot-menu-board";
 
 export function StudioWorkspace({
   projectId,
@@ -79,6 +80,8 @@ export function StudioWorkspace({
     null,
   );
   const [montageBoardOpen, setMontageBoardOpen] = useState(false);
+  const [shotMenuOpen, setShotMenuOpen] = useState(false);
+  const [shotMenuCell, setShotMenuCell] = useState<number | null>(null);
   const suppressStudioOpenUntil = useRef(0);
   const qc = useQueryClient();
 
@@ -109,6 +112,8 @@ export function StudioWorkspace({
     setResultPanel(null);
     setAiReview(null);
     setMontageBoardOpen(false);
+    setShotMenuOpen(false);
+    setShotMenuCell(null);
   }, [projectId]);
 
   const closeStudio = useCallback(() => {
@@ -433,7 +438,7 @@ export function StudioWorkspace({
         await persistMeta({ custom_prompts: custom });
         toast.success("Промт удалён");
       },
-      onRunNode: async (nodeKey: string, nodeType: string) => {
+      onRunNode: async (nodeKey: string, nodeType: string, mode: "full" | "resume" = "full") => {
         if (!projectId) return;
         if (disabledNodes.has(nodeKey)) {
           toast.error("Нода отключена — включите её в меню V");
@@ -449,8 +454,12 @@ export function StudioWorkspace({
           if (nodeType === "excel_gpt" || nodeType.startsWith("enrich_")) {
             await api.patchExcelGptConfig(projectId, nodeKey, {}).catch(() => undefined);
           }
-          await api.runProjectStep(projectId, step, { nodeKey });
-          toast.success(`Запущен: ${getNodeSpec(nodeType).label}`);
+          await api.runProjectStep(projectId, step, { nodeKey, mode });
+          toast.success(
+            mode === "resume"
+              ? `Доделка: ${getNodeSpec(nodeType).label}`
+              : `Запущен начисто: ${getNodeSpec(nodeType).label}`,
+          );
           qc.invalidateQueries({ queryKey: ["project", projectId] });
           qc.invalidateQueries({ queryKey: ["project-run", projectId] });
           await qc.refetchQueries({ queryKey: ["project-run", projectId] });
@@ -534,6 +543,15 @@ export function StudioWorkspace({
       montageBusy,
       onOpenMontageBoard: () => setMontageBoardOpen(true),
       onCloseMontageBoard: () => setMontageBoardOpen(false),
+      shotMenuOpen,
+      onOpenShotMenu: (cellIndex?: number) => {
+        setShotMenuCell(cellIndex ?? null);
+        setShotMenuOpen(true);
+      },
+      onCloseShotMenu: () => {
+        setShotMenuOpen(false);
+        setShotMenuCell(null);
+      },
       onDownloadPrompts: async (nodeKey: string, nodeType: string) => {
         if (!projectId) return;
         try {
@@ -568,6 +586,7 @@ export function StudioWorkspace({
       canvasZoom,
       montageBoardOpen,
       montageBusy,
+      shotMenuOpen,
       getPromptSlots,
       project.data?.meta,
       persistMeta,
@@ -592,6 +611,12 @@ export function StudioWorkspace({
     return () => window.removeEventListener("keydown", onKey);
   }, [studioOpen, closeStudio]);
 
+  useEffect(() => {
+    const open = () => setShotMenuOpen(true);
+    window.addEventListener("studio-open-shot-menu", open);
+    return () => window.removeEventListener("studio-open-shot-menu", open);
+  }, []);
+
   return (
     <CanvasActionsProvider value={canvasActions}>
       <div className="relative h-full w-full">
@@ -613,6 +638,11 @@ export function StudioWorkspace({
             }
             if (nodeType === "topic") {
               onSelectNode(nodeKey);
+              return;
+            }
+            if (nodeType === "shot_menu") {
+              onSelectNode(nodeKey);
+              setShotMenuOpen(true);
               return;
             }
             if (isHitlNodeType(nodeType)) {
@@ -656,6 +686,15 @@ export function StudioWorkspace({
         projectId={projectId}
         montageBusy={montageBusy}
         onClose={() => setMontageBoardOpen(false)}
+      />
+      <ShotMenuBoard
+        open={shotMenuOpen}
+        projectId={projectId}
+        focusCell={shotMenuCell}
+        onClose={() => {
+          setShotMenuOpen(false);
+          setShotMenuCell(null);
+        }}
       />
       <NodeStudio
         open={studioOpen}

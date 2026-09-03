@@ -27,12 +27,72 @@ import type {
   NodeGroupDetail,
 } from "./types";
 import type { BlockSelection } from "./prompt-styles";
+import type { ShotMenuDTO } from "./shot-menu";
 import type { GraphApplyResult, GraphDiffResponse, GraphProposal } from "./stage-types";
 
 export interface StepTemplateBlock {
   number: number;
   title: string;
   body: string;
+}
+
+// ---- KIE Create типы (каталог моделей kie.ai) ----
+export interface KieField {
+  name: string;
+  label: string;
+  kind:
+    | "text"
+    | "textarea"
+    | "select"
+    | "toggle"
+    | "number"
+    | "images"
+    | "videos"
+    | "audios"
+    | "dialogue";
+  required?: boolean;
+  default?: unknown;
+  options?: string[];
+  min?: number;
+  max?: number;
+  step?: number;
+  max_items?: number;
+  desc?: string;
+  show_if?: Record<string, unknown>;
+}
+
+export interface KiePricingRule {
+  when: Record<string, unknown>;
+  credits: number;
+}
+
+export interface KieModelSpec {
+  id: string;
+  label: string;
+  category: string;
+  /** В какой тип Create-пикера попадает: image | video | audio */
+  media?: string;
+  desc: string;
+  /** Понятное объяснение «как работает» (для утилит/звуков) */
+  hint?: string;
+  is_top?: boolean;
+  isTop?: boolean;
+  badge?: string;
+  result: "video" | "image" | "audio" | "text";
+  fields: KieField[];
+  pricing: {
+    unit: "gen" | "sec" | "1k_chars";
+    rules: KiePricingRule[];
+    default: number;
+    note?: string;
+  };
+}
+
+export interface KieCatalog {
+  credit_usd: number;
+  categories: { id: string; label: string }[];
+  models: KieModelSpec[];
+  configured: boolean;
 }
 
 export interface LibraryItemDTO {
@@ -370,6 +430,31 @@ export const api = {
   // ── База (DB v2 browser) ─────────────────────────────────────────
   dbOverview: () => http<DbOverview>(`/api/db/overview`),
   dbGraph: (projectId: number) => http<DbGraph>(`/api/db/projects/${projectId}/graph`),
+  shotMenu: (projectId: number) =>
+    http<ShotMenuDTO>(`/api/db/projects/${projectId}/shot-menu`),
+  shotMenuEditCell: (projectId: number, parentUuid: string, voiceover: string) =>
+    http<{ ok: boolean }>(`/api/db/projects/${projectId}/shot-menu/cell`, {
+      method: "PATCH",
+      body: JSON.stringify({ parent_uuid: parentUuid, voiceover }),
+    }),
+  shotMenuAddCell: (projectId: number, beforeIndex: number | null, voiceover = "") =>
+    http<{ ok: boolean; uuid: string; number: number }>(
+      `/api/db/projects/${projectId}/shot-menu/cell`,
+      {
+        method: "POST",
+        body: JSON.stringify({ before_index: beforeIndex, voiceover }),
+      },
+    ),
+  shotMenuEditField: (
+    projectId: number,
+    frameUuid: string,
+    field: string,
+    value: string,
+  ) =>
+    http<{ ok: boolean }>(`/api/db/projects/${projectId}/shot-menu/shot-field`, {
+      method: "PATCH",
+      body: JSON.stringify({ frame_uuid: frameUuid, field, value }),
+    }),
   dbPatchFrame: (frameId: number, body: Record<string, unknown>) =>
     http<{ ok: boolean }>(`/api/db/frames/${frameId}`, { method: "PATCH", body: JSON.stringify(body) }),
   dbInsertFrame: (projectId: number, afterFrameId: number | null, sceneId?: number | null) =>
@@ -617,6 +702,7 @@ export const api = {
   getProject: (id: number) => http<ProjectDetail>(`/api/projects/${id}`),
   createProject: (body: {
     title: string;
+    topic?: string;
     hero_mode?: string;
     auto_mode?: boolean;
     sidebar_folder_id?: string | null;
@@ -708,11 +794,13 @@ export const api = {
   runProjectStep: (
     projectId: number,
     stepCode: string,
-    opts?: { dryRun?: boolean; nodeKey?: string },
+    opts?: { dryRun?: boolean; nodeKey?: string; mode?: "full" | "resume"; forceWipe?: boolean },
   ) => {
     const params = new URLSearchParams();
     if (opts?.dryRun) params.set("dry_run", "true");
     if (opts?.nodeKey) params.set("node_key", opts.nodeKey);
+    if (opts?.mode) params.set("mode", opts.mode);
+    if (opts?.forceWipe != null) params.set("force_wipe", String(opts.forceWipe));
     const q = params.toString() ? `?${params.toString()}` : "";
     return http<ProjectDetail>(`/api/projects/${projectId}/steps/${stepCode}/run${q}`, {
       method: "POST",
@@ -1001,6 +1089,10 @@ export const api = {
         error?: string | null;
         total_ops?: number;
         done_ops?: number;
+        last_path?: string;
+        last_frame_number?: number;
+        last_shot?: number;
+        last_highlight?: string;
         results?: Array<{
           ok?: boolean;
           error?: string;
@@ -1619,131 +1711,20 @@ export const api = {
     >(
       `/api/outsee-create/history?kind=${kind}&scope=${opts?.scope ?? "create"}&limit=${opts?.limit ?? 60}`,
     ),
-
-  getGrsaiStatus: () =>
-    http<{
-      enabled: boolean;
-      video_enabled: boolean;
-      audio_enabled: boolean;
-      configured: boolean;
-      provider: string;
-      video_provider: string;
-      base_url: string;
-      default_model: string;
-      default_video_model: string;
-      key_suffix: string | null;
-      wired_models: string[];
-      wired_video_models: string[];
-      wired_audio_models: string[];
-      audio_note?: string | null;
-    }>(`/api/grsai/status`),
-  listGrsaiModels: () =>
-    http<{
-      models: {
-        slug: string;
-        display_name: string;
-        wired: boolean;
-        family: string;
-        media: string;
-        resolutions: string[];
-        aspects: string[];
-        durations: number[];
-        sizes: string[];
-        badge: string;
-      }[];
-      video_models: {
-        slug: string;
-        display_name: string;
-        wired: boolean;
-        family: string;
-        media: string;
-        resolutions: string[];
-        aspects: string[];
-        durations: number[];
-        sizes: string[];
-        badge: string;
-      }[];
-      audio_models: {
-        slug: string;
-        display_name: string;
-        wired: boolean;
-        family: string;
-        media: string;
-        badge: string;
-      }[];
-    }>(`/api/grsai/models`),
-  grsaiQuote: (params: {
-    media: "image" | "video" | "audio";
-    model: string;
-    resolution?: string;
-    duration?: number;
-    size?: string;
-    catalog_price?: string;
-  }) => {
-    const q = new URLSearchParams({
-      media: params.media,
-      model: params.model,
-    });
-    if (params.resolution) q.set("resolution", params.resolution);
-    if (params.duration != null) q.set("duration", String(params.duration));
-    if (params.size) q.set("size", params.size);
-    if (params.catalog_price) q.set("catalog_price", params.catalog_price);
-    return http<{
-      media: string;
-      model: string;
-      tokens: number;
-      usd: number;
-      token_usd: number;
-      label: string;
-      label_short: string;
-      usd_label: string;
-      grsai_credits: number | null;
-      source: string;
-    }>(`/api/grsai/quote?${q.toString()}`);
+  deleteOutseeCreateHistoryItem: (params: { path?: string; itemId?: string }) => {
+    const q = new URLSearchParams();
+    if (params.path) q.set("path", params.path);
+    if (params.itemId) q.set("item_id", params.itemId);
+    return http<{ ok: boolean; deleted: boolean }>(
+      `/api/outsee-create/history?${q.toString()}`,
+      { method: "DELETE" },
+    );
   },
-  grsaiGenerate: (body: {
-    prompt: string;
-    model?: string;
-    aspect?: string;
-    resolution?: string;
-    media?: "image" | "video" | "audio";
-    duration?: number;
-    size?: string;
-  }) =>
-    http<{
-      ok: boolean;
-      job_id: string;
-      status: string;
-      media: string;
-      model: string;
-      path: string;
-      history_id: string;
-      preview_url?: string | null;
-      raw_url?: string | null;
-      bytes?: number;
-      queue?: number;
-      quote?: {
-        tokens: number;
-        usd: number;
-        label: string;
-      };
-    }>(`/api/grsai/generate`, {
+  enhanceOutseeCreatePrompt: (data: { prompt: string; style?: string }) =>
+    http<{ ok: boolean; enhanced_prompt: string }>(`/api/outsee-create/enhance-prompt`, {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify(data),
     }),
-
-  grsaiJob: (jobId: string) =>
-    http<{
-      job_id: string;
-      status: string;
-      media: string;
-      model: string;
-      path: string;
-      history_id: string;
-      preview_url?: string | null;
-      error?: string | null;
-      bytes?: number;
-    }>(`/api/grsai/jobs/${encodeURIComponent(jobId)}`),
 
   outseeStatus: () =>
     http<{
@@ -1767,6 +1748,7 @@ export const api = {
     model?: string;
     aspect?: string;
     resolution?: string;
+    detail_level?: string | null;
     duration?: number;
     title?: string;
     relax?: boolean;
@@ -1774,6 +1756,9 @@ export const api = {
     project_id?: number | null;
     first_frame_url?: string | null;
     last_frame_url?: string | null;
+    reference_images?: string[] | null;
+    nonce?: string | null;
+    batch_index?: number | null;
   }) =>
     http<{
       ok: boolean;
@@ -1812,11 +1797,16 @@ export const api = {
       queue_position?: number | null;
     }>(`/api/outsee/jobs/${encodeURIComponent(jobId)}`),
 
+  cancelCreateJob: (jobId: string) =>
+    http<{ ok: boolean; job_id: string }>(
+      `/api/create/jobs/${encodeURIComponent(jobId)}/cancel`,
+      { method: "POST" },
+    ),
+
   createQueue: () =>
     http<{
       max_parallel: number;
       max_parallel_outsee?: number;
-      max_parallel_grsai?: number;
       running_count: number;
       waiting_count: number;
       total_active: number;
@@ -1829,6 +1819,11 @@ export const api = {
         prompt_preview?: string;
         queue_position?: number | null;
         provider: string;
+        created_at?: string | null;
+        started_at?: string | null;
+        finished_at?: string | null;
+        elapsed_sec?: number | null;
+        elapsed_label?: string | null;
       }[];
       waiting: {
         job_id: string;
@@ -1839,6 +1834,11 @@ export const api = {
         prompt_preview?: string;
         queue_position?: number | null;
         provider: string;
+        created_at?: string | null;
+        started_at?: string | null;
+        finished_at?: string | null;
+        elapsed_sec?: number | null;
+        elapsed_label?: string | null;
       }[];
       jobs: {
         job_id: string;
@@ -1849,8 +1849,49 @@ export const api = {
         prompt_preview?: string;
         queue_position?: number | null;
         provider: string;
+        created_at?: string | null;
+        started_at?: string | null;
+        finished_at?: string | null;
+        elapsed_sec?: number | null;
+        elapsed_label?: string | null;
       }[];
     }>(`/api/create/queue`),
+
+  // ---- KIE Create (вкладка «Генерация», провайдер kie.ai) ----
+  kieCatalog: () =>
+    http<KieCatalog>(`/api/kie-create/catalog`),
+  kieCredits: () =>
+    http<{ configured: boolean; credits: number | null; usd: number | null }>(
+      `/api/kie-create/credits`,
+    ),
+  kieGenerate: (body: { model_id: string; values: Record<string, unknown> }) =>
+    http<{
+      job: {
+        job_id: string;
+        status: string;
+        history_id: string;
+        media: string;
+        model: string;
+        queue_position?: number | null;
+      };
+      estimate: { credits: number; usd: number; note?: string };
+    }>(`/api/kie-create/generate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  kieUpload: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`/api/kie-create/upload`, { method: "POST", body: fd });
+    const data = (await r.json().catch(() => ({}))) as {
+      url?: string;
+      detail?: string;
+    };
+    if (!r.ok || !data.url) {
+      throw new Error(data.detail || `upload HTTP ${r.status}`);
+    }
+    return data as { url: string; filename: string; bytes: number };
+  },
 
   createJob: (jobId: string) =>
     http<{
@@ -2166,6 +2207,81 @@ export const api = {
       },
       1_800_000,
     ),
+  gptAskStream: async (
+    sessionId: string,
+    message: string,
+    withAttachments = true,
+    callbacks?: {
+      onDelta?: (delta: string) => void;
+      onPhase?: (phase: string, phaseDetail?: string) => void;
+      onDone?: (session: GptWorkspaceSession, message: any) => void;
+      onError?: (error: string) => void;
+    },
+    signal?: AbortSignal,
+  ) => {
+    let res: Response;
+    try {
+      res = await fetch(
+        `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/ask-stream`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, with_attachments: withAttachments }),
+          signal,
+        },
+      );
+    } catch (e: any) {
+      if (e?.name === "AbortError" || signal?.aborted) return;
+      throw e;
+    }
+
+    if (!res.ok) {
+      const errTxt = await res.text();
+      throw new ApiError(res.status, errTxt);
+    }
+    if (!res.body) return;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let doneReceived = false;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("data:")) {
+            try {
+              const data = JSON.parse(trimmed.slice(5).trim());
+              if (data.type === "delta" && data.delta) {
+                callbacks?.onDelta?.(data.delta);
+              } else if (data.type === "phase") {
+                callbacks?.onPhase?.(data.phase, data.phase_detail);
+              } else if (data.type === "done") {
+                doneReceived = true;
+                callbacks?.onDone?.(data.session, data.message);
+              } else if (data.type === "error" && data.error) {
+                callbacks?.onError?.(data.error);
+              }
+            } catch {
+              // ignore JSON parse error
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err?.name === "AbortError" || signal?.aborted || doneReceived) {
+        return;
+      }
+      throw err;
+    }
+  },
   gptSaveToProject: (
     sessionId: string,
     body: { project_id: number; output_name: string; as_name?: string },
@@ -2182,6 +2298,49 @@ export const api = {
       `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/save-voiceover`,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  compileMetaPrompt: (body: {
+    step_code: string;
+    user_intent: string;
+    project_id?: number | null;
+    target_name?: string | null;
+  }) =>
+    http<{
+      ok: boolean;
+      step_code: string;
+      name: string;
+      compiled_prompt: string;
+      stats: {
+        length_chars: number;
+        lines_count: number;
+        has_schema: boolean;
+        has_guards: boolean;
+      };
+    }>(
+      "/api/meta-agent/compile",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+      120_000,
+    ),
+  saveAndActivateMetaPrompt: (body: {
+    step_code: string;
+    name: string;
+    content: string;
+    project_id?: number | null;
+    activate?: boolean;
+  }) =>
+    http<{
+      ok: boolean;
+      step_code: string;
+      name: string;
+      file_name: string;
+      file_path: string;
+      activated: boolean;
+    }>("/api/meta-agent/save-and-activate", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
 
 export type GptWorkspaceSessionSummary = {
@@ -2209,6 +2368,7 @@ export type GptWorkspaceMessage = {
   role: "user" | "assistant" | "system" | string;
   content: string;
   at?: string;
+  model?: string;
   attachment_names?: string[];
   output_files?: string[];
 };
