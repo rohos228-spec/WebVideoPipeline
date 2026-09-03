@@ -13,6 +13,7 @@
 | [`llm-contracts`](specs/llm-contracts/spec.md) | 5 (исполняется 2-м) | полная (target); дизайн транспорта — после проверки риск-блокера |
 | [`cache-resume`](specs/cache-resume/spec.md) | 2 (исполняется 3-м) | полная (target) |
 | [`cost-accounting`](specs/cost-accounting/spec.md) | 3 (в любой момент) | полная (target) |
+| [`merge-customer-fork`](changes/merge-customer-fork/proposal.md) | вне контракта | change 2026-09-03: перенос форка заказчика — фронт целиком, бэкенд выборочно; черновик v0.1 |
 
 Порядок исполнения этапов: 1 → 5 → 2 → 4 → 3. Почему контракты (5) до
 кэша (2): (а) выход апстрим-агента = вход даунстрима — пока выход не
