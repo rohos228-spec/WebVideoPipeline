@@ -62,3 +62,6 @@ acd8ff33b4a9f42b79848540c136efce3697cb86:tests/test_billing_hook.py:generic-api-
 
 # 2026-09-03 возврат старой студии (7b81de3): демо-ключ кадра "shot01…" в примере ленты базы, не секрет.
 7b81de37b805539055a0213d6ad371309a1b9014:web/src/components/baza/baza-workspace.tsx:generic-api-key:114
+3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:322
+3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:335
+3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:348
