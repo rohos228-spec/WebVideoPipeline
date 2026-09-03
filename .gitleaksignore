@@ -59,3 +59,6 @@ e49b1aab7499ff5a6d4c20415fbbc4a2bace0c03:web/src/components/baza/baza-workspace.
 
 efe537ca30960703b266afdd12e6e91c40e83e37:tests/test_billing_hook.py:generic-api-key:29
 acd8ff33b4a9f42b79848540c136efce3697cb86:tests/test_billing_hook.py:generic-api-key:27
+
+# 2026-09-03 возврат старой студии (7b81de3): демо-ключ кадра "shot01…" в примере ленты базы, не секрет.
+7b81de37b805539055a0213d6ad371309a1b9014:web/src/components/baza/baza-workspace.tsx:generic-api-key:114
