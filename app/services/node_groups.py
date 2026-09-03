@@ -357,7 +357,12 @@ NODE_GROUPS: dict[str, NodeGroupDef] = {
     for g in (
         _scene_design_group(),
         _scene_design_chrono_dyn_group(),
-        _script_frames_qc_group(),
+        # _script_frames_qc_group() — группа из форка заказчика (сценарист →
+        # промты кадров → QC) исполняется их enrich_xlsx/fw_frames, которые не
+        # перенесены (спека merge-customer-fork, блок H). Без них ноды группы
+        # запускаются как обычные excel_gpt и молча делают не то. Промты
+        # группы лежат в templates/, код группы цел — включить одной строкой,
+        # когда переедет цепочка.
     )
 }
 
