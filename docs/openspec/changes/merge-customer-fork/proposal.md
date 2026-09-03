@@ -276,3 +276,42 @@ types.ts` в их диапазоне не тронут, `NodeRunDTO` у нас �
     студия — на `/pipeline` через нашу оболочку.
 7.4 (владелец → заказчик) Ротация `VIBECODE_API_KEY` из их `.env.example`
     и добавление `.env.env` в их `.gitignore`. Вне нашего репо.
+
+## 8. Тест-долг (решение владельца 2026-09-04)
+
+Перенесённый код заказчика уехал на прод без тестов на изменённые строки.
+diff-cov исключает файлы ниже (`.claude/verify.json`, `_test_debt`),
+планка cov-ratchet обновлена. Список обязан только уменьшаться: тест на
+файл написан — файл из `--exclude` убран.
+
+| Файл | Непокрытых изменённых строк | Что там |
+|---|---|---|
+| `app/web/routers/outsee_create.py` | 121 | enhancer, скачивание с конвертацией, история |
+| `app/services/vo_shot_expand.py` | 100 | нарезка закадра по шотам (меню съёмки) |
+| `app/services/node_groups.py` | 92 | скрытая группа script_frames_qc |
+| `app/bots/outsee_http.py` | 78 | concurrency-ожидание, Veo-кадры, NBP-бан |
+| `app/services/gpt_workspace.py` | 65 | ask_stream |
+| `app/services/shot_menu.py` | 63 | меню съёмки |
+| `app/services/create_jobs.py` | 47 | cancel_job, уборка сайдкара |
+| `app/services/generation_storage.py` | 40 | таймеры, sweep сирот |
+| `app/services/gpt_api.py` | 34 | on_delta в SSE-циклах |
+| `app/web/routers/db_browser.py` | 19 | маршруты shot-menu |
+| `app/web/routers/project_ops.py` | 15 | виртуальные листы |
+| `app/web/routers/meta_agent.py` | 14 | compile / save-and-activate |
+| `app/db.py` | 13 | commit_with_retry |
+| `app/services/plan_shot2.py` | 12 | реф shot_02 от родителя |
+| `app/web/routers/gpt_workspace.py` | 11 | ask-stream endpoint |
+| `app/services/step_registry.py` | 10 | реестр шагов |
+| `app/services/db_virtual_xlsx.py` | 10 | виртуальные листы |
+| `app/web/routers/projects.py` | 9 | camelCase, mode=resume |
+| `app/web/routers/outsee_http.py` | 7 | cancel |
+| `app/services/prompt_library.py` | 7 | шаблоны excel_gpt |
+| `app/orchestrator/graph/planner.py` | 7 | UI-ноды как side sink |
+| `app/web/schemas.py` | 6 | camelCase-валидатор |
+| `app/services/step_replace.py` | 6 | замена шага |
+| `app/web/routers/create_queue.py` | 3 | cancel |
+| `app/services/meta_prompt_compiler.py` | 3 | компилятор |
+
+Приоритет гашения: `outsee_http.py` и `gpt_api.py` (деньги и сеть), затем
+`shot_menu`/`vo_shot_expand` (данные заказчика), остальное — по мере
+касания. Регламент — `docs/RELEASE-PROCESS.md` §6.

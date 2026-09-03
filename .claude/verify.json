@@ -101,7 +101,8 @@
         {
           "_comment": "Изменённые строки покрыты тестами. Храповик выше ловит просадку СУЩЕСТВУЮЩИХ файлов; новый файл входит в базу со своими нулями и живёт так вечно. Этот шаг смотрит только на дифф — центральное правило режима «владелец не читает реализацию».",
           "name": "diff-cov",
-          "run": ".venv/bin/python scripts/diff_coverage.py --lcov coverage/lcov.info",
+          "_test_debt": "ТЕСТ-ДОЛГ (решение владельца 2026-09-04, change merge-customer-fork): 25 файлов перенесены из форка заказчика без тестов на изменённые строки (~790 строк). Исключения ниже — временные; список обязан только УМЕНЬШАТЬСЯ: написал тест на файл — убери его отсюда. Реестр долга: docs/openspec/changes/merge-customer-fork/proposal.md §8.",
+          "run": ".venv/bin/python scripts/diff_coverage.py --lcov coverage/lcov.info --exclude app/web/routers/outsee_create.py --exclude app/services/vo_shot_expand.py --exclude app/services/node_groups.py --exclude app/bots/outsee_http.py --exclude app/services/gpt_workspace.py --exclude app/services/shot_menu.py --exclude app/services/create_jobs.py --exclude app/services/generation_storage.py --exclude app/services/gpt_api.py --exclude app/web/routers/db_browser.py --exclude app/web/routers/project_ops.py --exclude app/web/routers/meta_agent.py --exclude app/db.py --exclude app/services/plan_shot2.py --exclude app/web/routers/gpt_workspace.py --exclude app/services/step_registry.py --exclude app/services/db_virtual_xlsx.py --exclude app/web/routers/projects.py --exclude app/web/routers/outsee_http.py --exclude app/services/prompt_library.py --exclude app/orchestrator/graph/planner.py --exclude app/web/schemas.py --exclude app/services/step_replace.py --exclude app/web/routers/create_queue.py --exclude app/services/meta_prompt_compiler.py",
           "timeout": 120
         },
         {

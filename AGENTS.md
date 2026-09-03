@@ -39,6 +39,7 @@ Do **not** push to a different branch than `ORCHESTRATOR_GIT_BRANCH` unless the 
 | Эвалы промтов (сеть, деньги) | `python3 scripts/eval_prompts.py --all` |
 | Собрать образ | `docker build -t studio .` |
 | Выкладка на VPS | `deploy/studio/` — см. `deploy/studio/README.md` |
+| Порядок изменение → проверка → релиз | `docs/RELEASE-PROCESS.md` (ярусы гейта, смоук студии, push отвязанным процессом, тест-долг) |
 | Изоляция на живом Postgres | `podman start vp-pg && TEST_DATABASE_URL=postgresql+asyncpg://app:app@127.0.0.1/vp .venv/bin/python -m pytest tests/test_rls_postgres.py` |
 | Run application | `STUDIO.cmd` (Windows) or `python3 -m app.main` from repo root |
 
