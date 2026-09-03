@@ -97,7 +97,12 @@ def test_frontend_paths_exist_on_the_backend() -> None:
     )
     assert len(frontend) > 10, f"из api.ts извлечено всего {len(frontend)} путей — разбор сломался"
 
-    missing = sorted(p for p in frontend if p not in backend)
+    # kie.ai в «Генерации» студии заказчика: бэкенд не переносили (решение
+    # владельца 2026-09-03), запросы к нему живут за флагом сборки
+    # NEXT_PUBLIC_KIE_CREATE и по умолчанию не уходят. Клиентские функции
+    # остаются, чтобы следующий перенос от заказчика не конфликтовал.
+    _DEAD_BEHIND_FLAG = ("/kie-create/",)
+    missing = sorted(p for p in frontend if p not in backend and not p.startswith(_DEAD_BEHIND_FLAG))
     assert not missing, (
         "фронт зовёт адреса, которых на бэкенде нет:\n  "
         + "\n  ".join(missing)

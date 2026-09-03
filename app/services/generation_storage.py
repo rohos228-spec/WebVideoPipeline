@@ -432,6 +432,12 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
                     elapsed_sec=elapsed_sec,
                     finished_at=end or meta.get("finished_at"),
                 )
+                # Ответ обязан совпадать с тем, что легло на диск: иначе первый
+                # poll отдаёт finished_at=None, второй — время, и кэш списка
+                # (а с ним тест) видит два разных ответа на один запрос.
+                if end:
+                    meta["finished_at"] = end
+                meta["elapsed_sec"] = elapsed_sec
             except Exception:  # noqa: BLE001
                 pass
         params = meta.get("params") or {}
