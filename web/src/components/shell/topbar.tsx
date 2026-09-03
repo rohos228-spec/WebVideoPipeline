@@ -1,0 +1,181 @@
+"use client";
+
+import { useState, createContext, useContext } from "react";
+import { Activity, Bot, CircleDollarSign, Database, MessagesSquare, Network, Sparkles, Wand2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { LogPanel } from "@/components/logs/log-panel";
+import { FramesGrid } from "@/components/frames/frames-grid";
+import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
+import { TextLlmPicker } from "@/components/shell/text-llm-picker";
+import { BugReportButton } from "@/components/shell/bug-report-button";
+import { BalanceBadge } from "@/components/shell/balance-badge";
+import { useOwnerMode } from "@/hooks/use-identity";
+
+interface UiState {
+  framesProjectId: number | null;
+  openFrames: (projectId: number) => void;
+  openOutsee: (projectId?: number | null) => void;
+}
+
+const UiContext = createContext<UiState | null>(null);
+
+export function useUi(): UiState {
+  const ctx = useContext(UiContext);
+  if (!ctx) throw new Error("useUi must be used within AppShell / Topbar");
+  return ctx;
+}
+
+export function Topbar({ children }: { children?: React.ReactNode }) {
+  // Инструменты владельца в SaaS не показываются вовсе: их ручки закрыты, и
+  // кнопка, ведущая в 404, хуже отсутствующей — она обещает возможность.
+  const ownerMode = useOwnerMode();
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [framesOpen, setFramesOpen] = useState(false);
+  const [framesProjectId, setFramesProjectId] = useState<number | null>(null);
+
+  const openFrames = (id: number) => {
+    setFramesProjectId(id);
+    setFramesOpen(true);
+  };
+
+  const openOutsee = (projectId?: number | null) => {
+    window.dispatchEvent(
+      new CustomEvent("studio-open-outsee", {
+        detail: { projectId: projectId ?? null },
+      }),
+    );
+  };
+
+  return (
+    <UiContext.Provider value={{ framesProjectId, openFrames, openOutsee }}>
+      <div className="flex h-full min-h-0 w-full flex-1 flex-col">
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-white/[0.06] bg-black/40 px-4 backdrop-blur-xl">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary">
+            <Sparkles className="h-3.5 w-3.5" />
+          </div>
+          <div className="flex flex-col gap-0.5 leading-tight">
+            <span className="text-sm font-semibold tracking-tight">Видео студия</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                автономный режим
+              </span>
+              <StudioVersionBadge />
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {ownerMode && (
+            <>
+              <TextLlmPicker />
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => openOutsee()}
+                className="gap-2 text-xs font-semibold"
+                title="Полный интерфейс генерации outsee"
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+                Генерация
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))}
+                className="gap-2 text-xs font-semibold"
+                title="Свободный чат с активной текстовой моделью (GPT или Kimi)"
+              >
+                <Bot className="h-3.5 w-3.5" />
+                Чат
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("studio-open-node-prompts", { detail: {} }),
+              )
+                }
+                className="gap-2 text-xs"
+                title="Промты выбранной ноды на канвасе"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Промты
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.dispatchEvent(new CustomEvent("studio-open-baza"))}
+                className="gap-2 text-xs"
+                title="Визуализация базы данных: карточки кадров, связи, версии промтов"
+              >
+                <Database className="h-3.5 w-3.5" />
+                База
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.dispatchEvent(new CustomEvent("studio-open-fleet"))}
+                className="gap-2 text-xs"
+                title="Станции Tailscale и очередь монтажа"
+              >
+                <Network className="h-3.5 w-3.5" />
+                Сеть
+              </Button>
+            </>
+          )}
+          <BalanceBadge className="mr-1" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-chat"))}
+            className="gap-2 text-xs"
+            title="Разговор с агентом: цена шага до запуска, лента кадров, перерисовка"
+          >
+            <MessagesSquare className="h-3.5 w-3.5" />
+            Чат
+          </Button>
+          {ownerMode && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.dispatchEvent(new CustomEvent("studio-open-costs"))}
+                className="gap-2 text-xs"
+                title="Стоимость LLM по нодам, моделям и прогонам; бюджет прогона"
+              >
+                <CircleDollarSign className="h-3.5 w-3.5" />
+                Стоимость
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLogsOpen(true)}
+                className="gap-2 text-xs"
+              >
+                <Activity className="h-3.5 w-3.5" />
+                Логи
+              </Button>
+            </>
+          )}
+          <BugReportButton />
+          <Button variant="ghost" size="sm" className="gap-2 text-xs" asChild>
+            <a href="/api/docs" target="_blank" rel="noreferrer">
+              API
+            </a>
+          </Button>
+        </div>
+      </header>
+      <LogPanel open={logsOpen} onOpenChange={setLogsOpen} />
+      <FramesGrid
+        projectId={framesProjectId}
+        open={framesOpen}
+        onOpenChange={setFramesOpen}
+      />
+      {children != null ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+      ) : null}
+      </div>
+    </UiContext.Provider>
+  );
+}

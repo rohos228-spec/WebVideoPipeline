@@ -90,7 +90,7 @@ export default function Page() {
               Оркестратор
             </button>
             <Link
-              href={current === null ? "/pipeline" : `/pipeline?project=${current}`}
+              href={current === null ? "/pipeline?template=1" : `/pipeline?project=${current}`}
               className="text-[12px] text-content-faint transition-colors hover:text-accent"
               title={current === null ? "Шаблон схемы для новых роликов" : "Схема этого ролика"}
             >

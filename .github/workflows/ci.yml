@@ -248,7 +248,16 @@ jobs:
                        -e 'components/canvas/pipeline-node.tsx' \
                        -e 'components/studio/asset-tray.tsx' \
                        -e 'components/studio/studio-excel-grid.tsx' \
-                       -e 'components/ui/dialog.tsx'; then
+                       -e 'components/ui/dialog.tsx' \
+                       -e 'components/baza/baza-timeline.tsx' \
+                       -e 'components/baza/baza-workspace.tsx' \
+                       -e 'components/gpt/gpt-workspace.tsx' \
+                       -e 'components/inspector/outsee-gen-panel.tsx' \
+                       -e 'components/orchestrator/orchestrator-panel.tsx' \
+                       -e 'components/outsee/outsee-create-workspace.tsx' \
+                       -e 'components/sidebar/project-sidebar.tsx' \
+                       -e 'components/ui/sheet.tsx' \
+                       -e 'lib/outsee-catalog.ts'; then
             echo "::error::найден цвет мимо токенов — значение переезжает в globals.css/studio-theme.css"
             exit 1
           fi
