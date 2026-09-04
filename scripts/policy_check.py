@@ -132,14 +132,38 @@ def active_changes() -> list[Path]:
 
 
 def check_branch(problems: list[str]) -> None:
+    """Коммиты, сделанные ПРЯМО в main (§2).
+
+    Fast-forward из ветки выглядит в `origin/main..HEAD` так же, как прямой
+    коммит, поэтому счётчик здесь не годится: он заворачивал бы штатное
+    слияние (поймано на себе 2026-09-04 — гейт заблокировал выкладку самой
+    политики). Различаем по происхождению: коммит, который лежит и в другой
+    локальной ветке, сделан в ветке и пришёл слиянием; коммит, который есть
+    только в main, написан прямо там.
+
+    Предел честности: если ветку уже удалили, её коммиты станут неотличимы
+    от прямых. Ветку удаляют после пуша — к этому моменту проверка отработала.
+    """
     try:
         branch = git("rev-parse", "--abbrev-ref", "HEAD")
-        ahead = int(git("rev-list", "--count", "origin/main..HEAD"))
+        commits = git("rev-list", "origin/main..HEAD").split()
     except subprocess.CalledProcessError:
         return
-    if branch == "main" and ahead:
+    if branch != "main" or not commits:
+        return
+
+    direct = []
+    for sha in commits:
+        try:
+            owners = git("branch", "--contains", sha, "--format=%(refname:short)").split()
+        except subprocess.CalledProcessError:
+            continue
+        if not [b for b in owners if b != "main"]:
+            direct.append(sha)
+    if direct:
         problems.append(
-            f"§2: {ahead} коммит(ов) сделано прямо в main. Работа идёт в ветке "
+            f"§2: {len(direct)} коммит(ов) сделано прямо в main "
+            f"(например {direct[0][:8]}). Работа идёт в ветке "
             "feat|fix|chore|docs/<тема>, в main изменение попадает слиянием."
         )
 
