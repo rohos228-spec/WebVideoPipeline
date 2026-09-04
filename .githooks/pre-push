@@ -6,6 +6,7 @@ engine="$HOME/.agents/hooks/verify.sh"
 [ -x "$engine" ] || { echo "pre-push: нет $engine — gauntlet пропущен" >&2; exit 0; }
 # git пишет строки ссылок в stdin хука. Движок их не читает, и на длинном
 # прогоне (полная суита с покрытием, >10 мин) git упирается в EPIPE и умирает
-# с кодом 141 — молча, до единой строки в логе. Сливаем stdin до exec.
-cat >/dev/null 2>&1 || true
+# с кодом 141 — молча, до единой строки в логе. Сливаем stdin до exec,
+# но с таймаутом: голый `cat` ждёт EOF, которого git не даёт, и вешает хук.
+timeout 2 cat >/dev/null 2>&1 || true
 exec "$engine" --stage push
