@@ -69,12 +69,20 @@ scripts/smoke_studio.sh <sqlite-копия> [project_id]   # скриншоты 
 
 1. **Поднять Postgres** для `rls`: `podman start vp-pg` (иначе ярус
    красный на `connection refused`).
-2. Push долгий (полная суита с покрытием, 5–10 мин). Из сессии агента —
-   **отвязанным процессом**, фоновые задачи харнесса гибнут:
+2. Push долгий (полная суита с покрытием, 10–15 мин). Два подводных камня,
+   оба выглядят одинаково — код 141 и **пустой лог**:
+   - ssh к GitHub открывается ДО хука и простаивает весь прогон; GitHub рвёт
+     его молча. Лечится keepalive — без него push не проходит вовсе;
+   - фоновые задачи харнесса гибнут; нужен отвязанный процесс.
    ```sh
-   setsid nohup sh -c 'git push origin <ветка> > /tmp/push.log 2>&1; echo PUSH_EXIT=$? >> /tmp/push.log' &
+   setsid nohup sh -c 'exec </dev/null; git -c core.sshCommand="ssh -o ServerAliveInterval=20 -o ServerAliveCountMax=90" \
+     push origin <ветка> > /tmp/push.log 2>&1; echo PUSH_EXIT=$? >> /tmp/push.log' >/dev/null 2>&1 </dev/null &
    ```
-   Итог читать из лога.
+   Итог читать из лога. HTTPS вместо ssh не спасает: токен не имеет права
+   `workflow`, и любой коммит, трогающий `.github/workflows/*`, отвергается
+   (`refusing to allow a Personal Access Token to create or update workflow`).
+   Пустой лог + 141 = смотреть сюда, а не в тесты: гейт в этом случае даже
+   не запускался.
 3. Красное:
    - `pytest-ratchet: НОВЫЕ падения` — регрессия, чинить.
    - `cov-ratchet: покрытие просело` — тесты; осознанно — `scripts/coverage_ratchet.py --update` с записью в спеку.
