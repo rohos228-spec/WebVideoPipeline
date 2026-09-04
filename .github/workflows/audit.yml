@@ -1,0 +1,46 @@
+# Цепочка поставки: уязвимости в зависимостях. Еженедельно и по кнопке.
+#
+# Отдельно от CI намеренно: база уязвимостей меняется без наших коммитов,
+# и зелёный CI вчера ничего не говорит о сегодняшнем дне. Блокировать
+# каждый push внешней базой тоже нельзя — она бывает недоступна.
+name: Аудит зависимостей
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: Python — pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: pip-audit
+        # Зависимости объявлены в pyproject.toml (requirements.txt в проекте
+        # нет); pip-audit ставит проект в изолированное окружение сам.
+        run: |
+          pip install pip-audit
+          pip-audit --desc --progress-spinner off .
+
+  node:
+    name: Фронт — npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit
+        working-directory: web
+      - name: npm audit
+        working-directory: web
+        # Блокирует только высокая и критическая: moderate в транзитивных
+        # зависимостях сборщика фронта — постоянный фон, от которого гейт
+        # перестают читать.
+        run: npm audit --audit-level=high --omit=dev

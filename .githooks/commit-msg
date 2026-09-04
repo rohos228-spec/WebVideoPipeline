@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Конвенция сообщений (docs/ENGINEERING-POLICY.md §2).
+#
+# Заголовок: `тип(область): человеческая суть`, ≤ 72 символов.
+# Тело объясняет ПОЧЕМУ. Пустые формулировки запрещены: через полгода
+# «фиксы» в истории означают, что причину придётся искать в коде.
+set -eu
+msg_file="$1"
+# Комментарии git и строки-подсказки в проверку не идут.
+header=$(grep -v '^#' "$msg_file" | sed '/^$/d' | head -1)
+
+[ -z "$header" ] && { echo "commit-msg: пустое сообщение" >&2; exit 1; }
+
+# Слияния и правки истории git формирует сам — их не трогаем.
+case "$header" in
+  "Merge "*|"Revert "*|"fixup!"*|"squash!"*|"Bump "*) exit 0 ;;
+esac
+
+types='feat|fix|chore|docs|refactor|test|perf|build|ci|style|security'
+if ! printf '%s' "$header" | grep -qE "^($types)(\([a-z0-9._/-]+\))?: .+"; then
+  cat >&2 <<MSG
+commit-msg: заголовок не по конвенции.
+  Надо:  тип(область): человеческая суть
+  Типы:  $types
+  Было:  $header
+Правила — docs/ENGINEERING-POLICY.md §2.
+MSG
+  exit 1
+fi
+
+if [ "${#header}" -gt 72 ]; then
+  echo "commit-msg: заголовок ${#header} символов, максимум 72. Подробности — в тело." >&2
+  exit 1
+fi
+
+subject=${header#*: }
+for empty in фиксы фикс правки поправил обновление обновил wip тест temp тмп; do
+  if [ "$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')" = "$empty" ]; then
+    echo "commit-msg: «$subject» ничего не сообщает. Что сломалось и почему так починено?" >&2
+    exit 1
+  fi
+done
+exit 0

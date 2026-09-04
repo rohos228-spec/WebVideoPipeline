@@ -150,6 +150,12 @@
           "timeout": 180
         },
         {
+          "_comment": "Политика процесса: прямой коммит в main, рост долга по СОСТАВУ исключений, контрактное изменение без спеки, незаархивированный change, долг старше 90 дней. См. docs/ENGINEERING-POLICY.md.",
+          "name": "policy",
+          "run": ".venv/bin/python scripts/policy_check.py",
+          "timeout": 60
+        },
+        {
           "_comment": "ai-pack — копии guide-файлов; расхождение с корнем означает, что агенты читают устаревший контракт.",
           "name": "ai-pack",
           "run": ".venv/bin/python scripts/verify_ai_pack.py",
