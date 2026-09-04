@@ -6,7 +6,7 @@
 #   scripts/release.sh [--tag v0.2.0]
 #
 # Делает: предполётную проверку → push с keepalive → ожидание Release →
-# проверку прода → запись в docs/releases.log.
+# проверку прода → запись в docs/RELEASES.md.
 set -eu
 ROOT=$(dirname "$(dirname "$(readlink -f "$0")")")
 cd "$ROOT"
@@ -38,5 +38,5 @@ health=$(ssh studio 'docker ps --format "{{.Names}} {{.Status}}" | grep studio-a
 echo "  $health"
 echo "  $digest"
 
-printf '%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%MZ)" "${tag:-—}" "$sha" "$digest" >> docs/releases.log
-echo "записано в docs/releases.log; откат — scripts/rollback.sh"
+printf '| `%s` | %s | `%s` | `%s` |\n' "$(date -u +%Y-%m-%dT%H:%MZ)" "${tag:-—}" "$sha" "$digest" >> docs/RELEASES.md
+echo "записано в docs/RELEASES.md; откат — scripts/rollback.sh"

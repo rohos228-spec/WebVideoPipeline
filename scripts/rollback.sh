@@ -1,5 +1,5 @@
 #!/bin/sh
-# Откат прода на предыдущий дайджест из docs/releases.log.
+# Откат прода на предыдущий дайджест из docs/RELEASES.md.
 #
 #   scripts/rollback.sh [<дайджест или строка образа>]
 #
@@ -12,8 +12,8 @@ cd "$ROOT"
 
 target=${1:-}
 if [ -z "$target" ]; then
-  target=$(awk -F'\t' 'NF>=4 && $4 != "?" {print $4}' docs/releases.log | tail -2 | head -1)
-  [ -n "$target" ] || { echo "в docs/releases.log нет предыдущего дайджеста — укажи образ явно" >&2; exit 1; }
+  target=$(grep -oE 'ghcr\.io/[^`| ]+@sha256:[0-9a-f]+' docs/RELEASES.md | tail -2 | head -1)
+  [ -n "$target" ] || { echo "в docs/RELEASES.md нет предыдущего дайджеста — укажи образ явно" >&2; exit 1; }
 fi
 
 echo "откат на: $target"
@@ -23,5 +23,5 @@ printf 'подтверди (yes): '; read -r ans
 ssh studio "cd /opt/studio && STUDIO_IMAGE='$target' ./deploy.sh"
 sleep 5
 ssh studio 'docker ps --format "{{.Names}} {{.Status}}" | grep studio-app-1'
-printf '%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%MZ)" "ОТКАТ" "-" "$target" >> docs/releases.log
-echo "откат записан в docs/releases.log; дальше — разбор и фикс обычным путём"
+printf '| `%s` | ОТКАТ | — | `%s` |\n' "$(date -u +%Y-%m-%dT%H:%MZ)" "$target" >> docs/RELEASES.md
+echo "откат записан в docs/RELEASES.md; дальше — разбор и фикс обычным путём"
