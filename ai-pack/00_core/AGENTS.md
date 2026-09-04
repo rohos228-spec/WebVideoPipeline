@@ -39,7 +39,11 @@ Do **not** push to a different branch than `ORCHESTRATOR_GIT_BRANCH` unless the 
 | Эвалы промтов (сеть, деньги) | `python3 scripts/eval_prompts.py --all` |
 | Собрать образ | `docker build -t studio .` |
 | Выкладка на VPS | `deploy/studio/` — см. `deploy/studio/README.md` |
-| Порядок изменение → проверка → релиз | `docs/RELEASE-PROCESS.md` (ярусы гейта, смоук студии, push отвязанным процессом, тест-долг) |
+| **Железные правила** (код, архитектура, безопасность) | `docs/constitution.md` — меняются только через ADR |
+| **Инженерная политика** (готовность, спеки, релиз, откат, инциденты, долг) | `docs/ENGINEERING-POLICY.md` |
+| Порядок изменение → проверка → релиз | `docs/RELEASE-PROCESS.md` (ярусы гейта, смоук студии, push с keepalive, грабли) |
+| Реестр ослаблений | `docs/DEBT.md`, база — `.claude/baselines/debt.json` |
+| Точка входа для человека | `CONTRIBUTING.md` |
 | Изоляция на живом Postgres | `podman start vp-pg && TEST_DATABASE_URL=postgresql+asyncpg://app:app@127.0.0.1/vp .venv/bin/python -m pytest tests/test_rls_postgres.py` |
 | Run application | `STUDIO.cmd` (Windows) or `python3 -m app.main` from repo root |
 
