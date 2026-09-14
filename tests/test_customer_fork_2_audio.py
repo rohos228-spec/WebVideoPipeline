@@ -465,3 +465,249 @@ def test_clean_suno_prompt_strips_wrappers() -> None:
     assert _clean_suno_prompt(raw) == "cinematic dark orchestral, deep brass, instrumental"
     assert _clean_suno_prompt("Prompt: ambient pads, slow tempo") == "ambient pads, slow tempo"
     assert _clean_suno_prompt(None) == ""
+
+
+# ── sfx_gen: ретрай на сетевой ошибке (не RuntimeError) ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_elevenlabs_sfx_retries_on_transport_exception(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Порвалась сеть (не HTTP-код) — повтор, а не мгновенный отказ."""
+    from app.services import sfx_gen
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "k")
+
+    slept: list[float] = []
+
+    async def _no_sleep(s: float) -> None:
+        slept.append(s)
+
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    client = _install_fake_httpx(
+        monkeypatch,
+        [ConnectionError("dns died"), _FakeResponse(200, content=b"MP3")],
+    )
+    out = tmp_path / "a.mp3"
+    await sfx_gen._elevenlabs_sfx("boom", 1.0, out)
+    assert len(client.calls) == 2
+    assert slept == [2.0]
+    assert out.read_bytes() == b"MP3"
+
+
+@pytest.mark.asyncio
+async def test_elevenlabs_sfx_reraises_last_transport_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Все попытки легли на транспорте — наружу уходит последняя ошибка."""
+    from app.services import sfx_gen
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "k")
+
+    async def _no_sleep(_s: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    client = _install_fake_httpx(monkeypatch, [ConnectionError("dns died")] * 3)
+    with pytest.raises(ConnectionError, match="dns died"):
+        await sfx_gen._elevenlabs_sfx("boom", 1.0, tmp_path / "a.mp3")
+    assert len(client.calls) == 3
+
+
+# ── sfx_gen: verify красный → локальный синтез и отказ ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_generate_sfx_files_verify_red_switches_to_local_synth(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """API отдал брак: verify красный → перерисовываем локально и принимаем."""
+    from app.services import sfx_gen
+    from app.services.sfx_plan import SfxEvent
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "k")
+
+    async def _ok(_prompt: str, _duration: float, out_path: Path) -> Path:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"MP3")
+        return out_path
+
+    monkeypatch.setattr(sfx_gen, "_elevenlabs_sfx", _ok)
+
+    seen: list[tuple[str, float]] = []
+
+    def _verify(path: Path, *, expect_duration=None, duration_tol=0.35, **_kw) -> list[str]:
+        seen.append((path.suffix, duration_tol))
+        return ["rms -70 dB"] if len(seen) == 1 else []
+
+    monkeypatch.setattr(sfx_gen, "verify_audio_file", _verify)
+
+    session = SimpleNamespace(flush=lambda: asyncio.sleep(0))
+    project = SimpleNamespace(id=7, meta={}, data_dir=tmp_path)
+    events = [SfxEvent(1, 0.5, 0.8, "hit", "bang", 0.5, False)]
+
+    files = await sfx_gen.generate_sfx_files(session, project, events)
+    assert len(files) == 1
+    assert files[0]["provider"] == "local_synth"
+    assert Path(files[0]["path"]).suffix == ".wav"
+    # первый заход — mp3 с широким допуском, второй — wav с жёстким 0.6
+    assert seen[0][0] == ".mp3"
+    assert seen[1] == (".wav", 0.6)
+
+
+@pytest.mark.asyncio
+async def test_generate_sfx_files_raises_when_verify_stays_red(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Локальный синтез тоже красный — шаг падает, а не отдаёт пустой список."""
+    from app.services import sfx_gen
+    from app.services.sfx_plan import SfxEvent
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "")
+    monkeypatch.setattr(sfx_gen, "verify_audio_file", lambda *_a, **_kw: ["пустой файл"])
+
+    session = SimpleNamespace(flush=lambda: asyncio.sleep(0))
+    project = SimpleNamespace(id=7, meta={}, data_dir=tmp_path)
+    events = [SfxEvent(1, 0.5, 0.8, "hit", "bang", 0.5, False)]
+
+    with pytest.raises(RuntimeError, match="ни один файл не прошёл верификацию"):
+        await sfx_gen.generate_sfx_files(session, project, events)
+
+
+# ── sfx_mix: откуда берутся старты кадров ─────────────────────────────────
+
+
+def test_planned_frame_starts_without_data_dir() -> None:
+    """Проект без data_dir (голый SimpleNamespace) — пустая карта, не падение."""
+    assert sfx_mix._planned_frame_starts(SimpleNamespace()) == {}
+
+
+def test_planned_frame_starts_from_words_json(tmp_path: Path) -> None:
+    import json
+
+    audio = tmp_path / "audio"
+    audio.mkdir(parents=True)
+    (audio / "words_1.json").write_text(
+        json.dumps({"frames": [{"frame_number": 1, "start_ts": 0.0}, {"frame_number": 2, "start_ts": 3.5}]}),
+        encoding="utf-8",
+    )
+    starts = sfx_mix._planned_frame_starts(SimpleNamespace(data_dir=tmp_path))
+    assert starts == {1: 0.0, 2: 3.5}
+
+
+def test_planned_frame_starts_broken_words_json_falls_to_plan(tmp_path: Path) -> None:
+    """words_*.json битый — не роняем микс, читаем sfx_plan.json."""
+    import json
+
+    audio = tmp_path / "audio"
+    audio.mkdir(parents=True)
+    (audio / "words_1.json").write_text("{не json", encoding="utf-8")
+    (tmp_path / "sfx_plan.json").write_text(
+        json.dumps({"frame_starts": {"1": 0.0, "2": 4.25}}), encoding="utf-8"
+    )
+    starts = sfx_mix._planned_frame_starts(SimpleNamespace(data_dir=tmp_path))
+    assert starts == {1: 0.0, 2: 4.25}
+
+
+def test_planned_frame_starts_broken_plan_json_is_empty(tmp_path: Path) -> None:
+    (tmp_path / "sfx_plan.json").write_text("{битый", encoding="utf-8")
+    assert sfx_mix._planned_frame_starts(SimpleNamespace(data_dir=tmp_path)) == {}
+
+
+def test_sfx_mix_voice_gain_without_output_duration(tmp_path: Path) -> None:
+    """Длительность неизвестна — anull вместо apad, усиление всё равно на месте."""
+    sfx_file = tmp_path / "click.mp3"
+    sfx_file.write_bytes(b"dummy")
+    _args, fc = sfx_mix.build_mux_audio_args(
+        bgm_path=None,
+        bgm_gain=0.0,
+        output_duration=None,
+        tail=0.0,
+        sfx=[sfx_mix.SfxInput(path=sfx_file, t_start=1.0, gain=0.6, kind="hit")],
+        voice_gain=0.8,
+    )
+    assert fc is not None
+    assert "[1:a]anull,volume=0.8000[vo]" in fc
+
+
+# ── sfx_plan: таймлайн кадров ─────────────────────────────────────────────
+
+
+def test_frame_timeline_broken_words_json_falls_back_to_frames(tmp_path: Path) -> None:
+    """Битый words_*.json не роняет планировщик — идём по Frame.start_ts."""
+    from app.services import sfx_plan
+
+    audio = tmp_path / "audio"
+    audio.mkdir(parents=True)
+    (audio / "words_1.json").write_text("{битый", encoding="utf-8")
+
+    frames = [
+        SimpleNamespace(number=1, start_ts=0.0, end_ts=2.0, voiceover_text="Привет"),
+        SimpleNamespace(number=2, start_ts=2.0, end_ts=5.0, voiceover_text="Кадр 2"),
+    ]
+    rows = sfx_plan.frame_timeline(frames, project=SimpleNamespace(data_dir=tmp_path))
+    assert [r["frame_number"] for r in rows] == [1, 2]
+    assert rows[0]["voiceover"] == "Привет"
+    # служебный «кадр N» в закадр не попадает
+    assert "voiceover" not in rows[1]
+
+
+def test_frame_timeline_mixed_ts_uses_duration_for_broken_frame() -> None:
+    """Часть кадров без start_ts/end_ts — их длина берётся из duration_seconds."""
+    from app.services import sfx_plan
+
+    frames = [
+        SimpleNamespace(number=1, start_ts=0.0, end_ts=2.0, duration_seconds=None, voiceover_text=""),
+        SimpleNamespace(number=2, start_ts=None, end_ts=None, duration_seconds=4.0, voiceover_text=""),
+        SimpleNamespace(number=3, start_ts=None, end_ts=None, duration_seconds=None, voiceover_text=""),
+    ]
+    rows = sfx_plan.frame_timeline(frames)
+    assert rows[1] == {"frame_number": 2, "start": 2.0, "end": 6.0}
+    # нет ни ts, ни duration — 3 секунды по умолчанию
+    assert rows[2] == {"frame_number": 3, "start": 6.0, "end": 9.0}
+
+
+@pytest.mark.asyncio
+async def test_plan_sfx_events_writes_plan_with_frame_starts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """План уходит на диск вместе с frame_starts и offset_in_frame."""
+    import json
+
+    from app.services import sfx_plan
+
+    frames = [
+        SimpleNamespace(number=1, start_ts=0.0, end_ts=3.0, voiceover_text="раз", attrs={}, meaning=""),
+        SimpleNamespace(number=2, start_ts=3.0, end_ts=7.0, voiceover_text="два", attrs={}, meaning=""),
+    ]
+    payload = {
+        "events": [
+            {
+                "frame_number": 2,
+                "t_start": 3.5,
+                "duration": 1.0,
+                "kind": "whoosh",
+                "prompt": "deep whoosh",
+                "gain": 0.5,
+                "duck": False,
+            }
+        ]
+    }
+
+    async def _fake_text_job(_project, **_kw):
+        return SimpleNamespace(payload=payload, attempts=1)
+
+    monkeypatch.setattr(sfx_plan, "text_job", _fake_text_job)
+
+    project = SimpleNamespace(id=3, meta={}, data_dir=tmp_path)
+    events = await sfx_plan.plan_sfx_events(None, project, frames)
+    assert len(events) == 1 and events[0].kind == "whoosh"
+
+    saved = json.loads((tmp_path / "sfx_plan.json").read_text(encoding="utf-8"))
+    assert saved["frame_starts"] == {"1": 0.0, "2": 3.0}
+    assert saved["events"][0]["offset_in_frame"] == 0.5
