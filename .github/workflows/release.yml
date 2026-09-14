@@ -25,6 +25,9 @@ on:
       - "ai-pack/**"
       - "**/*.md"
       - ".claude/**"
+      # Сами workflow в образ не попадают; их правка не повод собирать и
+      # перезапускать студию. Гейт на них всё равно идёт: policy.yml.
+      - ".github/workflows/**"
   workflow_dispatch:
     inputs:
       deploy:
