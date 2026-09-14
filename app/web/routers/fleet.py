@@ -50,7 +50,16 @@ def _pipeline_root() -> Path:
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 
-def _check_agent_token(authorization: str | None) -> None:
+def _check_agent_token(authorization: str | None = Header(None)) -> None:
+    """Проверка токена станции.
+
+    ``Header(None)`` здесь обязателен. Без него FastAPI видел у зависимости
+    голый ``authorization: str | None`` без значения по умолчанию и заводил
+    ОБЯЗАТЕЛЬНЫЙ query-параметр: все тринадцать ручек ``/api/fleet/local/*``
+    отвечали 422 «query.authorization: Field required» ещё до тела, а токен из
+    заголовка (его шлёт ``app/fleet/client``) не читался вовсе.
+    """
+
     expected = (settings.fleet_agent_token or "").strip()
     if not expected:
         return
