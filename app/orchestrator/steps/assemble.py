@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shutil
 import tempfile
 import uuid
@@ -23,6 +24,7 @@ from app.models import (
 )
 from app.services.artifact_recovery import recover_before_assemble
 from app.services.assembly import (
+    FFMPEG_TIMEOUT_SEC,
     SUBTITLES_ASS_NAME,
     assemble,
     make_simple_ass,
@@ -601,7 +603,20 @@ async def _assemble_body(
                     str(burned),
                     cwd=str(tmp),
                 )
-                await proc.communicate()
+                try:
+                    await asyncio.wait_for(proc.communicate(), timeout=FFMPEG_TIMEOUT_SEC)
+                except TimeoutError:
+                    with contextlib.suppress(OSError, ProcessLookupError):
+                        proc.kill()
+                    await proc.communicate()
+                    logger.error(
+                        "[#{}] assemble: ffmpeg subtitle burn timeout {}s",
+                        project.id,
+                        FFMPEG_TIMEOUT_SEC,
+                    )
+                    raise TimeoutError(
+                        f"ffmpeg subtitle burn timed out after {FFMPEG_TIMEOUT_SEC}s"
+                    ) from None
                 if proc.returncode != 0:
                     raise RuntimeError("ffmpeg subtitle burn failed")
                 shutil.copy2(burned, out_path)

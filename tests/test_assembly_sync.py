@@ -314,11 +314,20 @@ def test_extract_local_frame_words_rebases_to_zero() -> None:
     assert local[0].end == 0.5
 
 
-def test_cut_clip_does_not_resize() -> None:
+def test_cut_clip_scales_only_to_timeline_target() -> None:
+    """Приведён к факту 2026-09-14.
+
+    Запрет на любой ``-vf`` снят вместе с нормализацией размеров: Outsee
+    отдаёт клипы разного аспекта, и ``_resolve_assembly_target_size`` берёт
+    эталоном первый клип таймлайна, а ``_cut_clip`` подгоняет остальные
+    (scale+pad, без обрезки кадра) — плюс ``setpts`` для слишком коротких
+    отрезков. Что осталось гарантией: жёстко зашитого вертикального
+    ``1080:1920`` нет, scale включается только при заданных target_w/target_h.
+    """
     src = inspect.getsource(asm._cut_clip)
-    assert "-vf" not in src
-    assert "scale=" not in src
     assert "1080:1920" not in src
+    assert "if target_w is not None and target_h is not None:" in src
+    assert "force_original_aspect_ratio=decrease" in src
 
 
 def test_subtitles_vf_arg_is_bare_filename_without_path_separators() -> None:

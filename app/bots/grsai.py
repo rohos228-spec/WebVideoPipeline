@@ -416,11 +416,11 @@ async def _generate_image_inner(
 
 async def _poll_result(task_id: str, *, timeout: float = 600) -> dict[str, Any]:
     """Poll image async result (GET /v1/api/result)."""
-    deadline = asyncio.get_event_loop().time() + timeout
+    deadline = asyncio.get_running_loop().time() + timeout
     url = f"{_base_url()}/v1/api/result"
     last: dict[str, Any] = {}
     async with httpx.AsyncClient(timeout=30) as client:
-        while asyncio.get_event_loop().time() < deadline:
+        while asyncio.get_running_loop().time() < deadline:
             r = await client.get(url, headers=_headers(), params={"id": task_id})
             if r.status_code >= 400:
                 raise GrsaiError(
@@ -440,11 +440,11 @@ async def _poll_result(task_id: str, *, timeout: float = 600) -> dict[str, Any]:
 
 async def _poll_draw_result(task_id: str, *, timeout: float = 900) -> dict[str, Any]:
     """Poll video result (POST /v1/draw/result {id})."""
-    deadline = asyncio.get_event_loop().time() + timeout
+    deadline = asyncio.get_running_loop().time() + timeout
     url = f"{_base_url()}/v1/draw/result"
     last: dict[str, Any] = {}
     async with httpx.AsyncClient(timeout=30) as client:
-        while asyncio.get_event_loop().time() < deadline:
+        while asyncio.get_running_loop().time() < deadline:
             r = await client.post(url, headers=_headers(), json={"id": task_id})
             if r.status_code >= 400:
                 raise GrsaiError(

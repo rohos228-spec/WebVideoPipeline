@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import commit_with_retry
 from app.models import Frame, Project
 from app.services import gpt_text_builder as gtb
 from app.services.prompt_blocks import (
@@ -199,7 +200,7 @@ async def save_project_gpt_text(
         await gtb.set_override(session, project, step_code, payload.text)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    await session.commit()
+    await commit_with_retry(session)
     ctx = await _gpt_text_context(session, project, step_code)
     return {
         "step_code": step_code,
@@ -264,7 +265,7 @@ async def reset_project_gpt_text(
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     await gtb.clear_override(session, project, step_code)
-    await session.commit()
+    await commit_with_retry(session)
     ctx = await _gpt_text_context(session, project, step_code)
     supported = gtb.is_supported(step_code)
     text = gtb.get_display_text(project, step_code, **ctx) if supported else ""
@@ -279,7 +280,7 @@ async def reset_project_gpt_text(
 @router.post("/blocks/sync")
 async def sync_blocks(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
     result = await sync_blocks_catalog(session)
-    await session.commit()
+    await commit_with_retry(session)
     return result
 
 
@@ -310,7 +311,7 @@ async def post_block_activity(
                 "prompt_variant": payload.prompt_variant,
             },
         )
-        await session.commit()
+        await commit_with_retry(session)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True}
@@ -342,7 +343,7 @@ async def put_block_file(
             payload.content,
             message=payload.message,
         )
-        await session.commit()
+        await commit_with_retry(session)
         return result
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -364,7 +365,7 @@ async def post_block_file(
             payload.content,
             message=payload.message,
         )
-        await session.commit()
+        await commit_with_retry(session)
         return result
     except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
@@ -380,7 +381,7 @@ async def delete_block_file(
 ) -> dict[str, Any]:
     try:
         result = await delete_block(session, category, block_id)
-        await session.commit()
+        await commit_with_retry(session)
         return result
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -403,7 +404,7 @@ async def rename_block_file(
             payload.new_block_id,
             message=payload.message,
         )
-        await session.commit()
+        await commit_with_retry(session)
         return result
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -640,7 +641,7 @@ async def patch_project_prompt_config(
 
     project.prompt_overrides = po
     flag_modified(project, "prompt_overrides")
-    await session.commit()
+    await commit_with_retry(session)
     blocks, vars_ = merge_project_prompt_config(
         po,
         hero_description=(
@@ -853,7 +854,7 @@ async def run_gpt_verdict(
         fix_applied=result.fix_applied,
     )
     if advanced:
-        await session.commit()
+        await commit_with_retry(session)
         await session.refresh(project)
 
     return {

@@ -37,7 +37,6 @@ def _enable(monkeypatch, *, relays: str = "gw.test", mode: str = "auto") -> None
     from app.settings import settings
 
     monkeypatch.setattr(settings, "text_llm_provider", "kie")
-    monkeypatch.setattr(settings, "tokenrouter_api_key", "")
     monkeypatch.setattr(settings, "gpt_api_key", "test-key")
     monkeypatch.setattr(settings, "gpt_base_url", "https://gw.test")
     monkeypatch.setattr(settings, "gpt_chat_path", "/v1/chat/completions")

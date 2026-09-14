@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import commit_with_retry
 from app.models import LibraryConfig, LibraryEvent, LibraryItem, LibraryVersion, Project
 from app.services import local_library as lib
 from app.web.deps import get_session
@@ -186,7 +187,7 @@ async def create_library_item(
         meta=payload.meta,
         force_version=False,
     )
-    await session.commit()
+    await commit_with_retry(session)
     active = await lib.get_active_version(session, item)
     return LibraryItemDetailDTO(**_item_dto(item).model_dump(), content=active.content if active else "")
 
@@ -225,7 +226,7 @@ async def update_library_item(
         meta=payload.meta,
         force_version=True,
     )
-    await session.commit()
+    await commit_with_retry(session)
     return LibraryItemDetailDTO(**_item_dto(item).model_dump(), content=version.content)
 
 
@@ -249,7 +250,7 @@ async def restore_library_version(
         item, restored = await lib.restore_version(session, item_id, version, author="studio")
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    await session.commit()
+    await commit_with_retry(session)
     return LibraryItemDetailDTO(**_item_dto(item).model_dump(), content=restored.content)
 
 
@@ -265,7 +266,7 @@ async def download_library_item(
     if not path.is_file():
         raise HTTPException(status_code=404, detail="materialized file not found")
     await lib.log_event(session, "downloaded", item=item, payload={"file_path": item.file_path})
-    await session.commit()
+    await commit_with_retry(session)
     return FileResponse(path=str(path), filename=path.name)
 
 
@@ -310,7 +311,7 @@ async def save_library_config(
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
         cfg = await lib.save_project_config(session, project=project, name=payload.name)
-    await session.commit()
+    await commit_with_retry(session)
     return _config_dto(cfg)
 
 
@@ -327,7 +328,7 @@ async def apply_library_config(
         await lib.apply_config_to_project(session, config_id=config_id, project=project)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": True, "project_id": project.id, "config_id": config_id}
 
 
@@ -414,7 +415,7 @@ async def save_prompt_bundle(
         step_id=step_id,
         step_code=payload.step_code,
     )
-    await session.commit()
+    await commit_with_retry(session)
     return {
         "ok": True,
         "items": {

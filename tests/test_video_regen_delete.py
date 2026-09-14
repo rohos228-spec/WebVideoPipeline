@@ -79,7 +79,10 @@ async def test_delete_video_clips_removes_all_shot1(tmp_path: Path) -> None:
         return _FakeResult([art_old, art_new, art_s2])
 
     session.execute = AsyncMock(side_effect=_execute2)
-    session.delete = MagicMock(side_effect=lambda a: deleted.append(a))
+    # приведён к факту 2026-09-14: AsyncSession.delete — корутина, а не
+    # sync-метод; фейк должен быть awaitable, иначе тест зелен только
+    # потому, что продовый код забыл await (было в vision_check_loop).
+    session.delete = AsyncMock(side_effect=lambda a: deleted.append(a))
     session.flush = AsyncMock()
 
     removed = await _delete_video_clips(session, project, [{"number": 9, "shot": 1}])

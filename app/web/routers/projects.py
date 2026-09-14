@@ -183,10 +183,10 @@ async def get_project(project_id: int, session: AsyncSession = Depends(get_sessi
     from app.services.node_groups import upgrade_script_frames_qc_on_project
 
     if await upgrade_script_frames_qc_on_project(session, p):
-        await session.commit()
+        await commit_with_retry(session)
         await session.refresh(p)
     await recompute_status(session, p, log_prefix="recompute(web_get)")
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     return project_to_detail(p)
 
@@ -235,7 +235,7 @@ async def create_project(
         hero_mode=p.hero_mode,
         status=p.status.value,
     )
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(
         p.id,
@@ -254,7 +254,7 @@ async def create_project(
         except Exception:
             pass
     await recompute_status(session, p, log_prefix="recompute(create)")
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     return project_to_detail(p)
 
@@ -281,7 +281,7 @@ async def create_child_project(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     # Сначала короткий commit — не держим write-lock на время copytree.
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(child)
     try:
         await finalize_child_data_dir(parent, child)
@@ -311,7 +311,7 @@ async def ensure_project_run(project_id: int, session: AsyncSession = Depends(ge
     if wf_id is None:
         raise HTTPException(status_code=404, detail="default workflow not found")
     run_id = await ensure_run_for_project(project_id, wf_id, session=session)
-    await session.commit()
+    await commit_with_retry(session)
     return {"run_id": run_id}
 
 
@@ -322,7 +322,7 @@ async def delete_project(project_id: int, session: AsyncSession = Depends(get_se
         raise HTTPException(status_code=404, detail="project not found")
     remove_project_from_layout(project_id)
     await session.delete(p)
-    await session.commit()
+    await commit_with_retry(session)
     await publish_project_event(project_id, event_type="project_deleted")
 
 
@@ -554,7 +554,7 @@ async def run_project_step(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await sync_run_for_project(project_id)
     await publish_project_event(
@@ -588,7 +588,7 @@ async def vision_decision(
         result = apply_vision_decision(p, action)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(
         project_id,

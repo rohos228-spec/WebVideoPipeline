@@ -16,6 +16,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.models import Artifact, ArtifactKind, Frame, Project
 from app.services.plan_shot2 import (
+    _IMG_EXTENSIONS,
     SHOT2_PROMPT_ATTR,
     SHOT2_VIDEO_PROMPT_ATTR,
     effective_shot_from_artifact,
@@ -127,6 +128,11 @@ def _is_shot1_media_name(name: str) -> bool:
     return "_s2_" not in name
 
 
+def _shot1_image_patterns(frame_number: int) -> list[str]:
+    """Глобы картинок shot_01 по всем поддерживаемым расширениям."""
+    return [f"frame_{frame_number:03d}_*{ext}" for ext in sorted(_IMG_EXTENSIONS)]
+
+
 def purge_replaced_media(
     folder: Path,
     *,
@@ -207,7 +213,7 @@ async def finalize_scene_image(
     """После успешной генерации/upload: архив старых файлов, artifact на new_path."""
     _assert_new_file_ready(new_path)
     scenes = project.data_dir / "scenes"
-    patterns = [shot2_file_pattern(frame_number)] if shot == 2 else [f"frame_{frame_number:03d}_*.png"]
+    patterns = [shot2_file_pattern(frame_number)] if shot == 2 else _shot1_image_patterns(frame_number)
     purged = purge_replaced_media(
         scenes,
         patterns=patterns,
@@ -323,14 +329,15 @@ async def delete_scene_image(
     shot: int,
 ) -> bool:
     scenes = project.data_dir / "scenes"
-    pattern = shot2_file_pattern(frame_number) if shot == 2 else f"frame_{frame_number:03d}_*.png"
+    patterns = [shot2_file_pattern(frame_number)] if shot == 2 else _shot1_image_patterns(frame_number)
     deleted = False
     if scenes.is_dir():
-        for p in list(scenes.glob(pattern)):
-            if shot == 1 and "_s2_" in p.name:
-                continue
-            archive_file(p, project, "scenes")
-            deleted = True
+        for pattern in patterns:
+            for p in list(scenes.glob(pattern)):
+                if shot == 1 and "_s2_" in p.name:
+                    continue
+                archive_file(p, project, "scenes")
+                deleted = True
     fr = await _frame(session, project.id, frame_number)
     if fr is not None:
         arts = (

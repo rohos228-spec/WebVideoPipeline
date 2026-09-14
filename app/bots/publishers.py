@@ -62,8 +62,8 @@ class Publisher:
     async def _first_visible(
         self, page: Page, selectors: list[str], *, timeout_ms: int = 20_000
     ) -> str | None:
-        deadline = asyncio.get_event_loop().time() + timeout_ms / 1000
-        while asyncio.get_event_loop().time() < deadline:
+        deadline = asyncio.get_running_loop().time() + timeout_ms / 1000
+        while asyncio.get_running_loop().time() < deadline:
             for sel in selectors:
                 try:
                     if await page.locator(sel).count() > 0:

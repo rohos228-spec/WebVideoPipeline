@@ -123,7 +123,6 @@ async def test_unpersisted_spent_counts_toward_budget(db, monkeypatch):
 
 def _enable_kie(monkeypatch, retries: int = 0) -> None:
     monkeypatch.setattr(settings, "text_llm_provider", "kie")
-    monkeypatch.setattr(settings, "tokenrouter_api_key", "")
     monkeypatch.setattr(settings, "gpt_api_key", "k")
     monkeypatch.setattr(settings, "gpt_base_url", "https://gw.test")
     monkeypatch.setattr(settings, "gpt_chat_path", "/v1/chat/completions")

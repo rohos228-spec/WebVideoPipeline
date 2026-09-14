@@ -352,11 +352,6 @@ def _headers() -> dict[str, str]:
                 "VIBECODE_API_KEY пуст — задай ключ vibecode.moe (vk-…) в .env",
                 context={"error_kind": "no_key", "provider": "vibecode"},
             )
-        if settings.text_llm_is_tokenrouter:
-            raise GptApiError(
-                "TOKENROUTER_API_KEY пуст — задай ключ TokenRouter (Kimi K3) в .env",
-                context={"error_kind": "no_key", "provider": "tokenrouter"},
-            )
         raise GptApiError(
             "GPT_API_KEY пуст (и GRSAI_API_KEY тоже) — задай ключ в .env",
             context={"error_kind": "no_key", "provider": "kie"},
@@ -378,7 +373,7 @@ def _chat_url(model: str) -> str:
     base = _override_vibecode_base_url() if _node_vibecode_override() else settings.gpt_api_effective_base_url
     if not base:
         raise GptApiError(
-            "База текстового LLM пуста — задай TOKENROUTER_BASE_URL, VIBECODE_BASE_URL или GPT_BASE_URL",
+            "База текстового LLM пуста — задай VIBECODE_BASE_URL или GPT_BASE_URL",
             context={"error_kind": "no_base"},
         )
     if not _RELAY_BASE_LOGGED:
@@ -2104,7 +2099,7 @@ async def _chat_completions_plain(
     timeout: float,
     use_model: str,
 ) -> GptChatResult:
-    """Non-stream POST chat/completions (kie/TokenRouter путь chat())."""
+    """Non-stream POST chat/completions (kie/vibecode путь chat())."""
     async with _async_client(timeout=_http_timeout(timeout)) as client:
         resp = await client.post(url, headers=headers, json=body)
     _raise_http_status(
@@ -2492,7 +2487,7 @@ async def _chat_unscoped(
     tools: list[dict[str, Any]] | None = None,
     on_delta: Any | None = None,
 ) -> GptChatResult:
-    """Вызвать текстовый LLM (kie GPT / TokenRouter Kimi) с ретраями.
+    """Вызвать текстовый LLM (kie GPT / vibecode) с ретраями.
 
     ``tools``: нативные инструменты в формате Messages
     ({name, description, input_schema}). Уходят только маршрутом Claude
@@ -2605,7 +2600,7 @@ async def _chat_unscoped(
         )
 
     # П.16-17: брейкер per-провайдер. Ключ — реальный текстовый провайдер
-    # (kie/vibecode/tokenrouter/grsai), а не модель: лежит шлюз, не модель.
+    # (kie/vibecode/grsai), а не модель: лежит шлюз, не модель.
     #
     # …но не только шлюз: у одного шлюза транспорты живут независимо. Живой
     # прогон 2026-08-31: vibecode отдавал 502 на `/v1/messages` (формат
@@ -2960,14 +2955,8 @@ async def _chat_unscoped(
             return result
         except httpx.TimeoutException:
             provider_breaker.note_failure(breaker_key, error_kind="timeout")
-            hint = ""
-            if settings.text_llm_is_tokenrouter:
-                hint = (
-                    " — Kimi free на TokenRouter часто тормозит/висит; "
-                    "подожди или переключи бейдж модели на GPT (kie)"
-                )
             last_exc = GptApiError(
-                f"{provider_label} timeout {use_timeout:.0f}s (попытка {attempt}/{retries + 1}){hint}",
+                f"{provider_label} timeout {use_timeout:.0f}s (попытка {attempt}/{retries + 1})",
                 context={
                     "error_kind": "timeout",
                     "retryable": True,
