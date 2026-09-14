@@ -1105,6 +1105,37 @@ def _clear_inflight(frame: Frame) -> None:
         frame.attrs = attrs
 
 
+TRANSIENT_RETRIES_ATTR = "transient_net_retries"
+MAX_TRANSIENT_NET_RETRIES = 2
+
+
+def _requeue_frame_on_transient(frame: Frame, err: BaseException, *, is_shot2: bool) -> bool:
+    """Оборвалась сеть/DNS — вернуть кадр в очередь вместо `failed`.
+
+    Кадр не виноват в том, что провайдер был недоступен: пометка `failed`
+    отдаёт его счётчику MAX_FAIL и в итоге выбрасывает из ролика. Возврат
+    разрешён дважды (счётчик в attrs), дальше — обычная ветка отказа.
+    """
+    from app.services.outsee_retry import _is_transient_network_error
+
+    if not _is_transient_network_error(err):
+        return False
+    attrs = dict(frame.attrs or {})
+    try:
+        used = int(attrs.get(TRANSIENT_RETRIES_ATTR) or 0)
+    except (TypeError, ValueError):
+        used = 0
+    if used >= MAX_TRANSIENT_NET_RETRIES:
+        return False
+    attrs[TRANSIENT_RETRIES_ATTR] = used + 1
+    if is_shot2:
+        attrs[SHOT2_STATUS_ATTR] = "image_prompt_ready"
+    else:
+        frame.status = FrameStatus.image_prompt_ready
+    frame.attrs = attrs
+    return True
+
+
 async def _claim_shot1_batch(
     session: AsyncSession,
     project_id: int,
@@ -1715,6 +1746,21 @@ async def _generate_and_send(
     except StepCancelledError:
         raise
     except OutseeImageError as e:
+        # Оборванная сеть/DNS — не вина кадра: возвращаем его в очередь, но
+        # не более двух раз (счётчик в attrs). Дальше — обычная ветка failed,
+        # так что анти-зацикливание (MAX_FAIL=3) остаётся в силе.
+        if _requeue_frame_on_transient(frame, e, is_shot2=is_shot2):
+            logger.warning(
+                "[#{}] frame {}: временный сетевой сбой ({}) — кадр в очередь ({}/{})",
+                project.id,
+                frame.number,
+                type(e).__name__,
+                (frame.attrs or {}).get(TRANSIENT_RETRIES_ATTR),
+                MAX_TRANSIENT_NET_RETRIES,
+            )
+            await session.commit()
+            return
+
         # Не «возьму последнюю картинку», не silent retry: помечаем кадр
         # failed и шлём в TG понятное описание ошибки (с gen_id, baseline-ом
         # и тем что нашли). Пайплайн пойдёт к следующему кадру; общая логика
@@ -1872,6 +1918,18 @@ async def _generate_and_send(
     )
     # Коммитим сразу, чтобы callback-хендлер в другом таске видел HITL.
     await session.commit()
+    # Студия ждёт картинку по шине: без события карточка ноды обновится
+    # только следующим опросом.
+    try:
+        from app.services.event_bus import publish_project_event
+
+        await publish_project_event(
+            project.id,
+            event_type="image_generated",
+            payload={"frame_id": frame.id, "image_path": str(result.file_path)},
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[#{}] publish image_generated failed: {}", project.id, exc)
 
 
 def _html_escape(s: str) -> str:

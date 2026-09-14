@@ -7888,12 +7888,15 @@ async def _download_via_context(
     out_path: Path,
     *,
     timeout_ms: int = 120_000,
-    attempts: int = 3,
+    attempts: int = 5,
     project_id: int | None = None,
 ) -> None:
     """Скачивает файл по URL, используя тот же контекст (cookies/auth) страницы.
-    CDN outsee/hailuoai иногда медленный — поднимаем таймаут до 120 сек и
-    делаем до 3 попыток."""
+
+    CDN outsee/hailuoai/yandexcloud бывает медленным и даёт кратковременные
+    DNS/сетевые сбои: таймаут 120 сек, до 5 попыток с экспоненциальным
+    backoff, и если падает сам Playwright-запрос — пробуем тот же URL через
+    httpx (там своя резолвилка и свой пул соединений)."""
     from app.services.step_cancel import abort_if_cancelled, await_with_cancel, sleep_cancellable
 
     ctx = page.context
@@ -7918,7 +7921,25 @@ async def _download_via_context(
                 type(e).__name__,
                 e,
             )
-            await sleep_cancellable(1.5 * i, project_id)
+            if url.startswith("http"):
+                try:
+                    import httpx
+
+                    async with httpx.AsyncClient(
+                        timeout=max(30.0, timeout_ms / 1000.0),
+                        follow_redirects=True,
+                    ) as hclient:
+                        hr = await await_with_cancel(hclient.get(url), project_id)
+                        if hr.status_code < 400 and len(hr.content) > 100:
+                            out_path.write_bytes(hr.content)
+                            logger.info(
+                                "_download_via_context: httpx fallback скачал {} B",
+                                len(hr.content),
+                            )
+                            return
+                except Exception as he:  # noqa: BLE001
+                    logger.debug("_download_via_context: httpx fallback упал: {}", he)
+            await sleep_cancellable(min(15.0, 2.0 * (1.8 ** (i - 1))), project_id)
     assert last is not None
     raise last
 

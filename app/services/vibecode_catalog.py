@@ -56,7 +56,7 @@ VIDEO_CATALOG_RAW: list[dict[str, Any]] = [
         "is_image": False,
         "is_video": True,
         "owned_by": "outsee",
-        "pricing": {"currency": "usd"},
+        "pricing": {"currency": "usd", "usd_per_video": 0.15},
     },
     {
         "id": "kling-2-6",
@@ -137,6 +137,7 @@ def apply_markup(
         "cache_read_usd_per_m",
         "cache_create_usd_per_m",
         "usd_per_image",
+        "usd_per_video",
     ):
         if key not in raw or raw[key] is None:
             continue

@@ -297,3 +297,25 @@ async def test_recompute_status_never_downgrades() -> None:
     assert new is ProjectStatus.image_prompts_ready
     assert changed is False
     assert p.status is ProjectStatus.image_prompts_ready
+
+
+@pytest.mark.asyncio
+async def test_excel_ids_with_artifact_disk_fallback(tmp_path) -> None:
+    """PNG на диске без Artifact (откат БД) — персонаж всё равно готов."""
+    from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+
+    chars_dir = tmp_path / "characters"
+    chars_dir.mkdir(parents=True)
+    (chars_dir / "c01.png").write_bytes(b"x" * 2000)
+    # Огрызок меньше 1000 B — не картинка, а след сорвавшейся загрузки.
+    (chars_dir / "c02.png").write_bytes(b"x" * 10)
+
+    p = Project(id=99, topic="t", slug="t", status=ProjectStatus.generating_hero)
+    session = AsyncMock()
+    m = MagicMock()
+    m.scalars.return_value.all.return_value = []
+    session.execute = AsyncMock(return_value=m)
+
+    with patch.object(Project, "data_dir", new_callable=PropertyMock, return_value=tmp_path):
+        generated = await generate_hero._excel_ids_with_artifact(session, p)
+    assert generated == {"c01"}
