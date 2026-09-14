@@ -27,6 +27,7 @@ from app.services.bgm import BgmConfig
 from app.services.media_probe import probe_duration, probe_video_size
 from app.services.montage.r15 import R15Marker, load_r15_markers, write_r15_proof
 from app.services.montage.workspace import wipe_montage_workspace
+from app.services.sfx_mix import SfxInput, build_mux_audio_args
 from app.services.shot2_montage import find_scene_clips, shot2_frame_numbers
 from app.settings import settings
 
@@ -370,14 +371,25 @@ def _validate_timeline(
         raise RuntimeError(f"timeline {cursor:.2f}s != voice {voice_s:.2f}s")
 
 
-async def _run(cmd: list[str], *, context: str = "") -> None:
+async def _run(cmd: list[str], *, context: str = "", timeout: float = 300.0) -> None:
     logger.debug("$ {}", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr = await proc.communicate()
+    try:
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        await proc.wait()
+        head = f"ffmpeg висел дольше {timeout:.0f}с"
+        if context:
+            head += f" — {context}"
+        raise TimeoutError(f"{head}: {' '.join(cmd[:4])}...") from None
     if proc.returncode != 0:
         err = stderr.decode(errors="ignore").strip()
         head = f"ffmpeg exit {proc.returncode}"
@@ -779,6 +791,7 @@ async def _mux(
     *,
     voice_s: float,
     bgm: BgmConfig | None,
+    sfx: list[SfxInput] | None = None,
 ) -> None:
     cmd: list[str] = ["ffmpeg", "-y", "-i", str(video), "-i", str(voice)]
     gain = max(
@@ -786,15 +799,24 @@ async def _mux(
         0.1,
     )
     bgm_ratio = float(getattr(settings, "assembly_bgm_mix_ratio", _DEFAULT_BGM_MIX_RATIO))
-    if bgm is not None and bgm.path.is_file():
-        bgm_gain = max(bgm.level, 0.0) * max(bgm_ratio, 0.0)
-        fc = (
-            f"[1:a]volume={gain:.4f}[vox];"
-            f"[2:a]volume={bgm_gain:.4f},atrim=0:{voice_s:.3f},asetpts=PTS-STARTPTS[bgm];"
-            f"[vox][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
-        )
-        cmd.extend(["-stream_loop", "-1", "-i", str(bgm.path), "-filter_complex", fc])
-        cmd.extend(["-map", "0:v:0", "-map", "[aout]"])
+    bgm_path = bgm.path if bgm is not None and bgm.path.is_file() else None
+    bgm_gain = max(bgm.level, 0.0) * max(bgm_ratio, 0.0) if bgm is not None else 0.0
+
+    mix_args, filter_complex = build_mux_audio_args(
+        bgm_path=bgm_path,
+        bgm_gain=bgm_gain,
+        output_duration=voice_s,
+        tail=0.0,
+        sfx=sfx or [],
+        voice_gain=gain,
+    )
+    if filter_complex is not None:
+        cmd.extend(mix_args)
+        cmd.extend(["-filter_complex", filter_complex, "-map", "0:v:0", "-map", "[aout]"])
+        if bgm_path is not None:
+            logger.info("variant2 mux: подмешан BGM {} (gain {:.2f})", bgm_path.name, bgm_gain)
+        if sfx:
+            logger.info("variant2 mux: {} SFX по меткам", len(sfx))
     else:
         cmd.extend(["-filter_complex", f"[1:a]volume={gain:.4f}[aout]", "-map", "0:v:0", "-map", "[aout]"])
     cmd.extend(
@@ -875,6 +897,7 @@ async def run_variant2(
     out: Path,
     *,
     bgm: BgmConfig | None = None,
+    sfx: list[SfxInput] | None = None,
 ) -> Path:
     if not voice.is_file():
         raise RuntimeError(f"нет озвучки: {voice}")
@@ -960,7 +983,7 @@ async def run_variant2(
         shutil.copy2(video, pre_mux)
         logger.info("[#{}] variant3: timeline сохранён → {} (перед mux)", project.id, pre_mux)
         out.parent.mkdir(parents=True, exist_ok=True)
-        await _mux(video, voice, out, voice_s=voice_s, bgm=bgm)
+        await _mux(video, voice, out, voice_s=voice_s, bgm=bgm, sfx=sfx)
         if pre_mux.is_file():
             pre_mux.unlink(missing_ok=True)
 

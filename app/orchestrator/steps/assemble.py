@@ -524,7 +524,15 @@ async def _assemble_body(
         tail_seconds = post_voiceover_tail_seconds_for_project(project)
         from app.services.sfx_mix import collect_sfx_inputs
 
-        sfx_inputs = collect_sfx_inputs(project)
+        # Метки SFX планировались по речевому таймлайну; на склейке кадры
+        # короче — пересчитываем старты по фактическим длительностям клипов.
+        video_frame_starts: dict[int, float] = {}
+        cum_t = 0.0
+        for fr in frames:
+            video_frame_starts[fr.number] = round(cum_t, 3)
+            cum_t += duration_by_frame.get(fr.number, 0.0)
+
+        sfx_inputs = collect_sfx_inputs(project, video_frame_starts=video_frame_starts)
         if sfx_inputs:
             logger.info("[#{}] assemble: {} SFX из sfx_gen идут в микс", project.id, len(sfx_inputs))
         await assemble(
@@ -538,12 +546,28 @@ async def _assemble_body(
             sfx=sfx_inputs,
         )
     else:
+        from app.services.sfx_mix import collect_sfx_inputs
+
+        v2_frame_starts: dict[int, float] = {}
+        cum_v2 = 0.0
+        for fr in frames:
+            v2_frame_starts[fr.number] = round(cum_v2, 3)
+            cum_v2 += duration_by_frame.get(fr.number, 0.0)
+
+        sfx_inputs = collect_sfx_inputs(project, video_frame_starts=v2_frame_starts)
+        if sfx_inputs:
+            logger.info(
+                "[#{}] assemble (variant2): {} SFX из sfx_gen идут в микс",
+                project.id,
+                len(sfx_inputs),
+            )
         await run_variant2(
             project,
             frame_numbers,
             audio_path,
             out_path,
             bgm=bgm,
+            sfx=sfx_inputs,
         )
         # ASS ещё нет на диске: путь зарезервирован выше, файл пишем здесь.
         # Старый `subs_path.is_file()` пропускал весь burn на montage-v3.

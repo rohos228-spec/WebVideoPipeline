@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 
@@ -31,6 +32,17 @@ def _find_music_on_disk(music_dir: Path) -> Path | None:
         return None
     cands.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return cands[0]
+
+
+def _clean_suno_prompt(raw: str | None) -> str:
+    """Снять обёртки GPT: ```-блок, префикс «**Промпт**:», кавычки."""
+    out = (raw or "").strip()
+    if out.startswith("```"):
+        lines = out.splitlines()
+        if len(lines) >= 2 and lines[-1].strip().startswith("```"):
+            out = "\n".join(lines[1:-1]).strip()
+    out = re.sub(r"^(?:\*\*)?(?:prompt|промпт)(?:\*\*)?:\s*", "", out, flags=re.IGNORECASE).strip()
+    return out.strip("\"`' \n\r\t")
 
 
 async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
@@ -115,7 +127,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         timeout=900,
         project_id=project.id,
     )
-    suno_prompt = (suno_prompt or "").strip()
+    suno_prompt = _clean_suno_prompt(suno_prompt)
     if len(suno_prompt) < 20:
         raise RuntimeError("GPT вернул слишком короткий промт для музыки")
     logger.info(
