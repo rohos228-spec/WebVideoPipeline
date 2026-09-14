@@ -134,9 +134,18 @@ jobs:
         # `test_generate_sfx_files_local`: файл сгенерирован, а проверить его
         # нечем. Поймано первым же прогоном в CI — на машине владельца и в
         # образе ffmpeg есть, и локально этого не видно.
+        #
+        # `apt-get update` — минута-полторы на каждый прогон, а индекс пакетов
+        # в образе раннера и так свежий (образ пересобирается еженедельно).
+        # Ставим без обновления; если индекс протух и пакет не нашёлся —
+        # обновляем и повторяем. Сторонних actions для ffmpeg не берём:
+        # чужой код с GITHUB_TOKEN ради минуты не стоит (политика §230).
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
+          set -euo pipefail
+          if ! sudo apt-get install -y -qq --no-install-recommends ffmpeg; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg
+          fi
           ffprobe -version | head -1
 
       - name: Установка
@@ -172,17 +181,16 @@ jobs:
       - name: Миграции на пустой и унаследованной базе
         run: python -m pytest tests/test_db_migrations.py -q -p no:cacheprovider
 
-      - name: Храповик суиты с покрытием
+      - name: Храповик суиты
         # Красное не растёт. Промт-библиотека вне git, поэтому здесь падает
         # больше тестов, чем на машине владельца, — и все они в базе.
+        #
+        # Без `--cov`: покрытие здесь никто не сверял (см. ниже), а трассировка
+        # coverage замедляет суиту на треть. Снято 2026-09-14.
         run: |
-          python scripts/pytest_ratchet.py -- \
-            --cov=app \
-            --cov-report=json:coverage/coverage.json \
-            --cov-report=lcov:coverage/lcov.info \
-            -p no:cacheprovider
+          python scripts/pytest_ratchet.py -- -p no:cacheprovider
 
-      # Храповика покрытия и diff-cov здесь НЕТ намеренно.
+      # Покрытия здесь НЕТ намеренно — ни храповика, ни diff-cov, ни отчёта.
       #
       # Их база (`.claude/baselines/coverage.json`) снимается на машине
       # владельца, где промт-библиотека есть. В чекауте CI её нет — часть
@@ -197,15 +205,8 @@ jobs:
       # изоляцию и рост красноты.
       #
       # Вернуть сюда можно тогда, когда библиотека станет доступна прогону —
-      # например, приедет артефактом или секретом.
-
-      - name: Отчёт о покрытии
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage/
-          retention-days: 14
+      # например, приедет артефактом или секретом. Тогда же вернётся `--cov`
+      # и выгрузка отчёта артефактом.
 
   frontend:
     name: Фронт
