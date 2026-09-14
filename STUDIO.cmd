@@ -1,10 +1,19 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
-title Video Pipeline Studio
+title Video Pipeline Web Studio
 chcp 65001 >nul 2>&1
 
 if "%STUDIO_HEALED%"=="1" goto :start
+
+rem In development (any non-main branch or STUDIO_DEV=1), skip auto-update
+if "%STUDIO_DEV%"=="1" goto :start
+where git >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+  for /f "tokens=*" %%b in ('git branch --show-current 2^>nul') do (
+    if not "%%b"=="main" goto :start
+  )
+)
 
 echo.
 echo Studio: updating launcher...
@@ -20,7 +29,7 @@ call "%~f0" %*
 exit /b %ERRORLEVEL%
 
 :start
-set "STUDIO_PS1=%~dp0scripts\studio.ps1"
+set "STUDIO_PS1=%~dp0scripts\run-studio.ps1"
 set "VP_REPO_ROOT=%~dp0"
 if "%VP_REPO_ROOT:~-1%"=="\" set "VP_REPO_ROOT=%VP_REPO_ROOT:~0,-1%"
 
