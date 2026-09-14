@@ -1,4 +1,4 @@
-"""TEXT_LLM: GPT (kie) default + optional Kimi/TokenRouter."""
+"""TEXT_LLM: GPT (kie) по умолчанию + vibecode по явному выбору."""
 
 from __future__ import annotations
 
@@ -21,20 +21,15 @@ def test_default_is_kie_gpt_not_tokenrouter(monkeypatch, tmp_path: Path) -> None
     assert "Kimi" not in s.text_llm_label
 
 
-def test_tokenrouter_only_when_explicit(monkeypatch, tmp_path: Path) -> None:
+def test_retired_tokenrouter_falls_back_to_kie(monkeypatch, tmp_path: Path) -> None:
+    """TokenRouter выведен: старое значение в .env не роняет старт, а уводит на kie."""
     monkeypatch.setenv("TEXT_LLM_PROVIDER", "tokenrouter")
-    monkeypatch.setenv("TOKENROUTER_API_KEY", "tr-test-key")
-    monkeypatch.setenv("TOKENROUTER_BASE_URL", "https://api.tokenrouter.com/v1")
-    monkeypatch.setenv("TOKENROUTER_MODEL", "moonshotai/kimi-k3-free")
     monkeypatch.setenv("GPT_API_KEY", "kie-key")
     monkeypatch.setenv("GPT_BASE_URL", "https://api.kie.ai")
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     s = Settings()
-    assert s.resolved_text_llm_provider() == "tokenrouter"
-    assert s.gpt_api_effective_key == "tr-test-key"
-    assert s.gpt_model_effective == "moonshotai/kimi-k3-free"
-    assert s.gpt_chat_path_effective == "/chat/completions"
-    assert "Kimi" in s.text_llm_label
+    assert s.resolved_text_llm_provider() == "kie"
+    assert s.gpt_api_effective_key == "kie-key"
 
 
 def test_choice_file_switches_without_touching_gpt_env(monkeypatch, tmp_path: Path) -> None:
@@ -49,8 +44,8 @@ def test_choice_file_switches_without_touching_gpt_env(monkeypatch, tmp_path: Pa
     s = Settings()
 
     assert s.resolved_text_llm_provider() == "kie"
-    cat.write_choice(provider="tokenrouter", model_id="kimi-k3-tokenrouter", cfg=s)
-    assert s.resolved_text_llm_provider() == "tokenrouter"
+    cat.write_choice(provider="vibecode", model_id="claude-opus-5", cfg=s)
+    assert s.resolved_text_llm_provider() == "vibecode"
     cat.write_choice(provider="kie", model_id="gpt-kie", cfg=s)
     assert s.resolved_text_llm_provider() == "kie"
     assert s.gpt_model == "gpt-5-6-sol"  # GPT_* не трогали
@@ -127,18 +122,68 @@ def test_parse_chat_completions_sse() -> None:
     assert finish == "stop"
 
 
-def test_chat_url_for_tokenrouter(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("TEXT_LLM_PROVIDER", "tokenrouter")
-    monkeypatch.setenv("TOKENROUTER_API_KEY", "tr-key")
-    monkeypatch.setenv("TOKENROUTER_BASE_URL", "https://api.tokenrouter.com/v1")
-    monkeypatch.setenv("TOKENROUTER_MODEL", "moonshotai/kimi-k3-free")
-    monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    import app.services.gpt_api as gpt_api
-    import app.settings as settings_mod
+def test_catalog_groups_and_snapshot_models() -> None:
+    """Каждая запись каталога несёт group, а её api_model есть в снимке vibecode."""
+    from app.services.text_llm_catalog import CATALOG, catalog_item
+    from app.services.vibecode_catalog import load_snapshot
 
-    s = Settings()
-    monkeypatch.setattr(settings_mod, "settings", s)
-    monkeypatch.setattr(gpt_api, "settings", s)
-    url = gpt_api._chat_url(s.gpt_model_effective)
-    assert url == "https://api.tokenrouter.com/v1/chat/completions"
-    assert gpt_api.is_responses_mode() is False
+    snapshot = {m["id"] for m in load_snapshot()}
+    groups = {it["group"] for it in CATALOG}
+    assert groups == {"Anthropic", "OpenAI", "Google", "xAI", "KIE"}
+    for it in CATALOG:
+        api_model = it.get("api_model")
+        if api_model:
+            assert api_model in snapshot, f"{it['id']} → {api_model} нет в снимке vibecode"
+
+    # tokenrouter/Kimi выведены целиком
+    assert not any("tokenrouter" in it["id"] or it["provider"] == "tokenrouter" for it in CATALOG)
+    assert catalog_item("kimi-k3-tokenrouter") is None
+
+    # Модели, добавленные переносом из форка
+    for mid in (
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gemini-3.1-pro-preview",
+        "gemini-3-flash-preview",
+        "claude-opus-4-8",
+        "claude-fable-5",
+        "grok-4-6",
+    ):
+        item = catalog_item(mid)
+        assert item is not None, mid
+        assert item["api_model"] == mid
+
+    # Дефолт vibecode не съехал, алиас .env-написания жив
+    assert catalog_item("gpt-5-6-sol")["id"] == "gpt-5.6-sol-vibecode"
+    assert catalog_item("claude-opus-5")["id"] == "claude-opus-5-vibecode"
+
+
+def test_catalog_status_exposes_group(monkeypatch, tmp_path: Path) -> None:
+    from app.services.text_llm_catalog import catalog_status
+
+    monkeypatch.setenv("TEXT_LLM_PROVIDER", "kie")
+    monkeypatch.setenv("GPT_API_KEY", "kie-key")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    st = catalog_status(Settings())
+    assert st["models"]
+    assert all(m.get("group") for m in st["models"])
+
+
+def test_claude_models_route_to_messages() -> None:
+    """Claude-записи каталога должны уходить на /v1/messages, остальные — нет."""
+    from app.services.anthropic_messages import is_anthropic_model
+    from app.services.text_llm_catalog import CATALOG
+
+    for it in CATALOG:
+        api_model = it.get("api_model") or ""
+        assert is_anthropic_model(api_model) == (it["group"] == "Anthropic")
+
+
+def test_vibecode_catalog_text_aliases() -> None:
+    from app.services.vibecode_catalog import find_model
+
+    assert find_model("gpt-5-6-sol")["id"] == "gpt-5.6-sol"
+    assert find_model("gemini-3.1-pro")["id"] == "gemini-3.1-pro-preview"
+    assert find_model("gemini-3-flash")["id"] == "gemini-3-flash-preview"
+    # Fable 5.1 в снимке нет — конфиг форка приземляется на Fable 5
+    assert find_model("claude-fable-5-1")["id"] == "claude-fable-5"

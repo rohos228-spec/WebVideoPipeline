@@ -21,6 +21,7 @@ Messages, ответ заворачивается в тот же `GptChatResult`
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -211,6 +212,7 @@ async def chat_messages(
     use_model: str,
     response_schema: ResponseSchema | None = None,
     structured: bool = False,
+    on_delta: Any | None = None,
 ) -> GptChatResult:
     """POST /v1/messages (стрим) → `GptChatResult`.
 
@@ -218,6 +220,12 @@ async def chat_messages(
     остальных транспортов (`_raise_http_status`): 429/5xx — retryable с
     `retry_after_s` для брейкера, 4xx — fatal. `stop_reason=refusal` —
     отдельный fatal-вид `refusal`, `max_tokens` — `finish_reason=length`.
+
+    `on_delta` — тот же контракт, что у `gpt_api._chat_completions_stream`:
+    колбэк получает кусок текста по мере генерации, может быть синхронным
+    или корутинной функцией, а его ошибки не роняют разбор ответа (итог
+    всё равно берётся из финального message). Без него чат студии на Claude
+    не видел ни одного токена до конца генерации.
     """
     from app.services.gpt_api import GptApiError, GptChatResult, _raise_http_status
 
@@ -226,6 +234,16 @@ async def chat_messages(
     try:
         async with client:
             async with client.messages.stream(**req) as stream:
+                if on_delta is not None:
+                    async for piece in stream.text_stream:
+                        if not piece:
+                            continue
+                        try:
+                            res = on_delta(piece)
+                            if asyncio.iscoroutine(res):
+                                await res
+                        except Exception:  # noqa: BLE001 — колбэк UI не ломает разбор
+                            pass
                 msg = await stream.get_final_message()
     except anthropic.APIStatusError as e:
         err_body = e.body if isinstance(e.body, str) else str(e.body or e.message)

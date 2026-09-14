@@ -279,10 +279,22 @@ _PLAN_DB_HINT = (
 
 
 def extract_general_plan_from_gpt_reply(reply: str) -> str:
-    """Достать общий_план из apply-ops JSON ответа модели."""
-    from app.services import db_apply
+    """Достать общий_план из любого ответа модели: apply-ops, голый JSON или связный текст.
 
-    data = db_apply.extract_apply_ops_json(reply or "")
+    Футер промта плана (`chatgpt_xlsx`) допускает свободный текст, а парсер
+    раньше понимал только apply-ops — расхождение съедало живой план целиком.
+    """
+    if not reply or not reply.strip():
+        return ""
+
+    import json
+    import re
+
+    from app.services import db_apply
+    from app.services.plan_validation import MIN_GENERAL_PLAN_CHARS
+
+    # 1. Стандартный apply-ops JSON
+    data = db_apply.extract_apply_ops_json(reply)
     if isinstance(data, dict):
         for op in data.get("ops") or []:
             if not isinstance(op, dict):
@@ -290,7 +302,7 @@ def extract_general_plan_from_gpt_reply(reply: str) -> str:
             fields = op.get("fields") or {}
             if not isinstance(fields, dict):
                 continue
-            for key in ("общий_план", "general_plan", "план", "сценарий"):
+            for key in ("общий_план", "general_plan", "план", "сценарий", "plan", "script"):
                 val = fields.get(key)
                 if isinstance(val, str) and val.strip():
                     return val.strip()
@@ -298,6 +310,50 @@ def extract_general_plan_from_gpt_reply(reply: str) -> str:
                 for val in fields.values():
                     if isinstance(val, str) and len(val.strip()) >= 80:
                         return val.strip()
+
+    # 2. JSON без обёртки ops: {"general_plan": "…"} / {"общий_план": "…"}
+    json_candidates: list[str] = []
+    for m in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", reply, re.DOTALL):
+        json_candidates.append(m.group(1))
+
+    first_brace = reply.find("{")
+    last_brace = reply.rfind("}")
+    if first_brace != -1 and last_brace > first_brace:
+        json_candidates.append(reply[first_brace : last_brace + 1])
+
+    for raw_json in json_candidates:
+        try:
+            parsed = json.loads(raw_json)
+        except Exception:  # noqa: BLE001 — кандидат мог быть не JSON
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        for key in (
+            "общий_план",
+            "general_plan",
+            "план",
+            "сценарий",
+            "plan",
+            "script",
+            "content",
+            "text",
+        ):
+            val = parsed.get(key)
+            if isinstance(val, str) and len(val.strip()) >= MIN_GENERAL_PLAN_CHARS:
+                return val.strip()
+
+    # 3. Модель вернула связный текст плана напрямую
+    cleaned = reply.strip()
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+    if len(cleaned) >= MIN_GENERAL_PLAN_CHARS:
+        lower = cleaned.lower()
+        plan_keywords = ("план", "кадр", "сцена", "акт", "герой", "диктор", "voiceover", "shot", "act")
+        if any(kw in lower for kw in plan_keywords):
+            return cleaned
+
     return ""
 
 
@@ -438,6 +494,40 @@ async def run_script_xlsx(
                 val = fields.get(key)
                 if isinstance(val, str) and len(val.strip()) >= 80:
                     voiceover_text = val.strip()
+                    break
+            if voiceover_text:
+                break
+    if not voiceover_text:
+        # Голый JSON без ops: {"закадровый_текст": "…"} / {"voiceover": "…"}
+        import json
+        import re
+
+        json_candidates: list[str] = []
+        for m in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", reply or "", re.DOTALL):
+            json_candidates.append(m.group(1))
+        first_b = (reply or "").find("{")
+        last_b = (reply or "").rfind("}")
+        if first_b != -1 and last_b > first_b:
+            json_candidates.append((reply or "")[first_b : last_b + 1])
+
+        for raw_json in json_candidates:
+            try:
+                pj = json.loads(raw_json)
+            except Exception:  # noqa: BLE001 — кандидат мог быть не JSON
+                continue
+            if not isinstance(pj, dict):
+                continue
+            for k in (
+                "закадровый_текст",
+                "script_text",
+                "voiceover",
+                "текст",
+                "text",
+                "диктор",
+            ):
+                v = pj.get(k)
+                if isinstance(v, str) and len(v.strip()) >= 80:
+                    voiceover_text = v.strip()
                     break
             if voiceover_text:
                 break

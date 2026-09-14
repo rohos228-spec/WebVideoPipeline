@@ -596,7 +596,43 @@ PROMPT_SOURCE_LABELS: dict[str, str] = {
     "override": "оверрайд проекта",
     "global": "глобально активный",
     "default": "default",
+    "fallback": "фоллбэк",
 }
+
+
+def _available_prompt_names(step_code: str) -> list[str]:
+    """Варианты шага: база важнее диска — на сервере диск только для чтения.
+
+    `read_prompt` читает «сначала база, потом файл», поэтому и фоллбэк
+    обязан видеть промты из базы. Смотреть только на диск значило бы увести
+    шаг на чужой файл мимо варианта, сохранённого через редактор.
+    """
+    from app.services import prompt_store
+
+    names = list(prompt_store.list_names(step_code))
+    seen = set(names)
+    for extra in list_prompts(step_code):
+        if extra not in seen:
+            names.append(extra)
+            seen.add(extra)
+    if DEFAULT_NAME in names:
+        names.remove(DEFAULT_NAME)
+        names.insert(0, DEFAULT_NAME)
+    return names
+
+
+def _default_prompt_available(step_code: str) -> bool:
+    """Есть ли у шага вариант `default` — в базе или на диске."""
+    from app.services import prompt_store
+
+    if prompt_store.resolve(step_code, DEFAULT_NAME) is not None:
+        return True
+    if is_excel_gpt_prompt_step(step_code):
+        return excel_gpt_prompt_exists(DEFAULT_NAME)
+    try:
+        return prompt_path(step_code, DEFAULT_NAME).exists()
+    except ValueError:
+        return False
 
 
 def resolve_project_prompt_with_source(
@@ -678,6 +714,14 @@ def resolve_project_prompt_with_source(
         global_name = get_global_active(EXCEL_GPT_UNIFIED_STEP)
         if global_name and excel_gpt_prompt_exists(global_name):
             return global_name, "global"
+        # `default` у шага может отсутствовать (перенесли/переименовали).
+        # Молча вернуть его имя — значит уронить шаг на FileNotFoundError вместо
+        # того, чтобы взять первый доступный вариант и сказать об этом источником.
+        if _default_prompt_available(EXCEL_GPT_UNIFIED_STEP):
+            return DEFAULT_NAME, "default"
+        available = _available_prompt_names(EXCEL_GPT_UNIFIED_STEP)
+        if available:
+            return available[0], "fallback"
         return DEFAULT_NAME, "default"
 
     chosen = overrides.get(step_code)
@@ -699,6 +743,13 @@ def resolve_project_prompt_with_source(
     global_name = get_global_active(step_code)
     if global_name:
         return global_name, "global"
+
+    if _default_prompt_available(step_code):
+        return DEFAULT_NAME, "default"
+
+    available = _available_prompt_names(step_code)
+    if available:
+        return available[0], "fallback"
 
     return DEFAULT_NAME, "default"
 

@@ -2016,25 +2016,31 @@ async def _chat_completions_stream_impl(
                         retry_after=resp.headers.get("retry-after"),
                     )
                 async for raw in resp.aiter_lines():
-                    if raw:
-                        lines.append(raw)
-                        if on_delta and raw.startswith("data:"):
-                            piece = raw[5:].strip()
-                            if piece and piece != "[DONE]":
-                                try:
-                                    chunk_obj = json.loads(piece)
-                                    choices = chunk_obj.get("choices") or []
-                                    content = (
-                                        (choices[0].get("delta") or {}).get("content")
-                                        if choices and isinstance(choices, list)
-                                        else None
-                                    )
-                                    if content:
-                                        res = on_delta(content)
-                                        if asyncio.iscoroutine(res):
-                                            await res
-                                except Exception:  # noqa: BLE001
-                                    pass
+                    if not raw:
+                        continue
+                    lines.append(raw)
+                    clean_line = raw.strip()
+                    if clean_line in ("data: [DONE]", "data:[DONE]"):
+                        break
+                    if clean_line.startswith("data:"):
+                        piece = clean_line[5:].strip()
+                        if piece == "[DONE]":
+                            break
+                        if on_delta and piece:
+                            try:
+                                chunk_obj = json.loads(piece)
+                                choices = chunk_obj.get("choices") or []
+                                content = (
+                                    (choices[0].get("delta") or {}).get("content")
+                                    if choices and isinstance(choices, list)
+                                    else None
+                                )
+                                if content:
+                                    res = on_delta(content)
+                                    if asyncio.iscoroutine(res):
+                                        await res
+                            except Exception:  # noqa: BLE001
+                                pass
         except GptApiError:
             raise
         except BaseException as e:
@@ -2764,6 +2770,7 @@ async def _chat_unscoped(
                         use_model=use_model,
                         response_schema=response_schema,
                         structured=structured,
+                        on_delta=on_delta,
                     ),
                     url=url,
                     use_model=use_model,
