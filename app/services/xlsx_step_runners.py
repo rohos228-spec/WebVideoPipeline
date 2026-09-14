@@ -323,10 +323,11 @@ def extract_general_plan_from_gpt_reply(reply: str) -> str:
 
     for raw_json in json_candidates:
         try:
+            # Кандидат всегда начинается с `{` и кончается `}` (см. сбор выше),
+            # поэтому разбор даёт либо словарь, либо исключение — проверять тип
+            # нечего.
             parsed = json.loads(raw_json)
         except Exception:  # noqa: BLE001 — кандидат мог быть не JSON
-            continue
-        if not isinstance(parsed, dict):
             continue
         for key in (
             "общий_план",
@@ -512,10 +513,10 @@ async def run_script_xlsx(
 
         for raw_json in json_candidates:
             try:
+                # Кандидат всегда `{…}` (см. сбор выше): разбор даёт словарь
+                # либо исключение, проверять тип нечего.
                 pj = json.loads(raw_json)
             except Exception:  # noqa: BLE001 — кандидат мог быть не JSON
-                continue
-            if not isinstance(pj, dict):
                 continue
             for k in (
                 "закадровый_текст",
