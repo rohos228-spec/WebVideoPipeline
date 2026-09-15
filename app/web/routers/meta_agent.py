@@ -185,7 +185,9 @@ async def assist_project_endpoint(req: ProjectAssistRequest) -> ProjectAssistRes
         if title_in:
             user_prompt = f"Придумай оригинальную захватывающую сюжетную идею для кинематографичного ролика по теме/названию «{title_in}»."
         else:
-            user_prompt = "Придумай оригинальную захватывающую идею и название для кинематографичного ролика с нуля."
+            user_prompt = (
+                "Придумай оригинальную захватывающую идею и название для кинематографичного ролика с нуля."
+            )
         if tone_text:
             user_prompt += f"\nЖелаемая {tone_text}"
         if voice_text:

@@ -55,7 +55,7 @@ def _patch_tempdir_cleanup_win32() -> None:
             else:
                 raise
 
-    tempfile.TemporaryDirectory.cleanup = safe_cleanup
+    tempfile.TemporaryDirectory.cleanup = safe_cleanup  # type: ignore[method-assign]
     _tempdir_patched = True
 
 

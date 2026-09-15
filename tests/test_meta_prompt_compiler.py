@@ -135,9 +135,7 @@ async def test_assist_project_endpoint(env) -> None:
     client = env["client"]
     auth = env["admin"].auth
     mock_gpt = AsyncMock()
-    mock_gpt.ask_fresh.return_value = (
-        '{"title": "Космический десант", "topic": "Эпическая битва на краю галактики.", "suggested_hero_mode": "hero"}'
-    )
+    mock_gpt.ask_fresh.return_value = '{"title": "Космический десант", "topic": "Эпическая битва на краю галактики.", "suggested_hero_mode": "hero"}'
 
     with patch("app.web.routers.meta_agent.get_gpt_client", return_value=mock_gpt):
         resp = await client.post(
@@ -156,4 +154,3 @@ async def test_assist_project_endpoint(env) -> None:
     assert data["title"] == "Космический десант"
     assert data["topic"] == "Эпическая битва на краю галактики."
     assert data["suggested_hero_mode"] == "hero"
-

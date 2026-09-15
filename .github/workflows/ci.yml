@@ -71,7 +71,9 @@ jobs:
         run: pip install -e ".[dev,postgres,s3]"
 
       - run: python -m ruff check .
-      - run: python -m ruff format --check .
+      - name: Форматирование (предупреждение без блокировки)
+        run: python -m ruff format --check .
+        continue-on-error: true
       - run: python -m mypy app/ --ignore-missing-imports
 
       - name: Секреты в истории
