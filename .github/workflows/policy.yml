@@ -9,16 +9,17 @@
 # которое сервер не проверял вовсе (находка панели моделей 2026-09-04).
 #
 # Этот прогон дешёвый (секунды, без зависимостей проекта) и идёт на КАЖДЫЙ
-# push без исключений по путям. `pull_request` убран вместе с `ci.yml`
-# (2026-09-14): он дублировал push-прогон того же коммита.
+# push и PR без исключений по путям. Дубль между ними снимает группа
+# concurrency по имени ветки, как в `ci.yml`.
 name: Политика
 
 on:
   push:
+  pull_request:
   workflow_call: {}
 
 concurrency:
-  group: policy-${{ github.ref }}
+  group: policy-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
