@@ -11,6 +11,7 @@ Previous tests only simulated the happy Python path. These also cover:
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,20 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 HELPER = REPO / "scripts" / "return_prompts_from_stash.py"
+
+
+@pytest.fixture(autouse=True)
+def _detach_from_outer_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Отвязать вложенные git-команды от репозитория, из которого идёт прогон.
+
+    Хелпер зовёт `git -C <temp_repo>`, но переменная `GIT_DIR` ПЕРЕБИВАЕТ `-C`.
+    Под push-хуком git выставляет хуку `GIT_DIR`, `GIT_INDEX_FILE` и прочее, и
+    тесты начинают работать с НАСТОЯЩИМ репозиторием: тест падает, а в рабочем
+    дереве остаются его stash-записи («автосохранение перед обновлением»).
+    Поймано 15.09.2026 — в обычном терминале файл зелёный, под гейтом красный.
+    """
+    for name in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(name, raising=False)
 
 
 def _load_helper():
