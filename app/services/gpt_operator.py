@@ -46,7 +46,7 @@ _ANALYSIS_NAMES: frozenset[str] = frozenset({"analysis.json"})
 BRANCHING_ROLES: frozenset[str] = frozenset({"review", "gate", "compare"})
 
 ROLE_DEFAULT_LABELS: dict[str, str] = {
-    "assist": "Работа с GPT",
+    "assist": "ИИ-редактор сцен",
     "review": "Ок / не ок",
     "transform": "Переделывает",
     "extract": "Достаёт данные",

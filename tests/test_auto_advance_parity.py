@@ -25,16 +25,59 @@ from app.orchestrator.auto_advance import (
     expected_status_progression,
 )
 
+#: Сколько кадров «видит» стаб: guard'ы step_data_guard требуют кадры с
+#: закадром, иначе любой переход в running откатывается.
+_STUB_FRAME_COUNT = 3
+
+
+class _StubResult:
+    """Результат запроса для inmemory-проекта: кадры есть, строк — нет.
+
+    `count(...)` → 3 (guard'ы `step_data_guard` пропускают переход),
+    выборка ORM-объектов (WorkflowRun, Artifact, NodeRun) → пусто, то есть
+    граф падает на `WorkflowGraph.default()` — линейный канвас по умолчанию.
+    """
+
+    def scalar_one_or_none(self):
+        return None
+
+    def scalar_one(self) -> int:
+        return _STUB_FRAME_COUNT
+
+    def scalar(self) -> int:
+        return _STUB_FRAME_COUNT
+
+    def one_or_none(self):
+        return None
+
+    def first(self):
+        return None
+
+    def all(self) -> list:
+        return []
+
+    def scalars(self):
+        return self
+
 
 class _StubAsyncSession:
-    """Минимальный stub: `flush()` — no-op. `execute()` зовётся только
-    в excel-hero ветке, которую тут не проверяем."""
+    """Минимальный stub: `flush()` — no-op, любой `execute()` — пусто.
+
+    Раньше `execute()` бросал AssertionError: предполагалось, что до базы
+    дело не дойдёт. С тех пор путь approve проходит `clamp_status_to_data`
+    и `load_graph_for_project`, и все шесть asyncio-тестов падали на стабе,
+    ничего не проверяя. Пустой результат = проект без WorkflowRun и кадров,
+    то есть ровно тот inmemory-сценарий, ради которого стаб и писался.
+    """
 
     async def flush(self) -> None:
         return None
 
-    async def execute(self, *_args, **_kwargs):  # pragma: no cover
-        raise AssertionError("execute() should not be called in these test cases")
+    async def execute(self, *_args, **_kwargs) -> _StubResult:
+        return _StubResult()
+
+    async def get(self, *_args, **_kwargs):
+        return None
 
 
 def _make_project(
@@ -52,6 +95,7 @@ def _make_project(
         topic="t",
         hero_mode="full_auto",
     )
+    p.id = 1  # harness-проверка зовёт int(project.id) — транзиентному None мало
     p.status = status
     p.enrich_slots_count = enrich_slots_count
     p.hero_count = hero_count
@@ -235,6 +279,11 @@ async def test_auto_mode_advances_without_manual_approval(monkeypatch) -> None:
         AsyncMock(return_value=hitl),
     )
     monkeypatch.setattr("app.orchestrator.auto_advance._apply_approve", apply_mock)
+    # Harness-гейт смотрит project.xlsx на диске — у inmemory-проекта его нет.
+    monkeypatch.setattr(
+        "app.orchestrator.auto_advance._harness_gate",
+        AsyncMock(return_value=True),
+    )
 
     advanced = await maybe_auto_advance(_StubAsyncSession(), project, bot=None)
 

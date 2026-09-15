@@ -399,7 +399,11 @@ async def _delete_scene_pngs(
     generate_images скипает кадр, а Artifact уже стёрт → БД < диск.
     """
     from app.models import FrameStatus
-    from app.services.plan_shot2 import SHOT2_STATUS_ATTR, effective_shot_from_artifact
+    from app.services.plan_shot2 import (
+        _IMG_EXTENSIONS,
+        SHOT2_STATUS_ATTR,
+        effective_shot_from_artifact,
+    )
 
     out_dir = Path(project.data_dir) / "scenes"
     frames = (await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars().all()
@@ -422,19 +426,25 @@ async def _delete_scene_pngs(
         disk_paths: list[Path] = []
         if out_dir.is_dir():
             if shot == 2:
-                disk_paths = [p for p in out_dir.glob(f"frame_{num:03d}_s2_*.png") if p.is_file()]
+                disk_paths = [
+                    p
+                    for p in out_dir.glob(f"frame_{num:03d}_s2_*")
+                    if p.is_file() and p.suffix.lower() in _IMG_EXTENSIONS
+                ]
                 disk_paths.extend(
                     p
-                    for p in out_dir.glob(f"frame_{num:03d}_*.png")
+                    for p in out_dir.glob(f"frame_{num:03d}_*")
                     if p.is_file()
+                    and p.suffix.lower() in _IMG_EXTENSIONS
                     and re.search(r"(?:_s2_|shot2)", p.name, re.IGNORECASE)
                     and p not in disk_paths
                 )
             else:
                 disk_paths = [
                     p
-                    for p in out_dir.glob(f"frame_{num:03d}_*.png")
+                    for p in out_dir.glob(f"frame_{num:03d}_*")
                     if p.is_file()
+                    and p.suffix.lower() in _IMG_EXTENSIONS
                     and "_s2_" not in p.name
                     and not re.search(r"(?:shot2)", p.name, re.IGNORECASE)
                 ]
@@ -475,7 +485,7 @@ async def _delete_scene_pngs(
                     removed += 1
                 except OSError:
                     pass
-            session.delete(art)
+            await session.delete(art)
     await session.flush()
     return removed
 
@@ -563,7 +573,7 @@ async def _delete_video_clips(
                     removed += 1
                 except OSError:
                     pass
-            session.delete(art)
+            await session.delete(art)
     await session.flush()
     return removed
 

@@ -12,6 +12,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import commit_with_retry
 from app.models import Artifact, ArtifactKind, Project
 from app.services.chatgpt_xlsx import sync_project_xlsx
 from app.services.event_bus import publish_project_event
@@ -44,7 +45,7 @@ def _project_or_404(project: Project | None) -> Project:
 async def pause_project(project_id: int, session: AsyncSession = Depends(get_session)) -> Project:
     p = _project_or_404(await session.get(Project, project_id))
     await pause_project_svc(session, p)
-    await session.commit()
+    await commit_with_retry(session)
     await sync_run_for_project(project_id)
     await session.refresh(p)
     await publish_project_event(project_id, event_type="project_updated", payload={"paused": True})
@@ -55,7 +56,7 @@ async def pause_project(project_id: int, session: AsyncSession = Depends(get_ses
 async def resume_project(project_id: int, session: AsyncSession = Depends(get_session)) -> Project:
     p = _project_or_404(await session.get(Project, project_id))
     await resume_project_svc(session, p)
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(project_id, event_type="project_updated", payload={"resumed": True})
     return p
@@ -68,7 +69,7 @@ async def continue_project(project_id: int, session: AsyncSession = Depends(get_
 
     p = _project_or_404(await session.get(Project, project_id))
     info = await continue_project_pipeline(session, p, bot=None)
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(
         project_id,
@@ -88,7 +89,7 @@ async def stop_project(project_id: int, session: AsyncSession = Depends(get_sess
     info = await stop_project_running(session, p)
     if not info["ok"]:
         raise HTTPException(status_code=400, detail=info["message"])
-    await session.commit()
+    await commit_with_retry(session)
     await sync_run_for_project(project_id)
     await session.refresh(p)
     await publish_project_event(
@@ -112,7 +113,7 @@ async def finish_missing_images(project_id: int, session: AsyncSession = Depends
     p = _project_or_404(await session.get(Project, project_id))
     info = await trigger_finish_missing_images(session, p)
     await sync_run_for_project(project_id, session=session)
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(
         project_id,
@@ -130,7 +131,7 @@ async def resume_animation_prompts(project_id: int, session: AsyncSession = Depe
     p = _project_or_404(await session.get(Project, project_id))
     info = await trigger_resume_animation_prompts(session, p)
     await sync_run_for_project(project_id, session=session)
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(
         project_id,
@@ -148,7 +149,7 @@ async def finish_missing_videos(project_id: int, session: AsyncSession = Depends
     p = _project_or_404(await session.get(Project, project_id))
     info = await trigger_finish_missing_videos(session, p)
     await sync_run_for_project(project_id, session=session)
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(
         project_id,
@@ -200,7 +201,7 @@ async def parse_mass_topics_xlsx(
             topics=topics,
             filename=file.filename or "topics.xlsx",
         )
-        await session.commit()
+        await commit_with_retry(session)
     except HTTPException:
         raise
     except Exception as exc:
@@ -266,7 +267,7 @@ async def start_mass_lanes(
         logger.exception("mass-lanes/start failed for project #{}", project_id)
         raise HTTPException(status_code=500, detail=f"ошибка запуска очереди: {exc}") from exc
 
-    await session.commit()
+    await commit_with_retry(session)
     return {
         "created": [{"id": result["started_id"], "topic": result["topic"]}],
         "count": 1,
@@ -294,7 +295,7 @@ async def reset_project_step(
         await ensure_run_for_project(project_id, wf_id)
     await reset_nodes_from_step(session, project_id, step_code)
     await session.flush()
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await sync_run_for_project(project_id)
     await session.refresh(p)
@@ -375,7 +376,7 @@ async def load_excel_hero(project_id: int, session: AsyncSession = Depends(get_s
     }
     p.meta = meta
     p.updated_at = datetime.utcnow()
-    await session.commit()
+    await commit_with_retry(session)
     await publish_project_event(
         project_id,
         event_type="project_updated",
@@ -398,7 +399,7 @@ async def clear_excel_hero(project_id: int, session: AsyncSession = Depends(get_
         del meta["excel_hero"]
         p.meta = meta
         p.updated_at = datetime.utcnow()
-        await session.commit()
+        await commit_with_retry(session)
         await publish_project_event(project_id, event_type="project_updated", payload={"excel_hero": 0})
 
 
@@ -437,7 +438,7 @@ async def reload_xlsx(project_id: int, session: AsyncSession = Depends(get_sessi
     if not xlsx.exists():
         raise HTTPException(status_code=404, detail="project.xlsx not found")
     await sync_project_xlsx(session, p, xlsx)
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(project_id, event_type="project_updated", payload={"xlsx": "reloaded"})
     return p
@@ -473,7 +474,7 @@ async def upload_xlsx(
 
         clear_bound_snapshot(p, node_key)
     await sync_project_xlsx(session, p, dest)
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(
         project_id,
@@ -700,7 +701,7 @@ async def montage_board(
         board = await build_montage_board(session, p)
         # get_session не коммитит сам — без commit кэш R15/meta откатывается,
         # и каждый GET снова пишет сотни кадров → database is locked + Failed to fetch.
-        await session.commit()
+        await commit_with_retry(session)
         return board
     except HTTPException:
         raise
@@ -780,7 +781,7 @@ async def montage_board_save_queue(
     if isinstance(body.get("video_trims"), dict):
         board["video_trims"] = body["video_trims"]
     set_montage_meta(p, board)
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": True, "pending_ops": cleaned, "meta": public_board_meta(board)}
 
 
@@ -829,7 +830,7 @@ async def montage_board_apply(
             "done_ops": 0,
         }
         set_montage_meta(p, board)
-        await session.commit()
+        await commit_with_retry(session)
         spawn_apply_job(project_id, video_trims=trims, pending_ops=ops)
         return {
             "started": True,
@@ -844,7 +845,7 @@ async def montage_board_apply(
         video_trims=trims,
         pending_ops=ops,
     )
-    await session.commit()
+    await commit_with_retry(session)
     await publish_project_event(
         project_id,
         event_type="project_updated",
@@ -972,7 +973,7 @@ async def montage_board_swap_shots(
         frame_number,
         kind=kind,  # type: ignore[arg-type]
     )
-    await session.commit()
+    await commit_with_retry(session)
     if not result.get("ok"):
         raise HTTPException(
             status_code=400,
@@ -1004,7 +1005,7 @@ async def montage_board_swap_slots(
         b_frame=b_frame,
         b_shot=b_shot,
     )
-    await session.commit()
+    await commit_with_retry(session)
     if not result.get("ok"):
         raise HTTPException(
             status_code=400,
@@ -1034,7 +1035,7 @@ async def montage_board_move_image(
         to_frame=to_frame,
         to_shot=to_shot,
     )
-    await session.commit()
+    await commit_with_retry(session)
     if not result.get("ok"):
         raise HTTPException(
             status_code=400,
@@ -1058,7 +1059,7 @@ async def montage_board_delete_image(
     board = montage_meta(p)
     mark_stale_videos(board, frame_number, shot=shot)
     set_montage_meta(p, board)
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": deleted, "frame_number": frame_number, "shot": shot}
 
 
@@ -1073,7 +1074,7 @@ async def montage_board_delete_video(
 
     p = _project_or_404(await session.get(Project, project_id))
     deleted = await delete_scene_video(session, p, frame_number, shot=shot)
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": deleted, "frame_number": frame_number, "shot": shot}
 
 
@@ -1097,7 +1098,7 @@ async def montage_board_upload_image(
     board = montage_meta(p)
     mark_stale_videos(board, frame_number, shot=shot)
     set_montage_meta(p, board)
-    await session.commit()
+    await commit_with_retry(session)
     return {
         "ok": True,
         "path": str(path),
@@ -1127,7 +1128,7 @@ async def montage_board_upload_video(
     board = montage_meta(p)
     clear_stale_video(board, frame_number, shot)
     set_montage_meta(p, board)
-    await session.commit()
+    await commit_with_retry(session)
     return {
         "ok": True,
         "path": str(path),
@@ -1162,7 +1163,7 @@ async def montage_board_upload_voice(
     meta["montage_voice_path"] = str(dest)
     p.meta = meta
     flag_modified(p, "meta")
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": True, "path": str(dest), "filename": dest.name}
 
 
@@ -1190,7 +1191,7 @@ async def montage_board_upload_music(
     meta["bgm_path"] = str(dest)
     p.meta = meta
     flag_modified(p, "meta")
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": True, "path": str(dest), "filename": dest.name}
 
 
@@ -1418,7 +1419,7 @@ async def patch_excel_gpt_config(
     ):
         resolved = patch_operator_config(p, node_key, {k: payload[k] for k in op_keys if k in payload})
         flag_modified(p, "meta")
-        await session.commit()
+        await commit_with_retry(session)
         return {"ok": True, "config": resolved.get("config") or {}, "resolve": resolved}
 
     meta = dict(p.meta or {})
@@ -1439,7 +1440,7 @@ async def patch_excel_gpt_config(
     meta["active_excel_gpt_node_key"] = node_key
     p.meta = meta
     flag_modified(p, "meta")
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": True, "config": cur}
 
 
@@ -1479,7 +1480,7 @@ async def gpt_operator_patch(
     last_err: Exception | None = None
     for attempt in range(1, 6):
         try:
-            await session.commit()
+            await commit_with_retry(session)
             last_err = None
             break
         except OperationalError as e:
@@ -1521,7 +1522,7 @@ async def patch_canvas_edge_kind(
     if updated is None:
         raise HTTPException(status_code=404, detail="edge not found in canvas_graph")
     flag_modified(p, "meta")
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": True, "edge": updated}
 
 
@@ -1565,7 +1566,7 @@ async def upload_excel_gpt_file(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         flag_modified(p, "meta")
-        await session.commit()
+        await commit_with_retry(session)
         return {
             "ok": True,
             "fileName": result["fileName"],
@@ -1633,7 +1634,7 @@ async def upload_excel_gpt_file(
     meta["active_excel_gpt_node_key"] = node_key
     p.meta = meta
     flag_modified(p, "meta")
-    await session.commit()
+    await commit_with_retry(session)
     return {
         "ok": True,
         "fileName": safe_name,
@@ -1669,7 +1670,7 @@ async def upload_check_agent_file(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     flag_modified(p, "meta")
-    await session.commit()
+    await commit_with_retry(session)
     return result
 
 
@@ -1687,7 +1688,7 @@ async def delete_check_agent_file(
     p = _project_or_404(await session.get(Project, project_id))
     result = clear_check_agent_file(p, node_key)
     flag_modified(p, "meta")
-    await session.commit()
+    await commit_with_retry(session)
     return result
 
 
@@ -1831,7 +1832,7 @@ async def remap_excel_gpt_keys(
     mapping = {str(k): str(v) for k, v in raw.items() if k and v}
     remapped = remap_node_keys_in_meta(p, mapping)
     flag_modified(p, "meta")
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": True, "remapped": remapped}
 
 
@@ -1864,7 +1865,7 @@ async def storage_patch(
     body = dict(payload) if isinstance(payload, dict) else {}
     cfg = patch_config(p, node_key, body)
     flag_modified(p, "meta")
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": True, "config": cfg, "resolve": resolve_storage(p, node_key, auto_sync=False)}
 
 
@@ -1882,7 +1883,7 @@ async def storage_sync(
     p = _project_or_404(await session.get(Project, project_id))
     result = sync_from_edges(p, node_key)
     flag_modified(p, "meta")
-    await session.commit()
+    await commit_with_retry(session)
     return {"ok": True, **result}
 
 
@@ -1965,7 +1966,7 @@ async def disable_auto_mode_all_parents(
                 event_type="project_updated",
                 payload={"auto_mode": False},
             )
-    await session.commit()
+    await commit_with_retry(session)
     return {"parents_total": sum(1 for p in rows if mass_parent_id(p) is None), "disabled": disabled}
 
 
@@ -2063,7 +2064,7 @@ async def remount_project_video(
 
     p = _project_or_404(await session.get(Project, project_id))
     result = await remount_video(session, p, run_assemble=not audio_only)
-    await session.commit()
+    await commit_with_retry(session)
     await publish_project_event(
         project_id,
         event_type="project_updated",
@@ -2123,7 +2124,7 @@ async def restore_project_voiceover(
         )
     result = await restore_original_voiceover(session, p, dry_run=dry_run, force=force)
     if result.get("restored"):
-        await session.commit()
+        await commit_with_retry(session)
         await publish_project_event(
             project_id,
             event_type="project_updated",
@@ -2196,7 +2197,7 @@ async def harness_verify(
         allow_repair=allow_repair,
         include_http=include_http,
     )
-    await session.commit()
+    await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(
         project_id,

@@ -1,4 +1,8 @@
-"""Выбор текстовой LLM: GPT (kie) + доп. Kimi K3 (TokenRouter)."""
+"""Выбор текстовой LLM: vibecode (Claude/GPT/Gemini/Grok) + GPT (kie).
+
+`models[]` в ответе несёт `group` — семейство модели; пикер Студии
+группирует список по нему.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +18,7 @@ router = APIRouter(prefix="/text-llm", tags=["text-llm"])
 
 
 class TextLlmSelectBody(BaseModel):
-    provider: str = Field(..., description="kie | vibecode | tokenrouter")
+    provider: str = Field(..., description="kie | vibecode")
     model_id: str | None = None
 
 

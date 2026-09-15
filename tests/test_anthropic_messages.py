@@ -91,14 +91,23 @@ def test_usage_dict_covers_both_ledger_branches() -> None:
 
 
 class _FakeStream:
-    def __init__(self, msg: Any) -> None:
+    def __init__(self, msg: Any, chunks: list[str] | None = None) -> None:
         self._msg = msg
+        self._chunks = list(chunks or [])
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *args):
         return False
+
+    @property
+    def text_stream(self):
+        async def _gen():
+            for c in self._chunks:
+                yield c
+
+        return _gen()
 
     async def get_final_message(self):
         if isinstance(self._msg, BaseException):
@@ -107,9 +116,10 @@ class _FakeStream:
 
 
 class _FakeClient:
-    def __init__(self, msg: Any, seen: dict[str, Any]) -> None:
+    def __init__(self, msg: Any, seen: dict[str, Any], chunks: list[str] | None = None) -> None:
         self._msg = msg
         self._seen = seen
+        self._chunks = chunks
         self.messages = self
 
     async def __aenter__(self):
@@ -120,7 +130,7 @@ class _FakeClient:
 
     def stream(self, **req):
         self._seen.update(req)
-        return _FakeStream(self._msg)
+        return _FakeStream(self._msg, self._chunks)
 
 
 def _msg(text: str, *, stop: str = "end_turn", model: str = "claude-opus-5") -> SimpleNamespace:
@@ -134,9 +144,9 @@ def _msg(text: str, *, stop: str = "end_turn", model: str = "claude-opus-5") -> 
     )
 
 
-def _install(monkeypatch: pytest.MonkeyPatch, msg: Any) -> dict[str, Any]:
+def _install(monkeypatch: pytest.MonkeyPatch, msg: Any, chunks: list[str] | None = None) -> dict[str, Any]:
     seen: dict[str, Any] = {}
-    monkeypatch.setattr(am, "_client", lambda **kw: _FakeClient(msg, seen))
+    monkeypatch.setattr(am, "_client", lambda **kw: _FakeClient(msg, seen, chunks))
     return seen
 
 
@@ -676,3 +686,73 @@ async def test_chat_messages_tool_use_with_tools_is_fine(monkeypatch: pytest.Mon
     )
     assert r.finish_reason == "tool_use"
     assert r.raw["content"][0]["name"] == "edit"
+
+
+@pytest.mark.asyncio
+async def test_chat_messages_streams_deltas_to_on_delta(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Чат студии на Claude видит токены по мере генерации, а не одним куском."""
+    seen_pieces: list[str] = []
+    _install(monkeypatch, _msg("Привет, мир"), chunks=["Привет, ", "", "мир"])
+    r = await am.chat_messages(
+        base_url="https://vibecode.moe/v1",
+        api_key="vk",
+        body={"model": "claude-opus-5", "messages": [{"role": "user", "content": "u"}]},
+        timeout=5,
+        use_model="claude-opus-5",
+        on_delta=seen_pieces.append,
+    )
+    # пустые куски не доезжают до UI, итог собран из финального message
+    assert seen_pieces == ["Привет, ", "мир"]
+    assert r.text == "Привет, мир"
+
+
+@pytest.mark.asyncio
+async def test_chat_messages_on_delta_may_be_async_and_may_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Контракт `gpt_api._chat_completions_stream`: корутина допустима, падение колбэка — нет."""
+    got: list[str] = []
+
+    async def sink(piece: str) -> None:
+        got.append(piece)
+
+    _install(monkeypatch, _msg("ab"), chunks=["a", "b"])
+    r = await am.chat_messages(
+        base_url="https://vibecode.moe/v1",
+        api_key="vk",
+        body={"model": "claude-opus-5", "messages": [{"role": "user", "content": "u"}]},
+        timeout=5,
+        use_model="claude-opus-5",
+        on_delta=sink,
+    )
+    assert got == ["a", "b"] and r.text == "ab"
+
+    def boom(piece: str) -> None:
+        raise RuntimeError("UI отвалился")
+
+    _install(monkeypatch, _msg("ab"), chunks=["a", "b"])
+    r2 = await am.chat_messages(
+        base_url="https://vibecode.moe/v1",
+        api_key="vk",
+        body={"model": "claude-opus-5", "messages": [{"role": "user", "content": "u"}]},
+        timeout=5,
+        use_model="claude-opus-5",
+        on_delta=boom,
+    )
+    assert r2.text == "ab"
+
+
+@pytest.mark.asyncio
+async def test_chat_messages_without_on_delta_does_not_touch_text_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Без колбэка стрим не вычитывается вручную — поведение прежних вызовов не меняется."""
+    _install(monkeypatch, _msg("x"), chunks=["не", "должно", "читаться"])
+    r = await am.chat_messages(
+        base_url="https://vibecode.moe/v1",
+        api_key="vk",
+        body={"model": "claude-opus-5", "messages": [{"role": "user", "content": "u"}]},
+        timeout=5,
+        use_model="claude-opus-5",
+    )
+    assert r.text == "x"

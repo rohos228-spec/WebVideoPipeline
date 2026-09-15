@@ -158,6 +158,8 @@ def _synth(kind: str, duration: float, *, seed: int = 42) -> list[float]:
 
 
 async def _elevenlabs_sfx(prompt: str, duration: float, out_path: Path) -> Path:
+    import asyncio
+
     import httpx
 
     from app.settings import settings
@@ -165,20 +167,55 @@ async def _elevenlabs_sfx(prompt: str, duration: float, out_path: Path) -> Path:
     key = settings.elevenlabs_api_key
     if not key:
         raise RuntimeError("no elevenlabs key")
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
-            "https://api.elevenlabs.io/v1/sound-effects",
-            headers={"xi-api-key": key},
-            json={
-                "text": prompt[:450],
-                "duration_seconds": min(max(duration, 0.5), 22.0),
-                "prompt_influence": 0.5,
-            },
-        )
-        if resp.status_code != 200:
-            raise RuntimeError(f"11labs sfx {resp.status_code}: {resp.text[:200]}")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_bytes(resp.content)
+
+    max_retries = 3
+    last_err: Exception | None = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(90.0, connect=10.0), follow_redirects=True
+            ) as client:
+                resp = await client.post(
+                    "https://api.elevenlabs.io/v1/sound-generation",
+                    headers={"xi-api-key": key},
+                    json={
+                        "text": prompt[:450],
+                        "duration_seconds": min(max(duration, 0.5), 22.0),
+                        "prompt_influence": 0.5,
+                    },
+                )
+                if resp.status_code != 200:
+                    if attempt < max_retries and resp.status_code in (429, 500, 502, 503, 504):
+                        logger.warning(
+                            "11labs sfx попытка {}/{} упала с {}: {} — повтор",
+                            attempt,
+                            max_retries,
+                            resp.status_code,
+                            resp.text[:100],
+                        )
+                        await asyncio.sleep(2.0 * attempt)
+                        continue
+                    raise RuntimeError(f"11labs sfx {resp.status_code}: {resp.text[:200]}")
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_bytes(resp.content)
+                return out_path
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            if attempt < max_retries and not isinstance(e, RuntimeError):
+                logger.warning(
+                    "11labs sfx попытка {}/{}: {} — повтор",
+                    attempt,
+                    max_retries,
+                    e,
+                )
+                await asyncio.sleep(2.0 * attempt)
+                continue
+            break
+
+    if last_err:
+        raise last_err
+
     return out_path
 
 
@@ -208,7 +245,9 @@ async def generate_sfx_files(
             if isinstance(rec, dict) and isinstance(rec.get("idx"), int):
                 done_by_idx[rec["idx"]] = rec
 
-    use_api = bool(settings.elevenlabs_api_key)
+    meta = project.meta or {}
+    forced_provider = meta.get("sfx_provider")
+    use_api = bool(settings.elevenlabs_api_key) and forced_provider != "local_synth"
     files: list[dict[str, Any]] = []
     problems: list[str] = []
 
@@ -220,6 +259,7 @@ async def generate_sfx_files(
                 continue
         ext = "mp3" if use_api else "wav"
         out_path = sfx_dir / f"sfx_{idx:02d}_{ev.kind}.{ext}"
+        actual_provider = "elevenlabs" if use_api else "local_synth"
         try:
             if use_api:
                 await _elevenlabs_sfx(ev.prompt, ev.duration, out_path)
@@ -237,11 +277,28 @@ async def generate_sfx_files(
             out_path = sfx_dir / f"sfx_{idx:02d}_{ev.kind}.wav"
             samples = _synth(ev.kind, ev.duration, seed=1000 + idx)
             _write_wav(out_path, samples)
+            actual_provider = "local_synth"
 
-        errs = verify_audio_file(out_path, expect_duration=ev.duration, duration_tol=0.6)
+        # Гибкий допуск по длительности для SFX: у эффектов бывают естественные хвосты затухания
+        sfx_dur_tol = max(4.0, ev.duration * 2.0)
+        errs = verify_audio_file(out_path, expect_duration=ev.duration, duration_tol=sfx_dur_tol)
+        if errs:
+            logger.warning(
+                "[#{}] sfx_gen verify ({}): {} — фоллбэк на локальный синтез",
+                project.id,
+                actual_provider,
+                errs,
+            )
+            if actual_provider != "local_synth":
+                out_path = sfx_dir / f"sfx_{idx:02d}_{ev.kind}.wav"
+                samples = _synth(ev.kind, ev.duration, seed=1000 + idx)
+                _write_wav(out_path, samples)
+                actual_provider = "local_synth"
+                errs = verify_audio_file(out_path, expect_duration=ev.duration, duration_tol=0.6)
+
         if errs:
             problems.extend(errs)
-            logger.warning("[#{}] sfx_gen verify: {}", project.id, errs)
+            logger.warning("[#{}] sfx_gen verify всё ещё красный: {}", project.id, errs)
             continue
         files.append(
             {
@@ -253,7 +310,8 @@ async def generate_sfx_files(
                 "kind": ev.kind,
                 "gain": ev.gain,
                 "duck": ev.duck,
-                "provider": "elevenlabs" if use_api else "local_synth",
+                "provider": actual_provider,
+                "prompt": ev.prompt,
             }
         )
 

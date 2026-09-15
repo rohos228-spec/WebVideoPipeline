@@ -662,27 +662,55 @@ async def _host_via_uguu(client: httpx.AsyncClient, raw: bytes, mime: str, filen
 
 
 async def _host_via_litterbox(client: httpx.AsyncClient, raw: bytes, mime: str, filename: str) -> str:
-    r = await client.post(
-        "https://litterbox.catbox.moe/resources/internals/api.php",
-        data={"reqtype": "fileupload", "time": "24h"},
-        files={"fileToUpload": (filename, raw, mime)},
-    )
-    text = (r.text or "").strip()
-    if r.status_code >= 400 or not text.startswith("http"):
-        raise OutseeApiError(f"litterbox HTTP {r.status_code}: {text[:160] or '(empty body)'}")
-    return await _accept_hosted_url(client, text, host="litterbox", raw_len=len(raw))
+    # Хост отвечает 5xx и рвёт соединение чаще, чем падает совсем: одна
+    # повторная попытка дешевле, чем уход на следующий хост в цепочке.
+    for attempt in range(2):
+        try:
+            r = await client.post(
+                "https://litterbox.catbox.moe/resources/internals/api.php",
+                data={"reqtype": "fileupload", "time": "24h"},
+                files={"fileToUpload": (filename, raw, mime)},
+            )
+            text = (r.text or "").strip()
+            if r.status_code < 400 and text.startswith("http"):
+                return await _accept_hosted_url(client, text, host="litterbox", raw_len=len(raw))
+            if attempt == 0 and r.status_code in {500, 502, 503, 504}:
+                await asyncio.sleep(1.0)
+                continue
+            raise OutseeApiError(f"litterbox HTTP {r.status_code}: {text[:160] or '(empty body)'}")
+        except OutseeApiError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            if attempt == 0:
+                await asyncio.sleep(1.0)
+                continue
+            raise OutseeApiError(f"litterbox connection fail: {exc}") from exc
+    raise OutseeApiError("litterbox: попытки исчерпаны")
 
 
 async def _host_via_catbox(client: httpx.AsyncClient, raw: bytes, mime: str, filename: str) -> str:
-    r = await client.post(
-        "https://catbox.moe/user/api.php",
-        data={"reqtype": "fileupload"},
-        files={"fileToUpload": (filename, raw, mime)},
-    )
-    text = (r.text or "").strip()
-    if r.status_code >= 400 or not text.startswith("http"):
-        raise OutseeApiError(f"catbox HTTP {r.status_code}: {text[:160] or '(empty body)'}")
-    return await _accept_hosted_url(client, text, host="catbox", raw_len=len(raw))
+    for attempt in range(2):
+        try:
+            r = await client.post(
+                "https://catbox.moe/user/api.php",
+                data={"reqtype": "fileupload"},
+                files={"fileToUpload": (filename, raw, mime)},
+            )
+            text = (r.text or "").strip()
+            if r.status_code < 400 and text.startswith("http"):
+                return await _accept_hosted_url(client, text, host="catbox", raw_len=len(raw))
+            if attempt == 0 and r.status_code in {412, 429, 500, 502, 503, 504}:
+                await asyncio.sleep(1.0)
+                continue
+            raise OutseeApiError(f"catbox HTTP {r.status_code}: {text[:160] or '(empty body)'}")
+        except OutseeApiError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            if attempt == 0:
+                await asyncio.sleep(1.0)
+                continue
+            raise OutseeApiError(f"catbox connection fail: {exc}") from exc
+    raise OutseeApiError("catbox: попытки исчерпаны")
 
 
 async def _host_via_0x0(client: httpx.AsyncClient, raw: bytes, mime: str, filename: str) -> str:

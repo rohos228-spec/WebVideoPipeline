@@ -21,6 +21,7 @@ from app.generation_options import build_gen_id_prefix
 from app.models import Frame, FrameStatus, Project
 from app.services import gpt_text_builder as gtb
 from app.services.plan_shot2 import (
+    _IMG_EXTENSIONS,
     MIN_SHOT2_VIDEO_PROMPT_LEN,
     SHOT2_VIDEO_PROMPT_ATTR,
     find_shot2_image,
@@ -99,12 +100,12 @@ def _normalize_ws(s: str) -> str:
 
 
 def scene_image_path(project: Project, frame_number: int) -> Path | None:
-    """Последний `scenes/frame_NNN_*.png` для кадра."""
+    """Последняя картинка `scenes/frame_NNN_*` для кадра."""
     return index_scene_image_paths(project).get(int(frame_number))
 
 
 def index_scene_image_paths(project: Project) -> dict[int, Path]:
-    """Один проход по ``scenes/`` → {номер кадра: newest png}.
+    """Один проход по ``scenes/`` → {номер кадра: newest картинка}.
 
     Нельзя звать ``glob(frame_NNN_*)`` на каждый кадр — на 200 кадров это
     секунды синка в event loop и «зависание» Studio во время anim_pr.
@@ -113,8 +114,10 @@ def index_scene_image_paths(project: Project) -> dict[int, Path]:
     if not scenes_dir.is_dir():
         return {}
     best: dict[int, tuple[float, Path]] = {}
-    for path in scenes_dir.glob("frame_*_*.png"):
-        # frame_003_abcd.png / frame_003_s2_abcd.png — shot1 = без _s2_
+    for path in scenes_dir.iterdir():
+        # frame_003_abcd.png / frame_003_s2_abcd.webp — shot1 = без _s2_
+        if not path.is_file() or path.suffix.lower() not in _IMG_EXTENSIONS:
+            continue
         parts = path.stem.split("_")
         if len(parts) < 3:
             continue

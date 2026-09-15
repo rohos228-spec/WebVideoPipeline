@@ -96,6 +96,15 @@ _IMAGE_ASK_RE = re.compile(
     r"\.png|\.jpe?g|\.webp|\.gif|\bpng\b|\bimage\b|\bpicture\b|\bphoto\b"
     r")"
 )
+_IMAGE_ANALYSIS_RE = re.compile(
+    r"(?i)("
+    r"что\s+(?:изображено|на|в|нарисовано|видно|ты\s+видишь)|"
+    r"кто\s+(?:изображен|на|в|нарисован)|"
+    r"опиши|разбери|проанализируй|распознай|посмотри|взгляни|"
+    r"прочитай\s+(?:текст\s+)?на|"
+    r"what\s+is\s+(?:in|on|depicted)|describe|analyze|recognize"
+    r")"
+)
 _DATA_URI_INLINE_RE = re.compile(
     r"data:(?:image|application)/[^;,\s]+;base64,[A-Za-z0-9+/=\s]+",
     re.IGNORECASE,
@@ -194,23 +203,22 @@ def _is_short_affirmative(message: str) -> bool:
 
 
 def _looks_like_document(text: str) -> bool:
-    """Длинный текст договора/документа в пузыре — кандидат на .txt/.docx."""
+    """Текст официального юридического договора/соглашения в пузыре."""
     t = (text or "").strip()
     if len(t) < 400:
         return False
     if re.match(r"(?i)^(готовые файлы|studio\s+положила|studio\s+вернула)\b", t):
         return False
-    score = 0
-    if re.search(r"(?i)\bдоговор\b", t):
-        score += 2
+    # Обязательное явное ключевое слово договора/контракта
+    if not re.search(r"(?i)\b(договор|контракт|соглашение)\b", t):
+        return False
+    score = 1
     if re.search(
         r"(?i)(реквизит|исполнител|заказчик|предмет\s+договора|сторон[ыа])",
         t,
     ):
         score += 1
     if len(re.findall(r"(?m)^\s*\d+(?:\.\d+)+\.?\s", t)) >= 5:
-        score += 1
-    if len(t) >= 2500:
         score += 1
     return score >= 2
 
@@ -231,8 +239,30 @@ def _wants_xlsx(message: str) -> bool:
     return bool(_XLSX_RE.search(message or ""))
 
 
-def _wants_image_file(message: str) -> bool:
-    return bool(_IMAGE_ASK_RE.search(message or ""))
+def _is_image_analysis_request(message: str) -> bool:
+    t = (message or "").strip()
+    return bool(t) and bool(_IMAGE_ANALYSIS_RE.search(t))
+
+
+def _wants_image_file(message: str, *, has_image_attachments: bool = False) -> bool:
+    t = (message or "").strip()
+    if not t or not _IMAGE_ASK_RE.search(t):
+        return False
+    if _is_image_analysis_request(t):
+        return False
+    if has_image_attachments:
+        # Есть вложенное фото — из сети не качаем, если юзер явно не просил
+        if not re.search(
+            r"(?i)(найди\s+(?:в\s+интернете|похож)|сгенерир|нарисуй|другую\s+картин)",
+            t,
+        ):
+            return False
+    if _is_meta_chat_question(t) and not re.search(
+        r"(?i)(пришл[иу]|отправ[ьи]|скинь|найд[ий]|скача[йть]|дай)",
+        t,
+    ):
+        return False
+    return True
 
 
 def _strip_media_payloads(text: str) -> str:
@@ -275,9 +305,17 @@ def _explicit_text_doc_ask(message: str) -> bool:
     )
 
 
-def _should_pack_text_document(user_text: str, reply: str, *, media_count: int) -> bool:
+def _should_pack_text_document(
+    user_text: str,
+    reply: str,
+    *,
+    media_count: int,
+    has_image_attachments: bool = False,
+) -> bool:
     """Паковать .txt/.docx только для явных документных запросов."""
-    if _wants_image_file(user_text) and not _explicit_text_doc_ask(user_text):
+    if _wants_image_file(
+        user_text, has_image_attachments=has_image_attachments
+    ) and not _explicit_text_doc_ask(user_text):
         return False
     if _wants_blank_file(user_text):
         return True
@@ -1462,8 +1500,14 @@ async def ask(
         reply_path = out_dir / f"reply_{ts}.txt"
         reply_path.write_text(reply, encoding="utf-8")
 
-        # 1) Картинки / URL из ответа модели — ТОЛЬКО если пользователь явно запрашивал картинку/медиа
-        if _IMAGE_ASK_RE.search(text) or _DATA_URI_INLINE_RE.search(reply):
+        has_image_attachments = any(
+            p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg"} for p in files
+        )
+
+        # 1) Картинки / URL из ответа: inline data-URI или явная просьба о картинке
+        if _DATA_URI_INLINE_RE.search(reply) or _wants_image_file(
+            text, has_image_attachments=has_image_attachments
+        ):
             try:
                 from app.services.gpt_api import ensure_correct_extension, materialize_reply_assets
 
@@ -1513,7 +1557,7 @@ async def ask(
         )
 
         # Картинка из интернета: если GPT не дал рабочих URL — ищем сами.
-        if _wants_image_file(text) and media_count == 0:
+        if _wants_image_file(text, has_image_attachments=has_image_attachments) and media_count == 0:
             q = _image_search_query(text)
             variants = _image_query_variants(text)
             try:
@@ -1582,16 +1626,22 @@ async def ask(
 
         # 3) .txt/.docx — документные запросы; длинный договор в ответе — тоже файл
         delivered = None
-        pack_doc = (want_pack and _should_pack_text_document(text, reply, media_count=media_count)) or (
-            media_count == 0 and _looks_like_document(reply) and not _is_meta_chat_question(text)
-        )
+        pack_doc = (
+            want_pack
+            and _should_pack_text_document(
+                text,
+                reply,
+                media_count=media_count,
+                has_image_attachments=has_image_attachments,
+            )
+        ) or (media_count == 0 and _looks_like_document(reply) and not _is_meta_chat_question(text))
         # intent уже pack_reply/pack_last, а гейт не узнал формулировку
         # («Сделай … и пришли мне файл») — всё равно кладём текст в .txt
         if (
             not pack_doc
             and want_pack
             and media_count == 0
-            and not _wants_image_file(text)
+            and not _wants_image_file(text, has_image_attachments=has_image_attachments)
             and len(reply) >= 40
             and _asks_file(text)
         ):
@@ -1630,7 +1680,7 @@ async def ask(
             and any(Path(n).suffix.lower() in {".txt", ".docx", ".md"} for n in ready)
         ):
             body = ""
-        if _wants_image_file(text) and media_count == 0:
+        if _wants_image_file(text, has_image_attachments=has_image_attachments) and media_count == 0:
             logger.warning(
                 "gpt_workspace: session={} image ask but no real media raw_reply_len={} has_data_uri={}",
                 session_id,

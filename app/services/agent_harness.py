@@ -14,6 +14,7 @@ from typing import Any
 
 from loguru import logger
 
+from app.services.plan_shot2 import _IMG_EXTENSIONS
 from app.services.xlsx_v8_import import (
     ROW_IMAGE_PROMPT_V8,
     ROW_VIDEO_PROMPT_V8,
@@ -106,6 +107,13 @@ class HarnessReport:
             "repair_steps": list(self.repair_steps),
             "updated_at": self.updated_at,
         }
+
+
+def _images_in(folder: Path) -> list[Path]:
+    """Картинки папки по всем поддерживаемым расширениям (не только .png)."""
+    if not folder.is_dir():
+        return []
+    return [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in _IMG_EXTENSIONS]
 
 
 def _now() -> str:
@@ -424,9 +432,9 @@ def verify_project_disk(
         # вещи, и по отчёту должно быть видно, какое правило сработало.
         checks.append(HarnessCheck("project_xlsx", True, "запись книги выключена — файл не нужен"))
 
-    scenes = list((data_dir / "scenes").glob("*.png")) if (data_dir / "scenes").is_dir() else []
+    scenes = _images_in(data_dir / "scenes")
     videos = list((data_dir / "videos").glob("*.mp4")) if (data_dir / "videos").is_dir() else []
-    heroes = list((data_dir / "characters").glob("*.png")) if (data_dir / "characters").is_dir() else []
+    heroes = _images_in(data_dir / "characters")
     final = list((data_dir / "final").glob("*.mp4")) if (data_dir / "final").is_dir() else []
 
     scenes_required = status in _SCENES_REQUIRED_STATUSES
@@ -833,7 +841,7 @@ def verify_project_http(
     st, nbytes, _ = _http_get(f"{base}/api/projects/{project_id}/xlsx", timeout=30.0)
     checks.append(HarnessCheck("xlsx_http", st == 200 and nbytes > 0, f"status={st} bytes={nbytes}"))
 
-    scenes = list((data_dir / "scenes").glob("*.png")) if (data_dir / "scenes").is_dir() else []
+    scenes = _images_in(data_dir / "scenes")
     checks.append(HarnessCheck("http_scene_parity", True, f"scenes_disk={len(scenes)}"))
     return checks
 

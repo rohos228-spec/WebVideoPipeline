@@ -45,9 +45,21 @@ _STALE_GRACE_SEC = 30.0
 async def _get_default_workflow_id(
     session: AsyncSession | None = None,
 ) -> int | None:
-    """Id default Workflow. Optional session — для тестов/вызовов с уже открытой сессией."""
+    """Id default Workflow. Optional session — для тестов/вызовов с уже открытой сессией.
 
-    async def _lookup(s: AsyncSession) -> int | None:
+    Самовосстанавливающийся поиск:
+    1. Ищет Workflow с is_default == True.
+    2. Если не найден — берёт любой существующий Workflow и делает его дефолтным.
+    3. Если воркфлоу нет вообще — авто-засевает дефолтный шаблон seed_default_workflow().
+
+    Чтение идёт через переданную сессию, а починка и засев — всегда через
+    собственную `session_scope` с коммитом. Иначе новый Workflow остался бы
+    в чужой незакоммиченной транзакции, а `ensure_run_for_project`, который
+    ходит своим соединением, его бы не увидел и упал на «workflow not found».
+    """
+
+    async def _read(s: AsyncSession) -> tuple[int | None, int | None]:
+        """(id дефолтного, id любого) — только чтение."""
         try:
             wf = (
                 await s.execute(
@@ -57,15 +69,48 @@ async def _get_default_workflow_id(
                     .limit(1)
                 )
             ).scalar_one_or_none()
+            if wf is not None:
+                return wf.id, wf.id
+            any_wf = (
+                await s.execute(select(Workflow).order_by(Workflow.id.asc()).limit(1))
+            ).scalar_one_or_none()
         except Exception:  # noqa: BLE001 — пустая/битая БД в тестах
             logger.debug("default workflow lookup failed", exc_info=True)
-            return None
-        return wf.id if wf is not None else None
+            return None, None
+        return None, (any_wf.id if any_wf is not None else None)
 
     if session is not None:
-        return await _lookup(session)
+        default_id, any_id = await _read(session)
+    else:
+        async with session_scope() as s:
+            default_id, any_id = await _read(s)
+    if default_id is not None:
+        return default_id
+
+    # Фолбэк 1: воркфлоу есть, но ни один не помечен дефолтным. Пометка —
+    # починка, а не условие ответа: сорвалась запись — id всё равно отдаём.
+    if any_id is not None:
+        try:
+            async with session_scope() as s:
+                wf_row = await s.get(Workflow, any_id)
+                if wf_row is not None:
+                    wf_row.is_default = True
+        except Exception:  # noqa: BLE001
+            logger.warning("default workflow heal failed for #{}", any_id, exc_info=True)
+        return any_id
+
+    # Фолбэк 2: база пуста — авто-засев дефолтного воркфлоу.
+    try:
+        from app.web.settings_default import seed_default_workflow
+
+        await seed_default_workflow()
+    except Exception:  # noqa: BLE001
+        logger.warning("auto seed_default_workflow failed", exc_info=True)
+        return None
+
     async with session_scope() as s:
-        return await _lookup(s)
+        seeded_id, _ = await _read(s)
+    return seeded_id
 
 
 async def ensure_run_for_project(

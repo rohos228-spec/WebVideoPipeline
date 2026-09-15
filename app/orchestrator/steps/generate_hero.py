@@ -261,6 +261,20 @@ async def _excel_ids_with_artifact(session: AsyncSession, project: Project) -> s
             continue
         if a.path and Path(a.path).is_file():
             out.add(xid)
+
+    # Файл на диске без Artifact (откат БД / сбой сессии) — тоже «готов»,
+    # иначе волна перегенерит уже нарисованного персонажа.
+    chars_dir = project.data_dir / "characters"
+    if chars_dir.is_dir():
+        for p in chars_dir.glob("*.png"):
+            stem = p.stem.lower()
+            if not stem.startswith("c"):
+                continue
+            try:
+                if p.is_file() and p.stat().st_size > 1000:
+                    out.add(stem)
+            except OSError:
+                continue
     return out
 
 
@@ -395,6 +409,39 @@ async def _load_entity_characters(session: AsyncSession, project: Project) -> li
     return characters_from_entities(ents)
 
 
+def _healed_character_name(ch: Any, id_to_name: dict[str, str]) -> str:
+    """Имя взамен служебного текста агента: «<родитель> (вариация cNN)»/«Персонаж cNN»."""
+    for rid in getattr(ch, "ref_ids", None) or []:
+        parent = id_to_name.get(rid)
+        if parent:
+            return f"{parent} (вариация {ch.id})"
+    return f"Персонаж {ch.id}"
+
+
+def _heal_polluted_character_names(project_id: int, chars: list) -> None:
+    """Служебный текст агента в имени персонажа — не повод падать.
+
+    Лист «Персонажи» иногда приезжает с инструкцией агента вместо имени
+    (`c02 = 'оставь формат неизменным'`). Раньше шаг на этом падал; теперь имя
+    чинится по родителю из ``ref_ids``, а в лог уходит warning.
+    """
+    from app.services.excel_characters import is_polluted_character_field
+
+    id_to_name = {c.id: c.name for c in chars if not is_polluted_character_field(c.name)}
+    for c in chars:
+        if not is_polluted_character_field(c.name):
+            continue
+        old_name = c.name
+        c.name = _healed_character_name(c, id_to_name)
+        logger.warning(
+            "[#{}] excel_hero {}: авто-исправление служебного имени {!r} -> {!r}",
+            project_id,
+            c.id,
+            old_name,
+            c.name,
+        )
+
+
 async def _load_excel_hero_from_xlsx(
     session: AsyncSession,
     project: Project,
@@ -411,6 +458,8 @@ async def _load_excel_hero_from_xlsx(
     )
     if has_manual_hero and not meta.get("excel_hero_enabled"):
         return None
+
+    from sqlalchemy.orm.attributes import flag_modified
 
     from app.services.excel_characters import parse_persons_sheet
 
@@ -430,9 +479,12 @@ async def _load_excel_hero_from_xlsx(
     if not chars:
         return None
 
+    _heal_polluted_character_names(project.id, chars)
+
     cfg = {"characters": [c.to_dict() for c in chars], "source": source}
     meta["excel_hero"] = cfg
     project.meta = meta
+    flag_modified(project, "meta")
     await session.flush()
     logger.info(
         "[#{}] excel_hero load: {} персонаж(ей) из {} ",
@@ -1213,6 +1265,9 @@ async def _run_excel(
             await session.flush()
             raise RuntimeError(f"excel_hero: волна упала без успехов: {errors[0]!r}")
 
+        # Волна писала проект своими сессиями; закрываем свою транзакцию,
+        # иначе refresh читает снимок до волны и затирает её статусы.
+        await session.commit()
         await session.refresh(project)
         project.status = ProjectStatus.generating_hero
 
@@ -1323,9 +1378,15 @@ async def _generate_one_excel_character(
         from app.services.excel_characters import is_polluted_character_field
 
         if is_polluted_character_field(ch.name):
-            raise RuntimeError(
-                f"excel_hero {ch.id}: в имени служебный текст агента "
-                f"(name={ch.name!r}). Исправь лист «Персонажи» и перезапусти hero."
+            id_to_name = {p.id: p.name for p in chars if not is_polluted_character_field(p.name)}
+            old_name = ch.name
+            ch.name = _healed_character_name(ch, id_to_name)
+            logger.warning(
+                "[#{}] excel_hero {}: авто-исправление служебного имени {!r} -> {!r}",
+                project.id,
+                ch.id,
+                old_name,
+                ch.name,
             )
 
         if used_refs:

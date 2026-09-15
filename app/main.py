@@ -62,7 +62,7 @@ async def _backfill_from_disk() -> None:
     from sqlalchemy import func, select
 
     from app.db import session_scope
-    from app.models import Frame, Project
+    from app.models import Frame, Project, ProjectStatus
     from app.services.ensure_frames_from_disk import (
         discover_frame_numbers_on_disk,
         ensure_frames_from_disk_media,
@@ -84,7 +84,13 @@ async def _backfill_from_disk() -> None:
 
     try:
         async with session_scope() as s:
-            projects = (await s.execute(select(Project))).scalars().all()
+            # Досчитанные проекты бэкфилл не меняет — на старте студии это
+            # только лишний обход диска по всему архиву.
+            projects = (
+                (await s.execute(select(Project).where(Project.status != ProjectStatus.assembled)))
+                .scalars()
+                .all()
+            )
             for p in projects:
                 # p.data_dir автоматически даёт правильный путь:
                 # для одиночных — data/videos/<slug>/,
@@ -153,7 +159,7 @@ async def _recompute_all_projects() -> None:
 
     try:
         async with session_scope() as s:
-            changes = await recompute_all(s)
+            changes = await recompute_all(s, skip_assembled=True)
             if changes:
                 logger.warning(
                     "recompute: {} проект(а/ов) с десинхронизацией статуса → {}",

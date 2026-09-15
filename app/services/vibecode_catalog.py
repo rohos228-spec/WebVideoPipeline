@@ -24,6 +24,21 @@ DEFAULT_IMAGE_MODEL_ID = "gpt-image-2-vip"
 DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite"
 HIDDEN_IMAGE_IDS = frozenset({"gpt-image-2"})
 IMAGE_MODEL_ALIASES = {"gpt-image-2": "gpt-image-2-vip"}
+#: Написания текстовых моделей, которые приходят с ноды/из .env, → id снимка.
+#: `GPT_MODEL` в .env пишут через дефис, каталог Студии — через точку;
+#: `claude-fable-5-1` приезжает из конфигов форка заказчика, а в снимке
+#: vibecode есть только Fable 5 — без алиаса нода молча теряет модель.
+TEXT_MODEL_ALIASES = {
+    "gpt-5-5": "gpt-5.5",
+    "gpt-5-6-sol": "gpt-5.6-sol",
+    "gpt-5-6-terra": "gpt-5.6-terra",
+    "gpt-5-6-luna": "gpt-5.6-luna",
+    "gemini-3.1-pro": "gemini-3.1-pro-preview",
+    "gemini-3-flash": "gemini-3-flash-preview",
+    "claude-fable-5-1": "claude-fable-5",
+    "claude-fable-5.1": "claude-fable-5",
+    "grok-4.6": "grok-4-6",
+}
 
 IMAGE_MODEL_TO_GENERATOR: dict[str, str] = {
     "gpt-image-2": "gpt_image_2_vip",
@@ -56,7 +71,7 @@ VIDEO_CATALOG_RAW: list[dict[str, Any]] = [
         "is_image": False,
         "is_video": True,
         "owned_by": "outsee",
-        "pricing": {"currency": "usd"},
+        "pricing": {"currency": "usd", "usd_per_video": 0.15},
     },
     {
         "id": "kling-2-6",
@@ -137,6 +152,7 @@ def apply_markup(
         "cache_read_usd_per_m",
         "cache_create_usd_per_m",
         "usd_per_image",
+        "usd_per_video",
     ):
         if key not in raw or raw[key] is None:
             continue
@@ -243,6 +259,7 @@ def find_model(model_id: str | None, *, channel: str | None = None) -> dict[str,
     if not want:
         return None
     want = IMAGE_MODEL_ALIASES.get(want, want)
+    want = TEXT_MODEL_ALIASES.get(want, want)
     for item in models_for_channel(channel=channel):
         if item["id"] == want:
             return item

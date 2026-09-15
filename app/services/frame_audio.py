@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -132,13 +133,23 @@ def delete_frame_audio_files(audio_dir: Path) -> int:
     return deleted
 
 
-async def _run_ffmpeg(cmd: list[str]) -> None:
+# Потолок на один вызов ffmpeg в озвучке — короче, чем на монтаже.
+FFMPEG_TIMEOUT_SEC = 120.0
+
+
+async def _run_ffmpeg(cmd: list[str], timeout: float = FFMPEG_TIMEOUT_SEC) -> None:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError:
+        with contextlib.suppress(OSError, ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        raise TimeoutError(f"ffmpeg timed out after {timeout}s: {' '.join(cmd[:4])}...") from None
     if proc.returncode != 0:
         raise RuntimeError(stderr.decode(errors="ignore") or stdout.decode(errors="ignore"))
 

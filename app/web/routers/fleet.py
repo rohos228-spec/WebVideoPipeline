@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.db import session_scope
+from app.db import commit_with_retry, session_scope
 from app.fleet import bundle as bundle_svc
 from app.fleet.client import (
     FleetAgentError,
@@ -50,7 +50,16 @@ def _pipeline_root() -> Path:
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 
-def _check_agent_token(authorization: str | None) -> None:
+def _check_agent_token(authorization: str | None = Header(None)) -> None:
+    """Проверка токена станции.
+
+    ``Header(None)`` здесь обязателен. Без него FastAPI видел у зависимости
+    голый ``authorization: str | None`` без значения по умолчанию и заводил
+    ОБЯЗАТЕЛЬНЫЙ query-параметр: все тринадцать ручек ``/api/fleet/local/*``
+    отвечали 422 «query.authorization: Field required» ещё до тела, а токен из
+    заголовка (его шлёт ``app/fleet/client``) не читался вовсе.
+    """
+
     expected = (settings.fleet_agent_token or "").strip()
     if not expected:
         return
@@ -161,7 +170,7 @@ async def create_node(body: FleetNodeCreate) -> FleetNodeOut:
             status=FleetNodeStatus.offline,
         )
         session.add(node)
-        await session.commit()
+        await commit_with_retry(session)
         await session.refresh(node)
         return _node_out(node)
 
@@ -171,7 +180,7 @@ async def delete_node(node_id: int) -> dict:
     async with session_scope() as session:
         node = await _get_node(session, node_id)
         await session.delete(node)
-        await session.commit()
+        await commit_with_retry(session)
     return {"ok": True}
 
 
@@ -198,7 +207,7 @@ async def register_heartbeat(body: FleetRegister, authorization: str | None = He
             node.is_main = body.is_main
         node.status = FleetNodeStatus.online
         node.last_seen = datetime.now(UTC)
-        await session.commit()
+        await commit_with_retry(session)
         await session.refresh(node)
         return _node_out(node)
 
@@ -215,7 +224,7 @@ async def sync_node(node_id: int) -> dict:
             node.last_seen = datetime.now(UTC)
             node.hostname = platform.node()
             node.pipeline_version = str(ver.get("label") or ver.get("version") or "")
-            await session.commit()
+            await commit_with_retry(session)
             return {
                 "ok": True,
                 "info": {
@@ -233,7 +242,7 @@ async def sync_node(node_id: int) -> dict:
             node.pipeline_version = info.get("studio_version")
         else:
             node.status = FleetNodeStatus.offline
-        await session.commit()
+        await commit_with_retry(session)
         return {"ok": bool(info), "info": info}
 
 
@@ -419,7 +428,7 @@ async def pull_project_to_main(node_id: int, project_id: int, body: MontagePull)
                     session, project, source_node=node.name or self_node_name()
                 )
                 await process_montage_queue(session)
-            await session.commit()
+            await commit_with_retry(session)
             return {
                 "ok": True,
                 "project_id": project.id,
@@ -452,7 +461,7 @@ async def pull_project_to_main(node_id: int, project_id: int, body: MontagePull)
         if body.run_assemble:
             queued = await enqueue_for_montage(session, project, source_node=node.name)
             await process_montage_queue(session)
-        await session.commit()
+        await commit_with_retry(session)
         return {"ok": True, "project_id": project.id, "slug": project.slug, "queued": queued}
 
 
@@ -927,7 +936,7 @@ async def local_mark_montage_ready(project_id: int, _auth: AgentAuth = None) -> 
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
         project.meta = bundle_svc.mark_montage_ready(project.meta)
-        await session.commit()
+        await commit_with_retry(session)
         return {"ok": True, "project_id": project_id, "slug": project.slug}
 
 

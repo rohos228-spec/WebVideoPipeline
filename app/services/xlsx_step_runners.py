@@ -38,6 +38,23 @@ _IMG_PR_LIVE_STREAMS = 3
 _EMPTY_OPS_BACKOFF_S = (5.0, 10.0, 15.0)
 
 
+def img_pr_live_streams(project: Project | None) -> int:
+    """Живых GPT-стримов img_pr: ``meta.img_pr_streams`` (1..8) поверх константы.
+
+    Шлюз у заказчика держит больше параллели, чем наш дефолт, но крутить это
+    глобально нельзя — значение живёт в проекте.
+    """
+    meta = getattr(project, "meta", None)
+    if isinstance(meta, dict) and meta.get("img_pr_streams") is not None:
+        try:
+            n = int(meta["img_pr_streams"])
+        except (TypeError, ValueError):
+            n = 0
+        if n >= 1:
+            return min(8, n)
+    return _IMG_PR_LIVE_STREAMS
+
+
 def _plan_empty_error(xlsx_path: Path, *, plan_len: int) -> RuntimeError:
     """Понятная ошибка: импортёр читает «Общий план», GPT часто пишет в «план»."""
     sheets: list[str] = []
@@ -262,10 +279,22 @@ _PLAN_DB_HINT = (
 
 
 def extract_general_plan_from_gpt_reply(reply: str) -> str:
-    """Достать общий_план из apply-ops JSON ответа модели."""
-    from app.services import db_apply
+    """Достать общий_план из любого ответа модели: apply-ops, голый JSON или связный текст.
 
-    data = db_apply.extract_apply_ops_json(reply or "")
+    Футер промта плана (`chatgpt_xlsx`) допускает свободный текст, а парсер
+    раньше понимал только apply-ops — расхождение съедало живой план целиком.
+    """
+    if not reply or not reply.strip():
+        return ""
+
+    import json
+    import re
+
+    from app.services import db_apply
+    from app.services.plan_validation import MIN_GENERAL_PLAN_CHARS
+
+    # 1. Стандартный apply-ops JSON
+    data = db_apply.extract_apply_ops_json(reply)
     if isinstance(data, dict):
         for op in data.get("ops") or []:
             if not isinstance(op, dict):
@@ -273,7 +302,7 @@ def extract_general_plan_from_gpt_reply(reply: str) -> str:
             fields = op.get("fields") or {}
             if not isinstance(fields, dict):
                 continue
-            for key in ("общий_план", "general_plan", "план", "сценарий"):
+            for key in ("общий_план", "general_plan", "план", "сценарий", "plan", "script"):
                 val = fields.get(key)
                 if isinstance(val, str) and val.strip():
                     return val.strip()
@@ -281,6 +310,51 @@ def extract_general_plan_from_gpt_reply(reply: str) -> str:
                 for val in fields.values():
                     if isinstance(val, str) and len(val.strip()) >= 80:
                         return val.strip()
+
+    # 2. JSON без обёртки ops: {"general_plan": "…"} / {"общий_план": "…"}
+    json_candidates: list[str] = []
+    for m in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", reply, re.DOTALL):
+        json_candidates.append(m.group(1))
+
+    first_brace = reply.find("{")
+    last_brace = reply.rfind("}")
+    if first_brace != -1 and last_brace > first_brace:
+        json_candidates.append(reply[first_brace : last_brace + 1])
+
+    for raw_json in json_candidates:
+        try:
+            # Кандидат всегда начинается с `{` и кончается `}` (см. сбор выше),
+            # поэтому разбор даёт либо словарь, либо исключение — проверять тип
+            # нечего.
+            parsed = json.loads(raw_json)
+        except Exception:  # noqa: BLE001 — кандидат мог быть не JSON
+            continue
+        for key in (
+            "общий_план",
+            "general_plan",
+            "план",
+            "сценарий",
+            "plan",
+            "script",
+            "content",
+            "text",
+        ):
+            val = parsed.get(key)
+            if isinstance(val, str) and len(val.strip()) >= MIN_GENERAL_PLAN_CHARS:
+                return val.strip()
+
+    # 3. Модель вернула связный текст плана напрямую
+    cleaned = reply.strip()
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+    if len(cleaned) >= MIN_GENERAL_PLAN_CHARS:
+        lower = cleaned.lower()
+        plan_keywords = ("план", "кадр", "сцена", "акт", "герой", "диктор", "voiceover", "shot", "act")
+        if any(kw in lower for kw in plan_keywords):
+            return cleaned
+
     return ""
 
 
@@ -425,6 +499,40 @@ async def run_script_xlsx(
             if voiceover_text:
                 break
     if not voiceover_text:
+        # Голый JSON без ops: {"закадровый_текст": "…"} / {"voiceover": "…"}
+        import json
+        import re
+
+        json_candidates: list[str] = []
+        for m in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", reply or "", re.DOTALL):
+            json_candidates.append(m.group(1))
+        first_b = (reply or "").find("{")
+        last_b = (reply or "").rfind("}")
+        if first_b != -1 and last_b > first_b:
+            json_candidates.append((reply or "")[first_b : last_b + 1])
+
+        for raw_json in json_candidates:
+            try:
+                # Кандидат всегда `{…}` (см. сбор выше): разбор даёт словарь
+                # либо исключение, проверять тип нечего.
+                pj = json.loads(raw_json)
+            except Exception:  # noqa: BLE001 — кандидат мог быть не JSON
+                continue
+            for k in (
+                "закадровый_текст",
+                "script_text",
+                "voiceover",
+                "текст",
+                "text",
+                "диктор",
+            ):
+                v = pj.get(k)
+                if isinstance(v, str) and len(v.strip()) >= 80:
+                    voiceover_text = v.strip()
+                    break
+            if voiceover_text:
+                break
+    if not voiceover_text:
         voiceover_text = (extract_voiceover_block(reply) or "").strip()
     # Этап 5 (D.3): fallback «весь ответ целиком» убран (карта §9 #14) —
     # он записывал в закадр отчёты/извинения модели. Невалидный ответ =
@@ -465,8 +573,73 @@ _SPLIT_DB_HINT = (
     '{"закадр":"текст кадра 1","длительность":3},'
     '{"закадр":"текст кадра 2"}'
     "]}]}\n"
-    "Нужно ≥2 кадра. Каждый кадр — отдельный объект с полем закадр.\n"
+    "ФОРМАТ SHORTS: для ролика 60–75 сек делай 15–25 кадров (максимум 30). "
+    "Запрещено дробить на микро-фразы по 1-2 слова. "
+    "Один кадр = законченная мысль (2-4 сек озвучки). "
+    "Нужно ≥2 и ≤30 кадров. Каждый кадр — отдельный объект с полем закадр.\n"
 )
+
+MAX_PARENT_FRAMES = 30
+_CLAMP_VO_KEYS = ("закадр", "voiceover_text", "voiceover", "реплика")
+_CLAMP_DUR_KEYS = ("длительность", "duration_seconds", "duration", "время", "секунды")
+
+
+def _first_present(d: dict, keys: tuple[str, ...], default: str) -> str:
+    for k in keys:
+        if k in d:
+            return k
+    return default
+
+
+def clamp_parent_frames(frames_spec: list[dict], max_frames: int = MAX_PARENT_FRAMES) -> list[dict]:
+    """Крышка на число кадров: склеивает соседние самые короткие.
+
+    Модель регулярно дробит закадр на микро-фразы, и из ролика на минуту
+    выходит полсотни кадров — каждый со своей картинкой и своим клипом.
+    Склейка идёт по паре соседей с наименьшим суммарным текстом, так что
+    закадр сохраняется слово в слово и в том же порядке.
+    """
+    if not frames_spec or len(frames_spec) <= max_frames:
+        return frames_spec
+
+    items: list[dict] = []
+    for item in frames_spec:
+        if isinstance(item, dict):
+            items.append(dict(item))
+        elif isinstance(item, str):
+            items.append({"закадр": item.strip()})
+
+    def _vo(d: dict) -> str:
+        return str(d.get(_first_present(d, _CLAMP_VO_KEYS, "закадр")) or "").strip()
+
+    while len(items) > max_frames:
+        best_idx = 0
+        min_len = float("inf")
+        for i in range(len(items) - 1):
+            combined_len = len(_vo(items[i])) + len(_vo(items[i + 1]))
+            if combined_len < min_len:
+                min_len = combined_len
+                best_idx = i
+
+        f1, f2 = items[best_idx], items[best_idx + 1]
+        merged = dict(f1)
+        vo_key = _first_present(f1, _CLAMP_VO_KEYS, _first_present(f2, _CLAMP_VO_KEYS, "закадр"))
+        merged.pop(_first_present(f1, _CLAMP_VO_KEYS, vo_key), None)
+        merged[vo_key] = f"{_vo(f1)} {_vo(f2)}".strip()
+
+        dur_key = _first_present(f1, _CLAMP_DUR_KEYS, _first_present(f2, _CLAMP_DUR_KEYS, ""))
+        if dur_key:
+            try:
+                d1 = float(f1.get(dur_key) or 0.0)
+                d2 = float(f2.get(dur_key) or 0.0)
+                merged[dur_key] = round(d1 + d2, 2)
+            except (TypeError, ValueError):
+                pass
+
+        items[best_idx : best_idx + 2] = [merged]
+
+    logger.info("clamp_parent_frames: {} → {} кадров", len(frames_spec), len(items))
+    return items
 
 
 def extract_frames_spec_from_gpt_reply(reply: str, *, voiceover_path: Path | None) -> list[dict]:
@@ -577,6 +750,8 @@ async def run_split_xlsx(
         reply = f"[degraded_no_llm] {e}"
         frames_spec = [{"закадр": b} for b in blocks]
 
+    # Контракт держит только нижнюю границу (≥2 кадра), верхнюю ставим здесь.
+    frames_spec = clamp_parent_frames(frames_spec)
     logger.info("split_db: кадров={} degraded_no_llm={}", len(frames_spec), degraded)
     return XlsxRoundtripResult(
         reply_text=reply,
@@ -890,7 +1065,8 @@ async def run_img_pr_xlsx(
     from app.services.output_batch_plan import pack_frames_img_pr
     from app.services.step_cancel import raise_if_cancelled, sleep_cancellable
 
-    # Старт: N батчей в волне, живых стримов не больше _IMG_PR_LIVE_STREAMS.
+    # Старт: N батчей в волне, живых стримов не больше img_pr_live_streams.
+    live_streams = img_pr_live_streams(project)
     parts = pack_frames_img_pr(frames, n_batches=n_batches)
     work: deque[tuple[list, int]] = deque((part, 1) for part in parts)
     logger.info(
@@ -898,7 +1074,7 @@ async def run_img_pr_xlsx(
         len(frames),
         len(parts),
         [len(p) for p in parts],
-        _IMG_PR_LIVE_STREAMS,
+        live_streams,
         len(done_set),
     )
 
@@ -987,7 +1163,7 @@ async def run_img_pr_xlsx(
                 attempt,
                 [fr.number for fr in batch],
                 [p.name for p in attach],
-                _IMG_PR_LIVE_STREAMS,
+                live_streams,
                 db_path.stat().st_size,
             )
             from app.contracts import IMG_PR
@@ -1049,11 +1225,11 @@ async def run_img_pr_xlsx(
             wave = list(work)
             work.clear()
             batch_n = bi_seq + len(wave)
-            sem = asyncio.Semaphore(_IMG_PR_LIVE_STREAMS)
+            sem = asyncio.Semaphore(live_streams)
             logger.info(
                 "img_pr_db: parallel wave size={} live={} levels={} sizes={}",
                 len(wave),
-                _IMG_PR_LIVE_STREAMS,
+                live_streams,
                 [lvl for _, lvl in wave],
                 [len(b) for b, _ in wave],
             )

@@ -26,29 +26,9 @@ from app.services.gen_queue_run import (
 )
 from app.services.mass_factory import is_mass_factory_child
 from app.services.sidebar_layout import get_gen_queue, is_gen_queue_halted
+from app.services.step_registry import running_statuses_list
 
-GEN_QUEUE_BUSY_STATUSES = [
-    ProjectStatus.planning,
-    ProjectStatus.scripting,
-    ProjectStatus.splitting,
-    ProjectStatus.generating_hero,
-    ProjectStatus.generating_items,
-    ProjectStatus.enriching_1,
-    ProjectStatus.enriching_2,
-    ProjectStatus.enriching_3,
-    ProjectStatus.enriching_4,
-    ProjectStatus.enriching_5,
-    ProjectStatus.generating_image_prompts,
-    ProjectStatus.generating_images,
-    ProjectStatus.generating_animation_prompts,
-    ProjectStatus.generating_videos,
-    ProjectStatus.generating_music,
-    ProjectStatus.generating_audio,
-    ProjectStatus.sfx_planning,
-    ProjectStatus.generating_sfx,
-    ProjectStatus.assembling,
-    ProjectStatus.publishing,
-]
+GEN_QUEUE_BUSY_STATUSES = running_statuses_list()
 
 
 def _slot_blocked(project: Project) -> bool:

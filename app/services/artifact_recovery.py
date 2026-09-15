@@ -22,6 +22,7 @@ from app.models import (
     Project,
 )
 from app.services.frame_audio import find_voice_full_on_disk
+from app.services.plan_shot2 import _IMG_EXTENSIONS
 
 _CLIP_RE = re.compile(r"^clip_(\d{3})_", re.I)
 _CLIP_S2_RE = re.compile(r"^clip_(\d{3})_s2_", re.I)
@@ -124,10 +125,10 @@ async def recover_scene_videos_from_disk(session: AsyncSession, project: Project
                         fr.status = FrameStatus.video_generated
                     continue
                 for a in shot_arts:
-                    session.delete(a)
+                    await session.delete(a)
             elif shot_arts:
                 for a in shot_arts:
-                    session.delete(a)
+                    await session.delete(a)
 
             session.add(
                 Artifact(
@@ -220,10 +221,10 @@ async def recover_scene_images_from_disk(session: AsyncSession, project: Project
                         fr.status = FrameStatus.image_generated
                     continue
                 for a in shot_arts:
-                    session.delete(a)
+                    await session.delete(a)
             elif shot_arts:
                 for a in shot_arts:
-                    session.delete(a)
+                    await session.delete(a)
 
             session.add(
                 Artifact(
@@ -265,7 +266,9 @@ def restore_scene_images_from_old(project: Project) -> dict[str, int]:
         if not batch_dir.is_dir():
             continue
         backup_dirs += 1
-        for src in batch_dir.glob("frame_*.png"):
+        for src in batch_dir.iterdir():
+            if not src.is_file() or src.suffix.lower() not in _IMG_EXTENSIONS:
+                continue
             m = _FRAME_IMG_RE.match(src.name)
             if not m:
                 continue
@@ -277,7 +280,7 @@ def restore_scene_images_from_old(project: Project) -> dict[str, int]:
     restored = 0
     skipped = 0
     for num, src in sorted(best_by_frame.items()):
-        existing = list(scenes_dir.glob(f"frame_{num:03d}_*.png"))
+        existing = [p for p in scenes_dir.glob(f"frame_{num:03d}_*") if p.suffix.lower() in _IMG_EXTENSIONS]
         if existing:
             newest = max(existing, key=lambda p: p.stat().st_mtime)
             if newest.stat().st_size >= src.stat().st_size:
@@ -566,8 +569,8 @@ async def recover_before_assemble(session: AsyncSession, project: Project) -> No
     await recover_music_from_disk(session, project)
 
 
-_CHAR_ID_RE = re.compile(r"^(c\d+)\.png$", re.I)
-_CHAR_ID_IN_NAME_RE = re.compile(r"(c\d+)\.png$", re.I)
+_CHAR_ID_RE = re.compile(r"^(c\d+)\.(?:png|jpe?g|webp)$", re.I)
+_CHAR_ID_IN_NAME_RE = re.compile(r"(c\d+)\.(?:png|jpe?g|webp)$", re.I)
 
 
 def _latest_approved_hero_hitl(
@@ -596,8 +599,10 @@ def _restore_hero_png_from_path(
 ) -> Path | None:
     chars_dir = project.data_dir / "characters"
     chars_dir.mkdir(parents=True, exist_ok=True)
-    dest = chars_dir / f"{excel_id.lower()}.png"
-    shutil.copy2(src, dest)
+    ext = src.suffix.lower() if src.suffix.lower() in _IMG_EXTENSIONS else ".png"
+    dest = chars_dir / f"{excel_id.lower()}{ext}"
+    if src.resolve() != dest.resolve():
+        shutil.copy2(src, dest)
     payload = (hitl.payload or {}) if hitl else {}
     session.add(
         Artifact(
@@ -620,12 +625,14 @@ async def recover_hero_references_from_old_dir(
     session: AsyncSession,
     project: Project,
 ) -> list[str]:
-    """Восстановить cNN.png из data/.../old/characters/ (после wipe)."""
+    """Восстановить cNN.* из data/.../old/characters/ (после wipe)."""
     old_dir = project.data_dir / "old" / "characters"
     if not old_dir.is_dir():
         return []
     by_id: dict[str, Path] = {}
-    for path in old_dir.glob("*.png"):
+    for path in old_dir.iterdir():
+        if not path.is_file() or path.suffix.lower() not in _IMG_EXTENSIONS:
+            continue
         m = _CHAR_ID_IN_NAME_RE.search(path.name)
         if not m:
             continue

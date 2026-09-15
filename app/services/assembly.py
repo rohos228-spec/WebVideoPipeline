@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,10 @@ class ClipSpec:
     kind: str = "scene"
 
 
+# Потолок на один вызов ffmpeg — иначе зависший процесс держит шаг вечно.
+FFMPEG_TIMEOUT_SEC = 300.0
+
+
 async def _run(cmd: list[str], *, cwd: Path | None = None) -> None:
     logger.debug("$ {}", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
@@ -67,7 +72,14 @@ async def _run(cmd: list[str], *, cwd: Path | None = None) -> None:
         stderr=asyncio.subprocess.PIPE,
         cwd=str(cwd) if cwd is not None else None,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=FFMPEG_TIMEOUT_SEC)
+    except TimeoutError:
+        with contextlib.suppress(OSError, ProcessLookupError):
+            proc.kill()
+        await proc.communicate()
+        logger.error("ffmpeg timeout {}s: {}", FFMPEG_TIMEOUT_SEC, " ".join(cmd[:10]))
+        raise TimeoutError(f"ffmpeg timed out after {FFMPEG_TIMEOUT_SEC}s: {' '.join(cmd[:10])}") from None
     if proc.returncode != 0:
         logger.error("ffmpeg stderr:\n{}", stderr.decode(errors="ignore"))
         raise RuntimeError(f"ffmpeg exited with {proc.returncode}")

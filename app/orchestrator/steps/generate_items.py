@@ -4,7 +4,9 @@
 hero_reference, то 4b делает item_reference. Логика проще, чем у Hero:
 без HITL, без вариаций (1 картинка на предмет).
 
-Источник списка предметов: `project.item_descriptions: list[str]`.
+Источник списка предметов: `project.item_descriptions: list[str]`, а если он
+пуст — сущности `Entity(type="prop"|"item")` того же проекта (их описания
+переезжают в `item_descriptions`, чтобы дальше был один источник).
 По одному непустому описанию = один сгенерированный предмет.
 Файлы кладутся в `data/videos/<slug>/items/predmet<N>_<uuid>.png`,
 где N — 1-based индекс предмета.
@@ -23,6 +25,7 @@ from aiogram import Bot
 from loguru import logger
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.bots.browser import browser_session
 from app.services.image_transport import http_image_primary
@@ -46,10 +49,12 @@ from app.generation_options import (
     IMAGE_GENERATORS_BY_ID,
     IMAGE_RESOLUTIONS_BY_ID,
 )
-from app.models import Artifact, ArtifactKind, Project, ProjectStatus
+from app.models import Artifact, ArtifactKind, Entity, Project, ProjectStatus
 from app.services.gpt_client import get_gpt_client
+from app.services.img_streams import acquire_image_slot
 from app.services.outsee_retry import generate_image_with_retries
 from app.services.prompt_library import get_project_prompt
+from app.services.step_cancel import raise_if_cancelled
 
 # Aspect ratio и Relax для предметов — как у hero (16:9 + Relax), потому
 # что предметы тоже идут как реф-листы.
@@ -79,7 +84,72 @@ async def _existing_item_indices(session: AsyncSession, project: Project) -> set
         idx = m.get("item_index")
         if isinstance(idx, int):
             out.add(idx)
+
+    # Файл на диске без Artifact (откат БД / сбой сессии) — тоже «готов»,
+    # иначе шаг перерисует уже нарисованный предмет.
+    items_dir = project.data_dir / "items"
+    if items_dir.is_dir():
+        for p in items_dir.glob("predmet*.png"):
+            try:
+                if not p.is_file() or p.stat().st_size <= 1000:
+                    continue
+            except OSError:
+                continue
+            num_part = p.stem.split("_")[0][len("predmet") :]
+            if num_part.isdigit():
+                out.add(int(num_part))
     return out
+
+
+async def _resolve_item_descriptions(session: AsyncSession, project: Project) -> list[str]:
+    """Описания предметов: `project.item_descriptions`, иначе Entity(prop|item).
+
+    Состав предметов заводят сущностями (тот же источник, что и каст), а поле
+    проекта заполняют руками. Если руками не заполняли — берём сущности и
+    переносим их в поле, чтобы дальше по шагу был один источник.
+    """
+    raw = list(project.item_descriptions or [])
+    descriptions = [d.strip() for d in raw if isinstance(d, str) and d.strip()]
+    if descriptions:
+        return descriptions
+
+    try:
+        ents = (
+            (
+                await session.execute(
+                    select(Entity)
+                    .where(
+                        Entity.project_id == project.id,
+                        Entity.type.in_(["prop", "item"]),
+                    )
+                    .order_by(Entity.sort_key, Entity.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[#{}] items: Entity fallback failed: {}", project.id, exc)
+        return descriptions
+
+    for e in ents:
+        attrs = e.attrs or {}
+        desc_val = str(attrs.get("description") or attrs.get("описание") or "").strip()
+        name_val = (e.name or "").strip()
+        text = f"{name_val}: {desc_val}" if name_val and desc_val else (desc_val or name_val)
+        if text and text not in descriptions:
+            descriptions.append(text)
+
+    if descriptions:
+        project.item_descriptions = descriptions
+        flag_modified(project, "item_descriptions")
+        await session.flush()
+        logger.info(
+            "[#{}] items: описания взяты из сущностей ({} шт.)",
+            project.id,
+            len(descriptions),
+        )
+    return descriptions
 
 
 def _items_style_prompt(project: Project) -> str:
@@ -100,9 +170,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
     if project.status is not ProjectStatus.generating_items:
         return
 
-    descriptions: list[str] = list(project.item_descriptions or [])
-    descriptions = [d.strip() for d in descriptions if isinstance(d, str)]
-    descriptions = [d for d in descriptions if d]
+    descriptions = await _resolve_item_descriptions(session, project)
     if not descriptions:
         # Метка обязательна, иначе получается вечный цикл — ровно тот, что уже
         # чинили для героя (см. `hero_skipped_empty` в generate_hero).
@@ -147,6 +215,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
 
     # Идём по предметам последовательно, пропускаем уже сгенерированные.
     for idx, desc_text in enumerate(descriptions, start=1):
+        raise_if_cancelled(project.id)
         if idx in already_done:
             logger.info(
                 "[#{}] items: predmet{} уже есть, пропускаю",
@@ -176,26 +245,30 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             async with _optional_browser(need_cdp=not http_image_primary()) as bs:
                 outsee = OutseeBot(bs) if bs is not None else None
                 gpt = get_gpt_client()
-                result = await generate_image_with_retries(
-                    outsee,
-                    gpt,
-                    prompt=full_prompt,
-                    out_path=out_path,
-                    max_attempts_per_prompt=3,
-                    gpt_rewrite=True,
-                    aspect_ratio=item_aspect,
-                    model_slug=img_gen.outsee_slug if img_gen else None,
-                    resolution=ir.outsee_slug if ir else None,
-                    quality=quality_slug,
-                    relax=ITEM_RELAX,
-                    prompt_id_prefix=prompt_id_prefix,
-                    reference_image=None,
-                    timeout=600,
-                )
+                # Слот общего пула провайдера: предметы идут наравне с
+                # кадрами и героем, иначе шаг обходит лимит параллели.
+                async with acquire_image_slot():
+                    result = await generate_image_with_retries(
+                        outsee,
+                        gpt,
+                        prompt=full_prompt,
+                        out_path=out_path,
+                        max_attempts_per_prompt=3,
+                        gpt_rewrite=True,
+                        aspect_ratio=item_aspect,
+                        model_slug=img_gen.outsee_slug if img_gen else None,
+                        resolution=ir.outsee_slug if ir else None,
+                        quality=quality_slug,
+                        relax=ITEM_RELAX,
+                        prompt_id_prefix=prompt_id_prefix,
+                        reference_image=None,
+                        timeout=600,
+                        project_id=project.id,
+                    )
         except OutseeImageError as e:
             is_moderation = isinstance(e, OutseeContentRejectedError)
             logger.error(
-                "[#{}] items: predmet{} 6 попыток provalились (moderation={}): {}",
+                "[#{}] items: predmet{} 6 попыток провалились (moderation={}): {}",
                 project.id,
                 idx,
                 is_moderation,

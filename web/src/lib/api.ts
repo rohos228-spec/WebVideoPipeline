@@ -1038,6 +1038,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  regenerateFrameVideo: (projectId: number, frameId: number) =>
+    http<{ ok: boolean; frame_id: number; frame_number: number }>(
+      `/api/projects/${projectId}/frames/${frameId}/regenerate-video`,
+      { method: "POST" },
+    ),
 
   getMontageBoard: (projectId: number) =>
     http<MontageBoardDTO>(
@@ -2341,6 +2346,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  // `assistProject` (POST /api/meta-agent/assist-project) при переносе
+  // 2026-09-14 не взят: у заказчика ИИ-кнопки мастера проекта убраны в
+  // бэклог тем же коммитом, что их добавил (a8b5a03f), вызова в его фронте
+  // нет, а бэкенд-ручку мы не переносили. Клиентская функция без ручки —
+  // это ровно то, что ловит `tests/test_frontend_api_paths.py`.
 };
 
 export type GptWorkspaceSessionSummary = {

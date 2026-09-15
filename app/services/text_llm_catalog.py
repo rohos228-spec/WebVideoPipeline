@@ -1,11 +1,17 @@
-"""Каталог текстовых LLM: Claude Opus 5 / Sonnet 5 + GPT 5.6 Sol / 5.5 (vibecode), GPT (kie), Kimi.
+"""Каталог текстовых LLM: Claude / GPT / Gemini / Grok на vibecode + GPT (kie).
 
 Выбор активной модели: data/text_llm_choice.json (Studio UI / `/api/text-llm`).
 GPT_* / VIBECODE_* в .env не затираются.
 
 vibecode: Claude идёт через `/v1/messages` (`app/services/anthropic_messages.py`),
-GPT — через chat/completions. Дефолт vibecode — Claude Opus 5.
-MiniMax из текстового контура выведен 2026-08-26 (решение владельца).
+остальные — через chat/completions. Дефолт vibecode — Claude Opus 5.
+MiniMax из текстового контура выведен 2026-08-26 (решение владельца),
+TokenRouter/Kimi — 2026-09 (шлюз мёртв, ключи выпилены из настроек).
+
+Каждая запись несёт `group` — семейство модели для группировки в пикере
+Студии (`models[].group` в `/api/text-llm`). Состав сверен с живым снимком
+`vibecode_models_snapshot.json`: модели не из снимка сюда не заводятся,
+иначе выбор в UI даёт 400 на первом же вызове.
 """
 
 from __future__ import annotations
@@ -24,9 +30,11 @@ VIBECODE_DEFAULT_ID = "claude-opus-5-vibecode"
 VIBECODE_DEFAULT_API_MODEL = "claude-opus-5"
 
 CATALOG: list[dict[str, str]] = [
+    # Anthropic — через /v1/messages (anthropic_messages.is_anthropic_model).
     {
         "id": "claude-opus-5-vibecode",
         "provider": "vibecode",
+        "group": "Anthropic",
         "label": "Claude Opus 5",
         "site": "vibecode.moe",
         "api_model": "claude-opus-5",
@@ -34,39 +42,102 @@ CATALOG: list[dict[str, str]] = [
     {
         "id": "claude-sonnet-5-vibecode",
         "provider": "vibecode",
+        "group": "Anthropic",
         "label": "Claude Sonnet 5",
         "site": "vibecode.moe",
         "api_model": "claude-sonnet-5",
     },
     {
+        "id": "claude-opus-4-8-vibecode",
+        "provider": "vibecode",
+        "group": "Anthropic",
+        "label": "Claude Opus 4.8",
+        "site": "vibecode.moe",
+        "api_model": "claude-opus-4-8",
+    },
+    {
+        "id": "claude-fable-5-vibecode",
+        "provider": "vibecode",
+        "group": "Anthropic",
+        "label": "Claude Fable 5",
+        "site": "vibecode.moe",
+        "api_model": "claude-fable-5",
+    },
+    # OpenAI
+    {
         "id": "gpt-5.6-sol-vibecode",
         "provider": "vibecode",
+        "group": "OpenAI",
         "label": "GPT 5.6 Sol",
         "site": "vibecode.moe",
         "api_model": "gpt-5.6-sol",
     },
     {
+        "id": "gpt-5.6-terra-vibecode",
+        "provider": "vibecode",
+        "group": "OpenAI",
+        "label": "GPT 5.6 Terra",
+        "site": "vibecode.moe",
+        "api_model": "gpt-5.6-terra",
+    },
+    {
+        "id": "gpt-5.6-luna-vibecode",
+        "provider": "vibecode",
+        "group": "OpenAI",
+        "label": "GPT 5.6 Luna",
+        "site": "vibecode.moe",
+        "api_model": "gpt-5.6-luna",
+    },
+    {
         "id": "gpt-5.5-vibecode",
         "provider": "vibecode",
+        "group": "OpenAI",
         "label": "GPT 5.5",
         "site": "vibecode.moe",
         "api_model": "gpt-5.5",
     },
+    # Google
+    {
+        "id": "gemini-3.1-pro-vibecode",
+        "provider": "vibecode",
+        "group": "Google",
+        "label": "Gemini 3.1 Pro",
+        "site": "vibecode.moe",
+        "api_model": "gemini-3.1-pro-preview",
+    },
+    {
+        "id": "gemini-3-flash-vibecode",
+        "provider": "vibecode",
+        "group": "Google",
+        "label": "Gemini 3 Flash",
+        "site": "vibecode.moe",
+        "api_model": "gemini-3-flash-preview",
+    },
+    # xAI
+    {
+        "id": "grok-4-6-vibecode",
+        "provider": "vibecode",
+        "group": "xAI",
+        "label": "Grok 4.6",
+        "site": "vibecode.moe",
+        "api_model": "grok-4-6",
+    },
+    # kie.ai — модель берётся из GPT_MODEL, api_model не фиксируем.
     {
         "id": "gpt-kie",
         "provider": "kie",
+        "group": "KIE",
         "label": "GPT (kie.ai)",
         "site": "kie.ai",
     },
-    {
-        "id": "kimi-k3-tokenrouter",
-        "provider": "tokenrouter",
-        "label": "Kimi K3 (TokenRouter)",
-        "site": "tokenrouter.com",
-    },
 ]
 
-_PROVIDERS = frozenset({"kie", "tokenrouter", "vibecode"})
+_PROVIDERS = frozenset({"kie", "vibecode"})
+#: Провайдеры, выведенные из текстового контура: значение в .env / choice.json
+#: не должно ронять старт — уводим на kie с предупреждением.
+_RETIRED_PROVIDERS = frozenset(
+    {"minimax", "hailuo", "m3", "tokenrouter", "kimi", "kimi-k3", "kimi_k3", "moonshot"}
+)
 _MODEL_ALIASES = {
     "claude": "claude-opus-5-vibecode",
     "opus": "claude-opus-5-vibecode",
@@ -77,13 +148,34 @@ _MODEL_ALIASES = {
     "sonnet-5": "claude-sonnet-5-vibecode",
     "claude-sonnet-5": "claude-sonnet-5-vibecode",
     "claude-sonnet-5-vibecode": "claude-sonnet-5-vibecode",
+    "claude-opus-4-8": "claude-opus-4-8-vibecode",
+    "claude-opus-4.8": "claude-opus-4-8-vibecode",
+    "claude-opus-4-8-vibecode": "claude-opus-4-8-vibecode",
+    "fable": "claude-fable-5-vibecode",
+    "claude-fable-5": "claude-fable-5-vibecode",
+    "claude-fable-5-vibecode": "claude-fable-5-vibecode",
     "gpt-5.5": "gpt-5.5-vibecode",
     "gpt-5.5-vibecode": "gpt-5.5-vibecode",
     "gpt-5.6-sol": "gpt-5.6-sol-vibecode",
+    # GPT_MODEL по умолчанию пишут через дефис — не терять дефолт .env.
     "gpt-5-6-sol": "gpt-5.6-sol-vibecode",
     "gpt-5.6-sol-vibecode": "gpt-5.6-sol-vibecode",
+    "gpt-5.6-terra": "gpt-5.6-terra-vibecode",
+    "gpt-5-6-terra": "gpt-5.6-terra-vibecode",
+    "gpt-5.6-terra-vibecode": "gpt-5.6-terra-vibecode",
+    "gpt-5.6-luna": "gpt-5.6-luna-vibecode",
+    "gpt-5-6-luna": "gpt-5.6-luna-vibecode",
+    "gpt-5.6-luna-vibecode": "gpt-5.6-luna-vibecode",
+    "gemini-3.1-pro": "gemini-3.1-pro-vibecode",
+    "gemini-3.1-pro-preview": "gemini-3.1-pro-vibecode",
+    "gemini-3.1-pro-vibecode": "gemini-3.1-pro-vibecode",
+    "gemini-3-flash": "gemini-3-flash-vibecode",
+    "gemini-3-flash-preview": "gemini-3-flash-vibecode",
+    "gemini-3-flash-vibecode": "gemini-3-flash-vibecode",
+    "grok-4-6": "grok-4-6-vibecode",
+    "grok-4.6": "grok-4-6-vibecode",
+    "grok-4-6-vibecode": "grok-4-6-vibecode",
     "gpt-kie": "gpt-kie",
-    "kimi-k3-tokenrouter": "kimi-k3-tokenrouter",
 }
 
 
@@ -129,8 +221,6 @@ def write_choice(
 ) -> dict[str, Any]:
     s = cfg or settings
     provider = (provider or "kie").strip().lower()
-    if provider in {"kimi", "kimi-k3", "moonshot"}:
-        provider = "tokenrouter"
     if provider in {"vibe", "vibecode.moe", "anthropic", "claude"}:
         provider = "vibecode"
     aliased = catalog_item(model_id)
@@ -139,9 +229,7 @@ def write_choice(
         model_id = aliased["id"]
     if provider not in _PROVIDERS:
         raise ValueError(f"unknown text LLM provider: {provider!r}")
-    if provider == "tokenrouter":
-        model_id = model_id or "kimi-k3-tokenrouter"
-    elif provider == "vibecode":
+    if provider == "vibecode":
         model_id = model_id or VIBECODE_DEFAULT_ID
     else:
         model_id = model_id or "gpt-kie"
@@ -154,27 +242,25 @@ def write_choice(
 
 
 def resolve_active_provider(cfg: Settings | None = None) -> str:
-    """kie по умолчанию; vibecode/tokenrouter — по явному выбору.
+    """kie по умолчанию; vibecode — по явному выбору.
 
-    `minimax` в choice.json / TEXT_LLM_PROVIDER больше не провайдер: старое
-    значение молча уводит на kie-дефолт с предупреждением, а не роняет старт.
+    `minimax` (2026-08-26) и `tokenrouter`/`kimi` (2026-09) больше не
+    провайдеры: старое значение в choice.json / TEXT_LLM_PROVIDER молча
+    уводит на kie-дефолт с предупреждением, а не роняет старт.
     """
     s = cfg or settings
     raw_choice = str(read_choice(s).get("provider") or "").strip().lower()
-    if raw_choice in {"tokenrouter", "kimi", "kimi-k3"}:
-        return "tokenrouter"
     if raw_choice in {"vibecode", "vibe", "anthropic", "claude"}:
         return "vibecode"
     if raw_choice in {"kie", "gpt", "openai"}:
         return "kie"
     raw = (s.text_llm_provider or "kie").strip().lower()
-    if raw in {"tokenrouter", "kimi", "kimi-k3", "kimi_k3", "moonshot"}:
-        return "tokenrouter"
     if raw in {"vibecode", "vibe", "anthropic", "claude"}:
         return "vibecode"
-    if raw in {"minimax", "hailuo", "m3"} or raw_choice in {"minimax", "hailuo", "m3"}:
+    if raw in _RETIRED_PROVIDERS or raw_choice in _RETIRED_PROVIDERS:
         logger.warning(
-            "text_llm: провайдер minimax выведен (2026-08-26) — активен kie; переключи на vibecode"
+            "text_llm: провайдер {!r} выведен — активен kie; переключи на vibecode",
+            raw or raw_choice,
         )
     return "kie"
 
@@ -186,8 +272,6 @@ def resolve_active_model_id(cfg: Settings | None = None) -> str:
     if item:
         return item["id"]
     prov = resolve_active_provider(s)
-    if prov == "tokenrouter":
-        return "kimi-k3-tokenrouter"
     if prov == "vibecode":
         return VIBECODE_DEFAULT_ID
     return "gpt-kie"
@@ -200,11 +284,7 @@ def catalog_status(cfg: Settings | None = None) -> dict[str, Any]:
     models: list[dict[str, Any]] = []
     for item in CATALOG:
         prov = item["provider"]
-        if prov == "tokenrouter":
-            model = s.tokenrouter_model
-            key_ok = bool((s.tokenrouter_api_key or "").strip())
-            base = s.tokenrouter_base_url
-        elif prov == "vibecode":
+        if prov == "vibecode":
             model = item.get("api_model") or VIBECODE_DEFAULT_API_MODEL
             key_ok = bool((s.vibecode_api_key or "").strip())
             base = s.vibecode_base_url
@@ -221,11 +301,7 @@ def catalog_status(cfg: Settings | None = None) -> dict[str, Any]:
                 "active": item["id"] == active_id,
             }
         )
-    if active == "tokenrouter":
-        short = (s.tokenrouter_model or "kimi-k3").split("/")[-1]
-        label = f"Kimi K3 · TokenRouter ({short})"
-        active_model = s.tokenrouter_model
-    elif active == "vibecode":
+    if active == "vibecode":
         active_raw = catalog_item(active_id)
         active_item: dict[str, Any] = active_raw if isinstance(active_raw, dict) else {}
         api_model = active_item.get("api_model") or VIBECODE_DEFAULT_API_MODEL
