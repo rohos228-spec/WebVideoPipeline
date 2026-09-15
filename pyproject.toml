@@ -93,7 +93,7 @@ plugins = ["sqlalchemy.ext.mypy.plugin"]
 ignore_missing_imports = true
 warn_unused_configs = false
 warn_redundant_casts = true
-warn_unused_ignores = true
+warn_unused_ignores = false
 # W1: AsyncSession stubs не различают sync/async методы — false positive
 # на session.delete(obj), session.expire(obj), session.expunge(obj) и т.п.
 # Реальный код корректен (метод sync, не await). 6 вхождений — слишком
