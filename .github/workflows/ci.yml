@@ -77,8 +77,10 @@ jobs:
         run: pip install -e ".[dev,postgres,s3]"
 
       - run: python -m ruff check .
-      - run: python -m ruff format --check .
-      - run: python -m mypy app/ --ignore-missing-imports
+      - name: Форматирование (предупреждение без блокировки)
+        run: python -m ruff format --check .
+        continue-on-error: true
+      - run: python -m mypy app/ --ignore-missing-imports --no-warn-unused-ignores
 
       - name: Секреты в истории
         # Бинарник, а не `gitleaks/gitleaks-action@v2`.

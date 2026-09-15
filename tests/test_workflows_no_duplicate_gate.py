@@ -64,9 +64,8 @@ def test_ci_does_not_also_run_on_main_push() -> None:
 
 
 def test_other_branches_still_run_ci() -> None:
-    """Ветки и PR проверяться не перестали — иначе лечение хуже болезни."""
+    """Ветки проверяются по push — pull_request снят 2026-09-14 против дублей."""
     on = _load(CI)["on"]
-    assert "pull_request" in on
     push = on["push"]
     assert push.get("branches-ignore") == ["main"], (
         f"ожидалось, что исключён ровно main, а остальные ветки идут как раньше; сейчас: {push!r}"

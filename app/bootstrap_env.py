@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 
 _applied = False
 _mkdtemp_patched = False
@@ -55,7 +56,7 @@ def _patch_tempdir_cleanup_win32() -> None:
             else:
                 raise
 
-    tempfile.TemporaryDirectory.cleanup = safe_cleanup
+    cast(Any, tempfile.TemporaryDirectory).cleanup = safe_cleanup
     _tempdir_patched = True
 
 
