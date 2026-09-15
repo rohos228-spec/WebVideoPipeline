@@ -15,13 +15,25 @@ if %ERRORLEVEL% equ 0 (
   )
 )
 
+rem Обновление кода: только перемотка вперёд.
+rem
+rem Здесь стояло `git reset --hard origin/main` — оно молча стирало любые
+rem правки оператора на его машине при каждом запуске с main. Теперь
+rem `merge --ff-only`: если локально есть свои коммиты, обновление просто
+rem не состоится и скажет об этом, а работа останется.
+rem
+rem Отсюда же убрана загрузка `scripts/studio.ps1` с
+rem raw.githubusercontent.com из стороннего форка: скачанный файл в запуске
+rem не участвует с тех пор, как точкой входа стал `scripts/run-studio.ps1`,
+rem то есть это было исполнение чужого кода без ревью и без нужды.
 echo.
-echo Studio: updating launcher...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/rohos228-spec/video-pipeline/main/scripts/studio.ps1' -OutFile '%~dp0scripts\studio.ps1'"
+echo Studio: updating code...
 where git >nul 2>&1
 if %ERRORLEVEL%==0 (
   git fetch origin main
-  if %ERRORLEVEL%==0 git reset --hard origin/main
+  if %ERRORLEVEL%==0 (
+    git merge --ff-only origin/main || echo Studio: local commits present, update skipped
+  )
 )
 
 set STUDIO_HEALED=1

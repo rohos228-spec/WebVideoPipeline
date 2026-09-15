@@ -22,7 +22,6 @@ web/e2e/.auth/
 **/.mypy_cache/
 **/.ruff_cache/
 web/tsconfig.tsbuildinfo
-web/pnpm-lock.yaml
 
 # ── Секреты. Ни при каких обстоятельствах ───────────────────────────────────
 .env

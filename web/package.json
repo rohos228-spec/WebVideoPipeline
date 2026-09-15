@@ -51,6 +51,5 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^9.16.0",
     "eslint-config-next": "^15.5.4"
-  },
-  "packageManager": "pnpm@10.33.3"
+  }
 }

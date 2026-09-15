@@ -282,6 +282,19 @@ jobs:
             exit 1
           fi
 
+      - name: Кэш сборки Next
+        # `web/.next/cache` — инкрементальный кэш компилятора. Проверок он не
+        # трогает: собирается тот же код теми же шагами, просто без повторной
+        # компиляции неизменившихся модулей. Ключ по локу и исходникам, откат
+        # по префиксу — протухший кэш не ломает сборку, а лишь не помогает.
+        uses: actions/cache@v4
+        with:
+          path: web/.next/cache
+          key: next-${{ hashFiles('web/package-lock.json') }}-${{ hashFiles('web/src/**') }}
+          restore-keys: |
+            next-${{ hashFiles('web/package-lock.json') }}-
+            next-
+
       - name: Сборка статики
         working-directory: web
         run: npm run build
