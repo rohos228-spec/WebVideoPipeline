@@ -150,6 +150,11 @@ jobs:
       vars.DEPLOY_ENABLED == 'true' &&
       (github.event_name != 'workflow_dispatch' || inputs.deploy)
     runs-on: ubuntu-latest
+    # `packages: read` — чтобы токеном ЭТОГО прогона можно было скачать образ
+    # на VPS (см. шаг «Pull и рестарт»).
+    permissions:
+      contents: read
+      packages: read
     environment:
       name: production
       url: ${{ vars.STUDIO_URL }}
@@ -180,6 +185,8 @@ jobs:
           DIGEST: ${{ needs.build.outputs.digest }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
           # Образ передаётся ДАЙДЖЕСТОМ, а не тегом `latest`. Тег к моменту
@@ -189,9 +196,23 @@ jobs:
           # Команда собирается локально и уходит одной строкой: вкладывать
           # кавычки в кавычки внутри ssh — верный способ получить `cd` в
           # домашний каталог вместо каталога студии, причём молча.
+          # Логин в реестр — токеном ЭТОГО прогона, а не PAT'ом, лежащим на
+          # сервере. Долгоживущий токен там уже протухал: сборка зелёная,
+          # образ в реестре, а выкладка падает `denied` — и узнаём об этом
+          # только когда встала выкладка (2026-09-15). Токен прогона живёт,
+          # пока идёт прогон, ограничен этим репозиторием и гаснет сам.
+          # Пароль уходит через stdin: в списке процессов на сервере его быть
+          # не должно.
+          printf '%s' "$GH_TOKEN" | ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" \
+            -- 'docker login ghcr.io -u '"$GH_ACTOR"' --password-stdin'
+
           remote_cmd=$(printf 'cd %q && STUDIO_IMAGE=%q ./deploy.sh' \
             "$VPS_PATH" "${IMAGE}@${DIGEST}")
           ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- "$remote_cmd"
+
+          # Учётные данные на сервере не оставляем: скачивание уже произошло,
+          # дальше они только лежат в ~/.docker/config.json и протухают.
+          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- 'docker logout ghcr.io' || true
 
       - name: Проверка после выкладки
         # Деплой без проверки — это «команда прошла», а не «студия работает».

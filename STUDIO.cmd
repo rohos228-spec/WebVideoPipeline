@@ -15,21 +15,25 @@ if %ERRORLEVEL% equ 0 (
   )
 )
 
-rem Обновление кода: только перемотка вперёд.
+rem Self-heal and update. ASCII only: this file must decode as ASCII
+rem (tests/test_studio_launcher_encoding.py) and PS 5.1 mangles em-dashes.
 rem
-rem Здесь стояло `git reset --hard origin/main` — оно молча стирало любые
-rem правки оператора на его машине при каждом запуске с main. Теперь
-rem `merge --ff-only`: если локально есть свои коммиты, обновление просто
-rem не состоится и скажет об этом, а работа останется.
+rem 1) Launcher scripts are restored FROM GIT, not downloaded from a fork.
+rem    A broken scripts/*.ps1 cannot be parsed by -File, so it is checked out
+rem    again before powershell starts. It used to be fetched over HTTP from a
+rem    third-party fork instead: unreviewed code executed on every start, and
+rem    since run-studio.ps1 became the entry point that download was not even
+rem    used.
 rem
-rem Отсюда же убрана загрузка `scripts/studio.ps1` с
-rem raw.githubusercontent.com из стороннего форка: скачанный файл в запуске
-rem не участвует с тех пор, как точкой входа стал `scripts/run-studio.ps1`,
-rem то есть это было исполнение чужого кода без ревью и без нужды.
+rem 2) Code update is fast-forward only. It used to be a hard reset onto the
+rem    remote branch, which silently wiped any local edit on the operator
+rem    machine at every start from main. With --ff-only an update simply does
+rem    not happen when local commits exist, and says so.
 echo.
-echo Studio: updating code...
+echo Studio: healing launcher and updating code...
 where git >nul 2>&1
 if %ERRORLEVEL%==0 (
+  git checkout -- scripts/run-studio.ps1 scripts/studio.ps1 2>nul
   git fetch origin main
   if %ERRORLEVEL%==0 (
     git merge --ff-only origin/main || echo Studio: local commits present, update skipped

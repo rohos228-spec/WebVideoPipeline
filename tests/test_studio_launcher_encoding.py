@@ -90,7 +90,17 @@ def test_studio_cmd_heals_launcher_before_powershell() -> None:
     assert not data.startswith(UTF8_BOM), "UTF-8 BOM before @echo off breaks cmd.exe"
     text = data.decode("ascii")
     assert "STUDIO_HEALED" in text
-    assert "Invoke-WebRequest" in text
-    assert "raw.githubusercontent.com/rohos228-spec/video-pipeline/main/scripts/studio.ps1" in text
-    assert "git reset --hard origin/main" in text
+
+    # Лечение — ИЗ GIT, а не загрузкой с чужого форка (2026-09-15). Скачанный
+    # по HTTP файл был неревьюенным кодом на каждом старте и с переходом на
+    # `run-studio.ps1` вообще не участвовал в запуске.
+    assert "git checkout -- scripts/run-studio.ps1 scripts/studio.ps1" in text
+    assert "Invoke-WebRequest" not in text, "лаунчер снова тянет скрипт по сети"
+    assert "rohos228" not in text, "лаунчер снова ходит в чужой форк"
+
+    # Обновление — только перемотка вперёд. Жёсткий сброс молча стирал правки
+    # оператора на его машине при каждом старте с main.
+    assert "git merge --ff-only origin/main" in text
+    assert "reset --hard" not in text, "вернулся сброс, стирающий работу оператора"
+
     assert text.index("STUDIO_HEALED") < text.index("-File")
