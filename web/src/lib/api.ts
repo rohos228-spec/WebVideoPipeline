@@ -2346,11 +2346,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  // `assistProject` (POST /api/meta-agent/assist-project) при переносе
-  // 2026-09-14 не взят: у заказчика ИИ-кнопки мастера проекта убраны в
-  // бэклог тем же коммитом, что их добавил (a8b5a03f), вызова в его фронте
-  // нет, а бэкенд-ручку мы не переносили. Клиентская функция без ручки —
-  // это ровно то, что ловит `tests/test_frontend_api_paths.py`.
+  assistProject: (body: {
+    topic_draft?: string;
+    title_draft?: string;
+    tone?: string | null;
+    voiceover_style?: string | null;
+    mode?: "expand" | "generate";
+  }) =>
+    http<{
+      ok: boolean;
+      title: string;
+      topic: string;
+      suggested_hero_mode: "hero" | "no_hero" | "auto";
+      tone?: string | null;
+      voiceover_style?: string | null;
+    }>(
+      "/api/meta-agent/assist-project",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+      90_000,
+    ),
 };
 
 export type GptWorkspaceSessionSummary = {

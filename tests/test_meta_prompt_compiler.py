@@ -129,3 +129,31 @@ async def test_meta_agent_endpoints(env, tmp_path) -> None:
     # Файл лёг во временный prompts/, а не в репозиторий.
     assert (step_dir("hero_style") / "test_meta_preset.md").exists()
     assert str(step_dir("hero_style")).startswith(str(tmp_path))
+
+
+async def test_assist_project_endpoint(env) -> None:
+    client = env["client"]
+    auth = env["admin"].auth
+    mock_gpt = AsyncMock()
+    mock_gpt.ask_fresh.return_value = (
+        '{"title": "Космический десант", "topic": "Эпическая битва на краю галактики.", "suggested_hero_mode": "hero"}'
+    )
+
+    with patch("app.web.routers.meta_agent.get_gpt_client", return_value=mock_gpt):
+        resp = await client.post(
+            "/api/meta-agent/assist-project",
+            json={
+                "topic_draft": "Битва в космосе",
+                "title_draft": "",
+                "tone": "action",
+                "mode": "expand",
+            },
+            headers=auth,
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["title"] == "Космический десант"
+    assert data["topic"] == "Эпическая битва на краю галактики."
+    assert data["suggested_hero_mode"] == "hero"
+
