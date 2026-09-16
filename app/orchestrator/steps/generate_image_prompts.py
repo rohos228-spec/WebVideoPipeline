@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from aiogram import Bot
+from typing import Any
+
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,7 +102,7 @@ async def _finish_success(session: AsyncSession, project: Project, frames: list[
     )
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.generating_image_prompts:
         return
     logger.info("[#{}] generate_image_prompts (db-first) starting", project.id)

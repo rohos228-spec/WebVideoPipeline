@@ -7,7 +7,8 @@ GPT-агент: таймлайн кадров + сцены/действие → 
 
 from __future__ import annotations
 
-from aiogram import Bot  # noqa: F401
+from typing import Any
+
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Frame, Project, ProjectStatus
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.sfx_planning:
         return
     from app.services.sfx_plan import plan_sfx_events

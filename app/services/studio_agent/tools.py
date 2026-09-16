@@ -485,7 +485,7 @@ def _assert_step_is_reachable(project: Any, step_code: str) -> None:
     Проверка та же, по которой рисуется меню шагов: у шага объявлен
     prerequisite-статус, и проект обязан быть на нём или дальше.
     """
-    from app.telegram.menu import status_order, step_by_code
+    from app.orchestrator.pipeline_steps import status_order, step_by_code
 
     step = step_by_code(step_code)
     if step is None or step.requires is None:

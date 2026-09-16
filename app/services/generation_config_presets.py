@@ -196,12 +196,12 @@ def delete_preset(preset_id: str) -> bool:
 
 def apply_preset_settings(project: Any, settings: dict[str, Any]) -> None:
     """Записывает поля пресета в Project и skip_value для неприменимых вопросов."""
-    from app.telegram import wizard as wiz
+    from app.generation_options import _QUESTIONS
 
     norm = normalize_settings(settings)
     for field, val in norm.items():
         setattr(project, field, val)
-    for q in wiz._QUESTIONS:
+    for q in _QUESTIONS:
         if q.skip_if(project) and not q.is_set(project):
             setattr(project, q.field, q.skip_value)
 

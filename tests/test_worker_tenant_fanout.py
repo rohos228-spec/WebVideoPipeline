@@ -27,7 +27,7 @@ async def test_worker_loop_survives_a_tick(monkeypatch, tmp_path) -> None:
     Пустая база — работы нет, побочных действий тоже.
     """
     from app.main import _run_worker_loop
-    from app.telegram.noop_bot import get_worker_bot
+    from app.services.noop_bot import get_worker_bot
 
     task = asyncio.create_task(_run_worker_loop(get_worker_bot(None)))
     # Хватает и доли секунды: тик до сна укладывается в миллисекунды, а

@@ -8,17 +8,17 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Project, ProjectStatus
+from app.orchestrator.pipeline_steps import step_by_code, step_by_running_status
 from app.services.chatgpt_xlsx import purge_tmp_gpt_for_step
 from app.services.mass_factory import assert_not_factory_template_for_generation
 from app.services.project_state import is_running_status
 from app.services.reset_step import _WRAPPER_TO_CODES, clear_step_outputs_for_rerun
 from app.services.step_cancel import clear_stop
-from app.telegram.menu import step_by_code, step_by_running_status
 
 
 def list_step_codes() -> list[dict[str, str]]:
     """Краткий каталог шагов для UI."""
-    from app.telegram.menu import steps_for
+    from app.orchestrator.pipeline_steps import steps_for
 
     out: list[dict[str, str]] = []
     for st in steps_for(None):
@@ -138,7 +138,7 @@ async def start_step(
         await assert_can_start_in_queue(session, project)
     step = step_by_code(step_code)
     if step is None and step_code == "excel_gpt":
-        from app.telegram.menu import StepDef
+        from app.orchestrator.pipeline_steps import StepDef
 
         step = StepDef(
             -1,

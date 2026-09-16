@@ -23,9 +23,8 @@
 Переходы между шагами инициирует пользователь, тыкая кнопки в бот-меню.
 """
 
-from __future__ import annotations
+from typing import Any
 
-from aiogram import Bot
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,7 +80,7 @@ async def _sync_storage_after_advance(
         )
 
 
-async def advance_project(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def advance_project(session: AsyncSession, project: Project, bot: Any = None) -> None:
     """Один такт стейт-машины. Запускает шаг, если статус — «running»; иначе
     ничего не делает (ждём, пока пользователь нажмёт кнопку в боте)."""
     import asyncio

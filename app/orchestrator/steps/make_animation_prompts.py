@@ -11,8 +11,8 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-from aiogram import Bot  # noqa: F401
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -136,7 +136,7 @@ async def _fill_remaining_local(
     return saved
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.generating_animation_prompts:
         return
     await fill_animation_prompts(session, project, finalize_status=True)

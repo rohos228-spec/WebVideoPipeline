@@ -1,14 +1,8 @@
-"""Заглушка Bot для режима без Telegram.
-
-Воркер и шаги пайплайна типизированы под aiogram.Bot. В web-only режиме
-передаём NoopBot — все send_* становятся no-op, HITL идёт через веб-UI.
-"""
+"""Заглушка Bot для работы пайплайна без Telegram."""
 
 from __future__ import annotations
 
-from typing import Any, cast
-
-from aiogram import Bot
+from typing import Any
 
 
 class _FakeMessage:
@@ -49,8 +43,6 @@ class NoopBot:
 _noop_singleton = NoopBot()
 
 
-def get_worker_bot(real_bot: Bot | None) -> Bot:
-    """Bot для воркера: реальный или no-op."""
-    if real_bot is not None:
-        return real_bot
-    return cast(Bot, _noop_singleton)
+def get_worker_bot(real_bot: Any = None) -> NoopBot:
+    """Bot для воркера (no-op в веб-режиме)."""
+    return _noop_singleton

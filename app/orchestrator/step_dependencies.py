@@ -151,7 +151,7 @@ def is_step_enabled(project: Any, step_code: str) -> bool:
 
         return bool(settings.sfx_enabled)
     if step_code.startswith("enrich_"):
-        from app.telegram.menu import enabled_enrich_slots
+        from app.orchestrator.pipeline_steps import enabled_enrich_slots
 
         try:
             slot = int(step_code.rsplit("_", 1)[1])

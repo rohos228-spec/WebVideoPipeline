@@ -5,9 +5,9 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Project
+from app.orchestrator.pipeline_steps import step_by_code, step_by_running_status
 from app.services.mass_factory import assert_not_factory_template_for_generation
 from app.services.project_state import is_running_status
-from app.telegram.menu import step_by_code, step_by_running_status
 
 # Шаги с Outsee / ElevenLabs / CDP — dry_run только для диагностики UI, не для реального старта.
 FORBIDDEN_DRY_RUN_STEPS = frozenset({"hero", "items", "img", "video", "audio", "music"})

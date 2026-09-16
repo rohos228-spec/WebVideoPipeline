@@ -8,8 +8,8 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
-from aiogram import Bot
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -117,7 +117,7 @@ def _scale_whisper_words(words: list[WordTS], factor: float) -> list[WordTS]:
     ]
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.assembling:
         return
 
@@ -127,7 +127,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
         await _run_assemble(session, project, bot)
 
 
-async def _run_assemble(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def _run_assemble(session: AsyncSession, project: Project, bot: Any = None) -> None:
     logger.info("[#{}] assemble starting", project.id)
 
     await recover_before_assemble(session, project)
@@ -366,7 +366,7 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Bot) -> No
 async def _assemble_body(
     session: AsyncSession,
     project: Project,
-    bot: Bot,
+    bot: Any = None,
     *,
     frames: list[Frame],
     frames_all: list[Frame],

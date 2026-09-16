@@ -40,7 +40,7 @@ PROMPTS_ROOT = Path(__file__).resolve().parent.parent.parent / "prompts"
 
 # Карта step_code (как в menu.py StepDef.code) → имя папки в `prompts/`.
 # Шаги, у которых нет мастер-промта, тут не перечисляются.
-# Ключи совпадают с `StepDef.code` в `app/telegram/menu.py`.
+# Ключи совпадают с `StepDef.code` в `app/orchestrator/pipeline_steps.py`.
 STEP_FOLDERS: dict[str, str] = {
     "plan": "01_plan",
     # 1a. Режим героя: тема → hero | no_hero, один вызов до плана. Папки на

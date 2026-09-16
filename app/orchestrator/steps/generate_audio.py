@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import Any
 
-from aiogram import Bot  # noqa: F401
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -193,7 +193,7 @@ async def _finalize_audio_ready(
 async def run(
     session: AsyncSession,
     project: Project,
-    bot: Bot,
+    bot: Any = None,
     *,
     force_full_asr: bool = False,
 ) -> None:

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Artifact, ArtifactKind, Frame, Project, ProjectStatus
+from app.orchestrator.pipeline_steps import status_order
 from app.services.artifact_recovery import (
     recover_audio_from_disk,
     recover_scene_videos_from_disk,
@@ -16,7 +17,6 @@ from app.services.artifact_recovery import (
 from app.services.plan_validation import is_meaningful_general_plan
 from app.services.project_state import compute_actual_status, is_running_status
 from app.services.xlsx_v8_import import read_v8_active_frame_count
-from app.telegram.menu import status_order
 
 # Шаги, которые не требуют уже готовых кадров с voiceover в Excel/БД.
 # enriching_*: excel_gpt на канвасе может идти сразу после script (до split) —

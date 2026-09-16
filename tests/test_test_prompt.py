@@ -1,9 +1,8 @@
-"""Тесты сервиса `app.services.test_prompt` и меню
-`app.telegram.test_prompt_menu`.
+"""Тесты сервиса `app.services.test_prompt`.
 
 Покрываем то, что НЕ требует реального запуска браузера (ChatGPT /
 outsee) — то есть: создание проекта, проверка локов (только один
-тестовый цикл), генерацию kb'шек для разных статусов.
+тестовый цикл).
 """
 
 from __future__ import annotations
@@ -19,11 +18,6 @@ from app.services.test_prompt import (
     get_running_project,
     is_busy,
 )
-
-# Импортируем под другими именами, чтобы pytest не пытался гонять
-# их как тесты (всё что начинается с `test_` подхватывается).
-from app.telegram.test_prompt_menu import test_project_kb as build_project_kb
-from app.telegram.test_prompt_menu import test_root_kb as build_root_kb
 
 
 @pytest_asyncio.fixture
@@ -134,160 +128,4 @@ def test_data_dir_and_iter_dir() -> None:
     assert p.iter_dir(42).name == "iter_042"
 
 
-# ---- Меню ----------------------------------------------------------
 
-
-def test_root_kb_empty_list() -> None:
-    kb = build_root_kb([])
-    btns = [b.text for row in kb.inline_keyboard for b in row]
-    assert any("Новый тестовый проект" in b for b in btns)
-    # «⬅ Меню» — возврат в главное меню
-    assert any(b.startswith("⬅") for b in btns)
-
-
-def test_root_kb_with_projects() -> None:
-    p1 = TPProject(
-        id=1,
-        slug="a",
-        name="Alpha",
-        status="idle",
-        current_iter=3,
-    )
-    p2 = TPProject(
-        id=2,
-        slug="b",
-        name="Beta",
-        status="waiting_critique",
-        current_iter=5,
-    )
-    kb = build_root_kb([p1, p2])
-    btns = [b.text for row in kb.inline_keyboard for b in row]
-    # каждый проект — отдельной кнопкой
-    assert any("Alpha" in b and "iter=3" in b for b in btns)
-    assert any("Beta" in b and "iter=5" in b for b in btns)
-
-
-def test_project_kb_idle_without_prompts() -> None:
-    """Без обоих промтов — нет кнопки «▶ Поехали», только подсказка."""
-    p = TPProject(
-        id=1,
-        slug="x",
-        name="X",
-        status="idle",
-        current_iter=0,
-        visual_prompt=None,
-        system_prompt=None,
-    )
-    kb = build_project_kb(p)
-    btns = [b.text for row in kb.inline_keyboard for b in row]
-    assert any("Задай оба промта" in b for b in btns)
-    assert all("Поехали" not in b for b in btns)
-
-
-def test_project_kb_idle_with_prompts() -> None:
-    """С обоими промтами — есть «▶ Поехали»."""
-    p = TPProject(
-        id=1,
-        slug="x",
-        name="X",
-        status="idle",
-        current_iter=0,
-        visual_prompt="vp",
-        system_prompt="sp",
-    )
-    kb = build_project_kb(p)
-    btns = [b.text for row in kb.inline_keyboard for b in row]
-    assert any("Поехали" in b for b in btns)
-
-
-def test_project_kb_running() -> None:
-    """В running-статусе — только индикатор и «🛑 Стоп»."""
-    p = TPProject(
-        id=1,
-        slug="x",
-        name="X",
-        status="running_gpt",
-        current_iter=1,
-        visual_prompt="vp",
-        system_prompt="sp",
-    )
-    kb = build_project_kb(p)
-    btns = [b.text for row in kb.inline_keyboard for b in row]
-    assert any("Идёт шаг" in b for b in btns)
-    assert any("🛑" in b for b in btns)
-    assert all("Поехали" not in b for b in btns)
-    assert all("критику" not in b for b in btns)
-
-
-def test_project_kb_waiting_critique() -> None:
-    """waiting_critique — есть «✏ Добавить критику» и «🛑 Стоп»."""
-    p = TPProject(
-        id=1,
-        slug="x",
-        name="X",
-        status="waiting_critique",
-        current_iter=2,
-        visual_prompt="vp",
-        system_prompt="sp",
-    )
-    kb = build_project_kb(p)
-    btns = [b.text for row in kb.inline_keyboard for b in row]
-    assert any("Добавить критику" in b for b in btns)
-    assert any("🛑" in b for b in btns)
-
-
-def test_project_kb_stopped_can_restart() -> None:
-    """После stop — кнопка «▶ Повторить» если промты заданы."""
-    p = TPProject(
-        id=1,
-        slug="x",
-        name="X",
-        status="stopped",
-        current_iter=4,
-        visual_prompt="vp",
-        system_prompt="sp",
-    )
-    kb = build_project_kb(p)
-    btns = [b.text for row in kb.inline_keyboard for b in row]
-    assert any("Повторить" in b for b in btns)
-
-
-def test_project_kb_error_can_retry() -> None:
-    """После error — то же «▶ Повторить»."""
-    p = TPProject(
-        id=1,
-        slug="x",
-        name="X",
-        status="error",
-        current_iter=4,
-        visual_prompt="vp",
-        system_prompt="sp",
-    )
-    kb = build_project_kb(p)
-    btns = [b.text for row in kb.inline_keyboard for b in row]
-    assert any("Повторить" in b for b in btns)
-
-
-def test_project_kb_always_has_delete_and_back() -> None:
-    for status in (
-        "idle",
-        "running_gpt",
-        "running_outsee",
-        "waiting_critique",
-        "stopped",
-        "error",
-    ):
-        p = TPProject(
-            id=1,
-            slug="x",
-            name="X",
-            status=status,
-            current_iter=0,
-            visual_prompt="vp",
-            system_prompt="sp",
-        )
-        kb = build_project_kb(p)
-        btns = [b.text for row in kb.inline_keyboard for b in row]
-        cbs = [b.callback_data for row in kb.inline_keyboard for b in row]
-        assert any("Удалить" in b for b in btns), status
-        assert any(c == "test:list" for c in cbs), status

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from app.models import ProjectStatus
 from app.orchestrator.node_registry import WORK_NODES
+from app.orchestrator.pipeline_steps import _STATUS_ORDER, status_order
 from app.orchestrator.step_dependencies import (
     STEP_DEPENDENCIES,
     STEP_DEPENDENTS,
@@ -16,7 +17,6 @@ from app.orchestrator.step_dependencies import (
     known_step_codes,
     project_cone,
 )
-from app.telegram.menu import _STATUS_ORDER, status_order
 
 # ── структура DAG ─────────────────────────────────────────────────────────
 

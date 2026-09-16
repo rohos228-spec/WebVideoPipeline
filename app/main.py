@@ -1,4 +1,4 @@
-"""Entrypoint: воркер + опционально Telegram + веб-API в одном процессе.
+"""Entrypoint: воркер + веб-API в одном процессе.
 
 Запуск:
     python -m app.main
@@ -6,8 +6,7 @@
 Что делает:
   1. Создаёт таблицы БД (SQLite), если их ещё нет.
   2. Синкует мастер-промты из `prompts/*.vN.md` в БД.
-  3. Если `TELEGRAM_ENABLED` и токен заданы — aiogram-поллинг (HITL в TG).
-  4. Фоновый воркер продвигает проекты; HITL без TG — через веб (:8765).
+  3. Фоновый воркер продвигает проекты; HITL — через веб-Студию (:8765).
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ from loguru import logger
 from app.models import Project, ProjectStatus
 from app.prompts_loader import sync_prompts_from_files
 from app.settings import settings
-from app.telegram.bot import build_bot, dp
 
 if (settings.asr_backend or "").strip().lower() == "nvidia":
     from app.services.nvidia_asr_env import configure_nvidia_asr_environment
@@ -187,7 +185,7 @@ def _running_status_requires(
     """
     # Импорт внутри функции, чтобы избежать кругового импорта на старте.
     from app.models import ProjectStatus as PS
-    from app.telegram.menu import step_by_running_status
+    from app.orchestrator.pipeline_steps import step_by_running_status
 
     if running_status is PS.generating_hero and project is not None:
         meta = project.meta if isinstance(project.meta, dict) else {}
@@ -260,7 +258,6 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
     )
     from app.services.tenant import tenant_scope
     from app.settings import settings as _settings
-    from app.telegram.bot import notify_step_done
 
     # ── Воркер и арендаторы ───────────────────────────────────────────────
     # Проход воркера идёт от чьего-то имени, а не безымянно. Причина в том,
@@ -332,15 +329,6 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         "gen_queue advance after step failed for #{}",
                         project_id,
                     )
-                try:
-                    await notify_step_done(
-                        bot,
-                        project_id,
-                        result.prev_status,
-                        result.new_status,
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.exception("notify_step_done({}) failed", project_id)
         except StepCancelledError:
             logger.info(
                 "[#{}] advance_project cancelled by stop-flag (⏹)",
@@ -359,7 +347,6 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
             prev = fail_counts.get(key, 0)
             fail_counts[key] = prev + 1
             try:
-                from app.services.chrome_recovery import is_chrome_infra_error
 
                 async with session_scope() as s:
                     p = await s.get(Project, project_id)
@@ -367,47 +354,11 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         return
                     action = await record_step_failure(s, p, error=e)
                     await s.commit()
-                    if bot and settings.telegram_active:
-                        if action == "retry" and prev == 0:
-                            if is_chrome_infra_error(e):
-                                msg = f"🔄 #{p.id}: Chrome перезапущен, повтор {p.status.value}"
-                            else:
-                                msg = f"⚠️ #{p.id} ({p.status.value}): {type(e).__name__}: {e}"
-                            await bot.send_message(settings.telegram_owner_chat_id, msg[:3800])
-                        elif action == "sleep":
-                            await bot.send_message(
-                                settings.telegram_owner_chat_id,
-                                (f"😴 #{p.id}: 3 ошибки — reset, пауза 30 мин (макс. 9 попыток)")[:3800],
-                            )
-                        elif action == "abandon":
-                            await bot.send_message(
-                                settings.telegram_owner_chat_id,
-                                (f"🛑 #{p.id}: 3 цикла отказов — paused, следующий в очереди")[:3800],
-                            )
-                            from app.services.gen_queue import gen_queue_tick
+                    if action == "abandon":
+                        from app.services.gen_queue import gen_queue_tick
 
-                            await gen_queue_tick(s)
-                            await s.commit()
-                        elif action == "pause_infra":
-                            await bot.send_message(
-                                settings.telegram_owner_chat_id,
-                                (f"🌐 #{p.id}: Chrome не восстановился — paused. Start-Chrome.cmd + ▶")[
-                                    :3800
-                                ],
-                            )
-                        elif action == "pause_budget":
-                            # Этап 3: причина уже в meta.pause_reason.
-                            pr = (p.meta or {}).get("pause_reason") or {}
-                            await bot.send_message(
-                                settings.telegram_owner_chat_id,
-                                (
-                                    f"⏸ #{p.id}: бюджет LLM исчерпан — "
-                                    f"${float(pr.get('spent_usd') or 0):.2f} из "
-                                    f"${float(pr.get('budget_usd') or 0):.2f}. "
-                                    "Подними бюджет проекта (дашборд "
-                                    "«Стоимость») и ▶"
-                                )[:3800],
-                            )
+                        await gen_queue_tick(s)
+                        await s.commit()
                 fail_counts.pop(key, None)
             except Exception:  # noqa: BLE001
                 logger.warning("step_failure_policy failed for #{}", project_id)
@@ -662,8 +613,6 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         if advanced:
                             await s.commit()
                         if advanced and ap.status.value != prev:
-                            new_status = ap.status.value
-                            project_id = ap.id
                             try:
                                 from app.services.gen_queue import (
                                     on_project_timeline_maybe_advance_queue,
@@ -677,10 +626,6 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                                     "gen_queue advance after auto_advance failed for #{}",
                                     ap.id,
                                 )
-                            try:
-                                await notify_step_done(bot, project_id, prev, new_status)
-                            except Exception:  # noqa: BLE001
-                                logger.exception("notify_step_done({}) failed", project_id)
 
                     # 2) serial worker: запускает следующий подпроект
                     #    из активного массового, если нет «занятого».
@@ -951,24 +896,15 @@ async def main() -> None:
     # Поднимаем HTTP сразу после init_db, чтобы Launcher не ждал таймаут.
     maintenance_task = asyncio.create_task(_startup_maintenance())
 
-    from app.telegram.noop_bot import get_worker_bot
+    from app.services.noop_bot import get_worker_bot
 
-    real_bot = None
-    polling_task: asyncio.Task | None = None
-    if settings.telegram_active:
-        real_bot, _ = await build_bot()
-        logger.info("telegram bot polling started")
-        polling_task = asyncio.create_task(
-            dp.start_polling(real_bot, allowed_updates=dp.resolve_used_update_types())
-        )
-    else:
-        logger.info(
-            "web-only mode active (HITL and studio UI at http://{}:{})",
-            settings.web_host,
-            settings.web_port,
-        )
+    logger.info(
+        "web-only mode active (HITL and studio UI at http://{}:{})",
+        settings.web_host,
+        settings.web_port,
+    )
 
-    worker_bot = get_worker_bot(real_bot)
+    worker_bot = get_worker_bot(None)
     from app.services.pipeline_worker import ensure_pipeline_worker_started
 
     ensure_pipeline_worker_started(worker_bot)
@@ -978,8 +914,6 @@ async def main() -> None:
     worker_task = get_pipeline_worker_task()
     if worker_task is not None:
         tasks.append(worker_task)
-    if polling_task is not None:
-        tasks.insert(0, polling_task)
     logger.info("background worker started")
     try:
         from app.hotfix_build import PIPELINE_HOTFIX_ID
@@ -1034,11 +968,7 @@ async def main() -> None:
             settings.web_port,
         )
 
-    try:
-        await _await_background_tasks(tasks)
-    finally:
-        if real_bot is not None:
-            await real_bot.session.close()
+    await _await_background_tasks(tasks)
 
 
 if __name__ == "__main__":
