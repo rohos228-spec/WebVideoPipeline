@@ -926,8 +926,7 @@ async def main() -> None:
                     reconfigure(encoding="utf-8", errors="replace")
 
     logger.info(
-        "starting video-pipeline, owner chat_id={}, db={}",
-        settings.telegram_owner_chat_id,
+        "starting video-pipeline, db={}",
         _redact_db_url(settings.db_url),
     )
     await _init_db()
@@ -964,7 +963,7 @@ async def main() -> None:
         )
     else:
         logger.info(
-            "telegram disabled — web-only mode (HITL и шаги через http://{}:{})",
+            "web-only mode active (HITL and studio UI at http://{}:{})",
             settings.web_host,
             settings.web_port,
         )

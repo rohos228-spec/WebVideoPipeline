@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # Telegram (опционально — пустой токен = web-only, без бота)
     telegram_bot_token: str = Field("", alias="TELEGRAM_BOT_TOKEN")
-    telegram_owner_chat_id: int = Field(279887118, alias="TELEGRAM_OWNER_CHAT_ID")
+    telegram_owner_chat_id: int = Field(0, alias="TELEGRAM_OWNER_CHAT_ID")
     # false / 0 — не поднимать бота даже если токен задан
     telegram_enabled: bool = Field(False, alias="TELEGRAM_ENABLED")
     # Опциональный HTTP/SOCKS5 прокси для Telegram-API.

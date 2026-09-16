@@ -30,4 +30,7 @@ Write-Host ""
 
 $backendScript = Join-Path $PSScriptRoot "run-backend.ps1"
 & $backendScript
+if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
 

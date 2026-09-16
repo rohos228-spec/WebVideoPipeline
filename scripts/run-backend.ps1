@@ -27,7 +27,12 @@ if (-not (Test-Path (Join-Path $Root "pyproject.toml"))) {
 
 $py = Join-Path $Root ".venv\Scripts\python.exe"
 if (-not (Test-Path $py)) {
-    Write-Host "ОШИБКА: .venv не найден. Сначала запустите install.ps1 или STUDIO.cmd -> [3] Починить установку." -ForegroundColor Red
+    Write-Host "ОШИБКА: .venv не найден в $Root" -ForegroundColor Red
+    Write-Host "Сначала запустите install.ps1 для создания виртуального окружения." -ForegroundColor Yellow
+    if (-not $NoPause) {
+        Write-Host "Нажмите Enter для закрытия..." -ForegroundColor Gray
+        Read-Host | Out-Null
+    }
     exit 1
 }
 
