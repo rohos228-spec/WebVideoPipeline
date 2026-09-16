@@ -5,7 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.generation_options import (
+    _QUESTIONS,
     ASPECT_RATIOS,
+    BOOLEAN_CHOICES,
     IMAGE_GENERATORS,
     IMAGE_QUALITIES,
     IMAGE_RESOLUTIONS,
@@ -14,7 +16,6 @@ from app.generation_options import (
     VIDEO_RESOLUTIONS,
     allowed_image_resolution_ids,
 )
-from app.telegram import wizard as wiz
 
 router = APIRouter(prefix="/generation-options", tags=["generation-options"])
 
@@ -27,7 +28,7 @@ def _choices_to_dict(choices: list) -> list[dict]:
 async def wizard_catalog() -> dict:
     """Вопросы мастера после создания проекта (8 шагов)."""
     questions = []
-    for q in wiz._QUESTIONS:
+    for q in _QUESTIONS:
         questions.append(
             {
                 "field": q.field,
@@ -47,7 +48,7 @@ async def wizard_catalog() -> dict:
         "image_qualities": _choices_to_dict(IMAGE_QUALITIES),
         "video_generators": _choices_to_dict(VIDEO_GENERATORS),
         "video_resolutions": _choices_to_dict(VIDEO_RESOLUTIONS),
-        "boolean": _choices_to_dict(wiz.BOOLEAN_CHOICES),
+        "boolean": _choices_to_dict(BOOLEAN_CHOICES),
         "defaults": {
             "image_generator": "gpt_image_2",
             "video_generator": "veo_3_fast",

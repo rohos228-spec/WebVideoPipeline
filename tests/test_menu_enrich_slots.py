@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.telegram.menu import enabled_enrich_slots
+from app.orchestrator.pipeline_steps import enabled_enrich_slots
 
 
 def _canvas(nodes: list[dict]) -> dict:

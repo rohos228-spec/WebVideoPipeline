@@ -29,8 +29,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Any
 
-from aiogram import Bot
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +42,7 @@ from app.models import (
     Project,
     ProjectStatus,
 )
+from app.orchestrator.pipeline_steps import STEPS, enabled_enrich_slots, status_order, step_by_running_status
 from app.services.auto_review import (
     REVIEW_STATUS_APPLIED,
     REVIEW_STATUS_SKIPPED_STUB,
@@ -56,7 +57,6 @@ from app.services.step_data_guard import (
     ready_status_confirmed_by_data,
 )
 from app.settings import settings
-from app.telegram.menu import STEPS, enabled_enrich_slots, status_order, step_by_running_status
 
 # (single-mass parity #4) Гранулярность визуального ревью.
 #
@@ -521,7 +521,7 @@ async def _next_status_after_hero_approve(
     return skip_disabled_running(project, nxt) or nxt
 
 
-async def _hide_hitl_buttons_with_badge(bot: Bot | None, hitl: HITLRequest | None, badge: str) -> None:
+async def _hide_hitl_buttons_with_badge(bot: Any = None, hitl: HITLRequest | None = None, badge: str = "") -> None:
     """(single-mass parity #5) Убирает inline-кнопки С HITL-карточки
     в TG после auto-решения и добавляет подпись-бейдж в текст/caption.
 
@@ -784,7 +784,7 @@ async def _apply_approve(
     hitl: HITLRequest | None,
     transition: StepTransition,
     *,
-    bot: Bot | None = None,
+    bot: Any = None,
     badge: str | None = None,
 ) -> None:
     """Эмулируем клик `approve` пользователем в TG."""
@@ -1049,7 +1049,7 @@ async def _apply_regen(
     transition: StepTransition,
     result: ReviewResult,
     *,
-    bot: Bot | None = None,
+    bot: Any = None,
 ) -> None:
     """Эмулируем клик `regen` + кладём fix_hints для следующей генерации."""
     if hitl is not None and hitl.decision is HITLDecision.pending:
@@ -1111,7 +1111,7 @@ async def _apply_reject(
     transition: StepTransition,
     result: ReviewResult,
     *,
-    bot: Bot | None = None,
+    bot: Any = None,
 ) -> None:
     if hitl is not None and hitl.decision is HITLDecision.pending:
         hitl.decision = HITLDecision.rejected
@@ -1181,7 +1181,7 @@ async def advance_after_gpt_verdict(
 
 
 async def continue_project_pipeline(
-    session: AsyncSession, project: Project, *, bot: Bot | None = None
+    session: AsyncSession, project: Project, *, bot: Any = None
 ) -> dict[str, object]:
     """Продолжить пайплайн: снять stop/паузу и продвинуть *_ready → running."""
     from app.services.project_control import resume_project as resume_project_svc
@@ -1278,7 +1278,7 @@ async def _harness_gate(session: AsyncSession, project: Project, status: Project
 
 
 async def maybe_auto_advance(
-    session: AsyncSession, project: Project, bot: Bot | None, *, force: bool = False
+    session: AsyncSession, project: Project, bot: Any = None, *, force: bool = False
 ) -> bool:
     """Возвращает True если проект был продвинут (или поставлен в paused).
 
@@ -1720,7 +1720,7 @@ async def _apply_review_result(
     transition: StepTransition,
     result: ReviewResult,
     *,
-    bot: Bot | None = None,
+    bot: Any = None,
 ) -> bool:
     """Применяет ReviewResult к проекту + уведомляет (опционально).
 

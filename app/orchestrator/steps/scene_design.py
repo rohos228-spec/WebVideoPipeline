@@ -16,7 +16,8 @@
 
 from __future__ import annotations
 
-from aiogram import Bot
+from typing import Any
+
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,7 +79,7 @@ def _write_sd_reply_file(project: Project, marker: str, payload: object) -> None
         )
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     """Фаза 1: категорийные агенты (параллельно) → staging-ячейки."""
     if project.status is not ProjectStatus.scene_designing:
         return
@@ -174,7 +175,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -
     await session.commit()
 
 
-async def run_assemble(session: AsyncSession, project: Project, bot: Bot | None = None) -> None:
+async def run_assemble(session: AsyncSession, project: Project, bot: Any = None) -> None:
     """Фаза 2: финальный агент-сборщик → scene_registry + attrs кадров."""
     if project.status is not ProjectStatus.scene_assembling:
         return

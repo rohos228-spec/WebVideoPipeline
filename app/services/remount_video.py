@@ -129,7 +129,7 @@ async def remount_video(
     from app.orchestrator.steps import generate_audio
 
     if bot is None:
-        from app.telegram.noop_bot import get_worker_bot
+        from app.services.noop_bot import get_worker_bot
 
         bot = get_worker_bot(None)
 

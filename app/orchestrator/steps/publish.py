@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from aiogram import Bot
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,7 @@ from app.settings import settings
 _META_KEY = "published_platforms"
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.publishing:
         return
     if not settings.social_publish_enabled:
@@ -62,9 +62,11 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             lines.append(f"- {r.platform}: OK {r.url or ''}")
         else:
             lines.append(f"- {r.platform}: FAIL — {r.error or ''}")
-    if skip_platforms:
-        lines.append(f"(пропущены уже опубликованные: {', '.join(sorted(skip_platforms))})")
-    await bot.send_message(settings.telegram_owner_chat_id, "\n".join(lines))
+    if bot is not None and getattr(settings, "telegram_owner_chat_id", None):
+        try:
+            await bot.send_message(settings.telegram_owner_chat_id, "\n".join(lines))
+        except Exception:  # noqa: BLE001
+            pass
 
     total_platforms = 5  # см. ALL_PUBLISHERS
     published_count = len(already)

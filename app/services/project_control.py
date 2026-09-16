@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models import Project, ProjectStatus
+from app.orchestrator.pipeline_steps import step_by_running_status
 from app.services.gen_queue_run import is_user_stopped
 from app.services.mass_factory import (
     is_mass_factory_parent,
@@ -18,7 +19,6 @@ from app.services.mass_factory import (
 from app.services.project_state import is_running_status
 from app.services.step_cancel import clear_stop, is_generation_active, request_stop
 from app.services.xlsx_flow_locks import clear_xlsx_flow_locks
-from app.telegram.menu import step_by_running_status
 
 MASS_FAMILY_HALTED_KEY = "mass_family_halted"
 

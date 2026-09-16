@@ -32,7 +32,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from aiogram import Bot
 from loguru import logger
 from sqlalchemy import desc, select
 from sqlalchemy.exc import OperationalError
@@ -499,7 +498,7 @@ async def _load_excel_hero_from_xlsx(
 _bootstrap_excel_hero_from_xlsx = _load_excel_hero_from_xlsx
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.generating_hero:
         return
 
@@ -981,17 +980,18 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         f"<code>{(getattr(e, 'reason', None) or str(e))[:600]}</code>\n"
                         f"Статус откатил в <b>frames_ready</b>. Проверь Chrome/outsee и нажми «4. Hero» снова."
                     )
-                try:
-                    await bot.send_message(
-                        settings.telegram_owner_chat_id,
-                        msg[:3800],
-                        parse_mode="HTML",
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "[#{}] не удалось отправить TG-ошибку пользователю",
-                        project.id,
-                    )
+                if bot is not None:
+                    try:
+                        await bot.send_message(
+                            settings.telegram_owner_chat_id,
+                            msg[:3800],
+                            parse_mode="HTML",
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "[#{}] не удалось отправить TG-ошибку пользователю",
+                            project.id,
+                        )
                 # Выходим ЧИСТО — без raise. worker loop увидит
                 # status=frames_ready (не «active» в его списке) и проект
                 # больше не будет автоматически брать на этой итерации.
@@ -1098,7 +1098,7 @@ def _excel_characters_from_meta(cfg: dict) -> list[ExcelCharacter]:
 async def _run_excel(
     session: AsyncSession,
     project: Project,
-    bot: Bot,
+    bot: Any,
     cfg: dict,
 ) -> None:
     """Entity/Excel-режим: все персонажи за один run(), без HITL.
@@ -1209,10 +1209,11 @@ async def _run_excel(
             logger.error("[#{}] excel_hero deadlock: {}", project.id, names)
             project.status = ProjectStatus.frames_ready
             await session.flush()
-            try:
-                await bot.send_message(settings.telegram_owner_chat_id, msg, parse_mode="HTML")
-            except Exception:  # noqa: BLE001
-                logger.warning("[#{}] не удалось отправить TG-deadlock", project.id)
+            if bot is not None:
+                try:
+                    await bot.send_message(settings.telegram_owner_chat_id, msg, parse_mode="HTML")
+                except Exception:  # noqa: BLE001
+                    logger.warning("[#{}] не удалось отправить TG-deadlock", project.id)
             return
 
         batch = ready[: max(1, streams)]
@@ -1296,7 +1297,7 @@ async def _run_excel(
 async def _generate_one_excel_character(
     session: AsyncSession,
     project: Project,
-    bot: Bot,
+    bot: Any,
     ch: ExcelCharacter,
     *,
     chars: list[ExcelCharacter],
@@ -1342,15 +1343,16 @@ async def _generate_one_excel_character(
             )
             project.status = ProjectStatus.frames_ready
             await session.flush()
-            try:
-                await bot.send_message(
-                    settings.telegram_owner_chat_id,
-                    f"🚫 Проект #{project.id} excel-hero {ch.id}: "
-                    f"референс-файлы для {ch.ref_ids} пропали с диска. "
-                    "Перегенери референсы.",
-                )
-            except Exception:  # noqa: BLE001
-                logger.warning("[#{}] не удалось отправить TG", project.id)
+            if bot is not None:
+                try:
+                    await bot.send_message(
+                        settings.telegram_owner_chat_id,
+                        f"🚫 Проект #{project.id} excel-hero {ch.id}: "
+                        f"референс-файлы для {ch.ref_ids} пропали с диска. "
+                        "Перегенери референсы.",
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning("[#{}] не удалось отправить TG", project.id)
             return
 
     # Стиль (общий для проекта — выбирается в обычном hero-flow).
@@ -1539,14 +1541,15 @@ async def _generate_one_excel_character(
                         f"outsee провалился ({(getattr(e, 'reason', None) or str(e))[:300]}).\n"
                         f"Статус откатил в <b>frames_ready</b>."
                     )
-                try:
-                    await bot.send_message(
-                        settings.telegram_owner_chat_id,
-                        msg[:3800],
-                        parse_mode="HTML",
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.warning("[#{}] не удалось отправить TG-ошибку", project.id)
+                if bot is not None and getattr(settings, "telegram_owner_chat_id", None):
+                    try:
+                        await bot.send_message(
+                            settings.telegram_owner_chat_id,
+                            msg[:3800],
+                            parse_mode="HTML",
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.warning("[#{}] не удалось отправить TG-ошибку", project.id)
                 return
 
     file_path = Path(result.file_path)

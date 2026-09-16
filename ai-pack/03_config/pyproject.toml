@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Автоматический конвейер генерации коротких вертикальных роликов (60-75 сек)"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-  "aiogram>=3.10,<4",
   "aiohttp>=3.10,<4",
   "aiohttp-socks>=0.10,<1",
   "aiosqlite>=0.20,<1",

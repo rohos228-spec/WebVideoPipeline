@@ -18,12 +18,12 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Project, ProjectStatus
+from app.orchestrator.pipeline_steps import step_by_running_status
 from app.services.chrome_recovery import (
     clear_chrome_recovery,
     handle_chrome_step_failure,
     is_chrome_infra_error,
 )
-from app.telegram.menu import step_by_running_status
 
 FAILS_PER_CYCLE = 3
 MAX_CYCLES = 3

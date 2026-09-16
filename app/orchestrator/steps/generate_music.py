@@ -9,8 +9,8 @@ from __future__ import annotations
 import re
 import uuid
 from pathlib import Path
+from typing import Any
 
-from aiogram import Bot  # noqa: F401
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,7 +45,7 @@ def _clean_suno_prompt(raw: str | None) -> str:
     return out.strip("\"`' \n\r\t")
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.generating_music:
         return
     logger.info("[#{}] generate_music starting", project.id)

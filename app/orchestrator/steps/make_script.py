@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from aiogram import Bot
+from typing import Any
+
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +13,7 @@ from app.services.hitl import send_hitl_text
 from app.storage import for_project as _sheet_for_project
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.scripting:
         return
     from app.services.gen_queue_run import is_user_stopped

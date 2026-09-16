@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from aiogram import Bot
+from typing import Any
+
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,7 +48,7 @@ def _split_input_hash(project: Project) -> str | None:
         return None
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot | None = None) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.splitting:
         return
     logger.info("[#{}] split_frames (db-first) starting", project.id)

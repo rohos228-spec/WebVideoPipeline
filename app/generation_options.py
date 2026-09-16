@@ -16,8 +16,13 @@ URL: `https://outsee.io/image?model=<slug>` (также есть /create?type=im
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    pass
 
 
 @dataclass(frozen=True)
@@ -575,3 +580,141 @@ def prepend_gen_id(prompt: str, gen_id_prefix: str) -> str:
     if not body:
         return gen_id_prefix
     return f"{gen_id_prefix}\n\n{body}"
+
+
+# ---- Мастер настроек проекта (8 вопросов) ---------------------------------
+
+BOOLEAN_CHOICES: list[OptionChoice] = [
+    OptionChoice("yes", "Да", "yes", "Включить режим"),
+    OptionChoice("no", "Нет", "no", "Оставить выключенным"),
+]
+BOOLEAN_CHOICES_BY_ID = {c.id: c for c in BOOLEAN_CHOICES}
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_REF_DIR = _REPO_ROOT / "assets" / "reference"
+
+_IMG_GENERATORS_REF = _REF_DIR / "image_generators.png"
+_ASPECT_REF = _REF_DIR / "aspect_ratios.png"
+_VIDEO_GENERATORS_REF = _REF_DIR / "video_generators.png"
+
+
+@dataclass(frozen=True)
+class WizardQuestion:
+    field: str
+    title: str
+    choices: list[OptionChoice]
+    image_path: Path | None
+    cols: int
+    catalog: dict[str, OptionChoice]
+    to_db: Callable[[str], object] = lambda x: x
+    is_set: Callable[[Any], bool] = lambda p: getattr(p, "", None) not in (None, "")
+    skip_if: Callable[[Any], bool] = lambda p: False
+    skip_value: object = False
+
+
+def _is_set_str(field: str) -> Callable[[Any], bool]:
+    return lambda p: getattr(p, field, None) not in (None, "")
+
+
+def _is_set_bool(field: str) -> Callable[[Any], bool]:
+    return lambda p: getattr(p, field, None) is not None
+
+
+_QUESTIONS: list[WizardQuestion] = [
+    WizardQuestion(
+        field="image_generator",
+        title="1/8. Какой <b>генератор картинок</b> использовать?",
+        choices=IMAGE_GENERATORS,
+        image_path=_IMG_GENERATORS_REF,
+        cols=1,
+        catalog=IMAGE_GENERATORS_BY_ID,
+        is_set=_is_set_str("image_generator"),
+    ),
+    WizardQuestion(
+        field="aspect_ratio",
+        title="2/8. Какое <b>соотношение сторон</b> картинок?",
+        choices=ASPECT_RATIOS,
+        image_path=_ASPECT_REF,
+        cols=4,
+        catalog=ASPECT_RATIOS_BY_ID,
+        is_set=_is_set_str("aspect_ratio"),
+    ),
+    WizardQuestion(
+        field="image_resolution",
+        title="3/8. <b>Разрешение картинки</b>?",
+        choices=IMAGE_RESOLUTIONS,
+        image_path=None,
+        cols=3,
+        catalog=IMAGE_RESOLUTIONS_BY_ID,
+        is_set=_is_set_str("image_resolution"),
+    ),
+    WizardQuestion(
+        field="image_quality",
+        title="4/8. <b>Качество картинки</b>? (GPT Image)",
+        choices=IMAGE_QUALITIES,
+        image_path=None,
+        cols=3,
+        catalog=IMAGE_QUALITIES_BY_ID,
+        is_set=_is_set_str("image_quality"),
+        skip_if=lambda p: not is_gpt_image_generator(getattr(p, "image_generator", None)),
+        skip_value="medium",
+    ),
+    WizardQuestion(
+        field="image_relax",
+        title=(
+            "5/8. <b>Безлимит</b> для картинок?\nЕсли «Да» — outsee включит тогл «Безлимит» перед генерацией."
+        ),
+        choices=BOOLEAN_CHOICES,
+        image_path=None,
+        cols=2,
+        catalog=BOOLEAN_CHOICES_BY_ID,
+        to_db=lambda v: v == "yes",
+        is_set=_is_set_bool("image_relax"),
+    ),
+    WizardQuestion(
+        field="video_generator",
+        title="6/8. Какой <b>видео-генератор</b> использовать?",
+        choices=VIDEO_GENERATORS,
+        image_path=_VIDEO_GENERATORS_REF,
+        cols=1,
+        catalog=VIDEO_GENERATORS_BY_ID,
+        is_set=_is_set_str("video_generator"),
+    ),
+    WizardQuestion(
+        field="video_resolution",
+        title="7/8. <b>Разрешение видео</b>?",
+        choices=VIDEO_RESOLUTIONS,
+        image_path=None,
+        cols=2,
+        catalog=VIDEO_RESOLUTIONS_BY_ID,
+        is_set=_is_set_str("video_resolution"),
+    ),
+    WizardQuestion(
+        field="video_relax",
+        title=("8/8. <b>Relax-режим видео</b>?\nПоддерживается только для Veo 3.1 Fast."),
+        choices=BOOLEAN_CHOICES,
+        image_path=None,
+        cols=2,
+        catalog=BOOLEAN_CHOICES_BY_ID,
+        to_db=lambda v: v == "yes",
+        is_set=_is_set_bool("video_relax"),
+        skip_if=lambda p: (getattr(p, "video_generator", None) or "") != "veo_3_1_fast",
+        skip_value=False,
+    ),
+]
+
+_QUESTIONS_BY_FIELD: dict[str, WizardQuestion] = {q.field: q for q in _QUESTIONS}
+
+
+def _wizard_step_index(project: Any) -> int:
+    for i, q in enumerate(_QUESTIONS):
+        if q.skip_if(project):
+            continue
+        if not q.is_set(project):
+            return i
+    return len(_QUESTIONS)
+
+
+def is_wizard_complete(project: Any) -> bool:
+    return _wizard_step_index(project) >= len(_QUESTIONS)
+

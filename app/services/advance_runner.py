@@ -18,8 +18,8 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from typing import Any
 
-from aiogram import Bot
 from loguru import logger
 
 from app.db import session_scope
@@ -39,7 +39,7 @@ class AdvanceJobResult:
     new_status: str | None  # None если статус не изменился
 
 
-async def advance_project_job(project_id: int, bot: Bot) -> AdvanceJobResult:
+async def advance_project_job(project_id: int, bot: Any = None) -> AdvanceJobResult:
     """Один такт advance_project в своей сессии (for asyncio.create_task)."""
     try:
         # Проект читается ДО транзакции такта: смету надо посчитать и резерв

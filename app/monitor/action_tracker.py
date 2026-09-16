@@ -285,7 +285,7 @@ def patch_all(watcher=None) -> None:
                     detail=detail,
                 )
 
-        pipeline_mod.advance_project = _tracked_advance
+        pipeline_mod.advance_project = _tracked_advance  # type: ignore[assignment]
         logger.info("action_tracker: advance_project patched")
     except Exception as e:
         logger.warning("action_tracker: advance_project patch failed: {}", e)
@@ -335,7 +335,7 @@ def patch_all(watcher=None) -> None:
                 if _watcher:
                     await _screenshot_if_available("hero_after")
 
-        generate_hero.run = _tracked_hero_run
+        generate_hero.run = _tracked_hero_run  # type: ignore[assignment]
         logger.info("action_tracker: generate_hero.run patched")
     except Exception as e:
         logger.warning("action_tracker: generate_hero patch failed: {}", e)

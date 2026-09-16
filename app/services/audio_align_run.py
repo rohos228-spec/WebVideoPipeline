@@ -438,7 +438,7 @@ async def run_audio_align_for_project(
         written,
     )
     if bot is None:
-        from app.telegram.noop_bot import get_worker_bot
+        from app.services.noop_bot import get_worker_bot
 
         bot = get_worker_bot(None)
 

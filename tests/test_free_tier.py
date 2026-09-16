@@ -172,8 +172,8 @@ async def test_free_step_runs_without_a_hold(db, monkeypatch) -> None:
     обошёлся клиент.
     """
     from app.services.advance_runner import advance_project_job
+    from app.services.noop_bot import get_worker_bot
     from app.services.tenant import tenant_scope
-    from app.telegram.noop_bot import get_worker_bot
 
     tenant = str(uuid.uuid4())
     async with db() as s:

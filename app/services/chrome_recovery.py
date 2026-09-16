@@ -24,7 +24,7 @@ from app.bots.chrome_cdp import (
     restart_chrome_cdp,
 )
 from app.models import Project, ProjectStatus
-from app.telegram.menu import step_by_running_status
+from app.orchestrator.pipeline_steps import step_by_running_status
 
 MAX_CHROME_RESTARTS_PER_STEP = 5
 CHROME_RETRY_SLEEP_SEC = 3.0

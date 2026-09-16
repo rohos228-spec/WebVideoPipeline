@@ -243,7 +243,7 @@ class WorkflowGraph:
                 done.add(self.node_type(key))
         # Веер scene_design: фазы и legacy-тип scene_design (старые канвасы
         # с одной нодой вместо sd_agent ×5 + sd_assemble).
-        from app.telegram.menu import status_order as _ord
+        from app.orchestrator.pipeline_steps import status_order as _ord
 
         if status is not None and _ord(status) >= _ord(ProjectStatus.scene_design_ready):
             done.update({"sd_agent", "sd_assemble", "scene_design"})
@@ -256,7 +256,7 @@ class WorkflowGraph:
         # enrich_completed_slots учитываем только после реального split
         # (split_completed) или когда уже внутри enrich-зоны. Иначе stale
         # meta на frames_ready пропускает excel_gpt #1/#2.
-        from app.telegram.menu import status_order as _status_ord
+        from app.orchestrator.pipeline_steps import status_order as _status_ord
 
         trust_enrich_meta = bool(meta.get("split_completed")) or (
             status is not None and _status_ord(status) >= _status_ord(ProjectStatus.enriching_1)
@@ -304,7 +304,7 @@ class WorkflowGraph:
         # Иначе стрелка split → excel_gpt ждёт n_plan, который «не в done».
         spec = spec_for_type(typ)
         if spec is not None and typ in LINEAR_NODE_TYPES:
-            from app.telegram.menu import status_order as _ord
+            from app.orchestrator.pipeline_steps import status_order as _ord
 
             st = project.status
             if st is not None and _ord(st) >= _ord(spec.ready_status):
@@ -587,7 +587,7 @@ class WorkflowGraph:
 
     def _linear_prereq_met(self, project: Project, step_code: str) -> bool:
         """Линейный prerequisite шага (когда на канвасе нет входящих связей)."""
-        from app.telegram.menu import status_order, step_by_code
+        from app.orchestrator.pipeline_steps import status_order, step_by_code
 
         step = step_by_code(step_code)
         if step is None:

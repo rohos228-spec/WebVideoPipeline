@@ -65,7 +65,7 @@ def _scope(project_id: int | None):
 
 
 def _title(step_code: str) -> str:
-    from app.telegram.menu import step_by_code
+    from app.orchestrator.pipeline_steps import step_by_code
 
     step = step_by_code(step_code)
     return step.title if step is not None else step_code

@@ -20,17 +20,13 @@ import contextlib
 import re
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import TestPromptProject
-
-if TYPE_CHECKING:
-    from aiogram import Bot
-
 
 _RUNNING_STATUSES = {"running_gpt", "running_outsee"}
 
@@ -176,7 +172,7 @@ async def run_iteration(
     project: TestPromptProject,
     *,
     critique: str | None = None,
-    bot: Bot | None = None,
+    bot: Any = None,
     chat_id: int | None = None,
 ) -> tuple[Path, Path]:
     """Запускает одну итерацию: GPT → txt → outsee → image.

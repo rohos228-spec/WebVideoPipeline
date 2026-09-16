@@ -5,7 +5,8 @@ Excel (`project.xlsx`) — только экспорт после записи �
 
 from __future__ import annotations
 
-from aiogram import Bot
+from typing import Any
+
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +31,7 @@ def _hero_decision_template() -> str | None:
         return None
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.planning:
         return
     logger.info(

@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from typing import Any
 
-from aiogram import Bot
 from loguru import logger
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -166,7 +166,7 @@ def _items_style_prompt(project: Project) -> str:
         return ""
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.generating_items:
         return
 

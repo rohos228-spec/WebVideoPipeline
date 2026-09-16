@@ -1460,7 +1460,7 @@ async def sync_after_img_pr(session: AsyncSession, project: Project, xlsx_path: 
 
 def set_status_if_behind(project: Project, target: ProjectStatus) -> None:
     """Ставит статус, если текущий «ниже» target (как в bot после xlsx)."""
-    from app.telegram.menu import status_order as _ord
+    from app.orchestrator.pipeline_steps import status_order as _ord
 
     if _ord(project.status) < _ord(target):
         project.status = target

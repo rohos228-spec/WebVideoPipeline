@@ -20,8 +20,8 @@ override (через `Project.gpt_text_overrides["enrich_<i>"]`).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from aiogram import Bot
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -249,7 +249,7 @@ def _apply_enrich_ready_status(
     API-путь раньше всегда писал ready_status и затирал generating_videos,
     если video/run стартовал параллельно с долгим checkMode excel_gpt.
     """
-    from app.telegram.menu import status_order as _ord
+    from app.orchestrator.pipeline_steps import status_order as _ord
 
     cur = project.status
     if cur is running_status or _ord(cur) < _ord(ready_status):
@@ -467,7 +467,7 @@ def _get_accompanying_text(project: Project, step_code: str) -> str:
     return gtb.get_effective_text(project, step_code)
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     slot_idx = _resolve_slot_idx(project.status)
     if slot_idx is None:
         logger.warning(

@@ -157,7 +157,7 @@ def _enrich_ready_from_meta(project: Project) -> ProjectStatus | None:
 
 
 def _status_ord(status: ProjectStatus | None) -> int:
-    from app.telegram.menu import status_order
+    from app.orchestrator.pipeline_steps import status_order
 
     if status is None:
         return status_order(ProjectStatus.new)
@@ -686,7 +686,7 @@ async def recompute_status(
         )
 
     new = await compute_actual_status(session, project)
-    from app.telegram.menu import status_order as _ord
+    from app.orchestrator.pipeline_steps import status_order as _ord
 
     # ЖЕЛЕЗО: никогда не сбрасывать прогресс в `new`, если уже есть script
     # или кадры. Именно это месяцами ломало auto_advance после разбивки

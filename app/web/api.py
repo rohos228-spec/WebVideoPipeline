@@ -291,9 +291,9 @@ async def _lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001
         logger.exception("gpt_workspace orphan reset failed (non-fatal)")
 
+    from app.services.noop_bot import get_worker_bot
     from app.services.pipeline_worker import ensure_pipeline_worker_started
     from app.settings import settings
-    from app.telegram.noop_bot import get_worker_bot
 
     live_log_path = settings.data_dir / "studio-live.log"
     live_log_path.parent.mkdir(parents=True, exist_ok=True)

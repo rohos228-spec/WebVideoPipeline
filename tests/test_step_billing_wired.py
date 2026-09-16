@@ -67,7 +67,7 @@ async def test_owner_mode_creates_no_money_at_all(db, monkeypatch) -> None:
     упираться в баланс, которого не существует.
     """
     from app.services.advance_runner import advance_project_job
-    from app.telegram.noop_bot import get_worker_bot
+    from app.services.noop_bot import get_worker_bot
 
     project_id = await _project(db)
     # Патчится имя В МОДУЛЕ-ПОТРЕБИТЕЛЕ, а не в `pipeline`: `advance_runner`
@@ -109,8 +109,8 @@ async def test_hold_covers_the_video_step_and_settles_by_fact(db, monkeypatch) -
     """
     from app.services import credit_ledger as cl
     from app.services.advance_runner import advance_project_job
+    from app.services.noop_bot import get_worker_bot
     from app.services.tenant import tenant_scope
-    from app.telegram.noop_bot import get_worker_bot
 
     tenant = str(uuid.uuid4())
     project_id = await _project(db)
@@ -141,8 +141,8 @@ async def test_failed_step_returns_the_whole_hold(db, monkeypatch) -> None:
     """
     from app.services import credit_ledger as cl
     from app.services.advance_runner import advance_project_job
+    from app.services.noop_bot import get_worker_bot
     from app.services.tenant import tenant_scope
-    from app.telegram.noop_bot import get_worker_bot
 
     tenant = str(uuid.uuid4())
     project_id = await _project(db)
@@ -172,8 +172,8 @@ async def test_empty_balance_waits_instead_of_failing_the_step(db, monkeypatch) 
     кусочку каждые несколько минут.
     """
     from app.services.advance_runner import advance_project_job
+    from app.services.noop_bot import get_worker_bot
     from app.services.tenant import tenant_scope
-    from app.telegram.noop_bot import get_worker_bot
 
     tenant = str(uuid.uuid4())
     project_id = await _project(db)
@@ -195,8 +195,8 @@ async def test_empty_balance_is_reported_outward(db, monkeypatch) -> None:
     того, чтобы пополнить баланс.
     """
     from app.services.advance_runner import _NO_CREDITS_LOGGED, advance_project_job
+    from app.services.noop_bot import get_worker_bot
     from app.services.tenant import tenant_scope
-    from app.telegram.noop_bot import get_worker_bot
 
     events: list[dict] = []
 

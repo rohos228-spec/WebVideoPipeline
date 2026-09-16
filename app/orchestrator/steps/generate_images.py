@@ -29,7 +29,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from aiogram import Bot
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -579,7 +578,7 @@ async def _load_refs_for_frame(
     return refs[: _max_refs()]
 
 
-async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
+async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.generating_images:
         return
     logger.info("[#{}] generate_images starting", project.id)
@@ -1217,7 +1216,7 @@ async def _generate_frame_job(
     out_dir: Path,
     shot: int,
     shot1_reference: Path | None,
-    bot: Bot,
+    bot: Any,
     outsee: OutseeBot | None,
     gpt: Any,
 ) -> None:
@@ -1275,7 +1274,7 @@ async def _generate_frame_job(
 async def _run_claimed_batch(
     *,
     session: AsyncSession,
-    bot: Bot,
+    bot: Any = None,
     outsee: OutseeBot | None,
     gpt: Any,
     project: Project,
@@ -1560,7 +1559,7 @@ async def _apply_pending_regens(session: AsyncSession, project_id: int) -> None:
 
 async def _generate_and_send(
     session: AsyncSession,
-    bot: Bot,
+    bot: Any,
     outsee: OutseeBot | None,
     gpt,  # ApiGptClient | duck-typed ask_fresh
     project: Project,
@@ -1797,11 +1796,12 @@ async def _generate_and_send(
                 head = (
                     f"⚠️ Кадр #{frame.number} проекта #{project.id}: картинку поймать не удалось ({kind}).\n\n"
                 )
-            await bot.send_message(
-                settings.telegram_owner_chat_id,
-                (head + f"<pre>{_html_escape(e.format_text())}</pre>")[:3800],
-                parse_mode="HTML",
-            )
+            if bot is not None and getattr(settings, "telegram_owner_chat_id", None):
+                await bot.send_message(
+                    settings.telegram_owner_chat_id,
+                    (head + f"<pre>{_html_escape(e.format_text())}</pre>")[:3800],
+                    parse_mode="HTML",
+                )
         except Exception:  # noqa: BLE001
             pass
         await session.commit()
