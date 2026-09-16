@@ -30,11 +30,10 @@
 
 ## Первая установка на новый ПК
 
+Запустите скрипт установки в PowerShell из корня репозитория:
 ```powershell
-iwr https://raw.githubusercontent.com/rohos228-spec/video-pipeline/refs/heads/main/bootstrap.ps1 -UseBasicParsing | iex
+.\install.ps1
 ```
-
-Или вручную: `install.ps1` в корне репозитория.
 
 После установки — **STUDIO.cmd** → **1**.
 
@@ -52,11 +51,10 @@ iwr https://raw.githubusercontent.com/rohos228-spec/video-pipeline/refs/heads/ma
 
 ---
 
-## Telegram (опционально)
+## Telegram (архивирован / удален)
 
-В `.env`: `TELEGRAM_BOT_TOKEN` и `TELEGRAM_ENABLED=true`. Запуск с ботом — `python -m app.main` в `.venv`.
-
-Для веб-студии без Telegram: `TELEGRAM_ENABLED=false` (по умолчанию после `install.ps1`).
+Подсистема Telegram была полностью удалена в пользу веб-студии (Web Studio UI).
+Вся работа с проектами, генерациями, промптами и пакетами происходит через веб-интерфейс http://127.0.0.1:8765. Переменные `TELEGRAM_*` в `.env` сохранены исключительно для обратной совместимости старых файлов конфигурации и игнорируются бэкендом.
 
 ---
 

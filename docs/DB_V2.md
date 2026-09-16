@@ -164,7 +164,7 @@ legacy-данных проекта:
   `DbExcelRow` и др.).
 
 После любых правок `web/src/**`: `python scripts/bump_studio_version.py`
-(бамп + rebuild `web/out/`, коммитить оба).
+(бамп версии; rebuild `web/out/` компилируется локально через `cd web && npm run build` и находится в `.gitignore` — артефакты `web/out/` в git НЕ коммитятся).
 
 ---
 

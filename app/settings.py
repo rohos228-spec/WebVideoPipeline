@@ -35,7 +35,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Telegram (опционально — пустой токен = web-only, без бота)
+    # Telegram (Legacy / Deprecated: подсистема Telegram удалена в пользу Web Studio;
+    # параметры сохранены исключительно для обратной совместимости существующих .env).
     telegram_bot_token: str = Field("", alias="TELEGRAM_BOT_TOKEN")
     telegram_owner_chat_id: int = Field(0, alias="TELEGRAM_OWNER_CHAT_ID")
     # false / 0 — не поднимать бота даже если токен задан
@@ -541,7 +542,7 @@ class Settings(BaseSettings):
 
     @property
     def telegram_active(self) -> bool:
-        """Нужен ли живой Telegram-бот (поллинг + уведомления)."""
+        """Deprecated: подсистема Telegram удалена, оставлено для совместимости."""
         if not self.telegram_enabled:
             return False
         return bool((self.telegram_bot_token or "").strip())

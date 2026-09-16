@@ -1,12 +1,11 @@
 # Массовое создание видео — как это работает
 
-Документ для русскоязычного пользователя. Описывает массовый режим (`/mass` в
-боте) и его связь с одиночным режимом.
+Документ для русскоязычного пользователя. Описывает массовый режим пакетов (batches) и его связь с одиночным режимом.
 
 > **Главный принцип:** массовый режим запускает **те же самые** step-функции
 > из `app/orchestrator/steps/*.py`, что и одиночный. Разница только в том,
-> **кто принимает решение** между шагами: в одиночном — человек кнопками в
-> Telegram, в массовом — GPT-проверка или auto-rules (`auto_mode=True`).
+> **кто принимает решение** между шагами: в одиночном — оператор в Web Studio,
+> в массовом — GPT-проверка или auto-rules (`auto_mode=True`).
 >
 > Если массовый «делает что-то не так, чего одиночный не делает» —
 > это **баг**, а не by-design.
@@ -17,8 +16,8 @@
 
 ```
                       ┌─────────────────────────────┐
-                      │  Telegram /mass             │
-                      │  ⚙ Настройки массовой       │
+                      │  Web Studio / Batches API   │
+                      │  ⚙ Настройки пакета         │
                       │  📝 Темы (topics.xlsx)      │
                       │  📦 Постоянный продукт      │
                       └──────────────┬──────────────┘
@@ -229,10 +228,8 @@ loop из `bot.py`. **Починено в Block A (`single-mass parity #1, #2`).
 именованы под старый продукт). Sub'ы из `batch.meta["product_late_subs"]`
 сохранены как ID — посмотри их и при необходимости пересоздай вручную.
 
-### «`/mass` крашится при старте бота»
-Проверь `python -c "import app.telegram.bot"`. Если ImportError — то
-`mass_menu.py` или `batches.py` сломаны (например, не хватает функции,
-которую импортирует `bot.py`).
+### «Ошибка при создании или запуске пакета»
+Проверь логи бэкенда в `data/backend.log` или в терминале Studio. Убедись, что файл `topics.xlsx` корректен и валиден по структуре, а в `.env` корректно указаны API ключи моделей.
 
 ---
 
@@ -243,8 +240,7 @@ maybe_auto_advance(session, project, bot)         # auto_advance.py
   ├─ if project.status.endswith("_ready") and project.auto_mode:
   │    ├─ _apply_approve(...)                      # auto_advance.py
   │    │    ├─ hero parity (Block A #1, #2)
-  │    │    ├─ enrich_slots_count cap (Block A #3)
-  │    │    └─ hide HITL buttons (Block A #5)
+  │    │    └─ enrich_slots_count cap (Block A #3)
   │    └─ set project.status = next *_running
   └─ pipeline.advance_project(...) — next call worker
 
@@ -260,7 +256,6 @@ serial_tick_batches(session)                       # auto_advance.py
 
 - Полный flow одиночного: `app/orchestrator/pipeline.py::advance_project`
 - Полный flow auto-mode: `app/orchestrator/auto_advance.py::maybe_auto_advance`
-- HITL-логика (callback'и кнопок ✅/🔁/❌): `app/telegram/bot.py`
+- Реестр шагов и зависимостей: `app/orchestrator/pipeline_steps.py`
 - Hero parity: `app/orchestrator/steps/generate_hero.py`
-- Settings menu: `app/telegram/mass_menu.py::mass_settings_kb`,
-  обработчики `mass:settings:`, `mass:tog:`, `mass:setnum:` в `app/telegram/bot.py`
+- Управление пакетами (Batches API & Studio Factory): `app/services/batches.py`, `app/services/mass_factory.py`, `app/web/routers/batches.py`
