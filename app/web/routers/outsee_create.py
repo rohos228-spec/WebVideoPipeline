@@ -517,7 +517,7 @@ async def enhance_prompt_endpoint(req: EnhancePromptRequest) -> dict[str, Any]:
         "Output ONLY the final enhanced prompt text without any introductory text, quotes, or markdown codeblocks."
     )
 
-    # 1. Попытка через основной текстовый LLM (OpenAI / TokenRouter Kimi / Vibecode)
+    # 1. Попытка через основной текстовый LLM (OpenAI / Vibecode)
     try:
         from app.services.gpt_client import ApiGptClient, gpt_text_via_api
 

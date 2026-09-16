@@ -68,7 +68,7 @@ def test_message_text_mapping() -> None:
     assert describe_error(Exception("apikey error"))[0] == "gpt_model_unauthorized"
     assert describe_error(Exception("model not register: gpt-5.6"))[0] == "gpt_model_unsupported"
     assert describe_error(Exception("нет JSON vp.check.v1 в ответе"))[0] == "check_no_json"
-    assert describe_error(Exception("grsai moderation: violation"))[0] == "media_moderation"
+    assert describe_error(Exception("outsee moderation: violation"))[0] == "media_moderation"
     assert describe_error(FileNotFoundError("нет файла"))[0] == "file_missing"
     assert describe_error(Exception("database is locked"))[0] == "infra_db_locked"
 

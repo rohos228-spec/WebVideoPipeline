@@ -1055,7 +1055,7 @@ class MediaCall(Base):
     created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
     project_id: Mapped[int | None] = mapped_column(index=True, default=None)
     node_key: Mapped[str] = mapped_column(String(120), default="adhoc")
-    provider: Mapped[str] = mapped_column(String(40))  # outsee|grsai|elevenlabs
+    provider: Mapped[str] = mapped_column(String(40))  # outsee|minimax|kie|elevenlabs
     kind: Mapped[str] = mapped_column(String(20))  # image|video|music|tts
     model: Mapped[str] = mapped_column(String(120), default="")
     units: Mapped[float] = mapped_column(default=0.0)

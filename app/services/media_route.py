@@ -1,4 +1,4 @@
-"""Per-model media backend: Outsee vs Grsai vs kie Kling.
+"""Per-model media backend: Outsee vs kie Kling.
 
 Глобальные IMAGE_PROVIDER / VIDEO_PROVIDER остаются дефолтом для прочих
 моделей. Жёстко:
@@ -60,7 +60,7 @@ def image_provider_for(model_slug: str | None) -> str:
     cid = canonical_media_id(model_slug)
     if cid in OUTSEE_IMAGE_IDS:
         return "outsee"
-    return (getattr(settings, "image_provider", None) or "grsai").strip().lower() or "grsai"
+    return (getattr(settings, "image_provider", None) or "outsee").strip().lower() or "outsee"
 
 
 def video_provider_for(model_slug: str | None) -> str:
@@ -69,4 +69,4 @@ def video_provider_for(model_slug: str | None) -> str:
         return "kie"
     if cid in OUTSEE_VIDEO_IDS:
         return "outsee"
-    return (getattr(settings, "video_provider", None) or "grsai").strip().lower() or "grsai"
+    return (getattr(settings, "video_provider", None) or "outsee").strip().lower() or "outsee"

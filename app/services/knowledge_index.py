@@ -82,7 +82,7 @@ def _tags_for(rel: str, text: str) -> list[str]:
         "gpt": ("gpt_workspace", "gpt_api", "gpt_client"),
         "xlsx": ("xlsx", "plan_sheet", "row_", "r48"),
         "mass": ("mass_factory", "mass_creation", "/mass", "batch"),
-        "outsee": ("outsee", "create", "grsai"),
+        "outsee": ("outsee", "create"),
         "asr": ("whisper", "asr", "assemble", "montage", "parakeet"),
         "agent": ("agent_map", "agents.md", "operator_bible"),
     }

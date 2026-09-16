@@ -56,18 +56,18 @@ async def test_patch_image_and_video_generator(client) -> None:
 
     r2 = await c.patch(
         f"/api/projects/{pid}",
-        json={"image_generator": "nano_banana_2", "video_generator": "seedance_2"},
+        json={"image_generator": "nano_banana_2", "video_generator": "veo_3_1_lite"},
     )
     assert r2.status_code == 200, r2.text
     body = r2.json()
     assert body["image_generator"] == "nano_banana_2"
-    assert body["video_generator"] == "seedance_2"
+    assert body["video_generator"] == "veo_3_1_lite"
 
     async with factory() as session:
         p = await session.get(Project, pid)
         assert p is not None
         assert p.image_generator == "nano_banana_2"
-        assert p.video_generator == "seedance_2"
+        assert p.video_generator == "veo_3_1_lite"
 
 
 @pytest.mark.asyncio
@@ -97,6 +97,11 @@ async def test_patch_unknown_generators_rejected(client) -> None:
     assert r2.status_code == 400
     r3 = await c.patch(f"/api/projects/{pid}", json={"video_generator": "not_a_model"})
     assert r3.status_code == 400
+    # Удаленные Grsai-опции тоже отклоняются.
+    r4 = await c.patch(f"/api/projects/{pid}", json={"video_generator": "seedance_2"})
+    assert r4.status_code == 400
+    r5 = await c.patch(f"/api/projects/{pid}", json={"video_generator": "sora_2"})
+    assert r5.status_code == 400
 
     async with factory() as session:
         p = await session.get(Project, pid)

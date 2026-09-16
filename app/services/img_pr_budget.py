@@ -53,7 +53,7 @@ def image_prompt_budget(project: Any) -> tuple[int, str, str]:
     (``resolve_node_media_settings`` → ``image_provider_for``): иначе промты
     писались бы под один лимит, а отправлялись в другой.
     """
-    provider = "grsai"
+    provider = "outsee"
     try:
         from app.generation_options import IMAGE_GENERATORS_BY_ID
         from app.services.media_route import image_provider_for

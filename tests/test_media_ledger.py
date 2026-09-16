@@ -92,12 +92,12 @@ async def test_null_price_means_unpriced(session, monkeypatch, tmp_path) -> None
     """usd_per_unit: null — «цена неизвестна», а не «бесплатно»."""
     prices = tmp_path / "media_prices.json"
     prices.write_text(
-        json.dumps({"models": {"grsai:sora-2": {"unit": "second", "usd_per_unit": None}}}),
+        json.dumps({"models": {"outsee:veo-3-1-lite": {"unit": "second", "usd_per_unit": None}}}),
         encoding="utf-8",
     )
     monkeypatch.setattr(media_ledger, "_PRICES_PATH", prices)
 
-    await media_ledger.record(provider="grsai", kind="video", model="sora-2", units=10.0)
+    await media_ledger.record(provider="outsee", kind="video", model="veo-3-1-lite", units=10.0)
 
     rows = await _rows(session)
     assert rows[0].unpriced is True
@@ -142,7 +142,7 @@ async def test_accounting_context_supplies_project_and_node(session) -> None:
     from app.services.llm_override import LlmAccountingContext, use_accounting
 
     with use_accounting(LlmAccountingContext(project_id=7, node_key="n_img")):
-        await media_ledger.record(provider="grsai", kind="image", model="gpt-image-2", units=1.0)
+        await media_ledger.record(provider="outsee", kind="image", model="gpt-image-2", units=1.0)
 
     rows = await _rows(session)
     assert rows[0].project_id == 7

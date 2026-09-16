@@ -85,14 +85,13 @@ async def test_api_without_token_is_refused(env) -> None:
 
 #: Инструменты владельца, которые участник видеть не должен. `/api/fleet`
 #: запускает команды на машинах парка, `/api/db` листает базу напрямую,
-#: `/api/text-llm` и `/api/grsai` ходят к провайдерам мимо кассы,
+#: `/api/text-llm` ходит к провайдерам мимо кассы,
 #: `/api/prompts` правит промты платформы сразу для всех.
 OWNER_TOOLS = (
     "/api/fleet/nodes",
     "/api/db/overview",
     "/api/text-llm",
     "/api/text-llm/catalog",
-    "/api/grsai/status",
     "/api/prompts",
     "/api/prompt-files/global-active",
     "/api/library/items",

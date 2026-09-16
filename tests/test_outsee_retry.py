@@ -95,7 +95,6 @@ async def test_video_content_policy_keeps_start_frame(monkeypatch, tmp_path: Pat
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
     monkeypatch.setattr(mod, "sleep_cancellable", no_sleep)
-    monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
     monkeypatch.setattr("app.bots.outsee_http.outsee_api_configured", lambda: False)
 
     result = await mod.generate_video_with_retries(
@@ -222,7 +221,6 @@ async def test_generate_image_rewrite_after_moderation_stops_duplicate_retries(
         return body
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
-    monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
 
     with pytest.raises(OutseeContentRejectedError):
         await mod.generate_image_with_retries(
@@ -270,7 +268,6 @@ async def test_plain_image_error_moderation_banner_failfast(monkeypatch) -> None
         return body
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
-    monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
 
     with pytest.raises(OutseeImageError):
         await mod.generate_image_with_retries(
@@ -357,7 +354,6 @@ async def test_image_download_error_retries_download_only(monkeypatch, tmp_path:
         return body
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
-    monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
 
     result = await mod.generate_image_with_retries(
         FakeOutsee(),
@@ -403,7 +399,6 @@ async def test_image_download_exhaustion_does_not_regenerate(monkeypatch, tmp_pa
         return body
 
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
-    monkeypatch.setattr("app.bots.grsai.grsai_key_configured", lambda: False)
 
     with pytest.raises(OutseeDownloadError):
         await mod.generate_image_with_retries(

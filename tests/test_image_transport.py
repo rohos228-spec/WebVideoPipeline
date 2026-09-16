@@ -1,7 +1,7 @@
 """При HTTP-провайдере картинок шаги не требуют Chrome.
 
 На сервере Chrome нет (Dockerfile), и `IMAGE_PROVIDER=minimax`. Проверка «есть
-ли HTTP-провайдер» знала про grsai и outsee, но не про MiniMax — его добавили
+ли HTTP-провайдер» знала про outsee, но не про MiniMax — его добавили
 позже. Шаг героев открывал браузерную сессию безусловно и падал на
 `Connect call failed ('127.0.0.1', 29229)`. Найдено живым прогоном 2026-08-26.
 """
@@ -19,7 +19,6 @@ def _minimax(monkeypatch, on: bool) -> None:
     monkeypatch.setattr(settings, "image_provider", "minimax" if on else "outsee")
     monkeypatch.setattr(settings, "minimax_api_key", "sk-проба" if on else "")
     # Остальные провайдеры выключены, чтобы проверять именно MiniMax.
-    monkeypatch.setattr(settings, "grsai_api_key", "", raising=False)
     monkeypatch.setattr(settings, "outsee_api_key", "", raising=False)
 
 
@@ -30,7 +29,6 @@ def test_minimax_counts_as_http(monkeypatch) -> None:
 
 def test_no_provider_means_browser(monkeypatch) -> None:
     _minimax(monkeypatch, False)
-    monkeypatch.setattr("app.bots.grsai.grsai_enabled", lambda: False)
     monkeypatch.setattr("app.bots.outsee_http.outsee_api_enabled_for_image", lambda: False)
     monkeypatch.setattr("app.bots.outsee_http.outsee_api_configured", lambda: False)
     assert http_image_primary() is False
@@ -88,10 +86,23 @@ def test_no_step_keeps_its_own_copy_of_the_check() -> None:
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1] / "app"
-    pattern = re.compile(r"grsai(_video)?_enabled\(\)\s*or\s*outsee_api_enabled_for_(image|video)\(\)")
+    pattern = re.compile(r"grsai(_video)?_enabled\(\)")
     offenders = [
         str(f.relative_to(root.parent))
         for f in root.rglob("*.py")
-        if f.name != "image_transport.py" and pattern.search(f.read_text(encoding="utf-8"))
+        if pattern.search(f.read_text(encoding="utf-8"))
     ]
-    assert not offenders, f"собственная проверка HTTP-провайдера вместо image_transport: {offenders}"
+    assert not offenders, f"остатки проверок Grsai-провайдера: {offenders}"
+    own_copy = re.compile(r"outsee_api_enabled_for_(image|video)\(\)")
+    allowed = {
+        "app/services/image_transport.py",
+        "app/bots/outsee_http.py",
+        "app/web/routers/outsee_http.py",
+    }
+    copies = [
+        str(f.relative_to(root.parent))
+        for f in root.rglob("*.py")
+        if str(f.relative_to(root.parent)).replace("\\", "/") not in allowed
+        and own_copy.search(f.read_text(encoding="utf-8"))
+    ]
+    assert not copies, f"собственная проверка HTTP-провайдера вместо image_transport: {copies}"
