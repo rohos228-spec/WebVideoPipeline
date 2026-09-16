@@ -686,31 +686,13 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
 
 
 async def _await_background_tasks(tasks: list[asyncio.Task]) -> None:
-    """Держит процесс живым, пока работают фоновые задачи.
+    """Ожидание фоновых задач сервисов (uvicorn, worker, sync, reconcile).
 
-    Web-only (без Telegram): worker + uvicorn + sync — бесконечные петли.
-    `gather` ждёт все сразу и не отменяет их, если одна «тихо» завершилась
-    (что случалось с uvicorn при FIRST_COMPLETED → UI сразу падал).
-
-    С Telegram: когда поллинг завершился — гасим остальное (старое поведение).
+    Работаем, пока живы сервисы (или пока не прилетит Ctrl+C / SIGTERM).
     """
     if not tasks:
         return
-    if settings.web_enabled and not settings.telegram_active:
-        await asyncio.gather(*tasks)
-        return
-    # FIRST_COMPLETED, а не FIRST_EXCEPTION: воркер ловит исключения внутри
-    # петли; FIRST_EXCEPTION ждал бы вечно, если поллинг завершится штатно.
-    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-    for t in pending:
-        t.cancel()
-    for t in pending:
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await t
-    for t in done:
-        exc = t.exception()
-        if exc is not None:
-            raise exc
+    await asyncio.gather(*tasks)
 
 
 async def _startup_maintenance() -> None:
