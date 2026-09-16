@@ -66,11 +66,7 @@ def set_img_streams_meta(project: Project, streams: int) -> int:
 
 
 def image_provider_key() -> str:
-    """Ключ семафора: grsai | outsee."""
-    from app.bots.grsai import grsai_enabled
-
-    if grsai_enabled():
-        return "grsai"
+    """Ключ семафора: outsee."""
     return "outsee"
 
 

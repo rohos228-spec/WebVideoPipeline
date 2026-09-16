@@ -12,13 +12,12 @@ def _reset_create_jobs(
     monkeypatch,
     *,
     outsee: int = 2,
-    grsai: int = 10,
+    minimax: int = 10,
 ) -> None:
     from app.services import create_jobs as cj
 
-    monkeypatch.setattr(cj.settings, "create_max_parallel", max(outsee, grsai))
+    monkeypatch.setattr(cj.settings, "create_max_parallel", max(outsee, minimax))
     monkeypatch.setattr(cj.settings, "create_max_parallel_outsee", outsee)
-    monkeypatch.setattr(cj.settings, "create_max_parallel_grsai", grsai)
     cj._JOBS.clear()
     cj._SEMS.clear()
     cj._SEM_SIZES.clear()
@@ -131,12 +130,12 @@ async def test_enqueue_respects_max_parallel_and_unique_ids(tmp_path: Path, monk
 
 
 @pytest.mark.asyncio
-async def test_outsee_and_grsai_use_separate_pools(tmp_path: Path, monkeypatch) -> None:
+async def test_outsee_and_minimax_use_separate_pools(tmp_path: Path, monkeypatch) -> None:
     from app.services import create_jobs as cj
     from app.services import generation_storage as gs
 
     monkeypatch.setattr(gs.settings, "data_dir", tmp_path)
-    _reset_create_jobs(monkeypatch, outsee=1, grsai=2)
+    _reset_create_jobs(monkeypatch, outsee=1, minimax=2)
 
     gate = asyncio.Event()
 
@@ -170,11 +169,11 @@ async def test_outsee_and_grsai_use_separate_pools(tmp_path: Path, monkeypatch) 
         quote=None,
         run=slow_run,
     )
-    # grsai не должен ждать outsee-слот
+    # minimax не должен ждать outsee-слот
     g1 = await cj.enqueue_generation(
         media="image",
         model="gpt-image-2",
-        provider="grsai",
+        provider="minimax",
         prompt="g1",
         ext=".png",
         params=None,
@@ -184,17 +183,17 @@ async def test_outsee_and_grsai_use_separate_pools(tmp_path: Path, monkeypatch) 
 
     for _ in range(50):
         so = cj.queue_snapshot(provider="outsee")
-        sg = cj.queue_snapshot(provider="grsai")
+        sg = cj.queue_snapshot(provider="minimax")
         if so["running_count"] == 1 and so["waiting_count"] == 1 and sg["running_count"] == 1:
             break
         await asyncio.sleep(0.02)
     else:
         so = cj.queue_snapshot(provider="outsee")
-        sg = cj.queue_snapshot(provider="grsai")
-        pytest.fail(f"outsee={so} grsai={sg} statuses o={[o1.status, o2.status]} g={g1.status}")
+        sg = cj.queue_snapshot(provider="minimax")
+        pytest.fail(f"outsee={so} minimax={sg} statuses o={[o1.status, o2.status]} g={g1.status}")
 
     assert cj.max_parallel("outsee") == 1
-    assert cj.max_parallel("grsai") == 2
+    assert cj.max_parallel("minimax") == 2
     gate.set()
     for _ in range(100):
         if all(j.status in {"done", "failed"} for j in (o1, o2, g1)):
@@ -209,12 +208,11 @@ async def test_queue_snapshot_empty_when_idle(monkeypatch, tmp_path: Path) -> No
     from app.services import generation_storage as gs
 
     monkeypatch.setattr(gs.settings, "data_dir", tmp_path)
-    _reset_create_jobs(monkeypatch, outsee=5, grsai=10)
+    _reset_create_jobs(monkeypatch, outsee=5, minimax=10)
     snap = cj.queue_snapshot()
     assert snap["running"] == []
     assert snap["waiting"] == []
     assert snap["running_count"] == 0
     assert snap["waiting_count"] == 0
     assert snap["max_parallel_outsee"] == 5
-    assert snap["max_parallel_grsai"] == 10
     assert snap["max_parallel"] == 10

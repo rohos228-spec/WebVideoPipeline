@@ -1,14 +1,14 @@
 """GPT текстом через HTTP API (OpenAI-совместимый `/v1/chat/completions`).
 
 Замена браузерного ChatGPT (CDP) для excel_gpt / проверочных нод:
-  * без Playwright/Chrome — прямой httpx-запрос к шлюзу (GRSAI / OpenAI-совм.);
+  * без Playwright/Chrome — прямой httpx-запрос к шлюзу (OpenAI-совм.);
   * полная обработка ошибок: 401/403 (ключ), 429 (лимит, ретрай), 5xx/сеть/таймаут
     (ретрай с экспоненциальной паузой), пустой/битый ответ;
   * приложенные файлы (xlsx/txt) сворачиваются в текстовый контекст;
   * скачивание/копирование контента: `download_content` тянет файл по URL,
     `collect_result_urls` достаёт ссылки из ответа модели.
 
-Настройки — `settings.gpt_*` (ключ/база можно переиспользовать из GRSAI_*).
+Настройки — `settings.gpt_*`.
 """
 
 from __future__ import annotations
@@ -353,7 +353,7 @@ def _headers() -> dict[str, str]:
                 context={"error_kind": "no_key", "provider": "vibecode"},
             )
         raise GptApiError(
-            "GPT_API_KEY пуст (и GRSAI_API_KEY тоже) — задай ключ в .env",
+            "GPT_API_KEY пуст — задай ключ в .env",
             context={"error_kind": "no_key", "provider": "kie"},
         )
     headers = {
@@ -1262,7 +1262,7 @@ def _raise_http_status(
         low = body_text.lower()
         hint = ""
         if "apikey error" in low:
-            hint = f" — ключ не авторизован на модель {use_model!r} (добавь модель в whitelist ключа grsai)"
+            hint = f" — ключ не авторизован на модель {use_model!r} (добавь модель в whitelist ключа)"
         elif "model not register" in low or "not register" in low:
             hint = f" — модель {use_model!r} не существует у провайдера (проверь GPT_MODEL)"
         raise GptApiError(
@@ -2600,7 +2600,7 @@ async def _chat_unscoped(
         )
 
     # П.16-17: брейкер per-провайдер. Ключ — реальный текстовый провайдер
-    # (kie/vibecode/grsai), а не модель: лежит шлюз, не модель.
+    # (kie/vibecode), а не модель: лежит шлюз, не модель.
     #
     # …но не только шлюз: у одного шлюза транспорты живут независимо. Живой
     # прогон 2026-08-31: vibecode отдавал 502 на `/v1/messages` (формат

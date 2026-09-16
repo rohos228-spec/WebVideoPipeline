@@ -128,18 +128,15 @@ def _job_fingerprint(
 
 
 def max_parallel(provider: str | None = None) -> int:
-    """Лимит одновременных Create-jobs для провайдера (outsee=5, grsai=10)."""
+    """Лимит одновременных Create-jobs для провайдера (outsee=5)."""
     p = (provider or "").strip().lower()
     fallback = int(getattr(settings, "create_max_parallel", 5) or 5)
     if p == "outsee":
         n = int(getattr(settings, "create_max_parallel_outsee", fallback) or fallback)
-    elif p == "grsai":
-        n = int(getattr(settings, "create_max_parallel_grsai", fallback) or fallback)
     else:
         # Сводка без фильтра: верхняя граница среди известных провайдеров.
         n = max(
             int(getattr(settings, "create_max_parallel_outsee", fallback) or fallback),
-            int(getattr(settings, "create_max_parallel_grsai", fallback) or fallback),
             fallback,
         )
     return max(1, min(n, _MAX_PARALLEL_CAP))
@@ -192,7 +189,6 @@ def queue_snapshot(*, provider: str | None = None) -> dict[str, Any]:
     return {
         "max_parallel": max_parallel(provider),
         "max_parallel_outsee": max_parallel("outsee"),
-        "max_parallel_grsai": max_parallel("grsai"),
         "running_count": len(running),
         "waiting_count": len(waiting),
         "total_active": len(active),

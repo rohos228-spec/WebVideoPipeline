@@ -63,52 +63,10 @@ IMAGE_GENERATORS: list[OptionChoice] = [
         "Outsee · быстрая/дешёвая Banana 2",
     ),
     OptionChoice(
-        "nano_banana_pro",
-        "+ Nano Banana Pro",
-        "nano-banana-pro",
-        "Grsai · Лучшая модель на рынке (TOP)",
-    ),
-    OptionChoice(
-        "nano_banana_fast",
-        "+ Nano Banana Fast",
-        "nano-banana-fast",
-        "Grsai · быстрый Nano Banana",
-    ),
-    OptionChoice(
-        "nano_banana",
-        "+ Nano Banana",
-        "nano-banana",
-        "Grsai · быстрая и точная",
-    ),
-    OptionChoice(
         "gpt_image_2_vip",
         "+ GPT Image 2",
         "gpt-image-2-vip",
         "Outsee · GPT Image 2 (до 4K)",
-    ),
-    OptionChoice(
-        "seedream_4_5",
-        "Seedream 4.5",
-        "seedream-4.5",
-        "Outsee · TikTok Seedream 4K",
-    ),
-    OptionChoice(
-        "seedream_5_0_lite",
-        "Seedream 5.0 Lite",
-        "seedream-5-lite",
-        "Outsee · Seedream 5 Lite",
-    ),
-    OptionChoice(
-        "seedream_5_pro",
-        "Seedream 5 Pro",
-        "seedream-5-pro",
-        "Outsee · Seedream 5 Pro",
-    ),
-    OptionChoice(
-        "gpt_image_1_5",
-        "GPT Image 1.5",
-        "gpt-image-1.5",
-        "Outsee · GPT Image 1.5",
     ),
 ]
 
@@ -134,7 +92,6 @@ ASPECT_RATIOS: list[OptionChoice] = [
 IMAGE_RESOLUTIONS: list[OptionChoice] = [
     OptionChoice("1k", "1K", "1K", "1K — компактное разрешение"),
     OptionChoice("2k", "2K", "2K", "2K — стандартное разрешение"),
-    OptionChoice("3k", "3K", "3K", "3K — Seedream 5 Lite"),
     OptionChoice("4k", "4K", "4K", "4K — максимальное качество"),
 ]
 
@@ -144,12 +101,6 @@ IMAGE_RESOLUTIONS_BY_GENERATOR: dict[str, tuple[str, ...]] = {
     "minimax_image_01": ("1k",),
     "nano_banana_2": ("1k", "2k", "4k"),
     "nano_banana_2_lite": ("1k", "2k"),
-    "nano_banana_pro": ("1k", "2k", "4k"),
-    "nano_banana_fast": ("1k", "2k"),
-    "nano_banana": ("1k", "2k"),
-    "seedream_4_5": ("2k", "4k"),
-    "seedream_5_0_lite": ("2k", "3k"),
-    "seedream_5_pro": ("1k", "2k"),
     "gpt_image_1_5": ("2k",),
     "gpt_image_2": ("1k",),
     "gpt_image_2_vip": ("1k", "2k", "4k"),
@@ -195,7 +146,7 @@ def clamp_image_resolution_id(
     rid = (resolution_id or "2k").lower()
     if rid in allowed:
         return rid
-    order = ("1k", "2k", "3k", "4k")
+    order = ("1k", "2k", "4k")
     try:
         want = order.index(rid) if rid in order else order.index("2k")
     except ValueError:
@@ -207,82 +158,16 @@ def clamp_image_resolution_id(
 
 VIDEO_GENERATORS: list[OptionChoice] = [
     OptionChoice(
-        "sora_2",
-        "+ Sora 2",
-        "sora-2",
-        "Grsai · OpenAI Sora 2 (10/15с, звук)",
-    ),
-    OptionChoice(
         "veo_3_1_lite",
         "+ Veo 3.1 Lite",
         "veo-3-1-lite",
         "Outsee · Veo 3.1 Lite",
     ),
     OptionChoice(
-        "veo_3_1_fast",
-        "+ Veo 3.1 Fast",
-        "veo-3-1-fast",
-        "Grsai · veo3.1-fast",
-    ),
-    OptionChoice(
-        "veo_3_fast",
-        "+ Veo 3 Fast",
-        "veo-3-fast",
-        "Grsai · alias veo3.1-fast (исторический id)",
-    ),
-    OptionChoice(
-        "kling_3",
-        "Kling 3.0",
-        "kling-3-0",
-        "Новейшая Kling (TOP). Гибкая длительность, нативное аудио, мультишот",
-    ),
-    OptionChoice(
         "kling_2_6",
         "Kling 2.6",
         "kling-2-6",
         "Kie · Kling 2.6 (KIE_API_KEY)",
-    ),
-    OptionChoice(
-        "kling_2_5_turbo",
-        "Kling 2.5 Turbo",
-        "kling-2-5-turbo",
-        "Хороший выбор для генерации по первому-последнему кадру",
-    ),
-    OptionChoice(
-        "kling_lip_sync",
-        "Kling Lip Sync",
-        "kling-lip-sync",
-        "Синхронизация губ под аудио",
-    ),
-    OptionChoice(
-        "kling_motion_2_6",
-        "Kling Motion Control 2.6",
-        "kling-motion-2-6",
-        "Контроль движения и эмоций по вашему референсу",
-    ),
-    OptionChoice(
-        "kling_motion_3_0",
-        "Kling Motion Control 3.0",
-        "kling-motion-3-0",
-        "Улучшенный контроль движения, лучшая консистентность лица",
-    ),
-    OptionChoice(
-        "seedance_2",
-        "Seedance 2",
-        "seedance-2",
-        "Лучшая видео-модель на рынке (ЭКСКЛЮЗИВ)",
-    ),
-    OptionChoice(
-        "seedance_pro_1_5",
-        "Seedance Pro 1.5",
-        "seedance-pro-1-5",
-        "Отличное соотношение цена-качество, идеально для базовых задач",
-    ),
-    OptionChoice(
-        "wan_2_6",
-        "Wan 2.6",
-        "wan-2-6",
-        "Последняя версия видео-модели от Alibaba. Универсальна",
     ),
     OptionChoice(
         "hailuo_2_3_fast",
@@ -321,7 +206,6 @@ VIDEO_RESOLUTIONS: list[OptionChoice] = [
 PROVIDER_REF_SLOTS: dict[str, int] = {
     "outsee": 2,
     "minimax": 1,
-    "grsai": 1,
 }
 
 #: Сколько слотов брать, если провайдер незнаком. Один — консервативно:
@@ -717,4 +601,3 @@ def _wizard_step_index(project: Any) -> int:
 
 def is_wizard_complete(project: Any) -> bool:
     return _wizard_step_index(project) >= len(_QUESTIONS)
-

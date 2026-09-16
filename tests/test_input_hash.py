@@ -112,7 +112,7 @@ def test_contract_fingerprint_unknown_raises():
 
 
 def test_media_fingerprint():
-    assert media_fingerprint("outsee", "img") != media_fingerprint("grsai", "img")
+    assert media_fingerprint("outsee", "img") != media_fingerprint("kie", "img")
 
 
 def test_file_content_hash_ignores_mtime(tmp_path):

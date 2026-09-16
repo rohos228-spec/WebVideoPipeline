@@ -23,7 +23,7 @@ class ErrorSpec:
 
 
 # ── Полный каталог возможных ошибок ────────────────────────────────────────
-# Ключ = стабильный код. Группы: gpt_* (текстовый API), media_* (grsai
+# Ключ = стабильный код. Группы: gpt_* (текстовый API), media_* (outsee/minimax
 # картинки/видео), file_*, check_* (vp.check.v1), pipeline_*, infra_*.
 ERROR_CATALOG: dict[str, ErrorSpec] = {
     # ── GPT текстовый API (app/services/gpt_api.py) ──
@@ -63,18 +63,18 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
     "gpt_provider_error": ErrorSpec(
         "gpt_provider_error", "GPT: ошибка провайдера", "См. текст ответа шлюза."
     ),
-    # ── Картинки/видео (app/bots/grsai.py, outsee) ──
+    # ── Картинки/видео (app/bots/outsee_http.py, minimax, kie_kling) ──
     "media_no_key": ErrorSpec(
         "media_no_key",
         "Генерация: нет ключа",
-        "Задай OUTSEE_API_KEY / GRSAI_API_KEY / KIE_API_KEY.",
+        "Задай OUTSEE_API_KEY / KIE_API_KEY.",
     ),
     "media_moderation": ErrorSpec("media_moderation", "Генерация: модерация", "Промт отклонён — смягчи."),
     "media_failed": ErrorSpec("media_failed", "Генерация не удалась", "Провайдер вернул ошибку — повтор."),
     "media_timeout": ErrorSpec("media_timeout", "Генерация: таймаут", "Долгая задача — повтори."),
     "media_download": ErrorSpec("media_download", "Скачивание не удалось", "URL результата недоступен."),
     "media_empty": ErrorSpec("media_empty", "Пустой файл результата", "Провайдер вернул пустышку."),
-    "media_auth": ErrorSpec("media_auth", "Генерация: ключ/доступ", "Проверь GRSAI/OUTSEE/KIE API ключ."),
+    "media_auth": ErrorSpec("media_auth", "Генерация: ключ/доступ", "Проверь OUTSEE/KIE API ключ."),
     "media_credits": ErrorSpec("media_credits", "Генерация: нет кредитов", "Пополни баланс провайдера."),
     "media_rate_limit": ErrorSpec(
         "media_rate_limit", "Генерация: rate limit", "Снизь параллельность, подожди."
@@ -150,12 +150,12 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
 
 
 def _is_media_error(exc: Exception, ctx: dict) -> bool:
-    """Картинка/видео (Outsee/Grsai/Kling) ≠ текстовый LLM на ноде."""
+    """Картинка/видео (Outsee/Minimax/Kling) ≠ текстовый LLM на ноде."""
     name = type(exc).__name__
-    if name in {"OutseeImageError", "KieKlingError", "GrsaiError"}:
+    if name in {"OutseeImageError", "KieKlingError"}:
         return True
     provider = str(ctx.get("provider") or "").lower()
-    return provider in {"outsee", "grsai"}
+    return provider in {"outsee", "minimax", "kie"}
 
 
 def _match_code(exc: Exception) -> str:  # noqa: C901

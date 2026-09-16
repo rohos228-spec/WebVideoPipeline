@@ -68,7 +68,7 @@ async def test_video_price_is_exact_to_the_cent(no_history, minimax) -> None:
 async def test_unpriced_provider_is_not_free(no_history) -> None:
     """Генератор без строки в прайсе не превращается в бесплатный шаг.
 
-    Тариф outsee/grsai зависит от плана владельца и в код не вписан. Пока
+    Тариф outsee/minimax/kie зависит от плана владельца и в код не вписан. Пока
     его там нет, смета обязана взять справочную величину и честно сказать,
     что она справочная, — а не показать ноль.
     """

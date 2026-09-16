@@ -57,7 +57,7 @@ class ClassifiedVideoError:
 
 
 def classify_video_error(exc: BaseException) -> ClassifiedVideoError:  # noqa: C901
-    """Единый классификатор для Outsee/Grsai/Kie ошибок видео."""
+    """Единый классификатор для Outsee/Minimax/Kie ошибок видео."""
     name = type(exc).__name__
     msg = str(exc)
     low = msg.lower()

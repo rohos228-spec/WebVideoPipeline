@@ -28,7 +28,7 @@ _MASTER = Path("prompts/05_image_prompts/default.md")
 def test_budget_follows_the_provider() -> None:
     assert budget_for_provider("minimax") == MINIMAX_IMAGE_PROMPT_MAX
     assert budget_for_provider("MiniMax") == MINIMAX_IMAGE_PROMPT_MAX
-    for other in ("grsai", "outsee", "", "unknown"):
+    for other in ("kie", "outsee", "", "unknown"):
         assert budget_for_provider(other) == OUTSEE_IMAGE_PROMPT_MAX
 
 
