@@ -30,6 +30,30 @@ export function useGlobalEvents() {
       if (type === "hitl_pending" || type === "hitl_decided") {
         qc.invalidateQueries({ queryKey: ["hitl"] });
       }
+      // Проверка шага (dry_run): статус не меняется, показываем итог сразу.
+      if (type === "step_dry_run_ok") {
+        const evtDry = evt as {
+          project_id?: number;
+          step_code?: string;
+          would_status?: string;
+          warnings?: string[];
+        };
+        const warns = Array.isArray(evtDry.warnings) ? evtDry.warnings : [];
+        const target = evtDry.would_status ? ` → ${evtDry.would_status}` : "";
+        if (warns.length > 0) {
+          toast.warning(`Проверка: будут предупреждения${target}`, {
+            description: warns.slice(0, 5).join("\n"),
+            duration: 12000,
+          });
+        } else {
+          toast.success(`Проверка пройдена${target}`, {
+            description: "Шаг готов к запуску, статус не менялся.",
+          });
+        }
+        if (evtDry.project_id != null) {
+          qc.invalidateQueries({ queryKey: ["project", evtDry.project_id] });
+        }
+      }
       // Проект остановился не из-за поломки, а из-за денег. Без явного
       // сигнала это неотличимо от зависшего шага: воркер тикает, статус не
       // меняется, интерфейс молчит — и человек идёт жаловаться вместо того,

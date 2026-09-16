@@ -8,6 +8,7 @@ import {
   Download,
   FileSpreadsheet,
   FileText,
+  ListChecks,
   Loader2,
   MessageSquareText,
   Play,
@@ -392,6 +393,20 @@ export function NodeStudio({
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
 
+  // Холостая проверка шага: итог приходит событием step_dry_run_ok
+  // (тост в use-bus). Зеркало app/web/studio_dry_run.py:FORBIDDEN_DRY_RUN_STEPS.
+  const dryRun = useMutation({
+    mutationFn: () =>
+      api.runProjectStep(projectId!, stepCode!, {
+        nodeKey: nodeKey ?? undefined,
+        dryRun: true,
+      }),
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+  const dryRunForbidden = ["hero", "items", "img", "video", "audio", "music"].includes(
+    stepCode ?? "",
+  );
+
   const reloadXlsx = useMutation({
     mutationFn: () => api.reloadProjectXlsx(projectId!),
     onSuccess: () => {
@@ -716,6 +731,23 @@ export function NodeStudio({
                       >
                         <Play className="h-3.5 w-3.5 text-amber-950 fill-current" />
                         <span>Продолжить / Доделать</span>
+                      </Button>
+                    )}
+                    {!isThisNodeRunning && !dryRunForbidden && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => dryRun.mutate()}
+                        disabled={!projectId || dryRun.isPending || nodeDisabled || !stepCode}
+                        className="gap-2 h-9 px-4 text-xs text-content-muted hover:text-content"
+                        title="Проверить, запустится ли шаг: бэкенд вернёт предупреждения, ничего не меняя"
+                      >
+                        {dryRun.isPending ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ListChecks className="h-3.5 w-3.5" />
+                        )}
+                        <span>Проверить</span>
                       </Button>
                     )}
                   </>

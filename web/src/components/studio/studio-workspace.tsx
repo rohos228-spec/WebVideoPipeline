@@ -24,6 +24,7 @@ import { shouldShowStopBar } from "@/lib/project-running";
 import { useMontageBusy } from "@/hooks/use-montage-busy";
 import { isAiControlMode } from "@/lib/control-mode";
 import { HitlModal } from "@/components/hitl/hitl-banner";
+import { VisionPauseBanner } from "@/components/hitl/vision-pause-banner";
 import { hitlKindForNodeType } from "@/components/canvas/node-hitl-badge";
 import { NodeAiReviewDialog } from "@/components/canvas/node-ai-review-dialog";
 import { isHitlNodeType } from "@/lib/gpt-text-steps";
@@ -673,6 +674,13 @@ export function StudioWorkspace({
           disabledNodes={disabledNodes}
           runStepNodeKey={effectiveNodeKey}
         />
+        {projectId != null && (
+          <div className="pointer-events-none absolute left-1/2 top-3 z-[6] w-[min(92%,34rem)] -translate-x-1/2">
+            <div className="pointer-events-auto">
+              <VisionPauseBanner projectId={projectId} />
+            </div>
+          </div>
+        )}
         {projectId && assetTray && (
           <AssetTray
             projectId={projectId}

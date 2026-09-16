@@ -70,6 +70,12 @@ export function StageFlow({ project }: { project: Project }) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Холостая проверка узла: итог приходит событием step_dry_run_ok (тост).
+  const dryRunNode = useMutation({
+    mutationFn: (n: StageNode) => api.runStep(project.id, n.step_code as string, n.id, { dryRun: true }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   if (isLoading || !data) return <Working label="читаю шаги" />;
 
   const needsIdea = !project.topic?.trim();
@@ -101,6 +107,7 @@ export function StageFlow({ project }: { project: Project }) {
           onRun={() => run.mutate(stage.id)}
           onStop={() => stop.mutate()}
           onRunNode={(n) => runNode.mutate(n)}
+          onDryRunNode={(n) => dryRunNode.mutate(n)}
           onResetNode={(n) => {
             if (confirm(`Сбросить «${n.label}» и всё, что от него зависит? Результаты сгорят.`)) resetNode.mutate(n);
           }}

@@ -87,6 +87,7 @@ export interface Project extends ProjectSummary {
   video_resolution: string | null;
   enrich_slots_count: number | null;
   generation_active: boolean;
+  meta?: Record<string, unknown> | null;
 }
 
 export interface Frame {
