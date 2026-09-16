@@ -9,6 +9,7 @@ import { saveHint, useDraft } from "@/lib/use-draft";
 import { AutoTextarea, Working } from "@/components/ui/bits";
 import { ProjectSettings } from "@/components/project-settings";
 import { StageFlow } from "@/components/stage-flow";
+import { VisionPauseBanner } from "@/components/hitl/vision-pause-banner";
 
 /** Экран ролика: идея сверху, семь шагов под ней. */
 export function ProjectView({ projectId, onDeleted }: { projectId: number; onDeleted: () => void }) {
@@ -106,6 +107,7 @@ export function ProjectView({ projectId, onDeleted }: { projectId: number; onDel
       </header>
 
       <ProjectSettings project={project} />
+      <VisionPauseBanner projectId={projectId} />
       <StageFlow project={project} />
     </div>
   );

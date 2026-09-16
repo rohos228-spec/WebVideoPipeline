@@ -43,6 +43,7 @@ export function StageCard({
   onStop,
   onRunNode,
   onResetNode,
+  onDryRunNode,
   busy,
   children,
 }: {
@@ -53,6 +54,7 @@ export function StageCard({
   onStop: () => void;
   onRunNode?: (node: StageNode) => void;
   onResetNode?: (node: StageNode) => void;
+  onDryRunNode?: (node: StageNode) => void;
   busy: boolean;
   children: ReactNode;
 }) {
@@ -92,6 +94,7 @@ export function StageCard({
                   busy={busy || running}
                   onRun={onRunNode ? () => onRunNode(n) : undefined}
                   onReset={onResetNode ? () => onResetNode(n) : undefined}
+                  onDryRun={onDryRunNode ? () => onDryRunNode(n) : undefined}
                 />
               ))}
             </ul>
@@ -142,21 +145,31 @@ export function StageCard({
   );
 }
 
-/** Узел внутри стадии: точка состояния, имя, и по наведению — запуск/сброс. */
+/** Узел внутри стадии: точка состояния, имя, и по наведению — запуск/сброс/проверка. */
 function NodeRow({
   node,
   busy,
   onRun,
   onReset,
+  onDryRun,
 }: {
   node: StageNode;
   busy: boolean;
   onRun?: () => void;
   onReset?: () => void;
+  onDryRun?: () => void;
 }) {
   const dot = node.disabled ? "bg-border-strong" : (NODE_DOT[node.state] ?? "bg-border-strong");
   const canRun = Boolean(onRun && node.step_code && !node.disabled && node.state !== "running");
   const canReset = Boolean(onReset && node.step_code && (node.state === "done" || node.state === "failed"));
+  // Зеркало app/web/studio_dry_run.py:FORBIDDEN_DRY_RUN_STEPS.
+  const canDryRun = Boolean(
+    onDryRun &&
+      node.step_code &&
+      !node.disabled &&
+      node.state !== "running" &&
+      !["hero", "items", "img", "video", "audio", "music"].includes(node.step_code),
+  );
   return (
     <li className={`group flex items-center gap-1.5 text-[12px] ${node.disabled ? "text-content-faint line-through" : "text-content-muted"}`}>
       <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} />
@@ -164,11 +177,21 @@ function NodeRow({
       {node.price_micro > 0 && !node.disabled && (
         <span className="font-mono text-[11px] text-content-faint">{credits(node.price_credits)}</span>
       )}
-      {(canRun || canReset) && (
+      {(canRun || canReset || canDryRun) && (
         <span className="hidden gap-1 group-hover:inline-flex">
           {canRun && (
             <button onClick={onRun} disabled={busy} className="text-[11px] text-accent hover:underline disabled:opacity-40">
               {node.state === "done" ? "заново" : "запустить"}
+            </button>
+          )}
+          {canDryRun && (
+            <button
+              onClick={onDryRun}
+              disabled={busy}
+              title="Проверить, запустится ли шаг (ничего не меняя)"
+              className="text-[11px] text-content-faint hover:text-accent disabled:opacity-40"
+            >
+              проверить
             </button>
           )}
           {canReset && (

@@ -399,5 +399,6 @@ export type BusEvent =
   | { type: "project_deleted"; project_id: number }
   | { type: "hitl_pending"; project_id: number; hitl_id: number; kind: string }
   | { type: "hitl_decided"; project_id: number; hitl_id: number; decision: string; kind: string }
+  | { type: "step_dry_run_ok"; project_id: number; step_code?: string; would_status?: string; current_status?: string; warnings?: string[] }
   | { type: "log"; run_id: number; level: string; line: string }
   | (Record<string, unknown> & { type: string });

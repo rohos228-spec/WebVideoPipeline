@@ -145,10 +145,12 @@ export const api = {
   //
   // Стадия — свёртка нескольких шагов. Когда нужен один из них — «перегенери
   // только промты картинок», — стадия целиком означала бы платить за всё.
-  runStep: (id: number, stepCode: string, nodeKey?: string) =>
+  runStep: (id: number, stepCode: string, nodeKey?: string, opts?: { dryRun?: boolean }) =>
     post<Project>(
-      `/projects/${id}/steps/${stepCode}/run${nodeKey ? `?node_key=${encodeURIComponent(nodeKey)}` : ""}`,
+      `/projects/${id}/steps/${stepCode}/run${nodeKey ? `?node_key=${encodeURIComponent(nodeKey)}` : ""}${opts?.dryRun ? `${nodeKey ? "&" : "?"}dry_run=true` : ""}`,
     ),
+  visionDecision: (id: number, action: "more_rounds" | "accept_pending") =>
+    post<Project>(`/projects/${id}/vision-decision`, { action }),
   /** Сброс шага и всего, что от него зависит. Необратим — спрашивайте. */
   resetStep: (id: number, stepCode: string) => post<Project>(`/projects/${id}/steps/${stepCode}/reset`),
 

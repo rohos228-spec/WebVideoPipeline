@@ -1335,6 +1335,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  visionDecision: (projectId: number, action: "more_rounds" | "accept_pending") =>
+    http<ProjectDetail>(`/api/projects/${projectId}/vision-decision`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    }),
 
   // ── Prompts ──────────────────────────────────────────────────────
   listPrompts: () => http<PromptDTO[]>(`/api/prompts`),
