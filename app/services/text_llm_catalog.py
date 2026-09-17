@@ -96,6 +96,14 @@ CATALOG: list[dict[str, str]] = [
         "site": "vibecode.moe",
         "api_model": "gpt-5.5",
     },
+    {
+        "id": "gpt-6-astra-vibecode",
+        "provider": "vibecode",
+        "group": "OpenAI",
+        "label": "GPT 6 Astra",
+        "site": "vibecode.moe",
+        "api_model": "gpt-6-astra",
+    },
     # Google
     {
         "id": "gemini-3.1-pro-vibecode",
@@ -106,12 +114,12 @@ CATALOG: list[dict[str, str]] = [
         "api_model": "gemini-3.1-pro-preview",
     },
     {
-        "id": "gemini-3-flash-vibecode",
+        "id": "gemini-3.8-flash-vibecode",
         "provider": "vibecode",
         "group": "Google",
-        "label": "Gemini 3 Flash",
+        "label": "Gemini 3.8 Flash",
         "site": "vibecode.moe",
-        "api_model": "gemini-3-flash-preview",
+        "api_model": "gemini-3.8-flash",
     },
     # xAI
     {
@@ -156,6 +164,8 @@ _MODEL_ALIASES = {
     "claude-fable-5-vibecode": "claude-fable-5-vibecode",
     "gpt-5.5": "gpt-5.5-vibecode",
     "gpt-5.5-vibecode": "gpt-5.5-vibecode",
+    "gpt-6-astra": "gpt-6-astra-vibecode",
+    "gpt-6-astra-vibecode": "gpt-6-astra-vibecode",
     "gpt-5.6-sol": "gpt-5.6-sol-vibecode",
     # GPT_MODEL по умолчанию пишут через дефис — не терять дефолт .env.
     "gpt-5-6-sol": "gpt-5.6-sol-vibecode",
@@ -169,9 +179,9 @@ _MODEL_ALIASES = {
     "gemini-3.1-pro": "gemini-3.1-pro-vibecode",
     "gemini-3.1-pro-preview": "gemini-3.1-pro-vibecode",
     "gemini-3.1-pro-vibecode": "gemini-3.1-pro-vibecode",
-    "gemini-3-flash": "gemini-3-flash-vibecode",
-    "gemini-3-flash-preview": "gemini-3-flash-vibecode",
-    "gemini-3-flash-vibecode": "gemini-3-flash-vibecode",
+    "gemini-3-flash": "gemini-3.8-flash-vibecode",
+    "gemini-3.8-flash": "gemini-3.8-flash-vibecode",
+    "gemini-3.8-flash-vibecode": "gemini-3.8-flash-vibecode",
     "grok-4-6": "grok-4-6-vibecode",
     "grok-4.6": "grok-4-6-vibecode",
     "grok-4-6-vibecode": "grok-4-6-vibecode",

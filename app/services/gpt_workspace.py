@@ -1386,7 +1386,9 @@ async def ask(
                 _write_json(d / "meta.json", meta)
             else:
                 meta = _read_json(d / "meta.json", {})
-                meta["phase_detail"] = "GPT думает / генерирует ответ (ожидание до 30 мин)…"
+                meta["phase_detail"] = (
+                    "Модель генерирует ответ — обычно до 1–2 мин, рассуждающие модели дольше…"
+                )
                 meta["updated_at"] = _now()
                 _write_json(d / "meta.json", meta)
             reply = await gpt.ask_with_files(
