@@ -58,11 +58,12 @@ def minimax(monkeypatch) -> None:
 
 
 async def test_video_price_is_exact_to_the_cent(no_history, minimax) -> None:
-    """Самый дорогой шаг оказался самым предсказуемым: тариф за клип."""
+    """Цена шага известна заранее копейка в копейку: без «примерно»."""
     est = await q.quote_step(_project(), "video", frames=24)
     assert est.basis == "media"
     assert est.exact
-    assert est.median_usd == est.p90_usd == pytest.approx(0.33 * 24, abs=1e-9)
+    # Дефолт 720p (1080p убрано из опций 2026-09-17 — живой шлюз отдает 720p).
+    assert est.median_usd == est.p90_usd == pytest.approx(0.19 * 24, abs=1e-9)
 
 
 async def test_unpriced_provider_is_not_free(no_history) -> None:
