@@ -780,6 +780,10 @@ async def generate_image_with_retries(
         outsee_api_configured,
         studio_id_to_outsee_image_slug,
     )
+    from app.bots.vibecode_images import (
+        generate_image as vibecode_generate_image,
+    )
+    from app.bots.vibecode_images import vibecode_images_configured
     from app.services.media_route import image_provider_for
     from app.settings import settings as _settings
 
@@ -787,6 +791,7 @@ async def generate_image_with_retries(
     backend = image_provider_for(str(raw_slug) if raw_slug else None)
     use_outsee_api = backend == "outsee" and outsee_api_configured()
     use_minimax = backend == "minimax" and minimax_key_configured()
+    use_vibecode = backend == "vibecode" and vibecode_images_configured()
     if backend == "outsee" and not outsee_api_configured() and outsee is None:
         raise OutseeImageError(
             "OUTSEE_API_KEY пуст — GPT Image 2 / Nano Banana 2 / Veo 3.1 Lite идут через ключ Outsee",
@@ -796,6 +801,11 @@ async def generate_image_with_retries(
         raise OutseeImageError(
             "MINIMAX_API_KEY пуст — IMAGE_PROVIDER=minimax требует ключ platform.minimax.io",
             context={"error_kind": "no_key", "provider": "minimax"},
+        )
+    if backend == "vibecode" and not vibecode_images_configured():
+        raise OutseeImageError(
+            "VIBECODE_API_KEY пуст — IMAGE_PROVIDER=vibecode требует ключ vibecode.moe",
+            context={"error_kind": "no_key", "provider": "vibecode"},
         )
     last_err: OutseeImageError | None = None
     current_prompt = prompt
@@ -834,6 +844,35 @@ async def generate_image_with_retries(
                         out_path,
                         **attempt_kwargs,
                     )
+                    return result
+
+                if use_vibecode:
+                    raw_slug = attempt_kwargs.get("model_slug") or "gpt-image-2.5"
+                    result = await vibecode_generate_image(
+                        send_prompt,
+                        out_path,
+                        model_slug=str(raw_slug),
+                        project_id=pid if isinstance(pid, int) else None,
+                        gen_id=attempt_kwargs.get("gen_id"),
+                    )
+                    try:
+                        from app.services.generation_storage import write_sidecar
+
+                        write_sidecar(
+                            result.file_path,
+                            media="image",
+                            model=str(raw_slug),
+                            prompt=send_prompt,
+                            params={
+                                "project_id": pid,
+                                "gen_id": attempt_kwargs.get("gen_id"),
+                            },
+                            raw_url=result.raw_url,
+                            quote=None,
+                            provider="vibecode",
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.debug("vibecode sidecar write skipped", exc_info=True)
                     return result
 
                 if use_outsee_api:

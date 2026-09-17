@@ -91,17 +91,14 @@ async def test_one_picture_stays_visibly_cheap() -> None:
     assert format_credits(price_micro(5.625), rounding="up") == "16.88"
 
 
-async def test_default_resolution_costs_more_than_the_spec_assumes(client, monkeypatch) -> None:
-    """Разрешение по умолчанию — 1080p, а вся экономика спеки посчитана на 768P.
+async def test_default_resolution_is_cheapest_720p(client, monkeypatch) -> None:
+    """Разрешение по умолчанию — 720p: дефолт теперь самый дешёвый вариант.
 
-    Разница не косметическая: 0.33 против 0.19 за клип, то есть 23.76 кредита
-    за двадцать четыре клипа вместо 13.68. Это решение владельца, а не
-    дефект, — но оно должно быть видимым, а не всплыть в первом счёте.
-
-    Генератор задан явно: в тестовом окружении каталог генераторов не
-    разворачивается (`prompts/` вне git), и смета честно откатывается к
-    справочной величине §6.1. Проверять здесь конфигурацию машины смысла нет
-    — проверяется связь «разрешение → тариф → цена показа».
+    До актуализации каталога (2026-09-17) дефолтом был 1080p: 0.33 против
+    0.19 за клип, 23.76 против 13.68 за 24 клипа — решение владельца, но
+    оно должно было быть видимым. Теперь дефолт честный (720p), тест
+    фиксирует именно это: молчаливого возврата к дорогому дефолту
+    быть не должно.
     """
     from app.services.quote import video_unit_usd
 
@@ -123,10 +120,10 @@ async def test_default_resolution_costs_more_than_the_spec_assumes(client, monke
     project.video_resolution = "720p"
     cheaper, key_720 = video_unit_usd(project)
 
-    assert (by_default, cheaper) == (0.33, 0.19), (by_default, cheaper)
-    assert "1080P" in key_default and "768P" in key_720
-    # 24 клипа: то, что заплатит человек, против того, что написано в §6.2.
-    assert round(by_default * 24 * 3, 2) == 23.76
+    assert (by_default, cheaper) == (0.19, 0.19), (by_default, cheaper)
+    assert "768P" in key_default and "768P" in key_720
+    # 24 клипа по дефолту: столько заплатит человек.
+    assert round(by_default * 24 * 3, 2) == 13.68
     assert round(cheaper * 24 * 3, 2) == 13.68
 
 
@@ -259,8 +256,8 @@ async def test_free_steps_have_no_price_tag(client) -> None:
 async def test_each_resolution_has_its_own_price(client, monkeypatch) -> None:
     """Разрешение выбирается на шаге генерации, значит это выбор ЦЕНЫ.
 
-    720p и 1080p отличаются вдвое по деньгам. Человек, которому показали два
-    слова без цифр, выбирает не то — и узнаёт об этом из счёта.
+    Живой шлюз отдает только 720p (1080p убрано из опций 2026-09-17 —
+    была молчаливая подмена). Осталась одна опция с честной ценой.
     """
     monkeypatch.setattr(
         "app.services.vibecode_catalog.effective_video_generator_id",
@@ -270,9 +267,8 @@ async def test_each_resolution_has_its_own_price(client, monkeypatch) -> None:
 
     options = (await client.get("/api/projects/1/steps/video/options")).json()
     by_id = {o["id"]: o for o in options}
-    assert set(by_id) == {"720p", "1080p"}
+    assert set(by_id) == {"720p"}
     assert by_id["720p"]["price_credits"] == "13.68"
-    assert by_id["1080p"]["price_credits"] == "23.76"
     assert by_id["720p"]["exact"] is True
 
 

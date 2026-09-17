@@ -43,6 +43,7 @@ TEXT_MODEL_ALIASES = {
 IMAGE_MODEL_TO_GENERATOR: dict[str, str] = {
     "gpt-image-2": "gpt_image_2_vip",
     "gpt-image-2-vip": "gpt_image_2_vip",
+    "gpt-image-2.5": "gpt_image_2_5",
     "nano-banana": "nano_banana",
     "nano-banana-2": "nano_banana_2",
     "nano-banana-pro": "nano_banana_pro",

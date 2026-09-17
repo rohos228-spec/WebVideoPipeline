@@ -56,6 +56,9 @@ RUN npm ci --no-audit --no-fund
 
 COPY web/ ./
 # STUDIO_VERSION читает next.config.ts, чтобы показать версию сборки в углу.
+# Kie-модели Create (Flux/Seedream/Kling/Suno) за флагом: без него UI их не
+# запрашивает вовсе (outsee-create-workspace: KIE_CREATE_ENABLED).
+ENV NEXT_PUBLIC_KIE_CREATE=1
 RUN npm run build && test -d out || (echo "next build не создал out/ — проверьте output: export" && exit 1)
 
 

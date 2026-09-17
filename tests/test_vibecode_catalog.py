@@ -175,8 +175,8 @@ def test_resolve_node_media_settings_from_images_node() -> None:
 
     media = resolve_node_media_settings(_Proj(), node_type="images")
     assert media["image_generator_id"] == "gpt_image_2_vip"
-    assert media["resolution_id"] == "4k"
-    assert media["resolution_slug"] == "4K"
+    assert media["resolution_id"] == "2k"
+    assert media["resolution_slug"] == "2K"
     assert media["aspect_slug"] == "9:16"
     assert media["quality_slug"] == "Высокое"
 

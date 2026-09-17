@@ -15,7 +15,7 @@
     "сверено 2026-08-22. Общий ключ модели без @variant — тариф по",
     "умолчанию конвейера (1080P, 6 с).",
     "",
-    "outsee / grsai: тарифы зависят от плана владельца и меняются —",
+    "outsee: тарифы зависят от плана владельца и меняются —",
     "вносит владелец, выдумывать их в коде нельзя.",
     "",
     "ElevenLabs: ставка за символ ОДИНАКОВА на всех self-serve планах",
@@ -30,6 +30,14 @@
     "outsee:gpt-image-2": {
       "unit": "item",
       "usd_per_unit": null
+    },
+    "outsee:gpt-image-2-vip": {
+      "unit": "item",
+      "usd_per_unit": null
+    },
+    "vibecode:gpt-image-2.5": {
+      "unit": "item",
+      "usd_per_unit": 0.019683
     },
     "outsee:nano-banana": {
       "unit": "item",
@@ -60,58 +68,6 @@
       "usd_per_unit": null
     },
     "outsee:veo-3-fast": {
-      "unit": "second",
-      "usd_per_unit": null
-    },
-    "grsai:gpt-image-2": {
-      "unit": "item",
-      "usd_per_unit": null
-    },
-    "grsai:gpt-image-2-vip": {
-      "unit": "item",
-      "usd_per_unit": null
-    },
-    "grsai:nano-banana": {
-      "unit": "item",
-      "usd_per_unit": null
-    },
-    "grsai:nano-banana-2": {
-      "unit": "item",
-      "usd_per_unit": null
-    },
-    "grsai:nano-banana-2-lite": {
-      "unit": "item",
-      "usd_per_unit": null
-    },
-    "grsai:nano-banana-fast": {
-      "unit": "item",
-      "usd_per_unit": null
-    },
-    "grsai:nano-banana-pro": {
-      "unit": "item",
-      "usd_per_unit": null
-    },
-    "grsai:nano-banana-pro-vt": {
-      "unit": "item",
-      "usd_per_unit": null
-    },
-    "grsai:sora-2": {
-      "unit": "second",
-      "usd_per_unit": null
-    },
-    "grsai:sora2-portrait": {
-      "unit": "second",
-      "usd_per_unit": null
-    },
-    "grsai:sora2-landscape": {
-      "unit": "second",
-      "usd_per_unit": null
-    },
-    "grsai:veo3.1-fast": {
-      "unit": "second",
-      "usd_per_unit": null
-    },
-    "grsai:veo3.1-pro": {
       "unit": "second",
       "usd_per_unit": null
     },

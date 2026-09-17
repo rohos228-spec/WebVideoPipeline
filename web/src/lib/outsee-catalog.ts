@@ -165,48 +165,6 @@ export const OUTSEE_IMAGE_MODELS: OutseeImageModel[] = [
     defaults: { aspectRatio: "16:9", imageResolution: "2K" },
   },
   {
-    slug: "nano-banana-2-lite",
-    studioId: "nano_banana_2_lite",
-    displayName: "Nano Banana 2 Lite",
-    description: "Google Gemini 3.1 Lite · быстрая генерация.",
-    icon: `${OUTSEE_ORIGIN}/imagemobilepreview/1.jpg`,
-    price: "1.5",
-    chips: ["aspect", "resolution", "image-input"],
-    defaults: { aspectRatio: "16:9", imageResolution: "1K" },
-  },
-  {
-    slug: "nano-banana-fast",
-    studioId: "nano_banana_fast",
-    displayName: "Nano Banana Fast",
-    description: "Google · быстрая генерация.",
-    icon: `${OUTSEE_ORIGIN}/imagemobilepreview/1.jpg`,
-    price: "1",
-    chips: ["aspect", "resolution", "image-input"],
-    defaults: { aspectRatio: "16:9", imageResolution: "1K" },
-  },
-  {
-    slug: "seedream-4.5",
-    studioId: "seedream_4_5",
-    displayName: "SeeDream 4.5",
-    description: "Продвинутая модель от TikTok. Подходит для всего. 4К.",
-    icon: `${OUTSEE_ORIGIN}/imagemobilepreview/2.jpg`,
-    price: "1.8",
-    chips: ["aspect", "resolution", "image-input"],
-    defaults: { aspectRatio: "16:9", imageResolution: "2K" },
-  },
-  {
-    slug: "seedream-5-pro",
-    studioId: "seedream_5_pro",
-    displayName: "SeeDream 5 Pro",
-    description: "Флагман Seedream. Высочайшая точность и контроль, до 10 референсов.",
-    icon: `${OUTSEE_ORIGIN}/videomobilepreview/seedance.webp`,
-    price: "от 3",
-    isTop: true,
-    isNew: true,
-    chips: ["aspect", "resolution", "image-input"],
-    defaults: { aspectRatio: "16:9", imageResolution: "2K" },
-  },
-  {
     slug: "qwen3-image",
     studioId: null,
     displayName: "Qwen Image 3",
@@ -215,16 +173,6 @@ export const OUTSEE_IMAGE_MODELS: OutseeImageModel[] = [
     price: "от 2",
     chips: ["aspect", "image-input"],
     defaults: { aspectRatio: "16:9" },
-  },
-  {
-    slug: "seedream-5-lite",
-    studioId: "seedream_5_0_lite",
-    displayName: "SeeDream 5 Lite",
-    description: "Новейшая модель Seedream. Быстрая генерация в высоком качестве.",
-    icon: `${OUTSEE_ORIGIN}/imagemobilepreview/2.jpg`,
-    price: "2",
-    chips: ["aspect", "resolution", "image-input"],
-    defaults: { aspectRatio: "16:9", imageResolution: "2K" },
   },
   {
     slug: "gpt-image-2",
@@ -241,11 +189,22 @@ export const OUTSEE_IMAGE_MODELS: OutseeImageModel[] = [
     slug: "gpt-image-2-vip",
     studioId: "gpt_image_2_vip",
     displayName: "GPT Image 2 VIP",
-    description: "OpenAI GPT Image · высокое разрешение до 4K.",
+    description: "OpenAI GPT Image · точный рендеринг текста.",
     icon: `${OUTSEE_ORIGIN}/videomobilepreview/gptimage.webp`,
     price: "от 0.06",
     chips: ["aspect", "resolution", "image-input"],
     defaults: { aspectRatio: "16:9", imageResolution: "2K" },
+  },
+  {
+    slug: "gpt-image-2.5",
+    studioId: "gpt_image_2_5",
+    displayName: "GPT Image 2.5",
+    description: "Vibecode · GPT Image 2.5 (1K).",
+    icon: `${OUTSEE_ORIGIN}/videomobilepreview/gptimage.webp`,
+    price: "от 0.06",
+    isNew: true,
+    chips: ["aspect", "resolution", "image-input"],
+    defaults: { aspectRatio: "16:9", imageResolution: "1K" },
   },
   {
     slug: "topaz-image-upscale",
@@ -259,47 +218,12 @@ export const OUTSEE_IMAGE_MODELS: OutseeImageModel[] = [
     chips: [],
     defaults: {},
   },
-  {
-    slug: "nano-banana",
-    studioId: "nano_banana",
-    displayName: "Nano Banana",
-    description: "Google · быстрая и точная.",
-    icon: `${OUTSEE_ORIGIN}/imagemobilepreview/1.jpg`,
-    price: "1.2",
-    chips: ["aspect", "resolution", "image-input"],
-    defaults: { aspectRatio: "16:9", imageResolution: "1K" },
-  },
-  {
-    slug: "gpt-image-1.5",
-    studioId: "gpt_image_1_5",
-    displayName: "GPT Image 1.5",
-    description: "Outsee · флагман OpenAI.",
-    icon: `${OUTSEE_ORIGIN}/videomobilepreview/gptimage.webp`,
-    price: "3",
-    chips: ["aspect", "resolution", "image-input"],
-    defaults: { aspectRatio: "16:9", imageResolution: "2K" },
-  },
 ];
 
 /**
  * Порядок picker video = Object.values(o) type=video !hidden.
  */
 export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
-  {
-    slug: "seedance-1-5-pro",
-    studioId: "seedance_pro_1_5",
-    displayName: "Seedance 1.5 Pro",
-    description: "Отличный выбор цена — качество, идеален для базовых задач.",
-    icon: `${OUTSEE_ORIGIN}/videomobilepreview/seedance.webp`,
-    price: "от 3.5",
-    chips: ["aspect", "resolution", "duration", "audio", "image-input"],
-    defaults: { aspectRatio: "16:9", resolution: "720p", duration: 4, generateAudio: false },
-    nn: {
-      resolutions: ["480p", "720p"],
-      durations: [4, 8, 12],
-      aspectRatios: ["1:1", "21:9", "4:3", "3:4", "16:9", "9:16"],
-    },
-  },
   {
     slug: "grok-imagine-video-1.5",
     studioId: null,
@@ -314,22 +238,6 @@ export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
       resolutions: ["480p", "720p"],
       durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
       aspectRatios: ["16:9", "9:16", "1:1", "3:2", "2:3"],
-    },
-  },
-  {
-    slug: "seedance-2-0-global",
-    studioId: "seedance_2",
-    displayName: "Seedance 2",
-    description: "Лучшая видео-модель на рынке.",
-    icon: `${OUTSEE_ORIGIN}/videomobilepreview/seedance.webp`,
-    price: "от 20",
-    isTop: true,
-    chips: ["aspect", "resolution", "duration", "image-input"],
-    defaults: { aspectRatio: "16:9", resolution: "720p", duration: 5 },
-    nn: {
-      resolutions: ["720p", "1080p", "4k"],
-      durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      aspectRatios: ["16:9", "9:16", "4:3", "3:4", "1:1", "21:9"],
     },
   },
   {
@@ -386,21 +294,6 @@ export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
     },
   },
   {
-    slug: "kling-3-0",
-    studioId: "kling_3",
-    displayName: "Kling 3.0",
-    description: "Новейшая модель Kling. Гибкая длительность, нативное аудио, мультишот.",
-    icon: `${OUTSEE_ORIGIN}/videomobilepreview/kling.webp`,
-    price: "от 16",
-    chips: ["aspect", "resolution", "duration", "audio", "image-input"],
-    defaults: { aspectRatio: "16:9", resolution: "1080p", duration: 5, generateAudio: false },
-    nn: {
-      resolutions: ["720p", "1080p", "4k"],
-      durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-      aspectRatios: ["16:9", "9:16", "1:1"],
-    },
-  },
-  {
     slug: "kling-3-0-turbo",
     studioId: null,
     displayName: "Kling 3.0 Turbo",
@@ -432,21 +325,6 @@ export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
     },
   },
   {
-    slug: "kling-2-5-turbo",
-    studioId: "kling_2_5_turbo",
-    displayName: "Kling 2.5 Turbo",
-    description: "Хороший выбор для генерации по первому — последнему кадру.",
-    icon: `${OUTSEE_ORIGIN}/videomobilepreview/kling.webp`,
-    price: "от 8",
-    chips: ["aspect", "resolution", "duration", "image-input"],
-    defaults: { aspectRatio: "16:9", resolution: "1080p", duration: 5 },
-    nn: {
-      resolutions: ["720p", "1080p"],
-      durations: [5, 10],
-      aspectRatios: [], // image-to-video only — aspect chip есть в registry, options пустые
-    },
-  },
-  {
     slug: "happyhorse-1-0",
     studioId: null,
     displayName: "HappyHorse 1.0",
@@ -464,42 +342,6 @@ export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
     },
   },
   {
-    slug: "kling-lip-sync",
-    studioId: "kling_lip_sync",
-    displayName: "Kling Lip Sync",
-    description: "Синхронизация губ под аудио.",
-    icon: `${OUTSEE_ORIGIN}/videomobilepreview/kling.webp`,
-    price: "3/с",
-    advanced: true,
-    chips: ["resolution"],
-    defaults: { aspectRatio: "16:9", resolution: "720p" },
-    nn: { resolutions: ["720p", "1080p"], durations: [1], aspectRatios: [] },
-  },
-  {
-    slug: "kling-3-0-motion-control",
-    studioId: "kling_motion_3_0",
-    displayName: "Motion Control 3.0",
-    description: "Улучшенный контроль движения. Лучшая консистентность лица.",
-    icon: `${OUTSEE_ORIGIN}/videomobilepreview/kling.webp`,
-    price: "3/с",
-    advanced: true,
-    chips: ["orientation", "quality"],
-    defaults: { aspectRatio: "16:9", motionQuality: "std" },
-    nn: { resolutions: ["std", "pro"], durations: [1], aspectRatios: [] },
-  },
-  {
-    slug: "kling-motion-control",
-    studioId: "kling_motion_2_6",
-    displayName: "Motion Control 2.6",
-    description: "Kling 2.6 · контроль движения и эмоций по вашему референсу.",
-    icon: `${OUTSEE_ORIGIN}/videomobilepreview/kling.webp`,
-    price: "2/с",
-    advanced: true,
-    chips: ["orientation", "quality"],
-    defaults: { aspectRatio: "16:9", motionQuality: "std" },
-    nn: { resolutions: ["std", "pro"], durations: [1], aspectRatios: [] },
-  },
-  {
     slug: "topaz-video-upscale",
     studioId: null,
     displayName: "Topaz Video Upscale",
@@ -510,23 +352,6 @@ export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
     chips: [],
     defaults: {},
     nn: { resolutions: ["1080p", "4k"], durations: [1], aspectRatios: [] },
-  },
-  // hidden alias veo-3-fast → same as lite UI
-  {
-    slug: "veo-3-fast",
-    studioId: "veo_3_fast",
-    displayName: "Veo 3 Fast",
-    description: "Google · Veo 3.1 Fast.",
-    icon: `${OUTSEE_ORIGIN}/videomobilepreview/google.webp`,
-    price: "от 0.4",
-    hidden: true,
-    chips: ["aspect", "duration"],
-    defaults: { aspectRatio: "16:9", duration: 8 },
-    nn: {
-      resolutions: ["720p", "1080p"],
-      durations: [8],
-      aspectRatios: ["portrait", "landscape"],
-    },
   },
 ];
 
@@ -683,7 +508,7 @@ export function getImageModel(slug: string): OutseeImageModel {
 export function getVideoModel(slug: string): OutseeVideoModel {
   return (
     OUTSEE_VIDEO_MODELS.find((m) => m.slug === slug) ??
-    OUTSEE_VIDEO_MODELS.find((m) => m.slug === "kling-3-0")!
+    OUTSEE_VIDEO_MODELS.find((m) => m.slug === "veo-3-1-lite")!
   );
 }
 
@@ -695,7 +520,7 @@ export function studioIdToSlug(studioId: string | null | undefined, kind: Outsee
   if (!studioId) {
     if (kind === "image") return "gpt-image-2";
     if (kind === "audio") return "suno-5-5";
-    return "kling-3-0";
+    return "veo-3-1-lite";
   }
   if (kind === "audio") return studioId.replace(/_/g, "-");
   const list = kind === "image" ? OUTSEE_IMAGE_MODELS : OUTSEE_VIDEO_MODELS;

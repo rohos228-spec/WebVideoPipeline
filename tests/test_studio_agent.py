@@ -415,10 +415,10 @@ async def test_unknown_resolution_never_reaches_the_step(db) -> None:
 
 
 async def test_video_options_tool_shows_both_prices(db, monkeypatch) -> None:
-    """Агент обязан показать обе цены, а не назвать два слова.
+    """Агент обязан показать актуальную цену, а не цифру из головы.
 
-    Выбор между 720p и 1080p — это выбор вдвое разной суммы; без цифр он
-    делается вслепую.
+    Живой шлюз отдает только 720p — опция одна с честной ценой; лишних
+    «дешевых» вариантов быть не должно.
     """
     monkeypatch.setattr(
         "app.services.vibecode_catalog.effective_video_generator_id",
@@ -429,7 +429,7 @@ async def test_video_options_tool_shows_both_prices(db, monkeypatch) -> None:
     async with db() as s:
         result = await call_tool(s, "videoOptions", {"project_id": 1})
     prices = {o["id"]: o["price_credits"] for o in result["options"]}
-    assert prices == {"720p": "13.68", "1080p": "23.76"}
+    assert prices == {"720p": "13.68"}
 
 
 # ── честность реплики: обещание без действия, контекст ролика ─────────────
