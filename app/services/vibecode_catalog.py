@@ -34,7 +34,7 @@ TEXT_MODEL_ALIASES = {
     "gpt-5-6-terra": "gpt-5.6-terra",
     "gpt-5-6-luna": "gpt-5.6-luna",
     "gemini-3.1-pro": "gemini-3.1-pro-preview",
-    "gemini-3-flash": "gemini-3-flash-preview",
+    "gemini-3-flash": "gemini-3.8-flash",
     "claude-fable-5-1": "claude-fable-5",
     "claude-fable-5.1": "claude-fable-5",
     "grok-4.6": "grok-4-6",

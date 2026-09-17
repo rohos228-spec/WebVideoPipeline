@@ -103,3 +103,56 @@ def test_baseline_downgrade_refuses(tmp_path: Path) -> None:
     mod = importlib.import_module("migrations.versions.0001_baseline")
     with pytest.raises(NotImplementedError):
         mod.downgrade()
+
+
+def test_managed_db_missing_late_tables_is_healed(tmp_path: Path) -> None:
+    """База на head без llm_calls/work_leases (модели добавились после baseline).
+
+    Регрессия 2026-09-17: таблицы появились в models.py после 0001, миграции
+    под них не было — stamp+upgrade их не создавал, INSERT падал
+    `no such table: llm_calls`, учёт уходил в очередь на дозапись.
+    """
+    from alembic import command
+
+    from app.db_migrations import alembic_config
+
+    db = tmp_path / "nollm.db"
+    upgrade_to_head_sync(db)
+    assert _revision(db) == "0014"
+
+    cfg = alembic_config()
+    cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
+    from sqlalchemy import create_engine
+
+    # Состояние базы заказчика: ревизия 0013, таблиц llm_calls/work_leases нет
+    # (модели добавились после baseline, миграции не было).
+    engine = create_engine(f"sqlite+pysqlite:///{db}", future=True)
+    try:
+        with engine.begin() as conn:
+            cfg.attributes["connection"] = conn
+            command.downgrade(cfg, "0013")
+    finally:
+        engine.dispose()
+    assert _revision(db) == "0013"
+    assert "llm_calls" not in _tables(db)
+    assert "work_leases" not in _tables(db)
+
+    upgrade_to_head_sync(db)
+
+    assert _revision(db) == "0014"
+    tables = _tables(db)
+    assert "llm_calls" in tables
+    assert "work_leases" in tables
+    # Запись тут же проходит — исходный симптом закрыт.
+    con = sqlite3.connect(db)
+    try:
+        con.execute(
+            "INSERT INTO llm_calls (created_at, node_key, logical_call_id, model,"
+            " served_model, relay, endpoint, cost_usd, result, error_kind,"
+            " unbilled, contract_rejected, prompt_version_hash, response_id,"
+            " duration_ms) VALUES (datetime('now'), 'adhoc', 't', 'm', '', '',"
+            " 'chat', 0.0, 'ok', '', 0, 0, '', '', 0)"
+        )
+        con.commit()
+    finally:
+        con.close()

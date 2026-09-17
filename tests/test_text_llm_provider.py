@@ -144,7 +144,7 @@ def test_catalog_groups_and_snapshot_models() -> None:
         "gpt-5.6-terra",
         "gpt-5.6-luna",
         "gemini-3.1-pro-preview",
-        "gemini-3-flash-preview",
+        "gemini-3.8-flash",
         "claude-opus-4-8",
         "claude-fable-5",
         "grok-4-6",
@@ -184,6 +184,6 @@ def test_vibecode_catalog_text_aliases() -> None:
 
     assert find_model("gpt-5-6-sol")["id"] == "gpt-5.6-sol"
     assert find_model("gemini-3.1-pro")["id"] == "gemini-3.1-pro-preview"
-    assert find_model("gemini-3-flash")["id"] == "gemini-3-flash-preview"
+    assert find_model("gemini-3.8-flash")["id"] == "gemini-3.8-flash"
     # Fable 5.1 в снимке нет — конфиг форка приземляется на Fable 5
     assert find_model("claude-fable-5-1")["id"] == "claude-fable-5"

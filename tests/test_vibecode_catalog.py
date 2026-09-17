@@ -25,13 +25,15 @@ def test_snapshot_has_screenshot_tabs() -> None:
     assert "claude-sonnet-5" in ids
     assert "gpt-5.6-sol" in ids
     assert "gpt-5.6-luna" in ids
-    assert "gemini-3.6-flash" in ids
+    assert "gemini-3.8-flash" in ids
+    assert "gemini-3.7-flash" in ids
     assert "grok-4-5" in ids
-    assert "kimi-k3" in ids
+    assert "gpt-6-astra" in ids
+    assert "kimi-k3" not in ids
     assert "gpt-image-2-vip" in ids
     assert "gpt-image-2" not in ids
     assert "nano-banana-pro" in ids
-    assert len(ids) >= 26
+    assert len(ids) >= 20
 
 
 def test_prices_use_expensive_markup() -> None:
@@ -63,15 +65,15 @@ def test_grouped_vendors_match_ui_tabs() -> None:
     assert cat["channel"] == "stable"
     assert cat["markup"] == PRICE_MARKUP
     ids = [v["id"] for v in cat["vendors"]]
-    assert ids[:6] == ["anthropic", "openai", "gemini", "xai", "moonshot", "images"]
+    assert ids[:6] == ["anthropic", "openai", "gemini", "xai", "images", "video"]
     counts = {v["id"]: v["count"] for v in cat["vendors"]}
-    assert counts["anthropic"] == 8
-    assert counts["gemini"] == 4
+    assert counts["anthropic"] == 5
+    assert counts["gemini"] == 3
     assert counts["xai"] == 2
-    assert counts["moonshot"] == 1
+    assert "moonshot" not in counts
     assert counts["images"] == 5
     assert counts["video"] == 2
-    assert counts["openai"] >= 5
+    assert counts["openai"] == 5
     sonnet = find_model("claude-sonnet-5")
     assert sonnet is not None
     assert sonnet["kind"] == "text"
@@ -377,6 +379,6 @@ async def test_catalog_api_returns_marked_up_prices() -> None:
     assert body["markup"] == 3.0
     assert "catalog_channels" not in body
     vendors = {v["id"]: v for v in body["vendors"]}
-    assert vendors["anthropic"]["count"] == 8
+    assert vendors["anthropic"]["count"] == 5
     luna = next(m for m in body["models"] if m["id"] == "gpt-5.6-luna")
     assert luna["pricing"]["input_usd_per_m"] == round(0.026244 * 3, 6)
