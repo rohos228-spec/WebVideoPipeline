@@ -25,19 +25,20 @@ def test_outsee_image_model_slugs_match_live_ui() -> None:
     expected = {
         "gpt_image_2_vip": "gpt-image-2-vip",
         "nano_banana_2": "nano-banana-2",
-        "nano_banana_2_lite": "nano-banana-2-lite",
-        "minimax_image_01": "image-01",
     }
     for gid, slug in expected.items():
         assert IMAGE_GENERATORS_BY_ID[gid].outsee_slug == slug
+    # Убраны из опций (нет в живом /api/v1/models): подмены быть не должно.
+    for gid in ("nano_banana_2_lite", "nano_banana_pro", "nano_banana_fast"):
+        assert gid not in IMAGE_GENERATORS_BY_ID, gid
 
 
 def test_gpt_image_2_resolutions() -> None:
     assert allowed_image_resolution_ids("gpt_image_2") == ("1k",)
-    assert allowed_image_resolution_ids("gpt_image_2_vip") == ("1k", "2k", "4k")
+    assert allowed_image_resolution_ids("gpt_image_2_vip") == ("1k", "2k")
     assert clamp_image_resolution_id("gpt_image_1_5", "4k") == "2k"
-    assert clamp_image_resolution_id("nano_banana_2_lite", "4k") == "2k"
-    assert "4k" in IMAGE_RESOLUTIONS_BY_GENERATOR["nano_banana_2"]
+    assert clamp_image_resolution_id("nano_banana_2", "4k") == "2k"
+    assert "4k" not in IMAGE_RESOLUTIONS_BY_GENERATOR["nano_banana_2"]
 
 
 def test_prompt_too_long_banner_is_length() -> None:

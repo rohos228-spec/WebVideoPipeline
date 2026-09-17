@@ -20,6 +20,12 @@ OUTSEE_IMAGE_IDS = frozenset(
         "nano-banana-2-lite",
     }
 )
+# Модели шлюза vibecode (картинки идут через app/bots/vibecode_images.py).
+VIBECODE_IMAGE_IDS = frozenset(
+    {
+        "gpt-image-2.5",
+    }
+)
 OUTSEE_VIDEO_IDS = frozenset(
     {
         "veo-3-1-lite",
@@ -60,6 +66,8 @@ def image_provider_for(model_slug: str | None) -> str:
     cid = canonical_media_id(model_slug)
     if cid in OUTSEE_IMAGE_IDS:
         return "outsee"
+    if cid in VIBECODE_IMAGE_IDS:
+        return "vibecode"
     return (getattr(settings, "image_provider", None) or "outsee").strip().lower() or "outsee"
 
 

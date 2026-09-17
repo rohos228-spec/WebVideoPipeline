@@ -71,7 +71,10 @@ import {
   kieMainTextField,
 } from "@/lib/kie-pricing";
 
-const KIE_CREATE_ENABLED = process.env.NEXT_PUBLIC_KIE_CREATE === "1";
+// Kie-каталог включен по умолчанию; выключить: NEXT_PUBLIC_KIE_CREATE=0.
+// (Сравнение с "1" ломалось: Next компилировал флаг в runtime-доступ
+// к process.env вместо baked-значения, и в браузере он был выключен.)
+const KIE_CREATE_ENABLED = process.env.NEXT_PUBLIC_KIE_CREATE !== "0";
 
 type Props = {
   open: boolean;
@@ -246,12 +249,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const [mediaType, setMediaType] = useState<OutseeMediaType>("image");
   const [feedKind, setFeedKind] = useState<OutseeFeedKind>("all");
   const [imageSlug, setImageSlug] = useState("gpt-image-2");
-  const [videoSlug, setVideoSlug] = useState("kling-3-0");
+  const [videoSlug, setVideoSlug] = useState("veo-3-1-lite");
   const [audioSlug, setAudioSlug] = useState("suno-5-5");
   const [aspect, setAspect] = useState("16:9");
   const [resolution, setResolution] = useState("2K");
   const [detail, setDetail] = useState("medium");
-  const [videoResolution, setVideoResolution] = useState("1080p");
+  const [videoResolution, setVideoResolution] = useState("720p");
   const [duration, setDuration] = useState("5");
   const [generateAudio, setGenerateAudio] = useState(false);
   const [orientation, setOrientation] = useState<"video" | "image">("video");
@@ -357,7 +360,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     setAspect(String(s.aspect || "16:9"));
     setResolution(String(s.image_resolution || "2K"));
     setDetail(String(s.image_quality || "medium"));
-    setVideoResolution(String(s.video_resolution || "1080p"));
+    setVideoResolution(String(s.video_resolution || "720p"));
     setDuration(String(s.duration || "5"));
     const restoredVideo = rawVid;
     setGenerateAudio(
@@ -3015,7 +3018,7 @@ function ModelPickerPopover({
         (rawId.includes("gpt-image") ? iconBySlug.get("gpt-image-2") : null) ||
         (rawId.includes("seedream") ? iconBySlug.get("seedream-5-pro") : null) ||
         (rawId.includes("veo") ? iconBySlug.get("veo-3-1-lite") || iconBySlug.get("veo-3-1") : null) ||
-        (rawId.includes("kling") ? iconBySlug.get("kling-3-0") : null) ||
+        (rawId.includes("kling") ? iconBySlug.get("kling-2-6") : null) ||
         (rawId.includes("hailuo") ? iconBySlug.get("hailuo-02") : null) ||
         (rawId.includes("topaz") ? iconBySlug.get("topaz-video-upscale") || iconBySlug.get("topaz-image-upscale") : null) ||
         (rawId.includes("suno") ? iconBySlug.get("suno-5-5") : null) ||

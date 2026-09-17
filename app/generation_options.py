@@ -45,28 +45,22 @@ class OptionChoice:
 
 IMAGE_GENERATORS: list[OptionChoice] = [
     OptionChoice(
-        "minimax_image_01",
-        "+ MiniMax image-01",
-        "image-01",
-        "MiniMax · 9:16 → 720×1280, реф картинкой base64 (без файлохостингов)",
-    ),
-    OptionChoice(
         "nano_banana_2",
         "+ Nano Banana 2",
         "nano-banana-2",
         "Outsee · Nano Banana 2",
     ),
     OptionChoice(
-        "nano_banana_2_lite",
-        "+ Nano Banana 2 Lite",
-        "nano-banana-2-lite",
-        "Outsee · быстрая/дешёвая Banana 2",
-    ),
-    OptionChoice(
         "gpt_image_2_vip",
         "+ GPT Image 2",
         "gpt-image-2-vip",
-        "Outsee · GPT Image 2 (до 4K)",
+        "Outsee · GPT Image 2",
+    ),
+    OptionChoice(
+        "gpt_image_2_5",
+        "+ GPT Image 2.5",
+        "gpt-image-2.5",
+        "Vibecode · GPT Image 2.5 (1K)",
     ),
 ]
 
@@ -92,18 +86,16 @@ ASPECT_RATIOS: list[OptionChoice] = [
 IMAGE_RESOLUTIONS: list[OptionChoice] = [
     OptionChoice("1k", "1K", "1K", "1K — компактное разрешение"),
     OptionChoice("2k", "2K", "2K", "2K — стандартное разрешение"),
-    OptionChoice("4k", "4K", "4K", "4K — максимальное качество"),
 ]
 
-# Какие кнопки разрешения реально есть у модели на outsee.io/image (из UI JS).
+# Какие разрешения реально отдает API (сверено с живым /api/v1/models:
+# картинки — только 2K, поэтому 4K убран).
 IMAGE_RESOLUTIONS_BY_GENERATOR: dict[str, tuple[str, ...]] = {
-    # image-01 отдаёт фиксированные 720×1280 на 9:16 — выбирать нечего.
-    "minimax_image_01": ("1k",),
-    "nano_banana_2": ("1k", "2k", "4k"),
-    "nano_banana_2_lite": ("1k", "2k"),
+    "nano_banana_2": ("1k", "2k"),
     "gpt_image_1_5": ("2k",),
     "gpt_image_2": ("1k",),
-    "gpt_image_2_vip": ("1k", "2k", "4k"),
+    "gpt_image_2_vip": ("1k", "2k"),
+    "gpt_image_2_5": ("1k",),
 }
 
 
@@ -134,7 +126,7 @@ def is_gpt_image_generator(generator_id: str | None) -> bool:
 
 def allowed_image_resolution_ids(generator_id: str | None) -> tuple[str, ...]:
     gid = generator_id or "gpt_image_2"
-    return IMAGE_RESOLUTIONS_BY_GENERATOR.get(gid, ("2k", "4k"))
+    return IMAGE_RESOLUTIONS_BY_GENERATOR.get(gid, ("1k", "2k"))
 
 
 def clamp_image_resolution_id(
@@ -146,7 +138,7 @@ def clamp_image_resolution_id(
     rid = (resolution_id or "2k").lower()
     if rid in allowed:
         return rid
-    order = ("1k", "2k", "4k")
+    order = ("1k", "2k")
     try:
         want = order.index(rid) if rid in order else order.index("2k")
     except ValueError:
@@ -169,26 +161,14 @@ VIDEO_GENERATORS: list[OptionChoice] = [
         "kling-2-6",
         "Kie · Kling 2.6 (KIE_API_KEY)",
     ),
-    OptionChoice(
-        "hailuo_2_3_fast",
-        "Hailuo 2.3 Fast",
-        "hailuo-2-3-fast",
-        "Быстрая модель от MiniMax",
-    ),
-    OptionChoice(
-        "hailuo_2_3_pro",
-        "Hailuo 2.3 Pro",
-        "hailuo-2-3-pro",
-        "Продвинутая версия Hailuo",
-    ),
 ]
 
 
 # ---- 5. Разрешение видео ---------------------------------------------------
 
+# Живой /api/v1/models отдает только 720p — 1080p убрано (была молчаливая подмена).
 VIDEO_RESOLUTIONS: list[OptionChoice] = [
     OptionChoice("720p", "720p", "720p", "720p — HD"),
-    OptionChoice("1080p", "1080p", "1080p", "1080p — Full HD"),
 ]
 
 
@@ -288,8 +268,8 @@ DEFAULTS = {
     "aspect_ratio": "16_9",
     "image_resolution": "2k",
     "image_quality": "medium",
-    "video_generator": "veo_3_fast",
-    "video_resolution": "1080p",
+    "video_generator": "veo_3_1_lite",
+    "video_resolution": "720p",
 }
 
 

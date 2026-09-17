@@ -57,6 +57,9 @@ from app.web.routers import (
     hitl as hitl_router,
 )
 from app.web.routers import (
+    kie_create as kie_create_router,
+)
+from app.web.routers import (
     knowledge as knowledge_router,
 )
 from app.web.routers import (
@@ -369,6 +372,7 @@ def create_app() -> FastAPI:
     app.include_router(outsee_create_router.router, prefix=API_PREFIX)
     app.include_router(outsee_http_router.router, prefix=API_PREFIX)
     app.include_router(create_queue_router.router, prefix=API_PREFIX)
+    app.include_router(kie_create_router.router, prefix=API_PREFIX)
     app.include_router(gpt_workspace_router.router, prefix=API_PREFIX)
     app.include_router(text_llm_router.router, prefix=API_PREFIX)
     app.include_router(sidebar_layout_router.router, prefix=API_PREFIX)
