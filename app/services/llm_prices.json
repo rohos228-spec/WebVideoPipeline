@@ -81,6 +81,18 @@
       "input_usd_per_m": 0.393658,
       "output_usd_per_m": 2.361946
     },
+    "gemini-3.7-flash": {
+      "input_usd_per_m": 0.147622,
+      "output_usd_per_m": 0.738108
+    },
+    "gemini-3.8-flash": {
+      "input_usd_per_m": 0.147622,
+      "output_usd_per_m": 0.738108
+    },
+    "gpt-6-astra": {
+      "input_usd_per_m": 0.852925,
+      "output_usd_per_m": 4.264624
+    },
     "gemini-3.5-flash": {
       "input_usd_per_m": 0.295243,
       "output_usd_per_m": 1.771459
