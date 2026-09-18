@@ -190,6 +190,10 @@ def diagnose_apply_ops_text(text: str) -> tuple[str, dict[str, Any] | None]:
     if not raw.strip():
         return "empty_body", None
     data = extract_apply_ops_json(raw)
+    if isinstance(data, dict) and data.get("_salvaged_closed"):
+        # Провод оборвал JSON, мы его достроили: scene-поток ретраит за
+        # полными данными (частичные сцены молча не принимаем).
+        return "json_truncated", None
     if data is None:
         has_scenes_key = '"scenes"' in raw or '"characters"' in raw or '"ops"' in raw
         if has_scenes_key and raw.count("{") > raw.count("}"):
