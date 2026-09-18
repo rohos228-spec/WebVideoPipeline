@@ -34,6 +34,88 @@ def is_shot_child(frame: Any) -> bool:
     return str(_cs(frame).get("role") or "") == "shot"
 
 
+_COVERAGE_SHOT_RE = re.compile(r"^(.+)-K(\d+)$")
+
+
+def parent_still_suppressed(frame: Any) -> bool:
+    """Явная роль «родитель» на доске: still снят, кадр остаётся в VO-сцене."""
+    cs = _cs(frame)
+    raw = cs.get("use_parent_still")
+    if raw is False or str(raw).strip().lower() in {"0", "false", "no", "off"}:
+        return True
+    return str(cs.get("coverage_kind") or "").strip().lower() == "parent"
+
+
+def uses_parent_still(frame: Any) -> bool:
+    """Вешать PNG родителя в генерацию / рефы доски."""
+    if parent_still_suppressed(frame):
+        return False
+    if str(_cs(frame).get("coverage_kind") or "").strip().lower() == "child":
+        return True
+    return is_shot_child(frame)
+
+
+def coverage_shot_id(frame: Any) -> str:
+    """id шота покрытия: ``кадры[0].id`` или ``camera_subdivide.shot_id``."""
+    planned = planned_shots_from_attrs(frame)
+    if planned:
+        sid = str(planned[0].get("id") or "").strip()
+        if sid:
+            return sid
+    return str(_cs(frame).get("shot_id") or "").strip()
+
+
+def parse_coverage_shot(shot_id: str) -> tuple[str, int] | None:
+    m = _COVERAGE_SHOT_RE.match((shot_id or "").strip())
+    if not m:
+        return None
+    return m.group(1), int(m.group(2))
+
+
+def coverage_parent_shot_id(frame: Any) -> str:
+    """Родитель покрытия: явный parent_id из таблицы T/X, иначе prefix-K1."""
+    cs = _cs(frame)
+    explicit = str(cs.get("coverage_parent_id") or "").strip()
+    if explicit:
+        return explicit
+    planned = planned_shots_from_attrs(frame)
+    if planned:
+        pid = str(planned[0].get("parent_id") or "").strip()
+        if pid:
+            return pid
+    if cs.get("scene_split"):
+        return ""
+    parsed = parse_coverage_shot(coverage_shot_id(frame))
+    if parsed is None or parsed[1] < 2:
+        return ""
+    return f"{parsed[0]}-K1"
+
+
+def find_coverage_parent_frame(frames: list[Any], child: Any) -> Any | None:
+    """Still-родитель покрытия. Без роли ``coverage_kind=child`` K2/K3 берут K1 своей ячейки."""
+    if parent_still_suppressed(child):
+        return None
+    child_uid = str(getattr(child, "uuid", "") or "")
+    cs = _cs(child)
+    explicit_kind = str(cs.get("coverage_kind") or "").strip().lower() == "child"
+    if is_shot_child(child) and not explicit_kind:
+        uid = str(cs.get("parent_uuid") or "").strip()
+        if uid and uid != child_uid:
+            for fr in frames:
+                if str(getattr(fr, "uuid", "") or "") == uid:
+                    return fr
+    parent_sid = coverage_parent_shot_id(child)
+    if not parent_sid:
+        return None
+    for fr in frames:
+        if coverage_shot_id(fr) != parent_sid:
+            continue
+        if child_uid and str(getattr(fr, "uuid", "") or "") == child_uid:
+            continue
+        return fr
+    return None
+
+
 def planned_shots_from_attrs(frame: Any) -> list[dict[str, Any]]:
     """Список кадров ноды «сцены → кадры» (attrs.кадры)."""
     attrs = getattr(frame, "attrs", None)

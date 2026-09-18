@@ -18,10 +18,11 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session_scope
-from app.models import Project
+from app.models import Frame, Project
 from app.services.db_busy import is_db_busy
 from app.services.img_streams import acquire_image_slot, get_img_streams
 from app.services.montage_ai_change import rewrite_prompt_via_gpt
@@ -149,6 +150,54 @@ def order_montage_pending_ops(ops: list[dict[str, Any]]) -> list[dict[str, Any]]
     images.sort(key=_op_frame_shot)
     videos.sort(key=_op_frame_shot)
     return images + videos + other
+
+
+async def coverage_parent_map(project_id: int) -> dict[int, int | None]:
+    """frame_number → still-родитель, если кадр вешает PNG родителя."""
+    from app.services.vo_shot_expand import find_coverage_parent_frame, uses_parent_still
+
+    async with session_scope() as session:
+        frames = list(
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == int(project_id)).order_by(Frame.number.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        mapping: dict[int, int | None] = {}
+        for fr in frames:
+            num = int(fr.number)
+            if not uses_parent_still(fr):
+                mapping[num] = None
+                continue
+            parent = find_coverage_parent_frame(frames, fr)
+            if parent is None or int(parent.number) == num:
+                mapping[num] = None
+            else:
+                mapping[num] = int(parent.number)
+        return mapping
+
+
+def failed_parent_skip_reason(
+    frame: int,
+    parent_of: dict[int, int | None] | None,
+    failed_frames: set[int],
+) -> str | None:
+    """Если предок в этой пачке уже упал — ребёнка не гоняем."""
+    if not parent_of or not failed_frames:
+        return None
+    seen: set[int] = set()
+    cur = parent_of.get(int(frame))
+    while cur is not None and cur not in seen:
+        if cur == int(frame):
+            break
+        if cur in failed_frames:
+            return f"пропуск: родительский кадр {cur} не применился"
+        seen.add(cur)
+        cur = parent_of.get(cur)
+    return None
 
 
 def group_ops_by_frame(
@@ -401,6 +450,7 @@ async def _run_ops_phase(
     errors: list[str],
     on_progress: ProgressCb | None,
     phase_label: str,
+    parent_of: dict[int, int | None] | None = None,
 ) -> None:
     """Одна фаза: кадры параллельно до N; внутри кадра shot1 → shot2 строго."""
     if not phase_indices:
@@ -455,7 +505,27 @@ async def _run_ops_phase(
             if on_progress is not None:
                 await on_progress(len(results), max(total, 1), result)
 
+    def _failed_frame_set() -> set[int]:
+        out: set[int] = set()
+        for i, st in enumerate(op_status):
+            if st != "fail":
+                continue
+            fr, _ = _op_frame_shot(all_ops[i])
+            out.add(fr)
+        return out
+
     async def _frame_worker(frame: int) -> None:
+        skip = failed_parent_skip_reason(frame, parent_of, _failed_frame_set())
+        if skip:
+            logger.warning(
+                "montage apply #{} skip child frame {}: {}",
+                project_id,
+                frame,
+                skip,
+            )
+            for idx in by_frame[frame]:
+                await _finish_op(idx, False, {"ok": False, "error": skip, "op": all_ops[idx]})
+            return
         # Shot1 → shot2 строго подряд внутри кадра.
         for idx in by_frame[frame]:
             op = all_ops[idx]
@@ -532,6 +602,7 @@ async def apply_montage_board(
 
     op_status: list[str | None] = [None] * len(ops)
 
+    parent_of = await coverage_parent_map(project_id) if image_indices or video_indices else None
     await _run_ops_phase(
         project_id=project_id,
         phase_indices=image_indices,
@@ -543,6 +614,7 @@ async def apply_montage_board(
         errors=errors,
         on_progress=on_progress,
         phase_label="images",
+        parent_of=parent_of,
     )
     await _run_ops_phase(
         project_id=project_id,
@@ -555,6 +627,7 @@ async def apply_montage_board(
         errors=errors,
         on_progress=on_progress,
         phase_label="videos",
+        parent_of=parent_of,
     )
     await _run_ops_phase(
         project_id=project_id,
@@ -567,6 +640,7 @@ async def apply_montage_board(
         errors=errors,
         on_progress=on_progress,
         phase_label="other",
+        parent_of=parent_of,
     )
 
     remaining = [ops[i] for i, st in enumerate(op_status) if st != "ok"]
