@@ -1098,6 +1098,7 @@ def test_headers_include_relay_token(monkeypatch) -> None:
 
     monkeypatch.setattr(settings, "text_llm_provider", "kie")
     monkeypatch.setattr(settings, "gpt_api_key", "test-key")
+    monkeypatch.setattr(settings, "gpt_base_url", "https://gpt.example.com")
     monkeypatch.setattr(settings, "gpt_relay_token", "relay-secret")
     h = gpt_api._headers()
     assert h["Authorization"] == "Bearer test-key"
