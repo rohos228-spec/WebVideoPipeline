@@ -675,6 +675,14 @@ async def prepare_node_for_step_start(
             step_code,
         )
         return False
+    if nr.status == NodeRunStatus.failed:
+        reset_node_to_pending(nr, project_id=project.id, initiator="auto_unstick")
+        logger.info(
+            "[#{}] prepare_node_for_step_start: failed → pending {}/{}",
+            project.id,
+            nr.node_type,
+            nr.node_key,
+        )
     if nr.status == NodeRunStatus.skipped:
         if explicit_ui_start:
             # Ручной старт: включаем ноду обратно и продолжаем.
@@ -828,6 +836,27 @@ async def complete_excel_gpt_node_by_key(
             continue
         if nr.status == NodeRunStatus.done:
             return True
+        if nr.status == NodeRunStatus.failed:
+            if heal_failed_node_done(nr, project_id=project.id):
+                await session.flush()
+                await publish_node_event(
+                    run.id,
+                    event_type="node_status_changed",
+                    node_key=nr.node_key,
+                    payload={
+                        "node_type": nr.node_type,
+                        "from": "failed",
+                        "to": nr.status.value,
+                        "project_id": project.id,
+                    },
+                )
+                logger.info(
+                    "[#{}] excel_gpt NodeRun {} failed → done (slot complete before chain)",
+                    project.id,
+                    key,
+                )
+                return True
+            return False
         if nr.status == NodeRunStatus.pending:
             queue_node_for_start(nr, project_id=project.id, initiator="worker")
             start_node_running(nr, project_id=project.id, initiator="worker")

@@ -361,7 +361,27 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         await s.commit()
                 fail_counts.pop(key, None)
             except Exception:  # noqa: BLE001
-                logger.warning("step_failure_policy failed for #{}", project_id)
+                logger.exception("step_failure_policy failed for #{}", project_id)
+                try:
+                    from app.orchestrator.pipeline_steps import step_by_running_status
+                    from app.services.project_state import is_running_status
+                    from app.services.run_sync import prepare_node_for_step_start
+
+                    async with session_scope() as s:
+                        rp = await s.get(Project, project_id)
+                        if rp is not None and is_running_status(rp.status):
+                            st = step_by_running_status(rp.status)
+                            meta = rp.meta if isinstance(rp.meta, dict) else {}
+                            await prepare_node_for_step_start(
+                                s,
+                                rp,
+                                st.code if st else rp.status.value,
+                                node_key=meta.get("active_excel_gpt_node_key"),
+                                explicit_ui_start=True,
+                            )
+                            await s.commit()
+                except Exception:  # noqa: BLE001
+                    logger.exception("fallback unstick after policy fail #{}", project_id)
         finally:
             unregister_advance_task(project_id)
 

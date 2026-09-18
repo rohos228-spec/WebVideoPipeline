@@ -7,6 +7,7 @@ stream_partial, salvage ops=65, нода done. Аналитика (коротк�
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -32,6 +33,19 @@ _COMPLETE_ATTRS_DENSE = ("main_action", "shot01_description")
 _IMG_SKIP_KEYS = ("image_prompt", "промт_картинки")
 
 ApplyFn = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+def pack_call_timeout_s(footer_kind: str | None = None) -> float:
+    """Стена на одну apply-ops пачку: GPT_TIMEOUT_S, минимум 180с.
+
+    Короткие таймауты резали script/shots на больших промтах: GPT пишет
+    дольше, а обрыв превращался в ошибку вместо добора.
+    """
+    del footer_kind
+    from app.settings import settings
+
+    wall = float(getattr(settings, "gpt_timeout_s", 600.0) or 600.0)
+    return max(180.0, wall)
 
 
 def frames_per_batch(
@@ -239,15 +253,19 @@ async def run_apply_ops_batched(
             encoding="utf-8",
         )
         foot = _batch_footer(call_i, level, len(chunk))
-        res = await run_operator_api(
-            project_dir=project_dir,
-            node_key=node_key,
-            role=role,
-            output_mode=output_mode,
-            prompt=prompt,
-            accompanying=f"{accompanying}{foot}",
-            input_paths=[batch_path],
-            auto_pack=False,
+        # Стена вместо вечного зависания: таймаут уходит в split полосой выше.
+        res = await asyncio.wait_for(
+            run_operator_api(
+                project_dir=project_dir,
+                node_key=node_key,
+                role=role,
+                output_mode=output_mode,
+                prompt=prompt,
+                accompanying=f"{accompanying}{foot}",
+                input_paths=[batch_path],
+                auto_pack=False,
+            ),
+            timeout=pack_call_timeout_s(),
         )
         last_paths = list(res.output_paths or []) or [batch_path]
         replies.append(res.reply_text or "")

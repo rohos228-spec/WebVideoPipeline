@@ -4,11 +4,24 @@ from app.services.apply_ops_batches import (
     _frame_complete,
     _pending_frames,
     frames_per_batch,
+    pack_call_timeout_s,
     run_apply_ops_batched,
     select_frames_for_batches,
     should_batch_apply_ops,
     split_frames,
 )
+
+
+def test_pack_call_timeout_uses_gpt_timeout_not_90(monkeypatch) -> None:
+    """Пачку нельзя резать коротким wait_for — GPT пишет дольше."""
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "gpt_timeout_s", 600.0)
+    assert pack_call_timeout_s("bits") == 600.0
+    assert pack_call_timeout_s("shots_coverage") == 600.0
+    assert pack_call_timeout_s("prompts") == 600.0
+    monkeypatch.setattr(settings, "gpt_timeout_s", 90.0)
+    assert pack_call_timeout_s("bits") >= 180.0
 
 
 def test_dense_32_pending_stays_one_batch() -> None:
