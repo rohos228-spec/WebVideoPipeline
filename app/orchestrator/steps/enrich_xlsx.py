@@ -273,6 +273,26 @@ async def _harness_before_enrich_ready(session: AsyncSession, project: Project, 
     await harness_gate_or_raise(session, project, step="excel_gpt")
 
 
+async def _complete_excel_gpt_noderun(
+    session: AsyncSession,
+    project: Project,
+    node_key: str | None,
+    slot_idx: int,
+) -> None:
+    """NodeRun → done после успешного apply-ops, даже если Project.status уже ушел."""
+    if not node_key:
+        return
+    try:
+        from app.services.run_sync import complete_excel_gpt_node_by_key
+
+        await complete_excel_gpt_node_by_key(session, project, node_key, enrich_slot=slot_idx)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "[#{}] enrich_xlsx: complete_excel_gpt_node_by_key failed",
+            project.id,
+        )
+
+
 async def _after_excel_gpt_done(
     session: AsyncSession,
     project: Project,
@@ -1341,10 +1361,13 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         project.meta = meta
         flag_modified(project, "meta")
         await session.refresh(project)
+        # Apply-ops уже в БД: закрыть NodeRun даже если юзер нажал ▶ /
+        # ▶ другой шаг (иначе heal сотрёт overflow completed_keys).
+        await _complete_excel_gpt_noderun(session, project, node_key, slot_idx)
         # Юзер мог ▶ другой шаг (split) пока GPT enrich ещё отвечал.
         if project.status is not running_status:
             logger.warning(
-                "[#{}] enrich_xlsx slot={}: статус уже {} (ждали {}) — не пишем enrich ready (stale GPT)",
+                "[#{}] enrich_xlsx slot={}: статус уже {} (ждали {}) — не пишем enrich ready (stale GPT), NodeRun закрыт",
                 project.id,
                 slot_idx,
                 project.status.value,
@@ -1381,15 +1404,6 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                     slot_idx,
                     e,
                 )
-        try:
-            from app.services.run_sync import complete_excel_gpt_node_by_key
-
-            await complete_excel_gpt_node_by_key(session, project, node_key, enrich_slot=slot_idx)
-        except Exception:  # noqa: BLE001
-            logger.exception(
-                "[#{}] enrich_xlsx API: complete_excel_gpt_node_by_key failed",
-                project.id,
-            )
         logger.info(
             "[#{}] enrich_xlsx API done → {} gate={} files={}",
             project.id,
