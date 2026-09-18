@@ -562,3 +562,29 @@ async def test_group_from_canvas_and_reinsert(mem_db) -> None:
     copies = [n["data"]["groupId"] for n in cg2["nodes"] if (n.get("data") or {}).get("groupId")]
     assert sorted(set(copies)) == ["moya_svyazka", "moya_svyazka#2"]
     assert res2["nodes"] != res["nodes"]  # id с суффиксами
+
+
+def test_script_frames_qc_needs_upgrade_flags_stale_group() -> None:
+    """GET-guard: upgrade только пока группа в старом виде."""
+    gid = {"groupId": "script_frames_qc"}
+    stale = {
+        "canvas_graph": {
+            "workflow_id": 1,
+            "nodes": [
+                {"id": "n_excel_gpt_fw_script", "type": "excel_gpt", "position": {}, "data": gid},
+                {"id": "n_excel_gpt_fw_check_script", "type": "excel_gpt", "position": {}, "data": gid},
+                {"id": "n_excel_gpt_fw_shots", "type": "excel_gpt", "position": {}, "data": gid},
+                {"id": "n_excel_gpt_fw_qc", "type": "excel_gpt", "position": {}, "data": gid},
+                {"id": "n_excel_gpt_fw_report", "type": "excel_gpt", "position": {}, "data": gid},
+            ],
+            "edges": [
+                {"source": "n_excel_gpt_fw_script", "target": "n_excel_gpt_fw_check_script"},
+                {"source": "n_excel_gpt_fw_check_script", "target": "n_excel_gpt_fw_shots"},
+                {"source": "n_excel_gpt_fw_shots", "target": "n_excel_gpt_fw_qc"},
+                {"source": "n_excel_gpt_fw_qc", "target": "n_excel_gpt_fw_report"},
+            ],
+        }
+    }
+    assert ng.script_frames_qc_needs_upgrade(stale) is True
+    assert ng.script_frames_qc_needs_upgrade({}) is False
+    assert ng.script_frames_qc_needs_upgrade(None) is False

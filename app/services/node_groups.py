@@ -953,6 +953,59 @@ def _wire_to_storage(nodes: list[dict], edges: list[dict], new_ids: list[str]) -
     return added
 
 
+def canvas_has_script_frames_qc(project_or_meta: Any) -> bool:
+    """Группа script_frames_qc вставлена на канвас проекта."""
+    meta = project_or_meta
+    if meta is not None and not isinstance(meta, dict):
+        meta = getattr(meta, "meta", None)
+    if not isinstance(meta, dict):
+        return False
+    graph = canvas_graph_from_meta(meta)
+    if graph is None:
+        return False
+    for node in graph.get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        data = node.get("data") if isinstance(node.get("data"), dict) else {}
+        gid = str((data or {}).get("groupId") or "").split("#", 1)[0].strip()
+        if gid == "script_frames_qc":
+            return True
+    return False
+
+
+def script_frames_qc_needs_upgrade(meta: dict[str, Any] | None) -> bool:
+    """True если fw_script+fw_shots без check/action или нет shots→qc / report."""
+    if not isinstance(meta, dict) or not canvas_has_script_frames_qc(meta):
+        return False
+    graph = canvas_graph_from_meta(meta)
+    if graph is None:
+        return False
+    ids = {str(n.get("id")) for n in (graph.get("nodes") or []) if isinstance(n, dict)}
+    if "n_excel_gpt_fw_script" in ids and "n_excel_gpt_fw_shots" in ids:
+        if "n_excel_gpt_fw_check_script" not in ids or "n_excel_gpt_fw_action" not in ids:
+            return True
+    pairs = {
+        (str(e.get("source") or ""), str(e.get("target") or ""))
+        for e in (graph.get("edges") or [])
+        if isinstance(e, dict)
+    }
+    if "n_excel_gpt_fw_shots" in ids and "n_excel_gpt_fw_qc" in ids:
+        if ("n_excel_gpt_fw_shots", "n_excel_gpt_fw_qc") not in pairs:
+            return True
+    if "n_excel_gpt_fw_qc" in ids and "n_excel_gpt_fw_report" not in ids:
+        return True
+    return False
+
+
+def _forget_dropped_excel_gpt_key(meta: dict[str, Any], node_id: str) -> None:
+    """Снятая нода не должна оставаться active — иначе ▶ крутит призрак и висит."""
+    if str(meta.get("active_excel_gpt_node_key") or "").strip() == node_id:
+        meta.pop("active_excel_gpt_node_key", None)
+    keys = [str(k) for k in (meta.get("excel_gpt_completed_keys") or [])]
+    if node_id in keys:
+        meta["excel_gpt_completed_keys"] = [k for k in keys if k != node_id]
+
+
 def upgrade_script_frames_qc_graph(meta: dict[str, Any]) -> bool:
     """Вставить action+shots в старую цепь script→frames→qc. True если изменили."""
     group = _script_frames_qc_group()
