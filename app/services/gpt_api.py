@@ -310,10 +310,20 @@ def _node_vibecode_override() -> bool:
 
 
 def _override_vibecode_base_url() -> str:
-    # Не гонять vibecode через GPT_BASE_URL/VPS: старый relay часто проксирует
-    # только api.kie.ai. Тогда vibecode-ключ даёт HTTP 200 + {"code":401}
-    # без choices → «пустой output» в chat/stream.
+    """Нода/шапка vibecode: VPS /v1/* если relay задан, иначе vibecode.moe."""
+    vps = _vps_relay_base()
+    if vps:
+        return vps
     return (settings.vibecode_base_url or "https://vibecode.moe/v1").strip().rstrip("/")
+
+
+def _hitting_vps_relay() -> bool:
+    vps = _vps_relay_base()
+    if not vps:
+        return False
+    if _node_vibecode_override() or settings.text_llm_is_vibecode:
+        return _override_vibecode_base_url().rstrip("/") == vps.rstrip("/")
+    return True
 
 
 def native_tools_available(model: str | None = None) -> bool:
@@ -360,8 +370,8 @@ def _headers() -> dict[str, str]:
         "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
-    # Relay-токен только когда реально бьём в VPS (kie). На vibecode.moe не нужен.
-    if not vibe_ov and not settings.text_llm_is_vibecode:
+    # Relay-токен только когда реально бьём в VPS (kie или vibecode через relay).
+    if _hitting_vps_relay():
         relay = (getattr(settings, "gpt_relay_token", None) or "").strip()
         if relay:
             headers["X-VP-Relay-Token"] = relay
@@ -1925,6 +1935,7 @@ def parse_chat_completions_sse_lines(lines: list[str]) -> tuple[str, str, dict[s
     chunks: list[str] = []
     finish = ""
     last: dict[str, Any] = {}
+    envelope_err: GptApiError | None = None
     for raw in lines:
         line = (raw or "").strip()
         if not line.startswith("data:"):
@@ -1939,6 +1950,14 @@ def parse_chat_completions_sse_lines(lines: list[str]) -> tuple[str, str, dict[s
         if not isinstance(obj, dict):
             continue
         last = obj
+        try:
+            _check_provider_envelope(obj)
+        except GptApiError as e:
+            # ddos-guard/прокси: событие-ошибка среди чанков. Не убиваем
+            # парсинг сразу — текст из соседних чанков спасаем ниже.
+            if envelope_err is None:
+                envelope_err = e
+            continue
         choices = obj.get("choices")
         if not isinstance(choices, list) or not choices:
             continue
@@ -1958,7 +1977,10 @@ def parse_chat_completions_sse_lines(lines: list[str]) -> tuple[str, str, dict[s
         mc = msg.get("content")
         if isinstance(mc, str) and mc and not delta:
             chunks.append(mc)
-    return "".join(chunks), finish or "stop", last
+    text = "".join(chunks)
+    if envelope_err is not None and not text.strip():
+        raise envelope_err
+    return text, finish or "stop", last
 
 
 async def _chat_completions_stream(
