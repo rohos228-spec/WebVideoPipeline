@@ -16,12 +16,6 @@
 # Сужать базу можно только за счёт правок КОДА, не за счёт наличия
 # данных у вас на машине. Проверить: python3 scripts/check_prompts.py
 tests/test_audio_align_db_lock.py::test_r15_written_even_if_db_locked
-tests/test_auto_advance_parity.py::test_auto_mode_advances_without_manual_approval
-tests/test_auto_advance_parity.py::test_enrich_cap_2_skips_to_image_prompts
-tests/test_auto_advance_parity.py::test_enrich_cap_5_uses_full_chain
-tests/test_auto_advance_parity.py::test_hero_count_1_advances_to_items
-tests/test_auto_advance_parity.py::test_hero_count_2_stays_in_generating_hero
-tests/test_auto_advance_parity.py::test_hero_variations_3_stays_for_remaining_variations
 tests/test_check_analysis.py::test_check_operator_prompt_library
 tests/test_check_analysis.py::test_every_pipeline_node_type_resolves
 tests/test_check_analysis.py::test_new_step_prompts_present
