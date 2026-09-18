@@ -122,6 +122,32 @@ def test_parse_chat_completions_sse() -> None:
     assert finish == "stop"
 
 
+def test_parse_chat_sse_salvages_text_past_envelope_error() -> None:
+    """ddos-guard: событие-ошибка среди чанков не убивает текст (relay-fix)."""
+    from app.services.gpt_api import parse_chat_completions_sse_lines
+
+    lines = [
+        'data: {"code":502,"msg":"upstream_error"}',
+        'data: {"choices":[{"delta":{"content":"hi"}}]}',
+        'data: {"choices":[{"delta":{"content":"!"},"finish_reason":"stop"}]}',
+        "data: [DONE]",
+    ]
+    text, finish, _ = parse_chat_completions_sse_lines(lines)
+    assert text == "hi!"
+    assert finish == "stop"
+
+
+def test_parse_chat_sse_only_envelope_error_raises() -> None:
+    """Только ошибка без текста — кидаем её же, а не пустой output."""
+    import pytest
+
+    from app.services.gpt_api import GptApiError, parse_chat_completions_sse_lines
+
+    lines = ['data: {"code":502,"msg":"upstream_error"}', "data: [DONE]"]
+    with pytest.raises(GptApiError, match="502"):
+        parse_chat_completions_sse_lines(lines)
+
+
 def test_catalog_groups_and_snapshot_models() -> None:
     """Каждая запись каталога несёт group, а её api_model есть в снимке vibecode."""
     from app.services.text_llm_catalog import CATALOG, catalog_item
