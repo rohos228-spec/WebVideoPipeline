@@ -543,6 +543,11 @@ def extract_apply_ops_json(text: str) -> dict[str, Any] | None:
         or isinstance(closed.get("scenes"), list)
     ):
         closed["_salvaged_partial"] = True
+        # Метка именно достраивания (а не выуживания целых ops): гейт
+        # diagnose_apply_ops_text по ней отвечает json_truncated — scene-поток
+        # ретраит за полными данными, а прямые читатели extract (enrich)
+        # принимают достроенное как раньше.
+        closed["_salvaged_closed"] = True
         return closed
     return None
 
