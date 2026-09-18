@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -81,6 +82,45 @@ async def test_chat_success(monkeypatch) -> None:
     assert res.text == "привет из API"
     assert res.finish_reason == "stop"
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_cancelled_error_is_not_retryable(monkeypatch) -> None:
+    """⏹ / ▶ другой ноды: CancelledError нельзя превращать в retryable GptApiError."""
+
+    class _BoomStream:
+        status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_a):
+            return False
+
+        async def aiter_lines(self):
+            if False:
+                yield ""
+            raise asyncio.CancelledError()
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_a):
+            return False
+
+        def stream(self, *_a, **_k):
+            return _BoomStream()
+
+    monkeypatch.setattr(gpt_api, "_async_client", lambda **_k: _Client())
+    with pytest.raises(asyncio.CancelledError):
+        await gpt_api._chat_completions_stream(
+            url="http://x",
+            headers={},
+            body={},
+            timeout=10,
+            use_model="gpt",
+        )
 
 
 @pytest.mark.asyncio

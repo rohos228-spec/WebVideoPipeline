@@ -2061,6 +2061,8 @@ async def _chat_completions_stream_impl(
         except GptApiError:
             raise
         except BaseException as e:
+            if isinstance(e, (asyncio.CancelledError, KeyboardInterrupt)):
+                raise
             stream_err = e
             logger.warning(
                 "GPT(chat/stream) interrupt after {} lines: {}: {}",

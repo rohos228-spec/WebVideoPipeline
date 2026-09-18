@@ -180,9 +180,15 @@ async def get_project(project_id: int, session: AsyncSession = Depends(get_sessi
         raise HTTPException(status_code=404, detail="project not found")
     # Свежий meta (user_stop) — иначе stale recompute затирает ⏹ и снова крутит ноду.
     await session.refresh(p)
-    from app.services.node_groups import upgrade_script_frames_qc_on_project
+    from app.services.node_groups import (
+        script_frames_qc_needs_upgrade,
+        upgrade_script_frames_qc_on_project,
+    )
 
-    if await upgrade_script_frames_qc_on_project(session, p):
+    # Upgrade только если нужен: иначе poll GET со старым snapshot затирает
+    # ▶ (enriching_* + active_excel_gpt_node_key) и нода висит в «ожидании».
+    meta_now = p.meta if isinstance(p.meta, dict) else {}
+    if script_frames_qc_needs_upgrade(meta_now) and await upgrade_script_frames_qc_on_project(session, p):
         await commit_with_retry(session)
         await session.refresh(p)
     await recompute_status(session, p, log_prefix="recompute(web_get)")
@@ -517,13 +523,13 @@ async def run_project_step(
     step_code: str,
     dry_run: bool = False,
     node_key: str | None = None,
-    mode: str = Query("full", pattern="^(full|resume)$"),
+    mode: str = Query("resume", pattern="^(full|resume)$"),
     force_wipe: bool | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> Project:
     """Запустить шаг: статус → running, воркер выполнит advance_project.
-    mode='full' (по умолчанию) — полный чистый перезапуск шага с нуля (force_wipe=True).
-    mode='resume' — мягкое продолжение/доделка недостающих кадров (force_wipe=False).
+    Wipe только при явном force_wipe=true. mode=full без force_wipe — как resume
+    (старый UI слал full на каждый ▶ и сжигал выход).
     """
     p = await session.get(Project, project_id)
     if p is None:
@@ -541,7 +547,7 @@ async def run_project_step(
             payload=payload,
         )
         return p
-    resolved_force_wipe = force_wipe if force_wipe is not None else (mode != "resume")
+    resolved_force_wipe = bool(force_wipe) if force_wipe is not None else False
     try:
         await start_step(
             session,
