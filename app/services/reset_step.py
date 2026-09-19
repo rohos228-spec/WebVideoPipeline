@@ -597,14 +597,39 @@ async def _resume_img_pr(session: AsyncSession, project: Project) -> dict[str, A
 async def _resume_images(session: AsyncSession, project: Project) -> dict[str, Any]:
     """Soft ▶ img: НЕ wipe scenes/*.png — догнать только missing.
 
-    Восстанавливает PNG из ``old/scenes/`` (если scenes пуст после аварии /
-    ошибочного wipe) и регистрирует ``scene_image`` артефакты с диска.
-    Полный wipe — только через force_wipe / reset_step.
+    Регистрирует уже лежащие в ``scenes/`` PNG. Не копирует ``old/scenes``
+    обратно: иначе reset img + ▶ сразу откатывает wipe и Outsee не стартует.
+    Полный wipe — ``reset_step`` / force_wipe.
     """
-    from app.services.artifact_recovery import recover_scene_images_full
+    from app.services.artifact_recovery import recover_scene_images_from_disk
+    from app.services.scan_frames import sync_frames_with_disk_images
 
-    stats = await recover_scene_images_full(session, project)
-    return {"mode": "soft_resume", **stats}
+    recovered = await recover_scene_images_from_disk(session, project)
+    synced = await sync_frames_with_disk_images(session, project)
+    return {
+        "mode": "soft_resume",
+        "restored": 0,
+        "artifacts_registered": len(recovered),
+        "frames_synced": synced,
+        "frame_numbers": recovered,
+    }
+
+
+async def _resume_hero(session: AsyncSession, project: Project) -> dict[str, Any]:
+    """Soft ▶ hero: НЕ wipe characters/*.png — догнать только missing.
+
+    Регистрирует уже лежащие PNG. Не копирует ``old/characters`` обратно:
+    иначе reset hero + ▶ сразу откатывает wipe. Полный wipe — ``reset_step``
+    / force_wipe.
+    """
+    from app.services.artifact_recovery import recover_hero_references_from_disk
+
+    recovered = await recover_hero_references_from_disk(session, project)
+    return {
+        "mode": "soft_resume",
+        "artifacts_registered": len(recovered),
+        "excel_ids": recovered,
+    }
 
 
 def _backup_scenes_before_wipe(project: Project, scenes_dir: Path) -> int:
@@ -1018,6 +1043,7 @@ _STEP_WIPE_BY_CODE: dict[str, Any] = dict(_PIPELINE_RESET_LEVELS)
 _STEP_RERUN_BY_CODE: dict[str, Any] = {
     "script": _preserve_script_source_on_rerun,
     "split": _preserve_split_on_rerun,
+    "hero": _resume_hero,
     "img_pr": _resume_img_pr,
     "img": _resume_images,
     "anim_pr": _resume_anim_pr_from_xlsx,

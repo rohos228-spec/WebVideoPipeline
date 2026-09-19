@@ -1143,8 +1143,16 @@ async def _claim_shot1_batch(
     project: Project | None = None,
     limit: int = 1,
 ) -> list[Frame]:
-    """Забрать до ``limit`` кадров под генерацию (lease через attrs)."""
+    """Забрать до ``limit`` кадров под генерацию (lease через attrs).
+
+    Сначала K1 ячеек; K2/K3 — только когда PNG родителя уже на диске,
+    иначе параллельный батч генерит дочек без lock / в чужой сетап.
+    """
     from app.services.vision_check_loop import scene_regen_allows
+    from app.services.vo_shot_expand import (
+        find_coverage_parent_frame,
+        is_shot_child,
+    )
 
     if limit < 1:
         return []
@@ -1154,23 +1162,64 @@ async def _claim_shot1_batch(
         .all()
     )
     claimed: list[Frame] = []
-    for fr in frames:
-        if project is not None:
-            allow = scene_regen_allows(project, fr.number, 1)
-            if allow is False:
-                continue
-        if not frame_needs_shot1_image(fr, out_dir):
-            continue
-        # Этап 2 (D.3): захват — lease в _generate_frame_job, маркер
-        # img_gen_inflight больше не пишется (legacy чистится в finally).
-        if fr.status is not FrameStatus.image_prompt_ready:
-            fr.status = FrameStatus.image_prompt_ready
-        claimed.append(fr)
+    for prefer_child in (False, True):
         if len(claimed) >= limit:
             break
+        for fr in frames:
+            if fr in claimed:
+                continue
+            if project is not None:
+                allow = scene_regen_allows(project, fr.number, 1)
+                if allow is False:
+                    continue
+            if not frame_needs_shot1_image(fr, out_dir):
+                continue
+            child = is_shot_child(fr)
+            if child != prefer_child:
+                continue
+            if child:
+                parent = find_coverage_parent_frame(list(frames), fr)
+                if parent is not None and not disk_has_valid_frame_image(out_dir, int(parent.number)):
+                    continue
+            # Этап 2 (D.3): захват — lease в _generate_frame_job, маркер
+            # img_gen_inflight больше не пишется (legacy чистится в finally).
+            if fr.status is not FrameStatus.image_prompt_ready:
+                fr.status = FrameStatus.image_prompt_ready
+            claimed.append(fr)
+            if len(claimed) >= limit:
+                break
     if claimed:
         await session.flush()
     return claimed
+
+
+async def _coverage_parent_png(
+    session: AsyncSession,
+    project: Project,
+    frame: Frame,
+    out_dir: Path,
+) -> Path | None:
+    """PNG K1 ЭТОЙ ячейки — layout-lock только для K2/K3.
+
+    K1 новой VO-ячейки (даже с coverage_parent_id на другую сцену / X1)
+    не вешаем на чужой still: иначе новый кадр становится копией чужого сетапа.
+    """
+    from app.services.vo_shot_expand import (
+        find_coverage_parent_frame,
+        is_shot_child,
+    )
+
+    if not is_shot_child(frame):
+        return None
+    frames = (
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
+    parent = find_coverage_parent_frame(list(frames), frame)
+    if parent is None or int(parent.number) == int(frame.number):
+        return None
+    return find_shot1_image(out_dir, int(parent.number))
 
 
 async def _claim_shot2_batch(
@@ -1673,6 +1722,15 @@ async def _generate_and_send(
         refs: list[Path] = [shot1_reference] if shot1_reference else []
     else:
         refs = await _load_refs_for_frame(session, project, frame.number)
+        parent_png = await _coverage_parent_png(session, project, frame, out_dir)
+        if parent_png is not None:
+            from app.services.vo_shot_expand import (
+                merge_parent_scene_refs,
+                with_parent_scene_lock,
+            )
+
+            refs = merge_parent_scene_refs(parent_png, refs, max_refs=_max_refs())
+            prompt_text = with_parent_scene_lock(prompt_text, has_parent_ref=True)
     if refs:
         logger.info(
             "[#{}] frame {}: {} ref(ов) подгружено: {}",
