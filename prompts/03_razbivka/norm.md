@@ -189,12 +189,9 @@
     ],
     "correction_instruction": "Если блок не проходит проверку, исправь разбивку до финального ответа."
   },
-  "xlsx_output": {
-    "required": true,
-    "sheet": "план",
-    "row": 49,
-    "columns_start": "C",
-    "instruction": "Запиши каждый блок в строку 49 листа «план» (колонки C, D, E…). Верни обновлённый project.xlsx файлом в чат."
+  "output_format": {
+    "target": "replace_frames",
+    "instruction": "Верни JSON apply-ops c полем ops: replace_frames со списком нарезанных кадров. Не используй Excel."
   },
-  "final_instruction": "Не дроби смысл, но и не склеивай абзацы. Запиши блоки в project.xlsx (строка 49 листа «план») и верни файл. Текст в чат — только краткое подтверждение."
+  "final_instruction": "Не дроби смысл, но и не склеивай абзацы. Ответ — только JSON apply-ops."
 }
