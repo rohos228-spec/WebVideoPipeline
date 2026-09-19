@@ -90,20 +90,17 @@ class VideoRegenPrep:
 
 
 def _image_api_enabled() -> bool:
-    """Montage image: Outsee HTTP API. Chrome не используем."""
-    from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_image
+    """Montage image: HTTP API primary. Chrome не используем."""
+    from app.services.image_transport import http_image_primary
 
-    return bool(outsee_api_enabled_for_image() or outsee_api_configured())
+    return http_image_primary()
 
 
 def _video_api_enabled() -> bool:
-    """Montage video: Outsee HTTP API. Chrome не используем."""
-    from app.bots.outsee_http import outsee_api_configured, outsee_api_enabled_for_video
+    """Montage video: HTTP API primary. Chrome не используем."""
+    from app.services.image_transport import http_video_primary
 
-    return bool(
-        outsee_api_enabled_for_video()
-        or outsee_api_configured()
-    )
+    return http_video_primary()
 
 
 class _ApiOnlyOutseeStub:

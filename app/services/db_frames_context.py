@@ -9,8 +9,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.services.frame_cast import characters_needing_description, reference_character
+
 # Поля постановки кадра после scene_grammar v1.6 (whitelist — не тащим весь attrs).
 _IMG_PR_ATTR_KEYS: tuple[str, ...] = (
+    "continuity",
     "place",
     "accent",
     "scene_sense",
@@ -444,6 +447,16 @@ def build_img_pr_db_context(
             parsed = parse_coverage_shot(sid)
             if parsed is not None and parsed[1] == 1:
                 row["coverage_role"] = "parent"
+        # Кому приедет фотореференс, а кого генератор увидит только со слов.
+        # MiniMax берёт одну character-ссылку: второй герой кадра без описания
+        # внешности рисуется от лица первого (живой прогон #2, кадр 12).
+        cast_raw = picked.get("characters") or picked.get("персонажи") or ""
+        ref_cid = reference_character(cast_raw)
+        if ref_cid:
+            row["ref_character"] = ref_cid
+        needs = characters_needing_description(cast_raw)
+        if needs:
+            row["describe_appearance"] = ", ".join(needs)
         frame_rows.append(row)
     out: dict[str, Any] = {
         "source": "db_v2",
@@ -459,6 +472,9 @@ def build_img_pr_db_context(
         out["characters"] = list(characters or [])
     if include_field_map:
         out["field_map"] = {
+            "continuity": "BLOCKING (дословно, отдельной строкой после фона)",
+            "ref_character": "REFERENCE PHOTO (внешность НЕ описывать)",
+            "describe_appearance": "NO PHOTO (внешность описать обязательно)",
             "place": "SETTING",
             "lighting|scene_lighting": "LIGHT",
             "shot01_bg": "BG",

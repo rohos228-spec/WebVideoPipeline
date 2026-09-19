@@ -168,14 +168,14 @@ Series workbook — отдельный трек: `docs/SERIES_XLSX_WORKBOOK.md`.
 
 ---
 
-## 10. Mass: Studio factory ≠ Telegram `/mass`
+## 10. Mass & Batch Creation: Web Studio
 
 | Система                    | SoT                                                                                                               |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | **Studio «Фабрика видео»** | `app/services/mass_factory.py`, `web/src/components/inspector/mass-factory-panel.tsx`, inspector Project settings |
-| **Telegram `/mass`**       | [`docs/MASS_CREATION.md`](MASS_CREATION.md), `app/services/batches.py`, `app/telegram/mass_menu.py`               |
+| **Studio Batches API**     | [`docs/MASS_CREATION.md`](MASS_CREATION.md), `app/services/batches.py`, `app/web/routers/batches.py`             |
 
-Одинаковое слово — **разные** entry points. Mass Creation doc описывает Telegram-партию; Studio factory — Excel тем → lanes в UI.
+Telegram `/mass` удалён вместе с `app/telegram/`. Теперь пакетная генерация выполняется исключительно через Web Studio (Фабрика видео: Excel тем → lanes в UI) и REST API (`/api/batches`).
 
 Пресеты генерации (мастер нового проекта): `app/services/generation_config_presets.py`,
 `data/generation_config_presets.json`, `web/.../new-project-wizard.tsx`.
@@ -255,7 +255,7 @@ SoT по тексту GPT: `AGENTS.md` + этот map §8.
 | Free GPT chat files                  | `gpt_workspace.py`                                                                                                                  |
 | Create settings                      | `outsee_create.py` + Create UI                                                                                                      |
 | Mass Studio                          | `mass_factory.py`                                                                                                                   |
-| Mass Telegram                        | `MASS_CREATION.md`                                                                                                                  |
+| Mass & Batches                       | [`MASS_CREATION.md`](MASS_CREATION.md), `batches.py`, `mass_factory.py`                                                               |
 | Soft retry steps                     | `step_failure_policy.py`                                                                                                            |
 | Image style Cursor skills            | `.cursor/skills/README.md` (opt-in, не пайплайн)                                                                                    |
 | Knowledge search                     | `scripts/build_knowledge_index.py`, `/api/knowledge/search`                                                                         |
