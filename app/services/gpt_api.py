@@ -1160,13 +1160,70 @@ def build_messages(
 # ─────────────────────────── HTTP вызов ───────────────────────────
 
 
-def _check_provider_envelope(payload: dict[str, Any]) -> None:
-    """Некоторые шлюзы (kie.ai) отдают ошибку как HTTP 200 с {code,msg,data}.
+def _openai_error_retryable(msg: str, code: Any) -> bool:
+    low = (msg or "").lower()
+    code_s = str(code or "").lower()
+    if any(
+        x in low
+        for x in (
+            "rate",
+            "overloaded",
+            "busy",
+            "timeout",
+            "temporar",
+            "try again",
+            "server",
+            "capacity",
+            "upstream",
+        )
+    ):
+        return True
+    if code_s in {
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+        "rate_limit_exceeded",
+        "server_error",
+        "overloaded_error",
+    }:
+        return True
+    try:
+        return int(code) in _RETRY_STATUS or int(code) >= 500
+    except (TypeError, ValueError):
+        return True
 
-    Если code не успешный и нет choices — поднимаем понятную ошибку.
+
+def _check_provider_envelope(payload: dict[str, Any]) -> None:
+    """Ошибка шлюза как HTTP 200: kie {code,msg} или OpenAI {error:{message}}.
+
+    Без этого stream с error-JSON парсится как «пустой output».
     """
     if not isinstance(payload, dict) or payload.get("choices"):
         return
+    err = payload.get("error")
+    if isinstance(err, dict) or (isinstance(err, str) and err.strip()):
+        if isinstance(err, dict):
+            msg = str(err.get("message") or err.get("msg") or "ошибка провайдера")
+            code = err.get("code") if err.get("code") is not None else err.get("type")
+        else:
+            msg = str(err)
+            code = payload.get("code")
+        retryable = _openai_error_retryable(msg, code)
+        hint = ""
+        low = msg.lower()
+        code_s = str(code or "").lower()
+        if "credit" in low or "balance" in low or code_s in {"402", "insufficient_quota"}:
+            hint = " — на счёте GPT кончились кредиты, пополни баланс у провайдера"
+            retryable = False
+        elif "not authorized" in low or "apikey" in low or "invalid api" in low:
+            hint = " — ключ не авторизован на эту модель"
+            retryable = False
+        raise GptApiError(
+            f"GPT провайдер error: {msg}{hint}",
+            context={"provider_code": code, "retryable": retryable, "error_kind": "provider_envelope"},
+        )
     code = payload.get("code")
     if code is None:
         return
@@ -1930,6 +1987,50 @@ async def _chat_responses_stream_impl(
     )
 
 
+def _chat_sse_obj(raw: str) -> dict[str, Any] | None:
+    """Одна строка SSE или сырой JSON-объект (релей иногда без ``data:``)."""
+    line = (raw or "").strip()
+    if line.startswith("data:"):
+        data = line[5:].strip()
+    else:
+        data = line
+    if not data or data == "[DONE]" or not data.startswith("{"):
+        return None
+    try:
+        obj = json.loads(data)
+    except json.JSONDecodeError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _choice_text_piece(first: dict[str, Any]) -> str:
+    parts: list[str] = []
+
+    def _as_text(value: Any) -> str:
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(value, list):
+            return "".join(
+                str(p.get("text") or "")
+                for p in value
+                if isinstance(p, dict)
+            )
+        return ""
+
+    raw_delta = first.get("delta")
+    delta = raw_delta if isinstance(raw_delta, dict) else {}
+    piece = _as_text(delta.get("content"))
+    if piece:
+        parts.append(piece)
+    if not parts:
+        raw_msg = first.get("message")
+        msg = raw_msg if isinstance(raw_msg, dict) else {}
+        piece = _as_text(msg.get("content"))
+        if piece:
+            parts.append(piece)
+    return "".join(parts)
+
+
 def parse_chat_completions_sse_lines(lines: list[str]) -> tuple[str, str, dict[str, Any]]:
     """Собрать текст из OpenAI-совместимого SSE ``chat/completions``."""
     chunks: list[str] = []
@@ -1937,17 +2038,8 @@ def parse_chat_completions_sse_lines(lines: list[str]) -> tuple[str, str, dict[s
     last: dict[str, Any] = {}
     envelope_err: GptApiError | None = None
     for raw in lines:
-        line = (raw or "").strip()
-        if not line.startswith("data:"):
-            continue
-        data = line[5:].strip()
-        if not data or data == "[DONE]":
-            continue
-        try:
-            obj = json.loads(data)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(obj, dict):
+        obj = _chat_sse_obj(raw)
+        if not obj:
             continue
         last = obj
         try:
@@ -1965,22 +2057,54 @@ def parse_chat_completions_sse_lines(lines: list[str]) -> tuple[str, str, dict[s
         fr = first.get("finish_reason")
         if isinstance(fr, str) and fr:
             finish = fr
-        delta_raw = first.get("delta")
-        delta: dict[str, Any] = delta_raw if isinstance(delta_raw, dict) else {}
-        piece = delta.get("content")
-        if isinstance(piece, str) and piece:
+        piece = _choice_text_piece(first)
+        if piece:
             chunks.append(piece)
-        elif isinstance(piece, list):
-            chunks.append("".join(str(p.get("text") or "") for p in piece if isinstance(p, dict)))
-        msg_raw = first.get("message")
-        msg: dict[str, Any] = msg_raw if isinstance(msg_raw, dict) else {}
-        mc = msg.get("content")
-        if isinstance(mc, str) and mc and not delta:
-            chunks.append(mc)
     text = "".join(chunks)
     if envelope_err is not None and not text.strip():
         raise envelope_err
     return text, finish or "stop", last
+
+
+async def _chat_completions_nostream(
+    *,
+    url: str,
+    headers: dict[str, str],
+    body: dict[str, Any],
+    timeout: float,
+    use_model: str,
+) -> GptChatResult:
+    """Один non-stream POST — когда SSE пришёл пустым или без ``data:``."""
+    nostream = {**body, "stream": False}
+    async with _async_client(timeout=_http_timeout(timeout)) as client:
+        resp = await client.post(url, headers=headers, json=nostream)
+    if resp.status_code >= 400:
+        _raise_http_status(resp.status_code, resp.text, use_model=use_model)
+    try:
+        payload = resp.json()
+    except Exception as e:  # noqa: BLE001
+        raise GptApiError(
+            f"GPT: ответ не JSON: {resp.text[:300]}",
+            context={"retryable": True, "model": use_model, "error_kind": "empty_stream"},
+        ) from e
+    if not isinstance(payload, dict):
+        raise GptApiError(
+            "GPT(chat): пустой output",
+            context={"retryable": True, "error_kind": "empty_stream"},
+        )
+    _check_provider_envelope(payload)
+    text, finish = _parse_choice(payload)
+    raw_usage = payload.get("usage")
+    usage: dict[str, Any] = dict(raw_usage) if isinstance(raw_usage, dict) else {}
+    logger.info("GPT(chat) nostream salvage chars={} model={}", len(text or ""), use_model)
+    return GptChatResult(
+        text=text,
+        model=use_model,
+        finish_reason=finish,
+        usage=usage,
+        raw=payload,
+        response_id=str(payload.get("id") or ""),
+    )
 
 
 async def _chat_completions_stream(
@@ -2072,32 +2196,59 @@ async def _chat_completions_stream_impl(
             )
     text, finish, last = parse_chat_completions_sse_lines(lines)
     if not (text or "").strip():
-        # HTTP 200 + JSON envelope (kie/relay) без SSE — не маскировать под empty.
-        for raw in lines[:3]:
-            s = (raw or "").strip()
-            if s.startswith("data:"):
-                s = s[5:].strip()
-            if not s.startswith("{"):
-                continue
+        blob = "\n".join(lines).strip()
+        if blob.startswith("{"):
             try:
-                payload = json.loads(s)
+                payload = json.loads(blob)
             except json.JSONDecodeError:
-                continue
+                payload = None
             if isinstance(payload, dict):
                 _check_provider_envelope(payload)
-        if stream_err is not None:
+                try:
+                    text, finish = _parse_choice(payload)
+                    last = payload
+                except GptApiError:
+                    text = ""
+        if not (text or "").strip():
+            for raw in lines[:8]:
+                obj = _chat_sse_obj(raw)
+                if obj:
+                    _check_provider_envelope(obj)
+            preview = " | ".join((raw or "")[:160] for raw in lines[:3])
+            logger.warning(
+                "GPT(chat/stream) empty lines={} preview={!r} err={}",
+                len(lines),
+                preview,
+                type(stream_err).__name__ if stream_err else "-",
+            )
+            can_nostream = stream_err is None or isinstance(
+                stream_err,
+                (httpx.ReadError, httpx.RemoteProtocolError),
+            )
+            if can_nostream:
+                try:
+                    return await _chat_completions_nostream(
+                        url=url,
+                        headers=headers,
+                        body=body,
+                        timeout=timeout,
+                        use_model=use_model,
+                    )
+                except GptApiError:
+                    raise
+            if stream_err is not None:
+                raise GptApiError(
+                    f"GPT(chat/stream) пустой output после {type(stream_err).__name__}: {stream_err}",
+                    context={
+                        "retryable": True,
+                        "error_kind": "empty_stream",
+                        "sse_lines": len(lines),
+                    },
+                ) from stream_err
             raise GptApiError(
-                f"GPT(chat/stream) пустой output после {type(stream_err).__name__}: {stream_err}",
-                context={
-                    "retryable": True,
-                    "error_kind": "empty_stream",
-                    "sse_lines": len(lines),
-                },
-            ) from stream_err
-        raise GptApiError(
-            "GPT(chat/stream): пустой output",
-            context={"retryable": True, "error_kind": "empty_stream", "sse_lines": len(lines)},
-        )
+                "GPT(chat/stream): пустой output",
+                context={"retryable": True, "error_kind": "empty_stream", "sse_lines": len(lines)},
+            )
     usage_raw = last.get("usage") if last else None
     usage: dict[str, Any] = usage_raw if isinstance(usage_raw, dict) else {}
     raw_payload: dict[str, Any] = dict(last) if last else {"stream_lines": len(lines)}

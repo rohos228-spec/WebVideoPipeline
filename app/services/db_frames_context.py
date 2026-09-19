@@ -6,17 +6,11 @@
 
 from __future__ import annotations
 
-import json as _json
+import json
 from typing import Any
-
-from app.services.frame_cast import characters_needing_description, reference_character
 
 # Поля постановки кадра после scene_grammar v1.6 (whitelist — не тащим весь attrs).
 _IMG_PR_ATTR_KEYS: tuple[str, ...] = (
-    # Расстановка и предметы, посчитанные кодом (scene_design/continuity):
-    # где стоит каждый, куда смотрит, у кого предмет. Первым в списке — это
-    # факт постановки, а не пожелание, и он не должен теряться при обрезке.
-    "continuity",
     "place",
     "accent",
     "scene_sense",
@@ -50,20 +44,35 @@ _IMG_PR_ATTR_KEYS: tuple[str, ...] = (
 )
 
 
-def _pick_attrs(attrs: dict[str, Any] | None) -> dict[str, str]:
+def _pick_attrs(attrs: dict[str, Any] | None) -> dict[str, Any]:
     src = attrs if isinstance(attrs, dict) else {}
-    out: dict[str, str] = {}
+    out: dict[str, Any] = {}
     for key in _IMG_PR_ATTR_KEYS:
         val = src.get(key)
         if val is None:
             continue
-        # Биты и прочие структуры — компактным JSON, не repr.
+        # Биты/кадры — как JSON-массив в db_frames, не строка «[{…}]».
         if isinstance(val, (list, dict)):
-            text = _json.dumps(val, ensure_ascii=False, separators=(",", ":"))
-        else:
-            text = str(val).strip()
-        if text:
-            out[key] = text
+            out[key] = val
+            continue
+        text = str(val).strip()
+        if not text:
+            continue
+        if key in _NO_CLIP_ATTRS and text[:1] in "[{":
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, (list, dict)):
+                out[key] = parsed
+                continue
+        out[key] = text
+    if "main_action" not in out:
+        raw = src.get("главное_действие")
+        if raw is not None and str(raw).strip():
+            out["main_action"] = str(raw).strip()
+    if "main_action" in out and "главное_действие" not in out:
+        out["главное_действие"] = out["main_action"]
     # Русский алиас для персонажей кадра (агенты часто ждут «персонажи»).
     if "characters" in out and "персонажи" not in out:
         out["персонажи"] = out["characters"]
@@ -74,6 +83,16 @@ def _pick_attrs(attrs: dict[str, Any] | None) -> dict[str, str]:
                 out["characters"] = str(raw).strip()
                 out["персонажи"] = out["characters"]
                 break
+    # Монтаж пишет «действие»; агент img_pr ждёт shot01_action (ACTION).
+    # Не берём главное_действие — это цепь всей сцены, не шота.
+    if "shot01_action" not in out:
+        for alt in ("действие", "action"):
+            raw = src.get(alt)
+            if raw is not None and str(raw).strip():
+                out["shot01_action"] = str(raw).strip()
+                break
+    if "shot01_action" in out and "действие" not in out:
+        out["действие"] = out["shot01_action"]
     return out
 
 
@@ -100,21 +119,125 @@ def _clip(text: str, n: int) -> str:
     return t if len(t) <= n else t[: n - 1] + "…"
 
 
-def slim_attrs_for_excel_gpt(attrs: dict[str, Any] | None) -> dict[str, str]:
+def slim_attrs_for_excel_gpt(attrs: dict[str, Any] | None) -> dict[str, Any]:
     picked = _pick_attrs(attrs)
-    return {k: v if k in _NO_CLIP_ATTRS else _clip(v, _ATTR_MAX) for k, v in picked.items()}
+    out: dict[str, Any] = {}
+    for k, v in picked.items():
+        if k in _NO_CLIP_ATTRS or not isinstance(v, str):
+            out[k] = v
+        else:
+            out[k] = _clip(v, _ATTR_MAX)
+    return out
 
 
 def _camera_subdivide_from(obj: Any) -> dict[str, Any]:
     attrs = getattr(obj, "attrs", None)
-    if not isinstance(attrs, dict):
-        return {}
-    raw = attrs.get("camera_subdivide")
-    return dict(raw) if isinstance(raw, dict) else {}
+    if attrs is None and isinstance(obj, dict):
+        attrs = obj.get("attrs")
+    if isinstance(attrs, dict):
+        raw = attrs.get("camera_subdivide")
+        if isinstance(raw, dict):
+            return raw
+    return {}
 
 
-def _frame_uuid(fr: Any) -> str:
-    return str(getattr(fr, "uuid", None) or "").strip()
+def _shot_index_from(obj: Any) -> int:
+    try:
+        return max(1, int(_camera_subdivide_from(obj).get("shot_index") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _frame_uuid(obj: Any) -> str:
+    if isinstance(obj, dict):
+        return str(obj.get("uuid") or "").strip()
+    return str(getattr(obj, "uuid", None) or "").strip()
+
+
+def _frame_vo(obj: Any) -> str:
+    if isinstance(obj, dict):
+        return str(obj.get("voiceover_text") or obj.get("закадр") or "").strip()
+    return str(getattr(obj, "voiceover_text", None) or "").strip()
+
+
+def collapse_script_writer_frames(
+    frames: list[Any],
+    rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Сценарист: пачка для GPT = 1 VO-ячейка (uuid родителя + полный закадр).
+
+    Только вход модели: не режем и не пишем фрагменты шотов. После camera_expand
+    дети уже несут свои куски; если отдать все кадры, будет ~188 пачек вместо
+    ~66 ячеек.
+    """
+    by_uuid_row = {
+        str(r.get("uuid") or "").strip(): dict(r)
+        for r in (rows or [])
+        if str(r.get("uuid") or "").strip()
+    }
+    groups: dict[str, list[Any]] = {}
+    order: list[str] = []
+    for fr in frames:
+        uid = _frame_uuid(fr)
+        if not uid:
+            continue
+        parent = str(_camera_subdivide_from(fr).get("parent_uuid") or "").strip() or uid
+        if parent not in groups:
+            groups[parent] = []
+            order.append(parent)
+        groups[parent].append(fr)
+    out: list[dict[str, Any]] = []
+    for parent_uid in order:
+        members = list(groups[parent_uid])
+        members.sort(key=_shot_index_from)
+        parent_fr = next(
+            (m for m in members if _shot_index_from(m) <= 1),
+            members[0],
+        )
+        parent_id = _frame_uuid(parent_fr)
+        full = " ".join(_frame_vo(m) for m in members if _frame_vo(m))
+        full = " ".join(full.split())
+        if not full:
+            continue
+        row = dict(by_uuid_row.get(parent_id) or {})
+        row["uuid"] = parent_id
+        row["voiceover_text"] = full
+        if "number" not in row:
+            num = getattr(parent_fr, "number", None)
+            if isinstance(parent_fr, dict):
+                num = parent_fr.get("number", num)
+            if num is not None:
+                row["number"] = num
+        out.append(row)
+    return out
+
+
+def force_full_strip_output_keys(
+    node_key: str | None = None,
+    *,
+    footer_kind: str | None = None,
+) -> tuple[str, ...]:
+    """Поля ЭТОЙ ноды, которые нельзя кормить GPT на ручном ▶.
+
+    strip_prompts оставляет биты/действие/кадры как вход следующих нод.
+    Если перезапускаем саму ноду — старый выход надо выкинуть, иначе
+    модель копирует 1-в-1 и «результат тот же».
+    """
+    kind = str(footer_kind or "").strip()
+    if kind == "bits":
+        return ("биты",)
+    if kind == "action_chain":
+        return ("main_action", "главное_действие")
+    if kind in {"shots_coverage", "shots_qc", "qc_shots"}:
+        return ("кадры",)
+    nk = str(node_key or "")
+    if nk.endswith("_fw_script"):
+        return ("биты",)
+    if nk.endswith("_fw_action"):
+        return ("main_action", "главное_действие")
+    if nk.endswith(("_fw_shots", "_fw_qc")):
+        return ("кадры",)
+    return ()
 
 
 def build_excel_gpt_db_context(
@@ -123,8 +246,20 @@ def build_excel_gpt_db_context(
     slug: str,
     frames: list[Any],
     characters: list[dict[str, str]],
+    strip_prompts: bool = False,
+    full_vo: bool = False,
+    strip_output_keys: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, Any]:
-    """Снимок для excel_gpt: whitelist attrs + короткий закадр, без сырого attrs."""
+    """Снимок для excel_gpt: whitelist attrs + короткий закадр, без сырого attrs.
+
+    ``strip_prompts``: не отдавать уже заполненные image/anim/shot01.
+    Нужен на ручном ▶ (force_full), иначе модель копирует старые промты
+    и «результат тот же», хотя GPT формально отработал.
+
+    ``strip_output_keys``: дополнительно выкинуть выход самой ноды
+    (биты / главное_действие / кадры), чтобы ▶ fw_action не копировал
+    старую цепь сцен.
+    """
     rows: list[dict[str, Any]] = []
     for fr in frames:
         uuid = str(getattr(fr, "uuid", None) or "").strip()
@@ -133,27 +268,57 @@ def build_excel_gpt_db_context(
         row: dict[str, Any] = {"number": getattr(fr, "number", None), "uuid": uuid}
         vo = str(getattr(fr, "voiceover_text", None) or "")
         if vo.strip():
-            row["voiceover_text"] = _clip(vo, _EXCEL_GPT_VO_MAX)
+            row["voiceover_text"] = vo.strip() if full_vo else _clip(vo, _EXCEL_GPT_VO_MAX)
         vo_shot = str(_camera_subdivide_from(fr).get("vo_shot") or "").strip()
         if vo_shot:
-            clipped_shot = _clip(vo_shot, _EXCEL_GPT_VO_MAX)
-            row["vo_shot"] = clipped_shot
-            row["закадр_шота"] = clipped_shot
+            shot_text = vo_shot if full_vo else _clip(vo_shot, _EXCEL_GPT_VO_MAX)
+            row["vo_shot"] = shot_text
+            row["закадр_шота"] = shot_text
         meaning = str(getattr(fr, "meaning", None) or "").strip()
         if meaning:
             row["meaning"] = _clip(meaning, _ATTR_MAX)
-        img = str(getattr(fr, "image_prompt", None) or "").strip()
-        if img:
-            # Нужен ключ для skip_if_field=image_prompt, иначе retry
-            # снова шлёт все кадры.
-            row["image_prompt"] = _clip(img, _ATTR_MAX)
-        anim = str(getattr(fr, "animation_prompt", None) or "").strip()
-        if anim:
-            row["animation_prompt"] = _clip(anim, _ATTR_MAX)
-        row.update(slim_attrs_for_excel_gpt(getattr(fr, "attrs", None)))
+        if not strip_prompts:
+            img = str(getattr(fr, "image_prompt", None) or "").strip()
+            if img:
+                # Нужен ключ для skip_if_field=image_prompt, иначе retry
+                # снова шлёт все 188 кадров.
+                row["image_prompt"] = _clip(img, _ATTR_MAX)
+            anim = str(getattr(fr, "animation_prompt", None) or "").strip()
+            if anim:
+                row["animation_prompt"] = _clip(anim, _ATTR_MAX)
+        slim = slim_attrs_for_excel_gpt(getattr(fr, "attrs", None))
+        if strip_prompts:
+            # Ручной ▶: не кормить старую аналитику/действие — модель копирует.
+            # Биты / цепь сцен / кадры — вход следующих нод, не «старый промт».
+            # Выход самой ноды снимает strip_output_keys (▶ fw_action/shots/script).
+            keep: dict[str, str] = {}
+            for key in (
+                "characters",
+                "персонажи",
+                "биты",
+                "main_action",
+                "кадры",
+            ):
+                val = slim.get(key)
+                if val:
+                    keep[key] = val
+            slim = keep
+        drop = tuple(strip_output_keys or ())
+        if drop:
+            for key in drop:
+                slim.pop(key, None)
+                row.pop(key, None)
+        row.update(slim)
+        if drop:
+            for key in drop:
+                row.pop(key, None)
         cs = _camera_subdivide_from(fr)
         if cs:
-            row["camera_subdivide"] = {k: v for k, v in cs.items() if v not in (None, "")}
+            row["camera_subdivide"] = {
+                k: v
+                for k, v in cs.items()
+                if v not in (None, "")
+            }
             for src, dst in (
                 ("крупность", "крупность"),
                 ("движение", "движение"),
@@ -179,13 +344,18 @@ def build_excel_gpt_check_context(
     frames: list[Any],
     characters: list[dict[str, Any]],
     scene_registry: list[Any] | None = None,
+    full_vo: bool = False,
 ) -> dict[str, Any]:
-    """Снимок для checkMode db_check.json: slim attrs + scene_registry."""
+    """Снимок для checkMode db_check.json: slim attrs + scene_registry.
+
+    ``full_vo`` — только группа script_frames_qc (проверка читает целый закадр).
+    """
     ctx = build_excel_gpt_db_context(
         project_id=project_id,
         slug=slug,
         frames=frames,
         characters=characters,
+        full_vo=full_vo,
     )
     ctx["scene_registry"] = list(scene_registry or [])
     return ctx
@@ -274,16 +444,6 @@ def build_img_pr_db_context(
             parsed = parse_coverage_shot(sid)
             if parsed is not None and parsed[1] == 1:
                 row["coverage_role"] = "parent"
-        # Кому приедет фотореференс, а кого генератор увидит только со слов.
-        # MiniMax берёт одну character-ссылку: второй герой кадра без описания
-        # внешности рисуется от лица первого (живой прогон #2, кадр 12).
-        cast_raw = picked.get("characters") or picked.get("персонажи") or ""
-        ref_cid = reference_character(cast_raw)
-        if ref_cid:
-            row["ref_character"] = ref_cid
-        needs = characters_needing_description(cast_raw)
-        if needs:
-            row["describe_appearance"] = ", ".join(needs)
         frame_rows.append(row)
     out: dict[str, Any] = {
         "source": "db_v2",
@@ -299,9 +459,6 @@ def build_img_pr_db_context(
         out["characters"] = list(characters or [])
     if include_field_map:
         out["field_map"] = {
-            "continuity": "BLOCKING (дословно, отдельной строкой после фона)",
-            "ref_character": "REFERENCE PHOTO (внешность НЕ описывать)",
-            "describe_appearance": "NO PHOTO (внешность описать обязательно)",
             "place": "SETTING",
             "lighting|scene_lighting": "LIGHT",
             "shot01_bg": "BG",

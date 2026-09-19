@@ -31,6 +31,10 @@ _IMG_JSON_BYTES_PER_BATCH = 24_000
 
 _COMPLETE_ATTRS_DENSE = ("main_action", "shot01_description")
 _IMG_SKIP_KEYS = ("image_prompt", "промт_картинки")
+_ANIM_SKIP_KEYS = ("animation_prompt", "промт_видео")
+_ACTION_SKIP_KEYS = ("shot01_action", "main_action", "действие")
+# fw_frames: кадр готов только если картинка + видео + действие.
+SKIP_PROMPTS_AND_ACTION = "prompts_and_action"
 
 ApplyFn = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -110,6 +114,10 @@ def split_frames(frames: list[Any], size: int) -> list[list[Any]]:
     return [frames[i : i + size] for i in range(0, len(frames), size)]
 
 
+def _any_field(frame: dict[str, Any], attrs: dict[str, Any], keys: tuple[str, ...]) -> bool:
+    return any(str(frame.get(k) or attrs.get(k) or "").strip() for k in keys)
+
+
 def _frame_complete(
     frame: dict[str, Any],
     *,
@@ -118,6 +126,12 @@ def _frame_complete(
 ) -> bool:
     attrs_raw = frame.get("attrs")
     attrs: dict[str, Any] = attrs_raw if isinstance(attrs_raw, dict) else {}
+    if skip_if_field == SKIP_PROMPTS_AND_ACTION:
+        return (
+            _any_field(frame, attrs, _IMG_SKIP_KEYS)
+            and _any_field(frame, attrs, _ANIM_SKIP_KEYS)
+            and _any_field(frame, attrs, _ACTION_SKIP_KEYS)
+        )
     if skip_if_field:
         keys = (skip_if_field, *_IMG_SKIP_KEYS)
         for k in keys:

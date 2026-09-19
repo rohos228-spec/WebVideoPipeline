@@ -90,6 +90,8 @@ async def test_ladder_switches_to_kling_after_four_primary_fails(
     monkeypatch.setattr(mod, "sleep_cancellable", _no_sleep)
     monkeypatch.setattr("app.bots.kie_kling.kie_api_configured", lambda: True)
     monkeypatch.setattr("app.bots.kie_kling.generate_video", _fake_kling)
+    monkeypatch.setattr("app.bots.kie_http.kie_configured", lambda: True)
+    monkeypatch.setattr("app.bots.kie_http.generate_kie_video", _fake_kling)
 
     await mod.generate_video_with_retries(
         FakeOutsee(),
@@ -139,6 +141,8 @@ async def test_ladder_exhausted_after_kling_three_fails(
     monkeypatch.setattr(mod, "sleep_cancellable", _no_sleep)
     monkeypatch.setattr("app.bots.kie_kling.kie_api_configured", lambda: True)
     monkeypatch.setattr("app.bots.kie_kling.generate_video", _fake_kling)
+    monkeypatch.setattr("app.bots.kie_http.kie_configured", lambda: True)
+    monkeypatch.setattr("app.bots.kie_http.generate_kie_video", _fake_kling)
 
     with pytest.raises(VideoLadderExhaustedError) as ei:
         await mod.generate_video_with_retries(
@@ -193,6 +197,8 @@ async def test_generate_video_sanitizes_triggers_during_primary_rewrites(
     monkeypatch.setattr(mod, "sleep_cancellable", _no_sleep)
     monkeypatch.setattr("app.bots.kie_kling.kie_api_configured", lambda: True)
     monkeypatch.setattr("app.bots.kie_kling.generate_video", _fake_kling)
+    monkeypatch.setattr("app.bots.kie_http.kie_configured", lambda: True)
+    monkeypatch.setattr("app.bots.kie_http.generate_kie_video", _fake_kling)
 
     await mod.generate_video_with_retries(
         FakeOutsee(),

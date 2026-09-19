@@ -177,6 +177,7 @@ _XLSX_SHEET_PLAN = "план"
 # читаем ВСЕ три строки и сливаем (с dedupe сохраняя порядок).
 _XLSX_ROWS_PERSONS = (8, 23, 38)  # «персонажи» — id c01..c05
 _XLSX_ROWS_ITEMS = (9, 24, 39)  # «предметы» — id i01 / predmet1
+_OUTSEE_MAX_REFS = 2  # лимит Outsee на одну генерацию картинки
 
 
 def _max_refs() -> int:
@@ -454,6 +455,8 @@ async def _load_refs_for_frame(
     session: AsyncSession | None,
     project: Project,
     frame_number: int,
+    *,
+    persons_override: list[str] | None = None,
 ) -> list[Path]:
     """Персонажи / предметы кадра: сначала БД, затем xlsx как запасной путь.
 
@@ -465,51 +468,55 @@ async def _load_refs_for_frame(
     """
     refs: list[Path] = []
     xlsx_path = project.data_dir / "project.xlsx"
-    persons_ids, items_ids = await _ref_ids_from_db(session, project, frame_number)
-    if persons_ids or items_ids:
-        logger.debug(
-            "[#{}] frame {}: рефы из БД persons={} items={}",
-            project.id,
-            frame_number,
-            persons_ids,
-            items_ids,
-        )
-    if not persons_ids and not items_ids and xlsx_path.exists():
-        try:
-            from openpyxl import load_workbook  # ленивый импорт
-
-            wb = load_workbook(xlsx_path, data_only=True, read_only=True)
-            ws = _resolve_plan_sheet(wb)
-            if ws is not None:
-                # В v8 столбцы кадров — с 3 (1=label, 2=зарезервировано).
-                col = frame_number + 2
-
-                # Читаем ВСЕ три «persons» строки и сливаем с dedupe,
-                # сохраняя порядок: row=8 (под кадр1) первой имеет
-                # приоритет, потом 23, потом 38. Так юзер может вписать
-                # id в ЛЮБУЮ из них.
-                def _merged(rows: tuple[int, ...]) -> list[str]:
-                    merged: list[str] = []
-                    seen: set[str] = set()
-                    for r in rows:
-                        for x in _parse_ref_ids(ws.cell(row=r, column=col).value):
-                            if x not in seen:
-                                seen.add(x)
-                                merged.append(x)
-                    return merged
-
-                persons_ids = _merged(_XLSX_ROWS_PERSONS)
-                items_ids = _merged(_XLSX_ROWS_ITEMS)
-            wb.close()
-        except ImportError:
-            logger.warning("openpyxl не установлен — не могу прочитать xlsx-рефы")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "[#{}] frame {}: ошибка чтения xlsx-рефов: {}",
+    if persons_override is not None:
+        persons_ids = [x for x in persons_override if x]
+        items_ids: list[str] = []
+    else:
+        persons_ids, items_ids = await _ref_ids_from_db(session, project, frame_number)
+        if persons_ids or items_ids:
+            logger.debug(
+                "[#{}] frame {}: рефы из БД persons={} items={}",
                 project.id,
                 frame_number,
-                e,
+                persons_ids,
+                items_ids,
             )
+        if not persons_ids and not items_ids and xlsx_path.exists():
+            try:
+                from openpyxl import load_workbook  # ленивый импорт
+
+                wb = load_workbook(xlsx_path, data_only=True, read_only=True)
+                ws = _resolve_plan_sheet(wb)
+                if ws is not None:
+                    # В v8 столбцы кадров — с 3 (1=label, 2=зарезервировано).
+                    col = frame_number + 2
+
+                    # Читаем ВСЕ три «persons» строки и сливаем с dedupe,
+                    # сохраняя порядок: row=8 (под кадр1) первой имеет
+                    # приоритет, потом 23, потом 38. Так юзер может вписать
+                    # id в ЛЮБУЮ из них.
+                    def _merged(rows: tuple[int, ...]) -> list[str]:
+                        merged: list[str] = []
+                        seen: set[str] = set()
+                        for r in rows:
+                            for x in _parse_ref_ids(ws.cell(row=r, column=col).value):
+                                if x not in seen:
+                                    seen.add(x)
+                                    merged.append(x)
+                        return merged
+
+                    persons_ids = _merged(_XLSX_ROWS_PERSONS)
+                    items_ids = _merged(_XLSX_ROWS_ITEMS)
+                wb.close()
+            except ImportError:
+                logger.warning("openpyxl не установлен — не могу прочитать xlsx-рефы")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "[#{}] frame {}: ошибка чтения xlsx-рефов: {}",
+                    project.id,
+                    frame_number,
+                    e,
+                )
 
     chars_dir = project.data_dir / "characters"
     items_dir = project.data_dir / "items"
@@ -1197,7 +1204,7 @@ async def _coverage_parent_png(
     session: AsyncSession,
     project: Project,
     frame: Frame,
-    out_dir: Path,
+    out_dir: Path | None = None,
 ) -> Path | None:
     """PNG K1 ЭТОЙ ячейки — layout-lock только для K2/K3.
 
@@ -1206,11 +1213,13 @@ async def _coverage_parent_png(
     """
     from app.services.vo_shot_expand import (
         find_coverage_parent_frame,
-        is_shot_child,
+        uses_parent_still,
     )
 
-    if not is_shot_child(frame):
+    if not uses_parent_still(frame):
         return None
+    if out_dir is None:
+        out_dir = project.data_dir / "scenes"
     frames = (
         (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
         .scalars()

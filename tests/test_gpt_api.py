@@ -85,6 +85,36 @@ async def test_chat_success(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_vibecode_empty_stream_falls_back_to_nostream(monkeypatch) -> None:
+    _enable(monkeypatch)
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "text_llm_provider", "vibecode")
+    monkeypatch.setattr(settings, "vibecode_api_key", "vk-test")
+    monkeypatch.setattr(settings, "vibecode_base_url", "https://vibecode.moe/v1")
+    monkeypatch.setattr(settings, "gpt_api_mode", "chat")
+    monkeypatch.setattr(gpt_api, "_anthropic_route", lambda _m: False)
+    modes: list[bool] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        streamed = bool(body.get("stream"))
+        modes.append(streamed)
+        if streamed:
+            return httpx.Response(
+                200,
+                content=b"",
+                headers={"content-type": "text/event-stream"},
+            )
+        return httpx.Response(200, json=_completion("salvaged prompt"))
+
+    _mock_httpx(monkeypatch, handler)
+    res = await chat(prompt="x", auto_pack=False)
+    assert res.text == "salvaged prompt"
+    assert modes == [True, False]
+
+
+@pytest.mark.asyncio
 async def test_stream_cancelled_error_is_not_retryable(monkeypatch) -> None:
     """⏹ / ▶ другой ноды: CancelledError нельзя превращать в retryable GptApiError."""
 

@@ -137,6 +137,37 @@ def test_parse_chat_sse_salvages_text_past_envelope_error() -> None:
     assert finish == "stop"
 
 
+def test_parse_chat_completions_json_without_data_prefix() -> None:
+    from app.services.gpt_api import parse_chat_completions_sse_lines
+
+    lines = [
+        '{"choices":[{"message":{"content":"полный промт кадра"},"finish_reason":"stop"}]}',
+    ]
+    text, finish, _ = parse_chat_completions_sse_lines(lines)
+    assert text == "полный промт кадра"
+    assert finish == "stop"
+
+
+def test_parse_chat_completions_message_when_delta_has_only_role() -> None:
+    from app.services.gpt_api import parse_chat_completions_sse_lines
+
+    lines = [
+        'data: {"choices":[{"delta":{"role":"assistant"},"message":{"content":"сцена"}}]}',
+    ]
+    text, _, _ = parse_chat_completions_sse_lines(lines)
+    assert text == "сцена"
+
+
+def test_check_provider_envelope_openai_error() -> None:
+    import pytest
+
+    from app.services.gpt_api import GptApiError, _check_provider_envelope
+
+    with pytest.raises(GptApiError, match="overloaded") as ei:
+        _check_provider_envelope({"error": {"message": "The server is overloaded"}})
+    assert ei.value.retryable is True
+
+
 def test_parse_chat_sse_only_envelope_error_raises() -> None:
     """Только ошибка без текста — кидаем её же, а не пустой output."""
     import pytest

@@ -50,6 +50,9 @@ const ROW_LABEL_CLASS = "w-[11rem] min-w-[11rem] max-w-[11rem]";
 
 type RowKey =
   | "voiceover"
+  | "shot_kind"
+  | "shot_plan"
+  | "shot_action"
   | "characters"
   | "image1"
   | "image2"
@@ -137,6 +140,16 @@ function slotToneRing(tone: SlotTone | undefined): string | false {
 
 function voiceoverForFrame(fr: MontageBoardFrame): string {
   return (fr.voiceover_excel || fr.voiceover_text || "").trim();
+}
+
+function coverageKindLabel(fr: MontageBoardFrame): string {
+  if (fr.shot_kind === "child") {
+    const parent =
+      fr.shot_parent_number != null ? ` · родитель #${fr.shot_parent_number}` : "";
+    return `Дочерний${parent}`;
+  }
+  if (fr.shot_kind === "parent") return "Родитель";
+  return "—";
 }
 
 function formatTs(sec: number | null | undefined): string {
@@ -1210,7 +1223,7 @@ export function AssembleMontageBoard({
     prevProjectIdRef.current = projectId;
     if (prev != null && prev !== projectId && localQueueDirtyRef.current) {
       const ops = pendingOpsRef.current;
-      void api.saveMontageQueue(prev, { pending_ops: ops }).catch(() => {});
+      void api.saveMontageQueue(prev, { pending_ops: ops, force_clear: ops.length === 0 }).catch(() => {});
     }
     setPendingOps([]);
     pendingOpsRef.current = [];
@@ -1252,7 +1265,7 @@ export function AssembleMontageBoard({
     if (!localQueueDirtyRef.current) return;
     const ops = pendingOpsRef.current;
     void api
-      .saveMontageQueue(projectId, { pending_ops: ops })
+      .saveMontageQueue(projectId, { pending_ops: ops, force_clear: ops.length === 0 })
       .then(() => {
         localQueueDirtyRef.current = false;
       })
@@ -1260,6 +1273,16 @@ export function AssembleMontageBoard({
   }, [open, projectId]);
 
   const frames = board.data?.frames ?? [];
+  const coverageOn = Boolean(board.data?.show_coverage_rows);
+  const gridRows = useMemo(() => {
+    if (!coverageOn) return GRID_ROWS;
+    const extra: { key: RowKey; label: string }[] = [
+      { key: "shot_kind", label: "Кадр" },
+      { key: "shot_plan", label: "План" },
+      { key: "shot_action", label: "Действие" },
+    ];
+    return [GRID_ROWS[0], ...extra, ...GRID_ROWS.slice(1)];
+  }, [coverageOn]);
   const meta = board.data?.meta;
   const pendingOpsKey = JSON.stringify(meta?.pending_ops ?? []);
 
@@ -2376,7 +2399,7 @@ export function AssembleMontageBoard({
                     </tr>
                   </thead>
                   <tbody>
-                    {GRID_ROWS.map((row) => {
+                    {gridRows.map((row) => {
                       const collapsed = collapsedRows.has(row.key);
                       return (
                         <tr key={row.key} className="border-b border-white/5">
@@ -2443,6 +2466,18 @@ export function AssembleMontageBoard({
                               ) : row.key === "voiceover" ? (
                                 <p className="whitespace-pre-wrap text-xs leading-snug text-foreground/90">
                                   {voiceoverForFrame(fr) || "—"}
+                                </p>
+                              ) : row.key === "shot_kind" ? (
+                                <p className="whitespace-pre-wrap text-xs leading-snug text-foreground/90">
+                                  {coverageKindLabel(fr)}
+                                </p>
+                              ) : row.key === "shot_plan" ? (
+                                <p className="whitespace-pre-wrap text-xs leading-snug text-foreground/90">
+                                  {fr.shot_plan?.trim() || "—"}
+                                </p>
+                              ) : row.key === "shot_action" ? (
+                                <p className="whitespace-pre-wrap text-xs leading-snug text-foreground/90">
+                                  {fr.shot_action?.trim() || "—"}
                                 </p>
                               ) : row.key === "characters" ? (
                                 <CharactersCell fr={fr} onPreview={showPreview} />

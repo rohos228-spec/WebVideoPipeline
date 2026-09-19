@@ -71,9 +71,10 @@ async def test_ensure_public_requires_yandex_no_public_hosts() -> None:
         patch.object(oh, "_host_via_litterbox", side_effect=AssertionError("no litter")),
         patch.object(oh, "_host_via_uguu", side_effect=AssertionError("no uguu")),
         patch.object(oh, "_host_via_catbox", side_effect=AssertionError("no catbox")),
+        patch.object(oh, "_host_via_0x0", side_effect=AssertionError("no 0x0")),
         patch.object(oh, "_host_via_yandex", side_effect=AssertionError("no yandex")),
     ):
-        with pytest.raises(oh.OutseeApiError, match="только через Yandex"):
+        with pytest.raises(oh.OutseeApiError, match=r"frame upload failed|Yandex"):
             await oh.ensure_public_image_url(data)
 
 

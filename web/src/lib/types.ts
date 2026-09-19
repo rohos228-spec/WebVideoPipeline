@@ -275,8 +275,53 @@ export interface FrameDTO {
 
 export interface MontageBoardCharacterRef {
   id: string;
+  /** Код рефа в проекте: c02 / i01. */
+  code?: string;
+  /** Кто это: имя персонажа или предмета. */
   name: string;
   image_url: string | null;
+}
+
+export interface MontageBoardParentRef {
+  number: number;
+  label: string;
+  image_url: string | null;
+}
+
+/** Реф, приложенный кадру на доске: вид + имя, видное в монтаже. */
+export interface MontageManualRef {
+  id: string;
+  kind: string;
+  kind_label: string;
+  name: string;
+  /** Готовый реф проекта: при отвязке файл остаётся на месте. */
+  linked?: boolean;
+  image_url: string | null;
+}
+
+/** Готовый реф проекта (`characters/`, `items/`) для окна «приложить». */
+export interface MontageRefAsset {
+  kind: string;
+  kind_label: string;
+  code: string;
+  name: string;
+  file: string;
+  image_url: string | null;
+}
+
+/** Виды рефов для загрузки нового (id + подпись). */
+export interface MontageRefKindChoice {
+  id: string;
+  label: string;
+}
+
+export interface MontageAnchorRow {
+  "якорь": string;
+  "изменение"?: string;
+  "главный"?: boolean;
+  found?: boolean;
+  cell_index?: number | null;
+  frame_number?: number | null;
 }
 
 export interface MontageBoardFrame {
@@ -286,6 +331,13 @@ export interface MontageBoardFrame {
   voiceover_excel: string;
   characters: string;
   character_refs: MontageBoardCharacterRef[];
+  /** Still VO-родителя ячейки — реф покрытия для всех шотов группы. */
+  ref_parent?: MontageBoardParentRef | null;
+  /** Персонажи всей VO-ячейки, не только этой колонки. */
+  group_character_refs?: MontageBoardCharacterRef[];
+  item_refs?: MontageBoardCharacterRef[];
+  /** Рефы кадра, добавленные вручную с доски. */
+  manual_refs?: MontageManualRef[];
   start_ts: number | null;
   end_ts: number | null;
   duration_seconds: number | null;
@@ -308,6 +360,54 @@ export interface MontageBoardFrame {
   animation_prompt_shot1?: string;
   animation_prompt_shot2?: string;
   plan_column: number;
+  /** Покрытие script_frames_qc: крупность / действие / родитель-дочерний. */
+  shot_plan?: string;
+  shot_action?: string;
+  shot_kind?: "parent" | "child" | "";
+  shot_parent_number?: number | null;
+  shot_parent_id?: string;
+  /** Формат сцены: шаблон T0…T10 / X1 / X2. */
+  shot_template?: string;
+  /** Сколько якорей принадлежит ЭТОМУ кадру. */
+  shot_anchors?: number;
+  /** Якорь закадра этого кадра (не всей ячейки). */
+  shot_anchor?: string;
+  /** «было → стало» первого якоря кадра. */
+  shot_anchor_change?: string;
+  shot_anchor_main?: boolean;
+  /** Якорь найден в закадре этого кадра (иначе строка красная). */
+  shot_anchor_found?: boolean;
+  /** Якоря ЭТОГО кадра — правятся строкой «Якорь» на доске. */
+  shot_anchor_rows?: MontageAnchorRow[];
+  /** У ячейки один кадр — якоря можно добавлять / удалять. */
+  anchor_can_add?: boolean;
+  /** Все биты VO-ячейки: нужны, чтобы правка одного шота не стёрла соседей. */
+  scene_anchor_rows?: MontageAnchorRow[];
+  /** Полный закадр VO-ячейки (сцены). */
+  vo_cell_full?: string;
+  shot_angle?: string;
+  shot_move?: string;
+  shot_stitch?: string;
+  shot_stitch_label?: string;
+  scene_place?: string;
+  scene_set?: string;
+  scene_characters?: string;
+  scene_lighting?: string;
+  scene_id?: string;
+  scene_no?: string;
+  scene_props?: string;
+  scene_accent?: string;
+  scene_bg?: string;
+  scene_sense?: string;
+  scene_visual_type?: string;
+  scene_feature?: string;
+  /** Что предлагает дерево «Выбор» для формата сцены. */
+  scene_template_auto?: string;
+  /** Последовательность кадров сцены (действие → действие) — на всю VO-ячейку. */
+  scene_action?: string;
+  /** Номер VO-родителя ячейки (сцена). Не coverage_parent_id / X1. */
+  vo_scene_number?: number | null;
+  vo_scene_size?: number;
 }
 
 export interface MontageBoardMeta {
@@ -323,6 +423,10 @@ export interface MontageBoardMeta {
     shot?: number;
     prompt?: string;
     correction?: string;
+    plan?: string;
+    action?: string;
+    kind?: string;
+    parent_number?: number;
   }>;
   applied_at: string | null;
 }
@@ -331,6 +435,32 @@ export interface MontageBoardDTO {
   frames: MontageBoardFrame[];
   frame_count: number;
   meta: MontageBoardMeta;
+  /** Формат кадра проекта («9:16», «16:9», …) для картинки на доске. */
+  frame_aspect?: string | null;
+  /** Строки План / Действие / Кадр — только если на канвасе script_frames_qc. */
+  show_coverage_rows?: boolean;
+  coverage_plan_choices?: string[];
+  coverage_angle_choices?: string[];
+  coverage_move_choices?: string[];
+  coverage_light_choices?: string[];
+  coverage_visual_type_choices?: string[];
+  coverage_stitch_choices?: Array<{ id: string; label: string }>;
+  coverage_template_choices?: MontageTemplateChoice[];
+  ref_kind_choices?: MontageRefKindChoice[];
+}
+
+/** Формат сцены из каталога `templates/shot_templates/shot_templates.json`. */
+export interface MontageTemplateChoice {
+  id: string;
+  name: string;
+  when: string;
+  axis?: string;
+  ladder?: string;
+  example?: string;
+  shots?: number;
+  required?: number;
+  plans: string[];
+  roles: string[];
 }
 
 export interface PromptDTO {

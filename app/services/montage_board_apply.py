@@ -12,9 +12,11 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from loguru import logger
@@ -25,7 +27,12 @@ from app.db import session_scope
 from app.models import Frame, Project
 from app.services.db_busy import is_db_busy
 from app.services.img_streams import acquire_image_slot, get_img_streams
-from app.services.montage_ai_change import rewrite_prompt_via_gpt
+from app.services.montage_ai_change import (
+    character_ids_from_prompt,
+    load_img_pr_master,
+    rewrite_prompt_via_gpt,
+    write_ai_change_db_card,
+)
 from app.services.montage_board_meta import (
     add_failed_highlight,
     add_highlight,
@@ -44,8 +51,8 @@ from app.services.montage_board_regen import (
     finalize_video_regen,
     prepare_image_regen,
     prepare_video_regen,
-    resolve_image_prompt,
 )
+from app.services.montage_coverage_ops import COVERAGE_OP_TYPES, apply_coverage_op
 
 ProgressCb = Callable[[int, int, dict[str, Any]], Awaitable[None]]
 
@@ -135,13 +142,16 @@ def _op_frame_shot(op: dict[str, Any]) -> tuple[int, int]:
 
 
 def order_montage_pending_ops(ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Картинки по (frame, shot) → видео по (frame, shot). Чужие типы — в конец."""
+    """Покрытие → картинки → видео. Чужие типы — в конец."""
+    coverage: list[dict[str, Any]] = []
     images: list[dict[str, Any]] = []
     videos: list[dict[str, Any]] = []
     other: list[dict[str, Any]] = []
     for op in ops:
         t = str(op.get("type") or "").strip()
-        if t in _IMAGE_OP_TYPES:
+        if t in COVERAGE_OP_TYPES:
+            coverage.append(op)
+        elif t in _IMAGE_OP_TYPES:
             images.append(op)
         elif t in _VIDEO_OP_TYPES:
             videos.append(op)
@@ -149,7 +159,42 @@ def order_montage_pending_ops(ops: list[dict[str, Any]]) -> list[dict[str, Any]]
             other.append(op)
     images.sort(key=_op_frame_shot)
     videos.sort(key=_op_frame_shot)
-    return images + videos + other
+    return coverage + images + videos + other
+
+
+def waves_parent_then_child(
+    frame_numbers: list[int],
+    parent_of: dict[int, int | None],
+) -> list[list[int]]:
+    """Сначала кадры без родителя в этой пачке, потом их дети.
+
+    Если родитель уже есть и его нет в очереди — ребёнок идёт сразу.
+    Если родитель тоже генерируется в этой пачке — ждём волну родителя.
+    """
+    remaining = list(dict.fromkeys(int(n) for n in frame_numbers))
+    in_batch = set(remaining)
+    waves: list[list[int]] = []
+    while remaining:
+        ready: list[int] = []
+        blocked: list[int] = []
+        remaining_set = set(remaining)
+        for fr in remaining:
+            parent = parent_of.get(fr)
+            if (
+                parent is not None
+                and parent in in_batch
+                and parent != fr
+                and parent in remaining_set
+            ):
+                blocked.append(fr)
+            else:
+                ready.append(fr)
+        if not ready:
+            ready = blocked
+            blocked = []
+        waves.append(ready)
+        remaining = blocked
+    return waves
 
 
 async def coverage_parent_map(project_id: int) -> dict[int, int | None]:
@@ -306,8 +351,13 @@ async def _run_op_with_short_sessions(
     shot = int(op.get("shot") or 1)
 
     ai_kind: str | None = None
-    ai_image_prompt = ""
     ai_voiceover = ""
+    ai_img_pr_path = None
+    ai_img_pr_variant = ""
+    ai_db_card_path: Path | None = None
+    ai_project: Any = None
+    ai_instruction = ""
+    ai_action = ""
     prep: Any = None
 
     async with session_scope() as session:
@@ -315,13 +365,31 @@ async def _run_op_with_short_sessions(
         if project is None:
             raise RuntimeError(f"проект #{project_id} не найден")
 
+        if op_type in COVERAGE_OP_TYPES:
+            return await apply_coverage_op(session, project, op)
+
         if op_type in ("image_ai_change", "video_ai_change"):
             fr = await _frame_by_number(session, project.id, frame_number)
             if fr is None:
                 raise RuntimeError(f"кадр {frame_number} не найден")
             ai_kind = "image" if op_type == "image_ai_change" else "video"
-            ai_image_prompt = await resolve_image_prompt(session, project, fr, shot)
             ai_voiceover = fr.voiceover_text or ""
+            ai_img_pr_path, ai_img_pr_variant = load_img_pr_master(project)
+            ai_db_card_path = write_ai_change_db_card(
+                project,
+                fr,
+                Path(tempfile.mkdtemp(prefix="ai_change_db_")),
+            )
+            ai_project = SimpleNamespace(
+                id=project.id,
+                meta=getattr(project, "meta", None),
+            )
+            ai_instruction = str(
+                op.get("instruction") or op.get("correction") or ""
+            ).strip()
+            from app.services.montage_board import _action_for_frame
+
+            ai_action = _action_for_frame(fr)
         elif op_type in (
             "image_regen",
             "image_regen_prompt",
@@ -360,10 +428,15 @@ async def _run_op_with_short_sessions(
 
     if ai_kind is not None:
         new_prompt = await rewrite_prompt_via_gpt(
-            image_prompt=ai_image_prompt,
             voiceover_text=ai_voiceover,
             kind=ai_kind,  # type: ignore[arg-type]
             project_id=project_id,
+            project=ai_project,
+            img_pr_path=ai_img_pr_path,
+            img_pr_variant=ai_img_pr_variant,
+            db_card_path=ai_db_card_path,
+            instruction=ai_instruction,
+            action=ai_action,
         )
 
         async def _prepare_after_gpt():
@@ -381,6 +454,7 @@ async def _run_op_with_short_sessions(
                         new_prompt=new_prompt,
                         correction="",
                         board=board,
+                        ref_person_ids=character_ids_from_prompt(new_prompt),
                     )
                 return await prepare_video_regen(
                     session,
@@ -464,13 +538,19 @@ async def _run_ops_phase(
         by_frame[fr].sort(key=lambda i: _op_frame_shot(all_ops[i]))
 
     frames = sorted(by_frame.keys())
+    waves = (
+        waves_parent_then_child(frames, parent_of)
+        if parent_of
+        else [frames]
+    )
     logger.info(
-        "montage apply #{} phase={} frames={} ops={} parallel={}",
+        "montage apply #{} phase={} frames={} ops={} parallel={} waves={}",
         project_id,
         phase_label,
         len(frames),
         len(phase_indices),
         parallel,
+        [len(w) for w in waves],
     )
 
     meta_lock = asyncio.Lock()
@@ -548,7 +628,8 @@ async def _run_ops_phase(
         async with sem:
             await _frame_worker(frame)
 
-    await asyncio.gather(*(_guarded(fr) for fr in frames))
+    for wave in waves:
+        await asyncio.gather(*(_guarded(fr) for fr in wave))
 
 
 async def apply_montage_board(
@@ -577,17 +658,23 @@ async def apply_montage_board(
     project_id = int(project.id)
     parallel = _montage_apply_parallel(project)
 
+    coverage_indices = [
+        i for i, o in enumerate(ops) if str(o.get("type") or "") in COVERAGE_OP_TYPES
+    ]
     image_indices = [i for i, o in enumerate(ops) if str(o.get("type") or "") in _IMAGE_OP_TYPES]
     video_indices = [i for i, o in enumerate(ops) if str(o.get("type") or "") in _VIDEO_OP_TYPES]
     other_indices = [
         i
         for i, o in enumerate(ops)
-        if str(o.get("type") or "") not in _IMAGE_OP_TYPES and str(o.get("type") or "") not in _VIDEO_OP_TYPES
+        if str(o.get("type") or "") not in _IMAGE_OP_TYPES
+        and str(o.get("type") or "") not in _VIDEO_OP_TYPES
+        and str(o.get("type") or "") not in COVERAGE_OP_TYPES
     ]
 
     logger.info(
-        "montage apply #{}: {} image + {} video + {} other, parallel={}",
+        "montage apply #{}: {} coverage + {} image + {} video + {} other, parallel={}",
         project_id,
+        len(coverage_indices),
         len(image_indices),
         len(video_indices),
         len(other_indices),
@@ -602,7 +689,25 @@ async def apply_montage_board(
 
     op_status: list[str | None] = [None] * len(ops)
 
-    parent_of = await coverage_parent_map(project_id) if image_indices or video_indices else None
+    await _run_ops_phase(
+        project_id=project_id,
+        phase_indices=coverage_indices,
+        all_ops=ops,
+        board=board,
+        parallel=parallel,
+        op_status=op_status,
+        results=results,
+        errors=errors,
+        on_progress=on_progress,
+        phase_label="coverage",
+    )
+    # После coverage роли актуальны: ребёнок ждёт родителя только если тот
+    # тоже в этой пачке. Уже готовый родитель на диске детей не блокирует.
+    parent_of = (
+        await coverage_parent_map(project_id)
+        if image_indices or video_indices
+        else None
+    )
     await _run_ops_phase(
         project_id=project_id,
         phase_indices=image_indices,

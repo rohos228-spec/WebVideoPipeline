@@ -27,6 +27,15 @@ from app.services.montage_board_cache import (
     probe_video_durations_parallel,
 )
 from app.services.montage_board_meta import montage_meta, public_board_meta
+from app.services.montage_coverage_ops import (
+    COVERAGE_ANGLE_CHOICES,
+    COVERAGE_LIGHT_CHOICES,
+    COVERAGE_MOVE_CHOICES,
+    COVERAGE_PLAN_CHOICES,
+    COVERAGE_VISUAL_TYPE_CHOICES,
+    stitch_choices_for_ui,
+)
+from app.services.montage_frame_refs import REF_KINDS, manual_refs_for_board
 from app.services.plan_shot2 import (
     MIN_SHOT2_VIDEO_PROMPT_LEN,
     ROW_IMAGE_PROMPT_2_V8,
@@ -40,6 +49,17 @@ from app.services.plan_shot2 import (
     shot2_video_file_pattern,
 )
 from app.services.shot2_timeline import split_voiceover_duration
+from app.services.vo_shot_expand import (
+    coverage_parent_shot_id,
+    coverage_shot_id,
+    find_coverage_parent_frame,
+    is_shot_child,
+    kadry_are_scene_shots,
+    looks_like_scene_chain,
+    parent_still_suppressed,
+    planned_shots_from_attrs,
+    uses_parent_still,
+)
 from app.services.xlsx_v8_import import (
     ROW_IMAGE_PROMPT_V8,
     ROW_VIDEO_PROMPT_V8,
@@ -79,6 +99,228 @@ def _find_shot2_video(videos_dir: Path, frame_number: int) -> Path | None:
         return None
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0]
+
+
+def _person_ids_from_attrs(attrs: dict[str, Any] | None) -> list[str]:
+    src = attrs if isinstance(attrs, dict) else {}
+    raw = (
+        src.get("characters")
+        or src.get("персонажи")
+        or src.get("персонажи_сцены")
+        or src.get("persons")
+        or ""
+    )
+    return _parse_ref_ids(raw)
+
+
+def _character_refs_for_ids(
+    person_ids: list[str],
+    *,
+    chars_dir: Path,
+    names: dict[str, str],
+) -> list[dict[str, str | None]]:
+    refs: list[dict[str, str | None]] = []
+    for ref_id in person_ids:
+        image_path = _find_ref_file_any(chars_dir, ref_id)
+        refs.append(
+            {
+                "id": ref_id,
+                "code": ref_id,
+                "name": names.get(ref_id.lower(), ref_id),
+                "image_url": _preview_url(image_path),
+            }
+        )
+    return refs
+
+
+def _vo_parent_and_members(
+    frames: list[Any], frame: Any
+) -> tuple[Any, list[Any]]:
+    """VO-ячейка: родитель + шоты с тем же parent_uuid. Без coverage_parent_id."""
+    from app.services.montage_scene_editor import scene_group
+
+    return scene_group(frames, frame)
+
+
+def _merge_ref_ids(*batches: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for batch in batches:
+        for ref_id in batch:
+            key = (ref_id or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(key)
+    return out
+
+
+def _item_ids_from_attrs(attrs: dict[str, Any] | None) -> tuple[list[str], dict[str, str]]:
+    """Id предметов из attrs + имена, если items_seed — список карточек."""
+    src = attrs if isinstance(attrs, dict) else {}
+    names: dict[str, str] = {}
+    ids: list[str] = []
+    raw = (
+        src.get("items_seed")
+        or src.get("предметы")
+        or src.get("items")
+        or src.get("shot01_props")
+        or ""
+    )
+    chunks: list[Any] = raw if isinstance(raw, list) else [raw]
+    for item in chunks:
+        if isinstance(item, dict):
+            parsed = _parse_ref_ids(
+                item.get("id") or item.get("код") or item.get("code") or ""
+            )
+            if not parsed:
+                continue
+            rid = parsed[0]
+            ids.append(rid)
+            nm = str(
+                item.get("имя") or item.get("name") or item.get("название") or ""
+            ).strip()
+            if nm:
+                names[rid.lower()] = nm
+        else:
+            ids.extend(_parse_ref_ids(item))
+    return _merge_ref_ids(ids), names
+
+
+def _group_refs_for_frames(
+    frames: list[Any],
+    *,
+    scenes_dir: Path,
+    chars_dir: Path,
+    items_dir: Path,
+    excel_by_frame: dict[int, dict[str, Any]],
+    char_names: dict[str, str],
+    item_names: dict[str, str],
+) -> dict[int, dict[str, Any]]:
+    """Рефы VO-ячейки: still родителя, персонажи группы, предметы."""
+    by_parent: dict[int, dict[str, Any]] = {}
+    out: dict[int, dict[str, Any]] = {}
+    for fr in frames:
+        parent, members = _vo_parent_and_members(frames, fr)
+        pno = int(parent.number)
+        if pno not in by_parent:
+            person_ids = _merge_ref_ids(
+                _person_ids_from_attrs(parent.attrs),
+                *[
+                    _person_ids_from_attrs(m.attrs)
+                    for m in members
+                    if int(m.number) != pno
+                ],
+                _parse_ref_ids((excel_by_frame.get(pno) or {}).get("characters") or ""),
+            )
+            item_ids_all: list[str] = []
+            seed_names: dict[str, str] = {}
+            for member in members:
+                ids, extra = _item_ids_from_attrs(member.attrs)
+                item_ids_all = _merge_ref_ids(item_ids_all, ids)
+                seed_names.update(extra)
+            item_ids_all = _merge_ref_ids(
+                item_ids_all,
+                list((excel_by_frame.get(pno) or {}).get("item_ids") or []),
+            )
+            names_i = {**item_names, **seed_names}
+            from app.services.montage_frame_refs import hidden_ref_ids
+
+            hidden = {x.lower() for x in hidden_ref_ids(parent)}
+            if hidden:
+                person_ids = [i for i in person_ids if i.lower() not in hidden]
+                item_ids_all = [i for i in item_ids_all if i.lower() not in hidden]
+            parent_png = find_shot1_image(scenes_dir, pno)
+            parent_ref = {
+                "number": pno,
+                "label": f"родитель #{pno}",
+                "image_url": _preview_url(parent_png),
+            }
+            chars = _character_refs_for_ids(
+                person_ids, chars_dir=chars_dir, names=char_names
+            )
+            items = _character_refs_for_ids(
+                item_ids_all, chars_dir=items_dir, names=names_i
+            )
+            by_parent[pno] = {
+                "ref_parent": parent_ref,
+                "group_character_refs": chars,
+                "item_refs": items,
+            }
+        shared = by_parent[pno]
+        still = (
+            find_coverage_parent_frame(frames, fr) if uses_parent_still(fr) else None
+        )
+        if still is not None and int(still.number) == int(fr.number):
+            still = None
+        still_ref = None
+        if still is not None:
+            if int(still.number) == pno:
+                still_ref = shared["ref_parent"]
+            else:
+                still_png = find_shot1_image(scenes_dir, int(still.number))
+                still_ref = {
+                    "number": int(still.number),
+                    "label": f"родитель #{int(still.number)}",
+                    "image_url": _preview_url(still_png),
+                }
+        out[int(fr.number)] = {
+            "ref_parent": still_ref,
+            "group_character_refs": shared["group_character_refs"],
+            "item_refs": shared["item_refs"],
+        }
+    return out
+
+
+async def _entity_name_maps(
+    session: AsyncSession, project_id: int
+) -> tuple[dict[str, str], dict[str, str]]:
+    from app.models import Entity
+
+    chars: dict[str, str] = {}
+    items: dict[str, str] = {}
+    try:
+        ents = list(
+            (
+                await session.execute(
+                    select(Entity).where(Entity.project_id == project_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    except Exception:  # noqa: BLE001
+        return chars, items
+    for ent in ents:
+        code = str(getattr(ent, "code", "") or "").strip()
+        name = str(getattr(ent, "name", "") or "").strip()
+        if not code:
+            continue
+        kind = str(getattr(ent, "type", "") or "")
+        bucket = (
+            chars
+            if kind == "character"
+            else items
+            if kind in {"prop", "item"}
+            else None
+        )
+        if bucket is None or not name:
+            continue
+        bucket[code] = name
+        bucket[code.lower()] = name
+    return chars, items
+
+
+def _names_from_excel_cells(excel_by_frame: dict[int, dict[str, Any]]) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for ex in excel_by_frame.values():
+        for ref in ex.get("character_refs") or []:
+            if not isinstance(ref, dict):
+                continue
+            rid = str(ref.get("id") or "").strip()
+            if rid:
+                names[rid.lower()] = str(ref.get("name") or rid)
+    return names
 
 
 def _character_name_map(xlsx_path: Path) -> dict[str, str]:
@@ -178,6 +420,7 @@ class _FrameBoardSnapshot:
 
     id: int
     number: int
+    uuid: str = ""
     voiceover_text: str = ""
     start_ts: float | None = None
     end_ts: float | None = None
@@ -195,6 +438,7 @@ def _snapshot_frames(frames: list[Frame]) -> list[_FrameBoardSnapshot]:
             _FrameBoardSnapshot(
                 id=int(fr.id),
                 number=int(fr.number),
+                uuid=str(fr.uuid or ""),
                 voiceover_text=fr.voiceover_text or "",
                 start_ts=float(fr.start_ts) if fr.start_ts is not None else None,
                 end_ts=float(fr.end_ts) if fr.end_ts is not None else None,
@@ -398,6 +642,227 @@ def _json_safe_meta(meta: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+def _first_text(*vals: Any) -> str:
+    for val in vals:
+        text = str(val or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _matching_kadry_item(frame: Any) -> dict[str, Any] | None:
+    planned = planned_shots_from_attrs(frame)
+    if not planned:
+        return None
+    shot_id = coverage_shot_id(frame)
+    if shot_id:
+        for item in planned:
+            if str(item.get("id") or "").strip() == shot_id:
+                return item
+    if len(planned) == 1:
+        return planned[0]
+    return None
+
+
+def _plan_for_frame(frame: Any) -> str:
+    attrs = getattr(frame, "attrs", None)
+    src = attrs if isinstance(attrs, dict) else {}
+    cs = src.get("camera_subdivide")
+    cs = cs if isinstance(cs, dict) else {}
+    found = _first_text(
+        src.get("крупность"),
+        cs.get("крупность"),
+        cs.get("план"),
+        cs.get("size"),
+        src.get("shot01_size"),
+    )
+    if found:
+        return found
+    item = _matching_kadry_item(frame)
+    if item:
+        return _first_text(item.get("план"), item.get("plan"))
+    return ""
+
+
+def _action_for_frame(frame: Any) -> str:
+    attrs = getattr(frame, "attrs", None)
+    src = attrs if isinstance(attrs, dict) else {}
+    found = _first_text(src.get("shot01_action"), src.get("действие"))
+    if found:
+        return found
+    item = _matching_kadry_item(frame)
+    if item:
+        found = _first_text(item.get("действие"), item.get("action"))
+        if found:
+            return found
+    main = _first_text(src.get("главное_действие"), src.get("main_action"))
+    if main and not looks_like_scene_chain(main):
+        return main
+    return ""
+
+
+def _shot_kind_payload(
+    frame: Any,
+    frames: list[Any],
+) -> tuple[str, int | None, str]:
+    """parent | child | "" + номер родителя + id шота родителя."""
+    cs = getattr(frame, "attrs", None) or {}
+    cs = cs.get("camera_subdivide") if isinstance(cs, dict) else {}
+    coverage_kind = str((cs or {}).get("coverage_kind") or "").strip().lower()
+    # Явная роль «Родитель» на доске: без плана/детей shot_kind иначе "" —
+    # кнопка не подсвечивается после клика.
+    if coverage_kind == "parent" or parent_still_suppressed(frame):
+        return "parent", None, coverage_shot_id(frame)
+    if uses_parent_still(frame) and (is_shot_child(frame) or coverage_kind == "child"):
+        parent = find_coverage_parent_frame(frames, frame)
+        parent_number = (
+            int(parent.number)
+            if parent is not None and int(parent.number) != int(frame.number)
+            else None
+        )
+        parent_id = coverage_parent_shot_id(frame) or (
+            coverage_shot_id(parent) if parent is not None else ""
+        )
+        return "child", parent_number, parent_id
+    for other in frames:
+        if int(other.number) == int(frame.number):
+            continue
+        other_parent = find_coverage_parent_frame(frames, other)
+        if other_parent is not None and int(other_parent.number) == int(frame.number):
+            return "parent", None, coverage_shot_id(frame)
+    if (
+        _plan_for_frame(frame)
+        or _action_for_frame(frame)
+        or kadry_are_scene_shots(planned_shots_from_attrs(frame))
+    ):
+        return "parent", None, coverage_shot_id(frame)
+    return "", None, ""
+
+
+def _template_for_frame(frame: Any) -> str:
+    from app.services.montage_scene_editor import frame_template_id
+
+    return frame_template_id(frame)
+
+
+def _anchor_count_for_frame(frame: Any, frames: list[_FrameBoardSnapshot]) -> int:
+    from app.services.montage_scene_editor import frame_bits_count
+
+    return frame_bits_count(frames, frame)
+
+
+def _shot_cs_kadry(frame: Any, *keys: str) -> str:
+    attrs = getattr(frame, "attrs", None)
+    src = attrs if isinstance(attrs, dict) else {}
+    cs = src.get("camera_subdivide")
+    cs = cs if isinstance(cs, dict) else {}
+    found = _first_text(*(cs.get(k) for k in keys), *(src.get(k) for k in keys))
+    if found:
+        return found
+    item = _matching_kadry_item(frame)
+    if item:
+        return _first_text(*(item.get(k) for k in keys))
+    return ""
+
+
+def _empty_coverage_fields() -> dict[str, Any]:
+    return {
+        "shot_plan": "",
+        "shot_action": "",
+        "shot_kind": "",
+        "shot_parent_number": None,
+        "shot_parent_id": "",
+        "shot_template": "",
+        "shot_anchors": 0,
+        "shot_anchor": "",
+        "shot_anchor_change": "",
+        "shot_anchor_main": False,
+        "shot_anchor_found": False,
+        "shot_anchor_rows": [],
+        "anchor_can_add": False,
+        "scene_anchor_rows": [],
+        "vo_cell_full": "",
+        "shot_angle": "",
+        "shot_move": "",
+        "shot_stitch": "",
+        "shot_stitch_label": "",
+        "scene_place": "",
+        "scene_set": "",
+        "scene_characters": "",
+        "scene_lighting": "",
+        "scene_id": "",
+        "scene_no": "",
+        "scene_props": "",
+        "scene_accent": "",
+        "scene_bg": "",
+        "scene_sense": "",
+        "scene_visual_type": "",
+        "scene_feature": "",
+        "scene_template_auto": "",
+        "scene_action": "",
+        "vo_scene_number": None,
+        "vo_scene_size": 0,
+    }
+
+
+def _coverage_fields_for_frames(
+    frames: list[_FrameBoardSnapshot],
+    *,
+    enabled: bool,
+) -> dict[int, dict[str, Any]]:
+    if not enabled:
+        return {fr.number: _empty_coverage_fields() for fr in frames}
+    from app.services.montage_scene_editor import canonical_stitch, frame_board_scene_cell, stitch_label
+
+    out: dict[int, dict[str, Any]] = {}
+    for fr in frames:
+        kind, parent_number, parent_id = _shot_kind_payload(fr, frames)
+        extra = frame_board_scene_cell(frames, fr)
+        stitch = canonical_stitch(
+            _shot_cs_kadry(fr, "переход", "тип_стыка", "stitch", "transition")
+        )
+        row = _empty_coverage_fields()
+        row.update(extra)
+        row.update(
+            {
+                "shot_plan": _plan_for_frame(fr),
+                "shot_action": _action_for_frame(fr),
+                "shot_kind": kind,
+                "shot_parent_number": parent_number,
+                "shot_parent_id": parent_id,
+                "shot_template": _template_for_frame(fr),
+                "shot_angle": _shot_cs_kadry(fr, "ракурс", "angle"),
+                "shot_move": _shot_cs_kadry(fr, "движение", "move"),
+                "shot_stitch": stitch,
+                "shot_stitch_label": stitch_label(stitch),
+            }
+        )
+        out[fr.number] = row
+    return out
+
+
+def _real_frame_aspect(scenes_dir: Path, rows: list[dict[str, Any]]) -> str | None:
+    """Формат по первой готовой картинке: настройка проекта врёт после ручных
+    загрузок, а доска рисует именно файл с диска."""
+    from PIL import Image
+
+    for row in rows:
+        if not row.get("image_shot1_url"):
+            continue
+        png = find_shot1_image(scenes_dir, int(row["number"]))
+        if not png:
+            continue
+        try:
+            with Image.open(png) as im:
+                w, h = im.size
+        except Exception as e:  # noqa: BLE001 — битый файл не должен ронять доску
+            logger.warning("montage_board: размер {}: {}", png, e)
+            return None
+        if w > 0 and h > 0:
+            return f"{w}:{h}"
+    return None
+
+
 async def build_montage_board(
     session: AsyncSession,
     project: Project,
@@ -405,6 +870,15 @@ async def build_montage_board(
     # Project scalars / data_dir — до любого await, пока ORM ещё hot в запросе.
     project_id = int(project.id)
     data_dir = project.data_dir
+    try:
+        from app.services.vibecode_catalog import resolve_node_media_settings
+
+        frame_aspect = str(
+            resolve_node_media_settings(project, node_type="images")["aspect_slug"] or "9:16"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("montage_board: aspect project {}: {}", project_id, e)
+        frame_aspect = "9:16"
     try:
         board_meta = _json_safe_meta(public_board_meta(montage_meta(project)))
     except Exception as e:  # noqa: BLE001
@@ -415,7 +889,9 @@ async def build_montage_board(
         return list(
             (
                 await session.execute(
-                    select(Frame).where(Frame.project_id == project_id).order_by(Frame.number.asc())
+                    select(Frame)
+                    .where(Frame.project_id == project_id)
+                    .order_by(Frame.sort_key.asc(), Frame.number.asc())
                 )
             )
             .scalars()
@@ -467,6 +943,11 @@ async def build_montage_board(
 
     # ORM только здесь; дальше — plain snapshots (to_thread не трогает Session).
     frames = _snapshot_frames(frames_orm)
+    # Сводка сцены живёт в монтаже, не в отдельном меню: поля считаем всегда.
+    coverage_by_number = _coverage_fields_for_frames(frames, enabled=True)
+    show_coverage_rows = True
+
+    entity_char_names, entity_item_names = await _entity_name_maps(session, project_id)
 
     xlsx_path = data_dir / "project.xlsx"
     chars_dir = data_dir / "characters"
@@ -479,6 +960,17 @@ async def build_montage_board(
     )
     scenes_dir = data_dir / "scenes"
     videos_dir = data_dir / "videos"
+    items_dir = data_dir / "items"
+    excel_char_names = _names_from_excel_cells(excel_by_frame)
+    group_refs_by_number = _group_refs_for_frames(
+        frames,
+        scenes_dir=scenes_dir,
+        chars_dir=chars_dir,
+        items_dir=items_dir,
+        excel_by_frame=excel_by_frame,
+        char_names={**excel_char_names, **entity_char_names},
+        item_names=entity_item_names,
+    )
 
     frame_videos: list[tuple[_FrameBoardSnapshot, Path | None, Path | None, dict, bool, bool]] = []
     all_vid_paths: list[Path | None] = []
@@ -556,7 +1048,35 @@ async def build_montage_board(
                 "animation_prompt_shot1": prompts.get("animation_prompt_shot1") or "",
                 "animation_prompt_shot2": prompts.get("animation_prompt_shot2") or "",
                 "plan_column": plan_column_for_frame(fr.number),
+                **(coverage_by_number.get(fr.number) or _empty_coverage_fields()),
+                **(
+                    group_refs_by_number.get(fr.number)
+                    or {
+                        "ref_parent": None,
+                        "group_character_refs": [],
+                        "item_refs": [],
+                    }
+                ),
+                "manual_refs": manual_refs_for_board(data_dir, fr),
             }
         )
 
-    return {"frames": rows, "frame_count": len(rows), "meta": board_meta}
+    from app.services.shot_templates import template_choices_for_ui
+
+    return {
+        "frames": rows,
+        "frame_count": len(rows),
+        "meta": board_meta,
+        "frame_aspect": _real_frame_aspect(scenes_dir, rows) or frame_aspect,
+        "show_coverage_rows": show_coverage_rows,
+        "coverage_plan_choices": list(COVERAGE_PLAN_CHOICES),
+        "coverage_angle_choices": list(COVERAGE_ANGLE_CHOICES),
+        "coverage_move_choices": list(COVERAGE_MOVE_CHOICES),
+        "coverage_light_choices": list(COVERAGE_LIGHT_CHOICES),
+        "coverage_visual_type_choices": list(COVERAGE_VISUAL_TYPE_CHOICES),
+        "coverage_stitch_choices": stitch_choices_for_ui(),
+        "coverage_template_choices": template_choices_for_ui(),
+        "ref_kind_choices": [
+            {"id": kind, "label": label} for kind, label in REF_KINDS.items()
+        ],
+    }

@@ -713,6 +713,167 @@ async def montage_board(
         ) from e
 
 
+@router.post("/{project_id}/montage-board/frames/insert")
+async def montage_board_insert_frame(
+    project_id: int,
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Вставить кадр между колонками монтажа (дробный sort_key → перенумерация)."""
+    from app.services.montage_board_frames import insert_montage_frame
+
+    p = _project_or_404(await session.get(Project, project_id))
+    after_raw = body.get("after_frame_id")
+    after_id = int(after_raw) if after_raw not in (None, "") else None
+    voiceover = str(body.get("voiceover") or "")
+    kind = str(body.get("kind") or "parent")
+    try:
+        fr = await insert_montage_frame(
+            session,
+            p,
+            after_frame_id=after_id,
+            voiceover=voiceover,
+            kind=kind,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    await commit_with_retry(session)
+    await publish_project_event(
+        project_id,
+        event_type="project_updated",
+        payload={"montage_frame_inserted": True, "frame_id": fr.id},
+    )
+    return {
+        "ok": True,
+        "id": fr.id,
+        "uuid": fr.uuid,
+        "number": fr.number,
+        "sort_key": fr.sort_key,
+        "voiceover_text": fr.voiceover_text or "",
+    }
+
+
+@router.post("/{project_id}/montage-board/scenes/merge")
+async def montage_board_merge_scenes(
+    project_id: int,
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Склеить две соседние VO-ячейки в одну сцену (без перенумерации)."""
+    from app.services.montage_board_frames import merge_montage_scenes
+
+    p = _project_or_404(await session.get(Project, project_id))
+    try:
+        result = await merge_montage_scenes(
+            session,
+            p,
+            left_frame_id=int(body["left_frame_id"]),
+            right_frame_id=int(body["right_frame_id"]),
+        )
+    except (KeyError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail="нужны left_frame_id и right_frame_id") from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await commit_with_retry(session)
+    await publish_project_event(
+        project_id,
+        event_type="project_updated",
+        payload={"montage_scenes_merged": True, "parent_id": result.get("parent_id")},
+    )
+    return result
+
+
+@router.patch("/{project_id}/montage-board/frames/{frame_id}/voiceover")
+async def montage_board_set_voiceover(
+    project_id: int,
+    frame_id: int,
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    from app.services.montage_board_frames import set_montage_voiceover
+
+    p = _project_or_404(await session.get(Project, project_id))
+    try:
+        fr = await set_montage_voiceover(
+            session, p, frame_id, str(body.get("text") or "")
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    await commit_with_retry(session)
+    return {
+        "ok": True,
+        "id": fr.id,
+        "number": fr.number,
+        "voiceover_text": fr.voiceover_text or "",
+    }
+
+
+@router.delete("/{project_id}/montage-board/frames/{frame_id}")
+async def montage_board_delete_frame(
+    project_id: int,
+    frame_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    from app.services.montage_board_frames import delete_montage_frame
+
+    p = _project_or_404(await session.get(Project, project_id))
+    try:
+        result = await delete_montage_frame(session, p, frame_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    await commit_with_retry(session)
+    await publish_project_event(
+        project_id,
+        event_type="project_updated",
+        payload={"montage_frame_deleted": True, "frame_id": frame_id},
+    )
+    return result
+
+
+@router.post("/{project_id}/montage-board/coverage")
+async def montage_board_apply_coverage(
+    project_id: int,
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Записать роль / план сразу в БД — без очереди «Применить правки»."""
+    from app.services.montage_board import build_montage_board
+    from app.services.montage_board_meta import normalize_queue_ops
+    from app.services.montage_coverage_ops import COVERAGE_OP_TYPES, apply_coverage_op
+
+    p = _project_or_404(await session.get(Project, project_id))
+    cleaned = normalize_queue_ops([body])
+    if len(cleaned) != 1:
+        raise HTTPException(status_code=400, detail="нужна одна coverage-операция")
+    op = cleaned[0]
+    if str(op.get("type") or "") not in COVERAGE_OP_TYPES:
+        raise HTTPException(status_code=400, detail="это не coverage-операция")
+    try:
+        result = await apply_coverage_op(session, p, op)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await commit_with_retry(session)
+    await publish_project_event(
+        project_id,
+        event_type="project_updated",
+        payload={"montage_coverage": True, "type": op.get("type")},
+    )
+    board = await build_montage_board(session, p)
+    frame_number = int(op["frame_number"])
+    row = next(
+        (fr for fr in (board.get("frames") or []) if int(fr.get("number") or 0) == frame_number),
+        None,
+    )
+    return {
+        "ok": True,
+        "highlight": result.get("highlight"),
+        "shot_kind": (row or {}).get("shot_kind"),
+        "shot_parent_number": (row or {}).get("shot_parent_number"),
+        "ref_parent": (row or {}).get("ref_parent"),
+        "frame": row,
+    }
+
+
 @router.post("/{project_id}/montage-board/queue")
 async def montage_board_save_queue(
     project_id: int,
@@ -726,34 +887,14 @@ async def montage_board_save_queue(
     from app.services.montage_board_apply_job import get_apply_job
     from app.services.montage_board_meta import (
         montage_meta,
+        normalize_queue_ops,
         public_board_meta,
         set_montage_meta,
         should_accept_queue_save,
     )
 
     p = _project_or_404(await session.get(Project, project_id))
-    ops = list(body.get("pending_ops") or [])
-    # Нормализуем: только известные типы + валидный frame.
-    cleaned: list[dict] = []
-    for raw in ops:
-        if not isinstance(raw, dict):
-            continue
-        t = str(raw.get("type") or "")
-        if not t.startswith(("image_", "video_")):
-            continue
-        try:
-            fr = int(raw.get("frame_number") or 0)
-        except (TypeError, ValueError):
-            continue
-        if fr < 1:
-            continue
-        shot = 2 if raw.get("shot") == 2 else 1
-        item: dict = {"type": t, "frame_number": fr, "shot": shot}
-        if isinstance(raw.get("prompt"), str) and raw["prompt"].strip():
-            item["prompt"] = raw["prompt"]
-        if isinstance(raw.get("correction"), str) and raw["correction"].strip():
-            item["correction"] = raw["correction"]
-        cleaned.append(item)
+    cleaned = normalize_queue_ops(body.get("pending_ops"))
 
     board = montage_meta(p)
     existing = list(board.get("pending_ops") or [])

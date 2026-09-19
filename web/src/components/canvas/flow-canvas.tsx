@@ -80,6 +80,10 @@ import {
 } from "@/lib/workflow-node-serialize";
 import { readCanvasGraph } from "@/lib/canvas-graph-storage";
 import { mergeGraphNodesWithRuntime } from "@/lib/canvas-node-merge";
+import {
+  readPipelineViewport,
+  writePipelineViewport,
+} from "@/lib/pipeline-viewport";
 import { autoLayout, History, type Graph as EditGraph } from "@/lib/graph-edit";
 import type { GraphEdge as EditGraphEdge, ResetPlan } from "@/lib/stage-types";
 import { GraphResetDialog } from "./graph-reset-dialog";
@@ -276,7 +280,11 @@ export function FlowCanvas({
   const lastCommittedRef = useRef<{ nodes: Node<PipelineNodeData>[]; edges: Edge[] } | null>(null);
   const [historyTick, setHistoryTick] = useState(0);
   const reactFlowRef = useRef<ReactFlowInstance<Node<PipelineNodeData>, Edge> | null>(null);
+  const persistProjectIdRef = useRef(projectId);
+  persistProjectIdRef.current = projectId;
+  const lastGraphProjectRef = useRef<number | null>(projectId);
   const paneRef = useRef<HTMLDivElement | null>(null);
+  const savedViewport = projectId != null ? readPipelineViewport(projectId) : null;
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -306,10 +314,12 @@ export function FlowCanvas({
   // Смена проекта/шаблона — не тащим позиции/версию/историю соседа.
   useEffect(() => {
     setGraphVersion("");
+    setNodes([]);
+    setEdges([]);
     historyRef.current.clear();
     lastCommittedRef.current = null;
     setHistoryTick((v) => v + 1);
-  }, [projectId, workflowId]);
+  }, [projectId, workflowId, setNodes, setEdges]);
 
   useEffect(() => {
     if (!graphSource) return;
@@ -318,10 +328,12 @@ export function FlowCanvas({
     const ver = `${projectId ?? "none"}|${workflowStructureKey(graphSource)}`;
     if (ver === graphVersion && nodes.length > 0) return;
     setGraphVersion(ver);
+    const switched = lastGraphProjectRef.current !== projectId;
+    lastGraphProjectRef.current = projectId;
     setNodes((prev) =>
       mergeGraphNodesWithRuntime(
         baseNodes as Node<PipelineNodeData>[],
-        prev,
+        switched ? [] : prev,
       ) as Node<PipelineNodeData>[],
     );
     setEdges(baseEdges);
@@ -617,6 +629,7 @@ export function FlowCanvas({
   const applyProjectGraph = useCallback(
     async (wfNodes: WorkflowNode[], wfEdges: WorkflowEdge[], reset: boolean) => {
       if (!projectId) return;
+      if (persistProjectIdRef.current !== projectId) return;
       await api.saveProjectGraph(projectId, wfNodes, wfEdges, reset);
       // Настройки вне графа — как раньше: ai_control и привязки excel-дорожек.
       const projectData = project.data ?? (await api.getProject(projectId));
@@ -629,6 +642,7 @@ export function FlowCanvas({
       if (bindings.length) {
         meta.excel_lane_bindings = bindings;
       }
+      if (persistProjectIdRef.current !== projectId) return;
       await api.patchProject(projectId, { meta });
       await qc.invalidateQueries({ queryKey: ["project", projectId] });
     },
@@ -1324,16 +1338,25 @@ export function FlowCanvas({
     <>
       <div ref={paneRef} className="relative h-full w-full">
       <ReactFlow
+        key={projectId ?? "none"}
         className="neural-flow"
         nodes={nodes}
         edges={edges}
         onInit={(inst) => {
           reactFlowRef.current = inst;
+          if (projectId != null) {
+            const vp = readPipelineViewport(projectId);
+            if (vp) inst.setViewport(vp, { duration: 0 });
+          }
         }}
+        onMoveEnd={(_event, vp) => {
+          if (projectId != null) writePipelineViewport(projectId, vp);
+        }}
+        defaultViewport={savedViewport ?? undefined}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
-        fitView={!canvasGraph?.saved_at}
+        fitView={!savedViewport && !canvasGraph?.saved_at}
         fitViewOptions={{ padding: 0.12, maxZoom: 0.85, minZoom: 0.2 }}
         minZoom={0.15}
         maxZoom={1.5}
