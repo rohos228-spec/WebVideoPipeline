@@ -784,6 +784,9 @@ _IMG_PR_DB_HINT = (
     "describe_appearance пусто — внешность не описывай; непусто — опиши ВСЕХ "
     "перечисленных, включая владельца фотографии (100–150 симв. на человека "
     "из карточки characters). Пропустишь одного — он выйдет с лицом соседа. "
+    "Если у кадра есть coverage_parent — это K2/K3 ТОЙ ЖЕ сцены: первый абзац "
+    "Preserve/Change (Image 1 = still родителя). Не выдумывай новую локацию, "
+    "не добавляй людей сверх состава родителя, не подменяй картину/предмет. "
     "В промт_картинки пиши ПОЛНЫЙ промт: сцена + стилевой замок из мастера "
     "(какую пару блоков копировать — сказано ниже). "
     "Оркестратор НИЧЕГО не дописывает. "
@@ -823,7 +826,7 @@ async def _load_img_pr_context(
     *,
     only_uuids: set[str] | None = None,
     skip_uuids: set[str] | None = None,
-) -> tuple[list[Frame], list[dict], str]:
+) -> tuple[list[Frame], list[dict], str, list[Frame]]:
     """Кадры + Entity cards + general_plan для img_pr."""
     from app.db import SessionLocal
     from app.models import Entity
@@ -861,7 +864,7 @@ async def _load_img_pr_context(
         if (fr.image_prompt or "").strip():
             continue
         selected.append(fr)
-    return selected, cards, general_plan
+    return selected, cards, general_plan, frames
 
 
 def _write_img_pr_db_frames_for(
@@ -873,6 +876,7 @@ def _write_img_pr_db_frames_for(
     *,
     batch_tag: str = "",
     include_characters: bool = True,
+    all_frames: list[Frame] | None = None,
 ) -> Path:
     import json
 
@@ -886,6 +890,7 @@ def _write_img_pr_db_frames_for(
         general_plan=general_plan if include_characters else "",
         include_characters=include_characters,
         include_field_map=include_characters,
+        all_frames=all_frames,
     )
     name = f"db_frames{('_' + batch_tag) if batch_tag else ''}.json"
     out = tmp_dir / name
@@ -906,8 +911,8 @@ def _write_img_pr_db_frames_for(
 
 async def _write_img_pr_db_frames(project: Project, tmp_dir: Path) -> Path:
     """Пишет полный db_frames.json (smoke / legacy)."""
-    frames, cards, general_plan = await _load_img_pr_context(project)
-    return _write_img_pr_db_frames_for(project, tmp_dir, frames, cards, general_plan)
+    frames, cards, general_plan, all_frames = await _load_img_pr_context(project)
+    return _write_img_pr_db_frames_for(project, tmp_dir, frames, cards, general_plan, all_frames=all_frames)
 
 
 async def _apply_img_pr_ops_now(
@@ -986,7 +991,7 @@ async def run_img_pr_xlsx(
         logger.info("img_pr_db: plastilin master — keep clay style in prompt, no watercolor wrap")
 
     # НЕ пишем в DB по батчам (SQLite lock). Чекпоинт на диске → apply один раз в конце.
-    frames_full, cards, general_plan = await _load_img_pr_context(project)
+    frames_full, cards, general_plan, all_frames = await _load_img_pr_context(project)
 
     # Этап 2 (C.2): чекпоинт привязан к входу шага — кадры (uuid+закадр),
     # карточки, мастер-промпт+хинт, стиль, контракт, модель. Смена любого
@@ -1103,6 +1108,7 @@ async def run_img_pr_xlsx(
             general_plan,
             batch_tag=batch_tag,
             include_characters=True,
+            all_frames=all_frames,
         )
         uuid_lines = "\n".join(f"кадр {fr.number} = {fr.uuid}" for fr in batch if fr.uuid)
         footer = ipb.batch_footer(

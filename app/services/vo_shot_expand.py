@@ -7,6 +7,7 @@ Frame.voiceover_text = результат ноды разбивки. Не пиш
 
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any
 
@@ -19,6 +20,7 @@ from app.services.scene_design.camera_expand import (
     already_subdivided,
     renumber_frames_by_sort_key,
     split_text_into_parts,
+    vo_chunk_is_dangling,
 )
 
 _ATTR_KEY = "camera_subdivide"
@@ -127,16 +129,260 @@ def planned_shots_from_attrs(frame: Any) -> list[dict[str, Any]]:
     return [item for item in raw if isinstance(item, dict)]
 
 
+_PARENT_SCENE_LOCK = (
+    "Image 1 is the previous coverage still of the SAME scene "
+    "(layout / set / wardrobe / lighting / cast-count / prop-identity lock). "
+    "Preserve: the same room architecture, furniture placement, wall color, "
+    "the SAME people already visible (same body count — do not invent extras), "
+    "their clothes, lighting direction, and the SAME named objects "
+    "(the painting/portrait/document/table in Image 1 is that exact object, "
+    "not a replacement). "
+    "Change: camera position, framing, and this shot's action only. "
+    "If punching in on a painting, it must be the painting already in Image 1. "
+    "If Image 1 shows one person at the table, the result still shows one person. "
+    "Do not invent a new location or a new person. The viewer must recognize "
+    "the same place and the same people as in Image 1."
+)
+
+_CHAR_SHEET_LOCK = (
+    "Image 2 is the character sheet: identity only (face/body/clothes). Do not copy the sheet pose or layout."
+)
+
+
+def is_coverage_child(frame: Any) -> bool:
+    """Дочерний кадр покрытия: shot-ребёнок или есть родитель по T/X."""
+    if is_shot_child(frame):
+        return True
+    return bool(coverage_parent_shot_id(frame))
+
+
+def merge_parent_scene_refs(
+    parent_png: Any | None,
+    other: list[Any],
+    *,
+    max_refs: int = 2,
+) -> list[Any]:
+    """Слот 1 = PNG родителя (layout lock), слот 2 = персонаж."""
+    if parent_png is None:
+        return list(other)[:max_refs]
+    out = [parent_png]
+    parent_key = str(parent_png)
+    for item in other:
+        if str(item) == parent_key:
+            continue
+        out.append(item)
+        if len(out) >= max_refs:
+            break
+    return out
+
+
+def with_parent_scene_lock(
+    prompt: str,
+    *,
+    has_parent_ref: bool,
+    has_char_ref: bool = False,
+) -> str:
+    """Контракт Preserve/Change для image-модели, если прикреплён still родителя."""
+    raw = (prompt or "").strip()
+    if not has_parent_ref:
+        return raw
+    if raw.startswith("Image 1 is the previous coverage still"):
+        return raw
+    parts = [_PARENT_SCENE_LOCK]
+    if has_char_ref:
+        parts.append(_CHAR_SHEET_LOCK)
+    return "\n".join(parts) + "\n\n" + raw
+
+
+def _is_pipeline_frame(frame: Any) -> bool:
+    if not str(getattr(frame, "uuid", "") or "").strip():
+        return False
+    attrs = getattr(frame, "attrs", None)
+    if isinstance(attrs, dict) and attrs.get("from_disk_media"):
+        return False
+    return True
+
+
+def _norm_words(text: str) -> list[str]:
+    return " ".join((text or "").split()).split()
+
+
+def flattened_coverage_groups(
+    frames: list[Any],
+) -> dict[str, list[Any]]:
+    """K1+K2+… после flatten: группа по префиксу id (`5` из `5-K2`)."""
+    buckets: dict[str, list[tuple[int, Any]]] = {}
+    for fr in frames:
+        if not _is_pipeline_frame(fr):
+            continue
+        parsed = parse_coverage_shot(coverage_shot_id(fr))
+        if parsed is None:
+            continue
+        group, k = parsed
+        buckets.setdefault(group, []).append((k, fr))
+    out: dict[str, list[Any]] = {}
+    for group, items in buckets.items():
+        items.sort(key=lambda item: item[0])
+        ks = [k for k, _ in items]
+        if 1 not in ks or max(ks) < 2:
+            continue
+        out[group] = [fr for _, fr in items]
+    return out
+
+
+def merge_flattened_coverage_members(
+    members: list[Any],
+) -> tuple[Any, list[Any]]:
+    """Склеить K1+K2+K3 обратно на родителя: полный закадр + кадры[]."""
+    if len(members) < 2:
+        return members[0], []
+    parent = members[0]
+    extra = list(members[1:])
+    shots: list[dict[str, Any]] = []
+    parts: list[str] = []
+    parent_sid = ""
+    for i, fr in enumerate(members):
+        planned = planned_shots_from_attrs(fr)
+        shot = copy.deepcopy(planned[0]) if planned else {}
+        if not isinstance(shot, dict):
+            shot = {}
+        piece = (getattr(fr, "voiceover_text", None) or "").strip()
+        parts.append(piece)
+        sid = str(shot.get("id") or coverage_shot_id(fr) or "").strip()
+        if i == 0:
+            parent_sid = sid
+        shot["id"] = sid
+        shot["порядок"] = i + 1
+        shot["parent_id"] = None if i == 0 else parent_sid or None
+        shot["закадр"] = piece
+        shots.append(shot)
+    full = " ".join(" ".join(parts).split())
+    if full:
+        parent.voiceover_text = full
+        parent.duration_seconds = vo_duration_sec(full, shots=1)
+    attrs = dict(getattr(parent, "attrs", None) or {})
+    attrs["кадры"] = shots
+    attrs["vo_cell_full"] = full
+    parent.attrs = attrs
+    _flag_attrs(parent)
+    _set_cs(
+        parent,
+        role="vo_parent",
+        parent_uuid=str(getattr(parent, "uuid", "") or ""),
+        shot_index=1,
+        shots_in_beat=len(shots),
+        shot_id=parent_sid,
+    )
+    return parent, extra
+
+
+def _vo_parts_without_empty(text: str, n: int) -> list[str]:
+    """Нарезка без пустого хвоста: лишние слоты не оставляем пустыми."""
+    raw = (text or "").strip()
+    parts = split_text_into_parts(raw, max(1, int(n)))
+    while parts and not str(parts[-1] or "").strip():
+        parts.pop()
+    cleaned = [" ".join((p or "").split()) for p in parts if str(p or "").strip()]
+    if cleaned:
+        return cleaned
+    return [raw] if raw else []
+
+
+def bits_from_attrs(frame: Any) -> list[dict[str, Any]]:
+    """Биты apply-ops из attrs кадра (вход для сборки кадры[])."""
+    attrs = getattr(frame, "attrs", None)
+    if not isinstance(attrs, dict):
+        return []
+    raw = attrs.get("биты") or attrs.get("bits")
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, dict)]
+
+
+def kadry_from_bits(full_vo: str, bits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """1 бит → 1 кадр. Склейка закадр = весь текст ячейки, без хвостов."""
+    text = " ".join((full_vo or "").split())
+    ordered = sorted(
+        (item for item in bits if isinstance(item, dict)),
+        key=lambda item: int(item.get("порядок") or 0),
+    )
+    if not text or not ordered:
+        return []
+    starts: list[int] = []
+    cursor = 0
+    for i, item in enumerate(ordered):
+        anchor = " ".join(str(item.get("якорь") or "").split())
+        idx = -1
+        if anchor:
+            idx = text.find(anchor, cursor)
+            if idx < 0:
+                idx = text.lower().find(anchor.lower(), cursor)
+        if idx < 0:
+            anchored = split_text_into_parts(text, len(ordered))
+            while anchored and not str(anchored[-1] or "").strip():
+                anchored.pop()
+            if " ".join(" ".join(anchored).split()) != text:
+                return []
+            return _kadry_rows(ordered[: len(anchored)], anchored)
+        starts.append(0 if i == 0 else idx)
+        cursor = idx + max(len(anchor), 1)
+    parts: list[str] = []
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(text)
+        if end < start:
+            end = start
+        parts.append(text[start:end].strip())
+    if " ".join(" ".join(parts).split()) != text:
+        fallback = split_text_into_parts(text, len(ordered))
+        while fallback and not str(fallback[-1] or "").strip():
+            fallback.pop()
+        if " ".join(" ".join(fallback).split()) != text:
+            return []
+        ordered = ordered[: len(fallback)]
+        return _kadry_rows(ordered, fallback)
+    return _kadry_rows(ordered, parts)
+
+
+def _kadry_rows(bits: list[dict[str, Any]], parts: list[str]) -> list[dict[str, Any]]:
+    """1 бит = самостоятельная VO-ячейка ``Bnn-K1``, не покрытие ``B01-K2``."""
+    rows: list[dict[str, Any]] = []
+    for i, (item, piece) in enumerate(zip(bits, parts, strict=False)):
+        sid = f"B{i + 1:02d}-K1"
+        rows.append(
+            {
+                "id": sid,
+                "порядок": i + 1,
+                "parent_id": None,
+                "закадр": piece,
+                "действие": str(item.get("изменение") or item.get("глагол") or "").strip(),
+            }
+        )
+    return rows
+
+
+def kadry_vo_partition(full: str, planned: list[dict[str, Any]]) -> list[str] | None:
+    """закадр из кадры[], только если склейка = ячейка и нет обрубков."""
+    parts = [str(item.get("закадр") or "").strip() for item in planned]
+    if not parts or not all(parts):
+        return None
+    if _norm_words(" ".join(parts)) != _norm_words(full):
+        return None
+    if any(vo_chunk_is_dangling(p) for p in parts):
+        return None
+    return parts
+
+
 def resolve_shot_plan(original_vo: str, planned: list[dict[str, Any]]) -> tuple[int, list[str]]:
-    """Сколько шотов и какие vo_shot: из кадры[] или эвристика по фразам."""
+    """Сколько шотов: только из кадры[]. Без плана не выдумывать нарезку."""
+    text = (original_vo or "").strip()
     if planned:
+        partition = kadry_vo_partition(text, planned)
+        if partition:
+            return len(partition), partition
         need = max(1, len(planned))
-        parts = [str(item.get("закадр") or "").strip() for item in planned]
-        if not any(parts):
-            parts = split_text_into_parts(original_vo, need)
-        return need, parts
-    need = shots_needed_for_vo(original_vo)
-    return need, split_text_into_parts(original_vo, need)
+        parts = _vo_parts_without_empty(text, need)
+        return len(parts), parts
+    return 1, [text] if text else [""]
 
 
 _SCENE_CHAIN_RE = re.compile(r"(?m)^\s*\d+\.\s+\S")
@@ -312,11 +558,27 @@ def _group_by_parent(frames: list[Any]) -> dict[str, list[Any]]:
     return groups
 
 
+def _cell_full_text(parent: Any, members: list[Any]) -> str:
+    attrs = getattr(parent, "attrs", None) or {}
+    full = str(attrs.get("vo_cell_full") or "").strip() if isinstance(attrs, dict) else ""
+    if full:
+        return full
+    joined = " ".join(
+        (getattr(m, "voiceover_text", None) or "").strip()
+        for m in members
+        if (getattr(m, "voiceover_text", None) or "").strip()
+    )
+    joined = " ".join(joined.split())
+    if joined:
+        return joined
+    return (getattr(parent, "voiceover_text", None) or "").strip()
+
+
 def apply_shot_voiceover_to_cells(frames: list[Any]) -> int:
     """После QC: закадр ячейки → voiceover_text каждого кадра группы.
 
-    Склейка кусков по порядку = исходная ячейка. Полный текст копируется
-    в attrs.vo_cell_full у родителя.
+    Режем по фразам/клаузам, не по словам. Склейка непустых
+    кусков = исходная ячейка. Полный текст — в attrs.vo_cell_full.
     """
     updated = 0
     for members in _group_by_parent(frames).values():
@@ -326,30 +588,30 @@ def apply_shot_voiceover_to_cells(frames: list[Any]) -> int:
             (m for m in members if _cs(m).get("role") == "vo_parent"),
             members[0],
         )
-        attrs = dict(getattr(parent, "attrs", None) or {})
-        full = str(attrs.get("vo_cell_full") or "").strip()
-        if not full:
-            full = (getattr(parent, "voiceover_text", None) or "").strip()
-            if not full:
-                full = " ".join(
-                    (getattr(m, "voiceover_text", None) or "").strip()
-                    for m in members
-                    if (getattr(m, "voiceover_text", None) or "").strip()
-                )
-                full = " ".join(full.split())
+        full = _cell_full_text(parent, members)
         if not full:
             continue
         planned = planned_shots_from_attrs(parent)
-        parts = [str(item.get("закадр") or "").strip() for item in planned]
-        if len(parts) != len(members) or not all(parts):
-            parts = [str(_cs(m).get(_VO_SHOT_KEY) or "").strip() for m in members]
-        if len(parts) != len(members) or not all(parts):
-            parts = split_text_into_parts(full, len(members))
+        parts = _vo_parts_without_empty(full, len(members))
+        attrs = dict(getattr(parent, "attrs", None) or {})
         attrs["vo_cell_full"] = full
+        if planned:
+            for i, item in enumerate(planned):
+                piece = parts[i] if i < len(parts) else ""
+                if not piece:
+                    continue
+                if str(item.get("закадр") or "") != piece:
+                    item["закадр"] = piece
+                    updated += 1
+            attrs["кадры"] = [item for item, piece in zip(planned, parts, strict=False) if piece] or planned[
+                :1
+            ]
         parent.attrs = attrs
         _flag_attrs(parent)
         for i, fr in enumerate(members):
             piece = parts[i] if i < len(parts) else ""
+            if not piece:
+                continue
             if (getattr(fr, "voiceover_text", None) or "") != piece:
                 fr.voiceover_text = piece
                 updated += 1
@@ -419,29 +681,48 @@ def distribute_coverage_prompts(frames: list[Any]) -> int:
 
 
 def inherit_camera_on_children(frames: list[Any]) -> int:
-    """Дети берут движение/набор с родителя; крупность уже из плана шота."""
+    """Дети берут движение/набор с родителя; крупность уже из плана шота.
+
+    Сирота (vo_parent нет в группе): набор из ``место``, движение — статика.
+    Иначе добор меню съёмки их не видит (нет закадра) и нода падает.
+    """
     updated = 0
     for members in _group_by_parent(frames).values():
         parent = next(
             (m for m in members if _cs(m).get("role") == "vo_parent"),
             None,
         )
-        if parent is None:
-            continue
-        pcs = _cs(parent)
+        pcs = _cs(parent) if parent is not None else {}
         move = str(pcs.get("движение") or pcs.get("move") or "").strip()
         nab = str(pcs.get("набор") or pcs.get("set") or "").strip()
-        if not move and not nab:
-            continue
+        if parent is None:
+            donor = next(
+                (
+                    m
+                    for m in members
+                    if str(_cs(m).get("движение") or "").strip() or str(_cs(m).get("набор") or "").strip()
+                ),
+                None,
+            )
+            if donor is not None:
+                dcs = _cs(donor)
+                move = str(dcs.get("движение") or dcs.get("move") or "").strip()
+                nab = str(dcs.get("набор") or dcs.get("set") or "").strip()
         for child in members:
-            if child is parent:
+            if parent is not None and child is parent:
                 continue
             extra: dict[str, Any] = {}
             ccs = _cs(child)
-            if move and not str(ccs.get("движение") or "").strip():
-                extra["движение"] = move
-            if nab and not str(ccs.get("набор") or "").strip():
-                extra["набор"] = nab
+            if not str(ccs.get("движение") or "").strip():
+                if move:
+                    extra["движение"] = move
+                elif parent is None:
+                    extra["движение"] = "статика"
+            if not str(ccs.get("набор") or "").strip():
+                place = str(ccs.get("место") or "").strip()
+                fill = nab or place
+                if fill:
+                    extra["набор"] = fill
             if extra:
                 _set_cs(child, **extra)
                 updated += 1

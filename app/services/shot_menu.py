@@ -403,7 +403,31 @@ def group_vo_cells(
     ячейка, пустой VO присоединяется как шот. Текст ячейки = voiceover_text
     родителя (разбивка). По шотам показываем vo_shot — дубликат, который
     режет expand. Frame.voiceover_text не пишем."""
-    from app.services.scene_design.camera_expand import split_text_into_parts
+
+    def _display_vo_parts(text: str, n: int) -> list[str]:
+        """Нарезка для ВИТРИНЫ меню (не для генерации): по словам, без пустых.
+
+        Генеративный split_text_into_parts хвост оставляет пустым («покрытие
+        без нового закадра») — в меню это давало бы «—» на живых шотах.
+        Здесь честно делим слова поровну: это подпись, а не промт.
+        """
+        words = (text or "").strip().split()
+        n = max(1, int(n))
+        if n == 1:
+            return [" ".join(words)]
+        if not words:
+            return [""] * n
+        if len(words) < n:
+            parts = words + [words[-1]] * (n - len(words))
+            return parts[:n]
+        base, rem = divmod(len(words), n)
+        parts = []
+        i = 0
+        for k in range(n):
+            take = base + (1 if k < rem else 0)
+            parts.append(" ".join(words[i : i + take]))
+            i += take
+        return parts
 
     cells: list[dict[str, Any]] = []
     current_frames: list[dict[str, Any]] = []
@@ -428,7 +452,7 @@ def group_vo_cells(
         if copies and all(copies):
             vo_parts = copies
         elif len(current_frames) > 1 and len(nonempty) == 1:
-            vo_parts = split_text_into_parts(nonempty[0], len(current_frames))
+            vo_parts = _display_vo_parts(nonempty[0], len(current_frames))
         else:
             vo_parts = vos
         shots = [

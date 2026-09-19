@@ -131,6 +131,17 @@ def test_clear_bound_snapshot_and_upload_path(tmp_path: Path, monkeypatch) -> No
     assert upload_dir(p, "n_gpt").is_dir()
 
 
+def test_safe_upload_node_key_strips_windows_colon(tmp_path: Path) -> None:
+    from app.services.excel_gpt_node import safe_upload_node_key
+
+    safe = safe_upload_node_key("n_excel_gpt_fw_frames:action_chain")
+    assert ":" not in safe
+    assert safe_upload_node_key("n_excel_gpt_fw_frames") == "n_excel_gpt_fw_frames"
+    p = tmp_path / safe
+    p.mkdir(parents=True, exist_ok=True)
+    assert p.is_dir()
+
+
 def test_clear_bound_snapshot_suppresses_filename_fallback(tmp_path: Path, monkeypatch) -> None:
     """После явной очистки снимка UI не должен снова цеплять old/*_result_*.xlsx."""
     from app.services.node_xlsx_snapshot import resolve_bound_xlsx_path
