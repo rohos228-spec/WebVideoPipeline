@@ -34,6 +34,7 @@ OWNER_UI_PREFIXES: tuple[str, ...] = (
     "/api/create",  # очередь массовой генерации
     "/api/db",  # прямой обозреватель базы
     "/api/fleet",  # парк машин, запуск команд
+    "/api/gen-assistant",  # помощник генерации: стили, агенты
     "/api/generation-config-presets",  # пресеты генераторов платформы
     "/api/generation-options",  # выбор генератора: решение платформы, оно же цена
     "/api/gpt-workspace",  # браузерный GPT владельца
