@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -41,7 +41,8 @@ async def test_correction_mode_sends_only_user_text(tmp_path: Path, monkeypatch:
         image_prompt="base hero standing in street, cinematic",
         status="images_ready",
     )
-    session = MagicMock()
+    session = AsyncMock()
+    session.get.return_value = project
 
     async def _get_frame(*_a, **_k):
         return fr

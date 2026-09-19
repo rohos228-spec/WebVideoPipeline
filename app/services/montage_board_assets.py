@@ -665,6 +665,46 @@ def _find_shot_image(scenes_dir: Path, frame_number: int, shot: int) -> Path | N
     return find_shot1_image(scenes_dir, frame_number)
 
 
+_SHOT1_CHAR_KEYS = ("characters", "персонажи", "persons")
+_SHOT2_CHAR_KEY = "shot02_characters"
+
+
+def _get_shot_characters(fr: Frame, shot: int) -> str:
+    attrs = fr.attrs or {}
+    if shot == 2:
+        return str(attrs.get(_SHOT2_CHAR_KEY) or "").strip()
+    for key in _SHOT1_CHAR_KEYS:
+        val = str(attrs.get(key) or "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _set_shot_characters(fr: Frame, shot: int, value: str) -> None:
+    text = (value or "").strip()
+    attrs = dict(fr.attrs or {})
+    if shot == 2:
+        if text:
+            attrs[_SHOT2_CHAR_KEY] = text
+        else:
+            attrs.pop(_SHOT2_CHAR_KEY, None)
+    else:
+        if text:
+            for key in _SHOT1_CHAR_KEYS:
+                attrs[key] = text
+        else:
+            for key in _SHOT1_CHAR_KEYS:
+                attrs.pop(key, None)
+    fr.attrs = attrs
+    flag_modified(fr, "attrs")
+
+
+def frame_shot_character_ids(fr: Frame, shot: int) -> list[str]:
+    from app.orchestrator.steps.generate_images import _parse_ref_ids
+
+    return _parse_ref_ids(_get_shot_characters(fr, shot))
+
+
 def _find_shot_video(videos_dir: Path, frame_number: int, shot: int) -> Path | None:
     if shot == 2:
         return _find_shot2_video(videos_dir, frame_number)

@@ -264,3 +264,14 @@ async def test_apply_skips_child_when_parent_fails(
     child_errs = [e for e in result["errors"] if "34" in e or "родител" in e.lower()]
     assert child_errs, result["errors"]
     assert any("33" in e for e in result["errors"])
+
+
+def test_waves_parent_then_child_only_if_parent_in_batch() -> None:
+    from app.services.montage_board_apply import waves_parent_then_child
+
+    parent_of = {1: None, 2: 1, 3: 1, 8: 7}
+    # Родитель уже есть и не в очереди — дети сразу.
+    assert waves_parent_then_child([2, 3, 8], parent_of) == [[2, 3, 8]]
+    # Родитель тоже в пачке — сначала он, потом дети.
+    assert waves_parent_then_child([1, 2, 3], parent_of) == [[1], [2, 3]]
+

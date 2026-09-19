@@ -1,0 +1,29 @@
+# Tasks: port-e4e5
+
+- [x] 1. Анализ коммитов батчей E4 + E5 (`0d7f1ff3`, `b69c2896`, `b62258fa`, `48b586bf`, `a1d12811`, `ee0c827b`, `0b88a643`, `1fe8724b`).
+- [x] 2. Портирование бэкенд-сервисов:
+  - [x] `apply_ops_batches.py` (`SKIP_PROMPTS_AND_ACTION`, `_frame_complete`).
+  - [x] `vo_shot_expand.py` (`kadry_vo_partition_aligned`, parent-lock).
+  - [x] `shot_templates.py` и шаблоны в `templates/shot_templates/`.
+  - [x] `image_ref_lock.py` (классификация рефов, обрезка, identity lock).
+  - [x] `montage_board_frames.py` (вставка, удаление, объединение сцен, голос).
+  - [x] `montage_coverage_ops.py` (coverage-модели, план/действие/ракурс/ститч).
+  - [x] `montage_board.py` (сортировка по sort_key + number).
+  - [x] `outsee_http.py` (таймауты 60s/180s, curl fallback, Windows SSL).
+  - [x] `outsee_retry.py` (защита lock при обрезке, fallback на Kling).
+  - [x] `gpt_api.py` (парсинг JSON envelope ошибок, nostream salvage пустых SSE-стримов).
+  - [x] `ensure_frames_from_disk.py` (quarantine удалённых кадров).
+  - [x] `app/web/routers/project_ops.py` (эндпоинты монтажных операций с сессией Postgres).
+- [x] 3. Портирование фронтенда:
+  - [x] `web/src/lib/types.ts` (типы монтажной доски и операций).
+  - [x] `web/src/lib/api.ts` (API вызовы новых эндпоинтов).
+  - [x] `web/src/components/canvas/assemble-montage-board.tsx` (строки покрытия, чипы, вьюпорт).
+  - [x] `web/src/components/canvas/flow-canvas.tsx`.
+  - [x] `web/src/lib/pipeline-viewport.ts`, `web/src/lib/montage-ai-change-memory.ts`.
+- [x] 4. Верификация качества:
+  - [x] TypeScript check (`pnpm run typecheck` в `web/`): 0 ошибок.
+  - [x] Ruff lint check (`ruff check app/ tests/`): 0 ошибок.
+  - [x] Mypy check (`mypy app/`): 0 ошибок в 382 файлах.
+  - [x] Policy check (`python scripts/policy_check.py`): PASSED.
+  - [x] Pytest suite: 405/405 тестов успешно пройдены.
+- [ ] 5. Согласование с владельцем перед коммитом и пушем.

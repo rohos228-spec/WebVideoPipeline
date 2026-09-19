@@ -21,7 +21,9 @@ def test_pick_result_url_prefers_list() -> None:
 
 
 def test_pick_result_url_fallback() -> None:
-    url = oh._pick_result_url({"status": "done", "result_url": "https://cdn.example/v.mp4"})
+    url = oh._pick_result_url(
+        {"status": "done", "result_url": "https://cdn.example/v.mp4"}
+    )
     assert url.endswith(".mp4")
 
 
@@ -32,11 +34,37 @@ def test_pick_result_url_missing() -> None:
 
 def test_studio_image_slug_mapping() -> None:
     assert oh.studio_id_to_outsee_image_slug("gpt_image_2") == "gpt-image-2"
-    # Nano Banana Pro на Outsee запрещена (перенос форка 2026-09, a7496b35):
-    # маппинг не отдаёт slug, а бросает — роутер превращает это в 400.
-    with pytest.raises(oh.NanoBananaProOutseeBannedError):
+    with pytest.raises(oh.OutseeApiError, match="Nano Banana Pro"):
         oh.studio_id_to_outsee_image_slug("nano-banana-pro")
+    with pytest.raises(oh.OutseeApiError, match="Nano Banana Pro"):
+        oh.studio_id_to_outsee_image_slug("nano_banana_pro")
+    assert "nano-banana-pro" not in oh.OUTSEE_WIRED_IMAGE_MODELS
     assert oh.studio_id_to_outsee_image_slug("unknown-xyz") == "gpt-image-2"
+    stripped = oh._strip_banned_outsee_image_models(
+        {
+            "models": [
+                {"id": "gpt-image-2"},
+                {"id": "nano-banana-pro"},
+                {"slug": "nano-banana-pro-vt"},
+                {"id": "nano-banana-2"},
+            ]
+        }
+    )
+    ids = [x.get("id") or x.get("slug") for x in stripped["models"]]
+    assert "nano-banana-pro" not in ids
+    assert "nano-banana-pro-vt" not in ids
+    assert "gpt-image-2" in ids
+    assert "nano-banana-2" in ids
+
+
+@pytest.mark.asyncio
+async def test_generate_image_rejects_nano_banana_pro(tmp_path: Path) -> None:
+    with pytest.raises(oh.OutseeApiError, match="Nano Banana Pro"):
+        await oh.generate_image(
+            "x",
+            tmp_path / "a.png",
+            model_slug="nano-banana-pro",
+        )
 
 
 def test_studio_video_slug_mapping() -> None:
@@ -68,6 +96,89 @@ async def test_post_generate_parses_id(monkeypatch: pytest.MonkeyPatch) -> None:
     assert data["id"] == 314764
 
 
+@pytest.mark.asyncio
+async def test_post_generate_waits_on_concurrency_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"n": 0}
+
+    class LimitResp:
+        status_code = 429
+        text = "busy"
+
+        def json(self):
+            return {
+                "error": {
+                    "code": "concurrency_limit",
+                    "message": "Достигнут лимит одновременных генераций (4).",
+                    "active": 4,
+                    "limit": 4,
+                }
+            }
+
+    class OkResp:
+        status_code = 200
+
+        def json(self):
+            return {"id": 99, "status": "queued"}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+        async def post(self, *a, **k):
+            calls["n"] += 1
+            return LimitResp() if calls["n"] == 1 else OkResp()
+
+    slept: list[float] = []
+
+    async def fake_sleep(sec):
+        slept.append(sec)
+
+    monkeypatch.setattr(oh.httpx, "AsyncClient", lambda **kw: FakeClient())
+    monkeypatch.setattr(oh, "_headers", lambda: {"Authorization": "Bearer x"})
+    monkeypatch.setattr(oh.asyncio, "sleep", fake_sleep)
+    data = await oh._post_generate("/api/v1/videos/generate", {"prompt": "hi"})
+    assert data["id"] == 99
+    assert calls["n"] == 2
+    assert slept and slept[0] > 0
+
+
+def test_generate_timeout_connect_is_not_twenty_seconds() -> None:
+    timeout = oh._generate_timeout()
+    assert timeout.connect >= 45.0
+    assert timeout.connect > 20.0
+
+
+def test_curl_tls_args_skip_revoke_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(oh.sys, "platform", "win32")
+    assert "--ssl-no-revoke" in oh._curl_tls_args()
+    monkeypatch.setattr(oh.sys, "platform", "linux")
+    assert "--ssl-no-revoke" not in oh._curl_tls_args()
+
+
+def test_curl_download_args_include_ssl_no_revoke_on_windows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(oh.sys, "platform", "win32")
+    args = oh._curl_download_args(
+        "https://outseehistory.storage.yandexcloud.net/generated/1.png",
+        tmp_path / "a.png",
+    )
+    assert "--ssl-no-revoke" in args
+    assert "45" in args
+
+
+def test_prefer_curl_for_yandex_result() -> None:
+    assert oh._prefer_curl_download(
+        "https://outseehistory.storage.yandexcloud.net/generated/1.png"
+    )
+    assert not oh._prefer_curl_download("https://outsee.io/api/v1/images/generate")
+
+
 def test_outsee_http_enabled_follows_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(oh, "outsee_api_key", lambda: "outsee-test")
     assert oh.outsee_http_enabled() is True
@@ -82,3 +193,33 @@ def test_normalize_refs_path(tmp_path: Path) -> None:
     assert refs is not None
     assert refs[0].startswith("data:image/png;base64,")
     assert refs[1].startswith("https://")
+
+
+@pytest.mark.asyncio
+async def test_generate_image_wraps_download_as_download_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.bots.outsee import OutseeDownloadError
+
+    async def fake_post(path: str, body: dict):
+        return {"id": "task-9", "status": "queued"}
+
+    async def fake_poll(task_id: str, timeout: float = 0):
+        return {
+            "status": "completed",
+            "result_url": "https://cdn.example/outsee-1.png",
+        }
+
+    async def fake_download(url: str, out_path: Path):
+        raise oh.OutseeApiError("All connection attempts failed", context={"url": url})
+
+    monkeypatch.setattr(oh, "assert_not_nano_banana_pro_on_outsee", lambda *_a, **_k: None)
+    monkeypatch.setattr(oh, "studio_id_to_outsee_image_slug", lambda *_a, **_k: "gpt-image-2")
+    monkeypatch.setattr(oh, "_post_generate", fake_post)
+    monkeypatch.setattr(oh, "_poll_generation", fake_poll)
+    monkeypatch.setattr(oh, "_download", fake_download)
+
+    with pytest.raises(OutseeDownloadError) as ei:
+        await oh.generate_image("scene", tmp_path / "a.png", model_slug="gpt-image-2")
+    assert ei.value.context.get("img_url") == "https://cdn.example/outsee-1.png"
+    assert ei.value.context.get("task_id") == "task-9"

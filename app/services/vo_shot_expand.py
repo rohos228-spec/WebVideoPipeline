@@ -74,6 +74,15 @@ def parse_coverage_shot(shot_id: str) -> tuple[str, int] | None:
     return m.group(1), int(m.group(2))
 
 
+def main_action_text(frame: Any) -> str:
+    attrs = getattr(frame, "attrs", None)
+    if not isinstance(attrs, dict):
+        return ""
+    return str(
+        attrs.get("главное_действие") or attrs.get("main_action") or ""
+    ).strip()
+
+
 def coverage_parent_shot_id(frame: Any) -> str:
     """Родитель покрытия: явный parent_id из таблицы T/X, иначе prefix-K1."""
     cs = _cs(frame)
@@ -127,6 +136,35 @@ def planned_shots_from_attrs(frame: Any) -> list[dict[str, Any]]:
     if not isinstance(raw, list):
         return []
     return [item for item in raw if isinstance(item, dict)]
+
+
+def kadry_are_scene_shots(planned: list[dict[str, Any]] | None) -> bool:
+    """Настоящие кадры сцен (T/X: шаблон / план+место), не заглушки Bnn-K1."""
+    for item in planned or []:
+        if not isinstance(item, dict):
+            continue
+        template = str(item.get("шаблон") or item.get("template") or "").strip()
+        tid = template.upper()
+        if tid[:1] in {"T", "X"} and any(ch.isdigit() for ch in tid):
+            return True
+        plan = str(item.get("план") or item.get("plan") or "").strip()
+        place = str(item.get("место") or item.get("place") or "").strip()
+        angle = str(item.get("ракурс") or item.get("angle") or "").strip()
+        if plan and (place or angle):
+            return True
+    return False
+
+
+_SCENE_CHAIN_RE = re.compile(r"(?m)^\s*\d+\.\s+\S")
+
+
+def looks_like_scene_chain(text: str) -> bool:
+    """Нумерованная цепь сцен: «1. место — действие» + кусок в скобках."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    return bool(_SCENE_CHAIN_RE.search(raw) and "(" in raw)
+
 
 
 _PARENT_SCENE_LOCK = (
@@ -402,6 +440,40 @@ def kadry_vo_partition(full: str, planned: list[dict[str, Any]]) -> list[str] | 
     return parts
 
 
+def kadry_vo_partition_aligned(
+    full: str, planned: list[dict[str, Any]]
+) -> list[str] | None:
+    """Фрагменты кадры[].закадр, выровненные по тексту последовательно.
+
+    Терпим к мелким расхождениям GPT (пунктуация/пробелы между кусками):
+    каждый фрагмент ищется в остатке текста; промежутки приклеиваются к
+    предыдущему куску, хвост — к последнему. Склейка = весь текст.
+    None — если фрагмент не нашёлся по порядку (тогда слепая нарезка).
+    """
+    text = " ".join((full or "").split())
+    frags = [" ".join(str(item.get("закадр") or "").split()) for item in planned]
+    if not text or not frags or any(not f for f in frags):
+        return None
+    lower = text.lower()
+    starts: list[int] = []
+    cursor = 0
+    for frag in frags:
+        idx = lower.find(frag.lower(), cursor)
+        if idx < 0:
+            return None
+        starts.append(idx)
+        cursor = idx + max(len(frag), 1)
+    parts: list[str] = []
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(text)
+        parts.append(text[start:end].strip())
+    if starts[0] > 0:
+        parts[0] = f"{text[: starts[0]].strip()} {parts[0]}".strip()
+    if any(vo_chunk_is_dangling(p) for p in parts):
+        return None
+    return parts
+
+
 def resolve_shot_plan(original_vo: str, planned: list[dict[str, Any]]) -> tuple[int, list[str]]:
     """Сколько шотов: только из кадры[]. Без плана не выдумывать нарезку."""
     text = (original_vo or "").strip()
@@ -413,17 +485,6 @@ def resolve_shot_plan(original_vo: str, planned: list[dict[str, Any]]) -> tuple[
         parts = _vo_parts_without_empty(text, need)
         return len(parts), parts
     return 1, [text] if text else [""]
-
-
-_SCENE_CHAIN_RE = re.compile(r"(?m)^\s*\d+\.\s+\S")
-
-
-def looks_like_scene_chain(text: str) -> bool:
-    """Нумерованная цепь сцен: «1. место — действие» + кусок в скобках."""
-    raw = (text or "").strip()
-    if not raw:
-        return False
-    return bool(_SCENE_CHAIN_RE.search(raw) and "(" in raw)
 
 
 def _apply_shot_meta(frame: Any, shot: dict[str, Any] | None) -> None:

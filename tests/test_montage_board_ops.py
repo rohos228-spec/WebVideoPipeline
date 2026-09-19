@@ -169,6 +169,14 @@ async def test_regen_failure_keeps_old_image(
         "app.services.montage_board_regen.generate_image_with_retries",
         _fail,
     )
+    monkeypatch.setattr(
+        "app.services.montage_board_regen._image_api_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "app.services.montage_board_regen.get_gpt_client",
+        lambda: None,
+    )
 
     from app.services.montage_board_regen import regen_scene_image
 

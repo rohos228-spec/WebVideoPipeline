@@ -5,7 +5,9 @@ from __future__ import annotations
 from app.services.montage_board_meta import (
     add_highlight,
     clear_failed_highlight,
+    drop_pending_ops_for_frames,
     montage_meta,
+    normalize_queue_ops,
     set_montage_meta,
     should_accept_queue_save,
     slot_key_from_op,
@@ -85,3 +87,60 @@ def test_refuse_shorter_queue_while_apply_running() -> None:
         cleaned=cleaned, existing=existing, apply_running=False, force_clear=False
     )
     assert ok2 is True
+
+
+def test_normalize_queue_keeps_all_scene_row_fields() -> None:
+    """Строки сцены: ракурс / движение / стык / свет / набор доживают до apply."""
+    cleaned = normalize_queue_ops(
+        [
+            {"type": "coverage_angle", "frame_number": 2, "shot": 1, "angle": "с плеча"},
+            {"type": "coverage_move", "frame_number": 2, "shot": 1, "move": "наезд"},
+            {
+                "type": "coverage_stitch",
+                "frame_number": 2,
+                "shot": 1,
+                "stitch": "cut_on_action",
+            },
+            {"type": "coverage_light", "frame_number": 1, "shot": 1, "light": "контровой"},
+            {"type": "coverage_set", "frame_number": 1, "shot": 1, "set": "кабинет"},
+            {"type": "coverage_plan", "frame_number": 1, "shot": 1, "plan": "ДАЛЬНИЙ"},
+            {"type": "coverage_action", "frame_number": 1, "shot": 1, "action": "вошёл"},
+            {
+                "type": "coverage_anchors",
+                "frame_number": 1,
+                "shot": 1,
+                "anchors": [{"якорь": "В сентябре", "изменение": "было → стало"}],
+            },
+            {"type": "coverage_kind", "frame_number": 3, "shot": 1, "kind": "child",
+             "parent_number": "1"},
+            {"type": "image_regen", "frame_number": 4, "shot": 2, "prompt": "p"},
+            {"type": "unknown_op", "frame_number": 5, "shot": 1},
+            {"type": "coverage_plan", "frame_number": 0, "shot": 1, "plan": "ОБЩИЙ"},
+        ]
+    )
+    by_type = {op["type"]: op for op in cleaned}
+    assert by_type["coverage_angle"]["angle"] == "с плеча"
+    assert by_type["coverage_move"]["move"] == "наезд"
+    assert by_type["coverage_stitch"]["stitch"] == "cut_on_action"
+    assert by_type["coverage_light"]["light"] == "контровой"
+    assert by_type["coverage_set"]["set"] == "кабинет"
+    assert by_type["coverage_plan"]["plan"] == "ДАЛЬНИЙ"
+    assert by_type["coverage_anchors"]["anchors"][0]["главный"] is True
+    assert by_type["coverage_kind"]["parent_number"] == 1
+    assert by_type["image_regen"]["shot"] == 2
+    # Неизвестный тип и кадр < 1 отбрасываются.
+    assert "unknown_op" not in by_type
+    assert len(cleaned) == 10
+
+
+def test_drop_pending_ops_for_deleted_frame_keeps_neighbors() -> None:
+    board = {
+        "pending_ops": [
+            {"type": "coverage_action", "frame_number": 1, "action": "a"},
+            {"type": "image_ai_change", "frame_number": 3, "instruction": "x"},
+            {"type": "coverage_action", "frame_number": 2, "action": "b"},
+        ]
+    }
+    assert drop_pending_ops_for_frames(board, {3}) == 1
+    assert [op["frame_number"] for op in board["pending_ops"]] == [1, 2]
+

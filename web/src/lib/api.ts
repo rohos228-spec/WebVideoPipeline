@@ -10,7 +10,9 @@ import type {
   ExcelHeroCharacter,
   FrameDTO,
   MontageBoardDTO,
+  MontageBoardFrame,
   MontageBoardMeta,
+  MontageBoardParentRef,
   GenerationConfigPreset,
   GenerationConfigPresetSettings,
   HITLDTO,
@@ -222,11 +224,53 @@ export interface MontagePendingOp {
     | "image_ai_change"
     | "video_regen"
     | "video_regen_prompt"
-    | "video_ai_change";
+    | "video_ai_change"
+    | "coverage_plan"
+    | "coverage_action"
+    | "coverage_kind"
+    | "coverage_delete"
+    | "coverage_template"
+    | "coverage_anchors"
+    | "coverage_angle"
+    | "coverage_move"
+    | "coverage_stitch"
+    | "coverage_light"
+    | "coverage_set"
+    | "coverage_sense"
+    | "coverage_visual_type"
+    | "coverage_place"
+    | "coverage_characters"
+    | "coverage_props"
+    | "coverage_bg"
+    | "coverage_accent"
+    | "coverage_feature"
+    | "coverage_scene_action";
   frame_number: number;
   shot: 1 | 2;
   prompt?: string;
   correction?: string;
+  /** Заметка оператора для ИИзменения — агент img_pr пишет по ней новый промт. */
+  instruction?: string;
+  plan?: string;
+  action?: string;
+  angle?: string;
+  move?: string;
+  stitch?: string;
+  light?: string;
+  set?: string;
+  sense?: string;
+  visual_type?: string;
+  place?: string;
+  characters?: string;
+  props?: string;
+  bg?: string;
+  accent?: string;
+  feature?: string;
+  kind?: "parent" | "child";
+  parent_number?: number;
+  /** Формат сцены: шаблон T0…T10 / X1 / X2 из каталога. */
+  template?: string;
+  anchors?: unknown[];
 }
 
 export interface XlsxPreview {
@@ -1051,11 +1095,81 @@ export const api = {
       120_000,
     ),
 
+  mergeMontageScenes: (
+    projectId: number,
+    leftFrameId: number,
+    rightFrameId: number,
+  ) =>
+    http<{
+      ok: boolean;
+      parent_id: number;
+      parent_number: number;
+      merged_frames: number;
+      vo_scene_size: number;
+    }>(`/api/projects/${projectId}/montage-board/scenes/merge`, {
+      method: "POST",
+      body: JSON.stringify({
+        left_frame_id: leftFrameId,
+        right_frame_id: rightFrameId,
+      }),
+    }),
+
+  insertMontageFrame: (
+    projectId: number,
+    afterFrameId: number | null,
+    voiceover = "",
+    kind: "parent" | "child" = "parent",
+  ) =>
+    http<{
+      ok: boolean;
+      id: number;
+      uuid: string;
+      number: number;
+      sort_key: number | null;
+      voiceover_text: string;
+    }>(`/api/projects/${projectId}/montage-board/frames/insert`, {
+      method: "POST",
+      body: JSON.stringify({ after_frame_id: afterFrameId, voiceover, kind }),
+    }),
+
+  setMontageVoiceover: (projectId: number, frameId: number, text: string) =>
+    http<{ ok: boolean; id: number; number: number; voiceover_text: string }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/voiceover`,
+      { method: "PATCH", body: JSON.stringify({ text }) },
+    ),
+
+  deleteMontageFrame: (projectId: number, frameId: number) =>
+    http<{ ok: boolean; frame_id: number; number: number; deleted: number }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}`,
+      { method: "DELETE" },
+    ),
+
+  applyMontageCoverage: (
+    projectId: number,
+    body: Pick<
+      MontagePendingOp,
+      "type" | "frame_number" | "shot" | "kind" | "parent_number"
+    >,
+  ) =>
+    http<{
+      ok: boolean;
+      highlight?: string | null;
+      shot_kind?: "parent" | "child" | "";
+      shot_parent_number?: number | null;
+      ref_parent?: MontageBoardParentRef | null;
+      frame?: MontageBoardFrame | null;
+    }>(`/api/projects/${projectId}/montage-board/coverage`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   saveMontageQueue: (
     projectId: number,
     body: {
       pending_ops: MontagePendingOp[];
       video_trims?: Record<string, { start: number; end: number }>;
+      /** Пустая очередь иначе не затирает серверную (should_accept_queue_save). */
+      force_clear?: boolean;
     },
   ) =>
     http<{
