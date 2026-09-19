@@ -48,6 +48,9 @@ from app.web.routers import (
     frames as frames_router,
 )
 from app.web.routers import (
+    gen_assistant as gen_assistant_router,
+)
+from app.web.routers import (
     generation_options as generation_options_router,
 )
 from app.web.routers import (
@@ -370,6 +373,7 @@ def create_app() -> FastAPI:
     app.include_router(generation_options_router.router, prefix=API_PREFIX)
     app.include_router(config_presets_router.router, prefix=API_PREFIX)
     app.include_router(outsee_create_router.router, prefix=API_PREFIX)
+    app.include_router(gen_assistant_router.router, prefix=API_PREFIX)
     app.include_router(outsee_http_router.router, prefix=API_PREFIX)
     app.include_router(create_queue_router.router, prefix=API_PREFIX)
     app.include_router(kie_create_router.router, prefix=API_PREFIX)
@@ -576,6 +580,15 @@ def _mount_frontend(app: FastAPI) -> None:
             from fastapi import HTTPException
 
             raise HTTPException(status_code=404, detail="not found")
+        if full_path.startswith("gen-styles/"):
+            from app.web.routers.gen_assistant import resolve_style_cover
+
+            cover = resolve_style_cover(full_path.split("/", 1)[1])
+            if cover is not None:
+                return FileResponse(
+                    cover,
+                    headers={"Cache-Control": "no-cache, must-revalidate"},
+                )
         # Next static export — все маршруты как .html-файлы.
         candidate = out_dir / full_path
         if candidate.is_file():
