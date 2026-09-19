@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import commit_with_retry
-from app.models import Artifact, ArtifactKind, Project
+from app.models import Artifact, ArtifactKind, Frame, Project
 from app.services.chatgpt_xlsx import sync_project_xlsx
 from app.services.event_bus import publish_project_event
 from app.services.project_control import pause_project as pause_project_svc
@@ -830,6 +830,96 @@ async def montage_board_delete_frame(
     return result
 
 
+async def _scene_editor_state(session: AsyncSession, project: Project, frame_id: int) -> dict:
+    from sqlalchemy import select as _select
+
+    from app.services.montage_scene_editor import build_scene_editor_state
+
+    frames = list(
+        (
+            await session.execute(
+                _select(Frame)
+                .where(Frame.project_id == project.id)
+                .order_by(Frame.sort_key, Frame.number)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    frame = next((fr for fr in frames if int(fr.id) == int(frame_id)), None)
+    if frame is None:
+        raise HTTPException(status_code=404, detail=f"кадр {frame_id} не найден")
+    state = build_scene_editor_state(frames, frame)
+    try:
+        from app.models import Entity
+
+        ents = list(
+            (
+                await session.execute(
+                    _select(Entity).where(Entity.project_id == project.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        names = {
+            str(getattr(e, "code", "") or "").strip(): str(getattr(e, "name", "") or "").strip()
+            for e in ents
+            if str(getattr(e, "type", "") or "") == "character"
+            and str(getattr(e, "code", "") or "").strip()
+        }
+        raw = str((state.get("scene") or {}).get("characters") or "")
+        if raw and names:
+            tokens = [names.get(tok.strip(), tok.strip()) for tok in raw.split(",")]
+            state.setdefault("scene", {})["characters"] = ", ".join(t for t in tokens if t)
+    except Exception:
+        pass
+    return state
+
+
+@router.get("/{project_id}/montage-board/frames/{frame_id}/scene-editor")
+async def montage_board_scene_editor(
+    project_id: int,
+    frame_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Всё редактируемое у кадра: роль, формат сцены, план, действие, якоря."""
+    p = _project_or_404(await session.get(Project, project_id))
+    return await _scene_editor_state(session, p, frame_id)
+
+
+@router.post("/{project_id}/montage-board/frames/{frame_id}/scene-variants")
+async def montage_board_scene_variants(
+    project_id: int,
+    frame_id: int,
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Подобрать варианты действия / формата сцены / якорей знанием нод сцен."""
+    from app.services.montage_scene_editor import VARIANT_KINDS, generate_scene_variants
+
+    p = _project_or_404(await session.get(Project, project_id))
+    kind = str(body.get("kind") or "action").strip()
+    if kind not in VARIANT_KINDS:
+        raise HTTPException(status_code=400, detail=f"неизвестный вид вариантов: {kind}")
+    state = await _scene_editor_state(session, p, frame_id)
+    try:
+        return await generate_scene_variants(
+            state,
+            kind=kind,
+            desc=str(body.get("desc") or ""),
+            count=int(body.get("count") or 3),
+            project_id=project_id,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception(
+            "scene-variants failed project={} frame={} kind={}", project_id, frame_id, kind
+        )
+        raise HTTPException(
+            status_code=502, detail=f"GPT не ответил: {type(e).__name__}: {e}"
+        ) from e
+
+
 @router.post("/{project_id}/montage-board/coverage")
 async def montage_board_apply_coverage(
     project_id: int,
@@ -1217,6 +1307,138 @@ async def montage_board_delete_video(
     deleted = await delete_scene_video(session, p, frame_number, shot=shot)
     await commit_with_retry(session)
     return {"ok": deleted, "frame_number": frame_number, "shot": shot}
+
+
+async def _board_frame_or_404(
+    session: AsyncSession, project: Project, frame_number: int
+) -> Frame:
+    from sqlalchemy import select as _select
+
+    frame = (
+        await session.execute(
+            _select(Frame).where(
+                Frame.project_id == project.id, Frame.number == frame_number
+            )
+        )
+    ).scalar_one_or_none()
+    if frame is None:
+        raise HTTPException(status_code=404, detail=f"кадр {frame_number} не найден")
+    return frame
+
+
+@router.get("/{project_id}/montage-board/ref-assets")
+async def montage_board_ref_assets(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Готовые рефы проекта: персонажи и предметы, которые можно приложить."""
+    from app.services.montage_board import _entity_name_maps
+    from app.services.montage_frame_refs import list_ref_assets
+
+    p = _project_or_404(await session.get(Project, project_id))
+    char_names, item_names = await _entity_name_maps(session, project_id)
+    assets = list_ref_assets(
+        p.data_dir, names={"character": char_names, "item": item_names}
+    )
+    return {"assets": assets}
+
+
+@router.post("/{project_id}/montage-board/refs")
+async def montage_board_add_ref(
+    project_id: int,
+    frame_number: int = Query(..., ge=1),
+    kind: str = Query("other"),
+    name: str = Query(""),
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Загрузить новый референс кадру: файл + вид + имя."""
+    from app.services.montage_frame_refs import add_manual_ref, manual_refs_for_board
+
+    p = _project_or_404(await session.get(Project, project_id))
+    frame = await _board_frame_or_404(session, p, frame_number)
+    content = await file.read()
+    suffix = Path(file.filename or "ref.png").suffix or ".png"
+    try:
+        add_manual_ref(
+            frame,
+            data_dir=p.data_dir,
+            kind=kind,
+            name=name,
+            content=content,
+            suffix=suffix,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await commit_with_retry(session)
+    return {
+        "ok": True,
+        "frame_number": frame_number,
+        "refs": manual_refs_for_board(p.data_dir, frame),
+    }
+
+
+@router.post("/{project_id}/montage-board/link-ref")
+async def montage_board_link_ref(
+    project_id: int,
+    frame_number: int = Query(..., ge=1),
+    file: str = Query(...),
+    kind: str = Query(""),
+    name: str = Query(""),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Приложить кадру готовый реф проекта — без загрузки файла."""
+    from app.services.montage_frame_refs import link_ref_asset, manual_refs_for_board
+
+    p = _project_or_404(await session.get(Project, project_id))
+    frame = await _board_frame_or_404(session, p, frame_number)
+    try:
+        link_ref_asset(frame, data_dir=p.data_dir, file=file, kind=kind, name=name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await commit_with_retry(session)
+    return {
+        "ok": True,
+        "frame_number": frame_number,
+        "refs": manual_refs_for_board(p.data_dir, frame),
+    }
+
+
+@router.post("/{project_id}/montage-board/delete-ref")
+async def montage_board_delete_ref(
+    project_id: int,
+    frame_number: int = Query(..., ge=1),
+    ref_id: str = Query(...),
+    kind: str = Query("manual"),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    from sqlalchemy import select as _select
+
+    from app.models import Frame
+    from app.services.montage_frame_refs import (
+        delete_manual_ref,
+        manual_refs_for_board,
+        unlink_scene_ref,
+    )
+
+    p = _project_or_404(await session.get(Project, project_id))
+    frame = await _board_frame_or_404(session, p, frame_number)
+    kind_n = (kind or "manual").strip().lower()
+    if kind_n in {"character", "item", "персонаж", "предмет"}:
+        frames = list(
+            (
+                await session.execute(_select(Frame).where(Frame.project_id == p.id))
+            ).scalars().all()
+        )
+        deleted = unlink_scene_ref(frame, frames, kind=kind_n, ref_id=ref_id)
+    else:
+        deleted = delete_manual_ref(frame, data_dir=p.data_dir, ref_id=ref_id)
+    await commit_with_retry(session)
+    return {
+        "ok": deleted,
+        "frame_number": frame_number,
+        "refs": manual_refs_for_board(p.data_dir, frame),
+    }
 
 
 @router.post("/{project_id}/montage-board/upload-image")
