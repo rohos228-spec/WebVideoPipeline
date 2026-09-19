@@ -13,6 +13,7 @@ import type {
   MontageBoardFrame,
   MontageBoardMeta,
   MontageBoardParentRef,
+  MontageRefAsset,
   GenerationConfigPreset,
   GenerationConfigPresetSettings,
   HITLDTO,
@@ -270,7 +271,146 @@ export interface MontagePendingOp {
   parent_number?: number;
   /** Формат сцены: шаблон T0…T10 / X1 / X2 из каталога. */
   template?: string;
-  anchors?: unknown[];
+  anchors?: SceneAnchorRow[];
+}
+
+export interface SceneAnchorRow {
+  "порядок"?: number;
+  "якорь": string;
+  "изменение"?: string;
+  "главный"?: boolean;
+  offset?: number;
+  found?: boolean;
+  cell_index?: number;
+  frame_number?: number | null;
+  derived?: boolean;
+}
+
+export interface SceneTemplateChoice {
+  id: string;
+  name: string;
+  when: string;
+  axis: string;
+  ladder: string;
+  example: string;
+  shots: number;
+  required: number;
+  plans: string[];
+  roles: string[];
+}
+
+export interface SceneTemplateLadderRow {
+  shot_id: string;
+  n: number;
+  plan: string;
+  angle: string;
+  role: string;
+  action: string;
+  required: number;
+}
+
+export interface SceneShotRow {
+  id: string;
+  "порядок": number;
+  parent_id: string;
+  "шаблон": string;
+  "план": string;
+  "ракурс": string;
+  "движение"?: string;
+  "место": string;
+  "действие": string;
+  "закадр": string;
+  "якорь"?: string;
+  frame_number: number | null;
+}
+
+/** Состояние редактора кадра на доске монтажа (GET .../scene-editor). */
+export interface SceneEditorState {
+  frame: {
+    frame_id: number;
+    number: number;
+    uuid: string;
+    role: "parent" | "child";
+    shot_id: string;
+    shot_index: number | null;
+    shots_in_beat: number | null;
+    place: string;
+    angle?: string;
+    move?: string;
+    set?: string;
+    meaning?: string;
+    duration?: number | null;
+  };
+  parent: { number: number; frame_id: number; shot_id: string };
+  parent_choices: Array<{ number: number; role: string; vo: string }>;
+  group: number[];
+  vo: { frame_text: string; cell_full: string };
+  plan: { current: string; choices: string[] };
+  angle: { current: string; choices: string[] };
+  move: { current: string; choices: string[] };
+  stitch: {
+    current: string;
+    label?: string;
+    choices: Array<{ id: string; label: string }>;
+  };
+  light: { current: string; choices: string[] };
+  set: { current: string };
+  action: { current: string };
+  scene_action: {
+    current: string;
+    chain: Array<{ n: number; place: string; action: string; vo: string }>;
+  };
+  template: {
+    current: string;
+    auto: string;
+    ladder: SceneTemplateLadderRow[];
+    choices: SceneTemplateChoice[];
+    group_len: number;
+  };
+  anchors: {
+    text: string;
+    bits: SceneAnchorRow[];
+    preview: string[];
+    covers_text: boolean;
+    can_add?: boolean;
+  };
+  scene: {
+    id_scene: string;
+    scene_no?: string;
+    place: string;
+    places: string[];
+    set?: string;
+    characters: string;
+    lighting: string;
+    props: string;
+    accent: string;
+    sense: string;
+    visual_type: string;
+    bg: string;
+    feature: string;
+    action: string;
+    chain: Array<{ n: number; place: string; action: string; vo: string }>;
+    anchors: {
+      text: string;
+      bits: SceneAnchorRow[];
+      preview: string[];
+      covers_text: boolean;
+    };
+  };
+  shots: SceneShotRow[];
+}
+
+export type SceneVariantKind = "action" | "template" | "anchors";
+
+export interface SceneVariant {
+  "действие"?: string;
+  "план"?: string;
+  "шаблон"?: string;
+  "лестница"?: string;
+  "биты"?: SceneAnchorRow[];
+  preview?: string[];
+  dropped?: number;
+  "почему"?: string;
 }
 
 export interface XlsxPreview {
@@ -1138,6 +1278,24 @@ export const api = {
       { method: "PATCH", body: JSON.stringify({ text }) },
     ),
 
+  getSceneEditor: (projectId: number, frameId: number) =>
+    http<SceneEditorState>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-editor`,
+      {},
+      60_000,
+    ),
+
+  getSceneVariants: (
+    projectId: number,
+    frameId: number,
+    body: { kind: SceneVariantKind; desc?: string; count?: number },
+  ) =>
+    http<{ ok: boolean; kind: SceneVariantKind; variants: SceneVariant[] }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-variants`,
+      { method: "POST", body: JSON.stringify(body) },
+      240_000,
+    ),
+
   deleteMontageFrame: (projectId: number, frameId: number) =>
     http<{ ok: boolean; frame_id: number; number: number; deleted: number }>(
       `/api/projects/${projectId}/montage-board/frames/${frameId}`,
@@ -1425,6 +1583,62 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ ok: boolean; path: string }>;
   },
+
+  montageRefAssets: (projectId: number) =>
+    http<{ assets: MontageRefAsset[] }>(
+      `/api/projects/${projectId}/montage-board/ref-assets`,
+    ),
+
+  linkMontageFrameRef: (
+    projectId: number,
+    frameNumber: number,
+    payload: { file: string; kind?: string; name?: string },
+  ) => {
+    const q = new URLSearchParams({
+      frame_number: String(frameNumber),
+      file: payload.file,
+      kind: payload.kind ?? "",
+      name: payload.name ?? "",
+    });
+    return http<{ ok: boolean }>(
+      `/api/projects/${projectId}/montage-board/link-ref?${q}`,
+      { method: "POST" },
+    );
+  },
+
+  addMontageFrameRef: async (
+    projectId: number,
+    frameNumber: number,
+    payload: { kind: string; name: string; file: File },
+  ) => {
+    const fd = new FormData();
+    fd.append("file", payload.file);
+    const q = new URLSearchParams({
+      frame_number: String(frameNumber),
+      kind: payload.kind,
+      name: payload.name,
+    });
+    const res = await fetch(`/api/projects/${projectId}/montage-board/refs?${q}`, {
+      method: "POST",
+      body: fd,
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.json() as Promise<{ ok: boolean }>;
+  },
+
+  deleteMontageFrameRef: (
+    projectId: number,
+    frameNumber: number,
+    refId: string,
+    kind = "manual",
+  ) =>
+    http<{ ok: boolean }>(
+      `/api/projects/${projectId}/montage-board/delete-ref` +
+        `?frame_number=${frameNumber}&ref_id=${encodeURIComponent(refId)}` +
+        `&kind=${encodeURIComponent(kind)}`,
+      { method: "POST" },
+    ),
 
   // ── Runs ─────────────────────────────────────────────────────────
   listRuns: () => http<WorkflowRunDetail[]>(`/api/runs`),
