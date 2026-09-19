@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -121,7 +122,7 @@ def _gpt_host_dead(err: str) -> bool:
     )
 
 
-def collect_image_paths(paths: list[str | Path]) -> list[Path]:
+def collect_image_paths(paths: Sequence[str | Path]) -> list[Path]:
     """Валидация: существуют, картинки, не больше MAX_IMAGES."""
     out: list[Path] = []
     for p in paths:
@@ -154,7 +155,7 @@ def _normalize_entry(data: dict[str, Any], *, name_hint: str | None) -> dict[str
 
 
 async def analyze_style_images(
-    paths: list[str | Path],
+    paths: Sequence[str | Path],
     *,
     name_hint: str | None = None,
 ) -> dict[str, Any]:
@@ -313,7 +314,7 @@ def parse_agent_reply(raw: str, *, name_hint: str | None = None) -> dict[str, st
 
 
 async def build_style_agent(
-    paths: list[str | Path],
+    paths: Sequence[str | Path],
     *,
     user_request: str = "",
     name_hint: str | None = None,

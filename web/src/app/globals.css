@@ -83,6 +83,17 @@
   --motion-slow: 380ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Цвета стилей генератора (палитра плиток) */
+  --gen-style-red: #f87171;
+  --gen-style-purple: #c084fc;
+  --gen-style-gray: #9ca3af;
+  --gen-style-orange: #fb923c;
+  --gen-style-cyan: #22d3ee;
+  --gen-style-blue: #60a5fa;
+  --gen-style-green: #4ade80;
+  --gen-style-pink: #f472b6;
+  --gen-style-yellow: #facc15;
 }
 
 /* Тёмная тема здесь намеренно не заводится: направление — светлый лист.

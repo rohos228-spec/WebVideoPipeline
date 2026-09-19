@@ -285,15 +285,15 @@ export const GEN_ASSISTANT_ALL_STYLES: GenStyleDef[] =
 
 /** Цвета плиток в палитре окна генерации (dark + cyan accent). */
 export const GEN_STYLE_COLORS: Record<GenStyleDef["color"], string> = {
-  red: "#f87171",
-  purple: "#c084fc",
-  gray: "#9ca3af",
-  orange: "#fb923c",
-  cyan: "#22d3ee",
-  blue: "#60a5fa",
-  green: "#4ade80",
-  pink: "#f472b6",
-  yellow: "#facc15",
+  red: "var(--gen-style-red)",
+  purple: "var(--gen-style-purple)",
+  gray: "var(--gen-style-gray)",
+  orange: "var(--gen-style-orange)",
+  cyan: "var(--gen-style-cyan)",
+  blue: "var(--gen-style-blue)",
+  green: "var(--gen-style-green)",
+  pink: "var(--gen-style-pink)",
+  yellow: "var(--gen-style-yellow)",
 };
 
 /** Длиннее — это агент-инструкция со слотами, а не ядро стиля. */
