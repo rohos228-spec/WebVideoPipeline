@@ -26,6 +26,7 @@ from app.services.check_analysis import (
     write_analysis_json,
     write_check_report_txt,
 )
+from app.services.excel_gpt_node import safe_upload_node_key
 
 
 @dataclass
@@ -196,7 +197,7 @@ async def run_operator_api(
             "(fail-closed). Для dev/tests явный опт-ин: VP_ALLOW_STUB_CHECKS=1."
         )
 
-    out_dir = project_dir / "excel_gpt_uploads" / node_key
+    out_dir = project_dir / "excel_gpt_uploads" / safe_upload_node_key(node_key)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     names = ", ".join(p.name for p in input_paths) or "(нет файлов)"
@@ -289,7 +290,7 @@ async def _run_operator_api_real(
     """Реальный вызов GPT через OpenAI-совместимый API (без браузера/CDP)."""
     from app.services.gpt_api import chat, collect_result_urls, download_content
 
-    out_dir = project_dir / "excel_gpt_uploads" / node_key
+    out_dir = project_dir / "excel_gpt_uploads" / safe_upload_node_key(node_key)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     is_check = _is_check(role=role, check_mode=check_mode)
@@ -795,7 +796,7 @@ async def _run_check_vision_batched(
         + "\n\n".join(parts)
     )
 
-    out_dir = project_dir / "excel_gpt_uploads" / node_key
+    out_dir = project_dir / "excel_gpt_uploads" / safe_upload_node_key(node_key)
     out_dir.mkdir(parents=True, exist_ok=True)
     analysis = parse_check_analysis(merged)
     # Force merged verdict (parse may miss)

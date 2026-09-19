@@ -35,6 +35,7 @@ from app.services.excel_gpt_node import (
     attachment_paths,
     display_attachment_name,
     expects_xlsx_result,
+    safe_upload_node_key,
     save_gpt_reply_text,
     work_mode,
 )
@@ -777,7 +778,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                 ],
                 scene_registry=meta.get("scene_registry") or [],
             )
-            ctx_dir = project.data_dir / "excel_gpt_uploads" / str(node_key)
+            ctx_dir = project.data_dir / "excel_gpt_uploads" / safe_upload_node_key(node_key)
             ctx_dir.mkdir(parents=True, exist_ok=True)
             db_check_path = ctx_dir / "db_check.json"
             db_check_path.write_text(
@@ -998,7 +999,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                     frames=frames_for_map,
                     characters=entity_cards_for_gpt(ents),
                 )
-            ctx_dir = project.data_dir / "excel_gpt_uploads" / str(node_key)
+            ctx_dir = project.data_dir / "excel_gpt_uploads" / safe_upload_node_key(node_key)
             ctx_dir.mkdir(parents=True, exist_ok=True)
             ctx_path = ctx_dir / "db_frames.json"
             ctx_path.write_text(

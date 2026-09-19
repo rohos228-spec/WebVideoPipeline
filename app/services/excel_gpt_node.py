@@ -573,8 +573,17 @@ def is_allowed_upload_filename(filename: str) -> bool:
     return Path(filename).suffix.lower() in _UPLOAD_SUFFIXES
 
 
+_WIN_PATH_BAD = frozenset('<>:"/\\|?*')
+
+
+def safe_upload_node_key(node_key: str) -> str:
+    """Имя папки excel_gpt_uploads: Windows не принимает ':' и др."""
+    cleaned = "".join("_" if ch in _WIN_PATH_BAD else ch for ch in str(node_key or ""))
+    return cleaned.strip(" .") or "node"
+
+
 def upload_dir(project: Project, node_key: str) -> Path:
-    return project.data_dir / "excel_gpt_uploads" / node_key
+    return project.data_dir / "excel_gpt_uploads" / safe_upload_node_key(node_key)
 
 
 def upload_file_path(project: Project, node_key: str, filename: str) -> Path:
