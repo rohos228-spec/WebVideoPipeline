@@ -2,7 +2,8 @@
 # RUN_BACKEND_ID=session-log-v3
 
 param(
-    [switch]$NoPause
+    [switch]$NoPause,
+    [int]$Port = 0
 )
 
 $ErrorActionPreference = "Continue"
@@ -47,8 +48,22 @@ function Write-BackendLogLine([string]$Line) {
     try { Add-Content -Path $sharedLog -Value $entry -Encoding UTF8 -ErrorAction Stop } catch { }
 }
 
+$targetPort = 8765
+if ($Port -gt 0) {
+    $targetPort = $Port
+} elseif ($env:WEB_PORT) {
+    $parsedPort = 0
+    if ([int]::TryParse($env:WEB_PORT, [ref]$parsedPort) -and $parsedPort -gt 0) {
+        $targetPort = $parsedPort
+    }
+}
+
+$env:TELEGRAM_ENABLED = "false"
+$env:WEB_HOST = "127.0.0.1"
+$env:WEB_PORT = "$targetPort"
+
 Write-Host "==> video-pipeline backend (cwd=$Root)" -ForegroundColor Cyan
-Write-Host "    http://127.0.0.1:8765" -ForegroundColor Yellow
+Write-Host "    http://127.0.0.1:$targetPort" -ForegroundColor Yellow
 Write-Host "    лог (этот запуск): data\backend-$PID.log" -ForegroundColor DarkGray
 try {
     $gitHead = (git -C $Root rev-parse --short HEAD 2>$null).Trim()
@@ -64,9 +79,9 @@ if (Test-Path $verFile) {
 Write-Host ""
 
 try {
-    $listener = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction Stop
+    $listener = Get-NetTCPConnection -LocalPort $targetPort -State Listen -ErrorAction Stop
     if ($listener) {
-        Write-Host "ВНИМАНИЕ: порт 8765 занят (PID $($listener.OwningProcess))." -ForegroundColor Yellow
+        Write-Host "ВНИМАНИЕ: порт $targetPort занят (PID $($listener.OwningProcess))." -ForegroundColor Yellow
         Write-Host "         Закройте другое окно бэкенда или: stop-backend.cmd" -ForegroundColor Yellow
         Write-Host ""
     }
@@ -75,10 +90,6 @@ try {
 if (-not (Test-Path (Join-Path $Root "web\out\index.html"))) {
     Write-Host "ВНИМАНИЕ: web/out/index.html отсутствует - STUDIO.cmd -> [3] Починить установку" -ForegroundColor Yellow
 }
-
-$env:TELEGRAM_ENABLED = "false"
-$env:WEB_HOST = "127.0.0.1"
-$env:WEB_PORT = "8765"
 $env:HF_HUB_DISABLE_SYMLINKS = "1"
 $env:HF_HUB_DISABLE_SYMLINKS_WARNING = "0"
 
@@ -120,7 +131,7 @@ $preflightOut = @(& $py -c $preflightPy 2>&1)
 $preflightOk = ($LASTEXITCODE -eq 0) -and ($preflightOut -match "create_app OK")
 if (-not $preflightOk) {
     Write-Host ""
-    Write-Host "ПРОВЕРКА НЕ ПРОШЛА - бэкенд не поднимется на :8765" -ForegroundColor Red
+    Write-Host "ПРОВЕРКА НЕ ПРОШЛА - бэкенд не поднимется на :$targetPort" -ForegroundColor Red
     $preflightOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
     Write-Host ""
     Write-Host "Обычно помогает: STUDIO.cmd -> [2] Обновить и запустить" -ForegroundColor Yellow
@@ -136,7 +147,7 @@ Write-BackendLogLine "preflight create_app OK"
 
 Write-Host ""
 Write-Host ">>> НЕ ЗАКРЫВАЙТЕ ЭТО ОКНО, пока открыта студия <<<" -ForegroundColor Yellow
-Write-Host "    Дождитесь: Uvicorn running on http://127.0.0.1:8765" -ForegroundColor Yellow
+Write-Host "    Дождитесь: Uvicorn running on http://127.0.0.1:$targetPort" -ForegroundColor Yellow
 Write-Host ""
 
 $exitCode = 0
