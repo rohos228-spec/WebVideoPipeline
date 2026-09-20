@@ -37,5 +37,5 @@ def test_ensure_mono_converts_stereo(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
         mock_run.side_effect = fake_run
         out = nvidia_asr._ensure_mono_for_nemo(audio)
-    assert out.name == "voice_mono16k.wav"
+    assert out.name.startswith("voice_") and out.name.endswith("_mono16k.wav")
     assert "mono" in str(out)

@@ -855,6 +855,38 @@ function Invoke-StudioPredownloadNemo {
         }
     }
 
+    # Поиск существующей модели в других папках пользователя
+    $candidatePaths = @(
+        (Join-Path $env:USERPROFILE "video-pipeline\data\.cache\nemo\$slug.nemo"),
+        (Join-Path $env:USERPROFILE "video-pipeline\data\.cache\nemo\$fileName"),
+        (Join-Path $env:USERPROFILE ".cache\nemo\$slug.nemo"),
+        (Join-Path $env:USERPROFILE ".cache\nemo\$fileName")
+    )
+    foreach ($cand in $candidatePaths) {
+        if ((Test-Path -LiteralPath $cand) -and ((Get-Item -LiteralPath $cand).Length -gt 50000000)) {
+            Write-StudioMsg "Найдена существующая NeMo модель: $cand" "Cyan"
+            if (-not (Test-Path -LiteralPath $nemoDir)) { New-Item -ItemType Directory -Force -Path $nemoDir | Out-Null }
+            $linked = $false
+            try {
+                $py = Join-Path $Root ".venv\Scripts\python.exe"
+                if (Test-Path -LiteralPath $py) {
+                    & $py -c "import os; os.link(r'$cand', r'$dest') if not os.path.exists(r'$dest') else None" 2>$null
+                    if (Test-Path -LiteralPath $dest) { $linked = $true }
+                }
+            } catch { }
+            if (-not $linked) {
+                try {
+                    Copy-Item -LiteralPath $cand -Destination $dest -Force -ErrorAction Stop
+                    $linked = $true
+                } catch { }
+            }
+            if ($linked) {
+                Write-StudioMsg "OK: Подключена существующая NeMo модель ($slug.nemo)." "Green"
+                return $true
+            }
+        }
+    }
+
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host "  Модель NVIDIA NeMo ASR ($fileName, ~2.5 GB) не скачана." -ForegroundColor Yellow
