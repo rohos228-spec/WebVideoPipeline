@@ -185,30 +185,138 @@ function Switch-StudioGitBranch {
     }
 }
 
+function Get-StudioBranchList {
+    $defaultBranches = @("main", "housepc", "next")
+    $branchesFile = Join-Path $Root "data\studio-branches.txt"
+    $custom = @()
+    if (Test-Path -LiteralPath $branchesFile) {
+        $custom = @(Get-Content -LiteralPath $branchesFile -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_.Trim() -and (Test-StudioPcBranchName $_.Trim()) })
+    }
+    $list = New-Object System.Collections.Generic.List[string]
+    foreach ($b in $defaultBranches) {
+        if (-not $list.Contains($b)) { [void]$list.Add($b) }
+    }
+    foreach ($b in $custom) {
+        $trimmed = $b.Trim()
+        if (-not $list.Contains($trimmed)) { [void]$list.Add($trimmed) }
+    }
+    return $list.ToArray()
+}
+
+function Add-StudioCustomBranch {
+    param([string]$Branch)
+    if (-not (Test-StudioPcBranchName $Branch)) { return }
+    $dataDir = Join-Path $Root "data"
+    if (-not (Test-Path -LiteralPath $dataDir)) {
+        New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+    }
+    $branchesFile = Join-Path $Root "data\studio-branches.txt"
+    $existing = @()
+    if (Test-Path -LiteralPath $branchesFile) {
+        $existing = @(Get-Content -LiteralPath $branchesFile -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { $_.Trim() })
+    }
+    if ($existing -notcontains $Branch -and @("main", "housepc", "next") -notcontains $Branch) {
+        $existing += $Branch
+        Set-Content -LiteralPath $branchesFile -Value $existing -Encoding UTF8
+    }
+}
+
+function Get-StudioRemoteBranches {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return @() }
+    try {
+        git -C $Root fetch origin --prune 2>$null | Out-Null
+        $raw = @(git -C $Root branch -r 2>$null)
+        $result = New-Object System.Collections.Generic.List[string]
+        foreach ($line in $raw) {
+            $cleaned = $line.Trim()
+            if ($cleaned -match '^origin/(.+)$') {
+                $br = $Matches[1].Trim()
+                if ($br -notmatch '^HEAD\s*->' -and $br -ne "HEAD") {
+                    if (-not $result.Contains($br)) {
+                        [void]$result.Add($br)
+                    }
+                }
+            }
+        }
+        return $result.ToArray()
+    } catch {
+        return @()
+    }
+}
+
+function Show-StudioRemoteBranchPicker {
+    Write-StudioMsg "==> Загружаю ветки из GitHub (git branch -r)..." "Cyan"
+    $remoteList = @(Get-StudioRemoteBranches)
+    if (-not $remoteList -or $remoteList.Count -eq 0) {
+        Write-StudioMsg "Не удалось получить список веток с origin (проверьте интернет)." "Yellow"
+        return ""
+    }
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "             ДОСТУПНЫЕ ВЕТКИ В GITHUB (ORIGIN)" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host ""
+    for ($i = 0; $i -lt $remoteList.Count; $i++) {
+        $n = $i + 1
+        Write-Host ("  [{0,2}] {1}" -f $n, $remoteList[$i])
+    }
+    Write-Host "  [ 0] Назад"
+    Write-Host ""
+    while ($true) {
+        $c = Read-Host "Номер ветки"
+        if ($c -eq "0" -or [string]::IsNullOrWhiteSpace($c)) { return "" }
+        if ($c -match '^\d+$') {
+            $val = [int]$c
+            if ($val -ge 1 -and $val -le $remoteList.Count) {
+                $picked = $remoteList[$val - 1]
+                Add-StudioCustomBranch -Branch $picked
+                if (Save-StudioPcBranch -Branch $picked) {
+                    Write-StudioMsg "OK: ветка сохранена - $picked" "Green"
+                    Switch-StudioGitBranch -Branch $picked
+                    return $picked
+                }
+            }
+        }
+        Write-StudioMsg "Выберите номер из списка (1-$($remoteList.Count)) или 0 для отмены." "Yellow"
+    }
+}
+
 function Show-StudioBranchPicker {
     param([switch]$AllowCancel)
+    $curr = if ($script:StudioBranch) { $script:StudioBranch } else { (git -C $Root branch --show-current 2>$null) }
+    $branchList = @(Get-StudioBranchList)
+
     Write-Host ""
-    Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  Выберите ветку этого ПК" -ForegroundColor Cyan
-    Write-Host "  (сохранится; смена ветки - [3], обновление кода - [4])" -ForegroundColor DarkGray
-    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "                     ВЫБОР ВЕТКИ СТУДИИ" -ForegroundColor Cyan
+    Write-Host "  Текущая ветка: $curr" -ForegroundColor Yellow
+    Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
-    for ($i = 0; $i -lt $script:PcBranches.Count; $i++) {
+    for ($i = 0; $i -lt $branchList.Count; $i++) {
         $n = $i + 1
-        Write-Host ("  [{0}] {1}" -f $n, $script:PcBranches[$i])
+        $marker = if ($branchList[$i] -eq $curr) { " (текущая)" } else { "" }
+        Write-Host ("  [{0}] {1}{2}" -f $n, $branchList[$i], $marker)
     }
-    Write-Host "  [C] Ввести другое имя ветки вручную"
+    Write-Host ""
+    Write-Host "  [F] Показать все ветки из GitHub (выбрать по номеру)"
+    Write-Host "  [C] Ввести имя новой ветки вручную (добавится в список)"
     if ($AllowCancel) {
-        Write-Host "  [0] Отмена"
+        Write-Host "  [0] Назад в главное меню"
     }
     Write-Host ""
     while ($true) {
-        $choice = Read-Host "Номер ветки"
+        $choice = Read-Host "Выберите ветку"
         if ($AllowCancel -and $choice -eq "0") { return "" }
+        if ($choice -match '^[fFфФ]$') {
+            $fromRemote = Show-StudioRemoteBranchPicker
+            if ($fromRemote) { return $fromRemote }
+            return (Show-StudioBranchPicker -AllowCancel:$AllowCancel)
+        }
         if ($choice -match '^[cCсС]$') {
             $custom = Read-Host "Введите точное имя ветки в Git (например, main или housepc)"
             $custom = "$custom".Trim()
             if ($custom -and (Test-StudioPcBranchName $custom)) {
+                Add-StudioCustomBranch -Branch $custom
                 if (Save-StudioPcBranch -Branch $custom) {
                     Write-StudioMsg "OK: ветка сохранена - $custom ([4] будет тянуть origin/$custom)" "Green"
                     Switch-StudioGitBranch -Branch $custom
@@ -220,9 +328,9 @@ function Show-StudioBranchPicker {
         }
         if ($choice -match '^\d+$') {
             $val = [int]$choice
-            if ($val -ge 1 -and $val -le $script:PcBranches.Count) {
+            if ($val -ge 1 -and $val -le $branchList.Count) {
                 $idx = $val - 1
-                $br = $script:PcBranches[$idx]
+                $br = $branchList[$idx]
                 if (Save-StudioPcBranch -Branch $br) {
                     Write-StudioMsg "OK: ветка сохранена - $br ([4] будет тянуть origin/$br)" "Green"
                     Switch-StudioGitBranch -Branch $br
@@ -230,7 +338,7 @@ function Show-StudioBranchPicker {
                 }
             }
         }
-        Write-StudioMsg "Выберите номер из списка (1-$($script:PcBranches.Count)) или C для ввода вручную." "Yellow"
+        Write-StudioMsg "Выберите номер из списка (1-$($branchList.Count)), F для GitHub, C для ввода вручную." "Yellow"
     }
 }
 
@@ -250,29 +358,9 @@ function Ensure-StudioPcBranchSelected {
 }
 
 function Invoke-StudioBranchHub {
-    Write-StudioMsg "=== [5] Ветка ПК ===" "Cyan"
-    if (-not (Ensure-StudioPcBranchSelected -InteractiveRequired)) {
-        return $false
-    }
-    $br = $script:StudioBranch
-    Write-Host ""
-    Write-Host "  Текущая ветка: $br" -ForegroundColor Green
-    Write-Host "  Обновление кода - пункт [4] (origin/$br)" -ForegroundColor DarkGray
-    Write-Host "  [1] Сменить ветку ПК"
-    Write-Host "  [0] Назад"
-    Write-Host ""
-    $sub = Read-Host "Выберите"
-    switch ($sub) {
-        "1" {
-            $null = Show-StudioBranchPicker -AllowCancel
-            return $true
-        }
-        "0" { return $true }
-        default {
-            Write-StudioMsg "Неизвестный пункт: $sub" "Yellow"
-            return $true
-        }
-    }
+    Write-StudioMsg "=== [3] Сменить ветку ПК ===" "Cyan"
+    $picked = Show-StudioBranchPicker -AllowCancel
+    return $true
 }
 
 $script:StudioBranch = Get-StudioPcBranch
@@ -694,7 +782,20 @@ function Test-StudioAsrBackendNvidia {
             return ($val.ToLower() -eq "nvidia")
         }
     }
-    return $true
+    return $false
+}
+
+function Test-StudioAsrPreloadNvidia {
+    if (-not (Test-StudioAsrBackendNvidia)) { return $false }
+    $envFile = Join-Path $Root ".env"
+    if (Test-Path $envFile) {
+        $match = Select-String -Path $envFile -Pattern '^\s*NVIDIA_ASR_PRELOAD_ON_STARTUP\s*=\s*(\S+)' | Select-Object -First 1
+        if ($match) {
+            $val = $match.Matches[0].Groups[1].Value.Trim().Trim('"').Trim("'")
+            return ($val.ToLower() -eq "true" -or $val -eq "1")
+        }
+    }
+    return $false
 }
 
 function Set-StudioNvidiaEnv {
@@ -733,7 +834,7 @@ function Get-StudioNvidiaAsrModel {
 }
 
 function Invoke-StudioPredownloadNemo {
-    if (-not (Test-StudioAsrBackendNvidia)) { return $true }
+    if (-not (Test-StudioAsrPreloadNvidia)) { return $true }
     Set-StudioNvidiaEnv
     $model = Get-StudioNvidiaAsrModel
     $slug = ($model -replace "/", "--")
