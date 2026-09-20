@@ -18,14 +18,15 @@ Set-Location -LiteralPath $Root
 
 # Ветки (выбор при первом запуске / [5] -> data/studio-pc-branch + .env)
 # [4] всегда тянет origin/<сохранённая>, не хардкод main.
-$script:PcBranches = @("housepc", "tompc", "strangepc", "workpc", "main")
+$script:PcBranches = @("main", "housepc", "next", "tompc", "strangepc", "workpc")
 $script:PcBranchFile = Join-Path $Root "data\studio-pc-branch"
 $EnvFile = Join-Path $Root ".env"
 $StudioBranch = ""
 
 function Test-StudioPcBranchName {
     param([string]$Name)
-    return ($script:PcBranches -contains $Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) { return $false }
+    return ($script:PcBranches -contains $Name -or $Name -match '^[a-zA-Z0-9_\-\./]+$')
 }
 
 function Read-StudioPcBranchFromEnv {
@@ -144,18 +145,59 @@ function Get-StudioPcBranch {
     return ""
 }
 
+function Switch-StudioGitBranch {
+    param([string]$Branch)
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return }
+    $curr = (git -C $Root branch --show-current 2>$null)
+    if ($curr) { $curr = $curr.Trim() }
+    if ($curr -eq $Branch) {
+        Write-StudioMsg "Git уже находится на ветке $Branch." "DarkGray"
+        return
+    }
+    Write-StudioMsg "==> Переключение Git на ветку $Branch..." "Cyan"
+    $dirty = git -C $Root status --porcelain 2>$null
+    if ($dirty) {
+        Write-StudioMsg "Внимание: есть локальные изменения. Сохраняю в git stash..." "Yellow"
+        git -C $Root stash push -u -m "studio: auto-stash before switch to $Branch" 2>&1 | Out-Null
+    }
+    git -C $Root show-ref --verify --quiet "refs/heads/$Branch" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        git -C $Root checkout $Branch 2>&1 | ForEach-Object { Write-StudioMsg $_ }
+    } else {
+        git -C $Root show-ref --verify --quiet "refs/remotes/origin/$Branch" 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            git -C $Root checkout -B $Branch "origin/$Branch" 2>&1 | ForEach-Object { Write-StudioMsg $_ }
+        } else {
+            git -C $Root fetch origin $Branch 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                git -C $Root checkout -B $Branch "origin/$Branch" 2>&1 | ForEach-Object { Write-StudioMsg $_ }
+            } else {
+                git -C $Root checkout -b $Branch 2>&1 | ForEach-Object { Write-StudioMsg $_ }
+            }
+        }
+    }
+    $newHead = (git -C $Root branch --show-current 2>$null)
+    if ($newHead) { $newHead = $newHead.Trim() }
+    if ($newHead -eq $Branch) {
+        Write-StudioMsg "OK: Git переключен на ветку $Branch" "Green"
+    } else {
+        Write-StudioMsg "Внимание: текущая ветка Git: $newHead" "Yellow"
+    }
+}
+
 function Show-StudioBranchPicker {
     param([switch]$AllowCancel)
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host "  Выберите ветку этого ПК" -ForegroundColor Cyan
-    Write-Host "  (сохранится; смена ветки - [5], обновление кода - [4])" -ForegroundColor DarkGray
+    Write-Host "  (сохранится; смена ветки - [3], обновление кода - [4])" -ForegroundColor DarkGray
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
     for ($i = 0; $i -lt $script:PcBranches.Count; $i++) {
         $n = $i + 1
         Write-Host ("  [{0}] {1}" -f $n, $script:PcBranches[$i])
     }
+    Write-Host "  [C] Ввести другое имя ветки вручную"
     if ($AllowCancel) {
         Write-Host "  [0] Отмена"
     }
@@ -163,15 +205,32 @@ function Show-StudioBranchPicker {
     while ($true) {
         $choice = Read-Host "Номер ветки"
         if ($AllowCancel -and $choice -eq "0") { return "" }
-        if ($choice -match '^[1-5]$') {
-            $idx = [int]$choice - 1
-            $br = $script:PcBranches[$idx]
-            if (Save-StudioPcBranch -Branch $br) {
-                Write-StudioMsg "OK: ветка сохранена - $br ([4] будет тянуть origin/$br)" "Green"
-                return $br
+        if ($choice -match '^[cCсС]$') {
+            $custom = Read-Host "Введите точное имя ветки в Git (например, main или housepc)"
+            $custom = "$custom".Trim()
+            if ($custom -and (Test-StudioPcBranchName $custom)) {
+                if (Save-StudioPcBranch -Branch $custom) {
+                    Write-StudioMsg "OK: ветка сохранена - $custom ([4] будет тянуть origin/$custom)" "Green"
+                    Switch-StudioGitBranch -Branch $custom
+                    return $custom
+                }
+            }
+            Write-StudioMsg "Некорректное имя ветки." "Yellow"
+            continue
+        }
+        if ($choice -match '^\d+$') {
+            $val = [int]$choice
+            if ($val -ge 1 -and $val -le $script:PcBranches.Count) {
+                $idx = $val - 1
+                $br = $script:PcBranches[$idx]
+                if (Save-StudioPcBranch -Branch $br) {
+                    Write-StudioMsg "OK: ветка сохранена - $br ([4] будет тянуть origin/$br)" "Green"
+                    Switch-StudioGitBranch -Branch $br
+                    return $br
+                }
             }
         }
-        Write-StudioMsg "Выберите 1-5 (housepc / tompc / strangepc / workpc / main)." "Yellow"
+        Write-StudioMsg "Выберите номер из списка (1-$($script:PcBranches.Count)) или C для ввода вручную." "Yellow"
     }
 }
 
@@ -333,19 +392,43 @@ function Invoke-StudioBrowserAi {
 
 function Invoke-StudioStop {
     Write-StudioMsg "=== [2] Остановить всё ===" "Cyan"
-    Write-StudioMsg "Останавливаю только бэкенд Studio (Chrome с ИИ не трогаю)." "DarkGray"
+    Write-StudioMsg "Останавливаю бэкенд Studio..." "DarkGray"
     $stop = Join-Path $Root "scripts\stop-backend.ps1"
-    if (-not (Test-Path $stop)) {
-        Write-StudioMsg "ОШИБКА: не найден scripts\stop-backend.ps1" "Red"
-        return $false
+    if (Test-Path $stop) {
+        & powershell.exe -ExecutionPolicy Bypass -NoProfile -File $stop -WaitSec 10
     }
-    & powershell.exe -ExecutionPolicy Bypass -NoProfile -File $stop -WaitSec 15
+    if (Test-PortListening -Port 8765) {
+        Write-StudioMsg "Порт 8765 занят. Принудительно завершаю процесс..." "Yellow"
+        try {
+            $conn = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction Stop | Select-Object -First 1
+            if ($conn -and $conn.OwningProcess -gt 0) {
+                Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 1
+            }
+        } catch { }
+    }
     if (-not (Test-PortListening -Port 8765)) {
         Write-StudioMsg "Студия остановлена (порт 8765 свободен)." "Green"
         return $true
     }
-    Write-StudioMsg "ОШИБКА: порт 8765 всё ещё занят после 15 с. Закройте окно бэкенда вручную." "Red"
+    Write-StudioMsg "ОШИБКА: порт 8765 всё ещё занят. Закройте окно бэкенда вручную." "Red"
     return $false
+}
+
+function Invoke-StudioOpenDataDir {
+    Write-StudioMsg "=== [5] Открыть папку данных ===" "Cyan"
+    $dataDir = Join-Path $Root "data"
+    if (-not (Test-Path -LiteralPath $dataDir)) {
+        New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+    }
+    Write-StudioMsg "Открываю: $dataDir" "Green"
+    try {
+        Start-Process explorer.exe -ArgumentList $dataDir
+        return $true
+    } catch {
+        Write-StudioMsg "Не удалось открыть Проводник: $($_.Exception.Message)" "Red"
+        return $false
+    }
 }
 
 function Open-StudioBrowser {
@@ -493,16 +576,24 @@ function Invoke-StudioRecoverPromptsFromAllStashes {
 
 function Invoke-StudioStart {
     Write-StudioMsg "=== [1] Запуск студии ===" "Cyan"
+    $savedBranch = Get-StudioPcBranch
+    if ($savedBranch) {
+        $curr = (git -C $Root branch --show-current 2>$null)
+        if ($curr) { $curr = $curr.Trim() }
+        if ($curr -and $curr -ne $savedBranch) {
+            Write-StudioMsg "Выбранная ветка: $savedBranch (текущая Git: $curr). Переключаю..." "Yellow"
+            Switch-StudioGitBranch -Branch $savedBranch
+        }
+    }
     Sync-VibecodeApiKeyToEnv | Out-Null
     if (-not (Test-Path (Join-Path $Root "web\out\index.html"))) {
-        Write-StudioMsg "ВНИМАНИЕ: web/out отсутствует. Сначала [6] Починить установку." "Yellow"
+        Write-StudioMsg "ВНИМАНИЕ: web/out отсутствует. Сначала [4] Обновить и запустить." "Yellow"
     }
     # Если прошлый [4] оставил кастомные промты в stash - вернуть до старта бэкенда.
     Invoke-StudioRecoverPromptsFromAllStashes
     Stop-StudioBackend
     Set-StudioNvidiaEnv
     Invoke-StudioPredownloadNemo | Out-Null
-    Start-StudioChromeCdp
     # Одна вкладка UI: ждём health в Start-StudioBackendWindow, потом Open-StudioBrowser.
     # (раньше фоновый job дублировал открытие URL)
     if (-not (Start-StudioBackendWindow)) {
@@ -573,6 +664,12 @@ function Invoke-StudioGitUpdate {
     Write-StudioMsg "==> git fetch origin $StudioBranch" "Cyan"
     git -C $Root fetch origin $StudioBranch 2>&1 | ForEach-Object { Write-StudioMsg $_ }
     if ($LASTEXITCODE -ne 0) {
+        $remoteHas = git -C $Root ls-remote --heads origin $StudioBranch 2>$null
+        if (-not $remoteHas) {
+            Write-StudioMsg "Ветка $StudioBranch не найдена на origin (локальная ветка). Используем локальный код." "Yellow"
+            Switch-StudioGitBranch -Branch $StudioBranch
+            return $true
+        }
         Write-StudioMsg "ОШИБКА: git fetch не удался. Проверьте интернет и доступ к GitHub." "Red"
         return $false
     }
@@ -970,23 +1067,36 @@ function Get-StudioLauncherStamp {
     }
 }
 
+function Get-StudioServerStatus {
+    if (Test-PortListening -Port 8765) {
+        if (Test-StudioHealth) {
+            return "РАБОТАЕТ (http://127.0.0.1:8765)"
+        }
+        return "ЗАНЯТ (порт :8765)"
+    }
+    return "Свободен (порт :8765)"
+}
+
 function Show-StudioMenu {
     $brLabel = if ($script:StudioBranch) { $script:StudioBranch } else { "не выбрана" }
     $stamp = Get-StudioLauncherStamp
+    $serverStatus = Get-StudioServerStatus
+    $statusColor = if ($serverStatus -match "РАБОТАЕТ") { "Green" } elseif ($serverStatus -match "ЗАНЯТ") { "Yellow" } else { "DarkGray" }
+
     Write-Host ""
-    Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  Video Pipeline Studio" -ForegroundColor Cyan
-    Write-Host "  $Root" -ForegroundColor DarkGray
-    Write-Host "  launcher $stamp | ветка ПК: $brLabel" -ForegroundColor Yellow
-    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "                VIDEO PIPELINE WEB STUDIO" -ForegroundColor Cyan
+    Write-Host "  Папка:  $Root" -ForegroundColor DarkGray
+    Write-Host "  Ветка:  $brLabel ($stamp)" -ForegroundColor Yellow
+    Write-Host "  Сервер: $serverStatus" -ForegroundColor $statusColor
+    Write-Host "============================================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  [1] Запустить студию (бэкенд + Chrome CDP + http://127.0.0.1:8765)"
-    Write-Host "  [2] Остановить всё (бэкенд :8765; Chrome с ИИ не закрывать)"
-    Write-Host "  [3] Браузер с ИИ (Chrome CDP :29229, outsee.io + chatgpt.com)"
-    Write-Host "  [4] Обновить и запустить (git origin/$brLabel + зависимости + запуск)"
-    Write-Host "  [5] Ветка ПК ($brLabel): сменить"
-    Write-Host "  [6] Починить установку (pip, web, Playwright, FFmpeg)"
-    Write-Host "  [7] Диагностика (версия, git, порты, logs/doctor.log)"
+    Write-Host "  [1] Запустить студию (окно бэкенда + http://127.0.0.1:8765)"
+    Write-Host "  [2] Остановить всё (освободить порт :8765)"
+    Write-Host "  [3] Сменить ветку ПК (сейчас: $brLabel)"
+    Write-Host "  [4] Обновить код (git pull origin/$brLabel + запуск)"
+    Write-Host "  [5] Открыть папку данных (data/ - логи, проекты, файлы)"
+    Write-Host "  [6] Диагностика и проверка (порты, git, python)"
     Write-Host "  [0] Выход"
     Write-Host ""
 }
@@ -1003,15 +1113,17 @@ if ($Action -eq "1") {
 } elseif ($Action -eq "2") {
     $ok = Invoke-StudioStop
 } elseif ($Action -eq "3") {
-    $ok = Invoke-StudioBrowserAi
+    $ok = Invoke-StudioBranchHub
 } elseif ($Action -eq "4") {
     $ok = Invoke-StudioUpdateAndStart
 } elseif ($Action -eq "5") {
-    $ok = Invoke-StudioBranchHub
-} elseif ($Action -eq "6") {
-    $ok = Invoke-StudioRepair
-} elseif ($Action -eq "7") {
+    $ok = Invoke-StudioOpenDataDir
+} elseif ($Action -eq "6" -or $Action -eq "7") {
     $ok = Invoke-StudioDoctor
+} elseif ($Action -eq "browser_ai") {
+    $ok = Invoke-StudioBrowserAi
+} elseif ($Action -eq "repair") {
+    $ok = Invoke-StudioRepair
 } elseif ($Action -eq "") {
     if (-not (Ensure-StudioPcBranchSelected -InteractiveRequired)) {
         Invoke-StudioPause
@@ -1019,14 +1131,14 @@ if ($Action -eq "1") {
     }
     while ($true) {
         Show-StudioMenu
-        $choice = Read-Host "Выберите пункт"
+        $choice = Read-Host "Выберите пункт (0-6)"
         switch ($choice) {
             "1" { $ok = Invoke-StudioStart; if (-not $ok) { Invoke-StudioPause } }
             "2" { $ok = Invoke-StudioStop; if (-not $ok) { Invoke-StudioPause } }
-            "3" { $ok = Invoke-StudioBrowserAi; if (-not $ok) { Invoke-StudioPause } }
+            "3" { $ok = Invoke-StudioBranchHub; if (-not $ok) { Invoke-StudioPause } }
             "4" { $ok = Invoke-StudioUpdateAndStart; if (-not $ok) { Invoke-StudioPause } }
-            "5" { $ok = Invoke-StudioBranchHub; if (-not $ok) { Invoke-StudioPause } }
-            "6" { $ok = Invoke-StudioRepair; if (-not $ok) { Invoke-StudioPause } }
+            "5" { $ok = Invoke-StudioOpenDataDir; Invoke-StudioPause }
+            "6" { $ok = Invoke-StudioDoctor; Invoke-StudioPause }
             "7" { $ok = Invoke-StudioDoctor; Invoke-StudioPause }
             "0" { break }
             default {

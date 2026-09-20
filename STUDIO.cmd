@@ -45,7 +45,7 @@ call "%~f0" %*
 exit /b %ERRORLEVEL%
 
 :start
-set "STUDIO_PS1=%~dp0scripts\run-studio.ps1"
+set "STUDIO_PS1=%~dp0scripts\studio.ps1"
 set "VP_REPO_ROOT=%~dp0"
 if "%VP_REPO_ROOT:~-1%"=="\" set "VP_REPO_ROOT=%VP_REPO_ROOT:~0,-1%"
 
