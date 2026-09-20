@@ -169,6 +169,24 @@ def _find_local_nemo_checkpoint(model_name: str, cache_dir: Path) -> Path | None
     legacy = cache_dir / "nemo" / f"{slug}.nemo"
     if legacy.is_file() and legacy.resolve() != stable.resolve() and _nemo_file_ready(legacy):
         return legacy
+    # Fallback: поиск в других известных папках пользователя (~/video-pipeline, ~/.cache)
+    filename = _nemo_filename(model_name)
+    home = Path.home()
+    candidates = [
+        home / "video-pipeline" / "data" / ".cache" / "nemo" / f"{slug}.nemo",
+        home / "video-pipeline" / "data" / ".cache" / "nemo" / filename,
+        home / ".cache" / "nemo" / f"{slug}.nemo",
+        home / ".cache" / "nemo" / filename,
+    ]
+    for cand in candidates:
+        if _nemo_file_ready(cand):
+            try:
+                stable.parent.mkdir(parents=True, exist_ok=True)
+                os.link(cand, stable)
+                logger.info("nvidia_asr: создан hardlink на найденную модель {}", cand)
+                return stable
+            except OSError:
+                return cand
     return None
 
 
