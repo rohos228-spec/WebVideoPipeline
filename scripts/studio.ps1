@@ -18,7 +18,7 @@ Set-Location -LiteralPath $Root
 
 # Ветки (выбор при первом запуске / [5] -> data/studio-pc-branch + .env)
 # [4] всегда тянет origin/<сохранённая>, не хардкод main.
-$script:PcBranches = @("main", "housepc", "next", "tompc", "strangepc", "workpc")
+$script:PcBranches = @("main", "next")
 $script:PcBranchFile = Join-Path $Root "data\studio-pc-branch"
 $EnvFile = Join-Path $Root ".env"
 $StudioBranch = ""
@@ -186,7 +186,7 @@ function Switch-StudioGitBranch {
 }
 
 function Get-StudioBranchList {
-    $defaultBranches = @("main", "housepc", "next")
+    $defaultBranches = @("main", "next")
     $branchesFile = Join-Path $Root "data\studio-branches.txt"
     $custom = @()
     if (Test-Path -LiteralPath $branchesFile) {
@@ -215,7 +215,7 @@ function Add-StudioCustomBranch {
     if (Test-Path -LiteralPath $branchesFile) {
         $existing = @(Get-Content -LiteralPath $branchesFile -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { $_.Trim() })
     }
-    if ($existing -notcontains $Branch -and @("main", "housepc", "next") -notcontains $Branch) {
+    if ($existing -notcontains $Branch -and @("main", "next") -notcontains $Branch) {
         $existing += $Branch
         Set-Content -LiteralPath $branchesFile -Value $existing -Encoding UTF8
     }
@@ -313,7 +313,7 @@ function Show-StudioBranchPicker {
             return (Show-StudioBranchPicker -AllowCancel:$AllowCancel)
         }
         if ($choice -match '^[cCсС]$') {
-            $custom = Read-Host "Введите точное имя ветки в Git (например, main или housepc)"
+            $custom = Read-Host "Введите точное имя ветки в Git (например, main или next)"
             $custom = "$custom".Trim()
             if ($custom -and (Test-StudioPcBranchName $custom)) {
                 Add-StudioCustomBranch -Branch $custom
@@ -745,7 +745,7 @@ function Invoke-StudioGitUpdate {
     if ($saved) { $script:StudioBranch = $saved }
     $StudioBranch = $script:StudioBranch
     if (-not (Test-StudioPcBranchName $StudioBranch)) {
-        Write-StudioMsg "ОШИБКА: ветка не задана. Пункт [5] - выберите housepc/tompc/strangepc/workpc/main." "Red"
+        Write-StudioMsg "ОШИБКА: ветка не задана. Пункт [3] - выберите ветку (например, main или next)." "Red"
         return $false
     }
     Write-StudioMsg "==> обновление с сохранённой ветки: origin/$StudioBranch" "Cyan"
