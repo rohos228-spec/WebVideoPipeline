@@ -834,7 +834,7 @@ function Get-StudioNvidiaAsrModel {
 }
 
 function Invoke-StudioPredownloadNemo {
-    if (-not (Test-StudioAsrPreloadNvidia)) { return $true }
+    if (-not (Test-StudioAsrBackendNvidia)) { return $true }
     Set-StudioNvidiaEnv
     $model = Get-StudioNvidiaAsrModel
     $slug = ($model -replace "/", "--")
@@ -845,6 +845,7 @@ function Invoke-StudioPredownloadNemo {
         Write-StudioMsg "OK: NeMo модель уже на диске ($slug.nemo)." "Green"
         return $true
     }
+
     $fileName = switch ($model) {
         "nvidia/parakeet-tdt-0.6b-v3" { "parakeet-tdt-0.6b-v3.nemo" }
         "nvidia/parakeet-tdt-0.6b-v2" { "parakeet-tdt-0.6b-v2.nemo" }
@@ -853,6 +854,22 @@ function Invoke-StudioPredownloadNemo {
             else { "$(Split-Path $model -Leaf).nemo" }
         }
     }
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "  Модель NVIDIA NeMo ASR ($fileName, ~2.5 GB) не скачана." -ForegroundColor Yellow
+    Write-Host "  Она нужна для распознавания таймкодов речи на GPU (Parakeet)." -ForegroundColor DarkGray
+    Write-Host "  Без нее студия работает через Whisper (API или локальный)." -ForegroundColor DarkGray
+    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "  [1] Да, скачать модель сейчас (~2.5 GB через curl)" -ForegroundColor White
+    Write-Host "  [2] Нет, пропустить (Enter по умолчанию)" -ForegroundColor DarkGray
+    Write-Host ""
+    $dlChoice = Read-Host "Скачать модель? (1/2, Enter = 2)"
+    if ($dlChoice -ne "1") {
+        Write-StudioMsg "Скачивание NeMo модели пропущено (fallback на Whisper)." "DarkGray"
+        return $true
+    }
+
     $url = "https://huggingface.co/$model/resolve/main/$fileName"
     if (-not (Test-Path $nemoDir)) { New-Item -ItemType Directory -Force -Path $nemoDir | Out-Null }
     Write-StudioMsg "==> Скачивание $fileName (~2.5 GB) через curl, без Python/HF temp..." "Cyan"
@@ -863,11 +880,11 @@ function Invoke-StudioPredownloadNemo {
     }
     & curl.exe -L -C - -o $part $url
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $part)) {
-        Write-StudioMsg "ПРЕДУПРЕЖДЕНИЕ: curl не докачал модель - повторит Python." "Yellow"
+        Write-StudioMsg "ПРЕДУПРЕЖДЕНИЕ: curl не докачал модель." "Yellow"
         return $true
     }
     if ((Get-Item $part).Length -lt 50000000) {
-        Write-StudioMsg "ПРЕДУПРЕЖДЕНИЕ: файл слишком мал - повторит Python." "Yellow"
+        Write-StudioMsg "ПРЕДУПРЕЖДЕНИЕ: файл слишком мал." "Yellow"
         return $true
     }
     Move-Item -Force -Path $part -Destination $dest
