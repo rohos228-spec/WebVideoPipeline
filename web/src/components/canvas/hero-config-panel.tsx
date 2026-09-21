@@ -49,14 +49,17 @@ export function HeroConfigPanel({
   const projectQ = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId),
-    enabled: open,
+    enabled: true,
   });
 
   const excelQ = useQuery({
     queryKey: ["excel-hero", projectId],
     queryFn: () => api.getExcelHero(projectId),
-    enabled: open,
+    enabled: true,
   });
+
+  const excelChars = useMemo(() => excelQ.data?.characters ?? [], [excelQ.data?.characters]);
+  const excelLoaded = excelQ.data?.loaded ?? false;
 
   // ── Excel-режим ───────────────────────────────────────────────────
   const loadExcel = useMutation({
@@ -98,16 +101,35 @@ export function HeroConfigPanel({
     const apiCount = projectQ.data.hero_count ?? 0;
     const apiDescs = projectQ.data.hero_descriptions ?? [];
     const apiVars = projectQ.data.hero_variations ?? [];
-    const n = Math.max(1, Math.min(5, apiCount || apiDescs.length || 1));
+
+    const fallbackDescs = excelChars
+      .map((c) => {
+        const parts: string[] = [];
+        if (c.name) parts.push(`Имя: ${c.name}`);
+        if (c.look) parts.push(`Внешность: ${c.look}`);
+        if (c.clothes) parts.push(`Одежда: ${c.clothes}`);
+        if (c.char) parts.push(`Характер: ${c.char}`);
+        return parts.join(". ") || c.look || c.name || "";
+      })
+      .filter((s) => s.trim().length >= 5);
+
+    const hasApiDescs = apiDescs.some((d) => d && d.trim().length >= 5);
+    const effectiveDescs = hasApiDescs
+      ? apiDescs
+      : fallbackDescs.length > 0
+        ? fallbackDescs
+        : [""];
+
+    const n = Math.max(1, Math.min(5, (hasApiDescs ? apiCount : 0) || effectiveDescs.length || 1));
     setCount(n);
     setDescriptions(
-      Array.from({ length: n }, (_, i) => apiDescs[i] ?? "")
+      Array.from({ length: n }, (_, i) => effectiveDescs[i] ?? "")
     );
     setVariations(
       Array.from({ length: n }, (_, i) => apiVars[i] ?? 1)
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectHash]);
+  }, [projectHash, excelChars]);
 
   const setN = (n: number) => {
     const clamped = Math.max(1, Math.min(5, Math.floor(n) || 1));
@@ -138,9 +160,6 @@ export function HeroConfigPanel({
 
   const canSaveManual =
     count >= 1 && descriptions.every((d) => d.trim().length >= 5);
-
-  const excelChars = excelQ.data?.characters ?? [];
-  const excelLoaded = excelQ.data?.loaded ?? false;
 
   return (
     <div
@@ -259,17 +278,30 @@ export function HeroConfigPanel({
 
           {showManual && (
             <div className="flex flex-col gap-2 rounded-md border border-amber-400/15 bg-amber-500/[0.03] p-2">
-              <label className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+              <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
                 <span>Сколько героев</span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={count}
-                  onChange={(e) => setN(Number(e.target.value))}
-                  className="h-6 w-14 text-[11px]"
-                />
-              </label>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={count}
+                    onChange={(e) => setN(Number(e.target.value))}
+                    className="h-6 w-14 text-[11px]"
+                  />
+                  {count < 5 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-[10px] text-amber-300 hover:bg-amber-500/10"
+                      onClick={() => setN(count + 1)}
+                    >
+                      + Добавить героя
+                    </Button>
+                  )}
+                </div>
+              </div>
 
               {descriptions.map((desc, i) => (
                 <div

@@ -3,7 +3,7 @@
 import type { ProjectStatus } from "./types";
 import type { NodeCategory } from "./node-catalog";
 
-const PROJECT_STATUS: Partial<Record<ProjectStatus, string>> = {
+const PROJECT_STATUS: Partial<Record<ProjectStatus | string, string>> = {
   new: "новый",
   planning: "сценарий",
   plan_ready: "сценарий готов",
@@ -29,6 +29,12 @@ const PROJECT_STATUS: Partial<Record<ProjectStatus, string>> = {
   videos_ready: "видео готово",
   generating_audio: "озвучка",
   audio_ready: "озвучка готова",
+  generating_music: "музыка",
+  music_ready: "музыка готова",
+  sfx_planning: "план звуков",
+  sfx_plan_ready: "план звуков готов",
+  generating_sfx: "звуки (sfx)",
+  sfx_ready: "звуки готовы",
   assembling: "сборка",
   assembled: "собрано",
   publishing: "публикация",

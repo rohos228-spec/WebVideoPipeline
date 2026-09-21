@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatNodeCategory, formatNodeKeyLabel, formatHeroMode, formatProjectStatus, humanizeSlug } from "@/lib/format-labels";
-import { projectDisplayName } from "@/lib/project-display";
+import { projectDisplayName, projectStatusVariant } from "@/lib/project-display";
 import { formatRelativeTime } from "@/lib/utils";
 import { getNodeSpec } from "@/lib/node-catalog";
 import { nodeTypeFromKey } from "@/lib/node-key";
@@ -114,7 +114,12 @@ export function Inspector({
                 </div>
               </div>
               <Row icon={<Folder className="h-3.5 w-3.5 text-zinc-400" />} label="Статус">
-                <Badge variant="default" className="text-xs font-semibold px-2 py-0.5">{formatProjectStatus(project.data.status)}</Badge>
+                <Badge
+                  variant={projectStatusVariant(project.data.status)}
+                  className="text-xs font-semibold px-2 py-0.5"
+                >
+                  {formatProjectStatus(project.data.status)}
+                </Badge>
               </Row>
               <Row label="Главный герой">{formatHeroMode(project.data.hero_mode)}</Row>
               <Row label="Создан">{formatRelativeTime(project.data.created_at)}</Row>

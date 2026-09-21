@@ -257,19 +257,23 @@ def _build_script_default(project: Project, *, prompt_file_name: str = "prompt.t
 
 
 def _build_split_default(project: Project, *, prompt_file_name: str = "prompt.txt") -> str:
-    """Шаг 3 — разбивка на кадры. К чату прикладываются `prompt.txt` и
-    `voiceover.txt`. Формат ответа дописывает код (`_SPLIT_DB_HINT`).
+    """Шаг 3 — разбивка на кадры. К чату прикладываются `prompt.txt`,
+    `voiceover.txt` и `general_plan_*.txt` (если есть). Формат ответа дописывает код (`_SPLIT_DB_HINT`).
     """
     topic = (project.topic or "").strip()
     context_block = _build_topic_context_block(project)
+    files_list = [
+        f"  1. {prompt_file_name} — инструкция, что именно делать.",
+        "  2. voiceover.txt — закадровый текст, который нужно разбить на кадры.",
+    ]
+    if (project.general_plan or "").strip():
+        files_list.append("  3. general_plan_*.txt — общий план/сценарий ролика (ориентир по сценам и числу кадров).")
+    files_text = "\n".join(files_list)
     return (
         f"Тема ролика: «{topic}».\n\n"
         + (context_block + "\n\n" if context_block else "")
-        + f"Прикреплены 2 файла:\n"
-        f"  1. {prompt_file_name} — инструкция, что именно делать.\n"
-        f"  2. voiceover.txt — закадровый текст, который нужно разбить "
-        f"на кадры.\n\n"
-        "Сделай всё, что написано в инструкции, применяя её к voiceover.txt. "
+        + f"Прикреплены файлы:\n{files_text}\n\n"
+        "Сделай всё, что написано в инструкции, применяя её к voiceover.txt с учётом структуры сценария. "
         "Формат ответа — ниже."
     )
 

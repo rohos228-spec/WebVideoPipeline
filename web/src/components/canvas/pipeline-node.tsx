@@ -216,7 +216,10 @@ export function PipelineNode({ data, selected }: NodeProps) {
   const isAssemble = d.type === "assemble";
   const anchorRef = useRef<HTMLDivElement>(null);
 
-  const title = (d.label && d.label.trim()) || spec.label || formatNodeTypeLabel(d.type);
+  const title =
+    d.type === "excel_gpt" && (!d.label || d.label.trim() === "Работа с GPT" || d.label.trim() === "ИИ-редактор сцен")
+      ? spec.label
+      : (d.label && d.label.trim()) || spec.label || formatNodeTypeLabel(d.type);
 
   return (
     <>

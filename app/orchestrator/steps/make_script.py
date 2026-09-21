@@ -25,8 +25,8 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
 
     result, voiceover_text = await xsr.run_script_xlsx(project)
 
-    if len(voiceover_text) < 200:
-        raise RuntimeError("GPT вернул пустой/слишком короткий закадр")
+    if len(voiceover_text) < 80:
+        raise RuntimeError(f"GPT вернул слишком короткий закадр ({len(voiceover_text)} символов, минимум 80)")
 
     project.script_text = voiceover_text
     await session.flush()

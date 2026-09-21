@@ -258,8 +258,16 @@ async def stop_project_running(
             if done_slots:
                 rollback_to = ready_status_for_slot(max(done_slots))
             else:
-                # Нет завершённых enrich до текущего — как после script.
-                rollback_to = ProjectStatus.script_ready
+                from sqlalchemy import func, select
+                from app.models import Frame
+
+                has_frames = (
+                    await session.scalar(
+                        select(func.count(Frame.id)).where(Frame.project_id == project.id)
+                    )
+                    or 0
+                ) > 0
+                rollback_to = ProjectStatus.frames_ready if has_frames else ProjectStatus.script_ready
         rollback_to_val = rollback_to.value
         await stop_active_running_node(session, project)
         project.status = rollback_to

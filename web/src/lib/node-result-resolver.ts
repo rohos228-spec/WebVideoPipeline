@@ -62,6 +62,14 @@ export interface NodeResultContext {
   frames: FrameDTO[];
   mediaImages: ProjectAsset[];
   mediaVideos: ProjectAsset[];
+  operatorResolve?: {
+    lastResult?: {
+      replyPreview?: string;
+      outputPaths?: string[];
+      gateStatus?: string | null;
+    };
+    lastReplyText?: string;
+  } | null;
 }
 
 function meaningfulGeneralPlan(project: ProjectDetail | null | undefined): string | null {
@@ -472,7 +480,17 @@ function computeNodeResult(
           "assets",
         );
       }
-      return empty("Предметы ещё не сгенерированы", "assets");
+      if (project?.meta?.items_skipped_empty) {
+        return {
+          hasResult: true,
+          itemCount: 0,
+          summary: "Предметы пропущены (в ролике нет отдельного реквизита)",
+          items: [],
+          replaceMode: "assets",
+          viewMode: "default",
+        };
+      }
+      return empty("Предметы не заданы (шаг опционален)", "assets");
     }
 
     case "excel_gpt":
@@ -503,8 +521,27 @@ function computeNodeResult(
         nodeKey && meta?.excel_gpt_nodes?.[nodeKey]
           ? meta.excel_gpt_nodes[nodeKey]
           : undefined;
-      const replyPreview = String(last?.replyPreview || "").trim();
-      const hasReplyMeta = Boolean(replyPreview || cfg?.lastReplyPath);
+      const opResolve = ctx.operatorResolve as
+        | {
+            lastResult?: {
+              replyPreview?: string;
+              outputPaths?: string[];
+              gateStatus?: string | null;
+            };
+            lastReplyText?: string;
+          }
+        | undefined;
+      const replyPreview = String(
+        last?.replyPreview ||
+        opResolve?.lastResult?.replyPreview ||
+        opResolve?.lastReplyText ||
+        ""
+      ).trim();
+      const hasReplyMeta = Boolean(
+        replyPreview ||
+        cfg?.lastReplyPath ||
+        (opResolve?.lastResult?.outputPaths && opResolve.lastResult.outputPaths.length > 0)
+      );
       const xlsx = xlsxAsset(ctx.assets);
       const snapMeta = meta?.xlsx_snapshots_by_node;
       const snapName =

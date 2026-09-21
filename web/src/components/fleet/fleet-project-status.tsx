@@ -2,26 +2,14 @@
 
 import { Badge } from "@/components/ui/badge";
 import { formatProjectStatus } from "@/lib/format-labels";
+import { projectStatusVariant } from "@/lib/project-display";
 import { isProjectRunningStatus } from "@/lib/project-running";
 import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 
-function statusVariant(
-  s: string,
-): "default" | "success" | "warning" | "destructive" | "info" | "muted" {
-  if (s === "new") return "muted";
-  if (s === "paused" || s === "failed") return "destructive";
-  if (s === "published" || s === "assembled") return "success";
-  if (s.endsWith("_ready") || s === "audio_ready" || s === "videos_ready" || s === "music_ready") {
-    return "info";
-  }
-  if (isProjectRunningStatus(s)) return "warning";
-  return "default";
-}
-
 export function FleetProjectStatus({ status }: { status: string }) {
   const running = isProjectRunningStatus(status);
-  const variant = statusVariant(status);
+  const variant = projectStatusVariant(status);
 
   return (
     <div className="flex min-w-0 items-center gap-1.5">

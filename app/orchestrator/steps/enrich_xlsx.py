@@ -1258,6 +1258,52 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                         node_kind=apply_node_kind,
                     )
                     await session.commit()
+                    if chars_list and applied.get("characters"):
+                        try:
+                            import openpyxl
+                            from app.models import Entity
+                            from app.services.db_apply import _write_persons_sheet
+                            from app.services.excel_characters import characters_from_entities
+
+                            ents = list(
+                                (
+                                    await session.execute(
+                                        select(Entity)
+                                        .where(
+                                            Entity.project_id == project.id,
+                                            Entity.type == "character",
+                                        )
+                                        .order_by(Entity.sort_key, Entity.id)
+                                    )
+                                )
+                                .scalars()
+                                .all()
+                            )
+                            loaded_chars = characters_from_entities(ents)
+                            if loaded_chars:
+                                meta = dict(project.meta or {})
+                                meta["excel_hero"] = {
+                                    "characters": [c.to_dict() for c in loaded_chars],
+                                    "source": "entity",
+                                }
+                                meta["excel_hero_enabled"] = True
+                                project.meta = meta
+                                if project.hero_mode == "no_hero":
+                                    project.hero_mode = "hero"
+                                flag_modified(project, "meta")
+                                xlsx_p = project.data_dir / "project.xlsx"
+                                if xlsx_p.is_file():
+                                    try:
+                                        wb = openpyxl.load_workbook(xlsx_p)
+                                        _write_persons_sheet(wb, ents)
+                                        wb.save(xlsx_p)
+                                        wb.close()
+                                    except Exception:
+                                        pass
+                                await session.commit()
+                        except Exception as e:
+                            logger.warning("[#{}] enrich_xlsx: auto-sync excel_hero failed: {}", project.id, e)
+
                     logger.info(
                         "[#{}] enrich_xlsx node={}: apply-ops записано "
                         "ops={} characters={} scenes={} (DB only)",
@@ -1335,6 +1381,10 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                     'Нужен {"ops":[…]} и/или {"characters":[…]} — '
                     "запись через Excel/TSV больше не поддерживается."
                 )
+        ready_status = _SLOT_MAP[slot_idx][1]
+        running_status = _SLOT_MAP[slot_idx][0]
+        # status мог уйти в generating_* пока шёл долгий API-check — освежаем ДО записи результата
+        await session.refresh(project)
         save_operator_result(
             project,
             node_key,
@@ -1344,10 +1394,6 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             gate_status=api_res.gate_status,
             analysis=(api_res.analysis.to_dict() if getattr(api_res, "analysis", None) else None),
         )
-        ready_status = _SLOT_MAP[slot_idx][1]
-        running_status = _SLOT_MAP[slot_idx][0]
-        # status мог уйти в generating_* пока шёл долгий API-check
-        await session.refresh(project)
         meta = dict(project.meta or {})
         completed = [int(x) for x in (meta.get("enrich_completed_slots") or []) if str(x).isdigit()]
         if slot_idx not in completed:
@@ -1361,7 +1407,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         meta.pop("active_excel_gpt_node_key", None)
         project.meta = meta
         flag_modified(project, "meta")
-        await session.refresh(project)
+        await session.flush()
         # Apply-ops уже в БД: закрыть NodeRun даже если юзер нажал ▶ /
         # ▶ другой шаг (иначе heal сотрёт overflow completed_keys).
         await _complete_excel_gpt_noderun(session, project, node_key, slot_idx)

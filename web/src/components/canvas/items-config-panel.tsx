@@ -111,6 +111,15 @@ export function ItemsConfigPanel({
 
       {open && (
         <div className="flex flex-col gap-2 px-3 pb-2.5">
+          <div className="rounded-md border border-cyan-500/25 bg-cyan-950/30 p-2 text-[10px] text-cyan-200/90 leading-relaxed">
+            <p className="font-semibold text-cyan-300 flex items-center gap-1">
+              <span>💡</span> Шаг опционален
+            </p>
+            <p className="mt-0.5 text-muted-foreground text-[9.5px]">
+              Если в видео нет постоянного реквизита (оружие, артефакты, гаджеты) — заполнять ничего не нужно. Просто нажмите «Запустить шаг», и он автоматически завершится за 1 секунду.
+            </p>
+          </div>
+
           <button
             type="button"
             className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
@@ -121,7 +130,7 @@ export function ItemsConfigPanel({
             ) : (
               <ChevronRight className="h-3 w-3" />
             )}
-            Ввести описание
+            Ввести описание вручную
             {savedCount > 0 ? (
               <span className="text-muted-foreground">· {savedCount}</span>
             ) : null}
@@ -167,24 +176,47 @@ export function ItemsConfigPanel({
                 </div>
               ))}
 
-              <Button
-                type="button"
-                size="sm"
-                className="h-7 w-32 self-center text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-md shadow-cyan-500/20 border-none transition-colors"
-                disabled={!canSaveManual || saveManual.isPending}
-                onClick={() => saveManual.mutate()}
-              >
-                {saveManual.isPending ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin text-slate-950" />
-                ) : (
-                  <Save className="mr-1.5 h-3.5 w-3.5 text-slate-950" />
+              <div className="flex items-center justify-center gap-2 pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 px-3 text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-md shadow-cyan-500/20 border-none transition-colors"
+                  disabled={!canSaveManual || saveManual.isPending}
+                  onClick={() => saveManual.mutate()}
+                >
+                  {saveManual.isPending ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin text-slate-950" />
+                  ) : (
+                    <Save className="mr-1.5 h-3.5 w-3.5 text-slate-950" />
+                  )}
+                  Сохранить
+                </Button>
+
+                {savedCount > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-[11px] text-muted-foreground hover:text-destructive"
+                    onClick={() => {
+                      setDescriptions([""]);
+                      setCount(1);
+                      api.patchProject(projectId, { item_descriptions: [] }).then(() => {
+                        qc.invalidateQueries({ queryKey: ["project", projectId] });
+                        toast.success("Предметы сброшены");
+                      });
+                    }}
+                  >
+                    Сбросить
+                  </Button>
                 )}
-                Сохранить
-              </Button>
+              </div>
 
               {!canSaveManual && (
-                <p className="text-center text-[9px] text-muted-foreground">
-                  заполните описание хотя бы одного предмета
+                <p className="text-center text-[9.5px] text-muted-foreground">
+                  {savedCount > 0
+                    ? "Внесите изменения для сохранения"
+                    : "Предметы не заданы (шаг безопасно пропустится при запуске)"}
                 </p>
               )}
             </div>
