@@ -27,7 +27,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { formatProjectStatus } from "@/lib/format-labels";
-import { projectDisplayName } from "@/lib/project-display";
+import { projectDisplayName, projectStatusVariant } from "@/lib/project-display";
+import { isProjectRunningStatus } from "@/lib/project-running";
 import { NewProjectWizard } from "@/components/sidebar/new-project-wizard";
 import { GenQueueDialog } from "@/components/sidebar/gen-queue-dialog";
 import { SidebarResizeHandle } from "@/components/sidebar/sidebar-resize-handle";
@@ -1099,23 +1100,21 @@ function ProjectRow({
 }
 
 function StatusPill({ status }: { status: ProjectStatus }) {
-  const variant = statusVariant(status);
+  const running = isProjectRunningStatus(status);
+  const variant = projectStatusVariant(status);
   return (
     <Badge
       variant={variant}
-      className="inline-flex shrink-0 whitespace-nowrap h-auto py-0.5 px-2.5 border-white/10 text-xs font-semibold tracking-normal normal-case shadow-none"
+      className={cn(
+        "inline-flex shrink-0 whitespace-nowrap h-auto py-0.5 px-2.5 border-white/10 text-xs font-semibold tracking-normal normal-case shadow-none transition-colors",
+        running &&
+          "border-amber-400/50 bg-amber-500/20 text-amber-300 animate-pulse font-medium shadow-[0_0_12px_rgba(245,158,11,0.25)]",
+        variant === "success" &&
+          "border-emerald-400/30 bg-emerald-500/15 text-emerald-400 font-medium",
+      )}
     >
+      {running && <Loader2 className="h-3 w-3 animate-spin mr-1 shrink-0 text-amber-300" />}
       {formatProjectStatus(status)}
     </Badge>
   );
-}
-
-function statusVariant(
-  s: ProjectStatus,
-): "default" | "success" | "warning" | "destructive" | "info" | "muted" {
-  if (s === "new") return "muted";
-  if (s === "paused" || s === "failed") return "destructive";
-  if (s === "published" || s === "assembled") return "success";
-  if (s.endsWith("_ready") || s === "audio_ready" || s === "videos_ready") return "info";
-  return "default";
 }

@@ -4,8 +4,14 @@ import type { WorkflowDetail } from "@/lib/types";
 /** Минимальная длина general_plan — как sync_after_plan / plan_validation на бэкенде. */
 export const MIN_GENERAL_PLAN_CHARS = 200;
 
-/** Линейные media-ноды: Project.status ↔ node_type (для badge sync). */
+/** Ноды пайплайна: Project.status ↔ node_type (для badge sync). */
 const NODE_RUNNING_STATUS: Record<string, ProjectStatus> = {
+  plan: "planning",
+  script: "scripting",
+  split: "splitting",
+  scene_design: "scene_designing",
+  hero: "generating_hero",
+  items: "generating_items",
   image_prompts: "generating_image_prompts",
   images: "generating_images",
   animation_prompts: "generating_animation_prompts",
@@ -13,9 +19,16 @@ const NODE_RUNNING_STATUS: Record<string, ProjectStatus> = {
   audio: "generating_audio",
   music: "generating_music",
   assemble: "assembling",
+  publish: "publishing",
 };
 
 const NODE_READY_STATUS: Record<string, ProjectStatus> = {
+  plan: "plan_ready",
+  script: "script_ready",
+  split: "frames_ready",
+  scene_design: "scene_design_ready",
+  hero: "hero_ready",
+  items: "items_ready",
   image_prompts: "image_prompts_ready",
   images: "images_ready",
   animation_prompts: "animation_prompts_ready",
@@ -23,10 +36,17 @@ const NODE_READY_STATUS: Record<string, ProjectStatus> = {
   audio: "audio_ready",
   music: "music_ready",
   assemble: "assembled",
+  publish: "published",
 };
 
-/** Порядок media-цепочки для «Project уже дальше» → badge done. */
-const MEDIA_PIPELINE_ORDER: string[] = [
+/** Порядок цепочки шагов для «Project уже дальше» → badge done. */
+const FULL_PIPELINE_ORDER: string[] = [
+  "plan",
+  "script",
+  "split",
+  "scene_design",
+  "hero",
+  "items",
   "image_prompts",
   "images",
   "animation_prompts",
@@ -34,6 +54,7 @@ const MEDIA_PIPELINE_ORDER: string[] = [
   "audio",
   "music",
   "assemble",
+  "publish",
 ];
 
 function projectImpliesNodeRunning(
@@ -51,11 +72,22 @@ function projectImpliesNodeDone(
   if (!projectStatus) return false;
   const ready = NODE_READY_STATUS[nodeType];
   if (ready && projectStatus === ready) return true;
-  const idx = MEDIA_PIPELINE_ORDER.indexOf(nodeType);
+
+  // Если проект уже на этапе обогащения данных (enriching_* / enrich_*_ready),
+  // то шаги plan, script, split гарантированно пройдены.
+  if (
+    (typeof projectStatus === "string" &&
+      (projectStatus.startsWith("enriching_") || projectStatus.startsWith("enrich_"))) &&
+    (nodeType === "plan" || nodeType === "script" || nodeType === "split")
+  ) {
+    return true;
+  }
+
+  const idx = FULL_PIPELINE_ORDER.indexOf(nodeType);
   if (idx < 0) return false;
-  // Project на running/ready более поздней media-ноды → эта уже пройдена.
-  for (let i = idx + 1; i < MEDIA_PIPELINE_ORDER.length; i++) {
-    const later = MEDIA_PIPELINE_ORDER[i];
+  // Project на running/ready более поздней ноды → эта уже пройдена.
+  for (let i = idx + 1; i < FULL_PIPELINE_ORDER.length; i++) {
+    const later = FULL_PIPELINE_ORDER[i];
     if (
       projectStatus === NODE_RUNNING_STATUS[later] ||
       projectStatus === NODE_READY_STATUS[later]
@@ -74,9 +106,9 @@ function projectImpliesNodeDone(
 }
 
 /**
- * Статус ноды на канвасе = NodeRun.status, с минимальным sync от Project
- * для линейных media: не рисовать «прервано», пока Project.generating_*
- * того же шага (NodeRun отстал после sidecar / startup).
+ * Статус ноды на канвасе = NodeRun.status, с минимальным sync от Project:
+ * если проект уже завершил шаг (или ушёл дальше), нода рисуется done,
+ * даже если фоновый NodeRun в БД ещё не обновился из-за задержки release.
  */
 export function reconcileNodeRunStatus(
   nodeType: string,
@@ -93,7 +125,7 @@ export function reconcileNodeRunStatus(
   const nodeKey = opts?.nodeKey;
   if (nodeType === "excel_gpt" && typeof ps === "string" && ps.startsWith("enriching_") && nodeKey) {
     if ((opts?.completedExcelGptKeys || []).includes(nodeKey)) {
-      if (runStatus === "failed" || runStatus === "pending" || runStatus === "queued") {
+      if (runStatus === "failed" || runStatus === "pending" || runStatus === "queued" || runStatus === "running") {
         return "done";
       }
     }
@@ -104,16 +136,16 @@ export function reconcileNodeRunStatus(
     }
   }
   if (
+    (runStatus === "failed" || runStatus === "pending" || runStatus === "queued" || runStatus === "running") &&
+    projectImpliesNodeDone(nodeType, ps)
+  ) {
+    return "done";
+  }
+  if (
     (runStatus === "failed" || runStatus === "pending" || runStatus === "queued") &&
     projectImpliesNodeRunning(nodeType, ps)
   ) {
     return "running";
-  }
-  if (
-    (runStatus === "failed" || runStatus === "pending" || runStatus === "queued") &&
-    projectImpliesNodeDone(nodeType, ps)
-  ) {
-    return "done";
   }
   return runStatus;
 }

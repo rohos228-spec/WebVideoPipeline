@@ -120,7 +120,7 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
             step_code_from_status,
         )
 
-        _step_lock_cm = acquire_step_lock(step_code_from_status(status))
+        _step_lock_cm = acquire_step_lock(step_code_from_status(status), session=session)
         await _step_lock_cm.__aenter__()
 
         # Этап 2 (D.2a): step-level lease — БД-видимый признак «шаг живой»
@@ -287,7 +287,7 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
                 )
         if _step_lock_cm is not None:
             try:
-                await _step_lock_cm.__aexit__(None, None, None)
+                await _step_lock_cm.release(session=None if _step_failed else session)
             except Exception:  # noqa: BLE001
                 pass
         unregister_advance_task(pid)

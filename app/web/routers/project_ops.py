@@ -309,11 +309,37 @@ async def reset_project_step(
 
 @router.get("/{project_id}/excel-hero")
 async def get_excel_hero(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
-    """Текущее состояние excel-hero в project.meta (если есть)."""
+    """Текущее состояние excel-hero в project.meta (если есть) с авто-подтяжкой из Entity."""
     p = _project_or_404(await session.get(Project, project_id))
     meta = dict(p.meta or {})
     cfg = meta.get("excel_hero") or {}
     chars = cfg.get("characters") if isinstance(cfg, dict) else None
+    if not chars:
+        from sqlalchemy import select
+
+        from app.models import Entity
+        from app.services.excel_characters import characters_from_entities
+
+        ents = list(
+            (
+                await session.execute(
+                    select(Entity)
+                    .where(Entity.project_id == p.id, Entity.type == "character")
+                    .order_by(Entity.sort_key, Entity.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        found = characters_from_entities(ents)
+        if found:
+            chars = [c.to_dict() for c in found]
+            meta["excel_hero"] = {"characters": chars, "source": "entity"}
+            meta["excel_hero_enabled"] = True
+            p.meta = meta
+            if p.hero_mode == "no_hero":
+                p.hero_mode = "hero"
+            await commit_with_retry(session)
     return {"loaded": bool(chars), "characters": chars or []}
 
 

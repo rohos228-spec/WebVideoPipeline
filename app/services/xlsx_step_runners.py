@@ -574,8 +574,9 @@ _SPLIT_DB_HINT = (
     '{"закадр":"текст кадра 2"}'
     "]}]}\n"
     "ФОРМАТ SHORTS: для ролика 60–75 сек делай 15–25 кадров (максимум 30). "
+    "Если в сценарии (general_plan) или параметрах явно задано точное количество кадров — строго делай ровно это число кадров (соседние фразы одной сцены объединяй). "
     "Запрещено дробить на микро-фразы по 1-2 слова. "
-    "Один кадр = законченная мысль (2-4 сек озвучки). "
+    "Один кадр = законченная мысль/сцена (2-4 сек озвучки). "
     "Нужно ≥2 и ≤30 кадров. Каждый кадр — отдельный объект с полем закадр.\n"
 )
 
@@ -686,11 +687,17 @@ async def run_split_xlsx(
     tmp_dir = cx.tmp_gpt_dir(project)
     prompt_file = cx.write_split_prompt_file(project, tmp_dir, ts=ts)
     chat_msg = cx.chat_message(project, "split", prompt_file_name=prompt_file.name) + _SPLIT_DB_HINT
+    attach_files: list[Path] = [prompt_file, voiceover]
+    if (project.general_plan or "").strip():
+        gp = tmp_dir / f"general_plan_{ts}.txt"
+        gp.write_text(project.general_plan or "", encoding="utf-8")
+        attach_files.append(gp)
 
     logger.info(
-        "split_db: prompt={}, voiceover={}, chat_len={} (без xlsx-download)",
+        "split_db: prompt={}, voiceover={}, files={}, chat_len={} (без xlsx-download)",
         prompt_file.name,
         voiceover.name,
+        len(attach_files),
         len(chat_msg),
     )
 
@@ -706,7 +713,7 @@ async def run_split_xlsx(
         async def _gpt() -> str:
             return await xgf.telegram_style_ask_with_files(
                 msg,
-                [prompt_file, voiceover],
+                attach_files,
                 project_id=project_id or project.id,
                 response_schema=FRAME_SPLIT.response_schema(),
             )

@@ -15,6 +15,7 @@ export type ProjectStatus =
   | "enrich_1_ready" | "enrich_2_ready" | "enrich_3_ready" | "enrich_4_ready" | "enrich_5_ready"
   | "image_prompts_ready" | "images_ready" | "animation_prompts_ready"
   | "videos_ready" | "audio_ready" | "music_ready"
+  | "sfx_planning" | "sfx_plan_ready" | "generating_sfx" | "sfx_ready"
   | "assembled" | "published" | "paused" | "failed";
 
 export type NodeType =
