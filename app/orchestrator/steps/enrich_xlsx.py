@@ -1261,6 +1261,8 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                     if chars_list and applied.get("characters"):
                         try:
                             import openpyxl
+                            from sqlalchemy import select
+
                             from app.models import Entity
                             from app.services.db_apply import _write_persons_sheet
                             from app.services.excel_characters import characters_from_entities

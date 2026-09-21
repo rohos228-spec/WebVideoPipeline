@@ -259,6 +259,7 @@ async def stop_project_running(
                 rollback_to = ready_status_for_slot(max(done_slots))
             else:
                 from sqlalchemy import func, select
+
                 from app.models import Frame
 
                 has_frames = (

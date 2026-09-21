@@ -316,6 +316,7 @@ async def get_excel_hero(project_id: int, session: AsyncSession = Depends(get_se
     chars = cfg.get("characters") if isinstance(cfg, dict) else None
     if not chars:
         from sqlalchemy import select
+
         from app.models import Entity
         from app.services.excel_characters import characters_from_entities
 
