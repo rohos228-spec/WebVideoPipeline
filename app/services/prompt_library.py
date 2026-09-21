@@ -6,7 +6,7 @@
     02_script/      → шаг 2 «Закадровый текст» (SCRIPT_SHORTS)
     03_razbivka/    → шаг 3 «Разбивка на блоки» (RAZBIVKA_SLOV)
     04_hero/        → шаг 4 «Hero» (HERO_SHORTS)
-    05_image_prompts/ → шаг 5 «Промты картинок» (IMAGE_SHORTS)
+    05_image_prompts/ → шаг 6 «Промты картинок» (IMAGE_SHORTS)
     07_animation/   → шаг 7 «Промты анимации» (VIDEO_SHORTS)
 
 В каждой папке лежит `default.md` (дефолтный мастер-промт) + любые

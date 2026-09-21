@@ -87,4 +87,5 @@ async def test_start_step_ui_play_without_force_wipe_keeps_images(session, tmp_p
     )
     assert len(remaining_arts) == 1
     assert img_file.exists()
-    assert p.auto_mode is True
+    # Тумблер «Автозапуск» ручной ▶ не включает — только сам тумблер.
+    assert p.auto_mode is False

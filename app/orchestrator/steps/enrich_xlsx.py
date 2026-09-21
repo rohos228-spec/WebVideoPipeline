@@ -1,20 +1,16 @@
-"""Шаг «Доп работа с EXCEL» — generic xlsx round-trip с ChatGPT.
+"""Шаг excel_gpt — API-транспорт GPT без браузера, запись в DB через apply-ops.
 
-Параметризован по slot_idx (1..5). Каждый слот — отдельный
-мастер-промт (в `prompts/05<a..e>_enrich_<i>/`) и отдельный gpt_text
-override (через `Project.gpt_text_overrides["enrich_<i>"]`).
+Параметризован по slot_idx (1..5) + slotOverflow (fw_*). Промт — вариант
+`meta.prompt_slot_variants` (`prompts/05_excel_gpt/` или git-шаблон
+`templates/excel_gpt_agents/`).
 
-Поток:
-  1. Берём текущий `data/videos/<slug>/project.xlsx`.
-  2. Открываем НОВЫЙ чат ChatGPT (без истории прошлых шагов).
-  3. Аплоадим xlsx как вложение + шлём промт «мастер + сопровождающий
-     текст».
-  4. Ждём ответ. Скачиваем приложенный к ответу обновлённый xlsx и
-     сохраняем поверх исходного `project.xlsx`.
-  5. Если ChatGPT не приложил файл — повторяем (новый чат) до 3 раз.
-  6. Данные в БД пишет apply-ops; Excel → DB только явный Import.
-     `recompute_status()` поднимет статус. И принудительно ставим
-     статус `enrich_<i>_ready`.
+Поток (outputMode=project_file, DB SoT):
+  1. Строим `db_frames.json` (кадры uuid+закадр+meaning, персонажи Entity).
+  2. Шлём модели промт + сопровождающий текст через API (gpt_api.chat).
+  3. Ответ — JSON apply-ops (ops/characters/scenes), пишем в DB через db_apply.
+  4. TSV / `# Лист:` / `@row=` — deprecated fallback, модель этому не учим.
+  5. `recompute_status()` поднимет статус; NodeRun закрываем сразу после
+     записи apply-ops (иначе heal сотрёт overflow completed_keys).
 """
 
 from __future__ import annotations
