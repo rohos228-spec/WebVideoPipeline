@@ -174,7 +174,7 @@ export const OUTPUT_OPTIONS: {
   {
     value: "project_file",
     title: "Excel проекта",
-    hint: "Пишет обратно в project.xlsx",
+    hint: "Пишет в DB через apply-ops (db_frames.json); project.xlsx — только зеркало",
   },
   {
     value: "sidecar",

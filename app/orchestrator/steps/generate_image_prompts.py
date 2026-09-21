@@ -11,27 +11,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Frame, FrameStatus, Project, ProjectStatus
 from app.services.db_busy import is_db_busy
 from app.services.step_cancel import StepCancelledError, raise_if_cancelled
+from app.services.xlsx_step_runners import _is_real_shot  # единый отбор, не дублировать
 from app.storage import for_project as _sheet_for_project
-
-
-def _is_real_shot(fr: Frame) -> bool:
-    """Кадру нужна картинка: либо он несёт закадр, либо он шот многокадровой сцены.
-
-    Правило «есть закадр» осталось от времён, когда кадр = ячейка закадра.
-    После ``camera_expand`` сцена разворачивается в несколько шотов, и по
-    устройству закадр остаётся только у родителя — дети пустые (см. докстринг
-    ``camera_expand``). С проверкой по одному закадру шаг молча пропускал их:
-    24 кадра, 13 промтов, а многокадровые сцены схлопывались обратно в один
-    кадр на ячейку — то самое слайдшоу, ради которого веер и включали.
-    """
-    if (fr.voiceover_text or "").strip():
-        return True
-    attrs = fr.attrs if isinstance(fr.attrs, dict) else {}
-    return isinstance(attrs.get("camera_subdivide"), dict)
 
 
 def _frames_needing_image_prompt(frames: list[Frame]) -> list[Frame]:
     return [fr for fr in frames if _is_real_shot(fr) and not (fr.image_prompt or "").strip()]
+
+
+_STAGING_ATTRS = (
+    "place",
+    "shot01_bg",
+    "shot01_action",
+    "shot01_description",
+    "lighting",
+    "scene_lighting",
+    "персонажи",
+    "characters",
+    "continuity",
+    "meaning",
+)
+
+
+def _frame_has_staging(fr: Frame) -> bool:
+    """У кадра есть постановочные данные (не голый закадр)."""
+    attrs = fr.attrs if isinstance(fr.attrs, dict) else {}
+    if str(getattr(fr, "meaning", None) or "").strip():
+        return True
+    return any(str(attrs.get(k) or "").strip() for k in _STAGING_ATTRS)
 
 
 def _frames_with_image_prompt(frames: list[Frame]) -> list[Frame]:
@@ -126,6 +133,23 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             await _finish_success(session, project, frames)
             return
         raise RuntimeError("нет кадров с закадром — нечего составлять промты")
+
+    # Префлайт: пустая постановка = тихий дженерик по голому закадру.
+    # Лучше упасть с понятной ошибкой, чем сжечь деньги на мусор.
+    staged = [fr for fr in need if _frame_has_staging(fr)]
+    if not staged:
+        raise RuntimeError(
+            f"у {len(need)} кадров нет постановки (место/фон/действие/свет/"
+            "персонажи/meaning) — прогони enrich/scene до img_pr, иначе "
+            "получится дженерик по голому закадру"
+        )
+    if len(staged) < len(need):
+        bare = [fr.number for fr in need if fr not in staged]
+        logger.warning(
+            "[#{}] generate_image_prompts: у кадров {} нет постановки — по ним будет дженерик",
+            project.id,
+            bare[:12],
+        )
 
     uuid_map = "\n".join(f"кадр {fr.number} = {fr.uuid}" for fr in need if fr.uuid)
     if not uuid_map.strip():

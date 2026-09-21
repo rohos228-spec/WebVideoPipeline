@@ -120,14 +120,10 @@ async def start_step(
 
         clear_user_stop_gate(project)
         clear_auto_await_manual_start(project)
-        # ▶ = запустить процесс. Без auto_mode следующая нода не стартует
-        # (лог: «auto_mode выкл, без auto-chain/advance»).
-        if not getattr(project, "auto_mode", False):
-            project.auto_mode = True
-            logger.info(
-                "[#{}] start_step: auto_mode=True (ручной ▶ — цепочка нод)",
-                project.id,
-            )
+        # auto_mode здесь НЕ включаем: тумблер «Автозапуск шагов» — только
+        # ручной. Ручной ▶ запускает один шаг; цепочка — лишь при включённом
+        # тумблере (иначе ноды, которые гоняют вручную по очереди, убегали бы
+        # дальше сами).
         # Явный ▶ снимает глобальный halt очереди и family-halt родителя.
         clear_gen_queue_halted(reason=f"start_step #{project.id}")
         parent_id = mass_parent_id(project)

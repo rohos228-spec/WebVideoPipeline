@@ -373,17 +373,22 @@ export function NodeStudio({
   });
 
   const runStep = useMutation({
-    mutationFn: (variables?: { mode?: "full" | "resume" }) =>
+    mutationFn: (variables?: { mode?: "full" | "resume"; forceWipe?: boolean; continuing?: boolean }) =>
       api.runProjectStep(projectId!, stepCode!, {
         nodeKey: nodeKey ?? undefined,
         mode: variables?.mode ?? "resume",
+        forceWipe: variables?.forceWipe,
       }),
     onSuccess: (_, vars) => {
       const isFull = vars?.mode === "full";
       toast.success(
-        isFull
-          ? `Шаг «${spec.label}» запущен начисто`
-          : `Шаг «${spec.label}» запущен`,
+        vars?.forceWipe
+          ? `Шаг «${spec.label}» запущен заново`
+          : vars?.continuing
+            ? `Шаг «${spec.label}» продолжается, доделываем недостающее`
+            : isFull
+              ? `Шаг «${spec.label}» запущен начисто`
+              : `Шаг «${spec.label}» запущен`,
       );
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       qc.invalidateQueries({ queryKey: ["project-run", projectId] });
@@ -682,7 +687,7 @@ export function NodeStudio({
                   <>
                     <Button
                       size="sm"
-                      onClick={() => runStep.mutate({ mode: "resume" })}
+                      onClick={() => runStep.mutate({ mode: "resume", forceWipe: true })}
                       disabled={!projectId || isThisNodeRunning || nodeDisabled}
                       className={cn(
                         "transition-all duration-200 gap-2 h-9 px-4 font-semibold text-xs text-white bg-gradient-to-r from-emerald-500 via-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-[0.98] shadow-lg shadow-emerald-500/35 border border-emerald-300/40 rounded-xl backdrop-blur-md",
@@ -694,7 +699,7 @@ export function NodeStudio({
                           ? "Нода отключена в графе"
                           : isThisNodeRunning
                             ? "Шаг сейчас выполняется..."
-                            : "Запустить шаг: готовое не трогаем, дальше по цепочке"
+                            : "Запустить шаг заново: стереть старые результаты и сгенерировать всё с нуля"
                       }
                     >
                       {isThisNodeRunning ? (
@@ -712,10 +717,10 @@ export function NodeStudio({
                     {!isThisNodeRunning && !["plan", "script", "split", "assemble", "publish"].includes(nodeType) && (
                       <Button
                         size="sm"
-                        onClick={() => runStep.mutate({ mode: "resume" })}
+                        onClick={() => runStep.mutate({ mode: "resume", continuing: true })}
                         disabled={!projectId || isThisNodeRunning || nodeDisabled}
                         className="transition-all duration-200 gap-2 h-9 px-4 font-semibold text-xs text-amber-950 bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 active:scale-[0.98] shadow-lg shadow-amber-500/25 border border-amber-200/60 rounded-xl backdrop-blur-md"
-                        title="Доделать только недостающие элементы (мягкое продолжение без удаления готовых)"
+                        title="Доделать недостающее: готовое не трогаем, генерируем только то, чего не хватает"
                       >
                         <Play className="h-3.5 w-3.5 text-amber-950 fill-current" />
                         <span>Продолжить / Доделать</span>

@@ -36,7 +36,7 @@ export const STEPS_V2_FOLDER: Record<string, string> = {
   enrich_4: "05d_enrich_4",
   enrich_5: "05e_enrich_5",
   excel_gpt: "05_excel_gpt",
-  image_prompts: "06_image_prompts",
+  image_prompts: "05_image_prompts",
   animation_prompts: "07_animation",
 };
 
