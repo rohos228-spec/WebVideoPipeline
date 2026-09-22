@@ -749,6 +749,17 @@ function Invoke-StudioGitUpdate {
         return $false
     }
     Write-StudioMsg "==> обновление с сохранённой ветки: origin/$StudioBranch" "Cyan"
+    $dirty = (git -C $Root status --porcelain 2>$null) | Where-Object { $_ -notmatch '^\?\?' }
+    if ($dirty) {
+        Write-StudioMsg "ВНИМАНИЕ: есть несохранённые правки - reset --hard их УДАЛИТ:" "Red"
+        $dirty | Select-Object -First 10 | ForEach-Object { Write-StudioMsg "  $_" "Yellow" }
+        Write-StudioMsg "Сначала закоммить (git add/commit) или stash, потом пункт [4]." "Yellow"
+        $ans = Read-Host "Всё равно продолжить и УДАЛИТЬ правки? (да/нет)"
+        if ($ans -ne "да") {
+            Write-StudioMsg "Обновление отменено, правки целы." "Green"
+            return $false
+        }
+    }
     Write-StudioMsg "==> git fetch origin $StudioBranch" "Cyan"
     git -C $Root fetch origin $StudioBranch 2>&1 | ForEach-Object { Write-StudioMsg $_ }
     if ($LASTEXITCODE -ne 0) {
