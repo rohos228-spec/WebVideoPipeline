@@ -1106,6 +1106,8 @@ MODELS: list[dict[str, Any]] = [
         "api": "jobs",
         "model": "flux-2/pro-text-to-image",
         "model_map_i2i": "flux-2/pro-image-to-image",
+        # flux i2i по докам kie хочет input_urls, а не image_urls.
+        "i2i_input_field": "input_urls",
         "result": "image",
         "desc": "Black Forest Flux 2 Pro: высокая скорость, фотореализм, до 8 референсов.",
         "fields": [

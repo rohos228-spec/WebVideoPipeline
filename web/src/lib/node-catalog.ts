@@ -182,7 +182,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   animation_prompts: {
     type: "animation_prompts",
     label: "Промты анимации",
-    description: "Промты анимации через ChatGPT (по кадрам).",
+    description: "Промты анимации через GPT API (по кадрам).",
     category: "media",
     accent: "88 80% 55%",
     iconKey: "wand",
