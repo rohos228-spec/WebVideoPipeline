@@ -69,6 +69,44 @@ def test_suno_flat_price() -> None:
     assert est["credits"] == 12 and est["usd"] == 0.06
 
 
+def test_suno_music_payload_custom_mode_and_duration() -> None:
+    suno = kc.get_model("suno-music")
+    assert suno is not None
+    # customMode=True: style, title, instrumental, duration
+    body = kc.build_payload(
+        suno,
+        {
+            "customMode": True,
+            "prompt": "",
+            "style": "ambient documentary",
+            "title": "Biologiya",
+            "instrumental": True,
+            "model": "V5_5",
+            "duration": 75,
+        },
+    )
+    assert body["customMode"] is True
+    assert body["style"] == "ambient documentary"
+    assert body["title"] == "Biologiya"
+    assert body["instrumental"] is True
+    assert body["model"] == "V5_5"
+    assert body["duration"] == 75
+    assert "prompt" not in body
+
+    # customMode=False: duration вырезается во избежание 422 ошибки
+    body_non_custom = kc.build_payload(
+        suno,
+        {
+            "customMode": False,
+            "prompt": "ambient track",
+            "duration": 60,
+        },
+    )
+    assert body_non_custom["customMode"] is False
+    assert "duration" not in body_non_custom
+
+
+
 def test_suno_sounds_payload_sends_v5_omits_any_key() -> None:
     spec = kc.get_model("suno-sounds")
     assert spec is not None

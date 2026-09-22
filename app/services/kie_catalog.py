@@ -1821,51 +1821,55 @@ def build_payload(spec: dict[str, Any], values: dict[str, Any]) -> dict[str, Any
     """Тело запроса под тип API: jobs (model+input) или flat (veo/suno/runway)."""
     merged = normalize_values(spec, values)
     body: dict[str, Any] = {}
-    for f in spec.get("fields") or []:
-        name = f["name"]
-        v = merged.get(name)
-        if v is None:
-            continue
-        omit = {str(x) for x in (f.get("omit_values") or [])}
-        if str(v) in omit:
-            continue
-        if f.get("omit_from_payload"):
-            continue
-        kind = f.get("kind")
-        if kind in _FILE_KINDS:
-            items = v if isinstance(v, list) else [v]
-            items = [str(u).strip() for u in items if str(u).strip()]
-            if not items:
+    fields = spec.get("fields")
+    if not fields:
+        body = dict(values)
+    else:
+        for f in fields:
+            name = f["name"]
+            v = merged.get(name)
+            if v is None:
                 continue
-            # одиночные поля (max_items=1) — строкой, если так в спеке
-            if f.get("max_items") == 1 and name.endswith("_url"):
-                body[name] = items[0]
-            else:
-                body[name] = items
-            continue
-        if kind == "toggle":
-            body[name] = v is True or str(v).strip().lower() in ("true", "1", "yes", "on")
-            continue
-        if kind == "number":
-            try:
-                num = float(v)
-                body[name] = int(num) if float(num).is_integer() else num
-            except (TypeError, ValueError):
-                pass
-            continue
-        if kind == "dialogue":
-            lines = [ln for ln in str(v).splitlines() if "|" in ln]
-            dlg = []
-            for ln in lines:
-                voice, _, text = ln.partition("|")
-                if text.strip():
-                    dlg.append({"voice": voice.strip(), "text": text.strip()})
-            if dlg:
-                body[name] = dlg
-            continue
-        if isinstance(v, str) and not v.strip():
-            continue
-        body[name] = v
+            omit = {str(x) for x in (f.get("omit_values") or [])}
+            if str(v) in omit:
+                continue
+            if f.get("omit_from_payload"):
+                continue
+            kind = f.get("kind")
+            if kind in _FILE_KINDS:
+                items = v if isinstance(v, list) else [v]
+                items = [str(u).strip() for u in items if str(u).strip()]
+                if not items:
+                    continue
+                # одиночные поля (max_items=1) — строкой, если так в спеке
+                if f.get("max_items") == 1 and name.endswith("_url"):
+                    body[name] = items[0]
+                else:
+                    body[name] = items
+                continue
+            if kind == "toggle":
+                body[name] = v is True or str(v).strip().lower() in ("true", "1", "yes", "on")
+                continue
+            if kind == "number":
+                try:
+                    num = float(v)
+                    body[name] = int(num) if float(num).is_integer() else num
+                except (TypeError, ValueError):
+                    pass
+                continue
+            if kind == "dialogue":
+                lines = [ln for ln in str(v).splitlines() if "|" in ln]
+                dlg = []
+                for ln in lines:
+                    voice, _, text = ln.partition("|")
+                    if text.strip():
+                        dlg.append({"voice": voice.strip(), "text": text.strip()})
+                if dlg:
+                    body[name] = dlg
+                continue
+            if isinstance(v, str) and not v.strip():
+                continue
+            body[name] = v
     wrap = str(spec.get("prompt_wrap") or "")
     if wrap and "{prompt}" in wrap:
         key = "prompt" if "prompt" in body else ("text" if "text" in body else "")
@@ -1883,6 +1887,13 @@ def build_payload(spec: dict[str, Any], values: dict[str, Any]) -> dict[str, Any
         # veo/runway ждут duration числом, даже если в UI это select
         with contextlib.suppress(TypeError, ValueError):
             body["duration"] = int(float(body["duration"]))
+    if api == "suno":
+        # Suno API 422: duration разрешён только при customMode=True и моделях V5_5/V6/V6_WILD
+        if not body.get("customMode") and "duration" in body:
+            body.pop("duration", None)
+        elif "duration" in body:
+            with contextlib.suppress(TypeError, ValueError):
+                body["duration"] = int(float(body["duration"]))
     return body
 
 

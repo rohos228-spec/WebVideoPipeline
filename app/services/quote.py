@@ -63,7 +63,7 @@ PRIOR_TEXT_USD: dict[str, float] = {
     "anim_pr": 0.030,
     "video": 0.0,  # промт уже написан в anim_pr, клип — чистое медиа
     "audio": 0.0,
-    "music": 0.0,
+    "music": 0.06,  # Suno V5_5: 12 кр × $0.005 (kie_catalog), GPT-текст — копейки
     "sfx_plan": 0.002,
     "sfx_gen": 0.0,
     "assemble": 0.0,  # ffmpeg локально
@@ -248,11 +248,13 @@ def _video_target(project: Any) -> tuple[str, str, str]:
 
 
 def _video_duration(project: Any) -> float:
+    # Дефолт 8.0 = длительность primary-клипа Veo (Kling-fallback даёт 5с,
+    # но смета считается до генерации — честнее обещать primary).
     raw = getattr(project, "video_duration", None) or getattr(project, "clip_duration", None)
     try:
-        return float(raw) if raw else 6.0
+        return float(raw) if raw else 8.0
     except (TypeError, ValueError):
-        return 6.0
+        return 8.0
 
 
 # ────────────────────────────────────────────────────────────────────────────

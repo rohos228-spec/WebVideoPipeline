@@ -1459,8 +1459,9 @@ async def generate_video_with_retries(
             attempt_max = VIDEO_FALLBACK_ATTEMPTS
             attempt_kwargs = _apply_video_fallback_kwargs(primary_kwargs)
             if not fallback_started:
-                logger.info(
-                    "outsee_retry: video FALLBACK → Kling 2.6 ({})",
+                logger.warning(
+                    "outsee_retry: video FALLBACK → Kling 2.6 ({}) — клип будет "
+                    "5с вместо 8с primary, в ролике возможна смесь длительностей",
                     ladder_summary(
                         primary_burns=primary_burns,
                         fallback_burns=fallback_burns,

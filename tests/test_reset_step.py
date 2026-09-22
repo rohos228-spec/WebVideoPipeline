@@ -568,6 +568,26 @@ async def test_clear_step_outputs_img_force_wipe_removes_png(session, tmp_path: 
 
 
 @pytest.mark.asyncio
+async def test_wipe_music_moves_mp3_to_old(session, tmp_path: Path, monkeypatch) -> None:
+    """Запустить музыку заново = бэкап mp3 в old/music, иначе тихий reuse."""
+    from app import settings as app_settings
+    from app.services.reset_step import _wipe_music
+
+    monkeypatch.setattr(app_settings.settings, "data_dir", tmp_path)
+    p = await _mkproject(session)
+    music = p.data_dir / "music"
+    music.mkdir(parents=True, exist_ok=True)
+    track = music / "music_abcd1234.mp3"
+    track.write_bytes(b"x" * 5000)
+    await _mkart(session, p, ArtifactKind.music, path=str(track))
+
+    stats = await _wipe_music(session, p)
+    assert not track.exists()
+    assert stats["music_files_moved"] == 1
+    assert any((p.data_dir / "old" / "music").glob("*.mp3"))
+
+
+@pytest.mark.asyncio
 async def test_clear_step_outputs_for_rerun_anim_pr_preserves(session, tmp_path: Path):
     """Повторный запуск anim_pr: не стираем animation_prompt (догонка с xlsx)."""
     p = await _mkproject(session)

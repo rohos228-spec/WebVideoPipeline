@@ -230,7 +230,7 @@ class ElevenLabsApi:
         project_id: int | None = None,
     ) -> Path:
         """Озвучить текст в `out_path` (mp3). Возвращает путь к файлу."""
-        from app.bots.elevenlabs import DEFAULT_ELEVENLABS_VOICE_ID
+        from app.services.elevenlabs_voices import DEFAULT_ELEVENLABS_VOICE_ID
         from app.services.media_ledger import media_call
         from app.settings import settings
 

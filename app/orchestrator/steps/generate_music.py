@@ -126,9 +126,16 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         [voiceover_path],
         timeout=900,
         project_id=project.id,
+        treat_txt_as_prompt=False,
     )
     suno_prompt = _clean_suno_prompt(suno_prompt)
     if len(suno_prompt) < 20:
+        logger.warning(
+            "[#{}] generate_music: GPT вернул {} симв: {!r} — смотри модель/вложение",
+            project.id,
+            len(suno_prompt),
+            suno_prompt[:200],
+        )
         raise RuntimeError("GPT вернул слишком короткий промт для музыки")
     logger.info(
         "[#{}] generate_music: GPT ответ ({} симв.) → outsee Suno",
@@ -152,13 +159,20 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             "api": "suno",
             "endpoint": "/api/v1/generate",
         }
+        # Длительность под хронометраж: грубая оценка по закадру (~14 симв/сек
+        # + хвост), чтобы трек не вышел короче ролика. Сборка обрежет лишнее.
+        vo_len = len(voiceover_text or "")
+        track_secs = max(60, min(180, int(vo_len / 12) + 20))
         payload = build_payload(
             spec,
             {
-                "customMode": False,
-                "prompt": suno_prompt[:500],
+                "customMode": True,
+                "prompt": "",
+                "style": suno_prompt[:500],
+                "title": title[:80],
                 "instrumental": True,
                 "model": "V5_5",
+                "duration": track_secs,
             },
         )
         await run_generation(spec, payload, music_path, timeout_s=900)

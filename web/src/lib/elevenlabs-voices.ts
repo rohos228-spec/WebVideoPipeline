@@ -1,4 +1,4 @@
-/** Каталог голосов 11Labs для ноды «Озвучка». */
+/** Каталог голосов ElevenLabs для ноды «Озвучка». */
 
 export type ElevenLabsVoice = {
   id: string;

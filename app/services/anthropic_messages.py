@@ -281,9 +281,9 @@ async def chat_messages(
     # и дальше сжимал пустоту — в генератор ушёл выдуманный промт, референсом
     # персонажа стала стоковая картинка Excel. Для запроса без инструментов
     # такой ответ — пустой, и он ретраится.
-    if not text.strip() and not (tool_calls and req.get("tools")):
+    if (not text.strip() or text.strip() in ("...", "…")) and not (tool_calls and req.get("tools")):
         raise GptApiError(
-            f"Claude Messages: пустой output (stop_reason={stop or '-'})",
+            f"Claude Messages: пустой/заглушечный output '{text}' (stop_reason={stop or '-'})",
             context={"retryable": True, "error_kind": "empty_stream", "model": use_model},
         )
     finish = {

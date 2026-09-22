@@ -32,7 +32,7 @@ def default_graph() -> tuple[list[dict], list[dict]]:
         ("image_prompts", "Промты картинок", "Генерация image-prompt'ов"),
         ("images", "Картинки", "Генерация изображений"),
         ("animation_prompts", "Промты анимации", "Генерация animation-prompt'ов"),
-        ("videos", "Видео", "Генерация 8-сек клипов"),
+        ("videos", "Видео", "Генерация клипов (Veo 8с; fallback Kling 5с)"),
         ("audio", "Озвучка", "ElevenLabs TTS + Whisper"),
         ("music", "Музыка", "GPT + Suno (Outsee)"),
         ("sfx_plan", "План звуков", "GPT: метки звуков сопровождения по таймлайну"),

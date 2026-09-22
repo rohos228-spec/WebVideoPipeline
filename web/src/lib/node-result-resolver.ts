@@ -693,8 +693,11 @@ function computeNodeResult(
       const audioAssets = ctx.assets.filter(
         (a) => a.kind === "audio" || a.kind.includes("subtitle"),
       );
+      const audioArts = arts.filter(
+        (a) => a.kind === "audio" || (a.kind || "").includes("subtitle"),
+      );
       const items = dedupeResultItems([
-        ...artifactItems(arts),
+        ...artifactItems(audioArts),
         ...assetItems(audioAssets),
       ]);
       if (items.length) return ready(items, `${items.length} аудио-файлов`, "assets");
@@ -705,8 +708,11 @@ function computeNodeResult(
       const musicAssets = ctx.assets.filter(
         (a) => a.kind === "music" || /[/\\]music[/\\]/i.test(a.path || ""),
       );
+      const musicArts = arts.filter(
+        (a) => a.kind === "music" || /[/\\]music[/\\]/i.test(a.path || ""),
+      );
       const items = dedupeResultItems([
-        ...artifactItems(arts),
+        ...artifactItems(musicArts),
         ...assetItems(musicAssets),
       ]);
       if (items.length) {
