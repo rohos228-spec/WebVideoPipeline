@@ -1,4 +1,4 @@
-"""Per-model media backend: Outsee vs kie Kling.
+"""Per-model media backend: Outsee vs kie Kling vs kie image.
 
 Глобальные IMAGE_PROVIDER / VIDEO_PROVIDER остаются дефолтом для прочих
 моделей. Жёстко:
@@ -6,6 +6,7 @@
 - GPT Image 2 / Nano Banana 2 → OUTSEE_API_KEY
 - Veo 3.1 Lite → OUTSEE_API_KEY
 - Kling 2.6 → KIE_API_KEY
+- Flux 2 Pro / Seedream 5 Pro / Z-Image / Qwen Image 3 → KIE_API_KEY
 """
 
 from __future__ import annotations
@@ -24,6 +25,15 @@ OUTSEE_IMAGE_IDS = frozenset(
 VIBECODE_IMAGE_IDS = frozenset(
     {
         "gpt-image-2.5",
+    }
+)
+# Модели картинок kie.ai Market (app/bots/kie_http.py generate_kie_image).
+KIE_IMAGE_IDS = frozenset(
+    {
+        "flux-2-pro",
+        "seedream-5-pro",
+        "z-image",
+        "qwen3-image",
     }
 )
 OUTSEE_VIDEO_IDS = frozenset(
@@ -64,6 +74,8 @@ def is_nano_banana_pro(model_slug: str | None) -> bool:
 
 def image_provider_for(model_slug: str | None) -> str:
     cid = canonical_media_id(model_slug)
+    if cid in KIE_IMAGE_IDS:
+        return "kie"
     if cid in OUTSEE_IMAGE_IDS:
         return "outsee"
     if cid in VIBECODE_IMAGE_IDS:

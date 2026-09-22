@@ -174,7 +174,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   images: {
     type: "images",
     label: "Картинки",
-    description: "Генерация изображений на outsee.io.",
+    description: "Генерация изображений (Outsee / Kie — по выбранной модели).",
     category: "media",
     accent: "270 50% 62%",
     iconKey: "image",

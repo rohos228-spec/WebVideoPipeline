@@ -31,6 +31,22 @@ def test_image_known_ids_route_outsee(monkeypatch) -> None:
     assert image_provider_for("nano-banana") == "outsee"
 
 
+def test_image_kie_ids_route_kie(monkeypatch) -> None:
+    monkeypatch.setenv("IMAGE_PROVIDER", "outsee")
+    import app.services.media_route as mr
+    import app.settings as settings_mod
+    from app.settings import Settings
+
+    s = Settings()
+    monkeypatch.setattr(settings_mod, "settings", s)
+    monkeypatch.setattr(mr, "settings", s)
+    assert image_provider_for("flux-2-pro") == "kie"
+    assert image_provider_for("seedream-5-pro") == "kie"
+    assert image_provider_for("z-image") == "kie"
+    assert image_provider_for("qwen3-image") == "kie"
+    assert image_provider_for("qwen3_image") == "kie"
+
+
 def test_video_veo_outsee_kling_kie(monkeypatch) -> None:
     monkeypatch.setenv("VIDEO_PROVIDER", "outsee")
     import app.services.media_route as mr

@@ -229,6 +229,50 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     }
   },
   {
+    "display_name": "Flux 2 Pro",
+    "id": "flux-2-pro",
+    "is_image": true,
+    "object": "model",
+    "owned_by": "kie",
+    "pricing": {
+      "currency": "usd",
+      "usd_per_image": 0.035
+    }
+  },
+  {
+    "display_name": "ByteDance Seedream 5 Pro",
+    "id": "seedream-5-pro",
+    "is_image": true,
+    "object": "model",
+    "owned_by": "kie",
+    "pricing": {
+      "currency": "usd",
+      "usd_per_image": 0.07
+    }
+  },
+  {
+    "display_name": "Z-Image",
+    "id": "z-image",
+    "is_image": true,
+    "object": "model",
+    "owned_by": "kie",
+    "pricing": {
+      "currency": "usd",
+      "usd_per_image": 0.004
+    }
+  },
+  {
+    "display_name": "Alibaba Qwen Image 3",
+    "id": "qwen3-image",
+    "is_image": true,
+    "object": "model",
+    "owned_by": "kie",
+    "pricing": {
+      "currency": "usd",
+      "usd_per_image": 0.024
+    }
+  },
+  {
     "display_name": "Gemini 3.7 Flash",
     "id": "gemini-3.7-flash",
     "is_image": false,

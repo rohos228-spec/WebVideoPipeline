@@ -71,18 +71,32 @@ def test_grouped_vendors_match_ui_tabs() -> None:
     assert counts["gemini"] == 3
     assert counts["xai"] == 2
     assert "moonshot" not in counts
-    assert counts["images"] == 5
+    assert counts["images"] == 7
     assert counts["video"] == 2
     assert counts["openai"] == 5
     sonnet = find_model("claude-sonnet-5")
     assert sonnet is not None
     assert sonnet["kind"] == "text"
     assert "input_usd_per_m" in sonnet["pricing"]
-    banana = find_model("nano-banana-pro")
+    banana = find_model("nano-banana-2")
     assert banana is not None
     assert banana["kind"] == "image"
-    assert banana["image_generator"] == "nano_banana_pro"
+    assert banana["image_generator"] == "nano_banana_2"
     assert banana["resolution"] == "1K/2K/4K"
+
+
+def test_kie_image_models_in_catalog() -> None:
+    cat = grouped_catalog()
+    by_id = {m["id"]: m for m in cat["models"]}
+    for mid in ("flux-2-pro", "seedream-5-pro", "z-image", "qwen3-image"):
+        m = by_id.get(mid)
+        assert m is not None, mid
+        assert m["kind"] == "image"
+        assert m["provider"] == "kie"
+        assert m["vendor"] == "images"
+        assert (m["pricing"] or {}).get("usd_per_image") is not None
+    assert "nano-banana" not in by_id
+    assert "nano-banana-pro" not in by_id
 
 
 def test_default_model_by_node_type() -> None:

@@ -22,7 +22,7 @@ VIDEO_NODE_TYPES = frozenset({"videos", "hitl_videos"})
 DEFAULT_TEXT_MODEL_ID = "claude-opus-5"
 DEFAULT_IMAGE_MODEL_ID = "gpt-image-2-vip"
 DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite"
-HIDDEN_IMAGE_IDS = frozenset({"gpt-image-2"})
+HIDDEN_IMAGE_IDS = frozenset({"gpt-image-2", "nano-banana", "nano-banana-pro"})
 IMAGE_MODEL_ALIASES = {"gpt-image-2": "gpt-image-2-vip"}
 #: Написания текстовых моделей, которые приходят с ноды/из .env, → id снимка.
 #: `GPT_MODEL` в .env пишут через дефис, каталог Студии — через точку;
@@ -48,6 +48,10 @@ IMAGE_MODEL_TO_GENERATOR: dict[str, str] = {
     "nano-banana-2": "nano_banana_2",
     "nano-banana-pro": "nano_banana_pro",
     "nano-banana-2-lite": "nano_banana_2_lite",
+    "flux-2-pro": "flux_2_pro",
+    "seedream-5-pro": "seedream_5_pro",
+    "z-image": "z_image",
+    "qwen3-image": "qwen3_image",
 }
 VIDEO_MODEL_TO_GENERATOR: dict[str, str] = {
     "veo-3-1-lite": "veo_3_1_lite",
@@ -81,6 +85,56 @@ VIDEO_CATALOG_RAW: list[dict[str, Any]] = [
         "is_video": True,
         "owned_by": "kie",
         "pricing": {"currency": "usd"},
+    },
+]
+
+
+def _kie_image_usd_per_image(model_id: str) -> float | None:
+    """Базовая цена картинки kie.ai в USD (без наценки студии).
+
+    Берём 2K-эквивалент из правил kie_catalog (ноды генерят 2K):
+    flux 7кр, seedream high 14кр, z-image 0.8кр, qwen 4.8кр; 1кр = $0.005.
+    """
+    from app.services.kie_catalog import CREDIT_USD
+
+    credits_2k: dict[str, float] = {
+        "flux-2-pro": 7.0,
+        "seedream-5-pro": 14.0,
+        "z-image": 0.8,
+        "qwen3-image": 4.8,
+    }
+    cr = credits_2k.get(model_id)
+    return round(cr * CREDIT_USD, 6) if cr is not None else None
+
+
+KIE_IMAGE_CATALOG_RAW: list[dict[str, Any]] = [
+    {
+        "id": "flux-2-pro",
+        "display_name": "Flux 2 Pro",
+        "is_image": True,
+        "owned_by": "kie",
+        "pricing": {"currency": "usd", "usd_per_image": _kie_image_usd_per_image("flux-2-pro")},
+    },
+    {
+        "id": "seedream-5-pro",
+        "display_name": "ByteDance Seedream 5 Pro",
+        "is_image": True,
+        "owned_by": "kie",
+        "pricing": {"currency": "usd", "usd_per_image": _kie_image_usd_per_image("seedream-5-pro")},
+    },
+    {
+        "id": "z-image",
+        "display_name": "Z-Image",
+        "is_image": True,
+        "owned_by": "kie",
+        "pricing": {"currency": "usd", "usd_per_image": _kie_image_usd_per_image("z-image")},
+    },
+    {
+        "id": "qwen3-image",
+        "display_name": "Alibaba Qwen Image 3",
+        "is_image": True,
+        "owned_by": "kie",
+        "pricing": {"currency": "usd", "usd_per_image": _kie_image_usd_per_image("qwen3-image")},
     },
 ]
 
@@ -209,6 +263,7 @@ def models_for_channel(
 ) -> list[dict[str, Any]]:
     src = list(raw_models if raw_models is not None else load_snapshot())
     src.extend(VIDEO_CATALOG_RAW)
+    src.extend(KIE_IMAGE_CATALOG_RAW)
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in src:

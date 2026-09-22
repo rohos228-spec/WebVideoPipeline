@@ -45,6 +45,18 @@ class OptionChoice:
 
 IMAGE_GENERATORS: list[OptionChoice] = [
     OptionChoice(
+        "flux_2_pro",
+        "Flux 2 Pro",
+        "flux-2-pro",
+        "Kie · Black Forest Labs Flux 2 Pro",
+    ),
+    OptionChoice(
+        "seedream_5_pro",
+        "ByteDance Seedream 5 Pro",
+        "seedream-5-pro",
+        "Kie · Seedream 5 Pro",
+    ),
+    OptionChoice(
         "nano_banana_2",
         "+ Nano Banana 2",
         "nano-banana-2",
@@ -61,6 +73,18 @@ IMAGE_GENERATORS: list[OptionChoice] = [
         "+ GPT Image 2.5",
         "gpt-image-2.5",
         "Vibecode · GPT Image 2.5 (1K)",
+    ),
+    OptionChoice(
+        "z_image",
+        "Z-Image",
+        "z-image",
+        "Kie · Z-Image (быстрая генерация)",
+    ),
+    OptionChoice(
+        "qwen3_image",
+        "Alibaba Qwen Image 3",
+        "qwen3-image",
+        "Kie · Qwen Image 3",
     ),
 ]
 
@@ -96,6 +120,10 @@ IMAGE_RESOLUTIONS_BY_GENERATOR: dict[str, tuple[str, ...]] = {
     "gpt_image_2": ("1k",),
     "gpt_image_2_vip": ("1k", "2k"),
     "gpt_image_2_5": ("1k",),
+    "flux_2_pro": ("1k", "2k"),
+    "seedream_5_pro": ("1k", "2k"),
+    "z_image": ("1k", "2k"),
+    "qwen3_image": ("1k", "2k"),
 }
 
 
