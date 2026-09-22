@@ -35,9 +35,7 @@ def test_is_start_frame_content_policy_error() -> None:
     )
     assert mod._is_start_frame_content_policy_error(err) is True
     assert (
-        mod._is_start_frame_content_policy_error(
-            OutseeImageError("Аудиодорожка видео не прошла модерацию")
-        )
+        mod._is_start_frame_content_policy_error(OutseeImageError("Аудиодорожка видео не прошла модерацию"))
         is False
     )
 
@@ -65,9 +63,7 @@ def test_soften_start_frame_for_policy(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_video_content_policy_keeps_start_frame(
-    monkeypatch, tmp_path: Path
-) -> None:
+async def test_video_content_policy_keeps_start_frame(monkeypatch, tmp_path: Path) -> None:
     """CONTENT_POLICY celebrity: soften + retry, НЕ снимать start_frame."""
     from PIL import Image
 
@@ -81,9 +77,7 @@ async def test_video_content_policy_keeps_start_frame(
             nonlocal calls
             calls += 1
             seen_frames.append(
-                kwargs.get("start_frame")
-                or kwargs.get("reference_image")
-                or kwargs.get("image_path")
+                kwargs.get("start_frame") or kwargs.get("reference_image") or kwargs.get("image_path")
             )
             if calls == 1:
                 raise OutseeImageError(
@@ -92,9 +86,7 @@ async def test_video_content_policy_keeps_start_frame(
                     "определила на нём известную личность.'}"
                 )
             out_path.write_bytes(b"mp4" * 40)
-            return GenerationResult(
-                file_path=out_path, raw_url="https://x/v.mp4", gen_id="g1"
-            )
+            return GenerationResult(file_path=out_path, raw_url="https://x/v.mp4", gen_id="g1")
 
     async def fake_prepare(gpt, body, prefix, *, project_id=None, max_full=None):
         return body
@@ -105,12 +97,8 @@ async def test_video_content_policy_keeps_start_frame(
     fake_outsee = FakeOutsee()
     monkeypatch.setattr(mod, "_prepare_prompt_for_outsee", fake_prepare)
     monkeypatch.setattr(mod, "sleep_cancellable", no_sleep)
-    monkeypatch.setattr(
-        "app.bots.outsee_http.outsee_api_configured", lambda: True
-    )
-    monkeypatch.setattr(
-        "app.bots.outsee_http.generate_video", fake_outsee.generate_video
-    )
+    monkeypatch.setattr("app.bots.outsee_http.outsee_api_configured", lambda: True)
+    monkeypatch.setattr("app.bots.outsee_http.generate_video", fake_outsee.generate_video)
 
     result = await mod.generate_video_with_retries(
         fake_outsee,
@@ -140,17 +128,13 @@ def test_is_audio_content_policy_error() -> None:
     )
     assert mod._is_audio_content_policy_error(err) is True
     assert mod._is_start_frame_content_policy_error(err) is False
-    assert (
-        mod._is_audio_content_policy_error(OutseeImageError("известную личность"))
-        is False
-    )
+    assert mod._is_audio_content_policy_error(OutseeImageError("известную личность")) is False
 
 
 def test_is_transient_network_error() -> None:
     assert (
         mod._is_transient_network_error(
-            OutseeImageError("Outsee API network /api/v1/videos/generate: "
-                             "All connection attempts failed")
+            OutseeImageError("Outsee API network /api/v1/videos/generate: All connection attempts failed")
         )
         is True
     )
@@ -170,7 +154,6 @@ def test_is_transient_network_error() -> None:
         is True
     )
     assert mod._is_transient_network_error(OutseeImageError("контент отклонён")) is False
-
 
 
 def test_is_prompt_related_error_truncation() -> None:
@@ -216,9 +199,7 @@ async def test_prepare_prompt_compresses_when_over_limit(monkeypatch) -> None:
 
     body = "y" * 5100
     prefix = "[ID: P1-F1-abc]"
-    out = await mod._prepare_prompt_for_outsee(
-        FakeGpt(), body, prefix, project_id=1
-    )
+    out = await mod._prepare_prompt_for_outsee(FakeGpt(), body, prefix, project_id=1)
     assert len(out) == 4000
     assert calls
 
@@ -335,9 +316,7 @@ async def test_plain_image_error_moderation_banner_failfast(monkeypatch) -> None
             attempts.append(prompt)
             raise OutseeImageError(
                 "outsee: Ваш текстовый запрос содержит запрещённы...",
-                context={
-                    "failure": "Ваш текстовый запрос содержит запрещённы..."
-                },
+                context={"failure": "Ваш текстовый запрос содержит запрещённы..."},
             )
 
     class FakeGpt:
@@ -434,9 +413,7 @@ async def test_image_download_error_retries_download_only(monkeypatch, tmp_path:
         async def retry_image_download(self, *, img_url, out_path, gen_id, **kwargs):
             dl_calls.append(img_url)
             out_path.write_bytes(b"x" * 100)
-            return GenerationResult(
-                file_path=out_path, raw_url=img_url, gen_id=gen_id
-            )
+            return GenerationResult(file_path=out_path, raw_url=img_url, gen_id=gen_id)
 
     async def fake_prepare(gpt, body, prefix, *, project_id=None):
         return body
@@ -464,9 +441,7 @@ async def test_image_download_error_retries_download_only(monkeypatch, tmp_path:
 
 
 @pytest.mark.asyncio
-async def test_image_download_exhaustion_does_not_regenerate(
-    monkeypatch, tmp_path: Path
-) -> None:
+async def test_image_download_exhaustion_does_not_regenerate(monkeypatch, tmp_path: Path) -> None:
     """После исчерпания download-only — raise, без второго Generate."""
     gen_calls: list[str] = []
     dl_calls = 0
@@ -516,9 +491,7 @@ async def test_image_download_exhaustion_does_not_regenerate(
 
 
 @pytest.mark.asyncio
-async def test_http_download_error_retries_http_download(
-    monkeypatch, tmp_path: Path
-) -> None:
+async def test_http_download_error_retries_http_download(monkeypatch, tmp_path: Path) -> None:
     """HTTP API: download-ошибка → повтор _download, не CDP и не новый Generate."""
     gen_calls: list[str] = []
     dl_calls: list[str] = []
@@ -575,9 +548,7 @@ _STYLE = (
 
 
 def test_split_style_lock_keeps_tail() -> None:
-    scene, style = mod._split_style_lock(
-        "Reference: c05 in a stone hall.\n\n" + _STYLE
-    )
+    scene, style = mod._split_style_lock("Reference: c05 in a stone hall.\n\n" + _STYLE)
     assert scene.startswith("Reference:")
     assert style.startswith("STYLE:")
     assert "Negative:" in style
@@ -595,10 +566,7 @@ def test_hard_truncate_keeps_style_cuts_scene() -> None:
 
 
 def test_hard_truncate_keeps_identity_lock() -> None:
-    lock = (
-        "Image 1 is the identity reference of c02 — use this face.\n"
-        "Exactly one living body of c02."
-    )
+    lock = "Image 1 is the identity reference of c02 — use this face.\nExactly one living body of c02."
     scene = lock + "\n\n" + ("official writes at the worn desk " * 80)
     text = scene + "\n\n" + _STYLE
     cut = mod._hard_truncate_prompt(text, 900)
@@ -629,8 +597,7 @@ async def test_compress_reattaches_style_and_ignores_gpt_rewrite(monkeypatch) ->
             assert "Не пиши STYLE" in ask
             assert "Archival Noir Watercolor" not in ask
             return (
-                "short scene about c05 in the hall. "
-                "STYLE: photoreal cinematic oil painting. Negative: none."
+                "short scene about c05 in the hall. STYLE: photoreal cinematic oil painting. Negative: none."
             )
 
     out = await mod._compress_prompt_for_outsee(
@@ -641,3 +608,41 @@ async def test_compress_reattaches_style_and_ignores_gpt_rewrite(monkeypatch) ->
     assert "Archival Noir Watercolor Grunge Dossier Poster Illustration" in out
     assert "photoreal cinematic oil painting" not in out
     assert "Negative: photorealism" in out
+
+
+@pytest.mark.asyncio
+async def test_generate_image_kie_backend_reached(tmp_path: Path, monkeypatch) -> None:
+    """kie-модель (flux-2-pro) обязана уходить в generate_kie_image, а не в outsee-ветку.
+
+    Регрессия 2026-09-22: kie-ветка лежала внутри `if use_outsee_api`
+    (для kie всегда False) — нода 16 минут получала `outsee client is None`.
+    """
+    from app.bots.outsee import GenerationResult
+
+    calls: list[str] = []
+    out_path = tmp_path / "frame_001_abc.png"
+
+    async def fake_kie_image(prompt: str, out_path_arg, **kwargs):
+        calls.append(str(kwargs.get("model_slug")))
+        Path(out_path_arg).write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 2000)
+        return GenerationResult(file_path=Path(out_path_arg), raw_url=None, gen_id="t")
+
+    async def no_sleep(*_a, **_k):
+        return None
+
+    monkeypatch.setattr("app.bots.kie_http.generate_kie_image", fake_kie_image)
+    monkeypatch.setattr(mod, "sleep_cancellable", no_sleep)
+
+    res = await mod.generate_image_with_retries(
+        None,
+        None,
+        prompt="red lighthouse",
+        out_path=out_path,
+        max_attempts_per_prompt=1,
+        gpt_rewrite=False,
+        project_id=1,
+        model_slug="flux-2-pro",
+    )
+    assert calls == ["flux-2-pro"]
+    assert res.file_path == out_path
+    assert out_path.is_file()

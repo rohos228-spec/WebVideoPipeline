@@ -84,23 +84,23 @@ def test_stop_backend_supports_wait_sec() -> None:
 
 
 def test_studio_cmd_heals_launcher_before_powershell() -> None:
-    """Broken studio.ps1 cannot parse; STUDIO.cmd must replace it before -File."""
+    """STUDIO.cmd не трогает код: обновление только явным пунктом меню.
+
+    Решение владельца (2026-09-22): любой авто-апдейт при старте запрещён —
+    он затирал локальные правки. Обновление — только пункт [4] меню
+    (Invoke-StudioGitUpdate) с проверкой грязного дерева.
+    """
     root = Path(__file__).resolve().parents[1]
     data = (root / "STUDIO.cmd").read_bytes()
     assert not data.startswith(UTF8_BOM), "UTF-8 BOM before @echo off breaks cmd.exe"
     text = data.decode("ascii")
     assert "STUDIO_HEALED" in text
 
-    # Лечение — ИЗ GIT, а не загрузкой с чужого форка (2026-09-15). Скачанный
-    # по HTTP файл был неревьюенным кодом на каждом старте и с переходом на
-    # `run-studio.ps1` вообще не участвовал в запуске.
-    assert "git checkout -- scripts/run-studio.ps1 scripts/studio.ps1" in text
+    # Никаких git-операций при старте: ни лечения, ни перемотки, ни сброса.
+    assert "git checkout -- scripts/run-studio.ps1 scripts/studio.ps1" not in text
+    assert "git merge --ff-only origin/main" not in text
+    assert "reset --hard" not in text, "вернулся сброс, стирающий работу оператора"
     assert "Invoke-WebRequest" not in text, "лаунчер снова тянет скрипт по сети"
     assert "rohos228" not in text, "лаунчер снова ходит в чужой форк"
-
-    # Обновление — только перемотка вперёд. Жёсткий сброс молча стирал правки
-    # оператора на его машине при каждом старте с main.
-    assert "git merge --ff-only origin/main" in text
-    assert "reset --hard" not in text, "вернулся сброс, стирающий работу оператора"
 
     assert text.index("STUDIO_HEALED") < text.index("-File")

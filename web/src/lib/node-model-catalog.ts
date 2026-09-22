@@ -200,6 +200,7 @@ function kindOf(row: SnapshotRow, isVideo = false): ModelKind {
 const TOP_MODEL_IDS = new Set([
   "flux-2-pro",
   "seedream-5-pro",
+  "seedream-5-pro",
   "gpt-image-2-vip",
   "gpt-image-2",
   "nano-banana-2",
@@ -424,6 +425,8 @@ function normalizeSnapshot(row: SnapshotRow): CatalogModel {
   const isImage = Boolean(row.is_image);
   const pricing = applyMarkup(row.pricing as RawVibecodePricing);
   const label = row.id === "gpt-image-2-vip" ? "GPT Image 2" : row.display_name;
+  const provider =
+    row.owned_by === "kie" ? "kie" : isImage ? "outsee" : "vibecode";
   return {
     id: row.id,
     label,
@@ -434,7 +437,7 @@ function normalizeSnapshot(row: SnapshotRow): CatalogModel {
     resolution: resolutionBadge(row.display_name, row.id),
     pricing,
     api_model: row.id,
-    provider: isImage ? "outsee" : "vibecode",
+    provider,
     channel: "stable",
   };
 }
@@ -471,10 +474,11 @@ export function catalogForNodeType(
     : VIDEO_NODE_TYPES.has(nodeType || "")
       ? "video"
       : "text";
-  const models = catalog.models.filter((m) => m.kind === kind);
+  const visible = (m: CatalogModel) => !HIDDEN_IMAGE_IDS.has(m.id);
+  const models = catalog.models.filter((m) => m.kind === kind && visible(m));
   const vendors = catalog.vendors
     .map((v) => {
-      const items = v.models.filter((m) => m.kind === kind);
+      const items = v.models.filter((m) => m.kind === kind && visible(m));
       return { ...v, models: items, count: items.length };
     })
     .filter((v) => v.count > 0);
