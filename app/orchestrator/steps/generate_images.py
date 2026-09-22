@@ -658,6 +658,25 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     except Exception as e:  # noqa: BLE001
         logger.warning("[#{}] project_sheet ensure_frame_columns failed: {}", project.id, e)
 
+    # Доделать: упавший кадр с промтом, но без PNG — вернуть в очередь.
+    # Иначе failed-навсегда выпадает из фильтра и очередь пуста при живых missing.
+    retried = 0
+    for fr in frames:
+        if (
+            fr.status is FrameStatus.failed
+            and (fr.image_prompt or "").strip()
+            and not disk_has_valid_frame_image(out_dir, fr.number)
+        ):
+            fr.status = FrameStatus.image_prompt_ready
+            retried += 1
+    if retried:
+        logger.info(
+            "[#{}] generate_images: {} упавших кадров возвращено в очередь",
+            project.id,
+            retried,
+        )
+        await session.flush()
+
     # Очередь: источник истины — валидный PNG на диске, не статус в БД.
     # Иначе image_generated без файла / без outsee → шаг «завершён», кадры
     # так и не генерировались.

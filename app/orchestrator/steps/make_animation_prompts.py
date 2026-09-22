@@ -221,6 +221,16 @@ async def fill_animation_prompts(
     pending_shot2 = apg.collect_shot2_batch_items(project, frames) if finalize_status else []
     already_done, xlsx_filled, with_image = apg.count_animation_prompt_stats(project, frames)
     if not pending and not pending_shot2:
+        # Префлайт: нечего делать И нечего готово — проверяем вход, а не зеленеем.
+        # Иначе битый img_pr (пустые image_prompt) даёт тихое ready, а потом
+        # падает videos на пустых animation_prompt.
+        if not already_done and frames:
+            no_input = [fr.number for fr in frames if not (fr.image_prompt or "").strip()]
+            if len(no_input) == len(frames):
+                raise RuntimeError(
+                    "у кадров нет image_prompt — прогони img_pr до anim_pr, "
+                    "иначе получатся пустые animation_prompt"
+                )
         # Не compute_actual_status: при готовых клипах уходит в videos_ready →
         # auto_advance стартует video, хотя юзер ждал anim_pr.
         if finalize_status:

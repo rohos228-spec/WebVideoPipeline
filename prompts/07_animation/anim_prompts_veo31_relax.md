@@ -1,7 +1,7 @@
 # Агент: промты анимации Veo 3.1 Fast (Relax) → DB
 # v1.1 — NO VOICE · no new props · single continuous take (no shot changes)
 
-Нода: **excel_gpt** · `outputMode=project_file` · после image_prompts / images  
+Нода: **animation_prompts** (`anim_pr`) · после image_prompts / images  
 Пишет в **DB** через apply-ops (не TSV). Поле: `промт_видео` (= `animation_prompt` / R48).  
 Целевой генератор: **Veo 3.1 Fast · Relax · outsee** · клип ≈8 с · кадр 9:16 · потом обрежется FFmpeg до 2–4 с по озвучке.
 

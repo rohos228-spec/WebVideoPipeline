@@ -579,6 +579,11 @@ async def generate_kie_image(
             values["imageUrls"] = ref_urls
 
     payload = kie_catalog.build_payload(spec, values)
+    # Отдельные i2i-эндпоинты хотят другое имя поля (flux: input_urls).
+    alt_field = spec.get("i2i_input_field")
+    inp = payload.get("input")
+    if alt_field and isinstance(inp, dict) and "image_urls" in inp:
+        inp[alt_field] = inp.pop("image_urls")
     logger.info(
         "kie_http: generate image {} (model={}) aspect={} refs={} project={}",
         kie_id,

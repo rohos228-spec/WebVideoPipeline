@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.services import kie_catalog as kc
 
 
@@ -165,3 +167,40 @@ def test_single_url_fields_become_string() -> None:
     assert h is not None
     body = kc.build_payload(h, {"prompt": "x", "image_url": ["https://x/a.png"], "duration": "6"})
     assert body["input"]["image_url"] == "https://x/a.png"
+
+
+@pytest.mark.asyncio
+async def test_flux_i2i_uses_input_urls_field(tmp_path, monkeypatch) -> None:
+    """Регрессия 2026-09-22: flux i2i требует input_urls, image_urls даёт 500."""
+    from pathlib import Path
+
+    from app.bots import kie_http
+
+    captured: dict = {}
+
+    async def fake_public_url(ref):
+        return "https://cdn.example/r.png"
+
+    async def fake_run(spec, payload, out_path, *, timeout_s=600.0):
+        captured["payload"] = payload
+        Path(out_path).write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 100)
+        from app.bots.outsee import GenerationResult
+
+        return GenerationResult(file_path=Path(out_path), raw_url=None, gen_id="t")
+
+    monkeypatch.setattr("app.bots.kie_kling._frame_to_public_url", fake_public_url)
+    monkeypatch.setattr(kie_http, "run_generation", fake_run)
+    monkeypatch.setattr(kie_http, "kie_configured", lambda: True)
+
+    out = tmp_path / "f.png"
+    await kie_http.generate_kie_image(
+        "lighthouse",
+        out,
+        model_slug="flux-2-pro",
+        aspect_ratio="1:1",
+        reference_images=[Path("c01.png")],
+    )
+    body = captured["payload"]
+    assert body["model"] == "flux-2/pro-image-to-image"
+    assert body["input"]["input_urls"] == ["https://cdn.example/r.png"]
+    assert "image_urls" not in body["input"]
