@@ -635,6 +635,10 @@ export const api = {
     http<{ proposal: GraphProposal | null; source: string; workflow_id: number | null }>(
       `/api/projects/${id}/graph`,
     ),
+  elevenLabsVoicesStatus: () =>
+    http<{ checked: boolean; live: string[]; dead: string[] }>(
+      `/api/projects/elevenlabs/voices-status`,
+    ),
   projectGraphDiff: (id: number, nodes: WorkflowNode[], edges: WorkflowEdge[]) =>
     http<GraphDiffResponse>(`/api/projects/${id}/graph/diff`, {
       method: "POST",

@@ -146,15 +146,29 @@ function AudioFields({
   }, [savedId]);
 
   const selected = findElevenLabsVoice(voiceDraft);
+  const voicesStatus = useQuery({
+    queryKey: ["elevenlabs-voices-status"],
+    queryFn: () => api.elevenLabsVoicesStatus(),
+    staleTime: 3600_000,
+    retry: false,
+  });
+  const deadIds = new Set(
+    voicesStatus.data?.checked ? (voicesStatus.data?.dead ?? []) : [],
+  );
 
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
       <div>
-        <h3 className="text-sm font-semibold text-foreground">11Labs — голос</h3>
+        <h3 className="text-sm font-semibold text-foreground">ElevenLabs — голос</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Генерация через официальный ElevenLabs HTTP API (модель eleven_multilingual_v2) с нарезкой таймингов слов через ASR.
+          Генерация через официальный ElevenLabs HTTP API (модель из ELEVENLABS_TTS_MODEL) с нарезкой таймингов слов через ASR.
         </p>
       </div>
+      {voicesStatus.data?.checked && deadIds.size > 0 ? (
+        <p className="text-xs font-medium text-amber-400">
+          Проверка голосов: недоступны {deadIds.size} — помечены ⚠ в списке.
+        </p>
+      ) : null}
       <label className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-foreground">Голос</span>
         <select
@@ -164,12 +178,17 @@ function AudioFields({
         >
           {ELEVENLABS_VOICES.map((v) => (
             <option key={v.id} value={v.id}>
-              {elevenLabsVoiceLabel(v)}
+              {deadIds.has(v.id) ? `⚠ ${elevenLabsVoiceLabel(v)} (недоступен)` : elevenLabsVoiceLabel(v)}
             </option>
           ))}
         </select>
         {selected ? (
           <span className="font-mono text-[11px] text-muted-foreground">ID: {selected.id}</span>
+        ) : null}
+        {deadIds.has(voiceDraft) ? (
+          <span className="text-xs font-medium text-red-400">
+            Выбранный голос недоступен в ElevenLabs — выбери другой, иначе шаг упадёт.
+          </span>
         ) : null}
       </label>
       <Button

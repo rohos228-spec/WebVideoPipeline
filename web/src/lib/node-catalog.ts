@@ -190,7 +190,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   videos: {
     type: "videos",
     label: "Видео",
-    description: "Генерация 8-сек клипов из картинок.",
+    description: "Генерация клипов из картинок (Veo 8с; fallback Kling 5с).",
     category: "media",
     accent: "88 80% 55%",
     iconKey: "film",
@@ -198,7 +198,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   music: {
     type: "music",
     label: "Музыка",
-    description: "Фоновая музыка через GPT + Suno (Outsee).",
+    description: "Фоновая музыка через GPT + Suno (Kie).",
     category: "audio",
     accent: "300 55% 62%",
     iconKey: "music",

@@ -794,12 +794,31 @@ async def _wipe_audio(session: AsyncSession, project: Project) -> dict[str, Any]
 
 
 async def _wipe_music(session: AsyncSession, project: Project) -> dict[str, Any]:
-    """Сброс шага «Музыка»: только БД, music/ не трогаем."""
-    return await _wipe_artifacts_db_only(
+    """Сброс шага «Музыка»: БД + файлы (с бэкапом в old/music/).
+
+    Без удаления файлов «Запустить» молча переиспользовал старый mp3 —
+    кнопка врала. «Продолжить» файлы не трогает (resume через _preserve).
+    """
+    music_dir = project.data_dir / "music"
+    moved = 0
+    if music_dir.is_dir():
+        dest_dir = project.data_dir / "old" / "music"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        for p in music_dir.iterdir():
+            if not p.is_file() or p.suffix.lower() not in (".mp3", ".wav"):
+                continue
+            try:
+                shutil.move(str(p), dest_dir / f"{ts}_{p.name}")
+                moved += 1
+            except OSError as e:  # noqa: BLE001
+                logger.warning("[#{}] reset_step: backup music {} failed: {}", project.id, p.name, e)
+    stats = await _wipe_artifacts_db_only(
         session,
         project,
         ArtifactKind.music,
     )
+    return {**stats, "music_files_moved": moved}
 
 
 async def _wipe_sfx_plan(session: AsyncSession, project: Project) -> dict[str, Any]:

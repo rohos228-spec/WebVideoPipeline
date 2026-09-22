@@ -265,6 +265,22 @@ async def graph_brief(project_id: int, session: AsyncSession = Depends(get_sessi
     return describe_graph(p, graph)
 
 
+@router.get("/elevenlabs/voices-status")
+async def elevenlabs_voices_status() -> dict[str, Any]:
+    """Живость голосов ElevenLabs: GET /v1/voices (бесплатно, кэш 1ч).
+
+    `checked: false` — проверить не удалось (нет ключа/сети), тогда UI
+    ничего не красит. `dead` — id из каталога, которых нет в ответе API.
+    """
+    from app.services.elevenlabs_voices import ELEVENLABS_VOICES, probe_live_voice_ids
+
+    live = await probe_live_voice_ids()
+    if live is None:
+        return {"checked": False, "live": [], "dead": []}
+    known = [v["id"] for v in ELEVENLABS_VOICES]
+    return {"checked": True, "live": sorted(live), "dead": [i for i in known if i not in live]}
+
+
 async def _after_change(session: AsyncSession, project: Project, result: dict[str, Any]) -> None:
     """Общий хвост любой правки графа: зафиксировать, досинхронизировать, сообщить."""
     from app.services.run_sync import sync_run_for_project

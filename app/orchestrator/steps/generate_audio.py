@@ -219,6 +219,18 @@ async def run(
     if not frames:
         raise RuntimeError("нет кадров")
 
+    # Живость выбранного голоса — до списаний: протухший id даёт понятную
+    # ошибку сразу, а не молчание/откат после платного прогона.
+    from app.services.elevenlabs_voices import probe_live_voice_ids, resolve_elevenlabs_voice_id
+
+    voice_id = resolve_elevenlabs_voice_id(project)
+    live_ids = await probe_live_voice_ids()
+    if live_ids is not None and voice_id not in live_ids:
+        raise RuntimeError(
+            f"голос {voice_id} недоступен в ElevenLabs "
+            f"(GET /v1/voices его не вернул) — выбери другой в настройках ноды"
+        )
+
     audio_dir = project.data_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
@@ -253,6 +265,13 @@ async def run(
         )
 
     if voice_path is not None and voice_path.is_file():
+        logger.warning(
+            "[#{}] generate_audio: озвучка уже на диске ({}) — выбранный голос "
+            "({}) НЕ используется, только align + субтитры",
+            project.id,
+            voice_path,
+            voice_id,
+        )
         logger.info(
             "[#{}] generate_audio: озвучка на диске → {} — {} + align R49",
             project.id,

@@ -687,10 +687,10 @@ async def _shot1_job(
     from app.services.work_lease import lease_unit, renew
 
     # Этап 2 (D.3): lease с TTL/owner вместо video_gen_inflight; acquire —
-    # после слота провайдера, внутри задачи генерации. TTL покрывает
-    # лестницу генерации (3×1200с + rewrite) — ревью [2/3]: дефолтные
-    # 30 мин легально истекали в полёте.
-    async with acquire_outsee_slot(), lease_unit(project_id, f"video:{frame_id}", ttl_s=4500) as got:
+    # после слота провайдера, внутри задачи генерации. TTL покрывает худшую
+    # лестницу (7 попыток × 1200с + rewrite): иначе легально истекает в полёте,
+    # и оплаченный клип уходит в stale/, а кадр остаётся без клипа.
+    async with acquire_outsee_slot(), lease_unit(project_id, f"video:{frame_id}", ttl_s=9000) as got:
         if not got:
             logger.info(
                 "[#{}] frame_id={}: занят живым video-lease — пропуск",
@@ -846,8 +846,18 @@ async def _shot2_job(
 ) -> bool:
     """Как _shot1_job: без открытой SQLite-сессии на время Outsee."""
     from app.db import SessionLocal
+    from app.services.work_lease import lease_unit
 
-    async with acquire_outsee_slot():
+    # Lease как у shot1, иначе двойной запуск = двойная оплата второй половины.
+    # Ключ отдельный (:s2), чтобы shot1 и shot2 одного кадра не блокировали друг друга.
+    async with acquire_outsee_slot(), lease_unit(project_id, f"video:{frame_id}:s2", ttl_s=9000) as got:
+        if not got:
+            logger.info(
+                "[#{}] frame_id={}: shot2 занят живым video-lease — пропуск",
+                project_id,
+                frame_id,
+            )
+            return False
         async with SessionLocal() as session:
             project = await session.get(Project, project_id)
             fr = await session.get(Frame, frame_id)
@@ -856,87 +866,87 @@ async def _shot2_job(
             frame_number = fr.number
             model_slug, res_slug, aspect, relax = _video_opts(project)
 
-        short_uuid = uuid.uuid4().hex[:8]
-        file_path = out_dir / f"clip_{frame_number:03d}_s2_{short_uuid}.mp4"
-        async with clips_lock:
-            dups = list(session_clip_paths)
-        try:
-            result = await generate_video_with_retries(
-                outsee,
-                gpt,
-                prompt=prompt2,
-                out_path=file_path,
-                max_attempts_per_prompt=3,
-                gpt_rewrite=True,
-                project_id=project_id,
-                start_frame=s2_img,
-                aspect_ratio=aspect,
-                timeout=1200,
-                model_slug=model_slug,
-                resolution=res_slug,
-                relax=relax,
-                generate_audio=False,
-                prompt_id_prefix=build_gen_id_prefix(project_id, frame_number, short_uuid) + "-S2",
-                duplicate_check_paths=dups,
-            )
-        except Exception as e:
-            if isinstance(e, (StepCancelledError, asyncio.CancelledError)):
+            short_uuid = uuid.uuid4().hex[:8]
+            file_path = out_dir / f"clip_{frame_number:03d}_s2_{short_uuid}.mp4"
+            async with clips_lock:
+                dups = list(session_clip_paths)
+            try:
+                result = await generate_video_with_retries(
+                    outsee,
+                    gpt,
+                    prompt=prompt2,
+                    out_path=file_path,
+                    max_attempts_per_prompt=3,
+                    gpt_rewrite=True,
+                    project_id=project_id,
+                    start_frame=s2_img,
+                    aspect_ratio=aspect,
+                    timeout=1200,
+                    model_slug=model_slug,
+                    resolution=res_slug,
+                    relax=relax,
+                    generate_audio=False,
+                    prompt_id_prefix=build_gen_id_prefix(project_id, frame_number, short_uuid) + "-S2",
+                    duplicate_check_paths=dups,
+                )
+            except Exception as e:
+                if isinstance(e, (StepCancelledError, asyncio.CancelledError)):
+                    async with SessionLocal() as session:
+                        fr = await session.get(Frame, frame_id)
+                        if fr is not None:
+                            _clear_video_inflight(fr)
+                            await session.commit()
+                    raise
+                await _note_video_fail_db(project_id, frame_id, e)
                 async with SessionLocal() as session:
                     fr = await session.get(Frame, frame_id)
                     if fr is not None:
                         _clear_video_inflight(fr)
                         await session.commit()
-                raise
-            await _note_video_fail_db(project_id, frame_id, e)
-            async with SessionLocal() as session:
-                fr = await session.get(Frame, frame_id)
-                if fr is not None:
-                    _clear_video_inflight(fr)
-                    await session.commit()
-            return False
-
-        # Этап 4 (C.4, ревью): проба mp4 и в параллельном shot2-пути.
-        from app.services.media_probe import MediaProbeError
-
-        try:
-            await _accept_video_or_raise(aspect, project_id, frame_number, Path(result.file_path))
-        except MediaProbeError as pe:
-            await _note_video_fail_db(project_id, frame_id, pe)
-            async with SessionLocal() as session:
-                fr = await session.get(Frame, frame_id)
-                if fr is not None:
-                    _clear_video_inflight(fr)
-                    await session.commit()
-            return False
-
-        async with SessionLocal() as session:
-            fr = await session.get(Frame, frame_id)
-            if fr is None:
                 return False
-            session.add(
-                Artifact(
-                    project_id=project_id,
-                    frame_id=fr.id,
-                    kind=ArtifactKind.scene_video,
-                    uuid=uuid.uuid4().hex,
-                    path=str(result.file_path),
-                    meta={"shot": 2},
+
+            # Этап 4 (C.4, ревью): проба mp4 и в параллельном shot2-пути.
+            from app.services.media_probe import MediaProbeError
+
+            try:
+                await _accept_video_or_raise(aspect, project_id, frame_number, Path(result.file_path))
+            except MediaProbeError as pe:
+                await _note_video_fail_db(project_id, frame_id, pe)
+                async with SessionLocal() as session:
+                    fr = await session.get(Frame, frame_id)
+                    if fr is not None:
+                        _clear_video_inflight(fr)
+                        await session.commit()
+                return False
+
+            async with SessionLocal() as session:
+                fr = await session.get(Frame, frame_id)
+                if fr is None:
+                    return False
+                session.add(
+                    Artifact(
+                        project_id=project_id,
+                        frame_id=fr.id,
+                        kind=ArtifactKind.scene_video,
+                        uuid=uuid.uuid4().hex,
+                        path=str(result.file_path),
+                        meta={"shot": 2},
+                    )
                 )
+                _clear_video_inflight(fr)
+                await session.commit()
+            await _reset_video_fail_db(project_id, frame_id)
+            out = Path(result.file_path)
+            archive_older_frame_clips(out_dir, frame_number, shot=2, keep=out)
+            async with clips_lock:
+                session_clip_paths.append(out)
+            logger.info(
+                "[#{}] frame {} shot_02 video: {}",
+                project_id,
+                frame_number,
+                result.file_path,
             )
-            _clear_video_inflight(fr)
-            await session.commit()
-        await _reset_video_fail_db(project_id, frame_id)
-        out = Path(result.file_path)
-        archive_older_frame_clips(out_dir, frame_number, shot=2, keep=out)
-        async with clips_lock:
-            session_clip_paths.append(out)
-        logger.info(
-            "[#{}] frame {} shot_02 video: {}",
-            project_id,
-            frame_number,
-            result.file_path,
-        )
-        return True
+            return True
 
 
 async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:

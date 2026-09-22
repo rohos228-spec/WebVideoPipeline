@@ -542,6 +542,52 @@ async def test_clear_step_outputs_for_rerun_img_pr_force_wipe_clears(session):
 
 
 @pytest.mark.asyncio
+async def test_clear_step_outputs_img_force_wipe_removes_png(session, tmp_path: Path, monkeypatch) -> None:
+    """Явный ▶ img: PNG не скип — бэкап и удаление, кадры снова в очередь."""
+    from app import settings as app_settings
+
+    monkeypatch.setattr(app_settings.settings, "data_dir", tmp_path)
+    p = await _mkproject(session)
+    fr = await _mkframe(
+        session,
+        p,
+        1,
+        image_prompt="still prompt",
+        status=FrameStatus.image_generated,
+    )
+    scenes = p.data_dir / "scenes"
+    scenes.mkdir(parents=True, exist_ok=True)
+    png = scenes / "frame_001_abcd1234.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 1000)
+
+    summary = await clear_step_outputs_for_rerun(session, p, "img", force_wipe=True)
+    assert "img" in summary
+    assert not png.exists()
+    await session.refresh(fr)
+    assert fr.status is FrameStatus.image_prompt_ready
+
+
+@pytest.mark.asyncio
+async def test_wipe_music_moves_mp3_to_old(session, tmp_path: Path, monkeypatch) -> None:
+    """Запустить музыку заново = бэкап mp3 в old/music, иначе тихий reuse."""
+    from app import settings as app_settings
+    from app.services.reset_step import _wipe_music
+
+    monkeypatch.setattr(app_settings.settings, "data_dir", tmp_path)
+    p = await _mkproject(session)
+    music = p.data_dir / "music"
+    music.mkdir(parents=True, exist_ok=True)
+    track = music / "music_abcd1234.mp3"
+    track.write_bytes(b"x" * 5000)
+    await _mkart(session, p, ArtifactKind.music, path=str(track))
+
+    stats = await _wipe_music(session, p)
+    assert not track.exists()
+    assert stats["music_files_moved"] == 1
+    assert any((p.data_dir / "old" / "music").glob("*.mp3"))
+
+
+@pytest.mark.asyncio
 async def test_clear_step_outputs_for_rerun_anim_pr_preserves(session, tmp_path: Path):
     """Повторный запуск anim_pr: не стираем animation_prompt (догонка с xlsx)."""
     p = await _mkproject(session)
