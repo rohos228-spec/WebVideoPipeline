@@ -90,6 +90,7 @@ async def run(args: argparse.Namespace) -> int:
 
     email = studio_users.normalize_email(args.email)
     given = _read_password(args)
+    role = args.role if hasattr(args, "role") and args.role else ROLE_ADMIN
 
     async with SessionLocal() as session:
         existing = await studio_users.find_by_email(session, email)
@@ -112,9 +113,7 @@ async def run(args: argparse.Namespace) -> int:
             except studio_users.UserError as exc:
                 print(f"пароль не принят: {exc}", file=sys.stderr)
                 return 1
-            # Роль возвращается принудительно: сидер зовут, когда доступ
-            # потерян, и «поменял пароль, но остался member» — худший исход.
-            existing.role = ROLE_ADMIN
+            existing.role = role
             existing.is_active = True
             action = "пароль сменён"
         else:
@@ -123,7 +122,7 @@ async def run(args: argparse.Namespace) -> int:
                     session,
                     email=email,
                     password=password,
-                    role=ROLE_ADMIN,
+                    role=role,
                     display_name=args.name,
                 )
             except studio_users.UserError as exc:
@@ -133,7 +132,7 @@ async def run(args: argparse.Namespace) -> int:
 
         await session.commit()
 
-    print(f"{action}: {email} (роль admin)")
+    print(f"{action}: {email} (роль {role})")
     if generated:
         print()
         print(f"    пароль: {password}")
@@ -141,7 +140,10 @@ async def run(args: argparse.Namespace) -> int:
         print("Он показан один раз и нигде не сохранён — в базе только argon2id-хеш.")
         print("Смена: POST /api/auth/password или python3 -m app.seed_admin --reset-password")
     print()
-    print("У админа нет баланса — у него нет кассы: шаги не тарифицируются вовсе.")
+    if role == ROLE_ADMIN:
+        print("У админа нет баланса — у него нет кассы: шаги не тарифицируются вовсе.")
+    else:
+        print("Для роли member включена касса и изоляция арендатора (RLS).")
     return 0
 
 
@@ -152,9 +154,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     работающего цикла (а тесты асинхронные) это `RuntimeError`. Разделение
     даёт им точку входа, которую можно просто `await`.
     """
-    parser = argparse.ArgumentParser(description="Завести администратора студии")
+    parser = argparse.ArgumentParser(description="Завести учётную запись студии")
     parser.add_argument("--email", default="admin@studio.local", help="адрес учётки")
     parser.add_argument("--name", default="Администратор", help="отображаемое имя")
+    parser.add_argument(
+        "--role",
+        default="admin",
+        choices=["admin", "member"],
+        help="роль: admin (без кассы) или member (с балансом и RLS)",
+    )
     parser.add_argument("--password", default="", help="пароль (виден в списке процессов)")
     parser.add_argument(
         "--password-stdin",

@@ -85,6 +85,19 @@ async def test_seed_creates_an_admin(env) -> None:
         assert user.password_hash.startswith("$argon2id$")
 
 
+async def test_seed_creates_a_member(env) -> None:
+    code = await seed_admin.run(
+        seed_admin.parse_args(["--email", "worker@studio.local", "--name", "Оператор", "--role", "member"])
+    )
+    assert code == 0
+
+    async with env() as s:
+        user = await studio_users.find_by_email(s, "worker@studio.local")
+        assert user is not None
+        assert user.role == ROLE_MEMBER
+        assert user.display_name == "Оператор"
+
+
 async def test_seeded_admin_can_actually_log_in(env, capsys) -> None:
     """Главное свойство сидера: напечатанный пароль обязан работать.
 

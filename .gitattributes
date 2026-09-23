@@ -1,4 +1,45 @@
-# PowerShell 5.1 on Windows: CRLF checkout on every OS.
-# UTF-8 BOM stays in the file (required for Cyrillic in studio.ps1).
+# Auto-detect text files and normalize line endings to LF
+* text=auto eol=lf
+
+# Explicitly ensure Linux scripts, container configs, and code are always LF
+*.sh text eol=lf
+*.bash text eol=lf
+*.py text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.template text eol=lf
+*.env text eol=lf
+Caddyfile text eol=lf
+Dockerfile text eol=lf
+
+# Windows-specific scripts keep CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
 *.ps1 text eol=crlf
-STUDIO.cmd text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text eol=lf
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.mp4 binary
+*.mp3 binary
+*.wav binary
+*.gz binary
+*.zip binary
+*.tar binary
+*.xlsx binary
