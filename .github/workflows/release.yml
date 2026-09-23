@@ -125,8 +125,9 @@ jobs:
         #     --certificate-identity-regexp '^https://github.com/<owner>/<repo>/' \
         #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
         run: |
+          IMAGE_LOWER=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           cosign sign --yes \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+            "${IMAGE_LOWER}@${{ steps.push.outputs.digest }}"
 
       - name: Что уехало
         run: |
@@ -181,7 +182,7 @@ jobs:
       - name: Pull и рестарт
         env:
           VPS_PATH: ${{ vars.VPS_PATH || '/opt/studio' }}
-          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          IMAGE_RAW: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           DIGEST: ${{ needs.build.outputs.digest }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -189,6 +190,7 @@ jobs:
           GH_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
+          IMAGE=$(echo "$IMAGE_RAW" | tr '[:upper:]' '[:lower:]')
           # Образ передаётся ДАЙДЖЕСТОМ, а не тегом `latest`. Тег к моменту
           # выкладки может уже указывать на следующую сборку — и уедет не то,
           # что прошло гейт в этом прогоне.
