@@ -490,7 +490,7 @@ function Invoke-StudioStart {
     Stop-StudioBackend
     Set-StudioNvidiaEnv
     Invoke-StudioPredownloadNemo | Out-Null
-    Start-StudioChromeCdp
+    # Start-StudioChromeCdp отключен
     # Одна вкладка UI: ждём health в Start-StudioBackendWindow, потом Open-StudioBrowser.
     # (раньше фоновый job дублировал открытие URL)
     if (-not (Start-StudioBackendWindow)) {
@@ -958,6 +958,86 @@ function Get-StudioLauncherStamp {
     }
 }
 
+
+function Invoke-StudioOpenVps {
+    Write-StudioMsg "==> Открываю сайт студии на VPS: https://studio.zukiemi.space" "Cyan"
+    try {
+        Start-Process "https://studio.zukiemi.space"
+        return $true
+    } catch {
+        Write-StudioMsg "Не удалось открыть браузер: $($_.Exception.Message)" "Yellow"
+        return $false
+    }
+}
+
+function Invoke-StudioOpenProjectsFolder {
+    $p = Join-Path $Root "data\projects"
+    if (-not (Test-Path -LiteralPath $p)) {
+        New-Item -ItemType Directory -Path $p -Force | Out-Null
+    }
+    Write-StudioMsg "==> Открываю папку с проектами: $p" "Cyan"
+    try {
+        Start-Process explorer.exe -ArgumentList $p
+        return $true
+    } catch {
+        Write-StudioMsg "Не удалось открыть проводник: $($_.Exception.Message)" "Yellow"
+        return $false
+    }
+}
+
+function Invoke-StudioCleanCache {
+    Write-StudioMsg "=== [6] Очистка старых логов и кэша ===" "Cyan"
+    $deletedCount = 0
+    $freedBytes = [long]0
+
+    # 1. Логи: сортируем по дате изменения, оставляем 10 самых свежих
+    $logDirs = @((Join-Path $Root "data"), (Join-Path $Root "logs"))
+    $allLogs = @()
+    foreach ($ld in $logDirs) {
+        if (Test-Path -LiteralPath $ld) {
+            $allLogs += @(Get-ChildItem -Path $ld -Filter "*.log" -File -ErrorAction SilentlyContinue)
+        }
+    }
+    $sortedLogs = @($allLogs | Sort-Object LastWriteTime -Descending)
+    if ($sortedLogs.Count -gt 10) {
+        $logsToDelete = $sortedLogs | Select-Object -Skip 10
+        foreach ($lf in $logsToDelete) {
+            try {
+                $len = $lf.Length
+                Remove-Item -LiteralPath $lf.FullName -Force -ErrorAction Stop
+                $deletedCount++
+                $freedBytes += $len
+            } catch { }
+        }
+    }
+
+    # 2. Временный кэш нарезок data/.cache/temp
+    $tempCache = Join-Path $Root "data\.cache\temp"
+    if (Test-Path -LiteralPath $tempCache) {
+        $tempFiles = @(Get-ChildItem -Path $tempCache -Recurse -File -ErrorAction SilentlyContinue)
+        foreach ($tf in $tempFiles) {
+            try {
+                $len = $tf.Length
+                Remove-Item -LiteralPath $tf.FullName -Force -ErrorAction Stop
+                $deletedCount++
+                $freedBytes += $len
+            } catch { }
+        }
+    }
+
+    # 3. Временные папки pytest / pycache
+    $pycacheDirs = @(Get-ChildItem -Path $Root -Directory -Recurse -Filter "__pycache__" -ErrorAction SilentlyContinue)
+    foreach ($pd in $pycacheDirs) {
+        try {
+            Remove-Item -LiteralPath $pd.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        } catch { }
+    }
+
+    $freedMb = [math]::Round($freedBytes / 1MB, 2)
+    Write-StudioMsg "OK: Очищено $deletedCount файлов, освобождено $freedMb МБ." "Green"
+    Write-StudioMsg "Сохранено 10 самых свежих логов. Проекты, база и модель NeMo не затрагивались." "DarkGray"
+    return $true
+}
 function Show-StudioMenu {
     $stamp = Get-StudioLauncherStamp
     $cur = Get-StudioPcBranch
@@ -970,13 +1050,12 @@ function Show-StudioMenu {
     Write-Host "  launcher $stamp | ветка: $brLabel" -ForegroundColor Yellow
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  [1] Запустить студию (бэкенд + Chrome CDP + http://127.0.0.1:8765)"
-    Write-Host "  [2] Остановить всё (бэкенд :8765; Chrome с ИИ не закрывать)"
-    Write-Host "  [3] Браузер с ИИ (Chrome CDP :29229, outsee.io + chatgpt.com)"
-    Write-Host "  [4] Обновить и запустить (git origin/$cur + зависимости + запуск)"
-    Write-Host "  [5] Сменить ветку ($cur): main <-> second-mechanic"
-    Write-Host "  [6] Починить установку (pip, web, Playwright, FFmpeg)"
-    Write-Host "  [7] Диагностика (версия, git, порты, logs/doctor.log)"
+    Write-Host "  [1] Запустить локальную студию (http://127.0.0.1:8765)"
+    Write-Host "  [2] Открыть сайт на VPS (studio.zukiemi.space)"
+    Write-Host "  [3] Сменить ветку ($cur): main <-> second-mechanic"
+    Write-Host "  [4] Обновить код из GitHub (origin/$cur)"
+    Write-Host "  [5] Открыть папку с видео и проектами (data/projects)"
+    Write-Host "  [6] Очистить старые логи (оставив 10) и кэш"
     Write-Host "  [0] Выход"
     Write-Host ""
 }
@@ -991,15 +1070,15 @@ $ok = $true
 if ($Action -eq "1") {
     $ok = Invoke-StudioStart
 } elseif ($Action -eq "2") {
-    $ok = Invoke-StudioStop
+    $ok = Invoke-StudioOpenVps
 } elseif ($Action -eq "3") {
-    $ok = Invoke-StudioBrowserAi
+    $ok = Invoke-StudioBranchHub
 } elseif ($Action -eq "4") {
     $ok = Invoke-StudioUpdateAndStart
 } elseif ($Action -eq "5") {
-    $ok = Invoke-StudioBranchHub
+    $ok = Invoke-StudioOpenProjectsFolder
 } elseif ($Action -eq "6") {
-    $ok = Invoke-StudioRepair
+    $ok = Invoke-StudioCleanCache
 } elseif ($Action -eq "7") {
     $ok = Invoke-StudioDoctor
 } elseif ($Action -eq "") {
@@ -1012,12 +1091,11 @@ if ($Action -eq "1") {
         $choice = Read-Host "Выберите пункт"
         switch ($choice) {
             "1" { $ok = Invoke-StudioStart; if (-not $ok) { Invoke-StudioPause } }
-            "2" { $ok = Invoke-StudioStop; if (-not $ok) { Invoke-StudioPause } }
-            "3" { $ok = Invoke-StudioBrowserAi; if (-not $ok) { Invoke-StudioPause } }
+            "2" { $ok = Invoke-StudioOpenVps; if (-not $ok) { Invoke-StudioPause } }
+            "3" { $ok = Invoke-StudioBranchHub; if (-not $ok) { Invoke-StudioPause } }
             "4" { $ok = Invoke-StudioUpdateAndStart; if (-not $ok) { Invoke-StudioPause } }
-            "5" { $ok = Invoke-StudioBranchHub; if (-not $ok) { Invoke-StudioPause } }
-            "6" { $ok = Invoke-StudioRepair; if (-not $ok) { Invoke-StudioPause } }
-            "7" { $ok = Invoke-StudioDoctor; Invoke-StudioPause }
+            "5" { $ok = Invoke-StudioOpenProjectsFolder; if (-not $ok) { Invoke-StudioPause } }
+            "6" { $ok = Invoke-StudioCleanCache; Invoke-StudioPause }
             "0" { break }
             default {
                 Write-StudioMsg "Неизвестный пункт: $choice" "Yellow"
