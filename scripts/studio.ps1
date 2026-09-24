@@ -1034,8 +1034,12 @@ function Invoke-StudioCleanCache {
     }
 
     $freedMb = [math]::Round($freedBytes / 1MB, 2)
-    Write-StudioMsg "OK: Очищено $deletedCount файлов, освобождено $freedMb МБ." "Green"
-    Write-StudioMsg "Сохранено 10 самых свежих логов. Проекты, база и модель NeMo не затрагивались." "DarkGray"
+    if ($deletedCount -gt 0) {
+        Write-StudioMsg "OK: Очищено $deletedCount файлов, освобождено $freedMb МБ." "Green"
+    } else {
+        Write-StudioMsg "Всё чисто: лишних файлов нет (сохранено $($sortedLogs.Count) свежих логов, временный кэш пуст)." "Green"
+    }
+    Write-StudioMsg "Хранятся до 10 самых свежих логов. Проекты, база и модель NeMo не затрагивались." "DarkGray"
     return $true
 }
 function Show-StudioMenu {
