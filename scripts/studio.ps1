@@ -195,29 +195,13 @@ function Ensure-StudioPcBranchSelected {
 }
 
 function Invoke-StudioBranchHub {
-    Write-StudioMsg "=== [5] Ветка ПК ===" "Cyan"
-    if (-not (Ensure-StudioPcBranchSelected -InteractiveRequired)) {
-        return $false
-    }
-    $br = $script:StudioBranch
+    Write-StudioMsg "=== [5] Смена ветки пайплайна ===" "Cyan"
+    $cur = Get-StudioPcBranch
     Write-Host ""
-    Write-Host "  Текущая ветка: $br" -ForegroundColor Green
-    Write-Host "  Обновление кода - пункт [4] (origin/$br)" -ForegroundColor DarkGray
-    Write-Host "  [1] Сменить ветку ПК"
-    Write-Host "  [0] Назад"
-    Write-Host ""
-    $sub = Read-Host "Выберите"
-    switch ($sub) {
-        "1" {
-            $null = Show-StudioBranchPicker -AllowCancel
-            return $true
-        }
-        "0" { return $true }
-        default {
-            Write-StudioMsg "Неизвестный пункт: $sub" "Yellow"
-            return $true
-        }
-    }
+    Write-Host "  Текущая ветка: $cur" -ForegroundColor Green
+    Write-Host "  Обновление кода - пункт [4] (origin/$cur)" -ForegroundColor DarkGray
+    $null = Show-StudioBranchPicker -AllowCancel
+    return $true
 }
 
 $script:StudioBranch = Get-StudioPcBranch
@@ -975,20 +959,22 @@ function Get-StudioLauncherStamp {
 }
 
 function Show-StudioMenu {
-    $brLabel = if ($script:StudioBranch) { $script:StudioBranch } else { "не выбрана" }
     $stamp = Get-StudioLauncherStamp
+    $cur = Get-StudioPcBranch
+    $desc = if ($cur -eq "main") { "Классический конвейер" } elseif ($cur -eq "second-mechanic") { "Монтажная доска и сцены" } else { "не выбрана" }
+    $brLabel = if ($cur) { "$cur ($desc)" } else { "не выбрана" }
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host "  Video Pipeline Studio" -ForegroundColor Cyan
     Write-Host "  $Root" -ForegroundColor DarkGray
-    Write-Host "  launcher $stamp | ветка ПК: $brLabel" -ForegroundColor Yellow
+    Write-Host "  launcher $stamp | ветка: $brLabel" -ForegroundColor Yellow
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  [1] Запустить студию (бэкенд + Chrome CDP + http://127.0.0.1:8765)"
     Write-Host "  [2] Остановить всё (бэкенд :8765; Chrome с ИИ не закрывать)"
     Write-Host "  [3] Браузер с ИИ (Chrome CDP :29229, outsee.io + chatgpt.com)"
-    Write-Host "  [4] Обновить и запустить (git origin/$brLabel + зависимости + запуск)"
-    Write-Host "  [5] Ветка ПК ($brLabel): сменить"
+    Write-Host "  [4] Обновить и запустить (git origin/$cur + зависимости + запуск)"
+    Write-Host "  [5] Сменить ветку ($cur): main <-> second-mechanic"
     Write-Host "  [6] Починить установку (pip, web, Playwright, FFmpeg)"
     Write-Host "  [7] Диагностика (версия, git, порты, logs/doctor.log)"
     Write-Host "  [0] Выход"
