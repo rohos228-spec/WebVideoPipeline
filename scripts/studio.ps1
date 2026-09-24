@@ -18,7 +18,7 @@ Set-Location -LiteralPath $Root
 
 # Ветки (выбор при первом запуске / [5] -> data/studio-pc-branch + .env)
 # [4] всегда тянет origin/<сохранённая>, не хардкод main.
-$script:PcBranches = @("housepc", "tompc", "strangepc", "workpc", "main")
+$script:PcBranches = @("main", "second-mechanic")
 $script:PcBranchFile = Join-Path $Root "data\studio-pc-branch"
 $EnvFile = Join-Path $Root ".env"
 $StudioBranch = ""
@@ -154,7 +154,9 @@ function Show-StudioBranchPicker {
     Write-Host ""
     for ($i = 0; $i -lt $script:PcBranches.Count; $i++) {
         $n = $i + 1
-        Write-Host ("  [{0}] {1}" -f $n, $script:PcBranches[$i])
+        $br = $script:PcBranches[$i]
+        $desc = if ($br -eq "main") { "Классический конвейер" } elseif ($br -eq "second-mechanic") { "Монтажная доска и сцены" } else { "" }
+        Write-Host ("  [{0}] {1}  ({2})" -f $n, $br, $desc)
     }
     if ($AllowCancel) {
         Write-Host "  [0] Отмена"
@@ -163,15 +165,17 @@ function Show-StudioBranchPicker {
     while ($true) {
         $choice = Read-Host "Номер ветки"
         if ($AllowCancel -and $choice -eq "0") { return "" }
-        if ($choice -match '^[1-5]$') {
+        if ($choice -match '^[1-2]$') {
             $idx = [int]$choice - 1
             $br = $script:PcBranches[$idx]
             if (Save-StudioPcBranch -Branch $br) {
-                Write-StudioMsg "OK: ветка сохранена - $br ([4] будет тянуть origin/$br)" "Green"
+                Write-StudioMsg "OK: ветка переключена на $br" "Green"
+                Write-StudioMsg "==> переключаю git на $br..." "Cyan"
+                git -C $Root checkout $br 2>&1 | ForEach-Object { Write-StudioMsg $_ "DarkGray" }
                 return $br
             }
         }
-        Write-StudioMsg "Выберите 1-5 (housepc / tompc / strangepc / workpc / main)." "Yellow"
+        Write-StudioMsg "Выберите 1 (main) или 2 (second-mechanic)." "Yellow"
     }
 }
 
@@ -566,7 +570,7 @@ function Invoke-StudioGitUpdate {
     if ($saved) { $script:StudioBranch = $saved }
     $StudioBranch = $script:StudioBranch
     if (-not (Test-StudioPcBranchName $StudioBranch)) {
-        Write-StudioMsg "ОШИБКА: ветка не задана. Пункт [5] - выберите housepc/tompc/strangepc/workpc/main." "Red"
+        Write-StudioMsg "ОШИБКА: ветка не задана. Пункт [5] - выберите main или second-mechanic." "Red"
         return $false
     }
     Write-StudioMsg "==> обновление с сохранённой ветки: origin/$StudioBranch" "Cyan"

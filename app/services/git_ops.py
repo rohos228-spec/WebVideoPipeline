@@ -10,7 +10,7 @@ from loguru import logger
 
 from app.services.code_autofix import assert_paths_allowed, repo_root
 
-ALLOWED_PUSH_BRANCHES = frozenset({"main", "housepc", "tompc", "strangepc", "workpc"})
+ALLOWED_PUSH_BRANCHES = frozenset({"main", "second-mechanic", "housepc", "tompc", "strangepc", "workpc"})
 
 
 class GitOpsError(RuntimeError):
