@@ -18,15 +18,14 @@ Set-Location -LiteralPath $Root
 
 # Ветки (выбор при первом запуске / [5] -> data/studio-pc-branch + .env)
 # [4] всегда тянет origin/<сохранённая>, не хардкод main.
-$script:PcBranches = @("main", "next")
+$script:PcBranches = @("main", "second-mechanic")
 $script:PcBranchFile = Join-Path $Root "data\studio-pc-branch"
 $EnvFile = Join-Path $Root ".env"
 $StudioBranch = ""
 
 function Test-StudioPcBranchName {
     param([string]$Name)
-    if ([string]::IsNullOrWhiteSpace($Name)) { return $false }
-    return ($script:PcBranches -contains $Name -or $Name -match '^[a-zA-Z0-9_\-\./]+$')
+    return ($script:PcBranches -contains $Name)
 }
 
 function Read-StudioPcBranchFromEnv {
@@ -145,200 +144,38 @@ function Get-StudioPcBranch {
     return ""
 }
 
-function Switch-StudioGitBranch {
-    param([string]$Branch)
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return }
-    $curr = (git -C $Root branch --show-current 2>$null)
-    if ($curr) { $curr = $curr.Trim() }
-    if ($curr -eq $Branch) {
-        Write-StudioMsg "Git уже находится на ветке $Branch." "DarkGray"
-        return
-    }
-    Write-StudioMsg "==> Переключение Git на ветку $Branch..." "Cyan"
-    $dirty = git -C $Root status --porcelain 2>$null
-    if ($dirty) {
-        Write-StudioMsg "Внимание: есть локальные изменения. Сохраняю в git stash..." "Yellow"
-        git -C $Root stash push -u -m "studio: auto-stash before switch to $Branch" 2>&1 | Out-Null
-    }
-    git -C $Root show-ref --verify --quiet "refs/heads/$Branch" 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        git -C $Root checkout $Branch 2>&1 | ForEach-Object { Write-StudioMsg $_ }
-    } else {
-        git -C $Root show-ref --verify --quiet "refs/remotes/origin/$Branch" 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            git -C $Root checkout -B $Branch "origin/$Branch" 2>&1 | ForEach-Object { Write-StudioMsg $_ }
-        } else {
-            git -C $Root fetch origin $Branch 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                git -C $Root checkout -B $Branch "origin/$Branch" 2>&1 | ForEach-Object { Write-StudioMsg $_ }
-            } else {
-                git -C $Root checkout -b $Branch 2>&1 | ForEach-Object { Write-StudioMsg $_ }
-            }
-        }
-    }
-    $newHead = (git -C $Root branch --show-current 2>$null)
-    if ($newHead) { $newHead = $newHead.Trim() }
-    if ($newHead -eq $Branch) {
-        Write-StudioMsg "OK: Git переключен на ветку $Branch" "Green"
-    } else {
-        Write-StudioMsg "Внимание: текущая ветка Git: $newHead" "Yellow"
-    }
-}
-
-function Get-StudioBranchList {
-    $defaultBranches = @("main", "next")
-    $branchesFile = Join-Path $Root "data\studio-branches.txt"
-    $custom = @()
-    if (Test-Path -LiteralPath $branchesFile) {
-        $custom = @(Get-Content -LiteralPath $branchesFile -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_.Trim() -and (Test-StudioPcBranchName $_.Trim()) })
-    }
-    $list = New-Object System.Collections.Generic.List[string]
-    foreach ($b in $defaultBranches) {
-        if (-not $list.Contains($b)) { [void]$list.Add($b) }
-    }
-    foreach ($b in $custom) {
-        $trimmed = $b.Trim()
-        if (-not $list.Contains($trimmed)) { [void]$list.Add($trimmed) }
-    }
-    return $list.ToArray()
-}
-
-function Add-StudioCustomBranch {
-    param([string]$Branch)
-    if (-not (Test-StudioPcBranchName $Branch)) { return }
-    $dataDir = Join-Path $Root "data"
-    if (-not (Test-Path -LiteralPath $dataDir)) {
-        New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-    }
-    $branchesFile = Join-Path $Root "data\studio-branches.txt"
-    $existing = @()
-    if (Test-Path -LiteralPath $branchesFile) {
-        $existing = @(Get-Content -LiteralPath $branchesFile -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { $_.Trim() })
-    }
-    if ($existing -notcontains $Branch -and @("main", "next") -notcontains $Branch) {
-        $existing += $Branch
-        Set-Content -LiteralPath $branchesFile -Value $existing -Encoding UTF8
-    }
-}
-
-function Get-StudioRemoteBranches {
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return @() }
-    try {
-        git -C $Root fetch origin --prune 2>$null | Out-Null
-        $raw = @(git -C $Root branch -r 2>$null)
-        $result = New-Object System.Collections.Generic.List[string]
-        foreach ($line in $raw) {
-            $cleaned = $line.Trim()
-            if ($cleaned -match '^origin/(.+)$') {
-                $br = $Matches[1].Trim()
-                if ($br -notmatch '^HEAD\s*->' -and $br -ne "HEAD") {
-                    if (-not $result.Contains($br)) {
-                        [void]$result.Add($br)
-                    }
-                }
-            }
-        }
-        return $result.ToArray()
-    } catch {
-        return @()
-    }
-}
-
-function Show-StudioRemoteBranchPicker {
-    Write-StudioMsg "==> Загружаю ветки из GitHub (git branch -r)..." "Cyan"
-    $remoteList = @(Get-StudioRemoteBranches)
-    if (-not $remoteList -or $remoteList.Count -eq 0) {
-        Write-StudioMsg "Не удалось получить список веток с origin (проверьте интернет)." "Yellow"
-        return ""
-    }
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "             ДОСТУПНЫЕ ВЕТКИ В GITHUB (ORIGIN)" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host ""
-    for ($i = 0; $i -lt $remoteList.Count; $i++) {
-        $n = $i + 1
-        Write-Host ("  [{0,2}] {1}" -f $n, $remoteList[$i])
-    }
-    Write-Host "  [ 0] Назад"
-    Write-Host ""
-    while ($true) {
-        $c = Read-Host "Номер ветки"
-        if ($c -eq "0" -or [string]::IsNullOrWhiteSpace($c)) { return "" }
-        if ($c -match '^\d+$') {
-            $val = [int]$c
-            if ($val -ge 1 -and $val -le $remoteList.Count) {
-                $picked = $remoteList[$val - 1]
-                Add-StudioCustomBranch -Branch $picked
-                if (Save-StudioPcBranch -Branch $picked) {
-                    Write-StudioMsg "OK: ветка сохранена - $picked" "Green"
-                    Switch-StudioGitBranch -Branch $picked
-                    return $picked
-                }
-            }
-        }
-        Write-StudioMsg "Выберите номер из списка (1-$($remoteList.Count)) или 0 для отмены." "Yellow"
-    }
-}
-
 function Show-StudioBranchPicker {
     param([switch]$AllowCancel)
-    $curr = if ($script:StudioBranch) { $script:StudioBranch } else { (git -C $Root branch --show-current 2>$null) }
-    $branchList = @(Get-StudioBranchList)
-
     Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "                     ВЫБОР ВЕТКИ СТУДИИ" -ForegroundColor Cyan
-    Write-Host "  Текущая ветка: $curr" -ForegroundColor Yellow
-    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "  Выберите ветку этого ПК" -ForegroundColor Cyan
+    Write-Host "  (сохранится; смена ветки - [5], обновление кода - [4])" -ForegroundColor DarkGray
+    Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
-    for ($i = 0; $i -lt $branchList.Count; $i++) {
+    for ($i = 0; $i -lt $script:PcBranches.Count; $i++) {
         $n = $i + 1
-        $marker = if ($branchList[$i] -eq $curr) { " (текущая)" } else { "" }
-        Write-Host ("  [{0}] {1}{2}" -f $n, $branchList[$i], $marker)
+        $br = $script:PcBranches[$i]
+        $desc = if ($br -eq "main") { "Классический конвейер" } elseif ($br -eq "second-mechanic") { "Монтажная доска и сцены" } else { "" }
+        Write-Host ("  [{0}] {1}  ({2})" -f $n, $br, $desc)
     }
-    Write-Host ""
-    Write-Host "  [F] Показать все ветки из GitHub (выбрать по номеру)"
-    Write-Host "  [C] Ввести имя новой ветки вручную (добавится в список)"
     if ($AllowCancel) {
-        Write-Host "  [0] Назад в главное меню"
+        Write-Host "  [0] Отмена"
     }
     Write-Host ""
     while ($true) {
-        $choice = Read-Host "Выберите ветку"
+        $choice = Read-Host "Номер ветки"
         if ($AllowCancel -and $choice -eq "0") { return "" }
-        if ($choice -match '^[fFфФ]$') {
-            $fromRemote = Show-StudioRemoteBranchPicker
-            if ($fromRemote) { return $fromRemote }
-            return (Show-StudioBranchPicker -AllowCancel:$AllowCancel)
-        }
-        if ($choice -match '^[cCсС]$') {
-            $custom = Read-Host "Введите точное имя ветки в Git (например, main или next)"
-            $custom = "$custom".Trim()
-            if ($custom -and (Test-StudioPcBranchName $custom)) {
-                Add-StudioCustomBranch -Branch $custom
-                if (Save-StudioPcBranch -Branch $custom) {
-                    Write-StudioMsg "OK: ветка сохранена - $custom ([4] будет тянуть origin/$custom)" "Green"
-                    Switch-StudioGitBranch -Branch $custom
-                    return $custom
-                }
-            }
-            Write-StudioMsg "Некорректное имя ветки." "Yellow"
-            continue
-        }
-        if ($choice -match '^\d+$') {
-            $val = [int]$choice
-            if ($val -ge 1 -and $val -le $branchList.Count) {
-                $idx = $val - 1
-                $br = $branchList[$idx]
-                if (Save-StudioPcBranch -Branch $br) {
-                    Write-StudioMsg "OK: ветка сохранена - $br ([4] будет тянуть origin/$br)" "Green"
-                    Switch-StudioGitBranch -Branch $br
-                    return $br
-                }
+        if ($choice -match '^[1-2]$') {
+            $idx = [int]$choice - 1
+            $br = $script:PcBranches[$idx]
+            if (Save-StudioPcBranch -Branch $br) {
+                Write-StudioMsg "OK: ветка переключена на $br" "Green"
+                Write-StudioMsg "==> переключаю git на $br..." "Cyan"
+                git -C $Root checkout $br 2>&1 | ForEach-Object { Write-StudioMsg $_ "DarkGray" }
+                return $br
             }
         }
-        Write-StudioMsg "Выберите номер из списка (1-$($branchList.Count)), F для GitHub, C для ввода вручную." "Yellow"
+        Write-StudioMsg "Выберите 1 (main) или 2 (second-mechanic)." "Yellow"
     }
 }
 
@@ -358,8 +195,12 @@ function Ensure-StudioPcBranchSelected {
 }
 
 function Invoke-StudioBranchHub {
-    Write-StudioMsg "=== [3] Сменить ветку ПК ===" "Cyan"
-    $picked = Show-StudioBranchPicker -AllowCancel
+    Write-StudioMsg "=== [5] Смена ветки пайплайна ===" "Cyan"
+    $cur = Get-StudioPcBranch
+    Write-Host ""
+    Write-Host "  Текущая ветка: $cur" -ForegroundColor Green
+    Write-Host "  Обновление кода - пункт [4] (origin/$cur)" -ForegroundColor DarkGray
+    $null = Show-StudioBranchPicker -AllowCancel
     return $true
 }
 
@@ -480,43 +321,19 @@ function Invoke-StudioBrowserAi {
 
 function Invoke-StudioStop {
     Write-StudioMsg "=== [2] Остановить всё ===" "Cyan"
-    Write-StudioMsg "Останавливаю бэкенд Studio..." "DarkGray"
+    Write-StudioMsg "Останавливаю только бэкенд Studio (Chrome с ИИ не трогаю)." "DarkGray"
     $stop = Join-Path $Root "scripts\stop-backend.ps1"
-    if (Test-Path $stop) {
-        & powershell.exe -ExecutionPolicy Bypass -NoProfile -File $stop -WaitSec 10
+    if (-not (Test-Path $stop)) {
+        Write-StudioMsg "ОШИБКА: не найден scripts\stop-backend.ps1" "Red"
+        return $false
     }
-    if (Test-PortListening -Port 8765) {
-        Write-StudioMsg "Порт 8765 занят. Принудительно завершаю процесс..." "Yellow"
-        try {
-            $conn = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction Stop | Select-Object -First 1
-            if ($conn -and $conn.OwningProcess -gt 0) {
-                Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
-                Start-Sleep -Seconds 1
-            }
-        } catch { }
-    }
+    & powershell.exe -ExecutionPolicy Bypass -NoProfile -File $stop -WaitSec 15
     if (-not (Test-PortListening -Port 8765)) {
         Write-StudioMsg "Студия остановлена (порт 8765 свободен)." "Green"
         return $true
     }
-    Write-StudioMsg "ОШИБКА: порт 8765 всё ещё занят. Закройте окно бэкенда вручную." "Red"
+    Write-StudioMsg "ОШИБКА: порт 8765 всё ещё занят после 15 с. Закройте окно бэкенда вручную." "Red"
     return $false
-}
-
-function Invoke-StudioOpenDataDir {
-    Write-StudioMsg "=== [5] Открыть папку данных ===" "Cyan"
-    $dataDir = Join-Path $Root "data"
-    if (-not (Test-Path -LiteralPath $dataDir)) {
-        New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-    }
-    Write-StudioMsg "Открываю: $dataDir" "Green"
-    try {
-        Start-Process explorer.exe -ArgumentList $dataDir
-        return $true
-    } catch {
-        Write-StudioMsg "Не удалось открыть Проводник: $($_.Exception.Message)" "Red"
-        return $false
-    }
 }
 
 function Open-StudioBrowser {
@@ -664,24 +481,16 @@ function Invoke-StudioRecoverPromptsFromAllStashes {
 
 function Invoke-StudioStart {
     Write-StudioMsg "=== [1] Запуск студии ===" "Cyan"
-    $savedBranch = Get-StudioPcBranch
-    if ($savedBranch) {
-        $curr = (git -C $Root branch --show-current 2>$null)
-        if ($curr) { $curr = $curr.Trim() }
-        if ($curr -and $curr -ne $savedBranch) {
-            Write-StudioMsg "Выбранная ветка: $savedBranch (текущая Git: $curr). Переключаю..." "Yellow"
-            Switch-StudioGitBranch -Branch $savedBranch
-        }
-    }
     Sync-VibecodeApiKeyToEnv | Out-Null
     if (-not (Test-Path (Join-Path $Root "web\out\index.html"))) {
-        Write-StudioMsg "ВНИМАНИЕ: web/out отсутствует. Сначала [4] Обновить и запустить." "Yellow"
+        Write-StudioMsg "ВНИМАНИЕ: web/out отсутствует. Сначала [6] Починить установку." "Yellow"
     }
     # Если прошлый [4] оставил кастомные промты в stash - вернуть до старта бэкенда.
     Invoke-StudioRecoverPromptsFromAllStashes
     Stop-StudioBackend
     Set-StudioNvidiaEnv
     Invoke-StudioPredownloadNemo | Out-Null
+    # Start-StudioChromeCdp отключен
     # Одна вкладка UI: ждём health в Start-StudioBackendWindow, потом Open-StudioBrowser.
     # (раньше фоновый job дублировал открытие URL)
     if (-not (Start-StudioBackendWindow)) {
@@ -745,30 +554,13 @@ function Invoke-StudioGitUpdate {
     if ($saved) { $script:StudioBranch = $saved }
     $StudioBranch = $script:StudioBranch
     if (-not (Test-StudioPcBranchName $StudioBranch)) {
-        Write-StudioMsg "ОШИБКА: ветка не задана. Пункт [3] - выберите ветку (например, main или next)." "Red"
+        Write-StudioMsg "ОШИБКА: ветка не задана. Пункт [5] - выберите main или second-mechanic." "Red"
         return $false
     }
     Write-StudioMsg "==> обновление с сохранённой ветки: origin/$StudioBranch" "Cyan"
-    $dirty = (git -C $Root status --porcelain 2>$null) | Where-Object { $_ -notmatch '^\?\?' }
-    if ($dirty) {
-        Write-StudioMsg "ВНИМАНИЕ: есть несохранённые правки - reset --hard их УДАЛИТ:" "Red"
-        $dirty | Select-Object -First 10 | ForEach-Object { Write-StudioMsg "  $_" "Yellow" }
-        Write-StudioMsg "Сначала закоммить (git add/commit) или stash, потом пункт [4]." "Yellow"
-        $ans = Read-Host "Всё равно продолжить и УДАЛИТЬ правки? (да/нет)"
-        if ($ans -ne "да") {
-            Write-StudioMsg "Обновление отменено, правки целы." "Green"
-            return $false
-        }
-    }
     Write-StudioMsg "==> git fetch origin $StudioBranch" "Cyan"
     git -C $Root fetch origin $StudioBranch 2>&1 | ForEach-Object { Write-StudioMsg $_ }
     if ($LASTEXITCODE -ne 0) {
-        $remoteHas = git -C $Root ls-remote --heads origin $StudioBranch 2>$null
-        if (-not $remoteHas) {
-            Write-StudioMsg "Ветка $StudioBranch не найдена на origin (локальная ветка). Используем локальный код." "Yellow"
-            Switch-StudioGitBranch -Branch $StudioBranch
-            return $true
-        }
         Write-StudioMsg "ОШИБКА: git fetch не удался. Проверьте интернет и доступ к GitHub." "Red"
         return $false
     }
@@ -793,20 +585,7 @@ function Test-StudioAsrBackendNvidia {
             return ($val.ToLower() -eq "nvidia")
         }
     }
-    return $false
-}
-
-function Test-StudioAsrPreloadNvidia {
-    if (-not (Test-StudioAsrBackendNvidia)) { return $false }
-    $envFile = Join-Path $Root ".env"
-    if (Test-Path $envFile) {
-        $match = Select-String -Path $envFile -Pattern '^\s*NVIDIA_ASR_PRELOAD_ON_STARTUP\s*=\s*(\S+)' | Select-Object -First 1
-        if ($match) {
-            $val = $match.Matches[0].Groups[1].Value.Trim().Trim('"').Trim("'")
-            return ($val.ToLower() -eq "true" -or $val -eq "1")
-        }
-    }
-    return $false
+    return $true
 }
 
 function Set-StudioNvidiaEnv {
@@ -856,7 +635,6 @@ function Invoke-StudioPredownloadNemo {
         Write-StudioMsg "OK: NeMo модель уже на диске ($slug.nemo)." "Green"
         return $true
     }
-
     $fileName = switch ($model) {
         "nvidia/parakeet-tdt-0.6b-v3" { "parakeet-tdt-0.6b-v3.nemo" }
         "nvidia/parakeet-tdt-0.6b-v2" { "parakeet-tdt-0.6b-v2.nemo" }
@@ -865,54 +643,6 @@ function Invoke-StudioPredownloadNemo {
             else { "$(Split-Path $model -Leaf).nemo" }
         }
     }
-
-    # Поиск существующей модели в других папках пользователя
-    $candidatePaths = @(
-        (Join-Path $env:USERPROFILE "video-pipeline\data\.cache\nemo\$slug.nemo"),
-        (Join-Path $env:USERPROFILE "video-pipeline\data\.cache\nemo\$fileName"),
-        (Join-Path $env:USERPROFILE ".cache\nemo\$slug.nemo"),
-        (Join-Path $env:USERPROFILE ".cache\nemo\$fileName")
-    )
-    foreach ($cand in $candidatePaths) {
-        if ((Test-Path -LiteralPath $cand) -and ((Get-Item -LiteralPath $cand).Length -gt 50000000)) {
-            Write-StudioMsg "Найдена существующая NeMo модель: $cand" "Cyan"
-            if (-not (Test-Path -LiteralPath $nemoDir)) { New-Item -ItemType Directory -Force -Path $nemoDir | Out-Null }
-            $linked = $false
-            try {
-                $py = Join-Path $Root ".venv\Scripts\python.exe"
-                if (Test-Path -LiteralPath $py) {
-                    & $py -c "import os; os.link(r'$cand', r'$dest') if not os.path.exists(r'$dest') else None" 2>$null
-                    if (Test-Path -LiteralPath $dest) { $linked = $true }
-                }
-            } catch { }
-            if (-not $linked) {
-                try {
-                    Copy-Item -LiteralPath $cand -Destination $dest -Force -ErrorAction Stop
-                    $linked = $true
-                } catch { }
-            }
-            if ($linked) {
-                Write-StudioMsg "OK: Подключена существующая NeMo модель ($slug.nemo)." "Green"
-                return $true
-            }
-        }
-    }
-
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "  Модель NVIDIA NeMo ASR ($fileName, ~2.5 GB) не скачана." -ForegroundColor Yellow
-    Write-Host "  Она нужна для распознавания таймкодов речи на GPU (Parakeet)." -ForegroundColor DarkGray
-    Write-Host "  Без нее студия работает через Whisper (API или локальный)." -ForegroundColor DarkGray
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "  [1] Да, скачать модель сейчас (~2.5 GB через curl)" -ForegroundColor White
-    Write-Host "  [2] Нет, пропустить (Enter по умолчанию)" -ForegroundColor DarkGray
-    Write-Host ""
-    $dlChoice = Read-Host "Скачать модель? (1/2, Enter = 2)"
-    if ($dlChoice -ne "1") {
-        Write-StudioMsg "Скачивание NeMo модели пропущено (fallback на Whisper)." "DarkGray"
-        return $true
-    }
-
     $url = "https://huggingface.co/$model/resolve/main/$fileName"
     if (-not (Test-Path $nemoDir)) { New-Item -ItemType Directory -Force -Path $nemoDir | Out-Null }
     Write-StudioMsg "==> Скачивание $fileName (~2.5 GB) через curl, без Python/HF temp..." "Cyan"
@@ -923,11 +653,11 @@ function Invoke-StudioPredownloadNemo {
     }
     & curl.exe -L -C - -o $part $url
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $part)) {
-        Write-StudioMsg "ПРЕДУПРЕЖДЕНИЕ: curl не докачал модель." "Yellow"
+        Write-StudioMsg "ПРЕДУПРЕЖДЕНИЕ: curl не докачал модель - повторит Python." "Yellow"
         return $true
     }
     if ((Get-Item $part).Length -lt 50000000) {
-        Write-StudioMsg "ПРЕДУПРЕЖДЕНИЕ: файл слишком мал." "Yellow"
+        Write-StudioMsg "ПРЕДУПРЕЖДЕНИЕ: файл слишком мал - повторит Python." "Yellow"
         return $true
     }
     Move-Item -Force -Path $part -Destination $dest
@@ -1228,36 +958,108 @@ function Get-StudioLauncherStamp {
     }
 }
 
-function Get-StudioServerStatus {
-    if (Test-PortListening -Port 8765) {
-        if (Test-StudioHealth) {
-            return "РАБОТАЕТ (http://127.0.0.1:8765)"
-        }
-        return "ЗАНЯТ (порт :8765)"
+
+function Invoke-StudioOpenVps {
+    Write-StudioMsg "==> Открываю сайт студии на VPS: https://studio.zukiemi.space" "Cyan"
+    try {
+        Start-Process "https://studio.zukiemi.space"
+        return $true
+    } catch {
+        Write-StudioMsg "Не удалось открыть браузер: $($_.Exception.Message)" "Yellow"
+        return $false
     }
-    return "Свободен (порт :8765)"
 }
 
-function Show-StudioMenu {
-    $brLabel = if ($script:StudioBranch) { $script:StudioBranch } else { "не выбрана" }
-    $stamp = Get-StudioLauncherStamp
-    $serverStatus = Get-StudioServerStatus
-    $statusColor = if ($serverStatus -match "РАБОТАЕТ") { "Green" } elseif ($serverStatus -match "ЗАНЯТ") { "Yellow" } else { "DarkGray" }
+function Invoke-StudioOpenProjectsFolder {
+    $p = Join-Path $Root "data\projects"
+    if (-not (Test-Path -LiteralPath $p)) {
+        New-Item -ItemType Directory -Path $p -Force | Out-Null
+    }
+    Write-StudioMsg "==> Открываю папку с проектами: $p" "Cyan"
+    try {
+        Start-Process explorer.exe -ArgumentList $p
+        return $true
+    } catch {
+        Write-StudioMsg "Не удалось открыть проводник: $($_.Exception.Message)" "Yellow"
+        return $false
+    }
+}
 
+function Invoke-StudioCleanCache {
+    Write-StudioMsg "=== [6] Очистка старых логов и кэша ===" "Cyan"
+    $deletedCount = 0
+    $freedBytes = [long]0
+
+    # 1. Логи: сортируем по дате изменения, оставляем 10 самых свежих
+    $logDirs = @((Join-Path $Root "data"), (Join-Path $Root "logs"))
+    $allLogs = @()
+    foreach ($ld in $logDirs) {
+        if (Test-Path -LiteralPath $ld) {
+            $allLogs += @(Get-ChildItem -Path $ld -Filter "*.log" -File -ErrorAction SilentlyContinue)
+        }
+    }
+    $sortedLogs = @($allLogs | Sort-Object LastWriteTime -Descending)
+    if ($sortedLogs.Count -gt 10) {
+        $logsToDelete = $sortedLogs | Select-Object -Skip 10
+        foreach ($lf in $logsToDelete) {
+            try {
+                $len = $lf.Length
+                Remove-Item -LiteralPath $lf.FullName -Force -ErrorAction Stop
+                $deletedCount++
+                $freedBytes += $len
+            } catch { }
+        }
+    }
+
+    # 2. Временный кэш нарезок data/.cache/temp
+    $tempCache = Join-Path $Root "data\.cache\temp"
+    if (Test-Path -LiteralPath $tempCache) {
+        $tempFiles = @(Get-ChildItem -Path $tempCache -Recurse -File -ErrorAction SilentlyContinue)
+        foreach ($tf in $tempFiles) {
+            try {
+                $len = $tf.Length
+                Remove-Item -LiteralPath $tf.FullName -Force -ErrorAction Stop
+                $deletedCount++
+                $freedBytes += $len
+            } catch { }
+        }
+    }
+
+    # 3. Временные папки pytest / pycache
+    $pycacheDirs = @(Get-ChildItem -Path $Root -Directory -Recurse -Filter "__pycache__" -ErrorAction SilentlyContinue)
+    foreach ($pd in $pycacheDirs) {
+        try {
+            Remove-Item -LiteralPath $pd.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        } catch { }
+    }
+
+    $freedMb = [math]::Round($freedBytes / 1MB, 2)
+    if ($deletedCount -gt 0) {
+        Write-StudioMsg "OK: Очищено $deletedCount файлов, освобождено $freedMb МБ." "Green"
+    } else {
+        Write-StudioMsg "Всё чисто: лишних файлов нет (сохранено $($sortedLogs.Count) свежих логов, временный кэш пуст)." "Green"
+    }
+    Write-StudioMsg "Хранятся до 10 самых свежих логов. Проекты, база и модель NeMo не затрагивались." "DarkGray"
+    return $true
+}
+function Show-StudioMenu {
+    $stamp = Get-StudioLauncherStamp
+    $cur = Get-StudioPcBranch
+    $desc = if ($cur -eq "main") { "Классический конвейер" } elseif ($cur -eq "second-mechanic") { "Монтажная доска и сцены" } else { "не выбрана" }
+    $brLabel = if ($cur) { "$cur ($desc)" } else { "не выбрана" }
     Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "                VIDEO PIPELINE WEB STUDIO" -ForegroundColor Cyan
-    Write-Host "  Папка:  $Root" -ForegroundColor DarkGray
-    Write-Host "  Ветка:  $brLabel ($stamp)" -ForegroundColor Yellow
-    Write-Host "  Сервер: $serverStatus" -ForegroundColor $statusColor
-    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "  Video Pipeline Studio" -ForegroundColor Cyan
+    Write-Host "  $Root" -ForegroundColor DarkGray
+    Write-Host "  launcher $stamp | ветка: $brLabel" -ForegroundColor Yellow
+    Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  [1] Запустить студию (окно бэкенда + http://127.0.0.1:8765)"
-    Write-Host "  [2] Остановить всё (освободить порт :8765)"
-    Write-Host "  [3] Сменить ветку ПК (сейчас: $brLabel)"
-    Write-Host "  [4] Обновить код (git pull origin/$brLabel + запуск)"
-    Write-Host "  [5] Открыть папку данных (data/ - логи, проекты, файлы)"
-    Write-Host "  [6] Диагностика и проверка (порты, git, python)"
+    Write-Host "  [1] Запустить локальную студию (http://127.0.0.1:8765)"
+    Write-Host "  [2] Открыть сайт на VPS (studio.zukiemi.space)"
+    Write-Host "  [3] Сменить ветку ($cur): main <-> second-mechanic"
+    Write-Host "  [4] Обновить код из GitHub (origin/$cur)"
+    Write-Host "  [5] Открыть папку с видео и проектами (data/projects)"
+    Write-Host "  [6] Очистить старые логи (оставив 10) и кэш"
     Write-Host "  [0] Выход"
     Write-Host ""
 }
@@ -1272,19 +1074,17 @@ $ok = $true
 if ($Action -eq "1") {
     $ok = Invoke-StudioStart
 } elseif ($Action -eq "2") {
-    $ok = Invoke-StudioStop
+    $ok = Invoke-StudioOpenVps
 } elseif ($Action -eq "3") {
     $ok = Invoke-StudioBranchHub
 } elseif ($Action -eq "4") {
     $ok = Invoke-StudioUpdateAndStart
 } elseif ($Action -eq "5") {
-    $ok = Invoke-StudioOpenDataDir
-} elseif ($Action -eq "6" -or $Action -eq "7") {
+    $ok = Invoke-StudioOpenProjectsFolder
+} elseif ($Action -eq "6") {
+    $ok = Invoke-StudioCleanCache
+} elseif ($Action -eq "7") {
     $ok = Invoke-StudioDoctor
-} elseif ($Action -eq "browser_ai") {
-    $ok = Invoke-StudioBrowserAi
-} elseif ($Action -eq "repair") {
-    $ok = Invoke-StudioRepair
 } elseif ($Action -eq "") {
     if (-not (Ensure-StudioPcBranchSelected -InteractiveRequired)) {
         Invoke-StudioPause
@@ -1292,15 +1092,14 @@ if ($Action -eq "1") {
     }
     while ($true) {
         Show-StudioMenu
-        $choice = Read-Host "Выберите пункт (0-6)"
+        $choice = Read-Host "Выберите пункт"
         switch ($choice) {
             "1" { $ok = Invoke-StudioStart; if (-not $ok) { Invoke-StudioPause } }
-            "2" { $ok = Invoke-StudioStop; if (-not $ok) { Invoke-StudioPause } }
+            "2" { $ok = Invoke-StudioOpenVps; if (-not $ok) { Invoke-StudioPause } }
             "3" { $ok = Invoke-StudioBranchHub; if (-not $ok) { Invoke-StudioPause } }
             "4" { $ok = Invoke-StudioUpdateAndStart; if (-not $ok) { Invoke-StudioPause } }
-            "5" { $ok = Invoke-StudioOpenDataDir; Invoke-StudioPause }
-            "6" { $ok = Invoke-StudioDoctor; Invoke-StudioPause }
-            "7" { $ok = Invoke-StudioDoctor; Invoke-StudioPause }
+            "5" { $ok = Invoke-StudioOpenProjectsFolder; if (-not $ok) { Invoke-StudioPause } }
+            "6" { $ok = Invoke-StudioCleanCache; Invoke-StudioPause }
             "0" { break }
             default {
                 Write-StudioMsg "Неизвестный пункт: $choice" "Yellow"
