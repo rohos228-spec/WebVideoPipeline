@@ -42,6 +42,13 @@ async def _init_db() -> None:
     from app.db_migrations import upgrade_to_head
 
     await upgrade_to_head()
+    from app.db import engine
+
+    async with engine.begin() as conn:
+        from app.services.scene_space import models as _scene_space_models  # noqa: F401
+        from app.services.scene_space.migrate import migrate_scene_space_schema
+
+        await migrate_scene_space_schema(conn)
 
 
 async def _backfill_from_disk() -> None:

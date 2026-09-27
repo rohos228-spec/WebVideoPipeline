@@ -119,6 +119,16 @@ _BEAT_SPLIT_RE = re.compile(
     r"(?<=[.!?])\s+|(?:^|[\s,;])(?:нужно\s+)?потом(?:\s+показать)?[,:]?\s+",
     re.IGNORECASE,
 )
+_ARROW_SPLIT_RE = re.compile(r"\s*→\s*|\s*->\s*")
+
+
+def _arrow_beats(text: str) -> list[str]:
+    """Шаги по ``→``. Короткие глаголы («вошёл») не склеиваем."""
+    raw = " ".join((text or "").split())
+    if not raw:
+        return []
+    parts = [p.strip(" ,.;:—-") for p in _ARROW_SPLIT_RE.split(raw) if p.strip(" ,.;:—-")]
+    return [" ".join(p.split()) for p in parts if p]
 
 
 def split_scene_action_beats(text: str) -> list[str]:
@@ -127,14 +137,18 @@ def split_scene_action_beats(text: str) -> list[str]:
     if not raw:
         return []
     chain = parse_scene_chain(raw)
-    if len(chain) >= 2:
-        chain_beats = [
-            " ".join(str(item.get("action") or "").split())
-            for item in chain
-            if " ".join(str(item.get("action") or "").split())
-        ]
-        if len(chain_beats) >= 2:
-            return chain_beats
+    if chain:
+        beats: list[str] = []
+        for item in chain:
+            act = " ".join(str(item.get("action") or "").split())
+            if not act:
+                continue
+            beats.extend(_arrow_beats(act) or [act])
+        if beats:
+            return beats
+    arrows = _arrow_beats(raw)
+    if len(arrows) >= 2:
+        return arrows
     body = raw
     if chain:
         body = " ".join(str(chain[0].get("action") or "").split()) or raw
@@ -176,33 +190,18 @@ def explode_scene_action_to_kadry(
     if len(parts) < len(beats):
         parts = list(parts) + [""] * (len(beats) - len(parts))
     master = f"{int(cell_number)}-S1-K1"
+    plans = ("ОБЩИЙ", "СРЕДНИЙ", "КРУПНЫЙ", "ДЕТАЛЬ")
     out: list[dict[str, Any]] = []
-    prev_place = ""
     for i, beat in enumerate(beats):
-        scene = {
-            "n": i + 1,
-            "place": loc,
-            "action": beat,
-            "vo": parts[i],
-            "blob": f"{loc} {beat}",
-        }
-        tid = select_template_when(scene, prev_place)
-        prev_place = loc or prev_place
-        rows = catalog_shot_rows(tid, same_place=bool(i and loc))
-        row = rows[0] if rows else {}
-        plan = str(row.get("plan") or "СРЕДНИЙ").split("/")[0].strip() or "СРЕДНИЙ"
-        angle = str(row.get("angle") or "фронт").split("/")[0].strip()
-        if angle == "—":
-            angle = ""
+        plan = plans[i] if i < len(plans) else "СРЕДНИЙ"
         out.append(
             {
                 "id": f"{int(cell_number)}-S1-K{i + 1}",
                 "parent_id": None if i == 0 else master,
                 "порядок": i + 1,
                 "сцена": 1,
-                "шаблон": tid,
                 "план": plan,
-                "ракурс": angle,
+                "ракурс": "фронт",
                 "место": loc,
                 "действие": beat,
                 "закадр": " ".join(str(parts[i] or "").split()),
@@ -743,7 +742,7 @@ def _drop_extra_shots(
         for sid in reversed(order):
             if need_drop <= 0:
                 break
-            for i, _sh in enumerate(shots):
+            for i, sh in enumerate(shots):
                 if i in drop_set or i == 0:
                     continue
                 row = rows[i] if i < len(rows) else {}
@@ -792,7 +791,7 @@ def _assign_scene_vo(
         if not parts:
             parts = split_text_into_parts(vo, len(shots))
     kept: list[dict[str, Any]] = []
-    for sh, piece in zip(shots, parts, strict=False):
+    for sh, piece in zip(shots, parts):
         piece = " ".join((piece or "").split())
         if not piece:
             continue
@@ -821,11 +820,8 @@ def fill_kadry_from_catalog(
     incoming = [dict(s) for s in shots if isinstance(s, dict)]
     by_scene: dict[int, list[dict[str, Any]]] = {}
     for sh in incoming:
-        raw_sc = sh.get("сцена")
-        if raw_sc is None:
-            continue
         try:
-            n = int(raw_sc)
+            n = int(sh.get("сцена"))
         except (TypeError, ValueError):
             continue
         by_scene.setdefault(n, []).append(sh)
@@ -879,6 +875,7 @@ def fill_kadry_from_catalog(
                 scene_acc.append(sh)
             out.extend(_assign_scene_vo(scene_acc, vo, catalog_rows=rows))
             continue
+        seed = existing[0] if existing else {}
         incoming_vo = [str(s.get("закадр") or "").strip() for s in existing]
         master_id = f"{cell_number}-S{n}-K1"
         scene_acc = []
@@ -1191,8 +1188,6 @@ def neighbor_place_hints(frames: list[Any]) -> str:
         num = getattr(fr, "number", None)
         if num is None and isinstance(fr, dict):
             num = fr.get("number")
-        if num is None:
-            continue
         try:
             n = int(num)
         except (TypeError, ValueError):

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Frame, Project
 from app.orchestrator.steps.generate_images import (
+    _XLSX_ROWS_ITEMS,
     _XLSX_ROWS_PERSONS,
     _find_ref_file_any,
     _parse_ref_ids,
@@ -27,15 +28,17 @@ from app.services.montage_board_cache import (
     probe_video_durations_parallel,
 )
 from app.services.montage_board_meta import montage_meta, public_board_meta
+from app.services.montage_frame_refs import REF_KINDS, manual_refs_for_board
 from app.services.montage_coverage_ops import (
     COVERAGE_ANGLE_CHOICES,
     COVERAGE_LIGHT_CHOICES,
     COVERAGE_MOVE_CHOICES,
     COVERAGE_PLAN_CHOICES,
     COVERAGE_VISUAL_TYPE_CHOICES,
+    canonical_stitch,
     stitch_choices_for_ui,
+    stitch_label,
 )
-from app.services.montage_frame_refs import REF_KINDS, manual_refs_for_board
 from app.services.plan_shot2 import (
     MIN_SHOT2_VIDEO_PROMPT_LEN,
     ROW_IMAGE_PROMPT_2_V8,
@@ -53,12 +56,12 @@ from app.services.vo_shot_expand import (
     coverage_parent_shot_id,
     coverage_shot_id,
     find_coverage_parent_frame,
+    parent_still_suppressed,
+    uses_parent_still,
     is_shot_child,
     kadry_are_scene_shots,
     looks_like_scene_chain,
-    parent_still_suppressed,
     planned_shots_from_attrs,
-    uses_parent_still,
 )
 from app.services.xlsx_v8_import import (
     ROW_IMAGE_PROMPT_V8,
@@ -84,7 +87,11 @@ def _preview_url(path: Path | None) -> str | None:
 def _find_shot1_video(videos_dir: Path, frame_number: int) -> Path | None:
     if not videos_dir.is_dir():
         return None
-    candidates = [p for p in videos_dir.glob(f"clip_{frame_number:03d}_*.mp4") if "_s2_" not in p.name]
+    candidates = [
+        p
+        for p in videos_dir.glob(f"clip_{frame_number:03d}_*.mp4")
+        if "_s2_" not in p.name
+    ]
     if not candidates:
         return None
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
@@ -365,25 +372,20 @@ def _read_plan_excel_cells_uncached(
         for col in range(3, max_col + 1):
             voice = (_cell_text(ws, ROW_VOICEOVER_V8, col) or "").strip()
             person_ids = _merged_plan_ids(ws, col, _XLSX_ROWS_PERSONS)
-            if not voice and not person_ids:
+            item_ids = _merged_plan_ids(ws, col, _XLSX_ROWS_ITEMS)
+            if not voice and not person_ids and not item_ids:
                 continue
             frame_num = col - 2
             if frame_num < 1:
                 continue
-            character_refs: list[dict[str, str | None]] = []
-            for ref_id in person_ids:
-                image_path = _find_ref_file_any(chars_dir, ref_id)
-                character_refs.append(
-                    {
-                        "id": ref_id,
-                        "name": names.get(ref_id.lower(), ref_id),
-                        "image_url": _preview_url(image_path),
-                    }
-                )
+            character_refs = _character_refs_for_ids(
+                person_ids, chars_dir=chars_dir, names=names
+            )
             out[frame_num] = {
                 "characters": ", ".join(person_ids),
                 "voiceover_excel": voice,
                 "character_refs": character_refs,
+                "item_ids": item_ids,
             }
     finally:
         wb.close()
@@ -442,7 +444,11 @@ def _snapshot_frames(frames: list[Frame]) -> list[_FrameBoardSnapshot]:
                 voiceover_text=fr.voiceover_text or "",
                 start_ts=float(fr.start_ts) if fr.start_ts is not None else None,
                 end_ts=float(fr.end_ts) if fr.end_ts is not None else None,
-                duration_seconds=(float(fr.duration_seconds) if fr.duration_seconds is not None else None),
+                duration_seconds=(
+                    float(fr.duration_seconds)
+                    if fr.duration_seconds is not None
+                    else None
+                ),
                 image_prompt=(fr.image_prompt or "").strip(),
                 animation_prompt=(fr.animation_prompt or "").strip(),
                 attrs=dict(fr.attrs or {}),
@@ -484,17 +490,13 @@ async def _overlay_active_prompt_versions(
         return
     ids = [int(fr.id) for fr in frames]
     rows = (
-        (
-            await session.execute(
-                select(PromptVersion).where(
-                    PromptVersion.frame_id.in_(ids),
-                    PromptVersion.is_active.is_(True),
-                )
+        await session.execute(
+            select(PromptVersion).where(
+                PromptVersion.frame_id.in_(ids),
+                PromptVersion.is_active.is_(True),
             )
         )
-        .scalars()
-        .all()
-    )
+    ).scalars().all()
     by_frame: dict[int, dict[str, str]] = {}
     for pv in rows:
         text = (pv.text or "").strip()
@@ -525,7 +527,9 @@ def _read_source_prompts_once(
     if not frames or not xlsx_path.is_file():
         return out
 
-    excel: dict[int, dict[str, str]] = {fr.number: _empty_prompt_row() for fr in frames}
+    excel: dict[int, dict[str, str]] = {
+        fr.number: _empty_prompt_row() for fr in frames
+    }
     try:
         wb = load_workbook(filename=str(xlsx_path), data_only=True, read_only=True)
     except Exception as e:  # noqa: BLE001
@@ -537,10 +541,18 @@ def _read_source_prompts_once(
             for fr in frames:
                 col = plan_column_for_frame(fr.number)
                 excel[fr.number] = {
-                    "image_prompt_shot1": (_cell_text(ws, ROW_IMAGE_PROMPT_V8, col) or "").strip(),
-                    "image_prompt_shot2": (_cell_text(ws, ROW_IMAGE_PROMPT_2_V8, col) or "").strip(),
-                    "animation_prompt_shot1": (_cell_text(ws, ROW_VIDEO_PROMPT_V8, col) or "").strip(),
-                    "animation_prompt_shot2": (_cell_text(ws, ROW_VIDEO_PROMPT_2_V8, col) or "").strip(),
+                    "image_prompt_shot1": (
+                        _cell_text(ws, ROW_IMAGE_PROMPT_V8, col) or ""
+                    ).strip(),
+                    "image_prompt_shot2": (
+                        _cell_text(ws, ROW_IMAGE_PROMPT_2_V8, col) or ""
+                    ).strip(),
+                    "animation_prompt_shot1": (
+                        _cell_text(ws, ROW_VIDEO_PROMPT_V8, col) or ""
+                    ).strip(),
+                    "animation_prompt_shot2": (
+                        _cell_text(ws, ROW_VIDEO_PROMPT_2_V8, col) or ""
+                    ).strip(),
                 }
     finally:
         wb.close()
@@ -550,7 +562,9 @@ def _read_source_prompts_once(
         attrs = fr.attrs
         cell = excel.get(fr.number) or {}
         img1 = fr.image_prompt or cell.get("image_prompt_shot1") or ""
-        img2 = (attrs.get(SHOT2_PROMPT_ATTR) or "").strip() or (cell.get("image_prompt_shot2") or "")
+        img2 = (attrs.get(SHOT2_PROMPT_ATTR) or "").strip() or (
+            cell.get("image_prompt_shot2") or ""
+        )
         vid1 = fr.animation_prompt or cell.get("animation_prompt_shot1") or ""
         vid2 = (attrs.get(SHOT2_VIDEO_PROMPT_ATTR) or "").strip()
         if len(vid2) < MIN_SHOT2_VIDEO_PROMPT_LEN:
@@ -684,6 +698,20 @@ def _plan_for_frame(frame: Any) -> str:
     return ""
 
 
+def _shot_cs_kadry(frame: Any, *keys: str) -> str:
+    attrs = getattr(frame, "attrs", None)
+    src = attrs if isinstance(attrs, dict) else {}
+    cs = src.get("camera_subdivide")
+    cs = cs if isinstance(cs, dict) else {}
+    found = _first_text(*(cs.get(k) for k in keys), *(src.get(k) for k in keys))
+    if found:
+        return found
+    item = _matching_kadry_item(frame)
+    if item:
+        return _first_text(*(item.get(k) for k in keys))
+    return ""
+
+
 def _action_for_frame(frame: Any) -> str:
     attrs = getattr(frame, "attrs", None)
     src = attrs if isinstance(attrs, dict) else {}
@@ -706,6 +734,8 @@ def _shot_kind_payload(
     frames: list[Any],
 ) -> tuple[str, int | None, str]:
     """parent | child | "" + номер родителя + id шота родителя."""
+    # Только role=shot — дочерний. leftover parent_id / K2-id / X1
+    # у VO-родителя не делают кадр ребёнком и не вешают still родителя.
     cs = getattr(frame, "attrs", None) or {}
     cs = cs.get("camera_subdivide") if isinstance(cs, dict) else {}
     coverage_kind = str((cs or {}).get("coverage_kind") or "").strip().lower()
@@ -751,20 +781,6 @@ def _anchor_count_for_frame(frame: Any, frames: list[_FrameBoardSnapshot]) -> in
     return frame_bits_count(frames, frame)
 
 
-def _shot_cs_kadry(frame: Any, *keys: str) -> str:
-    attrs = getattr(frame, "attrs", None)
-    src = attrs if isinstance(attrs, dict) else {}
-    cs = src.get("camera_subdivide")
-    cs = cs if isinstance(cs, dict) else {}
-    found = _first_text(*(cs.get(k) for k in keys), *(src.get(k) for k in keys))
-    if found:
-        return found
-    item = _matching_kadry_item(frame)
-    if item:
-        return _first_text(*(item.get(k) for k in keys))
-    return ""
-
-
 def _empty_coverage_fields() -> dict[str, Any]:
     return {
         "shot_plan": "",
@@ -800,8 +816,10 @@ def _empty_coverage_fields() -> dict[str, Any]:
         "scene_feature": "",
         "scene_template_auto": "",
         "scene_action": "",
+        "scene_chain": [],
         "vo_scene_number": None,
         "vo_scene_size": 0,
+        "shot_leftover": False,
     }
 
 
@@ -812,12 +830,13 @@ def _coverage_fields_for_frames(
 ) -> dict[int, dict[str, Any]]:
     if not enabled:
         return {fr.number: _empty_coverage_fields() for fr in frames}
-    from app.services.montage_scene_editor import canonical_stitch, frame_board_scene_cell, stitch_label
+    from app.services.montage_scene_editor import frame_board_scene_cell, scene_index
 
     out: dict[int, dict[str, Any]] = {}
+    index = scene_index(frames)
     for fr in frames:
         kind, parent_number, parent_id = _shot_kind_payload(fr, frames)
-        extra = frame_board_scene_cell(frames, fr)
+        extra = frame_board_scene_cell(frames, fr, index=index)
         stitch = canonical_stitch(
             _shot_cs_kadry(fr, "переход", "тип_стыка", "stitch", "transition")
         )
@@ -870,6 +889,8 @@ async def build_montage_board(
     # Project scalars / data_dir — до любого await, пока ORM ещё hot в запросе.
     project_id = int(project.id)
     data_dir = project.data_dir
+    # Пропорции кадра: доска рисует картинку по формату проекта (9:16 / 16:9),
+    # чтобы вокруг горизонтального кадра не оставалось пустого поля.
     try:
         from app.services.vibecode_catalog import resolve_node_media_settings
 
@@ -893,9 +914,7 @@ async def build_montage_board(
                     .where(Frame.project_id == project_id)
                     .order_by(Frame.sort_key.asc(), Frame.number.asc())
                 )
-            )
-            .scalars()
-            .all()
+            ).scalars().all()
         )
 
     frames_orm = await _load_frames()
@@ -916,7 +935,9 @@ async def build_montage_board(
                 )
                 frames_orm = await _load_frames()
             except Exception as e:  # noqa: BLE001
-                logger.warning("montage_board: xlsx bootstrap project {}: {}", project_id, e)
+                logger.warning(
+                    "montage_board: xlsx bootstrap project {}: {}", project_id, e
+                )
     try:
         from app.services.ensure_frames_from_disk import ensure_frames_from_disk_media
 
@@ -924,7 +945,9 @@ async def build_montage_board(
         if created:
             frames_orm = await _load_frames()
     except Exception as e:  # noqa: BLE001
-        logger.warning("montage_board: disk frames bootstrap project {}: {}", project_id, e)
+        logger.warning(
+            "montage_board: disk frames bootstrap project {}: {}", project_id, e
+        )
 
     try:
         from app.services.frame_timeline_sync import sync_frame_timestamps_for_board
@@ -933,21 +956,39 @@ async def build_montage_board(
         if sync_info.get("updated"):
             frames_orm = await _load_frames()
     except Exception as e:  # noqa: BLE001
-        logger.warning("montage_board: frame_timeline_sync project {}: {}", project_id, e)
+        logger.warning(
+            "montage_board: frame_timeline_sync project {}: {}", project_id, e
+        )
 
     # Активные prompt_versions (DB v2) перекрывают Frame.* перед снимком для UI.
     try:
         await _overlay_active_prompt_versions(session, frames_orm)
     except Exception as e:  # noqa: BLE001
-        logger.warning("montage_board: prompt_versions overlay project {}: {}", project_id, e)
+        logger.warning(
+            "montage_board: prompt_versions overlay project {}: {}", project_id, e
+        )
 
     # ORM только здесь; дальше — plain snapshots (to_thread не трогает Session).
+    from app.services.db_v2 import _fill_missing_sort_keys
+
+    await _fill_missing_sort_keys(session, frames_orm)
+    frames_orm.sort(
+        key=lambda fr: (float(fr.sort_key or 0.0), int(fr.number or 0))
+    )
+    from app.services.vo_shot_expand import relink_shot_roles_by_scene
+
+    n_relink = relink_shot_roles_by_scene(frames_orm)
+    if n_relink:
+        logger.info(
+            "montage_board: relink shot roles project {} frames={}",
+            project_id,
+            n_relink,
+        )
     frames = _snapshot_frames(frames_orm)
+    entity_char_names, entity_item_names = await _entity_name_maps(session, project_id)
     # Сводка сцены живёт в монтаже, не в отдельном меню: поля считаем всегда.
     coverage_by_number = _coverage_fields_for_frames(frames, enabled=True)
     show_coverage_rows = True
-
-    entity_char_names, entity_item_names = await _entity_name_maps(session, project_id)
 
     xlsx_path = data_dir / "project.xlsx"
     chars_dir = data_dir / "characters"
@@ -972,7 +1013,9 @@ async def build_montage_board(
         item_names=entity_item_names,
     )
 
-    frame_videos: list[tuple[_FrameBoardSnapshot, Path | None, Path | None, dict, bool, bool]] = []
+    frame_videos: list[
+        tuple[_FrameBoardSnapshot, Path | None, Path | None, dict, bool, bool]
+    ] = []
     all_vid_paths: list[Path | None] = []
     for fr in frames:
         ex = excel_by_frame.get(fr.number, {})
@@ -1004,7 +1047,9 @@ async def build_montage_board(
         img1 = find_shot1_image(scenes_dir, fr.number)
         img2 = find_shot2_image(scenes_dir, fr.number)
         scene_seconds = (
-            fr.duration_seconds if fr.duration_seconds is not None and fr.duration_seconds > 0 else None
+            fr.duration_seconds
+            if fr.duration_seconds is not None and fr.duration_seconds > 0
+            else None
         )
         shot1_use, shot2_use = _scene_use_durations(scene_seconds, has_shot2=has_shot2_video)
         vid1_dur = next(dur_iter)
@@ -1013,11 +1058,27 @@ async def build_montage_board(
         vo_end = fr.end_ts
         shot1_timeline_start = vo_start
         shot1_timeline_end = (
-            round(vo_start + shot1_use, 3) if vo_start is not None and shot1_use is not None else None
+            round(vo_start + shot1_use, 3)
+            if vo_start is not None and shot1_use is not None
+            else None
         )
         shot2_timeline_start = shot1_timeline_end
         shot2_timeline_end = vo_end if has_shot2 else None
         prompts = prompts_by_frame.get(fr.number) or {}
+        if is_shot_child(fr):
+            characters = ""
+            character_refs: list[dict[str, str | None]] = []
+        else:
+            db_ids = _person_ids_from_attrs(fr.attrs)
+            if db_ids:
+                char_names = _names_from_excel_cells(excel_by_frame)
+                characters = ", ".join(db_ids)
+                character_refs = _character_refs_for_ids(
+                    db_ids, chars_dir=chars_dir, names=char_names
+                )
+            else:
+                characters = ex.get("characters") or ""
+                character_refs = ex.get("character_refs") or []
 
         rows.append(
             {
@@ -1025,8 +1086,8 @@ async def build_montage_board(
                 "number": fr.number,
                 "voiceover_text": fr.voiceover_text,
                 "voiceover_excel": ex.get("voiceover_excel") or "",
-                "characters": ex.get("characters") or "",
-                "character_refs": ex.get("character_refs") or [],
+                "characters": characters,
+                "character_refs": character_refs,
                 "start_ts": fr.start_ts,
                 "end_ts": fr.end_ts,
                 "duration_seconds": fr.duration_seconds,

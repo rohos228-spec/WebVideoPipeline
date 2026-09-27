@@ -22,13 +22,13 @@ from app.services.montage_ai_change import (
     trim_style_encyclopedia,
     write_ai_change_db_card,
 )
+from app.services.montage_board_meta import normalize_queue_ops
 from app.services.montage_board_apply import (
     _IMAGE_OP_TYPES,
     _VIDEO_OP_TYPES,
     _run_op_with_short_sessions,
     order_montage_pending_ops,
 )
-from app.services.montage_board_meta import normalize_queue_ops
 
 
 def test_build_user_message_labels_fields() -> None:

@@ -241,9 +241,9 @@ def canonical_stitch(value: str) -> str:
     if alias:
         return alias
     for sid, label in COVERAGE_STITCH_CHOICES:
-        if text in (sid, label):
+        if text == sid or text == label:
             return sid
-        if text.casefold() in (sid.casefold(), label.casefold()):
+        if text.casefold() == sid.casefold() or text.casefold() == label.casefold():
             return sid
     return text
 
@@ -439,6 +439,24 @@ def apply_coverage_action(frame: Frame, action: str, frames: list[Frame]) -> Non
         _patch_kadry_item_on_parent_ladder(parent, frame, действие=text)
 
 
+def _clear_shot_action(frame: Frame) -> None:
+    """Лишний шот ячейки после новой цепи — не держит старое действие в склейке."""
+    attrs = dict(getattr(frame, "attrs", None) or {})
+    attrs["shot01_action"] = ""
+    attrs["действие"] = ""
+    role = str((attrs.get("camera_subdivide") or {}).get("role") or "")
+    if role != "vo_parent":
+        attrs["главное_действие"] = ""
+        attrs["main_action"] = ""
+        attrs.pop("кадры", None)
+        attrs.pop("shots", None)
+    frame.attrs = attrs
+    _flag_attrs(frame)
+    _set_cs(frame, действие="", leftover=True)
+    if role == "vo_parent":
+        _patch_kadry_item(frame, действие="")
+
+
 def apply_coverage_angle(frame: Frame, angle: str, frames: list[Frame]) -> None:
     text = (angle or "").strip()
     if not text:
@@ -625,7 +643,11 @@ def _new_shot_from_parent(parent: Frame, kid: Frame) -> None:
             attrs[key] = pattrs[key]
     kid.attrs = attrs
     _flag_attrs(kid)
-    fields: dict[str, Any] = {"role": "shot", "parent_uuid": parent.uuid}
+    fields: dict[str, Any] = {
+        "role": "shot",
+        "parent_uuid": parent.uuid,
+        "leftover": False,
+    }
     nab = str(_cs(parent).get("набор") or "").strip()
     if nab:
         fields["набор"] = nab
@@ -639,8 +661,13 @@ async def _grow_cell_shots(
     *,
     after: Frame,
     count: int,
+    renumber: bool = True,
 ) -> tuple[list[Frame], list[Frame], dict[int, int]]:
-    """Дописали якорь → в ячейке появляются шоты. Возвращает группу и renumber."""
+    """Дописали якорь / улучшение → в ячейке появляются шоты.
+
+    ``renumber=False`` — не трогаем number существующих кадров: превью
+    ищутся как frame_NNN_*.png. Новые шоты получают max+1.
+    """
     from app.services.db_v2 import insert_frame_after
     from app.services.montage_scene_editor import scene_group
     from app.services.scene_design.camera_expand import renumber_frames_by_sort_key
@@ -657,22 +684,46 @@ async def _grow_cell_shots(
         fresh.append(kid)
         after_id = int(kid.id)
     await session.flush()
-    ordered = await renumber_frames_by_sort_key(session, project)
-    renumber = {
-        before[int(fr.id)]: int(fr.number)
-        for fr in ordered
-        if int(fr.id) in before and before[int(fr.id)] != int(fr.number)
-    }
+    if renumber:
+        ordered = await renumber_frames_by_sort_key(session, project)
+        remap = {
+            before[int(fr.id)]: int(fr.number)
+            for fr in ordered
+            if int(fr.id) in before and before[int(fr.id)] != int(fr.number)
+        }
+    else:
+        ordered = await _load_frames(session, int(project.id))
+        remap = {}
     _refresh_shots_in_beat(ordered, parent)
     _, members = scene_group(ordered, parent)
     logger.info(
-        "montage anchors #{} ячейка {} +{} шот(ов) → {} кадров",
+        "montage grow #{} ячейка {} +{} шот(ов) → {} кадров renumber={}",
         project.id,
         parent.number,
         len(fresh),
         len(members),
+        renumber,
     )
-    return members, fresh, renumber
+    return members, fresh, remap
+
+
+def _visible_cell_members(parent: Frame, members: list[Frame]) -> list[Frame]:
+    """Живые шоты ячейки: leftover-клей не маппим и не вставляем после него.
+
+    Иначе improve снимает leftover и доска рисует хвост как новые «Сцена · кадр».
+    """
+    live = [m for m in members if not bool(_cs(m).get("leftover"))]
+    if not live:
+        live = [parent]
+    elif parent not in live:
+        live = [parent, *[m for m in live if int(m.id) != int(parent.id)]]
+    live.sort(
+        key=lambda m: (
+            float(getattr(m, "sort_key", 0) or 0.0),
+            int(m.number or 0),
+        )
+    )
+    return live
 
 
 async def apply_coverage_anchors(
@@ -714,11 +765,13 @@ async def apply_coverage_anchors(
     if not parts:
         raise RuntimeError("якоря не нашлись в тексте ячейки")
 
+    from app.services.montage_scene_editor import claim_scene_bits
+
     attrs = dict(getattr(parent, "attrs", None) or {})
-    attrs["биты"] = rows
     attrs["vo_cell_full"] = full
     parent.attrs = attrs
     _flag_attrs(parent)
+    claim_scene_bits(frames, parent, members, rows)
 
     if len(parts) < len(members):
         # Кусков меньше, чем кадров: резать нельзя — соседи остались бы с
@@ -812,8 +865,6 @@ def _patch_kadry_item_on_parent_ladder(
 
 def _cs_shot_index(frame: Frame) -> int | None:
     raw = _cs(frame).get("shot_index")
-    if raw is None:
-        return None
     try:
         return int(raw)
     except (TypeError, ValueError):
@@ -957,22 +1008,51 @@ def _clear_child_scene_chain(frame: Frame) -> None:
     _flag_attrs(frame)
 
 
+MAX_IMPROVE_SHOTS = 12
+
+
+def _apply_shot_coverage(member: Frame, shot: dict[str, Any], group: list[Frame]) -> None:
+    """Покрытие кадра с улучшения сцены → те же ключи, что пишут чипы доски."""
+    for key, fn in (
+        ("план", apply_coverage_plan),
+        ("ракурс", apply_coverage_angle),
+        ("движение", apply_coverage_move),
+        ("стык", apply_coverage_stitch),
+    ):
+        value = str(shot.get(key) or "").strip()
+        if value:
+            fn(member, value, group)
+    role = str(shot.get("роль") or "").strip()
+    obj = str(shot.get("объект") or "").strip()
+    extra = {k: v for k, v in (("роль_кадра", role), ("объект", obj)) if v}
+    if extra:
+        _set_cs(member, **extra)
+        _patch_kadry_item(member, **{k: v for k, v in (("роль", role), ("объект", obj)) if v})
+
+
 async def apply_coverage_scene_action(
     session: AsyncSession,
     project: Project,
     frame: Frame,
     frames: list[Frame],
     action: str,
+    *,
+    grow: bool = False,
+    kadry: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Последовательность кадров сцены → кадры[] на уже существующих членах ячейки.
+    """Последовательность кадров сцены → кадры[] на членах ячейки.
 
-    Новые Frame не создаём: insert + глобальный renumber сдвигает number
-    у всех следующих карточек, а превью монтажа ищутся по frame_NNN_*.png.
+    По умолчанию новые Frame не создаём: insert + глобальный renumber
+    сдвигает number, а превью ищутся по frame_NNN_*.png.
+    ``grow`` дописывает недостающие шоты без перенумерации существующих.
+    ``kadry`` — готовые кадры с покрытием (план/ракурс/движение/стык):
+    текст не режем заново, покрытие пишем на каждый шот.
     """
     from app.services.montage_scene_editor import cell_full_text, frame_place, scene_group
     from app.services.shot_templates import (
         explode_scene_action_to_kadry,
         format_scene_chain,
+        parse_scene_chain,
     )
     from app.services.vo_shot_expand import _apply_shot_meta
 
@@ -982,22 +1062,31 @@ async def apply_coverage_scene_action(
     parent, members = scene_group(frames, frame)
     full = cell_full_text(parent, members)
     place = frame_place(parent)
-    kadry = explode_scene_action_to_kadry(
-        raw, place=place, vo=full, cell_number=int(parent.number)
-    )
+    with_coverage = bool(kadry)
+    if kadry:
+        kadry = [dict(shot) for shot in kadry if isinstance(shot, dict)]
+    else:
+        kadry = explode_scene_action_to_kadry(
+            raw, place=place, vo=full, cell_number=int(parent.number)
+        )
+    if grow and not with_coverage and len(kadry) > MAX_IMPROVE_SHOTS:
+        kadry = kadry[:MAX_IMPROVE_SHOTS]
     if not kadry:
         raise RuntimeError("не удалось разобрать действие на кадры")
-    chain_text = format_scene_chain(
-        [
-            {
-                "n": i + 1,
-                "place": str(shot.get("место") or place or ""),
-                "action": str(shot.get("действие") or ""),
-                "vo": str(shot.get("закадр") or ""),
-            }
-            for i, shot in enumerate(kadry)
-        ]
-    )
+    if with_coverage and parse_scene_chain(raw):
+        chain_text = raw
+    else:
+        chain_text = format_scene_chain(
+            [
+                {
+                    "n": i + 1,
+                    "place": str(shot.get("место") or place or ""),
+                    "action": str(shot.get("действие") or ""),
+                    "vo": str(shot.get("закадр") or ""),
+                }
+                for i, shot in enumerate(kadry)
+            ]
+        )
     if not chain_text:
         raise RuntimeError("последовательность кадров пустая")
 
@@ -1014,10 +1103,23 @@ async def apply_coverage_scene_action(
     parent.attrs = attrs
     _flag_attrs(parent)
 
-    group = list(members)
-    # Только существующие кадры ячейки: вставка + renumber съезжает
-    # number у всего проекта, а превью ищутся как frame_NNN_*.png.
-    if len(kadry) > len(group):
+    group = _visible_cell_members(parent, members)
+    inserted: list[Frame] = []
+    remap: dict[int, int] = {}
+    if grow and len(kadry) > len(group):
+        need = len(kadry) - len(group)
+        group, inserted, remap = await _grow_cell_shots(
+            session,
+            project,
+            parent,
+            after=group[-1],
+            count=need,
+            renumber=False,
+        )
+        frames = await _load_frames(session, int(project.id))
+        parent, members = scene_group(frames, parent)
+        group = _visible_cell_members(parent, members)
+    elif len(kadry) > len(group):
         logger.info(
             "montage scene_action #{} ячейка {} цепь={} кадров, в ячейке {} — без вставки",
             project.id,
@@ -1039,9 +1141,6 @@ async def apply_coverage_scene_action(
             "shot_id": str(shot.get("id") or ""),
             "shot_index": i + 1,
         }
-        tid = str(shot.get("шаблон") or "").strip()
-        if tid:
-            extra["шаблон"] = tid
         if i == 0:
             extra.update(
                 {
@@ -1059,10 +1158,13 @@ async def apply_coverage_scene_action(
                 }
             )
             _clear_child_scene_chain(member)
+        extra["leftover"] = False
         _set_cs(member, **extra)
         act = str(shot.get("действие") or "").strip()
         if act:
             apply_coverage_action(member, act, group)
+        if with_coverage:
+            _apply_shot_coverage(member, shot, group)
         if member is not parent:
             ladder: dict[str, Any] = {}
             if piece:
@@ -1075,22 +1177,22 @@ async def apply_coverage_scene_action(
                 ladder["ракурс"] = shot.get("ракурс")
             if ladder:
                 _patch_kadry_item_on_parent_ladder(parent, member, **ladder)
+    for member in group[used:]:
+        _clear_shot_action(member)
     _refresh_shots_in_beat(group, parent)
-    tid = str(kadry[0].get("шаблон") or "")
     logger.info(
-        "montage scene_action #{} ячейка {} кадры={} шаблон={}",
+        "montage scene_action #{} ячейка {} кадры={} inserted={}",
         project.id,
         parent.number,
         used,
-        tid,
+        len(inserted),
     )
     return {
-        "шаблон": tid,
         "shots": used,
         "frames": len(group),
-        "inserted_frames": 0,
+        "inserted_frames": len(inserted),
         "skipped_shots": max(0, len(kadry) - used),
-        "renumber": {},
+        "renumber": remap,
         "chain": chain_text,
     }
 
@@ -1159,7 +1261,7 @@ async def apply_coverage_op(
         frame_number,
         highlight,
     )
-    out: dict[str, Any] = {
+    out = {
         "ok": True,
         "highlight": highlight,
         "frame_number": frame_number,
@@ -1171,9 +1273,8 @@ async def apply_coverage_op(
         out["report"] = report
         # Вставка шота сдвинула нумерацию — очередь и подсветку правит apply.
         renumber = report.pop("renumber", None)
-        if isinstance(renumber, dict) and renumber:
-            renumber_map: dict[int, int] = {int(k): int(v) for k, v in renumber.items()}
-            out["renumber"] = renumber_map
+        if renumber:
+            out["renumber"] = {int(k): int(v) for k, v in renumber.items()}
         if report.get("inserted_frames"):
             out["refresh_board"] = True
     return out

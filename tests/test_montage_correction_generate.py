@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -24,8 +24,10 @@ def test_generate_image_no_early_disabled_raise_before_refs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_correction_mode_sends_only_user_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.models import Frame, Project
+async def test_correction_mode_sends_only_user_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.models import Project, Frame
 
     monkeypatch.setattr("app.settings.settings.data_dir", str(tmp_path))
     project = Project(id=47, slug="t", topic="t", hero_mode="auto")
@@ -41,12 +43,19 @@ async def test_correction_mode_sends_only_user_text(tmp_path: Path, monkeypatch:
         image_prompt="base hero standing in street, cinematic",
         status="images_ready",
     )
-    session = AsyncMock()
-    session.get.return_value = project
+    session = MagicMock()
 
     async def _get_frame(*_a, **_k):
         return fr
 
+    async def _session_get(model, _ident):
+        return project if model is Project else None
+
+    async def _session_refresh(_obj, **_k):
+        return None
+
+    session.get = _session_get
+    session.refresh = _session_refresh
     monkeypatch.setattr(
         "app.services.montage_board_regen._frame_by_number",
         _get_frame,

@@ -9,6 +9,7 @@ from openpyxl import Workbook
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models import Base, Frame, Project
+from app.orchestrator.steps.generate_images import _XLSX_ROWS_PERSONS
 from app.services.montage_board_apply import apply_montage_board
 from app.services.montage_board_assets import (
     _is_file_busy_error,
@@ -21,14 +22,14 @@ from app.services.montage_board_assets import (
     swap_media_slots,
     swap_shot_media,
 )
-from app.services.montage_board_meta import montage_meta, trim_key
 from app.services.plan_shot2 import (
     SHOT2_PROMPT_ATTR,
     SHOT2_VIDEO_PROMPT_ATTR,
     find_shot1_image,
     find_shot2_image,
 )
-from app.services.xlsx_v8_import import ROW_VOICEOVER_V8, SHEET_PLAN_V8
+from app.services.montage_board_meta import montage_meta, trim_key
+from app.services.xlsx_v8_import import SHEET_PLAN_V8, ROW_VOICEOVER_V8
 
 
 @pytest.fixture
@@ -206,7 +207,7 @@ async def test_apply_keeps_failed_pending_ops(
     await session.flush()
 
     @asynccontextmanager
-    async def _scope():
+    async def _scope(*_a, **_k):
         yield session
 
     monkeypatch.setattr("app.services.montage_board_apply.session_scope", _scope)
@@ -255,7 +256,7 @@ async def test_apply_finalizes_when_file_ready_despite_execute_error(
     old.write_bytes(b"x" * 128)
 
     @asynccontextmanager
-    async def _scope():
+    async def _scope(*_a, **_k):
         yield session
 
     monkeypatch.setattr("app.services.montage_board_apply.session_scope", _scope)
@@ -324,10 +325,18 @@ async def test_swap_shot_images_and_prompts(
     session.add(fr)
     await session.flush()
 
-    await save_scene_image_upload(session, montage_project, 1, shot=1, content=b"A" * 128, suffix=".png")
-    await save_scene_image_upload(session, montage_project, 1, shot=2, content=b"B" * 128, suffix=".png")
-    await save_scene_video_upload(session, montage_project, 1, shot=1, content=b"VA" * 600, suffix=".mp4")
-    await save_scene_video_upload(session, montage_project, 1, shot=2, content=b"VB" * 600, suffix=".mp4")
+    await save_scene_image_upload(
+        session, montage_project, 1, shot=1, content=b"A" * 128, suffix=".png"
+    )
+    await save_scene_image_upload(
+        session, montage_project, 1, shot=2, content=b"B" * 128, suffix=".png"
+    )
+    await save_scene_video_upload(
+        session, montage_project, 1, shot=1, content=b"VA" * 600, suffix=".mp4"
+    )
+    await save_scene_video_upload(
+        session, montage_project, 1, shot=2, content=b"VB" * 600, suffix=".mp4"
+    )
 
     scenes = montage_project.data_dir / "scenes"
     videos = montage_project.data_dir / "videos"
@@ -354,7 +363,9 @@ async def test_swap_shot_images_and_prompts(
     assert fr.animation_prompt == "VID_B"
     assert (fr.attrs or {}).get(SHOT2_VIDEO_PROMPT_ATTR) == "VID_A"
 
-    shot1_vids = [p for p in videos.glob("clip_001_*.mp4") if "_s2_" not in p.name]
+    shot1_vids = [
+        p for p in videos.glob("clip_001_*.mp4") if "_s2_" not in p.name
+    ]
     shot2_vids = list(videos.glob("clip_001_s2_*.mp4"))
     assert shot1_vids and shot2_vids
     assert shot1_vids[0].read_bytes() == b"VB" * 600
@@ -376,7 +387,9 @@ async def test_move_image_into_empty_shot2(
     session.add(montage_project)
     session.add(fr)
     await session.flush()
-    await save_scene_image_upload(session, montage_project, 1, shot=1, content=b"ONLY" * 40, suffix=".png")
+    await save_scene_image_upload(
+        session, montage_project, 1, shot=1, content=b"ONLY" * 40, suffix=".png"
+    )
     scenes = montage_project.data_dir / "scenes"
     assert find_shot1_image(scenes, 1) is not None
     assert find_shot2_image(scenes, 1) is None
@@ -412,6 +425,7 @@ async def test_move_image_swap_when_target_occupied(
         voiceover_text="a",
         status="planned",
         image_prompt="P1",
+        attrs={"characters": "c01", "персонажи": "c01", "persons": "c01"},
     )
     fr2 = Frame(
         project_id=montage_project.id,
@@ -419,13 +433,18 @@ async def test_move_image_swap_when_target_occupied(
         voiceover_text="b",
         status="planned",
         image_prompt="P2",
+        attrs={"characters": "c05", "персонажи": "c05", "persons": "c05"},
     )
     session.add(montage_project)
     session.add(fr1)
     session.add(fr2)
     await session.flush()
-    await save_scene_image_upload(session, montage_project, 1, shot=1, content=b"A1" * 64, suffix=".png")
-    await save_scene_image_upload(session, montage_project, 2, shot=1, content=b"B1" * 64, suffix=".png")
+    await save_scene_image_upload(
+        session, montage_project, 1, shot=1, content=b"A1" * 64, suffix=".png"
+    )
+    await save_scene_image_upload(
+        session, montage_project, 2, shot=1, content=b"B1" * 64, suffix=".png"
+    )
     scenes = montage_project.data_dir / "scenes"
     a = find_shot1_image(scenes, 1).read_bytes()  # type: ignore[union-attr]
     b = find_shot1_image(scenes, 2).read_bytes()  # type: ignore[union-attr]
@@ -446,6 +465,8 @@ async def test_move_image_swap_when_target_occupied(
     await session.refresh(fr2)
     assert fr1.image_prompt == "P2"
     assert fr2.image_prompt == "P1"
+    assert (fr1.attrs or {}).get("characters") == "c05"
+    assert (fr2.attrs or {}).get("characters") == "c01"
 
 
 @pytest.mark.asyncio
@@ -471,8 +492,12 @@ async def test_swap_media_slots_images_across_frames(
     session.add(fr1)
     session.add(fr2)
     await session.flush()
-    await save_scene_image_upload(session, montage_project, 1, shot=1, content=b"AA" * 64, suffix=".png")
-    await save_scene_image_upload(session, montage_project, 3, shot=2, content=b"BB" * 64, suffix=".png")
+    await save_scene_image_upload(
+        session, montage_project, 1, shot=1, content=b"AA" * 64, suffix=".png"
+    )
+    await save_scene_image_upload(
+        session, montage_project, 3, shot=2, content=b"BB" * 64, suffix=".png"
+    )
     scenes = montage_project.data_dir / "scenes"
     a = find_shot1_image(scenes, 1).read_bytes()  # type: ignore[union-attr]
     b = find_shot2_image(scenes, 3).read_bytes()  # type: ignore[union-attr]
@@ -520,8 +545,12 @@ async def test_swap_media_slots_videos_across_frames(
     session.add(fr1)
     session.add(fr2)
     await session.flush()
-    await save_scene_video_upload(session, montage_project, 1, shot=1, content=b"VA" * 600, suffix=".mp4")
-    await save_scene_video_upload(session, montage_project, 2, shot=1, content=b"VB" * 600, suffix=".mp4")
+    await save_scene_video_upload(
+        session, montage_project, 1, shot=1, content=b"VA" * 600, suffix=".mp4"
+    )
+    await save_scene_video_upload(
+        session, montage_project, 2, shot=1, content=b"VB" * 600, suffix=".mp4"
+    )
     videos = montage_project.data_dir / "videos"
 
     result = await swap_media_slots(
@@ -550,7 +579,8 @@ async def test_swap_media_slots_videos_across_frames(
 def test_is_file_busy_error_win32() -> None:
     assert _is_file_busy_error(
         OSError(
-            "[WinError 32] Процесс не может получить доступ к файлу, так как этот файл занят другим процессом"
+            "[WinError 32] Процесс не может получить доступ к файлу, "
+            "так как этот файл занят другим процессом"
         )
     )
     busy = OSError(32, "busy")

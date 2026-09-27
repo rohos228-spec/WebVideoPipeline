@@ -96,7 +96,7 @@ async def test_apply_images_phase_before_videos(
     await session.flush()
 
     @asynccontextmanager
-    async def _scope():
+    async def _scope(*_a, **_k):
         yield session
 
     monkeypatch.setattr("app.services.montage_board_apply.session_scope", _scope)
@@ -129,7 +129,9 @@ async def test_apply_images_phase_before_videos(
     assert result["ok"] is True
 
     first_vid = next(i for i, e in enumerate(events) if e.startswith("start:vid"))
-    assert all(e.startswith("start:img") or e.startswith("done:img") for e in events[:first_vid])
+    assert all(
+        e.startswith("start:img") or e.startswith("done:img") for e in events[:first_vid]
+    )
 
 
 @pytest.mark.asyncio
@@ -157,7 +159,7 @@ async def test_apply_shot1_before_shot2_same_frame(
     await session.flush()
 
     @asynccontextmanager
-    async def _scope():
+    async def _scope(*_a, **_k):
         yield session
 
     monkeypatch.setattr("app.services.montage_board_apply.session_scope", _scope)
@@ -199,7 +201,6 @@ async def test_apply_skips_child_when_parent_fails(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ребёнок упавшего родителя не гоняется — сразу пропуск с причиной."""
     data_root = tmp_path / "data"
     data_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr("app.settings.settings.data_dir", str(data_root))
@@ -261,7 +262,11 @@ async def test_apply_skips_child_when_parent_fails(
     assert ran.count(33) == 1
     assert 36 in ran
     assert result["ok"] is False
-    child_errs = [e for e in result["errors"] if "34" in e or "родител" in e.lower()]
+    child_errs = [
+        e
+        for e in result["errors"]
+        if "34" in e or "родител" in e.lower()
+    ]
     assert child_errs, result["errors"]
     assert any("33" in e for e in result["errors"])
 
@@ -274,4 +279,3 @@ def test_waves_parent_then_child_only_if_parent_in_batch() -> None:
     assert waves_parent_then_child([2, 3, 8], parent_of) == [[2, 3, 8]]
     # Родитель тоже в пачке — сначала он, потом дети.
     assert waves_parent_then_child([1, 2, 3], parent_of) == [[1], [2, 3]]
-

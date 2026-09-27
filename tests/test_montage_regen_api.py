@@ -43,7 +43,9 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Project:
 
 
 @pytest.mark.asyncio
-async def test_resolve_image_prompt_prefers_active_version(session: AsyncSession, project: Project) -> None:
+async def test_resolve_image_prompt_prefers_active_version(
+    session: AsyncSession, project: Project
+) -> None:
     session.add(project)
     fr = Frame(
         project_id=project.id,
@@ -93,15 +95,71 @@ async def test_edit_prompt_writes_db_without_excel(
     fr2 = await session.get(Frame, fr.id)
     assert fr2 is not None and fr2.image_prompt == "новый промт API"
     pvs = (
-        (
-            await session.execute(
-                select(PromptVersion).where(PromptVersion.frame_id == fr.id, PromptVersion.kind == "img")
+        await session.execute(
+            select(PromptVersion).where(
+                PromptVersion.frame_id == fr.id, PromptVersion.kind == "img"
             )
         )
-        .scalars()
-        .all()
-    )
+    ).scalars().all()
     assert any(p.is_active and p.text == "новый промт API" for p in pvs)
+
+
+@pytest.mark.asyncio
+async def test_edit_prompt_child_attaches_parent_still(
+    session: AsyncSession, project: Project
+) -> None:
+    session.add(project)
+    parent_uid = "aa" * 12
+    child_uid = "bb" * 12
+    parent = Frame(
+        project_id=project.id,
+        number=1,
+        uuid=parent_uid,
+        voiceover_text="vo",
+        image_prompt="parent prompt",
+        attrs={
+            "camera_subdivide": {
+                "role": "vo_parent",
+                "parent_uuid": parent_uid,
+            },
+        },
+    )
+    child = Frame(
+        project_id=project.id,
+        number=2,
+        uuid=child_uid,
+        voiceover_text="кусок",
+        image_prompt="old child",
+        attrs={
+            "camera_subdivide": {
+                "role": "shot",
+                "parent_uuid": parent_uid,
+                "coverage_parent_id": "1-K1",
+            },
+        },
+    )
+    session.add_all([parent, child])
+    await session.flush()
+    scenes = project.data_dir / "scenes"
+    scenes.mkdir(parents=True, exist_ok=True)
+    parent_png = scenes / "frame_001_parent01.png"
+    parent_png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"p" * 1000)
+
+    prep = await prepare_image_regen(
+        session,
+        project,
+        2,
+        shot=1,
+        mode="edit_prompt",
+        new_prompt="крупный план руки",
+        ref_person_ids=["c01"],
+    )
+    await session.commit()
+    assert prep.refs == [parent_png]
+    assert prep.prompt_text.startswith("Image 1 is the previous coverage still")
+    assert "крупный план руки" in prep.prompt_text
+    fr2 = await session.get(Frame, child.id)
+    assert fr2 is not None and fr2.image_prompt == "крупный план руки"
 
 
 @pytest.mark.asyncio
@@ -138,7 +196,43 @@ async def test_prepare_crops_character_sheets_and_locks_ids(
 
 
 @pytest.mark.asyncio
-async def test_execute_image_regen_api_skips_cdp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_prepare_uses_images_node_model_not_sidecar(
+    session: AsyncSession, project: Project
+) -> None:
+    project.image_generator = "nano_banana_2"
+    project.meta = {
+        "canvas_graph": {
+            "workflow_id": 1,
+            "nodes": [
+                {
+                    "id": "n_images_1",
+                    "type": "images",
+                    "data": {"modelId": "gpt-image-2-vip"},
+                }
+            ],
+            "edges": [],
+        }
+    }
+    session.add(project)
+    fr = Frame(project_id=project.id, number=1, voiceover_text="v", image_prompt="p")
+    session.add(fr)
+    await session.flush()
+    scenes = project.data_dir / "scenes"
+    scenes.mkdir(parents=True, exist_ok=True)
+    for i in range(1, 5):
+        (scenes / f"frame_{i:03d}_orig.json").write_text(
+            '{"model": "nano-banana-pro"}', encoding="utf-8"
+        )
+    prep = await prepare_image_regen(
+        session, project, 1, shot=1, mode="same_prompt"
+    )
+    assert prep.model_slug == "gpt-image-2-vip"
+
+
+@pytest.mark.asyncio
+async def test_execute_image_regen_api_skips_cdp(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     called: dict[str, object] = {}
 
     async def _fake_gen(outsee, gpt, **kwargs):
@@ -151,9 +245,15 @@ async def test_execute_image_regen_api_skips_cdp(monkeypatch: pytest.MonkeyPatch
         res.file_path = out
         return res
 
-    monkeypatch.setattr("app.services.montage_board_regen._image_api_enabled", lambda: True)
-    monkeypatch.setattr("app.services.montage_board_regen.generate_image_with_retries", _fake_gen)
-    monkeypatch.setattr("app.services.montage_board_regen.get_gpt_client", lambda: MagicMock())
+    monkeypatch.setattr(
+        "app.services.montage_board_regen._image_api_enabled", lambda: True
+    )
+    monkeypatch.setattr(
+        "app.services.montage_board_regen.generate_image_with_retries", _fake_gen
+    )
+    monkeypatch.setattr(
+        "app.services.montage_board_regen.get_gpt_client", lambda: MagicMock()
+    )
     # Если кто-то снова импортирует browser_session — тест взорвётся.
     import sys
     import types
@@ -182,7 +282,9 @@ async def test_execute_image_regen_api_skips_cdp(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.asyncio
-async def test_execute_video_regen_api_skips_cdp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_execute_video_regen_api_skips_cdp(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     async def _fake_gen(outsee, gpt, **kwargs):
         out = Path(kwargs["out_path"])
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -191,9 +293,15 @@ async def test_execute_video_regen_api_skips_cdp(monkeypatch: pytest.MonkeyPatch
         res.file_path = out
         return res
 
-    monkeypatch.setattr("app.services.montage_board_regen._video_api_enabled", lambda: True)
-    monkeypatch.setattr("app.services.montage_board_regen.generate_video_with_retries", _fake_gen)
-    monkeypatch.setattr("app.services.montage_board_regen.get_gpt_client", lambda: MagicMock())
+    monkeypatch.setattr(
+        "app.services.montage_board_regen._video_api_enabled", lambda: True
+    )
+    monkeypatch.setattr(
+        "app.services.montage_board_regen.generate_video_with_retries", _fake_gen
+    )
+    monkeypatch.setattr(
+        "app.services.montage_board_regen.get_gpt_client", lambda: MagicMock()
+    )
 
     start = tmp_path / "start.png"
     start.write_bytes(b"png")
@@ -210,7 +318,9 @@ async def test_execute_video_regen_api_skips_cdp(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.asyncio
-async def test_resolve_video_prompt_frame_over_empty_version(session: AsyncSession, project: Project) -> None:
+async def test_resolve_video_prompt_frame_over_empty_version(
+    session: AsyncSession, project: Project
+) -> None:
     session.add(project)
     fr = Frame(
         project_id=project.id,

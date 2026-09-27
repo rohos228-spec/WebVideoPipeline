@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from loguru import logger
 
-from app.db import session_scope
+from app.project_db import project_db_session_scope
 from app.models import Project
 from app.services.event_bus import publish_project_event
 from app.services.montage_board_apply import apply_montage_board
@@ -20,7 +20,7 @@ _apply_tasks: dict[int, asyncio.Task[None]] = {}
 
 
 def _utc_now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def get_apply_job(project: Project) -> dict[str, Any]:
@@ -63,14 +63,24 @@ def spawn_apply_job(
 
     async def _runner() -> None:
         total_ops = len(pending_ops)
+        board_snapshot: dict[str, Any] = {}
 
         async def _on_progress(done: int, total: int, result: dict) -> None:
             try:
-                async with session_scope() as session:
+                async with project_db_session_scope(project_id) as session:
                     project = await session.get(Project, project_id)
                     if project is None:
                         return
-                    _set_job(project, {"done_ops": done, "total_ops": total})
+                    job_patch: dict[str, Any] = {
+                        "done_ops": done,
+                        "total_ops": total,
+                    }
+                    if result.get("ok") and result.get("path"):
+                        job_patch["last_path"] = result.get("path")
+                        job_patch["last_frame_number"] = result.get("frame_number")
+                        job_patch["last_shot"] = result.get("shot")
+                        job_patch["last_highlight"] = result.get("highlight")
+                    _set_job(project, job_patch)
                 extra: dict[str, Any] = {
                     "done_ops": done,
                     "total_ops": total,
@@ -88,10 +98,11 @@ def spawn_apply_job(
                 pass
 
         try:
-            async with session_scope() as session:
+            async with project_db_session_scope(project_id) as session:
                 project = await session.get(Project, project_id)
                 if project is None:
                     return
+                board_snapshot = dict(montage_meta(project))
                 _set_job(
                     project,
                     {
@@ -106,7 +117,7 @@ def spawn_apply_job(
             await _publish(project_id, "running", extra={"total_ops": total_ops, "done_ops": 0})
 
             # Не держим одну session на весь Outsee Generate (sqlite locked).
-            async with session_scope() as session:
+            async with project_db_session_scope(project_id) as session:
                 project = await session.get(Project, project_id)
                 if project is None:
                     return
@@ -146,7 +157,7 @@ def spawn_apply_job(
         except asyncio.CancelledError:
             logger.info("apply_job #{} cancelled", project_id)
             try:
-                async with session_scope() as session:
+                async with project_db_session_scope(project_id) as session:
                     project = await session.get(Project, project_id)
                     if project is not None:
                         # pending_ops уже сужается в apply_montage_board — не
@@ -166,7 +177,7 @@ def spawn_apply_job(
         except Exception as exc:  # noqa: BLE001
             logger.exception("apply_job #{} failed", project_id)
             try:
-                async with session_scope() as session:
+                async with project_db_session_scope(project_id) as session:
                     project = await session.get(Project, project_id)
                     if project is not None:
                         board = montage_meta(project)
@@ -196,7 +207,7 @@ async def cancel_apply_job(project_id: int) -> bool:
     if task is not None and not task.done():
         task.cancel()
     try:
-        async with session_scope() as session:
+        async with project_db_session_scope(project_id) as session:
             project = await session.get(Project, project_id)
             if project is None:
                 return task is not None

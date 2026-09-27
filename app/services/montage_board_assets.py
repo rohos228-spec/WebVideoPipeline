@@ -5,9 +5,9 @@ from __future__ import annotations
 import shutil
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 
 from loguru import logger
 from sqlalchemy import select
@@ -16,7 +16,6 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.models import Artifact, ArtifactKind, Frame, Project
 from app.services.plan_shot2 import (
-    _IMG_EXTENSIONS,
     SHOT2_PROMPT_ATTR,
     SHOT2_VIDEO_PROMPT_ATTR,
     effective_shot_from_artifact,
@@ -27,19 +26,7 @@ from app.services.plan_shot2 import (
 )
 
 
-class HasDataDir(Protocol):
-    """Минимум, который нужен файловым операциям: каталог проекта.
-
-    `Project` ему удовлетворяет; artifact_recovery зовёт эти функции с
-    лёгким стендом (SimpleNamespace) — расписываем это в типах, а не
-    прячем за cast.
-    """
-
-    @property
-    def data_dir(self) -> Path: ...
-
-
-def _archive_dir(project: HasDataDir, sub: str) -> Path:
+def _archive_dir(project: Project, sub: str) -> Path:
     d = project.data_dir / "old" / sub
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -68,7 +55,7 @@ def _sidecar_companions(path: Path) -> list[Path]:
 
 def archive_file(
     path: Path,
-    project: HasDataDir,
+    project: Project,
     sub: str,
     *,
     with_sidecars: bool = True,
@@ -81,7 +68,7 @@ def archive_file(
     if not path.is_file():
         return None
     sidecars = _sidecar_companions(path) if with_sidecars else []
-    stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     dest = _archive_dir(project, sub) / f"{stamp}_{path.name}"
     last_err: OSError | None = None
     moved = False
@@ -100,9 +87,9 @@ def archive_file(
         # Fallback: копия в old/, unlink исходника (если всё ещё locked — оставляем оба).
         try:
             shutil.copy2(str(path), str(dest))
-        except OSError as copy_err:
+        except OSError:
             if last_err is not None:
-                raise last_err from copy_err
+                raise last_err
             raise
         try:
             path.unlink()
@@ -128,17 +115,12 @@ def _is_shot1_media_name(name: str) -> bool:
     return "_s2_" not in name
 
 
-def _shot1_image_patterns(frame_number: int) -> list[str]:
-    """Глобы картинок shot_01 по всем поддерживаемым расширениям."""
-    return [f"frame_{frame_number:03d}_*{ext}" for ext in sorted(_IMG_EXTENSIONS)]
-
-
 def purge_replaced_media(
     folder: Path,
     *,
     patterns: list[str],
     keep: Path,
-    project: HasDataDir,
+    project: Project,
     sub: str,
     shot: int,
     also_json: bool = True,
@@ -157,7 +139,9 @@ def purge_replaced_media(
     globs = list(patterns)
     if also_json:
         for pat in list(patterns):
-            if pat.endswith(".mp4") or pat.endswith(".png"):
+            if pat.endswith(".mp4"):
+                globs.append(pat[:-4] + ".json")
+            elif pat.endswith(".png"):
                 globs.append(pat[:-4] + ".json")
     for g in globs:
         for p in list(folder.glob(g)):
@@ -213,7 +197,10 @@ async def finalize_scene_image(
     """После успешной генерации/upload: архив старых файлов, artifact на new_path."""
     _assert_new_file_ready(new_path)
     scenes = project.data_dir / "scenes"
-    patterns = [shot2_file_pattern(frame_number)] if shot == 2 else _shot1_image_patterns(frame_number)
+    if shot == 2:
+        patterns = [shot2_file_pattern(frame_number)]
+    else:
+        patterns = [f"frame_{frame_number:03d}_*.png"]
     purged = purge_replaced_media(
         scenes,
         patterns=patterns,
@@ -233,18 +220,14 @@ async def finalize_scene_image(
     fr = await _frame(session, project.id, frame_number)
     if fr is not None:
         arts = (
-            (
-                await session.execute(
-                    select(Artifact).where(
-                        Artifact.project_id == project.id,
-                        Artifact.frame_id == fr.id,
-                        Artifact.kind == ArtifactKind.scene_image,
-                    )
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.frame_id == fr.id,
+                    Artifact.kind == ArtifactKind.scene_image,
                 )
             )
-            .scalars()
-            .all()
-        )
+        ).scalars().all()
         for art in arts:
             meta_shot = (art.meta or {}).get("shot", 1)
             if (shot == 2 and meta_shot == 2) or (shot == 1 and meta_shot != 2):
@@ -273,7 +256,10 @@ async def finalize_scene_video(
     """После успешной генерации/upload: архив старых клипов, artifact на new_path."""
     _assert_new_file_ready(new_path, min_bytes=1024)
     videos = project.data_dir / "videos"
-    patterns = [shot2_video_file_pattern(frame_number)] if shot == 2 else [f"clip_{frame_number:03d}_*.mp4"]
+    if shot == 2:
+        patterns = [shot2_video_file_pattern(frame_number)]
+    else:
+        patterns = [f"clip_{frame_number:03d}_*.mp4"]
     purged = purge_replaced_media(
         videos,
         patterns=patterns,
@@ -293,18 +279,14 @@ async def finalize_scene_video(
     fr = await _frame(session, project.id, frame_number)
     if fr is not None:
         arts = (
-            (
-                await session.execute(
-                    select(Artifact).where(
-                        Artifact.project_id == project.id,
-                        Artifact.frame_id == fr.id,
-                        Artifact.kind == ArtifactKind.scene_video,
-                    )
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.frame_id == fr.id,
+                    Artifact.kind == ArtifactKind.scene_video,
                 )
             )
-            .scalars()
-            .all()
-        )
+        ).scalars().all()
         for art in arts:
             if effective_shot_from_artifact(art.meta, art.path or "") == shot:
                 await session.delete(art)
@@ -329,30 +311,28 @@ async def delete_scene_image(
     shot: int,
 ) -> bool:
     scenes = project.data_dir / "scenes"
-    patterns = [shot2_file_pattern(frame_number)] if shot == 2 else _shot1_image_patterns(frame_number)
+    if shot == 2:
+        pattern = shot2_file_pattern(frame_number)
+    else:
+        pattern = f"frame_{frame_number:03d}_*.png"
     deleted = False
     if scenes.is_dir():
-        for pattern in patterns:
-            for p in list(scenes.glob(pattern)):
-                if shot == 1 and "_s2_" in p.name:
-                    continue
-                archive_file(p, project, "scenes")
-                deleted = True
+        for p in list(scenes.glob(pattern)):
+            if shot == 1 and "_s2_" in p.name:
+                continue
+            archive_file(p, project, "scenes")
+            deleted = True
     fr = await _frame(session, project.id, frame_number)
     if fr is not None:
         arts = (
-            (
-                await session.execute(
-                    select(Artifact).where(
-                        Artifact.project_id == project.id,
-                        Artifact.frame_id == fr.id,
-                        Artifact.kind == ArtifactKind.scene_image,
-                    )
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.frame_id == fr.id,
+                    Artifact.kind == ArtifactKind.scene_image,
                 )
             )
-            .scalars()
-            .all()
-        )
+        ).scalars().all()
         for art in arts:
             meta_shot = (art.meta or {}).get("shot", 1)
             if (shot == 2 and meta_shot == 2) or (shot == 1 and meta_shot != 2):
@@ -370,7 +350,10 @@ async def delete_scene_video(
     shot: int,
 ) -> bool:
     videos = project.data_dir / "videos"
-    globs = [shot2_video_file_pattern(frame_number)] if shot == 2 else [f"clip_{frame_number:03d}_*.mp4"]
+    if shot == 2:
+        globs = [shot2_video_file_pattern(frame_number)]
+    else:
+        globs = [f"clip_{frame_number:03d}_*.mp4"]
     deleted = False
     if videos.is_dir():
         for g in globs:
@@ -382,18 +365,14 @@ async def delete_scene_video(
     fr = await _frame(session, project.id, frame_number)
     if fr is not None:
         arts = (
-            (
-                await session.execute(
-                    select(Artifact).where(
-                        Artifact.project_id == project.id,
-                        Artifact.frame_id == fr.id,
-                        Artifact.kind == ArtifactKind.scene_video,
-                    )
+            await session.execute(
+                select(Artifact).where(
+                    Artifact.project_id == project.id,
+                    Artifact.frame_id == fr.id,
+                    Artifact.kind == ArtifactKind.scene_video,
                 )
             )
-            .scalars()
-            .all()
-        )
+        ).scalars().all()
         for art in arts:
             if effective_shot_from_artifact(art.meta, art.path or "") == shot:
                 await session.delete(art)
@@ -449,7 +428,11 @@ async def save_scene_video_upload(
 def _find_shot1_video(videos_dir: Path, frame_number: int) -> Path | None:
     if not videos_dir.is_dir():
         return None
-    candidates = [p for p in videos_dir.glob(f"clip_{frame_number:03d}_*.mp4") if "_s2_" not in p.name]
+    candidates = [
+        p
+        for p in videos_dir.glob(f"clip_{frame_number:03d}_*.mp4")
+        if "_s2_" not in p.name
+    ]
     if not candidates:
         return None
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
@@ -602,6 +585,10 @@ async def swap_shot_media(
         # Промты меняем вместе с соответствующим kind; при both — оба.
         if kind == "both":
             result["prompts"] = _swap_prompt_fields(fr)
+            c1 = _get_shot_characters(fr, 1)
+            c2 = _get_shot_characters(fr, 2)
+            _set_shot_characters(fr, 1, c2)
+            _set_shot_characters(fr, 2, c1)
             result["prompts_swapped"] = True
         elif kind == "image":
             attrs = dict(fr.attrs or {})
@@ -614,6 +601,10 @@ async def swap_shot_media(
                 attrs.pop(SHOT2_PROMPT_ATTR, None)
             fr.attrs = attrs
             flag_modified(fr, "attrs")
+            c1 = _get_shot_characters(fr, 1)
+            c2 = _get_shot_characters(fr, 2)
+            _set_shot_characters(fr, 1, c2)
+            _set_shot_characters(fr, 2, c1)
             result["prompts_swapped"] = True
         elif kind == "video":
             attrs = dict(fr.attrs or {})
@@ -665,6 +656,12 @@ def _find_shot_image(scenes_dir: Path, frame_number: int, shot: int) -> Path | N
     return find_shot1_image(scenes_dir, frame_number)
 
 
+def _find_shot_video(videos_dir: Path, frame_number: int, shot: int) -> Path | None:
+    if shot == 2:
+        return _find_shot2_video(videos_dir, frame_number)
+    return _find_shot1_video(videos_dir, frame_number)
+
+
 _SHOT1_CHAR_KEYS = ("characters", "персонажи", "persons")
 _SHOT2_CHAR_KEY = "shot02_characters"
 
@@ -703,12 +700,6 @@ def frame_shot_character_ids(fr: Frame, shot: int) -> list[str]:
     from app.orchestrator.steps.generate_images import _parse_ref_ids
 
     return _parse_ref_ids(_get_shot_characters(fr, shot))
-
-
-def _find_shot_video(videos_dir: Path, frame_number: int, shot: int) -> Path | None:
-    if shot == 2:
-        return _find_shot2_video(videos_dir, frame_number)
-    return _find_shot1_video(videos_dir, frame_number)
 
 
 def _get_image_prompt(fr: Frame, shot: int) -> str:
@@ -806,7 +797,9 @@ async def move_scene_image(
     dst_path = _find_shot_image(scenes, to_frame, to_shot)
     src_bytes = src_path.read_bytes()
     src_suf = src_path.suffix or ".png"
-    dst_bytes = dst_path.read_bytes() if dst_path is not None and dst_path.is_file() else None
+    dst_bytes = (
+        dst_path.read_bytes() if dst_path is not None and dst_path.is_file() else None
+    )
     dst_suf = (dst_path.suffix if dst_path is not None else ".png") or ".png"
     mode = "swap" if dst_bytes is not None else "move"
 
@@ -832,13 +825,21 @@ async def move_scene_image(
         )
 
     fr_from = await _frame(session, project.id, from_frame)
-    fr_to = fr_from if from_frame == to_frame else await _frame(session, project.id, to_frame)
+    fr_to = (
+        fr_from
+        if from_frame == to_frame
+        else await _frame(session, project.id, to_frame)
+    )
     prompts_moved = False
     if fr_from is not None and fr_to is not None:
         p_from = _get_image_prompt(fr_from, from_shot)
         p_to = _get_image_prompt(fr_to, to_shot)
         _set_image_prompt(fr_to, to_shot, p_from)
         _set_image_prompt(fr_from, from_shot, p_to if mode == "swap" else "")
+        c_from = _get_shot_characters(fr_from, from_shot)
+        c_to = _get_shot_characters(fr_to, to_shot)
+        _set_shot_characters(fr_to, to_shot, c_from)
+        _set_shot_characters(fr_from, from_shot, c_to if mode == "swap" else "")
         prompts_moved = True
 
     from app.services.montage_board_meta import mark_stale_videos, montage_meta, set_montage_meta
@@ -884,7 +885,9 @@ async def move_scene_video(
     dst_path = _find_shot_video(videos, to_frame, to_shot)
     src_bytes = src_path.read_bytes()
     src_suf = src_path.suffix or ".mp4"
-    dst_bytes = dst_path.read_bytes() if dst_path is not None and dst_path.is_file() else None
+    dst_bytes = (
+        dst_path.read_bytes() if dst_path is not None and dst_path.is_file() else None
+    )
     dst_suf = (dst_path.suffix if dst_path is not None else ".mp4") or ".mp4"
     mode = "swap" if dst_bytes is not None else "move"
 
@@ -910,7 +913,11 @@ async def move_scene_video(
         )
 
     fr_from = await _frame(session, project.id, from_frame)
-    fr_to = fr_from if from_frame == to_frame else await _frame(session, project.id, to_frame)
+    fr_to = (
+        fr_from
+        if from_frame == to_frame
+        else await _frame(session, project.id, to_frame)
+    )
     prompts_moved = False
     if fr_from is not None and fr_to is not None:
         p_from = _get_video_prompt(fr_from, from_shot)
