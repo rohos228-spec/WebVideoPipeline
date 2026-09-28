@@ -118,7 +118,7 @@ def test_managed_db_missing_late_tables_is_healed(tmp_path: Path) -> None:
 
     db = tmp_path / "nollm.db"
     upgrade_to_head_sync(db)
-    assert _revision(db) == "0014"
+    assert _revision(db) == "0015"
 
     cfg = alembic_config()
     cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
@@ -139,7 +139,7 @@ def test_managed_db_missing_late_tables_is_healed(tmp_path: Path) -> None:
 
     upgrade_to_head_sync(db)
 
-    assert _revision(db) == "0014"
+    assert _revision(db) == "0015"
     tables = _tables(db)
     assert "llm_calls" in tables
     assert "work_leases" in tables
