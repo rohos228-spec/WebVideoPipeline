@@ -22,19 +22,6 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-const TONE_CHOICES = [
-  { id: "grimdark", label: "Grimdark / Sci-Fi" },
-  { id: "action", label: "Кино-экшен" },
-  { id: "drama", label: "Философия / Драма" },
-  { id: "mystery", label: "Мистика / Саспенс" },
-] as const;
-
-const VOICEOVER_CHOICES = [
-  { id: "epic_quotes", label: "Эпос + цитаты" },
-  { id: "narrator", label: "Кино-рассказчик" },
-  { id: "dynamic", label: "Динамичный темп" },
-  { id: "none", label: "Без диктора (SFX)" },
-] as const;
 
 const HERO_CHOICES = [
   { id: "auto", label: "Авто" },
@@ -54,69 +41,19 @@ export function NewProjectWizard({
   const [open, setOpen] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
   const [topic, setTopic] = useState("");
-  const [selectedTone, setSelectedTone] = useState<string | null>(null);
-  const [selectedVoice, setSelectedVoice] = useState<string | null>(null);
   const [heroMode, setHeroMode] = useState<"hero" | "no_hero" | "auto">("auto");
-  const [assistMode, setAssistMode] = useState<"expand" | "generate" | null>(null);
   const qc = useQueryClient();
 
   const reset = () => {
     setProjectTitle("");
     setTopic("");
-    setSelectedTone(null);
-    setSelectedVoice(null);
     setHeroMode("auto");
-    setAssistMode(null);
-  };
-
-  const handleAssist = async (mode: "expand" | "generate") => {
-    if (assistMode) return;
-    setAssistMode(mode);
-    try {
-      const res = await api.assistProject({
-        topic_draft: topic.trim(),
-        title_draft: projectTitle.trim(),
-        tone: selectedTone,
-        voiceover_style: selectedVoice,
-        mode,
-      });
-      if (res.ok && res.topic) {
-        setTopic(res.topic);
-        if (res.title && !projectTitle.trim()) {
-          setProjectTitle(res.title);
-        }
-        if (res.suggested_hero_mode) {
-          setHeroMode(res.suggested_hero_mode);
-        }
-        toast.success(mode === "generate" ? "Идея сформирована ИИ-ассистентом" : "Сюжет доработан ИИ-ассистентом");
-      } else {
-        toast.error("ИИ не смог сформировать ответ. Попробуйте еще раз.");
-      }
-    } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
-    } finally {
-      setAssistMode(null);
-    }
   };
 
   const create = useMutation({
     mutationFn: async () => {
-      let finalTopic = topic.trim();
-      const toneLabel = TONE_CHOICES.find((t) => t.id === selectedTone)?.label;
-      const voiceLabel = VOICEOVER_CHOICES.find((v) => v.id === selectedVoice)?.label;
-
-      const extras: string[] = [];
-      if (toneLabel && !finalTopic.toLowerCase().includes(toneLabel.toLowerCase())) {
-        extras.push(`Атмосфера: ${toneLabel}`);
-      }
-      if (voiceLabel && !finalTopic.toLowerCase().includes(voiceLabel.toLowerCase())) {
-        extras.push(`Стиль озвучки: ${voiceLabel}`);
-      }
-      if (extras.length > 0) {
-        finalTopic = finalTopic ? `${finalTopic}\n\n${extras.join(". ")}.` : extras.join(". ") + ".";
-      }
-
-      const rawTitle = projectTitle.trim() || (topic.trim() ? topic.trim().slice(0, 40) : "Новый проект");
+      const finalTopic = topic.trim();
+      const rawTitle = projectTitle.trim() || (finalTopic ? finalTopic.slice(0, 40) : "Новый проект");
       const p = await api.createProject({
         title: rawTitle.slice(0, 120),
         topic: finalTopic || rawTitle,
@@ -171,116 +108,18 @@ export function NewProjectWizard({
             />
           </div>
 
-          {/* Сюжет / Бриф + ИИ-ассистент */}
+          {/* Сюжет / Бриф */}
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Сюжет / Бриф
-              </label>
-              <div className="flex items-center gap-1.5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={assistMode !== null}
-                  onClick={() => handleAssist("expand")}
-                  className="h-7 px-3 text-xs font-semibold text-cyan-200 bg-cyan-950/50 hover:bg-cyan-900/70 border border-cyan-500/40 shadow-sm rounded-lg transition-all disabled:opacity-50"
-                  title="Доработать сюжет с помощью ИИ-ассистента"
-                >
-                  {assistMode === "expand" ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : null}
-                  <span>Развить сюжет</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={assistMode !== null}
-                  onClick={() => handleAssist("generate")}
-                  className="h-7 px-3 text-xs font-semibold text-cyan-300/90 hover:text-cyan-100 bg-cyan-950/20 hover:bg-cyan-950/50 border border-cyan-500/30 hover:border-cyan-400/50 rounded-lg transition-all disabled:opacity-50"
-                  title="Сгенерировать сюжетную идею с помощью ИИ-ассистента"
-                >
-                  {assistMode === "generate" ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : null}
-                  <span>Идея с нуля</span>
-                </Button>
-              </div>
-            </div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Сюжет / Бриф
+            </label>
             <Textarea
-              placeholder="Опишите сюжет своими словами или нажмите «Развить сюжет» для помощи ИИ-ассистента..."
+              placeholder="Опишите сюжет своими словами..."
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
               rows={5}
               className="resize-y min-h-[100px] max-h-[260px] bg-background text-sm leading-relaxed overflow-y-auto"
             />
-          </div>
-
-          {/* Атмосфера (опционально) */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Атмосфера (по желанию)
-              </label>
-              {selectedTone && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedTone(null)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Сбросить
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {TONE_CHOICES.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setSelectedTone((prev) => (prev === t.id ? null : t.id))}
-                  className={cn(
-                    "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-                    selectedTone === t.id
-                      ? "border-cyan-400/60 bg-cyan-950/60 text-cyan-300 shadow-sm shadow-cyan-950/40 font-semibold"
-                      : "border-border bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Озвучка и цитаты (опционально) */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Озвучка и цитаты (по желанию)
-              </label>
-              {selectedVoice && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedVoice(null)}
-                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Сбросить
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {VOICEOVER_CHOICES.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => setSelectedVoice((prev) => (prev === v.id ? null : v.id))}
-                  className={cn(
-                    "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-                    selectedVoice === v.id
-                      ? "border-cyan-400/60 bg-cyan-950/60 text-cyan-300 shadow-sm shadow-cyan-950/40 font-semibold"
-                      : "border-border bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  {v.label}
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Персонажи */}

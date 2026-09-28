@@ -163,51 +163,6 @@ function formatElapsedMinSec(totalSec: number | null | undefined): string {
   return `${m} мин ${s} сек`;
 }
 
-export const STYLE_PRESETS = [
-  { id: "none", label: "Без стиля", icon: "", suffix: "" },
-  {
-    id: "photo",
-    label: "Фото",
-    icon: "📸",
-    suffix: ", professional 8k photography, hyperrealistic, sharp focus, natural lighting, highly detailed",
-  },
-  {
-    id: "cinematic",
-    label: "Кино",
-    icon: "🎬",
-    suffix: ", cinematic still, 35mm film, atmospheric lighting, dramatic depth of field, blockbuster movie aesthetic",
-  },
-  {
-    id: "3d",
-    label: "3D",
-    icon: "🎨",
-    suffix: ", 3d render, unreal engine 5, octane render, smooth lighting, volumetric raytracing, 8k",
-  },
-  {
-    id: "anime",
-    label: "Аниме",
-    icon: "🍙",
-    suffix: ", anime art style, vibrant colors, detailed line art, aesthetic masterpiece",
-  },
-  {
-    id: "oil",
-    label: "Живопись",
-    icon: "🖌️",
-    suffix: ", oil painting, masterwork, rich brushstrokes, expressive texture, classical fine art",
-  },
-  {
-    id: "cyberpunk",
-    label: "Киберпанк",
-    icon: "🌆",
-    suffix: ", cyberpunk aesthetic, neon glow, futuristic city, reflections, high-tech dark atmosphere",
-  },
-  {
-    id: "fantasy",
-    label: "Фэнтези",
-    icon: "🌌",
-    suffix: ", epic fantasy digital art, magical glowing atmosphere, ethereal lighting, mythical",
-  },
-];
 
 export const RANDOM_PROMPTS = [
   "A majestic ancient Japanese temple surrounded by blooming pink cherry blossoms, serene koi pond with reflections of soft golden morning rays, hyperrealistic photography",
@@ -300,7 +255,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const [motionQuality, setMotionQuality] = useState("std");
   const [instrumental, setInstrumental] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [stylePreset, setStylePreset] = useState("none");
   const [negativePrompt, setNegativePrompt] = useState("");
   const [showNegativePrompt, setShowNegativePrompt] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState<"png" | "jpg" | "webp">("png");
@@ -979,7 +933,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     try {
       const res = await api.enhanceOutseeCreatePrompt({
         prompt: text,
-        style: stylePreset !== "none" ? stylePreset : undefined,
       });
       if (res?.enhanced_prompt) {
         setPrompt(res.enhanced_prompt);
@@ -999,14 +952,10 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       const promptOverride = typeof arg === "string" ? arg : arg?.prompt;
       const forceSingle = typeof arg === "object" && arg?.forceSingle === true;
       const draftId = typeof arg === "object" ? arg?.draftId : undefined;
-      const preset = STYLE_PRESETS.find((p) => p.id === stylePreset);
       let text = (promptOverride ?? prompt).trim();
       if (!text) throw new Error("Введите промпт");
       if (text.toLowerCase().includes("not example objects from the style guide")) {
         throw new Error("Промпт не собран агентом — генерация не запущена");
-      }
-      if (text && mediaType === "image" && preset?.suffix) {
-        text += preset.suffix;
       }
       if (text && mediaType === "image" && negativePrompt.trim()) {
         text += `\nAvoid: ${negativePrompt.trim()}`;
@@ -2162,33 +2111,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     </span>
                   </div>
                 )}
-                {/* Style Presets and Negative Prompt for image mode */}
+                {/* Actions and Negative Prompt for image mode */}
                 {mediaType === "image" && (
-                  <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-white/[0.06] bg-white/[0.015] px-3 py-1.5 lg:px-4">
-                    <div className="flex items-center gap-1 overflow-x-auto py-0.5 no-scrollbar">
-                      <span className="mr-1 shrink-0 font-mono text-[10px] font-semibold uppercase text-white/40">
-                        Стиль:
-                      </span>
-                      {STYLE_PRESETS.map((p) => {
-                        const active = stylePreset === p.id;
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => setStylePreset(p.id)}
-                            className={cn(
-                              "inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-medium transition",
-                              active
-                                ? "bg-[#22d3ee]/20 font-semibold text-[#22d3ee] ring-1 ring-[#22d3ee]/40"
-                                : "bg-white/[0.04] text-white/60 hover:bg-white/[0.08] hover:text-white",
-                            )}
-                          >
-                            <span>{p.icon}</span>
-                            <span>{p.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 border-b border-white/[0.06] bg-white/[0.015] px-3 py-1.5 lg:px-4">
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
@@ -2258,16 +2183,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       style={{ outline: "none" }}
                       className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-white/90 placeholder:text-white/30 border-0 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0"
                     />
-                    {mediaType === "image" && stylePreset !== "none" && (
-                      <div className="mt-1 flex items-center gap-1.5 rounded-lg border border-[#22d3ee]/25 bg-[#22d3ee]/5 px-2.5 py-1 text-[11px] text-[#22d3ee]/90">
-                        <span className="font-semibold">
-                          Стиль «{STYLE_PRESETS.find((p) => p.id === stylePreset)?.label}»:
-                        </span>
-                        <span className="truncate font-mono text-[10px] text-white/60">
-                          {STYLE_PRESETS.find((p) => p.id === stylePreset)?.suffix}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 )}
                 {kieActive && kieModel && !kieTextField && (
