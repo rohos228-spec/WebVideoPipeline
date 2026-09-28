@@ -6,7 +6,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from app.models import EmailVerification, StudioUser
+from app.models import EmailVerification
 from app.web.api import create_app
 from app.web.deps import get_session
 from tests import accounts_harness as ah

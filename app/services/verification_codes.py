@@ -50,7 +50,7 @@ def generate_otp() -> str:
 def hash_otp(code: str) -> str:
     """Получение SHA-256 хеша проверочного кода."""
     clean = code.replace("-", "").replace(" ", "").strip()
-    return hashlib.sha256(f"{_SALT}:{clean}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{_SALT}:{clean}".encode()).hexdigest()
 
 
 async def issue_code(
