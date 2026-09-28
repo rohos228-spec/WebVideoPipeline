@@ -9,5 +9,8 @@
 useDefault = true
 
 [allowlist]
-description = "Список известных находок сам состоит из хешей — это не ключи"
-paths = ['''\.gitleaksignore''']
+description = "Исключения для служебных файлов и артефактов статической сборки web/out"
+paths = [
+    '''\.gitleaksignore''',
+    '''web/out/''',
+]
