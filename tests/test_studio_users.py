@@ -108,7 +108,7 @@ async def test_duplicate_address_is_refused(factory) -> None:
 async def test_weak_password_is_refused_at_creation(factory) -> None:
     async with factory() as s:
         with pytest.raises(studio_users.UserError, match="короче"):
-            await studio_users.create_user(s, email="ivan@studio.local", password="korotko1")
+            await studio_users.create_user(s, email="ivan@studio.local", password="korotk1")
 
 
 async def test_unknown_role_is_refused(factory) -> None:
@@ -190,7 +190,7 @@ async def test_weak_new_password_is_refused_and_epoch_stays(factory) -> None:
         user = await studio_users.create_user(s, email="ivan@studio.local", password=PASSWORD)
         before = int(user.token_epoch)
         with pytest.raises(studio_users.UserError):
-            await studio_users.set_password(s, user, "korotko1")
+            await studio_users.set_password(s, user, "korotk1")
         assert int(user.token_epoch) == before
 
 
