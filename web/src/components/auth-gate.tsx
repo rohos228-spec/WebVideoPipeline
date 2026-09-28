@@ -36,12 +36,19 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Учёток нет — режим владельца без замка. Пускаем сразу.
-  if (!status?.auth_required) return <>{children}</>;
+  // Предпросмотр экрана авторизации для локального тестирования UI (?auth=1 или #auth)
+  const previewAuth =
+    typeof window !== "undefined" &&
+    (new URLSearchParams(window.location.search).has("auth") ||
+      window.location.hash === "#auth");
 
-  if (!token) {
+  // Учёток нет — режим владельца без замка. Пускаем сразу (если не запрошен ?auth=1)
+  if (!status?.auth_required && !previewAuth) return <>{children}</>;
+
+  if (!token || previewAuth) {
     return (
       <AuthScreen
+        isLocalPreview={!status?.auth_required}
         onDone={(fresh) => {
           setToken(fresh);
           qc.invalidateQueries();
@@ -55,13 +62,29 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
 type AuthMode = "login" | "register" | "register_code" | "forgot" | "forgot_code";
 
-function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
+function AuthScreen({
+  onDone,
+  isLocalPreview = false,
+}: {
+  onDone: (token: string) => void;
+  isLocalPreview?: boolean;
+}) {
   const [mode, setMode] = useState<AuthMode>("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [code, setCode] = useState("");
-  const [newPassword, setNewPassword] = useState("");
+
+  // Вход
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+
+  // Регистрация
+  const [regEmail, setRegEmail] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regDisplayName, setRegDisplayName] = useState("");
+  const [regCode, setRegCode] = useState("");
+
+  // Сброс пароля
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
 
   const [error, setError] = useState("");
   const [successInfo, setSuccessInfo] = useState("");
@@ -84,18 +107,34 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
 
   const switchMode = (next: AuthMode) => {
     clearMessages();
-    setCode("");
+    if (next === "register") {
+      setRegEmail("");
+      setRegPassword("");
+      setRegDisplayName("");
+      setRegCode("");
+    } else if (next === "login") {
+      setLoginPassword("");
+    } else if (next === "forgot") {
+      setResetEmail("");
+      setResetCode("");
+      setResetNewPassword("");
+    }
     setMode(next);
   };
 
   // 1. Вход по логину и паролю
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password || busy) return;
+    if (!loginEmail.trim() || !loginPassword || busy) return;
+    if (isLocalPreview) {
+      setSuccessInfo("Тестовый вход выполнен (локальный режим)");
+      setTimeout(() => onDone("test-token"), 600);
+      return;
+    }
     setBusy(true);
     clearMessages();
     try {
-      const res = await api.login(email.trim(), password);
+      const res = await api.login(loginEmail.trim(), loginPassword);
       api.saveToken(res.token);
       onDone(res.token);
     } catch (err) {
@@ -108,14 +147,20 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
   // 2. Отправка проверочного кода для регистрации
   const handleSendRegisterCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password || busy) return;
+    if (!regEmail.trim() || regPassword.length < 8 || busy) return;
+    if (isLocalPreview) {
+      setSuccessInfo("Тестовый режим (локально): проверочный код — 123456");
+      setCountdown(60);
+      setMode("register_code");
+      return;
+    }
     setBusy(true);
     clearMessages();
     try {
       const res = await api.registerSendCode({
-        email: email.trim(),
-        password,
-        display_name: displayName.trim(),
+        email: regEmail.trim(),
+        password: regPassword,
+        display_name: regDisplayName.trim(),
       });
       setSuccessInfo(res.message || "Код подтверждения отправлен на вашу почту");
       setCountdown(60);
@@ -130,15 +175,20 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
   // 3. Подтверждение кода регистрации и создание аккаунта
   const handleConfirmRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!code.trim() || busy) return;
+    if (!regCode.trim() || busy) return;
+    if (isLocalPreview) {
+      setSuccessInfo("Тестовая регистрация успешно пройдена!");
+      setTimeout(() => onDone("test-token"), 600);
+      return;
+    }
     setBusy(true);
     clearMessages();
     try {
       const res = await api.registerConfirm({
-        email: email.trim(),
-        code: code.trim(),
-        password,
-        display_name: displayName.trim(),
+        email: regEmail.trim(),
+        code: regCode.trim(),
+        password: regPassword,
+        display_name: regDisplayName.trim(),
       });
       api.saveToken(res.token);
       onDone(res.token);
@@ -152,11 +202,17 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
   // 4. Запрос кода для сброса пароля
   const handleSendResetCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || busy) return;
+    if (!resetEmail.trim() || busy) return;
+    if (isLocalPreview) {
+      setSuccessInfo("Тестовый режим (локально): проверочный код сброса — 123456");
+      setCountdown(60);
+      setMode("forgot_code");
+      return;
+    }
     setBusy(true);
     clearMessages();
     try {
-      const res = await api.resetPasswordSendCode({ email: email.trim() });
+      const res = await api.resetPasswordSendCode({ email: resetEmail.trim() });
       setSuccessInfo(res.message || "Код сброса отправлен на вашу почту");
       setCountdown(60);
       setMode("forgot_code");
@@ -170,14 +226,19 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
   // 5. Подтверждение кода и установка нового пароля
   const handleConfirmReset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!code.trim() || !newPassword || busy) return;
+    if (!resetCode.trim() || resetNewPassword.length < 8 || busy) return;
+    if (isLocalPreview) {
+      setSuccessInfo("Тестовый режим (локально): пароль успешно изменён!");
+      setTimeout(() => onDone("test-token"), 600);
+      return;
+    }
     setBusy(true);
     clearMessages();
     try {
       const res = await api.resetPasswordConfirm({
-        email: email.trim(),
-        code: code.trim(),
-        new_password: newPassword,
+        email: resetEmail.trim(),
+        code: resetCode.trim(),
+        new_password: resetNewPassword,
       });
       api.saveToken(res.token);
       onDone(res.token);
@@ -191,17 +252,22 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
   // Повторная отправка кода
   const handleResendCode = async () => {
     if (countdown > 0 || busy) return;
+    if (isLocalPreview) {
+      setSuccessInfo("Новый проверочный код отправлен: 123456");
+      setCountdown(60);
+      return;
+    }
     setBusy(true);
     clearMessages();
     try {
       if (mode === "register_code") {
         await api.registerSendCode({
-          email: email.trim(),
-          password,
-          display_name: displayName.trim(),
+          email: regEmail.trim(),
+          password: regPassword,
+          display_name: regDisplayName.trim(),
         });
       } else if (mode === "forgot_code") {
-        await api.resetPasswordSendCode({ email: email.trim() });
+        await api.resetPasswordSendCode({ email: resetEmail.trim() });
       }
       setSuccessInfo("Новый проверочный код отправлен");
       setCountdown(60);
@@ -214,6 +280,13 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
 
   return (
     <div className="mx-auto flex min-h-screen max-w-[420px] flex-col justify-center px-6 py-12">
+      {/* Баннер локального предпросмотра */}
+      {isLocalPreview && (
+        <div className="mb-4 rounded-lg border border-accent/40 bg-accent/10 p-2.5 text-center text-[12px] text-accent">
+          Режим локальной проверки UI. Тестовый проверочный код: <strong>123456</strong>
+        </div>
+      )}
+
       {/* Шапка формы */}
       <div className="mb-6">
         <h1 className="font-display text-[30px] font-semibold tracking-tight text-content">
@@ -253,10 +326,11 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
             <input
               autoFocus
               type="email"
+              name="login_email"
               autoComplete="username"
               placeholder="name@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
               className="h-10 rounded-md border border-border bg-surface-raised px-3 text-[14px] text-content outline-none focus-visible:border-accent"
             />
           </label>
@@ -276,10 +350,11 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
             </div>
             <input
               type="password"
+              name="login_password"
               autoComplete="current-password"
               placeholder="••••••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
               className="h-10 rounded-md border border-border bg-surface-raised px-3 font-mono text-[14px] text-content outline-none focus-visible:border-accent"
             />
           </label>
@@ -287,7 +362,7 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
           <Button
             type="submit"
             variant="primary"
-            disabled={!email.trim() || !password || busy}
+            disabled={!loginEmail.trim() || !loginPassword || busy}
             className="mt-2 w-full"
           >
             {busy ? "Вход…" : "Войти"}
@@ -308,7 +383,7 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
 
       {/* ── 2. Экран РЕГИСТРАЦИИ (Ввод данных) ─────────────────────────── */}
       {mode === "register" && (
-        <form className="flex flex-col gap-4" onSubmit={handleSendRegisterCode}>
+        <form className="flex flex-col gap-4" onSubmit={handleSendRegisterCode} autoComplete="off">
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium uppercase tracking-wider text-content-faint">
               Почта
@@ -316,10 +391,11 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
             <input
               autoFocus
               type="email"
-              autoComplete="email"
+              name="reg_email"
+              autoComplete="off"
               placeholder="name@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={regEmail}
+              onChange={(e) => setRegEmail(e.target.value)}
               className="h-10 rounded-md border border-border bg-surface-raised px-3 text-[14px] text-content outline-none focus-visible:border-accent"
             />
           </label>
@@ -330,23 +406,26 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
             </span>
             <input
               type="text"
+              name="reg_name"
+              autoComplete="off"
               placeholder="Иван"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              value={regDisplayName}
+              onChange={(e) => setRegDisplayName(e.target.value)}
               className="h-10 rounded-md border border-border bg-surface-raised px-3 text-[14px] text-content outline-none focus-visible:border-accent"
             />
           </label>
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium uppercase tracking-wider text-content-faint">
-              Пароль <span className="text-content-faint/60 lowercase">(от 12 символов)</span>
+              Пароль <span className="text-content-faint/60 lowercase">(от 8 символов)</span>
             </span>
             <input
               type="password"
+              name="reg_password"
               autoComplete="new-password"
-              placeholder="Минимум 12 символов"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Минимум 8 символов"
+              value={regPassword}
+              onChange={(e) => setRegPassword(e.target.value)}
               className="h-10 rounded-md border border-border bg-surface-raised px-3 font-mono text-[14px] text-content outline-none focus-visible:border-accent"
             />
           </label>
@@ -354,7 +433,7 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
           <Button
             type="submit"
             variant="primary"
-            disabled={!email.trim() || password.length < 6 || busy}
+            disabled={!regEmail.trim() || regPassword.length < 8 || busy}
             className="mt-2 w-full gap-2"
           >
             <Mail className="h-4 w-4" />
@@ -376,9 +455,9 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
 
       {/* ── 3. Экран ВВОДА КОДА РЕГИСТРАЦИИ ────────────────────────────── */}
       {mode === "register_code" && (
-        <form className="flex flex-col gap-4" onSubmit={handleConfirmRegister}>
+        <form className="flex flex-col gap-4" onSubmit={handleConfirmRegister} autoComplete="off">
           <div className="rounded-lg border border-border/60 bg-surface-sunken/40 p-3 text-[13px] text-content-muted">
-            Код подтверждения отправлен на <strong className="text-content">{email}</strong>.
+            Код подтверждения отправлен на <strong className="text-content">{regEmail}</strong>.
             Проверьте входящие или папку «Спам».
           </div>
 
@@ -389,10 +468,12 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
             <input
               autoFocus
               type="text"
+              name="reg_code"
               maxLength={8}
+              autoComplete="one-time-code"
               placeholder="123456"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
+              value={regCode}
+              onChange={(e) => setRegCode(e.target.value)}
               className="h-12 rounded-md border border-border bg-surface-raised px-3 text-center font-mono text-[22px] tracking-[6px] text-content outline-none focus-visible:border-accent"
             />
           </label>
@@ -400,7 +481,7 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
           <Button
             type="submit"
             variant="primary"
-            disabled={code.trim().length < 4 || busy}
+            disabled={regCode.trim().length < 4 || busy}
             className="mt-2 w-full"
           >
             {busy ? "Проверяю…" : "Подтвердить и войти"}
@@ -419,7 +500,10 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
 
             <button
               type="button"
-              onClick={() => switchMode("register")}
+              onClick={() => {
+                clearMessages();
+                setMode("register");
+              }}
               className="inline-flex items-center gap-1 text-content-faint hover:text-content hover:underline focus:outline-none"
             >
               <ArrowLeft className="h-3 w-3" />
@@ -431,7 +515,7 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
 
       {/* ── 4. Экран ЗАПРОСА СБРОСА ПАРОЛЯ ──────────────────────────────── */}
       {mode === "forgot" && (
-        <form className="flex flex-col gap-4" onSubmit={handleSendResetCode}>
+        <form className="flex flex-col gap-4" onSubmit={handleSendResetCode} autoComplete="off">
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium uppercase tracking-wider text-content-faint">
               Почта аккаунта
@@ -439,10 +523,11 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
             <input
               autoFocus
               type="email"
-              autoComplete="email"
+              name="reset_email"
+              autoComplete="off"
               placeholder="name@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={resetEmail}
+              onChange={(e) => setResetEmail(e.target.value)}
               className="h-10 rounded-md border border-border bg-surface-raised px-3 text-[14px] text-content outline-none focus-visible:border-accent"
             />
           </label>
@@ -450,7 +535,7 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
           <Button
             type="submit"
             variant="primary"
-            disabled={!email.trim() || busy}
+            disabled={!resetEmail.trim() || busy}
             className="mt-2 w-full gap-2"
           >
             <KeyRound className="h-4 w-4" />
@@ -472,9 +557,9 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
 
       {/* ── 5. Экран ПОДТВЕРЖДЕНИЯ СБРОСА И НОВОГО ПАРОЛЯ ────────────────── */}
       {mode === "forgot_code" && (
-        <form className="flex flex-col gap-4" onSubmit={handleConfirmReset}>
+        <form className="flex flex-col gap-4" onSubmit={handleConfirmReset} autoComplete="off">
           <div className="rounded-lg border border-border/60 bg-surface-sunken/40 p-3 text-[13px] text-content-muted">
-            Код сброса пароля отправлен на <strong className="text-content">{email}</strong>.
+            Код сброса пароля отправлен на <strong className="text-content">{resetEmail}</strong>.
           </div>
 
           <label className="flex flex-col gap-1.5">
@@ -484,24 +569,27 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
             <input
               autoFocus
               type="text"
+              name="reset_code"
               maxLength={8}
+              autoComplete="one-time-code"
               placeholder="123456"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
+              value={resetCode}
+              onChange={(e) => setResetCode(e.target.value)}
               className="h-12 rounded-md border border-border bg-surface-raised px-3 text-center font-mono text-[22px] tracking-[6px] text-content outline-none focus-visible:border-accent"
             />
           </label>
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium uppercase tracking-wider text-content-faint">
-              Новый пароль <span className="text-content-faint/60 lowercase">(от 12 символов)</span>
+              Новый пароль <span className="text-content-faint/60 lowercase">(от 8 символов)</span>
             </span>
             <input
               type="password"
+              name="reset_new_password"
               autoComplete="new-password"
-              placeholder="Новый надёжный пароль"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Минимум 8 символов"
+              value={resetNewPassword}
+              onChange={(e) => setResetNewPassword(e.target.value)}
               className="h-10 rounded-md border border-border bg-surface-raised px-3 font-mono text-[14px] text-content outline-none focus-visible:border-accent"
             />
           </label>
@@ -509,7 +597,7 @@ function AuthScreen({ onDone }: { onDone: (token: string) => void }) {
           <Button
             type="submit"
             variant="primary"
-            disabled={code.trim().length < 4 || newPassword.length < 6 || busy}
+            disabled={resetCode.trim().length < 4 || resetNewPassword.length < 8 || busy}
             className="mt-2 w-full"
           >
             {busy ? "Сохраняю…" : "Сменить пароль и войти"}

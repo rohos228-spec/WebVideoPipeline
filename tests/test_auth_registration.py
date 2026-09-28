@@ -54,12 +54,16 @@ async def test_register_send_code_and_confirm_success(env) -> None:
     # 2. Достаем проверочный код из базы
     async with factory() as session:
         records = (
-            await session.execute(
-                select(EmailVerification).where(
-                    EmailVerification.email == email, EmailVerification.purpose == "register"
+            (
+                await session.execute(
+                    select(EmailVerification).where(
+                        EmailVerification.email == email, EmailVerification.purpose == "register"
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(records) == 1
 
         # Для подтверждения нужен открытый код, но в базе он захеширован.
@@ -95,12 +99,16 @@ async def test_register_send_code_and_confirm_success(env) -> None:
     # 5. Проверяем, что код удален (нельзя переиспользовать)
     async with factory() as session:
         left = (
-            await session.execute(
-                select(EmailVerification).where(
-                    EmailVerification.email == email, EmailVerification.purpose == "register"
+            (
+                await session.execute(
+                    select(EmailVerification).where(
+                        EmailVerification.email == email, EmailVerification.purpose == "register"
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(left) == 0
 
 
@@ -116,17 +124,17 @@ async def test_register_duplicate_email_rejected(env) -> None:
 
 async def test_register_weak_password_rejected(env) -> None:
     client = env["client"]
-    # 1. Слишком короткий пароль (< 6 символов) отсекается Pydantic (422)
+    # 1. Слишком короткий пароль (< 8 символов) отсекается Pydantic (422)
     res_short = await client.post(
         "/api/auth/register/send-code",
-        json={"email": "weak@studio.local", "password": "123"},
+        json={"email": "weak@studio.local", "password": "1234567"},
     )
     assert res_short.status_code == 422
 
     # 2. Пароль из списка запрещенных отсекается assert_strong (400)
     res_weak = await client.post(
         "/api/auth/register/send-code",
-        json={"email": "weak@studio.local", "password": "123456789012"},
+        json={"email": "weak@studio.local", "password": "12345678"},
     )
     assert res_weak.status_code == 400
     assert "списках подбора" in res_weak.json()["detail"]
