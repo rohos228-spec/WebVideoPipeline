@@ -60,6 +60,12 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/auth/status",
         # Вход. Без него в систему нечем попасть.
         "/api/auth/login",
+        # Регистрация и подтверждение почты
+        "/api/auth/register/send-code",
+        "/api/auth/register/confirm",
+        # Сброс пароля
+        "/api/auth/reset-password/send-code",
+        "/api/auth/reset-password/confirm",
     }
 )
 

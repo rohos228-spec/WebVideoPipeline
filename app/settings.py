@@ -502,6 +502,16 @@ class Settings(BaseSettings):
     # данные, заведённые в Excel до перехода, не пропали.
     xlsx_write: bool | None = Field(None, alias="XLSX_WRITE")
 
+    # ── Почтовый шлюз (SMTP) ─────────────────────────────────────────────
+    # Для отправки одноразовых кодов регистрации и сброса паролей.
+    # Если не задано — работает в режиме разработки (печать кодов в лог).
+    smtp_host: str = Field("", alias="SMTP_HOST")
+    smtp_port: int = Field(465, alias="SMTP_PORT")
+    smtp_user: str = Field("", alias="SMTP_USER")
+    smtp_password: str = Field("", alias="SMTP_PASSWORD")
+    smtp_from: str = Field("", alias="SMTP_FROM")
+    smtp_ssl: bool = Field(True, alias="SMTP_SSL")
+
     @model_validator(mode="after")
     def _resolve_paths_from_repo_root(self) -> "Settings":
         object.__setattr__(self, "sqlite_path", resolve_project_path(self.sqlite_path))
@@ -598,6 +608,11 @@ class Settings(BaseSettings):
         Это состояние сегодняшней установки, и ломать его незачем.
         """
         return bool(self.studio_session_secret.strip())
+
+    @property
+    def smtp_configured(self) -> bool:
+        """Настроен ли реальный SMTP-транспорт."""
+        return bool(self.smtp_host.strip() and self.smtp_user.strip())
 
 
 settings = Settings()  # type: ignore[call-arg]

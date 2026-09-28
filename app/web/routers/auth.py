@@ -62,6 +62,29 @@ class PasswordBody(BaseModel):
     new_password: str = Field(min_length=1, max_length=1024)
 
 
+class RegisterSendCodeBody(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+    password: str = Field(min_length=6, max_length=1024)
+    display_name: str = Field(default="", max_length=120)
+
+
+class RegisterConfirmBody(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+    code: str = Field(min_length=4, max_length=16)
+    password: str = Field(min_length=6, max_length=1024)
+    display_name: str = Field(default="", max_length=120)
+
+
+class ResetSendCodeBody(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+
+
+class ResetConfirmBody(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+    code: str = Field(min_length=4, max_length=16)
+    new_password: str = Field(min_length=6, max_length=1024)
+
+
 def _locked(email: str) -> int:
     """Сколько секунд ещё блокирован адрес. Ноль — не блокирован."""
     count, last = _FAILURES.get(email, (0, 0.0))
@@ -195,6 +218,173 @@ async def change_password(
     return {"ok": True, "token": token, "revoked_others": True}
 
 
+@router.post("/register/send-code")
+async def register_send_code(
+    body: RegisterSendCodeBody,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Проверить доступность email и стойкость пароля, отправить проверочный код."""
+    from app.services import email_service, passwords, studio_users, verification_codes
+
+    if not settings.accounts_enabled:
+        raise HTTPException(status_code=410, detail="Учётные записи отключены")
+
+    email = studio_users.normalize_email(body.email)
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Некорректный адрес электронной почты")
+
+    existing = await studio_users.find_by_email(session, email)
+    if existing is not None and existing.is_active:
+        raise HTTPException(status_code=400, detail="Учётная запись с таким адресом уже зарегистрирована")
+
+    try:
+        passwords.assert_strong(body.password)
+    except passwords.WeakPasswordError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        code = await verification_codes.issue_code(session, email, purpose="register")
+    except verification_codes.RateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+    sent = await email_service.send_verification_code(email, code, purpose="register")
+    await session.commit()
+
+    if not sent and settings.smtp_configured:
+        raise HTTPException(status_code=502, detail="Не удалось отправить письмо с кодом. Попробуйте позже.")
+
+    return {
+        "ok": True,
+        "email": email,
+        "message": "Проверочный код отправлен на почту",
+    }
+
+
+@router.post("/register/confirm")
+async def register_confirm(
+    body: RegisterConfirmBody,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Проверить проверочный код и завершить регистрацию аккаунта."""
+    from app.services import studio_users, verification_codes
+    from app.services.studio_auth import ROLE_MEMBER, identity_of, issue_token
+
+    if not settings.accounts_enabled:
+        raise HTTPException(status_code=410, detail="Учётные записи отключены")
+
+    email = studio_users.normalize_email(body.email)
+
+    try:
+        await verification_codes.verify_code(session, email, body.code, purpose="register")
+    except verification_codes.VerificationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    existing = await studio_users.find_by_email(session, email)
+    if existing is not None and existing.is_active:
+        raise HTTPException(status_code=400, detail="Учётная запись с таким адресом уже зарегистрирована")
+
+    try:
+        user = await studio_users.create_user(
+            session,
+            email=email,
+            password=body.password,
+            role=ROLE_MEMBER,
+            display_name=body.display_name,
+        )
+    except studio_users.UserError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    await session.commit()
+
+    token = issue_token(identity_of(user))
+    _set_cookie(response, token)
+    return {
+        "ok": True,
+        "token": token,
+        "email": user.email,
+        "role": user.role,
+        "expires_in": max(1, int(settings.session_ttl_hours)) * 3600,
+    }
+
+
+@router.post("/reset-password/send-code")
+async def reset_password_send_code(
+    body: ResetSendCodeBody,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Отправить код сброса пароля.
+
+    Если аккаунт не существует, намеренно не отдаём 404 во избежание сбора базы адресов.
+    """
+    from app.services import email_service, studio_users, verification_codes
+
+    if not settings.accounts_enabled:
+        raise HTTPException(status_code=410, detail="Учётные записи отключены")
+
+    email = studio_users.normalize_email(body.email)
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Некорректный адрес электронной почты")
+
+    user = await studio_users.find_by_email(session, email)
+    if user is not None and user.is_active:
+        try:
+            code = await verification_codes.issue_code(session, email, purpose="reset_password")
+            await email_service.send_verification_code(email, code, purpose="reset_password")
+            await session.commit()
+        except verification_codes.RateLimitError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+    return {
+        "ok": True,
+        "email": email,
+        "message": "Если учётная запись существует, код отправлен на почту",
+    }
+
+
+@router.post("/reset-password/confirm")
+async def reset_password_confirm(
+    body: ResetConfirmBody,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Проверить код сброса и установить новый пароль."""
+    from app.services import passwords, studio_users, verification_codes
+    from app.services.studio_auth import identity_of, issue_token
+
+    if not settings.accounts_enabled:
+        raise HTTPException(status_code=410, detail="Учётные записи отключены")
+
+    email = studio_users.normalize_email(body.email)
+
+    try:
+        passwords.assert_strong(body.new_password)
+    except passwords.WeakPasswordError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        await verification_codes.verify_code(session, email, body.code, purpose="reset_password")
+    except verification_codes.VerificationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        user = await studio_users.reset_user_password(session, email=email, new_password=body.new_password)
+    except studio_users.UserError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    await session.commit()
+
+    token = issue_token(identity_of(user))
+    _set_cookie(response, token)
+    return {
+        "ok": True,
+        "token": token,
+        "email": user.email,
+        "role": user.role,
+        "expires_in": max(1, int(settings.session_ttl_hours)) * 3600,
+    }
+
+
 @router.get("/status")
 async def auth_status() -> dict:
     """Какой режим входа действует. Единственная ручка до токена.
@@ -206,4 +396,5 @@ async def auth_status() -> dict:
     return {
         "auth_required": settings.accounts_enabled,
         "accounts": settings.accounts_enabled,
+        "smtp_configured": settings.smtp_configured,
     }
