@@ -13,6 +13,7 @@ import type {
   MontageBoardFrame,
   MontageBoardMeta,
   MontageBoardParentRef,
+  MontageImproveReport,
   MontageRefAsset,
   GenerationConfigPreset,
   GenerationConfigPresetSettings,
@@ -1258,6 +1259,29 @@ export const api = {
       }),
     }),
 
+  splitMontageScene: (
+    projectId: number,
+    frameId: number,
+    explode = false,
+    frameIds?: number[],
+  ) =>
+    http<{
+      ok: boolean;
+      scenes?: number;
+      parent_number?: number;
+      left_number?: number;
+      right_number?: number;
+      left_size?: number;
+      right_size?: number;
+    }>(`/api/projects/${projectId}/montage-board/scenes/split`, {
+      method: "POST",
+      body: JSON.stringify({
+        frame_id: frameId,
+        all: explode,
+        ...(frameIds?.length ? { frame_ids: frameIds } : {}),
+      }),
+    }),
+
   insertMontageFrame: (
     projectId: number,
     afterFrameId: number | null,
@@ -1298,6 +1322,98 @@ export const api = {
       `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-variants`,
       { method: "POST", body: JSON.stringify(body) },
       240_000,
+    ),
+
+  generateSceneAction: (
+    projectId: number,
+    frameId: number,
+    body: {
+      prompt?: string;
+      replace_ns?: number[];
+      passport?: Record<string, string>;
+    },
+  ) =>
+    http<{
+      ok: boolean;
+      frame_id: number;
+      frame_number: number;
+      replace_ns: number[];
+      chain: string;
+      shots?: number;
+      skipped_shots?: number;
+      inserted_frames?: number;
+      frame_numbers?: number[];
+    }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-action-generate`,
+      { method: "POST", body: JSON.stringify(body) },
+      240_000,
+    ),
+
+  generateSceneWithImages: (
+    projectId: number,
+    frameId: number,
+    body: {
+      prompt?: string;
+      passport?: Record<string, string>;
+      frame_ids?: number[];
+      mode?: string;
+    },
+  ) =>
+    http<{
+      ok: boolean;
+      started?: boolean;
+      already_running?: boolean;
+      frame_id?: number;
+      frame_number?: number;
+      chain?: string;
+      shots?: number;
+      skipped_shots?: number;
+      inserted_frames?: number;
+      images?: number;
+      fallback?: boolean;
+      generate_error?: string;
+      message?: string;
+      mode?: string;
+      job?: { status?: string; total_ops?: number };
+    }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-generate-with-images`,
+      { method: "POST", body: JSON.stringify(body) },
+      300_000,
+    ),
+
+  improveScene: (
+    projectId: number,
+    frameId: number,
+    body: {
+      prompt?: string;
+      passport?: Record<string, string>;
+      frame_ids?: number[];
+      /** Якоря с доски. В 3-нодный прогон не входят. */
+      anchors?: { "якорь": string; "изменение"?: string; "главный"?: boolean }[];
+    },
+  ) =>
+    http<{
+      ok: boolean;
+      started?: boolean;
+      already_running?: boolean;
+      frame_id?: number;
+      frame_number?: number;
+      chain?: string;
+      shots?: number;
+      skipped_shots?: number;
+      inserted_frames?: number;
+      images?: number;
+      fallback?: boolean;
+      generate_error?: string;
+      message?: string;
+      mode?: string;
+      job?: { status?: string; total_ops?: number };
+      improve_report?: MontageImproveReport;
+      image_ops?: MontagePendingOp[];
+    }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-improve`,
+      { method: "POST", body: JSON.stringify(body) },
+      900_000,
     ),
 
   deleteMontageFrame: (projectId: number, frameId: number) =>
@@ -2283,6 +2399,8 @@ export const api = {
       : "";
     return `/api/projects/${projectId}/xlsx${q}`;
   },
+  projectShotsReportUrl: (projectId: number) =>
+    `/api/projects/${projectId}/shots-report`,
   reloadProjectXlsx: (projectId: number) =>
     http<ProjectDetail>(`/api/projects/${projectId}/xlsx/reload`, { method: "POST" }),
   uploadProjectXlsx: async (

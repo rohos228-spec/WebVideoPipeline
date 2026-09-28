@@ -325,6 +325,35 @@ export interface MontageAnchorRow {
   frame_number?: number | null;
 }
 
+export interface MontageSceneChainRow {
+  n: number;
+  place?: string;
+  action?: string;
+  vo?: string;
+}
+
+export interface MontageImproveReport {
+  nodes: { node: string; label: string; status: string; note: string }[];
+  budget?: number;
+  anchors?: { n: number; "якорь": string; "закадр": string; "бюджет"?: number }[];
+  shots: {
+    "порядок"?: number;
+    "якорь_n"?: number;
+    "зона"?: string;
+    "роль"?: string;
+    "действие"?: string;
+    "объект"?: string;
+    "план"?: string;
+    "ракурс"?: string;
+    "движение"?: string;
+    "стык"?: string;
+    "закадр"?: string;
+  }[];
+  passport?: Record<string, string>;
+  passport_changed?: string[];
+  warnings?: string[];
+}
+
 export interface MontageBoardFrame {
   frame_id: number;
   number: number;
@@ -343,6 +372,10 @@ export interface MontageBoardFrame {
   end_ts: number | null;
   duration_seconds: number | null;
   has_shot2: boolean;
+  /** Freeze СТАРТ/КОНЕЦ: колонка конечного still, даже без PNG. */
+  has_end_still?: boolean;
+  layout_start?: string;
+  layout_end?: string;
   shot1_use_seconds: number | null;
   shot2_use_seconds: number | null;
   shot1_timeline_start: number | null;
@@ -353,6 +386,8 @@ export interface MontageBoardFrame {
   video_shot2_duration: number | null;
   image_shot1_url: string | null;
   image_shot2_url: string | null;
+  /** Отдельный still общего плана, не исходный shot1. */
+  image_parent_url?: string | null;
   video_shot1_url: string | null;
   video_shot2_url: string | null;
   /** Промт исходного изображения / видео (Excel → Frame), для модалки редактирования. */
@@ -386,6 +421,16 @@ export interface MontageBoardFrame {
   scene_anchor_rows?: MontageAnchorRow[];
   /** Полный закадр VO-ячейки (сцены). */
   vo_cell_full?: string;
+  /** Сохранённый кусок закадра — полный текст сцены при перегенерации. */
+  vo_span?: { start: number; end: number; text: string } | null;
+  /** Неиспользованный закадр до этой сцены (общий с «после» предыдущей). */
+  vo_unused_before?: string;
+  /** Неиспользованный закадр после этой сцены (общий с «до» следующей). */
+  vo_unused_after?: string;
+  /** Куски закадра ячейки, пропущенные между кадрами. */
+  vo_unused_between?: string[];
+  /** Номер последнего живого кадра с закадром до обрыва. */
+  vo_unused_after_number?: number | null;
   shot_angle?: string;
   shot_move?: string;
   shot_stitch?: string;
@@ -406,9 +451,13 @@ export interface MontageBoardFrame {
   scene_template_auto?: string;
   /** Последовательность кадров сцены (действие → действие) — на всю VO-ячейку. */
   scene_action?: string;
+  /** Нумерованные сцены ``N.`` внутри VO-ячейки (куски для пересборки). */
+  scene_chain?: MontageSceneChainRow[];
   /** Номер VO-родителя ячейки (сцена). Не coverage_parent_id / X1. */
   vo_scene_number?: number | null;
   vo_scene_size?: number;
+  /** leftover-клей (не живой шот). Живых детей не режем по scene_chain.length. */
+  shot_leftover?: boolean;
 }
 
 export interface MontageBoardMeta {
