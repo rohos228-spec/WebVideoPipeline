@@ -72,7 +72,7 @@ def test_unicode_normalization_makes_one_password_one_hash() -> None:
 
 def test_short_password_is_refused() -> None:
     with pytest.raises(passwords.WeakPasswordError, match="короче"):
-        passwords.assert_strong("korotkiy1")
+        passwords.assert_strong("korotk1")
 
 
 def test_absurdly_long_password_is_refused() -> None:

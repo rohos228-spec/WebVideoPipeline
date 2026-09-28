@@ -64,14 +64,14 @@ class PasswordBody(BaseModel):
 
 class RegisterSendCodeBody(BaseModel):
     email: str = Field(min_length=3, max_length=200)
-    password: str = Field(min_length=6, max_length=1024)
+    password: str = Field(min_length=8, max_length=1024)
     display_name: str = Field(default="", max_length=120)
 
 
 class RegisterConfirmBody(BaseModel):
     email: str = Field(min_length=3, max_length=200)
     code: str = Field(min_length=4, max_length=16)
-    password: str = Field(min_length=6, max_length=1024)
+    password: str = Field(min_length=8, max_length=1024)
     display_name: str = Field(default="", max_length=120)
 
 
@@ -82,7 +82,7 @@ class ResetSendCodeBody(BaseModel):
 class ResetConfirmBody(BaseModel):
     email: str = Field(min_length=3, max_length=200)
     code: str = Field(min_length=4, max_length=16)
-    new_password: str = Field(min_length=6, max_length=1024)
+    new_password: str = Field(min_length=8, max_length=1024)
 
 
 def _locked(email: str) -> int:

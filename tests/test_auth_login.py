@@ -207,7 +207,7 @@ async def test_password_change_requires_the_current_one(env) -> None:
 async def test_password_change_refuses_a_weak_new_password(env) -> None:
     res = await env["client"].post(
         "/api/auth/password",
-        json={"current_password": ah.PASSWORD, "new_password": "korotko1"},
+        json={"current_password": ah.PASSWORD, "new_password": "korotk1"},
         headers=env["member"].auth,
     )
     assert res.status_code == 400
