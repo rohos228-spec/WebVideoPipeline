@@ -86,9 +86,10 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.mypy]
-# SQLAlchemy 2.0 mypy plugin — без него AsyncSession.* методы (sync/async)
-# неразличимы и mypy ругается «unused-coroutine» на session.delete(obj).
-plugins = ["sqlalchemy.ext.mypy.plugin"]
+# W1: AsyncSession stubs не различают sync/async методы — false positive
+# на session.delete(obj), session.expire(obj), session.expunge(obj) и т.п.
+# Реальный код корректен (метод sync, не await). 6 вхождений — слишком
+# шумно для per-line ignore, отключаем до фикса stubs.
 ignore_missing_imports = true
 warn_unused_configs = false
 warn_redundant_casts = true
