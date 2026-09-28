@@ -88,6 +88,36 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  app-v2:
+    image: ${STUDIO_V2_IMAGE:-ghcr.io/rohos228-spec/webvideopipeline:v2}
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-./env.v2}
+    environment:
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: "8766"
+      SESSION_COOKIE_SECURE: "true"
+      TELEGRAM_ENABLED: "false"
+      FLEET_NODE_NAME: studio-v2
+    volumes:
+      - ${POSTGRES_SOCKET_DIR:-/var/run/postgresql}:/var/run/postgresql
+      - app-data-v2:/app/data
+      - app-logs-v2:/app/logs
+      - ./prompts:/app/prompts:ro
+    expose:
+      - "8766"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8766/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
   proxy:
     # Профиль, а не обычная служба: на хосте уже может стоять свой обратный
     # прокси. Так и вышло на боевом VPS — там с 2026-08 живёт `gpt-relay`,
@@ -123,5 +153,7 @@ services:
 volumes:
   app-data:
   app-logs:
+  app-data-v2:
+  app-logs-v2:
   caddy-data:
   caddy-config:
