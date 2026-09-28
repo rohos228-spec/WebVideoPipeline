@@ -9,9 +9,12 @@ from pathlib import Path
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
+    DateTime,
     Enum,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -1227,9 +1230,33 @@ class StudioUser(Base):
     # утечка пароля не закрывают доступ до конца срока токена. Счётчик едет в
     # токен и сверяется на каждом запросе (`studio_auth`).
     token_epoch: Mapped[int] = mapped_column(default=0)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    vk_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True, default=None)
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
     last_login_at: Mapped[datetime | None] = mapped_column(default=None)
+
+    @validates("email")
+    def _normalize_email(self, _key: str, value: str) -> str:
+        return (value or "").strip().lower()
+
+
+class EmailVerification(Base):
+    """Одноразовый проверочный код на почту (OTP).
+
+    Хранит SHA-256 хеш кода, срок действия и число попыток.
+    """
+
+    __tablename__ = "email_verifications"
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    email: Mapped[str] = mapped_column(String(200), index=True)
+    code_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    # register | reset_password
+    purpose: Mapped[str] = mapped_column(String(32), default="register")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     @validates("email")
     def _normalize_email(self, _key: str, value: str) -> str:

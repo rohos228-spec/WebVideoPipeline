@@ -245,6 +245,14 @@ export const api = {
 
   authStatus: () => req<AuthStatus>("/auth/status"),
   login: (email: string, password: string) => post<LoginResult>("/auth/login", { email, password }),
+  registerSendCode: (body: { email: string; password: string; display_name?: string }) =>
+    post<{ ok: boolean; email: string; message: string }>("/auth/register/send-code", body),
+  registerConfirm: (body: { email: string; code: string; password: string; display_name?: string }) =>
+    post<LoginResult>("/auth/register/confirm", body),
+  resetPasswordSendCode: (body: { email: string }) =>
+    post<{ ok: boolean; email: string; message: string }>("/auth/reset-password/send-code", body),
+  resetPasswordConfirm: (body: { email: string; code: string; new_password: string }) =>
+    post<LoginResult>("/auth/reset-password/confirm", body),
   logout: async () => {
     await post<unknown>("/auth/logout");
     forgetToken();

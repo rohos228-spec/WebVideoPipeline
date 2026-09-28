@@ -82,6 +82,7 @@ async def create_user(
         display_name=(display_name or "").strip(),
         is_active=True,
         token_epoch=0,
+        email_verified=True,
     )
     session.add(user)
     # flush, а не commit: вызывающий решает границу транзакции. Но id нужен
@@ -244,3 +245,18 @@ def forget_admin_cache(tenant_id: str | None = None) -> None:
         _ADMIN_CACHE.clear()
     else:
         _ADMIN_CACHE.pop(tenant_id, None)
+
+
+async def reset_user_password(
+    session: Any,
+    *,
+    email: str,
+    new_password: str,
+) -> StudioUser:
+    """Сбросить пароль пользователя по подтверждённому адресу email."""
+    addr = normalize_email(email)
+    user = await find_by_email(session, addr)
+    if user is None:
+        raise UserError("Пользователь с таким адресом не найден")
+    await set_password(session, user, new_password)
+    return user

@@ -139,6 +139,7 @@ export interface Balance {
 export interface AuthStatus {
   auth_required: boolean;
   accounts: boolean;
+  smtp_configured?: boolean;
 }
 
 export interface LoginResult {
