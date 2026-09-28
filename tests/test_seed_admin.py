@@ -142,7 +142,7 @@ async def test_given_password_is_not_printed(env, capsys) -> None:
 
 async def test_weak_given_password_is_refused(env, capsys) -> None:
     code = await seed_admin.run(
-        seed_admin.parse_args(["--email", "boss@studio.local", "--password", "korotko1"])
+        seed_admin.parse_args(["--email", "boss@studio.local", "--password", "korotk1"])
     )
     assert code == 1
     assert "короче" in capsys.readouterr().err
@@ -250,7 +250,7 @@ async def test_weak_password_on_reset_is_refused(env, capsys) -> None:
     capsys.readouterr()
 
     code = await seed_admin.run(
-        seed_admin.parse_args(["--email", "boss@studio.local", "--reset-password", "--password", "korotko1"])
+        seed_admin.parse_args(["--email", "boss@studio.local", "--reset-password", "--password", "korotk1"])
     )
     assert code == 1
     assert "короче" in capsys.readouterr().err
