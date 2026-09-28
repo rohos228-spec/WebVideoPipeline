@@ -65,6 +65,3 @@ acd8ff33b4a9f42b79848540c136efce3697cb86:tests/test_billing_hook.py:generic-api-
 3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:322
 3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:335
 3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:348
-
-# 2026-09-27 перенос монтажа housepc v604 (d759958): в артефакте сборки Next.js (web/out) имена моделей kling и демо-ключ кадра shot01_id_scene ложно приняты за generic-api-key.
-d759958fbef64fa9774acee4dfd6fb0a7951cef2:web/out/_next/static/chunks/app/page-5e89da00507cddd6.js:generic-api-key:1
