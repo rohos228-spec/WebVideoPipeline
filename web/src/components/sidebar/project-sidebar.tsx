@@ -16,6 +16,7 @@ import {
   ListVideo,
   GripVertical,
   Pencil,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
@@ -595,6 +596,18 @@ export function ProjectSidebar({
             className="h-9.5 rounded-xl border-zinc-800 bg-zinc-950/70 pl-9.5 text-xs font-medium text-zinc-100 placeholder:text-zinc-400 focus-visible:ring-1 focus-visible:ring-zinc-600"
           />
         </div>
+      </div>
+
+      <div className="border-b border-white/[0.06] bg-zinc-900/40 px-3 py-1.5 flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-zinc-400">Пайплайн: Классический (v1)</span>
+        <a
+          href="https://v2.studio.zukiemi.space"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold bg-cyan-950/70 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-900/80 transition-all shadow-sm"
+          title="Переключиться на сценарный монтаж (v2)"
+        >
+          <span>Монтаж v2</span>
+          <ExternalLink className="h-2.5 w-2.5" />
+        </a>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">

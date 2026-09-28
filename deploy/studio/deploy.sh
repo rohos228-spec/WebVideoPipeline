@@ -45,12 +45,11 @@ BACKUP_DIR="backups"
 die() { echo "деплой: $*" >&2; exit 1; }
 
 require_env_file() {
-  [ -f ./env ] || die "нет файла ./env — скопируйте env.template и заполните"
-  # 0600: в файле секрет подписи сессий и ключи провайдеров. Файл, который
-  # читает кто угодно на машине, — это те же секреты, только с лишним шагом.
+  local target="${1:-./env}"
+  [ -f "$target" ] || die "нет файла $target — скопируйте env.template и заполните"
   local mode
-  mode=$(stat -c '%a' ./env)
-  [ "$mode" = "600" ] || die "./env с правами $mode — нужно 600 (chmod 600 env)"
+  mode=$(stat -c '%a' "$target")
+  [ "$mode" = "600" ] || die "$target с правами $mode — нужно 600 (chmod 600 $target)"
 }
 
 require_prompts() {
@@ -67,67 +66,71 @@ require_prompts() {
 }
 
 cmd_deploy() {
-  require_env_file
+  local target="${1:-app}"
+  local env_file="./env"
+  local svc="app"
+  local container="studio-app-1"
+  local img="${STUDIO_IMAGE:-}"
+  local last_file="$LAST_IMAGE_FILE"
+
+  if [ "$target" = "v2" ]; then
+    env_file="./env.v2"
+    svc="app-v2"
+    container="studio-app-v2-1"
+    img="${STUDIO_V2_IMAGE:-}"
+    last_file=".last-image-v2"
+  fi
+
+  require_env_file "$env_file"
   require_prompts
 
-  local image="${STUDIO_IMAGE:-}"
-  if [ -n "$image" ]; then
-    export STUDIO_IMAGE="$image"
-    echo "деплой: образ $image"
+  if [ -n "$img" ]; then
+    if [ "$target" = "v2" ]; then
+      export STUDIO_V2_IMAGE="$img"
+    else
+      export STUDIO_IMAGE="$img"
+    fi
+    echo "деплой ($svc): образ $img"
   else
-    echo "деплой: STUDIO_IMAGE не задан — берём то, что в compose"
+    echo "деплой ($svc): переменная не задана — берём то, что в compose"
   fi
 
   # Что работает сейчас — чтобы было куда откатиться.
   local previous
-  previous=$(docker inspect --format '{{.Image}}' studio-app-1 2>/dev/null || true)
+  previous=$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null || true)
 
-  # База живёт на ХОСТЕ, и `depends_on: service_healthy` её больше не ждёт.
-  # Поднимать приложение против неотвечающей базы можно (его перезапустит
-  # restart-политика), но тогда «деплой не удался» скажет healthcheck через две
-  # минуты вместо внятной строки здесь.
-  db_conn
+  db_conn "$env_file"
   if ! PGPASSWORD="$DB_PASS" pg_isready -h "$DB_SOCK" -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
     die "Postgres на хосте не отвечает ($DB_SOCK). Проверьте: systemctl status postgresql"
   fi
-  echo "деплой: база отвечает ($DB_NAME на $DB_SOCK)"
+  echo "деплой ($svc): база отвечает ($DB_NAME на $DB_SOCK)"
 
-  echo "деплой: бэкап базы"
-  cmd_backup
+  echo "деплой ($svc): бэкап базы"
+  cmd_backup "$env_file"
 
-  echo "деплой: тянем образы"
-  "${COMPOSE[@]}" pull --quiet
+  echo "деплой ($svc): тянем образы"
+  docker compose --env-file "$env_file" pull --quiet "$svc"
 
-  echo "деплой: поднимаем"
-  # --wait: команда возвращается, только когда healthcheck прошёл. Без него
-  # «деплой прошёл» означает «docker принял команду», а упало оно или нет —
-  # выяснится от оператора.
-  if ! "${COMPOSE[@]}" up -d --remove-orphans --wait --wait-timeout 180; then
-    echo "деплой: контейнер не стал здоровым — журнал ниже" >&2
-    "${COMPOSE[@]}" logs --tail 80 app >&2
-    die "выкладка не удалась; откат: ./deploy.sh rollback"
+  echo "деплой ($svc): поднимаем"
+  if ! docker compose --env-file "$env_file" up -d --remove-orphans --wait --wait-timeout 180 "$svc"; then
+    echo "деплой ($svc): контейнер не стал здоровым — журнал ниже" >&2
+    docker compose --env-file "$env_file" logs --tail 80 "$svc" >&2
+    die "выкладка $svc не удалась; откат: ./deploy.sh rollback $target"
   fi
 
-  # Тег `:latest` на хосте выкладка не трогает — она тянет по дайджесту, и
-  # локальный `latest` остаётся тем, что притащили когда-то давно. Ручной
-  # `docker compose up -d` без STUDIO_IMAGE берёт `latest` из compose и
-  # молча откатывает на старый образ: 2026-08-26 так поднялся контейнер без
-  # миграции 0013 и ушёл в crash-loop. Тегаем выложенный дайджест, чтобы
-  # «latest» на хосте значило «выложенное», а не «когда-то скачанное».
-  if [ -n "${STUDIO_IMAGE:-}" ] && [[ "$STUDIO_IMAGE" == *@sha256:* ]]; then
-    docker tag "$STUDIO_IMAGE" "${STUDIO_IMAGE%@*}:latest" \
-      || echo "деплой: тег latest не обновлён (не критично)" >&2
+  if [ -n "$img" ] && [[ "$img" == *@sha256:* ]]; then
+    local tag_name="latest"
+    [ "$target" = "v2" ] && tag_name="v2"
+    docker tag "$img" "${img%@*}:$tag_name" \
+      || echo "деплой: тег $tag_name не обновлён (не критично)" >&2
   fi
 
-  # Именно `if`, а не `[ … ] && …`: под `set -e` неуспешная проверка в конце
-  # блока завершает скрипт с кодом 1. На ПЕРВОМ деплое предыдущего образа нет,
-  # и выкладка сообщала бы об ошибке сразу после успешного подъёма.
   if [ -n "$previous" ]; then
-    echo "$previous" > "$LAST_IMAGE_FILE"
+    echo "$previous" > "$last_file"
   fi
 
-  echo "деплой: готово"
-  "${COMPOSE[@]}" ps
+  echo "деплой ($svc): готово"
+  docker compose --env-file "$env_file" ps "$svc"
 }
 
 # Разбирает DATABASE_URL из ./env на части для pg_dump.
@@ -136,13 +139,14 @@ cmd_deploy() {
 # вариант: если строка подключения врёт, бэкап обязан упасть здесь, а не
 # выясниться в момент восстановления.
 db_conn() {
+  local target_env="${1:-./env}"
   # ./env заполняет оператор, в git его нет — статически проверять нечего.
   set -a
-  # shellcheck disable=SC1091
-  . ./env 2>/dev/null || true
+  # shellcheck disable=SC1090
+  . "$target_env" 2>/dev/null || true
   set +a
 
-  [ -n "${DATABASE_URL:-}" ] || die "в ./env нет DATABASE_URL"
+  [ -n "${DATABASE_URL:-}" ] || die "в $target_env нет DATABASE_URL"
 
   # postgresql+asyncpg://user:pass@/dbname?host=/var/run/postgresql
   #
@@ -166,6 +170,7 @@ db_conn() {
 }
 
 cmd_backup() {
+  local target_env="${1:-./env}"
   # 0700/0600 с самого начала. Дамп — это ВСЯ база: промт-библиотека, проекты,
   # хеши паролей. Права по умолчанию (0644) отдают его любому пользователю
   # системы, а замечают это, когда пользователь уже появился.
@@ -176,7 +181,7 @@ cmd_backup() {
   stamp=$(date +%Y%m%d-%H%M%S)
   file="$BACKUP_DIR/db-$stamp.sql.gz"
 
-  db_conn
+  db_conn "$target_env"
 
   if ! command -v pg_dump >/dev/null 2>&1; then
     die "нет pg_dump на хосте — база стоит здесь же, ставьте postgresql-client"
@@ -229,47 +234,79 @@ EOM
 }
 
 cmd_rollback() {
-  [ -f "$LAST_IMAGE_FILE" ] || die "нет $LAST_IMAGE_FILE — откатываться некуда"
+  local target="${1:-app}"
+  local env_file="./env"
+  local svc="app"
+  local last_file="$LAST_IMAGE_FILE"
+
+  if [ "$target" = "v2" ]; then
+    env_file="./env.v2"
+    svc="app-v2"
+    last_file=".last-image-v2"
+  fi
+
+  require_env_file "$env_file"
+  [ -f "$last_file" ] || die "нет $last_file — откатываться некуда"
   local previous
-  previous=$(cat "$LAST_IMAGE_FILE")
-  echo "деплой: откат на $previous"
-  echo "деплой: ВНИМАНИЕ — схему базы откат не трогает. Если проблема в"
+  previous=$(cat "$last_file")
+  echo "деплой ($svc): откат на $previous"
+  echo "деплой ($svc): ВНИМАНИЕ — схему базы откат не трогает. Если проблема в"
   echo "        миграции, восстанавливайте из $BACKUP_DIR."
-  STUDIO_IMAGE="$previous" "${COMPOSE[@]}" up -d --wait --wait-timeout 180
-  "${COMPOSE[@]}" ps
+  if [ "$target" = "v2" ]; then
+    STUDIO_V2_IMAGE="$previous" docker compose --env-file "$env_file" up -d --wait --wait-timeout 180 "$svc"
+  else
+    STUDIO_IMAGE="$previous" docker compose --env-file "$env_file" up -d --wait --wait-timeout 180 "$svc"
+  fi
+  docker compose --env-file "$env_file" ps "$svc"
 }
 
 cmd_admin() {
-  require_env_file
-  echo "деплой: заводим администратора студии"
+  local svc="app"
+  local env_file="./env"
+  if [ "${1:-}" = "v2" ]; then
+    svc="app-v2"
+    env_file="./env.v2"
+    shift
+  fi
+  require_env_file "$env_file"
+  echo "деплой ($svc): заводим администратора студии"
   # Пароль печатается ОДИН раз и нигде не сохраняется — в базе argon2id-хеш.
-  "${COMPOSE[@]}" exec app python -m app.seed_admin "$@"
+  docker compose --env-file "$env_file" exec "$svc" python -m app.seed_admin "$@"
 }
 
 cmd_status() {
   "${COMPOSE[@]}" ps
   echo
-  echo "образ приложения: $(docker inspect --format '{{index .Config.Image}}' studio-app-1 2>/dev/null || echo '—')"
-  echo "здоровье:        $(docker inspect --format '{{.State.Health.Status}}' studio-app-1 2>/dev/null || echo '—')"
+  echo "образ приложения v1: $(docker inspect --format '{{index .Config.Image}}' studio-app-1 2>/dev/null || echo '—')"
+  echo "здоровье v1:        $(docker inspect --format '{{.State.Health.Status}}' studio-app-1 2>/dev/null || echo '—')"
+  echo "образ приложения v2: $(docker inspect --format '{{index .Config.Image}}' studio-app-v2-1 2>/dev/null || echo '—')"
+  echo "здоровье v2:        $(docker inspect --format '{{.State.Health.Status}}' studio-app-v2-1 2>/dev/null || echo '—')"
   if [ -f "$LAST_IMAGE_FILE" ]; then
-    echo "откат на:        $(cat "$LAST_IMAGE_FILE")"
+    echo "откат v1 на:        $(cat "$LAST_IMAGE_FILE")"
+  fi
+  if [ -f ".last-image-v2" ]; then
+    echo "откат v2 на:        $(cat ".last-image-v2")"
   fi
   echo
   if db_conn 2>/dev/null && PGPASSWORD="$DB_PASS" pg_isready -h "$DB_SOCK" -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
-    echo "база (хост):     $DB_NAME на $DB_SOCK — отвечает"
+    echo "база v1 (хост):     $DB_NAME на $DB_SOCK — отвечает"
   else
-    echo "база (хост):     НЕ ОТВЕЧАЕТ — systemctl status postgresql"
+    echo "база v1 (хост):     НЕ ОТВЕЧАЕТ — systemctl status postgresql"
+  fi
+  if db_conn ./env.v2 2>/dev/null && PGPASSWORD="$DB_PASS" pg_isready -h "$DB_SOCK" -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
+    echo "база v2 (хост):     $DB_NAME на $DB_SOCK — отвечает"
   fi
   echo
   df -h /var/lib/docker 2>/dev/null | tail -1 || true
 }
 
 case "${1:-deploy}" in
-  deploy|"")   cmd_deploy ;;
-  backup)      cmd_backup ;;
-  rollback)    cmd_rollback ;;
+  deploy|"")   cmd_deploy "${2:-app}" ;;
+  v2)          cmd_deploy v2 ;;
+  backup)      cmd_backup "${2:-./env}" ;;
+  rollback)    cmd_rollback "${2:-app}" ;;
   admin)       shift; cmd_admin "$@" ;;
   status)      cmd_status ;;
-  logs)        shift; "${COMPOSE[@]}" logs -f --tail 200 "${@:-app}" ;;
-  *)           die "неизвестная команда ${1}; есть: deploy, backup, rollback, admin, status, logs" ;;
+  logs)        shift; docker compose --env-file ./env logs -f --tail 200 "${@:-app}" ;;
+  *)           die "неизвестная команда ${1}; есть: deploy, v2, backup, rollback, admin, status, logs" ;;
 esac
