@@ -502,15 +502,20 @@ class Settings(BaseSettings):
     # данные, заведённые в Excel до перехода, не пропали.
     xlsx_write: bool | None = Field(None, alias="XLSX_WRITE")
 
-    # ── Почтовый шлюз (SMTP) ─────────────────────────────────────────────
+    # ── Почтовый шлюз (Resend HTTPS API / SMTP) ──────────────────────────
     # Для отправки одноразовых кодов регистрации и сброса паролей.
-    # Если не задано — работает в режиме разработки (печать кодов в лог).
+    # Приоритетный транспорт — Resend API (HTTPS порт 443, обходит блокировки SMTP портов 25/465/587).
+    resend_api_key: str = Field("", alias="RESEND_API_KEY")
+    resend_from: str = Field("Видеостудия <noreply@zukiemi.space>", alias="RESEND_FROM")
+
+    # Резервный/классический SMTP
     smtp_host: str = Field("", alias="SMTP_HOST")
     smtp_port: int = Field(465, alias="SMTP_PORT")
     smtp_user: str = Field("", alias="SMTP_USER")
     smtp_password: str = Field("", alias="SMTP_PASSWORD")
     smtp_from: str = Field("", alias="SMTP_FROM")
     smtp_ssl: bool = Field(True, alias="SMTP_SSL")
+
 
     @model_validator(mode="after")
     def _resolve_paths_from_repo_root(self) -> "Settings":
@@ -610,9 +615,20 @@ class Settings(BaseSettings):
         return bool(self.studio_session_secret.strip())
 
     @property
+    def resend_configured(self) -> bool:
+        """Настроен ли транспорт отправки писем через Resend HTTPS API."""
+        return bool(self.resend_api_key.strip())
+
+    @property
     def smtp_configured(self) -> bool:
         """Настроен ли реальный SMTP-транспорт."""
         return bool(self.smtp_host.strip() and self.smtp_user.strip())
+
+    @property
+    def email_transport_configured(self) -> bool:
+        """Настроен ли хотя бы один реальный транспорт отправки email (Resend или SMTP)."""
+        return self.resend_configured or self.smtp_configured
+
 
 
 settings = Settings()  # type: ignore[call-arg]
