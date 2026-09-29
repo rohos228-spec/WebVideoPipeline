@@ -71,7 +71,7 @@ export default function Page() {
   const money = balance?.unlimited
     ? "∞"
     : balance?.tenant_id
-      ? credits(balance.balance_credits)
+      ? credits(balance.balance_credits, "0,00 кр")
       : null;
 
   return (

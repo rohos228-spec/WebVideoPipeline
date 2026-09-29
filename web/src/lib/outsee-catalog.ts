@@ -154,6 +154,28 @@ export const OUTSEE_ACCENT = "#22d3ee";
  */
 export const OUTSEE_IMAGE_MODELS: OutseeImageModel[] = [
   {
+    slug: "flux-2-pro",
+    studioId: "flux_2_pro",
+    displayName: "Flux 2 Pro",
+    description: "Black Forest Labs · фотореализм нового поколения.",
+    icon: `${OUTSEE_ORIGIN}/imagemobilepreview/1.jpg`,
+    price: "от 3",
+    isTop: true,
+    chips: ["aspect", "resolution", "image-input"],
+    defaults: { aspectRatio: "16:9", imageResolution: "2K" },
+  },
+  {
+    slug: "seedream-5-pro",
+    studioId: "seedream_5_pro",
+    displayName: "ByteDance Seedream 5 Pro",
+    description: "ByteDance · кинематографичные сцены и композиции.",
+    icon: `${OUTSEE_ORIGIN}/imagemobilepreview/3.jpg`,
+    price: "от 2.5",
+    isTop: true,
+    chips: ["aspect", "resolution", "image-input"],
+    defaults: { aspectRatio: "16:9", imageResolution: "2K" },
+  },
+  {
     slug: "nano-banana-2",
     studioId: "nano_banana_2",
     displayName: "Nano Banana 2",
@@ -161,6 +183,16 @@ export const OUTSEE_IMAGE_MODELS: OutseeImageModel[] = [
     icon: `${OUTSEE_ORIGIN}/imagemobilepreview/1.jpg`,
     price: "3",
     isTop: true,
+    chips: ["aspect", "resolution", "image-input"],
+    defaults: { aspectRatio: "16:9", imageResolution: "2K" },
+  },
+  {
+    slug: "z-image",
+    studioId: "z_image",
+    displayName: "Z-Image",
+    description: "Быстрая генерация изображений высокой чёткости.",
+    icon: `${OUTSEE_ORIGIN}/imagemobilepreview/1.jpg`,
+    price: "от 1",
     chips: ["aspect", "resolution", "image-input"],
     defaults: { aspectRatio: "16:9", imageResolution: "2K" },
   },
@@ -387,8 +419,23 @@ export const OUTSEE_AUDIO_MODELS: OutseeAudioModel[] = [
  * GPT Image 2, Nano Banana 2, Veo 3.1 Lite. Остальное — секция KIE.
  * Аудио outsee не дублируем: Suno/ElevenLabs живут в KIE-секции.
  */
-const CREATE_PICKER_IMAGE_SLUGS = ["gpt-image-2", "nano-banana-2"] as const;
-const CREATE_PICKER_VIDEO_SLUGS = ["veo-3-1-lite"] as const;
+const CREATE_PICKER_IMAGE_SLUGS = [
+  "flux-2-pro",
+  "seedream-5-pro",
+  "nano-banana-2",
+  "gpt-image-2",
+  "gpt-image-2-vip",
+  "gpt-image-2.5",
+  "z-image",
+  "qwen3-image",
+] as const;
+const CREATE_PICKER_VIDEO_SLUGS = [
+  "veo-3-1-lite",
+  "kling-2-6",
+  "kling-3-0-turbo",
+  "grok-imagine-video-1.5",
+  "seedance-2-0-mini",
+] as const;
 
 export function pickerImageModels(): OutseeImageModel[] {
   const by = new Map(OUTSEE_IMAGE_MODELS.map((m) => [m.slug, m]));
