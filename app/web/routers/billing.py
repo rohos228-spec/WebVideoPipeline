@@ -289,6 +289,59 @@ async def balance(limit: int = 20, session: AsyncSession = Depends(get_session))
     )
 
 
+class RedeemCouponIn(BaseModel):
+    code: str
+
+
+class RedeemCouponOut(BaseModel):
+    ok: bool
+    code: str
+    credits_added: int
+    balance_micro: int
+    balance_credits: str
+    message: str
+
+
+@router.post("/billing/coupons/redeem", response_model=RedeemCouponOut)
+async def redeem_coupon_endpoint(
+    body: RedeemCouponIn,
+    session: AsyncSession = Depends(get_session),
+) -> RedeemCouponOut:
+    """Активировать купон для текущего арендатора."""
+    from loguru import logger
+
+    from app.services.coupon_service import (
+        CouponAlreadyRedeemedByUserError,
+        CouponAlreadyUsedError,
+        CouponNotFoundError,
+        redeem_coupon,
+    )
+    from app.services.studio_auth import current_identity
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    if tenant is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Активация купонов доступна только авторизованным пользователям",
+        )
+
+    ident = current_identity()
+    user_id = getattr(ident, "user_id", None)
+
+    try:
+        res = await redeem_coupon(session, body.code, tenant_id=tenant, user_id=user_id)
+        await session.commit()
+        return RedeemCouponOut(**res)
+    except CouponNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (CouponAlreadyUsedError, CouponAlreadyRedeemedByUserError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("ошибка активации купона {}: {}", body.code, exc)
+        raise HTTPException(status_code=500, detail="Не удалось активировать купон") from exc
+
+
 async def _cascade_volume(session, project_id: int) -> tuple[int | None, int | None]:
     """Кадры и символы проекта разом: каскад задевает и картинки, и озвучку."""
     from app.services.step_billing import step_volume

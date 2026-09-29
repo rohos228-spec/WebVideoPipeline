@@ -521,7 +521,9 @@ async def _next_status_after_hero_approve(
     return skip_disabled_running(project, nxt) or nxt
 
 
-async def _hide_hitl_buttons_with_badge(bot: Any = None, hitl: HITLRequest | None = None, badge: str = "") -> None:
+async def _hide_hitl_buttons_with_badge(
+    bot: Any = None, hitl: HITLRequest | None = None, badge: str = ""
+) -> None:
     """(single-mass parity #5) Убирает inline-кнопки С HITL-карточки
     в TG после auto-решения и добавляет подпись-бейдж в текст/caption.
 

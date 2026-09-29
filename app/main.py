@@ -347,7 +347,6 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
             prev = fail_counts.get(key, 0)
             fail_counts[key] = prev + 1
             try:
-
                 async with session_scope() as s:
                     p = await s.get(Project, project_id)
                     if p is None:

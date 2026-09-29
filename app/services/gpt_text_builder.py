@@ -127,7 +127,7 @@ def refresh_topic_line_in_text(text: str, topic: str) -> str:
     t = (topic or "").strip()
     if not t or not text:
         return text
-    if text.startswith(f"Тема ролика: {t}") or f"Тема ролика: «{t}»" in text or f"Тема ролика: \"{t}\"" in text:
+    if text.startswith(f"Тема ролика: {t}") or f"Тема ролика: «{t}»" in text or f'Тема ролика: "{t}"' in text:
         return text
 
     def _repl(match: re.Match[str]) -> str:

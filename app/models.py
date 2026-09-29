@@ -1231,7 +1231,9 @@ class StudioUser(Base):
     # токен и сверяется на каждом запросе (`studio_auth`).
     token_epoch: Mapped[int] = mapped_column(default=0)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    vk_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True, default=None)
+    vk_user_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
     last_login_at: Mapped[datetime | None] = mapped_column(default=None)
@@ -1362,3 +1364,34 @@ class CreditEntry(Base):
     step_code: Mapped[str] = mapped_column(String(40), default="", index=True)
     memo: Mapped[str] = mapped_column(String(240), default="")
     created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
+
+
+class Coupon(Base):
+    """Купон / промокод на пополнение кредитов."""
+
+    __tablename__ = "coupons"
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    amount_micro: Mapped[int] = mapped_column(BigInteger)
+    max_uses: Mapped[int] = mapped_column(Integer, default=1)
+    used_count: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+
+class CouponRedemption(Base):
+    """История применения купонов арендаторами."""
+
+    __tablename__ = "coupon_redemptions"
+    __table_args__ = (Index("ix_coupon_redemptions_coupon_tenant", "coupon_id", "tenant_id", unique=True),)
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    coupon_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("coupons.id", ondelete="CASCADE"), index=True
+    )
+    tenant_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), index=True)
+    user_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
+    amount_micro: Mapped[int] = mapped_column(BigInteger)
+    redeemed_at: Mapped[datetime] = mapped_column(default=_now, index=True)

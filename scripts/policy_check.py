@@ -62,7 +62,9 @@ DEBT_MAX_AGE_DAYS = 90
 
 
 def git(*args: str) -> str:
-    return subprocess.check_output(["git", *args], cwd=ROOT, text=True, encoding="utf-8", errors="replace").strip()
+    return subprocess.check_output(
+        ["git", *args], cwd=ROOT, text=True, encoding="utf-8", errors="replace"
+    ).strip()
 
 
 def changed_files(base: str) -> list[str]:
