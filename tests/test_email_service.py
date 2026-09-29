@@ -56,5 +56,7 @@ async def test_email_service_resend_error(monkeypatch):
     orig_client = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: orig_client(transport=transport))
 
-    ok = await email_service.send_verification_code("recipient@example.com", "654321", purpose="reset_password")
+    ok = await email_service.send_verification_code(
+        "recipient@example.com", "654321", purpose="reset_password"
+    )
     assert ok is False

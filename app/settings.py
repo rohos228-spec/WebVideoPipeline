@@ -516,7 +516,6 @@ class Settings(BaseSettings):
     smtp_from: str = Field("", alias="SMTP_FROM")
     smtp_ssl: bool = Field(True, alias="SMTP_SSL")
 
-
     @model_validator(mode="after")
     def _resolve_paths_from_repo_root(self) -> "Settings":
         object.__setattr__(self, "sqlite_path", resolve_project_path(self.sqlite_path))
@@ -628,7 +627,6 @@ class Settings(BaseSettings):
     def email_transport_configured(self) -> bool:
         """Настроен ли хотя бы один реальный транспорт отправки email (Resend или SMTP)."""
         return self.resend_configured or self.smtp_configured
-
 
 
 settings = Settings()  # type: ignore[call-arg]

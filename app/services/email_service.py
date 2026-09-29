@@ -17,7 +17,6 @@ import httpx
 
 from app.settings import settings
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -217,4 +216,3 @@ async def send_verification_code(email_addr: str, code: str, purpose: str = "reg
         text_content=plain,
         html_content=html,
     )
-
