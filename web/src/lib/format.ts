@@ -1,9 +1,9 @@
 /** Мелкая правка чисел и дат — чтобы в разметке не было арифметики. */
 
-/** «0.033» → «0,03 кр»; ноль показываем словом, а не нулём. */
-export function credits(value: string | number): string {
+/** «0.033» → «0,03 кр»; для цен шагов ноль — «бесплатно», для балансов — «0,00 кр». */
+export function credits(value: string | number, zeroText: string = "бесплатно"): string {
   const n = typeof value === "number" ? value : Number.parseFloat(value || "0");
-  if (!Number.isFinite(n) || n <= 0) return "бесплатно";
+  if (!Number.isFinite(n) || n <= 0) return zeroText;
   const digits = n < 1 ? 2 : n < 10 ? 2 : 1;
   return `${n.toFixed(digits).replace(".", ",")} кр`;
 }
