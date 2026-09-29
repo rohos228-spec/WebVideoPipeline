@@ -85,13 +85,22 @@ async def assert_readable(session: Any, path: Path) -> None:
     попадает в систему извне.
     """
     from app.models import BatchProject, Project
+    from app.services.studio_auth import current_is_admin
     from app.services.tenant import current_tenant
     from app.settings import settings
 
-    if current_tenant() is None:
+    if current_tenant() is None or current_is_admin():
         return
 
     data_dir = Path(settings.data_dir)
+    try:
+        rel = path.resolve().relative_to(data_dir.resolve())
+        root = rel.parts[0] if rel.parts else ""
+    except ValueError:
+        root = ""
+
+    if root == "generations":
+        return
     slug = project_slug_of(path, data_dir)
     if slug is not None:
         # RLS уже отфильтровала: чужой проект просто не найдётся.
