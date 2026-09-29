@@ -60,7 +60,15 @@ CREDIT_TABLES: tuple[str, ...] = ("credit_accounts", "credit_holds", "credit_ent
 #: это единственный правильный порядок. Роль базы при этом обычная, не
 #: `BYPASSRLS`: политик на этой таблице просто нет, на остальных они в силе.
 INFRA_TABLES: frozenset[str] = frozenset(
-    {"fleet_nodes", "work_leases", "alembic_version", "studio_users", "email_verifications"}
+    {
+        "fleet_nodes",
+        "work_leases",
+        "alembic_version",
+        "studio_users",
+        "email_verifications",
+        "coupons",
+        "coupon_redemptions",
+    }
 )
 
 #: Маршрутные таблицы: закрыты политикой, но политика **обратная**. Сессия
