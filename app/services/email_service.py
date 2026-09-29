@@ -13,6 +13,8 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+import httpx
+
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -115,11 +117,60 @@ def _send_smtp_sync(
         return False
 
 
+async def _send_resend(
+    *,
+    to_email: str,
+    subject: str,
+    text_content: str,
+    html_content: str,
+) -> bool:
+    """Асинхронная отправка письма через Resend HTTPS API (порт 443)."""
+    api_key = settings.resend_api_key.strip()
+    sender = settings.resend_from.strip() or "Видеостудия <noreply@zukiemi.space>"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "VideoPipelineStudio/1.0",
+    }
+    payload = {
+        "from": sender,
+        "to": [to_email],
+        "subject": subject,
+        "text": text_content,
+        "html": html_content,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post("https://api.resend.com/emails", json=payload, headers=headers)
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                logger.info(
+                    "Email успешно отправлен через Resend на %s (id: %s, тема: %s)",
+                    to_email,
+                    data.get("id"),
+                    subject,
+                )
+                return True
+            logger.error(
+                "Ошибка отправки через Resend на %s: HTTP %s - %s",
+                to_email,
+                resp.status_code,
+                resp.text,
+            )
+            return False
+    except Exception as exc:
+        logger.error("Исключение при вызове Resend API для %s: %s", to_email, exc)
+        return False
+
+
 async def send_verification_code(email_addr: str, code: str, purpose: str = "register") -> bool:
     """Отправить 6-значный проверочный код.
 
-    Если SMTP настроен — уходит реальное письмо.
-    Если нет — код выводится в лог сервера (режим разработки).
+    1. Если настроен Resend API — отправляет через Resend HTTPS API (порт 443).
+    2. Иначе, если настроен SMTP — отправляет через классический SMTP.
+    3. Иначе — код выводится в лог сервера (режим разработки).
     """
     if purpose == "reset_password":
         subject = f"Код сброса пароля: {code}"
@@ -135,12 +186,12 @@ async def send_verification_code(email_addr: str, code: str, purpose: str = "reg
     plain = f"{title}\n\n{text}\n\nКод: {code}\n\n{note}\nСрок действия: 10 минут."
     html = _build_html_email(title, text, code, note)
 
-    if not settings.smtp_configured:
+    if not settings.email_transport_configured:
         # Режим разработки: печатаем код в лог с заметным разделителем
         logger.warning(
             "\n"
             "======================================================================\n"
-            "  [EMAIL DEV MODE] SMTP не настроен. Одноразовый код для %s:\n"
+            "  [EMAIL DEV MODE] Почтовый транспорт не настроен. Одноразовый код для %s:\n"
             "  Назначение: %s\n"
             "  Код подтверждения: >>> %s <<<\n"
             "======================================================================",
@@ -149,6 +200,14 @@ async def send_verification_code(email_addr: str, code: str, purpose: str = "reg
             code,
         )
         return True
+
+    if settings.resend_configured:
+        return await _send_resend(
+            to_email=email_addr,
+            subject=subject,
+            text_content=plain,
+            html_content=html,
+        )
 
     return await asyncio.to_thread(
         _send_smtp_sync,
