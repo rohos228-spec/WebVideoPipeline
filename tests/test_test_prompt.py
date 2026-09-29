@@ -126,6 +126,3 @@ def test_data_dir_and_iter_dir() -> None:
     assert str(p.data_dir).endswith("foo")
     assert p.iter_dir(1).name == "iter_001"
     assert p.iter_dir(42).name == "iter_042"
-
-
-

@@ -104,7 +104,6 @@ def test_suno_music_payload_custom_mode_and_duration() -> None:
     assert "duration" not in body_non_custom
 
 
-
 def test_suno_sounds_payload_sends_v5_omits_any_key() -> None:
     spec = kc.get_model("suno-sounds")
     assert spec is not None

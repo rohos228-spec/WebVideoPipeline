@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 from alembic import op

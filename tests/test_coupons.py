@@ -10,7 +10,6 @@ from app.db import session_scope
 from app.models import Coupon
 from app.services import credit_ledger as cl
 from app.services.coupon_service import (
-    CouponAlreadyRedeemedByUserError,
     CouponAlreadyUsedError,
     CouponNotFoundError,
     redeem_coupon,

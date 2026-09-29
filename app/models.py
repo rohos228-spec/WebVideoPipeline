@@ -1231,7 +1231,9 @@ class StudioUser(Base):
     # токен и сверяется на каждом запросе (`studio_auth`).
     token_epoch: Mapped[int] = mapped_column(default=0)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    vk_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True, default=None)
+    vk_user_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
     last_login_at: Mapped[datetime | None] = mapped_column(default=None)
@@ -1383,9 +1385,7 @@ class CouponRedemption(Base):
     """История применения купонов арендаторами."""
 
     __tablename__ = "coupon_redemptions"
-    __table_args__ = (
-        Index("ix_coupon_redemptions_coupon_tenant", "coupon_id", "tenant_id", unique=True),
-    )
+    __table_args__ = (Index("ix_coupon_redemptions_coupon_tenant", "coupon_id", "tenant_id", unique=True),)
 
     id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
     coupon_id: Mapped[str] = mapped_column(
@@ -1395,4 +1395,3 @@ class CouponRedemption(Base):
     user_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     amount_micro: Mapped[int] = mapped_column(BigInteger)
     redeemed_at: Mapped[datetime] = mapped_column(default=_now, index=True)
-
