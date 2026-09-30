@@ -47,7 +47,13 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
 
 
 def _settings_path() -> Path:
-    path = settings.data_dir / _SETTINGS_FILE
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    if tenant:
+        path = settings.data_dir / "tenants" / tenant / _SETTINGS_FILE
+    else:
+        path = settings.data_dir / _SETTINGS_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
