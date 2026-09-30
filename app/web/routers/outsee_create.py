@@ -523,7 +523,7 @@ async def enhance_prompt_endpoint(req: EnhancePromptRequest) -> dict[str, Any]:
         "Output ONLY the final enhanced prompt text without any introductory text, quotes, or markdown codeblocks."
     )
 
-    # 1. Попытка через основной текстовый LLM (OpenAI / Vibecode)
+    # 1. Попытка через основной текстовый LLM (OpenAI / Vibecode) с таймаутом
     try:
         from app.services.gpt_client import ApiGptClient, gpt_text_via_api
 
@@ -534,11 +534,14 @@ async def enhance_prompt_endpoint(req: EnhancePromptRequest) -> dict[str, Any]:
                 f"Enhance this image prompt for visual AI generation:\n\n{text}\n\n"
                 f"Enhanced prompt (in English):"
             )
-            enhanced = await gpt.ask_fresh(full_prompt, timeout=30)
+            # Ждём LLM максимум 12 секунд; если сеть/провайдер медлит — мгновенный fallback
+            enhanced = await asyncio.wait_for(gpt.ask_fresh(full_prompt, timeout=12), timeout=12.0)
             cleaned = _clean_llm_prompt_response(enhanced)
             if cleaned and len(cleaned) > 10:
                 logger.info("AI prompt enhanced via ApiGptClient: {} -> {}", text[:30], cleaned[:60])
                 return {"ok": True, "enhanced_prompt": cleaned, "provider": "llm"}
+    except TimeoutError:
+        logger.warning("LLM prompt enhance timed out (>12s), using instant synthesizer fallback")
     except Exception as e:
         logger.warning("LLM prompt enhance (ApiGptClient) fallback: {}", e)
 

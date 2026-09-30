@@ -70,7 +70,10 @@ async def rename_workspace_session(session_id: str, body: RenameBody) -> dict[st
 
 @router.delete("/sessions/{session_id}")
 async def delete_workspace_session(session_id: str) -> dict[str, Any]:
-    gw.delete_session(session_id)
+    try:
+        gw.delete_session(session_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     return {"ok": True}
 
 

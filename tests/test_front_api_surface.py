@@ -33,14 +33,12 @@ WEB_SRC = Path(__file__).resolve().parent.parent / "web" / "src"
 OWNER_UI_PREFIXES: tuple[str, ...] = (
     "/api/db",  # прямой обозреватель базы
     "/api/fleet",  # парк машин, запуск команд
-    "/api/gpt-workspace",  # браузерный GPT владельца
     "/api/library",  # библиотека платформы
     "/api/llm-costs",  # СЕБЕСТОИМОСТЬ: отсюда видно маржу
     "/api/prompt-files",  # промты платформы, одни на всех
     "/api/prompt-studio",
     "/api/prompts",
     "/api/studio-version",  # версия сборки: сведения об установке
-    "/api/text-llm",  # выбор текстовой модели платформы
 )
 
 #: Не адреса, а куски документации, префиксы и шаблоны в строках.
