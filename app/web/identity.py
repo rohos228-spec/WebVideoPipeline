@@ -126,6 +126,9 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/generation-options",
     "/api/generation-config-presets",
     "/api/gen-assistant",
+    # ИИ Чат и выбор модели для участников
+    "/api/gpt-workspace",
+    "/api/text-llm",
 )
 
 

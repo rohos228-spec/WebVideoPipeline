@@ -756,7 +756,13 @@ def _file_entry(path: Path) -> dict[str, Any]:
 
 
 def _root() -> Path:
-    d = Path(settings.data_dir) / "gpt_workspace"
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    if tenant:
+        d = Path(settings.data_dir) / "tenants" / tenant / "gpt_workspace"
+    else:
+        d = Path(settings.data_dir) / "gpt_workspace"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -986,8 +992,9 @@ def _rewrite_message_filenames(messages: list[Any], renames: dict[str, str]) -> 
 
 def delete_session(session_id: str) -> None:
     d = _session_dir(session_id)
-    if d.is_dir():
-        shutil.rmtree(d, ignore_errors=True)
+    if not d.is_dir():
+        raise FileNotFoundError(f"сессия не найдена: {session_id}")
+    shutil.rmtree(d, ignore_errors=True)
 
 
 def rename_session(session_id: str, title: str) -> dict[str, Any]:
@@ -1754,21 +1761,26 @@ async def ask_stream(
     yield f"data: {json.dumps({'type': 'phase', 'phase': 'thinking', 'phase_detail': 'Ваш помощник думает над ответом…'}, ensure_ascii=False)}\n\n"
     await asyncio.sleep(0.02)
 
+    from app.services.tenant import current_tenant, tenant_scope
+
+    captured_tenant = current_tenant()
+
     async def _runner() -> None:
-        try:
-            session = await ask(
-                session_id,
-                text,
-                with_attachments=with_attachments,
-                on_delta=on_delta,
-            )
-            messages = list(session.get("messages") or [])
-            last_msg = messages[-1] if messages else {}
-            await queue.put(("done", (session, last_msg)))
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            await queue.put(("error", str(e)))
+        with tenant_scope(captured_tenant):
+            try:
+                session = await ask(
+                    session_id,
+                    text,
+                    with_attachments=with_attachments,
+                    on_delta=on_delta,
+                )
+                messages = list(session.get("messages") or [])
+                last_msg = messages[-1] if messages else {}
+                await queue.put(("done", (session, last_msg)))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                await queue.put(("error", str(e)))
 
     task = asyncio.create_task(_runner())
 

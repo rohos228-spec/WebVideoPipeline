@@ -190,6 +190,11 @@ _MODEL_ALIASES = {
 
 
 def _choice_path(cfg: Settings) -> Path:
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    if tenant:
+        return Path(cfg.data_dir) / "tenants" / tenant / _CHOICE_NAME
     return Path(cfg.data_dir) / _CHOICE_NAME
 
 
@@ -214,6 +219,14 @@ def read_choice(cfg: Settings | None = None) -> dict[str, Any]:
     s = cfg or settings
     path = _choice_path(s)
     if not path.is_file():
+        # Fall back to root choice if tenant hasn't chosen their own model yet
+        fallback = Path(s.data_dir) / _CHOICE_NAME
+        if fallback.is_file():
+            try:
+                data = json.loads(fallback.read_text(encoding="utf-8"))
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
