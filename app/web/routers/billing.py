@@ -342,6 +342,103 @@ async def redeem_coupon_endpoint(
         raise HTTPException(status_code=500, detail="Не удалось активировать купон") from exc
 
 
+class CreateCouponIn(BaseModel):
+    code: str | None = None
+    credits: int
+    max_uses: int = 1
+    days: int | None = None
+
+
+class DeactivateCouponIn(BaseModel):
+    code: str
+
+
+@router.get("/billing/admin/coupons")
+async def list_coupons_endpoint(
+    limit: int = 50,
+    offset: int = 0,
+    active_only: bool = False,
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    """Список купонов (только для администратора)."""
+    from app.services.coupon_service import list_coupons
+    from app.services.studio_auth import current_identity
+
+    ident = current_identity()
+    if ident is not None and not ident.is_admin:
+        raise HTTPException(status_code=403, detail="Доступно только администратору студии")
+
+    return await list_coupons(session, limit=limit, offset=offset, active_only=active_only)
+
+
+@router.post("/billing/admin/coupons")
+async def create_coupon_endpoint(
+    body: CreateCouponIn,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Создать купон (только для администратора)."""
+    import secrets
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.coupon_service import create_coupon
+    from app.services.studio_auth import current_identity
+
+    ident = current_identity()
+    if ident is not None and not ident.is_admin:
+        raise HTTPException(status_code=403, detail="Доступно только администратору студии")
+
+    code = body.code
+    if not code:
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        part1 = "".join(secrets.choice(alphabet) for _ in range(4))
+        part2 = "".join(secrets.choice(alphabet) for _ in range(4))
+        code = f"VP-{part1}-{part2}"
+
+    expires_at = None
+    if body.days:
+        expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=body.days)
+
+    try:
+        c = await create_coupon(
+            session,
+            code=code,
+            amount_credits=body.credits,
+            max_uses=body.max_uses,
+            expires_at=expires_at,
+        )
+        await session.commit()
+        return {
+            "ok": True,
+            "id": c.id,
+            "code": c.code,
+            "credits": c.amount_micro // 1_000_000,
+            "max_uses": c.max_uses,
+            "expires_at": c.expires_at.isoformat() if c.expires_at else None,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/billing/admin/coupons/deactivate")
+async def deactivate_coupon_endpoint(
+    body: DeactivateCouponIn,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Деактивировать купон (только для администратора)."""
+    from app.services.coupon_service import deactivate_coupon
+    from app.services.studio_auth import current_identity
+
+    ident = current_identity()
+    if ident is not None and not ident.is_admin:
+        raise HTTPException(status_code=403, detail="Доступно только администратору студии")
+
+    ok = await deactivate_coupon(session, body.code)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Купон не найден")
+    await session.commit()
+    return {"ok": True, "code": body.code.strip().upper(), "message": "Купон деактивирован"}
+
+
 async def _cascade_volume(session, project_id: int) -> tuple[int | None, int | None]:
     """Кадры и символы проекта разом: каскад задевает и картинки, и озвучку."""
     from app.services.step_billing import step_volume

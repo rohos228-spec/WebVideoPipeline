@@ -396,5 +396,6 @@ async def auth_status() -> dict:
     return {
         "auth_required": settings.accounts_enabled,
         "accounts": settings.accounts_enabled,
+        "sso": settings.accounts_enabled,
         "smtp_configured": settings.smtp_configured,
     }

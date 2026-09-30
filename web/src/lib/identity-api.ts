@@ -17,9 +17,10 @@ const TOKEN_KEY = "vp.token";
 
 export interface AuthStatus {
   auth_required: boolean;
-  /** true — личность приходит из биллинга; false — режим владельца. */
-  sso: boolean;
-  brand: string;
+  accounts?: boolean;
+  sso?: boolean;
+  smtp_configured?: boolean;
+  brand?: string;
 }
 
 export interface Me {
@@ -43,6 +44,7 @@ export interface FreeTier {
 
 export interface Balance {
   tenant_id: string | null;
+  unlimited?: boolean;
   balance_micro: number;
   balance_credits: string;
   /** Деньги под идущими шагами: они уже вычтены из остатка. */
