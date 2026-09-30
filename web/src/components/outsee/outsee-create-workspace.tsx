@@ -2851,6 +2851,42 @@ function OptionDropdown({
     </div>
   );
 }
+function ModelCardIcon({
+  icon,
+  label,
+  letter,
+  isTopCard,
+}: {
+  icon?: string | null;
+  label: string;
+  letter?: string | null;
+  isTopCard?: boolean;
+}) {
+  const [error, setError] = useState(false);
+  if (!icon || error) {
+    return (
+      <span
+        className={cn(
+          "inline-flex h-10 w-10 items-center justify-center rounded-lg font-mono text-[14px] font-bold ring-1 transition",
+          isTopCard
+            ? "bg-[#22d3ee]/15 text-[#22d3ee] ring-[#22d3ee]/30 group-hover:ring-[#22d3ee]/60"
+            : "bg-[#38bdf8]/15 text-[#38bdf8] ring-white/10 group-hover:ring-[#38bdf8]/40",
+        )}
+      >
+        {letter || label.slice(0, 1)}
+      </span>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={icon}
+      alt={label}
+      onError={() => setError(true)}
+      className="h-10 w-10 rounded-lg object-cover ring-1 ring-white/10 transition group-hover:ring-[#22d3ee]/40"
+    />
+  );
+}
 
 function ModelPickerPopover({
   mediaType,
@@ -2927,11 +2963,12 @@ function ModelPickerPopover({
       const est = estimateKie(m, {}, creditUsd);
 
       const icon =
+        (rawId.includes("seedream") ? "/icons/bytedance.svg" : null) ||
+        (rawId.includes("qwen") ? "/icons/qwen.svg" : null) ||
         iconBySlug.get(rawId) ||
         iconBySlug.get(cleanId) ||
         (rawId.includes("nano-banana") ? iconBySlug.get("nano-banana-2") : null) ||
         (rawId.includes("gpt-image") ? iconBySlug.get("gpt-image-2") : null) ||
-        (rawId.includes("seedream") ? iconBySlug.get("seedream-5-pro") : null) ||
         (rawId.includes("veo") ? iconBySlug.get("veo-3-1-lite") || iconBySlug.get("veo-3-1") : null) ||
         (rawId.includes("kling") ? iconBySlug.get("kling-2-6") : null) ||
         (rawId.includes("hailuo") ? iconBySlug.get("hailuo-02") : null) ||
@@ -3019,25 +3056,12 @@ function ModelPickerPopover({
           </span>
         )}
         <div className="flex shrink-0 flex-col items-center">
-          {item.icon ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={item.icon}
-              alt={item.label}
-              className="h-10 w-10 rounded-lg object-cover ring-1 ring-white/10 transition group-hover:ring-[#22d3ee]/40"
-            />
-          ) : (
-            <span
-              className={cn(
-                "inline-flex h-10 w-10 items-center justify-center rounded-lg font-mono text-[14px] font-bold ring-1 transition",
-                isTopCard
-                  ? "bg-[#22d3ee]/15 text-[#22d3ee] ring-[#22d3ee]/30 group-hover:ring-[#22d3ee]/60"
-                  : "bg-[#38bdf8]/15 text-[#38bdf8] ring-white/10 group-hover:ring-[#38bdf8]/40",
-              )}
-            >
-              {item.letter || item.label.slice(0, 1)}
-            </span>
-          )}
+          <ModelCardIcon
+            icon={item.icon}
+            label={item.label}
+            letter={item.letter}
+            isTopCard={isTopCard}
+          />
           {item.priceLabel && (
             <span className="mt-1 inline-flex items-center gap-0.5 font-mono text-[10px] text-white/60">
               <Coins className="h-2.5 w-2.5 text-[#22d3ee]" strokeWidth={2.5} />
