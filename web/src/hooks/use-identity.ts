@@ -34,6 +34,11 @@ export function useAuthStatus() {
   });
 }
 
+function isSaasMode(status?: AuthStatus): boolean {
+  if (!status) return false;
+  return Boolean(status.auth_required || status.accounts || status.sso);
+}
+
 export function useMe() {
   const { data: status } = useAuthStatus();
   const qc = useQueryClient();
@@ -52,7 +57,7 @@ export function useMe() {
     queryFn: fetchMe,
     // В режиме владельца ручка ответит и без токена, но спрашивать её до
     // того, как известен режим, незачем: получим лишний 401 в консоли.
-    enabled: status !== undefined && (!status.sso || Boolean(getToken())),
+    enabled: status !== undefined && (!isSaasMode(status) || Boolean(getToken())),
     retry: false,
   });
 }
@@ -62,7 +67,7 @@ export function useBalance() {
   return useQuery<Balance>({
     queryKey: ["billing-balance"],
     queryFn: fetchBalance,
-    enabled: Boolean(status?.sso) && Boolean(getToken()),
+    enabled: isSaasMode(status) && Boolean(getToken()),
     retry: false,
   });
 }
@@ -80,7 +85,7 @@ export function useOwnerMode(): boolean {
   const { data: status } = useAuthStatus();
   // Пока режим неизвестен, считаем владельцем: иначе на машине владельца
   // панель мигала бы половиной кнопок на каждой загрузке.
-  return !status?.sso;
+  return !isSaasMode(status);
 }
 
 /**
@@ -92,6 +97,6 @@ export function useOwnerMode(): boolean {
 export function useNeedsLogin(): boolean {
   const { data: status } = useAuthStatus();
   const { isError } = useMe();
-  if (!status?.sso) return false;
+  if (!isSaasMode(status)) return false;
   return !getToken() || isError;
 }

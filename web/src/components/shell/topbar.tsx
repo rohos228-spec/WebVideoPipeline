@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, createContext, useContext } from "react";
-import { Bot, CircleDollarSign, Database, Film } from "lucide-react";
+import { Bot, CircleDollarSign, Database, Film, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 import { BalanceBadge } from "@/components/shell/balance-badge";
+import { useMe, useOwnerMode } from "@/hooks/use-identity";
+import { clearToken } from "@/lib/identity-api";
 
 interface UiState {
   framesProjectId: number | null;
@@ -25,6 +27,8 @@ export function useUi(): UiState {
 export function Topbar({ children }: { children?: React.ReactNode }) {
   const [framesOpen, setFramesOpen] = useState(false);
   const [framesProjectId, setFramesProjectId] = useState<number | null>(null);
+  const ownerMode = useOwnerMode();
+  const { data: me } = useMe();
 
   const openFrames = (id: number) => {
     setFramesProjectId(id);
@@ -48,9 +52,15 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
             <div className="flex flex-col gap-0.5 leading-tight">
               <span className="text-sm font-semibold tracking-tight text-white">Видео студия</span>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-400 font-medium">
-                  автономный режим
-                </span>
+                {ownerMode ? (
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-400 font-medium">
+                    автономный режим
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-zinc-400 font-medium truncate max-w-[160px]" title={me?.email}>
+                    {me?.email || "SaaS"}
+                  </span>
+                )}
                 <StudioVersionBadge />
               </div>
             </div>
@@ -98,6 +108,21 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
               <CircleDollarSign className="h-3.5 w-3.5" />
               Стоимость
             </Button>
+            {!ownerMode && me?.email && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  clearToken();
+                  window.location.reload();
+                }}
+                className="gap-1.5 text-xs text-zinc-400 hover:text-rose-300 hover:bg-rose-950/20"
+                title="Выйти из учётной записи"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Выйти
+              </Button>
+            )}
           </div>
         </header>
         <FramesGrid

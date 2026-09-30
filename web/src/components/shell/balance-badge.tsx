@@ -7,22 +7,19 @@
  * вычтены из остатка, и без второй цифры человек видит, что баланс упал, и не
  * видит, куда — а это первый вопрос, с которым он придёт.
  *
- * Пока действует бесплатный уровень, вместо цифры стоит слово: у человека
- * ещё нет кредитов, и показывать ему ноль значит пугать нулём там, где всё
- * работает. Показываем, сколько подарка осталось, — это ответ на настоящий
- * вопрос «когда попросят деньги».
- *
- * В режиме владельца компонент не рисуется вовсе: кредитов не существует,
- * владелец платит провайдерам напрямую, и любая цифра здесь была бы враньём.
+ * При клике открывает диалог ввода купона / пополнения баланса.
  */
 
-import { Coins, Gift, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { Coins, Gift, Loader2, Plus } from "lucide-react";
 
 import { useBalance } from "@/hooks/use-identity";
 import { cn } from "@/lib/utils";
+import { CouponDialog } from "@/components/billing/coupon-dialog";
 
 export function BalanceBadge({ className }: { className?: string }) {
   const { data, isLoading, isError } = useBalance();
+  const [couponOpen, setCouponOpen] = useState(false);
 
   if (isError) return null;
   if (isLoading) {
@@ -32,49 +29,50 @@ export function BalanceBadge({ className }: { className?: string }) {
       </span>
     );
   }
-  if (!data?.tenant_id) return null;
+  if (!data?.tenant_id && !data?.unlimited) return null;
 
-  const free = data.free_tier;
-  if (free?.active) {
-    const left = Math.max(0, (free.cap_usd || 0) - (free.granted_usd || 0));
-    return (
-      <span
+  const free = data?.free_tier;
+  const held = (data?.held_micro ?? 0) > 0;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setCouponOpen(true)}
         className={cn(
-          "flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs",
+          "group flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs tabular-nums transition-all hover:border-cyan-500/40 hover:bg-white/[0.08] hover:shadow-[0_0_12px_rgba(6,182,212,0.15)]",
           className,
         )}
-        title={
-          free.cap_usd
-            ? `Раскадровка и кадры бесплатно. Осталось подарка на $${left.toFixed(2)} себестоимости; оплата начнётся с рендера видео.`
-            : "Раскадровка и кадры бесплатно. Оплата начнётся с рендера видео."
-        }
+        title="Нажмите, чтобы ввести промокод или купон для пополнения"
       >
-        <Gift className="h-3.5 w-3.5" />
-        бесплатно до видео
-      </span>
-    );
-  }
-
-  const held = data.held_micro > 0;
-  return (
-    <span
-      className={cn(
-        "flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs tabular-nums",
-        className,
-      )}
-      title={
-        held
-          ? "В скобках — резерв под идущим шагом. Он уже вычтен из остатка и вернётся, если шаг не состоится."
-          : "Остаток кредитов"
-      }
-    >
-      <Coins className="h-3.5 w-3.5" />
-      {data.balance_credits}
-      {held && (
-        <span className="text-muted-foreground">
-          (−{(data.held_micro / 1_000_000).toFixed(2)})
+        {data?.unlimited ? (
+          <>
+            <Coins className="h-3.5 w-3.5 text-amber-400" />
+            <span className="font-semibold text-zinc-100 text-sm leading-none">∞</span>
+            <span className="text-[10px] text-zinc-400">безлимит</span>
+          </>
+        ) : free?.active ? (
+          <>
+            <Gift className="h-3.5 w-3.5 text-amber-400" />
+            <span className="text-zinc-300">бесплатно до видео</span>
+          </>
+        ) : (
+          <>
+            <Coins className="h-3.5 w-3.5 text-amber-400 group-hover:text-amber-300 transition-colors" />
+            <span className="font-semibold text-zinc-100">{data?.balance_credits ?? "0,00 кр"}</span>
+            {held && (
+              <span className="text-muted-foreground">
+                (−{((data?.held_micro ?? 0) / 1_000_000).toFixed(2)})
+              </span>
+            )}
+          </>
+        )}
+        <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-cyan-500/20 text-[10px] font-bold text-cyan-300 group-hover:bg-cyan-500/30 group-hover:scale-105 transition-all">
+          <Plus className="h-2.5 w-2.5" />
         </span>
-      )}
-    </span>
+      </button>
+
+      <CouponDialog open={couponOpen} onOpenChange={setCouponOpen} />
+    </>
   );
 }
