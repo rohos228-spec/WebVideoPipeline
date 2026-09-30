@@ -611,6 +611,20 @@ export interface DbGraph {
 }
 
 export const api = {
+  // ── Купоны и биллинг ──────────────────────────────────────────────
+  redeemCoupon: (code: string) =>
+    http<{
+      ok: boolean;
+      code: string;
+      credits_added: number;
+      balance_micro: number;
+      balance_credits: string;
+      message: string;
+    }>(`/api/billing/coupons/redeem`, {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+
   // ── База (DB v2 browser) ─────────────────────────────────────────
   dbOverview: () => http<DbOverview>(`/api/db/overview`),
   dbGraph: (projectId: number) => http<DbGraph>(`/api/db/projects/${projectId}/graph`),
