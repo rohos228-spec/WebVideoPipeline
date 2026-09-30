@@ -112,3 +112,88 @@ async def redeem_coupon(
         "balance_credits": format_credits(new_balance_micro),
         "message": f"Купон успешно активирован! Начислено {credits_val:,} кр.".replace(",", " "),
     }
+
+
+async def create_coupon(
+    session: Any,
+    *,
+    code: str,
+    amount_credits: int | float,
+    max_uses: int = 1,
+    expires_at: datetime | None = None,
+    is_active: bool = True,
+) -> Coupon:
+    """Создать новый купон / промокод."""
+    clean_code = (code or "").strip().upper()
+    if not clean_code or len(clean_code) < 3 or len(clean_code) > 32:
+        raise ValueError("Код купона должен быть длиной от 3 до 32 символов")
+    if amount_credits <= 0:
+        raise ValueError("Количество кредитов должно быть больше нуля")
+    if max_uses < 1:
+        raise ValueError("Лимит использований должен быть не менее 1")
+
+    existing = (
+        await session.execute(select(Coupon.id).where(Coupon.code == clean_code))
+    ).first()
+    if existing is not None:
+        raise ValueError(f"Купон с кодом {clean_code} уже существует")
+
+    amount_micro = int(amount_credits * 1_000_000)
+    coupon = Coupon(
+        id=str(uuid.uuid4()),
+        code=clean_code,
+        amount_micro=amount_micro,
+        max_uses=max_uses,
+        used_count=0,
+        is_active=is_active,
+        expires_at=expires_at,
+    )
+    session.add(coupon)
+    await session.flush()
+    return coupon
+
+
+async def list_coupons(
+    session: Any,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    active_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Список купонов для панели управления / CLI."""
+    from app.services.credits import format_credits
+
+    stmt = select(Coupon).order_by(Coupon.created_at.desc())
+    if active_only:
+        stmt = stmt.where(Coupon.is_active.is_(True))
+    stmt = stmt.limit(max(1, min(limit, 200))).offset(max(0, offset))
+
+    res = await session.execute(stmt)
+    coupons = res.scalars().all()
+
+    return [
+        {
+            "id": c.id,
+            "code": c.code,
+            "credits": c.amount_micro // 1_000_000,
+            "balance_credits": format_credits(c.amount_micro),
+            "max_uses": c.max_uses,
+            "used_count": c.used_count,
+            "is_active": c.is_active,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "expires_at": c.expires_at.isoformat() if c.expires_at else None,
+        }
+        for c in coupons
+    ]
+
+
+async def deactivate_coupon(session: Any, code: str) -> bool:
+    """Деактивировать купон по коду."""
+    clean_code = (code or "").strip().upper()
+    stmt = select(Coupon).where(Coupon.code == clean_code).with_for_update()
+    coupon = (await session.execute(stmt)).scalar_one_or_none()
+    if coupon is None:
+        return False
+    coupon.is_active = False
+    await session.flush()
+    return True

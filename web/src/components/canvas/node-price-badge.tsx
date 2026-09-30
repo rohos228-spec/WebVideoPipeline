@@ -49,6 +49,7 @@ const CONFIRM_THRESHOLD_MICRO = 1_000_000;
  */
 export function useStepPrices(projectId: number | null) {
   const { data: status } = useAuthStatus();
+  const isSaas = Boolean(status?.auth_required || status?.accounts || status?.sso);
   return useQuery<Quotes>({
     queryKey: ["step-prices", projectId],
     queryFn: async () => {
@@ -58,7 +59,7 @@ export function useStepPrices(projectId: number | null) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return (await res.json()) as Quotes;
     },
-    enabled: Boolean(projectId) && Boolean(status?.sso),
+    enabled: Boolean(projectId) && isSaas,
     // Смета меняется от числа кадров и истории прогонов — не ежесекундно.
     staleTime: 60_000,
     retry: false,

@@ -241,6 +241,15 @@ export const api = {
   assetsOf: (id: number, kind: string) => req<Asset[]>(`/projects/${id}/assets?kind=${encodeURIComponent(kind)}`),
 
   balance: () => req<Balance>("/billing/balance"),
+  redeemCoupon: (code: string) =>
+    post<{
+      ok: boolean;
+      code: string;
+      credits_added: number;
+      balance_micro: number;
+      balance_credits: string;
+      message: string;
+    }>("/billing/coupons/redeem", { code }),
   options: () => req<GenerationOptions>("/generation-options/wizard"),
 
   authStatus: () => req<AuthStatus>("/auth/status"),

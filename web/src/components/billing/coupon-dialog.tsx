@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { useBalance } from "@/hooks/use-identity";
+import { errorMessageFromUnknown } from "@/lib/error-message";
 
 interface CouponDialogProps {
   open: boolean;
@@ -42,11 +43,12 @@ export function CouponDialog({ open, onOpenChange }: CouponDialogProps) {
       toast.success(res.message || `Купон ${res.code} успешно активирован!`);
       // Обновляем баланс во всём интерфейсе
       qc.invalidateQueries({ queryKey: ["billing-balance"] });
+      qc.invalidateQueries({ queryKey: ["balance"] });
       qc.invalidateQueries({ queryKey: ["me"] });
       setCode("");
       onOpenChange(false);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Не удалось активировать купон";
+      const msg = errorMessageFromUnknown(err) || "Не удалось активировать купон";
       setError(msg);
       toast.error(msg);
     } finally {
@@ -72,7 +74,11 @@ export function CouponDialog({ open, onOpenChange }: CouponDialogProps) {
           <span className="text-xs text-zinc-400">Текущий баланс</span>
           <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-300">
             <Coins className="h-4 w-4 text-emerald-400" />
-            <span>{balanceData?.balance_credits ?? "0,00 кр"}</span>
+            <span>
+              {balanceData?.unlimited
+                ? "∞ (безлимит)"
+                : balanceData?.balance_credits ?? "0,00 кр"}
+            </span>
           </div>
         </div>
 
