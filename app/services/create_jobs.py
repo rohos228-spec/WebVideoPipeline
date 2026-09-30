@@ -50,6 +50,7 @@ class CreateJob:
     history_id: str = ""
     # позиция в очереди ожидания (1-based), None если уже processing/done
     queue_position: int | None = None
+    tenant_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         from app.services.generation_storage import elapsed_from_iso, format_elapsed_min_sec
@@ -153,7 +154,20 @@ def _semaphore(provider: str) -> asyncio.Semaphore:
 
 
 def get_job(job_id: str) -> CreateJob | None:
-    return _JOBS.get(job_id)
+    job = _JOBS.get(job_id)
+    if job is None:
+        return None
+    try:
+        from app.services.studio_auth import current_is_admin
+        from app.services.tenant import current_tenant
+
+        if not current_is_admin():
+            t = current_tenant()
+            if t and job.tenant_id and job.tenant_id != t:
+                return None
+    except ImportError:
+        pass
+    return job
 
 
 def _refresh_queue_positions() -> None:
@@ -170,12 +184,23 @@ def _refresh_queue_positions() -> None:
             j.queue_position = i
 
 
-def list_active_jobs(*, provider: str | None = None) -> list[CreateJob]:
+def list_active_jobs(*, provider: str | None = None, tenant_id: str | None = None) -> list[CreateJob]:
     _refresh_queue_positions()
+    if tenant_id is None:
+        try:
+            from app.services.studio_auth import current_is_admin
+            from app.services.tenant import current_tenant
+
+            if not current_is_admin():
+                tenant_id = current_tenant()
+        except ImportError:
+            pass
     out = [
         j
         for j in _JOBS.values()
-        if j.status in {"queued", "processing"} and (provider is None or j.provider == provider)
+        if j.status in {"queued", "processing"}
+        and (provider is None or j.provider == provider)
+        and (tenant_id is None or j.tenant_id == tenant_id)
     ]
     out.sort(key=lambda j: (0 if j.status == "processing" else 1, j.created_at))
     return out
@@ -245,6 +270,9 @@ async def enqueue_generation(
         job_id=job_id,
         require_file=False,
     )
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
     job = CreateJob(
         id=job_id,
         media=media,
@@ -254,6 +282,7 @@ async def enqueue_generation(
         prompt=prompt,
         status="queued",
         history_id=history_id,
+        tenant_id=tenant,
     )
     async with _LOCK:
         _JOBS[job_id] = job
