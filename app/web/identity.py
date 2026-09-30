@@ -118,6 +118,15 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/node-groups",
     "/api/sidebar-layout",
     "/api/bug-reports",
+    # Генерация, пресеты, очередь и библиотека
+    "/api/outsee",
+    "/api/outsee-create",
+    "/api/create",
+    "/api/kie-create",
+    "/api/generation-options",
+    "/api/generation-config-presets",
+    "/api/gen-assistant",
+    "/api/library",
 )
 
 

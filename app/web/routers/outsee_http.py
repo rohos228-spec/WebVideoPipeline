@@ -37,8 +37,10 @@ class OutseeGenerateBody(BaseModel):
 @router.get("/status")
 async def outsee_http_status() -> dict[str, Any]:
     key = oh.outsee_api_key()
-    balance: dict[str, Any] | None = None
-    if oh.outsee_api_configured():
+    from app.services.studio_auth import current_is_admin
+
+    is_admin = current_is_admin()
+    if is_admin and oh.outsee_api_configured():
         try:
             balance = await oh.fetch_balance()
         except Exception as e:  # noqa: BLE001
@@ -57,8 +59,8 @@ async def outsee_http_status() -> dict[str, Any]:
         "default_video_model": settings.outsee_default_video_model,
         "wired_image_models": list(oh.OUTSEE_WIRED_IMAGE_MODELS),
         "wired_video_models": list(oh.OUTSEE_WIRED_VIDEO_MODELS),
-        "key_suffix": (f"…{key[-6:]}" if len(key) >= 6 else None),
-        "balance": balance,
+        "key_suffix": ((f"…{key[-6:]}" if len(key) >= 6 else None) if is_admin else None),
+        "balance": balance if is_admin else None,
         "queue": active_snap["total_active"],
         "running_count": active_snap["running_count"],
         "waiting_count": active_snap["waiting_count"],
@@ -66,8 +68,10 @@ async def outsee_http_status() -> dict[str, Any]:
         "active_jobs": active_snap["jobs"],
         "hint": (
             "OUTSEE_API_KEY из https://outsee.io/profile — Bearer /api/v1 (отдельный ключ, не Grsai)"
+            if is_admin and oh.outsee_api_configured()
+            else "Генерация настроена и доступна"
             if oh.outsee_api_configured()
-            else "Задай OUTSEE_API_KEY в .env (профиль outsee.io)"
+            else "Генерация временно недоступна"
         ),
     }
 
@@ -91,6 +95,23 @@ async def outsee_job_status(job_id: str) -> dict[str, Any]:
     return job.to_dict()
 
 
+def _estimate_outsee_cost_usd(media: str, model: str | None, duration: int | None = None) -> float:
+    m = (model or "").lower()
+    if media == "image":
+        if "vip" in m or "pro" in m:
+            return 0.12
+        if "lite" in m or "fast" in m:
+            return 0.03
+        return 0.08
+    if media == "video":
+        d = duration or 5
+        base = 0.80 if "sora" in m else 1.20
+        if d > 5:
+            base *= d / 5.0
+        return round(base, 2)
+    return 0.08
+
+
 @router.post("/generate")
 async def outsee_generate(body: OutseeGenerateBody) -> dict[str, Any]:
     """Ставит генерацию в очередь: сразу pending в истории, файл — позже."""
@@ -111,6 +132,35 @@ async def outsee_generate(body: OutseeGenerateBody) -> dict[str, Any]:
             detail="Outsee Developer API не поддерживает audio",
         )
 
+    from app.db import session_scope
+    from app.services import credit_ledger as cl
+    from app.services.credits import price_micro
+    from app.services.studio_auth import current_is_admin
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    is_admin = current_is_admin()
+    est_cost_usd = _estimate_outsee_cost_usd(media, body.model, body.duration)
+    hold_amount_micro = price_micro(est_cost_usd)
+    hold_id: str | None = None
+
+    if tenant and not is_admin:
+        async with session_scope() as session:
+            try:
+                hold = await cl.open_hold(
+                    session,
+                    tenant,
+                    project_id=body.project_id or 0,
+                    step_code=f"outsee_{media}",
+                    amount_micro=hold_amount_micro,
+                )
+                hold_id = hold.id
+            except cl.InsufficientCredits as exc:
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"Недостаточно кредитов: {exc}",
+                ) from exc
+
     params = {
         "aspect": body.aspect,
         "resolution": body.resolution,
@@ -122,6 +172,29 @@ async def outsee_generate(body: OutseeGenerateBody) -> dict[str, Any]:
         "nonce": body.nonce,
         "batch_index": body.batch_index,
     }
+
+    def _wrap_with_billing(actual_run, media_type: str, model_slug: str):
+        async def runner(out_path):
+            try:
+                res = await actual_run(out_path)
+                if hold_id:
+                    async with session_scope() as session:
+                        await cl.settle_hold(
+                            session,
+                            hold_id,
+                            cost_usd=est_cost_usd,
+                            ref_table="create_generations",
+                            ref_ids=[],
+                            memo=f"Генерация {media_type} ({model_slug})",
+                        )
+                return res
+            except Exception:
+                if hold_id:
+                    async with session_scope() as session:
+                        await cl.release_hold(session, hold_id, memo=f"Сбой генерации {media_type}")
+                raise
+
+        return runner
 
     if media == "video":
         model = oh.studio_id_to_outsee_video_slug(body.model)
@@ -149,12 +222,15 @@ async def outsee_generate(body: OutseeGenerateBody) -> dict[str, Any]:
             ext=".mp4",
             params=params,
             quote=None,
-            run=run,
+            run=_wrap_with_billing(run, "video", model),
         )
     else:
         try:
             model = oh.studio_id_to_outsee_image_slug(body.model)
         except oh.NanoBananaProOutseeBannedError as e:
+            if hold_id:
+                async with session_scope() as session:
+                    await cl.release_hold(session, hold_id, memo="Ошибка валидации модели")
             raise HTTPException(status_code=400, detail=str(e.reason)) from e
 
         async def run(out_path):
@@ -179,7 +255,7 @@ async def outsee_generate(body: OutseeGenerateBody) -> dict[str, Any]:
             ext=".png",
             params=params,
             quote=None,
-            run=run,
+            run=_wrap_with_billing(run, "image", model),
         )
 
     payload = job.to_dict()
