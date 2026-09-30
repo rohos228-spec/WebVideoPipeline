@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Coins, Loader2, Sparkles, Ticket } from "lucide-react";
+import { Coins, Loader2, Ticket } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -95,10 +95,9 @@ export function CouponDialog({ open, onOpenChange }: CouponDialogProps) {
                   setCode(e.target.value.toUpperCase());
                   setError(null);
                 }}
-                placeholder="STUDIO1"
                 disabled={loading}
                 autoFocus
-                className="h-10 border-white/10 bg-black/50 font-mono text-sm tracking-wider uppercase placeholder:text-zinc-600 focus-visible:border-cyan-400"
+                className="h-10 border-white/10 bg-black/50 font-mono text-sm tracking-wider uppercase focus-visible:border-cyan-400"
               />
             </div>
             {error && <p className="text-xs font-medium text-rose-400 animate-in fade-in">{error}</p>}
@@ -127,10 +126,7 @@ export function CouponDialog({ open, onOpenChange }: CouponDialogProps) {
                   <span>Проверка…</span>
                 </>
               ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>Активировать</span>
-                </>
+                <span>Активировать</span>
               )}
             </Button>
           </div>
