@@ -34,6 +34,7 @@ OWNER_UI_PREFIXES: tuple[str, ...] = (
     "/api/db",  # прямой обозреватель базы
     "/api/fleet",  # парк машин, запуск команд
     "/api/gpt-workspace",  # браузерный GPT владельца
+    "/api/library",  # библиотека платформы
     "/api/llm-costs",  # СЕБЕСТОИМОСТЬ: отсюда видно маржу
     "/api/prompt-files",  # промты платформы, одни на всех
     "/api/prompt-studio",
