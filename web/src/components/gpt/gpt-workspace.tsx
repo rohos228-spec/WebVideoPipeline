@@ -222,7 +222,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
   // Active Text LLM Status & Catalog
   const textLlmQ = useQuery({
     queryKey: ["text-llm-status"],
-    queryFn: () => fetch("/api/text-llm", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+    queryFn: () => api.textLlmStatus().catch(() => null),
     enabled: open,
     refetchInterval: 10_000,
   });
@@ -501,15 +501,8 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
   });
 
   const selectModelMut = useMutation({
-    mutationFn: async ({ provider, modelId }: { provider: string; modelId: string }) => {
-      const r = await fetch("/api/text-llm", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, model_id: modelId }),
-      });
-      if (!r.ok) throw new Error(await r.text());
-      return r.json();
-    },
+    mutationFn: ({ provider, modelId }: { provider: string; modelId: string }) =>
+      api.textLlmSelect({ provider, model_id: modelId }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["text-llm-status"] });
       setModelPickerOpen(false);
