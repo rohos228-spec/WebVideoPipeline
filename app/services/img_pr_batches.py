@@ -296,6 +296,17 @@ def filter_prompt_ops(ops: list[Any]) -> list[dict]:
                     fields[k] = op.get(k)
         if not any(k in fields for k in _PROMPT_FIELD_KEYS):
             continue
+        from app.services.prompt_sanitizer import clean_prompt_from_ai_chatter
+
+        for k in _PROMPT_FIELD_KEYS:
+            if k in fields and isinstance(fields[k], str):
+                cleaned, is_refusal = clean_prompt_from_ai_chatter(fields[k])
+                if is_refusal or not cleaned:
+                    fields.pop(k, None)
+                else:
+                    fields[k] = cleaned
+        if not any(k in fields for k in _PROMPT_FIELD_KEYS):
+            continue
         # Вырожденный промт хуже отсутствующего: кадр считается готовым, шаг
         # зеленеет, а картинка рисуется по трём точкам. Выбрасываем op — кадр
         # остаётся пустым, и батч-цикл переспросит именно его.

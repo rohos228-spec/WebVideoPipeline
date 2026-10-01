@@ -61,8 +61,13 @@ def spawn_apply_job(
     if prev is not None and not prev.done():
         return prev
 
+    from app.services.tenant import current_tenant, tenant_scope
+
+    captured_tenant = current_tenant()
+
     async def _runner() -> None:
-        total_ops = len(pending_ops)
+        with tenant_scope(captured_tenant):
+            total_ops = len(pending_ops)
 
         async def _on_progress(done: int, total: int, result: dict) -> None:
             try:

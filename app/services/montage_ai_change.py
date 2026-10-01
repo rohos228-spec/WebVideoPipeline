@@ -28,14 +28,17 @@ _SYSTEM_IMAGE = """\
 STYLE / Final style lock / Negative — максимум 6 коротких строк.
 Не копируй словарь стиля / §5–§6 из агента.
 
+Категорически запрещено писать пояснения, рассуждения, выводы, отказы или примечания.
 Верни ОДИН полный промт. Не JSON apply-ops. Не копируй закадр.
 Ответ: только текст промта, без пояснений.
 """
 
 _SYSTEM_VIDEO = """\
-Вложенный файл — агент картинок (стиль и правила кадра).
-Пишешь короткий ВИДЕОПРОМТ по закадру. Не JSON. Без музыки, silent video only.
-Ответ: только текст видеопромта.
+Ты — агент анимации и видеопромптов из вложенного файла. Пиши видеопромт по его правилам.
+Один кадр, не батч. Старого промта нет — пиши с нуля по правилам агента и закадру.
+Без музыки, silent video only: no speech, no dialogue, no narration, no music. Mute. Visual motion only.
+Категорически запрещено писать пояснения, рассуждения, выводы, отказы или примечания.
+Ответ: только текст видеопромта, без пояснений.
 """
 
 
@@ -50,10 +53,7 @@ def build_ai_change_user_message(
     act = (action or "").strip()
     parts = [f"VOICEOVER:\n{vo}\n"]
     if act:
-        parts.append(
-            f"\nACTION:\n{act}\n"
-            "\nЭто действие ЭТОГО кадра, не цепи всей сцены.\n"
-        )
+        parts.append(f"\nACTION:\n{act}\n\nЭто действие ЭТОГО кадра, не цепи всей сцены.\n")
     if note:
         parts.append(
             f"\nOPERATOR_CHANGE:\n{note}\n\n"
@@ -78,6 +78,7 @@ def write_ai_change_db_card(
     frame: object,
     dest_dir: Path,
     *,
+    shot: int = 1,
     characters: list | None = None,
 ) -> Path:
     """Один кадр из Базы — тот же снимок, что img_pr кладёт в db_frames.json."""
@@ -93,43 +94,58 @@ def write_ai_change_db_card(
         include_characters=True,
         include_field_map=True,
     )
-    _pin_ai_change_shot_action(ctx, frame)
+    _pin_ai_change_shot_action(ctx, frame, shot=shot)
     path = dest_dir / "db_frames.json"
     path.write_text(
         json.dumps(ctx, ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
     )
     logger.info(
-        "montage_ai_change: db card {} bytes frame={} chars={}",
+        "montage_ai_change: db card {} bytes frame={} shot={} chars={}",
         path.stat().st_size,
         getattr(frame, "number", "?"),
+        shot,
         len(ctx.get("characters") or []),
     )
     return path
 
 
-def _pin_ai_change_shot_action(ctx: dict, frame: object) -> None:
+def _pin_ai_change_shot_action(ctx: dict, frame: object, shot: int = 1) -> None:
     """В карточке ИИзменения — действие этого шота, без цепи сцены и чужих K."""
     from app.services.montage_board import _action_for_frame
     from app.services.vo_shot_expand import _cs, coverage_shot_id
 
-    action = _action_for_frame(frame)
+    action = _action_for_frame(frame, shot=shot)
     sid = str(_cs(frame).get("shot_id") or "").strip() or coverage_shot_id(frame)
+    action_key = "shot02_action" if shot == 2 else "shot01_action"
     for row in ctx.get("frames") or []:
         if not isinstance(row, dict):
             continue
         if action:
-            row["shot01_action"] = action
+            row[action_key] = action
             row["действие"] = action
         row.pop("main_action", None)
         row.pop("главное_действие", None)
         kadry = row.get("кадры")
         if not isinstance(kadry, list) or not kadry:
             continue
+        if shot == 2:
+            match2 = [
+                item
+                for item in kadry
+                if isinstance(item, dict)
+                and any(
+                    m in str(item.get("id") or item.get("shot_id") or "").lower() for m in ("02", "s2", "-2")
+                )
+            ]
+            if match2:
+                row["кадры"] = match2
+                continue
+            if len(kadry) > 1:
+                row["кадры"] = [kadry[1]] if isinstance(kadry[1], dict) else kadry[1:2]
+                continue
         match = [
-            item
-            for item in kadry
-            if isinstance(item, dict) and str(item.get("id") or "").strip() == sid
+            item for item in kadry if isinstance(item, dict) and str(item.get("id") or "").strip() == sid
         ]
         if match:
             row["кадры"] = match
@@ -139,8 +155,7 @@ def _pin_ai_change_shot_action(ctx: dict, frame: object) -> None:
                 item
                 for item in kadry
                 if isinstance(item, dict)
-                and str(item.get("действие") or item.get("action") or "").strip()
-                == action
+                and str(item.get("действие") or item.get("action") or "").strip() == action
             ]
             if same:
                 row["кадры"] = same
@@ -168,6 +183,25 @@ def load_img_pr_master(project: object | None) -> tuple[Path | None, str]:
     return None, ""
 
 
+def load_anim_pr_master(project: object | None) -> tuple[Path | None, str]:
+    """Живой .md агента anim_pr проекта (07_animation) — тот же файл, что у ноды."""
+    if project is None:
+        return None, ""
+    try:
+        name, path, _text, source = read_resolved_project_prompt(project, "anim_pr")
+        logger.info(
+            "montage_ai_change: anim_pr master variant={!r} source={} path={}",
+            name,
+            source,
+            path,
+        )
+        if path.is_file():
+            return path, name
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("montage_ai_change: anim_pr master skip: {}", exc)
+    return None, ""
+
+
 def load_img_pr_rules(project: object | None) -> str:
     """Текст агента — только если нужно прочитать, не класть в system."""
     path, _name = load_img_pr_master(project)
@@ -191,9 +225,7 @@ def character_ids_from_prompt(text: str) -> list[str]:
     return seen
 
 
-_STYLE_LINE_RE = re.compile(
-    r"(?im)^(?:\*\*)?(?:STYLE|Final style lock|Negative)\b"
-)
+_STYLE_LINE_RE = re.compile(r"(?im)^(?:\*\*)?(?:STYLE|Final style lock|Negative)\b")
 _MAX_AI_CHANGE_STYLE = 900
 
 
@@ -257,7 +289,12 @@ def strip_ai_change_reply(raw: str) -> str:
     )
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'«»":
         text = text[1:-1].strip()
-    return text.strip()
+    from app.services.prompt_sanitizer import clean_prompt_from_ai_chatter
+
+    cleaned, is_refusal = clean_prompt_from_ai_chatter(text)
+    if is_refusal or not cleaned:
+        raise RuntimeError(f"ИИзменение: GPT вернул отказ или рассуждения вместо промта: {text[:100]}")
+    return cleaned.strip()
 
 
 def system_for_kind(kind: AiChangeKind, *, img_pr_rules: str = "") -> str:
@@ -294,12 +331,13 @@ async def rewrite_prompt_via_gpt(
         files.append(img_pr_path)
     if db_card_path is not None and db_card_path.is_file():
         files.append(db_card_path)
-    with bind_generation_llm(project, node_type="image_prompts"):
+    node_type = "animation_prompts" if kind == "video" else "image_prompts"
+    with bind_generation_llm(project, node_type=node_type):
         gpt = get_gpt_client()
         raw = await gpt.ask_with_files(
             user,
             files,
-            timeout=180,
+            timeout=60,
             project_id=project_id,
             expect_file_download=False,
             system=system,

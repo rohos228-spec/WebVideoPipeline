@@ -133,9 +133,7 @@ def _character_refs_for_ids(
     return refs
 
 
-def _vo_parent_and_members(
-    frames: list[Any], frame: Any
-) -> tuple[Any, list[Any]]:
+def _vo_parent_and_members(frames: list[Any], frame: Any) -> tuple[Any, list[Any]]:
     """VO-ячейка: родитель + шоты с тем же parent_uuid. Без coverage_parent_id."""
     from app.services.montage_scene_editor import scene_group
 
@@ -160,26 +158,16 @@ def _item_ids_from_attrs(attrs: dict[str, Any] | None) -> tuple[list[str], dict[
     src = attrs if isinstance(attrs, dict) else {}
     names: dict[str, str] = {}
     ids: list[str] = []
-    raw = (
-        src.get("items_seed")
-        or src.get("предметы")
-        or src.get("items")
-        or src.get("shot01_props")
-        or ""
-    )
+    raw = src.get("items_seed") or src.get("предметы") or src.get("items") or src.get("shot01_props") or ""
     chunks: list[Any] = raw if isinstance(raw, list) else [raw]
     for item in chunks:
         if isinstance(item, dict):
-            parsed = _parse_ref_ids(
-                item.get("id") or item.get("код") or item.get("code") or ""
-            )
+            parsed = _parse_ref_ids(item.get("id") or item.get("код") or item.get("code") or "")
             if not parsed:
                 continue
             rid = parsed[0]
             ids.append(rid)
-            nm = str(
-                item.get("имя") or item.get("name") or item.get("название") or ""
-            ).strip()
+            nm = str(item.get("имя") or item.get("name") or item.get("название") or "").strip()
             if nm:
                 names[rid.lower()] = nm
         else:
@@ -206,11 +194,7 @@ def _group_refs_for_frames(
         if pno not in by_parent:
             person_ids = _merge_ref_ids(
                 _person_ids_from_attrs(parent.attrs),
-                *[
-                    _person_ids_from_attrs(m.attrs)
-                    for m in members
-                    if int(m.number) != pno
-                ],
+                *[_person_ids_from_attrs(m.attrs) for m in members if int(m.number) != pno],
                 _parse_ref_ids((excel_by_frame.get(pno) or {}).get("characters") or ""),
             )
             item_ids_all: list[str] = []
@@ -236,21 +220,15 @@ def _group_refs_for_frames(
                 "label": f"родитель #{pno}",
                 "image_url": _preview_url(parent_png),
             }
-            chars = _character_refs_for_ids(
-                person_ids, chars_dir=chars_dir, names=char_names
-            )
-            items = _character_refs_for_ids(
-                item_ids_all, chars_dir=items_dir, names=names_i
-            )
+            chars = _character_refs_for_ids(person_ids, chars_dir=chars_dir, names=char_names)
+            items = _character_refs_for_ids(item_ids_all, chars_dir=items_dir, names=names_i)
             by_parent[pno] = {
                 "ref_parent": parent_ref,
                 "group_character_refs": chars,
                 "item_refs": items,
             }
         shared = by_parent[pno]
-        still = (
-            find_coverage_parent_frame(frames, fr) if uses_parent_still(fr) else None
-        )
+        still = find_coverage_parent_frame(frames, fr) if uses_parent_still(fr) else None
         if still is not None and int(still.number) == int(fr.number):
             still = None
         still_ref = None
@@ -272,22 +250,14 @@ def _group_refs_for_frames(
     return out
 
 
-async def _entity_name_maps(
-    session: AsyncSession, project_id: int
-) -> tuple[dict[str, str], dict[str, str]]:
+async def _entity_name_maps(session: AsyncSession, project_id: int) -> tuple[dict[str, str], dict[str, str]]:
     from app.models import Entity
 
     chars: dict[str, str] = {}
     items: dict[str, str] = {}
     try:
         ents = list(
-            (
-                await session.execute(
-                    select(Entity).where(Entity.project_id == project_id)
-                )
-            )
-            .scalars()
-            .all()
+            (await session.execute(select(Entity).where(Entity.project_id == project_id))).scalars().all()
         )
     except Exception:  # noqa: BLE001
         return chars, items
@@ -297,13 +267,7 @@ async def _entity_name_maps(
         if not code:
             continue
         kind = str(getattr(ent, "type", "") or "")
-        bucket = (
-            chars
-            if kind == "character"
-            else items
-            if kind in {"prop", "item"}
-            else None
-        )
+        bucket = chars if kind == "character" else items if kind in {"prop", "item"} else None
         if bucket is None or not name:
             continue
         bucket[code] = name
@@ -684,9 +648,31 @@ def _plan_for_frame(frame: Any) -> str:
     return ""
 
 
-def _action_for_frame(frame: Any) -> str:
+def _action_for_frame(frame: Any, shot: int = 1) -> str:
     attrs = getattr(frame, "attrs", None)
     src = attrs if isinstance(attrs, dict) else {}
+    if shot == 2:
+        found2 = _first_text(
+            src.get("shot02_action"),
+            src.get("действие_shot02"),
+            src.get("действие_2"),
+            src.get("action_2"),
+        )
+        if found2:
+            return found2
+        kadry = src.get("кадры")
+        if isinstance(kadry, list):
+            for k in kadry:
+                if isinstance(k, dict):
+                    sid = str(k.get("id") or k.get("shot_id") or "").lower()
+                    if any(m in sid for m in ("02", "s2", "-2")):
+                        act = _first_text(k.get("действие"), k.get("action"))
+                        if act:
+                            return act
+            if len(kadry) > 1 and isinstance(kadry[1], dict):
+                act = _first_text(kadry[1].get("действие"), kadry[1].get("action"))
+                if act:
+                    return act
     found = _first_text(src.get("shot01_action"), src.get("действие"))
     if found:
         return found
@@ -716,13 +702,9 @@ def _shot_kind_payload(
     if uses_parent_still(frame) and (is_shot_child(frame) or coverage_kind == "child"):
         parent = find_coverage_parent_frame(frames, frame)
         parent_number = (
-            int(parent.number)
-            if parent is not None and int(parent.number) != int(frame.number)
-            else None
+            int(parent.number) if parent is not None and int(parent.number) != int(frame.number) else None
         )
-        parent_id = coverage_parent_shot_id(frame) or (
-            coverage_shot_id(parent) if parent is not None else ""
-        )
+        parent_id = coverage_parent_shot_id(frame) or (coverage_shot_id(parent) if parent is not None else "")
         return "child", parent_number, parent_id
     for other in frames:
         if int(other.number) == int(frame.number):
@@ -818,9 +800,7 @@ def _coverage_fields_for_frames(
     for fr in frames:
         kind, parent_number, parent_id = _shot_kind_payload(fr, frames)
         extra = frame_board_scene_cell(frames, fr)
-        stitch = canonical_stitch(
-            _shot_cs_kadry(fr, "переход", "тип_стыка", "stitch", "transition")
-        )
+        stitch = canonical_stitch(_shot_cs_kadry(fr, "переход", "тип_стыка", "stitch", "transition"))
         row = _empty_coverage_fields()
         row.update(extra)
         row.update(
@@ -873,9 +853,7 @@ async def build_montage_board(
     try:
         from app.services.vibecode_catalog import resolve_node_media_settings
 
-        frame_aspect = str(
-            resolve_node_media_settings(project, node_type="images")["aspect_slug"] or "9:16"
-        )
+        frame_aspect = str(resolve_node_media_settings(project, node_type="images")["aspect_slug"] or "9:16")
     except Exception as e:  # noqa: BLE001
         logger.warning("montage_board: aspect project {}: {}", project_id, e)
         frame_aspect = "9:16"
@@ -1076,7 +1054,5 @@ async def build_montage_board(
         "coverage_visual_type_choices": list(COVERAGE_VISUAL_TYPE_CHOICES),
         "coverage_stitch_choices": stitch_choices_for_ui(),
         "coverage_template_choices": template_choices_for_ui(),
-        "ref_kind_choices": [
-            {"id": kind, "label": label} for kind, label in REF_KINDS.items()
-        ],
+        "ref_kind_choices": [{"id": kind, "label": label} for kind, label in REF_KINDS.items()],
     }
