@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, createContext, useContext } from "react";
+import { useState, useEffect, createContext, useContext } from "react";
 import { Bot, CircleDollarSign, Database, Film } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FramesGrid } from "@/components/frames/frames-grid";
+import { CostsPanelSheet } from "@/components/costs/costs-panel-sheet";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 import { BalanceBadge } from "@/components/shell/balance-badge";
@@ -25,6 +26,13 @@ export function useUi(): UiState {
 export function Topbar({ children }: { children?: React.ReactNode }) {
   const [framesOpen, setFramesOpen] = useState(false);
   const [framesProjectId, setFramesProjectId] = useState<number | null>(null);
+  const [costsOpen, setCostsOpen] = useState(false);
+
+  useEffect(() => {
+    const onOpenCosts = () => setCostsOpen(true);
+    window.addEventListener("studio-open-costs", onOpenCosts);
+    return () => window.removeEventListener("studio-open-costs", onOpenCosts);
+  }, []);
 
   const openFrames = (id: number) => {
     setFramesProjectId(id);
@@ -93,10 +101,10 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
               size="sm"
               onClick={() => window.dispatchEvent(new CustomEvent("studio-open-costs"))}
               className="gap-2 text-xs"
-              title="Стоимость LLM по нодам, моделям и прогонам; бюджет прогона"
+              title="Расходы и статистика использования всех моделей (фото, видео, аудио, LLM)"
             >
               <CircleDollarSign className="h-3.5 w-3.5" />
-              Стоимость
+              Расходы
             </Button>
           </div>
         </header>
@@ -104,6 +112,11 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
           projectId={framesProjectId}
           open={framesOpen}
           onOpenChange={setFramesOpen}
+        />
+        <CostsPanelSheet
+          open={costsOpen}
+          onOpenChange={setCostsOpen}
+          selectedProjectId={framesProjectId}
         />
         {children != null ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>

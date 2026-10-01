@@ -109,16 +109,28 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
     prompt = str(values.get("prompt") or values.get("text") or "")[:2000]
 
     async def run(out_path: Path):
-        if result_kind == "text":
-            task_id = await kie_http.create_task(str(spec.get("api")), spec.get("endpoint"), payload)
-            data = await kie_http.poll_task(str(spec.get("api")), task_id)
-            text = _find_text(data) or str(data)[:4000]
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(text, encoding="utf-8")
-            from app.bots.outsee import GenerationResult
+        from app.bots.outsee import GenerationResult
+        from app.services.media_ledger import media_call
 
-            return GenerationResult(file_path=out_path, gen_id=task_id, raw_url=None)
-        return await kie_http.run_generation(spec, payload, out_path)
+        quote_credits = float(quote.get("credits") or 1.0)
+        async with media_call(
+            "kie",
+            media,
+            model=spec["label"],
+            units=quote_credits,
+            unit="item",
+        ) as call:
+            if result_kind == "text":
+                task_id = await kie_http.create_task(str(spec.get("api")), spec.get("endpoint"), payload)
+                data = await kie_http.poll_task(str(spec.get("api")), task_id)
+                text = _find_text(data) or str(data)[:4000]
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(text, encoding="utf-8")
+                call.external_id = task_id or ""
+                return GenerationResult(file_path=out_path, gen_id=task_id, raw_url=None)
+            res = await kie_http.run_generation(spec, payload, out_path)
+            call.external_id = getattr(res, "gen_id", "") or ""
+            return res
 
     job = await enqueue_generation(
         media=media,

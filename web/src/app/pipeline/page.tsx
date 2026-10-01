@@ -12,7 +12,6 @@ import { Inspector } from "@/components/inspector/inspector";
 import { StudioWorkspace } from "@/components/studio/studio-workspace";
 import { ChatPanel } from "@/components/studio/chat-panel";
 import { FleetPanelSheet } from "@/components/fleet/fleet-panel-sheet";
-import { CostsPanelSheet } from "@/components/costs/costs-panel-sheet";
 import { FleetTransferBanner } from "@/components/fleet/fleet-transfer-banner";
 import { OutseeCreateWorkspace } from "@/components/outsee/outsee-create-workspace";
 import { GptWorkspace } from "@/components/gpt/gpt-workspace";
@@ -92,7 +91,6 @@ function StudioHome() {
   // ради панели, которой не пользуются, незачем.
   const [chatOpen, setChatOpen] = usePersistedState("vp-studio-chat-open", false);
   const [fleetOpen, setFleetOpen] = useState(false);
-  const [costsOpen, setCostsOpen] = useState(false);
   const [outseeOpen, setOutseeOpen] = useState(false);
   const [gptOpen, setGptOpen] = useState(false);
   const [bazaOpen, setBazaOpen] = useState(false);
@@ -141,12 +139,6 @@ function StudioHome() {
     const openFleet = () => setFleetOpen(true);
     window.addEventListener("studio-open-fleet", openFleet);
     return () => window.removeEventListener("studio-open-fleet", openFleet);
-  }, []);
-
-  useEffect(() => {
-    const openCosts = () => setCostsOpen(true);
-    window.addEventListener("studio-open-costs", openCosts);
-    return () => window.removeEventListener("studio-open-costs", openCosts);
   }, []);
 
   useEffect(() => {
@@ -256,11 +248,6 @@ function StudioHome() {
           open={fleetOpen}
           onOpenChange={setFleetOpen}
           onOpenProject={selectProject}
-        />
-        <CostsPanelSheet
-          open={costsOpen}
-          onOpenChange={setCostsOpen}
-          selectedProjectId={canvasProjectId}
         />
         <Inspector
           projectId={canvasProjectId}

@@ -426,6 +426,57 @@ export interface DbGraph {
   harness?: DbHarnessSummary;
 }
 
+export interface UsageHistoryModelItem {
+  model: string;
+  display_name: string;
+  kind: "image" | "video" | "audio" | "llm" | string;
+  provider: string;
+  calls: number;
+  success_calls: number;
+  error_calls: number;
+  units: number;
+  unit_label: string;
+  credits_spent: string;
+  credits_spent_micro: number;
+  cost_usd: number | null;
+}
+
+export interface UsageHistoryKindSummary {
+  kind: string;
+  calls: number;
+  credits: string;
+  credits_micro: number;
+  cost_usd: number | null;
+}
+
+export interface UsageHistoryRecentItem {
+  id: string;
+  created_at: string;
+  kind: "image" | "video" | "audio" | "llm" | "topup" | "settle" | "promo" | string;
+  model: string;
+  provider: string;
+  description: string;
+  units_label: string;
+  credits_delta: string;
+  credits_delta_micro: number;
+  cost_usd: number | null;
+  status: "ok" | "error" | string;
+  duration_sec: number | null;
+  preview_url: string | null;
+}
+
+export interface UsageHistoryResponse {
+  summary: {
+    total_spent_credits: string;
+    total_spent_micro: number;
+    total_cost_usd: number | null;
+    by_kind: Record<string, UsageHistoryKindSummary>;
+  };
+  models: UsageHistoryModelItem[];
+  recent: UsageHistoryRecentItem[];
+  is_admin: boolean;
+}
+
 export const api = {
   // ── Купоны и биллинг ──────────────────────────────────────────────
   redeemCoupon: (code: string) =>
@@ -440,6 +491,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ code }),
     }),
+
+  getUsageHistory: (params?: {
+    project_id?: number | null;
+    kind?: string;
+    all_tenants?: boolean;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.project_id != null) q.set("project_id", String(params.project_id));
+    if (params?.kind && params.kind !== "all") q.set("kind", params.kind);
+    if (params?.all_tenants) q.set("all_tenants", "true");
+    if (params?.limit != null) q.set("limit", String(params.limit));
+    if (params?.offset != null) q.set("offset", String(params.offset));
+    const qs = q.toString();
+    return http<UsageHistoryResponse>(`/api/billing/usage-history${qs ? `?${qs}` : ""}`);
+  },
 
   // ── База (DB v2 browser) ─────────────────────────────────────────
   dbOverview: () => http<DbOverview>(`/api/db/overview`),
