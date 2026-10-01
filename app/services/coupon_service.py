@@ -132,9 +132,7 @@ async def create_coupon(
     if max_uses < 1:
         raise ValueError("Лимит использований должен быть не менее 1")
 
-    existing = (
-        await session.execute(select(Coupon.id).where(Coupon.code == clean_code))
-    ).first()
+    existing = (await session.execute(select(Coupon.id).where(Coupon.code == clean_code))).first()
     if existing is not None:
         raise ValueError(f"Купон с кодом {clean_code} уже существует")
 

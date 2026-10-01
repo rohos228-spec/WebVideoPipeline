@@ -250,9 +250,13 @@ async def record(
     cost, pt, ct, tt, unbilled = compute_cost(usage, model=model, served_model=served_model)
     if not prompt_version_hash:
         prompt_version_hash = current_prompt_hash()
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
     try:
         async with session_scope() as session:
             row = LlmCall(
+                tenant_id=tenant,
                 project_id=project_id,
                 node_key=node_key or "adhoc",
                 logical_call_id=logical_call_id,
