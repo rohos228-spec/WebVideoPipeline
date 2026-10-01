@@ -219,5 +219,3 @@ async def test_admin_coupon_endpoints() -> None:
         assert deact["ok"] is True
 
     set_identity(None)
-
-

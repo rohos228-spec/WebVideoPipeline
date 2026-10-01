@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from httpx import ASGITransport, AsyncClient
-import pytest
+
 import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 
 from app.models import CreditEntry, LlmCall, MediaCall
-from app.settings import settings
 from app.web.api import create_app
 from app.web.deps import get_session
 from tests import accounts_harness as ah
