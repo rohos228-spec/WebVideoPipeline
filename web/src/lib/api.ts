@@ -1735,6 +1735,10 @@ export const api = {
         model?: string | null;
         elapsed_sec?: number | null;
         elapsed_label?: string | null;
+        provider?: "outsee" | "kie" | string | null;
+        params?: Record<string, unknown> | null;
+        reference_images?: string[] | null;
+        first_frame_url?: string | null;
       }[]
     >(
       `/api/outsee-create/history?kind=${kind}&scope=${opts?.scope ?? "create"}&limit=${opts?.limit ?? 60}`,

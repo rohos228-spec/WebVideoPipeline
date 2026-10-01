@@ -492,6 +492,7 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
                 "raw_url": meta.get("raw_url"),
                 "mtime": file_mtime,
                 "params": params,
+                "provider": meta.get("provider") or "outsee",
                 "reference_images": [r for r in ref_imgs if r and isinstance(r, str)],
                 "first_frame_url": first_frame if isinstance(first_frame, str) else None,
             }
@@ -531,6 +532,7 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
                 "model": fp.parent.parent.name if fp.parent.parent != root else None,
                 "status": "done",
                 "mtime": fp.stat().st_mtime,
+                "provider": "local",
             }
         )
 
