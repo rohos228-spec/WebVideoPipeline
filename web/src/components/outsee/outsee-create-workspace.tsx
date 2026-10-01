@@ -30,6 +30,7 @@ import {
   Music,
   Paperclip,
   Play,
+  RotateCw,
   Search,
   Send,
   Square,
@@ -856,33 +857,53 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   };
 
   const createGenerate = useMutation({
-    mutationFn: async () => {
-      let text = prompt.trim();
-      if (text && mediaType === "image" && negativePrompt.trim()) {
+    mutationFn: async (arg?: { retryItem?: HistoryItem } | void) => {
+      const retry = arg?.retryItem;
+      const targetMediaType: OutseeMediaType = retry
+        ? ((retry.kind as OutseeMediaType) || "image")
+        : mediaType;
+      let text = (retry?.prompt ?? prompt).trim();
+      if (!text) throw new Error("Введите промпт");
+      if (text && targetMediaType === "image" && negativePrompt.trim() && !retry) {
         text += `\nAvoid: ${negativePrompt.trim()}`;
       }
 
       const executeSingle = async (index: number) => {
         const nonce = `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`;
+        const retryParams = (retry?.params ?? {}) as Record<string, unknown>;
+        const rawModel = retry?.model ? String(retry.model) : "";
+
         // ---- KIE: динамическая модель из каталога kie.ai ----
-        if (kieActive && kieModel) {
+        const isKie = rawModel.startsWith("kie:") || (Boolean(kieActive && kieModel) && !retry);
+        if (isKie) {
           if (!kieConfigured) {
             throw new Error("KIE_API_KEY не задан в .env");
           }
-          const vals: Record<string, unknown> = { ...kieValues, _nonce: nonce };
+          const modelId = rawModel.startsWith("kie:")
+            ? rawModel.slice(4)
+            : kieModel!.id;
+          const vals: Record<string, unknown> = retry
+            ? { ...retryParams, _nonce: nonce }
+            : { ...kieValues, _nonce: nonce };
           if (kieTextField) vals[kieTextField] = text;
-          if (negativePrompt.trim()) {
-            const negField = kieModel.fields.find((f) => f.name.toLowerCase().includes("neg"));
+          else if (retry) {
+            const pField = Object.keys(vals).find((k) => k.toLowerCase().includes("prompt")) || "prompt";
+            vals[pField] = text;
+          }
+          if (negativePrompt.trim() && !retry) {
+            const negField = kieModel?.fields.find((f) => f.name.toLowerCase().includes("neg"));
             if (negField) vals[negField.name] = negativePrompt.trim();
           }
           // Автоматическая передача референсов и стартовых кадров в поля модели KIE
           const refUrls =
-            referenceImages.length > 0
-              ? referenceImages.map((r) => r.url)
-              : firstFrameDataUrl
-                ? [firstFrameDataUrl]
-                : [];
-          if (refUrls.length > 0) {
+            retry?.reference_images && retry.reference_images.length > 0
+              ? retry.reference_images
+              : referenceImages.length > 0
+                ? referenceImages.map((r) => r.url)
+                : firstFrameDataUrl
+                  ? [firstFrameDataUrl]
+                  : [];
+          if (refUrls.length > 0 && kieModel) {
             const imageField = kieModel.fields.find(
               (f) =>
                 f.kind === "images" ||
@@ -901,19 +922,21 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               }
             }
           }
-          const missing = kieModel.fields
-            .filter((f) => f.required)
-            .filter((f) => {
-              const v = vals[f.name] ?? f.default;
-              if (v === undefined || v === null) return true;
-              if (typeof v === "string") return v.trim() === "";
-              if (Array.isArray(v)) return v.length === 0;
-              return false;
-            });
-          if (missing.length) {
-            throw new Error(`Заполни: ${missing.map((f) => f.label).join(", ")}`);
+          if (kieModel) {
+            const missing = kieModel.fields
+              .filter((f) => f.required)
+              .filter((f) => {
+                const v = vals[f.name] ?? f.default;
+                if (v === undefined || v === null) return true;
+                if (typeof v === "string") return v.trim() === "";
+                if (Array.isArray(v)) return v.length === 0;
+                return false;
+              });
+            if (missing.length) {
+              throw new Error(`Заполни: ${missing.map((f) => f.label).join(", ")}`);
+            }
           }
-          const res = await api.kieGenerate({ model_id: kieModel.id, values: vals });
+          const res = await api.kieGenerate({ model_id: modelId, values: vals });
           return {
             job_id: res.job.job_id,
             history_id: res.job.history_id,
@@ -923,7 +946,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           };
         }
         if (!text) throw new Error("Введите промпт");
-        if (mediaType === "audio") {
+        if (targetMediaType === "audio") {
           if (projectId == null) {
             throw new Error("Аудио — через шаг пайплайна: выберите проект");
           }
@@ -940,44 +963,83 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         // Settings не блокируют enqueue: параллельные клики иначе ломаются
         // на гонке записи outsee_create_settings.json.
         void api.putOutseeCreateSettings(settingsPayload()).catch(() => undefined);
+
+        const targetAspect =
+          typeof retryParams.aspect === "string" && retryParams.aspect
+            ? retryParams.aspect
+            : aspect;
+        const targetResolution =
+          typeof retryParams.resolution === "string" && retryParams.resolution
+            ? retryParams.resolution
+            : targetMediaType === "video"
+              ? videoResolution
+              : resolution;
+        const targetDetail =
+          typeof retryParams.detail_level === "string" && retryParams.detail_level
+            ? retryParams.detail_level
+            : imageModel.chips.includes("detail")
+              ? detail
+              : undefined;
+        const targetDuration =
+          typeof retryParams.duration === "number"
+            ? retryParams.duration
+            : Number(duration) || 5;
+        const targetFirstFrame =
+          retry?.first_frame_url ||
+          (referenceImages.length > 0 ? referenceImages[0].url : firstFrameDataUrl);
+        const targetLastFrame =
+          (typeof retryParams.last_frame_url === "string"
+            ? retryParams.last_frame_url
+            : undefined) || lastFrameDataUrl;
+        const targetRefs =
+          retry?.reference_images && retry.reference_images.length > 0
+            ? retry.reference_images
+            : referenceImages.length > 0
+              ? referenceImages.map((r) => r.url)
+              : firstFrameDataUrl
+                ? [firstFrameDataUrl]
+                : undefined;
+        const targetModel =
+          rawModel || (targetMediaType === "video" ? videoSlug : imageSlug);
+        const targetProjectId = retry ? (retry.project_id ?? projectId) : projectId;
+
         const enqueued =
-          mediaType === "video"
+          targetMediaType === "video"
             ? await api.outseeGenerate({
                 prompt: text,
                 media: "video",
-                model: videoSlug,
-                aspect,
-                resolution: videoResolution,
-                duration: Number(duration) || 5,
+                model: targetModel,
+                aspect: targetAspect,
+                resolution: targetResolution,
+                duration: targetDuration,
                 generate_audio: videoModel.chips.includes("audio") ? generateAudio : null,
-                first_frame_url: firstFrameDataUrl,
-                last_frame_url: lastFrameDataUrl,
-                project_id: projectId,
+                first_frame_url: targetFirstFrame,
+                last_frame_url: targetLastFrame,
+                project_id: targetProjectId,
                 nonce,
                 batch_index: index,
               })
             : await api.outseeGenerate({
                 prompt: text,
                 media: "image",
-                model: imageSlug,
-                aspect,
-                resolution,
-                detail_level: imageModel.chips.includes("detail") ? detail : undefined,
-                first_frame_url: referenceImages.length > 0 ? referenceImages[0].url : firstFrameDataUrl,
-                reference_images:
-                  referenceImages.length > 0
-                    ? referenceImages.map((r) => r.url)
-                    : firstFrameDataUrl
-                      ? [firstFrameDataUrl]
-                      : undefined,
-                project_id: projectId,
+                model: targetModel,
+                aspect: targetAspect,
+                resolution: targetResolution,
+                detail_level: targetDetail,
+                first_frame_url: targetFirstFrame,
+                reference_images: targetRefs,
+                project_id: targetProjectId,
                 nonce,
                 batch_index: index,
               });
         return { ...enqueued, provider: "outsee" as const };
       };
 
-      const count = (mediaType === "image" || mediaType === "video") ? batchCount : 1;
+      const count = retry
+        ? 1
+        : targetMediaType === "image" || targetMediaType === "video"
+          ? batchCount
+          : 1;
       if (count > 1) {
         const results = await Promise.all(
           Array.from({ length: count }, (_, i) => executeSingle(i))
@@ -1043,6 +1105,43 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       toast.error(errorMessageFromUnknown(e));
     },
   });
+
+  const handleRetry = (item: HistoryItem) => {
+    if (!item.prompt) {
+      toast.error("У этой генерации нет текста промпта");
+      return;
+    }
+    // Синхронизируем панель снизу под параметры повторяемой карточки
+    if (item.kind === "image") {
+      setMediaType("image");
+      const p = (item.params ?? {}) as Record<string, unknown>;
+      const rawModel = item.model ? String(item.model) : "";
+      const candidates = [rawModel, slugToStudioId(rawModel, "image") ?? ""];
+      const slug = candidates.find((c) => c && chipOptions(c, "aspect").length > 0);
+      const effSlug = slug ?? imageSlug;
+      if (slug && slug !== imageSlug) setImageSlug(slug);
+      if (typeof p.aspect === "string" && p.aspect) {
+        setAspect(clampToOptions(p.aspect, chipOptions(effSlug, "aspect"), aspect));
+      }
+      if (typeof p.resolution === "string" && p.resolution) {
+        setResolution(clampToOptions(p.resolution, chipOptions(effSlug, "resolution"), resolution));
+      }
+      if (typeof p.detail_level === "string" && p.detail_level) {
+        const dOpts = chipOptions(effSlug, "detail");
+        if (dOpts.length) setDetail(clampToOptions(p.detail_level, dOpts, detail));
+      }
+      setPrompt(item.prompt);
+    } else if (item.kind === "video") {
+      setMediaType("video");
+      if (item.model) setVideoSlug(item.model);
+      const p = (item.params ?? {}) as Record<string, unknown>;
+      if (typeof p.aspect === "string" && p.aspect) setAspect(p.aspect);
+      if (typeof p.resolution === "string" && p.resolution) setVideoResolution(p.resolution);
+      if (p.duration) setDuration(String(p.duration));
+      setPrompt(item.prompt);
+    }
+    createGenerate.mutate({ retryItem: item });
+  };
 
   const historyItems: HistoryItem[] = useMemo(
     () => (historyQ.data as HistoryItem[] | undefined) ?? [],
@@ -1313,7 +1412,30 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                               className="h-5 w-5 animate-spin text-[#22d3ee]"
                             />
                           ) : failed ? (
-                            <span className="text-[10px] font-semibold text-red-400">ошибка</span>
+                            <div className="flex flex-col items-center gap-1.5">
+                              <span className="text-[10px] font-semibold text-red-400">ошибка</span>
+                              {item.prompt && (
+                                <span
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRetry(item);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.stopPropagation();
+                                      handleRetry(item);
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-full bg-red-500/15 border border-red-500/30 px-2 py-0.5 text-[9px] font-medium text-red-200 hover:bg-red-500/30 hover:border-red-400 hover:text-white transition-all cursor-pointer shadow-sm active:scale-95"
+                                  title="Сгенерировать заново"
+                                >
+                                  <RotateCw className={cn("h-2.5 w-2.5", createGenerate.isPending && "animate-spin")} />
+                                  <span>повторить</span>
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-[9px] text-white/25">{item.kind}</span>
                           )}
@@ -1359,6 +1481,19 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       )}
                       {!pending && (
                         <div className="absolute top-1.5 right-1.5 z-20 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                          {failed && item.prompt && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRetry(item);
+                              }}
+                              className="flex h-6 w-6 items-center justify-center rounded-md bg-cyan-950/80 text-[#22d3ee] backdrop-blur transition hover:bg-[#22d3ee] hover:text-black shadow-md ring-1 ring-[#22d3ee]/40"
+                              title="Сгенерировать заново"
+                            >
+                              <RotateCw className={cn("h-3 w-3", createGenerate.isPending && "animate-spin")} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1546,15 +1681,29 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                   {selected.elapsed_label ||
                     formatElapsedMinSec(selected.elapsed_sec)}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => deleteItem.mutate(selected)}
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/20 px-3.5 py-1.5 text-[11px] font-semibold text-red-300 backdrop-blur transition hover:border-red-500/50 hover:bg-red-500/30 hover:text-white shadow-lg"
-                  title="Удалить ошибочную запись из истории"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Удалить из истории</span>
-                </button>
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                  {selected.prompt && (
+                    <button
+                      type="button"
+                      onClick={() => handleRetry(selected)}
+                      disabled={createGenerate.isPending}
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#06b6d4] px-4 py-2 text-[12px] font-bold text-black shadow-[0_0_20px_rgba(34,211,238,0.4)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
+                      title="Повторить генерацию с теми же параметрами"
+                    >
+                      <RotateCw className={cn("h-4 w-4", createGenerate.isPending && "animate-spin")} />
+                      <span>{createGenerate.isPending ? "Запуск…" : "Сгенерировать заново"}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => deleteItem.mutate(selected)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/20 px-3.5 py-2 text-[11px] font-semibold text-red-300 backdrop-blur transition hover:border-red-500/50 hover:bg-red-500/30 hover:text-white shadow-lg"
+                    title="Удалить ошибочную запись из истории"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Удалить</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex w-full max-w-xs flex-col items-center gap-4 rounded-2xl border border-white/10 bg-[#121216]/70 px-6 py-10 text-center backdrop-blur-xl">
@@ -2423,6 +2572,22 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                   <span>Вставить в чат</span>
                 </button>
               </div>
+
+              {selected.prompt && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLightboxOpen(false);
+                    handleRetry(selected);
+                  }}
+                  disabled={createGenerate.isPending}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#06b6d4] px-3 text-[11px] font-bold text-black shadow-[0_0_15px_rgba(34,211,238,0.3)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
+                  title="Повторить генерацию с теми же параметрами"
+                >
+                  <RotateCw className={cn("h-3.5 w-3.5", createGenerate.isPending && "animate-spin")} />
+                  <span>{createGenerate.isPending ? "Запуск…" : "Сгенерировать заново"}</span>
+                </button>
+              )}
 
               {/* References Strip (if any) */}
               {((selected.reference_images && selected.reference_images.length > 0) || selected.first_frame_url) && (
