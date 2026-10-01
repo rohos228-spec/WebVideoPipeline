@@ -124,6 +124,7 @@ type HistoryItem = {
   params?: Record<string, unknown> | null;
   reference_images?: string[] | null;
   first_frame_url?: string | null;
+  provider?: "outsee" | "kie" | string | null;
 };
 
 function makeRefFromFile(file: File): RefImage {
@@ -980,26 +981,63 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         const nonce = `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`;
         const retryParams = (retry?.params ?? {}) as Record<string, unknown>;
         const rawModel = retry?.model ? String(retry.model) : "";
+        const paramModelId = typeof retryParams.model_id === "string" ? retryParams.model_id : "";
+
+        const matchedKie =
+          kieModels.find(
+            (m) =>
+              m.id === paramModelId ||
+              `kie:${m.id}` === rawModel ||
+              m.id === rawModel ||
+              m.label.toLowerCase() === rawModel.toLowerCase(),
+          ) ||
+          (retry?.provider === "kie" || retry?.project_slug === "kie"
+            ? kieModels.find((m) => m.id === paramModelId)
+            : null);
 
         // ---- KIE: динамическая модель из каталога kie.ai ----
-        const isKie = rawModel.startsWith("kie:") || (Boolean(kieActive && kieModel) && !retry);
+        const isKie =
+          Boolean(matchedKie) ||
+          rawModel.startsWith("kie:") ||
+          Boolean(retryParams.model_id) ||
+          retry?.provider === "kie" ||
+          retry?.project_slug === "kie" ||
+          (Boolean(kieActive && kieModel) && !retry);
         if (isKie) {
           if (!kieConfigured) {
             throw new Error("KIE_API_KEY не задан в .env");
           }
-          const modelId = rawModel.startsWith("kie:")
-            ? rawModel.slice(4)
-            : kieModel!.id;
+          const effectiveKieModel =
+            matchedKie ??
+            (rawModel.startsWith("kie:") ? kieModels.find((m) => m.id === rawModel.slice(4)) : null) ??
+            kieModel;
+          const modelId =
+            effectiveKieModel?.id ||
+            paramModelId ||
+            (rawModel.startsWith("kie:") ? rawModel.slice(4) : null) ||
+            kieModel?.id;
+          if (!modelId) {
+            throw new Error("Не удалось определить модель KIE");
+          }
+          const storedVals = (retryParams.values && typeof retryParams.values === "object"
+            ? retryParams.values
+            : retryParams) as Record<string, unknown>;
           const vals: Record<string, unknown> = retry
-            ? { ...retryParams, _nonce: nonce }
+            ? { ...storedVals, _nonce: nonce }
             : { ...kieValues, _nonce: nonce };
-          if (kieTextField) vals[kieTextField] = text;
+          delete vals.model_id;
+          delete vals.values;
+
+          const textField = effectiveKieModel ? kieMainTextField(effectiveKieModel) : kieTextField;
+          if (textField) vals[textField] = text;
           else if (retry) {
             const pField = Object.keys(vals).find((k) => k.toLowerCase().includes("prompt")) || "prompt";
             vals[pField] = text;
           }
           if (negativePrompt.trim() && !retry) {
-            const negField = kieModel?.fields.find((f) => f.name.toLowerCase().includes("neg"));
+            const negField = (effectiveKieModel || kieModel)?.fields.find((f) =>
+              f.name.toLowerCase().includes("neg"),
+            );
             if (negField) vals[negField.name] = negativePrompt.trim();
           }
           // Автоматическая передача референсов и стартовых кадров в поля модели KIE
@@ -1011,8 +1049,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 : firstFrameDataUrl
                   ? [firstFrameDataUrl]
                   : [];
-          if (kieRefUrls.length > 0 && kieModel) {
-            const imageField = kieModel.fields.find(
+          if (kieRefUrls.length > 0 && effectiveKieModel) {
+            const imageField = effectiveKieModel.fields.find(
               (f) =>
                 f.kind === "images" ||
                 ["image_urls", "image_input", "imageUrls", "images", "image_url", "imageUrl"].includes(f.name),
@@ -1030,8 +1068,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               }
             }
           }
-          if (kieModel) {
-            const missing = kieModel.fields
+          if (effectiveKieModel) {
+            const missing = effectiveKieModel.fields
               .filter((f) => f.required)
               .filter((f) => {
                 const v = vals[f.name] ?? f.default;
@@ -1227,11 +1265,43 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       toast.error("У этой генерации нет текста промпта");
       return;
     }
-    // Синхронизируем панель снизу под параметры повторяемой карточки
-    if (item.kind === "image") {
+    const p = (item.params ?? {}) as Record<string, unknown>;
+    const rawModel = item.model ? String(item.model) : "";
+    const paramModelId = typeof p.model_id === "string" ? p.model_id : "";
+
+    const matchedKie =
+      kieModels.find(
+        (m) =>
+          m.id === paramModelId ||
+          `kie:${m.id}` === rawModel ||
+          m.id === rawModel ||
+          m.label.toLowerCase() === rawModel.toLowerCase(),
+      ) ||
+      (item.provider === "kie" || item.project_slug === "kie"
+        ? kieModels.find((m) => m.id === paramModelId)
+        : null);
+
+    if (matchedKie) {
+      const isKieVideo = matchedKie.result === "video" || matchedKie.media === "video" || item.kind === "video";
+      const isKieAudio = matchedKie.result === "audio" || matchedKie.media === "audio" || item.kind === "audio";
+      if (isKieVideo) {
+        setMediaType("video");
+        setVideoSlug(`kie:${matchedKie.id}`);
+      } else if (isKieAudio) {
+        setMediaType("audio");
+        setAudioSlug(`kie:${matchedKie.id}`);
+      } else {
+        setMediaType("image");
+        setImageSlug(`kie:${matchedKie.id}`);
+      }
+      const vals = (p.values && typeof p.values === "object" ? p.values : p) as Record<string, unknown>;
+      setKieValues({ ...vals });
+      if (typeof vals.aspect_ratio === "string") setAspect(vals.aspect_ratio);
+      if (typeof vals.resolution === "string") setResolution(vals.resolution);
+      if (typeof vals.quality === "string") setDetail(vals.quality);
+      setPrompt(item.prompt);
+    } else if (item.kind === "image") {
       setMediaType("image");
-      const p = (item.params ?? {}) as Record<string, unknown>;
-      const rawModel = item.model ? String(item.model) : "";
       const candidates = [rawModel, slugToStudioId(rawModel, "image") ?? ""];
       const slug = candidates.find((c) => c && chipOptions(c, "aspect").length > 0);
       const effSlug = slug ?? imageSlug;
@@ -1251,7 +1321,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     } else if (item.kind === "video") {
       setMediaType("video");
       if (item.model) setVideoSlug(item.model);
-      const p = (item.params ?? {}) as Record<string, unknown>;
       if (typeof p.aspect === "string" && p.aspect) setAspect(p.aspect);
       if (typeof p.resolution === "string" && p.resolution) setVideoResolution(p.resolution);
       if (p.duration) setDuration(String(p.duration));
