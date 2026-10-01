@@ -593,6 +593,7 @@ async def usage_history(
 ) -> UsageHistoryResponse:
     """История расходов и использования всех моделей (изображения, видео, аудио, LLM)."""
     from typing import Any
+
     from sqlalchemy import or_, select
 
     from app.models import CreditEntry, LlmCall, MediaCall, Project
@@ -920,7 +921,7 @@ async def usage_history(
         total_spent_micro += m["credits_spent_micro"]
         total_cost_usd += m["cost_usd"]
 
-    for k_val, item in by_kind_map.items():
+    for item in by_kind_map.values():
         item.credits = format_credits(item.credits_micro, rounding="up")
 
     models_out = [
@@ -954,4 +955,3 @@ async def usage_history(
         recent=paged_recent,
         is_admin=is_admin,
     )
-
