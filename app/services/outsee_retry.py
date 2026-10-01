@@ -124,11 +124,12 @@ def _apply_local_prompt_sanitize(
 def _gpt_moderation_rewrite_meta(body_limit: int) -> str:
     """Meta для GPT-rewrite при модерации — лимит = тело без [ID:], не full."""
     return (
-        "измени промт ниже, но сохрани смысл картины и деталей, "
+        "Измени промт ниже, но сохрани смысл картины и деталей, "
         f"промт не должен быть больше {body_limit} символов "
         "(это лимит тела без строки [ID: …]), "
-        "замени опасные, триггерные слова на синонимы более нейтральные "
-        "и пришли только текст промта в ответе."
+        "замени опасные, триггерные слова на нейтральные кинематографичные аналоги. "
+        "КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО писать отказы, объяснения, рассуждения, примечания или выводы. "
+        "В ответе должен быть ТОЛЬКО финальный текст промта."
     )
 
 
@@ -652,6 +653,9 @@ async def _prepare_prompt_for_outsee(
     max_full: int | None = None,
 ) -> str:
     prompt_body = strip_prompt_id_lines(prompt_body)
+    from app.services.prompt_sanitizer import strip_ai_chatter
+
+    prompt_body = strip_ai_chatter(prompt_body)
     full_limit = max_full if max_full is not None else OUTSEE_PROMPT_MAX_CHARS
     full = _outsee_full_prompt(prompt_body, prefix)
     body_limit = max_body if max_body is not None else _max_body_for_prefix(prefix, cap=full_limit)
@@ -751,6 +755,16 @@ async def _ask_gpt_to_rewrite(
         )
         return None
     text = strip_prompt_id_lines((reply or "").strip())
+    from app.services.prompt_sanitizer import clean_prompt_from_ai_chatter
+
+    cleaned_text, is_refusal = clean_prompt_from_ai_chatter(text)
+    if is_refusal or not cleaned_text:
+        logger.warning(
+            "outsee_retry: GPT-rewrite вернул отказ или болтовню ({!r}) — игнорирую",
+            text[:160],
+        )
+        return None
+    text = cleaned_text
     if len(text) < _MIN_REWRITE_LEN:
         logger.warning(
             "outsee_retry: GPT-rewrite вернул слишком короткий ответ ({} симв) — игнорирую",

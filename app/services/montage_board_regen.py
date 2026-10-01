@@ -107,19 +107,13 @@ class _ApiOnlyOutseeStub:
     """Заглушка OutseeBot: montage regen никогда не открывает Chrome CDP."""
 
     async def generate_image(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError(
-            "montage regen: CDP отключён — нужен OUTSEE_API_KEY"
-        )
+        raise RuntimeError("montage regen: CDP отключён — нужен OUTSEE_API_KEY")
 
     async def generate_video(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError(
-            "montage regen: CDP отключён — нужен OUTSEE_API_KEY"
-        )
+        raise RuntimeError("montage regen: CDP отключён — нужен OUTSEE_API_KEY")
 
     async def retry_image_download(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError(
-            "montage regen: CDP download отключён — повтор скачивания только через HTTP API"
-        )
+        raise RuntimeError("montage regen: CDP download отключён — повтор скачивания только через HTTP API")
 
 
 def image_prompt_from_excel(project: Project, frame: Frame, shot: int) -> str:
@@ -167,14 +161,18 @@ async def _active_prompt_text(
 ) -> str:
     """Активная версия из prompt_versions (DB v2), иначе пусто."""
     pv = (
-        await session.execute(
-            select(PromptVersion).where(
-                PromptVersion.frame_id == frame_id,
-                PromptVersion.kind == kind,
-                PromptVersion.is_active.is_(True),
+        (
+            await session.execute(
+                select(PromptVersion).where(
+                    PromptVersion.frame_id == frame_id,
+                    PromptVersion.kind == kind,
+                    PromptVersion.is_active.is_(True),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     return (pv.text or "").strip() if pv is not None else ""
 
 
@@ -301,9 +299,7 @@ async def _montage_shot1_refs(
 
     manual = manual_ref_paths(project.data_dir, fr)
     if manual:
-        logger.info(
-            "montage regen: кадр #{} ручных рефов {}", fr.number, len(manual)
-        )
+        logger.info("montage regen: кадр #{} ручных рефов {}", fr.number, len(manual))
 
     if uses_parent_still(fr):
         parent_png = await _coverage_parent_png(session, project, fr)
@@ -330,6 +326,44 @@ async def _montage_shot1_refs(
     )
     # Лимит генератора: ручные рефы важнее автоматических и вытесняют их.
     return [*manual, *refs][:_OUTSEE_MAX_REFS], False
+
+
+async def _montage_shot2_refs(
+    session: AsyncSession,
+    project: Project,
+    fr: Frame,
+    *,
+    scenes_dir: Path,
+    ref_person_ids: list[str] | None = None,
+) -> list[Path]:
+    """Shot2-рефы: сначала ручные рефы оператора, затем PNG shot1 кадра (как generate_images),
+    при отсутствии shot1 — листы персонажей (fallback)."""
+    from app.services.montage_frame_refs import manual_ref_paths
+    from app.services.plan_shot2 import find_shot1_image
+
+    manual = manual_ref_paths(project.data_dir, fr)
+    shot1_png = find_shot1_image(scenes_dir, fr.number)
+    if shot1_png is not None:
+        logger.info(
+            "montage regen: shot2 #{} ← shot1 ref {}",
+            fr.number,
+            shot1_png.name,
+        )
+        return [*manual, shot1_png][:_OUTSEE_MAX_REFS]
+
+    override: list[str] | None
+    if ref_person_ids is not None:
+        override = ref_person_ids
+    else:
+        db_ids = frame_shot_character_ids(fr, 2) or frame_shot_character_ids(fr, 1)
+        override = db_ids if db_ids else None
+    refs = await _load_refs_for_frame(
+        session,
+        project,
+        fr.number,
+        persons_override=override,
+    )
+    return [*manual, *refs][:_OUTSEE_MAX_REFS]
 
 
 def _lock_montage_image_refs(
@@ -390,17 +424,28 @@ async def prepare_image_regen(
                 ref_person_ids=ref_person_ids,
             )
             prompt_text = append_manual_ref_note(prompt_text, fr)
-            prompt_text, refs = _lock_montage_image_refs(
-                project, fr, prompt_text, refs, child=has_parent
+            prompt_text, refs = _lock_montage_image_refs(project, fr, prompt_text, refs, child=has_parent)
+        elif shot == 2:
+            refs = await _montage_shot2_refs(
+                session,
+                project,
+                fr,
+                scenes_dir=scenes_dir,
+                ref_person_ids=ref_person_ids,
             )
+            prompt_text = append_manual_ref_note(prompt_text, fr)
+            if refs:
+                prompt_text, refs = _lock_montage_image_refs(project, fr, prompt_text, refs, child=True)
     elif mode == "correction":
         text = (correction or "").strip()
         if not text:
             raise RuntimeError("пустая корректировка")
         if board is not None:
             store_correction(board, frame_number, shot, text)
-        current = find_shot2_image(scenes_dir, frame_number) if shot == 2 else find_shot1_image(
-            scenes_dir, frame_number
+        current = (
+            find_shot2_image(scenes_dir, frame_number)
+            if shot == 2
+            else find_shot1_image(scenes_dir, frame_number)
         )
         if current is None:
             raise RuntimeError("нет текущего изображения для корректировки")
@@ -413,22 +458,21 @@ async def prepare_image_regen(
         pinned = (pinned_prompt or "").strip()
         prompt_text = pinned or await resolve_image_prompt(session, project, fr, shot)
         if not prompt_text:
-            raise RuntimeError(
-                f"нет промта картинки в БД/Excel (кадр {frame_number}, shot {shot})"
-            )
+            raise RuntimeError(f"нет промта картинки в БД/Excel (кадр {frame_number}, shot {shot})")
         if shot == 1:
             refs, has_parent = await _montage_shot1_refs(session, project, fr)
             prompt_text = append_manual_ref_note(prompt_text, fr)
-            prompt_text, refs = _lock_montage_image_refs(
-                project, fr, prompt_text, refs, child=has_parent
-            )
+            prompt_text, refs = _lock_montage_image_refs(project, fr, prompt_text, refs, child=has_parent)
         elif shot == 2:
-            ref1 = find_shot1_image(scenes_dir, frame_number)
-            refs = [ref1] if ref1 is not None else []
+            refs = await _montage_shot2_refs(
+                session,
+                project,
+                fr,
+                scenes_dir=scenes_dir,
+            )
+            prompt_text = append_manual_ref_note(prompt_text, fr)
             if refs:
-                prompt_text, refs = _lock_montage_image_refs(
-                    project, fr, prompt_text, refs, child=True
-                )
+                prompt_text, refs = _lock_montage_image_refs(project, fr, prompt_text, refs, child=True)
         else:
             refs = []
 
@@ -478,13 +522,11 @@ async def execute_image_regen(prep: ImageRegenPrep) -> Path:
     """Только HTTP API (Outsee). Chrome CDP для монтажа отключён."""
     if not _image_api_enabled():
         raise RuntimeError(
-            "montage regen image: нет HTTP API — задайте OUTSEE_API_KEY. "
-            "Chrome CDP больше не используется."
+            "montage regen image: нет HTTP API — задайте OUTSEE_API_KEY. Chrome CDP больше не используется."
         )
     preview = (prep.prompt_text or "").replace("\n", " ")[:160]
     logger.info(
-        "montage regen image #{} frame {} shot {} → API "
-        "({} симв., refs={}, prefix={}, preview={!r})",
+        "montage regen image #{} frame {} shot {} → API ({} симв., refs={}, prefix={}, preview={!r})",
         prep.project_id,
         prep.frame_number,
         prep.shot,
@@ -519,8 +561,7 @@ async def execute_image_regen(prep: ImageRegenPrep) -> Path:
     except Exception as exc:  # noqa: BLE001
         if _ready_regen_file(prep.file_path):
             logger.warning(
-                "montage regen image #{} frame {} shot {}: "
-                "API failed but file ready: {}",
+                "montage regen image #{} frame {} shot {}: API failed but file ready: {}",
                 prep.project_id,
                 prep.frame_number,
                 prep.shot,
@@ -545,9 +586,7 @@ async def finalize_image_regen(
     *,
     board: dict | None = None,
 ) -> dict:
-    await finalize_scene_image(
-        session, project, prep.frame_number, shot=prep.shot, new_path=new_path
-    )
+    await finalize_scene_image(session, project, prep.frame_number, shot=prep.shot, new_path=new_path)
     if board is not None:
         mark_stale_videos(board, prep.frame_number, shot=prep.shot)
     await session.flush()
@@ -654,13 +693,9 @@ async def execute_video_regen(prep: VideoRegenPrep) -> Path:
         dup_globs = list(videos_dir.glob(f"clip_{prep.frame_number:03d}_s2_*.mp4"))
     else:
         dup_globs = [
-            p
-            for p in videos_dir.glob(f"clip_{prep.frame_number:03d}_*.mp4")
-            if "_s2_" not in p.name
+            p for p in videos_dir.glob(f"clip_{prep.frame_number:03d}_*.mp4") if "_s2_" not in p.name
         ]
-    duplicate_check_paths = list(
-        dict.fromkeys(p.resolve() for p in dup_globs if p.is_file())
-    )
+    duplicate_check_paths = list(dict.fromkeys(p.resolve() for p in dup_globs if p.is_file()))
     with bind_generation_llm(None, node_type="image_prompts"):
         result = await generate_video_with_retries(
             _ApiOnlyOutseeStub(),  # type: ignore[arg-type]
@@ -690,9 +725,7 @@ async def finalize_video_regen(
     *,
     board: dict | None = None,
 ) -> dict:
-    await finalize_scene_video(
-        session, project, prep.frame_number, shot=prep.shot, new_path=new_path
-    )
+    await finalize_scene_video(session, project, prep.frame_number, shot=prep.shot, new_path=new_path)
     if board is not None:
         clear_stale_video(board, prep.frame_number, prep.shot)
     await session.flush()

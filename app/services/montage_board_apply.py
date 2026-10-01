@@ -180,12 +180,7 @@ def waves_parent_then_child(
         remaining_set = set(remaining)
         for fr in remaining:
             parent = parent_of.get(fr)
-            if (
-                parent is not None
-                and parent in in_batch
-                and parent != fr
-                and parent in remaining_set
-            ):
+            if parent is not None and parent in in_batch and parent != fr and parent in remaining_set:
                 blocked.append(fr)
             else:
                 ready.append(fr)
@@ -352,8 +347,8 @@ async def _run_op_with_short_sessions(
 
     ai_kind: str | None = None
     ai_voiceover = ""
-    ai_img_pr_path = None
-    ai_img_pr_variant = ""
+    ai_master_path: Path | None = None
+    ai_master_variant = ""
     ai_db_card_path: Path | None = None
     ai_project: Any = None
     ai_instruction = ""
@@ -374,22 +369,26 @@ async def _run_op_with_short_sessions(
                 raise RuntimeError(f"кадр {frame_number} не найден")
             ai_kind = "image" if op_type == "image_ai_change" else "video"
             ai_voiceover = fr.voiceover_text or ""
-            ai_img_pr_path, ai_img_pr_variant = load_img_pr_master(project)
+            if ai_kind == "image":
+                ai_master_path, ai_master_variant = load_img_pr_master(project)
+            else:
+                from app.services.montage_ai_change import load_anim_pr_master
+
+                ai_master_path, ai_master_variant = load_anim_pr_master(project)
             ai_db_card_path = write_ai_change_db_card(
                 project,
                 fr,
                 Path(tempfile.mkdtemp(prefix="ai_change_db_")),
+                shot=shot,
             )
             ai_project = SimpleNamespace(
                 id=project.id,
                 meta=getattr(project, "meta", None),
             )
-            ai_instruction = str(
-                op.get("instruction") or op.get("correction") or ""
-            ).strip()
+            ai_instruction = str(op.get("instruction") or op.get("correction") or "").strip()
             from app.services.montage_board import _action_for_frame
 
-            ai_action = _action_for_frame(fr)
+            ai_action = _action_for_frame(fr, shot=shot)
         elif op_type in (
             "image_regen",
             "image_regen_prompt",
@@ -432,8 +431,8 @@ async def _run_op_with_short_sessions(
             kind=ai_kind,  # type: ignore[arg-type]
             project_id=project_id,
             project=ai_project,
-            img_pr_path=ai_img_pr_path,
-            img_pr_variant=ai_img_pr_variant,
+            img_pr_path=ai_master_path,
+            img_pr_variant=ai_master_variant,
             db_card_path=ai_db_card_path,
             instruction=ai_instruction,
             action=ai_action,
@@ -538,11 +537,7 @@ async def _run_ops_phase(
         by_frame[fr].sort(key=lambda i: _op_frame_shot(all_ops[i]))
 
     frames = sorted(by_frame.keys())
-    waves = (
-        waves_parent_then_child(frames, parent_of)
-        if parent_of
-        else [frames]
-    )
+    waves = waves_parent_then_child(frames, parent_of) if parent_of else [frames]
     logger.info(
         "montage apply #{} phase={} frames={} ops={} parallel={} waves={}",
         project_id,
@@ -658,9 +653,7 @@ async def apply_montage_board(
     project_id = int(project.id)
     parallel = _montage_apply_parallel(project)
 
-    coverage_indices = [
-        i for i, o in enumerate(ops) if str(o.get("type") or "") in COVERAGE_OP_TYPES
-    ]
+    coverage_indices = [i for i, o in enumerate(ops) if str(o.get("type") or "") in COVERAGE_OP_TYPES]
     image_indices = [i for i, o in enumerate(ops) if str(o.get("type") or "") in _IMAGE_OP_TYPES]
     video_indices = [i for i, o in enumerate(ops) if str(o.get("type") or "") in _VIDEO_OP_TYPES]
     other_indices = [
@@ -703,11 +696,7 @@ async def apply_montage_board(
     )
     # После coverage роли актуальны: ребёнок ждёт родителя только если тот
     # тоже в этой пачке. Уже готовый родитель на диске детей не блокирует.
-    parent_of = (
-        await coverage_parent_map(project_id)
-        if image_indices or video_indices
-        else None
-    )
+    parent_of = await coverage_parent_map(project_id) if image_indices or video_indices else None
     await _run_ops_phase(
         project_id=project_id,
         phase_indices=image_indices,
