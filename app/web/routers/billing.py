@@ -482,3 +482,476 @@ def _up(micro: int) -> str:
     from app.services.credits import format_credits
 
     return format_credits(micro, rounding="up")
+
+
+class ModelUsageItem(BaseModel):
+    model: str
+    display_name: str
+    kind: str  # image | video | audio | llm
+    provider: str
+    calls: int
+    success_calls: int
+    error_calls: int
+    units: float
+    unit_label: str
+    credits_spent: str
+    credits_spent_micro: int
+    cost_usd: float | None = None
+
+
+class KindSummaryItem(BaseModel):
+    kind: str
+    calls: int
+    credits: str
+    credits_micro: int
+    cost_usd: float | None = None
+
+
+class RecentUsageEntry(BaseModel):
+    id: str
+    created_at: str
+    kind: str  # image | video | audio | llm | topup | settle | promo
+    model: str
+    provider: str
+    description: str
+    units_label: str = ""
+    credits_delta: str
+    credits_delta_micro: int
+    cost_usd: float | None = None
+    status: str
+    duration_sec: int | None = None
+    preview_url: str | None = None
+
+
+class UsageSummary(BaseModel):
+    total_spent_credits: str
+    total_spent_micro: int
+    total_cost_usd: float | None = None
+    by_kind: dict[str, KindSummaryItem]
+
+
+class UsageHistoryResponse(BaseModel):
+    summary: UsageSummary
+    models: list[ModelUsageItem]
+    recent: list[RecentUsageEntry]
+    is_admin: bool = False
+
+
+def _clean_model_name(raw: str) -> tuple[str, str]:
+    clean = (raw or "unknown").strip().removeprefix("kie:").removeprefix("outsee:")
+    display_map = {
+        "flux-2-pro": "Flux 2 Pro",
+        "flux-dev": "Flux Dev",
+        "alibaba-qwen-image-3": "Alibaba Qwen Image 3",
+        "seedream-5-pro": "Seedream 5 Pro",
+        "z-image": "Z-Image",
+        "kling-3-0": "Kling 3.0 Pro",
+        "veo-3-1-lite": "Veo 3.1 Lite",
+        "veo-3-1-pro": "Veo 3.1 Pro",
+        "gpt-image-2": "GPT Image 2",
+        "gpt-image-2-vip": "GPT Image 2 VIP",
+        "nano-banana-2": "Nano Banana 2",
+        "nano-banana-pro": "Nano Banana Pro",
+        "claude-sonnet-5": "Claude 3.5 Sonnet",
+        "claude-3-5-sonnet": "Claude 3.5 Sonnet",
+        "gpt-5.6-sol": "GPT-5.6 Sol",
+        "gpt-4o": "GPT-4o",
+        "gpt-4o-mini": "GPT-4o Mini",
+        "eleven_multilingual_v2": "ElevenLabs Multilingual v2",
+        "elevenlabs": "ElevenLabs",
+        "suno-v4": "Suno v4",
+        "minimax": "MiniMax",
+        "hailuo-01": "Hailuo-01",
+    }
+    low = clean.lower()
+    for k, v in display_map.items():
+        if low == k or low == k.lower():
+            return clean, v
+    return clean, clean
+
+
+def _unit_label(kind: str, unit: str = "") -> str:
+    if kind == "image":
+        return "кадров"
+    if kind == "video":
+        return "сек."
+    if kind == "audio":
+        return "симв." if unit == "char" else "треков"
+    if kind == "llm":
+        return "токенов"
+    return unit or "шт."
+
+
+@router.get("/billing/usage-history", response_model=UsageHistoryResponse)
+async def usage_history(
+    project_id: int | None = None,
+    kind: str = "all",
+    all_tenants: bool = False,
+    limit: int = 100,
+    offset: int = 0,
+    session: AsyncSession = Depends(get_session),
+) -> UsageHistoryResponse:
+    """История расходов и использования всех моделей (изображения, видео, аудио, LLM)."""
+    from typing import Any
+    from sqlalchemy import or_, select
+
+    from app.models import CreditEntry, LlmCall, MediaCall, Project
+    from app.services.credits import MICRO, format_credits, price_micro
+    from app.services.generation_storage import list_generation_files
+    from app.services.studio_auth import current_is_admin
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    is_admin = current_is_admin() or (tenant is None)
+
+    if all_tenants and not is_admin:
+        raise HTTPException(status_code=403, detail="Только администраторы могут просматривать общую историю")
+
+    scope_all = bool(all_tenants and is_admin)
+
+    # Получаем проекты арендатора для корректной фильтрации вызовов
+    tenant_project_ids: list[int] = []
+    if tenant is not None and not scope_all:
+        p_rows = (await session.execute(select(Project.id).where(Project.tenant_id == tenant))).all()
+        tenant_project_ids = [int(r[0]) for r in p_rows]
+
+    # 1. Media calls (генерации изображений, видео, TTS)
+    mc_query = select(MediaCall)
+    if not scope_all and tenant is not None:
+        conds = [MediaCall.tenant_id == tenant]
+        if tenant_project_ids:
+            conds.append(MediaCall.project_id.in_(tenant_project_ids))
+        mc_query = mc_query.where(or_(*conds))
+    if project_id is not None:
+        mc_query = mc_query.where(MediaCall.project_id == project_id)
+    mc_query = mc_query.order_by(MediaCall.created_at.desc())
+    mc_rows = (await session.execute(mc_query)).scalars().all()
+
+    # 2. LLM calls (текстовые модели)
+    llm_query = select(LlmCall)
+    if not scope_all and tenant is not None:
+        conds = [LlmCall.tenant_id == tenant]
+        if tenant_project_ids:
+            conds.append(LlmCall.project_id.in_(tenant_project_ids))
+        llm_query = llm_query.where(or_(*conds))
+    if project_id is not None:
+        llm_query = llm_query.where(LlmCall.project_id == project_id)
+    llm_query = llm_query.order_by(LlmCall.created_at.desc())
+    llm_rows = (await session.execute(llm_query)).scalars().all()
+
+    # 3. Credit entries (проводки, купоны, списания)
+    ce_query = select(CreditEntry)
+    if not scope_all and tenant is not None:
+        ce_query = ce_query.where(CreditEntry.tenant_id == tenant)
+    if project_id is not None:
+        ce_query = ce_query.where(CreditEntry.project_id == project_id)
+    ce_query = ce_query.order_by(CreditEntry.created_at.desc())
+    ce_rows = (await session.execute(ce_query)).scalars().all()
+
+    # 4. Create workspace генерации (sidecar файлы на диске)
+    create_gens: list[dict[str, Any]] = []
+    if project_id is None:
+        try:
+            create_gens = list_generation_files(kind="all", limit=200, import_legacy=False)
+        except Exception:
+            create_gens = []
+
+    # Агрегаты по моделям
+    models_dict: dict[str, dict[str, Any]] = {}
+    recent_entries: list[RecentUsageEntry] = []
+    seen_external_ids: set[str] = set()
+
+    for mc in mc_rows:
+        if mc.external_id:
+            seen_external_ids.add(str(mc.external_id))
+        raw_model, display_name = _clean_model_name(mc.model or "unknown")
+        m_kind = (mc.kind or "image").lower()
+        if m_kind == "tts":
+            m_kind = "audio"
+        key = f"{m_kind}:{raw_model}"
+
+        cost_val = float(mc.cost_usd or 0.0)
+        if cost_val > 0:
+            micro = price_micro(cost_val)
+        elif m_kind == "image":
+            micro = 500_000
+        elif m_kind == "video":
+            micro = int(max(1.0, float(mc.units or 1.0)) * 625_000)
+        else:
+            micro = 500_000
+
+        entry = models_dict.setdefault(
+            key,
+            {
+                "model": raw_model,
+                "display_name": display_name,
+                "kind": m_kind,
+                "provider": mc.provider or "outsee",
+                "calls": 0,
+                "success_calls": 0,
+                "error_calls": 0,
+                "units": 0.0,
+                "unit": mc.unit or "",
+                "credits_spent_micro": 0,
+                "cost_usd": 0.0,
+            },
+        )
+        entry["calls"] += 1
+        if mc.result == "ok":
+            entry["success_calls"] += 1
+        else:
+            entry["error_calls"] += 1
+        entry["units"] += float(mc.units or 0.0)
+        entry["credits_spent_micro"] += micro
+        entry["cost_usd"] += cost_val
+
+        dur_s = int(mc.duration_ms / 1000) if mc.duration_ms else None
+        units_count = round(float(mc.units or 0.0), 1)
+        recent_entries.append(
+            RecentUsageEntry(
+                id=f"mc-{mc.id}",
+                created_at=mc.created_at.isoformat() if mc.created_at else "",
+                kind=m_kind,
+                model=display_name,
+                provider=mc.provider or "outsee",
+                description=f"Генерация {m_kind} ({units_count} {_unit_label(m_kind, mc.unit)})",
+                units_label=f"{units_count} {_unit_label(m_kind, mc.unit)}",
+                credits_delta=f"-{format_credits(micro, rounding='up')}",
+                credits_delta_micro=-micro,
+                cost_usd=cost_val if is_admin else None,
+                status="ok" if mc.result == "ok" else "error",
+                duration_sec=dur_s,
+                preview_url=None,
+            )
+        )
+
+    for llm in llm_rows:
+        raw_model, display_name = _clean_model_name(llm.served_model or llm.model or "unknown-llm")
+        key = f"llm:{raw_model}"
+        cost_val = float(llm.cost_usd or 0.0)
+        micro = price_micro(cost_val) if cost_val > 0 else 0
+        tokens = int(llm.total_tokens or ((llm.prompt_tokens or 0) + (llm.completion_tokens or 0)))
+
+        entry = models_dict.setdefault(
+            key,
+            {
+                "model": raw_model,
+                "display_name": display_name,
+                "kind": "llm",
+                "provider": "relay",
+                "calls": 0,
+                "success_calls": 0,
+                "error_calls": 0,
+                "units": 0.0,
+                "unit": "tokens",
+                "credits_spent_micro": 0,
+                "cost_usd": 0.0,
+            },
+        )
+        entry["calls"] += 1
+        if llm.result == "ok":
+            entry["success_calls"] += 1
+        else:
+            entry["error_calls"] += 1
+        entry["units"] += float(tokens)
+        entry["credits_spent_micro"] += micro
+        entry["cost_usd"] += cost_val
+
+        dur_s = int(llm.duration_ms / 1000) if llm.duration_ms else None
+        recent_entries.append(
+            RecentUsageEntry(
+                id=f"llm-{llm.id}",
+                created_at=llm.created_at.isoformat() if llm.created_at else "",
+                kind="llm",
+                model=display_name,
+                provider="relay",
+                description=f"Текстовый запрос ({tokens:,} токенов)".replace(",", " "),
+                units_label=f"{tokens:,} токенов".replace(",", " "),
+                credits_delta=f"-{format_credits(micro, rounding='up')}" if micro > 0 else "0",
+                credits_delta_micro=-micro,
+                cost_usd=cost_val if is_admin else None,
+                status="ok" if llm.result == "ok" else "error",
+                duration_sec=dur_s,
+                preview_url=None,
+            )
+        )
+
+    for g in create_gens:
+        jid = str(g.get("job_id") or "")
+        gid = str(g.get("id") or "").removeprefix("gen-")
+        if (jid and jid in seen_external_ids) or (gid and gid in seen_external_ids):
+            continue
+
+        raw_model, display_name = _clean_model_name(str(g.get("model") or "unknown"))
+        m_kind = str(g.get("kind") or "image").lower()
+        if m_kind == "audio":
+            m_kind = "audio"
+        key = f"{m_kind}:{raw_model}"
+
+        quote = g.get("quote") or {}
+        cr_quote = float(quote.get("credits") or 0.0)
+        usd_quote = float(quote.get("usd") or 0.0)
+        if cr_quote > 0:
+            micro = int(cr_quote * MICRO)
+        elif usd_quote > 0:
+            micro = price_micro(usd_quote)
+        elif m_kind == "image":
+            micro = 500_000
+        elif m_kind == "video":
+            micro = 5_000_000
+        else:
+            micro = 500_000
+
+        entry = models_dict.setdefault(
+            key,
+            {
+                "model": raw_model,
+                "display_name": display_name,
+                "kind": m_kind,
+                "provider": g.get("provider") or "kie",
+                "calls": 0,
+                "success_calls": 0,
+                "error_calls": 0,
+                "units": 0.0,
+                "unit": "item",
+                "credits_spent_micro": 0,
+                "cost_usd": 0.0,
+            },
+        )
+        entry["calls"] += 1
+        is_ok = g.get("status") == "done"
+        if is_ok:
+            entry["success_calls"] += 1
+        else:
+            entry["error_calls"] += 1
+        entry["units"] += 1.0
+        entry["credits_spent_micro"] += micro
+        entry["cost_usd"] += usd_quote
+
+        prompt_str = str(g.get("prompt") or "")[:70]
+        desc = f"Генерация {m_kind}: «{prompt_str}…»" if prompt_str else f"Генерация {m_kind} (Create)"
+        recent_entries.append(
+            RecentUsageEntry(
+                id=f"gen-{gid or jid}",
+                created_at=str(g.get("created_at") or g.get("started_at") or ""),
+                kind=m_kind,
+                model=display_name,
+                provider=g.get("provider") or "kie",
+                description=desc,
+                units_label="1 кадр" if m_kind == "image" else ("1 клип" if m_kind == "video" else "1 трек"),
+                credits_delta=f"-{format_credits(micro, rounding='up')}",
+                credits_delta_micro=-micro,
+                cost_usd=usd_quote if is_admin else None,
+                status="ok" if is_ok else "error",
+                duration_sec=g.get("elapsed_sec"),
+                preview_url=g.get("preview_url"),
+            )
+        )
+
+    # 4. Проводки купонов / пополнений / списаний
+    for ce in ce_rows:
+        if ce.kind == "topup":
+            recent_entries.append(
+                RecentUsageEntry(
+                    id=f"ce-{ce.id}",
+                    created_at=ce.created_at.isoformat() if ce.created_at else "",
+                    kind="topup",
+                    model="Купон / Пополнение",
+                    provider="studio",
+                    description=ce.memo or "Пополнение баланса",
+                    units_label="баланс",
+                    credits_delta=f"+{format_credits(int(ce.delta_micro), rounding='down')}",
+                    credits_delta_micro=int(ce.delta_micro),
+                    cost_usd=None,
+                    status="ok",
+                    duration_sec=None,
+                    preview_url=None,
+                )
+            )
+        elif ce.kind == "promo":
+            recent_entries.append(
+                RecentUsageEntry(
+                    id=f"ce-{ce.id}",
+                    created_at=ce.created_at.isoformat() if ce.created_at else "",
+                    kind="promo",
+                    model="Бесплатный уровень",
+                    provider="studio",
+                    description=ce.memo or "Бесплатный шаг конвейера",
+                    units_label="промо",
+                    credits_delta="0",
+                    credits_delta_micro=0,
+                    cost_usd=float(ce.cost_usd) if (is_admin and ce.cost_usd is not None) else None,
+                    status="ok",
+                    duration_sec=None,
+                    preview_url=None,
+                )
+            )
+
+    # Фильтрация по kind если запрошено (кроме all)
+    target_kind = kind.lower().strip()
+    if target_kind and target_kind != "all":
+        models_filtered = [v for v in models_dict.values() if v["kind"] == target_kind]
+        recent_filtered = [r for r in recent_entries if r.kind == target_kind]
+    else:
+        models_filtered = list(models_dict.values())
+        recent_filtered = recent_entries
+
+    # Сортировка: модели по сумме кредитов, операции по дате (свежие сверху)
+    models_sorted = sorted(models_filtered, key=lambda m: m["credits_spent_micro"], reverse=True)
+    recent_sorted = sorted(recent_filtered, key=lambda r: r.created_at, reverse=True)
+
+    # Итоговые агрегаты
+    by_kind_map: dict[str, KindSummaryItem] = {
+        k: KindSummaryItem(kind=k, calls=0, credits="0", credits_micro=0, cost_usd=0.0 if is_admin else None)
+        for k in ("image", "video", "audio", "llm")
+    }
+
+    total_spent_micro = 0
+    total_cost_usd = 0.0
+
+    for m in models_dict.values():
+        k = m["kind"]
+        if k in by_kind_map:
+            by_kind_map[k].calls += m["calls"]
+            by_kind_map[k].credits_micro += m["credits_spent_micro"]
+            if is_admin:
+                by_kind_map[k].cost_usd = round((by_kind_map[k].cost_usd or 0.0) + m["cost_usd"], 4)
+
+        total_spent_micro += m["credits_spent_micro"]
+        total_cost_usd += m["cost_usd"]
+
+    for k_val, item in by_kind_map.items():
+        item.credits = format_credits(item.credits_micro, rounding="up")
+
+    models_out = [
+        ModelUsageItem(
+            model=m["model"],
+            display_name=m["display_name"],
+            kind=m["kind"],
+            provider=m["provider"],
+            calls=m["calls"],
+            success_calls=m["success_calls"],
+            error_calls=m["error_calls"],
+            units=round(m["units"], 2),
+            unit_label=_unit_label(m["kind"], m["unit"]),
+            credits_spent=format_credits(m["credits_spent_micro"], rounding="up"),
+            credits_spent_micro=m["credits_spent_micro"],
+            cost_usd=round(m["cost_usd"], 4) if is_admin else None,
+        )
+        for m in models_sorted
+    ]
+
+    paged_recent = recent_sorted[offset : offset + max(1, min(limit, 500))]
+
+    return UsageHistoryResponse(
+        summary=UsageSummary(
+            total_spent_credits=format_credits(total_spent_micro, rounding="up"),
+            total_spent_micro=total_spent_micro,
+            total_cost_usd=round(total_cost_usd, 4) if is_admin else None,
+            by_kind=by_kind_map,
+        ),
+        models=models_out,
+        recent=paged_recent,
+        is_admin=is_admin,
+    )
+

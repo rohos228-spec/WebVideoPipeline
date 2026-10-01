@@ -149,30 +149,41 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
                 ) from exc
 
     async def run(out_path: Path):
+        from app.bots.outsee import GenerationResult
+        from app.services.media_ledger import media_call
+
+        quote_credits = float(quote.get("credits") or 1.0)
         try:
-            if result_kind == "text":
-                task_id = await kie_http.create_task(str(spec.get("api")), spec.get("endpoint"), payload)
-                data = await kie_http.poll_task(str(spec.get("api")), task_id)
-                text = _find_text(data) or str(data)[:4000]
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(text, encoding="utf-8")
-                from app.bots.outsee import GenerationResult
+            async with media_call(
+                "kie",
+                media,
+                model=spec["label"],
+                units=quote_credits,
+                unit="item",
+            ) as call:
+                if result_kind == "text":
+                    task_id = await kie_http.create_task(str(spec.get("api")), spec.get("endpoint"), payload)
+                    data = await kie_http.poll_task(str(spec.get("api")), task_id)
+                    text = _find_text(data) or str(data)[:4000]
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    out_path.write_text(text, encoding="utf-8")
+                    call.external_id = task_id or ""
+                    res = GenerationResult(file_path=out_path, gen_id=task_id, raw_url=None)
+                else:
+                    res = await kie_http.run_generation(spec, payload, out_path)
+                    call.external_id = getattr(res, "gen_id", "") or ""
 
-                res = GenerationResult(file_path=out_path, gen_id=task_id, raw_url=None)
-            else:
-                res = await kie_http.run_generation(spec, payload, out_path)
-
-            if hold_id:
-                async with session_scope() as session:
-                    await cl.settle_hold(
-                        session,
-                        hold_id,
-                        cost_usd=cost_usd,
-                        ref_table="create_generations",
-                        ref_ids=[],
-                        memo=f"KIE генерация {media} ({spec['label']})",
-                    )
-            return res
+                if hold_id:
+                    async with session_scope() as session:
+                        await cl.settle_hold(
+                            session,
+                            hold_id,
+                            cost_usd=cost_usd,
+                            ref_table="create_generations",
+                            ref_ids=[],
+                            memo=f"KIE генерация {media} ({spec['label']})",
+                        )
+                return res
         except Exception:
             if hold_id:
                 async with session_scope() as session:

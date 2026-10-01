@@ -200,8 +200,12 @@ async def record(
     pid = project_id if project_id is not None else ctx_project
     node = node_key or ctx_node
 
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
     cost, resolved_unit, unpriced = compute_cost(provider, model, units, unit, variant)
     row_kwargs = {
+        "tenant_id": tenant,
         "project_id": pid,
         "node_key": node or "adhoc",
         "provider": (provider or "")[:40],
