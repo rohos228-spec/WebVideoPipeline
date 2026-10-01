@@ -90,12 +90,9 @@ async def test_api_without_token_is_refused(env) -> None:
 OWNER_TOOLS = (
     "/api/fleet/nodes",
     "/api/db/overview",
-    "/api/text-llm",
-    "/api/text-llm/catalog",
     "/api/prompts",
     "/api/prompt-files/global-active",
     "/api/library/items",
-    "/api/gpt-workspace/sessions",
 )
 
 
@@ -126,7 +123,13 @@ async def test_product_surface_stays_open_to_members(env) -> None:
     Этот тест держит его с другой стороны: то, ради чего человек пришёл,
     закрывать нельзя.
     """
-    for path in ("/api/me", "/api/billing/balance", "/api/projects"):
+    for path in (
+        "/api/me",
+        "/api/billing/balance",
+        "/api/projects",
+        "/api/gpt-workspace/sessions",
+        "/api/text-llm",
+    ):
         res = await env["client"].get(path, headers=env["member"].auth)
         assert res.status_code != 404, f"{path} закрыт для участника"
 

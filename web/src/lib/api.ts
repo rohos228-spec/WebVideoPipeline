@@ -1821,10 +1821,14 @@ export const api = {
     );
   },
   enhanceOutseeCreatePrompt: (data: { prompt: string; style?: string }) =>
-    http<{ ok: boolean; enhanced_prompt: string }>(`/api/outsee-create/enhance-prompt`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+    http<{ ok: boolean; enhanced_prompt: string }>(
+      `/api/outsee-create/enhance-prompt`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+      45_000,
+    ),
 
   outseeStatus: () =>
     http<{
@@ -2325,7 +2329,10 @@ export const api = {
         `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/ask-stream`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders(),
+          },
           body: JSON.stringify({ message, with_attachments: withAttachments }),
           signal,
         },
@@ -2398,6 +2405,12 @@ export const api = {
       `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/save-voiceover`,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  textLlmStatus: () => http<any>(`/api/text-llm`),
+  textLlmSelect: (body: { provider: string; model_id: string }) =>
+    http<any>(`/api/text-llm`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   compileMetaPrompt: (body: {
     step_code: string;
     user_intent: string;

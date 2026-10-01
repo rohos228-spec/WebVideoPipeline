@@ -11,7 +11,7 @@
  */
 
 import { useState } from "react";
-import { Coins, Gift, Loader2, Plus } from "lucide-react";
+import { Coins, Loader2, Plus } from "lucide-react";
 
 import { useBalance } from "@/hooks/use-identity";
 import { cn } from "@/lib/utils";
@@ -29,10 +29,9 @@ export function BalanceBadge({ className }: { className?: string }) {
       </span>
     );
   }
-  if (!data?.tenant_id) return null;
+  if (!data?.tenant_id && !data?.unlimited) return null;
 
-  const free = data.free_tier;
-  const held = data.held_micro > 0;
+  const held = (data?.held_micro ?? 0) > 0;
 
   return (
     <>
@@ -45,18 +44,19 @@ export function BalanceBadge({ className }: { className?: string }) {
         )}
         title="Нажмите, чтобы ввести промокод или купон для пополнения"
       >
-        {free?.active ? (
+        {data?.unlimited ? (
           <>
-            <Gift className="h-3.5 w-3.5 text-amber-400" />
-            <span className="text-zinc-300">бесплатно до видео</span>
+            <Coins className="h-3.5 w-3.5 text-amber-400" />
+            <span className="font-semibold text-zinc-100 text-sm leading-none">∞</span>
+            <span className="text-[10px] text-zinc-400">безлимит</span>
           </>
         ) : (
           <>
             <Coins className="h-3.5 w-3.5 text-amber-400 group-hover:text-amber-300 transition-colors" />
-            <span className="font-semibold text-zinc-100">{data.balance_credits}</span>
+            <span className="font-semibold text-zinc-100">{data?.balance_credits ?? "0,00 кр"}</span>
             {held && (
               <span className="text-muted-foreground">
-                (−{(data.held_micro / 1_000_000).toFixed(2)})
+                (−{((data?.held_micro ?? 0) / 1_000_000).toFixed(2)})
               </span>
             )}
           </>

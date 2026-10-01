@@ -36,6 +36,14 @@ async def get_catalog() -> dict[str, Any]:
 
 @router.get("/credits")
 async def get_credits() -> dict[str, Any]:
+    from app.services.studio_auth import current_is_admin
+
+    if not current_is_admin():
+        return {
+            "configured": kie_http.kie_configured(),
+            "credits": None,
+            "usd": None,
+        }
     credits = await kie_http.get_credits()
     return {
         "configured": kie_http.kie_configured(),
@@ -108,29 +116,79 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
     ext = _EXT_BY_RESULT.get(result_kind, ".mp4")
     prompt = str(values.get("prompt") or values.get("text") or "")[:2000]
 
+    from app.db import session_scope
+    from app.services import credit_ledger as cl
+    from app.services.credits import price_micro
+    from app.services.studio_auth import current_is_admin
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    is_admin = current_is_admin()
+    cost_usd = quote.get("usd", 0.0)
+    credits_num = quote.get("credits", 0.0)
+    hold_amount_micro = int(round(credits_num * 1_000_000))
+    if hold_amount_micro <= 0:
+        hold_amount_micro = price_micro(cost_usd)
+    hold_id: str | None = None
+
+    if tenant and not is_admin:
+        async with session_scope() as session:
+            try:
+                hold = await cl.open_hold(
+                    session,
+                    tenant,
+                    project_id=0,
+                    step_code=f"kie_{media}",
+                    amount_micro=hold_amount_micro,
+                )
+                hold_id = hold.id
+            except cl.InsufficientCredits as exc:
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"Недостаточно кредитов: {exc}",
+                ) from exc
+
     async def run(out_path: Path):
         from app.bots.outsee import GenerationResult
         from app.services.media_ledger import media_call
 
         quote_credits = float(quote.get("credits") or 1.0)
-        async with media_call(
-            "kie",
-            media,
-            model=spec["label"],
-            units=quote_credits,
-            unit="item",
-        ) as call:
-            if result_kind == "text":
-                task_id = await kie_http.create_task(str(spec.get("api")), spec.get("endpoint"), payload)
-                data = await kie_http.poll_task(str(spec.get("api")), task_id)
-                text = _find_text(data) or str(data)[:4000]
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(text, encoding="utf-8")
-                call.external_id = task_id or ""
-                return GenerationResult(file_path=out_path, gen_id=task_id, raw_url=None)
-            res = await kie_http.run_generation(spec, payload, out_path)
-            call.external_id = getattr(res, "gen_id", "") or ""
-            return res
+        try:
+            async with media_call(
+                "kie",
+                media,
+                model=spec["label"],
+                units=quote_credits,
+                unit="item",
+            ) as call:
+                if result_kind == "text":
+                    task_id = await kie_http.create_task(str(spec.get("api")), spec.get("endpoint"), payload)
+                    data = await kie_http.poll_task(str(spec.get("api")), task_id)
+                    text = _find_text(data) or str(data)[:4000]
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    out_path.write_text(text, encoding="utf-8")
+                    call.external_id = task_id or ""
+                    res = GenerationResult(file_path=out_path, gen_id=task_id, raw_url=None)
+                else:
+                    res = await kie_http.run_generation(spec, payload, out_path)
+                    call.external_id = getattr(res, "gen_id", "") or ""
+
+                if hold_id:
+                    async with session_scope() as session:
+                        await cl.settle_hold(
+                            session,
+                            hold_id,
+                            cost_usd=cost_usd,
+                            ref_table="create_generations",
+                            ref_ids=[],
+                            memo=f"KIE генерация {media} ({spec['label']})",
+                        )
+                return res
+        except Exception:
+            if hold_id:
+                async with session_scope() as session:
+                    await cl.release_hold(session, hold_id, memo=f"Сбой KIE генерации {media}")
+            raise
 
     job = await enqueue_generation(
         media=media,

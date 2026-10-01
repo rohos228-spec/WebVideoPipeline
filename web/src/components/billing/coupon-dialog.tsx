@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Coins, Loader2, Sparkles, Ticket } from "lucide-react";
+import { Coins, Loader2, Ticket } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { useBalance } from "@/hooks/use-identity";
+import { errorMessageFromUnknown } from "@/lib/error-message";
 
 interface CouponDialogProps {
   open: boolean;
@@ -42,11 +43,12 @@ export function CouponDialog({ open, onOpenChange }: CouponDialogProps) {
       toast.success(res.message || `Купон ${res.code} успешно активирован!`);
       // Обновляем баланс во всём интерфейсе
       qc.invalidateQueries({ queryKey: ["billing-balance"] });
+      qc.invalidateQueries({ queryKey: ["balance"] });
       qc.invalidateQueries({ queryKey: ["me"] });
       setCode("");
       onOpenChange(false);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Не удалось активировать купон";
+      const msg = errorMessageFromUnknown(err) || "Не удалось активировать купон";
       setError(msg);
       toast.error(msg);
     } finally {
@@ -72,7 +74,11 @@ export function CouponDialog({ open, onOpenChange }: CouponDialogProps) {
           <span className="text-xs text-zinc-400">Текущий баланс</span>
           <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-300">
             <Coins className="h-4 w-4 text-emerald-400" />
-            <span>{balanceData?.balance_credits ?? "0,00 кр"}</span>
+            <span>
+              {balanceData?.unlimited
+                ? "∞ (безлимит)"
+                : balanceData?.balance_credits ?? "0,00 кр"}
+            </span>
           </div>
         </div>
 
@@ -89,10 +95,9 @@ export function CouponDialog({ open, onOpenChange }: CouponDialogProps) {
                   setCode(e.target.value.toUpperCase());
                   setError(null);
                 }}
-                placeholder="STUDIO1"
                 disabled={loading}
                 autoFocus
-                className="h-10 border-white/10 bg-black/50 font-mono text-sm tracking-wider uppercase placeholder:text-zinc-600 focus-visible:border-cyan-400"
+                className="h-10 border-white/10 bg-black/50 font-mono text-sm tracking-wider uppercase focus-visible:border-cyan-400"
               />
             </div>
             {error && <p className="text-xs font-medium text-rose-400 animate-in fade-in">{error}</p>}
@@ -121,10 +126,7 @@ export function CouponDialog({ open, onOpenChange }: CouponDialogProps) {
                   <span>Проверка…</span>
                 </>
               ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>Активировать</span>
-                </>
+                <span>Активировать</span>
               )}
             </Button>
           </div>

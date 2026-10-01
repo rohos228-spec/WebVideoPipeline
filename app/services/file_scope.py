@@ -100,7 +100,18 @@ async def assert_readable(session: Any, path: Path) -> None:
         root = ""
 
     if root == "generations":
+        if len(rel.parts) >= 3 and rel.parts[1] == "tenants":
+            owner_tid = rel.parts[2]
+            if current_tenant() and current_tenant() != owner_tid and not current_is_admin():
+                raise ForeignFile("Файл генерации принадлежит другому пользователю")
         return
+
+    if root == "tenants":
+        if len(rel.parts) >= 2:
+            owner_tid = rel.parts[1]
+            if current_tenant() and current_tenant() != owner_tid and not current_is_admin():
+                raise ForeignFile("Файл принадлежит другому пользователю")
+            return
     slug = project_slug_of(path, data_dir)
     if slug is not None:
         # RLS уже отфильтровала: чужой проект просто не найдётся.

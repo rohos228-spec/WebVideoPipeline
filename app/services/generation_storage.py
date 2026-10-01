@@ -110,8 +110,18 @@ def invalidate_generation_list_cache() -> None:
     _LIST_CACHE.clear()
 
 
-def generations_root() -> Path:
-    root = settings.data_dir / "generations"
+def generations_root(tenant_id: str | None = None) -> Path:
+    if tenant_id is None:
+        try:
+            from app.services.tenant import current_tenant
+
+            tenant_id = current_tenant()
+        except ImportError:
+            tenant_id = None
+    if tenant_id:
+        root = settings.data_dir / "generations" / "tenants" / tenant_id
+    else:
+        root = settings.data_dir / "generations"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -326,7 +336,10 @@ def list_generation_files(
         except Exception:  # noqa: BLE001
             pass
 
-    cache_key = f"{kind}:{limit}"
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    cache_key = f"{tenant or ''}:{kind}:{limit}"
     sig = _list_cache_signature(kind=kind)
     cached = _LIST_CACHE.get(cache_key)
     if cached is not None and cached[0] == sig:
@@ -339,7 +352,10 @@ def list_generation_files(
 
 def _list_cache_signature(*, kind: str) -> tuple[Any, ...]:
     """Лёгкий fingerprint каталога — без чтения содержимого json."""
-    root = generations_root()
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    root = generations_root(tenant)
     newest = 0.0
     count = 0
     if root.is_dir():
@@ -351,7 +367,7 @@ def _list_cache_signature(*, kind: str) -> tuple[Any, ...]:
             count += 1
             if st.st_mtime > newest:
                 newest = st.st_mtime
-    return (_LIST_CACHE_GEN, kind, count, round(newest, 3))
+    return (_LIST_CACHE_GEN, tenant or "", kind, count, round(newest, 3))
 
 
 def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
@@ -580,10 +596,14 @@ def delete_generation_item(
     if path:
         p = Path(path)
         if p.is_file():
-            found_files.append(p)
-            side = p.with_suffix(".json")
-            if side.is_file():
-                found_files.append(side)
+            try:
+                p.resolve().relative_to(root.resolve())
+                found_files.append(p)
+                side = p.with_suffix(".json")
+                if side.is_file():
+                    found_files.append(side)
+            except ValueError:
+                pass
         elif (root / path).is_file():
             found_files.append(root / path)
             side = (root / path).with_suffix(".json")

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
 import { api } from "@/lib/stage-api";
 import { ProjectRail } from "@/components/project-rail";
 import { IdeaComposer } from "@/components/idea-composer";
@@ -10,6 +11,7 @@ import { credits } from "@/lib/format";
 import Link from "next/link";
 import { Button } from "@/components/ui/bits";
 import { ChatPanel } from "@/components/chat/chat-panel";
+import { CouponDialog } from "@/components/billing/coupon-dialog";
 
 const LAST_PROJECT_KEY = "vp.last-project";
 const CHAT_KEY = "vp.chat-open";
@@ -19,6 +21,7 @@ export default function Page() {
   const [current, setCurrent] = useState<number | null>(null);
   const [restored, setRestored] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [couponOpen, setCouponOpen] = useState(false);
 
   // Чат — колонка справа, а не окно поверх: разговор об этом ролике идёт
   // рядом с самим роликом, и результат инструмента виден в стадиях сразу.
@@ -97,12 +100,19 @@ export default function Page() {
               Схема
             </Link>
             {money !== null && (
-              <span
-                className="font-mono text-[12px] tabular-nums text-content-muted"
-                title={balance?.unlimited ? "У администратора шаги не тарифицируются" : undefined}
+              <button
+                type="button"
+                onClick={() => setCouponOpen(true)}
+                className="group flex items-center gap-1.5 rounded border border-border px-2 py-0.5 font-mono text-[12px] tabular-nums text-content-muted transition-colors hover:border-accent hover:text-accent"
+                title={
+                  balance?.unlimited
+                    ? "У администратора шаги не тарифицируются. Нажмите для ввода купона"
+                    : "Нажмите для ввода промокода или купона"
+                }
               >
-                баланс {money}
-              </span>
+                <span>баланс {money}</span>
+                <Plus className="h-3 w-3 text-content-faint group-hover:text-accent transition-colors" />
+              </button>
             )}
             {me?.accounts_enabled && me.email && (
               <>
@@ -142,6 +152,8 @@ export default function Page() {
           <ChatPanel key={current ?? "none"} projectId={current} />
         </aside>
       )}
+
+      <CouponDialog open={couponOpen} onOpenChange={setCouponOpen} />
     </div>
   );
 }
