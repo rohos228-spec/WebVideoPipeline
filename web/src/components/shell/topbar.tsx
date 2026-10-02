@@ -9,7 +9,9 @@ import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 import { BalanceBadge } from "@/components/shell/balance-badge";
 import { useMe, useOwnerMode } from "@/hooks/use-identity";
+import { useDevRole } from "@/hooks/use-dev-role";
 import { clearToken } from "@/lib/identity-api";
+import { cn } from "@/lib/utils";
 
 interface UiState {
   framesProjectId: number | null;
@@ -30,6 +32,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
   const [framesProjectId, setFramesProjectId] = useState<number | null>(null);
   const ownerMode = useOwnerMode();
   const { data: me } = useMe();
+  const { toggleDevRole, isMemberPreview } = useDevRole();
   const [costsOpen, setCostsOpen] = useState(false);
 
   useEffect(() => {
@@ -61,15 +64,39 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
               <span className="text-sm font-semibold tracking-tight text-white">Видео студия</span>
               <div className="flex items-center gap-2">
                 {ownerMode ? (
-                  <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-400 font-medium">
-                    автономный режим
-                  </span>
+                  isMemberPreview ? (
+                    <span
+                      className="text-[10px] text-emerald-400 font-medium truncate max-w-[160px]"
+                      title="Локальный тестовый пользователь"
+                    >
+                      demo.user@zukiemi.space
+                    </span>
+                  ) : (
+                    <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-400 font-medium">
+                      автономный режим
+                    </span>
+                  )
                 ) : (
                   <span className="text-[10px] text-zinc-400 font-medium truncate max-w-[160px]" title={me?.email}>
                     {me?.email || "SaaS"}
                   </span>
                 )}
                 <StudioVersionBadge />
+                {ownerMode && (
+                  <button
+                    type="button"
+                    onClick={toggleDevRole}
+                    className={cn(
+                      "rounded px-1.5 py-0.5 text-[9px] font-semibold transition-colors border",
+                      isMemberPreview
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                        : "border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20",
+                    )}
+                    title="Локальный Dev-переключатель: нажмите, чтобы переключить вид (Админ / Пользователь)"
+                  >
+                    {isMemberPreview ? "Вид: Пользователь" : "Вид: Админ"}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -116,6 +143,18 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
               <CircleDollarSign className="h-3.5 w-3.5" />
               Расходы
             </Button>
+            {ownerMode && isMemberPreview && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleDevRole}
+                className="gap-1.5 text-xs text-zinc-400 hover:text-amber-300 hover:bg-amber-950/20"
+                title="Сбросить режим пользователя и вернуться к виду администратора"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Выйти
+              </Button>
+            )}
             {!ownerMode && me?.email && (
               <Button
                 variant="ghost"
