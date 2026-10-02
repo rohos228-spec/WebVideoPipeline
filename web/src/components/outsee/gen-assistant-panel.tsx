@@ -26,7 +26,6 @@ import { chipOptions, detailLabel } from "@/lib/outsee-catalog";
 import {
   GEN_ASSISTANT_CATEGORIES,
   GEN_STYLE_COLORS,
-  GEN_STYLE_GRADIENTS,
   assembleGenPrompt,
   genPromptVariant,
   isUnfilledAssistantPrompt,
@@ -216,6 +215,21 @@ function styleTileSrcs(
   return out;
 }
 
+const STYLE_CARD_FALLBACK_GRADIENTS: Record<
+  GenStyleDef["color"],
+  { from: string; to: string; border: string; glow: string }
+> = {
+  red: { from: "#450a0a", to: "#140303", border: "rgba(248,113,113,0.35)", glow: "rgba(239,68,68,0.3)" },
+  purple: { from: "#3b0764", to: "#0f021c", border: "rgba(192,132,252,0.35)", glow: "rgba(168,85,247,0.3)" },
+  gray: { from: "#27272a", to: "#09090b", border: "rgba(156,163,175,0.35)", glow: "rgba(156,163,175,0.25)" },
+  orange: { from: "#431407", to: "#150401", border: "rgba(251,146,60,0.35)", glow: "rgba(249,115,22,0.3)" },
+  cyan: { from: "#083344", to: "#011218", border: "rgba(34,211,238,0.35)", glow: "rgba(6,182,212,0.3)" },
+  blue: { from: "#172554", to: "#030818", border: "rgba(96,165,250,0.35)", glow: "rgba(59,130,246,0.3)" },
+  green: { from: "#052e16", to: "#010e06", border: "rgba(74,222,128,0.35)", glow: "rgba(34,197,94,0.3)" },
+  pink: { from: "#500724", to: "#18020a", border: "rgba(244,114,182,0.35)", glow: "rgba(236,72,153,0.3)" },
+  yellow: { from: "#422006", to: "#140801", border: "rgba(250,204,21,0.35)", glow: "rgba(234,179,8,0.3)" },
+};
+
 /** Фото обложки поверх стилизованного градиента и SVG. */
 function TileBg({
   art,
@@ -229,7 +243,7 @@ function TileBg({
   const [i, setI] = useState(0);
   const [photoOk, setPhotoOk] = useState(false);
   const src = srcs[i];
-  const grad = GEN_STYLE_GRADIENTS[color] ?? GEN_STYLE_GRADIENTS.cyan;
+  const grad = STYLE_CARD_FALLBACK_GRADIENTS[color] ?? STYLE_CARD_FALLBACK_GRADIENTS.cyan;
 
   return (
     <div
