@@ -154,9 +154,9 @@ async def test_usage_history_aggregates_models_and_credits(env):
     assert models["Kling 3.0 Pro"]["kind"] == "video"
     assert models["Kling 3.0 Pro"]["calls"] == 1
 
-    assert "Claude 3.5 Sonnet" in models
-    assert models["Claude 3.5 Sonnet"]["kind"] == "llm"
-    assert models["Claude 3.5 Sonnet"]["calls"] == 1
+    assert "Claude Sonnet 5" in models
+    assert models["Claude Sonnet 5"]["kind"] == "llm"
+    assert models["Claude Sonnet 5"]["calls"] == 1
 
     # Проверяем непустые категории в сводке
     by_kind = data["summary"]["by_kind"]
