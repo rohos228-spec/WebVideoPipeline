@@ -114,6 +114,20 @@ body:has([data-studio-scope]) {
   text-rendering: optimizeLegibility;
 }
 
+/* Яркое контрастное выделение текста в студии и редакторах */
+::selection {
+  background: rgba(34, 211, 238, 0.4);
+  color: #ffffff;
+}
+::-moz-selection {
+  background: rgba(34, 211, 238, 0.4);
+  color: #ffffff;
+}
+body:has([data-studio-scope]) ::selection {
+  background: rgba(34, 211, 238, 0.4) !important;
+  color: #ffffff !important;
+}
+
 /* Скроллбары как в старой студии — только пока конструктор на экране. */
 body:has([data-studio-scope]) ::-webkit-scrollbar {
   width: 8px;
