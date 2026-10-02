@@ -124,8 +124,8 @@ async def _report_no_credits(project_id: int, step_code: str, exc: Exception) ->
     замечать.
     """
     now = time.monotonic()
-    last = _NO_CREDITS_LOGGED.get(project_id, 0.0)
-    if now - last < _NO_CREDITS_QUIET_SEC:
+    last = _NO_CREDITS_LOGGED.get(project_id)
+    if last is not None and now - last < _NO_CREDITS_QUIET_SEC:
         return
     _NO_CREDITS_LOGGED[project_id] = now
     logger.info("касса: #{} шаг {} ждёт пополнения — {}", project_id, step_code, exc)
