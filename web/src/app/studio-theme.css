@@ -74,7 +74,7 @@ body:has([data-studio-scope]) {
   /* Пересечения с листом — полные цвета под прямой мэппинг var(--x). */
   --accent: hsl(0 0% 9%);
   --accent-hover: hsl(0 0% 12%);
-  --accent-muted: hsl(0 0% 9%);
+  --accent-muted: hsl(188 86% 53% / 0.35);
   --border: hsl(0 0% 100% / 0.08);
   --border-strong: hsl(0 0% 100% / 0.16);
   --info: hsl(199 80% 55%);
@@ -112,6 +112,12 @@ body:has([data-studio-scope]) {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* Яркое контрастное выделение текста в студии и редакторах (cyan highlight) */
+body:has([data-studio-scope]) ::selection {
+  background: rgba(34, 211, 238, 0.4) !important;
+  color: #ffffff !important;
 }
 
 /* Скроллбары как в старой студии — только пока конструктор на экране. */

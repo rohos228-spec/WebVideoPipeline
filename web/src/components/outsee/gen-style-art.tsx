@@ -130,6 +130,66 @@ export function GenStyleArt({
         <circle cx="42" cy="62" r="4" fill={c} />
       </svg>
     );
+  if (art === "concept")
+    return (
+      <svg {...common}>
+        <rect width="120" height="96" fill={BG} />
+        <polygon points="60,16 96,44 82,82 38,82 24,44" fill="none" stroke={c} strokeWidth={2.5} />
+        <polygon points="60,16 60,82 96,44" fill={c} opacity={0.35} />
+        <polygon points="60,16 24,44 60,82" fill={INK} opacity={0.2} />
+        <circle cx="60" cy="48" r="8" fill={c} opacity={0.8} />
+        <circle cx="20" cy="22" r="3" fill={INK} opacity={0.5} />
+        <circle cx="102" cy="74" r="2.5" fill={INK} opacity={0.5} />
+      </svg>
+    );
+  if (art === "anime")
+    return (
+      <svg {...common}>
+        <rect width="120" height="96" fill={BG} />
+        <circle cx="86" cy="32" r="16" fill={c} opacity={0.7} />
+        <circle cx="92" cy="30" r="14" fill={BG} />
+        <path d="M0 78 L120 78" stroke={INK} strokeWidth={2} opacity={0.5} />
+        <polygon points="20,78 20,48 38,48 38,78" fill={PANEL} stroke={INK} strokeWidth={1.5} />
+        <polygon points="44,78 44,36 68,36 68,78" fill={c} opacity={0.4} stroke={c} strokeWidth={1.5} />
+        <polygon points="74,78 74,54 94,54 94,78" fill={PANEL} stroke={INK} strokeWidth={1.5} />
+        <line x1="8" y1="18" x2="48" y2="18" stroke={INK} strokeWidth={2} opacity={0.6} />
+        <line x1="16" y1="26" x2="64" y2="26" stroke={c} strokeWidth={2} opacity={0.8} />
+      </svg>
+    );
+  if (art === "fashion")
+    return (
+      <svg {...common}>
+        <rect width="120" height="96" fill={BG} />
+        <circle cx="60" cy="48" r="26" fill="none" stroke={c} strokeWidth={3} />
+        <circle cx="60" cy="48" r="18" fill="none" stroke={INK} strokeWidth={1.5} opacity={0.6} />
+        <circle cx="60" cy="48" r="8" fill={c} opacity={0.85} />
+        <path d="M12 16 L28 16 M12 16 L12 32" stroke={INK} strokeWidth={2.5} />
+        <path d="M108 16 L92 16 M108 16 L108 32" stroke={INK} strokeWidth={2.5} />
+        <path d="M12 80 L28 80 M12 80 L12 64" stroke={INK} strokeWidth={2.5} />
+        <path d="M108 80 L92 80 M108 80 L108 64" stroke={INK} strokeWidth={2.5} />
+      </svg>
+    );
+  if (art === "nature")
+    return (
+      <svg {...common}>
+        <rect width="120" height="96" fill={BG} />
+        <circle cx="40" cy="34" r="14" fill={c} opacity={0.85} />
+        <polygon points="68,26 112,84 24,84" fill={PANEL} stroke={INK} strokeWidth={2} />
+        <polygon points="68,26 84,52 68,46 54,56" fill={INK} opacity={0.7} />
+        <polygon points="34,44 68,84 0,84" fill={c} opacity={0.5} />
+      </svg>
+    );
+  if (art === "diagram")
+    return (
+      <svg {...common}>
+        <rect width="120" height="96" fill={BG} />
+        <polygon points="60,18 102,38 60,58 18,38" fill={c} opacity={0.7} stroke={INK} strokeWidth={1.5} />
+        <polygon points="60,42 102,62 60,82 18,62" fill={PANEL} opacity={0.8} stroke={c} strokeWidth={2} />
+        <line x1="18" y1="38" x2="18" y2="62" stroke={INK} strokeWidth={1.5} />
+        <line x1="102" y1="38" x2="102" y2="62" stroke={INK} strokeWidth={1.5} />
+        <line x1="60" y1="58" x2="60" y2="82" stroke={c} strokeWidth={2} />
+      </svg>
+    );
   // retro — плёнка с перфорацией
   return (
     <svg {...common}>

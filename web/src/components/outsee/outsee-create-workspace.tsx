@@ -167,56 +167,69 @@ function formatElapsedMinSec(totalSec: number | null | undefined): string {
 
 
 export const RANDOM_PROMPTS = [
-  "A majestic ancient Japanese temple surrounded by blooming pink cherry blossoms, serene koi pond with reflections of soft golden morning rays, hyperrealistic photography",
-  "Futuristic cyberpunk Tokyo street at midnight, neon holographic advertisements reflecting on wet asphalt, volumetric steam, cinematic depth of field, 8k octane render",
-  "Cozy warm coffee shop on a rainy autumn day in Paris, steam rising from ceramic cup, wooden table by rain-streaked window with view of street lamps, photorealistic",
-  "Epic fantasy dragon perched atop a towering snowy mountain peak during a dramatic sunset, golden sunlight through clouds, intricate scales, mythological masterpiece",
-  "Close-up macro photography of an iridescent hummingbird drinking nectar from a vibrant exotic flower, dewdrops, shallow depth of field, sharp focus, 8k",
-  "Interior of a luxurious futuristic space station greenhouse with view of planet Earth in background, bioluminescent plants, architectural elegance, unreal engine 5",
-  "Cinematic portrait of a wise old Nordic blacksmith with braided beard, glowing forge embers, sparks flying, textured leather apron, dramatic Rembrandt lighting",
-  "A breathtaking turquoise alpine lake nestled inside granite mountains, wildflower meadow in foreground, crisp morning air, National Geographic award-winning photography",
-  "Steampunk airship soaring through fluffy cumulus clouds at golden hour, brass gears, copper detailing, propellers spinning, adventure aesthetic",
-  "An ancient library with towering mahogany bookshelves reaching into shadows, floating glowing magical dust motes, stained glass window casting colorful light",
-  "Sleek modern sports car speeding along a winding coastal highway at dusk, motion blur, taillight trails, sunset reflection on metallic paint",
-  "Enchanted bioluminescent forest at night, glowing mushrooms, ethereal spirits floating among giant mossy ancient trees, fantasy concept art",
-  "A cyberpunk samurai warrior standing in the rain on a skyscraper rooftop, glowing katana, neon city skyline in background, cinematic wide shot",
-  "Minimalist architectural desert villa with an infinity pool reflecting the starry night sky and Milky Way, warm interior ambient lights, 8k architectural render",
-  "Cute fluffy baby red panda playing in fresh autumn leaves, soft natural lighting, high detail fur, adorable expression, professional wildlife photography",
-  "A colossal ancient stone titan half-buried in sand dunes, ancient glyphs glowing faintly, desert wind blowing sand, epic cinematic landscape",
-  "A majestic white stag with glowing crystalline antlers standing in an ethereal moonlit clearing, mist swirling around hooves, fantasy masterwork",
-  "A futuristic hypercar prototype parked inside a minimalist concrete hangar, dramatic studio lighting, carbon fiber body, aerodynamic curves",
-  "Makoto Shinkai aesthetic anime scene of two friends standing on a hillside overlooking a coastal Japanese town under a starry night sky with falling meteors",
-  "A mysterious masked alchemist brewing glowing purple potions in a cluttered medieval apothecary filled with dried herbs, glass retorts, and ancient grimoires",
-  "Dramatic ocean storm at sunset, towering turquoise waves crashing against rugged black volcanic cliffs, golden sea spray, long exposure photography",
-  "A cozy Scandinavian log cabin surrounded by deep pine snowdrifts, warm amber light glowing from windows, vibrant green northern lights aurora borealis above",
-  "A cybernetic geisha with delicate porcelain faceplates and intricate glowing gold circuits, wearing a high-fashion holographic kimono, studio portrait",
-  "A breathtaking underwater coral reef teeming with vibrant tropical fish, sea turtles gliding through crystal clear sunlit water, wide angle photography",
-  "An opulent Venetian masquerade ballroom at midnight, grand crystal chandeliers, masked dancers in elaborate baroque gowns, golden reflections on marble floor",
-  "A lone astronaut discovering an ancient alien monolith glowing with violet hieroglyphs on Mars, red dust storm swirling, double moons on horizon",
-  "A mystical waterfall cascading into a crystal clear hidden grotto illuminated by glowing azure crystals, lush ferns, ethereal fantasy environment",
-  "Vintage 1960s Italian cafe terrace in Positano overlooking the Amalfi coastline, espresso cup on marble table, blooming bougainvillea, warm Mediterranean sunlight",
-  "A fierce Viking shieldmaiden with braided blonde hair and war paint standing on the prow of a dragon longship in a misty fjord, cinematic film still",
-  "A futuristic solar punk city with vertical botanical gardens covering skyscrapers, elevated glass sky trains, clean solar canals, bright optimistic daylight",
-  "A macro photograph of an intricate mechanical watch movement, exposed tourbillon, polished ruby jewels, Damascus steel bridges, extreme sharp detail",
-  "A whimsical treehouse village connected by glowing rope bridges nestled in colossal redwood trees at dusk, fairy lights, lanterns, magical fantasy vibe",
-  "A hyperrealistic portrait of an Ethiopian woman wearing traditional beaded silver jewelry and embroidered scarf, warm golden hour sunlight, sharp eye focus",
-  "A dramatic volcanic eruption at night, glowing red lava rivers flowing down black basalt slopes into the sea, thunderous ash cloud with lightning bolts",
-  "A cyberpunk hacker workstation surrounded by floating transparent holographic screens, neon blue and magenta reflections, cables, coffee cup, nighttime room",
-  "An enchanted crystal cave with giant luminous amethyst clusters growing from cavern walls, reflective underground river, ethereal dreamlike atmosphere",
-  "A sleek luxury yacht sailing through turquoise Caribbean waters near secluded white sand island, aerial drone view, sun glinting on clear water",
-  "A formidable knight in ornate black and gold armor standing guard in a gothic throne room, sunlight streaming through tall archways, cinematic dust motes",
-  "A hyper-detailed slice of artisan strawberry shortcake on a vintage porcelain plate, whipped cream, glazed berries, fork, warm bakery background",
-  "A futuristic mech warrior standing in a ruined battlefield covered in snow, weathered steel armor, glowing blue optics, smoke rising from vents",
-  "A peaceful zen rock garden at sunrise, perfectly raked sand patterns, bonsai pine tree, dewdrops on smooth river stones, soft tranquil morning light",
-  "A dark fantasy necromancer summoning green spectral flames from an ancient tomb, glowing runic circle on stone floor, cinematic shadows and mist",
-  "A vibrant bustling Moroccan bazaar at twilight, hanging brass lanterns casting intricate shadows, colorful spice pyramids, woven carpets, rich textures",
-  "A majestic bald eagle soaring over the Grand Canyon at sunrise, golden sunbeams piercing deep red rock canyons, crisp photographic detail",
-  "A futuristic orbital space elevator extending from an ocean platform into the starry cosmos, aurora borealis curving around Earth horizon",
-  "A romantic cobblestone street in old Prague at blue hour after rain, glowing streetlamps reflecting in puddles, Gothic church spires in background",
-  "A stunning studio portrait of a silver-haired elf queen with intricate diamond crown, delicate ear cuffs, deep sapphire velvet gown, soft cinematic lighting",
-  "A whimsical greenhouse conservatory filled with glowing giant mushrooms, miniature floating jellyfish plants, brass Victorian framing, magical realism",
-  "An epic science fiction starship armada dropping out of warp speed near a ringed gas giant planet, engine plasma trails, immense cosmic scale",
-  "A cute fluffy kitten sleeping curled up inside a wizard hat surrounded by glowing spell books and spilled star glitter, warm candlelight, cozy fantasy art"
+  // Кинематографичные сюжеты и кинокадры
+  "Cinematic film still of a detective in a trench coat standing under a flickering street lamp on a rainy night in 1950s Chicago, dramatic shadows, 35mm film look",
+  "A dusty desert highway at sunset with a classic vintage muscle car parked on the roadside, golden hour light, anamorphic lens flare",
+  "Astronaut sitting on a rocky cliff overlooking a vast crimson Martian canyon, twin moons in the starry night sky, cinematic lighting",
+  "Close-up portrait of an old weathered sea captain looking into a fierce ocean storm, sea salt in his gray beard, intense dramatic gaze",
+  "A neon-lit ramen bar in downtown Tokyo during a heavy downpour, steam rising from fresh bowls, reflections on wet asphalt, moody atmosphere",
+  "A lone mountaineer reaching the summit of a snowy Alpine peak at sunrise, sea of clouds below, crisp clear mountain air, wide angle lens",
+  "Dark gothic ballroom with grand chandeliers, mysterious masquerade dancers in elaborate dark attire, candlelit ambience, deep shadows",
+  "Cyberpunk courier speeding through a rainy futuristic megacity on an illuminated hoverbike, holographic signs reflecting on helmet visor",
+  "Retro 1980s synthwave night drive, sports car dashboard view, purple and teal sunset over distant palm trees and grid skyline",
+  "A medieval blacksmith hammering a glowing red sword blade in a dim stone forge, bright flying sparks, fiery rim lighting",
+
+  // Уют, быт и атмосфера
+  "Cozy rustic kitchen in morning sunlight, fresh warm croissants on a wooden board, steam rising from ceramic coffee cup, soft dust motes",
+  "Rainy afternoon in an old bookstore, stacks of antique books reaching the ceiling, a cat napping on a green velvet armchair by the window",
+  "A serene wooden cabin on the edge of a misty pine lake, warm amber glow in the windows, smoking chimney, autumn dawn reflection",
+  "A vinyl record spinning on a vintage turntable, warm amber lamp glow, soft bokeh lights, cozy evening living room",
+  "Sunny glass greenhouse conservatory overflowing with exotic tropical monstera and ferns, hanging brass lanterns, golden sunbeams",
+  "A street artist painting a colorful mural on an old brick wall in a sunlit European alley, paint splatters, authentic candid moment",
+  "A camper van parked on an ocean cliff edge with the back doors open, two cups of tea, overlooking crashing waves at twilight",
+  "An artisan pottery workshop, potter's hands shaping wet clay on a spinning wheel, natural window light, rustic ceramics on wooden shelves",
+
+  // Животные и дикая природа
+  "A cute fluffy red fox curled up asleep on a blanket of freshly fallen snow in a quiet winter birch forest",
+  "Charming capybara relaxing in an outdoor Japanese hot spring bath with a small yuzu fruit balanced on its head, gentle rising steam",
+  "Macro close-up shot of a chameleon with vibrant neon scales and an iridescent eye perched on a lush tropical branch",
+  "A majestic humpback whale breaching out of calm Arctic waters, dramatic golden sunset sky, glistening water splash",
+  "A wise barn owl perched on a moss-covered oak branch in twilight mist, soft detailed feathers, striking amber eyes",
+  "Playful golden retriever puppy running through a vibrant meadow of wild blooming poppies, sunny summer afternoon",
+  "A tiny colorful tree frog resting inside a wet exotic jungle flower, glistening translucent water dewdrops, shallow focus",
+
+  // Еда, напитки и коммерческий предметный стиль
+  "Gourmet smash burger with melting aged cheddar, crispy bacon, caramelized onions and sauce dripping onto craft paper, mouthwatering food photography",
+  "Crystal cocktail glass with an artisan amber whiskey, spherical clear ice cube, orange peel garnish, moody speakeasy bar lighting",
+  "A slice of decadent dark chocolate cake with glossy dripping ganache and fresh ripe raspberries on a matte ceramic plate",
+  "Overhead flat lay of an authentic Italian Neapolitan pizza fresh from a wood-fired oven, blistered crust, creamy mozzarella and fresh basil leaves",
+  "A matcha latte in a minimalist ceramic cup with delicate foam leaf latte art, bamboo whisk and green powder on a raw stone slate",
+  "Fresh chilled glass bottle of sparkling soda with ice condensation droplets, floating lime slices and fresh mint leaves, bright summer sunlight",
+
+  // Фэнтези, мистика и Sci-Fi
+  "Ancient colossal stone temple ruins hidden deep inside a bioluminescent jungle, glowing vines, cascading emerald waterfalls",
+  "Majestic celestial dragon with shimmering pearl scales soaring through pastel sunset clouds above floating mountain islands",
+  "Enchanted library where glowing magical origami birds fly between high bookshelves, magical stardust swirling in the air",
+  "A futuristic botanical dome on the moon, lush green trees inside glass dome with Earth rising above the barren lunar landscape",
+  "Ethereal underwater crystal palace with glowing jellyfish drifting past carved coral arches, tranquil turquoise atmosphere",
+  "A friendly small maintenance robot tending to bonsai trees in a minimalist futuristic apartment, soft daylight, warm feeling",
+  "A solitary wizard tower on a sharp sea cliff during an epic thunderstorm, glowing blue runes carved into dark stone, violent lightning",
+  "A mysterious alchemist workstation with glass retorts bubbling with glowing luminescent liquids, ancient scrolls, dried lavender bunches",
+
+  // Архитектура и дизайн
+  "Minimalist brutalist villa made of raw concrete and warm cedar wood, floor-to-ceiling glass windows facing a serene misty pine forest",
+  "Cozy Scandinavian interior living room with a crackling fireplace, beige linen sofa, wool knit throw, and large window with mountain view",
+  "Futuristic organic architecture city with flowing white curves, green sky terraces, elevated pedestrian bridges and clean blue sky",
+  "Traditional Kyoto machiya courtyard garden with smooth stepping stones, bamboo fountain, and vibrant red Japanese maple leaves in autumn",
+  "Modern luxury penthouse bedroom at night overlooking Manhattan skyline, dark moody tones, plush king bed, floor-to-ceiling city panorama",
+
+  // Графика, 3D и креативные концепты
+  "Vibrant 3D isometric cutaway illustration of a cozy gamer room with dual monitors, glowing RGB lights, mini fridge, and posters",
+  "Retro travel poster illustration of a futuristic vacation to Saturn's rings, bold vintage typography, stylish mid-century palette",
+  "Whimsical miniature clay diorama of a tiny bakery run by mice, micro loaves of bread, flour dusting, handcrafted stop-motion look",
+  "Cute cartoon astronaut cat exploring an alien planet covered in candy-colored giant mushrooms, playful vibrant colors",
+  "Editorial fashion studio portrait of a woman wearing a holographic geometric dress, high-fashion makeup, dramatic studio split lighting",
+  "A vintage steam locomotive rushing through a snowy mountain gorge over an arched stone viaduct, billowing white steam clouds",
 ];
 
 function downloadMediaFile(
@@ -2380,7 +2393,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       value={negativePrompt}
                       onChange={(e) => setNegativePrompt(e.target.value)}
                       placeholder="Отрицательный промпт: чего НЕ должно быть на картинке (напр. размытие, лишние пальцы, текст, мусор)..."
-                      className="w-full rounded-lg border border-white/10 bg-[#16161b] px-3 py-1.5 text-[12px] text-white placeholder-white/30 focus:border-purple-400 focus:outline-none"
+                      className="w-full rounded-lg border border-white/10 bg-[#16161b] px-3 py-1.5 text-[12px] text-white placeholder-white/30 focus:border-purple-400 focus:outline-none selection:bg-[#22d3ee]/40 selection:text-white"
                     />
                   </div>
                 )}
@@ -2398,7 +2411,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       }
                       rows={3}
                       style={{ outline: "none" }}
-                      className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-white/90 placeholder:text-white/30 border-0 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0"
+                      className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-white/90 placeholder:text-white/30 border-0 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 selection:bg-[#22d3ee]/40 selection:text-white"
                     />
                   </div>
                 )}
