@@ -306,7 +306,7 @@ export function CostsPanelSheet({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mr-10 sm:mr-12">
               {data?.is_admin && (
                 <Button
                   variant="outline"
