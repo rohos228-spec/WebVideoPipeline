@@ -70,7 +70,9 @@ export function setToken(token: string): void {
 }
 
 export function clearToken(): void {
+  if (typeof window === "undefined") return;
   window.localStorage.removeItem(TOKEN_KEY);
+  window.dispatchEvent(new Event("auth-token-cleared"));
 }
 
 export function authHeaders(): Record<string, string> {
@@ -79,7 +81,14 @@ export function authHeaders(): Record<string, string> {
 }
 
 async function get<T>(path: string): Promise<T> {
+  const token = getToken();
   const res = await fetch(path, { headers: authHeaders() });
+  if (res.status === 401 && token && !path.startsWith("/api/auth/")) {
+    clearToken();
+    if (typeof window !== "undefined") {
+      window.location.reload();
+    }
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as T;
 }

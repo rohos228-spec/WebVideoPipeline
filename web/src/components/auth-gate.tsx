@@ -26,6 +26,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setToken(api.readToken());
     setReady(true);
+
+    const handleClear = () => setToken(null);
+    window.addEventListener("auth-token-cleared", handleClear);
+    window.addEventListener("storage", handleClear);
+    return () => {
+      window.removeEventListener("auth-token-cleared", handleClear);
+      window.removeEventListener("storage", handleClear);
+    };
   }, []);
 
   if (isPending || !ready) {
