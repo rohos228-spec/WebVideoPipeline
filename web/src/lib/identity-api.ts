@@ -83,7 +83,7 @@ export function authHeaders(): Record<string, string> {
 async function get<T>(path: string): Promise<T> {
   const token = getToken();
   const res = await fetch(path, { headers: authHeaders() });
-  if (res.status === 401 && token && !path.startsWith("/api/auth/")) {
+  if (res.status === 401 && token && path !== "/api/auth/status") {
     clearToken();
     if (typeof window !== "undefined") {
       window.location.reload();
