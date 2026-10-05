@@ -16,10 +16,12 @@
  * В режиме владельца этот экран не появляется никогда: там личностей нет.
  */
 
-import { LogIn } from "lucide-react";
+import { useEffect } from "react";
+import { KeyRound, LogIn } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useAuthStatus } from "@/hooks/use-identity";
+import { clearToken } from "@/lib/identity-api";
 
 /** Куда уводить за токеном. Домен задаётся сборкой, а не зашит в код. */
 function loginUrl(brand: string): string {
@@ -34,6 +36,22 @@ export function LoginGate() {
   const { data: status } = useAuthStatus();
   const url = loginUrl(status?.brand ?? "");
 
+  // Если токен в браузере протух/недействителен, и включена локальная авторизация —
+  // сбрасываем его и переходим к форме входа студии.
+  useEffect(() => {
+    if (typeof window !== "undefined" && status?.auth_required) {
+      clearToken();
+      window.location.reload();
+    }
+  }, [status?.auth_required]);
+
+  const handleLocalLogin = () => {
+    if (typeof window !== "undefined") {
+      clearToken();
+      window.location.reload();
+    }
+  };
+
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-background p-6 text-foreground">
       <div className="w-full max-w-md rounded-xl border border-white/10 bg-white/[0.02] p-6">
@@ -47,15 +65,19 @@ export function LoginGate() {
           <Button asChild className="w-full gap-2">
             <a href={url}>
               <LogIn className="h-4 w-4" />
-              Войти
+              Войти через личный кабинет
             </a>
           </Button>
         ) : (
-          <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
-            Адрес личного кабинета не настроен: задайте{" "}
-            <code className="font-mono">NEXT_PUBLIC_BILLING_URL</code> при сборке
-            фронта — иначе уводить человека некуда.
-          </p>
+          <div className="space-y-3">
+            <Button onClick={handleLocalLogin} className="w-full gap-2">
+              <KeyRound className="h-4 w-4" />
+              Войти по логину и паролю
+            </Button>
+            <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-muted-foreground">
+              Адрес внешнего кабинета не настроен (NEXT_PUBLIC_BILLING_URL). Используется локальный вход студии.
+            </p>
+          </div>
         )}
       </div>
     </div>
