@@ -18,6 +18,7 @@ import {
   Copy,
   CornerDownLeft,
   Dices,
+  Disc,
   Download,
   ExternalLink,
   FileText,
@@ -27,15 +28,24 @@ import {
   Link2,
   Loader2,
   Maximize2,
+  Mic,
   Music,
   Paperclip,
+  Pause,
   Play,
+  Radio,
+  Repeat,
+  RotateCcw,
   RotateCw,
+  Scissors,
   Search,
   Send,
+  Sparkles,
   Square,
   Trash2,
   Video,
+  Volume2,
+  VolumeX,
   X,
   XCircle,
 } from "lucide-react";
@@ -49,6 +59,7 @@ import {
   OUTSEE_CHIP_LABELS,
   OUTSEE_DETAIL_LEVELS,
   OUTSEE_FEED_TABS,
+  OUTSEE_ORIGIN,
   OUTSEE_TYPE_TABS,
   chipOptions,
   clampToOptions,
@@ -201,13 +212,465 @@ function downloadMediaFile(
   document.body.removeChild(a);
 }
 
+function AudioStudioPlayer({
+  item,
+  onInspect,
+}: {
+  item: HistoryItem;
+  onInspect?: () => void;
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const progressBarRef = useRef<HTMLDivElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [isLooping, setIsLooping] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const speedRef = useRef<HTMLDivElement>(null);
+  const [speedOpen, setSpeedOpen] = useState(false);
+
+  useEffect(() => {
+    if (!speedOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (speedRef.current && !speedRef.current.contains(e.target as Node)) {
+        setSpeedOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [speedOpen]);
+
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.playbackRate = playbackRate;
+      audioRef.current.loop = isLooping;
+    }
+  }, [item.preview_url, item.id]);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch((err) => {
+        console.warn("Audio playback error:", err);
+      });
+    }
+  };
+
+  const seekBy = (sec: number) => {
+    if (!audioRef.current) return;
+    const target = Math.max(0, Math.min(duration || 0, audioRef.current.currentTime + sec));
+    audioRef.current.currentTime = target;
+    setCurrentTime(target);
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!progressBarRef.current || !audioRef.current || !duration) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const percent = Math.max(0, Math.min(1, clickX / rect.width));
+    const target = percent * duration;
+    audioRef.current.currentTime = target;
+    setCurrentTime(target);
+  };
+
+  const toggleMute = () => {
+    if (!audioRef.current) return;
+    if (isMuted) {
+      audioRef.current.muted = false;
+      setIsMuted(false);
+    } else {
+      audioRef.current.muted = true;
+      setIsMuted(true);
+    }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
+    setVolume(val);
+    if (audioRef.current) {
+      audioRef.current.volume = val;
+      if (val === 0) {
+        audioRef.current.muted = true;
+        setIsMuted(true);
+      } else if (isMuted) {
+        audioRef.current.muted = false;
+        setIsMuted(false);
+      }
+    }
+  };
+
+  const cyclePlaybackRate = () => {
+    const rates = [1, 1.25, 1.5, 2, 0.75];
+    const nextIdx = (rates.indexOf(playbackRate) + 1) % rates.length;
+    const nextRate = rates[nextIdx];
+    setPlaybackRate(nextRate);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = nextRate;
+    }
+  };
+
+  const toggleLoop = () => {
+    const nextLoop = !isLooping;
+    setIsLooping(nextLoop);
+    if (audioRef.current) {
+      audioRef.current.loop = nextLoop;
+    }
+  };
+
+  const handleCopyLink = () => {
+    const url = item.preview_url || item.raw_url || "";
+    if (!url) return;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      toast.success("Ссылка на аудио скопирована");
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const handleDownload = () => {
+    const url = item.preview_url || item.raw_url || "";
+    if (!url) return;
+    const title = (item.params?.title as string) || item.label || "audio_track";
+    void downloadMediaFile(url, title, "mp3", item.path);
+  };
+
+  const formatTime = (seconds: number): string => {
+    if (isNaN(seconds) || seconds < 0) return "00:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  const trackTitle =
+    (item.params?.title as string) ||
+    item.label ||
+    "Сгенерированный аудио трек";
+
+  const trackStyle =
+    (item.params?.style as string) ||
+    item.prompt ||
+    "";
+
+  const modelBadge =
+    (item.params?.model as string) ||
+    (item.model?.includes("V5_5") ? "V5.5" : item.model?.includes("V5") ? "V5" : "Suno AI");
+
+  const WAVE_BARS = useMemo(
+    () => [
+      22, 38, 55, 78, 48, 92, 68, 54, 82, 96, 64, 46, 76, 92, 58, 42,
+      66, 86, 98, 74, 52, 82, 100, 88, 64, 48, 72, 88, 96, 72, 48, 64,
+      86, 76, 54, 72, 92, 82, 58, 76, 92, 64, 44, 62, 82, 96, 58, 34,
+    ],
+    [],
+  );
+
+  return (
+    <div className="relative flex w-full max-w-3xl lg:max-w-4xl flex-col gap-5 rounded-3xl border border-white/15 bg-[#121216]/95 p-6 md:p-8 backdrop-blur-2xl shadow-[0_30px_90px_rgba(0,0,0,0.9)] ring-1 ring-white/10 animate-in fade-in duration-300">
+      <audio
+        ref={audioRef}
+        src={item.preview_url || undefined}
+        preload="metadata"
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => {
+          if (!isLooping) setIsPlaying(false);
+        }}
+        onTimeUpdate={() => {
+          if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
+        }}
+        onLoadedMetadata={() => {
+          if (audioRef.current) {
+            setDuration(audioRef.current.duration);
+            audioRef.current.playbackRate = playbackRate;
+            audioRef.current.loop = isLooping;
+          }
+        }}
+      />
+
+      {/* Top: Vinyl + Track info + Actions */}
+      <div className="flex items-center gap-4 md:gap-5">
+        <div className="relative flex h-20 w-20 md:h-24 md:w-24 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1a1a24] to-[#0a0a0f] ring-1 ring-white/15 shadow-2xl overflow-hidden">
+          <div
+            className={cn(
+              "absolute inset-1.5 rounded-full border border-white/10 bg-gradient-to-tr from-black via-zinc-900 to-black transition-transform duration-700",
+              isPlaying && "animate-[spin_4s_linear_infinite]",
+            )}
+          >
+            <div className="absolute inset-2.5 rounded-full border border-white/5" />
+            <div className="absolute inset-5 rounded-full border border-white/5" />
+            <div className="absolute inset-0 m-auto h-6 w-6 md:h-7 md:w-7 rounded-full bg-gradient-to-br from-[#22d3ee] to-[#38bdf8] shadow-[0_0_12px_rgba(34,211,238,0.6)] flex items-center justify-center">
+              <div className="h-2 w-2 rounded-full bg-black" />
+            </div>
+          </div>
+          <Disc className={cn("h-8 w-8 md:h-9 md:w-9 text-white/70 relative z-10 transition-opacity", isPlaying ? "opacity-0" : "opacity-80")} />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h3 className="truncate text-base md:text-xl font-bold text-white tracking-tight" title={trackTitle}>
+              {trackTitle}
+            </h3>
+            <span className="shrink-0 rounded-md bg-[#22d3ee]/15 px-2 py-0.5 font-mono text-[10px] md:text-xs font-bold text-[#22d3ee] ring-1 ring-[#22d3ee]/30">
+              {modelBadge}
+            </span>
+          </div>
+          {trackStyle && (
+            <p className="mt-1 line-clamp-2 text-xs md:text-sm text-white/60 leading-relaxed" title={trackStyle}>
+              {trackStyle}
+            </p>
+          )}
+          <div className="mt-1.5 flex items-center gap-2 text-[11px] text-white/40 font-mono">
+            <span>ID: {item.id ? String(item.id).slice(0, 8) : "—"}</span>
+            {item.elapsed_sec && (
+              <>
+                <span>•</span>
+                <span>ген: {Math.round(item.elapsed_sec)}с</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={handleCopyLink}
+            className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+            title="Скопировать ссылку на аудио"
+          >
+            {copied ? <Check className="h-4 w-4 text-[#22d3ee]" /> : <Copy className="h-4 w-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-[#22d3ee]/40 hover:bg-[#22d3ee]/10 hover:text-[#22d3ee]"
+            title="Скачать трек (MP3)"
+          >
+            <Download className="h-4 w-4" />
+          </button>
+          {onInspect && (
+            <button
+              type="button"
+              onClick={onInspect}
+              className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+              title="Открыть инспектор и детали промпта"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Waveform Visualizer & Seek Area */}
+      <div
+        ref={progressBarRef}
+        onClick={handleSeek}
+        className="group relative flex h-16 md:h-22 w-full cursor-pointer items-end justify-between gap-1 md:gap-1.5 rounded-2xl bg-black/45 px-4 py-3 ring-1 ring-white/10 transition hover:ring-[#22d3ee]/40 overflow-hidden"
+      >
+        {isPlaying && (
+          <div className="absolute inset-0 bg-gradient-to-t from-[#22d3ee]/[0.08] to-transparent pointer-events-none" />
+        )}
+
+        {WAVE_BARS.map((heightPercent, idx) => {
+          const barProgress = idx / (WAVE_BARS.length - 1);
+          const currentProgress = duration > 0 ? currentTime / duration : 0;
+          const isPassed = barProgress <= currentProgress;
+
+          return (
+            <div
+              key={idx}
+              className="relative flex h-full flex-1 items-end justify-center"
+            >
+              <div
+                style={{ height: `${heightPercent}%` }}
+                className={cn(
+                  "w-1.5 md:w-2 rounded-full transition-all duration-150",
+                  isPassed
+                    ? "bg-[#22d3ee] shadow-[0_0_10px_rgba(34,211,238,0.55)]"
+                    : "bg-white/15 group-hover:bg-white/25",
+                  isPlaying && isPassed && "brightness-125",
+                )}
+              />
+            </div>
+          );
+        })}
+
+        <div
+          style={{ left: `${progressPercent}%` }}
+          className="pointer-events-none absolute top-0 bottom-0 w-1 bg-white shadow-[0_0_14px_#22d3ee] transition-all"
+        />
+      </div>
+
+      {/* Scrubber slider and time display */}
+      <div className="space-y-2">
+        <div
+          onClick={handleSeek}
+          className="group relative flex h-2.5 w-full cursor-pointer items-center rounded-full bg-white/10"
+        >
+          <div
+            style={{ width: `${progressPercent}%` }}
+            className="h-full rounded-full bg-gradient-to-r from-[#22d3ee] to-[#38bdf8] shadow-[0_0_14px_rgba(34,211,238,0.5)]"
+          />
+          <div
+            style={{ left: `calc(${progressPercent}% - 7px)` }}
+            className="absolute h-3.5 w-3.5 rounded-full bg-white ring-2 ring-[#22d3ee] shadow-[0_0_10px_#22d3ee] opacity-0 transition-opacity group-hover:opacity-100"
+          />
+        </div>
+
+        <div className="flex items-center justify-between font-mono text-xs md:text-sm text-white/50">
+          <span className="text-white/90 font-semibold">{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
+        </div>
+      </div>
+
+      {/* Controls Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleLoop}
+            className={cn(
+              "flex h-9 md:h-10 items-center gap-1.5 rounded-xl px-3 text-xs font-mono transition ring-1",
+              isLooping
+                ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40 shadow-[0_0_14px_rgba(34,211,238,0.25)]"
+                : "bg-white/[0.04] text-white/50 ring-white/10 hover:bg-white/[0.08] hover:text-white",
+            )}
+            title="Зациклить трек (Loop)"
+          >
+            <Repeat className="h-4 w-4" />
+            <span>Loop</span>
+          </button>
+
+          <div className="relative" ref={speedRef}>
+            <button
+              type="button"
+              onClick={() => setSpeedOpen((v) => !v)}
+              className={cn(
+                "flex h-9 md:h-10 items-center gap-1.5 rounded-xl px-3 font-mono text-xs ring-1 transition",
+                speedOpen
+                  ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40 shadow-[0_0_14px_rgba(34,211,238,0.25)]"
+                  : "bg-white/[0.04] text-white/70 ring-white/10 hover:bg-white/[0.08] hover:text-white",
+              )}
+              title="Выбрать скорость воспроизведения"
+            >
+              <span>{playbackRate}x</span>
+              <ChevronDown className={cn("h-3.5 w-3.5 text-white/50 transition-transform duration-200", speedOpen && "rotate-180")} />
+            </button>
+
+            {speedOpen && (
+              <div className="absolute bottom-full left-0 mb-2 z-50 flex flex-col min-w-[130px] rounded-xl border border-white/15 bg-[#121216]/98 p-1 backdrop-blur-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] ring-1 ring-white/10 animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/40 border-b border-white/[0.08] mb-1">
+                  Скорость
+                </div>
+                {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => {
+                  const isActive = playbackRate === rate;
+                  return (
+                    <button
+                      key={rate}
+                      type="button"
+                      onClick={() => {
+                        setPlaybackRate(rate);
+                        if (audioRef.current) audioRef.current.playbackRate = rate;
+                        setSpeedOpen(false);
+                      }}
+                      className={cn(
+                        "flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left font-mono text-xs transition",
+                        isActive
+                          ? "bg-[#22d3ee]/20 text-[#22d3ee] font-bold"
+                          : "text-white/75 hover:bg-white/[0.08] hover:text-white",
+                      )}
+                    >
+                      <span>{rate}x {rate === 1 ? "(1.0)" : ""}</span>
+                      {isActive && <Check className="h-3.5 w-3.5 text-[#22d3ee]" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Center: Rewind / Play / Forward */}
+        <div className="flex items-center gap-3 md:gap-4">
+          <button
+            type="button"
+            onClick={() => seekBy(-10)}
+            className="flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:scale-105 hover:border-white/20 hover:bg-white/[0.08] hover:text-white active:scale-95"
+            title="Перемотать назад на 10 сек"
+          >
+            <RotateCcw className="h-4.5 w-4.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={togglePlay}
+            className="flex h-13 w-13 md:h-15 md:w-15 items-center justify-center rounded-2xl bg-gradient-to-r from-[#22d3ee] to-[#0ea5e9] text-black shadow-[0_0_30px_rgba(34,211,238,0.45)] transition hover:scale-105 hover:brightness-110 active:scale-95"
+            title={isPlaying ? "Пауза" : "Воспроизвести"}
+          >
+            {isPlaying ? (
+              <Pause className="h-6 w-6 md:h-7 md:w-7 fill-current" />
+            ) : (
+              <Play className="h-6 w-6 md:h-7 md:w-7 fill-current translate-x-0.5" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => seekBy(10)}
+            className="flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:scale-105 hover:border-white/20 hover:bg-white/[0.08] hover:text-white active:scale-95"
+            title="Перемотать вперёд на 10 сек"
+          >
+            <RotateCw className="h-4.5 w-4.5" />
+          </button>
+        </div>
+
+        {/* Volume */}
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={toggleMute}
+            className="text-white/60 transition hover:text-white"
+            title={isMuted ? "Включить звук" : "Выключить звук"}
+          >
+            {isMuted || volume === 0 ? (
+              <VolumeX className="h-4.5 w-4.5 text-rose-400" />
+            ) : (
+              <Volume2 className="h-4.5 w-4.5" />
+            )}
+          </button>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={isMuted ? 0 : volume}
+            onChange={handleVolumeChange}
+            className="h-1.5 w-20 md:w-28 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#22d3ee]"
+            title={`Громкость: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) {
   const qc = useQueryClient();
   const [mediaType, setMediaType] = useState<OutseeMediaType>("image");
   const [feedKind, setFeedKind] = useState<OutseeFeedKind>("all");
   const [imageSlug, setImageSlug] = useState("gpt-image-2");
   const [videoSlug, setVideoSlug] = useState("veo-3-1-lite");
-  const [audioSlug, setAudioSlug] = useState("suno-5-5");
+  const [audioSlug, setAudioSlug] = useState("kie:suno-music");
   const [aspect, setAspect] = useState("16:9");
   const [resolution, setResolution] = useState("2K");
   const [detail, setDetail] = useState("medium");
@@ -312,7 +775,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       setVideoSlug(rawVid.startsWith("kie:") ? rawVid : `kie:${rawVid}`);
     }
     const rawAud = String(s.audio_slug || "kie:suno-music");
-    setAudioSlug(rawAud.startsWith("kie:") ? rawAud : rawAud === "suno-5-5" ? "kie:suno-music" : `kie:${rawAud}`);
+    setAudioSlug(
+      rawAud.startsWith("kie:")
+        ? rawAud
+        : rawAud === "suno-5-5"
+          ? "kie:suno-music"
+          : rawAud === "elevenlabs-v3"
+            ? "kie:elevenlabs-tts-multilingual"
+            : `kie:${rawAud}`,
+    );
     setAspect(String(s.aspect || "16:9"));
     setResolution(String(s.image_resolution || "2K"));
     setDetail(String(s.image_quality || "medium"));
@@ -353,6 +824,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       window.removeEventListener("keydown", onKey);
     };
   }, [modelOpen]);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightboxOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxOpen]);
 
   const [nowTs, setNowTs] = useState(() => Date.now());
   useEffect(() => {
@@ -488,11 +968,14 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     if (mediaType === "video" && !isKie(videoSlug) && videoSlug !== "veo-3-1-lite") {
       setVideoSlug("veo-3-1-lite");
     }
-    if (mediaType === "audio" && audioSlug === "kie:suno-sounds") {
-      // Suno Sounds Task поёт / делает петли — настоящий SFX это ElevenLabs.
-      setAudioSlug("kie:elevenlabs-sfx");
-    } else if (mediaType === "audio" && !isKie(audioSlug)) {
-      setAudioSlug("kie:suno-music");
+    if (mediaType === "audio" && !isKie(audioSlug)) {
+      setAudioSlug(
+        audioSlug === "suno-5-5"
+          ? "kie:suno-music"
+          : audioSlug === "elevenlabs-v3"
+            ? "kie:elevenlabs-tts-multilingual"
+            : "kie:suno-music",
+      );
     }
   }, [kieCatalogQ.data, kieModels, mediaType, imageSlug, videoSlug, audioSlug]);
 
@@ -521,7 +1004,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
   const canApiDirect = kieActive ? kieConfigured : autoProvider != null;
   const currentIcon = kieActive
-    ? null
+    ? kieModel?.id.includes("suno")
+      ? `${OUTSEE_ORIGIN}/imagemobilepreview/suno.webp`
+      : kieModel?.id.includes("elevenlabs")
+        ? `${OUTSEE_ORIGIN}/imagemobilepreview/elevenlabs.webp`
+        : null
     : mediaType === "image"
       ? imageModel.icon
       : mediaType === "video"
@@ -875,13 +1362,20 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         const rawModel = retry?.model ? String(retry.model) : "";
         const paramModelId = typeof retryParams.model_id === "string" ? retryParams.model_id : "";
 
+        let normalizedModel = rawModel;
+        if (!normalizedModel && targetMediaType === "audio") {
+          normalizedModel = audioSlug;
+        }
+        if (normalizedModel === "suno-5-5") normalizedModel = "kie:suno-music";
+        if (normalizedModel === "elevenlabs-v3") normalizedModel = "kie:elevenlabs-tts-multilingual";
+
         const matchedKie =
           kieModels.find(
             (m) =>
               m.id === paramModelId ||
-              `kie:${m.id}` === rawModel ||
-              m.id === rawModel ||
-              m.label.toLowerCase() === rawModel.toLowerCase(),
+              `kie:${m.id}` === normalizedModel ||
+              m.id === normalizedModel ||
+              m.label.toLowerCase() === normalizedModel.toLowerCase(),
           ) ||
           (retry?.provider === "kie" || retry?.project_slug === "kie"
             ? kieModels.find((m) => m.id === paramModelId)
@@ -889,8 +1383,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
         // ---- KIE: динамическая модель из каталога kie.ai ----
         const isKie =
+          targetMediaType === "audio" ||
           Boolean(matchedKie) ||
-          rawModel.startsWith("kie:") ||
+          normalizedModel.startsWith("kie:") ||
           Boolean(retryParams.model_id) ||
           retry?.provider === "kie" ||
           retry?.project_slug === "kie" ||
@@ -901,13 +1396,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           }
           const effectiveKieModel =
             matchedKie ??
-            (rawModel.startsWith("kie:") ? kieModels.find((m) => m.id === rawModel.slice(4)) : null) ??
-            kieModel;
+            (normalizedModel.startsWith("kie:") ? kieModels.find((m) => m.id === normalizedModel.slice(4)) : null) ??
+            kieModel ??
+            (targetMediaType === "audio" ? kieModels.find((m) => m.id === "suno-music") : null);
           const modelId =
             effectiveKieModel?.id ||
             paramModelId ||
-            (rawModel.startsWith("kie:") ? rawModel.slice(4) : null) ||
-            kieModel?.id;
+            (normalizedModel.startsWith("kie:") ? normalizedModel.slice(4) : null) ||
+            kieModel?.id ||
+            (targetMediaType === "audio" ? "suno-music" : null);
           if (!modelId) {
             throw new Error("Не удалось определить модель KIE");
           }
@@ -932,6 +1429,24 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             );
             if (negField) vals[negField.name] = negativePrompt.trim();
           }
+
+          if (modelId === "suno-music") {
+            const isInst = Boolean(vals.instrumental ?? instrumental);
+            vals.instrumental = isInst;
+            const isCustom = vals.customMode !== false;
+            if (!vals.style || typeof vals.style !== "string" || !vals.style.trim()) {
+              vals.style = text.slice(0, 500);
+            }
+            if (!vals.title || typeof vals.title !== "string" || !vals.title.trim()) {
+              vals.title = text.slice(0, 80);
+            }
+            if (isInst) {
+              vals.prompt = isCustom ? "" : text;
+            } else if (!vals.prompt) {
+              vals.prompt = text;
+            }
+          }
+
           // Автоматическая передача референсов и стартовых кадров в поля модели KIE
           const refUrls =
             retry?.reference_images && retry.reference_images.length > 0
@@ -961,9 +1476,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             }
           }
           if (effectiveKieModel) {
+            const isInst = Boolean(vals.instrumental ?? instrumental);
             const missing = effectiveKieModel.fields
               .filter((f) => f.required)
+              .filter((f) => kieFieldVisible(f, vals))
               .filter((f) => {
+                if (f.name === "prompt" && (isInst || modelId === "suno-music")) return false;
                 const v = vals[f.name] ?? f.default;
                 if (v === undefined || v === null) return true;
                 if (typeof v === "string") return v.trim() === "";
@@ -974,6 +1492,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               throw new Error(`Заполни: ${missing.map((f) => f.label).join(", ")}`);
             }
           }
+          void api.putOutseeCreateSettings(settingsPayload()).catch(() => undefined);
           const res = await api.kieGenerate({ model_id: modelId, values: vals });
           return {
             job_id: res.job.job_id,
@@ -984,17 +1503,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           };
         }
         if (!text) throw new Error("Введите промпт");
-        if (targetMediaType === "audio") {
-          if (projectId == null) {
-            throw new Error("Аудио — через шаг пайплайна: выберите проект");
-          }
-          await api.putOutseeCreateSettings(settingsPayload());
-          await applyToProject.mutateAsync();
-          // Suno (Create «АУДИО») → music; иначе TTS/voice → audio.
-          const step =
-            String(audioSlug || "").toLowerCase().includes("suno") ? "music" : "audio";
-          return api.runProjectStep(projectId, step);
-        }
         if (!outseeConfigured) {
           throw new Error("OUTSEE_API_KEY не задан в .env");
         }
@@ -1201,12 +1709,21 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         if (dOpts.length) setDetail(clampToOptions(p.detail_level, dOpts, detail));
       }
       setPrompt(item.prompt);
-    } else if (item.kind === "video") {
-      setMediaType("video");
-      if (item.model) setVideoSlug(item.model);
-      if (typeof p.aspect === "string" && p.aspect) setAspect(p.aspect);
-      if (typeof p.resolution === "string" && p.resolution) setVideoResolution(p.resolution);
-      if (p.duration) setDuration(String(p.duration));
+    } else if (item.kind === "audio") {
+      setMediaType("audio");
+      const targetSlug =
+        rawModel === "suno-5-5"
+          ? "kie:suno-music"
+          : rawModel === "elevenlabs-v3"
+            ? "kie:elevenlabs-tts-multilingual"
+            : rawModel.startsWith("kie:")
+              ? rawModel
+              : `kie:${rawModel || "suno-music"}`;
+      setAudioSlug(targetSlug);
+      const vals = (p.values && typeof p.values === "object" ? p.values : p) as Record<string, unknown>;
+      setKieValues({ ...vals });
+      if (typeof vals.instrumental === "boolean") setInstrumental(vals.instrumental);
+      else if (typeof p.instrumental === "boolean") setInstrumental(p.instrumental);
       setPrompt(item.prompt);
     }
     createGenerate.mutate({ retryItem: item });
@@ -1636,12 +2153,19 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             )}
           </div>
 
-          <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-start px-4 pt-2 pb-[260px] lg:px-6">
+          <div
+            className={cn(
+              "relative z-10 flex min-h-0 flex-1 flex-col items-center px-4 pb-[260px] lg:px-6 w-full",
+              selected?.kind === "audio" || !selected?.preview_url || selected?.status === "failed" || selected?.status === "queued" || selected?.status === "processing"
+                ? "justify-center my-auto"
+                : "justify-start pt-2",
+            )}
+          >
             {selected?.preview_url &&
             selected.status !== "queued" &&
             selected.status !== "processing" ? (
-              <div className="flex flex-col items-center">
-                <div className="group relative flex max-h-[calc(100vh-360px)] max-w-full items-center justify-center">
+              <div className="flex flex-col items-center w-full my-auto">
+                <div className="group relative flex max-h-[calc(100vh-360px)] max-w-full items-center justify-center w-full">
                   {selected.kind === "video" ? (
                     <video
                       src={selected.preview_url}
@@ -1649,10 +2173,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       className="max-h-[calc(100vh-360px)] max-w-full rounded-2xl border border-white/15 bg-black/80 shadow-[0_20px_50px_rgba(0,0,0,0.8)]"
                     />
                   ) : selected.kind === "audio" ? (
-                    <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-2xl border border-white/15 bg-[#121216]/90 p-8 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
-                      <Music className="h-8 w-8 text-[#22d3ee]" />
-                      <div className="text-sm font-semibold text-white/85">{selected.label}</div>
-                      <audio src={selected.preview_url} controls className="w-full" />
+                    <div className="flex w-full items-center justify-center py-4 my-auto">
+                      <AudioStudioPlayer
+                        item={selected}
+                        onInspect={() => setLightboxOpen(true)}
+                      />
                     </div>
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -1705,7 +2230,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               </div>
             ) : selected &&
               (selected.status === "queued" || selected.status === "processing") ? (
-              <div className="flex w-full max-w-sm flex-col items-center gap-3.5 rounded-2xl border border-white/15 bg-[#121216]/90 px-6 py-10 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
+              <div className="my-auto flex w-full max-w-sm flex-col items-center gap-3.5 rounded-3xl border border-white/15 bg-[#121216]/95 px-6 py-10 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
                 <Loader2
                   className="h-9 w-9 animate-spin text-[#22d3ee]"
                 />
@@ -1740,7 +2265,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 </button>
               </div>
             ) : selected?.status === "failed" ? (
-              <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-8 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
+              <div className="my-auto flex w-full max-w-md flex-col items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-8 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
                 <div className="text-sm font-bold text-red-300">Ошибка генерации</div>
                 <div className="text-[12px] text-white/60">
                   {selected.error || "Не удалось получить файл"}
@@ -2450,9 +2975,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         createGenerate.isPending ||
                         (kieActive
                           ? (kieTextField && !prompt.trim()) || !kieConfigured
-                          : !prompt.trim() ||
-                            (mediaType === "audio" && projectId == null) ||
-                            (mediaType !== "audio" && !canApiDirect))
+                          : !prompt.trim() || !canApiDirect)
                       }
                       onClick={() => {
                         if (createGenerate.isPending) return;
@@ -2464,7 +2987,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       title={
                         createGenerate.isPending
                           ? "Уже ставится в очередь…"
-                          : !canApiDirect && mediaType !== "audio"
+                          : !canApiDirect
                             ? "Нужен OUTSEE_API_KEY или KIE_API_KEY в .env"
                             : `Сгенерировать (${batchCount > 1 ? `${batchCount} шт` : "1 шт"}, лимит ${maxParallel}) · ${priceLabel}`
                       }
@@ -2499,204 +3022,224 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           onClick={() => setLightboxOpen(false)}
         >
           <div
-            className="relative flex flex-col md:flex-row items-center justify-center max-h-[96vh] max-w-[98vw] gap-4 w-full"
+            className="flex flex-col max-h-[96vh] max-w-[98vw] w-full gap-3 md:gap-3.5"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Close & Action floating buttons */}
-            <div className="absolute top-2 right-2 z-50 flex items-center gap-2">
-              <div className="inline-flex items-center rounded-xl border border-white/20 bg-black/80 p-0.5 backdrop-blur-md shadow-2xl">
-                <button
-                  type="button"
-                  onClick={() =>
-                    void downloadMediaFile(
-                      selected.preview_url || selected.raw_url || "",
-                      selected.label || "generation",
-                      downloadFormat,
-                      selected.path,
-                    )
-                  }
-                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white/90 transition hover:bg-white/[0.12] hover:text-white"
-                >
-                  <Download className="h-4 w-4 text-[#22d3ee]" />
-                  Скачать
-                </button>
-                {selected.kind === "image" && (
-                  <div className="flex items-center border-l border-white/20 pl-1 pr-1 font-mono text-[11px]">
-                    {(["png", "jpg", "webp"] as const).map((fmt) => (
-                      <button
-                        key={fmt}
-                        type="button"
-                        onClick={() => setDownloadFormat(fmt)}
-                        className={cn(
-                          "rounded px-2 py-0.5 uppercase transition",
-                          downloadFormat === fmt
-                            ? "bg-[#22d3ee]/25 font-bold text-[#22d3ee]"
-                            : "text-white/50 hover:text-white",
-                        )}
-                      >
-                        {fmt}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setLightboxOpen(false);
-                  deleteItem.mutate(selected);
-                }}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-red-500/30 bg-black/80 px-3 text-[12px] font-medium text-red-400 backdrop-blur transition hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-300 shadow-2xl"
-                title="Удалить из истории"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>Удалить</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setLightboxOpen(false)}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/20 bg-black/80 text-white/80 backdrop-blur transition hover:bg-white/20 hover:text-white shadow-2xl"
-                title="Закрыть"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Media Area */}
-            <div className="flex flex-1 items-center justify-center max-h-[88vh] max-w-full min-w-0">
-              {selected.kind === "video" ? (
-                <video
-                  src={selected.preview_url}
-                  controls
-                  autoPlay
-                  className="max-h-[88vh] max-w-full rounded-2xl border border-white/15 bg-black object-contain shadow-[0_0_80px_rgba(0,0,0,0.9)]"
-                />
-              ) : selected.kind === "audio" ? (
-                <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-2xl border border-white/15 bg-[#121216]/90 p-8 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
-                  <Music className="h-10 w-10 text-[#22d3ee]" />
-                  <div className="text-base font-semibold text-white/90">{selected.label}</div>
-                  <audio src={selected.preview_url} controls className="w-full" />
-                </div>
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={selected.preview_url}
-                  alt=""
-                  className="max-h-[88vh] max-w-full rounded-2xl border border-white/15 bg-black object-contain shadow-[0_0_80px_rgba(0,0,0,0.9)]"
-                />
-              )}
-            </div>
-
-            {/* Prompt Inspector Panel */}
-            <div className="flex w-full md:w-84 shrink-0 flex-col gap-3 rounded-2xl border border-white/15 bg-[#121216]/95 p-4 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.9)] max-h-[88vh] overflow-y-auto ring-1 ring-white/10">
-              <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#22d3ee]">
-                  <FileText className="h-4 w-4" />
-                  <span>Инспектор</span>
-                </div>
+            {/* Top Bar: Media Info & Action buttons (Download, Delete, Close) */}
+            <div className="flex items-center justify-between gap-3 px-1 sm:px-2 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="truncate text-sm sm:text-base font-semibold text-white/90">
+                  {selected.label || (selected.kind === "audio" ? "Аудиотрек" : selected.kind === "video" ? "Видео" : "Изображение")}
+                </span>
                 {selected.model && (
-                  <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] text-white/70">
+                  <span className="shrink-0 rounded-md border border-[#22d3ee]/30 bg-[#22d3ee]/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
                     {selected.model}
                   </span>
                 )}
               </div>
 
-              {/* Prompt Text Box */}
-              <div>
-                <div className="mb-1 text-[11px] font-semibold text-white/50">Промпт:</div>
-                <div className="max-h-52 overflow-y-auto rounded-xl border border-white/10 bg-black/40 p-3 text-[12px] leading-relaxed text-white/90 select-text">
-                  {selected.prompt || "Без текстового описания"}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="inline-flex items-center rounded-xl border border-white/20 bg-black/80 p-0.5 backdrop-blur-md shadow-2xl">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void downloadMediaFile(
+                        selected.preview_url || selected.raw_url || "",
+                        selected.label || "generation",
+                        selected.kind === "video"
+                          ? "mp4"
+                          : selected.kind === "audio"
+                            ? "mp3"
+                            : downloadFormat,
+                        selected.path,
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white/90 transition hover:bg-white/[0.12] hover:text-white"
+                  >
+                    <Download className="h-4 w-4 text-[#22d3ee]" />
+                    <span>Скачать</span>
+                  </button>
+                  {selected.kind === "image" && (
+                    <div className="flex items-center border-l border-white/20 pl-1 pr-1 font-mono text-[11px]">
+                      {(["png", "jpg", "webp"] as const).map((fmt) => (
+                        <button
+                          key={fmt}
+                          type="button"
+                          onClick={() => setDownloadFormat(fmt)}
+                          className={cn(
+                            "rounded px-2 py-0.5 uppercase transition",
+                            downloadFormat === fmt
+                              ? "bg-[#22d3ee]/25 font-bold text-[#22d3ee]"
+                              : "text-white/50 hover:text-white",
+                          )}
+                        >
+                          {fmt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
 
-              {/* Quick Actions: Copy & Insert into Prompt Dock */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selected.prompt) {
-                      void navigator.clipboard.writeText(selected.prompt);
-                      toast.success("Промпт скопирован в буфер 📋");
-                    }
-                  }}
-                  disabled={!selected.prompt}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.05] px-3 text-[11px] font-semibold text-white/85 transition hover:border-white/30 hover:bg-white/[0.1] hover:text-white disabled:opacity-40"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  <span>Скопировать</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selected.prompt) {
-                      setPrompt(selected.prompt);
-                      setLightboxOpen(false);
-                      toast.success("Промпт подставлен в поле ввода ✍️");
-                    }
-                  }}
-                  disabled={!selected.prompt}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/15 px-3 text-[11px] font-bold text-[#22d3ee] transition hover:bg-[#22d3ee]/25 disabled:opacity-40"
-                >
-                  <CornerDownLeft className="h-3.5 w-3.5" />
-                  <span>Вставить в чат</span>
-                </button>
-              </div>
-
-              {selected.prompt && (
                 <button
                   type="button"
                   onClick={() => {
                     setLightboxOpen(false);
-                    handleRetry(selected);
+                    deleteItem.mutate(selected);
                   }}
-                  disabled={createGenerate.isPending}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#06b6d4] px-3 text-[11px] font-bold text-black shadow-[0_0_15px_rgba(34,211,238,0.3)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
-                  title="Повторить генерацию с теми же параметрами"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-red-500/30 bg-black/80 px-3 text-[12px] font-medium text-red-400 backdrop-blur transition hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-300 shadow-2xl"
+                  title="Удалить из истории"
                 >
-                  <RotateCw className={cn("h-3.5 w-3.5", createGenerate.isPending && "animate-spin")} />
-                  <span>{createGenerate.isPending ? "Запуск…" : "Сгенерировать заново"}</span>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Удалить</span>
                 </button>
-              )}
 
-              {/* References Strip (if any) */}
-              {((selected.reference_images && selected.reference_images.length > 0) || selected.first_frame_url) && (
-                <div className="border-t border-white/10 pt-2.5">
-                  <div className="mb-1.5 text-[11px] font-semibold text-white/50">
-                    Использованные референсы ({selected.reference_images?.length || 1}):
+                <button
+                  type="button"
+                  onClick={() => setLightboxOpen(false)}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/20 bg-black/80 text-white/80 backdrop-blur transition hover:bg-white/20 hover:text-white shadow-2xl"
+                  title="Закрыть (Esc)"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content Row: Media Area + Prompt Inspector Panel */}
+            <div className="flex flex-1 flex-col md:flex-row items-center md:items-start justify-center gap-4 min-h-0 overflow-hidden">
+              {/* Media Area */}
+              <div className="flex flex-1 items-center justify-center max-h-[84vh] max-w-full min-w-0">
+                {selected.kind === "video" ? (
+                  <video
+                    src={selected.preview_url}
+                    controls
+                    autoPlay
+                    className="max-h-[84vh] max-w-full rounded-2xl border border-white/15 bg-black object-contain shadow-[0_0_80px_rgba(0,0,0,0.9)]"
+                  />
+                ) : selected.kind === "audio" ? (
+                  <div className="w-full max-w-3xl lg:max-w-4xl py-4">
+                    <AudioStudioPlayer item={selected} />
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(selected.reference_images && selected.reference_images.length > 0
-                      ? selected.reference_images
-                      : [selected.first_frame_url!]
-                    ).map((u, i) => (
-                      <a
-                        key={i}
-                        href={u}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="group/ref relative block h-12 w-12 overflow-hidden rounded-lg border border-white/20 transition hover:scale-105 hover:border-[#22d3ee]"
-                        title="Открыть референс в новой вкладке"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={u} alt="" className="h-full w-full object-cover" />
-                      </a>
-                    ))}
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={selected.preview_url}
+                    alt=""
+                    className="max-h-[84vh] max-w-full rounded-2xl border border-white/15 bg-black object-contain shadow-[0_0_80px_rgba(0,0,0,0.9)]"
+                  />
+                )}
+              </div>
+
+              {/* Prompt Inspector Panel */}
+              <div className="flex w-full md:w-84 shrink-0 flex-col gap-3 rounded-2xl border border-white/15 bg-[#121216]/95 p-4 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.9)] max-h-[84vh] overflow-y-auto ring-1 ring-white/10">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#22d3ee]">
+                    <FileText className="h-4 w-4" />
+                    <span>Инспектор</span>
+                  </div>
+                  {selected.model && (
+                    <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] text-white/70">
+                      {selected.model}
+                    </span>
+                  )}
+                </div>
+
+                {/* Prompt Text Box */}
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold text-white/50">Промпт:</div>
+                  <div className="max-h-52 overflow-y-auto rounded-xl border border-white/10 bg-black/40 p-3 text-[12px] leading-relaxed text-white/90 select-text">
+                    {selected.prompt || "Без текстового описания"}
                   </div>
                 </div>
-              )}
 
-              {/* Meta details */}
-              <div className="space-y-1 border-t border-white/10 pt-2.5 font-mono text-[10px] text-white/45">
-                {selected.elapsed_label || selected.elapsed_sec != null ? (
-                  <div>
-                    Время генерации:{" "}
-                    <span className="font-semibold text-white/70">
-                      {selected.elapsed_label || formatElapsedMinSec(selected.elapsed_sec)}
-                    </span>
+                {/* Quick Actions: Copy & Insert into Prompt Dock */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selected.prompt) {
+                        void navigator.clipboard.writeText(selected.prompt);
+                        toast.success("Промпт скопирован в буфер 📋");
+                      }
+                    }}
+                    disabled={!selected.prompt}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.05] px-3 text-[11px] font-semibold text-white/85 transition hover:border-white/30 hover:bg-white/[0.1] hover:text-white disabled:opacity-40"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>Скопировать</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selected.prompt) {
+                        setPrompt(selected.prompt);
+                        setLightboxOpen(false);
+                        toast.success("Промпт подставлен в поле ввода ✍️");
+                      }
+                    }}
+                    disabled={!selected.prompt}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/15 px-3 text-[11px] font-bold text-[#22d3ee] transition hover:bg-[#22d3ee]/25 disabled:opacity-40"
+                  >
+                    <CornerDownLeft className="h-3.5 w-3.5" />
+                    <span>Вставить в чат</span>
+                  </button>
+                </div>
+
+                {selected.prompt && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLightboxOpen(false);
+                      handleRetry(selected);
+                    }}
+                    disabled={createGenerate.isPending}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#06b6d4] px-3 text-[11px] font-bold text-black shadow-[0_0_15px_rgba(34,211,238,0.3)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
+                    title="Повторить генерацию с теми же параметрами"
+                  >
+                    <RotateCw className={cn("h-3.5 w-3.5", createGenerate.isPending && "animate-spin")} />
+                    <span>{createGenerate.isPending ? "Запуск…" : "Сгенерировать заново"}</span>
+                  </button>
+                )}
+
+                {/* References Strip (if any) */}
+                {((selected.reference_images && selected.reference_images.length > 0) || selected.first_frame_url) && (
+                  <div className="border-t border-white/10 pt-2.5">
+                    <div className="mb-1.5 text-[11px] font-semibold text-white/50">
+                      Использованные референсы ({selected.reference_images?.length || 1}):
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(selected.reference_images && selected.reference_images.length > 0
+                        ? selected.reference_images
+                        : [selected.first_frame_url!]
+                      ).map((u, i) => (
+                        <a
+                          key={i}
+                          href={u}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="group/ref relative block h-12 w-12 overflow-hidden rounded-lg border border-white/20 transition hover:scale-105 hover:border-[#22d3ee]"
+                          title="Открыть референс в новой вкладке"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={u} alt="" className="h-full w-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
                   </div>
-                ) : null}
-                <div>
-                  ID: <span className="text-white/60">{selected.id}</span>
+                )}
+
+                {/* Meta details */}
+                <div className="space-y-1 border-t border-white/10 pt-2.5 font-mono text-[10px] text-white/45">
+                  {selected.elapsed_label || selected.elapsed_sec != null ? (
+                    <div>
+                      Время генерации:{" "}
+                      <span className="font-semibold text-white/70">
+                        {selected.elapsed_label || formatElapsedMinSec(selected.elapsed_sec)}
+                      </span>
+                    </div>
+                  ) : null}
+                  <div>
+                    ID: <span className="text-white/60">{selected.id}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2767,10 +3310,15 @@ function KieFieldChip({
         if (o === "std" || o === "standard") return { label: "Standard", hint: "720p" };
         if (o === "pro") return { label: "Pro", hint: "1080p" };
       }
+      if (fn === "vocalgender") {
+        if (o === "m") return { label: "Мужской вокал", hint: "Мужской тембр" };
+        if (o === "f") return { label: "Женский вокал", hint: "Женский тембр" };
+        return { label: "Вокал: Любой", hint: "Без предпочтений" };
+      }
       if (fn === "output_format" || fn === "format") {
         return { label: opt.toUpperCase() };
       }
-      return { label: opt };
+      return { label: opt || "—" };
     };
 
     const options = (field.options || []).map((o) => {
@@ -3122,6 +3670,138 @@ function ModelCardIcon({
   );
 }
 
+interface AudioActionSpec {
+  id: string;
+  slug: string;
+  name: string;
+  desc: string;
+  badge?: string;
+  iconType: "music" | "cover" | "vocal" | "split" | "sfx" | "sounds" | "extend" | "lyrics" | "speech" | "turbo" | "dialogue" | "isolate";
+}
+
+const SUNO_AUDIO_ACTIONS: AudioActionSpec[] = [
+  {
+    id: "suno-music",
+    slug: "kie:suno-music",
+    name: "Создание трека",
+    desc: "Полная песня или инструментал по стилю / тексту (V5.5 / V5)",
+    badge: "ТОП",
+    iconType: "music",
+  },
+  {
+    id: "suno-upload-cover",
+    slug: "kie:suno-upload-cover",
+    name: "Кавер на своё аудио",
+    desc: "Загрузи аудио → Suno создаст трек в новом стиле",
+    iconType: "cover",
+  },
+  {
+    id: "suno-add-vocals",
+    slug: "kie:suno-add-vocals",
+    name: "Добавить вокал",
+    desc: "Инструментал + текст песни → готовый трек с вокалом",
+    iconType: "vocal",
+  },
+  {
+    id: "suno-separate-vocals",
+    slug: "kie:suno-separate-vocals",
+    name: "Разделить вокал / минус",
+    desc: "Стем-сплиттер: разделение трека на вокал и музыку",
+    iconType: "split",
+  },
+  {
+    id: "elevenlabs-sfx",
+    slug: "kie:elevenlabs-sfx",
+    name: "Звуковые эффекты (SFX)",
+    desc: "Foley-эффекты: шаги, взрывы, удары, окружение (без музыки)",
+    iconType: "sfx",
+  },
+  {
+    id: "suno-sounds",
+    slug: "kie:suno-sounds",
+    name: "Саундскейп и петли (Loops)",
+    desc: "Короткие атмосферные фоны, петли и гармонии",
+    iconType: "sounds",
+  },
+  {
+    id: "suno-extend",
+    slug: "kie:suno-extend",
+    name: "Продлить трек",
+    desc: "Продление уже созданного трека Suno по audioId",
+    iconType: "extend",
+  },
+  {
+    id: "suno-lyrics",
+    slug: "kie:suno-lyrics",
+    name: "Текст песни",
+    desc: "Генерация текста и структуры куплетов/припевов по теме",
+    iconType: "lyrics",
+  },
+];
+
+const ELEVENLABS_AUDIO_ACTIONS: AudioActionSpec[] = [
+  {
+    id: "elevenlabs-tts-multilingual",
+    slug: "kie:elevenlabs-tts-multilingual",
+    name: "Озвучка Multilingual V2",
+    desc: "Качественная озвучка на 29 языках (включая русский) с эмоциями",
+    badge: "ТОП",
+    iconType: "speech",
+  },
+  {
+    id: "elevenlabs-tts-turbo",
+    slug: "kie:elevenlabs-tts-turbo",
+    name: "Быстрая озвучка Turbo 2.5",
+    desc: "Высокая скорость генерации речи, экономный расход кредитов",
+    iconType: "turbo",
+  },
+  {
+    id: "elevenlabs-dialogue-v3",
+    slug: "kie:elevenlabs-dialogue-v3",
+    name: "Диалог по ролям (Dialogue V3)",
+    desc: "Многоголосый диалог: разные персонажи говорят своими голосами",
+    iconType: "dialogue",
+  },
+  {
+    id: "elevenlabs-audio-isolation",
+    slug: "kie:elevenlabs-audio-isolation",
+    name: "Изоляция и очистка голоса",
+    desc: "Удаление любого фонового шума, гула и эха, оставляя только речь",
+    iconType: "isolate",
+  },
+];
+
+function AudioActionIcon({ type }: { type: AudioActionSpec["iconType"] }) {
+  switch (type) {
+    case "music":
+      return <Music className="h-4 w-4 text-[#22d3ee]" />;
+    case "cover":
+      return <RotateCw className="h-4 w-4 text-amber-400" />;
+    case "vocal":
+      return <Mic className="h-4 w-4 text-rose-400" />;
+    case "split":
+      return <Scissors className="h-4 w-4 text-purple-400" />;
+    case "sfx":
+      return <Volume2 className="h-4 w-4 text-emerald-400" />;
+    case "sounds":
+      return <Radio className="h-4 w-4 text-teal-400" />;
+    case "extend":
+      return <Clock className="h-4 w-4 text-blue-400" />;
+    case "lyrics":
+      return <FileText className="h-4 w-4 text-pink-400" />;
+    case "speech":
+      return <Mic className="h-4 w-4 text-[#22d3ee]" />;
+    case "turbo":
+      return <Sparkles className="h-4 w-4 text-amber-400" />;
+    case "dialogue":
+      return <Layers className="h-4 w-4 text-violet-400" />;
+    case "isolate":
+      return <Volume2 className="h-4 w-4 text-cyan-400" />;
+    default:
+      return <Music className="h-4 w-4 text-white/60" />;
+  }
+}
+
 function ModelPickerPopover({
   mediaType,
   selectedSlug,
@@ -3136,12 +3816,22 @@ function ModelPickerPopover({
   onSelect: (slug: string) => void;
 }) {
   const [search, setSearch] = useState("");
+  const isAudio = mediaType === "audio";
+  const [sunoOpen, setSunoOpen] = useState(() => {
+    const isEl = selectedSlug.toLowerCase().includes("elevenlabs") && !selectedSlug.toLowerCase().includes("elevenlabs-sfx");
+    return !isEl;
+  });
+  const [elevenlabsOpen, setElevenlabsOpen] = useState(() => {
+    const isEl = selectedSlug.toLowerCase().includes("elevenlabs") && !selectedSlug.toLowerCase().includes("elevenlabs-sfx");
+    return isEl;
+  });
+
   const title =
     mediaType === "image"
       ? "Модели изображений"
       : mediaType === "video"
         ? "Модели видео"
-        : "Модели аудио";
+        : "Аудио движки и режимы";
   const models = pickerModelsForType(mediaType);
   const kieForType = kieModels.filter((m) => {
     const id = m.id.toLowerCase();
@@ -3155,6 +3845,28 @@ function ModelPickerPopover({
   });
 
   const q = search.trim().toLowerCase();
+
+  const filteredSunoActions = useMemo(() => {
+    if (!q) return SUNO_AUDIO_ACTIONS;
+    return SUNO_AUDIO_ACTIONS.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.desc.toLowerCase().includes(q) ||
+        a.id.toLowerCase().includes(q) ||
+        "suno".includes(q),
+    );
+  }, [q]);
+
+  const filteredElevenLabsActions = useMemo(() => {
+    if (!q) return ELEVENLABS_AUDIO_ACTIONS;
+    return ELEVENLABS_AUDIO_ACTIONS.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.desc.toLowerCase().includes(q) ||
+        a.id.toLowerCase().includes(q) ||
+        "elevenlabs".includes(q),
+    );
+  }, [q]);
 
   const filteredModels = useMemo(() => {
     if (!q) return models;
@@ -3330,11 +4042,81 @@ function ModelPickerPopover({
     );
   };
 
+  const renderAudioActionCard = (action: AudioActionSpec) => {
+    const active = selectedSlug === action.slug || selectedSlug.replace(/^kie:/, "") === action.id;
+    const kieM = kieForType.find((m) => m.id === action.id);
+    const est = kieM ? estimateKie(kieM, {}, creditUsd) : null;
+    const priceNote = kieM?.pricing?.note;
+
+    return (
+      <button
+        key={action.slug}
+        type="button"
+        onClick={() => onSelect(action.slug)}
+        className={cn(
+          "group relative flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all duration-200",
+          active
+            ? "border-[#22d3ee] bg-[#22d3ee]/15 text-white shadow-[0_0_18px_rgba(34,211,238,0.2)] ring-1 ring-[#22d3ee]/50"
+            : "border-white/[0.08] bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.06]",
+        )}
+      >
+        {action.badge && (
+          <span className="absolute top-2 right-2 rounded-md bg-[#22d3ee] px-1.5 py-0.5 font-mono text-[9px] font-extrabold text-black shadow-sm">
+            {action.badge}
+          </span>
+        )}
+        <div className="flex shrink-0 flex-col items-center pt-0.5">
+          <div
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-lg ring-1 transition",
+              active
+                ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40"
+                : "bg-white/[0.05] text-white/75 ring-white/10 group-hover:text-white",
+            )}
+          >
+            <AudioActionIcon type={action.iconType} />
+          </div>
+        </div>
+        <div className="min-w-0 flex-1 pr-6">
+          <p
+            className={cn(
+              "truncate text-[12px] font-semibold",
+              active ? "text-[#22d3ee]" : "text-white/90 group-hover:text-white",
+            )}
+          >
+            {action.name}
+          </p>
+          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-white/45 group-hover:text-white/70">
+            {action.desc}
+          </p>
+          <div className="mt-1 flex items-center gap-2">
+            {priceNote ? (
+              <span className="inline-flex items-center gap-1 font-mono text-[10px] text-white/55">
+                <Coins className="h-2.5 w-2.5 text-[#38bdf8]" />
+                {priceNote}
+              </span>
+            ) : est?.usd ? (
+              <span className="inline-flex items-center gap-1 font-mono text-[10px] text-white/55">
+                <Coins className="h-2.5 w-2.5 text-[#38bdf8]" />
+                {`$${est.usd.toFixed(3)}`}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        {active && (
+          <span className="absolute bottom-2.5 right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#22d3ee]/20 text-[#22d3ee]">
+            <Check className="h-3 w-3" />
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <div
       className="absolute bottom-full left-0 z-50 mb-3 flex max-h-[76vh] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#121216]/95 backdrop-blur-2xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
       style={{
-        width: mediaType === "video" ? 620 : mediaType === "audio" ? 450 : 520,
+        width: mediaType === "video" ? 620 : mediaType === "audio" ? 480 : 520,
       }}
       role="dialog"
       aria-label={title}
@@ -3346,7 +4128,7 @@ function ModelPickerPopover({
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-bold tracking-tight text-white/90">{title}</span>
             <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
-              {totalCount}
+              {isAudio ? "2 движка · 12 действий" : totalCount}
             </span>
           </div>
         </div>
@@ -3356,7 +4138,11 @@ function ModelPickerPopover({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Быстрый поиск модели (Kling, Nano, Flux, Veo, Sora...)"
+            placeholder={
+              isAudio
+                ? "Поиск действия (трек, кавер, озвучка, диалог, SFX)..."
+                : "Быстрый поиск модели (Kling, Nano, Flux, Veo, Sora...)"
+            }
             className="h-8 w-full rounded-xl border border-white/10 bg-black/40 pl-8 pr-7 text-[11px] text-white/90 placeholder:text-white/30 transition focus:border-[#22d3ee]/60 focus:outline-none focus:ring-1 focus:ring-[#22d3ee]/30"
           />
           {search && (
@@ -3373,51 +4159,167 @@ function ModelPickerPopover({
 
       {/* Unified single scrollable body */}
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
-        {/* Section 1: TOP Models */}
-        {topItems.length > 0 && (
-          <div>
-            <div className="mb-2 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#22d3ee]">
-              <span className="flex items-center gap-1">
-                <span>🔥</span>
-                <span>ТОП МОДЕЛИ</span>
-              </span>
-              <span className="rounded-full bg-[#22d3ee]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#22d3ee]">
-                {topItems.length}
-              </span>
-            </div>
-            <div
-              className="grid gap-2"
-              style={{
-                gridTemplateColumns: mediaType === "audio" ? "1fr" : "repeat(2, minmax(0, 1fr))",
-              }}
-            >
-              {topItems.map((item) => renderCard(item))}
-            </div>
-          </div>
-        )}
+        {isAudio ? (
+          <>
+            {/* Engine 1: Suno */}
+            {(q ? filteredSunoActions.length > 0 : true) && (
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2 space-y-2">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSunoOpen((prev) => !prev)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") setSunoOpen((prev) => !prev);
+                  }}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between rounded-xl border p-2.5 transition-all",
+                    SUNO_AUDIO_ACTIONS.some((a) => selectedSlug === a.slug || selectedSlug.replace(/^kie:/, "") === a.id)
+                      ? "border-orange-500/40 bg-gradient-to-r from-orange-500/[0.12] to-amber-500/[0.04]"
+                      : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
+                  )}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/30">
+                      <Music className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] font-bold text-white">Suno AI</span>
+                        <span className="rounded-md bg-orange-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-orange-300">
+                          Музыка & Звуки
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-white/50">Треки, каверы, вокал, стем-сплиттер, SFX</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-white/70">
+                      {filteredSunoActions.length}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 text-white/50 transition-transform duration-200",
+                        (q ? true : sunoOpen) && "rotate-180",
+                      )}
+                    />
+                  </div>
+                </div>
 
-        {/* Section 2: Other Models */}
-        {otherItems.length > 0 && (
-          <div>
-            <div className="mb-2 flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">
-              <span>Другие и специальные модели</span>
-              <span className="font-mono text-white/25">({otherItems.length})</span>
-            </div>
-            <div
-              className="grid gap-2"
-              style={{
-                gridTemplateColumns: mediaType === "audio" ? "1fr" : "repeat(2, minmax(0, 1fr))",
-              }}
-            >
-              {otherItems.map((item) => renderCard(item))}
-            </div>
-          </div>
-        )}
+                {(q ? true : sunoOpen) && (
+                  <div className="space-y-1.5 pt-1">
+                    {filteredSunoActions.map((action) => renderAudioActionCard(action))}
+                  </div>
+                )}
+              </div>
+            )}
 
-        {unifiedItems.length === 0 && (
-          <div className="py-12 text-center text-[12px] text-white/40">
-            Модели по запросу «<span className="text-white/70">{search}</span>» не найдены
-          </div>
+            {/* Engine 2: ElevenLabs */}
+            {(q ? filteredElevenLabsActions.length > 0 : true) && (
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2 space-y-2">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setElevenlabsOpen((prev) => !prev)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") setElevenlabsOpen((prev) => !prev);
+                  }}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between rounded-xl border p-2.5 transition-all",
+                    ELEVENLABS_AUDIO_ACTIONS.some((a) => selectedSlug === a.slug || selectedSlug.replace(/^kie:/, "") === a.id)
+                      ? "border-indigo-500/40 bg-gradient-to-r from-indigo-500/[0.12] to-purple-500/[0.04]"
+                      : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
+                  )}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 ring-1 ring-indigo-500/30">
+                      <Mic className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] font-bold text-white">ElevenLabs</span>
+                        <span className="rounded-md bg-indigo-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-indigo-300">
+                          Голос & Речь
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-white/50">Озвучка 29 языков, диалоги, шумоподавление</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-white/70">
+                      {filteredElevenLabsActions.length}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 text-white/50 transition-transform duration-200",
+                        (q ? true : elevenlabsOpen) && "rotate-180",
+                      )}
+                    />
+                  </div>
+                </div>
+
+                {(q ? true : elevenlabsOpen) && (
+                  <div className="space-y-1.5 pt-1">
+                    {filteredElevenLabsActions.map((action) => renderAudioActionCard(action))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {filteredSunoActions.length === 0 && filteredElevenLabsActions.length === 0 && (
+              <div className="py-12 text-center text-[12px] text-white/40">
+                Действия по запросу «<span className="text-white/70">{search}</span>» не найдены
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Section 1: TOP Models */}
+            {topItems.length > 0 && (
+              <div>
+                <div className="mb-2 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#22d3ee]">
+                  <span className="flex items-center gap-1">
+                    <span>🔥</span>
+                    <span>ТОП МОДЕЛИ</span>
+                  </span>
+                  <span className="rounded-full bg-[#22d3ee]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#22d3ee]">
+                    {topItems.length}
+                  </span>
+                </div>
+                <div
+                  className="grid gap-2"
+                  style={{
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                  }}
+                >
+                  {topItems.map((item) => renderCard(item))}
+                </div>
+              </div>
+            )}
+
+            {/* Section 2: Other Models */}
+            {otherItems.length > 0 && (
+              <div>
+                <div className="mb-2 flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">
+                  <span>Другие и специальные модели</span>
+                  <span className="font-mono text-white/25">({otherItems.length})</span>
+                </div>
+                <div
+                  className="grid gap-2"
+                  style={{
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                  }}
+                >
+                  {otherItems.map((item) => renderCard(item))}
+                </div>
+              </div>
+            )}
+
+            {unifiedItems.length === 0 && (
+              <div className="py-12 text-center text-[12px] text-white/40">
+                Модели по запросу «<span className="text-white/70">{search}</span>» не найдены
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

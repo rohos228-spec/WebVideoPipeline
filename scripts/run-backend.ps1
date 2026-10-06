@@ -26,6 +26,28 @@ if (-not (Test-Path (Join-Path $Root "pyproject.toml"))) {
 }
 
 $py = Join-Path $Root ".venv\Scripts\python.exe"
+$cfgPath = Join-Path $Root ".venv\pyvenv.cfg"
+if ((Test-Path -LiteralPath $py) -and (Test-Path -LiteralPath $cfgPath)) {
+    $item = Get-Item $py -ErrorAction SilentlyContinue
+    if ($item -and $item.Length -lt 60000) {
+        foreach ($line in (Get-Content -LiteralPath $cfgPath -Encoding UTF8 -ErrorAction SilentlyContinue)) {
+            if ($line -match '^\s*home\s*=\s*(.+)$') {
+                $baseHome = $Matches[1].Trim()
+                $realPy = Join-Path $baseHome "python.exe"
+                $realPyw = Join-Path $baseHome "pythonw.exe"
+                if (Test-Path -LiteralPath $realPy) {
+                    try {
+                        Copy-Item -Force $realPy $py
+                        if (Test-Path -LiteralPath $realPyw) {
+                            Copy-Item -Force $realPyw (Join-Path $Root ".venv\Scripts\pythonw.exe")
+                        }
+                    } catch { }
+                }
+                break
+            }
+        }
+    }
+}
 if (-not (Test-Path $py)) {
     Write-Host "ОШИБКА: .venv не найден в $Root" -ForegroundColor Red
     Write-Host "Сначала запустите install.ps1 для создания виртуального окружения." -ForegroundColor Yellow
