@@ -362,17 +362,37 @@ async def poll_task(api: str, task_id: str, *, timeout_s: float = _POLL_MAX_S) -
             await asyncio.sleep(_POLL_INTERVAL_S)
 
 
-async def download(url: str, out_path: Path) -> Path:
+async def download(url: str, out_path: Path, max_retries: int = 4) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as client:
-        r = await client.get(url)
-        if r.status_code >= 400 or len(r.content or b"") < 32:
-            raise KieHttpError(
-                f"kie download HTTP {r.status_code} size={len(r.content or b'')}",
-                context={"provider_code": r.status_code, "kind": "download"},
+    last_err: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as client:
+                r = await client.get(url)
+                if r.status_code >= 400 or len(r.content or b"") < 32:
+                    raise KieHttpError(
+                        f"kie download HTTP {r.status_code} size={len(r.content or b'')}",
+                        context={"provider_code": r.status_code, "kind": "download"},
+                    )
+                out_path.write_bytes(r.content)
+                return out_path
+        except Exception as e:
+            last_err = e
+            logger.warning(
+                "kie_http: download attempt {}/{} failed for {}: {}",
+                attempt + 1,
+                max_retries,
+                url,
+                e,
             )
-        out_path.write_bytes(r.content)
-    return out_path
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1.0 * (attempt + 1))
+    if isinstance(last_err, KieHttpError):
+        raise last_err
+    raise KieHttpError(
+        f"kie download failed after {max_retries} attempts: {type(last_err).__name__} ({last_err})",
+        context={"kind": "download"},
+    ) from last_err
 
 
 async def run_generation(
@@ -393,9 +413,23 @@ async def run_generation(
             "kie: success без ссылок на результат",
             context={"provider_code": 500, "task_id": task_id},
         )
-    path = await download(urls[0], out_path)
+    path: Path | None = None
+    success_url = urls[0]
+    last_dl_err: Exception | None = None
+    for url_candidate in urls:
+        try:
+            path = await download(url_candidate, out_path)
+            success_url = url_candidate
+            break
+        except Exception as e:
+            last_dl_err = e
+            logger.warning("kie_http: candidate url {} failed ({}), trying next...", url_candidate, e)
+    if path is None:
+        if isinstance(last_dl_err, KieHttpError):
+            raise last_dl_err
+        raise KieHttpError(f"kie download failed: {last_dl_err}") from last_dl_err
     logger.info("kie_http: ok {} → {} ({} bytes)", task_id, path.name, path.stat().st_size)
-    return GenerationResult(file_path=path, gen_id=task_id, raw_url=urls[0])
+    return GenerationResult(file_path=path, gen_id=task_id, raw_url=success_url)
 
 
 # Маппинг генераторов видео на ID модели в kie_catalog

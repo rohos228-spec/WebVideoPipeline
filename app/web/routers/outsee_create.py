@@ -301,10 +301,20 @@ async def download_media(
     """Скачивание медиафайла с конвертацией формата (PNG, JPG, WEBP) и корректным Content-Disposition."""
     import io
     import re
+    from urllib.parse import parse_qs, quote, urlparse
 
     import httpx
     from fastapi.responses import FileResponse, Response
     from PIL import Image
+
+    def _make_content_disposition(name: str) -> str:
+        try:
+            name.encode("latin-1")
+            return f'attachment; filename="{name}"'
+        except UnicodeEncodeError:
+            ascii_name = re.sub(r"[^\x20-\x7E]", "_", name)
+            encoded_name = quote(name, encoding="utf-8")
+            return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded_name}'
 
     target_format = (format or "png").lower().strip()
     if target_format not in {"png", "jpg", "jpeg", "webp", "mp4", "mp3", "wav"}:
@@ -319,17 +329,28 @@ async def download_media(
         p = Path(path)
         if p.is_file():
             local_path = p
-    elif url and url.startswith("/api/generations/"):
-        rel = url.replace("/api/generations/", "")
-        p = Path("data/generations") / rel
-        if p.is_file():
-            local_path = p
+    if not local_path and url:
+        if url.startswith("/api/generations/"):
+            rel = url.replace("/api/generations/", "")
+            p = Path("data/generations") / rel
+            if p.is_file():
+                local_path = p
+        elif "/api/files?path=" in url:
+            try:
+                parsed = urlparse(url)
+                qp = parse_qs(parsed.query).get("path")
+                if qp and qp[0]:
+                    p = Path(qp[0])
+                    if p.is_file():
+                        local_path = p
+            except Exception:
+                pass
 
     if local_path and local_path.suffix.lower() in {".mp4", ".webm", ".mov", ".mp3", ".wav"}:
         return FileResponse(
             str(local_path),
             filename=out_filename,
-            headers={"Content-Disposition": f'attachment; filename="{out_filename}"'},
+            headers={"Content-Disposition": _make_content_disposition(out_filename)},
         )
 
     img_bytes: bytes | None = None
@@ -350,6 +371,14 @@ async def download_media(
     if not img_bytes:
         raise HTTPException(status_code=404, detail="Файл не найден для скачивания")
 
+    if target_format in {"mp3", "wav", "mp4", "webm", "mov"}:
+        media_type = "audio/mpeg" if target_format == "mp3" else ("video/mp4" if target_format == "mp4" else "application/octet-stream")
+        return Response(
+            content=img_bytes,
+            media_type=media_type,
+            headers={"Content-Disposition": _make_content_disposition(out_filename)},
+        )
+
     _MAX_CONVERT_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
     if len(img_bytes) > _MAX_CONVERT_SIZE_BYTES:
         logger.warning(
@@ -359,7 +388,7 @@ async def download_media(
         return Response(
             content=img_bytes,
             media_type="application/octet-stream",
-            headers={"Content-Disposition": f'attachment; filename="{out_filename}"'},
+            headers={"Content-Disposition": _make_content_disposition(out_filename)},
         )
 
     try:
@@ -392,14 +421,14 @@ async def download_media(
         return Response(
             content=out_buf.getvalue(),
             media_type=media_type,
-            headers={"Content-Disposition": f'attachment; filename="{out_filename}"'},
+            headers={"Content-Disposition": _make_content_disposition(out_filename)},
         )
     except Exception as e:
         logger.warning("download PIL convert fallback: {}", e)
         return Response(
             content=img_bytes,
             media_type="application/octet-stream",
-            headers={"Content-Disposition": f'attachment; filename="{out_filename}"'},
+            headers={"Content-Disposition": _make_content_disposition(out_filename)},
         )
 
 
