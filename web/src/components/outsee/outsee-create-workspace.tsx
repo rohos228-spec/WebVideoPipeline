@@ -49,6 +49,7 @@ import {
   OUTSEE_CHIP_LABELS,
   OUTSEE_DETAIL_LEVELS,
   OUTSEE_FEED_TABS,
+  OUTSEE_ORIGIN,
   OUTSEE_TYPE_TABS,
   chipOptions,
   clampToOptions,
@@ -207,7 +208,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const [feedKind, setFeedKind] = useState<OutseeFeedKind>("all");
   const [imageSlug, setImageSlug] = useState("gpt-image-2");
   const [videoSlug, setVideoSlug] = useState("veo-3-1-lite");
-  const [audioSlug, setAudioSlug] = useState("suno-5-5");
+  const [audioSlug, setAudioSlug] = useState("kie:suno-music");
   const [aspect, setAspect] = useState("16:9");
   const [resolution, setResolution] = useState("2K");
   const [detail, setDetail] = useState("medium");
@@ -312,7 +313,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       setVideoSlug(rawVid.startsWith("kie:") ? rawVid : `kie:${rawVid}`);
     }
     const rawAud = String(s.audio_slug || "kie:suno-music");
-    setAudioSlug(rawAud.startsWith("kie:") ? rawAud : rawAud === "suno-5-5" ? "kie:suno-music" : `kie:${rawAud}`);
+    setAudioSlug(
+      rawAud.startsWith("kie:")
+        ? rawAud
+        : rawAud === "suno-5-5"
+          ? "kie:suno-music"
+          : rawAud === "elevenlabs-v3"
+            ? "kie:elevenlabs-tts-multilingual"
+            : `kie:${rawAud}`,
+    );
     setAspect(String(s.aspect || "16:9"));
     setResolution(String(s.image_resolution || "2K"));
     setDetail(String(s.image_quality || "medium"));
@@ -492,7 +501,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       // Suno Sounds Task поёт / делает петли — настоящий SFX это ElevenLabs.
       setAudioSlug("kie:elevenlabs-sfx");
     } else if (mediaType === "audio" && !isKie(audioSlug)) {
-      setAudioSlug("kie:suno-music");
+      setAudioSlug(
+        audioSlug === "suno-5-5"
+          ? "kie:suno-music"
+          : audioSlug === "elevenlabs-v3"
+            ? "kie:elevenlabs-tts-multilingual"
+            : "kie:suno-music",
+      );
     }
   }, [kieCatalogQ.data, kieModels, mediaType, imageSlug, videoSlug, audioSlug]);
 
@@ -521,7 +536,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
   const canApiDirect = kieActive ? kieConfigured : autoProvider != null;
   const currentIcon = kieActive
-    ? null
+    ? kieModel?.id.includes("suno")
+      ? `${OUTSEE_ORIGIN}/imagemobilepreview/suno.webp`
+      : kieModel?.id.includes("elevenlabs")
+        ? `${OUTSEE_ORIGIN}/imagemobilepreview/elevenlabs.webp`
+        : null
     : mediaType === "image"
       ? imageModel.icon
       : mediaType === "video"
@@ -875,13 +894,20 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         const rawModel = retry?.model ? String(retry.model) : "";
         const paramModelId = typeof retryParams.model_id === "string" ? retryParams.model_id : "";
 
+        let normalizedModel = rawModel;
+        if (!normalizedModel && targetMediaType === "audio") {
+          normalizedModel = audioSlug;
+        }
+        if (normalizedModel === "suno-5-5") normalizedModel = "kie:suno-music";
+        if (normalizedModel === "elevenlabs-v3") normalizedModel = "kie:elevenlabs-tts-multilingual";
+
         const matchedKie =
           kieModels.find(
             (m) =>
               m.id === paramModelId ||
-              `kie:${m.id}` === rawModel ||
-              m.id === rawModel ||
-              m.label.toLowerCase() === rawModel.toLowerCase(),
+              `kie:${m.id}` === normalizedModel ||
+              m.id === normalizedModel ||
+              m.label.toLowerCase() === normalizedModel.toLowerCase(),
           ) ||
           (retry?.provider === "kie" || retry?.project_slug === "kie"
             ? kieModels.find((m) => m.id === paramModelId)
@@ -889,8 +915,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
         // ---- KIE: динамическая модель из каталога kie.ai ----
         const isKie =
+          targetMediaType === "audio" ||
           Boolean(matchedKie) ||
-          rawModel.startsWith("kie:") ||
+          normalizedModel.startsWith("kie:") ||
           Boolean(retryParams.model_id) ||
           retry?.provider === "kie" ||
           retry?.project_slug === "kie" ||
@@ -901,13 +928,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           }
           const effectiveKieModel =
             matchedKie ??
-            (rawModel.startsWith("kie:") ? kieModels.find((m) => m.id === rawModel.slice(4)) : null) ??
-            kieModel;
+            (normalizedModel.startsWith("kie:") ? kieModels.find((m) => m.id === normalizedModel.slice(4)) : null) ??
+            kieModel ??
+            (targetMediaType === "audio" ? kieModels.find((m) => m.id === "suno-music") : null);
           const modelId =
             effectiveKieModel?.id ||
             paramModelId ||
-            (rawModel.startsWith("kie:") ? rawModel.slice(4) : null) ||
-            kieModel?.id;
+            (normalizedModel.startsWith("kie:") ? normalizedModel.slice(4) : null) ||
+            kieModel?.id ||
+            (targetMediaType === "audio" ? "suno-music" : null);
           if (!modelId) {
             throw new Error("Не удалось определить модель KIE");
           }
@@ -932,6 +961,23 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             );
             if (negField) vals[negField.name] = negativePrompt.trim();
           }
+
+          if (modelId === "suno-music") {
+            const isInst = Boolean(vals.instrumental ?? instrumental);
+            vals.instrumental = isInst;
+            if (!vals.style || typeof vals.style !== "string" || !vals.style.trim()) {
+              vals.style = text.slice(0, 500);
+            }
+            if (!vals.title || typeof vals.title !== "string" || !vals.title.trim()) {
+              vals.title = text.slice(0, 80);
+            }
+            if (isInst) {
+              vals.prompt = "";
+            } else if (!vals.prompt) {
+              vals.prompt = text;
+            }
+          }
+
           // Автоматическая передача референсов и стартовых кадров в поля модели KIE
           const refUrls =
             retry?.reference_images && retry.reference_images.length > 0
@@ -974,6 +1020,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               throw new Error(`Заполни: ${missing.map((f) => f.label).join(", ")}`);
             }
           }
+          void api.putOutseeCreateSettings(settingsPayload()).catch(() => undefined);
           const res = await api.kieGenerate({ model_id: modelId, values: vals });
           return {
             job_id: res.job.job_id,
@@ -984,17 +1031,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           };
         }
         if (!text) throw new Error("Введите промпт");
-        if (targetMediaType === "audio") {
-          if (projectId == null) {
-            throw new Error("Аудио — через шаг пайплайна: выберите проект");
-          }
-          await api.putOutseeCreateSettings(settingsPayload());
-          await applyToProject.mutateAsync();
-          // Suno (Create «АУДИО») → music; иначе TTS/voice → audio.
-          const step =
-            String(audioSlug || "").toLowerCase().includes("suno") ? "music" : "audio";
-          return api.runProjectStep(projectId, step);
-        }
         if (!outseeConfigured) {
           throw new Error("OUTSEE_API_KEY не задан в .env");
         }
@@ -1201,12 +1237,21 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         if (dOpts.length) setDetail(clampToOptions(p.detail_level, dOpts, detail));
       }
       setPrompt(item.prompt);
-    } else if (item.kind === "video") {
-      setMediaType("video");
-      if (item.model) setVideoSlug(item.model);
-      if (typeof p.aspect === "string" && p.aspect) setAspect(p.aspect);
-      if (typeof p.resolution === "string" && p.resolution) setVideoResolution(p.resolution);
-      if (p.duration) setDuration(String(p.duration));
+    } else if (item.kind === "audio") {
+      setMediaType("audio");
+      const targetSlug =
+        rawModel === "suno-5-5"
+          ? "kie:suno-music"
+          : rawModel === "elevenlabs-v3"
+            ? "kie:elevenlabs-tts-multilingual"
+            : rawModel.startsWith("kie:")
+              ? rawModel
+              : `kie:${rawModel || "suno-music"}`;
+      setAudioSlug(targetSlug);
+      const vals = (p.values && typeof p.values === "object" ? p.values : p) as Record<string, unknown>;
+      setKieValues({ ...vals });
+      if (typeof vals.instrumental === "boolean") setInstrumental(vals.instrumental);
+      else if (typeof p.instrumental === "boolean") setInstrumental(p.instrumental);
       setPrompt(item.prompt);
     }
     createGenerate.mutate({ retryItem: item });
@@ -2450,9 +2495,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         createGenerate.isPending ||
                         (kieActive
                           ? (kieTextField && !prompt.trim()) || !kieConfigured
-                          : !prompt.trim() ||
-                            (mediaType === "audio" && projectId == null) ||
-                            (mediaType !== "audio" && !canApiDirect))
+                          : !prompt.trim() || !canApiDirect)
                       }
                       onClick={() => {
                         if (createGenerate.isPending) return;
@@ -2464,7 +2507,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       title={
                         createGenerate.isPending
                           ? "Уже ставится в очередь…"
-                          : !canApiDirect && mediaType !== "audio"
+                          : !canApiDirect
                             ? "Нужен OUTSEE_API_KEY или KIE_API_KEY в .env"
                             : `Сгенерировать (${batchCount > 1 ? `${batchCount} шт` : "1 шт"}, лимит ${maxParallel}) · ${priceLabel}`
                       }
@@ -2511,7 +2554,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     void downloadMediaFile(
                       selected.preview_url || selected.raw_url || "",
                       selected.label || "generation",
-                      downloadFormat,
+                      selected.kind === "video"
+                        ? "mp4"
+                        : selected.kind === "audio"
+                          ? "mp3"
+                          : downloadFormat,
                       selected.path,
                     )
                   }
