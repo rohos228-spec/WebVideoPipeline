@@ -27,15 +27,20 @@ import {
   Link2,
   Loader2,
   Maximize2,
+  Mic,
   Music,
   Paperclip,
   Play,
+  Radio,
   RotateCw,
+  Scissors,
   Search,
   Send,
+  Sparkles,
   Square,
   Trash2,
   Video,
+  Volume2,
   X,
   XCircle,
 } from "lucide-react";
@@ -497,10 +502,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     if (mediaType === "video" && !isKie(videoSlug) && videoSlug !== "veo-3-1-lite") {
       setVideoSlug("veo-3-1-lite");
     }
-    if (mediaType === "audio" && audioSlug === "kie:suno-sounds") {
-      // Suno Sounds Task поёт / делает петли — настоящий SFX это ElevenLabs.
-      setAudioSlug("kie:elevenlabs-sfx");
-    } else if (mediaType === "audio" && !isKie(audioSlug)) {
+    if (mediaType === "audio" && !isKie(audioSlug)) {
       setAudioSlug(
         audioSlug === "suno-5-5"
           ? "kie:suno-music"
@@ -2814,10 +2816,15 @@ function KieFieldChip({
         if (o === "std" || o === "standard") return { label: "Standard", hint: "720p" };
         if (o === "pro") return { label: "Pro", hint: "1080p" };
       }
+      if (fn === "vocalgender") {
+        if (o === "m") return { label: "Мужской вокал", hint: "Мужской тембр" };
+        if (o === "f") return { label: "Женский вокал", hint: "Женский тембр" };
+        return { label: "Вокал: Любой", hint: "Без предпочтений" };
+      }
       if (fn === "output_format" || fn === "format") {
         return { label: opt.toUpperCase() };
       }
-      return { label: opt };
+      return { label: opt || "—" };
     };
 
     const options = (field.options || []).map((o) => {
@@ -3169,6 +3176,138 @@ function ModelCardIcon({
   );
 }
 
+interface AudioActionSpec {
+  id: string;
+  slug: string;
+  name: string;
+  desc: string;
+  badge?: string;
+  iconType: "music" | "cover" | "vocal" | "split" | "sfx" | "sounds" | "extend" | "lyrics" | "speech" | "turbo" | "dialogue" | "isolate";
+}
+
+const SUNO_AUDIO_ACTIONS: AudioActionSpec[] = [
+  {
+    id: "suno-music",
+    slug: "kie:suno-music",
+    name: "Создание трека",
+    desc: "Полная песня или инструментал по стилю / тексту (V5.5 / V5)",
+    badge: "ТОП",
+    iconType: "music",
+  },
+  {
+    id: "suno-upload-cover",
+    slug: "kie:suno-upload-cover",
+    name: "Кавер на своё аудио",
+    desc: "Загрузи аудио → Suno создаст трек в новом стиле",
+    iconType: "cover",
+  },
+  {
+    id: "suno-add-vocals",
+    slug: "kie:suno-add-vocals",
+    name: "Добавить вокал",
+    desc: "Инструментал + текст песни → готовый трек с вокалом",
+    iconType: "vocal",
+  },
+  {
+    id: "suno-separate-vocals",
+    slug: "kie:suno-separate-vocals",
+    name: "Разделить вокал / минус",
+    desc: "Стем-сплиттер: разделение трека на вокал и музыку",
+    iconType: "split",
+  },
+  {
+    id: "elevenlabs-sfx",
+    slug: "kie:elevenlabs-sfx",
+    name: "Звуковые эффекты (SFX)",
+    desc: "Foley-эффекты: шаги, взрывы, удары, окружение (без музыки)",
+    iconType: "sfx",
+  },
+  {
+    id: "suno-sounds",
+    slug: "kie:suno-sounds",
+    name: "Саундскейп и петли (Loops)",
+    desc: "Короткие атмосферные фоны, петли и гармонии",
+    iconType: "sounds",
+  },
+  {
+    id: "suno-extend",
+    slug: "kie:suno-extend",
+    name: "Продлить трек",
+    desc: "Продление уже созданного трека Suno по audioId",
+    iconType: "extend",
+  },
+  {
+    id: "suno-lyrics",
+    slug: "kie:suno-lyrics",
+    name: "Текст песни",
+    desc: "Генерация текста и структуры куплетов/припевов по теме",
+    iconType: "lyrics",
+  },
+];
+
+const ELEVENLABS_AUDIO_ACTIONS: AudioActionSpec[] = [
+  {
+    id: "elevenlabs-tts-multilingual",
+    slug: "kie:elevenlabs-tts-multilingual",
+    name: "Озвучка Multilingual V2",
+    desc: "Качественная озвучка на 29 языках (включая русский) с эмоциями",
+    badge: "ТОП",
+    iconType: "speech",
+  },
+  {
+    id: "elevenlabs-tts-turbo",
+    slug: "kie:elevenlabs-tts-turbo",
+    name: "Быстрая озвучка Turbo 2.5",
+    desc: "Высокая скорость генерации речи, экономный расход кредитов",
+    iconType: "turbo",
+  },
+  {
+    id: "elevenlabs-dialogue-v3",
+    slug: "kie:elevenlabs-dialogue-v3",
+    name: "Диалог по ролям (Dialogue V3)",
+    desc: "Многоголосый диалог: разные персонажи говорят своими голосами",
+    iconType: "dialogue",
+  },
+  {
+    id: "elevenlabs-audio-isolation",
+    slug: "kie:elevenlabs-audio-isolation",
+    name: "Изоляция и очистка голоса",
+    desc: "Удаление любого фонового шума, гула и эха, оставляя только речь",
+    iconType: "isolate",
+  },
+];
+
+function AudioActionIcon({ type }: { type: AudioActionSpec["iconType"] }) {
+  switch (type) {
+    case "music":
+      return <Music className="h-4 w-4 text-[#22d3ee]" />;
+    case "cover":
+      return <RotateCw className="h-4 w-4 text-amber-400" />;
+    case "vocal":
+      return <Mic className="h-4 w-4 text-rose-400" />;
+    case "split":
+      return <Scissors className="h-4 w-4 text-purple-400" />;
+    case "sfx":
+      return <Volume2 className="h-4 w-4 text-emerald-400" />;
+    case "sounds":
+      return <Radio className="h-4 w-4 text-teal-400" />;
+    case "extend":
+      return <Clock className="h-4 w-4 text-blue-400" />;
+    case "lyrics":
+      return <FileText className="h-4 w-4 text-pink-400" />;
+    case "speech":
+      return <Mic className="h-4 w-4 text-[#22d3ee]" />;
+    case "turbo":
+      return <Sparkles className="h-4 w-4 text-amber-400" />;
+    case "dialogue":
+      return <Layers className="h-4 w-4 text-violet-400" />;
+    case "isolate":
+      return <Volume2 className="h-4 w-4 text-cyan-400" />;
+    default:
+      return <Music className="h-4 w-4 text-white/60" />;
+  }
+}
+
 function ModelPickerPopover({
   mediaType,
   selectedSlug,
@@ -3183,12 +3322,22 @@ function ModelPickerPopover({
   onSelect: (slug: string) => void;
 }) {
   const [search, setSearch] = useState("");
+  const isAudio = mediaType === "audio";
+  const [sunoOpen, setSunoOpen] = useState(() => {
+    const isEl = selectedSlug.toLowerCase().includes("elevenlabs") && !selectedSlug.toLowerCase().includes("elevenlabs-sfx");
+    return !isEl;
+  });
+  const [elevenlabsOpen, setElevenlabsOpen] = useState(() => {
+    const isEl = selectedSlug.toLowerCase().includes("elevenlabs") && !selectedSlug.toLowerCase().includes("elevenlabs-sfx");
+    return isEl;
+  });
+
   const title =
     mediaType === "image"
       ? "Модели изображений"
       : mediaType === "video"
         ? "Модели видео"
-        : "Модели аудио";
+        : "Аудио движки и режимы";
   const models = pickerModelsForType(mediaType);
   const kieForType = kieModels.filter((m) => {
     const id = m.id.toLowerCase();
@@ -3202,6 +3351,28 @@ function ModelPickerPopover({
   });
 
   const q = search.trim().toLowerCase();
+
+  const filteredSunoActions = useMemo(() => {
+    if (!q) return SUNO_AUDIO_ACTIONS;
+    return SUNO_AUDIO_ACTIONS.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.desc.toLowerCase().includes(q) ||
+        a.id.toLowerCase().includes(q) ||
+        "suno".includes(q),
+    );
+  }, [q]);
+
+  const filteredElevenLabsActions = useMemo(() => {
+    if (!q) return ELEVENLABS_AUDIO_ACTIONS;
+    return ELEVENLABS_AUDIO_ACTIONS.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.desc.toLowerCase().includes(q) ||
+        a.id.toLowerCase().includes(q) ||
+        "elevenlabs".includes(q),
+    );
+  }, [q]);
 
   const filteredModels = useMemo(() => {
     if (!q) return models;
@@ -3377,11 +3548,81 @@ function ModelPickerPopover({
     );
   };
 
+  const renderAudioActionCard = (action: AudioActionSpec) => {
+    const active = selectedSlug === action.slug || selectedSlug.replace(/^kie:/, "") === action.id;
+    const kieM = kieForType.find((m) => m.id === action.id);
+    const est = kieM ? estimateKie(kieM, {}, creditUsd) : null;
+    const priceNote = kieM?.pricing?.note;
+
+    return (
+      <button
+        key={action.slug}
+        type="button"
+        onClick={() => onSelect(action.slug)}
+        className={cn(
+          "group relative flex w-full items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all duration-200",
+          active
+            ? "border-[#22d3ee] bg-[#22d3ee]/15 text-white shadow-[0_0_18px_rgba(34,211,238,0.2)] ring-1 ring-[#22d3ee]/50"
+            : "border-white/[0.08] bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.06]",
+        )}
+      >
+        {action.badge && (
+          <span className="absolute top-2 right-2 rounded-md bg-[#22d3ee] px-1.5 py-0.5 font-mono text-[9px] font-extrabold text-black shadow-sm">
+            {action.badge}
+          </span>
+        )}
+        <div className="flex shrink-0 flex-col items-center pt-0.5">
+          <div
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-lg ring-1 transition",
+              active
+                ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40"
+                : "bg-white/[0.05] text-white/75 ring-white/10 group-hover:text-white",
+            )}
+          >
+            <AudioActionIcon type={action.iconType} />
+          </div>
+        </div>
+        <div className="min-w-0 flex-1 pr-6">
+          <p
+            className={cn(
+              "truncate text-[12px] font-semibold",
+              active ? "text-[#22d3ee]" : "text-white/90 group-hover:text-white",
+            )}
+          >
+            {action.name}
+          </p>
+          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-white/45 group-hover:text-white/70">
+            {action.desc}
+          </p>
+          <div className="mt-1 flex items-center gap-2">
+            {priceNote ? (
+              <span className="inline-flex items-center gap-1 font-mono text-[10px] text-white/55">
+                <Coins className="h-2.5 w-2.5 text-[#38bdf8]" />
+                {priceNote}
+              </span>
+            ) : est?.usd ? (
+              <span className="inline-flex items-center gap-1 font-mono text-[10px] text-white/55">
+                <Coins className="h-2.5 w-2.5 text-[#38bdf8]" />
+                {`$${est.usd.toFixed(3)}`}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        {active && (
+          <span className="absolute bottom-2.5 right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#22d3ee]/20 text-[#22d3ee]">
+            <Check className="h-3 w-3" />
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <div
       className="absolute bottom-full left-0 z-50 mb-3 flex max-h-[76vh] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#121216]/95 backdrop-blur-2xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
       style={{
-        width: mediaType === "video" ? 620 : mediaType === "audio" ? 450 : 520,
+        width: mediaType === "video" ? 620 : mediaType === "audio" ? 480 : 520,
       }}
       role="dialog"
       aria-label={title}
@@ -3393,7 +3634,7 @@ function ModelPickerPopover({
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-bold tracking-tight text-white/90">{title}</span>
             <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
-              {totalCount}
+              {isAudio ? "2 движка · 12 действий" : totalCount}
             </span>
           </div>
         </div>
@@ -3403,7 +3644,11 @@ function ModelPickerPopover({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Быстрый поиск модели (Kling, Nano, Flux, Veo, Sora...)"
+            placeholder={
+              isAudio
+                ? "Поиск действия (трек, кавер, озвучка, диалог, SFX)..."
+                : "Быстрый поиск модели (Kling, Nano, Flux, Veo, Sora...)"
+            }
             className="h-8 w-full rounded-xl border border-white/10 bg-black/40 pl-8 pr-7 text-[11px] text-white/90 placeholder:text-white/30 transition focus:border-[#22d3ee]/60 focus:outline-none focus:ring-1 focus:ring-[#22d3ee]/30"
           />
           {search && (
@@ -3420,51 +3665,167 @@ function ModelPickerPopover({
 
       {/* Unified single scrollable body */}
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
-        {/* Section 1: TOP Models */}
-        {topItems.length > 0 && (
-          <div>
-            <div className="mb-2 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#22d3ee]">
-              <span className="flex items-center gap-1">
-                <span>🔥</span>
-                <span>ТОП МОДЕЛИ</span>
-              </span>
-              <span className="rounded-full bg-[#22d3ee]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#22d3ee]">
-                {topItems.length}
-              </span>
-            </div>
-            <div
-              className="grid gap-2"
-              style={{
-                gridTemplateColumns: mediaType === "audio" ? "1fr" : "repeat(2, minmax(0, 1fr))",
-              }}
-            >
-              {topItems.map((item) => renderCard(item))}
-            </div>
-          </div>
-        )}
+        {isAudio ? (
+          <>
+            {/* Engine 1: Suno */}
+            {(q ? filteredSunoActions.length > 0 : true) && (
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2 space-y-2">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSunoOpen((prev) => !prev)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") setSunoOpen((prev) => !prev);
+                  }}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between rounded-xl border p-2.5 transition-all",
+                    SUNO_AUDIO_ACTIONS.some((a) => selectedSlug === a.slug || selectedSlug.replace(/^kie:/, "") === a.id)
+                      ? "border-orange-500/40 bg-gradient-to-r from-orange-500/[0.12] to-amber-500/[0.04]"
+                      : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
+                  )}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/30">
+                      <Music className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] font-bold text-white">Suno AI</span>
+                        <span className="rounded-md bg-orange-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-orange-300">
+                          Музыка & Звуки
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-white/50">Треки, каверы, вокал, стем-сплиттер, SFX</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-white/70">
+                      {filteredSunoActions.length}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 text-white/50 transition-transform duration-200",
+                        (q ? true : sunoOpen) && "rotate-180",
+                      )}
+                    />
+                  </div>
+                </div>
 
-        {/* Section 2: Other Models */}
-        {otherItems.length > 0 && (
-          <div>
-            <div className="mb-2 flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">
-              <span>Другие и специальные модели</span>
-              <span className="font-mono text-white/25">({otherItems.length})</span>
-            </div>
-            <div
-              className="grid gap-2"
-              style={{
-                gridTemplateColumns: mediaType === "audio" ? "1fr" : "repeat(2, minmax(0, 1fr))",
-              }}
-            >
-              {otherItems.map((item) => renderCard(item))}
-            </div>
-          </div>
-        )}
+                {(q ? true : sunoOpen) && (
+                  <div className="space-y-1.5 pt-1">
+                    {filteredSunoActions.map((action) => renderAudioActionCard(action))}
+                  </div>
+                )}
+              </div>
+            )}
 
-        {unifiedItems.length === 0 && (
-          <div className="py-12 text-center text-[12px] text-white/40">
-            Модели по запросу «<span className="text-white/70">{search}</span>» не найдены
-          </div>
+            {/* Engine 2: ElevenLabs */}
+            {(q ? filteredElevenLabsActions.length > 0 : true) && (
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2 space-y-2">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setElevenlabsOpen((prev) => !prev)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") setElevenlabsOpen((prev) => !prev);
+                  }}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between rounded-xl border p-2.5 transition-all",
+                    ELEVENLABS_AUDIO_ACTIONS.some((a) => selectedSlug === a.slug || selectedSlug.replace(/^kie:/, "") === a.id)
+                      ? "border-indigo-500/40 bg-gradient-to-r from-indigo-500/[0.12] to-purple-500/[0.04]"
+                      : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]",
+                  )}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 ring-1 ring-indigo-500/30">
+                      <Mic className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] font-bold text-white">ElevenLabs</span>
+                        <span className="rounded-md bg-indigo-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-indigo-300">
+                          Голос & Речь
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-white/50">Озвучка 29 языков, диалоги, шумоподавление</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-white/70">
+                      {filteredElevenLabsActions.length}
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 text-white/50 transition-transform duration-200",
+                        (q ? true : elevenlabsOpen) && "rotate-180",
+                      )}
+                    />
+                  </div>
+                </div>
+
+                {(q ? true : elevenlabsOpen) && (
+                  <div className="space-y-1.5 pt-1">
+                    {filteredElevenLabsActions.map((action) => renderAudioActionCard(action))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {filteredSunoActions.length === 0 && filteredElevenLabsActions.length === 0 && (
+              <div className="py-12 text-center text-[12px] text-white/40">
+                Действия по запросу «<span className="text-white/70">{search}</span>» не найдены
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Section 1: TOP Models */}
+            {topItems.length > 0 && (
+              <div>
+                <div className="mb-2 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#22d3ee]">
+                  <span className="flex items-center gap-1">
+                    <span>🔥</span>
+                    <span>ТОП МОДЕЛИ</span>
+                  </span>
+                  <span className="rounded-full bg-[#22d3ee]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#22d3ee]">
+                    {topItems.length}
+                  </span>
+                </div>
+                <div
+                  className="grid gap-2"
+                  style={{
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                  }}
+                >
+                  {topItems.map((item) => renderCard(item))}
+                </div>
+              </div>
+            )}
+
+            {/* Section 2: Other Models */}
+            {otherItems.length > 0 && (
+              <div>
+                <div className="mb-2 flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">
+                  <span>Другие и специальные модели</span>
+                  <span className="font-mono text-white/25">({otherItems.length})</span>
+                </div>
+                <div
+                  className="grid gap-2"
+                  style={{
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                  }}
+                >
+                  {otherItems.map((item) => renderCard(item))}
+                </div>
+              </div>
+            )}
+
+            {unifiedItems.length === 0 && (
+              <div className="py-12 text-center text-[12px] text-white/40">
+                Модели по запросу «<span className="text-white/70">{search}</span>» не найдены
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
