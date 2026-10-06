@@ -1,4 +1,4 @@
-﻿# Единый лаунчер Video Pipeline Studio (меню на русском)
+# Единый лаунчер Video Pipeline Studio (меню на русском)
 # Вызывается из STUDIO.cmd в корне репозитория.
 
 param(
@@ -403,7 +403,34 @@ function Start-StudioBackendWindow {
     return $false
 }
 
+function Repair-StudioVenvPythonIfStub {
+    $venvPy = Join-Path $Root ".venv\Scripts\python.exe"
+    $cfgPath = Join-Path $Root ".venv\pyvenv.cfg"
+    if ((Test-Path -LiteralPath $venvPy) -and (Test-Path -LiteralPath $cfgPath)) {
+        $item = Get-Item $venvPy -ErrorAction SilentlyContinue
+        if ($item -and $item.Length -lt 60000) {
+            foreach ($line in (Get-Content -LiteralPath $cfgPath -Encoding UTF8 -ErrorAction SilentlyContinue)) {
+                if ($line -match '^\s*home\s*=\s*(.+)$') {
+                    $baseHome = $Matches[1].Trim()
+                    $realPy = Join-Path $baseHome "python.exe"
+                    $realPyw = Join-Path $baseHome "pythonw.exe"
+                    if (Test-Path -LiteralPath $realPy) {
+                        try {
+                            Copy-Item -Force $realPy $venvPy
+                            if (Test-Path -LiteralPath $realPyw) {
+                                Copy-Item -Force $realPyw (Join-Path $Root ".venv\Scripts\pythonw.exe")
+                            }
+                        } catch { }
+                    }
+                    break
+                }
+            }
+        }
+    }
+}
+
 function Get-StudioPython {
+    Repair-StudioVenvPythonIfStub
     $candidates = @(
         (Join-Path $Root ".venv\Scripts\python.exe"),
         (Join-Path $Root ".venv\bin\python"),
