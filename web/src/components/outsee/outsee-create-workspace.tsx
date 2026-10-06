@@ -18,6 +18,7 @@ import {
   Copy,
   CornerDownLeft,
   Dices,
+  Disc,
   Download,
   ExternalLink,
   FileText,
@@ -30,8 +31,11 @@ import {
   Mic,
   Music,
   Paperclip,
+  Pause,
   Play,
   Radio,
+  Repeat,
+  RotateCcw,
   RotateCw,
   Scissors,
   Search,
@@ -41,6 +45,7 @@ import {
   Trash2,
   Video,
   Volume2,
+  VolumeX,
   X,
   XCircle,
 } from "lucide-react";
@@ -205,6 +210,403 @@ function downloadMediaFile(
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+function AudioStudioPlayer({
+  item,
+  onInspect,
+}: {
+  item: HistoryItem;
+  onInspect?: () => void;
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const progressBarRef = useRef<HTMLDivElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [isLooping, setIsLooping] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.playbackRate = playbackRate;
+      audioRef.current.loop = isLooping;
+    }
+  }, [item.preview_url, item.id]);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch((err) => {
+        console.warn("Audio playback error:", err);
+      });
+    }
+  };
+
+  const seekBy = (sec: number) => {
+    if (!audioRef.current) return;
+    const target = Math.max(0, Math.min(duration || 0, audioRef.current.currentTime + sec));
+    audioRef.current.currentTime = target;
+    setCurrentTime(target);
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!progressBarRef.current || !audioRef.current || !duration) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const percent = Math.max(0, Math.min(1, clickX / rect.width));
+    const target = percent * duration;
+    audioRef.current.currentTime = target;
+    setCurrentTime(target);
+  };
+
+  const toggleMute = () => {
+    if (!audioRef.current) return;
+    if (isMuted) {
+      audioRef.current.muted = false;
+      setIsMuted(false);
+    } else {
+      audioRef.current.muted = true;
+      setIsMuted(true);
+    }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
+    setVolume(val);
+    if (audioRef.current) {
+      audioRef.current.volume = val;
+      if (val === 0) {
+        audioRef.current.muted = true;
+        setIsMuted(true);
+      } else if (isMuted) {
+        audioRef.current.muted = false;
+        setIsMuted(false);
+      }
+    }
+  };
+
+  const cyclePlaybackRate = () => {
+    const rates = [1, 1.25, 1.5, 2, 0.75];
+    const nextIdx = (rates.indexOf(playbackRate) + 1) % rates.length;
+    const nextRate = rates[nextIdx];
+    setPlaybackRate(nextRate);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = nextRate;
+    }
+  };
+
+  const toggleLoop = () => {
+    const nextLoop = !isLooping;
+    setIsLooping(nextLoop);
+    if (audioRef.current) {
+      audioRef.current.loop = nextLoop;
+    }
+  };
+
+  const handleCopyLink = () => {
+    const url = item.preview_url || item.raw_url || "";
+    if (!url) return;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      toast.success("Ссылка на аудио скопирована");
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const handleDownload = () => {
+    const url = item.preview_url || item.raw_url || "";
+    if (!url) return;
+    const title = (item.params?.title as string) || item.label || "audio_track";
+    void downloadMediaFile(url, title, "mp3", item.path);
+  };
+
+  const formatTime = (seconds: number): string => {
+    if (isNaN(seconds) || seconds < 0) return "00:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  const trackTitle =
+    (item.params?.title as string) ||
+    item.label ||
+    "Сгенерированный аудио трек";
+
+  const trackStyle =
+    (item.params?.style as string) ||
+    item.prompt ||
+    "";
+
+  const modelBadge =
+    (item.params?.model as string) ||
+    (item.model?.includes("V5_5") ? "V5.5" : item.model?.includes("V5") ? "V5" : "Suno AI");
+
+  const WAVE_BARS = useMemo(
+    () => [
+      25, 45, 65, 85, 55, 95, 75, 60, 85, 100, 70, 50, 80, 95, 65, 40,
+      70, 90, 80, 60, 85, 100, 75, 90, 65, 50, 70, 85, 95, 60, 45, 30,
+    ],
+    [],
+  );
+
+  return (
+    <div className="relative flex w-full max-w-xl flex-col gap-4 rounded-3xl border border-white/15 bg-[#121216]/95 p-5 md:p-6 backdrop-blur-2xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10 animate-in fade-in duration-300">
+      <audio
+        ref={audioRef}
+        src={item.preview_url || undefined}
+        preload="metadata"
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => {
+          if (!isLooping) setIsPlaying(false);
+        }}
+        onTimeUpdate={() => {
+          if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
+        }}
+        onLoadedMetadata={() => {
+          if (audioRef.current) {
+            setDuration(audioRef.current.duration);
+            audioRef.current.playbackRate = playbackRate;
+            audioRef.current.loop = isLooping;
+          }
+        }}
+      />
+
+      {/* Top: Vinyl + Track info + Actions */}
+      <div className="flex items-center gap-3.5">
+        <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1a1a24] to-[#0a0a0f] ring-1 ring-white/15 shadow-xl overflow-hidden">
+          <div
+            className={cn(
+              "absolute inset-1 rounded-full border border-white/10 bg-gradient-to-tr from-black via-zinc-900 to-black transition-transform duration-700",
+              isPlaying && "animate-[spin_4s_linear_infinite]",
+            )}
+          >
+            <div className="absolute inset-2 rounded-full border border-white/5" />
+            <div className="absolute inset-3.5 rounded-full border border-white/5" />
+            <div className="absolute inset-0 m-auto h-4 w-4 rounded-full bg-gradient-to-br from-[#22d3ee] to-[#38bdf8] shadow-[0_0_10px_rgba(34,211,238,0.5)] flex items-center justify-center">
+              <div className="h-1 w-1 rounded-full bg-black" />
+            </div>
+          </div>
+          <Disc className={cn("h-6 w-6 text-white/70 relative z-10 transition-opacity", isPlaying ? "opacity-0" : "opacity-80")} />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="truncate text-[15px] font-bold text-white tracking-tight" title={trackTitle}>
+              {trackTitle}
+            </h3>
+            <span className="shrink-0 rounded-md bg-[#22d3ee]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#22d3ee] ring-1 ring-[#22d3ee]/30">
+              {modelBadge}
+            </span>
+          </div>
+          {trackStyle && (
+            <p className="mt-0.5 line-clamp-1 text-[11px] text-white/50" title={trackStyle}>
+              {trackStyle}
+            </p>
+          )}
+          <div className="mt-1 flex items-center gap-2 text-[10px] text-white/40 font-mono">
+            <span>ID: {item.id ? String(item.id).slice(0, 8) : "—"}</span>
+            {item.elapsed_sec && (
+              <>
+                <span>•</span>
+                <span>ген: {Math.round(item.elapsed_sec)}с</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={handleCopyLink}
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+            title="Скопировать ссылку на аудио"
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-[#22d3ee]" /> : <Copy className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-[#22d3ee]/40 hover:bg-[#22d3ee]/10 hover:text-[#22d3ee]"
+            title="Скачать трек (MP3)"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </button>
+          {onInspect && (
+            <button
+              type="button"
+              onClick={onInspect}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+              title="Открыть инспектор и детали промпта"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Waveform Visualizer & Seek Area */}
+      <div
+        ref={progressBarRef}
+        onClick={handleSeek}
+        className="group relative flex h-12 w-full cursor-pointer items-end justify-between gap-1 rounded-2xl bg-black/40 px-3 py-2 ring-1 ring-white/10 transition hover:ring-[#22d3ee]/40 overflow-hidden"
+      >
+        {isPlaying && (
+          <div className="absolute inset-0 bg-gradient-to-t from-[#22d3ee]/[0.06] to-transparent pointer-events-none" />
+        )}
+
+        {WAVE_BARS.map((heightPercent, idx) => {
+          const barProgress = idx / (WAVE_BARS.length - 1);
+          const currentProgress = duration > 0 ? currentTime / duration : 0;
+          const isPassed = barProgress <= currentProgress;
+
+          return (
+            <div
+              key={idx}
+              className="relative flex h-full flex-1 items-end justify-center"
+            >
+              <div
+                style={{ height: `${heightPercent}%` }}
+                className={cn(
+                  "w-1.5 rounded-full transition-all duration-150",
+                  isPassed
+                    ? "bg-[#22d3ee] shadow-[0_0_8px_rgba(34,211,238,0.5)]"
+                    : "bg-white/15 group-hover:bg-white/25",
+                  isPlaying && isPassed && "brightness-125",
+                )}
+              />
+            </div>
+          );
+        })}
+
+        <div
+          style={{ left: `${progressPercent}%` }}
+          className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_10px_#22d3ee] transition-all"
+        />
+      </div>
+
+      {/* Scrubber slider and time display */}
+      <div className="space-y-1.5">
+        <div
+          onClick={handleSeek}
+          className="group relative flex h-2 w-full cursor-pointer items-center rounded-full bg-white/10"
+        >
+          <div
+            style={{ width: `${progressPercent}%` }}
+            className="h-full rounded-full bg-gradient-to-r from-[#22d3ee] to-[#38bdf8] shadow-[0_0_12px_rgba(34,211,238,0.5)]"
+          />
+          <div
+            style={{ left: `calc(${progressPercent}% - 6px)` }}
+            className="absolute h-3 w-3 rounded-full bg-white ring-2 ring-[#22d3ee] shadow-[0_0_8px_#22d3ee] opacity-0 transition-opacity group-hover:opacity-100"
+          />
+        </div>
+
+        <div className="flex items-center justify-between font-mono text-[11px] text-white/50">
+          <span className="text-white/85 font-semibold">{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
+        </div>
+      </div>
+
+      {/* Controls Bar */}
+      <div className="flex items-center justify-between pt-0.5">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={toggleLoop}
+            className={cn(
+              "flex h-8 items-center gap-1 rounded-xl px-2.5 text-[11px] font-mono transition ring-1",
+              isLooping
+                ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40 shadow-[0_0_12px_rgba(34,211,238,0.2)]"
+                : "bg-white/[0.04] text-white/50 ring-white/10 hover:bg-white/[0.08] hover:text-white",
+            )}
+            title="Зациклить трек (Loop)"
+          >
+            <Repeat className="h-3.5 w-3.5" />
+            <span className="text-[10px]">Loop</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={cyclePlaybackRate}
+            className="flex h-8 items-center rounded-xl bg-white/[0.04] px-2.5 font-mono text-[11px] text-white/70 ring-1 ring-white/10 transition hover:bg-white/[0.08] hover:text-white"
+            title="Скорость воспроизведения"
+          >
+            {playbackRate}x
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => seekBy(-10)}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:scale-105 hover:border-white/20 hover:bg-white/[0.08] hover:text-white active:scale-95"
+            title="Перемотать назад на 10 сек"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={togglePlay}
+            className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#22d3ee] text-black shadow-[0_0_25px_rgba(34,211,238,0.4)] transition hover:scale-105 hover:bg-[#38bdf8] active:scale-95"
+            title={isPlaying ? "Пауза" : "Воспроизвести"}
+          >
+            {isPlaying ? (
+              <Pause className="h-5 w-5 fill-current" />
+            ) : (
+              <Play className="h-5 w-5 fill-current translate-x-0.5" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => seekBy(10)}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:scale-105 hover:border-white/20 hover:bg-white/[0.08] hover:text-white active:scale-95"
+            title="Перемотать вперёд на 10 сек"
+          >
+            <RotateCw className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleMute}
+            className="text-white/60 transition hover:text-white"
+            title={isMuted ? "Включить звук" : "Выключить звук"}
+          >
+            {isMuted || volume === 0 ? (
+              <VolumeX className="h-4 w-4 text-rose-400" />
+            ) : (
+              <Volume2 className="h-4 w-4" />
+            )}
+          </button>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={isMuted ? 0 : volume}
+            onChange={handleVolumeChange}
+            className="h-1 w-16 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#22d3ee]"
+            title={`Громкость: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) {
@@ -1696,11 +2098,10 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       className="max-h-[calc(100vh-360px)] max-w-full rounded-2xl border border-white/15 bg-black/80 shadow-[0_20px_50px_rgba(0,0,0,0.8)]"
                     />
                   ) : selected.kind === "audio" ? (
-                    <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-2xl border border-white/15 bg-[#121216]/90 p-8 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
-                      <Music className="h-8 w-8 text-[#22d3ee]" />
-                      <div className="text-sm font-semibold text-white/85">{selected.label}</div>
-                      <audio src={selected.preview_url} controls className="w-full" />
-                    </div>
+                    <AudioStudioPlayer
+                      item={selected}
+                      onInspect={() => setLightboxOpen(true)}
+                    />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -2621,11 +3022,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                   className="max-h-[88vh] max-w-full rounded-2xl border border-white/15 bg-black object-contain shadow-[0_0_80px_rgba(0,0,0,0.9)]"
                 />
               ) : selected.kind === "audio" ? (
-                <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-2xl border border-white/15 bg-[#121216]/90 p-8 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
-                  <Music className="h-10 w-10 text-[#22d3ee]" />
-                  <div className="text-base font-semibold text-white/90">{selected.label}</div>
-                  <audio src={selected.preview_url} controls className="w-full" />
-                </div>
+                <AudioStudioPlayer item={selected} />
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
