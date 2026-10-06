@@ -26,7 +26,7 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "media_type": "image",
     "image_slug": "gpt-image-2",
     "video_slug": "sora-2",
-    "audio_slug": "suno-5-5",
+    "audio_slug": "kie:suno-music",
     "aspect": "16:9",
     "image_resolution": "1K",
     "image_quality": "medium",

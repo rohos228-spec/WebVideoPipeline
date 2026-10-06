@@ -84,7 +84,7 @@ export type OutseeVideoModel = {
   };
 };
 
-const OUTSEE_ORIGIN = "https://outsee.io";
+export const OUTSEE_ORIGIN = "https://outsee.io";
 
 /** gpt-image-2 aspects = n.P из module 20674 */
 const GPT_IMAGE_2_ASPECTS = [
@@ -560,16 +560,20 @@ export function getVideoModel(slug: string): OutseeVideoModel {
 }
 
 export function getAudioModel(slug: string): OutseeAudioModel {
-  return OUTSEE_AUDIO_MODELS.find((m) => m.slug === slug) ?? OUTSEE_AUDIO_MODELS[0]!;
+  const clean = slug.replace(/^kie:/, "");
+  return (
+    OUTSEE_AUDIO_MODELS.find((m) => m.slug === slug || m.slug === clean) ??
+    (clean.includes("elevenlabs") ? OUTSEE_AUDIO_MODELS[1]! : OUTSEE_AUDIO_MODELS[0]!)
+  );
 }
 
 export function studioIdToSlug(studioId: string | null | undefined, kind: OutseeMediaType): string {
   if (!studioId) {
     if (kind === "image") return "gpt-image-2";
-    if (kind === "audio") return "suno-5-5";
+    if (kind === "audio") return "kie:suno-music";
     return "veo-3-1-lite";
   }
-  if (kind === "audio") return studioId.replace(/_/g, "-");
+  if (kind === "audio") return studioId.startsWith("kie:") ? studioId : `kie:${studioId.replace(/_/g, "-")}`;
   const list = kind === "image" ? OUTSEE_IMAGE_MODELS : OUTSEE_VIDEO_MODELS;
   const hit = list.find((m) => m.studioId === studioId);
   if (hit) return hit.slug;
