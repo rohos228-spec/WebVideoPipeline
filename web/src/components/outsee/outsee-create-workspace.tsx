@@ -229,6 +229,19 @@ function AudioStudioPlayer({
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isLooping, setIsLooping] = useState(false);
   const [copied, setCopied] = useState(false);
+  const speedRef = useRef<HTMLDivElement>(null);
+  const [speedOpen, setSpeedOpen] = useState(false);
+
+  useEffect(() => {
+    if (!speedOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (speedRef.current && !speedRef.current.contains(e.target as Node)) {
+        setSpeedOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [speedOpen]);
 
   useEffect(() => {
     setIsPlaying(false);
@@ -355,14 +368,15 @@ function AudioStudioPlayer({
 
   const WAVE_BARS = useMemo(
     () => [
-      25, 45, 65, 85, 55, 95, 75, 60, 85, 100, 70, 50, 80, 95, 65, 40,
-      70, 90, 80, 60, 85, 100, 75, 90, 65, 50, 70, 85, 95, 60, 45, 30,
+      22, 38, 55, 78, 48, 92, 68, 54, 82, 96, 64, 46, 76, 92, 58, 42,
+      66, 86, 98, 74, 52, 82, 100, 88, 64, 48, 72, 88, 96, 72, 48, 64,
+      86, 76, 54, 72, 92, 82, 58, 76, 92, 64, 44, 62, 82, 96, 58, 34,
     ],
     [],
   );
 
   return (
-    <div className="relative flex w-full max-w-xl flex-col gap-4 rounded-3xl border border-white/15 bg-[#121216]/95 p-5 md:p-6 backdrop-blur-2xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10 animate-in fade-in duration-300">
+    <div className="relative flex w-full max-w-3xl lg:max-w-4xl flex-col gap-5 rounded-3xl border border-white/15 bg-[#121216]/95 p-6 md:p-8 backdrop-blur-2xl shadow-[0_30px_90px_rgba(0,0,0,0.9)] ring-1 ring-white/10 animate-in fade-in duration-300">
       <audio
         ref={audioRef}
         src={item.preview_url || undefined}
@@ -385,38 +399,38 @@ function AudioStudioPlayer({
       />
 
       {/* Top: Vinyl + Track info + Actions */}
-      <div className="flex items-center gap-3.5">
-        <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1a1a24] to-[#0a0a0f] ring-1 ring-white/15 shadow-xl overflow-hidden">
+      <div className="flex items-center gap-4 md:gap-5">
+        <div className="relative flex h-20 w-20 md:h-24 md:w-24 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1a1a24] to-[#0a0a0f] ring-1 ring-white/15 shadow-2xl overflow-hidden">
           <div
             className={cn(
-              "absolute inset-1 rounded-full border border-white/10 bg-gradient-to-tr from-black via-zinc-900 to-black transition-transform duration-700",
+              "absolute inset-1.5 rounded-full border border-white/10 bg-gradient-to-tr from-black via-zinc-900 to-black transition-transform duration-700",
               isPlaying && "animate-[spin_4s_linear_infinite]",
             )}
           >
-            <div className="absolute inset-2 rounded-full border border-white/5" />
-            <div className="absolute inset-3.5 rounded-full border border-white/5" />
-            <div className="absolute inset-0 m-auto h-4 w-4 rounded-full bg-gradient-to-br from-[#22d3ee] to-[#38bdf8] shadow-[0_0_10px_rgba(34,211,238,0.5)] flex items-center justify-center">
-              <div className="h-1 w-1 rounded-full bg-black" />
+            <div className="absolute inset-2.5 rounded-full border border-white/5" />
+            <div className="absolute inset-5 rounded-full border border-white/5" />
+            <div className="absolute inset-0 m-auto h-6 w-6 md:h-7 md:w-7 rounded-full bg-gradient-to-br from-[#22d3ee] to-[#38bdf8] shadow-[0_0_12px_rgba(34,211,238,0.6)] flex items-center justify-center">
+              <div className="h-2 w-2 rounded-full bg-black" />
             </div>
           </div>
-          <Disc className={cn("h-6 w-6 text-white/70 relative z-10 transition-opacity", isPlaying ? "opacity-0" : "opacity-80")} />
+          <Disc className={cn("h-8 w-8 md:h-9 md:w-9 text-white/70 relative z-10 transition-opacity", isPlaying ? "opacity-0" : "opacity-80")} />
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-[15px] font-bold text-white tracking-tight" title={trackTitle}>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h3 className="truncate text-base md:text-xl font-bold text-white tracking-tight" title={trackTitle}>
               {trackTitle}
             </h3>
-            <span className="shrink-0 rounded-md bg-[#22d3ee]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#22d3ee] ring-1 ring-[#22d3ee]/30">
+            <span className="shrink-0 rounded-md bg-[#22d3ee]/15 px-2 py-0.5 font-mono text-[10px] md:text-xs font-bold text-[#22d3ee] ring-1 ring-[#22d3ee]/30">
               {modelBadge}
             </span>
           </div>
           {trackStyle && (
-            <p className="mt-0.5 line-clamp-1 text-[11px] text-white/50" title={trackStyle}>
+            <p className="mt-1 line-clamp-2 text-xs md:text-sm text-white/60 leading-relaxed" title={trackStyle}>
               {trackStyle}
             </p>
           )}
-          <div className="mt-1 flex items-center gap-2 text-[10px] text-white/40 font-mono">
+          <div className="mt-1.5 flex items-center gap-2 text-[11px] text-white/40 font-mono">
             <span>ID: {item.id ? String(item.id).slice(0, 8) : "—"}</span>
             {item.elapsed_sec && (
               <>
@@ -427,31 +441,31 @@ function AudioStudioPlayer({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={handleCopyLink}
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+            className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
             title="Скопировать ссылку на аудио"
           >
-            {copied ? <Check className="h-3.5 w-3.5 text-[#22d3ee]" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? <Check className="h-4 w-4 text-[#22d3ee]" /> : <Copy className="h-4 w-4" />}
           </button>
           <button
             type="button"
             onClick={handleDownload}
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-[#22d3ee]/40 hover:bg-[#22d3ee]/10 hover:text-[#22d3ee]"
+            className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-[#22d3ee]/40 hover:bg-[#22d3ee]/10 hover:text-[#22d3ee]"
             title="Скачать трек (MP3)"
           >
-            <Download className="h-3.5 w-3.5" />
+            <Download className="h-4 w-4" />
           </button>
           {onInspect && (
             <button
               type="button"
               onClick={onInspect}
-              className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+              className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
               title="Открыть инспектор и детали промпта"
             >
-              <Maximize2 className="h-3.5 w-3.5" />
+              <Maximize2 className="h-4 w-4" />
             </button>
           )}
         </div>
@@ -461,10 +475,10 @@ function AudioStudioPlayer({
       <div
         ref={progressBarRef}
         onClick={handleSeek}
-        className="group relative flex h-12 w-full cursor-pointer items-end justify-between gap-1 rounded-2xl bg-black/40 px-3 py-2 ring-1 ring-white/10 transition hover:ring-[#22d3ee]/40 overflow-hidden"
+        className="group relative flex h-16 md:h-22 w-full cursor-pointer items-end justify-between gap-1 md:gap-1.5 rounded-2xl bg-black/45 px-4 py-3 ring-1 ring-white/10 transition hover:ring-[#22d3ee]/40 overflow-hidden"
       >
         {isPlaying && (
-          <div className="absolute inset-0 bg-gradient-to-t from-[#22d3ee]/[0.06] to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#22d3ee]/[0.08] to-transparent pointer-events-none" />
         )}
 
         {WAVE_BARS.map((heightPercent, idx) => {
@@ -480,9 +494,9 @@ function AudioStudioPlayer({
               <div
                 style={{ height: `${heightPercent}%` }}
                 className={cn(
-                  "w-1.5 rounded-full transition-all duration-150",
+                  "w-1.5 md:w-2 rounded-full transition-all duration-150",
                   isPassed
-                    ? "bg-[#22d3ee] shadow-[0_0_8px_rgba(34,211,238,0.5)]"
+                    ? "bg-[#22d3ee] shadow-[0_0_10px_rgba(34,211,238,0.55)]"
                     : "bg-white/15 group-hover:bg-white/25",
                   isPlaying && isPassed && "brightness-125",
                 )}
@@ -493,94 +507,135 @@ function AudioStudioPlayer({
 
         <div
           style={{ left: `${progressPercent}%` }}
-          className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_10px_#22d3ee] transition-all"
+          className="pointer-events-none absolute top-0 bottom-0 w-1 bg-white shadow-[0_0_14px_#22d3ee] transition-all"
         />
       </div>
 
       {/* Scrubber slider and time display */}
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <div
           onClick={handleSeek}
-          className="group relative flex h-2 w-full cursor-pointer items-center rounded-full bg-white/10"
+          className="group relative flex h-2.5 w-full cursor-pointer items-center rounded-full bg-white/10"
         >
           <div
             style={{ width: `${progressPercent}%` }}
-            className="h-full rounded-full bg-gradient-to-r from-[#22d3ee] to-[#38bdf8] shadow-[0_0_12px_rgba(34,211,238,0.5)]"
+            className="h-full rounded-full bg-gradient-to-r from-[#22d3ee] to-[#38bdf8] shadow-[0_0_14px_rgba(34,211,238,0.5)]"
           />
           <div
-            style={{ left: `calc(${progressPercent}% - 6px)` }}
-            className="absolute h-3 w-3 rounded-full bg-white ring-2 ring-[#22d3ee] shadow-[0_0_8px_#22d3ee] opacity-0 transition-opacity group-hover:opacity-100"
+            style={{ left: `calc(${progressPercent}% - 7px)` }}
+            className="absolute h-3.5 w-3.5 rounded-full bg-white ring-2 ring-[#22d3ee] shadow-[0_0_10px_#22d3ee] opacity-0 transition-opacity group-hover:opacity-100"
           />
         </div>
 
-        <div className="flex items-center justify-between font-mono text-[11px] text-white/50">
-          <span className="text-white/85 font-semibold">{formatTime(currentTime)}</span>
+        <div className="flex items-center justify-between font-mono text-xs md:text-sm text-white/50">
+          <span className="text-white/90 font-semibold">{formatTime(currentTime)}</span>
           <span>{formatTime(duration)}</span>
         </div>
       </div>
 
       {/* Controls Bar */}
-      <div className="flex items-center justify-between pt-0.5">
-        <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={toggleLoop}
             className={cn(
-              "flex h-8 items-center gap-1 rounded-xl px-2.5 text-[11px] font-mono transition ring-1",
+              "flex h-9 md:h-10 items-center gap-1.5 rounded-xl px-3 text-xs font-mono transition ring-1",
               isLooping
-                ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40 shadow-[0_0_12px_rgba(34,211,238,0.2)]"
+                ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40 shadow-[0_0_14px_rgba(34,211,238,0.25)]"
                 : "bg-white/[0.04] text-white/50 ring-white/10 hover:bg-white/[0.08] hover:text-white",
             )}
             title="Зациклить трек (Loop)"
           >
-            <Repeat className="h-3.5 w-3.5" />
-            <span className="text-[10px]">Loop</span>
+            <Repeat className="h-4 w-4" />
+            <span>Loop</span>
           </button>
 
-          <button
-            type="button"
-            onClick={cyclePlaybackRate}
-            className="flex h-8 items-center rounded-xl bg-white/[0.04] px-2.5 font-mono text-[11px] text-white/70 ring-1 ring-white/10 transition hover:bg-white/[0.08] hover:text-white"
-            title="Скорость воспроизведения"
-          >
-            {playbackRate}x
-          </button>
+          <div className="relative" ref={speedRef}>
+            <button
+              type="button"
+              onClick={() => setSpeedOpen((v) => !v)}
+              className={cn(
+                "flex h-9 md:h-10 items-center gap-1.5 rounded-xl px-3 font-mono text-xs ring-1 transition",
+                speedOpen
+                  ? "bg-[#22d3ee]/20 text-[#22d3ee] ring-[#22d3ee]/40 shadow-[0_0_14px_rgba(34,211,238,0.25)]"
+                  : "bg-white/[0.04] text-white/70 ring-white/10 hover:bg-white/[0.08] hover:text-white",
+              )}
+              title="Выбрать скорость воспроизведения"
+            >
+              <span>{playbackRate}x</span>
+              <ChevronDown className={cn("h-3.5 w-3.5 text-white/50 transition-transform duration-200", speedOpen && "rotate-180")} />
+            </button>
+
+            {speedOpen && (
+              <div className="absolute bottom-full left-0 mb-2 z-50 flex flex-col min-w-[130px] rounded-xl border border-white/15 bg-[#121216]/98 p-1 backdrop-blur-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] ring-1 ring-white/10 animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/40 border-b border-white/[0.08] mb-1">
+                  Скорость
+                </div>
+                {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => {
+                  const isActive = playbackRate === rate;
+                  return (
+                    <button
+                      key={rate}
+                      type="button"
+                      onClick={() => {
+                        setPlaybackRate(rate);
+                        if (audioRef.current) audioRef.current.playbackRate = rate;
+                        setSpeedOpen(false);
+                      }}
+                      className={cn(
+                        "flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left font-mono text-xs transition",
+                        isActive
+                          ? "bg-[#22d3ee]/20 text-[#22d3ee] font-bold"
+                          : "text-white/75 hover:bg-white/[0.08] hover:text-white",
+                      )}
+                    >
+                      <span>{rate}x {rate === 1 ? "(1.0)" : ""}</span>
+                      {isActive && <Check className="h-3.5 w-3.5 text-[#22d3ee]" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        {/* Center: Rewind / Play / Forward */}
+        <div className="flex items-center gap-3 md:gap-4">
           <button
             type="button"
             onClick={() => seekBy(-10)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:scale-105 hover:border-white/20 hover:bg-white/[0.08] hover:text-white active:scale-95"
+            className="flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:scale-105 hover:border-white/20 hover:bg-white/[0.08] hover:text-white active:scale-95"
             title="Перемотать назад на 10 сек"
           >
-            <RotateCcw className="h-4 w-4" />
+            <RotateCcw className="h-4.5 w-4.5" />
           </button>
 
           <button
             type="button"
             onClick={togglePlay}
-            className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#22d3ee] text-black shadow-[0_0_25px_rgba(34,211,238,0.4)] transition hover:scale-105 hover:bg-[#38bdf8] active:scale-95"
+            className="flex h-13 w-13 md:h-15 md:w-15 items-center justify-center rounded-2xl bg-gradient-to-r from-[#22d3ee] to-[#0ea5e9] text-black shadow-[0_0_30px_rgba(34,211,238,0.45)] transition hover:scale-105 hover:brightness-110 active:scale-95"
             title={isPlaying ? "Пауза" : "Воспроизвести"}
           >
             {isPlaying ? (
-              <Pause className="h-5 w-5 fill-current" />
+              <Pause className="h-6 w-6 md:h-7 md:w-7 fill-current" />
             ) : (
-              <Play className="h-5 w-5 fill-current translate-x-0.5" />
+              <Play className="h-6 w-6 md:h-7 md:w-7 fill-current translate-x-0.5" />
             )}
           </button>
 
           <button
             type="button"
             onClick={() => seekBy(10)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:scale-105 hover:border-white/20 hover:bg-white/[0.08] hover:text-white active:scale-95"
+            className="flex h-10 w-10 md:h-11 md:w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/70 transition hover:scale-105 hover:border-white/20 hover:bg-white/[0.08] hover:text-white active:scale-95"
             title="Перемотать вперёд на 10 сек"
           >
-            <RotateCw className="h-4 w-4" />
+            <RotateCw className="h-4.5 w-4.5" />
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Volume */}
+        <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={toggleMute}
@@ -588,9 +643,9 @@ function AudioStudioPlayer({
             title={isMuted ? "Включить звук" : "Выключить звук"}
           >
             {isMuted || volume === 0 ? (
-              <VolumeX className="h-4 w-4 text-rose-400" />
+              <VolumeX className="h-4.5 w-4.5 text-rose-400" />
             ) : (
-              <Volume2 className="h-4 w-4" />
+              <Volume2 className="h-4.5 w-4.5" />
             )}
           </button>
           <input
@@ -600,7 +655,7 @@ function AudioStudioPlayer({
             step="0.05"
             value={isMuted ? 0 : volume}
             onChange={handleVolumeChange}
-            className="h-1 w-16 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#22d3ee]"
+            className="h-1.5 w-20 md:w-28 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#22d3ee]"
             title={`Громкость: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
           />
         </div>
@@ -769,6 +824,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       window.removeEventListener("keydown", onKey);
     };
   }, [modelOpen]);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightboxOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxOpen]);
 
   const [nowTs, setNowTs] = useState(() => Date.now());
   useEffect(() => {
@@ -1369,6 +1433,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           if (modelId === "suno-music") {
             const isInst = Boolean(vals.instrumental ?? instrumental);
             vals.instrumental = isInst;
+            const isCustom = vals.customMode !== false;
             if (!vals.style || typeof vals.style !== "string" || !vals.style.trim()) {
               vals.style = text.slice(0, 500);
             }
@@ -1376,7 +1441,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               vals.title = text.slice(0, 80);
             }
             if (isInst) {
-              vals.prompt = "";
+              vals.prompt = isCustom ? "" : text;
             } else if (!vals.prompt) {
               vals.prompt = text;
             }
@@ -1411,9 +1476,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             }
           }
           if (effectiveKieModel) {
+            const isInst = Boolean(vals.instrumental ?? instrumental);
             const missing = effectiveKieModel.fields
               .filter((f) => f.required)
+              .filter((f) => kieFieldVisible(f, vals))
               .filter((f) => {
+                if (f.name === "prompt" && (isInst || modelId === "suno-music")) return false;
                 const v = vals[f.name] ?? f.default;
                 if (v === undefined || v === null) return true;
                 if (typeof v === "string") return v.trim() === "";
@@ -2085,12 +2153,19 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             )}
           </div>
 
-          <div className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-start px-4 pt-2 pb-[260px] lg:px-6">
+          <div
+            className={cn(
+              "relative z-10 flex min-h-0 flex-1 flex-col items-center px-4 pb-[260px] lg:px-6 w-full",
+              selected?.kind === "audio" || !selected?.preview_url || selected?.status === "failed" || selected?.status === "queued" || selected?.status === "processing"
+                ? "justify-center my-auto"
+                : "justify-start pt-2",
+            )}
+          >
             {selected?.preview_url &&
             selected.status !== "queued" &&
             selected.status !== "processing" ? (
-              <div className="flex flex-col items-center">
-                <div className="group relative flex max-h-[calc(100vh-360px)] max-w-full items-center justify-center">
+              <div className="flex flex-col items-center w-full my-auto">
+                <div className="group relative flex max-h-[calc(100vh-360px)] max-w-full items-center justify-center w-full">
                   {selected.kind === "video" ? (
                     <video
                       src={selected.preview_url}
@@ -2098,10 +2173,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       className="max-h-[calc(100vh-360px)] max-w-full rounded-2xl border border-white/15 bg-black/80 shadow-[0_20px_50px_rgba(0,0,0,0.8)]"
                     />
                   ) : selected.kind === "audio" ? (
-                    <AudioStudioPlayer
-                      item={selected}
-                      onInspect={() => setLightboxOpen(true)}
-                    />
+                    <div className="flex w-full items-center justify-center py-4 my-auto">
+                      <AudioStudioPlayer
+                        item={selected}
+                        onInspect={() => setLightboxOpen(true)}
+                      />
+                    </div>
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -2153,7 +2230,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               </div>
             ) : selected &&
               (selected.status === "queued" || selected.status === "processing") ? (
-              <div className="flex w-full max-w-sm flex-col items-center gap-3.5 rounded-2xl border border-white/15 bg-[#121216]/90 px-6 py-10 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
+              <div className="my-auto flex w-full max-w-sm flex-col items-center gap-3.5 rounded-3xl border border-white/15 bg-[#121216]/95 px-6 py-10 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
                 <Loader2
                   className="h-9 w-9 animate-spin text-[#22d3ee]"
                 />
@@ -2188,7 +2265,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 </button>
               </div>
             ) : selected?.status === "failed" ? (
-              <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-8 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
+              <div className="my-auto flex w-full max-w-md flex-col items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-8 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
                 <div className="text-sm font-bold text-red-300">Ошибка генерации</div>
                 <div className="text-[12px] text-white/60">
                   {selected.error || "Не удалось получить файл"}
@@ -2945,204 +3022,224 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           onClick={() => setLightboxOpen(false)}
         >
           <div
-            className="relative flex flex-col md:flex-row items-center justify-center max-h-[96vh] max-w-[98vw] gap-4 w-full"
+            className="flex flex-col max-h-[96vh] max-w-[98vw] w-full gap-3 md:gap-3.5"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Close & Action floating buttons */}
-            <div className="absolute top-2 right-2 z-50 flex items-center gap-2">
-              <div className="inline-flex items-center rounded-xl border border-white/20 bg-black/80 p-0.5 backdrop-blur-md shadow-2xl">
-                <button
-                  type="button"
-                  onClick={() =>
-                    void downloadMediaFile(
-                      selected.preview_url || selected.raw_url || "",
-                      selected.label || "generation",
-                      selected.kind === "video"
-                        ? "mp4"
-                        : selected.kind === "audio"
-                          ? "mp3"
-                          : downloadFormat,
-                      selected.path,
-                    )
-                  }
-                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white/90 transition hover:bg-white/[0.12] hover:text-white"
-                >
-                  <Download className="h-4 w-4 text-[#22d3ee]" />
-                  Скачать
-                </button>
-                {selected.kind === "image" && (
-                  <div className="flex items-center border-l border-white/20 pl-1 pr-1 font-mono text-[11px]">
-                    {(["png", "jpg", "webp"] as const).map((fmt) => (
-                      <button
-                        key={fmt}
-                        type="button"
-                        onClick={() => setDownloadFormat(fmt)}
-                        className={cn(
-                          "rounded px-2 py-0.5 uppercase transition",
-                          downloadFormat === fmt
-                            ? "bg-[#22d3ee]/25 font-bold text-[#22d3ee]"
-                            : "text-white/50 hover:text-white",
-                        )}
-                      >
-                        {fmt}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setLightboxOpen(false);
-                  deleteItem.mutate(selected);
-                }}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-red-500/30 bg-black/80 px-3 text-[12px] font-medium text-red-400 backdrop-blur transition hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-300 shadow-2xl"
-                title="Удалить из истории"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>Удалить</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setLightboxOpen(false)}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/20 bg-black/80 text-white/80 backdrop-blur transition hover:bg-white/20 hover:text-white shadow-2xl"
-                title="Закрыть"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Media Area */}
-            <div className="flex flex-1 items-center justify-center max-h-[88vh] max-w-full min-w-0">
-              {selected.kind === "video" ? (
-                <video
-                  src={selected.preview_url}
-                  controls
-                  autoPlay
-                  className="max-h-[88vh] max-w-full rounded-2xl border border-white/15 bg-black object-contain shadow-[0_0_80px_rgba(0,0,0,0.9)]"
-                />
-              ) : selected.kind === "audio" ? (
-                <AudioStudioPlayer item={selected} />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={selected.preview_url}
-                  alt=""
-                  className="max-h-[88vh] max-w-full rounded-2xl border border-white/15 bg-black object-contain shadow-[0_0_80px_rgba(0,0,0,0.9)]"
-                />
-              )}
-            </div>
-
-            {/* Prompt Inspector Panel */}
-            <div className="flex w-full md:w-84 shrink-0 flex-col gap-3 rounded-2xl border border-white/15 bg-[#121216]/95 p-4 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.9)] max-h-[88vh] overflow-y-auto ring-1 ring-white/10">
-              <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#22d3ee]">
-                  <FileText className="h-4 w-4" />
-                  <span>Инспектор</span>
-                </div>
+            {/* Top Bar: Media Info & Action buttons (Download, Delete, Close) */}
+            <div className="flex items-center justify-between gap-3 px-1 sm:px-2 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="truncate text-sm sm:text-base font-semibold text-white/90">
+                  {selected.label || (selected.kind === "audio" ? "Аудиотрек" : selected.kind === "video" ? "Видео" : "Изображение")}
+                </span>
                 {selected.model && (
-                  <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] text-white/70">
+                  <span className="shrink-0 rounded-md border border-[#22d3ee]/30 bg-[#22d3ee]/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
                     {selected.model}
                   </span>
                 )}
               </div>
 
-              {/* Prompt Text Box */}
-              <div>
-                <div className="mb-1 text-[11px] font-semibold text-white/50">Промпт:</div>
-                <div className="max-h-52 overflow-y-auto rounded-xl border border-white/10 bg-black/40 p-3 text-[12px] leading-relaxed text-white/90 select-text">
-                  {selected.prompt || "Без текстового описания"}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="inline-flex items-center rounded-xl border border-white/20 bg-black/80 p-0.5 backdrop-blur-md shadow-2xl">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void downloadMediaFile(
+                        selected.preview_url || selected.raw_url || "",
+                        selected.label || "generation",
+                        selected.kind === "video"
+                          ? "mp4"
+                          : selected.kind === "audio"
+                            ? "mp3"
+                            : downloadFormat,
+                        selected.path,
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white/90 transition hover:bg-white/[0.12] hover:text-white"
+                  >
+                    <Download className="h-4 w-4 text-[#22d3ee]" />
+                    <span>Скачать</span>
+                  </button>
+                  {selected.kind === "image" && (
+                    <div className="flex items-center border-l border-white/20 pl-1 pr-1 font-mono text-[11px]">
+                      {(["png", "jpg", "webp"] as const).map((fmt) => (
+                        <button
+                          key={fmt}
+                          type="button"
+                          onClick={() => setDownloadFormat(fmt)}
+                          className={cn(
+                            "rounded px-2 py-0.5 uppercase transition",
+                            downloadFormat === fmt
+                              ? "bg-[#22d3ee]/25 font-bold text-[#22d3ee]"
+                              : "text-white/50 hover:text-white",
+                          )}
+                        >
+                          {fmt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
 
-              {/* Quick Actions: Copy & Insert into Prompt Dock */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selected.prompt) {
-                      void navigator.clipboard.writeText(selected.prompt);
-                      toast.success("Промпт скопирован в буфер 📋");
-                    }
-                  }}
-                  disabled={!selected.prompt}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.05] px-3 text-[11px] font-semibold text-white/85 transition hover:border-white/30 hover:bg-white/[0.1] hover:text-white disabled:opacity-40"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  <span>Скопировать</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selected.prompt) {
-                      setPrompt(selected.prompt);
-                      setLightboxOpen(false);
-                      toast.success("Промпт подставлен в поле ввода ✍️");
-                    }
-                  }}
-                  disabled={!selected.prompt}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/15 px-3 text-[11px] font-bold text-[#22d3ee] transition hover:bg-[#22d3ee]/25 disabled:opacity-40"
-                >
-                  <CornerDownLeft className="h-3.5 w-3.5" />
-                  <span>Вставить в чат</span>
-                </button>
-              </div>
-
-              {selected.prompt && (
                 <button
                   type="button"
                   onClick={() => {
                     setLightboxOpen(false);
-                    handleRetry(selected);
+                    deleteItem.mutate(selected);
                   }}
-                  disabled={createGenerate.isPending}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#06b6d4] px-3 text-[11px] font-bold text-black shadow-[0_0_15px_rgba(34,211,238,0.3)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
-                  title="Повторить генерацию с теми же параметрами"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-red-500/30 bg-black/80 px-3 text-[12px] font-medium text-red-400 backdrop-blur transition hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-300 shadow-2xl"
+                  title="Удалить из истории"
                 >
-                  <RotateCw className={cn("h-3.5 w-3.5", createGenerate.isPending && "animate-spin")} />
-                  <span>{createGenerate.isPending ? "Запуск…" : "Сгенерировать заново"}</span>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Удалить</span>
                 </button>
-              )}
 
-              {/* References Strip (if any) */}
-              {((selected.reference_images && selected.reference_images.length > 0) || selected.first_frame_url) && (
-                <div className="border-t border-white/10 pt-2.5">
-                  <div className="mb-1.5 text-[11px] font-semibold text-white/50">
-                    Использованные референсы ({selected.reference_images?.length || 1}):
+                <button
+                  type="button"
+                  onClick={() => setLightboxOpen(false)}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/20 bg-black/80 text-white/80 backdrop-blur transition hover:bg-white/20 hover:text-white shadow-2xl"
+                  title="Закрыть (Esc)"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content Row: Media Area + Prompt Inspector Panel */}
+            <div className="flex flex-1 flex-col md:flex-row items-center md:items-start justify-center gap-4 min-h-0 overflow-hidden">
+              {/* Media Area */}
+              <div className="flex flex-1 items-center justify-center max-h-[84vh] max-w-full min-w-0">
+                {selected.kind === "video" ? (
+                  <video
+                    src={selected.preview_url}
+                    controls
+                    autoPlay
+                    className="max-h-[84vh] max-w-full rounded-2xl border border-white/15 bg-black object-contain shadow-[0_0_80px_rgba(0,0,0,0.9)]"
+                  />
+                ) : selected.kind === "audio" ? (
+                  <div className="w-full max-w-3xl lg:max-w-4xl py-4">
+                    <AudioStudioPlayer item={selected} />
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(selected.reference_images && selected.reference_images.length > 0
-                      ? selected.reference_images
-                      : [selected.first_frame_url!]
-                    ).map((u, i) => (
-                      <a
-                        key={i}
-                        href={u}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="group/ref relative block h-12 w-12 overflow-hidden rounded-lg border border-white/20 transition hover:scale-105 hover:border-[#22d3ee]"
-                        title="Открыть референс в новой вкладке"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={u} alt="" className="h-full w-full object-cover" />
-                      </a>
-                    ))}
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={selected.preview_url}
+                    alt=""
+                    className="max-h-[84vh] max-w-full rounded-2xl border border-white/15 bg-black object-contain shadow-[0_0_80px_rgba(0,0,0,0.9)]"
+                  />
+                )}
+              </div>
+
+              {/* Prompt Inspector Panel */}
+              <div className="flex w-full md:w-84 shrink-0 flex-col gap-3 rounded-2xl border border-white/15 bg-[#121216]/95 p-4 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.9)] max-h-[84vh] overflow-y-auto ring-1 ring-white/10">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#22d3ee]">
+                    <FileText className="h-4 w-4" />
+                    <span>Инспектор</span>
+                  </div>
+                  {selected.model && (
+                    <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] text-white/70">
+                      {selected.model}
+                    </span>
+                  )}
+                </div>
+
+                {/* Prompt Text Box */}
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold text-white/50">Промпт:</div>
+                  <div className="max-h-52 overflow-y-auto rounded-xl border border-white/10 bg-black/40 p-3 text-[12px] leading-relaxed text-white/90 select-text">
+                    {selected.prompt || "Без текстового описания"}
                   </div>
                 </div>
-              )}
 
-              {/* Meta details */}
-              <div className="space-y-1 border-t border-white/10 pt-2.5 font-mono text-[10px] text-white/45">
-                {selected.elapsed_label || selected.elapsed_sec != null ? (
-                  <div>
-                    Время генерации:{" "}
-                    <span className="font-semibold text-white/70">
-                      {selected.elapsed_label || formatElapsedMinSec(selected.elapsed_sec)}
-                    </span>
+                {/* Quick Actions: Copy & Insert into Prompt Dock */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selected.prompt) {
+                        void navigator.clipboard.writeText(selected.prompt);
+                        toast.success("Промпт скопирован в буфер 📋");
+                      }
+                    }}
+                    disabled={!selected.prompt}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.05] px-3 text-[11px] font-semibold text-white/85 transition hover:border-white/30 hover:bg-white/[0.1] hover:text-white disabled:opacity-40"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>Скопировать</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selected.prompt) {
+                        setPrompt(selected.prompt);
+                        setLightboxOpen(false);
+                        toast.success("Промпт подставлен в поле ввода ✍️");
+                      }
+                    }}
+                    disabled={!selected.prompt}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/15 px-3 text-[11px] font-bold text-[#22d3ee] transition hover:bg-[#22d3ee]/25 disabled:opacity-40"
+                  >
+                    <CornerDownLeft className="h-3.5 w-3.5" />
+                    <span>Вставить в чат</span>
+                  </button>
+                </div>
+
+                {selected.prompt && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLightboxOpen(false);
+                      handleRetry(selected);
+                    }}
+                    disabled={createGenerate.isPending}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#06b6d4] px-3 text-[11px] font-bold text-black shadow-[0_0_15px_rgba(34,211,238,0.3)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
+                    title="Повторить генерацию с теми же параметрами"
+                  >
+                    <RotateCw className={cn("h-3.5 w-3.5", createGenerate.isPending && "animate-spin")} />
+                    <span>{createGenerate.isPending ? "Запуск…" : "Сгенерировать заново"}</span>
+                  </button>
+                )}
+
+                {/* References Strip (if any) */}
+                {((selected.reference_images && selected.reference_images.length > 0) || selected.first_frame_url) && (
+                  <div className="border-t border-white/10 pt-2.5">
+                    <div className="mb-1.5 text-[11px] font-semibold text-white/50">
+                      Использованные референсы ({selected.reference_images?.length || 1}):
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(selected.reference_images && selected.reference_images.length > 0
+                        ? selected.reference_images
+                        : [selected.first_frame_url!]
+                      ).map((u, i) => (
+                        <a
+                          key={i}
+                          href={u}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="group/ref relative block h-12 w-12 overflow-hidden rounded-lg border border-white/20 transition hover:scale-105 hover:border-[#22d3ee]"
+                          title="Открыть референс в новой вкладке"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={u} alt="" className="h-full w-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
                   </div>
-                ) : null}
-                <div>
-                  ID: <span className="text-white/60">{selected.id}</span>
+                )}
+
+                {/* Meta details */}
+                <div className="space-y-1 border-t border-white/10 pt-2.5 font-mono text-[10px] text-white/45">
+                  {selected.elapsed_label || selected.elapsed_sec != null ? (
+                    <div>
+                      Время генерации:{" "}
+                      <span className="font-semibold text-white/70">
+                        {selected.elapsed_label || formatElapsedMinSec(selected.elapsed_sec)}
+                      </span>
+                    </div>
+                  ) : null}
+                  <div>
+                    ID: <span className="text-white/60">{selected.id}</span>
+                  </div>
                 </div>
               </div>
             </div>

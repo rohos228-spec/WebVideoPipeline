@@ -1218,7 +1218,7 @@ MODELS: list[dict[str, Any]] = [
         "fields": [
             _f("customMode", "Свой режим (стиль/текст/название)", "toggle", default=True),
             _f("model", "Модель", "select", options=["V5_5", "V5"], default="V5_5"),
-            _prompt("Описание / текст песни"),
+            _prompt("Описание / текст песни", required=False),
             _f(
                 "style",
                 "Стиль",
