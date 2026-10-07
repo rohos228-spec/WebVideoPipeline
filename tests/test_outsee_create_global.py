@@ -13,7 +13,7 @@ def test_default_settings_keys(tmp_path: Path, monkeypatch):
     assert s["media_type"] == "image"
     assert s["image_slug"] == "gpt-image-2"
     assert s["video_slug"] == "sora-2"
-    assert s["audio_slug"] == "suno-5-5"
+    assert s["audio_slug"] == "kie:suno-music"
     assert "prompt" in s
 
 
