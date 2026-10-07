@@ -32,7 +32,14 @@ export type OutseeAudioModel = {
   isTop?: boolean;
   isNew?: boolean;
   chips: OutseeChip[];
-  defaults: { instrumental?: boolean; voice?: string; speed?: number };
+  defaults: {
+    instrumental?: boolean;
+    voice?: string;
+    speed?: number;
+    voice_id?: string;
+    stability?: number;
+    similarity?: number;
+  };
 };
 
 export type OutseeImageModel = {
@@ -402,15 +409,15 @@ export const OUTSEE_AUDIO_MODELS: OutseeAudioModel[] = [
     defaults: { instrumental: false },
   },
   {
-    slug: "elevenlabs-v3",
+    slug: "elevenlabs-v4",
     studioId: null,
-    displayName: "ElevenLabs",
-    description: "Реалистичная озвучка текста. Сотни голосов, десятки языков.",
+    displayName: "Озвучка ElevenLabs v4",
+    description: "Сверхреалистичная озвучка ElevenLabs v4 через WaveSpeed. 200 русских голосов, аудио-теги эмоций.",
     icon: `${OUTSEE_ORIGIN}/imagemobilepreview/elevenlabs.webp`,
-    price: "от 0.1",
+    price: "от 0.015",
     isNew: true,
     chips: [],
-    defaults: { voice: "Rachel", speed: 1 },
+    defaults: { voice_id: "ymDCYd8puC7gYjxIamPt", stability: 0.5, similarity: 0.75 },
   },
 ];
 
@@ -563,7 +570,9 @@ export function getAudioModel(slug: string): OutseeAudioModel {
   const clean = slug.replace(/^kie:/, "");
   return (
     OUTSEE_AUDIO_MODELS.find((m) => m.slug === slug || m.slug === clean) ??
-    (clean.includes("elevenlabs") ? OUTSEE_AUDIO_MODELS[1]! : OUTSEE_AUDIO_MODELS[0]!)
+    (clean.includes("elevenlabs") || clean.includes("v4")
+      ? OUTSEE_AUDIO_MODELS[1]!
+      : OUTSEE_AUDIO_MODELS[0]!)
   );
 }
 

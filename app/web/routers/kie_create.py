@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from loguru import logger
 
-from app.bots import kie_http
+from app.bots import kie_http, wavespeed_http
 from app.services import kie_catalog
 from app.services.create_jobs import enqueue_generation, get_job
 
@@ -31,6 +31,7 @@ async def get_catalog() -> dict[str, Any]:
         **kie_catalog.catalog_for_ui(),
         # Флаг готовности важен до первого вызова /generate.
         "configured": kie_http.kie_configured(),
+        "wavespeed_configured": wavespeed_http.wavespeed_configured(),
     }
 
 
@@ -106,7 +107,11 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
     errors = kie_catalog.validate_values(spec, values)
     if errors:
         raise HTTPException(status_code=422, detail="; ".join(errors[:6]))
-    if not kie_http.kie_configured():
+    is_wavespeed = spec.get("api") == "wavespeed"
+    if is_wavespeed:
+        if not wavespeed_http.wavespeed_configured():
+            raise HTTPException(status_code=503, detail="WaveSpeed API не настроен (WAVESPEED_API_KEY)")
+    elif not kie_http.kie_configured():
         raise HTTPException(status_code=503, detail="kie API не настроен (KIE_API_KEY)")
 
     payload = kie_catalog.build_payload(spec, values)
@@ -150,7 +155,9 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
 
     async def run(out_path: Path):
         try:
-            if result_kind == "text":
+            if is_wavespeed:
+                res = await wavespeed_http.run_generation(payload, out_path)
+            elif result_kind == "text":
                 task_id = await kie_http.create_task(str(spec.get("api")), spec.get("endpoint"), payload)
                 data = await kie_http.poll_task(str(spec.get("api")), task_id)
                 text = _find_text(data) or str(data)[:4000]
@@ -170,19 +177,20 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
                         cost_usd=cost_usd,
                         ref_table="create_generations",
                         ref_ids=[],
-                        memo=f"KIE генерация {media} ({spec['label']})",
+                        memo=f"{'WaveSpeed' if is_wavespeed else 'KIE'} генерация {media} ({spec['label']})",
                     )
             return res
         except Exception:
             if hold_id:
                 async with session_scope() as session:
-                    await cl.release_hold(session, hold_id, memo=f"Сбой KIE генерации {media}")
+                    await cl.release_hold(session, hold_id, memo=f"Сбой {'WaveSpeed' if is_wavespeed else 'KIE'} генерации {media}")
             raise
 
+    job_provider = "wavespeed" if is_wavespeed else "kie"
     job = await enqueue_generation(
         media=media,
         model=spec["label"],
-        provider="kie",
+        provider=job_provider,
         prompt=prompt,
         ext=ext,
         params={"model_id": model_id, "values": values},

@@ -19,7 +19,7 @@ def test_catalog_covers_categories() -> None:
     assert "suno-music" in by_cat["music"]
     assert "suno-sounds" in by_cat["sound"]
     assert "elevenlabs-sfx" in by_cat["sound"]
-    assert "elevenlabs-tts-turbo" in by_cat["voice"]
+    assert "elevenlabs-v4" in by_cat["voice"]
     assert "topaz-video-upscale" in by_cat["tools"]
     # у каждой модели есть цена по умолчанию и поля
     for m in cat["models"]:
@@ -56,10 +56,10 @@ def test_seedance_price_per_second_and_video_input() -> None:
 
 
 def test_tts_price_per_1k_chars() -> None:
-    tts = kc.get_model("elevenlabs-tts-turbo")
+    tts = kc.get_model("elevenlabs-v4")
     assert tts is not None
-    assert kc.estimate_credits(tts, {"text": "x" * 999})["credits"] == 6
-    assert kc.estimate_credits(tts, {"text": "x" * 2500})["credits"] == 18
+    assert kc.estimate_credits(tts, {"text": "x" * 999})["credits"] == 3
+    assert kc.estimate_credits(tts, {"text": "x" * 2500})["credits"] == 9
 
 
 def test_suno_flat_price() -> None:
@@ -190,9 +190,8 @@ def test_build_payload_veo_duration_int() -> None:
 
 
 def test_build_payload_dialogue_lines() -> None:
-    dlg = kc.get_model("elevenlabs-dialogue-v3")
-    assert dlg is not None
-    body = kc.build_payload(dlg, {"dialogue": "Rachel | Привет\nAdam | И тебе привет"})
+    spec = {"api": "jobs", "fields": [kc._f("dialogue", "Диалог", "dialogue")]}
+    body = kc.build_payload(spec, {"dialogue": "Rachel | Привет\nAdam | И тебе привет"})
     items = body["input"]["dialogue"]
     assert items == [
         {"voice": "Rachel", "text": "Привет"},
