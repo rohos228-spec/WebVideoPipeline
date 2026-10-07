@@ -1,0 +1,1802 @@
+[
+  {
+    "id": "ymDCYd8puC7gYjxIamPt",
+    "index": 1,
+    "name": "Marina",
+    "description": "Soft Clear and Warm",
+    "gender": "female",
+    "filename": "001_Marina_-_Soft_Clear_and_Warm_ymDCYd8puC7gYjxIamPt.mp3",
+    "sample_url": "/api/voices/ymDCYd8puC7gYjxIamPt/sample"
+  },
+  {
+    "id": "EDpEYNf6XIeKYRzYcx4I",
+    "index": 2,
+    "name": "Mariia",
+    "description": "Measured Calm and Engaging",
+    "gender": "female",
+    "filename": "002_Mariia_-_Measured_Calm_and_Engaging_EDpEYNf6XIeKYRzYcx4I.mp3",
+    "sample_url": "/api/voices/EDpEYNf6XIeKYRzYcx4I/sample"
+  },
+  {
+    "id": "AB9XsbSA4eLG12t2myjN",
+    "index": 3,
+    "name": "Larisa Actrisa",
+    "description": "Confident and Clear",
+    "gender": "female",
+    "filename": "003_Larisa_Actrisa_-_Confident_and_Clear_AB9XsbSA4eLG12t2myjN.mp3",
+    "sample_url": "/api/voices/AB9XsbSA4eLG12t2myjN/sample"
+  },
+  {
+    "id": "ycbyWsnf4hqZgdpKHqiU",
+    "index": 4,
+    "name": "Rina",
+    "description": "Soft Clear and Comforting",
+    "gender": "female",
+    "filename": "004_Rina_-_Soft__Clear_and_Comforting_ycbyWsnf4hqZgdpKHqiU.mp3",
+    "sample_url": "/api/voices/ycbyWsnf4hqZgdpKHqiU/sample"
+  },
+  {
+    "id": "7G0NvIkWRnU0Dqjgz13p",
+    "index": 5,
+    "name": "Kate",
+    "description": "Calm Natural and Versatile",
+    "gender": "female",
+    "filename": "005_Kate_-_Calm_Natural_and_Versatile_7G0NvIkWRnU0Dqjgz13p.mp3",
+    "sample_url": "/api/voices/7G0NvIkWRnU0Dqjgz13p/sample"
+  },
+  {
+    "id": "gedzfqL7OGdPbwm0ynTP",
+    "index": 6,
+    "name": "Nadia",
+    "description": "Energetic Clear and Polished",
+    "gender": "female",
+    "filename": "006_Nadia_-_Energetic_Clear_and__Polished_gedzfqL7OGdPbwm0ynTP.mp3",
+    "sample_url": "/api/voices/gedzfqL7OGdPbwm0ynTP/sample"
+  },
+  {
+    "id": "GN4wbsbejSnGSa1AzjH5",
+    "index": 7,
+    "name": "Ekaterina",
+    "description": "Soft Silky and Tender",
+    "gender": "female",
+    "filename": "007_Ekaterina_-_Soft_Silky_and_Tender_GN4wbsbejSnGSa1AzjH5.mp3",
+    "sample_url": "/api/voices/GN4wbsbejSnGSa1AzjH5/sample"
+  },
+  {
+    "id": "5dORE7Khzn5FlSDUvuHn",
+    "index": 8,
+    "name": "Guldana",
+    "description": "Calm and Natural",
+    "gender": "female",
+    "filename": "008_Guldana_-_Calm_and_Natural_5dORE7Khzn5FlSDUvuHn.mp3",
+    "sample_url": "/api/voices/5dORE7Khzn5FlSDUvuHn/sample"
+  },
+  {
+    "id": "Jbte7ht1CqapnZvc4KpK",
+    "index": 9,
+    "name": "Kari",
+    "description": "Friendly Warm and Engaging",
+    "gender": "female",
+    "filename": "009_Kari_-_Friendly_Warm_and_Engaging_Jbte7ht1CqapnZvc4KpK.mp3",
+    "sample_url": "/api/voices/Jbte7ht1CqapnZvc4KpK/sample"
+  },
+  {
+    "id": "YjESejviApN7SHrbfnA2",
+    "index": 10,
+    "name": "Nastya",
+    "description": "",
+    "gender": "female",
+    "filename": "010_Nastya_YjESejviApN7SHrbfnA2.mp3",
+    "sample_url": "/api/voices/YjESejviApN7SHrbfnA2/sample"
+  },
+  {
+    "id": "IO0VLmDxIb8N5msewtV4",
+    "index": 11,
+    "name": "Anna Sokolova",
+    "description": "Vibrant and Uplifting",
+    "gender": "female",
+    "filename": "011_Anna_Sokolova_-_Vibrant_and_Uplifting_IO0VLmDxIb8N5msewtV4.mp3",
+    "sample_url": "/api/voices/IO0VLmDxIb8N5msewtV4/sample"
+  },
+  {
+    "id": "FZGeNF7bE3syeQOynDKC",
+    "index": 12,
+    "name": "Victoria",
+    "description": "Engaging and Expressive",
+    "gender": "female",
+    "filename": "012_Victoria_-_Engaging_and_Expressive_FZGeNF7bE3syeQOynDKC.mp3",
+    "sample_url": "/api/voices/FZGeNF7bE3syeQOynDKC/sample"
+  },
+  {
+    "id": "tHvkdDYIKRZSsD8v6JWR",
+    "index": 13,
+    "name": "Irina",
+    "description": "Soft Warm and Gentle",
+    "gender": "female",
+    "filename": "013_Irina_-_Soft_Warm_and_Gentle_tHvkdDYIKRZSsD8v6JWR.mp3",
+    "sample_url": "/api/voices/tHvkdDYIKRZSsD8v6JWR/sample"
+  },
+  {
+    "id": "xyu8HSCv1JYrhLx4m8UG",
+    "index": 14,
+    "name": "Ariana",
+    "description": "Energetic and Inspiring",
+    "gender": "female",
+    "filename": "014_Ariana__-_Energetic_and_Inspiring_xyu8HSCv1JYrhLx4m8UG.mp3",
+    "sample_url": "/api/voices/xyu8HSCv1JYrhLx4m8UG/sample"
+  },
+  {
+    "id": "d60rsXo2p0OwikDR5bS7",
+    "index": 15,
+    "name": "Olga Orlova",
+    "description": "Clear and Engaging",
+    "gender": "female",
+    "filename": "015_Olga_Orlova_-_Clear_and_Engaging_d60rsXo2p0OwikDR5bS7.mp3",
+    "sample_url": "/api/voices/d60rsXo2p0OwikDR5bS7/sample"
+  },
+  {
+    "id": "sNQyZH8Wfcnv7zh3rHxR",
+    "index": 16,
+    "name": "Marusya G",
+    "description": "Trusted Customer Care",
+    "gender": "female",
+    "filename": "016_Marusya_G__Trusted_Customer_Care_sNQyZH8Wfcnv7zh3rHxR.mp3",
+    "sample_url": "/api/voices/sNQyZH8Wfcnv7zh3rHxR/sample"
+  },
+  {
+    "id": "tOo2BJ74frmnPadsDNIi",
+    "index": 17,
+    "name": "Kate",
+    "description": "Calm Friendly and Clear",
+    "gender": "female",
+    "filename": "017_Kate_-_Calm_Friendly_and_Clear_tOo2BJ74frmnPadsDNIi.mp3",
+    "sample_url": "/api/voices/tOo2BJ74frmnPadsDNIi/sample"
+  },
+  {
+    "id": "dHAwRJVaEPhU907QLTPW",
+    "index": 18,
+    "name": "Natalia",
+    "description": "Gentle and Soothing",
+    "gender": "female",
+    "filename": "018_Natalia_-_Gentle_and_Soothing_dHAwRJVaEPhU907QLTPW.mp3",
+    "sample_url": "/api/voices/dHAwRJVaEPhU907QLTPW/sample"
+  },
+  {
+    "id": "N8lIVPsFkvOoqev5Csxo",
+    "index": 19,
+    "name": "Nina",
+    "description": "Soft Gentle and Grounding",
+    "gender": "female",
+    "filename": "019_Nina_-_Soft_Gentle_and_Grounding_N8lIVPsFkvOoqev5Csxo.mp3",
+    "sample_url": "/api/voices/N8lIVPsFkvOoqev5Csxo/sample"
+  },
+  {
+    "id": "gelrownZgbRhxH6LI78J",
+    "index": 20,
+    "name": "Vika Grib",
+    "description": "Natural Clear and Friendly",
+    "gender": "female",
+    "filename": "020_Vika_Grib_-_Natural_Clear_and_Friendly_gelrownZgbRhxH6LI78J.mp3",
+    "sample_url": "/api/voices/gelrownZgbRhxH6LI78J/sample"
+  },
+  {
+    "id": "0ArNnoIAWKlT4WweaVMY",
+    "index": 21,
+    "name": "Elena Gromova",
+    "description": "Podcasts Conversation",
+    "gender": "female",
+    "filename": "021_Elena_Gromova__Podcasts__Conversation_0ArNnoIAWKlT4WweaVMY.mp3",
+    "sample_url": "/api/voices/0ArNnoIAWKlT4WweaVMY/sample"
+  },
+  {
+    "id": "D5RRIJYa9pFwxiSpbGbR",
+    "index": 22,
+    "name": "Victoria",
+    "description": "Warm Cinematic",
+    "gender": "female",
+    "filename": "022_Victoria_-_Warm__Cinematic_D5RRIJYa9pFwxiSpbGbR.mp3",
+    "sample_url": "/api/voices/D5RRIJYa9pFwxiSpbGbR/sample"
+  },
+  {
+    "id": "dVRDrbP5ULGXB94se4KZ",
+    "index": 23,
+    "name": "Alina",
+    "description": "Youthful Dynamic and Clear",
+    "gender": "female",
+    "filename": "023_Alina_-_Youthful_Dynamic_and_Clear_dVRDrbP5ULGXB94se4KZ.mp3",
+    "sample_url": "/api/voices/dVRDrbP5ULGXB94se4KZ/sample"
+  },
+  {
+    "id": "OowtKaZH9N7iuGbsd00l",
+    "index": 24,
+    "name": "Veronica",
+    "description": "Energetic Clear and Rich",
+    "gender": "female",
+    "filename": "024_Veronica_-_Energetic_Clear_and_Rich_OowtKaZH9N7iuGbsd00l.mp3",
+    "sample_url": "/api/voices/OowtKaZH9N7iuGbsd00l/sample"
+  },
+  {
+    "id": "TPIitICAZ8CqlGZ81AKm",
+    "index": 25,
+    "name": "Elen Kuragina",
+    "description": "Golden Dangerous",
+    "gender": "female",
+    "filename": "025_Elen_Kuragina__Golden__Dangerous_TPIitICAZ8CqlGZ81AKm.mp3",
+    "sample_url": "/api/voices/TPIitICAZ8CqlGZ81AKm/sample"
+  },
+  {
+    "id": "8M81RK3MD7u4DOJpu2G5",
+    "index": 26,
+    "name": "Viktoriia",
+    "description": "Energetic and Inviting",
+    "gender": "female",
+    "filename": "026_Viktoriia_-_Energetic_and_Inviting_8M81RK3MD7u4DOJpu2G5.mp3",
+    "sample_url": "/api/voices/8M81RK3MD7u4DOJpu2G5/sample"
+  },
+  {
+    "id": "ELWVgJ5Mo9lF5Tha9ahW",
+    "index": 27,
+    "name": "Arina",
+    "description": "",
+    "gender": "female",
+    "filename": "027_Arina_ELWVgJ5Mo9lF5Tha9ahW.mp3",
+    "sample_url": "/api/voices/ELWVgJ5Mo9lF5Tha9ahW/sample"
+  },
+  {
+    "id": "FnNYfPjyvZwLwb043Kl1",
+    "index": 28,
+    "name": "Paula",
+    "description": "Clear and Confident",
+    "gender": "female",
+    "filename": "028_Paula_-_Clear_and_Confident_FnNYfPjyvZwLwb043Kl1.mp3",
+    "sample_url": "/api/voices/FnNYfPjyvZwLwb043Kl1/sample"
+  },
+  {
+    "id": "t6lBrEl93uCiLR1Lgm8v",
+    "index": 29,
+    "name": "Alisa",
+    "description": "Natural Russian Female",
+    "gender": "female",
+    "filename": "029_Alisa_-_Natural_Russian_Female_t6lBrEl93uCiLR1Lgm8v.mp3",
+    "sample_url": "/api/voices/t6lBrEl93uCiLR1Lgm8v/sample"
+  },
+  {
+    "id": "KzqxCy7zSSePwgb1Cz0Q",
+    "index": 30,
+    "name": "Liza",
+    "description": "",
+    "gender": "female",
+    "filename": "030_Liza_KzqxCy7zSSePwgb1Cz0Q.mp3",
+    "sample_url": "/api/voices/KzqxCy7zSSePwgb1Cz0Q/sample"
+  },
+  {
+    "id": "hLjwV7lYzk15SWLUmhEH",
+    "index": 31,
+    "name": "Marusya G",
+    "description": "Slow Romantic Storytelling",
+    "gender": "female",
+    "filename": "031_Marusya_G__Slow_Romantic_Storytelling_hLjwV7lYzk15SWLUmhEH.mp3",
+    "sample_url": "/api/voices/hLjwV7lYzk15SWLUmhEH/sample"
+  },
+  {
+    "id": "foZmP0ldhGob3fHgegm1",
+    "index": 32,
+    "name": "Sweetie Fox",
+    "description": "Smooth and Warm",
+    "gender": "female",
+    "filename": "032_Sweetie_Fox_-_Smooth_and_Warm_foZmP0ldhGob3fHgegm1.mp3",
+    "sample_url": "/api/voices/foZmP0ldhGob3fHgegm1/sample"
+  },
+  {
+    "id": "d5ruruBhXNbnS7Va7n23",
+    "index": 33,
+    "name": "Anna",
+    "description": "",
+    "gender": "female",
+    "filename": "033_Anna_d5ruruBhXNbnS7Va7n23.mp3",
+    "sample_url": "/api/voices/d5ruruBhXNbnS7Va7n23/sample"
+  },
+  {
+    "id": "rSfuQoQ3FY8SVKeraMAp",
+    "index": 34,
+    "name": "Lunya",
+    "description": "Little Fairy",
+    "gender": "female",
+    "filename": "034_Lunya_-_Little_Fairy_rSfuQoQ3FY8SVKeraMAp.mp3",
+    "sample_url": "/api/voices/rSfuQoQ3FY8SVKeraMAp/sample"
+  },
+  {
+    "id": "Iduk5qRebfio4TewEnQg",
+    "index": 35,
+    "name": "Weronika Uszko",
+    "description": "Soft Gentle and Loving",
+    "gender": "female",
+    "filename": "035_Weronika_Uszko_-_Soft_Gentle_and_Loving_Iduk5qRebfio4TewEnQg.mp3",
+    "sample_url": "/api/voices/Iduk5qRebfio4TewEnQg/sample"
+  },
+  {
+    "id": "5X91H1Ba65xNiFpKbcg0",
+    "index": 36,
+    "name": "Aria",
+    "description": "Confident Expressive and Natural",
+    "gender": "female",
+    "filename": "036_Aria_-_Confident_Expressive_and_Natural_5X91H1Ba65xNiFpKbcg0.mp3",
+    "sample_url": "/api/voices/5X91H1Ba65xNiFpKbcg0/sample"
+  },
+  {
+    "id": "BE01v3e9mZOvL75SsISY",
+    "index": 37,
+    "name": "Nataly Vershinina",
+    "description": "Calm Friendly",
+    "gender": "female",
+    "filename": "037_Nataly_Vershinina_-_Calm__Friendly_BE01v3e9mZOvL75SsISY.mp3",
+    "sample_url": "/api/voices/BE01v3e9mZOvL75SsISY/sample"
+  },
+  {
+    "id": "NhY0kyTmsKuEpHvDMngm",
+    "index": 38,
+    "name": "Nataly",
+    "description": "Youthful Gentle and Soft",
+    "gender": "female",
+    "filename": "038_Nataly_-_Youthful_Gentle_and_Soft_NhY0kyTmsKuEpHvDMngm.mp3",
+    "sample_url": "/api/voices/NhY0kyTmsKuEpHvDMngm/sample"
+  },
+  {
+    "id": "8oyYKsAD3g8uVOXOQB4Z",
+    "index": 39,
+    "name": "Elena",
+    "description": "Calm and Confident",
+    "gender": "female",
+    "filename": "039_Elena_-_Calm_and_Confident_8oyYKsAD3g8uVOXOQB4Z.mp3",
+    "sample_url": "/api/voices/8oyYKsAD3g8uVOXOQB4Z/sample"
+  },
+  {
+    "id": "USJ5Rjf2LwNEcibI3sN4",
+    "index": 40,
+    "name": "Alina",
+    "description": "Calm and Natural",
+    "gender": "female",
+    "filename": "040_Alina_-_Calm_and_Natural_USJ5Rjf2LwNEcibI3sN4.mp3",
+    "sample_url": "/api/voices/USJ5Rjf2LwNEcibI3sN4/sample"
+  },
+  {
+    "id": "QSM8BzHrVEW9vi9xYs4U",
+    "index": 41,
+    "name": "Olga Nady",
+    "description": "Friendly and Engaging",
+    "gender": "female",
+    "filename": "041_Olga_Nady_-_Friendly_and_Engaging_QSM8BzHrVEW9vi9xYs4U.mp3",
+    "sample_url": "/api/voices/QSM8BzHrVEW9vi9xYs4U/sample"
+  },
+  {
+    "id": "WfExDXCt2GBg6MI5KjQk",
+    "index": 42,
+    "name": "Kate",
+    "description": "Soft Warm and Engaging",
+    "gender": "female",
+    "filename": "042_Kate_-_Soft_Warm_and__Engaging_WfExDXCt2GBg6MI5KjQk.mp3",
+    "sample_url": "/api/voices/WfExDXCt2GBg6MI5KjQk/sample"
+  },
+  {
+    "id": "wUndevsXFk0ArF7vJ61U",
+    "index": 43,
+    "name": "Polina",
+    "description": "Confident and Friendly",
+    "gender": "female",
+    "filename": "043_Polina_-_Confident_and_Friendly_wUndevsXFk0ArF7vJ61U.mp3",
+    "sample_url": "/api/voices/wUndevsXFk0ArF7vJ61U/sample"
+  },
+  {
+    "id": "grmBv5c5ZJVFgXpRWyp7",
+    "index": 44,
+    "name": "Daria Reels",
+    "description": "Clear Warm and Friendly",
+    "gender": "female",
+    "filename": "044_Daria_Reels_-_Clear_Warm_and_Friendly_grmBv5c5ZJVFgXpRWyp7.mp3",
+    "sample_url": "/api/voices/grmBv5c5ZJVFgXpRWyp7/sample"
+  },
+  {
+    "id": "9AE7A1Ivnw8jKr8Us0ch",
+    "index": 45,
+    "name": "Morna",
+    "description": "Realistic Narrative",
+    "gender": "female",
+    "filename": "045_Morna_-_Realistic_Narrative_9AE7A1Ivnw8jKr8Us0ch.mp3",
+    "sample_url": "/api/voices/9AE7A1Ivnw8jKr8Us0ch/sample"
+  },
+  {
+    "id": "dJLURfd0OIfcFXn6H1Hq",
+    "index": 46,
+    "name": "Elena Tymanova",
+    "description": "",
+    "gender": "female",
+    "filename": "046_Elena_Tymanova_dJLURfd0OIfcFXn6H1Hq.mp3",
+    "sample_url": "/api/voices/dJLURfd0OIfcFXn6H1Hq/sample"
+  },
+  {
+    "id": "Jhqrj1kYppTq06Kj3KFa",
+    "index": 47,
+    "name": "Mishki",
+    "description": "Gentle Warm and Subtle",
+    "gender": "female",
+    "filename": "047_Mishki_-_Gentle_Warm_and_Subtle_Jhqrj1kYppTq06Kj3KFa.mp3",
+    "sample_url": "/api/voices/Jhqrj1kYppTq06Kj3KFa/sample"
+  },
+  {
+    "id": "CyTGUdVCJxZchT29M6W1",
+    "index": 48,
+    "name": "Valeria",
+    "description": "",
+    "gender": "female",
+    "filename": "048_Valeria_CyTGUdVCJxZchT29M6W1.mp3",
+    "sample_url": "/api/voices/CyTGUdVCJxZchT29M6W1/sample"
+  },
+  {
+    "id": "ETBmMkYUh8i2exSl2h3P",
+    "index": 49,
+    "name": "Molly",
+    "description": "Full Clear and Engaging",
+    "gender": "female",
+    "filename": "049_Molly_-_Full_Clear_and_Engaging_ETBmMkYUh8i2exSl2h3P.mp3",
+    "sample_url": "/api/voices/ETBmMkYUh8i2exSl2h3P/sample"
+  },
+  {
+    "id": "9eaLrh9YGK2eNwzX4htv",
+    "index": 50,
+    "name": "Mira",
+    "description": "Gentle Russian ASMR Charm",
+    "gender": "female",
+    "filename": "050_Mira_-_Gentle_Russian_ASMR_Charm_9eaLrh9YGK2eNwzX4htv.mp3",
+    "sample_url": "/api/voices/9eaLrh9YGK2eNwzX4htv/sample"
+  },
+  {
+    "id": "CamFZN2KIaqnyvcaFe3E",
+    "index": 51,
+    "name": "Lisa",
+    "description": "Confident with Emotions",
+    "gender": "female",
+    "filename": "051_Lisa_-_Confident_with_Emotions_CamFZN2KIaqnyvcaFe3E.mp3",
+    "sample_url": "/api/voices/CamFZN2KIaqnyvcaFe3E/sample"
+  },
+  {
+    "id": "rxEz5E7hIAPk7D3bXwf6",
+    "index": 52,
+    "name": "Anna",
+    "description": "Gentle Soft and Calm",
+    "gender": "female",
+    "filename": "052_Anna_-_Gentle_Soft_and_Calm_rxEz5E7hIAPk7D3bXwf6.mp3",
+    "sample_url": "/api/voices/rxEz5E7hIAPk7D3bXwf6/sample"
+  },
+  {
+    "id": "DqxytKNFqOw7mkrURtr9",
+    "index": 53,
+    "name": "Angelina",
+    "description": "Clear Friendly",
+    "gender": "female",
+    "filename": "053_Angelina_-_Clear__Friendly_DqxytKNFqOw7mkrURtr9.mp3",
+    "sample_url": "/api/voices/DqxytKNFqOw7mkrURtr9/sample"
+  },
+  {
+    "id": "Qd4oZ0qGYYI8dkiby8he",
+    "index": 54,
+    "name": "Elana",
+    "description": "Calm Professional narrator",
+    "gender": "female",
+    "filename": "054_Elana_-_Calm_Professional_narrator_Qd4oZ0qGYYI8dkiby8he.mp3",
+    "sample_url": "/api/voices/Qd4oZ0qGYYI8dkiby8he/sample"
+  },
+  {
+    "id": "C3FusDjPequ6qFchqpzu",
+    "index": 55,
+    "name": "Ekaterina",
+    "description": "Pleasant and Natural",
+    "gender": "female",
+    "filename": "055_Ekaterina_-_Pleasant_and_Natural_C3FusDjPequ6qFchqpzu.mp3",
+    "sample_url": "/api/voices/C3FusDjPequ6qFchqpzu/sample"
+  },
+  {
+    "id": "VoBd7zVr0BH5801wSV26",
+    "index": 56,
+    "name": "Mariya Lyapina",
+    "description": "Gentle and Soft",
+    "gender": "female",
+    "filename": "056_Mariya_Lyapina_-_Gentle_and_Soft_VoBd7zVr0BH5801wSV26.mp3",
+    "sample_url": "/api/voices/VoBd7zVr0BH5801wSV26/sample"
+  },
+  {
+    "id": "vuNZmDbZQL5O5ICGoxGl",
+    "index": 57,
+    "name": "Lika Ermakova",
+    "description": "Content Podcast",
+    "gender": "female",
+    "filename": "057_Lika_Ermakova_-_Content__Podcast_vuNZmDbZQL5O5ICGoxGl.mp3",
+    "sample_url": "/api/voices/vuNZmDbZQL5O5ICGoxGl/sample"
+  },
+  {
+    "id": "gCqVHuQpLDMkHrGiG95I",
+    "index": 58,
+    "name": "Tatiana",
+    "description": "Lively bright vibrant",
+    "gender": "female",
+    "filename": "058_Tatiana_-_Lively_bright__vibrant_gCqVHuQpLDMkHrGiG95I.mp3",
+    "sample_url": "/api/voices/gCqVHuQpLDMkHrGiG95I/sample"
+  },
+  {
+    "id": "jF2jkOwefhvnRzZHn0sl",
+    "index": 59,
+    "name": "Olga",
+    "description": "Elegant Russian",
+    "gender": "female",
+    "filename": "059_Olga_-_Elegant_Russian_jF2jkOwefhvnRzZHn0sl.mp3",
+    "sample_url": "/api/voices/jF2jkOwefhvnRzZHn0sl/sample"
+  },
+  {
+    "id": "ZAs871VKqeAhWHigmemn",
+    "index": 60,
+    "name": "Lea Wander",
+    "description": "",
+    "gender": "female",
+    "filename": "060_Lea_Wander_ZAs871VKqeAhWHigmemn.mp3",
+    "sample_url": "/api/voices/ZAs871VKqeAhWHigmemn/sample"
+  },
+  {
+    "id": "DRq7OA7TNXw4sq8gNxGw",
+    "index": 61,
+    "name": "Ivanna",
+    "description": "",
+    "gender": "female",
+    "filename": "061_Ivanna_DRq7OA7TNXw4sq8gNxGw.mp3",
+    "sample_url": "/api/voices/DRq7OA7TNXw4sq8gNxGw/sample"
+  },
+  {
+    "id": "KCMUAIa052X5Q1ELYugC",
+    "index": 62,
+    "name": "Bayan",
+    "description": "",
+    "gender": "female",
+    "filename": "062_Bayan_KCMUAIa052X5Q1ELYugC.mp3",
+    "sample_url": "/api/voices/KCMUAIa052X5Q1ELYugC/sample"
+  },
+  {
+    "id": "q22qntNqQAvTaBoqE089",
+    "index": 63,
+    "name": "Anna",
+    "description": "Melancholic and Reflective",
+    "gender": "female",
+    "filename": "063_Anna_-_Melancholic_and_Reflective_q22qntNqQAvTaBoqE089.mp3",
+    "sample_url": "/api/voices/q22qntNqQAvTaBoqE089/sample"
+  },
+  {
+    "id": "Phc1KhVrCoW3CD0K7bUS",
+    "index": 64,
+    "name": "Victoria",
+    "description": "Warm Female Narrator",
+    "gender": "female",
+    "filename": "064_Victoria_-_Warm_Female_Narrator_Phc1KhVrCoW3CD0K7bUS.mp3",
+    "sample_url": "/api/voices/Phc1KhVrCoW3CD0K7bUS/sample"
+  },
+  {
+    "id": "deqzqEZ3ngCdcOl0jF1F",
+    "index": 65,
+    "name": "Anna Zub",
+    "description": "Warm Multilingual Narrator",
+    "gender": "female",
+    "filename": "065_Anna_Zub_-_Warm_Multilingual_Narrator_deqzqEZ3ngCdcOl0jF1F.mp3",
+    "sample_url": "/api/voices/deqzqEZ3ngCdcOl0jF1F/sample"
+  },
+  {
+    "id": "uQiZyJqZ7ePaB8bwME8n",
+    "index": 66,
+    "name": "Marusya G",
+    "description": "Persuasive Outbound Caller",
+    "gender": "female",
+    "filename": "066_Marusya_G_-_Persuasive_Outbound_Caller_uQiZyJqZ7ePaB8bwME8n.mp3",
+    "sample_url": "/api/voices/uQiZyJqZ7ePaB8bwME8n/sample"
+  },
+  {
+    "id": "MOgsVr0EwwxqQs5cNDhu",
+    "index": 67,
+    "name": "Julia",
+    "description": "",
+    "gender": "female",
+    "filename": "067_Julia_MOgsVr0EwwxqQs5cNDhu.mp3",
+    "sample_url": "/api/voices/MOgsVr0EwwxqQs5cNDhu/sample"
+  },
+  {
+    "id": "lZSeoYcz4phdvms888pn",
+    "index": 68,
+    "name": "Nadya",
+    "description": "Calm Meditative",
+    "gender": "female",
+    "filename": "068_Nadya_-_Calm__Meditative_lZSeoYcz4phdvms888pn.mp3",
+    "sample_url": "/api/voices/lZSeoYcz4phdvms888pn/sample"
+  },
+  {
+    "id": "4wCq08d6nxISFn1sapcm",
+    "index": 69,
+    "name": "Margo",
+    "description": "Clear Energetic and Confident",
+    "gender": "female",
+    "filename": "069_Margo_-_Clear_Energetic_and_Confident_4wCq08d6nxISFn1sapcm.mp3",
+    "sample_url": "/api/voices/4wCq08d6nxISFn1sapcm/sample"
+  },
+  {
+    "id": "7bZhyIZ2kvtWyP0oF21m",
+    "index": 70,
+    "name": "Mary",
+    "description": "Clear Natural and Friendly",
+    "gender": "female",
+    "filename": "070_Mary_-_Clear_Natural_and_Friendly_7bZhyIZ2kvtWyP0oF21m.mp3",
+    "sample_url": "/api/voices/7bZhyIZ2kvtWyP0oF21m/sample"
+  },
+  {
+    "id": "ScaQ3utur72x93jqMMeU",
+    "index": 71,
+    "name": "Elena",
+    "description": "Warm Calm Clear",
+    "gender": "female",
+    "filename": "071_Elena_-_Warm_Calm__Clear_ScaQ3utur72x93jqMMeU.mp3",
+    "sample_url": "/api/voices/ScaQ3utur72x93jqMMeU/sample"
+  },
+  {
+    "id": "LnVjo8G5DvChrQ8AOz0B",
+    "index": 72,
+    "name": "Polina",
+    "description": "",
+    "gender": "female",
+    "filename": "072_Polina_LnVjo8G5DvChrQ8AOz0B.mp3",
+    "sample_url": "/api/voices/LnVjo8G5DvChrQ8AOz0B/sample"
+  },
+  {
+    "id": "2phQmOHtyk7rkOtxvxKO",
+    "index": 73,
+    "name": "Guzel",
+    "description": "Warm Cinematic",
+    "gender": "female",
+    "filename": "073_Guzel_-_Warm__Cinematic_2phQmOHtyk7rkOtxvxKO.mp3",
+    "sample_url": "/api/voices/2phQmOHtyk7rkOtxvxKO/sample"
+  },
+  {
+    "id": "xcVbjGhhLIoKi3va6mAe",
+    "index": 74,
+    "name": "Viktoriya Voloshina",
+    "description": "Curious Educator",
+    "gender": "female",
+    "filename": "074_Viktoriya_Voloshina_-_Curious_Educator_xcVbjGhhLIoKi3va6mAe.mp3",
+    "sample_url": "/api/voices/xcVbjGhhLIoKi3va6mAe/sample"
+  },
+  {
+    "id": "Y51IzTOMMMCHhLdE0YPt",
+    "index": 75,
+    "name": "Adrianna",
+    "description": "",
+    "gender": "female",
+    "filename": "075_Adrianna_Y51IzTOMMMCHhLdE0YPt.mp3",
+    "sample_url": "/api/voices/Y51IzTOMMMCHhLdE0YPt/sample"
+  },
+  {
+    "id": "nkvv6waLzFah2jTNUZGT",
+    "index": 76,
+    "name": "Tatyana Voloshina",
+    "description": "Dramatic Rich",
+    "gender": "female",
+    "filename": "076_Tatyana_Voloshina_-_Dramatic_Rich_nkvv6waLzFah2jTNUZGT.mp3",
+    "sample_url": "/api/voices/nkvv6waLzFah2jTNUZGT/sample"
+  },
+  {
+    "id": "YBv3qORio413NF5T7j3N",
+    "index": 77,
+    "name": "Delia Mav",
+    "description": "Warm Insightful",
+    "gender": "female",
+    "filename": "077_Delia_Mav_-_Warm__Insightful_YBv3qORio413NF5T7j3N.mp3",
+    "sample_url": "/api/voices/YBv3qORio413NF5T7j3N/sample"
+  },
+  {
+    "id": "UYZqvOo3UbMJnXLVi102",
+    "index": 78,
+    "name": "Anja",
+    "description": "",
+    "gender": "female",
+    "filename": "078_Anja_UYZqvOo3UbMJnXLVi102.mp3",
+    "sample_url": "/api/voices/UYZqvOo3UbMJnXLVi102/sample"
+  },
+  {
+    "id": "vZopxKc6jrT5l48V9W5w",
+    "index": 79,
+    "name": "Xenia",
+    "description": "StoryTeller",
+    "gender": "female",
+    "filename": "079_Xenia-_StoryTeller_vZopxKc6jrT5l48V9W5w.mp3",
+    "sample_url": "/api/voices/vZopxKc6jrT5l48V9W5w/sample"
+  },
+  {
+    "id": "PZhi1QpQl0Z9H9WfRfYS",
+    "index": 80,
+    "name": "Svetlana",
+    "description": "Childrens Storyteller",
+    "gender": "female",
+    "filename": "080_Svetlana_-_Childrens_Storyteller_PZhi1QpQl0Z9H9WfRfYS.mp3",
+    "sample_url": "/api/voices/PZhi1QpQl0Z9H9WfRfYS/sample"
+  },
+  {
+    "id": "6gs4Nc3jAINHpczl2vtf",
+    "index": 81,
+    "name": "Marusya G",
+    "description": "Expressive Feedback Agent",
+    "gender": "female",
+    "filename": "081_Marusya_G_-_Expressive_Feedback_Agent_6gs4Nc3jAINHpczl2vtf.mp3",
+    "sample_url": "/api/voices/6gs4Nc3jAINHpczl2vtf/sample"
+  },
+  {
+    "id": "Y0V07mIL80pbF1F9EtCf",
+    "index": 82,
+    "name": "Anastasia",
+    "description": "Calm Friendly",
+    "gender": "female",
+    "filename": "082_Anastasia_-_Calm__Friendly_Y0V07mIL80pbF1F9EtCf.mp3",
+    "sample_url": "/api/voices/Y0V07mIL80pbF1F9EtCf/sample"
+  },
+  {
+    "id": "sk83Bye6Z8drwXh0KBFz",
+    "index": 83,
+    "name": "Dasha",
+    "description": "Permium Podcast Host",
+    "gender": "female",
+    "filename": "083_Dasha_-_Permium_Podcast_Host_sk83Bye6Z8drwXh0KBFz.mp3",
+    "sample_url": "/api/voices/sk83Bye6Z8drwXh0KBFz/sample"
+  },
+  {
+    "id": "uZy6k5ZWEigWKQ7vOqbt",
+    "index": 84,
+    "name": "Anna",
+    "description": "Warm Natural Conversational",
+    "gender": "female",
+    "filename": "084_Anna_-_Warm_Natural_Conversational_uZy6k5ZWEigWKQ7vOqbt.mp3",
+    "sample_url": "/api/voices/uZy6k5ZWEigWKQ7vOqbt/sample"
+  },
+  {
+    "id": "IExsTwnJMk9vWMW4SzsN",
+    "index": 85,
+    "name": "Vera",
+    "description": "Calm Female Russian",
+    "gender": "female",
+    "filename": "085_Vera_-_Calm_Female_Russian_IExsTwnJMk9vWMW4SzsN.mp3",
+    "sample_url": "/api/voices/IExsTwnJMk9vWMW4SzsN/sample"
+  },
+  {
+    "id": "2HbD5Ppo0GFE4ojXPZjr",
+    "index": 86,
+    "name": "Ksenia Zorina",
+    "description": "Studio Host",
+    "gender": "female",
+    "filename": "086_Ksenia_Zorina_-_Studio_Host_2HbD5Ppo0GFE4ojXPZjr.mp3",
+    "sample_url": "/api/voices/2HbD5Ppo0GFE4ojXPZjr/sample"
+  },
+  {
+    "id": "3ViEvgeeWJAeDxRbdDw8",
+    "index": 87,
+    "name": "Guzel",
+    "description": "",
+    "gender": "female",
+    "filename": "087_Guzel_3ViEvgeeWJAeDxRbdDw8.mp3",
+    "sample_url": "/api/voices/3ViEvgeeWJAeDxRbdDw8/sample"
+  },
+  {
+    "id": "7VsVlkgkPKhWAimu09u0",
+    "index": 88,
+    "name": "Lexa",
+    "description": "Neutral tone",
+    "gender": "female",
+    "filename": "088_Lexa_-_Neutral_tone_7VsVlkgkPKhWAimu09u0.mp3",
+    "sample_url": "/api/voices/7VsVlkgkPKhWAimu09u0/sample"
+  },
+  {
+    "id": "9jJJUACs6rX09L5hWwmc",
+    "index": 89,
+    "name": "Rymma",
+    "description": "",
+    "gender": "female",
+    "filename": "089_Rymma_9jJJUACs6rX09L5hWwmc.mp3",
+    "sample_url": "/api/voices/9jJJUACs6rX09L5hWwmc/sample"
+  },
+  {
+    "id": "siMYRfAPBhRNMuBAmejC",
+    "index": 90,
+    "name": "Irina",
+    "description": "",
+    "gender": "female",
+    "filename": "090_Irina_siMYRfAPBhRNMuBAmejC.mp3",
+    "sample_url": "/api/voices/siMYRfAPBhRNMuBAmejC/sample"
+  },
+  {
+    "id": "YjYZWA1JjVPJcnWmCm0r",
+    "index": 91,
+    "name": "Vika",
+    "description": "",
+    "gender": "female",
+    "filename": "091_Vika_YjYZWA1JjVPJcnWmCm0r.mp3",
+    "sample_url": "/api/voices/YjYZWA1JjVPJcnWmCm0r/sample"
+  },
+  {
+    "id": "IfP8A5cbeh6QoSUPogHR",
+    "index": 92,
+    "name": "Olga",
+    "description": "Warm Authoritative Narrator",
+    "gender": "female",
+    "filename": "092_Olga_-_Warm__Authoritative_Narrator_IfP8A5cbeh6QoSUPogHR.mp3",
+    "sample_url": "/api/voices/IfP8A5cbeh6QoSUPogHR/sample"
+  },
+  {
+    "id": "pE8sMHXrztMIYxQiwRsK",
+    "index": 93,
+    "name": "Tatiana",
+    "description": "Warm Friendly Professional",
+    "gender": "female",
+    "filename": "093_Tatiana_-_Warm__Friendly_Professional_pE8sMHXrztMIYxQiwRsK.mp3",
+    "sample_url": "/api/voices/pE8sMHXrztMIYxQiwRsK/sample"
+  },
+  {
+    "id": "IVMZOQsSkbMceEYv4PlA",
+    "index": 94,
+    "name": "Yulia",
+    "description": "Healing Nurturing Peaceful",
+    "gender": "female",
+    "filename": "094_Yulia_-_Healing_Nurturing__Peaceful_IVMZOQsSkbMceEYv4PlA.mp3",
+    "sample_url": "/api/voices/IVMZOQsSkbMceEYv4PlA/sample"
+  },
+  {
+    "id": "rGufaEwBhhDY8qMzHbhl",
+    "index": 95,
+    "name": "Diamond",
+    "description": "Magical",
+    "gender": "female",
+    "filename": "095_Diamond_-_Magical_rGufaEwBhhDY8qMzHbhl.mp3",
+    "sample_url": "/api/voices/rGufaEwBhhDY8qMzHbhl/sample"
+  },
+  {
+    "id": "Faw29pzNFcku6fzqZEoj",
+    "index": 96,
+    "name": "Rid",
+    "description": "",
+    "gender": "female",
+    "filename": "096_Rid_Faw29pzNFcku6fzqZEoj.mp3",
+    "sample_url": "/api/voices/Faw29pzNFcku6fzqZEoj/sample"
+  },
+  {
+    "id": "oik5x6jBI6Xj6MPIciZU",
+    "index": 97,
+    "name": "Yasna",
+    "description": "",
+    "gender": "female",
+    "filename": "097_Yasna_oik5x6jBI6Xj6MPIciZU.mp3",
+    "sample_url": "/api/voices/oik5x6jBI6Xj6MPIciZU/sample"
+  },
+  {
+    "id": "CH4syTkdz0MNPn6zayBd",
+    "index": 98,
+    "name": "Masha",
+    "description": "Russian Female",
+    "gender": "female",
+    "filename": "098_Masha_-_Russian_Female_CH4syTkdz0MNPn6zayBd.mp3",
+    "sample_url": "/api/voices/CH4syTkdz0MNPn6zayBd/sample"
+  },
+  {
+    "id": "TRMl1111wzlQYmuEnHjC",
+    "index": 99,
+    "name": "Elena",
+    "description": "",
+    "gender": "female",
+    "filename": "099_Elena_TRMl1111wzlQYmuEnHjC.mp3",
+    "sample_url": "/api/voices/TRMl1111wzlQYmuEnHjC/sample"
+  },
+  {
+    "id": "bcxln4edSCV1QKAG3o1q",
+    "index": 100,
+    "name": "Irina Alisova",
+    "description": "",
+    "gender": "female",
+    "filename": "100_Irina_Alisova_bcxln4edSCV1QKAG3o1q.mp3",
+    "sample_url": "/api/voices/bcxln4edSCV1QKAG3o1q/sample"
+  },
+  {
+    "id": "3EuKHIEZbSzrHGNmdYsx",
+    "index": 1,
+    "name": "Nikolay",
+    "description": "Confident Clear and Engaging",
+    "gender": "male",
+    "filename": "001_Nikolay_-_Confident_Clear_and_Engaging_3EuKHIEZbSzrHGNmdYsx.mp3",
+    "sample_url": "/api/voices/3EuKHIEZbSzrHGNmdYsx/sample"
+  },
+  {
+    "id": "gJEfHTTiifXEDmO687lC",
+    "index": 2,
+    "name": "Prince Nur",
+    "description": "Deep Rich and Balanced",
+    "gender": "male",
+    "filename": "002_Prince_Nur_-_Deep_Rich_and_Balanced_gJEfHTTiifXEDmO687lC.mp3",
+    "sample_url": "/api/voices/gJEfHTTiifXEDmO687lC/sample"
+  },
+  {
+    "id": "txnCCHHGKmYIwrn7HfHQ",
+    "index": 3,
+    "name": "Alexandr Vlasov",
+    "description": "Vibrant and Energetic",
+    "gender": "male",
+    "filename": "003_Alexandr_Vlasov_-_Vibrant_and_Energetic_txnCCHHGKmYIwrn7HfHQ.mp3",
+    "sample_url": "/api/voices/txnCCHHGKmYIwrn7HfHQ/sample"
+  },
+  {
+    "id": "oKxkBkm5a8Bmrd1Whf2c",
+    "index": 4,
+    "name": "Prince Nur",
+    "description": "Smooth Rich and Engaging",
+    "gender": "male",
+    "filename": "004_Prince_Nur_-_Smooth_Rich_and_Engaging_oKxkBkm5a8Bmrd1Whf2c.mp3",
+    "sample_url": "/api/voices/oKxkBkm5a8Bmrd1Whf2c/sample"
+  },
+  {
+    "id": "kwajW3Xh5svCeKU5ky2S",
+    "index": 5,
+    "name": "Dmitry",
+    "description": "Clear and Energetic",
+    "gender": "male",
+    "filename": "005_Dmitry_-_Clear_and_Energetic_kwajW3Xh5svCeKU5ky2S.mp3",
+    "sample_url": "/api/voices/kwajW3Xh5svCeKU5ky2S/sample"
+  },
+  {
+    "id": "TUQNWEvVPBLzMBSVDPUA",
+    "index": 6,
+    "name": "Alex Bell",
+    "description": "Deep and Confident",
+    "gender": "male",
+    "filename": "006_Alex_Bell_-_Deep_and_Confident_TUQNWEvVPBLzMBSVDPUA.mp3",
+    "sample_url": "/api/voices/TUQNWEvVPBLzMBSVDPUA/sample"
+  },
+  {
+    "id": "rQOBu7YxCDxGiFdTm28w",
+    "index": 7,
+    "name": "Artem Lebedev",
+    "description": "Captivating and Engaging",
+    "gender": "male",
+    "filename": "007_Artem_Lebedev_-_Captivating_and_Engaging_rQOBu7YxCDxGiFdTm28w.mp3",
+    "sample_url": "/api/voices/rQOBu7YxCDxGiFdTm28w/sample"
+  },
+  {
+    "id": "ogi2DyUAKJb7CEdqqvlU",
+    "index": 8,
+    "name": "Stanislav",
+    "description": "Deep Empathetic and Warm",
+    "gender": "male",
+    "filename": "008_Stanislav_-_Deep_Empathetic_and_Warm_ogi2DyUAKJb7CEdqqvlU.mp3",
+    "sample_url": "/api/voices/ogi2DyUAKJb7CEdqqvlU/sample"
+  },
+  {
+    "id": "0BcDz9UPwL3MpsnTeUlO",
+    "index": 9,
+    "name": "Denis",
+    "description": "Pleasant Engaging and Friendly",
+    "gender": "male",
+    "filename": "009_Denis_-_Pleasant_Engaging_and_Friendly_0BcDz9UPwL3MpsnTeUlO.mp3",
+    "sample_url": "/api/voices/0BcDz9UPwL3MpsnTeUlO/sample"
+  },
+  {
+    "id": "MWyJiWDobXN8FX3CJTdE",
+    "index": 10,
+    "name": "Oleg",
+    "description": "Calm Natural and Clear",
+    "gender": "male",
+    "filename": "010_Oleg_-_Calm_Natural_and_Clear_MWyJiWDobXN8FX3CJTdE.mp3",
+    "sample_url": "/api/voices/MWyJiWDobXN8FX3CJTdE/sample"
+  },
+  {
+    "id": "hU3rD0Yk7DoiYULTX1pD",
+    "index": 11,
+    "name": "Dmitry",
+    "description": "Energetic and Confident",
+    "gender": "male",
+    "filename": "011_Dmitry_-_Energetic_and_Confident_hU3rD0Yk7DoiYULTX1pD.mp3",
+    "sample_url": "/api/voices/hU3rD0Yk7DoiYULTX1pD/sample"
+  },
+  {
+    "id": "MYw0upsxdtxs1n97djly",
+    "index": 12,
+    "name": "Georgy",
+    "description": "Clear Engaging and Confident",
+    "gender": "male",
+    "filename": "012_Georgy_-_Clear_Engaging_and_Confident_MYw0upsxdtxs1n97djly.mp3",
+    "sample_url": "/api/voices/MYw0upsxdtxs1n97djly/sample"
+  },
+  {
+    "id": "pvY1pikBdoI4SB62vEVo",
+    "index": 13,
+    "name": "Andrei",
+    "description": "Clear Gentle and Warm",
+    "gender": "male",
+    "filename": "013_Andrei_-_Clear_Gentle_and_Warm_pvY1pikBdoI4SB62vEVo.mp3",
+    "sample_url": "/api/voices/pvY1pikBdoI4SB62vEVo/sample"
+  },
+  {
+    "id": "Obuyk6KKzg9olSLPaCbl",
+    "index": 14,
+    "name": "Arcadias",
+    "description": "",
+    "gender": "male",
+    "filename": "014_Arcadias_Obuyk6KKzg9olSLPaCbl.mp3",
+    "sample_url": "/api/voices/Obuyk6KKzg9olSLPaCbl/sample"
+  },
+  {
+    "id": "LHi3adMlU7AICv8Yxpmm",
+    "index": 15,
+    "name": "Artspace",
+    "description": "Engaging Warm and Pleasant",
+    "gender": "male",
+    "filename": "015_Artspace_-_Engaging_Warm_and_Pleasant_LHi3adMlU7AICv8Yxpmm.mp3",
+    "sample_url": "/api/voices/LHi3adMlU7AICv8Yxpmm/sample"
+  },
+  {
+    "id": "Vl27Cllkuw8BhyPqus2n",
+    "index": 16,
+    "name": "VASKO",
+    "description": "Deep Warm and Pleasant",
+    "gender": "male",
+    "filename": "016_VASKO_-_Deep_Warm_and_Pleasant_Vl27Cllkuw8BhyPqus2n.mp3",
+    "sample_url": "/api/voices/Vl27Cllkuw8BhyPqus2n/sample"
+  },
+  {
+    "id": "M1CSR3PJBsfWU6ZquG3C",
+    "index": 17,
+    "name": "Denophine",
+    "description": "Energetic and Engaging",
+    "gender": "male",
+    "filename": "017_Denophine_-_Energetic_and_Engaging_M1CSR3PJBsfWU6ZquG3C.mp3",
+    "sample_url": "/api/voices/M1CSR3PJBsfWU6ZquG3C/sample"
+  },
+  {
+    "id": "XuEV9VY3VUASYgJVNBh0",
+    "index": 18,
+    "name": "Sergey",
+    "description": "Rich Engaging and Captivating",
+    "gender": "male",
+    "filename": "018_Sergey_-_Rich_Engaging_and_Captivating_XuEV9VY3VUASYgJVNBh0.mp3",
+    "sample_url": "/api/voices/XuEV9VY3VUASYgJVNBh0/sample"
+  },
+  {
+    "id": "HcaxAsrhw4ByUo4CBCBN",
+    "index": 19,
+    "name": "Maxim",
+    "description": "Calm Neutral",
+    "gender": "male",
+    "filename": "019_Maxim_-_Calm__Neutral_HcaxAsrhw4ByUo4CBCBN.mp3",
+    "sample_url": "/api/voices/HcaxAsrhw4ByUo4CBCBN/sample"
+  },
+  {
+    "id": "zWSsRd3J6WyZFl12aGMB",
+    "index": 20,
+    "name": "Alan",
+    "description": "Soft Hasty and Warm",
+    "gender": "male",
+    "filename": "020_Alan_-_Soft_Hasty_and_Warm_zWSsRd3J6WyZFl12aGMB.mp3",
+    "sample_url": "/api/voices/zWSsRd3J6WyZFl12aGMB/sample"
+  },
+  {
+    "id": "sRk0zCqhS2Cmv0bzx5wA",
+    "index": 21,
+    "name": "Felix",
+    "description": "Calm Clear and Friendly",
+    "gender": "male",
+    "filename": "021_Felix_-_Calm_Clear_and_Friendly_sRk0zCqhS2Cmv0bzx5wA.mp3",
+    "sample_url": "/api/voices/sRk0zCqhS2Cmv0bzx5wA/sample"
+  },
+  {
+    "id": "2OdNfs9Z4GCMvoFiCavC",
+    "index": 22,
+    "name": "Max",
+    "description": "Clear Engaging and Professional",
+    "gender": "male",
+    "filename": "022_Max_-_Clear_Engaging_and_Professional_2OdNfs9Z4GCMvoFiCavC.mp3",
+    "sample_url": "/api/voices/2OdNfs9Z4GCMvoFiCavC/sample"
+  },
+  {
+    "id": "6A9D8WSMm4rFsg2DWFeE",
+    "index": 23,
+    "name": "Egor Gadzhiyev",
+    "description": "Clear and Commanding",
+    "gender": "male",
+    "filename": "023_Egor_Gadzhiyev_-_Clear_and_Commanding_6A9D8WSMm4rFsg2DWFeE.mp3",
+    "sample_url": "/api/voices/6A9D8WSMm4rFsg2DWFeE/sample"
+  },
+  {
+    "id": "BHMDqCKgYeHHupc0I8VD",
+    "index": 24,
+    "name": "Pepper",
+    "description": "Natural Pleasant and Engaging",
+    "gender": "male",
+    "filename": "024_Pepper_-_Natural_Pleasant_and_Engaging_BHMDqCKgYeHHupc0I8VD.mp3",
+    "sample_url": "/api/voices/BHMDqCKgYeHHupc0I8VD/sample"
+  },
+  {
+    "id": "ZXaNFwkRMa3G1wQ3tCeJ",
+    "index": 25,
+    "name": "Oleksandr Trotsenko",
+    "description": "Friendly and Calm",
+    "gender": "male",
+    "filename": "025_Oleksandr_Trotsenko_-_Friendly_and_Calm_ZXaNFwkRMa3G1wQ3tCeJ.mp3",
+    "sample_url": "/api/voices/ZXaNFwkRMa3G1wQ3tCeJ/sample"
+  },
+  {
+    "id": "q5RNAd4899271dg9W2K8",
+    "index": 26,
+    "name": "Den",
+    "description": "Gentle and Smooth",
+    "gender": "male",
+    "filename": "026_Den_-_Gentle_and_Smooth_q5RNAd4899271dg9W2K8.mp3",
+    "sample_url": "/api/voices/q5RNAd4899271dg9W2K8/sample"
+  },
+  {
+    "id": "m0OQuJtWCw1V23P0pQmG",
+    "index": 27,
+    "name": "Eugene",
+    "description": "Bright Clear Engaging",
+    "gender": "male",
+    "filename": "027_Eugene_-_Bright_Clear__Engaging_m0OQuJtWCw1V23P0pQmG.mp3",
+    "sample_url": "/api/voices/m0OQuJtWCw1V23P0pQmG/sample"
+  },
+  {
+    "id": "ZHIn0jcgR6VIvVAXkwWV",
+    "index": 28,
+    "name": "Markos",
+    "description": "Energetic and Engaging",
+    "gender": "male",
+    "filename": "028_Markos__-_Energetic_and_Engaging_ZHIn0jcgR6VIvVAXkwWV.mp3",
+    "sample_url": "/api/voices/ZHIn0jcgR6VIvVAXkwWV/sample"
+  },
+  {
+    "id": "1qd9R09Ljlx9V1Ok0t5S",
+    "index": 29,
+    "name": "Ivan",
+    "description": "Meditative Calm and Relaxing",
+    "gender": "male",
+    "filename": "029_Ivan_-_Meditative_Calm_and_Relaxing_1qd9R09Ljlx9V1Ok0t5S.mp3",
+    "sample_url": "/api/voices/1qd9R09Ljlx9V1Ok0t5S/sample"
+  },
+  {
+    "id": "iYMRkaJMA0qIuY9moBHL",
+    "index": 30,
+    "name": "Arthur",
+    "description": "Deep Elegant and Clear",
+    "gender": "male",
+    "filename": "030_Arthur_-_Deep_Elegant_and_Clear_iYMRkaJMA0qIuY9moBHL.mp3",
+    "sample_url": "/api/voices/iYMRkaJMA0qIuY9moBHL/sample"
+  },
+  {
+    "id": "vQxSi2EuaRWwBw3nn6dK",
+    "index": 31,
+    "name": "Marat",
+    "description": "Warm Calm and Friendly",
+    "gender": "male",
+    "filename": "031_Marat_-_Warm_Calm_and_Friendly_vQxSi2EuaRWwBw3nn6dK.mp3",
+    "sample_url": "/api/voices/vQxSi2EuaRWwBw3nn6dK/sample"
+  },
+  {
+    "id": "pM78bgjPVk0JXtaEnFoj",
+    "index": 32,
+    "name": "Nester Surovy",
+    "description": "Gravely yet Refined",
+    "gender": "male",
+    "filename": "032_Nester_Surovy_-_Gravely_yet_Refined_pM78bgjPVk0JXtaEnFoj.mp3",
+    "sample_url": "/api/voices/pM78bgjPVk0JXtaEnFoj/sample"
+  },
+  {
+    "id": "aG9q1I1wTbfHh5sbpJnp",
+    "index": 33,
+    "name": "Arcades",
+    "description": "",
+    "gender": "male",
+    "filename": "033_Arcades_aG9q1I1wTbfHh5sbpJnp.mp3",
+    "sample_url": "/api/voices/aG9q1I1wTbfHh5sbpJnp/sample"
+  },
+  {
+    "id": "zp2G1GqPvAg5KDA55fjC",
+    "index": 34,
+    "name": "Loardar",
+    "description": "Dynamic Clear and Natural",
+    "gender": "male",
+    "filename": "034_Loardar_-_Dynamic_Clear_and_Natural_zp2G1GqPvAg5KDA55fjC.mp3",
+    "sample_url": "/api/voices/zp2G1GqPvAg5KDA55fjC/sample"
+  },
+  {
+    "id": "BTL5iDLqtiUxgJtpekus",
+    "index": 35,
+    "name": "Radislav Sietov",
+    "description": "Calm and Relaxing",
+    "gender": "male",
+    "filename": "035_Radislav_Sietov_-_Calm_and_Relaxing_BTL5iDLqtiUxgJtpekus.mp3",
+    "sample_url": "/api/voices/BTL5iDLqtiUxgJtpekus/sample"
+  },
+  {
+    "id": "X0jd19oPQ0cVJcbpmAuX",
+    "index": 36,
+    "name": "Amid Hasan",
+    "description": "Engaging and Mysterious",
+    "gender": "male",
+    "filename": "036_Amid_Hasan_-_Engaging_and_Mysterious_X0jd19oPQ0cVJcbpmAuX.mp3",
+    "sample_url": "/api/voices/X0jd19oPQ0cVJcbpmAuX/sample"
+  },
+  {
+    "id": "lxY8Pn0yWs1Ve9rBceah",
+    "index": 37,
+    "name": "Ivan Nazarov",
+    "description": "",
+    "gender": "male",
+    "filename": "037_Ivan_Nazarov_lxY8Pn0yWs1Ve9rBceah.mp3",
+    "sample_url": "/api/voices/lxY8Pn0yWs1Ve9rBceah/sample"
+  },
+  {
+    "id": "blxHPCXhpXOsc7mCKk0P",
+    "index": 38,
+    "name": "Artem",
+    "description": "Engaging Full and Charismatic",
+    "gender": "male",
+    "filename": "038_Artem_-_Engaging_Full_and_Charismatic_blxHPCXhpXOsc7mCKk0P.mp3",
+    "sample_url": "/api/voices/blxHPCXhpXOsc7mCKk0P/sample"
+  },
+  {
+    "id": "bqbHGIIO5oETYIqhWmfk",
+    "index": 39,
+    "name": "Alexander",
+    "description": "Pleasant Warm and Natural",
+    "gender": "male",
+    "filename": "039_Alexander_-_Pleasant_Warm_and_Natural_bqbHGIIO5oETYIqhWmfk.mp3",
+    "sample_url": "/api/voices/bqbHGIIO5oETYIqhWmfk/sample"
+  },
+  {
+    "id": "gXMhWmiqsFkrcssqVb5k",
+    "index": 40,
+    "name": "Valery",
+    "description": "Sonorous Poetic and Engaging",
+    "gender": "male",
+    "filename": "040_Valery_-_Sonorous_Poetic_and_Engaging_gXMhWmiqsFkrcssqVb5k.mp3",
+    "sample_url": "/api/voices/gXMhWmiqsFkrcssqVb5k/sample"
+  },
+  {
+    "id": "ouyTiWqmHA5WI5bbX7zj",
+    "index": 41,
+    "name": "Mikhail",
+    "description": "Confident and Emotional",
+    "gender": "male",
+    "filename": "041_Mikhail_-_Confident_and_Emotional_ouyTiWqmHA5WI5bbX7zj.mp3",
+    "sample_url": "/api/voices/ouyTiWqmHA5WI5bbX7zj/sample"
+  },
+  {
+    "id": "srN6rA7HPBQZ1WEO6tDP",
+    "index": 42,
+    "name": "Robert",
+    "description": "Warm and Friendly",
+    "gender": "male",
+    "filename": "042_Robert_-_Warm_and_Friendly_srN6rA7HPBQZ1WEO6tDP.mp3",
+    "sample_url": "/api/voices/srN6rA7HPBQZ1WEO6tDP/sample"
+  },
+  {
+    "id": "UIaC9QMb6UP5hfzy6uOD",
+    "index": 43,
+    "name": "Leonid",
+    "description": "Warm Articulte Natural",
+    "gender": "male",
+    "filename": "043_Leonid_-_Warm_Articulte_Natural_UIaC9QMb6UP5hfzy6uOD.mp3",
+    "sample_url": "/api/voices/UIaC9QMb6UP5hfzy6uOD/sample"
+  },
+  {
+    "id": "WTn2eCRCpoFAC50VD351",
+    "index": 44,
+    "name": "Artem",
+    "description": "Friendly Professional",
+    "gender": "male",
+    "filename": "044_Artem_-_Friendly__Professional_WTn2eCRCpoFAC50VD351.mp3",
+    "sample_url": "/api/voices/WTn2eCRCpoFAC50VD351/sample"
+  },
+  {
+    "id": "dWNEQ4rqRY6thcusuDyq",
+    "index": 45,
+    "name": "Fuad",
+    "description": "Clear Deep and Rich",
+    "gender": "male",
+    "filename": "045_Fuad_-_Clear_Deep_and_Rich_dWNEQ4rqRY6thcusuDyq.mp3",
+    "sample_url": "/api/voices/dWNEQ4rqRY6thcusuDyq/sample"
+  },
+  {
+    "id": "KPyKdfzer27gKjDngSS9",
+    "index": 46,
+    "name": "Anton",
+    "description": "Calm and Poetic",
+    "gender": "male",
+    "filename": "046_Anton_-_Calm_and_Poetic_KPyKdfzer27gKjDngSS9.mp3",
+    "sample_url": "/api/voices/KPyKdfzer27gKjDngSS9/sample"
+  },
+  {
+    "id": "huXlXYhtMIZkTYxM93t6",
+    "index": 47,
+    "name": "Mason",
+    "description": "Confident Calm and Engaging",
+    "gender": "male",
+    "filename": "047_Mason_-_Confident_Calm_and_Engaging_huXlXYhtMIZkTYxM93t6.mp3",
+    "sample_url": "/api/voices/huXlXYhtMIZkTYxM93t6/sample"
+  },
+  {
+    "id": "OwKgYRjZnJnXyWDEgF1J",
+    "index": 48,
+    "name": "DemiMark",
+    "description": "",
+    "gender": "male",
+    "filename": "048_DemiMark_OwKgYRjZnJnXyWDEgF1J.mp3",
+    "sample_url": "/api/voices/OwKgYRjZnJnXyWDEgF1J/sample"
+  },
+  {
+    "id": "RGy9Pi4dN4jZx6BL6lef",
+    "index": 49,
+    "name": "Tsar",
+    "description": "Deep and Royal",
+    "gender": "male",
+    "filename": "049_Tsar_-_Deep_and_Royal_RGy9Pi4dN4jZx6BL6lef.mp3",
+    "sample_url": "/api/voices/RGy9Pi4dN4jZx6BL6lef/sample"
+  },
+  {
+    "id": "vpUqfpCIn34tjFW4KHjt",
+    "index": 50,
+    "name": "Artur Denophine",
+    "description": "Vibrant and Joyful",
+    "gender": "male",
+    "filename": "050_Artur_Denophine_-_Vibrant_and_Joyful_vpUqfpCIn34tjFW4KHjt.mp3",
+    "sample_url": "/api/voices/vpUqfpCIn34tjFW4KHjt/sample"
+  },
+  {
+    "id": "qJBO8ZmKp4te7NTtYgzz",
+    "index": 51,
+    "name": "Egor T",
+    "description": "Natural Soothing Relatable",
+    "gender": "male",
+    "filename": "051_Egor_T_-_Natural_Soothing__Relatable_qJBO8ZmKp4te7NTtYgzz.mp3",
+    "sample_url": "/api/voices/qJBO8ZmKp4te7NTtYgzz/sample"
+  },
+  {
+    "id": "s0phbFBBp708ZeIy8oGx",
+    "index": 52,
+    "name": "Arcadays",
+    "description": "Warm Light and Natural",
+    "gender": "male",
+    "filename": "052_Arcadays_-_Warm_Light_and_Natural_s0phbFBBp708ZeIy8oGx.mp3",
+    "sample_url": "/api/voices/s0phbFBBp708ZeIy8oGx/sample"
+  },
+  {
+    "id": "lsAmGFzUYusakA482527",
+    "index": 53,
+    "name": "Andrey Permikin",
+    "description": "Expressive and Natural",
+    "gender": "male",
+    "filename": "053_Andrey_Permikin_-_Expressive_and_Natural_lsAmGFzUYusakA482527.mp3",
+    "sample_url": "/api/voices/lsAmGFzUYusakA482527/sample"
+  },
+  {
+    "id": "JKtNvDNrWu33P1xzttP2",
+    "index": 54,
+    "name": "Ivan",
+    "description": "Energetic and Sassy",
+    "gender": "male",
+    "filename": "054_Ivan_-_Energetic_and_Sassy_JKtNvDNrWu33P1xzttP2.mp3",
+    "sample_url": "/api/voices/JKtNvDNrWu33P1xzttP2/sample"
+  },
+  {
+    "id": "e5A3tSm7sjA7Sbiz2Qac",
+    "index": 55,
+    "name": "Maksim",
+    "description": "Deep Calm",
+    "gender": "male",
+    "filename": "055_Maksim_-_Deep_Calm_e5A3tSm7sjA7Sbiz2Qac.mp3",
+    "sample_url": "/api/voices/e5A3tSm7sjA7Sbiz2Qac/sample"
+  },
+  {
+    "id": "dDrxNxaZh4FWXi47dZ7y",
+    "index": 56,
+    "name": "Evgeniy Spitsyn",
+    "description": "Confident and Engaging",
+    "gender": "male",
+    "filename": "056_Evgeniy_Spitsyn_-_Confident_and_Engaging_dDrxNxaZh4FWXi47dZ7y.mp3",
+    "sample_url": "/api/voices/dDrxNxaZh4FWXi47dZ7y/sample"
+  },
+  {
+    "id": "rUOpAdbAl56KxO00wR5D",
+    "index": 57,
+    "name": "Igor",
+    "description": "Calm Warm Bedtime Storyteller",
+    "gender": "male",
+    "filename": "057_Igor_-_Calm__Warm_Bedtime_Storyteller_rUOpAdbAl56KxO00wR5D.mp3",
+    "sample_url": "/api/voices/rUOpAdbAl56KxO00wR5D/sample"
+  },
+  {
+    "id": "1REYVgkHGlaFX4Rz9cPZ",
+    "index": 58,
+    "name": "Vasiliy",
+    "description": "Calm Engaging and Warm",
+    "gender": "male",
+    "filename": "058_Vasiliy_-_Calm_Engaging_and_Warm_1REYVgkHGlaFX4Rz9cPZ.mp3",
+    "sample_url": "/api/voices/1REYVgkHGlaFX4Rz9cPZ/sample"
+  },
+  {
+    "id": "GquPFn9xormgmHaJ2KdN",
+    "index": 59,
+    "name": "Geremy",
+    "description": "Charismatic Robotic and Deep",
+    "gender": "male",
+    "filename": "059_Geremy_-_Charismatic_Robotic_and_Deep_GquPFn9xormgmHaJ2KdN.mp3",
+    "sample_url": "/api/voices/GquPFn9xormgmHaJ2KdN/sample"
+  },
+  {
+    "id": "C1Jbh3J5Tp1r1TyKaVSY",
+    "index": 60,
+    "name": "Egor T",
+    "description": "Calm Natural Clear",
+    "gender": "male",
+    "filename": "060_Egor_T_-_Calm_Natural__Clear_C1Jbh3J5Tp1r1TyKaVSY.mp3",
+    "sample_url": "/api/voices/C1Jbh3J5Tp1r1TyKaVSY/sample"
+  },
+  {
+    "id": "bg9LrEYQkRYwqkxA8VOy",
+    "index": 61,
+    "name": "Leonid Fomichev",
+    "description": "",
+    "gender": "male",
+    "filename": "061_Leonid_Fomichev_bg9LrEYQkRYwqkxA8VOy.mp3",
+    "sample_url": "/api/voices/bg9LrEYQkRYwqkxA8VOy/sample"
+  },
+  {
+    "id": "kuR1PV7xDOsP38QMSEvD",
+    "index": 62,
+    "name": "Arcad",
+    "description": "",
+    "gender": "male",
+    "filename": "062_Arcad_kuR1PV7xDOsP38QMSEvD.mp3",
+    "sample_url": "/api/voices/kuR1PV7xDOsP38QMSEvD/sample"
+  },
+  {
+    "id": "RLRdvNFwJJct2XZOgfzy",
+    "index": 63,
+    "name": "Mishka Yaponcik",
+    "description": "Odessa Rogue Charm",
+    "gender": "male",
+    "filename": "063_Mishka_Yaponcik_-_Odessa_Rogue_Charm_RLRdvNFwJJct2XZOgfzy.mp3",
+    "sample_url": "/api/voices/RLRdvNFwJJct2XZOgfzy/sample"
+  },
+  {
+    "id": "drOVtcvHhJKNEXv5h1l5",
+    "index": 64,
+    "name": "Vladislav",
+    "description": "Engaging and Clear",
+    "gender": "male",
+    "filename": "064_Vladislav_-_Engaging_and_Clear_drOVtcvHhJKNEXv5h1l5.mp3",
+    "sample_url": "/api/voices/drOVtcvHhJKNEXv5h1l5/sample"
+  },
+  {
+    "id": "pt59eUh1t64I0oYRF5j2",
+    "index": 65,
+    "name": "Alex",
+    "description": "Confident Clear and Reassuring",
+    "gender": "male",
+    "filename": "065_Alex_-_Confident_Clear_and_Reassuring_pt59eUh1t64I0oYRF5j2.mp3",
+    "sample_url": "/api/voices/pt59eUh1t64I0oYRF5j2/sample"
+  },
+  {
+    "id": "1EVds7FNGSXoKeOiMXuf",
+    "index": 66,
+    "name": "Denis",
+    "description": "Confident and Commanding",
+    "gender": "male",
+    "filename": "066_Denis_-_Confident_and_Commanding_1EVds7FNGSXoKeOiMXuf.mp3",
+    "sample_url": "/api/voices/1EVds7FNGSXoKeOiMXuf/sample"
+  },
+  {
+    "id": "85bJFRap3VIXOThFHxk3",
+    "index": 67,
+    "name": "Marko",
+    "description": "Friendly and Warm",
+    "gender": "male",
+    "filename": "067_Marko_-_Friendly_and_Warm_85bJFRap3VIXOThFHxk3.mp3",
+    "sample_url": "/api/voices/85bJFRap3VIXOThFHxk3/sample"
+  },
+  {
+    "id": "TU2w9J6yEyVkPB7HKH2g",
+    "index": 68,
+    "name": "Serji Shu",
+    "description": "",
+    "gender": "male",
+    "filename": "068_Serji_Shu_TU2w9J6yEyVkPB7HKH2g.mp3",
+    "sample_url": "/api/voices/TU2w9J6yEyVkPB7HKH2g/sample"
+  },
+  {
+    "id": "TpZlRcB7rTBboAYWa2DC",
+    "index": 69,
+    "name": "Anton",
+    "description": "Deep Warm",
+    "gender": "male",
+    "filename": "069_Anton_-_Deep__Warm_TpZlRcB7rTBboAYWa2DC.mp3",
+    "sample_url": "/api/voices/TpZlRcB7rTBboAYWa2DC/sample"
+  },
+  {
+    "id": "AkDFEBceDTNk1RLYPzi1",
+    "index": 70,
+    "name": "Dima PRO",
+    "description": "",
+    "gender": "male",
+    "filename": "070_Dima_PRO_AkDFEBceDTNk1RLYPzi1.mp3",
+    "sample_url": "/api/voices/AkDFEBceDTNk1RLYPzi1/sample"
+  },
+  {
+    "id": "jV9EjjrU7nfMgjJl6Mva",
+    "index": 71,
+    "name": "MDnyash",
+    "description": "",
+    "gender": "male",
+    "filename": "071_MDnyash_jV9EjjrU7nfMgjJl6Mva.mp3",
+    "sample_url": "/api/voices/jV9EjjrU7nfMgjJl6Mva/sample"
+  },
+  {
+    "id": "6YjFofyVXU1ASguf2hTJ",
+    "index": 72,
+    "name": "Maxim",
+    "description": "Conversational Natural",
+    "gender": "male",
+    "filename": "072_Maxim_-_Conversational__Natural_6YjFofyVXU1ASguf2hTJ.mp3",
+    "sample_url": "/api/voices/6YjFofyVXU1ASguf2hTJ/sample"
+  },
+  {
+    "id": "xdADm9fX0hNasTe0AGW0",
+    "index": 73,
+    "name": "Alex Diachenko",
+    "description": "Vibrant and Engaging",
+    "gender": "male",
+    "filename": "073_Alex_Diachenko_-_Vibrant_and_Engaging_xdADm9fX0hNasTe0AGW0.mp3",
+    "sample_url": "/api/voices/xdADm9fX0hNasTe0AGW0/sample"
+  },
+  {
+    "id": "Uv3rf12Omd9Asyv54Bqw",
+    "index": 74,
+    "name": "Max",
+    "description": "Alive and Emotional",
+    "gender": "male",
+    "filename": "074_Max-_Alive_and_Emotional_Uv3rf12Omd9Asyv54Bqw.mp3",
+    "sample_url": "/api/voices/Uv3rf12Omd9Asyv54Bqw/sample"
+  },
+  {
+    "id": "hwTJnUvjGweKMxHaiDH0",
+    "index": 75,
+    "name": "Dima",
+    "description": "Calm Warm and Clear",
+    "gender": "male",
+    "filename": "075_Dima_-_Calm_Warm_and_Clear_hwTJnUvjGweKMxHaiDH0.mp3",
+    "sample_url": "/api/voices/hwTJnUvjGweKMxHaiDH0/sample"
+  },
+  {
+    "id": "tVMeJ1ODl31s5JrEseFK",
+    "index": 76,
+    "name": "Alex T",
+    "description": "Vibrant and Rich",
+    "gender": "male",
+    "filename": "076_Alex_T_-_Vibrant_and_Rich_tVMeJ1ODl31s5JrEseFK.mp3",
+    "sample_url": "/api/voices/tVMeJ1ODl31s5JrEseFK/sample"
+  },
+  {
+    "id": "vnUSJFFoxRr5JFjw51pu",
+    "index": 77,
+    "name": "Dmitry",
+    "description": "",
+    "gender": "male",
+    "filename": "077_Dmitry_vnUSJFFoxRr5JFjw51pu.mp3",
+    "sample_url": "/api/voices/vnUSJFFoxRr5JFjw51pu/sample"
+  },
+  {
+    "id": "NQJnREzQtnAHHZnia0tY",
+    "index": 78,
+    "name": "Alexei",
+    "description": "Eastern European Business Voice",
+    "gender": "male",
+    "filename": "078_Alexei__Eastern_European_Business_Voice_NQJnREzQtnAHHZnia0tY.mp3",
+    "sample_url": "/api/voices/NQJnREzQtnAHHZnia0tY/sample"
+  },
+  {
+    "id": "l6HmWNsbZefO7lSmM4cn",
+    "index": 79,
+    "name": "Magnet",
+    "description": "Clear Dynamic and Engaging",
+    "gender": "male",
+    "filename": "079_Magnet_-_Clear_Dynamic_and_Engaging_l6HmWNsbZefO7lSmM4cn.mp3",
+    "sample_url": "/api/voices/l6HmWNsbZefO7lSmM4cn/sample"
+  },
+  {
+    "id": "13JzN9jg1ViUP8Pf3uet",
+    "index": 80,
+    "name": "Anton Ru",
+    "description": "",
+    "gender": "male",
+    "filename": "080_Anton_Ru_13JzN9jg1ViUP8Pf3uet.mp3",
+    "sample_url": "/api/voices/13JzN9jg1ViUP8Pf3uet/sample"
+  },
+  {
+    "id": "O9f5Hqzk8FPymrA0cAZq",
+    "index": 81,
+    "name": "Paul",
+    "description": "Phone call",
+    "gender": "male",
+    "filename": "081_Paul_-_Phone_call_O9f5Hqzk8FPymrA0cAZq.mp3",
+    "sample_url": "/api/voices/O9f5Hqzk8FPymrA0cAZq/sample"
+  },
+  {
+    "id": "VKjbtGrk0YiYbA2Xpq7n",
+    "index": 82,
+    "name": "Richard",
+    "description": "Clear Smooth and Reflective",
+    "gender": "male",
+    "filename": "082_Richard_-_Clear_Smooth_and_Reflective_VKjbtGrk0YiYbA2Xpq7n.mp3",
+    "sample_url": "/api/voices/VKjbtGrk0YiYbA2Xpq7n/sample"
+  },
+  {
+    "id": "m2gtxNsYBaIRqPBA5vU5",
+    "index": 83,
+    "name": "Oleg Krugliak",
+    "description": "Engaging and Reflective",
+    "gender": "male",
+    "filename": "083_Oleg_Krugliak_-_Engaging_and_Reflective_m2gtxNsYBaIRqPBA5vU5.mp3",
+    "sample_url": "/api/voices/m2gtxNsYBaIRqPBA5vU5/sample"
+  },
+  {
+    "id": "1eNbUPoawAd4HXDoj8vU",
+    "index": 84,
+    "name": "Vasili",
+    "description": "Work colleague",
+    "gender": "male",
+    "filename": "084_Vasili_-_Work_colleague_1eNbUPoawAd4HXDoj8vU.mp3",
+    "sample_url": "/api/voices/1eNbUPoawAd4HXDoj8vU/sample"
+  },
+  {
+    "id": "izZy1DKVkUJebQ8QmSqr",
+    "index": 85,
+    "name": "Vitaliy",
+    "description": "Calm and Friendly",
+    "gender": "male",
+    "filename": "085_Vitaliy_-_Calm_and_Friendly_izZy1DKVkUJebQ8QmSqr.mp3",
+    "sample_url": "/api/voices/izZy1DKVkUJebQ8QmSqr/sample"
+  },
+  {
+    "id": "KpX1OoMT6Br64YtIpgRI",
+    "index": 86,
+    "name": "Massimo Alef",
+    "description": "",
+    "gender": "male",
+    "filename": "086_Massimo_Alef_KpX1OoMT6Br64YtIpgRI.mp3",
+    "sample_url": "/api/voices/KpX1OoMT6Br64YtIpgRI/sample"
+  },
+  {
+    "id": "qZDd4AcHEOAzq8caZvM4",
+    "index": 87,
+    "name": "Paul Letuchka",
+    "description": "Deep Clear and Natural",
+    "gender": "male",
+    "filename": "087_Paul_Letuchka_-_Deep_Clear_and_Natural_qZDd4AcHEOAzq8caZvM4.mp3",
+    "sample_url": "/api/voices/qZDd4AcHEOAzq8caZvM4/sample"
+  },
+  {
+    "id": "mOTbMAOniC3yoEvgo4bi",
+    "index": 88,
+    "name": "Evelon",
+    "description": "Intimidating and Energetic",
+    "gender": "male",
+    "filename": "088_Evelon_-_Intimidating_and_Energetic_mOTbMAOniC3yoEvgo4bi.mp3",
+    "sample_url": "/api/voices/mOTbMAOniC3yoEvgo4bi/sample"
+  },
+  {
+    "id": "hD8aK7CmEPgH3mbFO08e",
+    "index": 89,
+    "name": "Ivo",
+    "description": "Calming chill and narrative",
+    "gender": "male",
+    "filename": "089_Ivo_-_Calming_chill_and_narrative_hD8aK7CmEPgH3mbFO08e.mp3",
+    "sample_url": "/api/voices/hD8aK7CmEPgH3mbFO08e/sample"
+  },
+  {
+    "id": "XNrB7jz2HCkpU5yK08kP",
+    "index": 90,
+    "name": "Gogi Kavkaz",
+    "description": "Bold Georgian Character",
+    "gender": "male",
+    "filename": "090_Gogi_Kavkaz_-Bold_Georgian_Character_XNrB7jz2HCkpU5yK08kP.mp3",
+    "sample_url": "/api/voices/XNrB7jz2HCkpU5yK08kP/sample"
+  },
+  {
+    "id": "PGPoljVprLVYxwMg5BUa",
+    "index": 91,
+    "name": "Oleksandr Symchak",
+    "description": "",
+    "gender": "male",
+    "filename": "091_Oleksandr_Symchak_PGPoljVprLVYxwMg5BUa.mp3",
+    "sample_url": "/api/voices/PGPoljVprLVYxwMg5BUa/sample"
+  },
+  {
+    "id": "qfvGliTkPdDybwni40JM",
+    "index": 92,
+    "name": "Artur",
+    "description": "Calm Confident and Warm",
+    "gender": "male",
+    "filename": "092_Artur_-_Calm_Confident_and_Warm_qfvGliTkPdDybwni40JM.mp3",
+    "sample_url": "/api/voices/qfvGliTkPdDybwni40JM/sample"
+  },
+  {
+    "id": "MQr9U58m1aTKxCxeFTZU",
+    "index": 93,
+    "name": "Serz",
+    "description": "",
+    "gender": "male",
+    "filename": "093_Serz_MQr9U58m1aTKxCxeFTZU.mp3",
+    "sample_url": "/api/voices/MQr9U58m1aTKxCxeFTZU/sample"
+  },
+  {
+    "id": "zvm1P65eFt40xSwMli2k",
+    "index": 94,
+    "name": "Garry",
+    "description": "Friendly and Sympathetic",
+    "gender": "male",
+    "filename": "094_Garry_-_Friendly_and_Sympathetic_zvm1P65eFt40xSwMli2k.mp3",
+    "sample_url": "/api/voices/zvm1P65eFt40xSwMli2k/sample"
+  },
+  {
+    "id": "srULqtwUV9XZPg1ZCO5w",
+    "index": 95,
+    "name": "Kyrylo",
+    "description": "Clear and Natural",
+    "gender": "male",
+    "filename": "095_Kyrylo_-_Clear_and_Natural_srULqtwUV9XZPg1ZCO5w.mp3",
+    "sample_url": "/api/voices/srULqtwUV9XZPg1ZCO5w/sample"
+  },
+  {
+    "id": "fng3xojnahJ5tKVqrRQJ",
+    "index": 96,
+    "name": "Doc",
+    "description": "",
+    "gender": "male",
+    "filename": "096_Doc_fng3xojnahJ5tKVqrRQJ.mp3",
+    "sample_url": "/api/voices/fng3xojnahJ5tKVqrRQJ/sample"
+  },
+  {
+    "id": "FdDRUc9rNHCcx1AeKuej",
+    "index": 97,
+    "name": "Nikolai Nechaev",
+    "description": "",
+    "gender": "male",
+    "filename": "097_Nikolai_Nechaev_FdDRUc9rNHCcx1AeKuej.mp3",
+    "sample_url": "/api/voices/FdDRUc9rNHCcx1AeKuej/sample"
+  },
+  {
+    "id": "LJognoCgoMAxMI1utAQA",
+    "index": 98,
+    "name": "Kamil",
+    "description": "Friendly Engaging and Energetic",
+    "gender": "male",
+    "filename": "098_Kamil_-_Friendly_Engaging_and_Energetic_LJognoCgoMAxMI1utAQA.mp3",
+    "sample_url": "/api/voices/LJognoCgoMAxMI1utAQA/sample"
+  },
+  {
+    "id": "a2cWmGM4AUuNsHwInFjF",
+    "index": 99,
+    "name": "Mikhail",
+    "description": "Calm Low",
+    "gender": "male",
+    "filename": "099_Mikhail_-_Calm__Low_a2cWmGM4AUuNsHwInFjF.mp3",
+    "sample_url": "/api/voices/a2cWmGM4AUuNsHwInFjF/sample"
+  },
+  {
+    "id": "2yWzeFFP9bP0WcgRi1jx",
+    "index": 100,
+    "name": "Vladimir",
+    "description": "Low Deep",
+    "gender": "male",
+    "filename": "100_Vladimir_-_Low__Deep_2yWzeFFP9bP0WcgRi1jx.mp3",
+    "sample_url": "/api/voices/2yWzeFFP9bP0WcgRi1jx/sample"
+  }
+]

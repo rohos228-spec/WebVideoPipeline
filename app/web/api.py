@@ -123,6 +123,9 @@ from app.web.routers import (
     text_llm as text_llm_router,
 )
 from app.web.routers import (
+    voices as voices_router,
+)
+from app.web.routers import (
     workflows as workflows_router,
 )
 from app.web.settings_default import seed_default_workflow
@@ -400,6 +403,7 @@ def create_app() -> FastAPI:
     app.include_router(stages_router.router, prefix=API_PREFIX)
     app.include_router(meta_agent_router.router, prefix=API_PREFIX)
     app.include_router(project_graph_router.router, prefix=API_PREFIX)
+    app.include_router(voices_router.router, prefix=API_PREFIX)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
     async def api_write_not_found(rest: str) -> None:
