@@ -12,12 +12,13 @@ from fastapi.testclient import TestClient
 from app.bots import wavespeed_http
 from app.bots.outsee import GenerationResult
 from app.services import kie_catalog
-from app.web.routers import kie_create
+from app.web.routers import kie_create, voices
 
 
 def _app() -> FastAPI:
     app = FastAPI()
     app.include_router(kie_create.router, prefix="/api")
+    app.include_router(voices.router, prefix="/api")
     return app
 
 
@@ -118,3 +119,19 @@ def test_catalog_endpoint_reports_wavespeed_configured() -> None:
     data = r.json()
     assert "wavespeed_configured" in data
     assert any(m["id"] == "elevenlabs-v4" for m in data["models"])
+
+
+def test_voices_endpoints() -> None:
+    c = TestClient(_app())
+    r = c.get("/api/voices/catalog")
+    assert r.status_code == 200
+    voices = r.json()
+    assert len(voices) > 0
+    first = voices[0]
+    assert "id" in first
+    assert "name" in first
+
+    r_one = c.get(f"/api/voices/{first['id']}")
+    assert r_one.status_code == 200
+    assert r_one.json()["id"] == first["id"]
+

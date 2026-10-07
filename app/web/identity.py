@@ -129,6 +129,8 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     # ИИ Чат и выбор модели для участников
     "/api/gpt-workspace",
     "/api/text-llm",
+    # Каталог голосов и аудио-сэмплы
+    "/api/voices",
 )
 
 
@@ -151,7 +153,7 @@ def identity_from_scope(scope: dict) -> StudioIdentity | None:
 
 def path_requires_identity(path: str) -> bool:
     """Нужен ли токен для этого пути."""
-    if path in PUBLIC_PATHS:
+    if path in PUBLIC_PATHS or path.startswith("/api/voices/"):
         return False
     return path.startswith(PROTECTED_PREFIXES)
 
