@@ -129,9 +129,17 @@ async def test_product_surface_stays_open_to_members(env) -> None:
         "/api/projects",
         "/api/gpt-workspace/sessions",
         "/api/text-llm",
+        "/api/voices/catalog",
     ):
         res = await env["client"].get(path, headers=env["member"].auth)
         assert res.status_code != 404, f"{path} закрыт для участника"
+
+
+async def test_voices_catalog_is_open_without_token(env) -> None:
+    """Голоса и сэмплы доступны браузеру для воспроизведения без токена."""
+    res = await env["client"].get("/api/voices/catalog")
+    assert res.status_code == 200
+
 
 
 async def test_cost_of_goods_is_not_a_member_surface(env) -> None:
