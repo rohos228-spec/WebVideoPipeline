@@ -37,17 +37,18 @@
 | Тема | Файл |
 |------|------|
 | Как устроены промпт-блоки | [`PROMPTS_BLOCKS.md`](PROMPTS_BLOCKS.md) |
-| Массовый режим Telegram `/mass` | [`MASS_CREATION.md`](MASS_CREATION.md) |
+| Массовый режим и пакеты | [`MASS_CREATION.md`](MASS_CREATION.md) |
 | Сериальный пайплайн | `SERIES_*.md` |
 | Карта для ИИ-агента | [`AGENT_MAP.md`](AGENT_MAP.md) |
 | Модели на нодах (кто какой ключ) | [`NODE_MODELS.md`](NODE_MODELS.md) |
 
 **Не опираться на** `HANDOVER.md` (устарел).
 
-## Два разных «mass»
+## Массовая генерация (Mass & Batches)
 
 1. **Studio → Фабрика видео** — Excel тем в проекте, очередь lanes.
-2. **Telegram `/mass`** — batch-проекты; см. `MASS_CREATION.md`.
+2. **Studio Batches** — batch-проекты через API / UI (`MASS_CREATION.md`).
+Telegram-бот и команда `/mass` удалены; всё управление пакетами перенесено в Web Studio.
 
 ## Поиск по знаниям репо
 

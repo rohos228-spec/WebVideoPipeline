@@ -82,6 +82,8 @@ import {
   kieFileFields,
   kieMainTextField,
 } from "@/lib/kie-pricing";
+import { VoiceLibraryModal, getVoiceById } from "./voice-library-modal";
+import { AudioTagsBar } from "./audio-tags-bar";
 
 // Kie-каталог включен по умолчанию; выключить: NEXT_PUBLIC_KIE_CREATE=0.
 // (Сравнение с "1" ломалось: Next компилировал флаг в runtime-доступ
@@ -364,7 +366,13 @@ function AudioStudioPlayer({
 
   const modelBadge =
     (item.params?.model as string) ||
-    (item.model?.includes("V5_5") ? "V5.5" : item.model?.includes("V5") ? "V5" : "Suno AI");
+    (item.model?.includes("ElevenLabs") || item.model?.includes("elevenlabs")
+      ? "ElevenLabs v4"
+      : item.model?.includes("V5_5")
+        ? "V5.5"
+        : item.model?.includes("V5")
+          ? "V5"
+          : "Suno AI");
 
   const WAVE_BARS = useMemo(
     () => [
@@ -704,6 +712,30 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const firstFrameInputRef = useRef<HTMLInputElement>(null);
   const lastFrameInputRef = useRef<HTMLInputElement>(null);
   const multiRefInputRef = useRef<HTMLInputElement>(null);
+  const [voiceLibraryOpen, setVoiceLibraryOpen] = useState(false);
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleInsertAudioTag = (tag: string) => {
+    const textarea = promptTextareaRef.current;
+    if (!textarea) {
+      setPrompt((prev) => (prev ? `${prev} ${tag} ` : `${tag} `));
+      return;
+    }
+    const start = textarea.selectionStart ?? prompt.length;
+    const end = textarea.selectionEnd ?? prompt.length;
+    const before = prompt.slice(0, start);
+    const after = prompt.slice(end);
+    const spacerBefore = before.length > 0 && !before.endsWith(" ") ? " " : "";
+    const spacerAfter = after.length > 0 && !after.startsWith(" ") ? " " : "";
+    const inserted = `${spacerBefore}${tag}${spacerAfter}`;
+    const nextPrompt = `${before}${inserted}${after}`;
+    setPrompt(nextPrompt);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const newPos = start + inserted.length;
+      textarea.setSelectionRange(newPos, newPos);
+    });
+  };
 
   const settingsQ = useQuery({
     queryKey: ["outsee-create-settings"],
@@ -780,8 +812,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         ? rawAud
         : rawAud === "suno-5-5"
           ? "kie:suno-music"
-          : rawAud === "elevenlabs-v3"
-            ? "kie:elevenlabs-tts-multilingual"
+          : rawAud === "elevenlabs-v4" || rawAud === "elevenlabs-v3"
+            ? "kie:elevenlabs-v4"
             : `kie:${rawAud}`,
     );
     setAspect(String(s.aspect || "16:9"));
@@ -972,8 +1004,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       setAudioSlug(
         audioSlug === "suno-5-5"
           ? "kie:suno-music"
-          : audioSlug === "elevenlabs-v3"
-            ? "kie:elevenlabs-tts-multilingual"
+          : audioSlug === "elevenlabs-v4" || audioSlug === "elevenlabs-v3"
+            ? "kie:elevenlabs-v4"
             : "kie:suno-music",
       );
     }
@@ -1367,7 +1399,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           normalizedModel = audioSlug;
         }
         if (normalizedModel === "suno-5-5") normalizedModel = "kie:suno-music";
-        if (normalizedModel === "elevenlabs-v3") normalizedModel = "kie:elevenlabs-tts-multilingual";
+        if (normalizedModel === "elevenlabs-v4" || normalizedModel === "elevenlabs-v3") normalizedModel = "kie:elevenlabs-v4";
 
         const matchedKie =
           kieModels.find(
@@ -1715,7 +1747,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         rawModel === "suno-5-5"
           ? "kie:suno-music"
           : rawModel === "elevenlabs-v3"
-            ? "kie:elevenlabs-tts-multilingual"
+            ? "kie:elevenlabs-v4"
             : rawModel.startsWith("kie:")
               ? rawModel
               : `kie:${rawModel || "suno-music"}`;
@@ -2655,19 +2687,33 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     />
                   </div>
                 )}
+                {mediaType === "audio" &&
+                  (kieModel?.id === "elevenlabs-v4" || audioSlug.includes("elevenlabs-v4")) && (
+                    <div className="px-3 pt-3 lg:px-4">
+                      <AudioTagsBar onInsertTag={handleInsertAudioTag} />
+                    </div>
+                  )}
                 {(!kieActive || kieTextField) && (
                   <div className="px-3 pt-3 lg:px-4">
                     <textarea
+                      ref={promptTextareaRef}
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       placeholder={
                         mediaType === "audio"
-                          ? "Текст / описание трека…"
+                          ? kieModel?.id === "elevenlabs-v4" || audioSlug.includes("elevenlabs-v4")
+                            ? "Введите текст для озвучки (1–10 000 символов)... Используйте кнопки аудио-тегов выше для добавления эмоций, смеха, пауз и акцентов."
+                            : "Текст / описание трека…"
                           : mediaType === "video"
                             ? "Опишите видео…"
                             : "Опишите изображение…"
                       }
-                      rows={3}
+                      rows={
+                        mediaType === "audio" &&
+                        (kieModel?.id === "elevenlabs-v4" || audioSlug.includes("elevenlabs-v4"))
+                          ? 5
+                          : 3
+                      }
                       style={{ outline: "none" }}
                       className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-white/90 placeholder:text-white/30 border-0 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0"
                     />
@@ -2878,6 +2924,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           openChip={openChip}
                           setOpenChip={setOpenChip}
                           setModelOpen={setModelOpen}
+                          onOpenVoiceModal={() => setVoiceLibraryOpen(true)}
                           onChange={(name, v) =>
                             setKieValues((prev) => ({ ...prev, [name]: v }))
                           }
@@ -3246,6 +3293,17 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           </div>
         </div>
       )}
+
+      {/* Voice Library Modal */}
+      <VoiceLibraryModal
+        open={voiceLibraryOpen}
+        onOpenChange={setVoiceLibraryOpen}
+        selectedVoiceId={String(kieValues["voice_id"] || "ymDCYd8puC7gYjxIamPt")}
+        onSelectVoice={(voiceId, voiceName) => {
+          setKieValues((prev) => ({ ...prev, voice_id: voiceId }));
+          toast.success(`Выбран голос: ${voiceName}`);
+        }}
+      />
     </div>
   );
 }
@@ -3269,6 +3327,7 @@ function KieFieldChip({
   openChip,
   setOpenChip,
   setModelOpen,
+  onOpenVoiceModal,
   onChange,
 }: {
   field: KieField;
@@ -3276,9 +3335,54 @@ function KieFieldChip({
   openChip?: string | null;
   setOpenChip?: (v: string | null) => void;
   setModelOpen?: (v: boolean) => void;
+  onOpenVoiceModal?: () => void;
   onChange: (name: string, v: unknown) => void;
 }) {
   const v = values[field.name] ?? field.default;
+
+  if (field.name === "voice_id" || field.name === "voice") {
+    const voice = getVoiceById(String(v || ""));
+    const displayName = voice
+      ? `${voice.name} (${voice.gender === "female" ? "Ж" : "М"})`
+      : String(v || "Выбрать голос");
+    return (
+      <button
+        type="button"
+        onClick={onOpenVoiceModal}
+        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-3 text-[12px] font-medium text-white transition hover:bg-[#22d3ee]/20 hover:border-[#22d3ee]/60"
+        title="Открыть библиотеку русских голосов (200)"
+      >
+        <Mic className="h-3.5 w-3.5 text-[#22d3ee]" />
+        <span className="text-white/60">Голос:</span>
+        <span className="font-semibold text-[#22d3ee]">{displayName}</span>
+      </button>
+    );
+  }
+
+  if (field.name === "stability" || field.name === "similarity") {
+    const numVal =
+      typeof v === "number"
+        ? v
+        : Number(v ?? field.default ?? (field.name === "stability" ? 0.5 : 0.75));
+    return (
+      <div
+        className="inline-flex h-9 items-center gap-2 rounded-xl border border-white/10 bg-[#16161b] px-3"
+        title={field.desc || field.label}
+      >
+        <span className="text-[11px] text-white/55">{field.label}:</span>
+        <span className="font-mono text-[11px] font-semibold text-[#22d3ee]">{numVal.toFixed(2)}</span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={numVal}
+          onChange={(e) => onChange(field.name, parseFloat(e.target.value))}
+          className="h-1.5 w-16 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#22d3ee]"
+        />
+      </div>
+    );
+  }
 
   if (field.kind === "toggle") {
     const on = v === true || String(v).toLowerCase() === "true";
@@ -3741,33 +3845,12 @@ const SUNO_AUDIO_ACTIONS: AudioActionSpec[] = [
 
 const ELEVENLABS_AUDIO_ACTIONS: AudioActionSpec[] = [
   {
-    id: "elevenlabs-tts-multilingual",
-    slug: "kie:elevenlabs-tts-multilingual",
-    name: "Озвучка Multilingual V2",
-    desc: "Качественная озвучка на 29 языках (включая русский) с эмоциями",
-    badge: "ТОП",
+    id: "elevenlabs-v4",
+    slug: "kie:elevenlabs-v4",
+    name: "Озвучка ElevenLabs v4 (WaveSpeed)",
+    desc: "Новейшая модель v4, библиотека 200 русских голосов, аудио-теги эмоций",
+    badge: "NEW",
     iconType: "speech",
-  },
-  {
-    id: "elevenlabs-tts-turbo",
-    slug: "kie:elevenlabs-tts-turbo",
-    name: "Быстрая озвучка Turbo 2.5",
-    desc: "Высокая скорость генерации речи, экономный расход кредитов",
-    iconType: "turbo",
-  },
-  {
-    id: "elevenlabs-dialogue-v3",
-    slug: "kie:elevenlabs-dialogue-v3",
-    name: "Диалог по ролям (Dialogue V3)",
-    desc: "Многоголосый диалог: разные персонажи говорят своими голосами",
-    iconType: "dialogue",
-  },
-  {
-    id: "elevenlabs-audio-isolation",
-    slug: "kie:elevenlabs-audio-isolation",
-    name: "Изоляция и очистка голоса",
-    desc: "Удаление любого фонового шума, гула и эха, оставляя только речь",
-    iconType: "isolate",
   },
 ];
 
@@ -4128,7 +4211,7 @@ function ModelPickerPopover({
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-bold tracking-tight text-white/90">{title}</span>
             <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
-              {isAudio ? "2 движка · 12 действий" : totalCount}
+              {isAudio ? `2 движка · ${filteredSunoActions.length + filteredElevenLabsActions.length} действ.` : totalCount}
             </span>
           </div>
         </div>
@@ -4241,7 +4324,7 @@ function ModelPickerPopover({
                           Голос & Речь
                         </span>
                       </div>
-                      <p className="text-[10px] text-white/50">Озвучка 29 языков, диалоги, шумоподавление</p>
+                      <p className="text-[10px] text-white/50">Озвучка v4, 200 русских голосов, эмоции и теги</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
