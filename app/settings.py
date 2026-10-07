@@ -234,8 +234,8 @@ class Settings(BaseSettings):
     def gpt_api_effective_base_url(self) -> str:
         """База активного текстового LLM.
 
-        kie и vibecode — через VPS-relay, если задан (Caddy: /v1/* → vibecode.moe,
-        остальное → api.kie.ai). Без relay vibecode идёт прямиком на vibecode.moe.
+        kie — через VPS-relay, если задан. vibecode — всегда прямиком на
+        vibecode.moe (VPS часто ещё только на api.kie.ai; иначе 401-envelope).
         """
         if self.text_llm_is_vibecode:
             return (self.vibecode_base_url or "https://vibecode.moe/v1").strip().rstrip("/")
@@ -293,6 +293,9 @@ class Settings(BaseSettings):
     elevenlabs_similarity_boost: float | None = Field(None, alias="ELEVENLABS_SIMILARITY_BOOST")
     # Звуки сопровождения в пайплайне (sfx_plan → sfx_gen → микс в сборке).
     sfx_enabled: bool = Field(True, alias="SFX_ENABLED")
+    # WaveSpeed AI (ElevenLabs v4 TTS)
+    wavespeed_api_key: str = Field("", alias="WAVESPEED_API_KEY")
+    wavespeed_api_base_url: str = Field("https://api.wavespeed.ai", alias="WAVESPEED_API_BASE_URL")
     # Музыка (Suno через Outsee) идёт ТОЛЬКО через браузер — на сервере, где
     # Chrome нет, шаг упирался в CDP так же, как герои до правки. Сборка
     # подмешивает музыку только если файл есть, так что без неё ролик

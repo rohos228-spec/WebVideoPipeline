@@ -53,7 +53,6 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import type { KieField, KieModelSpec } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
-import { isUnfilledAssistantPrompt } from "@/lib/gen-assistant-styles";
 import { cn } from "@/lib/utils";
 import {
   OUTSEE_ACCENT,
@@ -77,13 +76,14 @@ import {
   type OutseeMediaType,
 } from "@/lib/outsee-catalog";
 import { estimateCreatePrice } from "@/lib/create-pricing";
-import { GenAssistantPanel } from "@/components/outsee/gen-assistant-panel";
 import {
   estimateKie,
   kieChipFields,
   kieFileFields,
   kieMainTextField,
 } from "@/lib/kie-pricing";
+import { VoiceLibraryModal, getVoiceById } from "./voice-library-modal";
+import { AudioTagsBar } from "./audio-tags-bar";
 
 // Kie-каталог включен по умолчанию; выключить: NEXT_PUBLIC_KIE_CREATE=0.
 // (Сравнение с "1" ломалось: Next компилировал флаг в runtime-доступ
@@ -95,20 +95,6 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   /** Опционально: «применить к проекту» — не источник настроек. */
   projectId: number | null;
-};
-
-type RefImage = { id: string; url: string; name: string; file?: File };
-
-type DraftJob = {
-  job_id: string;
-  history_id: string;
-  status: "processing";
-  media: "image";
-  model: string;
-  prompt_preview: string;
-  provider: "draft";
-  created_at: string;
-  started_at: string;
 };
 
 type HistoryItem = {
@@ -137,28 +123,6 @@ type HistoryItem = {
   provider?: "outsee" | "kie" | string | null;
 };
 
-function makeRefFromFile(file: File): RefImage {
-  return {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    url: URL.createObjectURL(file),
-    name: file.name,
-    file,
-  };
-}
-
-function revokeRefUrl(url: string) {
-  if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-}
-
-async function resolveReferenceUrls(refs: RefImage[]): Promise<string[]> {
-  const out: string[] = [];
-  for (const r of refs) {
-    if (r.file) out.push(await readFileAsDataUrl(r.file));
-    else out.push(r.url);
-  }
-  return out;
-}
-
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -177,69 +141,56 @@ function formatElapsedMinSec(totalSec: number | null | undefined): string {
 
 
 export const RANDOM_PROMPTS = [
-  // Кинематографичные сюжеты и кинокадры
-  "Cinematic film still of a detective in a trench coat standing under a flickering street lamp on a rainy night in 1950s Chicago, dramatic shadows, 35mm film look",
-  "A dusty desert highway at sunset with a classic vintage muscle car parked on the roadside, golden hour light, anamorphic lens flare",
-  "Astronaut sitting on a rocky cliff overlooking a vast crimson Martian canyon, twin moons in the starry night sky, cinematic lighting",
-  "Close-up portrait of an old weathered sea captain looking into a fierce ocean storm, sea salt in his gray beard, intense dramatic gaze",
-  "A neon-lit ramen bar in downtown Tokyo during a heavy downpour, steam rising from fresh bowls, reflections on wet asphalt, moody atmosphere",
-  "A lone mountaineer reaching the summit of a snowy Alpine peak at sunrise, sea of clouds below, crisp clear mountain air, wide angle lens",
-  "Dark gothic ballroom with grand chandeliers, mysterious masquerade dancers in elaborate dark attire, candlelit ambience, deep shadows",
-  "Cyberpunk courier speeding through a rainy futuristic megacity on an illuminated hoverbike, holographic signs reflecting on helmet visor",
-  "Retro 1980s synthwave night drive, sports car dashboard view, purple and teal sunset over distant palm trees and grid skyline",
-  "A medieval blacksmith hammering a glowing red sword blade in a dim stone forge, bright flying sparks, fiery rim lighting",
-
-  // Уют, быт и атмосфера
-  "Cozy rustic kitchen in morning sunlight, fresh warm croissants on a wooden board, steam rising from ceramic coffee cup, soft dust motes",
-  "Rainy afternoon in an old bookstore, stacks of antique books reaching the ceiling, a cat napping on a green velvet armchair by the window",
-  "A serene wooden cabin on the edge of a misty pine lake, warm amber glow in the windows, smoking chimney, autumn dawn reflection",
-  "A vinyl record spinning on a vintage turntable, warm amber lamp glow, soft bokeh lights, cozy evening living room",
-  "Sunny glass greenhouse conservatory overflowing with exotic tropical monstera and ferns, hanging brass lanterns, golden sunbeams",
-  "A street artist painting a colorful mural on an old brick wall in a sunlit European alley, paint splatters, authentic candid moment",
-  "A camper van parked on an ocean cliff edge with the back doors open, two cups of tea, overlooking crashing waves at twilight",
-  "An artisan pottery workshop, potter's hands shaping wet clay on a spinning wheel, natural window light, rustic ceramics on wooden shelves",
-
-  // Животные и дикая природа
-  "A cute fluffy red fox curled up asleep on a blanket of freshly fallen snow in a quiet winter birch forest",
-  "Charming capybara relaxing in an outdoor Japanese hot spring bath with a small yuzu fruit balanced on its head, gentle rising steam",
-  "Macro close-up shot of a chameleon with vibrant neon scales and an iridescent eye perched on a lush tropical branch",
-  "A majestic humpback whale breaching out of calm Arctic waters, dramatic golden sunset sky, glistening water splash",
-  "A wise barn owl perched on a moss-covered oak branch in twilight mist, soft detailed feathers, striking amber eyes",
-  "Playful golden retriever puppy running through a vibrant meadow of wild blooming poppies, sunny summer afternoon",
-  "A tiny colorful tree frog resting inside a wet exotic jungle flower, glistening translucent water dewdrops, shallow focus",
-
-  // Еда, напитки и коммерческий предметный стиль
-  "Gourmet smash burger with melting aged cheddar, crispy bacon, caramelized onions and sauce dripping onto craft paper, mouthwatering food photography",
-  "Crystal cocktail glass with an artisan amber whiskey, spherical clear ice cube, orange peel garnish, moody speakeasy bar lighting",
-  "A slice of decadent dark chocolate cake with glossy dripping ganache and fresh ripe raspberries on a matte ceramic plate",
-  "Overhead flat lay of an authentic Italian Neapolitan pizza fresh from a wood-fired oven, blistered crust, creamy mozzarella and fresh basil leaves",
-  "A matcha latte in a minimalist ceramic cup with delicate foam leaf latte art, bamboo whisk and green powder on a raw stone slate",
-  "Fresh chilled glass bottle of sparkling soda with ice condensation droplets, floating lime slices and fresh mint leaves, bright summer sunlight",
-
-  // Фэнтези, мистика и Sci-Fi
-  "Ancient colossal stone temple ruins hidden deep inside a bioluminescent jungle, glowing vines, cascading emerald waterfalls",
-  "Majestic celestial dragon with shimmering pearl scales soaring through pastel sunset clouds above floating mountain islands",
-  "Enchanted library where glowing magical origami birds fly between high bookshelves, magical stardust swirling in the air",
-  "A futuristic botanical dome on the moon, lush green trees inside glass dome with Earth rising above the barren lunar landscape",
-  "Ethereal underwater crystal palace with glowing jellyfish drifting past carved coral arches, tranquil turquoise atmosphere",
-  "A friendly small maintenance robot tending to bonsai trees in a minimalist futuristic apartment, soft daylight, warm feeling",
-  "A solitary wizard tower on a sharp sea cliff during an epic thunderstorm, glowing blue runes carved into dark stone, violent lightning",
-  "A mysterious alchemist workstation with glass retorts bubbling with glowing luminescent liquids, ancient scrolls, dried lavender bunches",
-
-  // Архитектура и дизайн
-  "Minimalist brutalist villa made of raw concrete and warm cedar wood, floor-to-ceiling glass windows facing a serene misty pine forest",
-  "Cozy Scandinavian interior living room with a crackling fireplace, beige linen sofa, wool knit throw, and large window with mountain view",
-  "Futuristic organic architecture city with flowing white curves, green sky terraces, elevated pedestrian bridges and clean blue sky",
-  "Traditional Kyoto machiya courtyard garden with smooth stepping stones, bamboo fountain, and vibrant red Japanese maple leaves in autumn",
-  "Modern luxury penthouse bedroom at night overlooking Manhattan skyline, dark moody tones, plush king bed, floor-to-ceiling city panorama",
-
-  // Графика, 3D и креативные концепты
-  "Vibrant 3D isometric cutaway illustration of a cozy gamer room with dual monitors, glowing RGB lights, mini fridge, and posters",
-  "Retro travel poster illustration of a futuristic vacation to Saturn's rings, bold vintage typography, stylish mid-century palette",
-  "Whimsical miniature clay diorama of a tiny bakery run by mice, micro loaves of bread, flour dusting, handcrafted stop-motion look",
-  "Cute cartoon astronaut cat exploring an alien planet covered in candy-colored giant mushrooms, playful vibrant colors",
-  "Editorial fashion studio portrait of a woman wearing a holographic geometric dress, high-fashion makeup, dramatic studio split lighting",
-  "A vintage steam locomotive rushing through a snowy mountain gorge over an arched stone viaduct, billowing white steam clouds",
+  "A majestic ancient Japanese temple surrounded by blooming pink cherry blossoms, serene koi pond with reflections of soft golden morning rays, hyperrealistic photography",
+  "Futuristic cyberpunk Tokyo street at midnight, neon holographic advertisements reflecting on wet asphalt, volumetric steam, cinematic depth of field, 8k octane render",
+  "Cozy warm coffee shop on a rainy autumn day in Paris, steam rising from ceramic cup, wooden table by rain-streaked window with view of street lamps, photorealistic",
+  "Epic fantasy dragon perched atop a towering snowy mountain peak during a dramatic sunset, golden sunlight through clouds, intricate scales, mythological masterpiece",
+  "Close-up macro photography of an iridescent hummingbird drinking nectar from a vibrant exotic flower, dewdrops, shallow depth of field, sharp focus, 8k",
+  "Interior of a luxurious futuristic space station greenhouse with view of planet Earth in background, bioluminescent plants, architectural elegance, unreal engine 5",
+  "Cinematic portrait of a wise old Nordic blacksmith with braided beard, glowing forge embers, sparks flying, textured leather apron, dramatic Rembrandt lighting",
+  "A breathtaking turquoise alpine lake nestled inside granite mountains, wildflower meadow in foreground, crisp morning air, National Geographic award-winning photography",
+  "Steampunk airship soaring through fluffy cumulus clouds at golden hour, brass gears, copper detailing, propellers spinning, adventure aesthetic",
+  "An ancient library with towering mahogany bookshelves reaching into shadows, floating glowing magical dust motes, stained glass window casting colorful light",
+  "Sleek modern sports car speeding along a winding coastal highway at dusk, motion blur, taillight trails, sunset reflection on metallic paint",
+  "Enchanted bioluminescent forest at night, glowing mushrooms, ethereal spirits floating among giant mossy ancient trees, fantasy concept art",
+  "A cyberpunk samurai warrior standing in the rain on a skyscraper rooftop, glowing katana, neon city skyline in background, cinematic wide shot",
+  "Minimalist architectural desert villa with an infinity pool reflecting the starry night sky and Milky Way, warm interior ambient lights, 8k architectural render",
+  "Cute fluffy baby red panda playing in fresh autumn leaves, soft natural lighting, high detail fur, adorable expression, professional wildlife photography",
+  "A colossal ancient stone titan half-buried in sand dunes, ancient glyphs glowing faintly, desert wind blowing sand, epic cinematic landscape",
+  "A majestic white stag with glowing crystalline antlers standing in an ethereal moonlit clearing, mist swirling around hooves, fantasy masterwork",
+  "A futuristic hypercar prototype parked inside a minimalist concrete hangar, dramatic studio lighting, carbon fiber body, aerodynamic curves",
+  "Makoto Shinkai aesthetic anime scene of two friends standing on a hillside overlooking a coastal Japanese town under a starry night sky with falling meteors",
+  "A mysterious masked alchemist brewing glowing purple potions in a cluttered medieval apothecary filled with dried herbs, glass retorts, and ancient grimoires",
+  "Dramatic ocean storm at sunset, towering turquoise waves crashing against rugged black volcanic cliffs, golden sea spray, long exposure photography",
+  "A cozy Scandinavian log cabin surrounded by deep pine snowdrifts, warm amber light glowing from windows, vibrant green northern lights aurora borealis above",
+  "A cybernetic geisha with delicate porcelain faceplates and intricate glowing gold circuits, wearing a high-fashion holographic kimono, studio portrait",
+  "A breathtaking underwater coral reef teeming with vibrant tropical fish, sea turtles gliding through crystal clear sunlit water, wide angle photography",
+  "An opulent Venetian masquerade ballroom at midnight, grand crystal chandeliers, masked dancers in elaborate baroque gowns, golden reflections on marble floor",
+  "A lone astronaut discovering an ancient alien monolith glowing with violet hieroglyphs on Mars, red dust storm swirling, double moons on horizon",
+  "A mystical waterfall cascading into a crystal clear hidden grotto illuminated by glowing azure crystals, lush ferns, ethereal fantasy environment",
+  "Vintage 1960s Italian cafe terrace in Positano overlooking the Amalfi coastline, espresso cup on marble table, blooming bougainvillea, warm Mediterranean sunlight",
+  "A fierce Viking shieldmaiden with braided blonde hair and war paint standing on the prow of a dragon longship in a misty fjord, cinematic film still",
+  "A futuristic solar punk city with vertical botanical gardens covering skyscrapers, elevated glass sky trains, clean solar canals, bright optimistic daylight",
+  "A macro photograph of an intricate mechanical watch movement, exposed tourbillon, polished ruby jewels, Damascus steel bridges, extreme sharp detail",
+  "A whimsical treehouse village connected by glowing rope bridges nestled in colossal redwood trees at dusk, fairy lights, lanterns, magical fantasy vibe",
+  "A hyperrealistic portrait of an Ethiopian woman wearing traditional beaded silver jewelry and embroidered scarf, warm golden hour sunlight, sharp eye focus",
+  "A dramatic volcanic eruption at night, glowing red lava rivers flowing down black basalt slopes into the sea, thunderous ash cloud with lightning bolts",
+  "A cyberpunk hacker workstation surrounded by floating transparent holographic screens, neon blue and magenta reflections, cables, coffee cup, nighttime room",
+  "An enchanted crystal cave with giant luminous amethyst clusters growing from cavern walls, reflective underground river, ethereal dreamlike atmosphere",
+  "A sleek luxury yacht sailing through turquoise Caribbean waters near secluded white sand island, aerial drone view, sun glinting on clear water",
+  "A formidable knight in ornate black and gold armor standing guard in a gothic throne room, sunlight streaming through tall archways, cinematic dust motes",
+  "A hyper-detailed slice of artisan strawberry shortcake on a vintage porcelain plate, whipped cream, glazed berries, fork, warm bakery background",
+  "A futuristic mech warrior standing in a ruined battlefield covered in snow, weathered steel armor, glowing blue optics, smoke rising from vents",
+  "A peaceful zen rock garden at sunrise, perfectly raked sand patterns, bonsai pine tree, dewdrops on smooth river stones, soft tranquil morning light",
+  "A dark fantasy necromancer summoning green spectral flames from an ancient tomb, glowing runic circle on stone floor, cinematic shadows and mist",
+  "A vibrant bustling Moroccan bazaar at twilight, hanging brass lanterns casting intricate shadows, colorful spice pyramids, woven carpets, rich textures",
+  "A majestic bald eagle soaring over the Grand Canyon at sunrise, golden sunbeams piercing deep red rock canyons, crisp photographic detail",
+  "A futuristic orbital space elevator extending from an ocean platform into the starry cosmos, aurora borealis curving around Earth horizon",
+  "A romantic cobblestone street in old Prague at blue hour after rain, glowing streetlamps reflecting in puddles, Gothic church spires in background",
+  "A stunning studio portrait of a silver-haired elf queen with intricate diamond crown, delicate ear cuffs, deep sapphire velvet gown, soft cinematic lighting",
+  "A whimsical greenhouse conservatory filled with glowing giant mushrooms, miniature floating jellyfish plants, brass Victorian framing, magical realism",
+  "An epic science fiction starship armada dropping out of warp speed near a ringed gas giant planet, engine plasma trails, immense cosmic scale",
+  "A cute fluffy kitten sleeping curled up inside a wizard hat surrounded by glowing spell books and spilled star glitter, warm candlelight, cozy fantasy art"
 ];
 
 function downloadMediaFile(
@@ -415,7 +366,13 @@ function AudioStudioPlayer({
 
   const modelBadge =
     (item.params?.model as string) ||
-    (item.model?.includes("V5_5") ? "V5.5" : item.model?.includes("V5") ? "V5" : "Suno AI");
+    (item.model?.includes("ElevenLabs") || item.model?.includes("elevenlabs")
+      ? "ElevenLabs v4"
+      : item.model?.includes("V5_5")
+        ? "V5.5"
+        : item.model?.includes("V5")
+          ? "V5"
+          : "Suno AI");
 
   const WAVE_BARS = useMemo(
     () => [
@@ -742,45 +699,68 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const [lastFrameDataUrl, setLastFrameDataUrl] = useState<string | null>(null);
   const [firstFrameName, setFirstFrameName] = useState<string | null>(null);
   const [lastFrameName, setLastFrameName] = useState<string | null>(null);
-  const [referenceImages, setReferenceImages] = useState<RefImage[]>([]);
-  const [draftJobs, setDraftJobs] = useState<DraftJob[]>([]);
+  const [referenceImages, setReferenceImages] = useState<
+    { id: string; url: string; name: string }[]
+  >([]);
   const [modelOpen, setModelOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
-  const [assistantExpanded, setAssistantExpanded] = useState(true);
-  const [appliedPrompt, setAppliedPrompt] = useState<{ text: string; ts: number } | null>(null);
   const [openChip, setOpenChip] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [kieValues, setKieValues] = useState<Record<string, unknown>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [settingsHydrated, setSettingsHydrated] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
-  // Якорь выбора модели, когда открыт помощник промпта (док скрыт)
-  const modelRef2 = useRef<HTMLDivElement>(null);
   const firstFrameInputRef = useRef<HTMLInputElement>(null);
   const lastFrameInputRef = useRef<HTMLInputElement>(null);
   const multiRefInputRef = useRef<HTMLInputElement>(null);
-  const referenceImagesRef = useRef<RefImage[]>([]);
+  const [voiceLibraryOpen, setVoiceLibraryOpen] = useState(false);
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleInsertAudioTag = (tag: string) => {
+    const textarea = promptTextareaRef.current;
+    if (!textarea) {
+      setPrompt((prev) => (prev ? `${prev} ${tag} ` : `${tag} `));
+      return;
+    }
+    const start = textarea.selectionStart ?? prompt.length;
+    const end = textarea.selectionEnd ?? prompt.length;
+    const before = prompt.slice(0, start);
+    const after = prompt.slice(end);
+    const spacerBefore = before.length > 0 && !before.endsWith(" ") ? " " : "";
+    const spacerAfter = after.length > 0 && !after.startsWith(" ") ? " " : "";
+    const inserted = `${spacerBefore}${tag}${spacerAfter}`;
+    const nextPrompt = `${before}${inserted}${after}`;
+    setPrompt(nextPrompt);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const newPos = start + inserted.length;
+      textarea.setSelectionRange(newPos, newPos);
+    });
+  };
 
   const settingsQ = useQuery({
     queryKey: ["outsee-create-settings"],
     queryFn: api.getOutseeCreateSettings,
-    enabled: open && KIE_CREATE_ENABLED,
+    enabled: open,
   });
 
   const outseeStatusQ = useQuery({
     queryKey: ["outsee-status"],
     queryFn: api.outseeStatus,
-    enabled: open && KIE_CREATE_ENABLED,
+    enabled: open,
     staleTime: 30_000,
   });
 
   const createQueueQ = useQuery({
     queryKey: ["create-queue"],
     queryFn: api.createQueue,
-    enabled: open && KIE_CREATE_ENABLED,
+    enabled: open,
     refetchInterval: open ? 1200 : false,
   });
 
+  // kie.ai в «Генерации» — за флагом сборки: бэкенда /api/kie-create у нас
+  // нет (решение владельца 2026-09-03). Без каталога kie-модели не попадают
+  // в пикер, kieConfigured=false, ветки ниже спят. Код остаётся ради
+  // следующего переноса от заказчика.
   const kieCatalogQ = useQuery({
     queryKey: ["kie-catalog"],
     queryFn: api.kieCatalog,
@@ -794,18 +774,18 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     refetchInterval: open ? 60_000 : false,
   });
 
-  const runningJobs = [...draftJobs, ...(createQueueQ.data?.running ?? [])];
+  const runningJobs = createQueueQ.data?.running ?? [];
   const waitingJobs = createQueueQ.data?.waiting ?? [];
   const queueCount =
     (createQueueQ.data?.total_active ?? 0) ||
     runningJobs.length + waitingJobs.length;
-  const historyBusy = queueCount > 0 || draftJobs.length > 0;
+  const historyBusy = queueCount > 0;
 
   const historyQ = useQuery({
     queryKey: ["outsee-create-history", feedKind],
     queryFn: () =>
       api.listOutseeCreateHistory(feedKind, { scope: "create", limit: 60 }),
-    enabled: open && KIE_CREATE_ENABLED,
+    enabled: open,
     // Не долбим диск/сеть: часто только пока есть очередь, иначе редко.
     refetchInterval: open ? (historyBusy ? 3000 : 12_000) : false,
   });
@@ -832,8 +812,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         ? rawAud
         : rawAud === "suno-5-5"
           ? "kie:suno-music"
-          : rawAud === "elevenlabs-v3"
-            ? "kie:elevenlabs-tts-multilingual"
+          : rawAud === "elevenlabs-v4" || rawAud === "elevenlabs-v3"
+            ? "kie:elevenlabs-v4"
             : `kie:${rawAud}`,
     );
     setAspect(String(s.aspect || "16:9"));
@@ -862,20 +842,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   }, [open]);
 
   useEffect(() => {
-    referenceImagesRef.current = referenceImages;
-  }, [referenceImages]);
-  useEffect(() => {
-    return () => {
-      referenceImagesRef.current.forEach((r) => revokeRefUrl(r.url));
-    };
-  }, []);
-
-  useEffect(() => {
     if (!modelOpen) return;
     const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (modelRef.current?.contains(t) || modelRef2.current?.contains(t)) return;
-      setModelOpen(false);
+      if (modelRef.current && !modelRef.current.contains(e.target as Node)) setModelOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setModelOpen(false);
@@ -1035,8 +1004,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       setAudioSlug(
         audioSlug === "suno-5-5"
           ? "kie:suno-music"
-          : audioSlug === "elevenlabs-v3"
-            ? "kie:elevenlabs-tts-multilingual"
+          : audioSlug === "elevenlabs-v4" || audioSlug === "elevenlabs-v3"
+            ? "kie:elevenlabs-v4"
             : "kie:suno-music",
       );
     }
@@ -1192,27 +1161,19 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       const res = await fetch(item.preview_url);
       const blob = await res.blob();
       const file = new File([blob], `${item.id}.png`, { type: blob.type || "image/png" });
-      setReferenceImages((prev) => [...prev, makeRefFromFile(file)]);
+      const dataUrl = await readFileAsDataUrl(file);
+      setReferenceImages((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          url: dataUrl,
+          name: item.label || item.id,
+        },
+      ]);
       toast.success("Референс добавлен из истории");
     } catch {
       toast.error("Не удалось взять референс из истории");
     }
-  };
-
-  const addReferenceFiles = (files: File[]) => {
-    if (maxReferences <= 0) {
-      toast.error("Эта модель не принимает референсы");
-      return;
-    }
-    const remaining = maxReferences - referenceImages.length;
-    if (remaining <= 0) {
-      toast.error(`Достигнут лимит референсов (${maxReferences})`);
-      return;
-    }
-    const newRefs = files.slice(0, remaining).map(makeRefFromFile);
-    if (!newRefs.length) return;
-    setReferenceImages((prev) => [...prev, ...newRefs]);
-    toast.success(`Добавлено ${newRefs.length} референс(ов)`);
   };
 
   const applyModelDefaults = (slug: string, kind: OutseeMediaType) => {
@@ -1393,37 +1354,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     toast.success("Случайный промпт подставлен 🎲");
   };
 
-  /**
-   * Двойной клик по картинке в истории: применить её конфигурацию
-   * (модель / формат / разрешение / детализация из sidecar-params + промпт)
-   * к окну и открыть панель «Помощник» с этим промптом.
-   */
-  const applyHistoryConfig = (item: HistoryItem) => {
-    if (item.kind !== "image") return;
-    const p = (item.params ?? {}) as Record<string, unknown>;
-    const rawModel = item.model ? String(item.model) : "";
-    const candidates = [rawModel, slugToStudioId(rawModel, "image") ?? ""];
-    const slug = candidates.find((c) => c && chipOptions(c, "aspect").length > 0);
-    const effSlug = slug ?? imageSlug;
-    if (slug && slug !== imageSlug) setImageSlug(slug);
-    if (typeof p.aspect === "string" && p.aspect) {
-      setAspect(clampToOptions(p.aspect, chipOptions(effSlug, "aspect"), aspect));
-    }
-    if (typeof p.resolution === "string" && p.resolution) {
-      setResolution(clampToOptions(p.resolution, chipOptions(effSlug, "resolution"), resolution));
-    }
-    if (typeof p.detail_level === "string" && p.detail_level) {
-      const dOpts = chipOptions(effSlug, "detail");
-      if (dOpts.length) setDetail(clampToOptions(p.detail_level, dOpts, detail));
-    }
-    if (item.prompt) {
-      setPrompt(item.prompt);
-      setAppliedPrompt({ text: item.prompt, ts: Date.now() });
-    }
-    setAssistantOpen(true);
-    toast.success("Конфигурация изображения применена к панели снизу");
-  };
-
   const handleEnhancePrompt = async () => {
     const text = prompt.trim();
     if (!text) {
@@ -1447,34 +1377,16 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   };
 
   const createGenerate = useMutation({
-    mutationFn: async (
-      arg?:
-        | string
-        | {
-            prompt?: string;
-            forceSingle?: boolean;
-            draftId?: string;
-            retryItem?: HistoryItem;
-          },
-    ) => {
-      // forceSingle — помощник промптов: ровно 1 картинка на каждый промпт агента,
-      // без умножения на batchCount.
-      const retry = typeof arg === "object" ? arg?.retryItem : undefined;
-      const promptOverride = typeof arg === "string" ? arg : (arg?.prompt ?? retry?.prompt ?? undefined);
-      const forceSingle = (typeof arg === "object" && arg?.forceSingle === true) || Boolean(retry);
-      const draftId = typeof arg === "object" ? arg?.draftId : undefined;
-      let text = (promptOverride ?? prompt).trim();
-      if (!text) throw new Error("Введите промпт");
-      if (text.toLowerCase().includes("not example objects from the style guide")) {
-        throw new Error("Промпт не собран агентом — генерация не запущена");
-      }
+    mutationFn: async (arg?: { retryItem?: HistoryItem } | void) => {
+      const retry = arg?.retryItem;
       const targetMediaType: OutseeMediaType = retry
         ? ((retry.kind as OutseeMediaType) || "image")
         : mediaType;
+      let text = (retry?.prompt ?? prompt).trim();
+      if (!text) throw new Error("Введите промпт");
       if (text && targetMediaType === "image" && negativePrompt.trim() && !retry) {
         text += `\nAvoid: ${negativePrompt.trim()}`;
       }
-      const refUrls = await resolveReferenceUrls(referenceImages);
 
       const executeSingle = async (index: number) => {
         const nonce = `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1487,7 +1399,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           normalizedModel = audioSlug;
         }
         if (normalizedModel === "suno-5-5") normalizedModel = "kie:suno-music";
-        if (normalizedModel === "elevenlabs-v3") normalizedModel = "kie:elevenlabs-tts-multilingual";
+        if (normalizedModel === "elevenlabs-v4" || normalizedModel === "elevenlabs-v3") normalizedModel = "kie:elevenlabs-v4";
 
         const matchedKie =
           kieModels.find(
@@ -1568,15 +1480,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           }
 
           // Автоматическая передача референсов и стартовых кадров в поля модели KIE
-          const kieRefUrls =
+          const refUrls =
             retry?.reference_images && retry.reference_images.length > 0
               ? retry.reference_images
-              : refUrls.length > 0
-                ? refUrls
+              : referenceImages.length > 0
+                ? referenceImages.map((r) => r.url)
                 : firstFrameDataUrl
                   ? [firstFrameDataUrl]
                   : [];
-          if (kieRefUrls.length > 0 && effectiveKieModel) {
+          if (refUrls.length > 0 && effectiveKieModel) {
             const imageField = effectiveKieModel.fields.find(
               (f) =>
                 f.kind === "images" ||
@@ -1589,9 +1501,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 imageField.name === "image_input" ||
                 (imageField.max_items && imageField.max_items > 1)
               ) {
-                vals[imageField.name] = kieRefUrls.slice(0, imageField.max_items || 8);
+                vals[imageField.name] = refUrls.slice(0, imageField.max_items || 8);
               } else {
-                vals[imageField.name] = kieRefUrls[0];
+                vals[imageField.name] = refUrls[0];
               }
             }
           }
@@ -1620,7 +1532,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             status: res.job.status,
             queue_position: res.job.queue_position,
             provider: "kie" as const,
-            draftId,
           };
         }
         if (!text) throw new Error("Введите промпт");
@@ -1651,7 +1562,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           typeof retryParams.duration === "number"
             ? retryParams.duration
             : Number(duration) || 5;
-        const targetFirstFrame = retry?.first_frame_url || firstFrameDataUrl;
+        const targetFirstFrame =
+          retry?.first_frame_url ||
+          (referenceImages.length > 0 ? referenceImages[0].url : firstFrameDataUrl);
         const targetLastFrame =
           (typeof retryParams.last_frame_url === "string"
             ? retryParams.last_frame_url
@@ -1659,9 +1572,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         const targetRefs =
           retry?.reference_images && retry.reference_images.length > 0
             ? retry.reference_images
-            : refUrls.length > 0
-              ? refUrls
-              : undefined;
+            : referenceImages.length > 0
+              ? referenceImages.map((r) => r.url)
+              : firstFrameDataUrl
+                ? [firstFrameDataUrl]
+                : undefined;
         const targetModel =
           rawModel || (targetMediaType === "video" ? videoSlug : imageSlug);
         const targetProjectId = retry ? (retry.project_id ?? projectId) : projectId;
@@ -1695,10 +1610,10 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 nonce,
                 batch_index: index,
               });
-        return { ...enqueued, provider: "outsee" as const, draftId };
+        return { ...enqueued, provider: "outsee" as const };
       };
 
-      const count = forceSingle
+      const count = retry
         ? 1
         : targetMediaType === "image" || targetMediaType === "video"
           ? batchCount
@@ -1707,18 +1622,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         const results = await Promise.all(
           Array.from({ length: count }, (_, i) => executeSingle(i))
         );
-        return { batch: true, count, results, draftId };
+        return { batch: true, count, results };
       }
       return executeSingle(0);
     },
     onSuccess: (res) => {
-      const doneDraft =
-        res && typeof res === "object" && "draftId" in res
-          ? (res as { draftId?: string }).draftId
-          : undefined;
-      if (doneDraft) {
-        setDraftJobs((prev) => prev.filter((d) => d.job_id !== doneDraft));
-      }
       if (res && typeof res === "object" && "batch" in res && Array.isArray((res as any).results)) {
         const batchRes = (res as any).results as any[];
         const newTrackers: { provider: "outsee" | "kie"; jobId: string; historyId: string }[] = [];
@@ -1771,11 +1679,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       toast.success("Шаг запущен");
       qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
     },
-    onError: (e, arg) => {
-      const draftId = typeof arg === "object" ? arg?.draftId : undefined;
-      if (draftId) {
-        setDraftJobs((prev) => prev.filter((d) => d.job_id !== draftId));
-      }
+    onError: (e) => {
       toast.error(errorMessageFromUnknown(e));
     },
   });
@@ -1837,14 +1741,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         if (dOpts.length) setDetail(clampToOptions(p.detail_level, dOpts, detail));
       }
       setPrompt(item.prompt);
-      setAppliedPrompt({ text: item.prompt, ts: Date.now() });
     } else if (item.kind === "audio") {
       setMediaType("audio");
       const targetSlug =
         rawModel === "suno-5-5"
           ? "kie:suno-music"
           : rawModel === "elevenlabs-v3"
-            ? "kie:elevenlabs-tts-multilingual"
+            ? "kie:elevenlabs-v4"
             : rawModel.startsWith("kie:")
               ? rawModel
               : `kie:${rawModel || "suno-music"}`;
@@ -1855,29 +1758,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       else if (typeof p.instrumental === "boolean") setInstrumental(p.instrumental);
       setPrompt(item.prompt);
     }
-    createGenerate.mutate({ retryItem: item, forceSingle: true });
+    createGenerate.mutate({ retryItem: item });
   };
 
-  const historyItems: HistoryItem[] = useMemo(() => {
-    const real = (historyQ.data as HistoryItem[] | undefined) ?? [];
-    const drafts =
-      feedKind === "all" || feedKind === "image"
-        ? draftJobs.map((d) => ({
-            id: d.history_id,
-            kind: "image",
-            preview_url: null,
-            label: d.prompt_preview || "генерация",
-            project_id: null,
-            project_slug: null,
-            prompt: null,
-            status: "processing",
-            job_id: d.job_id,
-            created_at: d.created_at,
-            started_at: d.started_at,
-          }))
-        : [];
-    return [...drafts, ...real];
-  }, [historyQ.data, draftJobs, feedKind]);
+  const historyItems: HistoryItem[] = useMemo(
+    () => (historyQ.data as HistoryItem[] | undefined) ?? [],
+    [historyQ.data],
+  );
 
   const selected = useMemo(() => {
     let item: HistoryItem | null = null;
@@ -1939,22 +1826,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             <span className="rounded-full border border-[#22d3ee]/30 bg-[#22d3ee]/10 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
               проект #{projectId}
             </span>
-          )}
-          {mediaType === "image" && (
-            <button
-              type="button"
-              onClick={() => setAssistantOpen((v) => !v)}
-              title="Помощник промпта: стиль → запрос → собранный промпт"
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition",
-                assistantOpen
-                  ? "border-[#22d3ee]/50 bg-[#22d3ee]/15 text-[#22d3ee]"
-                  : "border-white/10 bg-white/[0.03] text-white/60 hover:border-[#22d3ee]/40 hover:bg-[#22d3ee]/10 hover:text-white",
-              )}
-            >
-              <Sparkles className="h-3 w-3" />
-              Помощник
-            </button>
           )}
           <a
             href={outseeCreateUrl(mediaType, activeSlug)}
@@ -2121,14 +1992,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       key={item.id}
                       type="button"
                       onClick={() => setSelectedId(item.id)}
-                      onDoubleClick={() => applyHistoryConfig(item)}
                       className={cn(
                         "group relative aspect-square overflow-hidden rounded-xl border bg-[#121216] transition-all duration-200",
                         active
                           ? "border-[#22d3ee] ring-2 ring-[#22d3ee]/40 shadow-[0_0_20px_rgba(34,211,238,0.25)]"
                           : "border-white/[0.08] hover:border-white/25 hover:bg-[#18181f]",
                       )}
-                      title={`${item.label}${item.project_slug ? ` · ${item.project_slug}` : ""} · двойной клик — применить конфигурацию`}
+                      title={`${item.label}${item.project_slug ? ` · ${item.project_slug}` : ""}`}
                     >
                       {item.preview_url && !pending ? (
                         isVideo ? (
@@ -2161,32 +2031,28 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                             />
                           ) : failed ? (
                             <div className="flex flex-col items-center gap-1.5">
-                              <span className="text-[9px] font-semibold uppercase tracking-wider text-red-400">
-                                ошибка
-                              </span>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRetry(item);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
+                              <span className="text-[10px] font-semibold text-red-400">ошибка</span>
+                              {item.prompt && (
+                                <span
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(e) => {
                                     e.stopPropagation();
                                     handleRetry(item);
-                                  }
-                                }}
-                                className="flex h-7 w-7 items-center justify-center rounded-full border border-red-500/40 bg-red-500/20 text-red-300 shadow-md backdrop-blur transition hover:border-[#22d3ee] hover:bg-[#22d3ee] hover:text-black hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] active:scale-90"
-                                title="Сгенерировать заново в 1 клик"
-                              >
-                                <RotateCw
-                                  className={cn(
-                                    "h-3.5 w-3.5",
-                                    createGenerate.isPending && "animate-spin",
-                                  )}
-                                />
-                              </span>
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.stopPropagation();
+                                      handleRetry(item);
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-full bg-red-500/15 border border-red-500/30 px-2 py-0.5 text-[9px] font-medium text-red-200 hover:bg-red-500/30 hover:border-red-400 hover:text-white transition-all cursor-pointer shadow-sm active:scale-95"
+                                  title="Сгенерировать заново"
+                                >
+                                  <RotateCw className={cn("h-2.5 w-2.5", createGenerate.isPending && "animate-spin")} />
+                                  <span>повторить</span>
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <span className="text-[9px] text-white/25">{item.kind}</span>
@@ -2215,7 +2081,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           <div className="truncate text-[8px] text-white/45">{item.project_slug}</div>
                         )}
                       </div>
-                      {pending && (item.job_id || item.id) && !String(item.job_id || item.id).startsWith("draft-") && (
+                      {pending && (item.job_id || item.id) && (
                         <div className="absolute top-1.5 right-1.5 z-20 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
                           <button
                             type="button"
@@ -2233,6 +2099,19 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       )}
                       {!pending && (
                         <div className="absolute top-1.5 right-1.5 z-20 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                          {failed && item.prompt && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRetry(item);
+                              }}
+                              className="flex h-6 w-6 items-center justify-center rounded-md bg-cyan-950/80 text-[#22d3ee] backdrop-blur transition hover:bg-[#22d3ee] hover:text-black shadow-md ring-1 ring-[#22d3ee]/40"
+                              title="Сгенерировать заново"
+                            >
+                              <RotateCw className={cn("h-3 w-3", createGenerate.isPending && "animate-spin")} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -2429,27 +2308,26 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     formatElapsedMinSec(selected.elapsed_sec)}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleRetry(selected)}
-                    disabled={createGenerate.isPending}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#22d3ee] px-4 py-2 text-[12px] font-bold text-black shadow-[0_0_20px_rgba(34,211,238,0.35)] transition hover:bg-[#22d3ee]/90 hover:shadow-[0_0_25px_rgba(34,211,238,0.5)] active:scale-95 disabled:opacity-50"
-                    title="Запустить повторную генерацию с теми же параметрами"
-                  >
-                    <RotateCw
-                      className={cn("h-4 w-4", createGenerate.isPending && "animate-spin")}
-                    />
-                    <span>{createGenerate.isPending ? "Запуск…" : "Сгенерировать заново"}</span>
-                  </button>
+                  {selected.prompt && (
+                    <button
+                      type="button"
+                      onClick={() => handleRetry(selected)}
+                      disabled={createGenerate.isPending}
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#06b6d4] px-4 py-2 text-[12px] font-bold text-black shadow-[0_0_20px_rgba(34,211,238,0.4)] transition hover:brightness-110 active:scale-95 disabled:opacity-50"
+                      title="Повторить генерацию с теми же параметрами"
+                    >
+                      <RotateCw className={cn("h-4 w-4", createGenerate.isPending && "animate-spin")} />
+                      <span>{createGenerate.isPending ? "Запуск…" : "Сгенерировать заново"}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => deleteItem.mutate(selected)}
-                    disabled={deleteItem.isPending}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/20 px-3.5 py-2 text-[11px] font-semibold text-red-300 backdrop-blur transition hover:border-red-500/50 hover:bg-red-500/30 hover:text-white shadow-lg active:scale-95 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/20 px-3.5 py-2 text-[11px] font-semibold text-red-300 backdrop-blur transition hover:border-red-500/50 hover:bg-red-500/30 hover:text-white shadow-lg"
                     title="Удалить ошибочную запись из истории"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    <span>Удалить из истории</span>
+                    <span>Удалить</span>
                   </button>
                 </div>
               </div>
@@ -2499,132 +2377,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 })}
               </div>
 
-              {/* Помощник промпта: заменяет док генерации (те же размеры) */}
-              {assistantOpen && mediaType === "image" && (
-                <GenAssistantPanel
-                  onClose={() => setAssistantOpen(false)}
-                  appliedPrompt={appliedPrompt}
-                  imageSlug={imageSlug}
-                  modelName={currentName}
-                  aspect={aspect}
-                  resolution={resolution}
-                  detail={detail}
-                  generating={createGenerate.isPending}
-                  onAspectChange={setAspect}
-                  onResolutionChange={setResolution}
-                  onDetailChange={setDetail}
-                  onOpenModelPicker={() => {
-                    setModelOpen(true);
-                    setOpenChip(null);
-                  }}
-                  onApplyPrompt={(t) => setPrompt(t)}
-                  onGenerate={(t) => {
-                    if (isUnfilledAssistantPrompt(t)) {
-                      toast.error("Промпт не собран агентом — генерация не запущена", {
-                        duration: 12_000,
-                        position: "top-center",
-                      });
-                      return;
-                    }
-                    createGenerate.mutate({ prompt: t, forceSingle: true });
-                    setPrompt("");
-                  }}
-                  onPrepareGenerate={(preview, n) => {
-                    setPrompt("");
-                    const now = new Date().toISOString();
-                    const ids: string[] = [];
-                    const extra: DraftJob[] = [];
-                    for (let i = 0; i < Math.max(1, n); i += 1) {
-                      const id = `draft-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
-                      ids.push(id);
-                      extra.push({
-                        job_id: id,
-                        history_id: id,
-                        status: "processing",
-                        media: "image",
-                        model: imageSlug,
-                        prompt_preview: preview.slice(0, 80) || "собираю промпт…",
-                        provider: "draft",
-                        created_at: now,
-                        started_at: now,
-                      });
-                    }
-                    setDraftJobs((prev) => [...extra, ...prev]);
-                    setSelectedId(ids[0] ?? null);
-                    return ids;
-                  }}
-                  onFailGenerate={(ids) => {
-                    if (!ids.length) return;
-                    setDraftJobs((prev) => prev.filter((d) => !ids.includes(d.job_id)));
-                  }}
-                  onGenerateAll={(texts, draftIds) => {
-                    const ready = texts
-                      .map((x) => x.trim())
-                      .filter((t) => !isUnfilledAssistantPrompt(t));
-                    const unused = (draftIds || []).slice(ready.length);
-                    if (unused.length) {
-                      setDraftJobs((prev) => prev.filter((d) => !unused.includes(d.job_id)));
-                    }
-                    if (!ready.length) {
-                      if (draftIds?.length) {
-                        setDraftJobs((prev) => prev.filter((d) => !draftIds.includes(d.job_id)));
-                      }
-                      toast.error("Промпт не собран агентом — генерация не запущена", {
-                        duration: 12_000,
-                        position: "top-center",
-                      });
-                      return;
-                    }
-                    ready.forEach((t, i) => {
-                      createGenerate.mutate({
-                        prompt: t,
-                        forceSingle: true,
-                        draftId: draftIds?.[i],
-                      });
-                    });
-                    setPrompt("");
-                  }}
-                  expanded={assistantExpanded}
-                  onExpandedChange={setAssistantExpanded}
-                  modelIcon={currentIcon}
-                  references={referenceImages}
-                  maxReferences={maxReferences}
-                  onAddReferenceFiles={(files) => addReferenceFiles(files)}
-                  onRemoveReference={(id) =>
-                    setReferenceImages((prev) => {
-                      const hit = prev.find((r) => r.id === id);
-                      if (hit) revokeRefUrl(hit.url);
-                      return prev.filter((r) => r.id !== id);
-                    })
-                  }
-                />
-              )}
-              {/* выбор модели при открытом помощнике: док скрыт, поэтому отдельный якорь у правой панели */}
-              {assistantOpen && mediaType === "image" && modelOpen && (
-                <div
-                  className="absolute bottom-full right-3 z-50 mb-2 w-[520px] lg:right-5"
-                  ref={modelRef2}
-                >
-                  <ModelPickerPopover
-                    mediaType={mediaType}
-                    selectedSlug={activeSlug}
-                    kieModels={kieModels}
-                    creditUsd={kieCatalogQ.data?.credit_usd ?? 0.005}
-                    onSelect={(slug) => {
-                      if (mediaType === "image") setImageSlug(slug);
-                      else if (mediaType === "video") setVideoSlug(slug);
-                      else setAudioSlug(slug);
-                      if (!slug.startsWith("kie:")) applyModelDefaults(slug, mediaType);
-                      setModelOpen(false);
-                    }}
-                  />
-                </div>
-              )}
               <div
-                className={cn(
-                  "min-w-0 flex-1 rounded-2xl border border-white/15 bg-[#121216]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] ring-1 ring-white/10",
-                  assistantOpen && mediaType === "image" && "hidden",
-                )}
+                className="min-w-0 flex-1 rounded-2xl border border-white/15 bg-[#121216]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
               >
                 {/* KIE: вложения для аудио/видео (голос, донор движения, аудиофайл) */}
                 {kieActive &&
@@ -2667,9 +2421,26 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           multiple
                           accept="image/png,image/jpeg,image/webp"
                           className="hidden"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const files = Array.from(e.target.files || []);
-                            if (files.length) addReferenceFiles(files);
+                            if (!files.length) return;
+                            const remaining = maxReferences - referenceImages.length;
+                            if (remaining <= 0) {
+                              toast.error(`Достигнут лимит референсов (${maxReferences})`);
+                              return;
+                            }
+                            const toAdd = files.slice(0, remaining);
+                            const newRefs: { id: string; url: string; name: string }[] = [];
+                            for (const f of toAdd) {
+                              const dataUrl = await readFileAsDataUrl(f);
+                              newRefs.push({
+                                id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                                url: dataUrl,
+                                name: f.name,
+                              });
+                            }
+                            setReferenceImages((prev) => [...prev, ...newRefs]);
+                            toast.success(`Добавлено ${newRefs.length} референс(ов)`);
                             e.target.value = "";
                           }}
                         />
@@ -2706,12 +2477,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                             </span>
                             <button
                               type="button"
-                              onClick={() =>
-                                setReferenceImages((prev) => {
-                                  revokeRefUrl(ref.url);
-                                  return prev.filter((r) => r.id !== ref.id);
-                                })
-                              }
+                              onClick={() => setReferenceImages((prev) => prev.filter((r) => r.id !== ref.id))}
                               className="ml-0.5 text-white/40 transition hover:text-red-400"
                               title="Удалить"
                             >
@@ -2917,25 +2683,39 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       value={negativePrompt}
                       onChange={(e) => setNegativePrompt(e.target.value)}
                       placeholder="Отрицательный промпт: чего НЕ должно быть на картинке (напр. размытие, лишние пальцы, текст, мусор)..."
-                      className="w-full rounded-lg border border-white/10 bg-[#16161b] px-3 py-1.5 text-[12px] text-white placeholder-white/30 focus:border-purple-400 focus:outline-none selection:bg-[#22d3ee]/40 selection:text-white"
+                      className="w-full rounded-lg border border-white/10 bg-[#16161b] px-3 py-1.5 text-[12px] text-white placeholder-white/30 focus:border-purple-400 focus:outline-none"
                     />
                   </div>
                 )}
+                {mediaType === "audio" &&
+                  (kieModel?.id === "elevenlabs-v4" || audioSlug.includes("elevenlabs-v4")) && (
+                    <div className="px-3 pt-3 lg:px-4">
+                      <AudioTagsBar onInsertTag={handleInsertAudioTag} />
+                    </div>
+                  )}
                 {(!kieActive || kieTextField) && (
                   <div className="px-3 pt-3 lg:px-4">
                     <textarea
+                      ref={promptTextareaRef}
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       placeholder={
                         mediaType === "audio"
-                          ? "Текст / описание трека…"
+                          ? kieModel?.id === "elevenlabs-v4" || audioSlug.includes("elevenlabs-v4")
+                            ? "Введите текст для озвучки (1–10 000 символов)... Используйте кнопки аудио-тегов выше для добавления эмоций, смеха, пауз и акцентов."
+                            : "Текст / описание трека…"
                           : mediaType === "video"
                             ? "Опишите видео…"
                             : "Опишите изображение…"
                       }
-                      rows={3}
+                      rows={
+                        mediaType === "audio" &&
+                        (kieModel?.id === "elevenlabs-v4" || audioSlug.includes("elevenlabs-v4"))
+                          ? 5
+                          : 3
+                      }
                       style={{ outline: "none" }}
-                      className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-white/90 placeholder:text-white/30 border-0 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 selection:bg-[#22d3ee]/40 selection:text-white"
+                      className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-white/90 placeholder:text-white/30 border-0 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0"
                     />
                   </div>
                 )}
@@ -3144,6 +2924,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           openChip={openChip}
                           setOpenChip={setOpenChip}
                           setModelOpen={setModelOpen}
+                          onOpenVoiceModal={() => setVoiceLibraryOpen(true)}
                           onChange={(name, v) =>
                             setKieValues((prev) => ({ ...prev, [name]: v }))
                           }
@@ -3245,7 +3026,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       }
                       onClick={() => {
                         if (createGenerate.isPending) return;
-                        createGenerate.mutate(undefined);
+                        createGenerate.mutate();
                       }}
                       className={cn(
                         "inline-flex min-w-[145px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#22d3ee] to-[#0ea5e9] px-4 py-2 text-[12px] font-extrabold uppercase tracking-wider text-black shadow-[0_0_20px_rgba(34,211,238,0.3)] transition-all duration-200 hover:brightness-110 hover:shadow-[0_0_25px_rgba(34,211,238,0.45)] disabled:opacity-40 disabled:pointer-events-none",
@@ -3513,6 +3294,16 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         </div>
       )}
 
+      {/* Voice Library Modal */}
+      <VoiceLibraryModal
+        open={voiceLibraryOpen}
+        onOpenChange={setVoiceLibraryOpen}
+        selectedVoiceId={String(kieValues["voice_id"] || "ymDCYd8puC7gYjxIamPt")}
+        onSelectVoice={(voiceId, voiceName) => {
+          setKieValues((prev) => ({ ...prev, voice_id: voiceId }));
+          toast.success(`Выбран голос: ${voiceName}`);
+        }}
+      />
     </div>
   );
 }
@@ -3536,6 +3327,7 @@ function KieFieldChip({
   openChip,
   setOpenChip,
   setModelOpen,
+  onOpenVoiceModal,
   onChange,
 }: {
   field: KieField;
@@ -3543,9 +3335,54 @@ function KieFieldChip({
   openChip?: string | null;
   setOpenChip?: (v: string | null) => void;
   setModelOpen?: (v: boolean) => void;
+  onOpenVoiceModal?: () => void;
   onChange: (name: string, v: unknown) => void;
 }) {
   const v = values[field.name] ?? field.default;
+
+  if (field.name === "voice_id" || field.name === "voice") {
+    const voice = getVoiceById(String(v || ""));
+    const displayName = voice
+      ? `${voice.name} (${voice.gender === "female" ? "Ж" : "М"})`
+      : String(v || "Выбрать голос");
+    return (
+      <button
+        type="button"
+        onClick={onOpenVoiceModal}
+        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-3 text-[12px] font-medium text-white transition hover:bg-[#22d3ee]/20 hover:border-[#22d3ee]/60"
+        title="Открыть библиотеку русских голосов (200)"
+      >
+        <Mic className="h-3.5 w-3.5 text-[#22d3ee]" />
+        <span className="text-white/60">Голос:</span>
+        <span className="font-semibold text-[#22d3ee]">{displayName}</span>
+      </button>
+    );
+  }
+
+  if (field.name === "stability" || field.name === "similarity") {
+    const numVal =
+      typeof v === "number"
+        ? v
+        : Number(v ?? field.default ?? (field.name === "stability" ? 0.5 : 0.75));
+    return (
+      <div
+        className="inline-flex h-9 items-center gap-2 rounded-xl border border-white/10 bg-[#16161b] px-3"
+        title={field.desc || field.label}
+      >
+        <span className="text-[11px] text-white/55">{field.label}:</span>
+        <span className="font-mono text-[11px] font-semibold text-[#22d3ee]">{numVal.toFixed(2)}</span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={numVal}
+          onChange={(e) => onChange(field.name, parseFloat(e.target.value))}
+          className="h-1.5 w-16 cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#22d3ee]"
+        />
+      </div>
+    );
+  }
 
   if (field.kind === "toggle") {
     const on = v === true || String(v).toLowerCase() === "true";
@@ -4008,33 +3845,12 @@ const SUNO_AUDIO_ACTIONS: AudioActionSpec[] = [
 
 const ELEVENLABS_AUDIO_ACTIONS: AudioActionSpec[] = [
   {
-    id: "elevenlabs-tts-multilingual",
-    slug: "kie:elevenlabs-tts-multilingual",
-    name: "Озвучка Multilingual V2",
-    desc: "Качественная озвучка на 29 языках (включая русский) с эмоциями",
-    badge: "ТОП",
+    id: "elevenlabs-v4",
+    slug: "kie:elevenlabs-v4",
+    name: "Озвучка ElevenLabs v4 (WaveSpeed)",
+    desc: "Новейшая модель v4, библиотека 200 русских голосов, аудио-теги эмоций",
+    badge: "NEW",
     iconType: "speech",
-  },
-  {
-    id: "elevenlabs-tts-turbo",
-    slug: "kie:elevenlabs-tts-turbo",
-    name: "Быстрая озвучка Turbo 2.5",
-    desc: "Высокая скорость генерации речи, экономный расход кредитов",
-    iconType: "turbo",
-  },
-  {
-    id: "elevenlabs-dialogue-v3",
-    slug: "kie:elevenlabs-dialogue-v3",
-    name: "Диалог по ролям (Dialogue V3)",
-    desc: "Многоголосый диалог: разные персонажи говорят своими голосами",
-    iconType: "dialogue",
-  },
-  {
-    id: "elevenlabs-audio-isolation",
-    slug: "kie:elevenlabs-audio-isolation",
-    name: "Изоляция и очистка голоса",
-    desc: "Удаление любого фонового шума, гула и эха, оставляя только речь",
-    iconType: "isolate",
   },
 ];
 
@@ -4395,7 +4211,7 @@ function ModelPickerPopover({
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-bold tracking-tight text-white/90">{title}</span>
             <span className="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
-              {isAudio ? "2 движка · 12 действий" : totalCount}
+              {isAudio ? `2 движка · ${filteredSunoActions.length + filteredElevenLabsActions.length} действ.` : totalCount}
             </span>
           </div>
         </div>
@@ -4508,7 +4324,7 @@ function ModelPickerPopover({
                           Голос & Речь
                         </span>
                       </div>
-                      <p className="text-[10px] text-white/50">Озвучка 29 языков, диалоги, шумоподавление</p>
+                      <p className="text-[10px] text-white/50">Озвучка v4, 200 русских голосов, эмоции и теги</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
