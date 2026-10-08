@@ -50,6 +50,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { usePipelineMode } from "@/hooks/use-pipeline-mode";
 import { api } from "@/lib/api";
 import type { KieField, KieModelSpec } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
@@ -781,6 +782,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const [modelOpen, setModelOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantExpanded, setAssistantExpanded] = useState(true);
+  // Помощник — инструмент v2-механики: в воркспейсе v1 его нет (R1).
+  const [workspaceMode] = usePipelineMode();
   const [appliedPrompt, setAppliedPrompt] = useState<{ text: string; ts: number } | null>(null);
   const [openChip, setOpenChip] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -1480,7 +1483,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       setPrompt(item.prompt);
       setAppliedPrompt({ text: item.prompt, ts: Date.now() });
     }
-    setAssistantOpen(true);
+    // Конфигурация применяется всегда; панель — только в v2-воркспейсе.
+    if (workspaceMode === "v2") setAssistantOpen(true);
     toast.success("Конфигурация изображения применена к панели снизу");
   };
 
@@ -2000,7 +2004,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               проект #{projectId}
             </span>
           )}
-          {mediaType === "image" && (
+          {mediaType === "image" && workspaceMode === "v2" && (
             <button
               type="button"
               onClick={() => setAssistantOpen((v) => !v)}
@@ -2558,7 +2562,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               </div>
 
               {/* Помощник промпта: заменяет док генерации (те же размеры) */}
-              {assistantOpen && mediaType === "image" && (
+              {assistantOpen && mediaType === "image" && workspaceMode === "v2" && (
                 <GenAssistantPanel
                   onClose={() => setAssistantOpen(false)}
                   appliedPrompt={appliedPrompt}
