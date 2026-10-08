@@ -292,6 +292,12 @@ class Project(Base):
     # Авто-режим: если True, воркер сам продвигает проект по шагам
     # (PR #2). По умолчанию False — ручной режим.
     auto_mode: Mapped[bool] = mapped_column(default=False)
+    # Механика проекта: "v1" (классический линейный пайплайн) или "v2"
+    # (режиссёрский монтаж: дубли shot_01/shot_02, coverage, референсы).
+    # Назначается ОДИН раз при создании и дальше immutable: проекты механик
+    # строго изолированы (фильтр WHERE, не конвертация). Backfill
+    # существующих — миграция 0017 (shot02-следы → "v2", иначе "v1").
+    pipeline_mode: Mapped[str] = mapped_column(String(2), default="v1", index=True)
     enrich_slots_count: Mapped[int] = mapped_column(default=3)
     # Описания предметов (по одному на каждый id в листе «Предметы»).
     # Аналог hero_descriptions, заполняется юзером в xlsx; шаг 4b

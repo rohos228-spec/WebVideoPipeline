@@ -118,7 +118,7 @@ def test_managed_db_missing_late_tables_is_healed(tmp_path: Path) -> None:
 
     db = tmp_path / "nollm.db"
     upgrade_to_head_sync(db)
-    assert _revision(db) == "0016"
+    assert _revision(db) == "0017"
 
     cfg = alembic_config()
     cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
@@ -139,7 +139,7 @@ def test_managed_db_missing_late_tables_is_healed(tmp_path: Path) -> None:
 
     upgrade_to_head_sync(db)
 
-    assert _revision(db) == "0016"
+    assert _revision(db) == "0017"
     tables = _tables(db)
     assert "llm_calls" in tables
     assert "work_leases" in tables
@@ -156,3 +156,82 @@ def test_managed_db_missing_late_tables_is_healed(tmp_path: Path) -> None:
         con.commit()
     finally:
         con.close()
+
+
+def _modes(db: Path) -> dict[str, str]:
+    con = sqlite3.connect(db)
+    try:
+        return dict(con.execute("SELECT slug, pipeline_mode FROM projects").fetchall())
+    finally:
+        con.close()
+
+
+def test_pipeline_mode_backfill(tmp_path: Path) -> None:
+    """0017: колонка + индекс + раскладка по следам механики.
+
+    shot02-промпты в кадрах → "v2"; всё остальное (включая непустой
+    montage_board без shot02 и NULL meta) → "v1". Повторный прогон
+    ничего не меняет.
+    """
+    db = tmp_path / "modes.db"
+    upgrade_to_head_sync(db)
+    assert "pipeline_mode" in _columns(db, "projects")
+
+    # Состояние «до 0017»: колонки нет, история на 0016 (индекс — до колонки:
+    # SQLite не даёт ронять колонку, на которую ссылается индекс).
+    con = sqlite3.connect(db)
+    con.execute("DROP INDEX IF EXISTS ix_projects_pipeline_mode")
+    con.execute("ALTER TABLE projects DROP COLUMN pipeline_mode")
+    con.execute("UPDATE alembic_version SET version_num = '0016'")
+    con.execute(
+        "INSERT INTO projects (slug, topic, status, hero_mode, auto_mode, hero_descriptions,"
+        " hero_variations, hero_variation_modifiers, item_descriptions,"
+        " item_variations, prompt_overrides, gpt_text_overrides,"
+        " enrich_slots_count, meta, created_at, updated_at) VALUES"
+        " ('plain', 't', 'new', 'auto', 0, '[]', '[]', '[]', '[]', '[]', '{}', '{}',"
+        "  3, '{}', datetime('now'), datetime('now')),"
+        " ('shot2', 't', 'new', 'auto', 0, '[]', '[]', '[]', '[]', '[]', '{}', '{}',"
+        "  3, '{}', datetime('now'), datetime('now')),"
+        " ('board', 't', 'new', 'auto', 0, '[]', '[]', '[]', '[]', '[]', '{}', '{}',"
+        '  3, \'{"montage_board": {"highlights": ["1:1"]}}\','
+        "  datetime('now'), datetime('now')),"
+        " ('empty', 't', 'new', 'auto', 0, '[]', '[]', '[]', '[]', '[]', '{}', '{}',"
+        "  3, '{\"montage_board\": {}}', datetime('now'), datetime('now'))"
+    )
+    shot2_id = con.execute("SELECT id FROM projects WHERE slug = 'shot2'").fetchone()[0]
+    plain_id = con.execute("SELECT id FROM projects WHERE slug = 'plain'").fetchone()[0]
+    con.execute(
+        "INSERT INTO frames (project_id, number, voiceover_text, status, attrs,"
+        " created_at, updated_at) VALUES"
+        " (?, 1, 'vo', 'planned', '{\"image_prompt_shot2\": \"knight, close-up\"}',"
+        "  datetime('now'), datetime('now')),"
+        " (?, 1, 'vo', 'planned', '{}', datetime('now'), datetime('now'))",
+        (shot2_id, plain_id),
+    )
+    con.commit()
+    con.close()
+
+    upgrade_to_head_sync(db)
+
+    assert _revision(db) == "0017"
+    assert _modes(db) == {
+        "plain": "v1",
+        "shot2": "v2",
+        "board": "v1",
+        "empty": "v1",
+    }
+    con = sqlite3.connect(db)
+    try:
+        indexes = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    finally:
+        con.close()
+    assert "ix_projects_pipeline_mode" in indexes
+
+    # Идемпотентность: повтор не меняет раскладку.
+    upgrade_to_head_sync(db)
+    assert _modes(db) == {
+        "plain": "v1",
+        "shot2": "v2",
+        "board": "v1",
+        "empty": "v1",
+    }
