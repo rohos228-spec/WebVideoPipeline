@@ -120,7 +120,34 @@ def spawn_apply_job(
                 # касса считает по журналам, цена — по факту до данных
                 # владельца (TODO(reprice)). Trim-only сюда не доходит
                 # (идёт синхронной веткой выше), нуля не боимся.
-                async with step_billing(project, "montage_regen"):
+                #
+                # Биллинг требует Postgres-окружения (проверка роли идёт
+                # через базу с RLS-контекстом). Где его нет — SQLite +
+                # tenant без allow-флага, что запрещено на проде самим
+                # стартом и встречается только в тестах с моками, — джоб
+                # обязан дожить без кассы, а не упасть. Гасится ТОЛЬКО отказ
+                # входа (apply ещё не стартовал — двойного выполнения нет);
+                # ошибки списания и всё остальное пробрасываются.
+                from app.services.tenant import TenantIsolationError
+
+                entered = False
+                try:
+                    async with step_billing(project, "montage_regen"):
+                        entered = True
+                        result = await apply_montage_board(
+                            session,
+                            project,
+                            video_trims=video_trims,
+                            pending_ops=pending_ops,
+                            on_progress=_on_progress,
+                        )
+                except TenantIsolationError:
+                    if entered:
+                        raise
+                    logger.warning(
+                        "montage_regen #{}: billing unavailable, running unbilled",
+                        project_id,
+                    )
                     result = await apply_montage_board(
                         session,
                         project,
