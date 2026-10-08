@@ -33,7 +33,7 @@ import {
   type NodeResultContext,
 } from "@/lib/node-result-resolver";
 import { NodeResultPanel } from "@/components/canvas/node-result-panel";
-import { AssembleMontageBoard } from "@/components/canvas/assemble-montage-board";
+import { AssembleMontageBoard } from "@/components/canvas/montage-board-router";
 import { ShotMenuBoard } from "@/components/canvas/shot-menu-board";
 
 export function StudioWorkspace({

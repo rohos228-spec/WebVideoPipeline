@@ -27,7 +27,7 @@ import { ExcelFeedPanel } from "./excel-feed-panel";
 import { StoragePanel } from "./storage-panel";
 import { HeroConfigPanel } from "./hero-config-panel";
 import { ItemsConfigPanel } from "./items-config-panel";
-import { AssembleMontageTrigger } from "./assemble-montage-board";
+import { AssembleMontageTrigger } from "./montage-board-router";
 import { ShotMenuPanel, ShotMenuTrigger } from "./shot-menu-panel";
 import { GptOperatorCardPanel } from "./gpt-operator-card-panel";
 import { NodeModelPicker } from "./node-model-picker";

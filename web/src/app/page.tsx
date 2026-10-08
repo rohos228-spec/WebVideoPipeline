@@ -24,6 +24,7 @@ import {
   optimisticPushTransfer,
 } from "@/hooks/use-fleet-transfer";
 import { usePersistedState } from "@/hooks/use-persisted-state";
+import { usePipelineMode } from "@/hooks/use-pipeline-mode";
 import { api, subscribeWS } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { fleetPushToHub } from "@/lib/fleet-api";
@@ -157,6 +158,7 @@ function StudioHome() {
 
   return (
     <AppShell>
+      <WorkspaceModeSync projectId={selectedProjectId} />
       <div data-studio-scope className="flex h-[calc(100vh-48px)] min-h-0">
         <ProjectSidebar
           selectedProjectId={selectedProjectId ?? (templateMode ? 0 : null)}
@@ -262,6 +264,26 @@ interface CanvasProps {
 }
 
 // ── Схема ролика ─────────────────────────────────────────────────────────
+
+function WorkspaceModeSync({ projectId }: { projectId: number | null }) {
+  // Открыт проект чужой механики (диплинк, F5 со старым id) — воркспейс
+  // следует за проектом. Обратного пути нет: воркспейс проект не меняет.
+  const [mode, setMode] = usePipelineMode();
+  const detail = useQuery({
+    queryKey: ["project-mode", projectId],
+    queryFn: () => api.getProject(projectId!),
+    enabled: projectId != null && projectId > 0,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const projectMode = detail.data?.pipeline_mode;
+  useEffect(() => {
+    if ((projectMode === "v1" || projectMode === "v2") && projectMode !== mode) {
+      setMode(projectMode);
+    }
+  }, [projectMode, mode, setMode]);
+  return null;
+}
 
 function ProjectSchema({
   projectId,

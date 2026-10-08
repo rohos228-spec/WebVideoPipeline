@@ -136,6 +136,8 @@ export interface NodeGroupDetail {
   internal_edges: { source: string; target: string; kind: string }[];
 }
 
+export type PipelineMode = "v1" | "v2";
+
 export interface ProjectSummary {
   id: number;
   slug: string;
@@ -144,6 +146,8 @@ export interface ProjectSummary {
   status: ProjectStatus;
   hero_mode: string;
   auto_mode: boolean;
+  /** Механика проекта (изоляция воркспейсов, immutable после создания). */
+  pipeline_mode?: PipelineMode | null;
   created_at: string;
   updated_at: string;
   mass_parent_id?: number | null;

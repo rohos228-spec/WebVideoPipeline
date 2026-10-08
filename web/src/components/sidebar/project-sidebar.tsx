@@ -16,7 +16,6 @@ import {
   ListVideo,
   GripVertical,
   Pencil,
-  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
@@ -34,6 +33,7 @@ import { NewProjectWizard } from "@/components/sidebar/new-project-wizard";
 import { GenQueueDialog } from "@/components/sidebar/gen-queue-dialog";
 import { SidebarResizeHandle } from "@/components/sidebar/sidebar-resize-handle";
 import { usePersistedState } from "@/hooks/use-persisted-state";
+import { usePipelineMode } from "@/hooks/use-pipeline-mode";
 import { useSidebarWidth } from "@/hooks/use-sidebar-width";
 
 type DragPayload =
@@ -88,12 +88,14 @@ export function ProjectSidebar({
   const [newFolderName, setNewFolderName] = useState("");
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [queueDialogProject, setQueueDialogProject] = useState<ProjectSummary | null>(null);
+  // Механика воркспейса (R1): список режется бэкендом, чужие проекты не грузятся вовсе.
+  const [pipelineMode, setPipelineMode] = usePipelineMode();
   const { width: sidebarWidth, setWidth: setSidebarWidth, minWidth, maxWidth } =
     useSidebarWidth();
 
   const projects = useQuery({
-    queryKey: ["projects"],
-    queryFn: api.listProjects,
+    queryKey: ["projects", pipelineMode],
+    queryFn: () => api.listProjects(pipelineMode),
     // Не чаще 10с; не стакуем poll, пока предыдущий ещё в полёте.
     refetchInterval: (q) => (q.state.fetchStatus === "fetching" ? false : 10_000),
     staleTime: 5_000,
@@ -177,7 +179,7 @@ export function ProjectSidebar({
     mutationFn: (projectId: number) => api.toggleGenQueue(projectId),
     onSuccess: (data) => {
       const positions = (data.gen_queue_positions || {}) as Record<string, number>;
-      qc.setQueryData<ProjectSummary[]>(["projects"], (old) => {
+      qc.setQueryData<ProjectSummary[]>(["projects", pipelineMode], (old) => {
         if (!old) return old;
         return old.map((p) => {
           const raw = positions[p.id] ?? positions[String(p.id)];
@@ -599,16 +601,34 @@ export function ProjectSidebar({
         </div>
       </div>
 
-      <div className="border-b border-white/[0.06] bg-cyan-950/20 px-3 py-1.5 flex items-center justify-between">
-        <span className="text-[11px] font-semibold text-cyan-300">Пайплайн: Монтаж (v2)</span>
-        <a
-          href="https://studio.zukiemi.space"
-          className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-all shadow-sm"
-          title="Переключиться на классический пайплайн (v1)"
-        >
-          <span>Студия v1</span>
-          <ExternalLink className="h-2.5 w-2.5" />
-        </a>
+      <div className="border-b border-white/[0.06] px-3 py-2">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-[11px] font-semibold text-zinc-400">Механика</span>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {(
+            [
+              { id: "v1", label: "Классика", title: "Классический линейный пайплайн (v1)" },
+              { id: "v2", label: "Монтаж", title: "Режиссёрский монтаж (v2)" },
+            ] as const
+          ).map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setPipelineMode(m.id)}
+              title={m.title}
+              className={cn(
+                "rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all",
+                pipelineMode === m.id
+                  ? "border-cyan-400/50 bg-cyan-500/10 text-cyan-300 shadow-sm"
+                  : "border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:text-zinc-200 hover:border-white/15"
+              )}
+            >
+              {m.id === "v1" ? "🔹 " : "🎬 "}
+              {m.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -624,7 +644,11 @@ export function ProjectSidebar({
 
           {!projects.isLoading && visibleFolders.length === 0 && visibleRootProjects.length === 0 && (
             <div className="px-3 py-10 text-center text-xs font-light text-muted-foreground/60">
-              {filter ? "Ничего не найдено." : "Пока ни одного проекта."}
+              {filter
+                ? "Ничего не найдено."
+                : pipelineMode === "v2"
+                  ? "В режиме «Монтаж» пока ни одного проекта."
+                  : "В режиме «Классика» пока ни одного проекта."}
             </div>
           )}
 

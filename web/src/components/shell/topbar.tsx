@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, createContext, useContext } from "react";
+import { useSearchParams } from "next/navigation";
 import { Bot, CircleDollarSign, Database, Film, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FramesGrid } from "@/components/frames/frames-grid";
@@ -9,6 +10,7 @@ import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 import { BalanceBadge } from "@/components/shell/balance-badge";
 import { useMe, useOwnerMode } from "@/hooks/use-identity";
+import { useProjectMode } from "@/hooks/use-pipeline-mode";
 import { useDevRole } from "@/hooks/use-dev-role";
 import { clearToken } from "@/lib/identity-api";
 import { cn } from "@/lib/utils";
@@ -34,6 +36,13 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
   const { data: me } = useMe();
   const { toggleDevRole, isMemberPreview } = useDevRole();
   const [costsOpen, setCostsOpen] = useState(false);
+  // Бейдж механики: режим открытого проекта (только отображение, R1).
+  // Без проекта — режим воркспейса. Переключение — в сайдбаре.
+  const params = useSearchParams();
+  const urlProjectId = Number(params.get("project") ?? "");
+  const boardMode = useProjectMode(
+    Number.isFinite(urlProjectId) && urlProjectId > 0 ? urlProjectId : null,
+  );
 
   useEffect(() => {
     const onOpenCosts = () => setCostsOpen(true);
@@ -82,6 +91,16 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
                   </span>
                 )}
                 <StudioVersionBadge />
+                <span
+                  className="rounded px-1.5 py-0.5 text-[9px] font-semibold border border-white/10 bg-white/[0.04] text-zinc-300"
+                  title={
+                    boardMode === "v2"
+                      ? "Режиссёрский монтаж (v2). Проекты механик изолированы; смена — в сайдбаре"
+                      : "Классический пайплайн (v1). Проекты механик изолированы; смена — в сайдбаре"
+                  }
+                >
+                  {boardMode === "v2" ? "🎬 v2" : "🔹 v1"}
+                </span>
                 {ownerMode && (
                   <button
                     type="button"

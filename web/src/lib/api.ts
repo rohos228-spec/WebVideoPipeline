@@ -17,6 +17,7 @@ import type {
   GenerationConfigPreset,
   GenerationConfigPresetSettings,
   HITLDTO,
+  PipelineMode,
   ProjectDetail,
   ProjectSummary,
   SidebarLayout,
@@ -968,13 +969,17 @@ export const api = {
     }),
 
   // ── Projects ─────────────────────────────────────────────────────
-  listProjects: () => http<ProjectSummary[]>(`/api/projects`),
+  listProjects: (pipelineMode?: PipelineMode) =>
+    http<ProjectSummary[]>(
+      pipelineMode ? `/api/projects?pipeline_mode=${encodeURIComponent(pipelineMode)}` : `/api/projects`,
+    ),
   getProject: (id: number) => http<ProjectDetail>(`/api/projects/${id}`),
   createProject: (body: {
     title: string;
     topic?: string;
     hero_mode?: string;
     auto_mode?: boolean;
+    pipeline_mode?: PipelineMode;
     sidebar_folder_id?: string | null;
   }) =>
     http<ProjectDetail>(`/api/projects`, { method: "POST", body: JSON.stringify(body) }),

@@ -7,7 +7,8 @@ import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { projectDisplayName } from "@/lib/project-display";
-import type { ProjectSummary } from "@/lib/types";
+import type { PipelineMode, ProjectSummary } from "@/lib/types";
+import { usePipelineMode } from "@/hooks/use-pipeline-mode";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,6 +30,19 @@ const HERO_CHOICES = [
   { id: "no_hero", label: "Без героев" },
 ] as const;
 
+const MODE_CHOICES: { id: PipelineMode; title: string; hint: string }[] = [
+  {
+    id: "v1",
+    title: "Классика",
+    hint: "Линейный пайплайн: просто и пошагово, без лишних деталей",
+  },
+  {
+    id: "v2",
+    title: "Режиссёрский монтаж",
+    hint: "Дубли shot_01/shot_02, покрытие, референсы, ассистент стилей",
+  },
+];
+
 export function NewProjectWizard({
   trigger,
   onCreated,
@@ -42,12 +56,16 @@ export function NewProjectWizard({
   const [projectTitle, setProjectTitle] = useState("");
   const [topic, setTopic] = useState("");
   const [heroMode, setHeroMode] = useState<"hero" | "no_hero" | "auto">("auto");
+  // Дефолт воркспейса — v1 (поведение продакшена), выбор обязателен явно.
+  const [pipelineMode, setPipelineMode] = useState<PipelineMode>("v1");
+  const [, setWorkspaceMode] = usePipelineMode();
   const qc = useQueryClient();
 
   const reset = () => {
     setProjectTitle("");
     setTopic("");
     setHeroMode("auto");
+    setPipelineMode("v1");
   };
 
   const create = useMutation({
@@ -59,11 +77,15 @@ export function NewProjectWizard({
         topic: finalTopic || rawTitle,
         hero_mode: heroMode,
         auto_mode: false,
+        pipeline_mode: pipelineMode,
         sidebar_folder_id: folderId,
       });
       return p;
     },
     onSuccess: (p) => {
+      // Проект живёт в механике создания — переключаем воркспейс на неё,
+      // иначе созданное не будет видно в текущем списке (изоляция R1).
+      setWorkspaceMode(p.pipeline_mode === "v2" ? "v2" : "v1");
       qc.invalidateQueries({ queryKey: ["projects"] });
       onCreated(p);
       setOpen(false);
@@ -120,6 +142,39 @@ export function NewProjectWizard({
               rows={5}
               className="resize-y min-h-[100px] max-h-[260px] bg-background text-sm leading-relaxed overflow-y-auto"
             />
+          </div>
+
+          {/* Механика */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Механика
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {MODE_CHOICES.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setPipelineMode(m.id)}
+                  className={cn(
+                    "rounded-xl border p-3 text-left transition-all",
+                    pipelineMode === m.id
+                      ? "border-cyan-400/50 bg-cyan-500/10 shadow-sm"
+                      : "border-border hover:border-muted-foreground/40 bg-muted/20"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "text-xs font-bold",
+                      pipelineMode === m.id ? "text-cyan-300" : "text-foreground"
+                    )}
+                  >
+                    {m.id === "v1" ? "🔹 " : "🎬 "}
+                    {m.title}
+                  </div>
+                  <div className="mt-1 text-[11px] leading-snug text-muted-foreground">{m.hint}</div>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Персонажи */}
