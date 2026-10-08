@@ -38,6 +38,7 @@ files_router = APIRouter(tags=["files"])
 async def serve_data_file(
     path: str = Query(..., description="Абсолютный путь под data_dir"),
     download: int = Query(0, description="1 = Content-Disposition: attachment"),
+    thumb: int = Query(0, description="1 = уменьшенная WebP-копия для сетки истории"),
     session: AsyncSession = Depends(get_session),
 ) -> FileResponse:
     """Отдаёт файл из data_dir (или его подкаталогов). Безопасный whitelist
@@ -45,6 +46,10 @@ async def serve_data_file(
     начинается с data_dir.resolve().
 
     Имя на диске (.bin) не доверяем: magic → MIME и filename при download.
+
+    ``thumb=1`` — только для картинок: отдаёт кэшированный WebP 320px
+    (ключ — путь + mtime, stale невозможен). Проверки доступа те же, что и
+    у оригинала; не-картинки и сбои PIL молча отдают оригинал.
     """
     from app.services.gpt_api import suggested_name_and_mime
 
@@ -62,6 +67,16 @@ async def serve_data_file(
         # 404, а не 403: существование чужого файла — тоже сведения о чужом
         # проекте. Отвечать «есть, но не дам» значит подтверждать слаг.
         raise HTTPException(status_code=404, detail="file not found") from exc
+    if thumb and not download:
+        from app.services.thumbnails import thumbnail_path
+
+        small = thumbnail_path(candidate)
+        if small is not None:
+            return FileResponse(
+                small,
+                media_type="image/webp",
+                headers={"Cache-Control": "private, max-age=31536000, immutable"},
+            )
     download_name, mime = suggested_name_and_mime(candidate)
     kwargs: dict = {
         "media_type": mime or "application/octet-stream",

@@ -139,6 +139,16 @@ type HistoryItem = {
   provider?: "outsee" | "kie" | string | null;
 };
 
+/**
+ * URL миниатюры для сетки истории: сервер отдаёт кэшированный WebP 320px.
+ * Только для `/api/files` картинок; фулл-вью, скачивание, кадры и референсы
+ * идут полным файлом и этот хелпер не используют.
+ */
+function thumbUrl(previewUrl: string | null): string | undefined {
+  if (!previewUrl || !previewUrl.startsWith("/api/files?")) return previewUrl || undefined;
+  return `${previewUrl}&thumb=1`;
+}
+
 function makeRefFromFile(file: File): RefImage {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -2178,7 +2188,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         ) : (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={item.preview_url}
+                            src={thumbUrl(item.preview_url)}
                             alt=""
                             loading="lazy"
                             decoding="async"
