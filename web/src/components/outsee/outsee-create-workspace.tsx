@@ -162,6 +162,22 @@ function revokeRefUrl(url: string) {
   if (url.startsWith("blob:")) URL.revokeObjectURL(url);
 }
 
+/**
+ * Минимальный размер скачанного кадра/референса. Меньше — недогруженный или
+ * битый файл (заглушка в байты): такой data:URL гарантированно отвергнет
+ * бэкенд-валидация (`first_frame_url: не URL` у kie) или, хуже, уйдёт в
+ * провайдер мусором. Проверяем до dataUrl, с понятным текстом.
+ */
+const MIN_FRAME_BYTES = 2048;
+
+function assertFrameBlob(res: Response, blob: Blob): boolean {
+  if (!res.ok || blob.size < MIN_FRAME_BYTES) {
+    toast.error("Кадр не загрузился полностью — дождитесь загрузки и попробуйте снова");
+    return false;
+  }
+  return true;
+}
+
 async function resolveReferenceUrls(refs: RefImage[]): Promise<string[]> {
   const out: string[] = [];
   for (const r of refs) {
@@ -1192,6 +1208,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     try {
       const res = await fetch(item.preview_url);
       const blob = await res.blob();
+      if (!assertFrameBlob(res, blob)) return;
       const file = new File([blob], `${item.id}.png`, { type: blob.type || "image/png" });
       const dataUrl = await readFileAsDataUrl(file);
       if (slot === "first") {
@@ -1233,6 +1250,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     try {
       const res = await fetch(item.preview_url);
       const blob = await res.blob();
+      if (!assertFrameBlob(res, blob)) return;
       const file = new File([blob], `${item.id}.png`, { type: blob.type || "image/png" });
       setReferenceImages((prev) => [...prev, makeRefFromFile(file)]);
       toast.success("Референс добавлен из истории");
