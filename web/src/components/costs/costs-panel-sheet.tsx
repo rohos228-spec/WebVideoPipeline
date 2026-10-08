@@ -23,6 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useDevRole } from "@/hooks/use-dev-role";
 import { Input } from "@/components/ui/input";
 import {
   Sheet,
@@ -162,6 +163,8 @@ export function CostsPanelSheet({
   const [detail, setDetail] = useState<ProjectCosts | null>(null);
   const [budgetInput, setBudgetInput] = useState("");
   const [busyBudget, setBusyBudget] = useState(false);
+  const { isMemberPreview } = useDevRole();
+  const isAdmin = isMemberPreview ? false : Boolean(data?.is_admin);
 
   useEffect(() => {
     if (open && selectedProjectId != null) setProjectId(selectedProjectId);
@@ -201,9 +204,9 @@ export function CostsPanelSheet({
   }, [open, loadUsage]);
 
   useEffect(() => {
-    if (!open || projectId == null || !data?.is_admin) return;
+    if (!open || projectId == null || !isAdmin) return;
     void loadLegacyDetail(projectId);
-  }, [open, projectId, data?.is_admin, loadLegacyDetail]);
+  }, [open, projectId, isAdmin, loadLegacyDetail]);
 
   const saveBudget = async () => {
     if (projectId == null) return;
@@ -307,7 +310,7 @@ export function CostsPanelSheet({
             </div>
 
             <div className="flex items-center gap-2 mr-10 sm:mr-12">
-              {data?.is_admin && (
+              {isAdmin && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -361,7 +364,7 @@ export function CostsPanelSheet({
               </div>
               <div className="mt-1 text-[11px] text-zinc-400 flex items-center justify-between">
                 <span>все операции</span>
-                {data?.is_admin && data.summary.total_cost_usd != null && (
+                {isAdmin && data?.summary.total_cost_usd != null && (
                   <span className="font-mono text-zinc-400" title="Себестоимость провайдеров">
                     {usd(data.summary.total_cost_usd)}
                   </span>
@@ -380,7 +383,7 @@ export function CostsPanelSheet({
               </div>
               <div className="mt-1 text-[11px] text-zinc-400 flex items-center justify-between">
                 <span>{data?.summary.by_kind.image?.calls ?? 0} генераций</span>
-                {data?.is_admin && data?.summary.by_kind.image?.cost_usd != null && (
+                {isAdmin && data?.summary.by_kind.image?.cost_usd != null && (
                   <span className="font-mono text-zinc-400">{usd(data.summary.by_kind.image.cost_usd)}</span>
                 )}
               </div>
@@ -397,7 +400,7 @@ export function CostsPanelSheet({
               </div>
               <div className="mt-1 text-[11px] text-zinc-400 flex items-center justify-between">
                 <span>{data?.summary.by_kind.video?.calls ?? 0} клипов</span>
-                {data?.is_admin && data?.summary.by_kind.video?.cost_usd != null && (
+                {isAdmin && data?.summary.by_kind.video?.cost_usd != null && (
                   <span className="font-mono text-zinc-400">{usd(data.summary.by_kind.video.cost_usd)}</span>
                 )}
               </div>
@@ -414,7 +417,7 @@ export function CostsPanelSheet({
               </div>
               <div className="mt-1 text-[11px] text-zinc-400 flex items-center justify-between">
                 <span>{data?.summary.by_kind.audio?.calls ?? 0} генераций</span>
-                {data?.is_admin && data?.summary.by_kind.audio?.cost_usd != null && (
+                {isAdmin && data?.summary.by_kind.audio?.cost_usd != null && (
                   <span className="font-mono text-zinc-400">{usd(data.summary.by_kind.audio.cost_usd)}</span>
                 )}
               </div>
@@ -431,7 +434,7 @@ export function CostsPanelSheet({
               </div>
               <div className="mt-1 text-[11px] text-zinc-400 flex items-center justify-between">
                 <span>{data?.summary.by_kind.llm?.calls ?? 0} запросов</span>
-                {data?.is_admin && data?.summary.by_kind.llm?.cost_usd != null && (
+                {isAdmin && data?.summary.by_kind.llm?.cost_usd != null && (
                   <span className="font-mono text-zinc-400">{usd(data.summary.by_kind.llm.cost_usd)}</span>
                 )}
               </div>
@@ -475,7 +478,7 @@ export function CostsPanelSheet({
                     {filteredRecent.length}
                   </span>
                 </button>
-                {data?.is_admin && projectId != null && (
+                {isAdmin && projectId != null && (
                   <button
                     type="button"
                     onClick={() => setActiveTab("budget")}
@@ -554,7 +557,7 @@ export function CostsPanelSheet({
                         <th className="px-3 py-3 font-semibold text-right">Объём</th>
                         <th className="px-4 py-3 font-semibold text-right">Расходы (кр.)</th>
                         <th className="px-4 py-3 font-semibold text-left">Доля в расходах</th>
-                        {data?.is_admin && (
+                        {isAdmin && (
                           <th className="px-3 py-3 font-semibold text-right">Себест. ($)</th>
                         )}
                       </tr>
@@ -645,7 +648,7 @@ export function CostsPanelSheet({
                             </td>
 
                             {/* Себестоимость для админа */}
-                            {data?.is_admin && (
+                            {isAdmin && (
                               <td className="px-3 py-3 text-right whitespace-nowrap font-mono text-zinc-400 tabular-nums">
                                 {usd(m.cost_usd)}
                               </td>
@@ -772,7 +775,7 @@ export function CostsPanelSheet({
                               <span className="text-[10px] font-normal text-zinc-500">кр.</span>
                             </div>
 
-                            {data?.is_admin && r.cost_usd != null && (
+                            {isAdmin && r.cost_usd != null && (
                               <div className="font-mono text-[10px] text-zinc-500 tabular-nums">
                                 {usd(r.cost_usd)}
                               </div>

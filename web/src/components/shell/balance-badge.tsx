@@ -13,13 +13,39 @@
 import { useState } from "react";
 import { Coins, Loader2, Plus } from "lucide-react";
 
-import { useBalance } from "@/hooks/use-identity";
+import { useBalance, useOwnerMode } from "@/hooks/use-identity";
+import { useDevRole } from "@/hooks/use-dev-role";
 import { cn } from "@/lib/utils";
 import { CouponDialog } from "@/components/billing/coupon-dialog";
 
 export function BalanceBadge({ className }: { className?: string }) {
   const { data, isLoading, isError } = useBalance();
+  const ownerMode = useOwnerMode();
+  const { isMemberPreview } = useDevRole();
   const [couponOpen, setCouponOpen] = useState(false);
+
+  if (ownerMode && isMemberPreview) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setCouponOpen(true)}
+          className={cn(
+            "group flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs tabular-nums transition-all hover:border-cyan-500/40 hover:bg-white/[0.08] hover:shadow-[0_0_12px_rgba(6,182,212,0.15)]",
+            className,
+          )}
+          title="Локальный режим: нажмите, чтобы ввести промокод или купон"
+        >
+          <Coins className="h-3.5 w-3.5 text-amber-400 group-hover:text-amber-300 transition-colors" />
+          <span className="font-semibold text-zinc-100">15.00 кр.</span>
+          <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-cyan-500/20 text-[10px] font-bold text-cyan-300 group-hover:bg-cyan-500/30 group-hover:scale-105 transition-all">
+            <Plus className="h-2.5 w-2.5" />
+          </span>
+        </button>
+        <CouponDialog open={couponOpen} onOpenChange={setCouponOpen} />
+      </>
+    );
+  }
 
   if (isError) return null;
   if (isLoading) {
