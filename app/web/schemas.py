@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ── Общие ──
 
@@ -29,6 +29,9 @@ class ProjectSummary(_ORM):
     status: str
     hero_mode: str
     auto_mode: bool
+    # Механика проекта: "v1" | "v2". Источник правды — колонка БД
+    # (изоляция воркспейсов, фильтр WHERE); immutable после создания.
+    pipeline_mode: str = "v1"
     created_at: datetime
     updated_at: datetime
     mass_parent_id: int | None = None
@@ -61,6 +64,8 @@ class ProjectDetail(ProjectSummary):
             for key in ("prompt_overrides", "gpt_text_overrides", "meta"):
                 if data.get(key) is None:
                     data[key] = {}
+            if not data.get("pipeline_mode"):
+                data["pipeline_mode"] = "v1"
         return data
 
     general_plan: str | None = None
@@ -94,6 +99,8 @@ class CreateProjectRequest(BaseModel):
     hero_mode: str = "auto"  # hero | no_hero | auto
     workflow_id: int | None = None  # если None — берём дефолтный
     auto_mode: bool = False
+    # Механика нового проекта. Назначается один раз, дальше immutable.
+    pipeline_mode: str = "v1"  # v1 | v2
     sidebar_folder_id: str | None = None
     aspect_ratio: str | None = None
     image_resolution: str | None = None
@@ -117,7 +124,18 @@ class CreateProjectRequest(BaseModel):
                 data["video_generator"] = data.pop("videoGenerator")
             if "autoMode" in data and "auto_mode" not in data:
                 data["auto_mode"] = data.pop("autoMode")
+            if "pipelineMode" in data and "pipeline_mode" not in data:
+                data["pipeline_mode"] = data.pop("pipelineMode")
         return data
+
+    @field_validator("pipeline_mode")
+    @classmethod
+    def _validate_pipeline_mode(cls, v: Any) -> str:
+        """Только известные механики; мусор отклоняется на входе (422)."""
+        mode = str(v or "v1").strip().lower()
+        if mode not in ("v1", "v2"):
+            raise ValueError("pipeline_mode must be 'v1' or 'v2'")
+        return mode
 
 
 # ── Frame ──

@@ -36,6 +36,9 @@ COPY_PROJECT_FIELDS = (
     "prompt_overrides",
     "gpt_text_overrides",
     "auto_mode",
+    # Механика наследуется от шаблона/родителя, а не выбирается заново:
+    # ребёнок живёт в том же изолированном воркспейсе.
+    "pipeline_mode",
 )
 
 COPY_META_KEYS = (

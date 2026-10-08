@@ -92,6 +92,7 @@ def _slugify(s: str) -> str:
 @router.get("", response_model=list[ProjectSummary])
 async def list_projects(
     session: AsyncSession = Depends(get_session),
+    pipeline_mode: str | None = Query(default=None),
 ) -> list[ProjectSummary]:
     """Лёгкий список для сайдбара: без recompute/disk-recover.
 
@@ -100,12 +101,23 @@ async def list_projects(
     давало 6–14с на ``GET /api/projects`` и сайдбар «висел».
     Статус в списке = то, что уже в БД; тяжёлый recompute остаётся в
     ``GET /projects/{id}`` и воркере.
+
+    ``pipeline_mode`` — изоляция механик: проекты чужой механики не
+    отдаются вовсе (НЕ скрываются фронтом, а отрезаются запросом).
     """
+    if pipeline_mode is not None:
+        mode = pipeline_mode.strip().lower()
+        if mode not in ("v1", "v2"):
+            raise HTTPException(status_code=400, detail="pipeline_mode must be 'v1' or 'v2'")
+    else:
+        mode = None
+    query = select(Project)
+    if mode is not None:
+        query = query.where(Project.pipeline_mode == mode)
     rows = (
         (
             await session.execute(
-                select(Project)
-                .options(
+                query.options(
                     defer(Project.general_plan),
                     defer(Project.script_text),
                     defer(Project.hero_description),
@@ -116,8 +128,7 @@ async def list_projects(
                     defer(Project.item_variations),
                     defer(Project.prompt_overrides),
                     defer(Project.gpt_text_overrides),
-                )
-                .order_by(Project.id.desc())
+                ).order_by(Project.id.desc())
             )
         )
         .scalars()
@@ -224,6 +235,7 @@ async def create_project(
         hero_mode=body.hero_mode,
         status=ProjectStatus.new,
         auto_mode=auto_mode,
+        pipeline_mode=body.pipeline_mode,
         meta={},
     )
     session.add(p)
@@ -342,6 +354,10 @@ async def patch_project(
     p = await session.get(Project, project_id)
     if p is None:
         raise HTTPException(status_code=404, detail="project not found")
+    # Режим механики immutable: проект живёт в механике создания.
+    # Неизвестные ключи ниже молча игнорируются, поэтому запрет явный.
+    if "pipeline_mode" in payload or "pipelineMode" in payload:
+        raise HTTPException(status_code=400, detail="pipeline_mode is immutable")
     from app.generation_options import (
         IMAGE_GENERATORS_BY_ID,
         VIDEO_GENERATORS_BY_ID,

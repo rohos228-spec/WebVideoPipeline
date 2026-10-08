@@ -81,10 +81,12 @@
   Трудности: NOT NULL-фикстуры (схема снята через PRAGMA), порядок
   DROP INDEX→DROP COLUMN в SQLite, downgrade сквозь ревизии (реализован
   служебный, прецедент 0016), guard неполной схемы для legacy-БД.
-- [ ] **1.2. API (следующий шаг).** `schemas.py`: приём `pipeline_mode` при
-  создании (валидация `v1|v2`, дефолт `v1`); `GET /projects`: фильтр
-  `?pipeline_mode=`; DTO отдаёт режим; `PATCH`: смена режима → 400 + тест.
-  Фронт шлёт режим только при создании.
+- [x] **1.2. API.** Схемы (`pipeline_mode` в Summary/Detail/Create + валидатор
+  422 + `pipelineMode`-алиас), DTO, `GET /projects?pipeline_mode=` (WHERE,
+  400), создание с режимом, `PATCH` → 400 immutable (запрет явный: PATCH
+  молча глотает неизвестные ключи), наследование через `COPY_PROJECT_FIELDS`.
+  Тест `test_pipeline_mode_api.py` 7/7; регрессия соседей зеленая
+  (list/child/sidebar 5 + mass/graph 10); ruff/mypy чисто.
 - [ ] Приёмка фазы: миграционный тест + API-тесты + smoke воркера без изменений.
 
 ### Фаза 2. Пересадка аддитивного — TODO

@@ -30,6 +30,7 @@ def project_to_summary(
         status=project.status.value,
         hero_mode=project.hero_mode,
         auto_mode=bool(project.auto_mode),
+        pipeline_mode=getattr(project, "pipeline_mode", None) or "v1",
         created_at=project.created_at,
         updated_at=project.updated_at,
         mass_parent_id=mass_parent_id(project),
