@@ -48,6 +48,9 @@ from app.web.routers import (
     frames as frames_router,
 )
 from app.web.routers import (
+    gen_assistant as gen_assistant_router,
+)
+from app.web.routers import (
     generation_options as generation_options_router,
 )
 from app.web.routers import (
@@ -389,6 +392,7 @@ def create_app() -> FastAPI:
     app.include_router(hitl_router.router, prefix=API_PREFIX)
     app.include_router(knowledge_router.router, prefix=API_PREFIX)
     app.include_router(frames_router.router, prefix=API_PREFIX)
+    app.include_router(gen_assistant_router.router, prefix=API_PREFIX)
     app.include_router(artifacts_router.router, prefix=API_PREFIX)
     app.include_router(artifacts_router.files_router, prefix=API_PREFIX)
     app.include_router(bug_reports_router.router, prefix=API_PREFIX)
