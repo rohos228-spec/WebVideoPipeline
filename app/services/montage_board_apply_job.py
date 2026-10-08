@@ -14,6 +14,7 @@ from app.services.event_bus import publish_project_event
 from app.services.montage_board_apply import apply_montage_board
 from app.services.montage_board_job_state import resolve_job_status
 from app.services.montage_board_meta import montage_meta, set_montage_meta
+from app.services.step_billing import step_billing
 
 _JOB_KEY = "apply_job"
 _apply_tasks: dict[int, asyncio.Task[None]] = {}
@@ -115,13 +116,18 @@ def spawn_apply_job(
                 project = await session.get(Project, project_id)
                 if project is None:
                     return
-                result = await apply_montage_board(
-                    session,
-                    project,
-                    video_trims=video_trims,
-                    pending_ops=pending_ops,
-                    on_progress=_on_progress,
-                )
+                # Regen жжёт провайдерские вызовы (медиа + промт-правки LLM):
+                # касса считает по журналам, цена — по факту до данных
+                # владельца (TODO(reprice)). Trim-only сюда не доходит
+                # (идёт синхронной веткой выше), нуля не боимся.
+                async with step_billing(project, "montage_regen"):
+                    result = await apply_montage_board(
+                        session,
+                        project,
+                        video_trims=video_trims,
+                        pending_ops=pending_ops,
+                        on_progress=_on_progress,
+                    )
                 status = "done" if result.get("ok") else "error"
                 # project мог быть expired после commit'ов внутри apply —
                 # перечитываем для job status.

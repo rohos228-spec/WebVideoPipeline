@@ -923,6 +923,7 @@ async def montage_board_scene_variants(
 ) -> dict:
     """Подобрать варианты действия / формата сцены / якорей знанием нод сцен."""
     from app.services.montage_scene_editor import VARIANT_KINDS, generate_scene_variants
+    from app.services.step_billing import step_billing
 
     p = _project_or_404(await session.get(Project, project_id))
     kind = str(body.get("kind") or "action").strip()
@@ -930,13 +931,16 @@ async def montage_board_scene_variants(
         raise HTTPException(status_code=400, detail=f"неизвестный вид вариантов: {kind}")
     state = await _scene_editor_state(session, p, frame_id)
     try:
-        return await generate_scene_variants(
-            state,
-            kind=kind,
-            desc=str(body.get("desc") or ""),
-            count=int(body.get("count") or 3),
-            project_id=project_id,
-        )
+        # Варианты — живой вызов LLM: тарифицируется кассой (смета по факту,
+        # точная цена — после данных владельца, TODO(reprice)).
+        async with step_billing(p, "scene_variant"):
+            return await generate_scene_variants(
+                state,
+                kind=kind,
+                desc=str(body.get("desc") or ""),
+                count=int(body.get("count") or 3),
+                project_id=project_id,
+            )
     except Exception as e:  # noqa: BLE001
         logger.exception(
             "scene-variants failed project={} frame={} kind={}", project_id, frame_id, kind
