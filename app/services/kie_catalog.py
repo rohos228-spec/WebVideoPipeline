@@ -318,12 +318,14 @@ MODELS: list[dict[str, Any]] = [
     },
     {
         "id": "seedance-2-0-mini",
+        "is_top": True,
+        "badge": "ТОП",
         "label": "Seedance 2.0 Mini",
         "category": "video",
         "api": "jobs",
         "model": "bytedance/seedance-2-mini",
         "result": "video",
-        "desc": "Самый дешёвый Seedance — массовые черновики.",
+        "desc": "Самый дешёвый Seedance от ByteDance — массовые черновики (от 3.8 кр/сек).",
         "fields": [
             _prompt(),
             _f("first_frame_url", "Первый кадр", "images", max_items=1),
@@ -1106,6 +1108,8 @@ MODELS: list[dict[str, Any]] = [
         "api": "jobs",
         "model": "flux-2/pro-text-to-image",
         "model_map_i2i": "flux-2/pro-image-to-image",
+        # flux i2i по докам kie хочет input_urls, а не image_urls.
+        "i2i_input_field": "input_urls",
         "result": "image",
         "desc": "Black Forest Flux 2 Pro: высокая скорость, фотореализм, до 8 референсов.",
         "fields": [
@@ -1607,11 +1611,23 @@ MODELS: list[dict[str, Any]] = [
 
 _BY_ID: dict[str, dict[str, Any]] = {m["id"]: m for m in MODELS}
 
+_MODEL_ALIASES: dict[str, str] = {
+    "seedance-2-mini": "seedance-2-0-mini",
+    "seedance-2": "seedance-2-0",
+    "seedance-2.0-mini": "seedance-2-0-mini",
+    "seedance-2.5": "seedance-2-5",
+}
+
 _FILE_KINDS = {"images", "videos", "audios", "file"}
 
 
 def get_model(model_id: str) -> dict[str, Any] | None:
-    return _BY_ID.get(model_id)
+    if model_id in _BY_ID:
+        return _BY_ID[model_id]
+    alias = _MODEL_ALIASES.get(model_id)
+    if alias:
+        return _BY_ID.get(alias)
+    return None
 
 
 def list_models(category: str | None = None) -> list[dict[str, Any]]:

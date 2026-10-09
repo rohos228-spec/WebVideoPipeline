@@ -132,6 +132,15 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+async function resolveReferenceUrls(refs: { id: string; url: string; name?: string; file?: File }[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const r of refs) {
+    if (r.file) out.push(await readFileAsDataUrl(r.file));
+    else out.push(r.url);
+  }
+  return out;
+}
+
 function formatElapsedMinSec(totalSec: number | null | undefined): string {
   const n = Math.max(0, Math.round(Number(totalSec) || 0));
   const m = Math.floor(n / 60);
@@ -951,21 +960,62 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const kieActive = kieModel != null;
   const kieTextField = kieModel ? kieMainTextField(kieModel) : null;
 
-  const maxReferences = useMemo(() => {
-    if (mediaType !== "image") return 0;
-    const slug = activeSlug.toLowerCase();
-    if (slug.includes("z-image")) return 0;
+  const videoCapabilities = useMemo(() => {
+    if (mediaType !== "video") {
+      return { supportsFirst: false, supportsLast: false, supportsRefs: false, maxRefs: 0 };
+    }
     if (kieActive && kieModel) {
-      const refField = kieModel.fields.find(
+      const fieldNames = new Set(kieModel.fields.map((f) => f.name));
+      const hasFirst = fieldNames.has("first_frame_url") || fieldNames.has("first_frame");
+      const hasLast = fieldNames.has("last_frame_url") || fieldNames.has("last_frame");
+      const multiImg = kieModel.fields.find(
         (f) =>
           f.kind === "images" ||
-          ["image_urls", "image_input", "imageUrls", "images", "image_url", "imageUrl"].includes(f.name),
+          ["image_urls", "imageUrls", "images", "image_input"].includes(f.name),
       );
-      if (refField) return refField.max_items || (refField.kind === "images" ? 8 : 1);
-      return 0;
+      const multiMax = multiImg?.max_items || 1;
+
+      const supportsFirst = hasFirst || Boolean(multiImg);
+      const supportsLast = hasLast || (Boolean(multiImg) && multiMax >= 2);
+      const refField = kieModel.fields.find(
+        (f) =>
+          f.name === "reference_image_urls" ||
+          f.name === "reference_images" ||
+          (f.name === "imageUrls" && f.max_items && f.max_items > 2),
+      );
+      const supportsRefs = Boolean(refField);
+      const maxRefs = refField?.max_items || 0;
+      return { supportsFirst, supportsLast, supportsRefs, maxRefs };
     }
-    return 8;
-  }, [mediaType, activeSlug, kieActive, kieModel]);
+    // Outsee video (veo-3-1-lite): поддерживает только стартовый кадр
+    return {
+      supportsFirst: videoModel.chips.includes("image-input"),
+      supportsLast: false,
+      supportsRefs: false,
+      maxRefs: 0,
+    };
+  }, [mediaType, kieActive, kieModel, videoModel]);
+
+  const maxReferences = useMemo(() => {
+    const slug = activeSlug.toLowerCase();
+    if (slug.includes("z-image")) return 0;
+    if (mediaType === "image") {
+      if (kieActive && kieModel) {
+        const refField = kieModel.fields.find(
+          (f) =>
+            f.kind === "images" ||
+            ["image_urls", "image_input", "imageUrls", "images", "image_url", "imageUrl"].includes(f.name),
+        );
+        if (refField) return refField.max_items || (refField.kind === "images" ? 8 : 1);
+        return 0;
+      }
+      return 8; // Outsee Image (GPT Image 2, Nano Banana 2)
+    }
+    if (mediaType === "video") {
+      return videoCapabilities.maxRefs;
+    }
+    return 0;
+  }, [mediaType, activeSlug, kieActive, kieModel, videoCapabilities.maxRefs]);
 
   const kiePrice = useMemo(() => {
     if (!kieModel || !kieCatalogQ.data) return null;
@@ -1387,6 +1437,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       if (text && targetMediaType === "image" && negativePrompt.trim() && !retry) {
         text += `\nAvoid: ${negativePrompt.trim()}`;
       }
+      const refUrls = await resolveReferenceUrls(referenceImages);
 
       const executeSingle = async (index: number) => {
         const nonce = `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1479,31 +1530,85 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             }
           }
 
-          // Автоматическая передача референсов и стартовых кадров в поля модели KIE
-          const refUrls =
+          // Автоматическая передача референсов, стартовых и конечных кадров в поля модели KIE
+          const kieFirstFrame = retry?.first_frame_url || firstFrameDataUrl || null;
+          const kieLastFrame =
+            (typeof retryParams.last_frame_url === "string" ? retryParams.last_frame_url : undefined) ||
+            lastFrameDataUrl ||
+            null;
+          const kieRefs =
             retry?.reference_images && retry.reference_images.length > 0
               ? retry.reference_images
-              : referenceImages.length > 0
-                ? referenceImages.map((r) => r.url)
-                : firstFrameDataUrl
-                  ? [firstFrameDataUrl]
-                  : [];
-          if (refUrls.length > 0 && effectiveKieModel) {
-            const imageField = effectiveKieModel.fields.find(
-              (f) =>
-                f.kind === "images" ||
-                ["image_urls", "image_input", "imageUrls", "images", "image_url", "imageUrl"].includes(f.name),
-            );
-            if (imageField) {
-              if (
-                imageField.kind === "images" ||
-                imageField.name.endsWith("s") ||
-                imageField.name === "image_input" ||
-                (imageField.max_items && imageField.max_items > 1)
-              ) {
-                vals[imageField.name] = refUrls.slice(0, imageField.max_items || 8);
+              : refUrls;
+
+          if (effectiveKieModel) {
+            const fields = effectiveKieModel.fields || [];
+            const fieldNames = new Set(fields.map((f) => f.name));
+
+            // 1. Модели с отдельными полями первого кадра, последнего кадра или референсов (напр. Seedance 2.0 / 2.5)
+            const hasExplicitFirst = fieldNames.has("first_frame_url") || fieldNames.has("first_frame");
+            const hasExplicitLast = fieldNames.has("last_frame_url") || fieldNames.has("last_frame");
+            const hasExplicitRefs = fieldNames.has("reference_image_urls") || fieldNames.has("reference_images");
+
+            if (hasExplicitFirst || hasExplicitLast || hasExplicitRefs) {
+              if (kieFirstFrame && hasExplicitFirst) {
+                const fName = fieldNames.has("first_frame_url") ? "first_frame_url" : "first_frame";
+                const fSpec = fields.find((f) => f.name === fName);
+                vals[fName] = fSpec?.kind === "images" ? [kieFirstFrame] : kieFirstFrame;
+              }
+              if (kieLastFrame && hasExplicitLast) {
+                const fName = fieldNames.has("last_frame_url") ? "last_frame_url" : "last_frame";
+                const fSpec = fields.find((f) => f.name === fName);
+                vals[fName] = fSpec?.kind === "images" ? [kieLastFrame] : kieLastFrame;
+              }
+              if (kieRefs.length > 0 && hasExplicitRefs) {
+                const fName = fieldNames.has("reference_image_urls") ? "reference_image_urls" : "reference_images";
+                const fSpec = fields.find((f) => f.name === fName);
+                const maxItems = fSpec?.max_items || 9;
+                vals[fName] = kieRefs.slice(0, maxItems);
+              }
+            } else {
+              // 2. Модели с общим массивом изображений (Kling 3.0, Seedance 1.5 Pro, Veo 3.1)
+              const multiField = fields.find(
+                (f) =>
+                  f.kind === "images" ||
+                  ["image_urls", "imageUrls", "images", "image_input"].includes(f.name),
+              );
+              if (multiField) {
+                const maxItems = multiField.max_items || 8;
+                if (maxItems >= 2 && (kieFirstFrame || kieLastFrame)) {
+                  const frames: string[] = [];
+                  if (kieFirstFrame) frames.push(kieFirstFrame);
+                  if (kieLastFrame) frames.push(kieLastFrame);
+                  if (frames.length < maxItems && kieRefs.length > 0) {
+                    const remain = maxItems - frames.length;
+                    frames.push(...kieRefs.filter((r) => !frames.includes(r)).slice(0, remain));
+                  }
+                  vals[multiField.name] = frames.slice(0, maxItems);
+                } else if (maxItems === 1) {
+                  const chosen = kieFirstFrame || (kieRefs.length > 0 ? kieRefs[0] : null) || kieLastFrame;
+                  if (chosen) {
+                    vals[multiField.name] = [chosen];
+                  }
+                } else {
+                  const all = [kieFirstFrame, kieLastFrame, ...kieRefs].filter(Boolean) as string[];
+                  if (all.length > 0) {
+                    vals[multiField.name] = all.slice(0, maxItems);
+                  }
+                }
               } else {
-                vals[imageField.name] = refUrls[0];
+                // 3. Одиночные поля изображений (I2V: image_url, imageUrl)
+                const singleField = fields.find(
+                  (f) =>
+                    ["image_url", "imageUrl", "image"].includes(f.name) ||
+                    (f.kind === "images" && f.max_items === 1),
+                );
+                if (singleField) {
+                  const chosen = kieFirstFrame || (kieRefs.length > 0 ? kieRefs[0] : null) || kieLastFrame;
+                  if (chosen) {
+                    vals[singleField.name] = chosen;
+                  }
+                }
               }
             }
           }
@@ -1564,7 +1669,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             : Number(duration) || 5;
         const targetFirstFrame =
           retry?.first_frame_url ||
-          (referenceImages.length > 0 ? referenceImages[0].url : firstFrameDataUrl);
+          (refUrls.length > 0 ? refUrls[0] : firstFrameDataUrl);
         const targetLastFrame =
           (typeof retryParams.last_frame_url === "string"
             ? retryParams.last_frame_url
@@ -1572,11 +1677,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         const targetRefs =
           retry?.reference_images && retry.reference_images.length > 0
             ? retry.reference_images
-            : referenceImages.length > 0
-              ? referenceImages.map((r) => r.url)
-              : firstFrameDataUrl
-                ? [firstFrameDataUrl]
-                : undefined;
+            : refUrls.length > 0
+              ? refUrls
+              : undefined;
         const targetModel =
           rawModel || (targetMediaType === "video" ? videoSlug : imageSlug);
         const targetProjectId = retry ? (retry.project_id ?? projectId) : projectId;
@@ -1593,6 +1696,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 generate_audio: videoModel.chips.includes("audio") ? generateAudio : null,
                 first_frame_url: targetFirstFrame,
                 last_frame_url: targetLastFrame,
+                reference_images: targetRefs,
                 project_id: targetProjectId,
                 nonce,
                 batch_index: index,
@@ -2404,16 +2508,154 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 )}
                 {/* Унифицированная зона вложений и референсов (Outsee + KIE) */}
                 {((mediaType === "video" &&
-                  (videoModel.chips.includes("image-input") ||
-                    (kieActive &&
-                      Boolean(
-                        kieModel?.fields.some(
-                          (f) => f.kind === "images" || f.name.toLowerCase().includes("image"),
-                        ),
-                      )))) ||
+                    (videoCapabilities.supportsFirst ||
+                      videoCapabilities.supportsLast ||
+                      videoCapabilities.supportsRefs)) ||
                   (mediaType === "image" && maxReferences > 0)) && (
                   <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.08] px-3 py-2.5 lg:px-4">
-                    {mediaType === "image" ? (
+                    {/* Видео-кадры (Старт / Финиш) */}
+                    {mediaType === "video" && (
+                      <>
+                        {videoCapabilities.supportsFirst && (
+                          <>
+                            <input
+                              ref={firstFrameInputRef}
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (!f) return;
+                                void readFileAsDataUrl(f).then((dataUrl) => {
+                                  setFirstFrameDataUrl(dataUrl);
+                                  setFirstFrameName(f.name);
+                                  toast.success("Стартовый кадр добавлен");
+                                });
+                                e.target.value = "";
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => firstFrameInputRef.current?.click()}
+                              className={cn(
+                                "inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-[11px] font-bold uppercase tracking-wider transition",
+                                firstFrameDataUrl
+                                  ? "border-[#22d3ee]/40 bg-[#22d3ee]/10 text-[#22d3ee]"
+                                  : "border-dashed border-white/20 bg-white/[0.03] text-white/70 hover:border-white/40 hover:text-white",
+                              )}
+                            >
+                              {firstFrameDataUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={firstFrameDataUrl}
+                                  alt=""
+                                  className="h-6 w-6 rounded-lg object-cover ring-1 ring-white/15"
+                                />
+                              ) : (
+                                <Paperclip className="h-3.5 w-3.5" />
+                              )}
+                              <span>Стартовый кадр</span>
+                              {firstFrameDataUrl && (
+                                <span
+                                  className="text-white/45 hover:text-white"
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    setFirstFrameDataUrl(null);
+                                    setFirstFrameName(null);
+                                  }}
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </span>
+                              )}
+                            </button>
+                          </>
+                        )}
+
+                        {videoCapabilities.supportsLast && (
+                          <>
+                            <input
+                              ref={lastFrameInputRef}
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (!f) return;
+                                void readFileAsDataUrl(f).then((dataUrl) => {
+                                  setLastFrameDataUrl(dataUrl);
+                                  setLastFrameName(f.name);
+                                  toast.success("Конечный кадр добавлен");
+                                });
+                                e.target.value = "";
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => lastFrameInputRef.current?.click()}
+                              className={cn(
+                                "inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-[11px] font-bold uppercase tracking-wider transition",
+                                lastFrameDataUrl
+                                  ? "border-[#22d3ee]/40 bg-[#22d3ee]/10 text-[#22d3ee]"
+                                  : "border-dashed border-white/20 bg-white/[0.03] text-white/70 hover:border-white/40 hover:text-white",
+                              )}
+                            >
+                              {lastFrameDataUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={lastFrameDataUrl}
+                                  alt=""
+                                  className="h-6 w-6 rounded-lg object-cover ring-1 ring-white/15"
+                                />
+                              ) : (
+                                <Paperclip className="h-3.5 w-3.5" />
+                              )}
+                              <span>Конечный кадр</span>
+                              {lastFrameDataUrl && (
+                                <span
+                                  className="text-white/45 hover:text-white"
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    setLastFrameDataUrl(null);
+                                    setLastFrameName(null);
+                                  }}
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </span>
+                              )}
+                            </button>
+                          </>
+                        )}
+
+                        {selected?.kind === "image" &&
+                          selected.status === "done" && (
+                            <>
+                              {videoCapabilities.supportsFirst && (
+                                <button
+                                  type="button"
+                                  onClick={() => void applyFrameFromHistory(selected, "first")}
+                                  className="inline-flex h-9 items-center gap-1 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-2.5 text-[11px] font-semibold text-[#22d3ee] transition hover:bg-[#22d3ee]/20"
+                                  title="Текущее фото → Стартовый кадр"
+                                >
+                                  → В старт
+                                </button>
+                              )}
+                              {videoCapabilities.supportsLast && (
+                                <button
+                                  type="button"
+                                  onClick={() => void applyFrameFromHistory(selected, "last")}
+                                  className="inline-flex h-9 items-center gap-1 rounded-xl border border-white/20 bg-white/[0.04] px-2.5 text-[11px] font-medium text-white/75 transition hover:border-white/30 hover:bg-white/[0.08]"
+                                  title="Текущее фото → Конечный кадр"
+                                >
+                                  → В финиш
+                                </button>
+                              )}
+                            </>
+                          )}
+                      </>
+                    )}
+
+                    {/* Мульти-референсы (Фото или Видео с поддержкой reference images) */}
+                    {maxReferences > 0 && (
                       <>
                         <input
                           ref={multiRefInputRef}
@@ -2485,8 +2727,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                             </button>
                           </div>
                         ))}
-                        {maxReferences > 0 &&
-                          selected?.kind === "image" &&
+                        {selected?.kind === "image" &&
                           selected.status === "done" &&
                           referenceImages.length < maxReferences && (
                             <button
@@ -2499,133 +2740,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                             </button>
                           )}
                       </>
-                    ) : (
-                      <>
-                        <input
-                          ref={firstFrameInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (!f) return;
-                            void readFileAsDataUrl(f).then((dataUrl) => {
-                              setFirstFrameDataUrl(dataUrl);
-                              setFirstFrameName(f.name);
-                              toast.success("Стартовый кадр добавлен");
-                            });
-                            e.target.value = "";
-                          }}
-                        />
-                        <input
-                          ref={lastFrameInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (!f) return;
-                            void readFileAsDataUrl(f).then((dataUrl) => {
-                              setLastFrameDataUrl(dataUrl);
-                              setLastFrameName(f.name);
-                              toast.success("Конечный кадр добавлен");
-                            });
-                            e.target.value = "";
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => firstFrameInputRef.current?.click()}
-                          className={cn(
-                            "inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-[11px] font-bold uppercase tracking-wider transition",
-                            firstFrameDataUrl
-                              ? "border-[#22d3ee]/40 bg-[#22d3ee]/10 text-[#22d3ee]"
-                              : "border-dashed border-white/20 bg-white/[0.03] text-white/70 hover:border-white/40 hover:text-white",
-                          )}
-                        >
-                          {firstFrameDataUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={firstFrameDataUrl}
-                              alt=""
-                              className="h-6 w-6 rounded-lg object-cover ring-1 ring-white/15"
-                            />
-                          ) : (
-                            <Paperclip className="h-3.5 w-3.5" />
-                          )}
-                          <span>Стартовый кадр</span>
-                          {firstFrameDataUrl && (
-                            <span
-                              className="text-white/45 hover:text-white"
-                              onClick={(ev) => {
-                                ev.stopPropagation();
-                                setFirstFrameDataUrl(null);
-                                setFirstFrameName(null);
-                              }}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => lastFrameInputRef.current?.click()}
-                          className={cn(
-                            "inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-[11px] font-bold uppercase tracking-wider transition",
-                            lastFrameDataUrl
-                              ? "border-[#22d3ee]/40 bg-[#22d3ee]/10 text-[#22d3ee]"
-                              : "border-dashed border-white/20 bg-white/[0.03] text-white/70 hover:border-white/40 hover:text-white",
-                          )}
-                        >
-                          {lastFrameDataUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={lastFrameDataUrl}
-                              alt=""
-                              className="h-6 w-6 rounded-lg object-cover ring-1 ring-white/15"
-                            />
-                          ) : (
-                            <Paperclip className="h-3.5 w-3.5" />
-                          )}
-                          <span>Конечный кадр</span>
-                          {lastFrameDataUrl && (
-                            <span
-                              className="text-white/45 hover:text-white"
-                              onClick={(ev) => {
-                                ev.stopPropagation();
-                                setLastFrameDataUrl(null);
-                                setLastFrameName(null);
-                              }}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </span>
-                          )}
-                        </button>
-                        {mediaType === "video" &&
-                          videoModel.chips.includes("image-input") &&
-                          selected?.kind === "image" &&
-                          selected.status === "done" && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => void applyFrameFromHistory(selected, "first")}
-                                className="inline-flex h-9 items-center gap-1 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-2.5 text-[11px] font-semibold text-[#22d3ee] transition hover:bg-[#22d3ee]/20"
-                                title="Текущее фото → Стартовый кадр"
-                              >
-                                → В старт
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void applyFrameFromHistory(selected, "last")}
-                                className="inline-flex h-9 items-center gap-1 rounded-xl border border-white/20 bg-white/[0.04] px-2.5 text-[11px] font-medium text-white/75 transition hover:border-white/30 hover:bg-white/[0.08]"
-                                title="Текущее фото → Конечный кадр"
-                              >
-                                → В финиш
-                              </button>
-                            </>
-                          )}
-                      </>
                     )}
+
                     <span className="text-[10px] text-white/35">
                       файл с диска или выбор из истории слева
                     </span>
@@ -3993,6 +4109,7 @@ function ModelPickerPopover({
 
       const icon =
         (rawId.includes("seedream") ? "/icons/bytedance.svg" : null) ||
+        (rawId.includes("seedance") ? iconBySlug.get("seedance-2-0-mini") || "/icons/bytedance.svg" : null) ||
         (rawId.includes("qwen") ? "/icons/qwen.svg" : null) ||
         iconBySlug.get(rawId) ||
         iconBySlug.get(cleanId) ||
