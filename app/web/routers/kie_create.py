@@ -145,7 +145,7 @@ async def _ensure_kie_asset_url(val: Any, filename_prefix: str = "asset") -> Any
             return uploaded_url
         except Exception as e:
             logger.error("kie_create: upload_file failed for data URL: {}", e)
-            raise HTTPException(status_code=502, detail=f"Не удалось загрузить файл в KIE: {e}")
+            raise HTTPException(status_code=502, detail=f"Не удалось загрузить файл в KIE: {e}") from e
 
     # 2. Локальный путь (/api/files?path=... или путь на диске)
     local_path: Path | None = None
@@ -182,7 +182,7 @@ async def _ensure_kie_asset_url(val: Any, filename_prefix: str = "asset") -> Any
             return uploaded_url
         except Exception as e:
             logger.error("kie_create: upload_file failed for local file {}: {}", local_path, e)
-            raise HTTPException(status_code=502, detail=f"Не удалось загрузить файл в KIE: {e}")
+            raise HTTPException(status_code=502, detail=f"Не удалось загрузить файл в KIE: {e}") from e
 
     return val
 
