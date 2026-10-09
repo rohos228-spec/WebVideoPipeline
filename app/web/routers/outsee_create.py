@@ -8,7 +8,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -293,6 +294,7 @@ async def delete_outsee_create_history_item(
 
 @router.get("/download")
 async def download_media(
+    request: Request,
     path: str | None = Query(None),
     url: str | None = Query(None),
     format: str = Query("png"),
@@ -304,7 +306,6 @@ async def download_media(
     from urllib.parse import parse_qs, quote, urlparse
 
     import httpx
-    from fastapi.responses import FileResponse, Response
     from PIL import Image
 
     def _make_content_disposition(name: str) -> str:
@@ -324,31 +325,80 @@ async def download_media(
     clean_base = re.sub(r"\.(png|jpg|jpeg|webp|mp4|mp3|wav)$", "", clean_base, flags=re.IGNORECASE)
     out_filename = f"{clean_base}.{target_format}"
 
-    local_path: Path | None = None
-    if path:
-        p = Path(path)
+    def _resolve_candidate(cand: str | None) -> Path | None:
+        if not cand or not str(cand).strip():
+            return None
+        s = str(cand).strip()
+        p = Path(s)
         if p.is_file():
-            local_path = p
+            return p
+        try:
+            p_data = (Path(settings.data_dir) / s).resolve()
+            if p_data.is_file():
+                return p_data
+        except Exception:
+            pass
+        try:
+            p_gen = (Path("data/generations") / Path(s).name).resolve()
+            if p_gen.is_file():
+                return p_gen
+        except Exception:
+            pass
+        return None
+
+    local_path: Path | None = _resolve_candidate(path)
+
     if not local_path and url:
         if url.startswith("/api/generations/"):
             rel = url.replace("/api/generations/", "")
             p = Path("data/generations") / rel
             if p.is_file():
                 local_path = p
+            else:
+                p_data = Path(settings.data_dir) / "generations" / rel
+                if p_data.is_file():
+                    local_path = p_data
         elif "/api/files?path=" in url:
             try:
                 parsed = urlparse(url)
                 qp = parse_qs(parsed.query).get("path")
                 if qp and qp[0]:
-                    p = Path(qp[0])
-                    if p.is_file():
-                        local_path = p
+                    local_path = _resolve_candidate(qp[0])
             except Exception:
                 pass
+        elif "/api/artifacts/" in url and "/file" in url:
+            m = re.search(r"/api/artifacts/([a-zA-Z0-9_-]+)/file", url)
+            if m:
+                art_uuid = m.group(1)
+                try:
+                    from app.db import session_scope
+                    from app.models import Artifact
+                    from sqlalchemy import select
 
-    if local_path and local_path.suffix.lower() in {".mp4", ".webm", ".mov", ".mp3", ".wav"}:
+                    async with session_scope() as session:
+                        art = (
+                            await session.execute(
+                                select(Artifact).where(Artifact.uuid == art_uuid)
+                            )
+                        ).scalar_one_or_none()
+                        if art and art.path:
+                            local_path = _resolve_candidate(art.path)
+                except Exception:
+                    pass
+
+    # Если найден локальный файл и целевой формат видео/аудио — прямая отдача через FileResponse
+    if local_path and (
+        target_format in {"mp3", "wav", "mp4", "webm", "mov"}
+        or local_path.suffix.lower() in {".mp4", ".webm", ".mov", ".mp3", ".wav"}
+    ):
+        media_type = (
+            "video/mp4"
+            if (target_format in {"mp4", "webm", "mov"} or local_path.suffix.lower() in {".mp4", ".webm", ".mov"})
+            else ("audio/mpeg" if target_format == "mp3" else "application/octet-stream")
+        )
         return FileResponse(
             str(local_path),
+            media_type=media_type,
             filename=out_filename,
             headers={"Content-Disposition": _make_content_disposition(out_filename)},
         )
@@ -357,16 +407,52 @@ async def download_media(
     if local_path and local_path.is_file():
         img_bytes = local_path.read_bytes()
     elif url:
-        try:
-            target_url = url
-            if target_url.startswith("/"):
-                target_url = f"http://127.0.0.1:8765{target_url}"
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(target_url)
+        target_url = url
+        if target_url.startswith("/"):
+            if request is not None:
+                base = str(request.base_url).rstrip("/")
+                target_url = f"{base}{target_url}"
+            else:
+                port = getattr(settings, "port", 8000)
+                target_url = f"http://127.0.0.1:{port}{target_url}"
+
+        if target_format in {"mp3", "wav", "mp4", "webm", "mov"}:
+            try:
+                client = httpx.AsyncClient(timeout=120.0, follow_redirects=True)
+                req = client.build_request("GET", target_url)
+                resp = await client.send(req, stream=True)
                 if resp.status_code == 200:
-                    img_bytes = resp.content
-        except Exception as e:
-            logger.warning("download proxy fetch error: {}", e)
+                    media_type = (
+                        "video/mp4"
+                        if target_format in {"mp4", "webm", "mov"}
+                        else ("audio/mpeg" if target_format == "mp3" else "application/octet-stream")
+                    )
+
+                    async def _stream_chunks():
+                        try:
+                            async for chunk in resp.aiter_bytes():
+                                yield chunk
+                        finally:
+                            await resp.aclose()
+                            await client.aclose()
+
+                    return StreamingResponse(
+                        _stream_chunks(),
+                        media_type=media_type,
+                        headers={"Content-Disposition": _make_content_disposition(out_filename)},
+                    )
+                await resp.aclose()
+                await client.aclose()
+            except Exception as e:
+                logger.warning("download stream fetch error: {}", e)
+        else:
+            try:
+                async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                    resp = await client.get(target_url)
+                    if resp.status_code == 200:
+                        img_bytes = resp.content
+            except Exception as e:
+                logger.warning("download proxy fetch error: {}", e)
 
     if not img_bytes:
         raise HTTPException(status_code=404, detail="Файл не найден для скачивания")

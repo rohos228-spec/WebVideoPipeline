@@ -191,3 +191,58 @@ def test_kie_http_task_state_mapping() -> None:
     assert _task_state("suno", {"status": "SUCCESS"}) == "success"
     assert _task_state("suno", {"status": "PENDING"}) == "pending"
     assert _task_state("suno", {"status": "FAILED"}) == "fail"
+
+
+def test_generate_auto_uploads_data_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import create_jobs as cj
+    from app.services import generation_storage as gs
+
+    monkeypatch.setattr(gs.settings, "data_dir", tmp_path)
+    monkeypatch.setattr(kie_create.kie_http, "kie_configured", lambda: True)
+    cj._JOBS.clear()
+    cj._SEMS.clear()
+    cj._SEM_SIZES.clear()
+    cj._RECENT_FP.clear()
+
+    uploaded_files: list[str] = []
+
+    async def fake_upload_file(content: bytes, filename: str, **kw):
+        uploaded_files.append(filename)
+        return f"https://tempfile.redpandaai.co/{filename}"
+
+    monkeypatch.setattr(kie_create.kie_http, "upload_file", fake_upload_file)
+
+    async def fake_run(spec, payload, out_path: Path):
+        assert payload["input"]["first_frame_url"] == f"https://tempfile.redpandaai.co/{uploaded_files[0]}"
+        assert payload["input"]["last_frame_url"] == f"https://tempfile.redpandaai.co/{uploaded_files[1]}"
+        assert payload["input"]["reference_image_urls"] == [f"https://tempfile.redpandaai.co/{uploaded_files[2]}"]
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"\x00" * 64)
+        from app.bots.outsee import GenerationResult
+
+        return GenerationResult(file_path=out_path, gen_id="task-frames-1", raw_url=None)
+
+    monkeypatch.setattr(kie_create.kie_http, "run_generation", fake_run)
+
+    dummy_png_data_url = (
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+
+    c = TestClient(_app())
+    r = c.post(
+        "/api/kie-create/generate",
+        json={
+            "model_id": "seedance-2-5",
+            "values": {
+                "prompt": "видео с кадрами",
+                "resolution": "720p",
+                "duration": 5,
+                "first_frame_url": dummy_png_data_url,
+                "last_frame_url": [dummy_png_data_url],
+                "reference_image_urls": [dummy_png_data_url],
+            },
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert len(uploaded_files) == 3
+

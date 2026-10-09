@@ -1617,31 +1617,85 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             }
           }
 
-          // Автоматическая передача референсов и стартовых кадров в поля модели KIE
-          const kieRefUrls =
+          // Автоматическая передача референсов, стартовых и конечных кадров в поля модели KIE
+          const kieFirstFrame = retry?.first_frame_url || firstFrameDataUrl || null;
+          const kieLastFrame =
+            (typeof retryParams.last_frame_url === "string" ? retryParams.last_frame_url : undefined) ||
+            lastFrameDataUrl ||
+            null;
+          const kieRefs =
             retry?.reference_images && retry.reference_images.length > 0
               ? retry.reference_images
-              : refUrls.length > 0
-                ? refUrls
-                : firstFrameDataUrl
-                  ? [firstFrameDataUrl]
-                  : [];
-          if (kieRefUrls.length > 0 && effectiveKieModel) {
-            const imageField = effectiveKieModel.fields.find(
-              (f) =>
-                f.kind === "images" ||
-                ["image_urls", "image_input", "imageUrls", "images", "image_url", "imageUrl"].includes(f.name),
-            );
-            if (imageField) {
-              if (
-                imageField.kind === "images" ||
-                imageField.name.endsWith("s") ||
-                imageField.name === "image_input" ||
-                (imageField.max_items && imageField.max_items > 1)
-              ) {
-                vals[imageField.name] = kieRefUrls.slice(0, imageField.max_items || 8);
+              : refUrls;
+
+          if (effectiveKieModel) {
+            const fields = effectiveKieModel.fields || [];
+            const fieldNames = new Set(fields.map((f) => f.name));
+
+            // 1. Модели с отдельными полями первого кадра, последнего кадра или референсов (напр. Seedance 2.0 / 2.5)
+            const hasExplicitFirst = fieldNames.has("first_frame_url") || fieldNames.has("first_frame");
+            const hasExplicitLast = fieldNames.has("last_frame_url") || fieldNames.has("last_frame");
+            const hasExplicitRefs = fieldNames.has("reference_image_urls") || fieldNames.has("reference_images");
+
+            if (hasExplicitFirst || hasExplicitLast || hasExplicitRefs) {
+              if (kieFirstFrame && hasExplicitFirst) {
+                const fName = fieldNames.has("first_frame_url") ? "first_frame_url" : "first_frame";
+                const fSpec = fields.find((f) => f.name === fName);
+                vals[fName] = fSpec?.kind === "images" ? [kieFirstFrame] : kieFirstFrame;
+              }
+              if (kieLastFrame && hasExplicitLast) {
+                const fName = fieldNames.has("last_frame_url") ? "last_frame_url" : "last_frame";
+                const fSpec = fields.find((f) => f.name === fName);
+                vals[fName] = fSpec?.kind === "images" ? [kieLastFrame] : kieLastFrame;
+              }
+              if (kieRefs.length > 0 && hasExplicitRefs) {
+                const fName = fieldNames.has("reference_image_urls") ? "reference_image_urls" : "reference_images";
+                const fSpec = fields.find((f) => f.name === fName);
+                const maxItems = fSpec?.max_items || 9;
+                vals[fName] = kieRefs.slice(0, maxItems);
+              }
+            } else {
+              // 2. Модели с общим массивом изображений (Kling 3.0, Seedance 1.5 Pro, Veo 3.1)
+              const multiField = fields.find(
+                (f) =>
+                  f.kind === "images" ||
+                  ["image_urls", "imageUrls", "images", "image_input"].includes(f.name),
+              );
+              if (multiField) {
+                const maxItems = multiField.max_items || 8;
+                if (maxItems >= 2 && (kieFirstFrame || kieLastFrame)) {
+                  const frames: string[] = [];
+                  if (kieFirstFrame) frames.push(kieFirstFrame);
+                  if (kieLastFrame) frames.push(kieLastFrame);
+                  if (frames.length < maxItems && kieRefs.length > 0) {
+                    const remain = maxItems - frames.length;
+                    frames.push(...kieRefs.filter((r) => !frames.includes(r)).slice(0, remain));
+                  }
+                  vals[multiField.name] = frames.slice(0, maxItems);
+                } else if (maxItems === 1) {
+                  const chosen = kieFirstFrame || (kieRefs.length > 0 ? kieRefs[0] : null) || kieLastFrame;
+                  if (chosen) {
+                    vals[multiField.name] = [chosen];
+                  }
+                } else {
+                  const all = [kieFirstFrame, kieLastFrame, ...kieRefs].filter(Boolean) as string[];
+                  if (all.length > 0) {
+                    vals[multiField.name] = all.slice(0, maxItems);
+                  }
+                }
               } else {
-                vals[imageField.name] = kieRefUrls[0];
+                // 3. Одиночные поля изображений (I2V: image_url, imageUrl)
+                const singleField = fields.find(
+                  (f) =>
+                    ["image_url", "imageUrl", "image"].includes(f.name) ||
+                    (f.kind === "images" && f.max_items === 1),
+                );
+                if (singleField) {
+                  const chosen = kieFirstFrame || (kieRefs.length > 0 ? kieRefs[0] : null) || kieLastFrame;
+                  if (chosen) {
+                    vals[singleField.name] = chosen;
+                  }
+                }
               }
             }
           }
