@@ -246,3 +246,41 @@ def test_generate_auto_uploads_data_urls(tmp_path: Path, monkeypatch: pytest.Mon
     assert r.status_code == 200, r.text
     assert len(uploaded_files) == 3
 
+
+@pytest.mark.asyncio
+async def test_upload_file_uses_multipart_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.bots import kie_http
+
+    monkeypatch.setattr(kie_http, "kie_api_key", lambda: "test-kie-key")
+
+    captured_headers: dict[str, str] = {}
+    captured_files: Any = None
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+        async def post(self, url: str, *, headers: dict[str, str], files: Any, data: Any):
+            nonlocal captured_headers, captured_files
+            captured_headers = dict(headers)
+            captured_files = files
+
+            class FakeResponse:
+                status_code = 200
+
+                def json(self):
+                    return {"code": 200, "data": {"downloadUrl": "https://tempfile.redpandaai.co/ok.png"}}
+
+            return FakeResponse()
+
+    monkeypatch.setattr(kie_http.httpx, "AsyncClient", lambda **kw: FakeClient())
+
+    dl = await kie_http.upload_file(b"dummy image bytes", "ok.png")
+    assert dl == "https://tempfile.redpandaai.co/ok.png"
+    assert "Content-Type" not in captured_headers
+    assert captured_headers.get("Authorization") == "Bearer test-kie-key"
+    assert "file" in captured_files
+
