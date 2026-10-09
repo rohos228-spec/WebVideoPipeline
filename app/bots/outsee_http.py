@@ -858,6 +858,18 @@ async def _host_via_yandex(
     return await _accept_hosted_url(client, url, host="yandex", raw_len=len(raw))
 
 
+async def _host_via_kie(
+    client: httpx.AsyncClient, raw: bytes, mime: str, filename: str
+) -> str:
+    from app.bots.kie_http import kie_configured
+    from app.bots.kie_http import upload_file as kie_upload_file
+
+    if not kie_configured():
+        raise OutseeApiError("kie: не настроен KIE_API_KEY")
+    url = await kie_upload_file(raw, filename=filename)
+    return await _accept_hosted_url(client, url, host="kie", raw_len=len(raw))
+
+
 async def _host_via_uguu(client: httpx.AsyncClient, raw: bytes, mime: str, filename: str) -> str:
     r = await client.post(
         "https://uguu.se/upload.php",
@@ -986,6 +998,7 @@ async def ensure_public_image_url(
             return None
         raw, mime = decoded
     errors: list[str] = []
+    from app.bots.kie_http import kie_configured
     from app.bots.yandex_storage import yandex_storage_configured
     from app.settings import settings
 
@@ -994,6 +1007,8 @@ async def ensure_public_image_url(
     hosts: list[tuple[str, Any]] = []
     if yandex_storage_configured():
         hosts.append(("yandex", _host_via_yandex))
+        if kie_configured():
+            hosts.append(("kie", _host_via_kie))
         if allow_public:
             # Резервные хосты на случай временного сбоя S3 — только по опт-ину.
             hosts.extend(
@@ -1009,6 +1024,16 @@ async def ensure_public_image_url(
             )
         else:
             logger.info("outsee_api.frame: upload host=yandex ({} bytes)", len(raw))
+    elif kie_configured():
+        hosts.append(("kie", _host_via_kie))
+        if allow_public:
+            hosts.extend(
+                [
+                    ("litterbox", _host_via_litterbox),
+                    ("catbox", _host_via_catbox),
+                ]
+            )
+        logger.info("outsee_api.frame: upload host=kie ({} bytes)", len(raw))
     elif allow_public:
         logger.warning(
             "outsee_api.frame: Yandex S3 не настроен, OUTSEE_ALLOW_PUBLIC_HOSTS=true — "
@@ -1025,9 +1050,8 @@ async def ensure_public_image_url(
         )
     else:
         raise OutseeApiError(
-            "стартовый кадр: публикация только через Yandex Object Storage, "
-            "а S3 не настроен (YANDEX_*). Анонимные файлохостинги отключены — "
-            "кадр лёг бы там по публичному URL. Осознанный опт-ин: "
+            "стартовый кадр: публикация требует Yandex Object Storage (YANDEX_*) или KIE (KIE_API_KEY). "
+            "Анонимные файлохостинги отключены — кадр лёг бы там по публичному URL. Осознанный опт-ин: "
             "OUTSEE_ALLOW_PUBLIC_HOSTS=true.",
             context={"mime": mime, "bytes": len(raw)},
         )

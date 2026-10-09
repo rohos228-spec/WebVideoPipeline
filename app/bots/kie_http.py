@@ -57,14 +57,18 @@ def kie_configured() -> bool:
     return bool(kie_api_key())
 
 
-def _headers() -> dict[str, str]:
+def _auth_headers() -> dict[str, str]:
     key = kie_api_key()
     if not key:
         raise KieHttpError(
             "kie: нет API-ключа (KIE_API_KEY / GPT_API_KEY)",
             context={"provider_code": 401, "error_kind": "no_key"},
         )
-    return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    return {"Authorization": f"Bearer {key}"}
+
+
+def _headers() -> dict[str, str]:
+    return {**_auth_headers(), "Content-Type": "application/json"}
 
 
 def _check(payload: Any, *, http_status: int, where: str) -> dict[str, Any]:
@@ -109,7 +113,7 @@ async def upload_file(content: bytes, filename: str, *, upload_path: str = "imag
     async with httpx.AsyncClient(timeout=180.0) as client:
         r = await client.post(
             url,
-            headers=_headers(),
+            headers=_auth_headers(),
             files={"file": (filename, content)},
             data={"uploadPath": upload_path, "fileName": filename},
         )

@@ -65,6 +65,24 @@ def _upgrade_sync(connection: Connection) -> None:
     if managed:
         current = MigrationContext.configure(connection).get_current_revision()
         logger.info("migrations: alembic head, текущая ревизия {}", current)
+        from alembic.script import ScriptDirectory
+
+        script = ScriptDirectory.from_config(cfg)
+        try:
+            if current is not None:
+                script.get_revision(current)
+        except Exception as exc:
+            heads = script.get_heads()
+            head_rev = heads[0] if heads else BASELINE_REVISION
+            logger.warning(
+                "migrations: ревизия базы {} отсутствует в текущей ветке (переключение ветки): {}; сбрасываем в alembic_version head {}",
+                current,
+                exc,
+                head_rev,
+            )
+            connection.exec_driver_sql(f"UPDATE alembic_version SET version_num = '{head_rev}'")
+            return
+
         command.upgrade(cfg, "head")
         return
 
