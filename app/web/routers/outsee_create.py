@@ -371,9 +371,10 @@ async def download_media(
             if m:
                 art_uuid = m.group(1)
                 try:
+                    from sqlalchemy import select
+
                     from app.db import session_scope
                     from app.models import Artifact
-                    from sqlalchemy import select
 
                     async with session_scope() as session:
                         art = (

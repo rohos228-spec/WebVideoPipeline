@@ -861,7 +861,8 @@ async def _host_via_yandex(
 async def _host_via_kie(
     client: httpx.AsyncClient, raw: bytes, mime: str, filename: str
 ) -> str:
-    from app.bots.kie_http import kie_configured, upload_file as kie_upload_file
+    from app.bots.kie_http import kie_configured
+    from app.bots.kie_http import upload_file as kie_upload_file
 
     if not kie_configured():
         raise OutseeApiError("kie: не настроен KIE_API_KEY")
