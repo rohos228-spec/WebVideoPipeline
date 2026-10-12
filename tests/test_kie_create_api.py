@@ -216,7 +216,7 @@ def test_generate_auto_uploads_data_urls(tmp_path: Path, monkeypatch: pytest.Mon
     async def fake_run(spec, payload, out_path: Path):
         assert payload["input"]["first_frame_url"] == f"https://tempfile.redpandaai.co/{uploaded_files[0]}"
         assert payload["input"]["last_frame_url"] == f"https://tempfile.redpandaai.co/{uploaded_files[1]}"
-        assert payload["input"]["reference_image_urls"] == [f"https://tempfile.redpandaai.co/{uploaded_files[2]}"]
+        assert "reference_image_urls" not in payload["input"]
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(b"\x00" * 64)
         from app.bots.outsee import GenerationResult
@@ -240,12 +240,70 @@ def test_generate_auto_uploads_data_urls(tmp_path: Path, monkeypatch: pytest.Mon
                 "duration": 5,
                 "first_frame_url": dummy_png_data_url,
                 "last_frame_url": [dummy_png_data_url],
-                "reference_image_urls": [dummy_png_data_url],
             },
         },
     )
     assert r.status_code == 200, r.text
-    assert len(uploaded_files) == 3
+    assert len(uploaded_files) == 2
+
+
+@pytest.mark.asyncio
+async def test_video_frames_and_refs_mutually_exclusive(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import kie_catalog
+    from app.web.routers import kie_create
+
+    monkeypatch.setattr(kie_create.kie_http, "kie_configured", lambda: True)
+
+    spec = kie_catalog.get_model("seedance-2-0-mini")
+    assert spec is not None
+
+    # 1. Оба поля заданы -> ошибка валидации
+    errs = kie_catalog.validate_values(
+        spec,
+        {
+            "prompt": "test",
+            "first_frame_url": "https://example.com/start.png",
+            "reference_image_urls": ["https://example.com/ref.png"],
+        },
+    )
+    assert any("не поддерживают одновременное совмещение" in e for e in errs)
+
+    # 2. Только кадры -> валидно
+    errs_frames = kie_catalog.validate_values(
+        spec,
+        {
+            "prompt": "test",
+            "first_frame_url": "https://example.com/start.png",
+            "last_frame_url": "https://example.com/end.png",
+        },
+    )
+    assert not any("не поддерживают одновременное совмещение" in e for e in errs_frames)
+
+    # 3. Только референсы -> валидно
+    errs_refs = kie_catalog.validate_values(
+        spec,
+        {
+            "prompt": "test",
+            "reference_image_urls": ["https://example.com/ref.png"],
+        },
+    )
+    assert not any("не поддерживают одновременное совмещение" in e for e in errs_refs)
+
+    # 4. Вызов роутера /generate возвращает 422 с понятным описанием
+    c = TestClient(_app())
+    r = c.post(
+        "/api/kie-create/generate",
+        json={
+            "model_id": "seedance-2-0-mini",
+            "values": {
+                "prompt": "тест",
+                "first_frame_url": "https://example.com/start.png",
+                "reference_image_urls": ["https://example.com/ref.png"],
+            },
+        },
+    )
+    assert r.status_code == 422
+    assert "не поддерживают одновременное совмещение" in r.json()["detail"]
 
 
 @pytest.mark.asyncio
