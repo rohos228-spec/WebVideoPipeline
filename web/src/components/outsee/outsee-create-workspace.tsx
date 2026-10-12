@@ -879,6 +879,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     const rawImg = String(s.image_slug || "gpt-image-2").replace("kie:", "");
     if (rawImg === "gpt-image-2" || rawImg === "nano-banana-2") {
       setImageSlug(rawImg);
+    } else if (rawImg === "gpt-image-2-vip" || rawImg === "gpt-image-2.5") {
+      setImageSlug("gpt-image-2");
     } else {
       setImageSlug(rawImg.startsWith("kie:") ? rawImg : `kie:${rawImg}`);
     }
