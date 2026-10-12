@@ -1759,21 +1759,21 @@ def validate_values(spec: dict[str, Any], values: dict[str, Any]) -> list[str]:
                 if not str(u).startswith(("http://", "https://", "asset://")):
                     errors.append(f"{name}: не URL: {str(u)[:60]!r}")
     if spec.get("category") == "video":
+        def _has_val(key: str) -> bool:
+            val = merged.get(key)
+            if isinstance(val, list):
+                return len(val) > 0
+            if isinstance(val, str):
+                return bool(val.strip())
+            return False
+
         has_frames = any(
-            bool(merged.get(k))
+            _has_val(k)
             for k in ("first_frame_url", "last_frame_url", "first_frame", "last_frame")
-            if (
-                (isinstance(merged.get(k), list) and len(merged.get(k)) > 0)
-                or (isinstance(merged.get(k), str) and merged.get(k).strip())
-            )
         )
         has_refs = any(
-            bool(merged.get(k))
+            _has_val(k)
             for k in ("reference_image_urls", "reference_images")
-            if (
-                (isinstance(merged.get(k), list) and len(merged.get(k)) > 0)
-                or (isinstance(merged.get(k), str) and merged.get(k).strip())
-            )
         )
         if has_frames and has_refs:
             errors.append(
