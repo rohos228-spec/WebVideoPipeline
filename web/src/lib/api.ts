@@ -2217,7 +2217,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       },
-      60_000,
+      180_000,
     ),
 
   outseeJob: (jobId: string) =>
@@ -2312,10 +2312,14 @@ export const api = {
         queue_position?: number | null;
       };
       estimate: { credits: number; usd: number; note?: string };
-    }>(`/api/kie-create/generate`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    }>(
+      `/api/kie-create/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+      180_000,
+    ),
   kieUpload: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);

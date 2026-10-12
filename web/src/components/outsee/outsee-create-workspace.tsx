@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertCircle,
   Check,
   ChevronDown,
   Clock,
@@ -1100,6 +1101,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     return 0;
   }, [mediaType, activeSlug, kieActive, kieModel, videoCapabilities.maxRefs]);
 
+  const isVideoConflict = useMemo(() => {
+    if (mediaType !== "video") return false;
+    const hasFrames = Boolean(firstFrameDataUrl || lastFrameDataUrl);
+    const hasRefs = referenceImages.length > 0;
+    return hasFrames && hasRefs;
+  }, [mediaType, firstFrameDataUrl, lastFrameDataUrl, referenceImages.length]);
+
   const kiePrice = useMemo(() => {
     if (!kieModel || !kieCatalogQ.data) return null;
     const vals = { ...kieValues };
@@ -1576,6 +1584,19 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       const targetMediaType: OutseeMediaType = retry
         ? ((retry.kind as OutseeMediaType) || "image")
         : mediaType;
+      if (
+        targetMediaType === "video" &&
+        (firstFrameDataUrl || lastFrameDataUrl) &&
+        referenceImages.length > 0 &&
+        !retry
+      ) {
+        toast.error(
+          "В видео нельзя совмещать переход по кадрам (старт/финиш) и референсы. Выберите один режим выше.",
+        );
+        throw new Error(
+          "Видеомодели не поддерживают одновременное совмещение перехода по кадрам (старт/финиш) и референсов. Выберите один режим.",
+        );
+      }
       if (text && targetMediaType === "image" && negativePrompt.trim() && !retry) {
         text += `\nAvoid: ${negativePrompt.trim()}`;
       }
@@ -1678,10 +1699,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             (typeof retryParams.last_frame_url === "string" ? retryParams.last_frame_url : undefined) ||
             lastFrameDataUrl ||
             null;
+          const hasFrames = Boolean(kieFirstFrame || kieLastFrame);
           const kieRefs =
-            retry?.reference_images && retry.reference_images.length > 0
-              ? retry.reference_images
-              : refUrls;
+            hasFrames && targetMediaType === "video"
+              ? []
+              : retry?.reference_images && retry.reference_images.length > 0
+                ? retry.reference_images
+                : refUrls;
 
           if (effectiveKieModel) {
             const fields = effectiveKieModel.fields || [];
@@ -1753,6 +1777,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 }
               }
             }
+          }
+          if (hasFrames && targetMediaType === "video") {
+            delete vals.reference_image_urls;
+            delete vals.reference_images;
+          } else if (kieRefs.length > 0 && targetMediaType === "video") {
+            delete vals.first_frame_url;
+            delete vals.first_frame;
+            delete vals.last_frame_url;
+            delete vals.last_frame;
           }
           if (effectiveKieModel) {
             const isInst = Boolean(vals.instrumental ?? instrumental);
@@ -3031,6 +3064,43 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     </span>
                   </div>
                 )}
+                {/* Предупреждение о взаимоисключающих режимах кадров и референсов в видео */}
+                {isVideoConflict && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-[12px] text-amber-200 lg:px-4">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" />
+                      <span>
+                        Видеомодели поддерживают <strong>только один режим</strong>: либо переход между кадрами (старт/финиш), либо референсы.
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          referenceImages.forEach((r) => revokeRefUrl(r.url));
+                          setReferenceImages([]);
+                          toast.success("Оставлен режим кадров: референсы очищены");
+                        }}
+                        className="rounded-lg bg-amber-500/20 px-2.5 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-500/30 transition"
+                      >
+                        Только кадры
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFirstFrameDataUrl(null);
+                          setFirstFrameName(null);
+                          setLastFrameDataUrl(null);
+                          setLastFrameName(null);
+                          toast.success("Оставлен режим референсов: кадры очищены");
+                        }}
+                        className="rounded-lg bg-amber-500/20 px-2.5 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-500/30 transition"
+                      >
+                        Только референсы
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {/* Actions and Negative Prompt for image mode */}
                 {mediaType === "image" && (
                   <div className="flex flex-wrap items-center justify-end gap-1.5 border-b border-white/[0.06] bg-white/[0.015] px-3 py-1.5 lg:px-4">
@@ -3426,6 +3496,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       }
                       onClick={() => {
                         if (createGenerate.isPending) return;
+                        if (isVideoConflict) {
+                          toast.error(
+                            "В видео нельзя совмещать переход по кадрам (старт/финиш) и референсы. Выберите один режим выше.",
+                          );
+                          return;
+                        }
                         createGenerate.mutate(undefined);
                       }}
                       className={cn(
@@ -3434,9 +3510,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       title={
                         createGenerate.isPending
                           ? "Уже ставится в очередь…"
-                          : !canApiDirect
-                            ? "Нужен OUTSEE_API_KEY или KIE_API_KEY в .env"
-                            : `Сгенерировать (${batchCount > 1 ? `${batchCount} шт` : "1 шт"}, лимит ${maxParallel}) · ${priceLabel}`
+                          : isVideoConflict
+                            ? "Нельзя совмещать кадры (старт/финиш) и референсы — выберите один режим"
+                            : !canApiDirect
+                              ? "Нужен OUTSEE_API_KEY или KIE_API_KEY в .env"
+                              : `Сгенерировать (${batchCount > 1 ? `${batchCount} шт` : "1 шт"}, лимит ${maxParallel}) · ${priceLabel}`
                       }
                     >
                       {createGenerate.isPending ? (

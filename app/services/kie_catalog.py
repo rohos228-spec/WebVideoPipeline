@@ -1758,6 +1758,28 @@ def validate_values(spec: dict[str, Any], values: dict[str, Any]) -> list[str]:
             for u in items:
                 if not str(u).startswith(("http://", "https://", "asset://")):
                     errors.append(f"{name}: не URL: {str(u)[:60]!r}")
+    if spec.get("category") == "video":
+        has_frames = any(
+            bool(merged.get(k))
+            for k in ("first_frame_url", "last_frame_url", "first_frame", "last_frame")
+            if (
+                (isinstance(merged.get(k), list) and len(merged.get(k)) > 0)
+                or (isinstance(merged.get(k), str) and merged.get(k).strip())
+            )
+        )
+        has_refs = any(
+            bool(merged.get(k))
+            for k in ("reference_image_urls", "reference_images")
+            if (
+                (isinstance(merged.get(k), list) and len(merged.get(k)) > 0)
+                or (isinstance(merged.get(k), str) and merged.get(k).strip())
+            )
+        )
+        if has_frames and has_refs:
+            errors.append(
+                "Видеомодели не поддерживают одновременное совмещение перехода по кадрам (старт/финиш) "
+                "и референсов. Выберите один режим: либо только кадры, либо только референсы."
+            )
     unknown = set((values or {}).keys()) - known
     if unknown:
         # неизвестные ключи не режем жёстко — вдруг поле каталога отстало
@@ -1842,6 +1864,18 @@ def build_payload(spec: dict[str, Any], values: dict[str, Any]) -> dict[str, Any
             if dur not in (None, ""):
                 extra = f" Duration about {dur} seconds."
             body[key] = (wrap.format(prompt=raw) + extra)[:500]
+    if spec.get("category") == "video":
+        has_frames = bool(
+            body.get("first_frame_url")
+            or body.get("last_frame_url")
+            or body.get("first_frame")
+            or body.get("last_frame")
+        )
+        has_refs = bool(body.get("reference_image_urls") or body.get("reference_images"))
+        if has_frames and has_refs:
+            # Приоритет отдаётся кадрам — исключаем взаимоисключающие референсы
+            body.pop("reference_image_urls", None)
+            body.pop("reference_images", None)
     api = spec.get("api")
     if api == "jobs":
         return {"model": resolve_model_id(spec, merged), "input": body}
