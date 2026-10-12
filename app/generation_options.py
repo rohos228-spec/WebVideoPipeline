@@ -189,14 +189,45 @@ VIDEO_GENERATORS: list[OptionChoice] = [
         "kling-2-6",
         "Kie · Kling 2.6 (KIE_API_KEY)",
     ),
+    OptionChoice(
+        "seedance_2_0_mini",
+        "Seedance 2.0 Mini",
+        "seedance-2-0-mini",
+        "Kie · Seedance 2.0 Mini (KIE_API_KEY)",
+    ),
+    OptionChoice(
+        "seedance_2_5",
+        "Seedance 2.5",
+        "seedance-2-5",
+        "Kie · Seedance 2.5 (KIE_API_KEY)",
+    ),
+    OptionChoice(
+        "kling_v3_turbo_i2v",
+        "Kling 3.0 Turbo (I2V)",
+        "kling-v3-turbo-i2v",
+        "Kie · Kling 3.0 Turbo (KIE_API_KEY)",
+    ),
+    OptionChoice(
+        "hailuo_2_3_i2v",
+        "MiniMax Hailuo 2.3",
+        "hailuo-2-3-i2v",
+        "Kie · MiniMax Hailuo 2.3 (KIE_API_KEY)",
+    ),
+    OptionChoice(
+        "wan_2_7_i2v",
+        "Alibaba WAN 2.7",
+        "wan-2-7-i2v",
+        "Kie · Alibaba WAN 2.7 (KIE_API_KEY)",
+    ),
 ]
 
 
 # ---- 5. Разрешение видео ---------------------------------------------------
 
-# Живой /api/v1/models отдает только 720p — 1080p убрано (была молчаливая подмена).
 VIDEO_RESOLUTIONS: list[OptionChoice] = [
     OptionChoice("720p", "720p", "720p", "720p — HD"),
+    OptionChoice("1080p", "1080p", "1080p", "1080p — Full HD"),
+    OptionChoice("480p", "480p", "480p", "480p — SD"),
 ]
 
 

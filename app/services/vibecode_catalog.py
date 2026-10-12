@@ -56,6 +56,11 @@ IMAGE_MODEL_TO_GENERATOR: dict[str, str] = {
 VIDEO_MODEL_TO_GENERATOR: dict[str, str] = {
     "veo-3-1-lite": "veo_3_1_lite",
     "kling-2-6": "kling_2_6",
+    "seedance-2-0-mini": "seedance_2_0_mini",
+    "seedance-2-5": "seedance_2_5",
+    "kling-v3-turbo-i2v": "kling_v3_turbo_i2v",
+    "hailuo-2-3-i2v": "hailuo_2_3_i2v",
+    "wan-2-7-i2v": "wan_2_7_i2v",
 }
 
 VENDOR_ORDER = ("anthropic", "openai", "gemini", "xai", "moonshot", "images", "video")
@@ -68,6 +73,25 @@ VENDOR_META: dict[str, dict[str, str]] = {
     "images": {"id": "images", "label": "Изображения", "icon": "image"},
     "video": {"id": "video", "label": "Видео", "icon": "image"},
 }
+
+
+def _kie_video_usd_per_video(model_id: str) -> float | None:
+    """Базовая цена видео kie.ai в USD за стандартный 5-6с ролик в 720p (без наценки студии).
+    1 кр = $0.005.
+    """
+    from app.services.kie_catalog import CREDIT_USD
+
+    credits_map: dict[str, float] = {
+        "kling-2-6": 55.0,
+        "seedance-2-0-mini": 41.0,
+        "seedance-2-5": 315.0,
+        "kling-v3-turbo-i2v": 90.0,
+        "hailuo-2-3-i2v": 30.0,
+        "wan-2-7-i2v": 80.0,
+    }
+    cr = credits_map.get(model_id)
+    return round(cr * CREDIT_USD, 6) if cr is not None else None
+
 
 VIDEO_CATALOG_RAW: list[dict[str, Any]] = [
     {
@@ -84,7 +108,47 @@ VIDEO_CATALOG_RAW: list[dict[str, Any]] = [
         "is_image": False,
         "is_video": True,
         "owned_by": "kie",
-        "pricing": {"currency": "usd"},
+        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("kling-2-6")},
+    },
+    {
+        "id": "seedance-2-0-mini",
+        "display_name": "Seedance 2.0 Mini",
+        "is_image": False,
+        "is_video": True,
+        "owned_by": "kie",
+        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("seedance-2-0-mini")},
+    },
+    {
+        "id": "seedance-2-5",
+        "display_name": "Seedance 2.5 (ByteDance)",
+        "is_image": False,
+        "is_video": True,
+        "owned_by": "kie",
+        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("seedance-2-5")},
+    },
+    {
+        "id": "kling-v3-turbo-i2v",
+        "display_name": "Kling 3.0 Turbo (фото)",
+        "is_image": False,
+        "is_video": True,
+        "owned_by": "kie",
+        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("kling-v3-turbo-i2v")},
+    },
+    {
+        "id": "hailuo-2-3-i2v",
+        "display_name": "MiniMax Hailuo 2.3 (фото)",
+        "is_image": False,
+        "is_video": True,
+        "owned_by": "kie",
+        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("hailuo-2-3-i2v")},
+    },
+    {
+        "id": "wan-2-7-i2v",
+        "display_name": "Alibaba WAN 2.7 (фото)",
+        "is_image": False,
+        "is_video": True,
+        "owned_by": "kie",
+        "pricing": {"currency": "usd", "usd_per_video": _kie_video_usd_per_video("wan-2-7-i2v")},
     },
 ]
 
@@ -236,7 +300,9 @@ def normalize_model(raw: dict[str, Any], *, channel: str | None = None) -> dict[
     )
     provider = "vibecode"
     if is_video:
-        provider = "kie" if mid in {"kling-2-6"} else "outsee"
+        from app.services.media_route import video_provider_for
+
+        provider = video_provider_for(mid)
     elif is_image:
         from app.services.media_route import image_provider_for
 

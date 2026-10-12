@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from app.storage.plan_sheet_v8 import read_plan_voiceover_cells
 
 def asr_available() -> bool:
     if active_asr_backend() == "nvidia":
-        return nvidia_asr_available()
+        return nvidia_asr_available() or whisper_available()
     return whisper_available()
 
 
@@ -37,6 +38,47 @@ def get_asr_backend_label() -> str:
     return f"whisper:{settings.whisper_model}"
 
 
+def build_proportional_words_for_cells(
+    cells: list[tuple[int, str]],
+    total_duration: float,
+) -> list[WordTS]:
+    """Строит пропорциональные word-level таймкоды по тексту кадров и длительности звука.
+
+    Используется как fallback, когда на локальной машине нет ASR (NeMo / faster-whisper заблокирован).
+    Каждому слову назначается длительность, пропорциональная его длине, с небольшими естественными паузами,
+    так чтобы границы кадров строго сходились в total_duration.
+    """
+    words_by_cell = []
+    total_weight = 0.0
+    for num, text in cells:
+        raw_words = [w for w in re.findall(r"[\wа-яА-ЯёЁ]+", text) if w]
+        words_by_cell.append((num, raw_words))
+        for w in raw_words:
+            total_weight += max(1.5, float(len(w)))
+        if raw_words:
+            total_weight += 1.0
+
+    if total_weight <= 0:
+        return []
+
+    time_per_weight = float(total_duration) / total_weight
+    current_time = 0.0
+    all_words: list[WordTS] = []
+    for _num, raw_words in words_by_cell:
+        for w in raw_words:
+            dur = max(1.5, float(len(w))) * time_per_weight
+            start = round(current_time, 3)
+            end = round(current_time + dur, 3)
+            all_words.append(WordTS(word=w, start=start, end=end, prob=0.99))
+            current_time += dur
+        if raw_words:
+            current_time += 1.0 * time_per_weight
+
+    if all_words:
+        all_words[-1].end = round(total_duration, 3)
+    return all_words
+
+
 async def ensure_montage_words(
     session: AsyncSession,
     project: Project,
@@ -51,26 +93,41 @@ async def ensure_montage_words(
     if words:
         return words
 
-    if not asr_available():
-        raise RuntimeError(
-            f"ASR не установлен ({settings.asr_backend}). "
-            'На ПК монтажа: pip install -e ".[nvidia-asr]" или ".[whisper]"'
-        )
-
-    logger.info(
-        "[#{}] montage ASR (subs only): {} → {}",
-        project.id,
-        get_asr_backend_label(),
-        audio_path.name,
-    )
-    asr_path = await prepare_audio_for_asr(audio_path)
-    words = await asyncio.to_thread(transcribe_words, asr_path, language="ru")
-    if not words:
-        raise RuntimeError("ASR не вернул слова — проверьте voice_full.mp3")
-
     cells = read_plan_voiceover_cells(project, frame_numbers)
     if not any(t.strip() for _, t in cells):
         raise RuntimeError("не удалось прочитать текст кадров из project.xlsx (лист «план», строка 49)")
+
+    from app.services.media_probe import probe_duration
+
+    master_dur = await probe_duration(audio_path)
+
+    if not asr_available():
+        logger.warning(
+            "[#{}] ASR недоступен ({}) — пропорциональное сопоставление слов по длительности {:.2f}s",
+            project.id,
+            settings.asr_backend,
+            master_dur,
+        )
+        words = build_proportional_words_for_cells(cells, master_dur)
+    else:
+        logger.info(
+            "[#{}] montage ASR (subs only): {} → {}",
+            project.id,
+            get_asr_backend_label(),
+            audio_path.name,
+        )
+        asr_path = await prepare_audio_for_asr(audio_path)
+        words = await asyncio.to_thread(transcribe_words, asr_path, language="ru")
+
+    if not words:
+        logger.warning(
+            "[#{}] ASR не вернул слова — fallback на пропорциональные слова",
+            project.id,
+        )
+        words = build_proportional_words_for_cells(cells, master_dur)
+
+    if not words:
+        raise RuntimeError("ASR не вернул слова — проверьте voice_full.mp3")
 
     words_path = audio_dir / f"words_{uuid.uuid4().hex[:8]}.json"
     dump_words_json(words, words_path)
@@ -81,7 +138,7 @@ async def ensure_montage_words(
             kind=ArtifactKind.whisper_words,
             uuid=art_uuid,
             path=str(words_path),
-            meta={"source": get_asr_backend_label(), "montage": True, "subs_only": True},
+            meta={"source": get_asr_backend_label() if asr_available() else "proportional_fallback", "montage": True, "subs_only": True},
         )
     )
     from app.services.asr_words_store import replace_project_asr_words
@@ -90,7 +147,7 @@ async def ensure_montage_words(
         session,
         project.id,
         words,
-        backend=active_asr_backend(),
+        backend=active_asr_backend() if asr_available() else "proportional",
         artifact_uuid=art_uuid,
     )
     await session.flush()

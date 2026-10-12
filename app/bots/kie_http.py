@@ -438,6 +438,8 @@ async def run_generation(
 
 # Маппинг генераторов видео на ID модели в kie_catalog
 VIDEO_GENERATOR_TO_KIE_ID: dict[str, str] = {
+    "seedance_2_0_mini": "seedance-2-0-mini",
+    "seedance-2-0-mini": "seedance-2-0-mini",
     "seedance_2_5": "seedance-2-5",
     "seedance-2-5": "seedance-2-5",
     "seedance_1_5_pro": "seedance-1-5-pro",
@@ -455,6 +457,8 @@ VIDEO_GENERATOR_TO_KIE_ID: dict[str, str] = {
     "hailuo-2-3-i2v": "hailuo-2-3-i2v",
     "wan_2_7_t2v": "wan-2-7-t2v",
     "wan-2-7-t2v": "wan-2-7-t2v",
+    "wan_2_7_i2v": "wan-2-7-i2v",
+    "wan-2-7-i2v": "wan-2-7-i2v",
     "pixverse_v6_t2v": "pixverse-v6-t2v",
     "pixverse-v6-t2v": "pixverse-v6-t2v",
     "topaz_video_upscale": "topaz-video-upscale",
@@ -529,17 +533,39 @@ async def generate_kie_video(
     if "seedance" in str(kie_id).lower() and image_url:
         ar = "adaptive"
 
+    field_names = {f["name"] for f in spec.get("fields") or []}
+    field_by_name = {f["name"]: f for f in spec.get("fields") or []}
+
     values: dict[str, Any] = {
         "prompt": prompt,
         "aspect_ratio": ar,
         "duration": int(duration) if duration else 5,
         "generate_audio": bool(generate_audio),
     }
+    if "ratio" in field_names and "aspect_ratio" not in field_names:
+        values["ratio"] = ar
+
     if resolution:
-        values["resolution"] = resolution.lower()
+        res_f = field_by_name.get("resolution")
+        opts = [str(o) for o in (res_f.get("options") or [])] if res_f else []
+        if opts:
+            res_match = next((o for o in opts if o.lower() == resolution.lower()), None)
+            if not res_match and resolution.lower() in ("720p", "hd"):
+                res_match = next((o for o in opts if "768" in o or "720" in o), None)
+            values["resolution"] = res_match or opts[0]
+        else:
+            values["resolution"] = resolution.lower()
+
+    dur_f = field_by_name.get("duration")
+    if dur_f and dur_f.get("kind") == "select" and dur_f.get("options"):
+        opts = [str(o) for o in dur_f.get("options") or []]
+        try:
+            cur_dur = float(duration) if duration else 5.0
+            values["duration"] = min(opts, key=lambda o: abs(float(o) - cur_dur))
+        except (ValueError, TypeError):
+            values["duration"] = opts[0]
 
     if image_url:
-        field_names = {f["name"] for f in spec.get("fields") or []}
         if "first_frame_url" in field_names:
             values["first_frame_url"] = image_url
         elif "image_url" in field_names:

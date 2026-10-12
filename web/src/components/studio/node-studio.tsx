@@ -933,7 +933,7 @@ export function NodeStudio({
                   )}
             </div>
           ) : (
-          <ScrollArea className="flex-1">
+          <ScrollArea className="min-h-0 flex-1">
             <div className="p-5">
               {tab === "settings" && (
                 <div className="flex flex-col gap-4 text-sm text-muted-foreground">

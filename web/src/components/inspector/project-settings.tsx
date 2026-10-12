@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { GitBranch, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import type { ProjectDetail } from "@/lib/types";
-import { MassFactoryPanel } from "@/components/inspector/mass-factory-panel";
 import { StreamsPanel } from "@/components/inspector/streams-panel";
 
 /** Настройки проекта в инспекторе (без «Контроль пайплайна» — только ИИ). */
@@ -15,17 +14,6 @@ export function ProjectSettingsPanel({ project }: { project: ProjectDetail }) {
   return (
     <div className="flex flex-col gap-3">
       <StreamsPanel project={project} />
-      <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          <GitBranch className="h-3.5 w-3.5" />
-          Настройки пайплайна
-        </div>
-        <p className="text-[10px] text-muted-foreground">
-          Контроль шагов — только ИИ. Автопродвижение — тумблер сверху справа, рядом с
-          генерацией. Потоки — блок выше.
-        </p>
-        <MassFactoryPanel project={project} />
-      </div>
     </div>
   );
 }

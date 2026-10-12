@@ -408,7 +408,6 @@ function ModelCard({
   aspectRatio?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
-  const [cacheOpen, setCacheOpen] = useState(false);
   const media = mediaOptionsForModel(model.id);
   const [resolution, setResolution] = useState(() =>
     clampMediaOption(imageResolution, media?.resolutions ?? [], media?.defaultResolution ?? "2K"),
@@ -438,9 +437,6 @@ function ModelCard({
     setAspect(clampMediaOption(aspectRatio, next.aspects, next.defaultAspect));
   }, [model.id, imageResolution, imageQuality, aspectRatio]);
 
-  const hasCache =
-    typeof model.pricing.cache_read_usd_per_m === "number" ||
-    typeof model.pricing.cache_create_usd_per_m === "number";
   const isImage = model.kind === "image";
   const isT2V =
     model.kind === "video" &&
@@ -478,24 +474,18 @@ function ModelCard({
           )
         }
       >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold tracking-tight text-white">
-            <span className="truncate">{model.label.replace(/\s*\(1K\/2K\/4K\)\s*$/i, "")}</span>
-            {model.is_top && (
-              <span className="inline-flex shrink-0 items-center rounded-md border border-[#b49bff]/40 bg-[#b49bff]/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#d9ccff]">
-                ТОП
-              </span>
-            )}
-            {isT2V && (
-              <span className="inline-flex shrink-0 items-center rounded-md border border-amber-400/50 bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.25)]">
-                Только текст (T2V)
-              </span>
-            )}
-          </div>
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]" />
-            онлайн
-          </span>
+        <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold tracking-tight text-white">
+          <span className="truncate">{model.label.replace(/\s*\(1K\/2K\/4K\)\s*$/i, "")}</span>
+          {model.is_top && (
+            <span className="inline-flex shrink-0 items-center rounded-md border border-[#b49bff]/40 bg-[#b49bff]/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#d9ccff]">
+              ТОП
+            </span>
+          )}
+          {isT2V && (
+            <span className="inline-flex shrink-0 items-center rounded-md border border-amber-400/50 bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.25)]">
+              Только текст (T2V)
+            </span>
+          )}
         </div>
       </button>
 
@@ -555,45 +545,6 @@ function ModelCard({
             </div>
           </div>
         )}
-        {hasCache && !isImage && model.kind !== "video" ? (
-          <div
-            className={cn(
-              "grid transition-all duration-300",
-              cacheOpen || "group-hover:grid",
-              cacheOpen
-                ? "mt-2 grid-rows-[1fr] opacity-100"
-                : "grid-rows-[0fr] opacity-80 group-hover:mt-2 group-hover:grid-rows-[1fr] group-hover:opacity-100",
-            )}
-          >
-            <div className="overflow-hidden">
-              <button
-                type="button"
-                className="flex items-center gap-1 text-[10px] text-white/40 hover:text-white/70"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCacheOpen((v) => !v);
-                }}
-              >
-                <span className={cn("transition-transform", cacheOpen && "rotate-90")}>▶</span>
-                Цены кэша
-              </button>
-              <div className="mt-1.5 grid grid-cols-2 gap-2 rounded-lg bg-white/[0.03] px-2 py-1.5 text-[10px]">
-                <div>
-                  <div className="text-white/35">чтение</div>
-                  <div className="font-medium tabular-nums text-[#c4b2ff]">
-                    {formatUsdPrice(model.pricing.cache_read_usd_per_m)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-white/35">запись</div>
-                  <div className="font-medium tabular-nums text-[#c4b2ff]">
-                    {formatUsdPrice(model.pricing.cache_create_usd_per_m)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
 
       {isT2V && (

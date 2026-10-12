@@ -40,6 +40,8 @@ on:
   # изменение попадает только через PR, а до того держит локальный gauntlet
   # (`.githooks/pre-push`).
   pull_request:
+  push:
+    branches: ["feat/unified"]
   workflow_call: {}
 
 # Новый push в ту же ветку отменяет предыдущий прогон: суита идёт десять минут,

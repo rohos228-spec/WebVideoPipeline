@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import re
 from pathlib import Path
+from typing import Any
 
 import httpx
 from loguru import logger
@@ -61,7 +62,9 @@ def elevenlabs_api_key() -> str:
 
 
 def elevenlabs_api_configured() -> bool:
-    return bool(elevenlabs_api_key())
+    from app.bots.wavespeed_http import wavespeed_configured
+
+    return bool(elevenlabs_api_key() or wavespeed_configured())
 
 
 def _log_error(kind: str, text: str, *, node: str = "tts") -> None:
@@ -164,7 +167,7 @@ class ElevenLabsApi:
     def __init__(self) -> None:
         if not elevenlabs_api_configured():
             raise ElevenLabsApiError(
-                "ELEVENLABS_API_KEY пуст — задай ключ из https://elevenlabs.io/app/settings/api-keys"
+                "ELEVENLABS_API_KEY или WAVESPEED_API_KEY пуст — задай ключ API"
             )
 
     def _headers(self) -> dict[str, str]:
@@ -197,7 +200,28 @@ class ElevenLabsApi:
         voice_id: str,
         out_path: Path,
     ) -> Path:
+        from app.bots.wavespeed_http import (
+            WaveSpeedError,
+            wavespeed_configured,
+        )
+        from app.bots.wavespeed_http import (
+            run_generation as wavespeed_run_generation,
+        )
         from app.settings import settings
+
+        if wavespeed_configured():
+            payload: dict[str, Any] = {"text": text, "voice_id": voice_id}
+            if settings.elevenlabs_stability is not None:
+                payload["stability"] = float(settings.elevenlabs_stability)
+            if settings.elevenlabs_similarity_boost is not None:
+                payload["similarity"] = float(settings.elevenlabs_similarity_boost)
+            try:
+                res = await wavespeed_run_generation(payload, out_path)
+                return res.file_path
+            except WaveSpeedError as e:
+                msg = f"WaveSpeed ElevenLabs v4 ошибка: {e}"
+                _log_error(kind="wavespeed_error", text=msg)
+                raise ElevenLabsApiError(msg) from e
 
         url = f"{_API_BASE}/text-to-speech/{voice_id}"
         resp = await client.post(
@@ -206,7 +230,7 @@ class ElevenLabsApi:
             params={"output_format": settings.elevenlabs_output_format},
             json=self._body(text),
         )
-        if resp.status_code >= 400:
+        if resp.status_code != 200:
             detail = resp.text[:300]
             msg = f"11Labs API HTTP {resp.status_code}: {detail}"
             _log_error(kind=f"http_{resp.status_code}", text=msg)
@@ -230,6 +254,7 @@ class ElevenLabsApi:
         project_id: int | None = None,
     ) -> Path:
         """Озвучить текст в `out_path` (mp3). Возвращает путь к файлу."""
+        from app.bots.wavespeed_http import wavespeed_configured
         from app.services.elevenlabs_voices import DEFAULT_ELEVENLABS_VOICE_ID
         from app.services.media_ledger import media_call
         from app.settings import settings
@@ -239,21 +264,20 @@ class ElevenLabsApi:
         if not chunks:
             raise ElevenLabsApiError("11Labs API: пустой текст озвучки")
 
+        is_ws = wavespeed_configured()
         logger.info(
-            "[#{}] 11Labs API: voice_id={} текст {} симв, кусков {}",
+            "[#{}] {} TTS: voice_id={} текст {} симв, кусков {}",
             project_id,
+            "WaveSpeed (11Labs v4)" if is_ws else "11Labs API",
             vid,
             len(text or ""),
             len(chunks),
         )
 
         async with media_call(
-            "elevenlabs",
+            "wavespeed" if is_ws else "elevenlabs",
             "tts",
-            # Модель — фактическая: ставка за символ у multilingual_v2 вдвое
-            # выше, чем у flash/turbo, и она переключается настройкой. Писать
-            # сюда «tts» значило бы считать деньги по старому тарифу молча.
-            model=settings.elevenlabs_tts_model or "tts",
+            model="elevenlabs/eleven-v4" if is_ws else (settings.elevenlabs_tts_model or "tts"),
             units=float(len(text or "")),
             unit="char",
             project_id=project_id,
@@ -272,5 +296,6 @@ class ElevenLabsApi:
                         part.unlink(missing_ok=True)
 
         size = out_path.stat().st_size if out_path.is_file() else 0
-        logger.info("[#{}] 11Labs API: mp3 сохранён → {} ({} байт)", project_id, out_path, size)
+        provider_name = "WaveSpeed (11Labs v4)" if is_ws else "11Labs API"
+        logger.info("[#{}] {}: mp3 сохранён → {} ({} байт)", project_id, provider_name, out_path, size)
         return out_path

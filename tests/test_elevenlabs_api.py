@@ -183,3 +183,27 @@ async def test_tts_is_recorded_in_media_ledger(tmp_path: Path, monkeypatch: pyte
     assert row["unit"] == "char"
     assert row["units"] == float(len("Привет."))
     assert row["result"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_tts_routed_to_wavespeed_when_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import patch
+
+    from app.bots.outsee import GenerationResult
+
+    monkeypatch.setattr(settings, "wavespeed_api_key", "test-wsk-key")
+    out = tmp_path / "voice_ws.mp3"
+
+    async def fake_run(payload, out_path):
+        out_path.write_bytes(b"\xff\xfb" + b"\x00" * 2000)
+        return GenerationResult(file_path=out_path, gen_id="pred_123", raw_url="http://fake/audio.mp3")
+
+    with patch("app.bots.wavespeed_http.run_generation", side_effect=fake_run) as mock_gen:
+        res = await ea.ElevenLabsApi().tts("Привет через WaveSpeed", out, voice_id="ymDCYd8puC7gYjxIamPt", project_id=6)
+        assert res == out
+        assert out.is_file()
+        mock_gen.assert_called_once()
+        call_payload = mock_gen.call_args[0][0]
+        assert call_payload["text"] == "Привет через WaveSpeed"
+        assert call_payload["voice_id"] == "ymDCYd8puC7gYjxIamPt"
+

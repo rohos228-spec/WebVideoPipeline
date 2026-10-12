@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
   Bot,
-  Bug,
   ChevronDown,
   ChevronUp,
   GitBranch,
@@ -49,15 +48,6 @@ interface ChatMsg {
   confirm?: PendingConfirm;
 }
 
-/** Префикс к API (в чате пользователю не показываем). */
-const FIX_BUGS_PREFIX =
-  "Режим «Фикс багов» / поручение оператора ниже. " +
-  "Это НЕ вопрос «что не так» — нужно НАЙТИ и ПОЧИНИТЬ. " +
-  "Сначала действия: run_harness / run_step / repair_graph / hitl_decision; " +
-  "если баг в коде — edit_files + короткий run_tests + git_commit_push auto=false. " +
-  "Проекты/ноды Studio — через actions (delete_projects / create_project / add_node…), " +
-  "не через edit_files. Кратко по-русски: причина + что исправил.\n\nПОРУЧЕНИЕ:\n";
-
 export function OrchestratorPanel({ projectId }: Props) {
   // По умолчанию — полоска внизу: раскрытая панель закрывает канвас целиком,
   // и в свежем браузере схема выглядела бы «некликабельной».
@@ -67,15 +57,9 @@ export function OrchestratorPanel({ projectId }: Props) {
   const [chatLog, setChatLog] = usePersistedState<ChatMsg[]>(storageKey, []);
   const [chatInput, setChatInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [fixBugsMode, setFixBugsMode] = useState(false);
-  const fixBugsModeRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const userCancelRef = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    fixBugsModeRef.current = fixBugsMode;
-  }, [fixBugsMode]);
 
   useEffect(() => {
     try {
@@ -95,15 +79,9 @@ export function OrchestratorPanel({ projectId }: Props) {
   }, []);
 
   const sendMessage = useCallback(
-    async (msg: string, opts?: { fixBugs?: boolean }) => {
+    async (msg: string) => {
       if (projectId == null || !msg.trim() || busy) return;
       const userText = msg.trim();
-      const asFix = Boolean(opts?.fixBugs || fixBugsModeRef.current || fixBugsMode);
-      const apiText = asFix ? `${FIX_BUGS_PREFIX}${userText}` : userText;
-      if (asFix) {
-        fixBugsModeRef.current = false;
-        setFixBugsMode(false);
-      }
 
       // Тихий abort предыдущего запроса (не писать «Отменено» в чат)
       abortRef.current?.abort();
@@ -117,9 +95,9 @@ export function OrchestratorPanel({ projectId }: Props) {
       try {
         const r = await api.dbOrchestratorChat(
           projectId,
-          apiText,
+          userText,
           next.slice(-9, -1).map((m) => ({ role: m.role, content: m.content })),
-          { signal: ac.signal, fixBugs: asFix },
+          { signal: ac.signal },
         );
         if (ac.signal.aborted) return;
         const notes: string[] = [];
@@ -256,38 +234,15 @@ export function OrchestratorPanel({ projectId }: Props) {
         setBusy(false);
       }
     },
-    [projectId, busy, chatLog, fixBugsMode, setChatLog, setOpen],
+    [projectId, busy, chatLog, setChatLog, setOpen],
   );
 
   const sendChat = useCallback(async () => {
     if (!chatInput.trim()) return;
     const msg = chatInput.trim();
     setChatInput("");
-    await sendMessage(msg, { fixBugs: fixBugsMode });
-  }, [chatInput, sendMessage, fixBugsMode]);
-
-  /** Одна кнопка: 1-й клик — режим фикса, 2-й клик — выход. */
-  const onFixBugsToggle = useCallback(
-    (e: ReactMouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (fixBugsModeRef.current) {
-        fixBugsModeRef.current = false;
-        setFixBugsMode(false);
-        return;
-      }
-      abortRef.current?.abort();
-      abortRef.current = null;
-      setBusy(false);
-      fixBugsModeRef.current = true;
-      setFixBugsMode(true);
-      setOpen(true);
-      setExpanded(true);
-      setChatInput("");
-      window.setTimeout(() => inputRef.current?.focus(), 50);
-    },
-    [setOpen, setExpanded],
-  );
+    await sendMessage(msg);
+  }, [chatInput, sendMessage]);
 
   const onToggleOpen = useCallback(
     (e: ReactMouseEvent) => {
@@ -486,9 +441,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               ? "открой проект"
               : busy
                 ? "думает… жми Отмена"
-                : fixBugsMode
-                  ? "режим фикса — опиши баг и Enter"
-                  : "ИИ-ассистент проекта"}
+                : "ИИ-ассистент проекта"}
           </span>
         </div>
 
@@ -507,30 +460,7 @@ export function OrchestratorPanel({ projectId }: Props) {
             <Square className="h-3 w-3 fill-current" />
             Отмена
           </Button>
-        ) : (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className={cn(
-              "h-7 shrink-0 gap-1.5 text-[11px]",
-              fixBugsMode
-                ? "border-amber-300 bg-amber-500/35 text-amber-50 ring-1 ring-amber-300/40"
-                : "border-amber-400/40 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20",
-            )}
-            disabled={projectId == null}
-            onClick={onFixBugsToggle}
-            aria-pressed={fixBugsMode}
-            title={
-              fixBugsMode
-                ? "Повторное нажатие — выйти из режима фикса"
-                : "Нажать — режим фикса; потом опиши баг. Ещё раз — выйти"
-            }
-          >
-            <Bug className="h-3.5 w-3.5" />
-            Фикс багов
-          </Button>
-        )}
+        ) : null}
 
         <Button
           type="button"
@@ -567,15 +497,9 @@ export function OrchestratorPanel({ projectId }: Props) {
           )}
         >
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-            {fixBugsMode ? (
-              <div className="mb-2 rounded-md border border-amber-400/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-100/90">
-                Режим фикса: оркестратор должен чинить (шаги/код), не только объяснить.
-                Напиши баг → Enter. Ещё раз «Фикс багов» — выход в обычный чат.
-              </div>
-            ) : null}
-            {chatLog.length === 0 && !fixBugsMode ? (
+            {chatLog.length === 0 ? (
               <div className="text-[11px] text-white/35 leading-relaxed">
-                Задайте вопрос по проекту, попросите изменить параметры или нажмите «Фикс багов» для решения проблемы.
+                Задайте вопрос по проекту или попросите изменить параметры.
               </div>
             ) : null}
             {chatLog.map((m, i) => (
@@ -704,14 +628,9 @@ export function OrchestratorPanel({ projectId }: Props) {
                   ? "сначала открой проект"
                   : busy
                     ? "оркестратор думает… жми Отмена"
-                    : fixBugsMode
-                      ? "опиши баг для фикса…"
-                      : "сообщение оркестратору…"
+                    : "сообщение оркестратору…"
               }
-              className={cn(
-                "h-9 flex-1 rounded-md border bg-black/40 px-3 text-xs disabled:opacity-40",
-                fixBugsMode ? "border-amber-400/50" : "border-white/10",
-              )}
+              className="h-9 flex-1 rounded-md border border-white/10 bg-black/40 px-3 text-xs disabled:opacity-40"
             />
             <Button
               type="button"

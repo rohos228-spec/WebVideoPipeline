@@ -200,10 +200,10 @@ function kindOf(row: SnapshotRow, isVideo = false): ModelKind {
 const TOP_MODEL_IDS = new Set([
   "flux-2-pro",
   "seedream-5-pro",
-  "seedream-5-pro",
   "gpt-image-2-vip",
   "gpt-image-2",
   "nano-banana-2",
+  "seedance-2-0-mini",
   "seedance-2-5",
   "seedance-1-5-pro",
   "kling-3-0",
@@ -212,6 +212,7 @@ const TOP_MODEL_IDS = new Set([
   "kling-3-0-omni-t2v",
   "hailuo-2-3-i2v",
   "wan-2-7-t2v",
+  "wan-2-7-i2v",
   "pixverse-v6-t2v",
   "topaz-video-upscale",
   "veo-3-1-lite",
@@ -275,6 +276,19 @@ const IMAGE_EXTRA: CatalogModel[] = [
 ];
 
 const VIDEO_EXTRA: CatalogModel[] = [
+  {
+    id: "seedance-2-0-mini",
+    label: "Seedance 2.0 Mini",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.20 },
+    api_model: "seedance-2-0-mini",
+    provider: "kie",
+    video_generator: "seedance_2_0_mini",
+    channel: "stable",
+  },
   {
     id: "seedance-2-5",
     label: "Seedance 2.5 (ByteDance)",
@@ -378,6 +392,19 @@ const VIDEO_EXTRA: CatalogModel[] = [
     api_model: "wan-2-7-t2v",
     provider: "kie",
     video_generator: "wan_2_7_t2v",
+    channel: "stable",
+  },
+  {
+    id: "wan-2-7-i2v",
+    label: "Alibaba WAN 2.7 (фото)",
+    vendor: "video",
+    kind: "video",
+    online: true,
+    is_top: true,
+    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.40 },
+    api_model: "wan-2-7-i2v",
+    provider: "kie",
+    video_generator: "wan_2_7_i2v",
     channel: "stable",
   },
   {

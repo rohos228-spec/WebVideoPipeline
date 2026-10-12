@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Save, ChevronDown, ChevronUp, Calculator } from "lucide-react";
+import { Loader2, Save, ChevronDown, ChevronUp, Calculator, Mic, Play, Pause, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import type { ProjectDetail } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { VoiceLibraryModal, getVoiceById } from "@/components/outsee/voice-library-modal";
 import {
   DEFAULT_ELEVENLABS_VOICE_ID,
-  ELEVENLABS_VOICES,
-  elevenLabsVoiceLabel,
   findElevenLabsVoice,
 } from "@/lib/elevenlabs-voices";
 import {
@@ -140,12 +139,26 @@ function AudioFields({
 }) {
   const savedId = params.audio?.elevenlabs_voice_id ?? DEFAULT_ELEVENLABS_VOICE_ID;
   const [voiceDraft, setVoiceDraft] = useState(savedId);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     setVoiceDraft(savedId);
   }, [savedId]);
 
-  const selected = findElevenLabsVoice(voiceDraft);
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  const selectedStandard = findElevenLabsVoice(voiceDraft);
+  const ruVoice = getVoiceById(voiceDraft);
+
   const voicesStatus = useQuery({
     queryKey: ["elevenlabs-voices-status"],
     queryFn: () => api.elevenLabsVoicesStatus(),
@@ -156,54 +169,123 @@ function AudioFields({
     voicesStatus.data?.checked ? (voicesStatus.data?.dead ?? []) : [],
   );
 
+  const togglePlaySample = () => {
+    if (isPlaying) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      setIsPlaying(false);
+      return;
+    }
+    const sampleUrl = ruVoice?.sample_url || (ruVoice ? `/api/voices/${ruVoice.id}/sample` : null);
+    if (!sampleUrl) return;
+    const a = new Audio(sampleUrl);
+    audioRef.current = a;
+    setIsPlaying(true);
+    a.play().catch(() => setIsPlaying(false));
+    a.onended = () => {
+      setIsPlaying(false);
+      audioRef.current = null;
+    };
+    a.onerror = () => {
+      setIsPlaying(false);
+      audioRef.current = null;
+    };
+  };
+
+  const handleSelectFromModal = (voiceId: string, voiceName: string) => {
+    setVoiceDraft(voiceId);
+    onSave({ elevenlabs_voice_id: voiceId });
+    toast.success(`Выбран голос: ${voiceName}`);
+  };
+
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
       <div>
-        <h3 className="text-sm font-semibold text-foreground">ElevenLabs — голос</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-foreground">ElevenLabs v4 (WaveSpeed) — голос</h3>
+          <span className="rounded bg-cyan-500/10 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] font-medium text-cyan-400">
+            200 голосов
+          </span>
+        </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          Генерация через официальный ElevenLabs HTTP API (модель из ELEVENLABS_TTS_MODEL) с нарезкой таймингов слов через ASR.
+          Сверхреалистичная озвучка ElevenLabs v4 через WaveSpeed AI с автоматической нарезкой таймингов слов через ASR.
         </p>
       </div>
-      {voicesStatus.data?.checked && deadIds.size > 0 ? (
+
+      {voicesStatus.data?.checked && deadIds.size > 0 && deadIds.has(voiceDraft) ? (
         <p className="text-xs font-medium text-amber-400">
-          Проверка голосов: недоступны {deadIds.size} — помечены ⚠ в списке.
+          Выбранный голос недоступен в API — выбери другой голос из списка.
         </p>
       ) : null}
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-foreground">Голос</span>
-        <select
-          className="h-9 w-full max-w-md rounded-md border border-input bg-background px-2 text-sm"
-          value={voiceDraft}
-          onChange={(e) => setVoiceDraft(e.target.value)}
-        >
-          {ELEVENLABS_VOICES.map((v) => (
-            <option key={v.id} value={v.id}>
-              {deadIds.has(v.id) ? `⚠ ${elevenLabsVoiceLabel(v)} (недоступен)` : elevenLabsVoiceLabel(v)}
-            </option>
-          ))}
-        </select>
-        {selected ? (
-          <span className="font-mono text-[11px] text-muted-foreground">ID: {selected.id}</span>
-        ) : null}
-        {deadIds.has(voiceDraft) ? (
-          <span className="text-xs font-medium text-red-400">
-            Выбранный голос недоступен в ElevenLabs — выбери другой, иначе шаг упадёт.
-          </span>
-        ) : null}
-      </label>
-      <Button
-        size="sm"
-        className="w-fit self-start h-8 px-5 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/50 shadow-md shadow-cyan-500/20 rounded-xl transition-all disabled:opacity-50"
-        disabled={saving}
-        onClick={() =>
-          onSave({
-            elevenlabs_voice_id: voiceDraft || DEFAULT_ELEVENLABS_VOICE_ID,
-          })
-        }
-      >
-        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-        Сохранить
-      </Button>
+
+      {/* Карточка выбранного голоса */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-400">
+            <Mic className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-sm font-semibold text-foreground">
+                {ruVoice ? ruVoice.name : selectedStandard ? selectedStandard.name : `Голос ${voiceDraft}`}
+              </span>
+              {ruVoice ? (
+                <span className="shrink-0 rounded bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] text-cyan-300">
+                  {ruVoice.gender === "female" ? "Женский" : "Мужской"} #{ruVoice.index}
+                </span>
+              ) : null}
+            </div>
+            <span className="truncate text-xs text-muted-foreground">
+              {ruVoice ? ruVoice.description : selectedStandard ? selectedStandard.description : "Пользовательский голос"}
+            </span>
+            <span className="font-mono text-[10px] text-muted-foreground/60">
+              ID: {voiceDraft}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {ruVoice ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={togglePlaySample}
+              className="h-8 gap-1.5 px-2.5 text-xs border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/10"
+              title="Прослушать образец голоса"
+            >
+              {isPlaying ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current" />}
+              {isPlaying ? "Пауза" : "Слушать"}
+            </Button>
+          ) : null}
+
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setLibraryOpen(true)}
+            className="h-8 gap-1.5 px-3 text-xs font-medium bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg border border-cyan-400/30 shadow-sm shadow-cyan-500/20"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Библиотека 200 голосов
+          </Button>
+        </div>
+      </div>
+
+      {saving ? (
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
+          Сохранение голоса…
+        </span>
+      ) : null}
+
+      <VoiceLibraryModal
+        open={libraryOpen}
+        onOpenChange={setLibraryOpen}
+        selectedVoiceId={voiceDraft}
+        onSelectVoice={handleSelectFromModal}
+      />
     </section>
   );
 }

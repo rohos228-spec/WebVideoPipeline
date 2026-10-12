@@ -1186,22 +1186,38 @@ function ExcelGptResultView({
 
   return (
     <div className="space-y-3">
-      <XlsxUploadBar
-        projectId={projectId}
-        nodeKey={nodeKey}
-        nodeType={nodeType}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <XlsxUploadBar
+          projectId={projectId}
+          nodeKey={nodeKey}
+          nodeType={nodeType}
+        />
+        {reply ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mb-2 h-8 gap-1.5 text-xs text-zinc-300 hover:text-white"
+            onClick={() => {
+              void navigator.clipboard.writeText(reply);
+              toast.success("Ответ GPT скопирован в буфер");
+            }}
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Копировать текст
+          </Button>
+        ) : null}
+      </div>
       {xlsxItem ? (
         <p className="text-xs text-muted-foreground">{snapshot.summary}</p>
       ) : null}
       {resolve.isLoading && !reply ? (
         <LoadingBlock />
       ) : reply ? (
-        <ScrollArea className="max-h-[55vh] rounded-lg border border-white/10 bg-black/20 p-3">
-          <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground/90">
+        <div className="max-h-[65vh] overflow-y-auto overflow-x-auto rounded-xl border border-white/10 bg-black/30 p-4 shadow-inner [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.25)_transparent]">
+          <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground/90 select-text">
             {reply}
           </pre>
-        </ScrollArea>
+        </div>
       ) : (
         <p className="py-4 text-sm text-muted-foreground">
           Ответа GPT пока нет. Запустите ноду — после прогона здесь появится

@@ -557,11 +557,22 @@ async def synthesize_per_frame_audio(
         raise RuntimeError(f"{pe.reason}: {pe}") from pe
 
     master = await probe_duration(full_path)
-    words = transcribe_words(
-        full_path,
-        model_name=whisper_model,
-        language=language,
-    )
+    from app.services.montage_asr import asr_available, build_proportional_words_for_cells
+
+    if asr_available():
+        words = transcribe_words(
+            full_path,
+            model_name=whisper_model,
+            language=language,
+        )
+    else:
+        logger.warning(
+            "[#{}] frame_audio: ASR недоступен ({}) — пропорциональное сопоставление слов по длительности {:.2f}s",
+            project.id,
+            active_asr_backend(),
+            master,
+        )
+        words = build_proportional_words_for_cells(cells, master)
     clips = frame_clips_from_whisper(cells, words, master, full_path)
 
     for clip in clips:
@@ -603,19 +614,30 @@ async def align_existing_voice_full(
             len(words),
         )
     else:
-        logger.info(
-            "[#{}] align_existing_voice_full: {} по {:.2f}s файлу …",
-            project.id,
-            active_asr_backend(),
-            master,
-        )
-        words = await asyncio.to_thread(
-            transcribe_words,
-            voice_path,
-            model_name=whisper_model,
-            language=language,
-            beam_size=1 if master > 300 else 5,
-        )
+        from app.services.montage_asr import asr_available, build_proportional_words_for_cells
+
+        if asr_available():
+            logger.info(
+                "[#{}] align_existing_voice_full: {} по {:.2f}s файлу …",
+                project.id,
+                active_asr_backend(),
+                master,
+            )
+            words = await asyncio.to_thread(
+                transcribe_words,
+                voice_path,
+                model_name=whisper_model,
+                language=language,
+                beam_size=1 if master > 300 else 5,
+            )
+        else:
+            logger.warning(
+                "[#{}] align_existing_voice_full: ASR недоступен ({}) — пропорциональное сопоставление слов",
+                project.id,
+                active_asr_backend(),
+            )
+            aligned_cells = _voiceover_cells_for_frames(project, frames, cells)
+            words = build_proportional_words_for_cells(aligned_cells or cells, master)
     if not words:
         raise RuntimeError(
             f"[#{project.id}] ASR не вернул word-level таймкоды для {voice_path.name} "

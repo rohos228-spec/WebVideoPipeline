@@ -62,8 +62,10 @@ _VALID_IDS = frozenset(v["id"] for v in ELEVENLABS_VOICES)
 def resolve_elevenlabs_voice_id(project: Project) -> str:
     """ID голоса из meta.node_step_params.audio или Адам по умолчанию.
 
-    Неизвестный id (опечатка/удалённый голос) — ValueError, а не тихий
-    откат на Адама: иначе оператор не узнает, что выбранный голос не работает.
+    Поддерживает:
+      1. Стандартные 9 голосов (ELEVENLABS_VOICES)
+      2. 200 русских голосов из каталога WaveSpeed
+      3. Любой валидный ID голоса (строка от 15 символов)
     """
     meta = getattr(project, "meta", None) or {}
     raw = meta.get("node_step_params")
@@ -75,9 +77,17 @@ def resolve_elevenlabs_voice_id(project: Project) -> str:
     vid = audio.get("elevenlabs_voice_id")
     if vid is None or (isinstance(vid, str) and not vid.strip()):
         return DEFAULT_ELEVENLABS_VOICE_ID
-    if isinstance(vid, str) and vid in _VALID_IDS:
-        return vid
-    raise ValueError(f"elevenlabs_voice_id {vid!r} нет в каталоге — выбери голос заново")
+    if isinstance(vid, str):
+        vid_clean = vid.strip()
+        if vid_clean in _VALID_IDS:
+            return vid_clean
+        from app.services.ru_voices import get_ru_voice_by_id
+
+        if get_ru_voice_by_id(vid_clean):
+            return vid_clean
+        if len(vid_clean) >= 15:
+            return vid_clean
+    raise ValueError(f"elevenlabs_voice_id {vid!r} некорректен — выбери голос заново")
 
 
 _VOICES_PROBE_TTL_S = 3600.0
@@ -85,17 +95,25 @@ _voices_probe_cache: dict = {"at": 0.0, "live": None}
 
 
 async def probe_live_voice_ids(*, max_age_s: float = _VOICES_PROBE_TTL_S) -> set[str] | None:
-    """Живые id голосов из GET /v1/voices (бесплатно, символы не списывает).
+    """Живые id голосов (кэш 1ч).
 
-    Возвращает None, если проверить не удалось (нет ключа/сети) — тогда
-    звонящий решает сам, а не блокирует шаг.
+    Если настроен WaveSpeed, возвращает все известные голоса без внешних вызовов.
     """
-    import httpx
+    from app.bots.wavespeed_http import wavespeed_configured
+
+    if wavespeed_configured():
+        from app.services.ru_voices import get_ru_voices
+
+        known = {v["id"] for v in ELEVENLABS_VOICES}
+        known.update(v["id"] for v in get_ru_voices() if v.get("id"))
+        return known
 
     now = time.monotonic()
     cached = _voices_probe_cache
     if cached["live"] is not None and now - cached["at"] < max_age_s:
         return set(cached["live"])
+    import httpx
+
     from app import settings as settings_mod
 
     key = (getattr(settings_mod.settings, "elevenlabs_api_key", None) or "").strip()
