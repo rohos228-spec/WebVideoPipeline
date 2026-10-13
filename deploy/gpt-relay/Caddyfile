@@ -8,8 +8,12 @@
 	@noauth not header X-VP-Relay-Token {$RELAY_TOKEN}
 	respond @noauth "unauthorized\n" 401
 
-	# vibecode.moe — OpenAI /v1/chat/completions (GPT 5.5 / 5.6 Sol)
-	handle /v1/* {
+	# vibecode.moe — OpenAI /v1/chat/completions и Anthropic /v1/messages (кроме /v1/responses* от kie.ai)
+	@vibecode {
+		path /v1/*
+		not path /v1/responses*
+	}
+	handle @vibecode {
 		reverse_proxy https://vibecode.moe {
 			header_up Host vibecode.moe
 			header_up X-Forwarded-Proto {scheme}

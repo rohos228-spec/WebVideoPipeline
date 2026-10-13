@@ -33,9 +33,9 @@ from app.storage import for_project as _sheet_for_project
 # Должен совпадать со строкой 4 в web/STUDIO_VERSION. Если в логе make_plan
 # нет «xlsx_step_runners» — на диске старый make_plan.py (текст 30k в ask).
 XLSX_STEP_RUNNERS_ID = "xlsx_step_runners-v84-img-pr-sem"
-# Сколько живых GPT-стримов img_pr держать одновременно (как gpt_api pack).
-_IMG_PR_LIVE_STREAMS = 3
-_EMPTY_OPS_BACKOFF_S = (5.0, 10.0, 15.0)
+# Сколько живых GPT-стримов img_pr держать одновременно (1 = строго по очереди).
+_IMG_PR_LIVE_STREAMS = 1
+_EMPTY_OPS_BACKOFF_S = (5.0, 10.0, 15.0, 20.0)
 
 
 def img_pr_live_streams(project: Project | None) -> int:
@@ -1275,7 +1275,7 @@ async def run_img_pr_xlsx(
                         item,
                     )
                     nxt = next_split_level(level)
-                    if nxt is not None and len(batch) >= 2:
+                    if nxt is not None and len(batch) > 8:
                         for half in split_in_half(batch):
                             work.append((half, nxt))
                         continue
@@ -1287,7 +1287,7 @@ async def run_img_pr_xlsx(
                 replies.append(last_reply)
                 if not batch_ops:
                     nxt = next_split_level(level)
-                    if nxt is not None and len(batch) >= 2:
+                    if nxt is not None and len(batch) > 8:
                         for half in split_in_half(batch):
                             work.append((half, nxt))
                         logger.warning(

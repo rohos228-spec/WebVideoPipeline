@@ -407,3 +407,61 @@ async def test_short_answer_triggers_split_like_capacity() -> None:
         )
     assert n["calls"] == 3  # оборванный full + 2 половины
     assert [s["id_scene"] for s in data["scenes"]] == ["scene_01", "scene_02"]
+
+
+@pytest.mark.asyncio
+async def test_proactive_chunk_retries_whole_chunk_on_524_without_split(tmp_path) -> None:
+    """Проактивный чанк (≤N кадров) при 524 повторяется целиком (без дробления до 1 кадра)."""
+    frames = [_fr(i, f"u{i}", f"кусок {i} старт. кусок {i} финиш.") for i in range(1, 5)]
+    project = SimpleNamespace(
+        id=60,
+        meta={"scene_design_variant": "chrono_dyn"},
+        script_text="",
+        general_plan="",
+        data_dir=tmp_path,
+    )
+    boom = GptApiError(
+        "GPT HTTP 524: cloudflare timeout",
+        context={"status_code": 524, "retryable": True},
+    )
+    p1_attempts = 0
+    seen_contexts: list[str] = []
+
+    async def fake_one(
+        project, name, context, *, timeout, validate=True, max_retries=None, expected_frame_numbers=None
+    ):
+        nonlocal p1_attempts
+        seen_contexts.append(context)
+        assert "split_depth=2" not in context, "Proactive chunk must NOT split further"
+        if "часть «p1»" in context:
+            p1_attempts += 1
+            if p1_attempts < 3:
+                raise boom
+            return {"scenes": [_scene(1), _scene(2)]}
+        if "часть «p2»" in context:
+            return {"scenes": [_scene(3), _scene(4)]}
+        raise AssertionError(f"unexpected context: {context[:120]}")
+
+    with (
+        patch.object(ag, "load_prompt", return_value="PROMPT"),
+        patch.object(runner, "_run_one_agent", side_effect=fake_one),
+        patch("asyncio.sleep", new_callable=AsyncMock),
+        patch.object(runner.settings, "scene_design_agent_chunk_frames", 2),
+        patch.object(runner.settings, "scene_design_agent_chunk_parallel", 1),
+    ):
+        data = await runner._run_one_agent_adaptive(
+            project,
+            "action",
+            frames=frames,
+            full_frames=frames,
+            slice_extras=[],
+            action_scenes=None,
+            timeout=60,
+        )
+    assert p1_attempts == 3
+    assert [s["id_scene"] for s in data["scenes"]] == [
+        "scene_01",
+        "scene_02",
+        "scene_03",
+        "scene_04",
+    ]
