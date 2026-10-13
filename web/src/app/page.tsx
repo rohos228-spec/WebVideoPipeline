@@ -328,39 +328,10 @@ function ProjectSchema({
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
 
-  const resetGraph = useMutation({
-    mutationFn: () => api.resetProjectGraph(projectId),
-    onSuccess: () => {
-      invalidate();
-      toast.success("Штатная схема применена");
-    },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
-  });
-
   const proposal = graphMeta.data?.proposal ?? null;
 
   return (
     <>
-      <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-3">
-        <div className="flex min-w-0 items-center gap-3 text-[11px] text-muted-foreground">
-          <button type="button" onClick={onOpenTemplate} className="transition-colors hover:text-foreground">
-            шаблон для новых
-          </button>
-        </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 text-[11px]"
-          disabled={resetGraph.isPending}
-          onClick={() => {
-            if (confirm("Вернуть ролику штатную схему? Позиции и правки узлов пропадут.")) {
-              resetGraph.mutate();
-            }
-          }}
-        >
-          Штатная схема
-        </Button>
-      </div>
 
       {proposal && (
         <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-primary/25 bg-primary/[0.06] px-4 py-2">
@@ -416,162 +387,39 @@ function TemplateSchema(canvas: CanvasProps) {
     enabled: workflowId !== null,
   });
 
-  const refreshList = () => void qc.invalidateQueries({ queryKey: ["workflows"] });
-  const fail = (e: unknown) => toast.error(errorMessageFromUnknown(e));
-
-  const createNew = useMutation({
-    mutationFn: () => {
-      const name = prompt("Название новой схемы", "Новый конвейер")?.trim();
-      if (!name) throw new Error("отменено");
-      return api.createWorkflow({ name, nodes: [], edges: [] });
-    },
-    onSuccess: (wf) => {
-      refreshList();
-      setWorkflowId(wf.id);
-      toast.success(`Схема «${wf.name}» создана — пустая, соберите из палитры`);
-    },
-    onError: (e: Error) => e.message !== "отменено" && fail(e),
-  });
-
-  const duplicate = useMutation({
-    mutationFn: () => api.duplicateWorkflow(workflowId as number),
-    onSuccess: (wf) => {
-      refreshList();
-      setWorkflowId(wf.id);
-      toast.success(`Копия: ${wf.name}`);
-    },
-    onError: fail,
-  });
-
-  const rename = useMutation({
-    mutationFn: () => {
-      const wf = current.data;
-      if (!wf) throw new Error("отменено");
-      const name = prompt("Новое название", wf.name)?.trim();
-      if (!name || name === wf.name) throw new Error("отменено");
-      return api.saveWorkflow(wf.id, { name, nodes: wf.nodes, edges: wf.edges });
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["workflow", workflowId] });
-      refreshList();
-    },
-    onError: (e: Error) => e.message !== "отменено" && fail(e),
-  });
-
-  const remove = useMutation({
-    mutationFn: () => {
-      if (
-        !confirm(
-          `Удалить схему «${current.data?.name}»? Ролики, созданные по ней, не пострадают.`,
-        )
-      ) {
-        throw new Error("отменено");
-      }
-      return api.deleteWorkflow(workflowId as number);
-    },
-    onSuccess: () => {
-      setWorkflowId(null);
-      refreshList();
-      toast.success("Схема удалена");
-    },
-    onError: (e: Error) => e.message !== "отменено" && fail(e),
-  });
-
   const resetDefault = useMutation({
     mutationFn: api.resetDefaultWorkflow,
     onSuccess: (wf) => {
-      refreshList();
+      void qc.invalidateQueries({ queryKey: ["workflows"] });
       setWorkflowId(wf.id);
       void qc.invalidateQueries({ queryKey: ["workflow", wf.id] });
       toast.success("Штатная схема восстановлена");
     },
-    onError: fail,
+    onError: (e: unknown) => toast.error(errorMessageFromUnknown(e)),
   });
 
-  const isDefault = list.data?.find((w) => w.id === workflowId)?.is_default ?? false;
-
   return (
-    <>
-      <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-            шаблон для новых роликов
-          </span>
-          <select
-            value={workflowId ?? ""}
-            onChange={(e) => {
-              setWorkflowId(Number(e.target.value));
-              canvas.onSelectNode(null);
-            }}
-            className="studio-select max-w-[240px] truncate rounded-md border border-white/10 px-2 py-0.5 text-[11px]"
-          >
-            {(list.data ?? []).map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-                {w.is_default ? " (штатная)" : ""}
-              </option>
-            ))}
-          </select>
-          <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => rename.mutate()}>
-            переименовать
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => createNew.mutate()}>
-            + новая
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 text-[11px]"
-            disabled={duplicate.isPending}
-            onClick={() => duplicate.mutate()}
-          >
-            копия
-          </Button>
-          {!isDefault && workflowId != null && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-[11px] text-destructive"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate()}
-            >
-              удалить
-            </Button>
+    <div className="relative min-h-0 flex-1">
+      {workflowId != null ? (
+        <StudioWorkspace projectId={null} workflowId={workflowId} {...canvas} />
+      ) : (
+        <div className="flex h-full items-center justify-center">
+          {list.isLoading ? (
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          ) : (
+            <div className="max-w-md space-y-3 text-center">
+              <h2 className="text-lg font-semibold tracking-tight">Схем ещё нет</h2>
+              <p className="text-sm text-muted-foreground">
+                Новые ролики заводятся по схеме-шаблону. Создайте штатную — и меняйте под
+                себя.
+              </p>
+              <Button size="sm" onClick={() => resetDefault.mutate()} disabled={resetDefault.isPending}>
+                Создать штатную схему
+              </Button>
+            </div>
           )}
         </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 text-[11px]"
-          disabled={resetDefault.isPending}
-          onClick={() => resetDefault.mutate()}
-        >
-          Вернуть штатную
-        </Button>
-      </div>
-
-      <div className="relative min-h-0 flex-1">
-        {workflowId != null ? (
-          <StudioWorkspace projectId={null} workflowId={workflowId} {...canvas} />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            {list.isLoading ? (
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            ) : (
-              <div className="max-w-md space-y-3 text-center">
-                <h2 className="text-lg font-semibold tracking-tight">Схем ещё нет</h2>
-                <p className="text-sm text-muted-foreground">
-                  Новые ролики заводятся по схеме-шаблону. Создайте штатную — и меняйте под
-                  себя.
-                </p>
-                <Button size="sm" onClick={() => resetDefault.mutate()} disabled={resetDefault.isPending}>
-                  Создать штатную схему
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </>
+      )}
+    </div>
   );
 }

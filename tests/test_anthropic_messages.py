@@ -604,7 +604,7 @@ async def test_chat_passes_tools_only_to_claude(monkeypatch: pytest.MonkeyPatch,
 def test_block_to_dict_unknown_block_is_text_not_crash() -> None:
     from types import SimpleNamespace
 
-    assert am._block_to_dict(SimpleNamespace(type="thinking", text="")) == {"type": "text", "text": ""}
+    assert am._block_to_dict(SimpleNamespace(type="unknown_custom", text="")) == {"type": "text", "text": ""}
     assert am._block_to_dict(SimpleNamespace(type="text", text="a")) == {"type": "text", "text": "a"}
 
 

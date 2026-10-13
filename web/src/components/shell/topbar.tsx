@@ -14,7 +14,6 @@ import { useProjectMode } from "@/hooks/use-pipeline-mode";
 import { useDevRole } from "@/hooks/use-dev-role";
 import { clearToken } from "@/lib/identity-api";
 import { cn } from "@/lib/utils";
-import { MechanicSelectorDialog } from "@/components/shell/mechanic-selector-dialog";
 
 interface UiState {
   framesProjectId: number | null;
@@ -37,7 +36,6 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
   const { data: me } = useMe();
   const { toggleDevRole, isMemberPreview } = useDevRole();
   const [costsOpen, setCostsOpen] = useState(false);
-  const [mechanicDialogOpen, setMechanicDialogOpen] = useState(false);
   // Бейдж механики: режим открытого проекта (только отображение, R1).
   // Без проекта — режим воркспейса. Смена — в сайдбаре или по клику на бейдж.
   const params = useSearchParams();
@@ -93,19 +91,16 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
                   </span>
                 )}
                 <StudioVersionBadge />
-                <button
-                  type="button"
-                  onClick={() => setMechanicDialogOpen(true)}
-                  className="group flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold border border-white/10 bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08] hover:text-white hover:border-white/20 transition-all cursor-pointer"
+                <span
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold border border-white/10 bg-white/[0.04] text-zinc-300"
                   title={
                     boardMode === "v2"
-                      ? "Режиссёрский монтаж (v2). Нажмите для описания и смены механики"
-                      : "Классический пайплайн (v1). Нажмите для описания и смены механики"
+                      ? "Режиссёрский монтаж (v2)"
+                      : "Классический пайплайн (v1)"
                   }
                 >
-                  <span>{boardMode === "v2" ? "🎬 v2" : "🔹 v1"}</span>
-                  <span className="text-[7px] text-zinc-500 group-hover:text-zinc-300">▾</span>
-                </button>
+                  {boardMode === "v2" ? "🎬 v2" : "🔹 v1"}
+                </span>
                 {ownerMode && (
                   <button
                     type="button"
@@ -205,10 +200,6 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
           open={costsOpen}
           onOpenChange={setCostsOpen}
           selectedProjectId={framesProjectId}
-        />
-        <MechanicSelectorDialog
-          open={mechanicDialogOpen}
-          onOpenChange={setMechanicDialogOpen}
         />
         {children != null ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>

@@ -1534,8 +1534,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       setPrompt(item.prompt);
       setAppliedPrompt({ text: item.prompt, ts: Date.now() });
     }
-    // Конфигурация применяется всегда; панель — только в v2-воркспейсе.
-    if (workspaceMode === "v2") setAssistantOpen(true);
+    setAssistantOpen(true);
     toast.success("Конфигурация изображения применена к панели снизу");
   };
 
@@ -2134,7 +2133,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               проект #{projectId}
             </span>
           )}
-          {mediaType === "image" && workspaceMode === "v2" && (
+          {mediaType === "image" && (
             <button
               type="button"
               onClick={() => setAssistantOpen((v) => !v)}
@@ -2692,7 +2691,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               </div>
 
               {/* Помощник промпта: заменяет док генерации (те же размеры) */}
-              {assistantOpen && mediaType === "image" && workspaceMode === "v2" && (
+              {assistantOpen && mediaType === "image" && (
                 <GenAssistantPanel
                   onClose={() => setAssistantOpen(false)}
                   appliedPrompt={appliedPrompt}
