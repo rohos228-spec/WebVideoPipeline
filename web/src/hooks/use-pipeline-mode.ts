@@ -9,6 +9,7 @@
  * чужой механики в список не попадают вовсе.
  */
 
+import { useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
@@ -17,6 +18,7 @@ import { usePersistedState } from "./use-persisted-state";
 
 export const WORKSPACE_MODE_KEY = "studio.pipeline_mode";
 export const SELECTED_PROJECT_KEY = "vp-studio-selected-project-id";
+export const WORKSPACE_MODE_EVENT = "studio-pipeline-mode-sync";
 
 export function normalizeMode(raw: unknown): PipelineMode {
   return raw === "v2" ? "v2" : "v1";
@@ -34,16 +36,40 @@ export function switchPipelineMode(next: PipelineMode) {
   try {
     localStorage.setItem(WORKSPACE_MODE_KEY, JSON.stringify(target));
     localStorage.removeItem(SELECTED_PROJECT_KEY);
+    window.dispatchEvent(new CustomEvent(WORKSPACE_MODE_EVENT, { detail: target }));
   } catch {}
   // Чистый переход в корень — сбрасывает состояние и query-параметры
   window.location.href = "/";
 }
 
-/** Выбранная механика воркспейса. Дефолт — v1 (поведение продакшена). */
+/** Выбранная механика воркспейса. Дефолт — v1. Синхронизируется реактивно между всеми компонентами. */
 export function usePipelineMode(): [PipelineMode, (mode: PipelineMode) => void] {
   const [stored, setStored] = usePersistedState<unknown>(WORKSPACE_MODE_KEY, "v1");
   const mode = normalizeMode(stored);
-  return [mode, (next: PipelineMode) => setStored(normalizeMode(next))];
+
+  useEffect(() => {
+    const onSync = (e: Event) => {
+      const detail = (e as CustomEvent<PipelineMode>).detail;
+      if (detail) {
+        setStored(normalizeMode(detail));
+      }
+    };
+    window.addEventListener(WORKSPACE_MODE_EVENT, onSync);
+    return () => window.removeEventListener(WORKSPACE_MODE_EVENT, onSync);
+  }, [setStored]);
+
+  const setMode = useCallback(
+    (next: PipelineMode) => {
+      const target = normalizeMode(next);
+      setStored(target);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(WORKSPACE_MODE_EVENT, { detail: target }));
+      }
+    },
+    [setStored],
+  );
+
+  return [mode, setMode];
 }
 
 /**

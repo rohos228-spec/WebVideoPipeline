@@ -89,13 +89,13 @@ export function ProjectSidebar({
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [queueDialogProject, setQueueDialogProject] = useState<ProjectSummary | null>(null);
   // Механика воркспейса (R1): список режется бэкендом, чужие проекты не грузятся вовсе.
-  const [pipelineMode, setPipelineMode] = usePipelineMode();
+  const [pipelineMode] = usePipelineMode();
   const { width: sidebarWidth, setWidth: setSidebarWidth, minWidth, maxWidth } =
     useSidebarWidth();
 
   const projects = useQuery({
-    queryKey: ["projects", pipelineMode],
-    queryFn: () => api.listProjects(pipelineMode),
+    queryKey: ["projects"],
+    queryFn: () => api.listProjects(),
     // Не чаще 10с; не стакуем poll, пока предыдущий ещё в полёте.
     refetchInterval: (q) => (q.state.fetchStatus === "fetching" ? false : 10_000),
     staleTime: 5_000,
@@ -179,7 +179,7 @@ export function ProjectSidebar({
     mutationFn: (projectId: number) => api.toggleGenQueue(projectId),
     onSuccess: (data) => {
       const positions = (data.gen_queue_positions || {}) as Record<string, number>;
-      qc.setQueryData<ProjectSummary[]>(["projects", pipelineMode], (old) => {
+      qc.setQueryData<ProjectSummary[]>(["projects"], (old) => {
         if (!old) return old;
         return old.map((p) => {
           const raw = positions[p.id] ?? positions[String(p.id)];
@@ -483,16 +483,6 @@ export function ProjectSidebar({
           }
           onCreated={(p) => onSelect(p.id)}
         />
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="mt-2 h-8 w-8 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/[0.08]"
-          title={`Механика: ${pipelineMode === "v2" ? "Монтаж (v2)" : "Классика (v1)"}. Нажмите для описания и смены.`}
-          onClick={() => window.dispatchEvent(new CustomEvent("studio-open-mechanic-selector"))}
-        >
-          {pipelineMode === "v2" ? "🎬" : "🔹"}
-        </Button>
       </aside>
     );
   }
@@ -611,48 +601,6 @@ export function ProjectSidebar({
         </div>
       </div>
 
-      <div className="border-b border-white/[0.06] px-3 py-2">
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-zinc-400">Механика</span>
-          <button
-            type="button"
-            onClick={() =>
-              window.dispatchEvent(new CustomEvent("studio-open-mechanic-selector"))
-            }
-            className="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
-            title="Открыть описание механик и стилей производства"
-          >
-            О режимах ▾
-          </button>
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {(
-            [
-              { id: "v1", label: "Классика", title: "Классический линейный пайплайн (v1)" },
-              { id: "v2", label: "Монтаж", title: "Режиссёрский монтаж (v2)" },
-            ] as const
-          ).map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => {
-                window.dispatchEvent(new CustomEvent("studio-open-mechanic-selector"));
-              }}
-              title={m.title}
-              className={cn(
-                "rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all cursor-pointer",
-                pipelineMode === m.id
-                  ? "border-cyan-400/50 bg-cyan-500/10 text-cyan-300 shadow-sm"
-                  : "border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:text-zinc-200 hover:border-white/15"
-              )}
-            >
-              {m.id === "v1" ? "🔹 " : "🎬 "}
-              {m.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       <ScrollArea className="min-h-0 flex-1">
         <div
           className="flex flex-col gap-0.5 px-2.5 py-2"
@@ -666,11 +614,7 @@ export function ProjectSidebar({
 
           {!projects.isLoading && visibleFolders.length === 0 && visibleRootProjects.length === 0 && (
             <div className="px-3 py-10 text-center text-xs font-light text-muted-foreground/60">
-              {filter
-                ? "Ничего не найдено."
-                : pipelineMode === "v2"
-                  ? "В режиме «Монтаж» пока ни одного проекта."
-                  : "В режиме «Классика» пока ни одного проекта."}
+              {filter ? "Ничего не найдено." : "Пока ни одного проекта."}
             </div>
           )}
 
@@ -1142,6 +1086,17 @@ function ProjectRow({
           <div className="mt-2.5 flex items-center justify-between gap-2">
             <div className="flex shrink-0 items-center gap-1.5 overflow-visible">
               <StatusPill status={project.status} />
+              <span
+                className={cn(
+                  "shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[9px] font-semibold font-mono",
+                  project.pipeline_mode === "v2"
+                    ? "border-violet-500/30 bg-violet-500/10 text-violet-300"
+                    : "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
+                )}
+                title={project.pipeline_mode === "v2" ? "Режиссёрский монтаж (v2)" : "Классика (v1)"}
+              >
+                {project.pipeline_mode === "v2" ? "🎬 v2" : "🔹 v1"}
+              </span>
               {badge && (
                 <span className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-zinc-300">
                   {badge}
