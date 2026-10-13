@@ -43,6 +43,13 @@ _DATA_URL_RE = re.compile(r"^data:(?P<mime>[^;,]+);base64,(?P<data>.+)$", re.S)
 #: Блоки нативного tool-calling: в истории они идут как есть (см. `_content_block`).
 TOOL_BLOCK_TYPES: frozenset[str] = frozenset({"tool_use", "tool_result"})
 
+_THINKING_BUDGETS: dict[str, int] = {
+    "low": 1024,
+    "medium": 4096,
+    "high": 16384,
+    "xhigh": 32000,
+}
+
 
 def is_anthropic_model(model: str | None) -> bool:
     return (model or "").strip().lower().startswith("claude")
@@ -163,6 +170,13 @@ def build_request(
         req["output_config"] = {
             "format": {"type": "json_schema", "schema": response_schema.schema},
         }
+    from app.services.text_llm_catalog import resolve_active_reasoning_effort
+
+    effort = resolve_active_reasoning_effort()
+    if effort and effort != "off" and effort in _THINKING_BUDGETS:
+        budget = _THINKING_BUDGETS[effort]
+        req["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        req["max_tokens"] = max(int(req["max_tokens"]), budget + 4096)
     return req
 
 
@@ -233,18 +247,47 @@ async def chat_messages(
     client = _client(base_url=base_url, api_key=api_key, timeout=timeout)
     try:
         async with client:
-            async with client.messages.stream(**req) as stream:
-                if on_delta is not None:
-                    async for piece in stream.text_stream:
-                        if not piece:
-                            continue
-                        try:
-                            res = on_delta(piece)
-                            if asyncio.iscoroutine(res):
-                                await res
-                        except Exception:  # noqa: BLE001 — колбэк UI не ломает разбор
-                            pass
-                msg = await stream.get_final_message()
+            try:
+                async with client.messages.stream(**req) as stream:
+                    if on_delta is not None:
+                        async for piece in stream.text_stream:
+                            if not piece:
+                                continue
+                            try:
+                                res = on_delta(piece)
+                                if asyncio.iscoroutine(res):
+                                    await res
+                            except Exception:  # noqa: BLE001 — колбэк UI не ломает разбор
+                                pass
+                    msg = await stream.get_final_message()
+            except anthropic.APIStatusError as stream_err:
+                err_text = str(stream_err.body or stream_err.message or "").lower()
+                if (
+                    int(getattr(stream_err, "status_code", 0) or 0) == 400
+                    and "thinking" in req
+                    and ("thinking" in err_text or "budget" in err_text)
+                ):
+                    logger.warning(
+                        "Claude model {!r} does not support thinking: {} — retrying without thinking",
+                        use_model,
+                        stream_err,
+                    )
+                    req_no_thinking = dict(req)
+                    req_no_thinking.pop("thinking", None)
+                    async with client.messages.stream(**req_no_thinking) as fallback_stream:
+                        if on_delta is not None:
+                            async for piece in fallback_stream.text_stream:
+                                if not piece:
+                                    continue
+                                try:
+                                    res = on_delta(piece)
+                                    if asyncio.iscoroutine(res):
+                                        await res
+                                except Exception:  # noqa: BLE001
+                                    pass
+                        msg = await fallback_stream.get_final_message()
+                else:
+                    raise
     except anthropic.APIStatusError as e:
         err_body = e.body if isinstance(e.body, str) else str(e.body or e.message)
         headers = getattr(getattr(e, "response", None), "headers", None) or {}
@@ -314,10 +357,12 @@ async def chat_messages(
 
 
 def _block_to_dict(block: Any) -> dict[str, Any]:
-    """Блок ответа SDK → словарь. Текст и tool_use; прочее — текстом, не молча."""
+    """Блок ответа SDK → словарь. Текст, thinking и tool_use; прочее — текстом, не молча."""
     kind = str(getattr(block, "type", "") or "")
     if kind == "text":
         return {"type": "text", "text": str(getattr(block, "text", "") or "")}
+    if kind == "thinking":
+        return {"type": "thinking", "thinking": str(getattr(block, "thinking", "") or "")}
     if kind == "tool_use":
         raw_input = getattr(block, "input", None)
         return {

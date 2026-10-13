@@ -89,14 +89,13 @@ _REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 
 def _responses_reasoning_block() -> dict[str, str] | None:
     """``reasoning.effort`` для Codex/Responses (kie gpt-5-6-sol)."""
-    raw = str(getattr(settings, "gpt_reasoning_effort", "") or "").strip().lower()
-    if not raw or raw in {"off", "none", "0", "false"}:
+    from app.services.text_llm_catalog import resolve_active_reasoning_effort
+
+    effort = resolve_active_reasoning_effort()
+    if not effort or effort == "off":
         return None
-    # алиасы из RU-доки
-    aliases = {"середина": "medium", "mid": "medium", "низкий": "low", "высокий": "high"}
-    effort = aliases.get(raw, raw)
     if effort not in _REASONING_EFFORTS:
-        logger.warning("gpt_api: unknown GPT_REASONING_EFFORT={!r} — skip", raw)
+        logger.warning("gpt_api: unknown reasoning effort={!r} — skip", effort)
         return None
     return {"effort": effort}
 
@@ -2753,6 +2752,13 @@ async def _chat_unscoped(
                 xlsx_write_contract=xlsx_write_contract,
             ),
         }
+        if not anthropic_route:
+            reasoning = _responses_reasoning_block()
+            if reasoning is not None:
+                m_low = use_model.lower()
+                if any(m_low.startswith(p) for p in ("o1", "o3", "o4", "gpt-5")):
+                    effort_val = reasoning["effort"]
+                    body["reasoning_effort"] = "high" if effort_val == "xhigh" else effort_val
     if temperature is not None:
         body["temperature"] = temperature
     if tools:

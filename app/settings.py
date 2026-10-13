@@ -178,6 +178,10 @@ class Settings(BaseSettings):
     # Свой VPS-relay (deploy/gpt-relay): GPT_BASE_URL=https://gpt.example.com
     # + этот токен → заголовок X-VP-Relay-Token.
     gpt_relay_token: str = Field("", alias="GPT_RELAY_TOKEN")
+    # Уровень размышления/мышления (reasoning effort): off | low | medium | high | xhigh.
+    # off по умолчанию (быстрый старт, минимальный риск таймаутов).
+    # Переключение на лету: Studio UI / data/text_llm_choice.json / GPT_REASONING_EFFORT.
+    gpt_reasoning_effort: str = Field("off", alias="GPT_REASONING_EFFORT")
 
     def resolved_text_llm_provider(self) -> str:
         """Активный текстовый провайдер: kie | vibecode.

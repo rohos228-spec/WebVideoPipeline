@@ -244,3 +244,63 @@ def test_vibecode_catalog_text_aliases() -> None:
     assert find_model("gemini-3.8-flash")["id"] == "gemini-3.8-flash"
     # Fable 5.1 в снимке нет — конфиг форка приземляется на Fable 5
     assert find_model("claude-fable-5-1")["id"] == "claude-fable-5"
+
+
+def test_reasoning_effort_normalization_and_choice(monkeypatch, tmp_path: Path) -> None:
+    from app.services import text_llm_catalog as cat
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("GPT_API_KEY", "kie-key")
+    s = Settings()
+
+    # По умолчанию — off
+    assert cat.resolve_active_reasoning_effort(s) == "off"
+
+    # Нормализация алиасов
+    assert cat.normalize_reasoning_effort("низкий") == "low"
+    assert cat.normalize_reasoning_effort("середина") == "medium"
+    assert cat.normalize_reasoning_effort("высокий") == "high"
+    assert cat.normalize_reasoning_effort("экстра") == "xhigh"
+    assert cat.normalize_reasoning_effort("unknown_val") == "off"
+
+    # Запись reasoning_effort через write_choice
+    res = cat.write_choice(reasoning_effort="high", cfg=s)
+    assert res["reasoning_effort"] == "high"
+    assert cat.resolve_active_reasoning_effort(s) == "high"
+
+    # catalog_status возвращает active_reasoning_effort и reasoning_options
+    st = cat.catalog_status(s)
+    assert st["active_reasoning_effort"] == "high"
+    assert any(opt["id"] == "xhigh" for opt in st["reasoning_options"])
+    assert any(opt["id"] == "off" for opt in st["reasoning_options"])
+
+
+def test_anthropic_and_gpt_reasoning_wiring(monkeypatch, tmp_path: Path) -> None:
+    import app.services.gpt_api as gpt_api
+    import app.settings as settings_mod
+    from app.services import text_llm_catalog as cat
+    from app.services.anthropic_messages import build_request
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("GPT_API_KEY", "kie-key")
+    s = Settings()
+    monkeypatch.setattr(settings_mod, "settings", s)
+    monkeypatch.setattr(cat, "settings", s)
+    monkeypatch.setattr(gpt_api, "settings", s)
+
+    # 1. Когда off — gpt_api reasoning block is None, anthropic thinking отсутствует
+    cat.write_choice(reasoning_effort="off", cfg=s)
+    assert gpt_api._responses_reasoning_block() is None
+
+    req_off = build_request({"model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}]})
+    assert "thinking" not in req_off
+
+    # 2. Когда high — gpt_api reasoning block {"effort": "high"}, anthropic thinking enabled
+    cat.write_choice(reasoning_effort="high", cfg=s)
+    block = gpt_api._responses_reasoning_block()
+    assert block == {"effort": "high"}
+
+    req_high = build_request({"model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}]})
+    assert req_high.get("thinking") == {"type": "enabled", "budget_tokens": 16384}
+    assert req_high.get("max_tokens", 0) > 16384
+
