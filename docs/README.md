@@ -15,7 +15,7 @@
 - **Массовая генерация**: [MASS_CREATION.md](MASS_CREATION.md) — инструкции по пакетной генерации видео.
 - **Инженерная политика**: [ENGINEERING-POLICY.md](ENGINEERING-POLICY.md) — стандарты кода, изоляция веток, гейты качества.
 - **Релизы**: [RELEASE-PROCESS.md](RELEASE-PROCESS.md) и [RELEASES.md](RELEASES.md) — версионирование и процесс выкатки.
-- **Технический долг**: [DEBT.md](DEBT.md) и [TECH_DEBT_PLAN.md](TECH_DEBT_PLAN.md).
+- **Технический долг**: [DEBT.md](DEBT.md) (архивный мастер-план: [archive/TECH_DEBT_PLAN.md](archive/TECH_DEBT_PLAN.md)).
 
 ## Структура подкаталогов
 

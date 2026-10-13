@@ -1,6 +1,6 @@
 """GPT-проверки в формате «Вердикт: …» (Studio + auto_mode).
 
-См. docs/SPEC-RELIABILITY-QUEUE-GPT-MUSIC.md §4.
+См. docs/archive/SPEC-RELIABILITY-QUEUE-GPT-MUSIC.md §4.
 """
 
 from __future__ import annotations

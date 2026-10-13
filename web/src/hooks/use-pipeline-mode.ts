@@ -15,10 +15,28 @@ import { api } from "@/lib/api";
 import type { PipelineMode } from "@/lib/types";
 import { usePersistedState } from "./use-persisted-state";
 
-const WORKSPACE_MODE_KEY = "studio.pipeline_mode";
+export const WORKSPACE_MODE_KEY = "studio.pipeline_mode";
+export const SELECTED_PROJECT_KEY = "vp-studio-selected-project-id";
 
-function normalizeMode(raw: unknown): PipelineMode {
+export function normalizeMode(raw: unknown): PipelineMode {
   return raw === "v2" ? "v2" : "v1";
+}
+
+/**
+ * Бесшовное переключение механики воркспейса:
+ * 1. Сохраняет целевой режим в localStorage.
+ * 2. Очищает выбранный проект (устраняет конфликт со старым проектом).
+ * 3. Автоматически перенаправляет на чистый корень '/' без необходимости нажимать F5.
+ */
+export function switchPipelineMode(next: PipelineMode) {
+  if (typeof window === "undefined") return;
+  const target = normalizeMode(next);
+  try {
+    localStorage.setItem(WORKSPACE_MODE_KEY, JSON.stringify(target));
+    localStorage.removeItem(SELECTED_PROJECT_KEY);
+  } catch {}
+  // Чистый переход в корень — сбрасывает состояние и query-параметры
+  window.location.href = "/";
 }
 
 /** Выбранная механика воркспейса. Дефолт — v1 (поведение продакшена). */

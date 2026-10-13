@@ -146,9 +146,22 @@ export function NewProjectWizard({
 
           {/* Механика */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Механика
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Механика
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent("studio-open-mechanic-selector"),
+                  )
+                }
+                className="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
+              >
+                Подробнее о различиях ▾
+              </button>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               {MODE_CHOICES.map((m) => (
                 <button

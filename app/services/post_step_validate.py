@@ -1,6 +1,6 @@
 """Post-check после шага: сверка Excel/файлов на диске и точечный regen.
 
-См. docs/SPEC-RELIABILITY-QUEUE-GPT-MUSIC.md §2.
+См. docs/archive/SPEC-RELIABILITY-QUEUE-GPT-MUSIC.md §2.
 """
 
 from __future__ import annotations
