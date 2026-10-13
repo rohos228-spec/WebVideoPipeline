@@ -15,7 +15,7 @@ name: Release
 
 on:
   push:
-    branches: ["main", "second-mechanic"]
+    branches: ["main", "test"]
     # Тег вида v1.4.0 даёт неподвижный образ, к которому можно откатиться.
     tags: ["v*"]
     # Правки документации не двигают образ. Дорого не время сборки, а
@@ -93,7 +93,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=v2,enable=${{ github.ref == 'refs/heads/second-mechanic' }}
+            type=raw,value=v2,enable=${{ github.ref == 'refs/heads/test' }}
           labels: |
             org.opencontainers.image.title=Видеостудия
             org.opencontainers.image.description=Конвейер коротких вертикальных роликов
@@ -209,7 +209,7 @@ jobs:
           printf '%s' "$GH_TOKEN" | ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" \
             -- 'docker login ghcr.io -u '"$GH_ACTOR"' --password-stdin'
 
-          if [ "${{ github.ref_name }}" = "second-mechanic" ]; then
+          if [ "${{ github.ref_name }}" = "test" ]; then
             remote_cmd=$(printf 'cd %q && STUDIO_V2_IMAGE=%q ./deploy.sh v2' \
               "$VPS_PATH" "${IMAGE}@${DIGEST}")
           else
@@ -227,7 +227,7 @@ jobs:
         # Контейнер может подняться и упасть на миграциях, и узнают об этом
         # от оператора.
         env:
-          URL: ${{ github.ref_name == 'second-mechanic' && 'https://v2.studio.zukiemi.space' || vars.STUDIO_URL }}
+          URL: ${{ github.ref_name == 'test' && 'https://v2.studio.zukiemi.space' || vars.STUDIO_URL }}
         run: |
           if [ -z "$URL" ]; then
             echo "::warning::vars.STUDIO_URL не задан — проверить снаружи нечем"

@@ -57,7 +57,7 @@ on:
 # отменяется сам, а проверка PR остаётся.
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/test' }}
 
 env:
   PYTHON_VERSION: "3.12"

@@ -20,7 +20,7 @@ on:
 
 concurrency:
   group: policy-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/test' }}
 
 jobs:
   policy:

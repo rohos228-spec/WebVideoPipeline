@@ -18,7 +18,7 @@ Set-Location -LiteralPath $Root
 
 # Ветки (выбор при первом запуске / [5] -> data/studio-pc-branch + .env)
 # [4] всегда тянет origin/<сохранённая>, не хардкод main.
-$script:PcBranches = @("main", "second-mechanic")
+$script:PcBranches = @("main", "test")
 $script:PcBranchFile = Join-Path $Root "data\studio-pc-branch"
 $EnvFile = Join-Path $Root ".env"
 $StudioBranch = ""
@@ -155,7 +155,7 @@ function Show-StudioBranchPicker {
     for ($i = 0; $i -lt $script:PcBranches.Count; $i++) {
         $n = $i + 1
         $br = $script:PcBranches[$i]
-        $desc = if ($br -eq "main") { "Классический конвейер" } elseif ($br -eq "second-mechanic") { "Монтажная доска и сцены" } else { "" }
+        $desc = if ($br -eq "main") { "Основная рабочая ветка" } elseif ($br -eq "test") { "Тестовый стенд (v2)" } else { "" }
         Write-Host ("  [{0}] {1}  ({2})" -f $n, $br, $desc)
     }
     if ($AllowCancel) {
@@ -175,7 +175,7 @@ function Show-StudioBranchPicker {
                 return $br
             }
         }
-        Write-StudioMsg "Выберите 1 (main) или 2 (second-mechanic)." "Yellow"
+        Write-StudioMsg "Выберите 1 (main) или 2 (test)." "Yellow"
     }
 }
 
@@ -581,7 +581,7 @@ function Invoke-StudioGitUpdate {
     if ($saved) { $script:StudioBranch = $saved }
     $StudioBranch = $script:StudioBranch
     if (-not (Test-StudioPcBranchName $StudioBranch)) {
-        Write-StudioMsg "ОШИБКА: ветка не задана. Пункт [5] - выберите main или second-mechanic." "Red"
+        Write-StudioMsg "ОШИБКА: ветка не задана. Пункт [3] - выберите main или test." "Red"
         return $false
     }
     Write-StudioMsg "==> обновление с сохранённой ветки: origin/$StudioBranch" "Cyan"
@@ -1072,7 +1072,7 @@ function Invoke-StudioCleanCache {
 function Show-StudioMenu {
     $stamp = Get-StudioLauncherStamp
     $cur = Get-StudioPcBranch
-    $desc = if ($cur -eq "main") { "Классический конвейер" } elseif ($cur -eq "second-mechanic") { "Монтажная доска и сцены" } else { "не выбрана" }
+    $desc = if ($cur -eq "main") { "Основная рабочая ветка" } elseif ($cur -eq "test") { "Тестовый стенд (v2)" } else { "не выбрана" }
     $brLabel = if ($cur) { "$cur ($desc)" } else { "не выбрана" }
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
@@ -1083,7 +1083,7 @@ function Show-StudioMenu {
     Write-Host ""
     Write-Host "  [1] Запустить локальную студию (http://127.0.0.1:8765)"
     Write-Host "  [2] Открыть сайт на VPS (studio.zukiemi.space)"
-    Write-Host "  [3] Сменить ветку ($cur): main <-> second-mechanic"
+    Write-Host "  [3] Сменить ветку ($cur): main <-> test"
     Write-Host "  [4] Обновить код из GitHub (origin/$cur)"
     Write-Host "  [5] Открыть папку с видео и проектами (data/projects)"
     Write-Host "  [6] Очистить старые логи (оставив 10) и кэш"
