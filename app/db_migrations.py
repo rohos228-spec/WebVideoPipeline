@@ -5,7 +5,7 @@
 `app/services/db_v2.migrate_db_v2_schema`. create_all не умеет ALTER, так
 что изменение существующей таблицы молча не доезжало до баз, поднятых
 раньше; alembic лежал в зависимостях, но не использовался (`docs/
-TECH_DEBT_PLAN.md` п.11).
+archive/TECH_DEBT_PLAN.md` п.11).
 
 Три сценария, различаются по состоянию базы:
 
