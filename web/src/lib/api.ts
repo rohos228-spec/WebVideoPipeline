@@ -2743,7 +2743,7 @@ export const api = {
       { method: "POST", body: JSON.stringify(body) },
     ),
   textLlmStatus: () => http<any>(`/api/text-llm`),
-  textLlmSelect: (body: { provider: string; model_id: string }) =>
+  textLlmSelect: (body: { provider?: string; model_id?: string; reasoning_effort?: string }) =>
     http<any>(`/api/text-llm`, {
       method: "PUT",
       body: JSON.stringify(body),

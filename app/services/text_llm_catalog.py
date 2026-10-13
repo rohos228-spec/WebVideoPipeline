@@ -236,31 +236,95 @@ def read_choice(cfg: Settings | None = None) -> dict[str, Any]:
         return {}
 
 
+REASONING_EFFORTS: tuple[str, ...] = ("off", "low", "medium", "high", "xhigh")
+
+REASONING_OPTIONS: list[dict[str, str]] = [
+    {"id": "off", "label": "Выкл", "hint": "Мгновенный ответ без скрытых размышлений (быстро)"},
+    {"id": "low", "label": "Низкий (low)", "hint": "Быстрое размышление (~5-15 сек), минимальный шанс таймаута"},
+    {"id": "medium", "label": "Средний (mid)", "hint": "Взвешенное рассуждение, стандарт для сценариев"},
+    {"id": "high", "label": "Высокий (high)", "hint": "Глубокий анализ (может думать до 1-2 минут)"},
+    {"id": "xhigh", "label": "Экстра (xhigh)", "hint": "Предельное мышление (для GPT-5.6 / флагманов)"},
+]
+
+
+def normalize_reasoning_effort(raw: Any) -> str:
+    """Нормализация уровня мышления в допустимый токен."""
+    val = str(raw or "").strip().lower()
+    aliases = {
+        "выкл": "off",
+        "none": "off",
+        "0": "off",
+        "false": "off",
+        "disabled": "off",
+        "низкий": "low",
+        "середина": "medium",
+        "mid": "medium",
+        "средний": "medium",
+        "высокий": "high",
+        "экстра": "xhigh",
+        "максимум": "xhigh",
+        "extra": "xhigh",
+    }
+    val = aliases.get(val, val)
+    if val in REASONING_EFFORTS:
+        return val
+    return "off"
+
+
+def resolve_active_reasoning_effort(cfg: Settings | None = None) -> str:
+    """Активный уровень мышления (off | low | medium | high | xhigh)."""
+    s = cfg or settings
+    choice = read_choice(s)
+    if "reasoning_effort" in choice:
+        return normalize_reasoning_effort(choice["reasoning_effort"])
+    return normalize_reasoning_effort(getattr(s, "gpt_reasoning_effort", "off"))
+
+
 def write_choice(
     *,
-    provider: str,
+    provider: str | None = None,
     model_id: str | None = None,
+    reasoning_effort: str | None = None,
     cfg: Settings | None = None,
 ) -> dict[str, Any]:
     s = cfg or settings
-    provider = (provider or "kie").strip().lower()
+    existing = read_choice(s)
+    default_prov = existing.get("provider") or resolve_active_provider(s)
+    provider = (provider or default_prov or "kie").strip().lower()
     if provider in {"vibe", "vibecode.moe", "anthropic", "claude"}:
         provider = "vibecode"
-    aliased = catalog_item(model_id)
+    aliased = catalog_item(model_id) if model_id else None
     if aliased:
         provider = aliased["provider"]
         model_id = aliased["id"]
     if provider not in _PROVIDERS:
         raise ValueError(f"unknown text LLM provider: {provider!r}")
     if provider == "vibecode":
-        model_id = model_id or VIBECODE_DEFAULT_ID
+        model_id = model_id or existing.get("model_id") or VIBECODE_DEFAULT_ID
     else:
-        model_id = model_id or "gpt-kie"
-    payload = {"provider": provider, "model_id": model_id}
+        model_id = model_id or existing.get("model_id") or "gpt-kie"
+
+    if reasoning_effort is not None:
+        effort = normalize_reasoning_effort(reasoning_effort)
+    elif "reasoning_effort" in existing:
+        effort = normalize_reasoning_effort(existing["reasoning_effort"])
+    else:
+        effort = normalize_reasoning_effort(getattr(s, "gpt_reasoning_effort", "off"))
+
+    payload = {
+        "provider": provider,
+        "model_id": model_id,
+        "reasoning_effort": effort,
+    }
     path = _choice_path(s)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    logger.info("text_llm_choice: active → {} ({})", payload["provider"], payload["model_id"])
+    logger.info(
+        "text_llm_choice: active → {} ({}), reasoning_effort={}",
+        payload["provider"],
+        payload["model_id"],
+        effort,
+    )
     return payload
 
 
@@ -334,9 +398,12 @@ def catalog_status(cfg: Settings | None = None) -> dict[str, Any]:
     else:
         label = f"GPT · kie.ai ({s.gpt_model})"
         active_model = s.gpt_model
+    active_reasoning = resolve_active_reasoning_effort(s)
     return {
         "active_provider": active,
         "active_label": label,
         "active_model": active_model,
+        "active_reasoning_effort": active_reasoning,
+        "reasoning_options": REASONING_OPTIONS,
         "models": models,
     }

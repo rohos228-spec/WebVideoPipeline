@@ -18,8 +18,9 @@ router = APIRouter(prefix="/text-llm", tags=["text-llm"])
 
 
 class TextLlmSelectBody(BaseModel):
-    provider: str = Field(..., description="kie | vibecode")
+    provider: str | None = Field(default=None, description="kie | vibecode (если опущен, сохраняется активный)")
     model_id: str | None = None
+    reasoning_effort: str | None = Field(default=None, description="off | low | medium | high | xhigh")
 
 
 @router.get("")
@@ -39,7 +40,11 @@ async def get_text_llm_catalog() -> dict[str, Any]:
 @router.put("")
 async def select_text_llm(body: TextLlmSelectBody) -> dict[str, Any]:
     try:
-        write_choice(provider=body.provider, model_id=body.model_id)
+        write_choice(
+            provider=body.provider,
+            model_id=body.model_id,
+            reasoning_effort=body.reasoning_effort,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return catalog_status() | {"catalog": grouped_catalog()}
