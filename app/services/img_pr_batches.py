@@ -29,7 +29,7 @@ from app.services.volume_batches import (
 _FRAMES_PER_BATCH = 25
 _T = TypeVar("_T")
 _CHECKPOINT_NAME = "img_pr_checkpoint.json"
-_GPT_ATTEMPTS = 3
+_GPT_ATTEMPTS = 5
 
 _BATCH_FOOTER = """
 # BATCH {batch_i}/{batch_n} — только эти {n} кадров из db_frames.json

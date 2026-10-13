@@ -2010,11 +2010,7 @@ def _choice_text_piece(first: dict[str, Any]) -> str:
         if isinstance(value, str) and value:
             return value
         if isinstance(value, list):
-            return "".join(
-                str(p.get("text") or "")
-                for p in value
-                if isinstance(p, dict)
-            )
+            return "".join(str(p.get("text") or "") for p in value if isinstance(p, dict))
         return ""
 
     raw_delta = first.get("delta")
@@ -2399,7 +2395,7 @@ async def _maybe_volume_complete_chat_result(
     )
 
 
-_LLM_PACK_PARALLEL = 3
+_LLM_PACK_PARALLEL = 1
 
 
 def _merge_packed_apply_ops(texts: list[str]) -> str:

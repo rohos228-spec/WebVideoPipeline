@@ -371,16 +371,16 @@ class Settings(BaseSettings):
     # Мульти-агентный дизайн сцен (нода scene_design между split и hero).
     # False + нет meta.scene_design_enabled → нода pass-through без GPT.
     scene_design_enabled: bool = Field(False, alias="SCENE_DESIGN_ENABLED")
-    # Сколько категорийных агентов дёргают GPT одновременно внутри ноды.
-    scene_design_max_parallel: int = Field(5, alias="SCENE_DESIGN_MAX_PARALLEL")
+    # Сколько категорийных агентов дёргают GPT одновременно внутри ноды (1 = строго по очереди).
+    scene_design_max_parallel: int = Field(1, alias="SCENE_DESIGN_MAX_PARALLEL")
     # Сборка: сколько Frame-строк пайплайна в одном GPT-запросе (чанк).
     # 0 / 1 = один запрос на весь ролик (старое поведение, легко ловит 524).
-    scene_design_assemble_chunk_frames: int = Field(10, alias="SCENE_DESIGN_ASSEMBLE_CHUNK_FRAMES")
+    scene_design_assemble_chunk_frames: int = Field(8, alias="SCENE_DESIGN_ASSEMBLE_CHUNK_FRAMES")
     # action/camera: сразу режем на куски ≤N кадров (не жечь 5 мин на 524).
     # 0 = старое: сначала полный запрос, дробим только после 524.
-    scene_design_agent_chunk_frames: int = Field(10, alias="SCENE_DESIGN_AGENT_CHUNK_FRAMES")
-    # Сколько кусков action/camera одновременно (kie).
-    scene_design_agent_chunk_parallel: int = Field(3, alias="SCENE_DESIGN_AGENT_CHUNK_PARALLEL")
+    scene_design_agent_chunk_frames: int = Field(8, alias="SCENE_DESIGN_AGENT_CHUNK_FRAMES")
+    # Сколько кусков action/camera одновременно (1 = по очереди, без залпа параллельных соединений).
+    scene_design_agent_chunk_parallel: int = Field(1, alias="SCENE_DESIGN_AGENT_CHUNK_PARALLEL")
     # Один GPT-вызов action/camera: abort раньше Cloudflare ~300s → сразу /2.
     # V9 плотнее — 240с часто режет живые куски; 280 даёт запас до CF.
     scene_design_agent_attempt_timeout_s: float = Field(280.0, alias="SCENE_DESIGN_AGENT_ATTEMPT_TIMEOUT_S")

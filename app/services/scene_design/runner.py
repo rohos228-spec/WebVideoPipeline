@@ -767,6 +767,31 @@ async def _run_one_agent_adaptive(
             raise ach.CreditsExhausted(
                 f"scene_design/{name}: нет кредитов GPT (402) — пополни баланс; retry/split отключены. {e}"
             ) from e
+        # Проактивные чанки (≤max_chunk кадров): повторяем ту же целую пачку (до 5 попыток),
+        # без нарезки пачки на одиночные фрагменты.
+        if max_chunk > 1 and (ach.is_transient_server_failure(e) or ach.is_capacity_failure(e)):
+            for retry_i in range(2, 6):
+                logger.warning(
+                    "[#{}] scene_design/{}: {} — same-chunk retry {}/5 (no split, frames={})",
+                    project.id,
+                    name,
+                    e,
+                    retry_i,
+                    len(frame_list),
+                )
+                await asyncio.sleep(2.0 * (retry_i - 1))
+                try:
+                    return await _call_once()
+                except Exception as e_retry:  # noqa: BLE001
+                    if ach.is_credits_failure(e_retry):
+                        raise ach.CreditsExhausted(
+                            f"scene_design/{name}: нет кредитов GPT (402) — "
+                            f"пополни баланс; retry/split отключены. {e_retry}"
+                        ) from e_retry
+                    e = e_retry
+                    if not (ach.is_transient_server_failure(e) or ach.is_capacity_failure(e)):
+                        break
+            raise e
         # 500/502/503: один повтор того же чанка (без /2), потом raise.
         if ach.is_transient_server_failure(e):
             logger.warning(
@@ -1197,52 +1222,37 @@ async def run_assembler_chunked(
             chunk_ctx = (
                 chunk_ctx + "\n\n" + ach.chunk_instruction(label=label or str(chunk_index), depth=depth)
             )
-        try:
-            # На adaptive-path: 1×524 → сразу half-split, без GPT_MAX_RETRIES кругов.
-            return await run_assembler(
-                project,
-                chunk_ctx,
-                chunk_input,
-                feedback=fb,
-                timeout=timeout,
-                max_retries=0,
-            )
-        except Exception as e:  # noqa: BLE001
-            if ach.is_capacity_failure(e) and depth < ach.MAX_SPLIT_DEPTH and len(batch) >= 2:
-                left, right = ach.split_frames_half(batch)
-                logger.warning(
-                    "[#{}] scene_design assemble chunk {}: {} — split depth {}→{}",
-                    project.id,
-                    chunk_index,
-                    e,
-                    depth,
-                    depth + 1,
+        last_err: Exception | None = None
+        for attempt in range(1, 6):
+            try:
+                return await run_assembler(
+                    project,
+                    chunk_ctx,
+                    chunk_input,
+                    feedback=fb,
+                    timeout=timeout,
+                    max_retries=0,
                 )
-                await asyncio.sleep(1.5)
-                left_part = await _assemble_batch(
-                    left,
-                    chunk_index=chunk_index,
-                    include_characters=include_characters,
-                    fb=fb,
-                    depth=depth + 1,
-                    label=f"{label or chunk_index}·a",
-                )
-                await asyncio.sleep(1.5)
-                right_part = await _assemble_batch(
-                    right,
-                    chunk_index=chunk_index,
-                    include_characters=False,
-                    fb=None,
-                    depth=depth + 1,
-                    label=f"{label or chunk_index}·b",
-                )
-                return chunks.merge_assembler_payloads([left_part, right_part])
-            if ach.is_capacity_failure(e) and depth >= ach.MAX_SPLIT_DEPTH:
-                raise ach.CapacitySplitExhausted(
-                    f"scene_design/assemble: capacity-failure после "
-                    f"{ach.MAX_SPLIT_DEPTH} дроблений чанка {chunk_index} — {e}"
-                ) from e
-            raise
+            except Exception as e:  # noqa: BLE001
+                if ach.is_credits_failure(e):
+                    raise ach.CreditsExhausted(
+                        f"scene_design/assemble: нет кредитов GPT (402) — пополни баланс; retry/split отключены. {e}"
+                    ) from e
+                last_err = e
+                if attempt < 5 and (ach.is_transient_server_failure(e) or ach.is_capacity_failure(e)):
+                    logger.warning(
+                        "[#{}] scene_design assemble chunk {}: {} — same-chunk retry {}/5 (no split, frames={})",
+                        project.id,
+                        chunk_index,
+                        e,
+                        attempt + 1,
+                        len(batch),
+                    )
+                    await asyncio.sleep(2.0 * attempt)
+                    continue
+                break
+        assert last_err is not None
+        raise last_err
 
     for i, batch in enumerate(batches, start=1):
         label = f"p{i}"

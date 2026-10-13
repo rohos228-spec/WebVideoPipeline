@@ -331,25 +331,45 @@ async def run_apply_ops_batched(
         return missing
 
     async def _run_adaptive(chunk: list[dict[str, Any]], level: int) -> None:
-        try:
-            missing = await _one_chunk(chunk, level)
-        except Exception as exc:
-            from app.services.llm_ledger import BudgetExhausted
+        max_whole_attempts = 5 if len(chunk) <= 8 else 1
+        last_exc: Exception | None = None
+        missing: list[dict[str, Any]] = []
+        for attempt in range(1, max_whole_attempts + 1):
+            try:
+                missing = await _one_chunk(chunk, level)
+                last_exc = None
+                break
+            except Exception as exc:
+                from app.services.llm_ledger import BudgetExhausted
 
-            # Этап 3: бюджет исчерпан — дробить чанк бессмысленно (каждая
-            # половина упрётся в тот же предохранитель), сразу наверх.
-            if isinstance(exc, BudgetExhausted):
-                raise
+                # Этап 3: бюджет исчерпан — дробить чанк бессмысленно (каждая
+                # половина упрётся в тот же предохранитель), сразу наверх.
+                if isinstance(exc, BudgetExhausted):
+                    raise
+                last_exc = exc
+                if attempt < max_whole_attempts:
+                    logger.warning(
+                        "[#{}] apply_ops node={!r}: L{} whole-pack retry {}/{} ({} frames): {}",
+                        project_id,
+                        node_key,
+                        level,
+                        attempt,
+                        max_whole_attempts,
+                        len(chunk),
+                        str(exc)[:160],
+                    )
+                    await asyncio.sleep(2.0 * attempt)
+        if last_exc is not None:
             nxt = next_split_level(level)
-            if nxt is None or len(chunk) <= 1:
-                raise
+            if nxt is None or len(chunk) <= 8:
+                raise last_exc
             parts = split_in_half(chunk)
             logger.warning(
                 "[#{}] apply_ops node={!r}: L{} fail ({}) → split {} frames into {} packs",
                 project_id,
                 node_key,
                 level,
-                str(exc)[:160],
+                str(last_exc)[:160],
                 len(chunk),
                 len(parts),
             )
@@ -365,6 +385,18 @@ async def run_apply_ops_batched(
                 f"({len(chunk) - len(missing)}/{len(chunk)}). uuid: "
                 f"{', '.join(str(fr.get('uuid') or '')[:8] for fr in missing[:8])}"
             )
+        if len(missing) <= 8:
+            logger.warning(
+                "[#{}] apply_ops node={!r}: L{} incomplete {}/{} → retry missing {} frames as whole pack",
+                project_id,
+                node_key,
+                level,
+                len(chunk) - len(missing),
+                len(chunk),
+                len(missing),
+            )
+            await _run_adaptive(missing, nxt)
+            return
         logger.warning(
             "[#{}] apply_ops node={!r}: L{} incomplete {}/{} → split L{}",
             project_id,
