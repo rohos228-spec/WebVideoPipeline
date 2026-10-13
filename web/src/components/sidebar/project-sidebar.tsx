@@ -483,6 +483,16 @@ export function ProjectSidebar({
           }
           onCreated={(p) => onSelect(p.id)}
         />
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="mt-2 h-8 w-8 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/[0.08]"
+          title={`Механика: ${pipelineMode === "v2" ? "Монтаж (v2)" : "Классика (v1)"}. Нажмите для описания и смены.`}
+          onClick={() => window.dispatchEvent(new CustomEvent("studio-open-mechanic-selector"))}
+        >
+          {pipelineMode === "v2" ? "🎬" : "🔹"}
+        </Button>
       </aside>
     );
   }
@@ -602,8 +612,18 @@ export function ProjectSidebar({
       </div>
 
       <div className="border-b border-white/[0.06] px-3 py-2">
-        <div className="mb-1 flex items-center justify-between">
+        <div className="mb-1.5 flex items-center justify-between">
           <span className="text-[11px] font-semibold text-zinc-400">Механика</span>
+          <button
+            type="button"
+            onClick={() =>
+              window.dispatchEvent(new CustomEvent("studio-open-mechanic-selector"))
+            }
+            className="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
+            title="Открыть описание механик и стилей производства"
+          >
+            О режимах ▾
+          </button>
         </div>
         <div className="grid grid-cols-2 gap-1.5">
           {(
@@ -615,10 +635,12 @@ export function ProjectSidebar({
             <button
               key={m.id}
               type="button"
-              onClick={() => setPipelineMode(m.id)}
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent("studio-open-mechanic-selector"));
+              }}
               title={m.title}
               className={cn(
-                "rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all",
+                "rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition-all cursor-pointer",
                 pipelineMode === m.id
                   ? "border-cyan-400/50 bg-cyan-500/10 text-cyan-300 shadow-sm"
                   : "border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:text-zinc-200 hover:border-white/15"
