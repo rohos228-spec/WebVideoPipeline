@@ -15,13 +15,8 @@ import {
   Clapperboard,
   Check,
   ArrowRight,
-  Sparkles,
-  Palette,
-  CheckCircle2,
   SlidersHorizontal,
   Loader2,
-  FileVideo,
-  Film,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { switchPipelineMode, usePipelineMode } from "@/hooks/use-pipeline-mode";
@@ -82,16 +77,9 @@ export function MechanicSelectorDialog({
     }, 150);
   };
 
-  const handleOpenStyles = () => {
-    setOpen(false);
-    window.dispatchEvent(
-      new CustomEvent("studio-open-outsee", { detail: { projectId: null } }),
-    );
-  };
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-[860px] max-h-[92vh] flex flex-col p-6 bg-zinc-950/95 border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.8)] backdrop-blur-2xl overflow-hidden">
+      <DialogContent className="sm:max-w-[820px] max-h-[92vh] flex flex-col p-6 bg-zinc-950/95 border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.8)] backdrop-blur-2xl overflow-hidden">
         <DialogHeader className="shrink-0 space-y-1.5 pb-2 border-b border-white/[0.08]">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/10 border border-cyan-400/20 text-cyan-400">
@@ -99,7 +87,7 @@ export function MechanicSelectorDialog({
             </div>
             <div>
               <DialogTitle className="text-lg font-bold tracking-tight text-white">
-                Механики студии и стили производства
+                Механики студии
               </DialogTitle>
               <DialogDescription className="text-xs text-zinc-400">
                 Выберите архитектуру пайплайна. Проекты каждой механики изолированы друг от друга.
@@ -318,36 +306,6 @@ export function MechanicSelectorDialog({
                     <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
                   </>
                 )}
-              </Button>
-            </div>
-          </div>
-
-          {/* Связка с визуальными стилями каналов (Outsee Styles) */}
-          <div className="rounded-2xl border border-white/[0.08] bg-gradient-to-r from-zinc-900/80 via-zinc-900/50 to-zinc-900/80 p-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 mt-0.5">
-                  <Palette className="h-4 w-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-                    Связка: 1 канал = 1 фиксированный стиль
-                  </h4>
-                  <p className="text-[11px] text-zinc-400 leading-relaxed mt-0.5">
-                    Визуальный стиль (аниме, 3D Pixar, нуар, фотореализм) и шаблоны промптов настраиваются для каждого канала в каталоге стилей. Вы можете выбрать готовый пресет или загрузить свой по референсам.
-                  </p>
-                </div>
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleOpenStyles}
-                className="shrink-0 text-xs font-semibold gap-1.5 border-amber-500/30 bg-amber-950/20 text-amber-300 hover:bg-amber-900/30 hover:border-amber-400/50 hover:text-amber-200"
-              >
-                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                Каталог стилей Outsee
               </Button>
             </div>
           </div>
