@@ -362,6 +362,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "retro_archive_8mm",
         art: "retro",
+        cover: "/gen-styles/retro_archive_8mm.webp",
         name: "Хроника 8мм",
         file: "visual_style/retro_archive_8mm.md",
         desc: "Зерно, царапины, выцветшие цвета, мерцание кадра",
@@ -373,6 +374,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "retro_polaroid",
         art: "retro",
+        cover: "/gen-styles/retro_polaroid.webp",
         name: "Полароид",
         file: "visual_style/retro_polaroid.md",
         desc: "Вспышка в лоб, вымытые цвета, снимок 80–90х",
@@ -384,6 +386,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "retro_newspaper_print",
         art: "retro",
+        cover: "/gen-styles/retro_newspaper_print.webp",
         name: "Газетная печать",
         file: "visual_style/retro_newspaper_print.md",
         desc: "Растр, пожелтевшая бумага, старые чернила",
@@ -395,6 +398,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "retro_investigation_board",
         art: "retro",
+        cover: "/gen-styles/retro_investigation_board.webp",
         name: "Доска расследования",
         file: "visual_style/retro_investigation_board.md",
         desc: "Пробковая доска, фото, красные нити, заметки",
@@ -413,6 +417,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "concept_dark_fantasy",
         art: "concept",
+        cover: "/gen-styles/concept_dark_fantasy.webp",
         name: "Тёмное фэнтези",
         file: "visual_style/concept_dark_fantasy.md",
         desc: "Эпический масштаб, мрачная готика, туман, эстетика Elden Ring",
@@ -424,6 +429,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "concept_isometric_diorama",
         art: "clay",
+        cover: "/gen-styles/concept_isometric_diorama.webp",
         name: "Миниатюрная 3D-диорама",
         file: "visual_style/concept_isometric_diorama.md",
         desc: "Изометрический мини-мир, эффект tilt-shift, осязаемые игрушечные материалы",
@@ -435,6 +441,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "concept_prismatic_glass",
         art: "concept",
+        cover: "/gen-styles/concept_prismatic_glass.webp",
         name: "Призматическое стекло",
         file: "visual_style/concept_prismatic_glass.md",
         desc: "Полупрозрачные стеклянные формы, дисперсия света, радужные блики",
@@ -446,6 +453,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "concept_whimsical_watercolor",
         art: "knit",
+        cover: "/gen-styles/concept_whimsical_watercolor.webp",
         name: "Акварельная сказка",
         file: "visual_style/concept_whimsical_watercolor.md",
         desc: "Мягкая акварель, карандашные контуры, атмосфера детской книжной иллюстрации",
