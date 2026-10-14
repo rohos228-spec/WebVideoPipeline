@@ -1,72 +1,30 @@
 [
   {
-    "display_name": "GPT 5.6 Sol",
-    "id": "gpt-5.6-sol",
+    "display_name": "Claude Sonnet 5.5",
+    "id": "claude-sonnet-5-5",
     "is_image": false,
     "object": "model",
     "owned_by": "vibecode",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.042646,
+      "cache_read_usd_per_m": 0.02,
       "currency": "usd",
-      "input_usd_per_m": 0.426462,
-      "output_usd_per_m": 2.558774
+      "input_usd_per_m": 0.2,
+      "output_usd_per_m": 0.98
     }
   },
   {
-    "display_name": "GPT 5.6 Terra",
-    "id": "gpt-5.6-terra",
+    "display_name": "Claude Opus 5.5",
+    "id": "claude-opus-5-5",
     "is_image": false,
     "object": "model",
     "owned_by": "vibecode",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.017058,
+      "cache_read_usd_per_m": 0.039,
       "currency": "usd",
-      "input_usd_per_m": 0.170585,
-      "output_usd_per_m": 1.02351
-    }
-  },
-  {
-    "display_name": "GPT 5.6 Luna",
-    "id": "gpt-5.6-luna",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.002624,
-      "currency": "usd",
-      "input_usd_per_m": 0.026244,
-      "output_usd_per_m": 0.157463
-    }
-  },
-  {
-    "display_name": "GPT 5.5",
-    "id": "gpt-5.5",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.042646,
-      "currency": "usd",
-      "input_usd_per_m": 0.426462,
-      "output_usd_per_m": 2.558774
-    }
-  },
-  {
-    "display_name": "Claude Fable 5",
-    "id": "claude-fable-5",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 5.881919,
-      "cache_read_usd_per_m": 0.470554,
-      "currency": "usd",
-      "input_usd_per_m": 4.705535,
-      "output_usd_per_m": 23.527676
+      "input_usd_per_m": 0.39,
+      "output_usd_per_m": 1.97
     }
   },
   {
@@ -76,81 +34,67 @@
     "object": "model",
     "owned_by": "vibecode",
     "pricing": {
-      "cache_create_usd_per_m": 0.588192,
-      "cache_read_usd_per_m": 0.047055,
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.02,
       "currency": "usd",
-      "input_usd_per_m": 0.470554,
-      "output_usd_per_m": 2.352768
+      "input_usd_per_m": 0.2,
+      "output_usd_per_m": 0.98
     }
   },
   {
-    "display_name": "Claude Sonnet 5",
-    "id": "claude-sonnet-5",
+    "display_name": "Claude Fable 5.1",
+    "id": "claude-fable-5-1",
     "is_image": false,
     "object": "model",
     "owned_by": "vibecode",
     "pricing": {
-      "cache_create_usd_per_m": 0.246036,
-      "cache_read_usd_per_m": 0.019683,
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.47,
       "currency": "usd",
-      "input_usd_per_m": 0.196829,
-      "output_usd_per_m": 0.984144
+      "input_usd_per_m": 4.71,
+      "output_usd_per_m": 23.53
     }
   },
   {
-    "display_name": "Claude Opus 4.8",
-    "id": "claude-opus-4-8",
+    "display_name": "Claude Fable 5",
+    "id": "claude-fable-5",
     "is_image": false,
     "object": "model",
     "owned_by": "vibecode",
     "pricing": {
-      "cache_create_usd_per_m": 0.61509,
-      "cache_read_usd_per_m": 0.049207,
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.47,
       "currency": "usd",
-      "input_usd_per_m": 0.492072,
-      "output_usd_per_m": 2.46036
+      "input_usd_per_m": 4.71,
+      "output_usd_per_m": 23.53
     }
   },
   {
-    "display_name": "Claude Opus 5",
-    "id": "claude-opus-5",
+    "display_name": "GPT 6 Sol",
+    "id": "gpt-6-sol",
     "is_image": false,
     "object": "model",
     "owned_by": "vibecode",
     "pricing": {
-      "cache_create_usd_per_m": 0.61509,
-      "cache_read_usd_per_m": 0.049207,
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.017,
       "currency": "usd",
-      "input_usd_per_m": 0.492072,
-      "output_usd_per_m": 2.46036
+      "input_usd_per_m": 0.17,
+      "output_usd_per_m": 0.85
     }
   },
   {
-    "display_name": "Grok 4.5",
-    "id": "grok-4-5",
+    "display_name": "GPT 6.1 Sol",
+    "id": "gpt-6.1-sol",
     "is_image": false,
     "object": "model",
     "owned_by": "vibecode",
     "pricing": {
-      "cache_create_usd_per_m": 0.06561,
-      "cache_read_usd_per_m": 0.016402,
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.017,
       "currency": "usd",
-      "input_usd_per_m": 0.06561,
-      "output_usd_per_m": 0.196829
-    }
-  },
-  {
-    "display_name": "Grok 4.6",
-    "id": "grok-4-6",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.06561,
-      "cache_read_usd_per_m": 0.016402,
-      "currency": "usd",
-      "input_usd_per_m": 0.06561,
-      "output_usd_per_m": 0.196829
+      "input_usd_per_m": 0.17,
+      "output_usd_per_m": 0.85
     }
   },
   {
@@ -161,10 +105,38 @@
     "owned_by": "vibecode",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.085292,
+      "cache_read_usd_per_m": 0.085,
       "currency": "usd",
-      "input_usd_per_m": 0.852925,
-      "output_usd_per_m": 4.264624
+      "input_usd_per_m": 0.85,
+      "output_usd_per_m": 4.26
+    }
+  },
+  {
+    "display_name": "GPT 5.6 Sol",
+    "id": "gpt-5.6-sol",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "vibecode",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.043,
+      "currency": "usd",
+      "input_usd_per_m": 0.43,
+      "output_usd_per_m": 2.56
+    }
+  },
+  {
+    "display_name": "GPT 6 Luna",
+    "id": "gpt-6-luna",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "vibecode",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.0013,
+      "currency": "usd",
+      "input_usd_per_m": 0.013,
+      "output_usd_per_m": 0.066
     }
   },
   {
@@ -175,38 +147,66 @@
     "owned_by": "vibecode",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.014762,
+      "cache_read_usd_per_m": 0.015,
       "currency": "usd",
-      "input_usd_per_m": 0.147622,
-      "output_usd_per_m": 0.738108
+      "input_usd_per_m": 0.15,
+      "output_usd_per_m": 0.74
     }
   },
   {
-    "display_name": "Gemini 3.7 Flash",
-    "id": "gemini-3.7-flash",
+    "display_name": "Gemini 3 Flash",
+    "id": "gemini-3-flash-preview",
     "is_image": false,
     "object": "model",
     "owned_by": "vibecode",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.014762,
+      "cache_read_usd_per_m": 0.0098,
       "currency": "usd",
-      "input_usd_per_m": 0.147622,
-      "output_usd_per_m": 0.738108
+      "input_usd_per_m": 0.098,
+      "output_usd_per_m": 0.59
     }
   },
   {
-    "display_name": "Gemini 3.1 Pro",
-    "id": "gemini-3.1-pro-preview",
+    "display_name": "Grok 4.7",
+    "id": "grok-4-7",
     "is_image": false,
     "object": "model",
     "owned_by": "vibecode",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.0098,
       "currency": "usd",
-      "input_usd_per_m": 0.393658,
-      "output_usd_per_m": 2.361946
+      "input_usd_per_m": 0.098,
+      "output_usd_per_m": 0.3
+    }
+  },
+  {
+    "display_name": "GLM 5.3 Flash",
+    "id": "glm-5.3-flash",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "vibecode",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.0039,
+      "currency": "usd",
+      "input_usd_per_m": 0.039,
+      "output_usd_per_m": 0.14
+    }
+  },
+  {
+    "display_name": "GLM 5.3 FlashX",
+    "id": "glm-5.3-flashx",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "vibecode",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.0098,
+      "currency": "usd",
+      "input_usd_per_m": 0.098,
+      "output_usd_per_m": 0.34
     }
   },
   {

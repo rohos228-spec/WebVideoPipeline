@@ -71,7 +71,7 @@ export const REASONING_OPTIONS: ReasoningOption[] = [
     iconColor: "text-fuchsia-400",
     dotColor: "bg-fuchsia-400",
     hint: "Предел",
-    desc: "Максимальное мышление (GPT-5.6 Sol / Claude Opus 5)",
+    desc: "Максимальное мышление (GPT-6 Sol / GPT-5.6 Sol / GPT-6 Astra)",
   },
 ];
 
@@ -79,10 +79,14 @@ export function getSupportedReasoningLevels(modelId: string | null | undefined):
   if (!modelId) return ["off", "low", "medium", "high", "xhigh"];
   const id = modelId.toLowerCase().replace(/-vibecode$/, "");
 
-  // Флагманы с максимальным контекстом мышления (32k+ токенов CoT)
+  // Флагманы с максимальным контекстом мышления (32k+ токенов CoT, включая xhigh)
   if (
     id === "gpt-5.6-sol" ||
     id === "gpt-5-6-sol" ||
+    id === "gpt-6-sol" ||
+    id === "gpt-6.1-sol" ||
+    id === "gpt-6-1-sol" ||
+    id === "gpt-6-astra" ||
     id === "gpt-kie" ||
     id === "claude-opus-5" ||
     id === "claude-sonnet-5"
@@ -93,6 +97,10 @@ export function getSupportedReasoningLevels(modelId: string | null | undefined):
   // Модели со стандартным CoT (до high)
   if (
     id.startsWith("gpt-5") ||
+    id.startsWith("gpt-6") ||
+    id.startsWith("gemini-3") ||
+    id.startsWith("grok") ||
+    id.startsWith("glm") ||
     id === "claude-opus-4-8" ||
     id.startsWith("claude-fable") ||
     id === "deepseek-v4-pro"
@@ -105,7 +113,7 @@ export function getSupportedReasoningLevels(modelId: string | null | undefined):
     return ["off", "low", "medium"];
   }
 
-  // Без поддержки CoT (Grok, Gemini, DeepSeek Flash, изображения, видео)
+  // Без поддержки CoT (Claude 5.5 без CoT на шлюзе Vibecode, изображения, видео)
   return [];
 }
 

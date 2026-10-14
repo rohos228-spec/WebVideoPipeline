@@ -163,13 +163,12 @@ const chipCls = (active: boolean) =>
   );
 
 const STYLE_COVER_FILE: Record<string, string> = {
-  infographic_tutor: "/gen-styles/infographic_tutor.jpg",
-  custom_mtwuuy1z: "/gen-styles/custom_mtwuuy1z.jpg",
-  custom_mtwxwlev: "/gen-styles/custom_mtwxwlev.jpg",
-  custom_mtxfckrd: "/gen-styles/custom_mtxfckrd.jpg",
-  custom_mty20b3s: "/gen-styles/custom_mty20b3s.jpg",
+  custom_mtwuuy1z: "/gen-styles/custom_mtwuuy1z.webp",
+  custom_mtwxwlev: "/gen-styles/custom_mtwxwlev.webp",
+  custom_mtxfckrd: "/gen-styles/custom_mtxfckrd.webp",
+  custom_mty20b3s: "/gen-styles/custom_mty20b3s.webp",
 };
-const COVER_CACHE = "c6";
+const COVER_CACHE = "c7";
 
 function bustCover(u: string): string {
   if (!u.startsWith("/gen-styles/") && !u.includes("/api/files?path=")) return u;
@@ -695,6 +694,7 @@ export function GenAssistantPanel({
           agent_text: agentText,
           aspect,
           count,
+          model: activeLlm?.model || activeLlm?.id || undefined,
           ref_labels: references.map(
             (r, i) => `${assistantRefHandle(i)} — ${r.name || "референс"}`,
           ),

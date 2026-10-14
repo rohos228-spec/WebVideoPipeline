@@ -53,6 +53,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "trash_polka_noir_short",
         art: "polka",
+        cover: "/gen-styles/trash_polka_noir_short.webp",
         name: "Треш-полька нуар",
         file: "visual_style/trash_polka_noir_short.md",
         desc: "Grunge poster, ink splash, blood-red акценты, distressed paper",
@@ -64,6 +65,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "micro_pixelart",
         art: "pixel",
+        cover: "/gen-styles/micro_pixelart.webp",
         name: "Микро-пиксельарт",
         file: "visual_style/micro_pixelart.md",
         desc: "16-bit pixel art, четкие пиксели, ретро-гейм эстетика",
@@ -75,6 +77,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "anime_cyber_tokyo",
         art: "anime",
+        cover: "/gen-styles/anime_cyber_tokyo.webp",
         name: "Киберпанк аниме",
         file: "visual_style/anime_cyber_tokyo.md",
         desc: "Неоновый Токио, детальные аниме-фоны, мокрый асфальт, вывески",
@@ -86,6 +89,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "animation_pixar_3d",
         art: "clay",
+        cover: "/gen-styles/animation_pixar_3d.webp",
         name: "3D Мультфильм",
         file: "visual_style/animation_pixar_3d.md",
         desc: "Выразительные персонажи, мягкий студийный свет, объемный рендер",
@@ -97,6 +101,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "comic_watercolor_ink",
         art: "polka",
+        cover: "/gen-styles/comic_watercolor_ink.webp",
         name: "Акварельный комикс",
         file: "visual_style/comic_watercolor_ink.md",
         desc: "Франко-бельгийский стиль BD, легкая тушь, акварельные переходы",
@@ -108,6 +113,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "noir_true_crime_poster",
         art: "noir",
+        cover: "/gen-styles/noir_true_crime_poster.webp",
         name: "Нуар true-crime",
         file: "visual_style/noir_true_crime_poster.md",
         desc: "Graphic novel, halftone grain, тяжёлые чёрные тени",
@@ -119,6 +125,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "clay_plasticine_2d",
         art: "clay",
+        cover: "/gen-styles/clay_plasticine_2d.webp",
         name: "Пластилин",
         file: "visual_style/clay_plasticine_2d.md",
         desc: "Claymation-миниатюра, отпечатки пальцев, matte texture",
@@ -130,6 +137,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "textile_cut_paper_knitted",
         art: "knit",
+        cover: "/gen-styles/textile_cut_paper_knitted.webp",
         name: "Вязаный / войлок",
         file: "visual_style/textile_cut_paper_knitted.md",
         desc: "Textile, cut-paper, тёплая осенняя палитра, вышивка",
@@ -141,6 +149,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "gritty_doc_noir_historical",
         art: "noir",
+        cover: "/gen-styles/gritty_doc_noir_historical.webp",
         name: "Док-нуар историч.",
         file: "visual_style/gritty_doc_noir_historical.md",
         desc: "Акварель и тушь, состаренная бумага, холодная луна",
@@ -159,7 +168,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "infographic_tutor",
         art: "tutor",
-        cover: "/gen-styles/infographic_tutor.jpg",
+        cover: "/gen-styles/infographic_tutor.webp",
         name: "Tutor",
         file: "visual_style/infographic_tutor.md",
         desc: "Обложка урока: крупный заголовок, 3D-тьютор у доски, кремовая палитра",
@@ -171,6 +180,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "infographic_isometric_cutaway",
         art: "diagram",
+        cover: "/gen-styles/infographic_isometric_cutaway.webp",
         name: "3D Разрез в изометрии",
         file: "visual_style/infographic_isometric_cutaway.md",
         desc: "Архитектурный или технический разрез в изометрии, детализированные уровни",
@@ -182,6 +192,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "infographic_modern_dashboard",
         art: "diagram",
+        cover: "/gen-styles/infographic_modern_dashboard.webp",
         name: "UI Дашборд / Glass",
         file: "visual_style/infographic_modern_dashboard.md",
         desc: "Премиальный интерфейс, матовое стекло, графики и карточки данных",
@@ -193,6 +204,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "infographic_flat_vector",
         art: "infographic",
+        cover: "/gen-styles/infographic_flat_vector.webp",
         name: "Flat vector",
         file: "visual_style/infographic_flat_vector.md",
         desc: "Плоские формы, иконки, стрелки, 2–4 акцентных цвета",
@@ -204,6 +216,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "infographic_isometric_data",
         art: "infographic",
+        cover: "/gen-styles/infographic_isometric_data.webp",
         name: "Изометрия data",
         file: "visual_style/infographic_isometric_data.md",
         desc: "Изометрические диаграммы, парящие блоки данных, сетка",
@@ -215,6 +228,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "infographic_chalkboard_sketch",
         art: "infographic",
+        cover: "/gen-styles/infographic_chalkboard_sketch.webp",
         name: "Меловая доска",
         file: "visual_style/infographic_chalkboard_sketch.md",
         desc: "Рукотворные маркерные схемы, стрелки, стик-фигуры",
@@ -226,6 +240,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "infographic_blueprint",
         art: "infographic",
+        cover: "/gen-styles/infographic_blueprint.webp",
         name: "Blueprint",
         file: "visual_style/infographic_blueprint.md",
         desc: "Белые линии на синьке, размерные линии, сечения",
@@ -244,6 +259,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "photo_cinematic_film_still",
         art: "photo",
+        cover: "/gen-styles/photo_cinematic_film_still.webp",
         name: "Кинокадр",
         file: "visual_style/photo_cinematic_film_still.md",
         desc: "Анаморфот, малая ГРИП, киношный грейдинг",
@@ -255,6 +271,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "photo_editorial_portrait",
         art: "fashion",
+        cover: "/gen-styles/photo_editorial_portrait.webp",
         name: "Fashion портрет",
         file: "visual_style/photo_editorial_portrait.md",
         desc: "Студийный портрет для журнала, контролируемый свет, фактура кожи",
@@ -266,6 +283,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "photo_wildlife_natgeo",
         art: "nature",
+        cover: "/gen-styles/photo_wildlife_natgeo.webp",
         name: "Дикая природа / NatGeo",
         file: "visual_style/photo_wildlife_natgeo.md",
         desc: "Крупный план животных в среде, телеобъектив, мягкий золотой свет",
@@ -277,6 +295,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "photo_documentary",
         art: "photo",
+        cover: "/gen-styles/photo_documentary.webp",
         name: "Документальное",
         file: "visual_style/photo_documentary.md",
         desc: "Репортаж, естественный свет, зерно 35mm",
@@ -288,6 +307,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "photo_macro_product",
         art: "photo",
+        cover: "/gen-styles/photo_macro_product.webp",
         name: "Макро-предметка",
         file: "visual_style/photo_macro_product.md",
         desc: "Предмет крупно, студийный свет, премиальный глянец",
@@ -299,6 +319,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "photo_night_street",
         art: "photo",
+        cover: "/gen-styles/photo_night_street.webp",
         name: "Ночная улица",
         file: "visual_style/photo_night_street.md",
         desc: "Зерно высокого ISO, неон, мокрый асфальт, смаз",
@@ -317,6 +338,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "retro_synthwave_80s",
         art: "retro",
+        cover: "/gen-styles/retro_synthwave_80s.webp",
         name: "Синтвейв 80-х",
         file: "visual_style/retro_synthwave_80s.md",
         desc: "Неоновая сетка, хром, фиолетово-бирюзовый закат, VHS",
@@ -328,6 +350,7 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "retro_propaganda_poster",
         art: "retro",
+        cover: "/gen-styles/retro_propaganda_poster.webp",
         name: "Ретро-постер / Пин-ап",
         file: "visual_style/retro_propaganda_poster.md",
         desc: "Графика середины XX века, шелкография, текстура крафта",

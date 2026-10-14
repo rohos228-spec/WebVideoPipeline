@@ -274,6 +274,7 @@ async def generate_prompts(
     aspect: str = "9:16",
     count: int = 1,
     ref_labels: list[str] | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Агент + обвязка. Без готового промпта — ValueError, картинка не стартует."""
     request = (request or "").strip()
@@ -322,14 +323,17 @@ async def generate_prompts(
         from app.services.gpt_api import chat
 
         logger.info(
-            "gen_assistant: chat system_chars={} request_chars={}",
+            "gen_assistant: chat system_chars={} request_chars={} model={}",
             len(master),
             len(user),
+            model or "default",
         )
         async with _LLM_LOCK:
             result = await chat(
                 prompt=user,
                 system=master,
+                model=model,
+                reasoning_effort="low",
                 timeout=180,
                 max_retries=4,
                 auto_pack=False,
@@ -347,6 +351,8 @@ async def generate_prompts(
                 result2 = await chat(
                     prompt=retry_user,
                     system=master,
+                    model=model,
+                    reasoning_effort="low",
                     timeout=120,
                     max_retries=3,
                     auto_pack=False,
