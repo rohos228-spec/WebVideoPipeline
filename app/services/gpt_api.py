@@ -2764,7 +2764,7 @@ async def _chat_unscoped(
             reasoning = _responses_reasoning_block()
             if reasoning is not None:
                 m_low = use_model.lower()
-                if any(m_low.startswith(p) for p in ("o1", "o3", "o4", "gpt-5")):
+                if any(m_low.startswith(p) for p in ("o1", "o3", "o4", "gpt-5", "gpt-6")):
                     effort_val = reasoning["effort"]
                     body["reasoning_effort"] = "high" if effort_val == "xhigh" else effort_val
     if temperature is not None:

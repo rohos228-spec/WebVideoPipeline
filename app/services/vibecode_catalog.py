@@ -22,7 +22,7 @@ VIDEO_NODE_TYPES = frozenset({"videos", "hitl_videos"})
 DEFAULT_TEXT_MODEL_ID = "gpt-5.6-sol"
 DEFAULT_IMAGE_MODEL_ID = "gpt-image-2-vip"
 DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite"
-HIDDEN_IMAGE_IDS = frozenset({"gpt-image-2", "nano-banana", "nano-banana-pro"})
+HIDDEN_IMAGE_IDS = frozenset({"gpt-image-2", "nano-banana", "nano-banana-pro", "gpt-6-astra"})
 IMAGE_MODEL_ALIASES = {"gpt-image-2": "gpt-image-2-vip"}
 #: Написания текстовых моделей, которые приходят с ноды/из .env, → id снимка.
 #: `GPT_MODEL` в .env пишут через дефис, каталог Студии — через точку;

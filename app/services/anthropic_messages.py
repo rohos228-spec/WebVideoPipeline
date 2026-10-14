@@ -170,9 +170,17 @@ def build_request(
         req["output_config"] = {
             "format": {"type": "json_schema", "schema": response_schema.schema},
         }
-    from app.services.text_llm_catalog import resolve_active_reasoning_effort
+    from app.services.llm_override import current_override
+    from app.services.text_llm_catalog import (
+        normalize_reasoning_effort,
+        resolve_active_reasoning_effort,
+    )
 
-    effort = resolve_active_reasoning_effort()
+    ov = current_override()
+    if ov and ov.reasoning_effort:
+        effort = normalize_reasoning_effort(ov.reasoning_effort)
+    else:
+        effort = resolve_active_reasoning_effort()
     if effort and effort != "off" and effort in _THINKING_BUDGETS:
         budget = _THINKING_BUDGETS[effort]
         req["thinking"] = {"type": "enabled", "budget_tokens": budget}

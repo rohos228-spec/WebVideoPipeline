@@ -25,7 +25,7 @@ export interface ReasoningOption {
 export const REASONING_OPTIONS: ReasoningOption[] = [
   {
     id: "off",
-    label: "Выкл",
+    label: "off",
     badge: "border-white/10 bg-black/40 text-zinc-400 hover:text-zinc-200 hover:border-white/20",
     activeBadge: "border-white/25 bg-white/[0.08] text-zinc-200",
     iconColor: "text-zinc-400",
@@ -35,7 +35,7 @@ export const REASONING_OPTIONS: ReasoningOption[] = [
   },
   {
     id: "low",
-    label: "Низкий",
+    label: "low",
     badge: "border-cyan-500/30 bg-cyan-950/40 text-cyan-300 hover:border-cyan-400/50 hover:bg-cyan-950/60",
     activeBadge: "border-cyan-400/60 bg-cyan-950/60 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.25)]",
     iconColor: "text-cyan-400",
@@ -45,7 +45,7 @@ export const REASONING_OPTIONS: ReasoningOption[] = [
   },
   {
     id: "medium",
-    label: "Средний",
+    label: "medium",
     badge: "border-emerald-500/30 bg-emerald-950/40 text-emerald-300 hover:border-emerald-400/50 hover:bg-emerald-950/60",
     activeBadge: "border-emerald-400/60 bg-emerald-950/60 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.25)]",
     iconColor: "text-emerald-400",
@@ -55,7 +55,7 @@ export const REASONING_OPTIONS: ReasoningOption[] = [
   },
   {
     id: "high",
-    label: "Высокий",
+    label: "high",
     badge: "border-amber-500/30 bg-amber-950/40 text-amber-300 hover:border-amber-400/50 hover:bg-amber-950/60",
     activeBadge: "border-amber-400/60 bg-amber-950/60 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.25)]",
     iconColor: "text-amber-400",
@@ -65,29 +65,86 @@ export const REASONING_OPTIONS: ReasoningOption[] = [
   },
   {
     id: "xhigh",
-    label: "Экстра",
+    label: "xhigh",
     badge: "border-fuchsia-500/30 bg-fuchsia-950/40 text-fuchsia-300 hover:border-fuchsia-400/50 hover:bg-fuchsia-950/60",
     activeBadge: "border-fuchsia-400/60 bg-fuchsia-950/60 text-fuchsia-200 shadow-[0_0_12px_rgba(217,70,239,0.25)]",
     iconColor: "text-fuchsia-400",
     dotColor: "bg-fuchsia-400",
     hint: "Предел",
-    desc: "Максимальное мышление GPT-5.6",
+    desc: "Максимальное мышление (GPT-5.6 Sol / Claude Opus 5)",
   },
 ];
+
+export function getSupportedReasoningLevels(modelId: string | null | undefined): ReasoningEffortLevel[] {
+  if (!modelId) return ["off", "low", "medium", "high", "xhigh"];
+  const id = modelId.toLowerCase().replace(/-vibecode$/, "");
+
+  // Флагманы с максимальным контекстом мышления (32k+ токенов CoT)
+  if (
+    id === "gpt-5.6-sol" ||
+    id === "gpt-5-6-sol" ||
+    id === "gpt-kie" ||
+    id === "claude-opus-5" ||
+    id === "claude-sonnet-5"
+  ) {
+    return ["off", "low", "medium", "high", "xhigh"];
+  }
+
+  // Модели со стандартным CoT (до high)
+  if (
+    id.startsWith("gpt-5") ||
+    id === "claude-opus-4-8" ||
+    id.startsWith("claude-fable") ||
+    id === "deepseek-v4-pro"
+  ) {
+    return ["off", "low", "medium", "high"];
+  }
+
+  // Легковесный CoT
+  if (id.startsWith("claude-haiku")) {
+    return ["off", "low", "medium"];
+  }
+
+  // Без поддержки CoT (Grok, Gemini, DeepSeek Flash, изображения, видео)
+  return [];
+}
+
+export function clampReasoningEffort(
+  effort: string | null | undefined,
+  supported: ReasoningEffortLevel[],
+  fallback: ReasoningEffortLevel = "medium",
+): ReasoningEffortLevel {
+  if (!supported.length) return "off";
+  const cur = (effort || "").toLowerCase() as ReasoningEffortLevel;
+  if (supported.includes(cur)) return cur;
+  if (cur === "xhigh" && supported.includes("high")) return "high";
+  if (supported.includes(fallback)) return fallback;
+  return supported[0];
+}
 
 export function NodeReasoningPicker({
   nodeKey,
   effort,
+  modelId,
 }: {
   nodeKey: string;
   effort?: string | null;
+  modelId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
 
-  // Стандартное значение для нод — medium (если не задано)
-  const currentEffort = (effort || "medium").toLowerCase() as ReasoningEffortLevel;
+  const supported = getSupportedReasoningLevels(modelId);
+  if (modelId && !supported.length) {
+    return null;
+  }
+
+  const availableOptions = supported.length
+    ? REASONING_OPTIONS.filter((opt) => supported.includes(opt.id))
+    : REASONING_OPTIONS;
+
+  const currentEffort = clampReasoningEffort(effort, supported.length ? supported : ["off", "low", "medium", "high", "xhigh"], "medium");
   const activeOption =
-    REASONING_OPTIONS.find((opt) => opt.id === currentEffort) || REASONING_OPTIONS[2];
+    availableOptions.find((opt) => opt.id === currentEffort) || availableOptions[0] || REASONING_OPTIONS[2];
 
   const handleSelect = (newEffort: ReasoningEffortLevel) => {
     window.dispatchEvent(
@@ -145,7 +202,7 @@ export function NodeReasoningPicker({
           <span className="text-[9px] font-mono text-zinc-500">Reasoning</span>
         </div>
         <div className="flex flex-col gap-0.5">
-          {REASONING_OPTIONS.map((opt) => {
+          {availableOptions.map((opt) => {
             const isSelected = activeOption.id === opt.id;
             return (
               <button

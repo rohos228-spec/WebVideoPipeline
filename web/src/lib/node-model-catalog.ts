@@ -101,6 +101,7 @@ export const HIDDEN_IMAGE_IDS = new Set([
   "seedream-4.5",
   "seedream-5-lite",
   "gpt-image-1.5",
+  "gpt-6-astra",
 ]);
 
 export const VENDOR_META: Record<

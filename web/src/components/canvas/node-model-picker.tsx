@@ -1,6 +1,4 @@
-"use client";
-
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Brain,
@@ -24,7 +22,12 @@ import {
   type CatalogModel,
   type ModelCatalogPayload,
 } from "@/lib/node-model-catalog";
-import { REASONING_OPTIONS, type ReasoningEffortLevel } from "./node-reasoning-picker";
+import {
+  REASONING_OPTIONS,
+  clampReasoningEffort,
+  getSupportedReasoningLevels,
+  type ReasoningEffortLevel,
+} from "./node-reasoning-picker";
 import {
   clampMediaOption,
   mediaOptionsForModel,
@@ -154,7 +157,10 @@ export function NodeModelPicker({
     staleTime: 60_000,
   });
 
-  const catalog = catalogForNodeType(catalogQuery.data?.catalog ?? localCatalog(), nodeType);
+  const catalog = useMemo(
+    () => catalogForNodeType(catalogQuery.data?.catalog ?? localCatalog(), nodeType),
+    [catalogQuery.data?.catalog, nodeType],
+  );
   const selected = findCatalogModel(catalog, selectedId) ?? findCatalogModel(localCatalog(), selectedId);
   const media = mediaOptionsForModel(selectedId);
   const priceBit = selected?.pricing.usd_per_video
@@ -167,9 +173,11 @@ export function NodeModelPicker({
     (selected.id.endsWith("-t2v") || Boolean(selected.api_model?.endsWith("-t2v")));
 
   const isText = isTextNodeType(nodeType);
-  const activeEffortOpt = isText
-    ? REASONING_OPTIONS.find((o) => o.id === (reasoningEffort || "medium"))
-    : null;
+  const supported = isText ? getSupportedReasoningLevels(selectedId) : [];
+  const activeEffortOpt =
+    isText && supported.length > 0
+      ? REASONING_OPTIONS.find((o) => o.id === (reasoningEffort || "medium"))
+      : null;
 
   const summaryBits = [
     selected?.label || selectedId,
@@ -243,7 +251,7 @@ function ModelCatalogDialog({
   open,
   onOpenChange,
   nodeKey,
-  nodeType,
+  nodeType: _nodeType,
   selectedId,
   reasoningEffort,
   catalog,
@@ -264,34 +272,15 @@ function ModelCatalogDialog({
 }) {
   const selectedModel = findCatalogModel(catalog, selectedId);
   const [vendor, setVendor] = useState<string>(selectedModel?.vendor || "anthropic");
-  const [activeEffort, setActiveEffort] = useState<ReasoningEffortLevel>(
-    ((reasoningEffort || "medium").toLowerCase() as ReasoningEffortLevel) || "medium",
-  );
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (!open) return;
-    const next = findCatalogModel(catalog, selectedId)?.vendor;
-    if (next) setVendor(next);
-    if (reasoningEffort) {
-      setActiveEffort(reasoningEffort.toLowerCase() as ReasoningEffortLevel);
+    if (open && !wasOpenRef.current) {
+      const next = findCatalogModel(catalog, selectedId)?.vendor;
+      if (next) setVendor(next);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- catalog identity churns every render
-  }, [open, selectedId, reasoningEffort]);
-
-  const onEffortSelect = (effortId: ReasoningEffortLevel) => {
-    setActiveEffort(effortId);
-    window.dispatchEvent(
-      new CustomEvent("canvas-patch-node-data", {
-        detail: {
-          nodeKey,
-          patch: { reasoningEffort: effortId },
-        },
-      }),
-    );
-    window.dispatchEvent(new CustomEvent("canvas-save-workflow"));
-    const opt = REASONING_OPTIONS.find((o) => o.id === effortId);
-    toast.success(`Уровень мышления ноды: ${opt?.label || effortId}`);
-  };
+    wasOpenRef.current = open;
+  }, [open, selectedId, catalog]);
 
   const activeVendor =
     catalog.vendors.find((v) => v.id === vendor) ??
@@ -322,9 +311,14 @@ function ModelCatalogDialog({
                 <button
                   key={v.id}
                   type="button"
-                  onClick={() => setVendor(v.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setVendor(v.id);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                   className={cn(
-                    "flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-all duration-200",
+                    "flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-all duration-200 cursor-pointer select-none",
                     active
                       ? "border-[#b49bff] bg-[#b49bff]/12 text-[#d9ccff] shadow-[0_0_18px_rgba(180,155,255,0.22)]"
                       : "border-transparent text-white/45 hover:border-white/10 hover:bg-white/[0.04] hover:text-white/75",
@@ -340,49 +334,6 @@ function ModelCatalogDialog({
             })}
           </div>
         </div>
-        {isTextNodeType(nodeType) && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] bg-white/[0.02] px-5 py-2.5">
-            <div className="flex items-center gap-2">
-              <Brain className="h-4 w-4 text-[#b49bff]" />
-              <div>
-                <div className="text-xs font-semibold text-white/90">
-                  Уровень мышления LLM (Reasoning Effort)
-                </div>
-                <div className="text-[10px] text-white/40">
-                  Глубина рассуждений модели для этой ноды
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {REASONING_OPTIONS.map((opt) => {
-                const isSelected = activeEffort === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onEffortSelect(opt.id)}
-                    title={opt.desc}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all duration-200",
-                      isSelected
-                        ? opt.activeBadge
-                        : "border-white/10 bg-black/40 text-white/50 hover:border-white/20 hover:bg-white/[0.04] hover:text-white/80",
-                    )}
-                  >
-                    <span className={cn("h-1.5 w-1.5 rounded-full", opt.dotColor)} />
-                    <span className={cn("font-semibold", isSelected && opt.iconColor)}>
-                      {opt.label}
-                    </span>
-                    <span className="font-mono text-[10px] opacity-60">({opt.hint})</span>
-                    {isSelected && (
-                      <Check className={cn("ml-0.5 h-3 w-3", opt.iconColor)} strokeWidth={2.5} />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           <div
             className={cn(
@@ -398,6 +349,7 @@ function ModelCatalogDialog({
                 model={m}
                 selected={m.id === selectedId}
                 delay={idx * 30}
+                reasoningEffort={reasoningEffort}
                 imageResolution={m.id === selectedId ? imageResolution : null}
                 imageQuality={m.id === selectedId ? imageQuality : null}
                 aspectRatio={m.id === selectedId ? aspectRatio : null}
@@ -407,13 +359,14 @@ function ModelCatalogDialog({
                     nodeKey,
                     {
                       ...patch,
-                      ...(isText ? { reasoningEffort: activeEffort } : {}),
+                      ...(isText && patch.reasoningEffort ? { reasoningEffort: patch.reasoningEffort } : {}),
                     },
                     isText,
                   );
                   onOpenChange(false);
                   if (isText) {
-                    toast.success(`Модель «${m.label}» применена ко всем текстовым нодам`);
+                    const effText = patch.reasoningEffort && patch.reasoningEffort !== "off" ? ` (🧠 ${patch.reasoningEffort})` : "";
+                    toast.success(`Модель «${m.label}»${effText} применена ко всем текстовым нодам`);
                   } else {
                     toast.success(`Модель: ${m.label}`);
                   }
@@ -491,14 +444,16 @@ function ModelCard({
   imageResolution,
   imageQuality,
   aspectRatio,
+  reasoningEffort,
 }: {
   model: CatalogModel;
   selected: boolean;
-  onApply: (patch: NodeMediaPatch) => void;
+  onApply: (patch: NodeMediaPatch & { reasoningEffort?: string }) => void;
   delay: number;
   imageResolution?: string | null;
   imageQuality?: string | null;
   aspectRatio?: string | null;
+  reasoningEffort?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
   const media = mediaOptionsForModel(model.id);
@@ -515,6 +470,18 @@ function ModelCard({
   const [aspect, setAspect] = useState(() =>
     clampMediaOption(aspectRatio, media?.aspects ?? [], media?.defaultAspect ?? "16:9"),
   );
+
+  const isText = model.kind === "text";
+  const supportedLevels = useMemo(() => getSupportedReasoningLevels(model.id), [model.id]);
+  const [effort, setEffort] = useState<ReasoningEffortLevel>(() =>
+    clampReasoningEffort(reasoningEffort, supportedLevels, "medium"),
+  );
+
+  useEffect(() => {
+    if (reasoningEffort && supportedLevels.length) {
+      setEffort(clampReasoningEffort(reasoningEffort, supportedLevels, "medium"));
+    }
+  }, [reasoningEffort, supportedLevels]);
 
   useEffect(() => {
     const next = mediaOptionsForModel(model.id);
@@ -538,6 +505,18 @@ function ModelCard({
     media && (media.resolutions.length || media.qualities.length || media.aspects.length),
   );
 
+  const handleApply = () => {
+    const patch = buildMediaPatch(model.id, {
+      imageResolution: resolution,
+      imageQuality: quality,
+      aspectRatio: aspect,
+    });
+    onApply({
+      ...patch,
+      ...(isText ? { reasoningEffort: supportedLevels.length ? effort : "off" } : {}),
+    });
+  };
+
   return (
     <div
       style={{ animationDelay: `${delay}ms` }}
@@ -557,15 +536,7 @@ function ModelCard({
       <button
         type="button"
         className="min-w-0 pr-6 text-left"
-        onClick={() =>
-          onApply(
-            buildMediaPatch(model.id, {
-              imageResolution: resolution,
-              imageQuality: quality,
-              aspectRatio: aspect,
-            }),
-          )
-        }
+        onClick={handleApply}
       >
         <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold tracking-tight text-white">
           <span className="truncate">{model.label.replace(/\s*\(1K\/2K\/4K\)\s*$/i, "")}</span>
@@ -646,6 +617,61 @@ function ModelCard({
         </div>
       )}
 
+      {isText && (
+        <div
+          className="mt-3 rounded-xl border border-white/[0.06] bg-black/40 p-2.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-2 flex items-center justify-between text-[10px]">
+            <span className="flex items-center gap-1.5 font-semibold text-white/80">
+              <Brain className="h-3.5 w-3.5 text-[#b49bff]" />
+              Рассуждение (Reasoning)
+            </span>
+            {supportedLevels.length > 0 ? (
+              <span className="font-mono text-[9px] text-white/40">
+                {REASONING_OPTIONS.find((o) => o.id === effort)?.hint}
+              </span>
+            ) : (
+              <span className="text-[9px] text-white/35">не требуется</span>
+            )}
+          </div>
+
+          {supportedLevels.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1">
+              {supportedLevels.map((lvl) => {
+                const opt = REASONING_OPTIONS.find((o) => o.id === lvl);
+                if (!opt) return null;
+                const isActive = effort === lvl;
+                return (
+                  <button
+                    key={lvl}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEffort(lvl);
+                    }}
+                    title={opt.desc}
+                    className={cn(
+                      "flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-all duration-150 select-none",
+                      isActive
+                        ? opt.activeBadge
+                        : "border-white/8 bg-white/[0.02] text-white/45 hover:border-white/15 hover:text-white/75",
+                    )}
+                  >
+                    <span className={cn("h-1.5 w-1.5 rounded-full", opt.dotColor)} />
+                    <span>{opt.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-[10px] text-white/40">
+              Стандартный режим (без CoT)
+            </div>
+          )}
+        </div>
+      )}
+
       {hasMediaMenus && media ? (
         <div className="mt-3 space-y-1.5" onClick={(e) => e.stopPropagation()}>
           <div className="flex gap-1.5">
@@ -677,15 +703,7 @@ function ModelCard({
           <button
             type="button"
             className="w-full rounded-lg border border-[#b49bff]/40 bg-[#b49bff]/10 px-2 py-1.5 text-[11px] font-semibold text-[#d9ccff] hover:bg-[#b49bff]/18"
-            onClick={() =>
-              onApply(
-                buildMediaPatch(model.id, {
-                  imageResolution: resolution,
-                  imageQuality: quality,
-                  aspectRatio: aspect,
-                }),
-              )
-            }
+            onClick={handleApply}
           >
             Выбрать
           </button>
@@ -694,7 +712,7 @@ function ModelCard({
         <button
           type="button"
           className="mt-3 w-full rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-[11px] font-medium text-white/70 hover:border-[#b49bff]/40 hover:text-[#d9ccff]"
-          onClick={() => onApply(buildMediaPatch(model.id, {}))}
+          onClick={handleApply}
         >
           Выбрать
         </button>
