@@ -19,7 +19,7 @@ _SNAPSHOT_PATH = Path(__file__).resolve().parent / "vibecode_models_snapshot.jso
 
 IMAGE_NODE_TYPES = frozenset({"images", "hero", "items", "hitl_images"})
 VIDEO_NODE_TYPES = frozenset({"videos", "hitl_videos"})
-DEFAULT_TEXT_MODEL_ID = "claude-opus-5"
+DEFAULT_TEXT_MODEL_ID = "gpt-5.6-sol"
 DEFAULT_IMAGE_MODEL_ID = "gpt-image-2-vip"
 DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite"
 HIDDEN_IMAGE_IDS = frozenset({"gpt-image-2", "nano-banana", "nano-banana-pro"})
@@ -537,7 +537,9 @@ def resolve_node_choice(
         return None
     found = find_model(mid, channel=channel)
     if found:
-        found = {**found, "channel": channel}
+        data = _node_data_dict(node)
+        effort = str(data.get("reasoningEffort") or data.get("reasoning_effort") or "").strip()
+        found = {**found, "channel": channel, "reasoning_effort": effort or None}
     return found
 
 

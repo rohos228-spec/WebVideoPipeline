@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Brain,
   Check,
   ChevronDown,
   Copy,
@@ -18,10 +19,12 @@ import {
   defaultModelIdForNodeType,
   findCatalogModel,
   formatUsdPrice,
+  isTextNodeType,
   localCatalog,
   type CatalogModel,
   type ModelCatalogPayload,
 } from "@/lib/node-model-catalog";
+import { REASONING_OPTIONS, type ReasoningEffortLevel } from "./node-reasoning-picker";
 import {
   clampMediaOption,
   mediaOptionsForModel,
@@ -69,7 +72,11 @@ function VendorGlyph({ icon, className }: { icon: string; className?: string }) 
   return <span className={cn("font-semibold leading-none", className)}>{icon}</span>;
 }
 
-function patchNodeModel(nodeKey: string, patch: NodeMediaPatch, isText?: boolean) {
+function patchNodeModel(
+  nodeKey: string,
+  patch: NodeMediaPatch & { reasoningEffort?: string },
+  isText?: boolean,
+) {
   window.dispatchEvent(
     new CustomEvent("canvas-patch-node-data", {
       detail: { nodeKey, patch, globalText: isText },
@@ -118,16 +125,20 @@ export function NodeModelPicker({
   nodeKey,
   nodeType,
   modelId,
+  reasoningEffort,
   imageResolution,
   imageQuality,
   aspectRatio,
+  className,
 }: {
   nodeKey: string;
   nodeType: string;
   modelId?: string | null;
+  reasoningEffort?: string | null;
   imageResolution?: string | null;
   imageQuality?: string | null;
   aspectRatio?: string | null;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const fallbackId = defaultModelIdForNodeType(nodeType);
@@ -154,8 +165,15 @@ export function NodeModelPicker({
   const isSelectedT2V =
     selected?.kind === "video" &&
     (selected.id.endsWith("-t2v") || Boolean(selected.api_model?.endsWith("-t2v")));
+
+  const isText = isTextNodeType(nodeType);
+  const activeEffortOpt = isText
+    ? REASONING_OPTIONS.find((o) => o.id === (reasoningEffort || "medium"))
+    : null;
+
   const summaryBits = [
     selected?.label || selectedId,
+    activeEffortOpt ? `🧠 ${activeEffortOpt.label}` : null,
     isSelectedT2V ? "T2V" : null,
     priceBit,
     media?.resolutions.length
@@ -181,7 +199,8 @@ export function NodeModelPicker({
         type="button"
         title="Выбрать модель"
         className={cn(
-          "nodrag nopan nowheel mt-1 flex w-full min-w-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-left transition-all duration-200",
+          "nodrag nopan nowheel flex w-full min-w-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-left transition-all duration-200",
+          className !== undefined ? className : "mt-1",
           open
             ? "border-[#b49bff]/70 bg-[#b49bff]/10 shadow-[0_0_16px_rgba(180,155,255,0.18)]"
             : "border-white/10 bg-black/30 hover:border-[#b49bff]/40 hover:bg-[#b49bff]/5",
@@ -210,6 +229,7 @@ export function NodeModelPicker({
         nodeKey={nodeKey}
         nodeType={nodeType}
         selectedId={selectedId}
+        reasoningEffort={reasoningEffort}
         catalog={catalog}
         imageResolution={imageResolution}
         imageQuality={imageQuality}
@@ -225,6 +245,7 @@ function ModelCatalogDialog({
   nodeKey,
   nodeType,
   selectedId,
+  reasoningEffort,
   catalog,
   imageResolution,
   imageQuality,
@@ -235,6 +256,7 @@ function ModelCatalogDialog({
   nodeKey: string;
   nodeType: string;
   selectedId: string;
+  reasoningEffort?: string | null;
   catalog: ModelCatalogPayload;
   imageResolution?: string | null;
   imageQuality?: string | null;
@@ -242,13 +264,34 @@ function ModelCatalogDialog({
 }) {
   const selectedModel = findCatalogModel(catalog, selectedId);
   const [vendor, setVendor] = useState<string>(selectedModel?.vendor || "anthropic");
+  const [activeEffort, setActiveEffort] = useState<ReasoningEffortLevel>(
+    ((reasoningEffort || "medium").toLowerCase() as ReasoningEffortLevel) || "medium",
+  );
 
   useEffect(() => {
     if (!open) return;
     const next = findCatalogModel(catalog, selectedId)?.vendor;
     if (next) setVendor(next);
+    if (reasoningEffort) {
+      setActiveEffort(reasoningEffort.toLowerCase() as ReasoningEffortLevel);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- catalog identity churns every render
-  }, [open, selectedId]);
+  }, [open, selectedId, reasoningEffort]);
+
+  const onEffortSelect = (effortId: ReasoningEffortLevel) => {
+    setActiveEffort(effortId);
+    window.dispatchEvent(
+      new CustomEvent("canvas-patch-node-data", {
+        detail: {
+          nodeKey,
+          patch: { reasoningEffort: effortId },
+        },
+      }),
+    );
+    window.dispatchEvent(new CustomEvent("canvas-save-workflow"));
+    const opt = REASONING_OPTIONS.find((o) => o.id === effortId);
+    toast.success(`Уровень мышления ноды: ${opt?.label || effortId}`);
+  };
 
   const activeVendor =
     catalog.vendors.find((v) => v.id === vendor) ??
@@ -297,6 +340,49 @@ function ModelCatalogDialog({
             })}
           </div>
         </div>
+        {isTextNodeType(nodeType) && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] bg-white/[0.02] px-5 py-2.5">
+            <div className="flex items-center gap-2">
+              <Brain className="h-4 w-4 text-[#b49bff]" />
+              <div>
+                <div className="text-xs font-semibold text-white/90">
+                  Уровень мышления LLM (Reasoning Effort)
+                </div>
+                <div className="text-[10px] text-white/40">
+                  Глубина рассуждений модели для этой ноды
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {REASONING_OPTIONS.map((opt) => {
+                const isSelected = activeEffort === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onEffortSelect(opt.id)}
+                    title={opt.desc}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all duration-200",
+                      isSelected
+                        ? opt.activeBadge
+                        : "border-white/10 bg-black/40 text-white/50 hover:border-white/20 hover:bg-white/[0.04] hover:text-white/80",
+                    )}
+                  >
+                    <span className={cn("h-1.5 w-1.5 rounded-full", opt.dotColor)} />
+                    <span className={cn("font-semibold", isSelected && opt.iconColor)}>
+                      {opt.label}
+                    </span>
+                    <span className="font-mono text-[10px] opacity-60">({opt.hint})</span>
+                    {isSelected && (
+                      <Check className={cn("ml-0.5 h-3 w-3", opt.iconColor)} strokeWidth={2.5} />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           <div
             className={cn(
@@ -317,7 +403,14 @@ function ModelCatalogDialog({
                 aspectRatio={m.id === selectedId ? aspectRatio : null}
                 onApply={(patch) => {
                   const isText = m.kind === "text" || (!patch.imageResolution && !patch.aspectRatio && !patch.imageQuality);
-                  patchNodeModel(nodeKey, patch, isText);
+                  patchNodeModel(
+                    nodeKey,
+                    {
+                      ...patch,
+                      ...(isText ? { reasoningEffort: activeEffort } : {}),
+                    },
+                    isText,
+                  );
                   onOpenChange(false);
                   if (isText) {
                     toast.success(`Модель «${m.label}» применена ко всем текстовым нодам`);

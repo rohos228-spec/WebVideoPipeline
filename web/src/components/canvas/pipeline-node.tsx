@@ -69,6 +69,8 @@ export interface PipelineNodeData extends Record<string, unknown> {
   imageResolution?: string;
   imageQuality?: string;
   aspectRatio?: string;
+  /** Уровень мышления LLM (reasoning effort) для текстовых нод */
+  reasoningEffort?: string;
   status: NodeRunStatus;
   progress: number;
   progressText: string | null;
@@ -380,6 +382,7 @@ export function PipelineNode({ data, selected }: NodeProps) {
                     nodeKey={d.nodeKey}
                     nodeType={d.type}
                     modelId={d.modelId}
+                    reasoningEffort={d.reasoningEffort}
                     imageResolution={d.imageResolution}
                     imageQuality={d.imageQuality}
                     aspectRatio={d.aspectRatio}
