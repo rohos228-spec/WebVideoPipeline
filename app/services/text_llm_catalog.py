@@ -96,14 +96,6 @@ CATALOG: list[dict[str, str]] = [
         "site": "vibecode.moe",
         "api_model": "gpt-5.5",
     },
-    {
-        "id": "gpt-6-astra-vibecode",
-        "provider": "vibecode",
-        "group": "OpenAI",
-        "label": "GPT 6 Astra",
-        "site": "vibecode.moe",
-        "api_model": "gpt-6-astra",
-    },
     # Google
     {
         "id": "gemini-3.1-pro-vibecode",
