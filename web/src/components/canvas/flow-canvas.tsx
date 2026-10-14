@@ -28,10 +28,8 @@ import {
   ChevronDown,
   Copy,
   ClipboardPaste,
-  FileSpreadsheet,
   Film,
   ImageIcon,
-  LayoutGrid,
   Loader2,
   Play,
   Redo2,
@@ -822,7 +820,8 @@ export function FlowCanvas({
         detail.patch.modelChannel != null ||
         detail.patch.imageResolution != null ||
         detail.patch.imageQuality != null ||
-        detail.patch.aspectRatio != null
+        detail.patch.aspectRatio != null ||
+        detail.patch.reasoningEffort != null
       ) {
         scheduleSaveWorkflow();
       }
@@ -1468,99 +1467,6 @@ export function FlowCanvas({
         canUndo={historyTick >= 0 && historyRef.current.canUndo}
         onRedo={redoGraph}
         canRedo={historyRef.current.canRedo}
-        onLayout={layoutGraph}
-        onAddExcelFeed={() => {
-          const stamp = Date.now();
-          const id = `excel_feed_${stamp}`;
-          const minX = nodes.reduce((m, n) => Math.min(m, n.position.x), 0);
-          const minY = nodes.reduce((m, n) => Math.min(m, n.position.y), 0);
-          setNodes((prev) => [
-            ...prev,
-            {
-              id,
-              type: "pipeline",
-              position: { x: minX - 320, y: minY },
-              data: {
-                nodeKey: id,
-                type: "excel_feed",
-                modelId: defaultModelIdForNodeType("excel_feed"),
-                modelChannel: "stable",
-                status: "pending",
-                progress: 0,
-                progressText: null,
-                error: null,
-                attempts: 0,
-              },
-              sourcePosition: Position.Right,
-              targetPosition: Position.Left,
-            } as Node<PipelineNodeData>,
-          ]);
-          toast.success("Нода Excel добавлена слева — загрузите topics.xlsx");
-        }}
-        onDuplicateBelow={() => {
-          if (nodes.length === 0) return;
-          const offsetY = 480;
-          const stamp = Date.now();
-          const idMap = new Map<string, string>();
-          const clones = nodes
-            .filter((n) => (n.data as PipelineNodeData).type !== "excel_feed")
-            .map((n) => {
-              const newId = `${n.id}_lane_${stamp}`;
-              idMap.set(n.id, newId);
-              const d = n.data as PipelineNodeData;
-              return {
-                ...n,
-                id: newId,
-                position: { x: n.position.x, y: n.position.y + offsetY },
-                data: { ...d, nodeKey: newId },
-                selected: false,
-              };
-            });
-          const cloneEdges = edges
-            .filter(
-              (e) =>
-                idMap.has(e.source) &&
-                idMap.has(e.target) &&
-                (nodes.find((n) => n.id === e.source)?.data as PipelineNodeData)?.type !==
-                  "excel_feed",
-            )
-            .map((e) => ({
-              ...e,
-              id: `${e.id}_lane_${stamp}`,
-              source: idMap.get(e.source) ?? e.source,
-              target: idMap.get(e.target) ?? e.target,
-              type: "thread",
-              animated: true,
-              style: { ...THREAD_EDGE_STYLE },
-            }));
-          const excelNode = nodes.find(
-            (n) => (n.data as PipelineNodeData).type === "excel_feed",
-          );
-          const excelEdges: Edge[] = [];
-          if (excelNode) {
-            for (const p of clones) {
-              const dt = (p.data as PipelineNodeData).type;
-              if (dt === "plan" || dt === "topic") {
-                excelEdges.push({
-                  id: `excel_${stamp}_${p.id}`,
-                  source: excelNode.id,
-                  target: p.id,
-                  type: "thread",
-                  animated: true,
-                  style: { ...THREAD_EDGE_STYLE },
-                  className: "excel-lane-edge",
-                });
-              }
-            }
-          }
-          setNodes((prev) => [...prev, ...clones]);
-          setEdges((prev) => [...prev, ...cloneEdges, ...excelEdges]);
-          toast.success(
-            excelEdges.length
-              ? `Граф продублирован (${excelEdges.length} связей от Excel)`
-              : "Граф продублирован вниз — сохраните при необходимости",
-          );
-        }}
       />
       {projectId != null && (
         <RunOverlay
@@ -1612,9 +1518,6 @@ function WorkflowToolbar({
   canUndo,
   onRedo,
   canRedo,
-  onLayout,
-  onDuplicateBelow,
-  onAddExcelFeed,
 }: {
   workflowId?: number;
   projectId?: number | null;
@@ -1631,23 +1534,7 @@ function WorkflowToolbar({
   canUndo: boolean;
   onRedo: () => void;
   canRedo: boolean;
-  onLayout: () => void;
-  onDuplicateBelow: () => void;
-  onAddExcelFeed: () => void;
 }) {
-  const qc = useQueryClient();
-
-  const duplicateWf = async () => {
-    if (!workflowId) return;
-    try {
-      await api.duplicateWorkflow(workflowId);
-      await qc.invalidateQueries({ queryKey: ["workflows"] });
-      toast.success("Workflow скопирован на сервере");
-    } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
-    }
-  };
-
   return (
     <div className="pointer-events-none absolute left-4 top-4 z-10 flex max-w-[calc(100%-2rem)] flex-wrap gap-2">
       <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-card/90 p-1 backdrop-blur-md shadow-md">
@@ -1699,45 +1586,6 @@ function WorkflowToolbar({
         >
           <Redo2 className="h-3.5 w-3.5" />
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 gap-1 text-xs"
-          onClick={onLayout}
-          title="Разложить узлы по слоям"
-        >
-          <LayoutGrid className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 gap-1 text-xs"
-          onClick={onDuplicateBelow}
-          title="Дублировать весь граф ниже (массовые потоки)"
-        >
-          <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 px-2 text-xs hover:bg-white/5"
-          onClick={onAddExcelFeed}
-          title="Источник Excel для массовой генерации"
-        >
-          <FileSpreadsheet className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-        {workflowId != null && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 gap-1 px-2 text-xs hover:bg-white/5"
-            onClick={() => void duplicateWf()}
-            title="Сохранить копию workflow на сервере"
-          >
-            <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-[10px] text-muted-foreground">WF</span>
-          </Button>
-        )}
         <Button
           size="sm"
           variant="ghost"

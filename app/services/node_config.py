@@ -57,6 +57,7 @@ NODE_CONFIG_KEY = "config"
 
 #: Ключи внутри контейнера.
 CONFIG_MODEL_ID = "modelId"
+CONFIG_REASONING_EFFORT = "reasoningEffort"
 CONFIG_PROMPT_SLOTS = "promptSlots"
 CONFIG_EXCEL_GPT = "excelGpt"
 
@@ -115,6 +116,17 @@ def model_id_of(node: dict[str, Any] | None) -> str | None:
         return raw
     data = node_data(node)
     legacy = str(data.get("modelId") or data.get("model_id") or "").strip()
+    return legacy or None
+
+
+def reasoning_effort_of(node: dict[str, Any] | None) -> str | None:
+    """Уровень мышления узла: ``config.reasoningEffort``, иначе ``data.reasoningEffort``."""
+    cfg = config_of(node)
+    raw = str(cfg.get(CONFIG_REASONING_EFFORT) or "").strip()
+    if raw:
+        return raw
+    data = node_data(node)
+    legacy = str(data.get("reasoningEffort") or data.get("reasoning_effort") or "").strip()
     return legacy or None
 
 

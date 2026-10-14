@@ -89,9 +89,17 @@ _REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 
 def _responses_reasoning_block() -> dict[str, str] | None:
     """``reasoning.effort`` для Codex/Responses (kie gpt-5-6-sol)."""
-    from app.services.text_llm_catalog import resolve_active_reasoning_effort
+    from app.services.llm_override import current_override
+    from app.services.text_llm_catalog import (
+        normalize_reasoning_effort,
+        resolve_active_reasoning_effort,
+    )
 
-    effort = resolve_active_reasoning_effort()
+    ov = current_override()
+    if ov and ov.reasoning_effort:
+        effort = normalize_reasoning_effort(ov.reasoning_effort)
+    else:
+        effort = resolve_active_reasoning_effort()
     if not effort or effort == "off":
         return None
     if effort not in _REASONING_EFFORTS:

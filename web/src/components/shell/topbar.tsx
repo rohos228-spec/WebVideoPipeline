@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { CostsPanelSheet } from "@/components/costs/costs-panel-sheet";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
-import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 import { BalanceBadge } from "@/components/shell/balance-badge";
 import { useMe, useOwnerMode } from "@/hooks/use-identity";
 import { useProjectMode } from "@/hooks/use-pipeline-mode";
@@ -120,7 +119,6 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            <TextLlmPicker />
             <Button
               variant="outline"
               size="sm"

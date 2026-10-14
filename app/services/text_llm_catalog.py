@@ -26,8 +26,8 @@ from app.settings import Settings, settings
 
 _CHOICE_NAME = "text_llm_choice.json"
 
-VIBECODE_DEFAULT_ID = "claude-opus-5-vibecode"
-VIBECODE_DEFAULT_API_MODEL = "claude-opus-5"
+VIBECODE_DEFAULT_ID = "gpt-5.6-sol-vibecode"
+VIBECODE_DEFAULT_API_MODEL = "gpt-5.6-sol"
 
 CATALOG: list[dict[str, str]] = [
     # Anthropic — через /v1/messages (anthropic_messages.is_anthropic_model).

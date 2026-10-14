@@ -18,6 +18,7 @@ class NodeLlmOverride:
     kind: str  # text | image
     provider: str
     label: str
+    reasoning_effort: str | None = None
 
 
 _current: ContextVar[NodeLlmOverride | None] = ContextVar("node_llm_override", default=None)
@@ -110,6 +111,7 @@ def bind_project_llm(project: Any, status: Any | None = None) -> Iterator[NodeLl
             kind="text",
             provider=str(choice_raw.get("provider") or "vibecode"),
             label=str(choice_raw.get("label") or choice_raw["id"]),
+            reasoning_effort=choice_raw.get("reasoning_effort"),
         )
         logger.info(
             "node_llm: #{} {} → {} ({})",
