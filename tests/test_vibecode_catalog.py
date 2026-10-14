@@ -22,12 +22,12 @@ from app.services.vibecode_catalog import (
 
 def test_snapshot_has_screenshot_tabs() -> None:
     ids = {m["id"] for m in load_snapshot()}
-    assert "claude-sonnet-5" in ids
+    assert "claude-sonnet-5-5" in ids
     assert "gpt-5.6-sol" in ids
-    assert "gpt-5.6-luna" in ids
+    assert "gpt-6-luna" in ids
     assert "gemini-3.8-flash" in ids
-    assert "gemini-3.7-flash" in ids
-    assert "grok-4-5" in ids
+    assert "grok-4-7" in ids
+    assert "glm-5.3-flash" in ids
     assert "gpt-6-astra" in ids
     assert "kimi-k3" not in ids
     assert "gpt-image-2-vip" in ids
@@ -40,24 +40,24 @@ def test_prices_use_expensive_markup() -> None:
     raw = next(m for m in load_snapshot() if m["id"] == "gpt-5.6-sol")
     priced = apply_markup(raw["pricing"])
     assert priced["markup"] == PRICE_MARKUP
-    assert priced["input_usd_per_m"] == round(raw["pricing"]["input_usd_per_m"] * 3, 6)
-    assert priced["output_usd_per_m"] == round(raw["pricing"]["output_usd_per_m"] * 3, 6)
-    luna = next(m for m in load_snapshot() if m["id"] == "gpt-5.6-luna")
+    assert priced["input_usd_per_m"] == round(raw["pricing"]["input_usd_per_m"] * PRICE_MARKUP, 6)
+    assert priced["output_usd_per_m"] == round(raw["pricing"]["output_usd_per_m"] * PRICE_MARKUP, 6)
+    luna = next(m for m in load_snapshot() if m["id"] == "gpt-6-luna")
     expensive = apply_markup(luna["pricing"])
-    assert expensive["input_usd_per_m"] == round(0.026244 * 3, 6)
+    assert expensive["input_usd_per_m"] == round(0.013 * PRICE_MARKUP, 6)
 
 
 def test_legacy_cheap_channel_arg_is_ignored() -> None:
-    raw = next(m for m in load_snapshot() if m["id"] == "claude-sonnet-5")["pricing"]
+    raw = next(m for m in load_snapshot() if m["id"] == "claude-sonnet-5-5")["pricing"]
     priced = apply_markup(raw, channel="cheap")
     assert priced["markup"] == PRICE_MARKUP
-    assert priced["input_usd_per_m"] == round(raw["input_usd_per_m"] * 3, 6)
+    assert priced["input_usd_per_m"] == round(raw["input_usd_per_m"] * PRICE_MARKUP, 6)
 
 
 def test_image_price_marked_up() -> None:
     raw = next(m for m in load_snapshot() if m["id"] == "gpt-image-2-vip")
     priced = apply_markup(raw["pricing"])
-    assert priced["usd_per_image"] == round(raw["pricing"]["usd_per_image"] * 3, 6)
+    assert priced["usd_per_image"] == round(raw["pricing"]["usd_per_image"] * PRICE_MARKUP, 6)
 
 
 def test_grouped_vendors_match_ui_tabs() -> None:
@@ -65,16 +65,17 @@ def test_grouped_vendors_match_ui_tabs() -> None:
     assert cat["channel"] == "stable"
     assert cat["markup"] == PRICE_MARKUP
     ids = [v["id"] for v in cat["vendors"]]
-    assert ids[:6] == ["anthropic", "openai", "gemini", "xai", "images", "video"]
+    assert ids[:7] == ["anthropic", "openai", "glm", "gemini", "xai", "images", "video"]
     counts = {v["id"]: v["count"] for v in cat["vendors"]}
     assert counts["anthropic"] == 5
-    assert counts["gemini"] == 3
-    assert counts["xai"] == 2
+    assert counts["openai"] == 5
+    assert counts["glm"] == 2
+    assert counts["gemini"] == 2
+    assert counts["xai"] == 1
     assert "moonshot" not in counts
     assert counts["images"] == 7
     assert counts["video"] == 7
-    assert counts["openai"] == 4
-    sonnet = find_model("claude-sonnet-5")
+    sonnet = find_model("claude-sonnet-5-5")
     assert sonnet is not None
     assert sonnet["kind"] == "text"
     assert "input_usd_per_m" in sonnet["pricing"]
@@ -133,10 +134,10 @@ def test_resolve_text_model_from_canvas_node() -> None:
     }
     choice = resolve_node_choice(meta, node_key="n_plan_1")
     assert choice is not None
-    assert choice["id"] == "claude-sonnet-5"
+    assert choice["id"] == "claude-sonnet-5-5"
     assert choice["kind"] == "text"
     assert choice["channel"] == "stable"
-    assert choice["pricing"]["input_usd_per_m"] == round(0.196829 * 3, 6)
+    assert choice["pricing"]["input_usd_per_m"] == round(0.20 * PRICE_MARKUP, 6)
 
 
 def test_resolve_image_generator_from_images_node() -> None:
@@ -391,9 +392,9 @@ async def test_catalog_api_returns_marked_up_prices() -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["channel"] == "stable"
-    assert body["markup"] == 3.0
+    assert body["markup"] == 1.5
     assert "catalog_channels" not in body
     vendors = {v["id"]: v for v in body["vendors"]}
     assert vendors["anthropic"]["count"] == 5
-    luna = next(m for m in body["models"] if m["id"] == "gpt-5.6-luna")
-    assert luna["pricing"]["input_usd_per_m"] == round(0.026244 * 3, 6)
+    luna = next(m for m in body["models"] if m["id"] == "gpt-6-luna")
+    assert luna["pricing"]["input_usd_per_m"] == round(0.013 * 1.5, 6)

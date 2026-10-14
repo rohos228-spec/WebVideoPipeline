@@ -12,7 +12,7 @@ from typing import Any
 
 from loguru import logger
 
-PRICE_MARKUP = 3.0
+PRICE_MARKUP = 1.5
 PRICE_MARKUP_STABLE = PRICE_MARKUP
 
 _SNAPSHOT_PATH = Path(__file__).resolve().parent / "vibecode_models_snapshot.json"
@@ -22,22 +22,38 @@ VIDEO_NODE_TYPES = frozenset({"videos", "hitl_videos"})
 DEFAULT_TEXT_MODEL_ID = "gpt-5.6-sol"
 DEFAULT_IMAGE_MODEL_ID = "gpt-image-2-vip"
 DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite"
-HIDDEN_IMAGE_IDS = frozenset({"gpt-image-2", "nano-banana", "nano-banana-pro", "gpt-6-astra"})
+HIDDEN_IMAGE_IDS = frozenset({"gpt-image-2", "nano-banana", "nano-banana-pro"})
 IMAGE_MODEL_ALIASES = {"gpt-image-2": "gpt-image-2-vip"}
 #: Написания текстовых моделей, которые приходят с ноды/из .env, → id снимка.
-#: `GPT_MODEL` в .env пишут через дефис, каталог Студии — через точку;
-#: `claude-fable-5-1` приезжает из конфигов форка заказчика, а в снимке
-#: vibecode есть только Fable 5 — без алиаса нода молча теряет модель.
 TEXT_MODEL_ALIASES = {
-    "gpt-5-5": "gpt-5.5",
+    "gpt-5-5": "gpt-5.6-sol",
+    "gpt-5.5": "gpt-5.6-sol",
     "gpt-5-6-sol": "gpt-5.6-sol",
-    "gpt-5-6-terra": "gpt-5.6-terra",
-    "gpt-5-6-luna": "gpt-5.6-luna",
-    "gemini-3.1-pro": "gemini-3.1-pro-preview",
+    "gpt-5.6-sol": "gpt-5.6-sol",
+    "gpt-5-6-terra": "gpt-6-sol",
+    "gpt-5.6-terra": "gpt-6-sol",
+    "gpt-5-6-luna": "gpt-6-luna",
+    "gpt-5.6-luna": "gpt-6-luna",
+    "gpt-6-sol": "gpt-6-sol",
+    "gpt-6-1-sol": "gpt-6.1-sol",
+    "gpt-6.1-sol": "gpt-6.1-sol",
+    "gpt-6-astra": "gpt-6-astra",
+    "gpt-6-luna": "gpt-6-luna",
+    "gemini-3.1-pro": "gemini-3.8-flash",
     "gemini-3-flash": "gemini-3.8-flash",
-    "claude-fable-5-1": "claude-fable-5",
-    "claude-fable-5.1": "claude-fable-5",
-    "grok-4.6": "grok-4-6",
+    "gemini-3.8-flash": "gemini-3.8-flash",
+    "claude-sonnet-5": "claude-sonnet-5-5",
+    "claude-sonnet-5-5": "claude-sonnet-5-5",
+    "claude-opus-5": "claude-opus-5-5",
+    "claude-opus-5-5": "claude-opus-5-5",
+    "claude-haiku-4-5": "claude-haiku-4-5",
+    "claude-fable-5-1": "claude-fable-5-1",
+    "claude-fable-5.1": "claude-fable-5-1",
+    "claude-fable-5": "claude-fable-5",
+    "grok-4.7": "grok-4-7",
+    "grok-4-7": "grok-4-7",
+    "glm-5.3-flash": "glm-5.3-flash",
+    "glm-5.3-flashx": "glm-5.3-flashx",
 }
 
 IMAGE_MODEL_TO_GENERATOR: dict[str, str] = {
@@ -63,10 +79,11 @@ VIDEO_MODEL_TO_GENERATOR: dict[str, str] = {
     "wan-2-7-i2v": "wan_2_7_i2v",
 }
 
-VENDOR_ORDER = ("anthropic", "openai", "gemini", "xai", "moonshot", "images", "video")
+VENDOR_ORDER = ("anthropic", "openai", "glm", "gemini", "xai", "moonshot", "images", "video")
 VENDOR_META: dict[str, dict[str, str]] = {
     "anthropic": {"id": "anthropic", "label": "Anthropic", "icon": "A"},
     "openai": {"id": "openai", "label": "OpenAI", "icon": "hex"},
+    "glm": {"id": "glm", "label": "GLM", "icon": "Z"},
     "gemini": {"id": "gemini", "label": "Gemini", "icon": "spark"},
     "xai": {"id": "xai", "label": "xAI", "icon": "X"},
     "moonshot": {"id": "moonshot", "label": "Moonshot", "icon": "moon"},
@@ -211,6 +228,8 @@ def _vendor_of(model_id: str, is_image: bool, is_video: bool = False) -> str:
     mid = (model_id or "").strip().lower()
     if mid.startswith("claude"):
         return "anthropic"
+    if mid.startswith("glm"):
+        return "glm"
     if mid.startswith("gemini"):
         return "gemini"
     if mid.startswith("grok"):

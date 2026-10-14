@@ -87,7 +87,7 @@ _XLSX_PINNED_PLAN_ROWS: tuple[int, ...] = (15, 45, 46, 48, 49, 50, 64)
 _REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 
 
-def _responses_reasoning_block() -> dict[str, str] | None:
+def _responses_reasoning_block(effort_override: str | None = None) -> dict[str, str] | None:
     """``reasoning.effort`` для Codex/Responses (kie gpt-5-6-sol)."""
     from app.services.llm_override import current_override
     from app.services.text_llm_catalog import (
@@ -95,11 +95,14 @@ def _responses_reasoning_block() -> dict[str, str] | None:
         resolve_active_reasoning_effort,
     )
 
-    ov = current_override()
-    if ov and ov.reasoning_effort:
-        effort = normalize_reasoning_effort(ov.reasoning_effort)
+    if effort_override is not None:
+        effort = normalize_reasoning_effort(effort_override)
     else:
-        effort = resolve_active_reasoning_effort()
+        ov = current_override()
+        if ov and ov.reasoning_effort:
+            effort = normalize_reasoning_effort(ov.reasoning_effort)
+        else:
+            effort = resolve_active_reasoning_effort()
     if not effort or effort == "off":
         return None
     if effort not in _REASONING_EFFORTS:
@@ -2511,6 +2514,7 @@ async def _chat_adaptive_1_2_4(
     level: int = 1,
     response_schema: ResponseSchema | None = None,
     on_delta: Any | None = None,
+    reasoning_effort: str | None = None,
 ) -> GptChatResult:
     """Сначала один вызов. Ошибка/обрез → этот кусок пополам (2). Снова → 4."""
     from app.services.adaptive_llm_batches import next_split_level
@@ -2533,6 +2537,7 @@ async def _chat_adaptive_1_2_4(
         pack_kind=pack_kind,
         response_schema=response_schema,
         on_delta=on_delta,
+        reasoning_effort=reasoning_effort,
     )
     try:
         result = await chat(**kwargs)
@@ -2654,6 +2659,7 @@ async def _chat_unscoped(
     system: str | None = None,
     history: list[dict[str, Any]] | None = None,
     model: str | None = None,
+    reasoning_effort: str | None = None,
     temperature: float | None = None,
     timeout: float | None = None,
     max_retries: int | None = None,
@@ -2690,6 +2696,7 @@ async def _chat_unscoped(
             system=system,
             history=history,
             model=model,
+            reasoning_effort=reasoning_effort,
             temperature=temperature,
             timeout=timeout,
             max_retries=max_retries,
@@ -2701,8 +2708,16 @@ async def _chat_unscoped(
 
     headers = _headers()
     from app.services.llm_override import current_text_model_id
+    from app.services.text_llm_catalog import catalog_item
 
     use_model = (model or current_text_model_id() or settings.gpt_model_effective or "gpt-5.5").strip()
+    c_item = catalog_item(use_model)
+    if c_item:
+        if c_item.get("api_model"):
+            use_model = c_item["api_model"]
+        elif c_item.get("id") == "gpt-kie":
+            use_model = (settings.gpt_model or "gpt-5-6-sol").strip()
+
     url = _chat_url(use_model)
     anthropic_route = _anthropic_route(use_model)
     if anthropic_route:
@@ -2745,7 +2760,7 @@ async def _chat_unscoped(
             # kie: store=true → market job / CF-долгое хранение; dev советует false.
             "store": False,
         }
-        reasoning = _responses_reasoning_block()
+        reasoning = _responses_reasoning_block(reasoning_effort)
         if reasoning is not None:
             body["reasoning"] = reasoning
     else:
@@ -2760,11 +2775,14 @@ async def _chat_unscoped(
                 xlsx_write_contract=xlsx_write_contract,
             ),
         }
-        if not anthropic_route:
-            reasoning = _responses_reasoning_block()
+        if anthropic_route:
+            if reasoning_effort is not None:
+                body["reasoning_effort"] = reasoning_effort
+        else:
+            reasoning = _responses_reasoning_block(reasoning_effort)
             if reasoning is not None:
                 m_low = use_model.lower()
-                if any(m_low.startswith(p) for p in ("o1", "o3", "o4", "gpt-5", "gpt-6")):
+                if any(m_low.startswith(p) for p in ("o1", "o3", "o4", "gpt-5", "gpt-6", "gemini-3", "grok", "glm")):
                     effort_val = reasoning["effort"]
                     body["reasoning_effort"] = "high" if effort_val == "xhigh" else effort_val
     if temperature is not None:

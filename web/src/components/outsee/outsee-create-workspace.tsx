@@ -751,6 +751,68 @@ function AudioStudioPlayer({
   );
 }
 
+function CreateImageViewer({
+  item,
+  onInspect,
+}: {
+  item: HistoryItem;
+  onInspect: () => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const fullUrl = item.preview_url || "";
+  const thumb = thumbUrl(item.preview_url);
+
+  useEffect(() => {
+    setLoaded(false);
+    setHasError(false);
+  }, [item.id, fullUrl]);
+
+  return (
+    <div className="relative flex max-h-[calc(100vh-360px)] max-w-full items-center justify-center">
+      {/* 1. Мгновенный WebP-тамбнейл (~30 КБ), пока грузится полный файл */}
+      {thumb && !loaded && !hasError && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={thumb}
+          alt=""
+          className="max-h-[calc(100vh-360px)] max-w-full rounded-2xl border border-white/15 bg-black/80 object-contain filter blur-sm transition-opacity"
+        />
+      )}
+
+      {/* 2. Спиннер загрузки полного кадра */}
+      {!loaded && !hasError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[2px] rounded-2xl pointer-events-none">
+          <Loader2 className="h-8 w-8 animate-spin text-[#22d3ee]" />
+        </div>
+      )}
+
+      {/* 3. Полноразмерное изображение */}
+      {!hasError ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={item.id}
+          src={fullUrl}
+          alt=""
+          onLoad={() => setLoaded(true)}
+          onError={() => setHasError(true)}
+          onClick={onInspect}
+          className={cn(
+            "max-h-[calc(100vh-360px)] max-w-full cursor-zoom-in rounded-2xl border border-white/15 bg-black/80 object-contain shadow-[0_20px_50px_rgba(0,0,0,0.8)] transition hover:brightness-105",
+            !loaded && "absolute inset-0 opacity-0 pointer-events-none",
+          )}
+        />
+      ) : (
+        <div className="flex flex-col items-center justify-center p-8 text-center rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300">
+          <ImageIcon className="h-8 w-8 mb-2 opacity-60" />
+          <span className="text-sm font-semibold">Не удалось загрузить изображение</span>
+          <span className="text-xs text-white/40 mt-1 font-mono">{item.label}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) {
   const qc = useQueryClient();
   const [mediaType, setMediaType] = useState<OutseeMediaType>("image");
@@ -1609,6 +1671,19 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         const rawModel = retry?.model ? String(retry.model) : "";
         const paramModelId = typeof retryParams.model_id === "string" ? retryParams.model_id : "";
 
+        const targetAspect =
+          typeof retryParams.aspect_ratio === "string" && retryParams.aspect_ratio
+            ? retryParams.aspect_ratio
+            : typeof retryParams.aspect === "string" && retryParams.aspect
+              ? retryParams.aspect
+              : aspect;
+        const targetResolution =
+          typeof retryParams.resolution === "string" && retryParams.resolution
+            ? retryParams.resolution
+            : targetMediaType === "video"
+              ? videoResolution
+              : resolution;
+
         let normalizedModel = rawModel;
         if (!normalizedModel && targetMediaType === "audio") {
           normalizedModel = audioSlug;
@@ -1675,6 +1750,53 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               f.name.toLowerCase().includes("neg"),
             );
             if (negField) vals[negField.name] = negativePrompt.trim();
+          }
+
+          // Синхронизация чипов (соотношение сторон, разрешение, качество) в поля модели KIE
+          const kieFields = (effectiveKieModel || kieModel)?.fields || [];
+          const aspectField = kieFields.find(
+            (f) =>
+              f.name === "aspect_ratio" ||
+              f.name === "aspect" ||
+              f.name.toLowerCase().includes("aspect"),
+          );
+          if (aspectField) {
+            const aspectToSet = !retry ? targetAspect : (vals[aspectField.name] || targetAspect);
+            if (aspectToSet) {
+              const strVal = String(aspectToSet);
+              if (!aspectField.options || aspectField.options.includes(strVal)) {
+                vals[aspectField.name] = strVal;
+              } else {
+                const match = aspectField.options.find(
+                  (o) => o.toLowerCase() === strVal.toLowerCase(),
+                );
+                if (match) vals[aspectField.name] = match;
+              }
+            }
+          }
+
+          const qualityField = kieFields.find((f) => f.name === "quality");
+          if (qualityField && qualityField.options) {
+            if (!retry) {
+              if (targetResolution === "2K" || targetResolution === "4K" || detail === "high") {
+                if (qualityField.options.includes("high")) vals["quality"] = "high";
+              } else if (targetResolution === "1K" || detail === "basic") {
+                if (qualityField.options.includes("basic")) vals["quality"] = "basic";
+              }
+            }
+          }
+          const resField = kieFields.find(
+            (f) => f.name === "resolution" || f.name === "target_resolution",
+          );
+          if (resField && resField.options) {
+            const resToSet = !retry ? targetResolution : (vals[resField.name] || targetResolution);
+            if (resToSet) {
+              const strRes = String(resToSet);
+              const match = resField.options.find(
+                (o) => o.toLowerCase() === strRes.toLowerCase(),
+              );
+              if (match) vals[resField.name] = match;
+            }
           }
 
           if (modelId === "suno-music") {
@@ -1824,16 +1946,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         // на гонке записи outsee_create_settings.json.
         void api.putOutseeCreateSettings(settingsPayload()).catch(() => undefined);
 
-        const targetAspect =
-          typeof retryParams.aspect === "string" && retryParams.aspect
-            ? retryParams.aspect
-            : aspect;
-        const targetResolution =
-          typeof retryParams.resolution === "string" && retryParams.resolution
-            ? retryParams.resolution
-            : targetMediaType === "video"
-              ? videoResolution
-              : resolution;
         const targetDetail =
           typeof retryParams.detail_level === "string" && retryParams.detail_level
             ? retryParams.detail_level
@@ -2310,18 +2422,25 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         ? "в очереди"
                         : "генерация";
                   return (
-                    <button
+                    <div
                       key={item.id}
-                      type="button"
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setSelectedId(item.id)}
                       onDoubleClick={() => applyHistoryConfig(item)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelectedId(item.id);
+                        }
+                      }}
                       className={cn(
-                        "group relative aspect-square overflow-hidden rounded-xl border bg-[#121216] transition-all duration-200",
+                        "group relative aspect-square cursor-pointer select-none overflow-hidden rounded-xl border bg-[#121216] transition-all duration-200 outline-none",
                         active
                           ? "border-[#22d3ee] ring-2 ring-[#22d3ee]/40 shadow-[0_0_20px_rgba(34,211,238,0.25)]"
                           : "border-white/[0.08] hover:border-white/25 hover:bg-[#18181f]",
                       )}
-                      title={`${item.label}${item.project_slug ? ` · ${item.project_slug}` : ""} · двойной клик — применить конфигурацию`}
+                      title={`${item.label}${item.project_slug ? ` · ${item.project_slug}` : ""} · клик — просмотр, двойной клик — применить конфигурацию`}
                     >
                       {item.preview_url && !pending ? (
                         isVideo ? (
@@ -2455,7 +2574,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           )}
                         </div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -2524,12 +2643,10 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       />
                     </div>
                   ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={selected.preview_url}
-                      alt=""
-                      onClick={() => setLightboxOpen(true)}
-                      className="max-h-[calc(100vh-360px)] max-w-full cursor-zoom-in rounded-2xl border border-white/15 bg-black/80 object-contain shadow-[0_20px_50px_rgba(0,0,0,0.8)] transition hover:brightness-105"
+                    <CreateImageViewer
+                      key={selected.id}
+                      item={selected}
+                      onInspect={() => setLightboxOpen(true)}
                     />
                   )}
                   {selected.kind !== "audio" && (

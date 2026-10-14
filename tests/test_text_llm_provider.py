@@ -67,9 +67,9 @@ def test_vibecode_models_switch_url_and_key(monkeypatch, tmp_path: Path) -> None
     monkeypatch.setattr(settings_mod, "settings", s)
     monkeypatch.setattr(gpt_api, "settings", s)
 
-    cat.write_choice(provider="vibecode", model_id="gpt-5.5", cfg=s)
+    cat.write_choice(provider="vibecode", model_id="gpt-6-sol", cfg=s)
     assert s.resolved_text_llm_provider() == "vibecode"
-    assert s.gpt_model_effective == "gpt-5.5"
+    assert s.gpt_model_effective == "gpt-6-sol"
     assert s.gpt_api_effective_key == "vk-test"
     assert s.gpt_chat_path_effective == "/chat/completions"
     assert gpt_api.is_responses_mode() is False
@@ -186,7 +186,7 @@ def test_catalog_groups_and_snapshot_models() -> None:
 
     snapshot = {m["id"] for m in load_snapshot()}
     groups = {it["group"] for it in CATALOG}
-    assert groups == {"Anthropic", "OpenAI", "Google", "xAI", "KIE"}
+    assert groups == {"Anthropic", "OpenAI", "Google", "xAI", "GLM", "KIE"}
     for it in CATALOG:
         api_model = it.get("api_model")
         if api_model:
@@ -198,13 +198,15 @@ def test_catalog_groups_and_snapshot_models() -> None:
 
     # Модели, добавленные переносом из форка
     for mid in (
-        "gpt-5.6-terra",
-        "gpt-5.6-luna",
-        "gemini-3.1-pro-preview",
+        "gpt-6-sol",
+        "gpt-6-astra",
+        "gpt-6-luna",
         "gemini-3.8-flash",
-        "claude-opus-4-8",
+        "claude-sonnet-5-5",
+        "claude-opus-5-5",
         "claude-fable-5",
-        "grok-4-6",
+        "grok-4-7",
+        "glm-5.3-flash",
     ):
         item = catalog_item(mid)
         assert item is not None, mid
@@ -212,7 +214,7 @@ def test_catalog_groups_and_snapshot_models() -> None:
 
     # Дефолт vibecode не съехал, алиас .env-написания жив
     assert catalog_item("gpt-5-6-sol")["id"] == "gpt-5.6-sol-vibecode"
-    assert catalog_item("claude-opus-5")["id"] == "claude-opus-5-vibecode"
+    assert catalog_item("claude-opus-5-5")["id"] == "claude-opus-5-5-vibecode"
 
 
 def test_catalog_status_exposes_group(monkeypatch, tmp_path: Path) -> None:
@@ -240,10 +242,8 @@ def test_vibecode_catalog_text_aliases() -> None:
     from app.services.vibecode_catalog import find_model
 
     assert find_model("gpt-5-6-sol")["id"] == "gpt-5.6-sol"
-    assert find_model("gemini-3.1-pro")["id"] == "gemini-3.1-pro-preview"
     assert find_model("gemini-3.8-flash")["id"] == "gemini-3.8-flash"
-    # Fable 5.1 в снимке нет — конфиг форка приземляется на Fable 5
-    assert find_model("claude-fable-5-1")["id"] == "claude-fable-5"
+    assert find_model("claude-fable-5-1")["id"] == "claude-fable-5-1"
 
 
 def test_reasoning_effort_normalization_and_choice(monkeypatch, tmp_path: Path) -> None:

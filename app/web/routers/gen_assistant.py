@@ -37,17 +37,19 @@ class GenAssistantPromptsBody(BaseModel):
     aspect: str = "9:16"
     count: int = Field(1, ge=MIN_COUNT, le=MAX_COUNT)
     ref_labels: list[str] = Field(default_factory=list)
+    model: str | None = None
 
 
 @router.post("/prompts")
 async def post_gen_assistant_prompts(body: GenAssistantPromptsBody) -> dict[str, Any]:
     logger.info(
-        "gen-assistant POST request_chars={} agent_chars={} count={} aspect={} refs={}",
+        "gen-assistant POST request_chars={} agent_chars={} count={} aspect={} refs={} model={}",
         len(body.request or ""),
         len(body.agent_text or ""),
         body.count,
         body.aspect,
         len(body.ref_labels or []),
+        body.model,
     )
     try:
         return await generate_prompts(
@@ -56,6 +58,7 @@ async def post_gen_assistant_prompts(body: GenAssistantPromptsBody) -> dict[str,
             aspect=body.aspect,
             count=body.count,
             ref_labels=body.ref_labels,
+            model=body.model,
         )
     except ValueError as e:
         logger.warning("gen-assistant rejected: {}", e)

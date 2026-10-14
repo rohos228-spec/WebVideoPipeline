@@ -723,9 +723,7 @@ export function FlowCanvas({
         );
       }
       if (check.warnings.length) {
-        const soft = check.warnings.find((w) => w.includes("Не ок") || w.includes("петля"));
-        if (soft) toast.message(soft);
-        else toast.message(check.warnings[0]);
+        console.warn("Graph validation warnings:", check.warnings);
       }
       if (projectId) {
         // Через слой project_graph (не прямой записью meta.canvas_graph):
@@ -753,7 +751,6 @@ export function FlowCanvas({
           edges: wfEdges,
         });
       }
-      toast.success("Граф сохранён");
     } catch (e) {
       toast.error(`Не сохранилось: ${errorMessageFromUnknown(e)}`);
     } finally {

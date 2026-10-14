@@ -6,6 +6,7 @@ export type ModelKind = "text" | "image" | "video";
 export type ModelVendorId =
   | "anthropic"
   | "openai"
+  | "glm"
   | "gemini"
   | "deepseek"
   | "xai"
@@ -66,7 +67,7 @@ export type ModelCatalogPayload = {
   models: CatalogModel[];
 };
 
-export const PRICE_MARKUP = 3;
+export const PRICE_MARKUP = 1.5;
 export const PRICE_MARKUP_STABLE = PRICE_MARKUP;
 export const DEFAULT_TEXT_MODEL_ID = "gpt-5.6-sol";
 export const DEFAULT_IMAGE_MODEL_ID = "gpt-image-2-vip";
@@ -101,7 +102,6 @@ export const HIDDEN_IMAGE_IDS = new Set([
   "seedream-4.5",
   "seedream-5-lite",
   "gpt-image-1.5",
-  "gpt-6-astra",
 ]);
 
 export const VENDOR_META: Record<
@@ -110,6 +110,7 @@ export const VENDOR_META: Record<
 > = {
   anthropic: { id: "anthropic", label: "Anthropic", icon: "A" },
   openai: { id: "openai", label: "OpenAI", icon: "hex" },
+  glm: { id: "glm", label: "GLM", icon: "Z" },
   gemini: { id: "gemini", label: "Gemini", icon: "spark" },
   deepseek: { id: "deepseek", label: "DeepSeek", icon: "D" },
   xai: { id: "xai", label: "xAI", icon: "X" },
@@ -120,6 +121,7 @@ export const VENDOR_META: Record<
 const VENDOR_ORDER: Exclude<ModelVendorId, "other">[] = [
   "anthropic",
   "openai",
+  "glm",
   "gemini",
   "deepseek",
   "xai",
@@ -134,6 +136,7 @@ function vendorOf(id: string, isImage: boolean, isVideo = false): ModelVendorId 
   if (isImage) return "images";
   const mid = id.toLowerCase();
   if (mid.startsWith("claude")) return "anthropic";
+  if (mid.startsWith("glm")) return "glm";
   if (mid.startsWith("gemini")) return "gemini";
   if (mid.startsWith("deepseek")) return "deepseek";
   if (mid.startsWith("grok")) return "xai";
@@ -199,6 +202,8 @@ function kindOf(row: SnapshotRow, isVideo = false): ModelKind {
 }
 
 const TOP_MODEL_IDS = new Set([
+  "claude-sonnet-5-5",
+  "gpt-6-sol",
   "flux-2-pro",
   "seedream-5-pro",
   "gpt-image-2-vip",
