@@ -262,7 +262,7 @@ export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
     slug: "seedance-2-0-mini",
     studioId: null,
     displayName: "Seedance 2 Mini",
-    description: "Новая, лёгкая версия Seedance 2.",
+    description: "Новая, лёгкая версия Seedance 2. Отклоняет реальные лица.",
     icon: `${OUTSEE_ORIGIN}/videomobilepreview/seedance.webp`,
     price: "от 8",
     isNew: true,
@@ -272,6 +272,22 @@ export const OUTSEE_VIDEO_MODELS: OutseeVideoModel[] = [
       resolutions: ["480p", "720p"],
       durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
       aspectRatios: ["16:9", "9:16", "4:3", "3:4", "1:1", "21:9"],
+    },
+  },
+  {
+    slug: "seedance-2-0-fast-overseas",
+    studioId: null,
+    displayName: "Seedance 2 Fast (Лица)",
+    description: "Seedance 2.0 Fast Overseas: поддержка живых лиц, промпт до 10к знаков, 480p/720p.",
+    icon: `${OUTSEE_ORIGIN}/videomobilepreview/seedance.webp`,
+    price: "от 10",
+    isNew: true,
+    chips: ["aspect", "resolution", "duration", "image-input"],
+    defaults: { aspectRatio: "16:9", resolution: "720p", duration: 5 },
+    nn: {
+      resolutions: ["480p", "720p"],
+      durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      aspectRatios: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"],
     },
   },
   {
@@ -419,6 +435,7 @@ const CREATE_PICKER_VIDEO_SLUGS = [
   "kling-3-0-turbo",
   "grok-imagine-video-1.5",
   "seedance-2-0-mini",
+  "seedance-2-0-fast-overseas",
 ] as const;
 
 export function pickerImageModels(): OutseeImageModel[] {

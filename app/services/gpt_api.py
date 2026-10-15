@@ -372,6 +372,11 @@ def _headers() -> dict[str, str]:
                 "VIBECODE_API_KEY пуст — задай ключ vibecode.moe (vk-…) в .env",
                 context={"error_kind": "no_key", "provider": "vibecode"},
             )
+        if settings.text_llm_is_pay52:
+            raise GptApiError(
+                "52pay API-ключ для выбранной модели пуст — задай ключ PAY52_* в .env",
+                context={"error_kind": "no_key", "provider": "pay52"},
+            )
         raise GptApiError(
             "GPT_API_KEY пуст — задай ключ в .env",
             context={"error_kind": "no_key", "provider": "kie"},
@@ -2782,7 +2787,7 @@ async def _chat_unscoped(
             reasoning = _responses_reasoning_block(reasoning_effort)
             if reasoning is not None:
                 m_low = use_model.lower()
-                if any(m_low.startswith(p) for p in ("o1", "o3", "o4", "gpt-5", "gpt-6", "gemini-3", "grok", "glm")):
+                if any(m_low.startswith(p) for p in ("o1", "o3", "o4", "gpt-5", "gpt-6", "gemini-3", "grok", "glm", "claude")):
                     effort_val = reasoning["effort"]
                     body["reasoning_effort"] = "high" if effort_val == "xhigh" else effort_val
     if temperature is not None:

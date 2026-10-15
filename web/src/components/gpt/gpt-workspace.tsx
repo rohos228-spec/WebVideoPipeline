@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
   Bot,
+  Brain,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -167,6 +168,37 @@ const STARTER_PROMPTS = [
     prompt: "Предложи 3 вирусные креативные идеи для коротких вертикальных видео (Shorts/Reels), привлекающих внимание с первых 3 секунд.",
   },
 ];
+
+const DEFAULT_REASONING_OPTIONS = [
+  { id: "off", label: "Выкл", hint: "Мгновенный ответ без скрытых размышлений (быстро)" },
+  { id: "low", label: "Низкий", hint: "Быстрое размышление (~5-15 сек), минимальный шанс таймаута" },
+  { id: "medium", label: "Средний", hint: "Взвешенное рассуждение, стандарт для сценариев" },
+  { id: "high", label: "Высокий", hint: "Глубокий анализ (может думать до 1-2 минут)" },
+  { id: "xhigh", label: "Экстра", hint: "Предельное мышление (для GPT-6 / флагманов)" },
+];
+
+const REASONING_STYLES: Record<string, { badge: string; icon: string }> = {
+  off: {
+    badge: "border-white/10 bg-[#16161b] text-zinc-400 hover:text-zinc-200",
+    icon: "text-zinc-500",
+  },
+  low: {
+    badge: "border-cyan-500/30 bg-cyan-950/30 text-cyan-300 hover:border-cyan-400/50",
+    icon: "text-cyan-400",
+  },
+  medium: {
+    badge: "border-emerald-500/30 bg-emerald-950/30 text-emerald-300 hover:border-emerald-400/50",
+    icon: "text-emerald-400",
+  },
+  high: {
+    badge: "border-amber-500/30 bg-amber-950/30 text-amber-300 hover:border-amber-400/50",
+    icon: "text-amber-400",
+  },
+  xhigh: {
+    badge: "border-fuchsia-500/30 bg-fuchsia-950/30 text-fuchsia-300 hover:border-fuchsia-400/50",
+    icon: "text-fuchsia-400",
+  },
+};
 
 type Props = {
   open: boolean;
@@ -511,6 +543,21 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
 
+  const selectReasoningMut = useMutation({
+    mutationFn: (effort: string) => api.textLlmSelect({ reasoning_effort: effort }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["text-llm-status"] });
+      toast.success("Режим мышления обновлен");
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
+  const activeReasoning = textLlmQ.data?.active_reasoning_effort || "off";
+  const reasoningOptions = textLlmQ.data?.reasoning_options || DEFAULT_REASONING_OPTIONS;
+  const activeReasoningOpt =
+    reasoningOptions.find((o: any) => o.id === activeReasoning) || reasoningOptions[0];
+  const reasoningStyle = REASONING_STYLES[activeReasoning] || REASONING_STYLES.off;
+
   const busy = isStreaming || session?.status === "running";
   const phaseLabel = streamingPhase || session?.phase_detail || (busy ? "Генерация ответа…" : "");
 
@@ -799,10 +846,10 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                 <div className="absolute right-0 top-full mt-2 z-[100] w-80 rounded-2xl border border-white/15 bg-[#16161b]/98 p-2.5 shadow-2xl backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150 ring-1 ring-white/10">
                   <div className="px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#22d3ee] border-b border-white/[0.08] mb-1 flex items-center justify-between">
                     <span>Выберите ИИ модель</span>
-                    <span className="text-[10px] text-white/40 font-mono">vibecode / kie</span>
+                    <span className="text-[10px] text-white/40 font-mono">LLM Models</span>
                   </div>
                   <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
-                    {["Anthropic", "xAI", "Google", "OpenAI", "DeepSeek", "KIE"].map((groupName) => {
+                    {["Anthropic", "OpenAI", "GLM", "xAI", "Google", "DeepSeek", "KIE"].map((groupName) => {
                       const groupModels = (textLlmQ.data?.models || []).filter(
                         (m: any) => (m.group || (m.provider === "kie" ? "KIE" : "OpenAI")) === groupName
                       );
@@ -812,15 +859,17 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                           <div className="px-2.5 pt-1.5 pb-1 font-mono text-[10px] font-bold uppercase tracking-wider text-white/35">
                             {groupName === "Anthropic"
                               ? "🟣 Anthropic (Claude)"
-                              : groupName === "xAI"
-                                ? "⚡ xAI (Grok)"
-                                : groupName === "Google"
-                                  ? "✨ Google Gemini"
-                                  : groupName === "DeepSeek"
-                                    ? "🧠 DeepSeek"
-                                    : groupName === "OpenAI"
-                                      ? "⚡ OpenAI (GPT)"
-                                      : "🌐 KIE API"}
+                              : groupName === "OpenAI"
+                                ? "⚡ OpenAI (GPT)"
+                                : groupName === "GLM"
+                                  ? "🟢 GLM"
+                                  : groupName === "xAI"
+                                    ? "⚡ xAI (Grok)"
+                                    : groupName === "Google"
+                                      ? "✨ Google Gemini"
+                                      : groupName === "DeepSeek"
+                                        ? "🧠 DeepSeek"
+                                        : "🌐 KIE API"}
                           </div>
                           {groupModels.map((m: any) => {
                             const active = m.active;
@@ -865,6 +914,30 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Reasoning Effort Selector */}
+            <div
+              className={cn(
+                "relative flex h-8 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold transition shadow-sm",
+                reasoningStyle.badge,
+                selectReasoningMut.isPending && "opacity-60",
+              )}
+              title={`Режим мышления ИИ: ${activeReasoningOpt.label}\n${activeReasoningOpt.hint}`}
+            >
+              <Brain className={cn("h-3.5 w-3.5 shrink-0", reasoningStyle.icon)} />
+              <select
+                className="cursor-pointer bg-transparent text-xs font-semibold text-inherit focus:outline-none pr-1"
+                disabled={selectReasoningMut.isPending}
+                value={activeReasoning}
+                onChange={(e) => selectReasoningMut.mutate(e.target.value)}
+              >
+                {reasoningOptions.map((opt: any) => (
+                  <option key={opt.id} value={opt.id} className="bg-[#16161b] text-white">
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* In-Chat Message Search */}

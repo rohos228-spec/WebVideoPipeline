@@ -155,6 +155,169 @@ CATALOG: list[dict[str, str]] = [
         "site": "vibecode.moe",
         "api_model": "glm-5.3-flashx",
     },
+    # Cloud LLM (GLM / Claude Low / Claude High / GPT)
+    {
+        "id": "glm-5.3-flash-pay52",
+        "provider": "pay52",
+        "group": "GLM",
+        "label": "GLM 5.3 Flash",
+        "site": "Cloud API",
+        "api_model": "glm-5.3-flash",
+    },
+    {
+        "id": "glm-5.3-pay52",
+        "provider": "pay52",
+        "group": "GLM",
+        "label": "GLM 5.3",
+        "site": "Cloud API",
+        "api_model": "glm-5.3",
+    },
+    {
+        "id": "glm-5.2-pay52",
+        "provider": "pay52",
+        "group": "GLM",
+        "label": "GLM 5.2",
+        "site": "Cloud API",
+        "api_model": "glm-5.2",
+    },
+    # Claude Low (Cost-effective / Эконом)
+    {
+        "id": "claude-haiku-4-5-pay52-low",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Haiku 4.5 (Эконом)",
+        "site": "Cloud API",
+        "api_model": "claude-haiku-4-5-20251001",  # gitleaks:allow — имя модели API, не секрет
+    },
+    {
+        "id": "claude-sonnet-4-5-pay52-low",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Sonnet 4.5 (Эконом)",
+        "site": "Cloud API",
+        "api_model": "claude-sonnet-4-5-20250929",
+    },
+    {
+        "id": "claude-sonnet-5-pay52-low",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Sonnet 5 (Эконом)",
+        "site": "Cloud API",
+        "api_model": "claude-sonnet-5",
+    },
+    {
+        "id": "claude-sonnet-5-5-pay52-low",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Sonnet 5.5 (Эконом)",
+        "site": "Cloud API",
+        "api_model": "claude-sonnet-5-5",
+    },
+    {
+        "id": "claude-opus-5-pay52-low",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Opus 5 (Эконом)",
+        "site": "Cloud API",
+        "api_model": "claude-opus-5",
+    },
+    {
+        "id": "claude-opus-5-5-pay52-low",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Opus 5.5 (Эконом)",
+        "site": "Cloud API",
+        "api_model": "claude-opus-5-5",
+    },
+    # Claude High (Code Max / Full-blood / Высокое качество)
+    {
+        "id": "claude-fable-5-1-pay52-high",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Fable 5.1 (High Quality)",
+        "site": "Cloud API",
+        "api_model": "claude-fable-5-1",
+    },
+    {
+        "id": "claude-fable-5-pay52-high",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Fable 5 (High Quality)",
+        "site": "Cloud API",
+        "api_model": "claude-fable-5",
+    },
+    {
+        "id": "claude-haiku-5-5-pay52-high",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Haiku 5.5 (High Quality)",
+        "site": "Cloud API",
+        "api_model": "claude-haiku-5-5",
+    },
+    {
+        "id": "claude-sonnet-5-pay52-high",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Sonnet 5 (High Quality)",
+        "site": "Cloud API",
+        "api_model": "claude-sonnet-5",
+    },
+    {
+        "id": "claude-sonnet-5-5-pay52-high",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Sonnet 5.5 (High Quality)",
+        "site": "Cloud API",
+        "api_model": "claude-sonnet-5-5",
+    },
+    {
+        "id": "claude-opus-5-pay52-high",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Opus 5 (High Quality)",
+        "site": "Cloud API",
+        "api_model": "claude-opus-5",
+    },
+    {
+        "id": "claude-opus-5-5-pay52-high",
+        "provider": "pay52",
+        "group": "Anthropic",
+        "label": "Claude Opus 5.5 (High Quality)",
+        "site": "Cloud API",
+        "api_model": "claude-opus-5-5",
+    },
+    {
+        "id": "gpt-5.6-sol-pay52",
+        "provider": "pay52",
+        "group": "OpenAI",
+        "label": "GPT 5.6 Sol",
+        "site": "Cloud API",
+        "api_model": "gpt-5.6-sol",
+    },
+    {
+        "id": "gpt-6-sol-pay52",
+        "provider": "pay52",
+        "group": "OpenAI",
+        "label": "GPT 6 Sol",
+        "site": "Cloud API",
+        "api_model": "gpt-6-sol",
+    },
+    {
+        "id": "gpt-6.1-sol-pay52",
+        "provider": "pay52",
+        "group": "OpenAI",
+        "label": "GPT 6.1 Sol",
+        "site": "Cloud API",
+        "api_model": "gpt-6.1-sol",
+    },
+    {
+        "id": "gpt-6-astra-pay52",
+        "provider": "pay52",
+        "group": "OpenAI",
+        "label": "GPT 6 Astra",
+        "site": "Cloud API",
+        "api_model": "gpt-6-astra",
+    },
     # kie.ai — модель берётся из GPT_MODEL, api_model не фиксируем.
     {
         "id": "gpt-kie",
@@ -165,7 +328,10 @@ CATALOG: list[dict[str, str]] = [
     },
 ]
 
-_PROVIDERS = frozenset({"kie", "vibecode"})
+PAY52_DEFAULT_ID = "gpt-5.6-sol-pay52"
+PAY52_DEFAULT_API_MODEL = "gpt-5.6-sol"
+
+_PROVIDERS = frozenset({"kie", "vibecode", "pay52"})
 #: Провайдеры, выведенные из текстового контура: значение в .env / choice.json
 #: не должно ронять старт — уводим на kie с предупреждением.
 _RETIRED_PROVIDERS = frozenset(
@@ -222,6 +388,38 @@ _MODEL_ALIASES = {
     "glm-5.3-flash-vibecode": "glm-5.3-flash-vibecode",
     "glm-5.3-flashx": "glm-5.3-flashx-vibecode",
     "glm-5.3-flashx-vibecode": "glm-5.3-flashx-vibecode",
+    # 52pay aliases
+    "glm-5.2": "glm-5.2-pay52",
+    "glm-5.3": "glm-5.3-pay52",
+    "glm-5.2-pay52": "glm-5.2-pay52",
+    "glm-5.3-pay52": "glm-5.3-pay52",
+    "glm-5.3-flash-pay52": "glm-5.3-flash-pay52",
+    "claude-haiku-4-5-pay52": "claude-haiku-4-5-pay52-low",
+    "claude-haiku-4-5-pay52-low": "claude-haiku-4-5-pay52-low",
+    "claude-sonnet-4-5-pay52": "claude-sonnet-4-5-pay52-low",
+    "claude-sonnet-4-5-pay52-low": "claude-sonnet-4-5-pay52-low",
+    "claude-sonnet-5-pay52": "claude-sonnet-5-pay52-low",
+    "claude-sonnet-5-pay52-low": "claude-sonnet-5-pay52-low",
+    "claude-sonnet-5-pay52-high": "claude-sonnet-5-pay52-high",
+    "claude-sonnet-5-5-pay52": "claude-sonnet-5-5-pay52-high",
+    "claude-sonnet-5-5-pay52-low": "claude-sonnet-5-5-pay52-low",
+    "claude-sonnet-5-5-pay52-high": "claude-sonnet-5-5-pay52-high",
+    "claude-opus-5-pay52": "claude-opus-5-pay52-low",
+    "claude-opus-5-pay52-low": "claude-opus-5-pay52-low",
+    "claude-opus-5-pay52-high": "claude-opus-5-pay52-high",
+    "claude-opus-5-5-pay52": "claude-opus-5-5-pay52-high",
+    "claude-opus-5-5-pay52-low": "claude-opus-5-5-pay52-low",
+    "claude-opus-5-5-pay52-high": "claude-opus-5-5-pay52-high",
+    "claude-haiku-5-5-pay52": "claude-haiku-5-5-pay52-high",
+    "claude-haiku-5-5-pay52-high": "claude-haiku-5-5-pay52-high",
+    "claude-fable-5-1-pay52": "claude-fable-5-1-pay52-high",
+    "claude-fable-5-1-pay52-high": "claude-fable-5-1-pay52-high",
+    "claude-fable-5-pay52": "claude-fable-5-pay52-high",
+    "claude-fable-5-pay52-high": "claude-fable-5-pay52-high",
+    "gpt-5.6-sol-pay52": "gpt-5.6-sol-pay52",
+    "gpt-6-sol-pay52": "gpt-6-sol-pay52",
+    "gpt-6.1-sol-pay52": "gpt-6.1-sol-pay52",
+    "gpt-6-astra-pay52": "gpt-6-astra-pay52",
     # KIE
     "gpt-kie": "gpt-kie",
 }
@@ -331,6 +529,8 @@ def write_choice(
     provider = (provider or default_prov or "kie").strip().lower()
     if provider in {"vibe", "vibecode.moe", "anthropic", "claude"}:
         provider = "vibecode"
+    elif provider in {"pay52", "52pay", "pay52.com"}:
+        provider = "pay52"
     aliased = catalog_item(model_id) if model_id else None
     if aliased:
         provider = aliased["provider"]
@@ -339,6 +539,8 @@ def write_choice(
         raise ValueError(f"unknown text LLM provider: {provider!r}")
     if provider == "vibecode":
         model_id = model_id or existing.get("model_id") or VIBECODE_DEFAULT_ID
+    elif provider == "pay52":
+        model_id = model_id or existing.get("model_id") or PAY52_DEFAULT_ID
     else:
         model_id = model_id or existing.get("model_id") or "gpt-kie"
 
@@ -367,7 +569,7 @@ def write_choice(
 
 
 def resolve_active_provider(cfg: Settings | None = None) -> str:
-    """kie по умолчанию; vibecode — по явному выбору.
+    """kie по умолчанию; vibecode / pay52 — по явному выбору.
 
     `minimax` (2026-08-26) и `tokenrouter`/`kimi` (2026-09) больше не
     провайдеры: старое значение в choice.json / TEXT_LLM_PROVIDER молча
@@ -377,14 +579,18 @@ def resolve_active_provider(cfg: Settings | None = None) -> str:
     raw_choice = str(read_choice(s).get("provider") or "").strip().lower()
     if raw_choice in {"vibecode", "vibe", "anthropic", "claude"}:
         return "vibecode"
+    if raw_choice in {"pay52", "52pay", "pay52.com"}:
+        return "pay52"
     if raw_choice in {"kie", "gpt", "openai"}:
         return "kie"
     raw = (s.text_llm_provider or "kie").strip().lower()
     if raw in {"vibecode", "vibe", "anthropic", "claude"}:
         return "vibecode"
+    if raw in {"pay52", "52pay", "pay52.com"}:
+        return "pay52"
     if raw in _RETIRED_PROVIDERS or raw_choice in _RETIRED_PROVIDERS:
         logger.warning(
-            "text_llm: провайдер {!r} выведен — активен kie; переключи на vibecode",
+            "text_llm: провайдер {!r} выведен — активен kie; переключи на vibecode или pay52",
             raw or raw_choice,
         )
     return "kie"
@@ -399,6 +605,8 @@ def resolve_active_model_id(cfg: Settings | None = None) -> str:
     prov = resolve_active_provider(s)
     if prov == "vibecode":
         return VIBECODE_DEFAULT_ID
+    if prov == "pay52":
+        return PAY52_DEFAULT_ID
     return "gpt-kie"
 
 
@@ -413,6 +621,20 @@ def catalog_status(cfg: Settings | None = None) -> dict[str, Any]:
             model = item.get("api_model") or VIBECODE_DEFAULT_API_MODEL
             key_ok = bool((s.vibecode_api_key or "").strip())
             base = s.vibecode_base_url
+        elif prov == "pay52":
+            model = item.get("api_model") or PAY52_DEFAULT_API_MODEL
+            m_id = item["id"].lower()
+            if "glm" in m_id:
+                key_ok = bool((s.pay52_glm_key or "").strip())
+            elif "high" in m_id or "fable" in m_id or "5-5" in m_id:
+                key_ok = bool((s.pay52_claude_high_key or "").strip())
+            elif "claude" in m_id:
+                key_ok = bool((s.pay52_claude_low_key or "").strip())
+            elif "gpt" in m_id:
+                key_ok = bool((s.pay52_gpt_key or "").strip())
+            else:
+                key_ok = bool((s.pay52_gpt_key or s.pay52_glm_key or "").strip())
+            base = s.pay52_base_url
         else:
             model = s.gpt_model
             key_ok = bool((s.gpt_api_key or "").strip())
@@ -432,6 +654,13 @@ def catalog_status(cfg: Settings | None = None) -> dict[str, Any]:
         api_model = active_item.get("api_model") or VIBECODE_DEFAULT_API_MODEL
         pretty = active_item.get("label") or "Claude"
         label = f"{pretty} · vibecode.moe ({api_model})"
+        active_model = api_model
+    elif active == "pay52":
+        active_raw = catalog_item(active_id)
+        active_item = active_raw if isinstance(active_raw, dict) else {}
+        api_model = active_item.get("api_model") or PAY52_DEFAULT_API_MODEL
+        pretty = active_item.get("label") or "Cloud LLM"
+        label = f"{pretty} ({api_model})"
         active_model = api_model
     else:
         label = f"GPT · kie.ai ({s.gpt_model})"
