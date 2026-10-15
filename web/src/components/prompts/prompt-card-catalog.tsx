@@ -11,7 +11,7 @@
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Copy, Eye, ExternalLink, ImageOff, Search, Sparkles, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Eye, ExternalLink, ImageOff, Search, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import type { NodeResultItem as BaseItem } from "@/lib/node-result-resolver";
 
@@ -116,7 +116,7 @@ export function PromptDetailModal({
         className="absolute inset-0 bg-black/75 backdrop-blur-[3px] animate-in fade-in duration-200"
         onClick={onClose}
       />
-      <div className="relative z-10 flex max-h-[94vh] w-[min(96vw,1100px)] flex-col overflow-hidden rounded-2xl border border-white/12 bg-[#101015] shadow-[0_0_80px_rgba(0,0,0,0.9)] animate-in zoom-in-95 duration-200">
+      <div className="relative z-10 flex max-h-[94vh] w-[min(96vw,1100px)] flex-col overflow-hidden rounded-none border border-white/15 bg-[#101015] shadow-[0_0_80px_rgba(0,0,0,0.9)] animate-in zoom-in-95 duration-200">
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/10 px-4">
           <div className="flex items-center gap-2">
             <span className="rounded bg-[#22d3ee]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#22d3ee]">
@@ -237,6 +237,7 @@ export function PromptCardCatalog({
     onSelect?.(id);
   };
   const [openId, setOpenId] = useState<string | null>(null);
+  const [catOpen, setCatOpen] = useState(false);
 
   useEffect(() => {
     if (selectedIdProp == null && !items.some((i) => i.id === selectedIdState)) {
@@ -266,135 +267,162 @@ export function PromptCardCatalog({
   const openIdx = openId ? displayed.findIndex((i) => i.id === openId) : -1;
   const openItem = openIdx >= 0 ? displayed[openIdx] : items.find((i) => i.id === openId);
 
+  const cols = mode === "picker" ? 4 : 5;
+  const fillers = displayed.length % cols ? cols - (displayed.length % cols) : 0;
+  const filterLabel =
+    filter === "all" ? "Категории" : filter === "with_image" ? "С изображением" : filter === "no_image" ? "Без изображения" : filter;
+  const catOptions: Array<[string, string, number]> = cats.length
+    ? [["all", "Все", items.length], ...cats.map(([c, n]) => [c, c, n] as [string, string, number])]
+    : [
+        ["all", "Все", items.length],
+        ["with_image", "С изображением", withImage],
+        ["no_image", "Без изображения", items.length - withImage],
+      ];
+
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col", heightClass, "overflow-hidden rounded-xl border border-white/10 bg-[#101015]")}>
-      <div className="flex shrink-0 items-center gap-2.5 border-b border-white/10 px-4 py-2.5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#22d3ee]/10 text-[#22d3ee]">
+    <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border border-white/15 bg-[#101015]", heightClass)}>
+      <div className="flex h-12 shrink-0 items-stretch border-b border-white/15">
+        <div className="flex w-12 items-center justify-center border-r border-white/15 bg-[#22d3ee]/10 text-[#22d3ee]">
           <Sparkles className="h-4 w-4" />
         </div>
-        <div>
-          <div className="text-[14px] font-semibold text-white">{title}</div>
-          <div className="text-[11px] text-white/50">{subtitle ?? `${items.length} промтов${cats.length ? ` · ${cats.length} категорий` : ""}`}</div>
+        <div className="flex min-w-0 flex-1 flex-col justify-center px-3">
+          <div className="truncate text-[14px] font-semibold text-white">{title}</div>
+          <div className="truncate text-[11px] text-white/50">{subtitle ?? `${items.length} промтов${cats.length ? ` · ${cats.length} категорий` : ""}`}</div>
         </div>
-        {headerExtra || onClose ? (
-          <div className="ml-auto flex items-center gap-1.5">
-            {headerExtra}
-            {onClose ? (
-              <button
-                type="button"
-                onClick={onClose}
-                title="Закрыть (Esc)"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/50 transition hover:bg-white/10 hover:text-white"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
+        {headerExtra ? <div className="flex items-stretch border-l border-white/15">{headerExtra}</div> : null}
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            title="Закрыть (Esc)"
+            className="flex w-12 items-center justify-center rounded-none border-l border-white/15 text-white/50 transition hover:bg-white/10 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
         ) : null}
       </div>
 
-      <div className="shrink-0 space-y-2.5 border-b border-white/10 bg-white/[0.015] px-4 py-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
+      <div className="relative flex h-10 shrink-0 items-stretch border-b border-white/15">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={cats.length ? "Поиск по промтам, описанию, тексту…" : "Поиск по кадрам и тексту промта…"}
-            className="w-full rounded-lg border border-white/10 bg-[#16161d] py-1.5 pl-8 pr-7 text-[12px] text-white/90 placeholder-white/35 transition focus:border-[#22d3ee]/50 focus:outline-none focus:ring-1 focus:ring-[#22d3ee]/30"
+            className="h-full w-full rounded-none border-0 bg-[#16161d] pl-9 pr-8 text-[12px] text-white/90 placeholder-white/35 outline-none focus:bg-[#191922]"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
             >
               <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button type="button" onClick={() => setFilter("all")} className={chipCls(filter === "all")}>
-            Все ({items.length})
-          </button>
-          {cats.length ? cats.map(([c, n]) => (
-            <button key={c} type="button" onClick={() => setFilter(c)} className={chipCls(filter === c)}>
-              {c} ({n})
-            </button>
-          )) : (<>
-          <button type="button" onClick={() => setFilter("with_image")} className={chipCls(filter === "with_image")}>
-            С изображением ({withImage})
-          </button>
-          <button type="button" onClick={() => setFilter("no_image")} className={chipCls(filter === "no_image")}>
-            Без изображения ({items.length - withImage})
-          </button></>)}
-        </div>
+        <button
+          type="button"
+          onClick={() => setCatOpen((v) => !v)}
+          className={cn(
+            "flex min-w-[170px] items-center justify-between gap-2 rounded-none border-l border-white/15 px-3 text-[12px] font-medium transition",
+            catOpen || filter !== "all" ? "bg-[#22d3ee] text-black" : "bg-[#16161d] text-white/80 hover:bg-white/[0.06]",
+          )}
+          aria-haspopup="listbox"
+          aria-expanded={catOpen}
+        >
+          <span className="truncate">{filterLabel}</span>
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", catOpen && "rotate-180")} />
+        </button>
+        {catOpen && (
+          <div
+            role="listbox"
+            className="absolute right-0 top-full z-40 min-w-[220px] rounded-none border border-t-0 border-white/15 bg-[#101015] shadow-[0_12px_30px_rgba(0,0,0,0.7)]"
+          >
+            {catOptions.map(([id, label, n]) => (
+              <button
+                key={id}
+                type="button"
+                role="option"
+                aria-selected={filter === id}
+                onClick={() => {
+                  setFilter(id);
+                  setCatOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 rounded-none border-t border-white/10 px-3 py-2 text-left text-[12px] first:border-t-0",
+                  filter === id ? "bg-[#22d3ee]/15 text-[#22d3ee]" : "text-white/75 hover:bg-white/[0.06] hover:text-white",
+                )}
+              >
+                <span className="truncate">{label}</span>
+                <span className="text-[11px] text-white/45">{n}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto" onClick={() => catOpen && setCatOpen(false)}>
         {displayed.length === 0 ? (
           <p className="py-10 text-center text-[12px] text-white/45">Ничего не найдено</p>
         ) : (
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+          <div
+            className="grid gap-px border-b border-white/15 bg-white/15"
+            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+          >
             {displayed.map((it, idx) => {
               const isCurrent = it.id === selectedId;
+              const choose = () => {
+                setSelectedId(it.id);
+                if (mode === "picker") onDone?.(it.id);
+                else setOpenId(it.id);
+              };
               return (
                 <div
                   key={it.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => {
-                    setSelectedId(it.id);
-                    if (mode !== "picker") setOpenId(it.id);
-                  }}
+                  onClick={choose}
                   onDoubleClick={() => setOpenId(it.id)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      setSelectedId(it.id);
-                      setOpenId(it.id);
+                      choose();
                     }
                   }}
                   className={cn(
-                    "group relative h-[152px] cursor-pointer select-none overflow-hidden rounded-xl border text-left transition-all duration-300",
-                    isCurrent
-                      ? "border-[#22d3ee] ring-2 ring-[#22d3ee]/50 shadow-[0_0_24px_rgba(34,211,238,0.35)]"
-                      : "border-white/10 bg-[#16161c] hover:border-white/30 hover:shadow-[0_10px_30px_rgba(0,0,0,0.6)]",
+                    "group relative h-[152px] cursor-pointer select-none overflow-hidden rounded-none bg-[#16161c] text-left outline-none",
+                    isCurrent && "z-10 shadow-[inset_0_0_0_2px_#22d3ee]",
                   )}
                 >
                   <div className="absolute inset-0 h-full w-full overflow-hidden transition-transform duration-500 ease-out group-hover:scale-105">
                     <CardBg src={it.previewUrl} seed={it.category ? catSeed(it.category) : (it.frameNumber ?? idx + 1)} label={it.category} />
                   </div>
-                  <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between p-2">
-                    <span className="rounded border border-white/10 bg-black/65 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-white/85 shadow-sm backdrop-blur-md">
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between">
+                    <span className="rounded-none border-b border-r border-white/15 bg-black/70 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-white/85">
                       {it.category ?? (it.frameNumber != null ? `Кадр ${it.frameNumber}` : "Промт")}
                     </span>
-                    {badgeFor?.(it) ?? (isCurrent ? (
-                      <span className="flex items-center gap-1 rounded bg-[#22d3ee] px-1.5 py-0.5 text-[9.5px] font-bold text-black shadow-md">
-                        <Check className="h-3 w-3" /> Выбран
-                      </span>
-                    ) : (
-                      <span
-                        className={cn(
-                          "h-2.5 w-2.5 rounded-full shadow-[0_0_8px_currentColor]",
-                          it.previewUrl ? "bg-[#22d3ee] text-[#22d3ee]" : "bg-white/30 text-white/30",
-                        )}
-                      />
-                    ))}
+                    {badgeFor?.(it) ??
+                      (isCurrent ? (
+                        <span className="flex items-center gap-1 rounded-none bg-[#22d3ee] px-1.5 py-0.5 text-[9.5px] font-bold text-black">
+                          <Check className="h-3 w-3" /> Выбран
+                        </span>
+                      ) : null)}
                   </div>
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col justify-end bg-gradient-to-t from-black/95 via-black/70 to-transparent p-2.5 pt-10 transition-opacity duration-200 group-hover:opacity-0">
                     <div className="line-clamp-1 text-[13px] font-bold text-white drop-shadow-md">{it.label}</div>
-                    <div className="mt-0.5 line-clamp-1 text-[10.5px] text-white/60">{(it.description || promptShortDesc(it.content))}</div>
+                    <div className="mt-0.5 line-clamp-1 text-[10.5px] text-white/60">{it.description || promptShortDesc(it.content)}</div>
                   </div>
-                  <div className="absolute inset-0 z-30 flex flex-col justify-between bg-black/90 p-2.5 opacity-0 backdrop-blur-[3px] transition-all duration-200 group-hover:opacity-100">
+                  <div className="absolute inset-0 z-30 flex flex-col justify-between bg-black/90 p-2.5 opacity-0 transition-all duration-200 group-hover:opacity-100">
                     <div className="min-w-0">
                       <div className="line-clamp-1 text-[13px] font-bold text-[#22d3ee]">{it.label}</div>
-                      <div className="mt-1 line-clamp-5 font-mono text-[10px] leading-snug text-white/80">
-                        {it.content}
-                      </div>
+                      <div className="mt-1 line-clamp-5 font-mono text-[10px] leading-snug text-white/80">{it.content}</div>
                     </div>
                     <div className="flex items-center justify-between gap-1">
-                      <span className="text-[10px] text-white/45">{mode === "picker" ? "Клик — выбрать" : "Клик — открыть"}</span>
+                      <span className="text-[10px] text-white/45">
+                        {mode === "picker" ? "Клик — выбрать · 2×клик — просмотр" : "Клик — открыть"}
+                      </span>
                       <button
                         type="button"
                         title="Просмотр: изображение, описание, полный промт"
@@ -402,7 +430,7 @@ export function PromptCardCatalog({
                           e.stopPropagation();
                           setOpenId(it.id);
                         }}
-                        className="ml-auto rounded p-1 text-white/70 transition hover:bg-white/20 hover:text-white"
+                        className="ml-auto rounded-none p-1 text-white/70 transition hover:bg-white/20 hover:text-white"
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </button>
@@ -413,7 +441,7 @@ export function PromptCardCatalog({
                           e.stopPropagation();
                           void copyText(it.content ?? "");
                         }}
-                        className="rounded p-1 text-white/70 transition hover:bg-white/20 hover:text-white"
+                        className="rounded-none p-1 text-white/70 transition hover:bg-white/20 hover:text-white"
                       >
                         <Copy className="h-3.5 w-3.5" />
                       </button>
@@ -422,56 +450,12 @@ export function PromptCardCatalog({
                 </div>
               );
             })}
+            {Array.from({ length: fillers }).map((_, i) => (
+              <div key={`f${i}`} className="h-[152px] bg-[#101015]" />
+            ))}
           </div>
         )}
       </div>
-
-      {selected && (
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-white/10 bg-[#0c0c10] px-4 py-2.5">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#22d3ee] shadow-[0_0_8px_#22d3ee]" />
-            <div className="min-w-0">
-              <div className="truncate text-[12px] font-semibold text-white">{selected.label}</div>
-              <div className="truncate text-[10.5px] text-white/50">{(selected.description || promptShortDesc(selected.content))}</div>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => void copyText(selected.content ?? "")}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/12 bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium text-white/70 hover:border-white/25 hover:text-white"
-            >
-              <Copy className="h-3.5 w-3.5" /> Копировать
-            </button>
-            {mode === "picker" ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setOpenId(selected.id)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/12 bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium text-white/70 hover:border-white/25 hover:text-white"
-                >
-                  <Eye className="h-3.5 w-3.5" /> Просмотр
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDone?.(selected.id)}
-                  className="rounded-lg bg-[#22d3ee] px-4 py-1.5 text-[11px] font-semibold text-black hover:brightness-110"
-                >
-                  {doneLabel}
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setOpenId(selected.id)}
-                className="rounded-lg bg-[#22d3ee] px-4 py-1.5 text-[11px] font-semibold text-black hover:brightness-110"
-              >
-                Открыть
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
       {openItem && (
         <PromptDetailModal
@@ -525,13 +509,14 @@ export function PromptCatalogPicker({
   }, [open, onOpenChange]);
   if (!open || typeof document === "undefined") return null;
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex justify-end" onPointerDown={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" onPointerDown={(e) => e.stopPropagation()}>
       <div
         className="fixed inset-0 bg-black/65 backdrop-blur-[3px] animate-in fade-in duration-200"
         onClick={() => onOpenChange(false)}
       />
-      <aside
-        className="relative z-10 flex h-full w-[min(96vw,1260px)] flex-col shadow-[0_0_80px_rgba(0,0,0,0.9)] animate-in slide-in-from-right duration-250"
+      <div
+        className="relative z-10 flex h-[min(78vh,760px)] w-[min(96vw,980px)] flex-col rounded-none shadow-[0_0_0_1px_rgba(34,211,238,0.55),0_0_60px_rgba(34,211,238,0.25),0_0_80px_rgba(0,0,0,0.9)] animate-in zoom-in-95 duration-200"
+        role="dialog"
         aria-label={title}
       >
         <PromptCardCatalog
@@ -541,7 +526,7 @@ export function PromptCatalogPicker({
           subtitle={subtitle}
           selectedId={pick}
           onSelect={setPick}
-          heightClass="h-full rounded-none border-0 border-l"
+          heightClass="h-full"
           onClose={() => onOpenChange(false)}
           doneLabel={doneLabel}
           onDone={(id) => {
@@ -549,7 +534,7 @@ export function PromptCatalogPicker({
             onOpenChange(false);
           }}
         />
-      </aside>
+      </div>
     </div>,
     document.body,
   );
