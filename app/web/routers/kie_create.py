@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from loguru import logger
 
-from app.bots import kie_http, wavespeed_http
+from app.bots import kie_http, pay52_video, wavespeed_http
 from app.services import kie_catalog
 from app.services.create_jobs import enqueue_generation, get_job
 from app.settings import settings
@@ -36,6 +36,7 @@ async def get_catalog() -> dict[str, Any]:
         # Флаг готовности важен до первого вызова /generate.
         "configured": kie_http.kie_configured(),
         "wavespeed_configured": wavespeed_http.wavespeed_configured(),
+        "pay52_configured": pay52_video.pay52_configured(),
     }
 
 
@@ -215,9 +216,15 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
     if errors:
         raise HTTPException(status_code=422, detail="; ".join(errors[:6]))
     is_wavespeed = spec.get("api") == "wavespeed"
+    is_pay52 = spec.get("api") == "pay52" or (
+        "seedance" in spec.get("id", "").lower() and pay52_video.pay52_video_configured(spec)
+    )
     if is_wavespeed:
         if not wavespeed_http.wavespeed_configured():
             raise HTTPException(status_code=503, detail="WaveSpeed API не настроен (WAVESPEED_API_KEY)")
+    elif is_pay52:
+        if not pay52_video.pay52_video_configured(spec):
+            raise HTTPException(status_code=503, detail="52pay API не настроен (проверьте SEEDANCE_*_KEY)")
     elif not kie_http.kie_configured():
         raise HTTPException(status_code=503, detail="kie API не настроен (KIE_API_KEY)")
 
@@ -264,6 +271,8 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
         try:
             if is_wavespeed:
                 res = await wavespeed_http.run_generation(payload, out_path)
+            elif is_pay52:
+                res = await pay52_video.run_generation(spec, payload, out_path)
             elif result_kind == "text":
                 task_id = await kie_http.create_task(str(spec.get("api")), spec.get("endpoint"), payload)
                 data = await kie_http.poll_task(str(spec.get("api")), task_id)
@@ -284,16 +293,16 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
                         cost_usd=cost_usd,
                         ref_table="create_generations",
                         ref_ids=[],
-                        memo=f"{'WaveSpeed' if is_wavespeed else 'KIE'} генерация {media} ({spec['label']})",
+                        memo=f"{'WaveSpeed' if is_wavespeed else ('52pay' if is_pay52 else 'KIE')} генерация {media} ({spec['label']})",
                     )
             return res
         except Exception:
             if hold_id:
                 async with session_scope() as session:
-                    await cl.release_hold(session, hold_id, memo=f"Сбой {'WaveSpeed' if is_wavespeed else 'KIE'} генерации {media}")
+                    await cl.release_hold(session, hold_id, memo=f"Сбой {'WaveSpeed' if is_wavespeed else ('52pay' if is_pay52 else 'KIE')} генерации {media}")
             raise
 
-    job_provider = "wavespeed" if is_wavespeed else "kie"
+    job_provider = "wavespeed" if is_wavespeed else ("pay52" if is_pay52 else "kie")
     job = await enqueue_generation(
         media=media,
         model=spec["label"],

@@ -974,7 +974,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     setOrientation(s.orientation === "image" ? "image" : "video");
     setMotionQuality(String(s.motion_quality || "std"));
     setInstrumental(Boolean(s.instrumental));
-    setPrompt(String(s.prompt || ""));
+    setPrompt("");
     setSoraSize(s.sora_size === "large" ? "large" : "small");
     setSettingsHydrated(true);
   }, [open, settingsQ.data, settingsHydrated]);
@@ -984,6 +984,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       setModelOpen(false);
       setOpenChip(null);
       setSettingsHydrated(false);
+      setPrompt("");
     }
   }, [open]);
 
@@ -1135,6 +1136,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       const maxRefs = refField?.max_items || 0;
       return { supportsFirst, supportsLast, supportsRefs, maxRefs };
     }
+    if (activeSlug === "seedance-2-0-mini" || activeSlug === "seedance_2_0_mini") {
+      return { supportsFirst: true, supportsLast: true, supportsRefs: true, maxRefs: 9 };
+    }
+    if (activeSlug === "seedance-2-0-fast-overseas" || activeSlug === "seedance_2_0_fast_overseas") {
+      return { supportsFirst: false, supportsLast: false, supportsRefs: true, maxRefs: 9 };
+    }
     // Outsee video (veo-3-1-lite): поддерживает только стартовый кадр
     return {
       supportsFirst: videoModel.chips.includes("image-input"),
@@ -1142,7 +1149,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       supportsRefs: false,
       maxRefs: 0,
     };
-  }, [mediaType, kieActive, kieModel, videoModel]);
+  }, [mediaType, activeSlug, kieActive, kieModel, videoModel]);
 
   const maxReferences = useMemo(() => {
     const slug = activeSlug.toLowerCase();
@@ -3237,6 +3244,41 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     </div>
                   </div>
                 )}
+                {/* Seedance Mini / Fast Overseas подсказка и быстрый переключатель */}
+                {(activeSlug === "seedance-2-0-mini" || activeSlug === "kie:seedance-2-0-mini") && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-sky-500/20 bg-sky-500/[0.06] px-3.5 py-2 text-[12px] text-sky-200 lg:px-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">💡</span>
+                      <span>
+                        Базовый <strong>Seedance 2.0 Mini</strong> отклоняет фото реальных лиц. Для генерации людей включите кнопку <strong>«Работа с лицами»</strong>.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setVideoSlug(activeSlug.startsWith("kie:") ? "kie:seedance-2-0-fast-overseas" : "seedance-2-0-fast-overseas")}
+                      className="shrink-0 rounded-lg bg-emerald-500/20 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/30 transition self-end sm:self-auto"
+                    >
+                      👤 Включить работу с лицами
+                    </button>
+                  </div>
+                )}
+                {(activeSlug === "seedance-2-0-fast-overseas" || activeSlug === "kie:seedance-2-0-fast-overseas") && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-500/20 bg-emerald-500/[0.06] px-3.5 py-2 text-[12px] text-emerald-200 lg:px-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">👤</span>
+                      <span>
+                        Активен режим <strong>Seedance 2.0 Fast Overseas (Лица)</strong>: поддержка живых лиц, промпт до 10 000 знаков, до 9 картинок-референсов.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setVideoSlug(activeSlug.startsWith("kie:") ? "kie:seedance-2-0-mini" : "seedance-2-0-mini")}
+                      className="shrink-0 rounded-lg bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/70 hover:bg-white/20 transition self-end sm:self-auto"
+                    >
+                      Переключить на Mini (без лиц)
+                    </button>
+                  </div>
+                )}
                 {/* Actions and Negative Prompt for image mode */}
                 {mediaType === "image" && (
                   <div className="flex flex-wrap items-center justify-end gap-1.5 border-b border-white/[0.06] bg-white/[0.015] px-3 py-1.5 lg:px-4">
@@ -3538,6 +3580,38 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       ))}
 
                   <div className="ml-auto flex flex-wrap items-center gap-2">
+                    {(activeSlug === "seedance-2-0-mini" ||
+                      activeSlug === "seedance-2-0-fast-overseas" ||
+                      activeSlug === "kie:seedance-2-0-mini" ||
+                      activeSlug === "kie:seedance-2-0-fast-overseas") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const isFast = activeSlug.includes("fast-overseas");
+                          const prefix = activeSlug.startsWith("kie:") ? "kie:" : "";
+                          const next = isFast
+                            ? `${prefix}seedance-2-0-mini`
+                            : `${prefix}seedance-2-0-fast-overseas`;
+                          setVideoSlug(next);
+                        }}
+                        className={cn(
+                          "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition shrink-0",
+                          activeSlug.includes("fast-overseas")
+                            ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+                            : "border-white/10 bg-[#16161b] text-white/60 hover:border-white/20 hover:text-white",
+                        )}
+                        title={
+                          activeSlug.includes("fast-overseas")
+                            ? "Режим с поддержкой живых лиц (Fast Overseas). Нажмите для переключения на базовый Mini"
+                            : "Включить работу с лицами (переключение на Fast Overseas)"
+                        }
+                      >
+                        <span className="text-sm">👤</span>
+                        <span>
+                          Работа с лицами: {activeSlug.includes("fast-overseas") ? "ВКЛ" : "ВЫКЛ"}
+                        </span>
+                      </button>
+                    )}
                     {!kieActive && mediaType === "video" &&
                       (videoSlug === "sora-2" ||
                         videoSlug === "sora2-portrait" ||

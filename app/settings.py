@@ -134,6 +134,18 @@ class Settings(BaseSettings):
     vibecode_api_key: str = Field("", alias="VIBECODE_API_KEY")
     vibecode_base_url: str = Field("https://vibecode.moe/v1", alias="VIBECODE_BASE_URL")
 
+    # 52pay.com — шлюз текстовых LLM и видео Seedance
+    pay52_base_url: str = Field("https://api.52pay.com/v1", alias="PAY52_BASE_URL")
+    pay52_glm_key: str = Field("", alias="PAY52_GLM_KEY")
+    pay52_claude_low_key: str = Field("", alias="PAY52_CLAUDE_LOW_KEY")
+    pay52_claude_high_key: str = Field("", alias="PAY52_CLAUDE_HIGH_KEY")
+    pay52_gpt_key: str = Field("", alias="PAY52_GPT_KEY")
+
+    # Seedance 52pay видео-ключи
+    seedance_mini_key: str = Field("", alias="SEEDANCE_MINI_KEY")
+    seedance_fast_key: str = Field("", alias="SEEDANCE_FAST_KEY")
+    seedance_overseas_key: str = Field("", alias="SEEDANCE_OVERSEAS_KEY")
+
     # Только dev/tests: без API-ключа check-роли получают stub-вердикт
     # (fail-open). В проде False → отсутствие ключа роняет проверку ошибкой.
     allow_stub_checks: bool = Field(False, alias="VP_ALLOW_STUB_CHECKS")
@@ -197,8 +209,12 @@ class Settings(BaseSettings):
         return self.resolved_text_llm_provider() == "vibecode"
 
     @property
+    def text_llm_is_pay52(self) -> bool:
+        return self.resolved_text_llm_provider() == "pay52"
+
+    @property
     def text_llm_label(self) -> str:
-        """Человекочитаемая метка для UI/логов (не «GPT», если это vibecode)."""
+        """Человекочитаемая метка для UI/логов (не «GPT», если это vibecode или 52pay)."""
         if self.text_llm_is_vibecode:
             from app.services.text_llm_catalog import (
                 VIBECODE_DEFAULT_API_MODEL,
@@ -210,6 +226,16 @@ class Settings(BaseSettings):
             api_model = (item or {}).get("api_model") or VIBECODE_DEFAULT_API_MODEL
             pretty = (item or {}).get("label") or "Claude"
             return f"{pretty} · vibecode.moe ({api_model})"
+        if self.text_llm_is_pay52:
+            from app.services.text_llm_catalog import (
+                catalog_item,
+                resolve_active_model_id,
+            )
+
+            item = catalog_item(resolve_active_model_id(self))
+            api_model = (item or {}).get("api_model") or "llm"
+            pretty = (item or {}).get("label") or "Cloud LLM"
+            return f"{pretty} ({api_model})"
         model = (self.gpt_model or "gpt").strip()
         base = (self.gpt_base_url or "").strip().lower()
         host = "kie.ai" if "kie.ai" in base else "API"
@@ -220,6 +246,21 @@ class Settings(BaseSettings):
         """Ключ активного текстового LLM."""
         if self.text_llm_is_vibecode:
             return (self.vibecode_api_key or "").strip()
+        if self.text_llm_is_pay52:
+            from app.services.text_llm_catalog import resolve_active_model_id
+
+            active_id = resolve_active_model_id(self).lower()
+            if "glm" in active_id:
+                return (self.pay52_glm_key or "").strip()
+            if "low" in active_id:
+                return (self.pay52_claude_low_key or "").strip()
+            if "high" in active_id or "fable" in active_id:
+                return (self.pay52_claude_high_key or "").strip()
+            if "claude" in active_id:
+                return (self.pay52_claude_low_key or "").strip()
+            if "gpt" in active_id:
+                return (self.pay52_gpt_key or "").strip()
+            return (self.pay52_gpt_key or self.pay52_glm_key or self.pay52_claude_low_key or "").strip()
         return (self.gpt_api_key or "").strip()
 
     @property
@@ -230,7 +271,7 @@ class Settings(BaseSettings):
         if not token or not base:
             return None
         low = base.lower()
-        if any(h in low for h in ("kie.ai", "vibecode.moe")):
+        if any(h in low for h in ("kie.ai", "vibecode.moe", "52pay.com")):
             return None
         return base
 
@@ -238,11 +279,12 @@ class Settings(BaseSettings):
     def gpt_api_effective_base_url(self) -> str:
         """База активного текстового LLM.
 
-        kie — через VPS-relay, если задан. vibecode — всегда прямиком на
-        vibecode.moe (VPS часто ещё только на api.kie.ai; иначе 401-envelope).
+        kie — через VPS-relay, если задан. vibecode/52pay — прямиком на шлюз.
         """
         if self.text_llm_is_vibecode:
             return (self.vibecode_base_url or "https://vibecode.moe/v1").strip().rstrip("/")
+        if self.text_llm_is_pay52:
+            return (self.pay52_base_url or "https://api.52pay.com/v1").strip().rstrip("/")
         vps = self.vps_relay_base_url
         if vps:
             return vps
@@ -251,7 +293,7 @@ class Settings(BaseSettings):
 
     @property
     def gpt_model_effective(self) -> str:
-        if self.text_llm_is_vibecode:
+        if self.text_llm_is_vibecode or self.text_llm_is_pay52:
             from app.services.text_llm_catalog import (
                 catalog_api_model,
                 resolve_active_model_id,
@@ -263,7 +305,7 @@ class Settings(BaseSettings):
     @property
     def gpt_chat_path_effective(self) -> str:
         """Путь chat-эндпоинта для активного провайдера."""
-        if self.text_llm_is_vibecode:
+        if self.text_llm_is_vibecode or self.text_llm_is_pay52:
             base = self.gpt_api_effective_base_url.lower()
             if base.endswith("/v1"):
                 return "/chat/completions"
@@ -272,7 +314,7 @@ class Settings(BaseSettings):
 
     @property
     def gpt_api_mode_effective(self) -> str:
-        if self.text_llm_is_vibecode:
+        if self.text_llm_is_vibecode or self.text_llm_is_pay52:
             return "chat"
         return (self.gpt_api_mode or "auto").strip().lower() or "auto"
 

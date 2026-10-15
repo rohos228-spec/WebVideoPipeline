@@ -177,9 +177,12 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
 
   if (id.startsWith("seedance")) {
     return {
-      resolutions: id === "seedance-2-0-mini" ? ["480p", "720p"] : ["720p", "1080p"],
+      resolutions:
+        id === "seedance-2-0-mini" || id === "seedance-2-0-fast-overseas"
+          ? ["480p", "720p"]
+          : ["720p", "1080p"],
       qualities: [],
-      aspects: ["16:9", "9:16", "1:1", "21:9"],
+      aspects: ["16:9", "9:16", "1:1", "21:9", "4:3", "3:4"],
       defaultResolution: "720p",
       defaultQuality: "medium",
       defaultAspect: "16:9",

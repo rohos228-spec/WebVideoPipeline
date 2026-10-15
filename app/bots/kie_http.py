@@ -462,6 +462,10 @@ async def run_generation(
 VIDEO_GENERATOR_TO_KIE_ID: dict[str, str] = {
     "seedance_2_0_mini": "seedance-2-0-mini",
     "seedance-2-0-mini": "seedance-2-0-mini",
+    "seedance_2_0_fast_overseas": "seedance-2-0-fast-overseas",
+    "seedance-2-0-fast-overseas": "seedance-2-0-fast-overseas",
+    "seedance_2_0_overseas": "seedance-2-0-overseas",
+    "seedance-2-0-overseas": "seedance-2-0-overseas",
     "seedance_2_5": "seedance-2-5",
     "seedance-2-5": "seedance-2-5",
     "seedance_1_5_pro": "seedance-1-5-pro",
@@ -523,17 +527,19 @@ async def generate_kie_video(
     gen_id: str | None = None,
 ) -> GenerationResult:
     """Генерация видео через KIE для любой из поддерживаемых KIE-моделей."""
+    from app.bots import pay52_video
     from app.bots.kie_kling import _frame_to_public_url
     from app.services import kie_catalog
 
-    if not kie_configured():
+    kie_id = VIDEO_GENERATOR_TO_KIE_ID.get(model_slug) or model_slug.replace("_", "-")
+    spec = kie_catalog.get_model(kie_id)
+    is_pay52 = bool((spec and spec.get("api") == "pay52") or ("seedance" in str(kie_id).lower() and pay52_video.pay52_video_configured(spec)))
+
+    if not kie_configured() and not is_pay52:
         raise KieHttpError(
             f"kie {model_slug}: API не настроен (KIE_API_KEY / GPT_API_KEY)",
             context={"provider_code": 401, "error_kind": "no_key"},
         )
-
-    kie_id = VIDEO_GENERATOR_TO_KIE_ID.get(model_slug) or model_slug.replace("_", "-")
-    spec = kie_catalog.get_model(kie_id)
     if not spec:
         from app.bots.kie_kling import generate_video as kie_kling_generate_video
 
@@ -608,6 +614,8 @@ async def generate_kie_video(
         bool(image_url),
         project_id,
     )
+    if is_pay52:
+        return await pay52_video.run_generation(spec, values, out_path, timeout_s=timeout)
     return await run_generation(spec, payload, out_path, timeout_s=timeout)
 
 

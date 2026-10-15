@@ -325,7 +325,7 @@ MODELS: list[dict[str, Any]] = [
         "api": "jobs",
         "model": "bytedance/seedance-2-mini",
         "result": "video",
-        "desc": "Самый дешёвый Seedance от ByteDance — массовые черновики (от 3.8 кр/сек).",
+        "desc": "Самый дешёвый Seedance от ByteDance — массовые черновики (от 3.8 кр/сек). Отклоняет фото реальных лиц. Аудио только с фото/видео.",
         "fields": [
             _prompt(),
             _f("first_frame_url", "Первый кадр", "images", max_items=1),
@@ -347,6 +347,63 @@ MODELS: list[dict[str, Any]] = [
             ],
             "default": 8.2,
             "note": "кр/сек: 480p 2.4/3.8, 720p 5/8.2 (с видео/без)",
+        },
+    },
+    {
+        "id": "seedance-2-0-fast-overseas",
+        "is_top": True,
+        "badge": "👤 Лица",
+        "label": "Seedance 2.0 Fast (Лица)",
+        "category": "video",
+        "api": "pay52",
+        "model": "Seedance 2.0 Fast 海外",
+        "result": "video",
+        "desc": "Seedance 2.0 Fast Overseas: поддержка живых лиц, промпт до 10 000 знаков, до 9 фото, 3 видео, 3 аудио.",
+        "fields": [
+            _prompt(max_len=10000),
+            _f("reference_image_urls", "Референс-картинки (до 9)", "images", max_items=9),
+            _f("reference_video_urls", "Референс-видео (до 3)", "videos", max_items=3),
+            _f("reference_audio_urls", "Референс-аудио (до 3)", "audios", max_items=3),
+            _res(["480p", "720p"], "720p"),
+            _aspect(_ASPECT_WIDE, "16:9"),
+            _duration(5, 4, 15),
+        ],
+        "pricing": {
+            "unit": "sec",
+            "rules": [
+                {"when": {"resolution": "480p"}, "credits": 4.5},
+                {"when": {"resolution": "720p"}, "credits": 9.5},
+            ],
+            "default": 9.5,
+            "note": "кр/сек: 480p 4.5, 720p 9.5 (поддержка живых лиц)",
+        },
+    },
+    {
+        "id": "seedance-2-0-overseas",
+        "label": "Seedance 2.0 Overseas",
+        "category": "video",
+        "api": "pay52",
+        "model": "Seedance 2.0 海外",
+        "result": "video",
+        "desc": "Seedance 2.0 Overseas: 480p/720p/1080p, до 9 картинок.",
+        "fields": [
+            _prompt(max_len=10000),
+            _f("reference_image_urls", "Референс-картинки", "images", max_items=9),
+            _f("reference_video_urls", "Референс-видео", "videos", max_items=3),
+            _f("reference_audio_urls", "Референс-аудио", "audios", max_items=3),
+            _res(["480p", "720p", "1080p"], "720p"),
+            _aspect(_ASPECT_WIDE, "16:9"),
+            _duration(5, 4, 15),
+        ],
+        "pricing": {
+            "unit": "sec",
+            "rules": [
+                {"when": {"resolution": "480p"}, "credits": 8},
+                {"when": {"resolution": "720p"}, "credits": 16},
+                {"when": {"resolution": "1080p"}, "credits": 32},
+            ],
+            "default": 16,
+            "note": "кр/сек: 480p 8, 720p 16, 1080p 32",
         },
     },
     {
@@ -1615,7 +1672,12 @@ _MODEL_ALIASES: dict[str, str] = {
     "seedance-2-mini": "seedance-2-0-mini",
     "seedance-2": "seedance-2-0",
     "seedance-2.0-mini": "seedance-2-0-mini",
+    "seedance-2.0-mini-ref": "seedance-2-0-mini",
     "seedance-2.5": "seedance-2-5",
+    "seedance-2-0-fast-overseas": "seedance-2-0-fast-overseas",
+    "seedance-fast-overseas": "seedance-2-0-fast-overseas",
+    "seedance-2-0-overseas": "seedance-2-0-overseas",
+    "seedance-overseas": "seedance-2-0-overseas",
 }
 
 _FILE_KINDS = {"images", "videos", "audios", "file"}
@@ -1877,6 +1939,10 @@ def build_payload(spec: dict[str, Any], values: dict[str, Any]) -> dict[str, Any
             body.pop("reference_image_urls", None)
             body.pop("reference_images", None)
     api = spec.get("api")
+    if api == "pay52":
+        from app.bots.pay52_video import build_pay52_video_payload
+
+        return build_pay52_video_payload(spec, merged)
     if api == "jobs":
         return {"model": resolve_model_id(spec, merged), "input": body}
     if api in ("veo", "runway") and "duration" in body:

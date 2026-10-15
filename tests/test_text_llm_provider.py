@@ -189,7 +189,7 @@ def test_catalog_groups_and_snapshot_models() -> None:
     assert groups == {"Anthropic", "OpenAI", "Google", "xAI", "GLM", "KIE"}
     for it in CATALOG:
         api_model = it.get("api_model")
-        if api_model:
+        if api_model and it.get("provider") == "vibecode":
             assert api_model in snapshot, f"{it['id']} → {api_model} нет в снимке vibecode"
 
     # tokenrouter/Kimi выведены целиком
@@ -303,4 +303,60 @@ def test_anthropic_and_gpt_reasoning_wiring(monkeypatch, tmp_path: Path) -> None
     req_high = build_request({"model": "claude-opus-5", "messages": [{"role": "user", "content": "hi"}]})
     assert req_high.get("thinking") == {"type": "enabled", "budget_tokens": 16384}
     assert req_high.get("max_tokens", 0) > 16384
+
+
+def test_pay52_text_catalog_and_routing(monkeypatch, tmp_path: Path) -> None:
+    """Проверяет каталог моделей 52pay и динамическое переключение ключей (GLM, Claude Low/High, GPT)."""
+    import app.settings as settings_mod
+    from app.services import text_llm_catalog as cat
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("PAY52_BASE_URL", "https://api.52pay.com/v1")
+    monkeypatch.setenv("PAY52_GLM_KEY", "glm-key-test")
+    monkeypatch.setenv("PAY52_CLAUDE_LOW_KEY", "claude-low-key-test")
+    monkeypatch.setenv("PAY52_CLAUDE_HIGH_KEY", "claude-high-key-test")
+    monkeypatch.setenv("PAY52_GPT_KEY", "gpt-key-test")
+
+    s = Settings()
+    monkeypatch.setattr(settings_mod, "settings", s)
+    monkeypatch.setattr(cat, "settings", s)
+
+    # Модели присутствуют в каталоге
+    glm_item = cat.catalog_item("glm-5.3-pay52")
+    assert glm_item is not None
+    assert glm_item["provider"] == "pay52"
+    assert glm_item["group"] == "GLM"
+    assert glm_item["api_model"] == "glm-5.3"
+
+    claude_low = cat.catalog_item("claude-sonnet-5-pay52")
+    assert claude_low is not None
+    assert claude_low["group"] == "Anthropic"
+
+    claude_high = cat.catalog_item("claude-opus-5-5-pay52")
+    assert claude_high is not None
+    assert claude_high["group"] == "Anthropic"
+
+    gpt_item = cat.catalog_item("gpt-6-sol-pay52")
+    assert gpt_item is not None
+    assert gpt_item["group"] == "OpenAI"
+
+    # 1. Выбор GLM
+    cat.write_choice(provider="pay52", model_id="glm-5.3-pay52", cfg=s)
+    assert s.text_llm_is_pay52 is True
+    assert s.gpt_api_effective_base_url == "https://api.52pay.com/v1"
+    assert s.gpt_api_effective_key == "glm-key-test"
+    assert s.gpt_chat_path_effective == "/chat/completions"
+
+    # 2. Выбор Claude Low
+    cat.write_choice(provider="pay52", model_id="claude-sonnet-5-pay52", cfg=s)
+    assert s.gpt_api_effective_key == "claude-low-key-test"
+
+    # 3. Выбор Claude High
+    cat.write_choice(provider="pay52", model_id="claude-opus-5-5-pay52", cfg=s)
+    assert s.gpt_api_effective_key == "claude-high-key-test"
+
+    # 4. Выбор GPT
+    cat.write_choice(provider="pay52", model_id="gpt-6-sol-pay52", cfg=s)
+    assert s.gpt_api_effective_key == "gpt-key-test"
+
 
