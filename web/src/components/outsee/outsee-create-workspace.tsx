@@ -1628,6 +1628,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         | string
         | {
             prompt?: string;
+            aspect?: string;
+            negativePrompt?: string;
             forceSingle?: boolean;
             draftId?: string;
             retryItem?: HistoryItem;
@@ -1660,8 +1662,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           "Видеомодели не поддерживают одновременное совмещение перехода по кадрам (старт/финиш) и референсов. Выберите один режим.",
         );
       }
-      if (text && targetMediaType === "image" && negativePrompt.trim() && !retry) {
-        text += `\nAvoid: ${negativePrompt.trim()}`;
+      const targetNegativePrompt =
+        typeof arg === "object" && typeof arg?.negativePrompt === "string"
+          ? arg.negativePrompt
+          : negativePrompt;
+      if (text && targetMediaType === "image" && targetNegativePrompt.trim() && !retry) {
+        text += `\nAvoid: ${targetNegativePrompt.trim()}`;
       }
       const refUrls = await resolveReferenceUrls(referenceImages);
 
@@ -1676,7 +1682,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             ? retryParams.aspect_ratio
             : typeof retryParams.aspect === "string" && retryParams.aspect
               ? retryParams.aspect
-              : aspect;
+              : (typeof arg === "object" && arg?.aspect ? arg.aspect : aspect);
         const targetResolution =
           typeof retryParams.resolution === "string" && retryParams.resolution
             ? retryParams.resolution
@@ -1685,8 +1691,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               : resolution;
 
         let normalizedModel = rawModel;
-        if (!normalizedModel && targetMediaType === "audio") {
-          normalizedModel = audioSlug;
+        if (!normalizedModel) {
+          normalizedModel =
+            targetMediaType === "image"
+              ? imageSlug
+              : targetMediaType === "video"
+                ? videoSlug
+                : audioSlug;
         }
         if (normalizedModel === "suno-5-5") normalizedModel = "kie:suno-music";
         if (normalizedModel === "elevenlabs-v4" || normalizedModel === "elevenlabs-v3") normalizedModel = "kie:elevenlabs-v4";
@@ -1745,11 +1756,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             const pField = Object.keys(vals).find((k) => k.toLowerCase().includes("prompt")) || "prompt";
             vals[pField] = text;
           }
-          if (negativePrompt.trim() && !retry) {
+          if (targetNegativePrompt.trim() && !retry) {
             const negField = (effectiveKieModel || kieModel)?.fields.find((f) =>
               f.name.toLowerCase().includes("neg"),
             );
-            if (negField) vals[negField.name] = negativePrompt.trim();
+            if (negField) vals[negField.name] = targetNegativePrompt.trim();
           }
 
           // Синхронизация чипов (соотношение сторон, разрешение, качество) в поля модели KIE
@@ -1768,11 +1779,16 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 vals[aspectField.name] = strVal;
               } else {
                 const match = aspectField.options.find(
-                  (o) => o.toLowerCase() === strVal.toLowerCase(),
+                  (o) =>
+                    o.toLowerCase() === strVal.toLowerCase() ||
+                    o.replace("_", ":") === strVal.replace("_", ":") ||
+                    o.replace(":", "_") === strVal.replace(":", "_"),
                 );
-                if (match) vals[aspectField.name] = match;
+                vals[aspectField.name] = match || strVal;
               }
             }
+          } else if (targetAspect) {
+            vals["aspect_ratio"] = targetAspect.includes(":") ? targetAspect : targetAspect.replace("_", ":");
           }
 
           const qualityField = kieFields.find((f) => f.name === "quality");
@@ -2834,7 +2850,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       });
                       return;
                     }
-                    createGenerate.mutate({ prompt: t, forceSingle: true });
+                    createGenerate.mutate({ prompt: t, aspect, forceSingle: true });
                     setPrompt("");
                   }}
                   onPrepareGenerate={(preview, n) => {
@@ -2865,7 +2881,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     if (!ids.length) return;
                     setDraftJobs((prev) => prev.filter((d) => !ids.includes(d.job_id)));
                   }}
-                  onGenerateAll={(texts, draftIds) => {
+                  onGenerateAll={(texts, draftIds, styleNegativePrompt) => {
                     const ready = texts
                       .map((x) => x.trim())
                       .filter((t) => !isUnfilledAssistantPrompt(t));
@@ -2886,6 +2902,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     ready.forEach((t, i) => {
                       createGenerate.mutate({
                         prompt: t,
+                        aspect,
+                        negativePrompt: styleNegativePrompt || negativePrompt,
                         forceSingle: true,
                         draftId: draftIds?.[i],
                       });

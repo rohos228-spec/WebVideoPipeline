@@ -34,6 +34,8 @@ export type GenStyleDef = {
   color: "red" | "purple" | "gray" | "orange" | "cyan" | "blue" | "green" | "pink" | "yellow";
   tags: string[];
   promptCore: string;
+  /** Негативный промпт стиля (чего избегать). */
+  negativePrompt?: string;
 };
 
 export type GenCategoryDef = {

@@ -405,35 +405,57 @@ async def run_generation(
     out_path: Path,
     *,
     timeout_s: float = _POLL_MAX_S,
+    max_retries: int = 1,
 ) -> GenerationResult:
     """create → poll → download. spec.api выбирает семейство эндпоинтов."""
     api = str(spec.get("api") or "jobs")
-    task_id = await create_task(api, spec.get("endpoint"), payload)
-    logger.info("kie_http: task {} создана (model={})", task_id, spec.get("id"))
-    data = await poll_task(api, task_id, timeout_s=timeout_s)
-    urls = _result_media_urls(data)
-    if not urls:
-        raise KieHttpError(
-            "kie: success без ссылок на результат",
-            context={"provider_code": 500, "task_id": task_id},
-        )
-    path: Path | None = None
-    success_url = urls[0]
-    last_dl_err: Exception | None = None
-    for url_candidate in urls:
+    last_err: Exception | None = None
+    for attempt in range(max_retries + 1):
         try:
-            path = await download(url_candidate, out_path)
-            success_url = url_candidate
-            break
-        except Exception as e:
-            last_dl_err = e
-            logger.warning("kie_http: candidate url {} failed ({}), trying next...", url_candidate, e)
-    if path is None:
-        if isinstance(last_dl_err, KieHttpError):
-            raise last_dl_err
-        raise KieHttpError(f"kie download failed: {last_dl_err}") from last_dl_err
-    logger.info("kie_http: ok {} → {} ({} bytes)", task_id, path.name, path.stat().st_size)
-    return GenerationResult(file_path=path, gen_id=task_id, raw_url=success_url)
+            task_id = await create_task(api, spec.get("endpoint"), payload)
+            logger.info(
+                "kie_http: task {} создана (model={}, попытка {}/{})",
+                task_id,
+                spec.get("id"),
+                attempt + 1,
+                max_retries + 1,
+            )
+            data = await poll_task(api, task_id, timeout_s=timeout_s)
+            urls = _result_media_urls(data)
+            if not urls:
+                raise KieHttpError(
+                    "kie: success без ссылок на результат",
+                    context={"provider_code": 500, "task_id": task_id},
+                )
+            path: Path | None = None
+            success_url = urls[0]
+            last_dl_err: Exception | None = None
+            for url_candidate in urls:
+                try:
+                    path = await download(url_candidate, out_path)
+                    success_url = url_candidate
+                    break
+                except Exception as e:
+                    last_dl_err = e
+                    logger.warning("kie_http: candidate url {} failed ({}), trying next...", url_candidate, e)
+            if path is None:
+                if isinstance(last_dl_err, KieHttpError):
+                    raise last_dl_err
+                raise KieHttpError(f"kie download failed: {last_dl_err}") from last_dl_err
+            logger.info("kie_http: ok {} → {} ({} bytes)", task_id, path.name, path.stat().st_size)
+            return GenerationResult(file_path=path, gen_id=task_id, raw_url=success_url)
+        except KieHttpError as e:
+            last_err = e
+            msg = str(e).lower()
+            is_transient = "internal error" in msg or "500" in msg or "server error" in msg or "502" in msg
+            if attempt < max_retries and is_transient:
+                logger.warning("kie_http: сбой ноды KIE ({}), авто-повтор через 2с...", e)
+                await asyncio.sleep(2.0)
+                continue
+            raise
+    if last_err:
+        raise last_err
+    raise KieHttpError("kie generation failed: no result")
 
 
 # Маппинг генераторов видео на ID модели в kie_catalog

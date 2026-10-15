@@ -299,3 +299,26 @@ async def test_categorize_styles_with_mock(monkeypatch):
     )
     assert res["styles"] == 2
     assert res["categories"][0]["style_names"] == ["А", "Б"]
+
+
+@pytest.mark.asyncio
+async def test_build_style_agent_text_only(monkeypatch):
+    from app.services import gpt_client, style_analyzer
+
+    class FakeClient:
+        async def ask_with_files(self, text, files, *, system=None, **kw):
+            assert not files
+            assert "Неоновый нуар" in text
+            return (
+                "NAME: Неоновый нуар\nDESC: Темные улицы и неоновый свет\nCATEGORY: Киберпанк\nAGENT:\n"
+                + "Ты отвечаешь одним готовым промптом и ничем больше в стиле неонового нуара. " * 8
+            )
+
+    monkeypatch.setattr(gpt_client, "get_gpt_client", lambda: FakeClient())
+    monkeypatch.setattr(style_analyzer, "get_gpt_client", lambda: FakeClient(), raising=False)
+
+    res = await style_analyzer.build_style_agent([], user_request="Тёмный город, синий и розовый неон", name_hint="Неоновый нуар")
+    assert res["name"] == "Неоновый нуар"
+    assert res["images"] == 0
+    assert "неонового нуара" in res["agent"]
+

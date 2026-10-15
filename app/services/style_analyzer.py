@@ -60,10 +60,10 @@ AGENT_MAX_BYTES = 8000
 AGENT_PROMPT_MAX_CHARS = 4700
 
 _AGENT_SYSTEM = """Ты — конструктор агентов для генерации изображений.
-Тебе дают JSON-заметки анализа референсов одного визуального стиля и, возможно,
+Тебе дают JSON-заметки анализа референсов одного визуального стиля (или текстовое описание стиля) и, возможно,
 уточнение пользователя. Ты пишешь ГОТОВОГО АГЕНТА — системный текст, который
-затем получит другая модель, чтобы по запросу пользователя выдавать промпты
-для GPT Image 2 / Nano Banana Pro в этом стиле.
+затем получит другая модель, чтобы по запросу пользователя выдавать готовые промпты
+для генератора изображений в этом стиле.
 
 Формат ответа строго такой, без markdown и пояснений:
 NAME: короткое имя стиля (RU, до 3 слов)
@@ -73,8 +73,7 @@ AGENT:
 <дальше сплошной текст агента>
 
 Правила текста агента:
-1. Первая фраза: агент отвечает ОДНИМ готовым промптом и ничем больше — без
-   пояснений, заголовков, markdown, списков, нумерации и квадратных скобок.
+1. Первая фраза СТРОГО такая: «Ты — агент генерации промптов для качественных изображений в стиле <название стиля>. На каждый запрос пользователя ты отвечаешь ОДНИМ готовым промптом на английском языке и ничем больше — без пояснений, заголовков, markdown, списков, нумерации и квадратных скобок.» КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО упоминать названия моделей (GPT Image, Nano Banana, Midjourney, Flux, SDXL и любые другие).
 2. Дальше «ядро», которое агент обязан копировать в каждый промпт дословно:
    один английский абзац с медиумом, палитрой (точные hex, если цвета на
    референсах постоянные), линией/штрихом, светом, композицией, типографикой.
@@ -304,6 +303,18 @@ def parse_agent_reply(raw: str, *, name_hint: str | None = None) -> dict[str, st
     if len(agent) < 200:
         raise ValueError("LLM вернула слишком короткого агента")
     agent = _scrub_agent_core_block(agent)
+    agent = re.sub(
+        r"(?:для\s+)?(?:GPT\s*Image(?:\s*2)?\s*(?:/|или|,)\s*)?Nano\s*Banana(?:\s*Pro|\s*2)?",
+        "для качественных изображений",
+        agent,
+        flags=re.IGNORECASE,
+    )
+    agent = re.sub(
+        r"для\s+GPT\s*Image(?:\s*2)?",
+        "для качественных изображений",
+        agent,
+        flags=re.IGNORECASE,
+    )
     return {
         "name": field("NAME") or (name_hint or "Новый стиль"),
         "desc": field("DESC"),
@@ -319,11 +330,35 @@ async def build_style_agent(
     user_request: str = "",
     name_hint: str | None = None,
 ) -> dict[str, Any]:
-    """Референсы (+ пожелание пользователя) → готовый текст агента стиля."""
-    images = collect_image_paths(paths)
     from app.services.gpt_client import get_gpt_client
 
     client = get_gpt_client()
+
+    if not paths:
+        if not (user_request or "").strip() and not (name_hint or "").strip():
+            raise ValueError("Нужны изображения или текстовое описание стиля")
+        user = "Создай агента стиля по текстовому описанию пользователя."
+        if name_hint:
+            user += f"\nНазвание стиля: {name_hint}"
+        if user_request:
+            user += f"\nОписание стиля и пожелания: {user_request.strip()}"
+        try:
+            raw = await client.ask_with_files(
+                user, [], system=_AGENT_SYSTEM, timeout=300, max_retries=1
+            )
+            entry = parse_agent_reply(raw, name_hint=name_hint)
+        except Exception as e:
+            logger.warning("build_style_agent: GPT недоступен ({}) — агент не записан", e)
+            raise ValueError(f"GPT не собрал агента ({e}) — агент не записан") from e
+        return {
+            **entry,
+            "images": 0,
+            "chars": len(entry["agent"]),
+            "bytes": len(entry["agent"].encode("utf-8")),
+            "notes": [],
+        }
+
+    images = collect_image_paths(paths)
 
     notes: list[dict[str, Any]] = []
     last_err = ""
