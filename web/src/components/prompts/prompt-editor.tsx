@@ -15,7 +15,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { PromptCatalogPicker } from "@/components/prompts/prompt-card-catalog";
 
 const PROMPT_LABELS: Record<string, string> = {
   PLAN_SHORTS: "План",
@@ -35,6 +35,7 @@ export function PromptEditor({ open, onOpenChange }: { open: boolean; onOpenChan
     enabled: open,
   });
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // По умолчанию выбираем первый активный.
   useEffect(() => {
@@ -60,41 +61,45 @@ export function PromptEditor({ open, onOpenChange }: { open: boolean; onOpenChan
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-1 overflow-hidden">
-          <div className="w-56 shrink-0 border-r border-border">
-            <div className="flex flex-col">
-              {prompts.isLoading && (
-                <div className="flex items-center justify-center p-4">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                </div>
-              )}
-              {prompts.data && groupByKey(prompts.data).map(({ key, versions }) => {
-                const latest = versions[0];
-                const isActive = active?.id === latest.id;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setActiveId(latest.id)}
-                    className={cn(
-                      "flex flex-col items-start gap-1 border-l-2 border-transparent px-3 py-2 text-left text-xs transition-colors",
-                      isActive
-                        ? "border-l-primary bg-primary/5"
-                        : "hover:bg-accent/30"
-                    )}
-                  >
-                    <span className="font-medium">
-                      {PROMPT_LABELS[key] ?? key}
-                    </span>
-                    <span className="font-mono text-[9px] text-muted-foreground">
-                      {key} · v{latest.version}
-                    </span>
-                  </button>
-                );
-              })}
+        <div className="flex flex-1 flex-col gap-3 overflow-hidden">
+          {prompts.isLoading && (
+            <div className="flex items-center justify-center p-4">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
-          </div>
-
+          )}
+          {prompts.data && (
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              className="flex shrink-0 items-center gap-3 rounded-xl border border-white/10 bg-[#101015] p-2.5 text-left transition hover:border-[#22d3ee]/50"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block text-[10px] uppercase tracking-wider text-white/45">Мастер-промт</span>
+                <span className="block truncate text-[13px] font-semibold text-white">
+                  {active ? (PROMPT_LABELS[active.key] ?? active.key) : "не выбран"}
+                </span>
+              </span>
+              <span className="rounded-lg bg-[#22d3ee] px-3 py-1.5 text-[11px] font-semibold text-black">
+                Каталог промтов
+              </span>
+            </button>
+          )}
+          <PromptCatalogPicker
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            title="Мастер-промты"
+            selectedId={active ? String(active.id) : null}
+            onDone={(id) => setActiveId(Number(id))}
+            items={groupByKey(prompts.data ?? []).map(({ key, versions }) => ({
+              id: String(versions[0].id),
+              label: PROMPT_LABELS[key] ?? key,
+              kind: "text" as const,
+              category: versions[0].active ? "Активные" : "Неактивные",
+              description: `${key} · v${versions[0].version}`,
+              content: versions[0].text,
+              previewUrl: null,
+            }))}
+          />
           <div className="flex flex-1 flex-col overflow-hidden">
             {active ? (
               <PromptEditorPanel prompt={active} />

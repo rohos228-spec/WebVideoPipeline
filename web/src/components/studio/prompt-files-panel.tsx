@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
   FileText,
@@ -18,6 +18,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Sparkles,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -36,6 +37,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { MetaPromptDialog } from "@/components/studio/meta-prompt-dialog";
+import { PromptCatalogPicker, type NodeResultItem } from "@/components/prompts/prompt-card-catalog";
 
 const POLL_INTERVAL_MS = 8000;
 
@@ -47,6 +49,14 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} Б`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`;
   return `${(n / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+function promptFileDesc(text: string): string {
+  for (const raw of text.split(/\r?\n/)) {
+    const l = raw.replace(/^[#>*\-\s]+/, "").replace(/[*`_]/g, "").trim();
+    if (l.length >= 20) return l.length > 150 ? `${l.slice(0, 147)}…` : l;
+  }
+  return "";
 }
 
 function formatModified(mtime: number | null | undefined): string {
@@ -93,6 +103,19 @@ export function PromptFilesPanel({
   const [draft, setDraft] = useState<string>("");
   const [dirty, setDirty] = useState(false);
   const [previewVersion, setPreviewVersion] = useState<PromptVersionInfo | null>(null);
+  const [view, setView] = useState<"cards" | "list">(() => {
+    if (typeof window === "undefined") return "cards";
+    return window.localStorage.getItem("vp.promptFilesView") === "list" ? "list" : "cards";
+  });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const switchView = (v: "cards" | "list") => {
+    setView(v);
+    try {
+      window.localStorage.setItem("vp.promptFilesView", v);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const cacheKey = slotId ? `${stepCode}::${slotId}` : stepCode;
 
@@ -319,6 +342,37 @@ export function PromptFilesPanel({
 
   const fileList = files.data ?? [];
 
+  const fileContents = useQueries({
+    queries: (pickerOpen ? fileList : []).map((f) => ({
+      queryKey: ["prompt-file", cacheKey, f.name],
+      queryFn: () => api.getPromptFile(stepCode, f.name),
+      staleTime: 30_000,
+    })),
+  });
+
+  const catalogItems: NodeResultItem[] = useMemo(
+    () =>
+      (pickerOpen ? fileList : []).map((f, i) => {
+        const body =
+          f.name === selectedName && draft ? draft : (fileContents[i]?.data?.content ?? "");
+        return {
+          id: f.name,
+          label: f.name,
+          kind: "text" as const,
+          category: f.is_default
+            ? "По умолчанию"
+            : activeVariant === f.name
+              ? "Активный"
+              : "Варианты",
+          description: promptFileDesc(body) || `${f.filename} • ${formatBytes(f.size)}`,
+          content: body || "Загрузка…",
+          previewUrl: null,
+        };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pickerOpen, fileList, fileContents.map((q) => q.dataUpdatedAt).join(","), activeVariant, selectedName, draft],
+  );
+
   const folderLabel = useMemo(
     () => (folderHint ? `prompts/${folderHint}` : `prompts/${stepCode}`),
     [folderHint, stepCode],
@@ -350,6 +404,24 @@ export function PromptFilesPanel({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex overflow-hidden rounded-md border border-white/10 text-[10px]">
+            <button
+              type="button"
+              onClick={() => switchView("cards")}
+              className={cn("px-2 py-1", view === "cards" ? "bg-[#22d3ee] font-semibold text-black" : "text-white/60 hover:text-white")}
+              title="Каталог карточек промтов"
+            >
+              Карточки
+            </button>
+            <button
+              type="button"
+              onClick={() => switchView("list")}
+              className={cn("px-2 py-1", view === "list" ? "bg-[#22d3ee] font-semibold text-black" : "text-white/60 hover:text-white")}
+              title="Компактный список с историей версий"
+            >
+              Список
+            </button>
+          </div>
           <MetaPromptDialog
             stepCode={stepCode}
             projectId={projectId}
@@ -397,8 +469,46 @@ export function PromptFilesPanel({
         </div>
       </header>
 
-      <div className="grid gap-3 md:grid-cols-[180px,1fr]">
-        <ul className="flex max-h-[260px] flex-col gap-0.5 overflow-y-auto rounded-lg border border-white/5 bg-black/20 p-1">
+      {view === "cards" && (
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          className="group mb-3 flex w-full items-center gap-3 rounded-xl border border-white/10 bg-[#101015] p-2.5 text-left transition hover:border-[#22d3ee]/50"
+          title="Открыть каталог промтов ноды"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#22d3ee]/10 text-[#22d3ee]">
+            <Sparkles className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[10px] uppercase tracking-wider text-white/45">Промт ноды</span>
+            <span className="block truncate text-[13px] font-semibold text-white">
+              {selectedName ?? "не выбран"}
+              {activeVariant === selectedName && selectedName ? (
+                <span className="ml-2 rounded bg-emerald-400 px-1.5 py-0.5 text-[9px] font-bold text-black">Активен</span>
+              ) : null}
+            </span>
+          </span>
+          <span className="rounded-lg bg-[#22d3ee] px-3 py-1.5 text-[11px] font-semibold text-black group-hover:brightness-110">
+            Каталог промтов ({fileList.length})
+          </span>
+        </button>
+      )}
+      <PromptCatalogPicker
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        items={catalogItems}
+        title="Каталог промтов ноды"
+        subtitle={`${folderLabel} • ${fileList.length} промтов`}
+        selectedId={activeVariant ?? selectedName}
+        doneLabel={onActivateVariant ? "Готово" : "Выбрать"}
+        onDone={(id) => {
+          selectFile(id);
+          if (onActivateVariant && id !== activeVariant) onActivateVariant(id);
+          toast.success(`Промт «${id}» выбран для ноды`);
+        }}
+      />
+      <div className={cn("grid gap-3", view === "list" && "md:grid-cols-[180px,1fr]")}>
+        {view === "list" && (<ul className="flex max-h-[260px] flex-col gap-0.5 overflow-y-auto rounded-lg border border-white/5 bg-black/20 p-1">
           {files.isError && (
             <li className="px-2 py-2 text-[10px] text-destructive">
               Ошибка загрузки списка промтов.
@@ -476,7 +586,7 @@ export function PromptFilesPanel({
               />
             </li>
           ))}
-        </ul>
+        </ul>)}
 
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-1">
