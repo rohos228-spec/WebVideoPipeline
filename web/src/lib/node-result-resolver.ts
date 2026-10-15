@@ -615,17 +615,12 @@ function computeNodeResult(
 
     case "image_prompts": {
       const withPrompt = ctx.frames.filter((f) => f.image_prompt?.trim());
-      const imgPromptPreview = new Map<number, string>();
-      for (const m of ctx.mediaImages) {
-        if (m.preview_url && m.frame_id != null) imgPromptPreview.set(m.frame_id, m.preview_url);
-      }
       if (withPrompt.length) {
         return ready(
           withPrompt.map((f) => ({
             id: `frame_${f.id}`,
             label: `Кадр ${f.number}`,
             kind: "text" as const,
-            previewUrl: imgPromptPreview.get(f.id) ?? null,
             content: f.image_prompt,
             frameNumber: f.number,
           })),

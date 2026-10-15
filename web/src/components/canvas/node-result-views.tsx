@@ -25,7 +25,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { PromptCardCatalog } from "@/components/canvas/prompt-card-catalog";
 import { MediaFrameGallery } from "@/components/hitl/media-frame-gallery";
 import { TopicEditor } from "@/components/inspector/topic-editor";
 import {
@@ -737,7 +736,78 @@ function SplitRowView({
 }
 
 export function FramePromptsView({ items }: { items: NodeResultItem[] }) {
-  return <PromptCardCatalog items={items} />;
+  const [selectedId, setSelectedId] = useState(items[0]?.id ?? "");
+  const selected = items.find((i) => i.id === selectedId) ?? items[0];
+
+  useEffect(() => {
+    if (items[0]?.id) setSelectedId(items[0].id);
+  }, [items]);
+
+  return (
+    <div className="grid min-h-0 flex-1 gap-3 md:grid-cols-[200px_1fr] md:items-stretch">
+      <ScrollArea className="h-[65vh] rounded-lg border border-white/10">
+        <div className="p-1">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setSelectedId(item.id)}
+              className={cn(
+                "mb-1 w-full rounded-md px-2 py-2 text-left text-[11px] transition",
+                selected?.id === item.id
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:bg-white/5",
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </ScrollArea>
+      {selected?.previewUrl ? (
+        <div className="grid h-[65vh] min-h-0 grid-cols-1 gap-3 md:grid-cols-[260px_1fr]">
+          <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/20 p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Стартовый кадр (I2V)
+              </span>
+              <a
+                href={selected.previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] text-muted-foreground hover:text-primary underline"
+              >
+                Открыть
+              </a>
+            </div>
+            <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-md border border-white/5 bg-black/40">
+              <img
+                src={selected.previewUrl}
+                alt={selected.label}
+                className="h-full w-full object-contain"
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 min-h-0">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Промпт движения (анимация)
+            </span>
+            <Textarea
+              readOnly
+              value={selected?.content ?? ""}
+              className="flex-1 resize-none text-xs leading-relaxed"
+            />
+          </div>
+        </div>
+      ) : (
+        <Textarea
+          readOnly
+          value={selected?.content ?? ""}
+          className="h-[65vh] resize-none text-xs leading-relaxed"
+        />
+      )}
+    </div>
+  );
 }
 
 function FrameImagesView({
