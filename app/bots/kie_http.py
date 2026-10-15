@@ -455,6 +455,7 @@ async def run_generation(
             raise
     if last_err:
         raise last_err
+    raise KieHttpError("kie generation failed: no result")
 
 
 # Маппинг генераторов видео на ID модели в kie_catalog
