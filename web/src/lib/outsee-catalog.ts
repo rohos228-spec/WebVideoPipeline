@@ -453,32 +453,33 @@ export function pickerModelsForType(type: OutseeMediaType) {
  * Копия HH/d(model, chip) из chunk 8152.
  */
 export function chipOptions(slug: string, chip: OutseeChip): string[] {
-  const image = OUTSEE_IMAGE_MODELS.find((m) => m.slug === slug);
-  const video = OUTSEE_VIDEO_MODELS.find((m) => m.slug === slug);
+  const clean = slug.replace(/^kie:/, "");
+  const image = OUTSEE_IMAGE_MODELS.find((m) => m.slug === slug || m.slug === clean);
+  const video = OUTSEE_VIDEO_MODELS.find((m) => m.slug === slug || m.slug === clean);
 
   if (chip === "quality") {
     if (
-      slug === "kling-motion-control" ||
-      slug === "kling-3-0-motion-control" ||
-      slug === "kling-lip-sync"
+      clean === "kling-motion-control" ||
+      clean === "kling-3-0-motion-control" ||
+      clean === "kling-lip-sync"
     ) {
       return video?.nn.resolutions?.length ? video.nn.resolutions : ["std", "pro"];
     }
     return ["std", "pro"];
   }
   if (chip === "orientation") return ["video", "image"];
-  if (chip === "detail") return slug.includes("gpt-image") ? ["low", "medium", "high"] : [];
+  if (chip === "detail") return clean.includes("gpt-image") ? ["low", "medium", "high"] : [];
 
   if (video) {
     if (chip === "aspect") {
       // HH override: veo / omni → 16:9 / 9:16 (не portrait/landscape)
-      if (slug === "veo-3-fast" || slug === "veo-3-1-lite" || slug === "omni-flash") {
+      if (clean === "veo-3-fast" || clean === "veo-3-1-lite" || clean === "omni-flash") {
         return ["16:9", "9:16"];
       }
       return [...video.nn.aspectRatios];
     }
     if (chip === "resolution") {
-      if (slug === "veo-3-1-lite") return ["720p"];
+      if (clean === "veo-3-1-lite") return ["720p"];
       return [...video.nn.resolutions];
     }
     if (chip === "duration") return video.nn.durations.map(String);
@@ -487,18 +488,18 @@ export function chipOptions(slug: string, chip: OutseeChip): string[] {
 
   if (image) {
     if (chip === "aspect") {
-      if (slug === "gpt-image-1.5") return ["1:1", "3:2", "2:3"];
-      if (slug === "gpt-image-2" || slug === "gpt-image-2-vip") return [...GPT_IMAGE_2_ASPECTS];
-      if (slug.startsWith("nano-banana")) return [...NANO_BANANA_ASPECTS];
+      if (clean === "gpt-image-1.5") return ["1:1", "3:2", "2:3"];
+      if (clean === "gpt-image-2" || clean === "gpt-image-2-vip") return [...GPT_IMAGE_2_ASPECTS];
+      if (clean.startsWith("nano-banana")) return [...NANO_BANANA_ASPECTS];
       return [...SEEDREAM_ASPECTS];
     }
     if (chip === "resolution") {
-      if (slug === "gpt-image-2" || slug === "gpt-image-2-vip") return ["2K"];
-      if (slug.startsWith("nano-banana")) return ["2K"];
-      if (slug === "seedream-4.5") return ["2K", "4K"];
-      if (slug === "seedream-5-pro") return ["1K", "2K"];
-      if (slug === "seedream-5-lite") return ["2K", "3K"];
-      if (slug === "gpt-image-1.5") return ["2K"];
+      if (clean === "gpt-image-2" || clean === "gpt-image-2-vip") return ["2K"];
+      if (clean.startsWith("nano-banana")) return ["2K"];
+      if (clean === "seedream-4.5") return ["2K", "4K"];
+      if (clean === "seedream-5-pro") return ["1K", "2K"];
+      if (clean === "seedream-5-lite") return ["2K", "3K"];
+      if (clean === "gpt-image-1.5") return ["2K"];
       return ["1K", "2K"];
     }
   }
@@ -516,29 +517,32 @@ export const DOCK_CHIP_ORDER: OutseeChip[] = [
 ];
 
 export function dockChipsForModel(slug: string, mediaType: OutseeMediaType): OutseeChip[] {
+  const clean = slug.replace(/^kie:/, "");
   if (mediaType === "audio") {
-    const model = OUTSEE_AUDIO_MODELS.find((m) => m.slug === slug);
+    const model = OUTSEE_AUDIO_MODELS.find((m) => m.slug === slug || m.slug === clean);
     if (!model) return [];
     return (["instrumental"] as OutseeChip[]).filter((c) => model.chips.includes(c));
   }
   const model =
     mediaType === "image"
-      ? OUTSEE_IMAGE_MODELS.find((m) => m.slug === slug)
-      : OUTSEE_VIDEO_MODELS.find((m) => m.slug === slug);
+      ? OUTSEE_IMAGE_MODELS.find((m) => m.slug === slug || m.slug === clean)
+      : OUTSEE_VIDEO_MODELS.find((m) => m.slug === slug || m.slug === clean);
   if (!model) return [];
   return DOCK_CHIP_ORDER.filter((c) => model.chips.includes(c));
 }
 
 export function getImageModel(slug: string): OutseeImageModel {
+  const clean = slug.replace(/^kie:/, "");
   return (
-    OUTSEE_IMAGE_MODELS.find((m) => m.slug === slug) ??
+    OUTSEE_IMAGE_MODELS.find((m) => m.slug === slug || m.slug === clean) ??
     OUTSEE_IMAGE_MODELS.find((m) => m.slug === "gpt-image-2")!
   );
 }
 
 export function getVideoModel(slug: string): OutseeVideoModel {
+  const clean = slug.replace(/^kie:/, "");
   return (
-    OUTSEE_VIDEO_MODELS.find((m) => m.slug === slug) ??
+    OUTSEE_VIDEO_MODELS.find((m) => m.slug === slug || m.slug === clean) ??
     OUTSEE_VIDEO_MODELS.find((m) => m.slug === "veo-3-1-lite")!
   );
 }

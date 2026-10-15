@@ -38,18 +38,20 @@ class GenAssistantPromptsBody(BaseModel):
     count: int = Field(1, ge=MIN_COUNT, le=MAX_COUNT)
     ref_labels: list[str] = Field(default_factory=list)
     model: str | None = None
+    negative_prompt: str = ""
 
 
 @router.post("/prompts")
 async def post_gen_assistant_prompts(body: GenAssistantPromptsBody) -> dict[str, Any]:
     logger.info(
-        "gen-assistant POST request_chars={} agent_chars={} count={} aspect={} refs={} model={}",
+        "gen-assistant POST request_chars={} agent_chars={} count={} aspect={} refs={} model={} neg_chars={}",
         len(body.request or ""),
         len(body.agent_text or ""),
         body.count,
         body.aspect,
         len(body.ref_labels or []),
         body.model,
+        len(body.negative_prompt or ""),
     )
     try:
         return await generate_prompts(
@@ -59,6 +61,7 @@ async def post_gen_assistant_prompts(body: GenAssistantPromptsBody) -> dict[str,
             count=body.count,
             ref_labels=body.ref_labels,
             model=body.model,
+            negative_prompt=body.negative_prompt,
         )
     except ValueError as e:
         logger.warning("gen-assistant rejected: {}", e)
@@ -84,14 +87,17 @@ async def post_analyze_style(body: AnalyzeStyleBody) -> dict[str, Any]:
 
 @router.post("/build-agent")
 async def post_build_agent(  # noqa: B008
-    files: list[UploadFile] = File(..., description="Референсные изображения"),
+    files: list[UploadFile] = File(default=[], description="Референсные изображения"),
     request: str = Form("", description="Пожелание/правка пользователя"),
     name_hint: str = Form(""),
 ) -> dict[str, Any]:
     """Картинки + пожелание → готовый текст агента стиля (окно «+» в помощнике)."""
     uploads = [f for f in files if f and f.filename]
-    if not uploads:
-        raise HTTPException(status_code=400, detail="Не приложено ни одного изображения")
+    if not uploads and not (request or "").strip() and not (name_hint or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Приложите изображения или опишите стиль в поле пожеланий",
+        )
     if len(uploads) > MAX_IMAGES:
         raise HTTPException(status_code=400, detail=f"Слишком много изображений: {len(uploads)}")
     logger.info(
@@ -100,6 +106,20 @@ async def post_build_agent(  # noqa: B008
         (name_hint or "").strip(),
         len(request or ""),
     )
+    if not uploads:
+        try:
+            return await build_style_agent(
+                [], user_request=request, name_hint=name_hint.strip() or None
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except Exception as e:
+            logger.exception("build-agent failed")
+            raise HTTPException(
+                status_code=502,
+                detail=f"GPT недоступен ({e}) — агент не собран",
+            ) from e
+
     tmp_dir = Path(tempfile.mkdtemp(prefix="style-agent-"))
     try:
         paths: list[str] = []
@@ -264,6 +284,8 @@ def _merge_style(old: dict[str, Any] | None, new: dict[str, Any]) -> dict[str, A
     new_core = str(new.get("promptCore") or "")
     if len(old_core) > len(new_core):
         merged["promptCore"] = old_core
+    if "negativePrompt" in new:
+        merged["negativePrompt"] = str(new.get("negativePrompt") or "").strip()
     return merged
 
 
@@ -325,6 +347,7 @@ async def get_custom_styles() -> dict[str, Any]:
 
 class CustomStylesBody(BaseModel):
     styles: list[dict[str, Any]] = Field(default_factory=list)
+    overwrite: bool = False
 
 
 @router.put("/custom-styles")
@@ -337,16 +360,25 @@ async def put_custom_styles(body: CustomStylesBody) -> dict[str, Any]:
         and s.get("id")
         and s.get("promptCore")
     ]
-    existing = _read_custom_styles()
-    if not incoming and existing:
-        return {"styles": existing, "count": len(existing), "kept": True}
-    by_id: dict[str, dict[str, Any]] = {}
-    for s in existing + incoming:
-        sid = str(s.get("id") or "")
-        if not sid:
-            continue
-        by_id[sid] = _merge_style(by_id.get(sid), s)
-    merged = list(by_id.values())
+    if body.overwrite:
+        merged = incoming
+    else:
+        existing = _read_custom_styles()
+        if not incoming and existing:
+            return {"styles": existing, "count": len(existing), "kept": True}
+        by_id: dict[str, dict[str, Any]] = {}
+        for s in existing:
+            sid = str(s.get("id") or "")
+            if sid:
+                by_id[sid] = s
+        for s in incoming:
+            sid = str(s.get("id") or "")
+            if sid:
+                merged_s = _merge_style(by_id.get(sid), s)
+                if s.get("promptCore"):
+                    merged_s["promptCore"] = str(s["promptCore"]).strip()
+                by_id[sid] = merged_s
+        merged = list(by_id.values())
     path = _custom_styles_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -355,6 +387,24 @@ async def put_custom_styles(body: CustomStylesBody) -> dict[str, Any]:
     )
     logger.info("gen-assistant custom-styles saved n={}", len(merged))
     return {"styles": merged, "count": len(merged)}
+
+
+@router.delete("/custom-styles/{style_id}")
+async def delete_custom_style(style_id: str) -> dict[str, Any]:
+    """Удалить кастомный стиль с диска."""
+    sid = (style_id or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="Не указан style_id")
+    existing = _read_custom_styles()
+    remaining = [s for s in existing if str(s.get("id")) != sid]
+    path = _custom_styles_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"styles": remaining}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    logger.info("gen-assistant custom-style deleted sid={} remaining={}", sid, len(remaining))
+    return {"styles": remaining, "count": len(remaining), "deleted": sid}
 
 
 @router.post("/style-cover")

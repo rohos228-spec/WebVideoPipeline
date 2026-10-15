@@ -14,9 +14,11 @@ import {
   ChevronsDown,
   ChevronsUp,
   Paperclip,
+  Pencil,
   Plus,
   Search,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -58,7 +60,7 @@ type Props = {
   onPrepareGenerate: (preview: string, count: number) => string[];
   onFailGenerate: (draftIds: string[]) => void;
   /** Агент написал N промптов → сразу генерация всех (по одной на промпт). */
-  onGenerateAll: (texts: string[], draftIds?: string[]) => void;
+  onGenerateAll: (texts: string[], draftIds?: string[], negativePrompt?: string) => void;
   expanded: boolean;
   onExpandedChange: (v: boolean) => void;
   references: { id: string; url: string; name: string }[];
@@ -383,13 +385,17 @@ export function GenAssistantPanel({
     }
   });
 
-  // добавление стиля
+  // добавление / редактирование стиля
   const [addOpen, setAddOpen] = useState(false);
+  const [editingStyleId, setEditingStyleId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newColor, setNewColor] = useState<GenStyleDef["color"]>("cyan");
   const [newArt, setNewArt] = useState<GenStyleArt>("infographic");
   const [newAgent, setNewAgent] = useState("");
+  const [newNegativePrompt, setNewNegativePrompt] = useState("");
+  const [existingCoverUrl, setExistingCoverUrl] = useState("");
+  const [selectedCoverIdx, setSelectedCoverIdx] = useState(0);
   // Референсы и пожелание пользователя → агент собирает LLM по картинкам
   const [newRefs, setNewRefs] = useState<File[]>([]);
   const [newHint, setNewHint] = useState("");
@@ -695,6 +701,7 @@ export function GenAssistantPanel({
           aspect,
           count,
           model: activeLlm?.model || activeLlm?.id || undefined,
+          negative_prompt: style?.negativePrompt || undefined,
           ref_labels: references.map(
             (r, i) => `${assistantRefHandle(i)} — ${r.name || "референс"}`,
           ),
@@ -725,7 +732,7 @@ export function GenAssistantPanel({
         position: "top-center",
       });
       onFailGenerate(draftIds.slice(prompts.length));
-      onGenerateAll(prompts, draftIds.slice(0, prompts.length));
+      onGenerateAll(prompts, draftIds.slice(0, prompts.length), style?.negativePrompt);
     } catch (e) {
       onFailGenerate(draftIds);
       notifyAgentError(
@@ -790,8 +797,8 @@ export function GenAssistantPanel({
 
   // Референсы + пожелание → готовый текст агента (vision-LLM разбирает стиль).
   const buildAgentFromRefs = async () => {
-    if (!newRefs.length) {
-      toast.error("Приложите хотя бы одну картинку-референс");
+    if (!newRefs.length && !newHint.trim()) {
+      toast.error("Приложите картинку-референс или опишите стиль в поле пожеланий");
       return;
     }
     setBuildBusy(true);
@@ -802,8 +809,16 @@ export function GenAssistantPanel({
       fd.append("name_hint", newName.trim());
       const r = await fetch("/api/gen-assistant/build-agent", { method: "POST", body: fd });
       if (!r.ok) {
-        const err = (await r.json().catch(() => null)) as { detail?: string } | null;
-        throw new Error(err?.detail || `HTTP ${r.status}`);
+        const err = (await r.json().catch(() => null)) as { detail?: unknown } | null;
+        let msg = `HTTP ${r.status}`;
+        if (typeof err?.detail === "string") {
+          msg = err.detail;
+        } else if (Array.isArray(err?.detail)) {
+          msg = err.detail.map((d: any) => d?.msg || JSON.stringify(d)).join("; ");
+        } else if (err?.detail && typeof err.detail === "object") {
+          msg = JSON.stringify(err.detail);
+        }
+        throw new Error(msg);
       }
       const data = (await r.json()) as {
         name?: string;
@@ -833,7 +848,20 @@ export function GenAssistantPanel({
       toast.error("Нужны название и текст агента");
       return;
     }
-    const id = `custom_${Date.now().toString(36)}`;
+    const isEdit = Boolean(editingStyleId);
+    const id = editingStyleId || `custom_${Date.now().toString(36)}`;
+
+    let coverUrl = existingCoverUrl || "";
+    const coverFile = newRefs[selectedCoverIdx] ?? newRefs[0];
+    if (coverFile) {
+      try {
+        coverUrl = await persistStyleCover(id, { file: coverFile });
+        applyStyleCover(id, coverUrl);
+      } catch (e) {
+        console.warn("Не удалось сохранить обложку стиля:", e);
+      }
+    }
+
     const cs: CustomStyle = {
       id,
       categoryId: catId,
@@ -844,19 +872,64 @@ export function GenAssistantPanel({
       color: newColor,
       tags: ["custom"],
       promptCore: agent,
+      negativePrompt: newNegativePrompt.trim() || undefined,
+      cover: coverUrl || undefined,
+      artUrl: coverUrl || undefined,
     };
-    setCustomStyles((prev) => [...prev, cs]);
+
+    setCustomStyles((prev) => {
+      const exists = prev.some((s) => s.id === id);
+      return exists ? prev.map((s) => (s.id === id ? cs : s)) : [...prev, cs];
+    });
     setAgentOverrides((prev) => ({ ...prev, [id]: agent }));
     setCategoryId(catId);
     setStyleId(id);
     setAddOpen(false);
+    setEditingStyleId(null);
     setStylesDrawerOpen(false);
     setNewName("");
     setNewDesc("");
     setNewAgent("");
+    setNewNegativePrompt("");
+    setExistingCoverUrl("");
+    setSelectedCoverIdx(0);
     setNewRefs([]);
     setNewHint("");
-    toast.success(`Стиль «${name}» добавлен`);
+    toast.success(isEdit ? `Стиль «${name}» обновлён` : `Стиль «${name}» добавлен`);
+  };
+
+  const deleteCustomStyle = async (delId: string) => {
+    const target = customStyles.find((s) => s.id === delId);
+    const targetName = target?.name || delId;
+    if (typeof window !== "undefined" && !window.confirm(`Удалить стиль «${targetName}»?`)) return;
+
+    setCustomStyles((prev) => prev.filter((s) => s.id !== delId));
+    if (styleId === delId) {
+      const fallback = category.styles.find((s) => s.id !== delId) || GEN_ASSISTANT_CATEGORIES[0].styles[0];
+      if (fallback) setStyleId(fallback.id);
+    }
+    try {
+      await fetch(`/api/gen-assistant/custom-styles/${delId}`, { method: "DELETE" });
+      toast.success(`Стиль «${targetName}» удалён`);
+    } catch {
+      toast.error("Ошибка при удалении стиля с диска");
+    }
+  };
+
+  const openEditCustomStyle = (s: CustomStyle) => {
+    setEditingStyleId(s.id);
+    setAddCatId(s.categoryId || categoryId);
+    setNewName(s.name);
+    setNewDesc(s.desc);
+    setNewAgent(agentOverrides[s.id] ?? s.promptCore);
+    setNewNegativePrompt(s.negativePrompt ?? "");
+    setNewColor(s.color);
+    setNewArt(s.art);
+    setExistingCoverUrl(s.cover || s.artUrl || "");
+    setSelectedCoverIdx(0);
+    setNewRefs([]);
+    setNewHint("");
+    setAddOpen(true);
   };
 
   const activeLlm = llmModels.find((m) => m.active) ?? llmModels[0];
@@ -929,6 +1002,19 @@ export function GenAssistantPanel({
           </span>
           <ChevronDown className={cn("h-3 w-3 opacity-60 transition", stylesDrawerOpen && "rotate-180")} />
         </button>
+        {style && (style.id.startsWith("custom_") || customStyles.some((cs) => cs.id === style.id)) && (
+          <button
+            type="button"
+            onClick={() => {
+              setStylesDrawerOpen(true);
+              openEditCustomStyle(style as CustomStyle);
+            }}
+            title="Редактировать текущий стиль"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-white/60 hover:border-[#22d3ee]/40 hover:text-[#22d3ee] transition"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+        )}
         <input
           ref={genRefInput}
           type="file"
@@ -1137,7 +1223,20 @@ export function GenAssistantPanel({
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setAddOpen((v) => !v)}
+                      onClick={() => {
+                        if (!addOpen) {
+                          setEditingStyleId(null);
+                          setNewName("");
+                          setNewDesc("");
+                          setNewAgent("");
+                          setNewNegativePrompt("");
+                          setExistingCoverUrl("");
+                          setSelectedCoverIdx(0);
+                          setNewRefs([]);
+                          setNewHint("");
+                        }
+                        setAddOpen((v) => !v);
+                      }}
                       className={cn(
                         "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-medium transition",
                         addOpen
@@ -1153,6 +1252,7 @@ export function GenAssistantPanel({
                       onClick={() => {
                         setStylesDrawerOpen(false);
                         setAddOpen(false);
+                        setEditingStyleId(null);
                       }}
                       className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/50 transition hover:bg-white/10 hover:text-white"
                       title="Закрыть шторку (Esc)"
@@ -1166,10 +1266,15 @@ export function GenAssistantPanel({
                   <div className="flex-1 overflow-y-auto p-6">
                     <div className="mx-auto max-w-xl space-y-3">
                       <div className="flex items-center justify-between">
-                        <div className="text-[14px] font-semibold text-white/90">Новый стиль</div>
+                        <div className="text-[14px] font-semibold text-white/90">
+                          {editingStyleId ? "Редактирование стиля" : "Новый стиль"}
+                        </div>
                         <button
                           type="button"
-                          onClick={() => setAddOpen(false)}
+                          onClick={() => {
+                            setAddOpen(false);
+                            setEditingStyleId(null);
+                          }}
                           className="text-[11px] text-white/50 hover:text-white"
                         >
                           Вернуться к каталогу
@@ -1192,22 +1297,59 @@ export function GenAssistantPanel({
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[11px] text-white/60">Референсы стиля (картинки)</label>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {refPreviews.map((url, i) => (
-                            <span key={url} className="relative h-[56px] w-[56px] overflow-hidden rounded-md border border-white/15">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={url} alt="" className="h-full w-full object-cover" />
-                              <button
-                                type="button"
-                                onClick={() => setNewRefs((prev) => prev.filter((_, k) => k !== i))}
-                                title="Убрать"
-                                className="absolute right-0 top-0 bg-black/75 px-1 text-[11px] leading-none text-white/80 hover:text-white"
-                              >
-                                ×
-                              </button>
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] text-white/60">Референсы стиля (картинки)</label>
+                          {refPreviews.length > 0 && (
+                            <span className="text-[10px] text-[#22d3ee]">
+                              Кликните на фото, чтобы назначить обложкой
                             </span>
-                          ))}
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {existingCoverUrl && refPreviews.length === 0 && (
+                            <span className="relative h-[56px] w-[56px] overflow-hidden rounded-md border border-[#22d3ee]/60 shadow-[0_0_8px_rgba(34,211,238,0.25)]">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={existingCoverUrl} alt="" className="h-full w-full object-cover" />
+                              <span className="absolute bottom-0 inset-x-0 bg-black/80 text-center py-0.5 text-[8.5px] font-bold text-[#22d3ee]">
+                                Обложка
+                              </span>
+                            </span>
+                          )}
+                          {refPreviews.map((url, i) => {
+                            const isCover = selectedCoverIdx === i;
+                            return (
+                              <span
+                                key={url}
+                                onClick={() => setSelectedCoverIdx(i)}
+                                className={cn(
+                                  "relative h-[56px] w-[56px] overflow-hidden rounded-md border cursor-pointer transition",
+                                  isCover
+                                    ? "border-[#22d3ee] ring-2 ring-[#22d3ee]/60 shadow-[0_0_8px_rgba(34,211,238,0.3)]"
+                                    : "border-white/15 hover:border-white/40",
+                                )}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={url} alt="" className="h-full w-full object-cover" />
+                                {isCover && (
+                                  <span className="absolute bottom-0 inset-x-0 bg-[#22d3ee] text-center py-0.5 text-[8px] font-bold text-black">
+                                    Обложка
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setNewRefs((prev) => prev.filter((_, k) => k !== i));
+                                    if (selectedCoverIdx === i) setSelectedCoverIdx(0);
+                                  }}
+                                  title="Убрать"
+                                  className="absolute right-0 top-0 bg-black/75 px-1 text-[11px] leading-none text-white/80 hover:text-white"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
                           <button
                             type="button"
                             onClick={() => refInput.current?.click()}
@@ -1242,11 +1384,15 @@ export function GenAssistantPanel({
                         />
                         <button
                           type="button"
-                          disabled={buildBusy || !newRefs.length}
+                          disabled={buildBusy || (!newRefs.length && !newHint.trim())}
                           onClick={() => void buildAgentFromRefs()}
                           className="w-full rounded-md bg-gradient-to-r from-[#22d3ee] to-[#0ea5e9] px-2.5 py-2 text-[12px] font-semibold text-black transition hover:brightness-110 disabled:opacity-40"
                         >
-                          {buildBusy ? "Нейросеть разбирает стиль..." : "✨ Собрать агента стиля по картинкам"}
+                          {buildBusy
+                            ? "Нейросеть собирает стиль..."
+                            : newRefs.length
+                              ? "Собрать агента стиля по картинкам"
+                              : "Собрать агента стиля по описанию"}
                         </button>
                       </div>
 
@@ -1281,17 +1427,33 @@ export function GenAssistantPanel({
                         />
                       </div>
 
+                      <div className="space-y-1">
+                        <label className="text-[11px] text-white/60">
+                          Негативный промпт (Negative Prompt, чего избегать)
+                        </label>
+                        <textarea
+                          value={newNegativePrompt}
+                          onChange={(e) => setNewNegativePrompt(e.target.value)}
+                          rows={2}
+                          placeholder="Например: blurry, bad anatomy, text, watermark, photorealistic..."
+                          className={cn(areaCls, "text-[12px]")}
+                        />
+                      </div>
+
                       <div className="flex gap-2 pt-2">
                         <button
                           type="button"
                           onClick={() => void saveCustomStyle(addCatId)}
                           className="flex-1 rounded-lg bg-white px-3 py-2 text-[12px] font-semibold text-black transition hover:bg-white/90"
                         >
-                          Сохранить стиль
+                          {editingStyleId ? "Сохранить изменения" : "Сохранить стиль"}
                         </button>
                         <button
                           type="button"
-                          onClick={() => setAddOpen(false)}
+                          onClick={() => {
+                            setAddOpen(false);
+                            setEditingStyleId(null);
+                          }}
                           className="rounded-lg border border-white/12 px-3 py-2 text-[12px] font-medium text-white/70 hover:border-white/25 hover:text-white"
                         >
                           Отмена
@@ -1374,6 +1536,7 @@ export function GenAssistantPanel({
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
                         {displayedStyles.map(({ style: s, cat }) => {
                           const isCurrent = s.id === styleId;
+                          const isCustom = s.id.startsWith("custom_") || customStyles.some((cs) => cs.id === s.id);
                           return (
                             <div
                               key={s.id}
@@ -1408,7 +1571,7 @@ export function GenAssistantPanel({
                               {/* 2. Верхние бейджи (категория + индикатор) */}
                               <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between p-2">
                                 <span className="rounded bg-black/65 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-white/85 backdrop-blur-md border border-white/10 shadow-sm">
-                                  {cat.name}
+                                  {isCustom ? "Мой стиль" : cat.name}
                                 </span>
                                 {isCurrent ? (
                                   <span className="flex items-center gap-1 rounded bg-[#22d3ee] px-1.5 py-0.5 text-[9.5px] font-bold text-black shadow-md">
@@ -1441,11 +1604,41 @@ export function GenAssistantPanel({
                               {/* 4. Оверлей при наведении курсора: заголовок, описание и текст промпта / агента */}
                               <div className="absolute inset-0 z-30 flex flex-col justify-between bg-black/90 p-2.5 opacity-0 backdrop-blur-[3px] transition-all duration-200 group-hover:opacity-100">
                                 <div>
-                                  <div className="line-clamp-1 text-[13px] font-bold text-[#22d3ee]">
-                                    {s.name}
-                                  </div>
-                                  <div className="mt-0.5 line-clamp-2 text-[10.5px] leading-tight text-white/85">
-                                    {s.desc}
+                                  <div className="flex items-start justify-between gap-1">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="line-clamp-1 text-[13px] font-bold text-[#22d3ee]">
+                                        {s.name}
+                                      </div>
+                                      <div className="mt-0.5 line-clamp-2 text-[10.5px] leading-tight text-white/85">
+                                        {s.desc}
+                                      </div>
+                                    </div>
+                                    {isCustom && (
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openEditCustomStyle(s as CustomStyle);
+                                          }}
+                                          className="rounded p-1 text-white/70 hover:bg-white/20 hover:text-white transition"
+                                          title="Редактировать стиль"
+                                        >
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            void deleteCustomStyle(s.id);
+                                          }}
+                                          className="rounded p-1 text-red-400 hover:bg-red-500/25 hover:text-red-300 transition"
+                                          title="Удалить стиль"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
 

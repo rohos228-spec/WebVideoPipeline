@@ -468,6 +468,14 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
         elif not isinstance(ref_imgs, list):
             ref_imgs = []
         first_frame = params.get("first_frame_url") or params.get("image_url") or params.get("imageUrl")
+        prompt_val = meta.get("prompt")
+        full_val = (
+            params.get("values", {}).get("prompt")
+            if isinstance(params.get("values"), dict)
+            else params.get("prompt")
+        )
+        if full_val and isinstance(full_val, str) and len(full_val) > len(str(prompt_val or "")):
+            prompt_val = full_val
         items.append(
             {
                 "id": key,
@@ -479,7 +487,7 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
                 "project_id": None,
                 "project_slug": meta.get("provider") or "local",
                 "frame_id": None,
-                "prompt": meta.get("prompt"),
+                "prompt": prompt_val,
                 "model": meta.get("model"),
                 "status": status,
                 "job_id": meta.get("job_id"),

@@ -275,11 +275,13 @@ async def generate_prompts(
     count: int = 1,
     ref_labels: list[str] | None = None,
     model: str | None = None,
+    negative_prompt: str | None = None,
 ) -> dict[str, Any]:
     """Агент + обвязка. Без готового промпта — ValueError, картинка не стартует."""
     request = (request or "").strip()
     agent_text = (agent_text or "").strip()
     aspect = (aspect or "9:16").strip() or "9:16"
+    neg = (negative_prompt or "").strip()
     try:
         count = int(count)
     except (TypeError, ValueError):
@@ -301,6 +303,13 @@ async def generate_prompts(
         f"{request}\n\n{system}\n\nN = {count}"
     )
     user = f"Предмет кадра: {request}\nN = {count}"
+    if neg:
+        neg_block = (
+            f"\n\nНЕГАТИВНЫЙ ПРОМПТ (чего строго избегать в кадре):\n{neg}\n"
+            "Не включай эти элементы, стили или артефакты в сцену."
+        )
+        master += neg_block
+        user += f"\nИзбегать: {neg}"
     labels = [str(x).strip() for x in (ref_labels or []) if str(x).strip()]
     if labels:
         listed = "\n".join(labels)

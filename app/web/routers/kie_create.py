@@ -226,7 +226,7 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
     result_kind = str(spec.get("result") or "video")
     media = _MEDIA_BY_RESULT.get(result_kind, "video")
     ext = _EXT_BY_RESULT.get(result_kind, ".mp4")
-    prompt = str(values.get("prompt") or values.get("text") or "")[:2000]
+    prompt = str(values.get("prompt") or values.get("text") or "")[:10000]
 
     from app.db import session_scope
     from app.services import credit_ledger as cl
