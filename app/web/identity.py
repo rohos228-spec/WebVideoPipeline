@@ -107,6 +107,7 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     # переопределение.
     "/api/my-prompts",
     "/api/prompt-files",
+    "/api/meta-agent",
     "/api/projects",  # проекты и всё вложенное: кадры, шаги, смета, холст
     "/api/artifacts",
     "/api/files",
