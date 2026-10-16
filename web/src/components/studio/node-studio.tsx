@@ -922,9 +922,7 @@ export function NodeStudio({
                     </div>
                   ) : null}
                   {nodeType === "hero" && projectId ? (
-                    <div className="rounded-xl border border-amber-400/20 bg-amber-500/[0.05] p-3">
-                      <HeroConfigPanel projectId={projectId} />
-                    </div>
+                    <HeroConfigPanel projectId={projectId} inStudio />
                   ) : null}
                   {nodeType === "sfx_plan" && projectId ? (
                     <SfxPlanSettingsPanel projectId={projectId} />

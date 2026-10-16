@@ -141,7 +141,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   hero: {
     type: "hero",
     label: "Персонажи",
-    description: "Reference-картинки героев (Nano Banana 2).",
+    description: "Эталонные референс-листы внешности героев (ракурсы 360°, лицо, костюм) для сохранения единого стиля в видео.",
     category: "objects",
     accent: "195 75% 58%",
     iconKey: "user-round",

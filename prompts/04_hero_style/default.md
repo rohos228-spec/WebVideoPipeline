@@ -1,0 +1,1 @@
+Cinematic Photorealism: realistic skin texture, natural photographic lighting, high-end commercial cinematography look, 35mm lens clarity, authentic fabric textures and material details, neutral studio lighting.

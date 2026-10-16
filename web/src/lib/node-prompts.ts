@@ -19,7 +19,7 @@ export interface NodePromptSlot {
   preferredFile?: string;
 }
 
-const NO_EXCEL_NODE_TYPES = new Set(["topic", "excel_feed", "excel_gpt", "storage", "shot_menu"]);
+const NO_EXCEL_NODE_TYPES = new Set(["topic", "excel_feed", "excel_gpt", "hero", "storage", "shot_menu"]);
 
 const BASE: Record<string, NodePromptSlot[]> = {
   topic: [],
@@ -58,7 +58,6 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   hero: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "hero" },
     { id: "main", title: "Промт персонажа", kind: "gpt", stepCode: "hero" },
     { id: "style", title: "Стиль персонажа", kind: "gpt", stepCode: "hero_style" },
   ],

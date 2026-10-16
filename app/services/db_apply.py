@@ -198,6 +198,7 @@ FIELD_ALIASES: dict[str, str] = {
     "фон": "shot01_bg",
     "lighting": "lighting",
     "освещение": "lighting",
+    "свет": "lighting",
     "scene_lighting": "scene_lighting",
     "освещение_сцены": "scene_lighting",
     "shot01_props": "shot01_props",

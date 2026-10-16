@@ -1236,6 +1236,28 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                     node_key,
                     len(ops_list),
                 )
+                if chars_list or scenes_list:
+                    from app.services import db_apply
+                    try:
+                        applied = await db_apply.apply_ops(
+                            session,
+                            project,
+                            [],
+                            characters=chars_list or None,
+                            scenes=scenes_list or None,
+                            export_xlsx=bool(ops_data.get("export_xlsx", False) if isinstance(ops_data, dict) else False),
+                            node_kind=apply_node_kind,
+                        )
+                        await session.commit()
+                        logger.info(
+                            "[#{}] enrich_xlsx node={}: сохранено персонажей: {}, сцен: {}",
+                            project.id,
+                            node_key,
+                            len(chars_list),
+                            len(scenes_list),
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("[#{}] enrich_xlsx: ошибка сохранения characters/scenes: {}", project.id, e)
             elif ops_data and (ops_list or chars_list or scenes_list):
                 from app.services import db_apply
                 from app.services.node_write_contract import (

@@ -154,7 +154,27 @@ def _head_blob(repo: Path, rel: str) -> bytes | None:
     return raw.stdout
 
 
+_EXCLUDED_PROMPT_SUBSTRINGS: tuple[str, ...] = (
+    "character_model_sheet_16x9.md",
+    "агент_лист_персонажа",
+    "img_prompts_trash_polka",
+)
+
+
+def _is_deleted_in_git(repo: Path, rel: str) -> bool:
+    """True if file was tracked in git history but is not in HEAD (was committed as deleted)."""
+    if _head_blob(repo, rel) is not None:
+        return False
+    res = _git(repo, "log", "-1", "--oneline", "--", rel)
+    return bool(res.returncode == 0 and res.stdout and res.stdout.strip())
+
+
 def _should_write_prompt(repo: Path, rel: str, content: bytes) -> bool:
+    norm = rel.replace("\\", "/").lower()
+    if any(ex in norm for ex in _EXCLUDED_PROMPT_SUBSTRINGS):
+        return False
+    if _is_deleted_in_git(repo, rel):
+        return False
     dest = repo / rel
     if not dest.is_file():
         st = _git(repo, "status", "--porcelain", "--", rel).stdout or ""
