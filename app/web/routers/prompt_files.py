@@ -187,14 +187,10 @@ async def _apply_save(
     упадёт диск, шаг всё равно получит новый текст. Диск — только если он
     записываем; иначе молча пропускаем, а не 500.
     """
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
     await prompt_store.save(session, step_code, name, content)
-    if prompts_writable():
-        try:
-            write_prompt_with_history(step_code, name, content)
-        except OSError:
-            # `prompts_writable` смотрит на корень; отдельная папка может
-            # оказаться чужой по правам. Диск здесь вторичен.
-            pass
     file_path = _library_prompt_path(step_code, name)
     await lib.create_or_update_item(
         session,
@@ -204,14 +200,22 @@ async def _apply_save(
         file_path=file_path,
         content=content,
         message=message,
-        author="studio",
+        author="tenant" if tenant else "studio",
         source=source,
         meta={"step_code": step_code, "name": name},
         force_version=True,
     )
-    from app.services.prompts import sync_step_prompt_to_db
+    if tenant is None:
+        if prompts_writable():
+            try:
+                write_prompt_with_history(step_code, name, content)
+            except OSError:
+                # `prompts_writable` смотрит на корень; отдельная папка может
+                # оказаться чужой по правам. Диск здесь вторичен.
+                pass
+        from app.services.prompts import sync_step_prompt_to_db
 
-    await sync_step_prompt_to_db(session, step_code, content)
+        await sync_step_prompt_to_db(session, step_code, content)
     await session.commit()
     return _info(step_code, name, content)
 
@@ -367,16 +371,26 @@ async def get_prompt_file(step_code: str, name: str) -> PromptFileContent:
 
 
 @router.get("/{step_code}/{name}/download")
-async def download_prompt_file(step_code: str, name: str) -> FileResponse:
+async def download_prompt_file(step_code: str, name: str):
     _ensure_step(step_code)
     _ensure_name(name)
     p = _disk_prompt_path(step_code, name)
-    if not p.is_file():
-        raise HTTPException(status_code=404, detail="prompt file not found")
-    return FileResponse(
-        path=str(p),
-        filename=f"{name}.md",
+    if p.is_file():
+        return FileResponse(
+            path=str(p),
+            filename=f"{name}.md",
+            media_type="text/markdown; charset=utf-8",
+        )
+    from fastapi.responses import Response
+
+    try:
+        body = _content_of(step_code, name)
+    except HTTPException as e:
+        raise HTTPException(status_code=404, detail="prompt file not found") from e
+    return Response(
+        content=body,
         media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}.md"'},
     )
 
 
@@ -409,12 +423,15 @@ async def delete_prompt_file(
     _ensure_name(name)
     if name == DEFAULT_NAME:
         raise HTTPException(status_code=400, detail="default удалять нельзя")
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
     item = await _library_item(session, step_code, name)
     # Снимается свой уровень в базе и файл на диске, если он есть и диск
     # записываем. Системный промт из области арендатора не удаляется по
     # построению — `drop` видит только свою строку.
     removed = await prompt_store.drop(session, step_code, name)
-    if prompts_writable():
+    if tenant is None and prompts_writable():
         try:
             removed = delete_prompt(step_code, name) or removed
         except ValueError as e:
@@ -535,12 +552,71 @@ async def restore_prompt_file_history(
 
 
 @router.patch("/{step_code}/{name}/rename", response_model=PromptFileInfo)
-async def rename_prompt_file_route(step_code: str, name: str, payload: PromptRenamePayload) -> PromptFileInfo:
+async def rename_prompt_file_route(
+    step_code: str,
+    name: str,
+    payload: PromptRenamePayload,
+    session: AsyncSession = Depends(get_session),
+) -> PromptFileInfo:
     _ensure_step(step_code)
     _ensure_name(name)
     new_name = payload.new_name.strip()
     if not new_name:
         raise HTTPException(status_code=400, detail="new_name required")
+    _ensure_name(new_name)
+    from sqlalchemy import select
+
+    from app.models import PromptLibraryEntry
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    if tenant is not None:
+        row = (
+            await session.execute(
+                select(PromptLibraryEntry).where(
+                    PromptLibraryEntry.tenant_id == tenant,
+                    PromptLibraryEntry.step_code == step_code,
+                    PromptLibraryEntry.name == name,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="на вашем уровне такой промт не найден для переименования")
+
+        conflict = (
+            await session.execute(
+                select(PromptLibraryEntry).where(
+                    PromptLibraryEntry.tenant_id == tenant,
+                    PromptLibraryEntry.step_code == step_code,
+                    PromptLibraryEntry.name == new_name,
+                )
+            )
+        ).scalar_one_or_none()
+        if conflict is not None:
+            raise HTTPException(status_code=409, detail=f"промт с именем {new_name!r} уже существует")
+
+        row.name = new_name
+        await session.flush()
+        await prompt_store.refresh(session)
+
+        old_key = _library_prompt_path(step_code, name)
+        new_key = _library_prompt_path(step_code, new_name)
+        lib_item = await lib.get_item_by_key(session, "prompt", old_key)
+        if lib_item:
+            lib_item.key = new_key
+            lib_item.title = new_name
+            lib_item.file_path = new_key
+            lib_item.meta = {**(lib_item.meta or {}), "name": new_name}
+        await session.commit()
+        body = _content_of(step_code, new_name)
+        return PromptFileInfo(
+            name=new_name,
+            filename=f"{new_name}.md",
+            size=len(body.encode("utf-8")),
+            modified=None,
+            is_default=(new_name == DEFAULT_NAME),
+        )
+
     if not prompts_writable():
         # Переименование — операция над файлом и его историей на диске. В базе
         # промт живёт под именем-ключом, и честнее сказать «недоступно», чем
@@ -552,6 +628,20 @@ async def rename_prompt_file_route(step_code: str, name: str, payload: PromptRen
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    sys_row = (
+        await session.execute(
+            select(PromptLibraryEntry).where(
+                PromptLibraryEntry.tenant_id.is_(None),
+                PromptLibraryEntry.step_code == step_code,
+                PromptLibraryEntry.name == name,
+            )
+        )
+    ).scalar_one_or_none()
+    if sys_row:
+        sys_row.name = final
+        await session.flush()
+        await prompt_store.refresh(session)
+    await session.commit()
     body = _content_of(step_code, final)
     return PromptFileInfo(
         name=final,

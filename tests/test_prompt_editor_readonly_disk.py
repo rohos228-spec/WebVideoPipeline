@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 
 import pytest
 import pytest_asyncio
@@ -79,8 +80,10 @@ async def ro_client(tmp_path, monkeypatch):
 
 
 def _skip_if_root():
-    if os.geteuid() == 0:
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
         pytest.skip("под root права на каталог не действуют — проверка бессмысленна")
+    if sys.platform == "win32":
+        pytest.skip("на Windows chmod :ro на папки не моделирует POSIX readonly")
 
 
 def test_disk_is_really_read_only(ro_client) -> None:
