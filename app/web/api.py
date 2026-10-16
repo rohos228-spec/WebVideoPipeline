@@ -244,6 +244,35 @@ async def _lifespan(app: FastAPI):
             pass
 
 
+_PROVIDER_WORD_RE = re.compile(
+    r"(?i)(52pay|kie(?:\.ai)?|outsee|vibecode|wavespeed|elevenlabs|anthropic|openai|grsai)"
+)
+
+
+def _scrub_provider_words(obj):
+    """Hide provider names in the public OpenAPI schema (TZ p.22)."""
+    if isinstance(obj, str):
+        return _PROVIDER_WORD_RE.sub("via", obj)
+    if isinstance(obj, list):
+        return [_scrub_provider_words(x) for x in obj]
+    if isinstance(obj, dict):
+        return {_scrub_provider_words(k): _scrub_provider_words(v) for k, v in obj.items()}
+    return obj
+
+
+def _install_scrubbed_openapi(app: FastAPI) -> None:
+    from fastapi.openapi.utils import get_openapi
+
+    def _openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+        app.openapi_schema = _scrub_provider_words(schema)
+        return app.openapi_schema
+
+    app.openapi = _openapi  # type: ignore[method-assign]
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="video-pipeline web",
@@ -389,6 +418,8 @@ def create_app() -> FastAPI:
 
     # ── Статика Next.js (export → ./web/out) ──
     _mount_frontend(app)
+
+    _install_scrubbed_openapi(app)
 
     return app
 
