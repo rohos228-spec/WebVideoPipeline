@@ -196,7 +196,7 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
             await bind_tenant(session)
             yield session
             await session.commit()
-        except Exception:
+        except BaseException:
             await session.rollback()
             raise
 

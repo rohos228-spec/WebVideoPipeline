@@ -22,6 +22,8 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         logger.info("[#{}] make_script: user_stop — не запускаем GPT", project.id)
         return
     logger.info("[#{}] make_script (db-first) starting", project.id)
+    # Отпустить SQLite write-lock перед долгим GPT-вызовом
+    await session.commit()
 
     result, voiceover_text = await xsr.run_script_xlsx(project)
 

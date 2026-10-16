@@ -210,6 +210,11 @@ function NodeInspector({
 }) {
   const type = nodeTypeFromKey(nodeKey);
   const spec = getNodeSpec(type);
+  const globalActivePrompts = useQuery({
+    queryKey: ["prompt-global-active"],
+    queryFn: () => api.getGlobalActivePrompts(),
+    staleTime: 5000,
+  });
   if (type === "topic" && projectId != null) {
     return <TopicEditor projectId={projectId} />;
   }
@@ -220,7 +225,8 @@ function NodeInspector({
   const overrides = (project?.prompt_overrides || {}) as Record<string, unknown>;
   const activePrompt =
     (slotMap?.main || slotMap?.default) ??
-    (stepCode && typeof overrides[stepCode] === "string" ? (overrides[stepCode] as string) : undefined);
+    (stepCode && typeof overrides[stepCode] === "string" ? (overrides[stepCode] as string) : undefined) ??
+    (stepCode ? globalActivePrompts.data?.[stepCode] : undefined);
 
   return (
     <div className="flex flex-col gap-3">
