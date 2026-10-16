@@ -22,7 +22,7 @@ type Day = { date: string; images: number; videos: number; audio: number; finals
 type Stats = { projects: number; completed_videos: number; published: number; generations_total: number; totals_by_kind: Record<string, number>; per_project: Record<string, Record<string, number>>; daily: Day[]; status_counts: Record<string, number> };
 type Key = { id: string; label: string; env: string; configured: boolean; masked: string };
 type Project = { id: number; title?: string; topic?: string; slug: string; status: string; updated_at?: string; created_at?: string };
-type OutseeStatus = { configured?: boolean; balance?: { balance_credits?: number } | null; default_image_model?: string; default_video_model?: string };
+type RenderStatus = { configured?: boolean; balance?: { balance_credits?: number } | null; default_image_model?: string; default_video_model?: string };
 type TextLlm = { active_label?: string; active_provider?: string; models?: { key_configured?: boolean; active?: boolean }[] };
 type LibItem = Record<string, unknown> & { id: number };
 
@@ -174,9 +174,9 @@ function useData() {
   const stats = useQuery({ queryKey: ["profile", "stats"], queryFn: () => j<Stats>("/api/profile/stats"), staleTime: 60_000 });
   const projects = useQuery({ queryKey: ["profile", "projects"], queryFn: () => j<Project[]>("/api/projects"), staleTime: 30_000 });
   const keys = useQuery({ queryKey: ["profile", "keys"], queryFn: () => j<Key[]>("/api/profile/keys") });
-  const outsee = useQuery({ queryKey: ["profile", "outsee"], queryFn: () => j<OutseeStatus>("/api/outsee/status"), staleTime: 30_000 });
+  const render = useQuery({ queryKey: ["profile", "render"], queryFn: () => j<RenderStatus>("/api/profile/render-status"), staleTime: 30_000 });
   const llm = useQuery({ queryKey: ["profile", "llm"], queryFn: () => j<TextLlm>("/api/text-llm"), staleTime: 30_000 });
-  return { profile, stats, projects, keys, outsee, llm };
+  return { profile, stats, projects, keys, render, llm };
 }
 type D = ReturnType<typeof useData>;
 
@@ -341,9 +341,9 @@ function ConnSummary({ d }: { d: D }) {
   const llmOk = Boolean(d.llm.data?.models?.some((m) => m.active && m.key_configured));
   const rows: { n: string; i: React.ReactNode; s: "ok" | "off" | "loading" | "error"; det: string }[] = [
     { n: "Текстовые модели", i: <Bot className="h-4 w-4" />, s: d.llm.isLoading ? "loading" : d.llm.isError ? "error" : llmOk ? "ok" : "off", det: d.llm.data?.active_label ?? "модель не выбрана" },
-    { n: "Генерация изображений", i: <Sparkles className="h-4 w-4" />, s: d.keys.isLoading ? "loading" : keyOf("kie")?.configured ? "ok" : "off", det: keyOf("kie")?.masked || "ключ не задан" },
-    { n: "VIA Render", i: <ImageIcon className="h-4 w-4" />, s: d.outsee.isLoading ? "loading" : d.outsee.isError ? "error" : d.outsee.data?.configured ? "ok" : "off", det: d.outsee.data?.balance?.balance_credits != null ? `${d.outsee.data.balance.balance_credits.toLocaleString("ru-RU")} кредитов` : "картинки и видео" },
-    { n: "Озвучка", i: <Mic className="h-4 w-4" />, s: d.keys.isLoading ? "loading" : keyOf("elevenlabs")?.configured ? "ok" : "off", det: keyOf("elevenlabs")?.masked || "ключ не задан" },
+    { n: "Генерация изображений", i: <Sparkles className="h-4 w-4" />, s: d.keys.isLoading ? "loading" : keyOf("images")?.configured ? "ok" : "off", det: keyOf("images")?.masked || "ключ не задан" },
+    { n: "VIA Render", i: <ImageIcon className="h-4 w-4" />, s: d.render.isLoading ? "loading" : d.render.isError ? "error" : d.render.data?.configured ? "ok" : "off", det: d.render.data?.balance?.balance_credits != null ? `${d.render.data.balance.balance_credits.toLocaleString("ru-RU")} кредитов` : "картинки и видео" },
+    { n: "Озвучка", i: <Mic className="h-4 w-4" />, s: d.keys.isLoading ? "loading" : keyOf("voice")?.configured ? "ok" : "off", det: keyOf("voice")?.masked || "ключ не задан" },
   ];
   return (
     <div className="flex flex-col gap-1.5">
@@ -401,7 +401,7 @@ function Keys({ d }: { d: D }) {
 }
 
 function Usage({ d }: { d: D }) {
-  const credits = d.outsee.data?.balance?.balance_credits;
+  const credits = d.render.data?.balance?.balance_credits;
   const t = d.stats.data?.totals_by_kind ?? {};
   const bars = [
     { l: "Хранилище", used: 38, max: 100, u: "ГБ", sample: true },
@@ -412,7 +412,7 @@ function Usage({ d }: { d: D }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Баланс VIA" value={d.outsee.isLoading ? "…" : credits != null ? credits.toLocaleString("ru-RU") : "—"} hint="реальный баланс" />
+        <Stat label="Баланс VIA" value={d.render.isLoading ? "…" : credits != null ? credits.toLocaleString("ru-RU") : "—"} hint="реальный баланс" />
         <Stat label="Картинок" value={(t.scene_image ?? 0).toLocaleString("ru-RU")} hint={`+ ${((t.hero_reference ?? 0) + (t.item_reference ?? 0))} референсов`} />
         <Stat label="Видео-сцен" value={(t.scene_video ?? 0).toLocaleString("ru-RU")} />
         <Stat label="Аудио" value={((t.audio ?? 0) + (t.music ?? 0)).toLocaleString("ru-RU")} />
@@ -642,7 +642,7 @@ export function ProfilePage() {
       case "activity": return <ActivityTab d={d} />;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, d.profile.data, d.stats.data, d.projects.data, d.keys.data, d.outsee.data, d.llm.data, d.stats.isLoading, d.projects.isLoading, d.keys.isLoading]);
+  }, [tab, d.profile.data, d.stats.data, d.projects.data, d.keys.data, d.render.data, d.llm.data, d.stats.isLoading, d.projects.isLoading, d.keys.isLoading]);
   return (
     <div data-profile-page className="flex min-h-screen flex-col bg-[#141518] text-zinc-200" style={FONT}>
       <UserPrefsApplier />

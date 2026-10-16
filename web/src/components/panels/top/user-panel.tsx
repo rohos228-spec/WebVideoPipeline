@@ -16,7 +16,7 @@ async function getJson<T>(url: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-type OutseeStatus = { configured?: boolean; balance?: { balance_credits?: number } | null; default_image_model?: string; default_video_model?: string };
+type RenderStatus = { configured?: boolean; balance?: { balance_credits?: number } | null; default_image_model?: string; default_video_model?: string };
 type TextLlm = { active_label?: string; models?: { key_configured?: boolean; active?: boolean }[] };
 type Project = { id: number; status: string; updated_at?: string };
 
@@ -100,12 +100,12 @@ export function UserPanel({ onClose }: { onClose: () => void }) {
   }, [onClose]);
   const setP = (p: Partial<Prefs>) => setPrefs((v) => { const n = { ...v, ...p }; try { localStorage.setItem(PREFS_KEY, JSON.stringify(n)); } catch {} applyUserPrefs(n); return n; });
 
-  const outsee = useQuery({ queryKey: ["user-panel", "outsee"], queryFn: () => getJson<OutseeStatus>("/api/outsee/status"), staleTime: 30_000 });
+  const render = useQuery({ queryKey: ["user-panel", "render"], queryFn: () => getJson<RenderStatus>("/api/profile/render-status"), staleTime: 30_000 });
   const llm = useQuery({ queryKey: ["user-panel", "llm"], queryFn: () => getJson<TextLlm>("/api/text-llm"), staleTime: 30_000 });
   const auth = useQuery({ queryKey: ["user-panel", "auth"], queryFn: () => getJson<{ auth_required: boolean }>("/api/auth/status"), staleTime: 60_000 });
   const projects = useQuery({ queryKey: ["user-panel", "projects"], queryFn: () => getJson<Project[]>("/api/projects"), staleTime: 30_000 });
 
-  const credits = outsee.data?.balance?.balance_credits;
+  const credits = render.data?.balance?.balance_credits;
   const llmOk = Boolean(llm.data?.models?.some((m) => m.active && m.key_configured));
   const plist = projects.data ?? [];
   const weekAgo = Date.now() - 7 * 864e5;
@@ -137,7 +137,7 @@ export function UserPanel({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-[10px] bg-black/20 px-3 py-2.5">
               <div className="text-sm text-zinc-500">Баланс VIA, кредиты</div>
-              <div className="text-[22px] font-medium text-white">{outsee.isLoading ? "…" : credits != null ? credits.toLocaleString("ru-RU") : "—"}</div>
+              <div className="text-[22px] font-medium text-white">{render.isLoading ? "…" : credits != null ? credits.toLocaleString("ru-RU") : "—"}</div>
             </div>
             <div className="rounded-[10px] bg-black/20 px-3 py-2.5">
               <div className="text-sm text-zinc-500">Расход за месяц<Sample /></div>
@@ -149,7 +149,7 @@ export function UserPanel({ onClose }: { onClose: () => void }) {
         <Card title="Ключи и подключения">
           <div className="flex flex-col gap-1.5">
             <ConnRow icon={<Bot className="h-4 w-4" />} name="GPT (текст)" state={llm.isLoading ? "loading" : llm.isError ? "error" : llmOk ? "ok" : "off"} detail={llm.data?.active_label ?? "активная модель не выбрана"} />
-            <ConnRow icon={<ImageIcon className="h-4 w-4" />} name="VIA Render" state={outsee.isLoading ? "loading" : outsee.isError ? "error" : outsee.data?.configured ? "ok" : "off"} detail={[outsee.data?.default_image_model, outsee.data?.default_video_model].filter(Boolean).join(" · ") || "картинки и видео"} />
+            <ConnRow icon={<ImageIcon className="h-4 w-4" />} name="VIA Render" state={render.isLoading ? "loading" : render.isError ? "error" : render.data?.configured ? "ok" : "off"} detail={[render.data?.default_image_model, render.data?.default_video_model].filter(Boolean).join(" · ") || "картинки и видео"} />
             <ConnRow icon={<Mic className="h-4 w-4" />} name="Озвучка" state="off" detail="статус не отдаётся бэкендом (пример)" />
           </div>
         </Card>

@@ -37,11 +37,11 @@ _DEFAULT = {
 
 # Ключи, которые разрешено показывать (маской) и менять из профиля.
 _KEYS = [
-    ("gpt", "Текстовые модели — ключ 1", "GPT_API_KEY"),
-    ("vibecode", "Текстовые модели — ключ 2", "VIBECODE_API_KEY"),
-    ("kie", "Генерация изображений", "KIE_API_KEY"),
-    ("outsee", "Рендер видео", "OUTSEE_API_KEY"),
-    ("elevenlabs", "Озвучка", "ELEVENLABS_API_KEY"),
+    ("text1", "Текстовые модели — ключ 1", "GPT_API_KEY"),
+    ("text2", "Текстовые модели — ключ 2", "VIBECODE_API_KEY"),
+    ("images", "Генерация изображений", "KIE_API_KEY"),
+    ("render", "Рендер видео", "OUTSEE_API_KEY"),
+    ("voice", "Озвучка", "ELEVENLABS_API_KEY"),
 ]
 
 
@@ -263,7 +263,7 @@ async def get_keys() -> list[dict[str, Any]]:
     out = []
     for kid, label, env in _KEYS:
         val = _env_value(env)
-        out.append({"id": kid, "label": label, "env": env, "configured": bool(val), "masked": _mask(val)})
+        out.append({"id": kid, "label": label, "configured": bool(val), "masked": _mask(val)})
     return out
 
 
@@ -295,4 +295,28 @@ async def put_key(key_id: str, body: KeyUpdate) -> dict[str, Any]:
     os.environ[env] = value
     with contextlib.suppress(Exception):
         setattr(settings, env.lower(), value)
-    return {"id": key_id, "label": label, "env": env, "configured": bool(value), "masked": _mask(value)}
+    return {"id": key_id, "label": label, "configured": bool(value), "masked": _mask(value)}
+
+
+@router.get("/render-status")
+async def render_status() -> dict[str, Any]:
+    """Статус рендера картинок/видео для профиля и панели пользователя — без имён провайдеров и URL."""
+    from app.brand import scrub_obj
+
+    out: dict[str, Any] = {"configured": False, "balance": None, "default_image_model": None, "default_video_model": None}
+    try:
+        from app.bots import outsee_http as oh  # внутренний адаптер, наружу не светится
+
+        out["configured"] = bool(oh.outsee_api_configured())
+        out["default_image_model"] = getattr(settings, "outsee_default_image_model", None)
+        out["default_video_model"] = getattr(settings, "outsee_default_video_model", None)
+        if out["configured"]:
+            try:
+                bal = await oh.fetch_balance()
+                credits = bal.get("balance_credits") if isinstance(bal, dict) else None
+                out["balance"] = {"balance_credits": credits}
+            except Exception:  # noqa: BLE001
+                out["balance"] = {"error": "Баланс временно недоступен"}
+    except Exception:  # noqa: BLE001
+        pass
+    return scrub_obj(out)
