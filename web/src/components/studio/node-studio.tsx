@@ -719,7 +719,7 @@ export function NodeStudio({
         : { id: activeName, label: activeName };
     const inTab: "settings" | "prompts" | "results" = tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
     return createPortal(
-      <aside className="vp-menu nowheel nopan relative isolate flex max-h-[680px] w-full cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.08] bg-[#0a0a0a] text-left text-white backdrop-blur-xl">
+      <aside data-testid="node-step-params-panel" className="vp-menu nowheel nopan relative isolate flex max-h-[680px] w-full cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.08] bg-[#0a0a0a] text-left text-white backdrop-blur-xl">
           <div
             data-vp-menu-header
             className="vp-head-img relative h-[60px] shrink-0 cursor-grab overflow-hidden bg-cover active:cursor-grabbing"
