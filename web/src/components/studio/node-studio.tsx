@@ -25,7 +25,6 @@ import { nodeTypeFromKey } from "@/lib/node-key";
 import { stepCodeForNodeType, stepHasPromptVariants } from "@/lib/node-step-map";
 import {
   defaultPromptSlots,
-  gptTextSlotForNode,
   nodeTypeRequiresExcel,
   pipelinePromptSlots,
   resolvePromptSlots,
@@ -33,7 +32,6 @@ import {
   sceneAgentFromNodeKey,
   type NodePromptSlot,
 } from "@/lib/node-prompts";
-import { nodeSupportsGptText } from "@/lib/gpt-text-steps";
 import {
   excelGptAttachmentChipTitle,
   excelGptSlotIndex,
@@ -73,7 +71,6 @@ import { resolveNodeResult } from "@/lib/node-result-resolver";
 import type { FrameDTO } from "@/lib/types";
 import { NodeStepParamsPanel } from "@/components/studio/node-step-params-panel";
 import { PromptFilesPanel } from "@/components/studio/prompt-files-panel";
-import { GptTextPanel } from "@/components/studio/gpt-text-panel";
 import { shouldShowStopBar } from "@/lib/project-running";
 
 type StudioTab = "settings" | "prompts" | "results" | "excel";
@@ -285,7 +282,6 @@ export function NodeStudio({
   }, [open, nodeKey]);
 
   const activeSlot =
-    (activeSlotId === "gpt_text" ? gptTextSlotForNode(nodeType) : null) ??
     allSlots.find((s) => s.id === activeSlotId) ??
     (promptFocus?.kind === "text" ? promptFocus : null) ??
     pipelineSlots[0] ??
@@ -562,7 +558,6 @@ export function NodeStudio({
       nodeType === "images" ||
       nodeType === "videos");
 
-  const showGptTextPanel = activeSlot?.kind === "text" && activeStepCode && projectId;
   const showFramePromptsPanel =
     activeSlot?.kind === "frame_prompts" && projectId != null;
   const showFilesPanel =
@@ -725,8 +720,7 @@ export function NodeStudio({
               {(
                 [
                   ["settings", "Настройки", Settings2],
-                  ...(pipelineSlots.some((s) => s.kind !== "excel") ||
-                  (nodeSupportsGptText(nodeType) && gptTextSlotForNode(nodeType))
+                  ...(pipelineSlots.some((s) => s.kind !== "excel")
                     ? ([["prompts", "Промпты", FileText]] as const)
                     : []),
                   ...(showExcel ? [["excel", "Excel", FileSpreadsheet] as const] : []),
@@ -754,7 +748,7 @@ export function NodeStudio({
                 </Button>
               ))}
             </div>
-            {tab === "prompts" && (
+            {tab === "prompts" && pipelineSlots.filter((slot) => slot.kind !== "excel").length > 1 && (
               <div className="mt-3 flex flex-wrap gap-1 border-t border-white/5 pt-3">
                 {pipelineSlots
                   .filter((slot) => slot.kind !== "excel")
@@ -765,7 +759,7 @@ export function NodeStudio({
                       variant="ghost"
                       className={cn(
                         "h-7 text-xs font-medium rounded-lg transition-all",
-                        activeSlotId === slot.id && !showGptTextPanel
+                        activeSlotId === slot.id
                           ? "bg-zinc-800 text-white border border-zinc-700 shadow-sm"
                           : "border border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40",
                       )}
@@ -776,26 +770,6 @@ export function NodeStudio({
                       {slot.title}
                     </Button>
                   ))}
-                {nodeSupportsGptText(nodeType) && gptTextSlotForNode(nodeType) && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className={cn(
-                      "h-7 text-xs font-medium rounded-lg transition-all",
-                      activeSlotId === "gpt_text"
-                        ? "bg-violet-950/80 text-violet-200 border border-violet-500/50 shadow-sm"
-                        : "border border-violet-900/40 bg-violet-950/20 text-violet-300 hover:text-violet-100 hover:bg-violet-900/30",
-                    )}
-                    onClick={() => {
-                      setActiveSlotId("gpt_text");
-                    }}
-                    title="Сопроводительный (прилагаемый) текст в диалог GPT"
-                  >
-                    <MessageSquareText className="mr-1 h-3.5 w-3.5" />
-                    Сопроводительный текст
-                  </Button>
-                )}
               </div>
             )}
           </header>
@@ -962,19 +936,13 @@ export function NodeStudio({
 
               {tab === "prompts" && (
                 <div className="flex flex-col gap-4">
-                  {activeSlot && !showGptTextPanel && showFilesPanel && (
+                  {activeSlot && showFilesPanel && (
                     <p className="text-xs text-muted-foreground">
                       Редактируется:{" "}
                       <span className="font-medium text-foreground">{activeSlot.title}</span>
                     </p>
                   )}
-                  {showGptTextPanel ? (
-                    <GptTextPanel
-                      key={`gpt-${activeSlot?.id}-${activeStepCode}`}
-                      projectId={projectId}
-                      stepCode={activeStepCode}
-                    />
-                  ) : showFramePromptsPanel ? (
+                  {showFramePromptsPanel ? (
                     <FramePromptsPanel
                       key={`frame-prompts-${projectId}-${nodeType}`}
                       projectId={projectId}
