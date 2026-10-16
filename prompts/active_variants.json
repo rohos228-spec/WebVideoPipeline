@@ -2,6 +2,7 @@
   "plan": "cinematic_story_plan",
   "script": "neutral_voiceover_script",
   "split": "cinematic_frame_split",
+  "excel_gpt": "cinematic_scene_director",
   "hero_style": "треш полька акварель_20260802_200516.txt",
   "hero": "character_model_sheet_16x9",
   "img_pr": "img_prompts_trash_polka_watercolor",

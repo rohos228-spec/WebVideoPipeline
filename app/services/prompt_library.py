@@ -359,19 +359,16 @@ def list_prompts(step_code: str) -> list[str]:
 
 
 def list_excel_gpt_prompts() -> list[str]:
-    """Список «Работа с GPT»: 05_excel_gpt + git-шаблоны excel_gpt_agents."""
+    """Список вариантов промтов для «ИИ-редактор сцен»: 05_excel_gpt (+ legacy enrich_* при наличии).
+
+    Шаблоны templates/excel_gpt_agents не подмешиваются в UI-список, чтобы
+    не засорять выбор устаревшим веером агентов (resolve_excel_gpt_prompt_path
+    по-прежнему находит их для обратной совместимости).
+    """
     names = _list_prompts_in_dir(EXCEL_GPT_UNIFIED_STEP)
     seen = set(names)
-    # Legacy-слоты enrich_1..5 — часть списка «Работа с GPT» (так было до
-    # переноса форка; их версия листинга это потеряла, resolve — нет).
     for code in excel_gpt_source_steps()[1:]:
         for extra in _list_prompts_in_dir(code):
-            if extra not in seen:
-                names.append(extra)
-                seen.add(extra)
-    tmpl = excel_gpt_template_dir()
-    if tmpl.is_dir():
-        for extra in sorted(p.stem for p in tmpl.glob("*.md")):
             if extra not in seen:
                 names.append(extra)
                 seen.add(extra)

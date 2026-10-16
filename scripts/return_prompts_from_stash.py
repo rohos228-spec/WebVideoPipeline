@@ -157,6 +157,9 @@ def _head_blob(repo: Path, rel: str) -> bytes | None:
 def _should_write_prompt(repo: Path, rel: str, content: bytes) -> bool:
     dest = repo / rel
     if not dest.is_file():
+        st = _git(repo, "status", "--porcelain", "--", rel).stdout or ""
+        if any(line.strip().startswith("D") for line in st.splitlines()):
+            return False
         return True
     try:
         disk = dest.read_bytes()

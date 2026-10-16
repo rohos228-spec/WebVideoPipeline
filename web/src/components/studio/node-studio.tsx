@@ -664,11 +664,6 @@ export function NodeStudio({
                     <Badge variant="muted" className="text-[10px] text-violet-200/90">
                       {workModeLabel(excelConfig.workMode)}
                     </Badge>
-                    <Badge variant="muted" className="text-[10px] text-emerald-200/90">
-                      {excelGptAttachmentChipTitle(
-                        excelConfig.inputSource ?? "project_xlsx",
-                      )}
-                    </Badge>
                   </div>
                 )}
               </div>
