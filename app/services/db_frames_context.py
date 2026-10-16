@@ -96,6 +96,15 @@ def _pick_attrs(attrs: dict[str, Any] | None) -> dict[str, Any]:
                 break
     if "shot01_action" in out and "действие" not in out:
         out["действие"] = out["shot01_action"]
+    # Реквизит / предметы: shot01_props <-> предметы
+    if "shot01_props" not in out:
+        for alt in ("предметы", "props"):
+            raw = src.get(alt)
+            if raw is not None and str(raw).strip():
+                out["shot01_props"] = str(raw).strip()
+                break
+    if "shot01_props" in out and "предметы" not in out:
+        out["предметы"] = out["shot01_props"]
     return out
 
 
@@ -243,6 +252,48 @@ def force_full_strip_output_keys(
     return ()
 
 
+def _normalize_items(
+    items: list[Any] | None = None,
+    entities: list[Any] | None = None,
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Приводит список реквизита к (item_cards, item_descriptions)."""
+    raw_descs: list[str] = []
+    cards: list[dict[str, str]] = []
+
+    for it in items or []:
+        if isinstance(it, str):
+            t = it.strip()
+            if t:
+                raw_descs.append(t)
+        elif isinstance(it, dict):
+            desc = str(it.get("description") or it.get("описание") or "").strip()
+            cid = str(it.get("id") or f"predmet{len(cards) + 1}").strip()
+            if desc or cid:
+                cards.append({"id": cid, "description": desc})
+                if desc:
+                    raw_descs.append(desc)
+
+    if not raw_descs and not cards and entities:
+        for e in entities:
+            etype = str(getattr(e, "type", None) or "").strip().lower()
+            if etype in ("prop", "item"):
+                attrs = getattr(e, "attrs", None)
+                attrs_dict = attrs if isinstance(attrs, dict) else {}
+                desc_val = str(attrs_dict.get("description") or attrs_dict.get("описание") or "").strip()
+                name_val = str(getattr(e, "name", None) or "").strip()
+                cid_val = str(getattr(e, "code", None) or "").strip() or f"predmet{len(cards) + 1}"
+                text = f"{name_val}: {desc_val}" if name_val and desc_val else (desc_val or name_val)
+                if text:
+                    raw_descs.append(text)
+                    cards.append({"id": cid_val, "description": text})
+
+    if not cards and raw_descs:
+        for idx, d in enumerate(raw_descs, start=1):
+            cards.append({"id": f"predmet{idx}", "description": d})
+
+    return cards, raw_descs
+
+
 def build_excel_gpt_db_context(
     *,
     project_id: int,
@@ -252,6 +303,8 @@ def build_excel_gpt_db_context(
     strip_prompts: bool = False,
     full_vo: bool = False,
     strip_output_keys: tuple[str, ...] | list[str] | None = None,
+    items: list[Any] | None = None,
+    entities: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Снимок для excel_gpt: whitelist attrs + короткий закадр, без сырого attrs.
 
@@ -331,12 +384,15 @@ def build_excel_gpt_db_context(
                 if val:
                     row[dst] = val
         rows.append(row)
+    item_cards, item_descs = _normalize_items(items, entities=entities)
     return {
         "source": "db_v2",
         "project_id": project_id,
         "slug": slug,
         "frames": rows,
         "characters": list(characters or []),
+        "items": item_cards,
+        "item_descriptions": item_descs,
     }
 
 
@@ -348,6 +404,8 @@ def build_excel_gpt_check_context(
     characters: list[dict[str, Any]],
     scene_registry: list[Any] | None = None,
     full_vo: bool = False,
+    items: list[Any] | None = None,
+    entities: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Снимок для checkMode db_check.json: slim attrs + scene_registry.
 
@@ -359,6 +417,8 @@ def build_excel_gpt_check_context(
         frames=frames,
         characters=characters,
         full_vo=full_vo,
+        items=items,
+        entities=entities,
     )
     ctx["scene_registry"] = list(scene_registry or [])
     return ctx
