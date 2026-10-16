@@ -282,8 +282,13 @@ export function NodeStudio({
   }, [open, nodeKey]);
 
   const activeSlot =
+    (tab === "prompts"
+      ? allSlots.find((s) => s.id === activeSlotId && s.kind !== "excel") ??
+        pipelineSlots.find((s) => s.kind !== "excel")
+      : null) ??
     allSlots.find((s) => s.id === activeSlotId) ??
     (promptFocus?.kind === "text" ? promptFocus : null) ??
+    pipelineSlots.find((s) => s.kind !== "excel") ??
     pipelineSlots[0] ??
     null;
 
@@ -740,7 +745,11 @@ export function NodeStudio({
                   )}
                   onClick={() => {
                     setTab(id);
-                    setActiveSlotId(pipelineSlots[0]?.id ?? null);
+                    const targetSlot =
+                      id === "prompts"
+                        ? (pipelineSlots.find((s) => s.kind !== "excel") ?? pipelineSlots[0])
+                        : pipelineSlots[0];
+                    setActiveSlotId(targetSlot?.id ?? null);
                   }}
                 >
                   <Icon className="h-3.5 w-3.5" />
