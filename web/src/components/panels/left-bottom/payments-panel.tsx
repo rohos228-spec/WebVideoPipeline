@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { PLANS, PLAN_GROUPS, fmtRub, limitRows } from "@/lib/pricing";
+import { PeriodToggle, PriceTag } from "@/components/home/billing-period";
 import { FactoryMini, FactoryStyles } from "@/components/home/factory-cards";
 import { PanelShell, Section, Btn, Chips, StatusPill, Empty, card, ACCENT } from "./ui";
 
@@ -30,16 +31,17 @@ export function PaymentsPanel({ onClose }: { onClose: () => void }) {
       </div>
       <Section title="Тариф">
         <FactoryStyles />
+        <div className="mb-2 flex flex-col gap-1"><PeriodToggle compact /><span className="text-[11px] text-zinc-500">Пакеты кредитов не сгорают · 1 кредит = 1 ₽</span></div>
         {(["trial", "factory"] as const).map((g) => (
           <div key={g} className="mb-3">
-            <div className="mb-1.5 text-sm text-zinc-400">{PLAN_GROUPS[g].title} <span className="text-zinc-600">· {g === "trial" ? "разово" : "в месяц"}</span></div>
+            <div className="mb-1.5 text-sm text-zinc-400">{PLAN_GROUPS[g].title} <span className="text-zinc-600">· в месяц</span></div>
             <div className="grid grid-cols-2 gap-2">
               {PLANS.filter((p) => p.group === g).map((p) => {
                 if (g === "factory") return <FactoryMini key={p.id} p={p} current={p.id === CURRENT_PLAN} />;
                 const cur = p.id === CURRENT_PLAN;
                 return (
                   <a key={p.id} href={`/register?plan=${p.id}`} className={card + " block p-2.5 transition-colors duration-200 hover:bg-white/[0.05]"} style={cur ? { borderColor: "rgba(45,212,191,0.5)" } : undefined}>
-                    <div className="flex items-baseline justify-between"><span className="text-[14px] text-white">{p.name}</span><span className="text-sm" style={{ color: cur ? ACCENT : "#a1a1aa" }}>{fmtRub(p.price)}</span></div>
+                    <div className="flex items-baseline justify-between"><span className="text-[14px] text-white">{p.name}</span><span className="text-sm"><PriceTag price={p.price} size="sm" accent={cur ? ACCENT : "#a1a1aa"} /></span></div>
                     <ul className="mt-1.5 space-y-0.5 text-[12px] text-zinc-500">{limitRows(p.limits).map(([k, v]) => <li key={k} className="flex justify-between gap-2"><span>{k}</span><span className="text-zinc-300">{v}</span></li>)}</ul>
                     {p.perks ? <div className="mt-1.5 text-[12px] text-zinc-500">{p.base ? `Всё из ${p.base} + ` : ""}{p.perks.map((x) => x[0].toLowerCase() + x.slice(1)).join(", ")}</div> : null}
                     {cur ? <div className="mt-1.5 text-sm" style={{ color: ACCENT }}>Текущий</div> : null}

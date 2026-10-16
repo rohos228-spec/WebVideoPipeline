@@ -1,6 +1,7 @@
 "use client";
 import type { ReactNode } from "react";
-import { PLANS, fmtRub, fmtNum, type Plan } from "@/lib/pricing";
+import { PLANS, fmtNum, type Plan } from "@/lib/pricing";
+import { PriceTag } from "@/components/home/billing-period";
 
 const T = "#5fd6bf";
 const MAX = PLANS.find((p) => p.id === "conveyor")!.limits;
@@ -82,7 +83,7 @@ export function FactoryCard({ p }: { p: Plan }) {
         {flag && <span className="rounded-full px-2.5 py-0.5 text-xs text-[#062a24]" style={{ background: "linear-gradient(90deg,#5fd6bf,#2bb8a0)" }}>Флагман</span>}
       </div>
       <div className="relative mt-3 opacity-90 transition duration-500 group-hover:opacity-100"><Emblem id={p.id} size={110} /></div>
-      <div className="relative mt-2 text-3xl font-bold text-white">{fmtRub(p.price)}<span className="text-base font-normal text-white/40"> / месяц</span></div>
+      <div className="relative mt-2"><PriceTag price={p.price} /></div>
       <div className="relative text-sm text-white/55">{fmtNum(l.credits)} кредитов · {l.storage}</div>
       <div className="relative mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-2xl bg-black/20 p-3 ring-1 ring-white/[0.05]">
         <div className="col-span-2 text-[11px] uppercase tracking-[0.2em] text-[#5fd6bf]/70">Потоки и агенты</div>
@@ -107,7 +108,7 @@ export function FactoryMini({ p, current }: { p: Plan; current?: boolean }) {
       style={{ background: t.bg, boxShadow: `inset 0 0 0 1px ${current ? "rgba(45,212,191,0.6)" : t.ring}, ${t.glow}` }}>
       <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: pattern(p.id), backgroundSize: p.id === "conveyor" ? "22px 22px" : p.id === "workshop" ? "14px 14px" : undefined }} />
       {t.lvl >= 3 && <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5" style={{ background: "repeating-linear-gradient(135deg, rgba(95,214,191,0.5) 0 5px, transparent 5px 10px)" }} />}
-      <div className="relative flex items-center gap-2"><Emblem id={p.id} size={40} /><div className="min-w-0 flex-1"><div className="flex items-center gap-1.5 text-[14px] text-white">{p.name}{flag && <span className="rounded-full bg-[#2bb8a0]/25 px-1.5 text-[10px] text-[#bff3e8]">флагман</span>}</div><div className="text-[12px] text-[#5fd6bf]">{fmtRub(p.price)}<span className="text-zinc-500"> /мес</span></div></div></div>
+      <div className="relative flex items-center gap-2"><Emblem id={p.id} size={40} /><div className="min-w-0 flex-1"><div className="flex items-center gap-1.5 text-[14px] text-white">{p.name}{flag && <span className="rounded-full bg-[#2bb8a0]/25 px-1.5 text-[10px] text-[#bff3e8]">флагман</span>}</div><div className="text-[12px]"><PriceTag price={p.price} size="sm" accent="#5fd6bf" /></div></div></div>
       <div className="relative mt-1.5 text-[11px] text-zinc-400">{fmtNum(l.credits)} кр. · {l.storage}</div>
       <div className="relative mt-1 text-[10px] uppercase tracking-wider text-zinc-500">Потоки</div><div className="relative mt-0.5 space-y-1">{([["LLM", l.llm, MAX.llm], ["Агенты", l.agents ?? 0, MAX.agents ?? 1], ["Карт.", l.img, MAX.img], ["Видео", l.vid, MAX.vid]] as const).map(([k, v, m]) => (
         <div key={k} className="flex items-center gap-1.5 text-[11px]"><span className="w-11 text-zinc-500">{k}</span><div className="h-1 flex-1 rounded-full bg-white/[0.06]"><div className="h-full rounded-full" style={{ width: `${Math.max(6, (v / m) * 100)}%`, background: T }} /></div><span className="w-5 text-right text-zinc-300 tabular-nums">{v}</span></div>))}</div>

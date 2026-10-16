@@ -150,7 +150,7 @@ export function UserPanel({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col gap-1.5">
             <ConnRow icon={<Bot className="h-4 w-4" />} name="GPT (текст)" state={llm.isLoading ? "loading" : llm.isError ? "error" : llmOk ? "ok" : "off"} detail={llm.data?.active_label ?? "активная модель не выбрана"} />
             <ConnRow icon={<ImageIcon className="h-4 w-4" />} name="VIA Render" state={outsee.isLoading ? "loading" : outsee.isError ? "error" : outsee.data?.configured ? "ok" : "off"} detail={[outsee.data?.default_image_model, outsee.data?.default_video_model].filter(Boolean).join(" · ") || "картинки и видео"} />
-            <ConnRow icon={<Mic className="h-4 w-4" />} name="ElevenLabs" state="off" detail="статус не отдаётся бэкендом (пример)" />
+            <ConnRow icon={<Mic className="h-4 w-4" />} name="Озвучка" state="off" detail="статус не отдаётся бэкендом (пример)" />
           </div>
         </Card>
 

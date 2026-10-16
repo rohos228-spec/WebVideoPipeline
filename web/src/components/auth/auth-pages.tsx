@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Check, CircleAlert, Eye, EyeOff, Loader2, Lock, Mail, MailCheck, User, AtSign, ImageIcon } from "lucide-react";
+import { LegalFooter } from "@/components/shell/legal-footer";
 
 export const AUTH_TOKEN_KEY = "vp-auth-token";
 const A = "#2dd4bf";
@@ -64,9 +65,9 @@ function pwValid(p: string) { return p.length >= 8 && /[A-Za-zА-Яа-я]/.test(
 /* ---------- UI ---------- */
 function Shell({ title, sub, children, foot }: { title: string; sub?: string; children: React.ReactNode; foot?: React.ReactNode }) {
   return (
-    <div className="min-h-screen w-full bg-[#070909] text-white" style={FONT}>
+    <div className="flex min-h-screen w-full flex-col bg-[#070909] text-white" style={FONT}>
       <style>{`@keyframes viaIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}@keyframes viaGlow{0%,100%{opacity:.35}50%{opacity:.6}}.via-in{animation:viaIn .45s cubic-bezier(.2,.8,.2,1) both}`}</style>
-      <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
+      <div className="grid flex-1 lg:grid-cols-[1.05fr_1fr]">
         <aside className="relative hidden overflow-hidden border-r border-white/[0.06] lg:block">
           <div className="absolute inset-0" style={{ background: `radial-gradient(60% 50% at 30% 30%, ${A}22, transparent 70%), radial-gradient(50% 40% at 80% 90%, ${A}14, transparent 70%)`, animation: "viaGlow 6s ease-in-out infinite" }} />
           <div className="relative flex h-full flex-col p-12">
@@ -94,6 +95,7 @@ function Shell({ title, sub, children, foot }: { title: string; sub?: string; ch
           </div>
         </main>
       </div>
+      <LegalFooter />
     </div>
   );
 }

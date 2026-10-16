@@ -2,8 +2,10 @@
 
 import type React from "react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { PLANS, PLAN_GROUPS, fmtRub, limitRows, type Plan } from "@/lib/pricing";
+import { PLANS, PLAN_GROUPS, limitRows, type Plan } from "@/lib/pricing";
+import { PeriodToggle, PriceTag, PricingNote } from "@/components/home/billing-period";
 import { FactoryCard, FactoryStyles, IndustrialDivider } from "@/components/home/factory-cards";
+import { LegalFooter } from "@/components/shell/legal-footer";
 
 
 const N = (t: string) => `/prompt-bg/node/${t}.webp`;
@@ -111,7 +113,7 @@ const PlanCard = ({ p, i }: { p: Plan; i: number }) => (
         {p.hot && <span className="rounded-full bg-[#2bb8a0]/15 px-2.5 py-0.5 text-xs text-[#9fe9da]">популярный</span>}
       </div>
       <div className="mt-1 text-sm text-white/45">{p.note}</div>
-      <div className="mt-5 text-3xl font-bold text-white">{fmtRub(p.price)}<span className="text-base font-normal text-white/40">{p.group === "factory" ? " / месяц" : " разово"}</span></div>
+      <div className="mt-5"><PriceTag price={p.price} /></div>
       <dl className="mt-5 space-y-1.5 text-sm">
         {limitRows(p.limits).map(([k, v]) => (
           <div key={k} className="flex justify-between gap-3 border-b border-white/[0.05] pb-1.5"><dt className="text-white/50">{k}</dt><dd className="text-white/85">{v}</dd></div>
@@ -371,6 +373,7 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
       <section id="pricing" className="mx-auto max-w-7xl px-6 py-12">
         <FactoryStyles />
         <H2 k="Тарифы" t="Тарифы" s="Начните с пробного пакета или запустите свой завод контента." />
+        <div className="mb-8 flex flex-col items-center gap-2"><PeriodToggle /><PricingNote /></div>
         {(["trial", "factory"] as const).map((g) => {
           const list = PLANS.filter((p) => p.group === g);
           return (
@@ -457,6 +460,7 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
           <span className="ml-auto flex gap-6"><a href="/login" className="hover:text-white">Войти</a><a href="/register" className="hover:text-white">Регистрация</a></span>
         </div>
       </footer>
+      <LegalFooter />
     </div>
   );
 }

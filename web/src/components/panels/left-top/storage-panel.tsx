@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { WipBadge, WipBanner, wipProps, WIP_CLS } from "../left-bottom/ui";
 import { HardDrive, Search, X, RefreshCw, Film, Image as ImageIcon, Music, FileText, Trash2, Archive, ExternalLink, Check, Download } from "lucide-react";
 
 const ACC = "#2dd4bf";
@@ -126,6 +127,7 @@ export function StoragePanel({ onClose }: { onClose: () => void }) {
         <div className="flex items-center gap-2">
           <HardDrive className="h-5 w-5" style={{ color: ACC }} />
           <span className="text-[17px] font-medium text-white">Хранилище</span>
+          <WipBadge />
           <button type="button" onClick={() => { setUsage(null); loadUsage(true); }} title="Пересчитать" className="flex h-7 w-7 items-center justify-center rounded-[8px] text-zinc-500 hover:bg-white/[0.06] hover:text-white"><RefreshCw className="h-3.5 w-3.5" /></button>
         </div>
         <button type="button" onClick={onClose} aria-label="Закрыть" className="flex h-8 w-8 items-center justify-center rounded-[10px] text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-white">
@@ -133,7 +135,8 @@ export function StoragePanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+      <div className="shrink-0 px-4 pt-3"><WipBanner /></div>
+      <div className={"min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4" + WIP_CLS} {...wipProps}>
         <section className="rounded-[12px] bg-white/[0.03] p-3">
           <div className="mb-2 flex items-baseline justify-between">
             <span className="text-[14px] text-zinc-300">Проекты занимают</span>

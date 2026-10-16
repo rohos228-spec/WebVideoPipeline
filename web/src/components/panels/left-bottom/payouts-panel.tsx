@@ -16,7 +16,7 @@ export function PayoutsPanel({ onClose }: { onClose: () => void }) {
   const rows = HISTORY.filter((r) => f === "Все" || r.s === f);
   const stats = [["Доступно", "6 350 ₽", true], ["В холде", "4 200 ₽", false], ["Выплачено", "10 900 ₽", false]] as const;
   return (
-    <PanelShell title="Выплаты" onClose={onClose}>
+    <PanelShell title="Выплаты" onClose={onClose} wip>
       <div className="grid grid-cols-3 gap-2">
         {stats.map(([l, v, a]) => (
           <div key={l} className={card + " p-2.5"}><div className="text-sm text-zinc-500">{l}</div><div className="mt-0.5 text-[16px] font-medium" style={{ color: a ? ACCENT : "#fff" }}>{v}</div></div>

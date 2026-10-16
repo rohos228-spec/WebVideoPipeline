@@ -3,7 +3,28 @@ import { useEffect, useState } from "react";
 
 export const ACCENT = "#2dd4bf";
 
-export function PanelShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+
+/** Раздел в разработке: интерфейс виден, но действия заблокированы (п. 45–46 ТЗ). */
+export function WipBadge() {
+  return <span data-testid="wip-badge" className="rounded-md bg-amber-400/10 px-1.5 py-0.5 text-[12px] text-amber-200/90 ring-1 ring-amber-300/20">в разработке</span>;
+}
+export function WipBanner() {
+  return <div className="rounded-[10px] border border-amber-300/15 bg-amber-400/[0.06] px-3 py-2 text-[12px] text-amber-100/80">Раздел в разработке — интерфейс для ознакомления</div>;
+}
+const blockAction = (e: React.SyntheticEvent) => {
+  const t = e.target as HTMLElement;
+  if (t.closest("button,input,select,textarea,a,[role=button]")) { e.preventDefault(); e.stopPropagation(); }
+};
+export const wipProps = {
+  "data-wip": "true",
+  "aria-disabled": true,
+  onClickCapture: blockAction,
+  onKeyDownCapture: (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") blockAction(e); },
+  onChangeCapture: blockAction,
+} as const;
+export const WIP_CLS = " [&_button]:cursor-not-allowed [&_button]:opacity-50 [&_input]:cursor-not-allowed [&_input]:opacity-50 [&_a]:cursor-not-allowed";
+
+export function PanelShell({ title, onClose, children, wip }: { title: string; onClose: () => void; children: React.ReactNode; wip?: boolean }) {
   const [shown, setShown] = useState(false);
   useEffect(() => { const t = requestAnimationFrame(() => setShown(true)); return () => cancelAnimationFrame(t); }, []);
   return (
@@ -11,11 +32,13 @@ export function PanelShell({ title, onClose, children }: { title: string; onClos
       <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="text-[17px] font-medium text-white">{title}</span>
-          <span className="rounded-md px-1.5 py-0.5 text-sm" style={{ color: ACCENT, background: "rgba(45,212,191,0.12)" }}>демо-данные</span>
+          {wip ? <WipBadge /> : <span className="rounded-md px-1.5 py-0.5 text-sm" style={{ color: ACCENT, background: "rgba(45,212,191,0.12)" }}>демо-данные</span>}
         </div>
         <button type="button" onClick={onClose} aria-label="Закрыть" className="flex h-8 w-8 items-center justify-center rounded-lg text-[18px] text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-white">×</button>
       </div>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">{children}</div>
+      {wip ? (
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4"><WipBanner /><div className={"space-y-4" + WIP_CLS} {...wipProps}>{children}</div></div>
+      ) : <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">{children}</div>}
     </div>
   );
 }

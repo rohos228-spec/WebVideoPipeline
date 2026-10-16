@@ -36,11 +36,11 @@ _DEFAULT = {
 
 # Ключи, которые разрешено показывать (маской) и менять из профиля.
 _KEYS = [
-    ("gpt", "GPT (текст)", "GPT_API_KEY"),
-    ("vibecode", "Vibecode (текст)", "VIBECODE_API_KEY"),
-    ("kie", "Kie", "KIE_API_KEY"),
-    ("outsee", "Outsee", "OUTSEE_API_KEY"),
-    ("elevenlabs", "ElevenLabs", "ELEVENLABS_API_KEY"),
+    ("gpt", "Текстовые модели — ключ 1", "GPT_API_KEY"),
+    ("vibecode", "Текстовые модели — ключ 2", "VIBECODE_API_KEY"),
+    ("kie", "Генерация изображений", "KIE_API_KEY"),
+    ("outsee", "Рендер видео", "OUTSEE_API_KEY"),
+    ("elevenlabs", "Озвучка", "ELEVENLABS_API_KEY"),
 ]
 
 

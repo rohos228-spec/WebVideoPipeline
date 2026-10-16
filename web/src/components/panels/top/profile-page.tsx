@@ -5,10 +5,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity, ArrowLeft, Award, Bell, Bot, Camera, Check, CheckCircle2, CircleAlert, CircleDashed, Clapperboard,
   Film, Gauge, Image as ImageIcon, KeyRound, LayoutGrid, Lock, LogOut, Mic, Monitor, Pencil, Rocket, Settings2,
-  ShieldCheck, Sparkles, Star, Trash2, Trophy, Upload, Workflow, X,
+  HeartPulse, ShieldCheck, Sparkles, Star, Trash2, Trophy, Upload, Workflow, X,
 } from "lucide-react";
 import { UserPrefsApplier, applyUserPrefs } from "@/components/panels/top/user-panel";
 import { logout as authLogout, useAuthUser } from "@/components/auth/auth-pages";
+import { LegalFooter } from "@/components/shell/legal-footer";
+import { ModelHealthDashboard } from "@/components/profile/model-health-dashboard";
 
 const A = "#2dd4bf";
 const FONT = { fontFamily: "Rubik, sans-serif" } as const;
@@ -160,6 +162,7 @@ const TABS = [
   { id: "nodes", t: "Мои ноды и промты", i: <Workflow className="h-4 w-4" /> },
   { id: "keys", t: "Подключения и ключи", i: <KeyRound className="h-4 w-4" /> },
   { id: "usage", t: "Использование и лимиты", i: <Activity className="h-4 w-4" /> },
+  { id: "health", t: "Здоровье моделей", i: <HeartPulse className="h-4 w-4" /> },
   { id: "settings", t: "Настройки", i: <Settings2 className="h-4 w-4" /> },
   { id: "security", t: "Безопасность", i: <ShieldCheck className="h-4 w-4" /> },
   { id: "activity", t: "Достижения и лента", i: <Trophy className="h-4 w-4" /> },
@@ -337,10 +340,10 @@ function ConnSummary({ d }: { d: D }) {
   const keyOf = (id: string) => d.keys.data?.find((k) => k.id === id);
   const llmOk = Boolean(d.llm.data?.models?.some((m) => m.active && m.key_configured));
   const rows: { n: string; i: React.ReactNode; s: "ok" | "off" | "loading" | "error"; det: string }[] = [
-    { n: "GPT / текст", i: <Bot className="h-4 w-4" />, s: d.llm.isLoading ? "loading" : d.llm.isError ? "error" : llmOk ? "ok" : "off", det: d.llm.data?.active_label ?? "модель не выбрана" },
-    { n: "Kie", i: <Sparkles className="h-4 w-4" />, s: d.keys.isLoading ? "loading" : keyOf("kie")?.configured ? "ok" : "off", det: keyOf("kie")?.masked || "ключ не задан" },
+    { n: "Текстовые модели", i: <Bot className="h-4 w-4" />, s: d.llm.isLoading ? "loading" : d.llm.isError ? "error" : llmOk ? "ok" : "off", det: d.llm.data?.active_label ?? "модель не выбрана" },
+    { n: "Генерация изображений", i: <Sparkles className="h-4 w-4" />, s: d.keys.isLoading ? "loading" : keyOf("kie")?.configured ? "ok" : "off", det: keyOf("kie")?.masked || "ключ не задан" },
     { n: "VIA Render", i: <ImageIcon className="h-4 w-4" />, s: d.outsee.isLoading ? "loading" : d.outsee.isError ? "error" : d.outsee.data?.configured ? "ok" : "off", det: d.outsee.data?.balance?.balance_credits != null ? `${d.outsee.data.balance.balance_credits.toLocaleString("ru-RU")} кредитов` : "картинки и видео" },
-    { n: "ElevenLabs", i: <Mic className="h-4 w-4" />, s: d.keys.isLoading ? "loading" : keyOf("elevenlabs")?.configured ? "ok" : "off", det: keyOf("elevenlabs")?.masked || "ключ не задан" },
+    { n: "Озвучка", i: <Mic className="h-4 w-4" />, s: d.keys.isLoading ? "loading" : keyOf("elevenlabs")?.configured ? "ok" : "off", det: keyOf("elevenlabs")?.masked || "ключ не задан" },
   ];
   return (
     <div className="flex flex-col gap-1.5">
@@ -633,6 +636,7 @@ export function ProfilePage() {
       case "nodes": return <MyNodes />;
       case "keys": return <Keys d={d} />;
       case "usage": return <Usage d={d} />;
+      case "health": return <ModelHealthDashboard />;
       case "settings": return <Settings d={d} />;
       case "security": return <Security />;
       case "activity": return <ActivityTab d={d} />;
@@ -640,10 +644,10 @@ export function ProfilePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, d.profile.data, d.stats.data, d.projects.data, d.keys.data, d.outsee.data, d.llm.data, d.stats.isLoading, d.projects.isLoading, d.keys.isLoading]);
   return (
-    <div data-profile-page className="min-h-screen bg-[#141518] text-zinc-200" style={FONT}>
+    <div data-profile-page className="flex min-h-screen flex-col bg-[#141518] text-zinc-200" style={FONT}>
       <UserPrefsApplier />
       <style>{`@keyframes vpFadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}`}</style>
-      <div className="mx-auto flex max-w-[1400px] flex-col gap-4 px-5 py-4">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-5 py-4">
         <div className="flex items-center gap-3">
           <a href="/" className="inline-flex items-center gap-2 rounded-[10px] bg-white/[0.05] px-3.5 py-2 text-[14px] text-zinc-200 transition-colors hover:bg-white/[0.09]"><ArrowLeft className="h-4 w-4" />В студию</a>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -665,6 +669,7 @@ export function ProfilePage() {
           <div key={tab} className="min-w-0" style={{ animation: "vpFadeUp .3s ease both" }}>{body}</div>
         </div>
       </div>
+      <LegalFooter />
     </div>
   );
 }

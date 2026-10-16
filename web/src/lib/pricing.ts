@@ -3,10 +3,15 @@ export type PlanLimits = { credits: number; videos?: number; llm: number; agents
 export type Plan = { id: string; name: string; price: number; group: "trial" | "factory"; note: string; limits: PlanLimits; perks?: string[]; base?: string; hot?: boolean };
 
 export const fmtRub = (n: number) => n.toLocaleString("ru-RU").replace(/\u00a0|,/g, " ") + " ₽";
+/** Все тарифы помесячные; при оплате за год скидка 25%. */
+export const YEARLY_DISCOUNT = 0.25;
+export const yearlyMonthly = (price: number) => Math.round(price * (1 - YEARLY_DISCOUNT));
+export const yearlyTotal = (price: number) => yearlyMonthly(price) * 12;
+
 export const fmtNum = (n: number) => n.toLocaleString("ru-RU").replace(/\u00a0|,/g, " ");
 
 export const PLAN_GROUPS = {
-  trial: { title: "Попробовать", sub: "Разовые пакеты только для генерации" },
+  trial: { title: "Попробовать", sub: "Помесячно · только генерация" },
   factory: { title: "Заводы", sub: "Помесячно · контент-производство с оркестратором" },
 } as const;
 
