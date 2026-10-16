@@ -1,6 +1,7 @@
 ﻿"""Бренд стороннего провайдера не должен попадать в пользовательский текст."""
 from __future__ import annotations
 
+import contextlib
 import re
 
 _RX = re.compile(r"outsee\.io|outsee|оутси|аутси", re.I)
@@ -18,10 +19,8 @@ def _scrub_obj(obj, depth=0):
     for f in ("text", "caption", "question", "title", "description", "message_text"):
         v = getattr(obj, f, None)
         if isinstance(v, str) and _RX.search(v):
-            try:
+            with contextlib.suppress(Exception):
                 setattr(obj, f, scrub(v))
-            except Exception:
-                pass
     for f in ("media", "input_message_content", "results"):
         v = getattr(obj, f, None)
         if isinstance(v, list):
@@ -42,10 +41,8 @@ try:
 
     class BrandScrubMiddleware(BaseRequestMiddleware):
         async def __call__(self, make_request, bot, method):
-            try:
+            with contextlib.suppress(Exception):
                 _scrub_obj(method)
-            except Exception:
-                pass
             return await make_request(bot, method)
 except Exception:  # pragma: no cover
     BrandScrubMiddleware = None  # type: ignore

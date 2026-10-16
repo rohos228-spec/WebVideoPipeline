@@ -1,6 +1,7 @@
 """Профиль пользователя студии: имя/аватар (data/profile.json), статистика, ключи."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -142,7 +143,7 @@ async def post_avatar(file: UploadFile = File(...)) -> dict[str, Any]:
     except Exception:
         ext = (Path(file.filename or "a.png").suffix or ".png").lower()
         if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
-            raise HTTPException(400, "Нужна картинка")
+            raise HTTPException(400, "Нужна картинка") from None
         (_AVATAR_DIR / f"avatar{ext}").write_bytes(raw)
     return _public(_load())
 
@@ -292,8 +293,6 @@ async def put_key(key_id: str, body: KeyUpdate) -> dict[str, Any]:
         lines.append(f"{env}={value}")
     _ENV.write_text("\n".join(lines) + "\n", encoding="utf-8")
     os.environ[env] = value
-    try:
+    with contextlib.suppress(Exception):
         setattr(settings, env.lower(), value)
-    except Exception:
-        pass
     return {"id": key_id, "label": label, "env": env, "configured": bool(value), "masked": _mask(value)}

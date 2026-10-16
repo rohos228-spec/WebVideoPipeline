@@ -13,8 +13,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.settings import settings
 from app.models import Project
+from app.settings import settings
 from app.web.deps import get_session
 
 router = APIRouter(tags=["storage"])
