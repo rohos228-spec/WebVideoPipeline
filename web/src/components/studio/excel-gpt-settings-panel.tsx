@@ -310,7 +310,7 @@ export function ExcelGptSettingsPanel({
           </div>
         </div>
 
-        <div className="mt-3.5 grid gap-3 sm:grid-cols-3">
+        <div className={cn("mt-3.5 grid gap-3", isSecondSlot ? "sm:grid-cols-2" : "sm:grid-cols-3")}>
           {/* Preset 1: Characters (slot 1) OR Props (slot 2) */}
           {isSecondSlot ? (
             <button
@@ -374,36 +374,38 @@ export function ExcelGptSettingsPanel({
             </button>
           )}
 
-          {/* Preset 2: Scenes */}
-          <button
-            type="button"
-            disabled={applyingPreset !== null}
-            onClick={() => handleApplyPreset("scenes")}
-            className={cn(
-              "flex flex-col text-left p-3.5 rounded-xl border transition-all relative group",
-              activePreset === "scenes"
-                ? "border-cyan-400 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/60 shadow-sm"
-                : "border-white/10 bg-zinc-900/40 text-zinc-300 hover:border-cyan-500/40 hover:bg-zinc-900/80",
-            )}
-          >
-            <div className="flex items-center gap-2 mb-1.5">
-              <Film
-                className={cn(
-                  "h-4 w-4",
-                  activePreset === "scenes" ? "text-cyan-300" : "text-zinc-400 group-hover:text-cyan-400",
-                )}
-              />
-              <span className="font-semibold text-xs text-foreground">Режиссура сцен</span>
-            </div>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Обогащает кадры светом, планами камеры, окружением и атмосферой.
-            </p>
-            {activePreset === "scenes" && (
-              <span className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 w-fit">
-                <CheckCircle2 className="h-3 w-3" /> Активно
-              </span>
-            )}
-          </button>
+          {/* Preset 2: Scenes (only for slot 1, redundant for slot 2) */}
+          {!isSecondSlot && (
+            <button
+              type="button"
+              disabled={applyingPreset !== null}
+              onClick={() => handleApplyPreset("scenes")}
+              className={cn(
+                "flex flex-col text-left p-3.5 rounded-xl border transition-all relative group",
+                activePreset === "scenes"
+                  ? "border-cyan-400 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/60 shadow-sm"
+                  : "border-white/10 bg-zinc-900/40 text-zinc-300 hover:border-cyan-500/40 hover:bg-zinc-900/80",
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <Film
+                  className={cn(
+                    "h-4 w-4",
+                    activePreset === "scenes" ? "text-cyan-300" : "text-zinc-400 group-hover:text-cyan-400",
+                  )}
+                />
+                <span className="font-semibold text-xs text-foreground">Режиссура сцен</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Обогащает кадры светом, планами камеры, окружением и атмосферой.
+              </p>
+              {activePreset === "scenes" && (
+                <span className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 w-fit">
+                  <CheckCircle2 className="h-3 w-3" /> Активно
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Preset 3: Audit */}
           <button
