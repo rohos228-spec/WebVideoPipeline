@@ -11,6 +11,9 @@ import { UserPrefsApplier, applyUserPrefs } from "@/components/panels/top/user-p
 import { logout as authLogout, useAuthUser } from "@/components/auth/auth-pages";
 import { LegalFooter } from "@/components/shell/legal-footer";
 import { ModelHealthDashboard } from "@/components/profile/model-health-dashboard";
+import { StoragePanel } from "@/components/panels/left-top/storage-panel";
+import { PayoutsPanel } from "@/components/panels/left-bottom/payouts-panel";
+import { PaymentsPanel } from "@/components/panels/left-bottom/payments-panel";
 
 const A = "#2dd4bf";
 const FONT = { fontFamily: "Rubik, sans-serif" } as const;
@@ -653,6 +656,7 @@ export function ProfilePage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/via-logo.png" alt="VIA" className="h-6 opacity-80" />
           <div className="flex-1" />
+          <ProfileRailButtons />
           <span className="text-[13px] text-zinc-500">Профиль</span>
         </div>
         <Header d={d} />
@@ -689,6 +693,22 @@ function AuthAccountBox() {
     <div className="mt-1 flex flex-wrap items-center gap-3 rounded-[10px] bg-black/20 px-3 py-2.5" data-testid="auth-user">
       <div className="min-w-0 flex-1"><div className="text-[14px] text-white">{user.name || user.username} <span className="text-zinc-500">@{user.username}</span></div><div className="text-[12px] text-zinc-500">{user.email}{user.email_verified ? " · подтверждён" : " · не подтверждён"}{(user as any).plan ? ` · тариф ${(user as any).plan}` : ""}</div></div>
       <Btn danger disabled={busy} onClick={async () => { setBusy(true); await authLogout(); location.href = "/login"; }}><LogOut className="h-4 w-4" />Выйти</Btn>
+    </div>
+  );
+}
+
+function ProfileRailButtons() {
+  const [open, setOpen] = useState<null | "storage" | "payments" | "payouts">(null);
+  const btn = "rounded-[10px] bg-white/[0.04] px-3 py-1.5 text-[13px] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white";
+  const t = (k: "storage" | "payments" | "payouts") => setOpen((v) => (v === k ? null : k));
+  return (
+    <div className="flex items-center gap-1.5">
+      <button type="button" className={btn} onClick={() => t("storage")}>Хранилище</button>
+      <button type="button" className={btn} onClick={() => t("payments")}>Оплата</button>
+      <button type="button" className={btn} onClick={() => t("payouts")}>Выплаты</button>
+      {open === "storage" ? <StoragePanel onClose={() => setOpen(null)} /> : null}
+      {open === "payments" ? <PaymentsPanel onClose={() => setOpen(null)} /> : null}
+      {open === "payouts" ? <PayoutsPanel onClose={() => setOpen(null)} /> : null}
     </div>
   );
 }

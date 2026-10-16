@@ -10,5 +10,6 @@ export type ModelHealth = {
   last_error?: string;
   updated_at?: string;
   series?: ModelHealthPoint[];
+  last_runs?: { ts: string; ok: boolean }[];
 };
 export type ModelHealthResponse = { models: ModelHealth[]; window_hours?: number; updated_at?: string };

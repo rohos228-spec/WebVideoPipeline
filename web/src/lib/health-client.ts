@@ -23,6 +23,7 @@ function normalize(r: Raw): ModelHealth {
     avg_latency_s: typeof r.avg_latency_s === "number" ? r.avg_latency_s : undefined,
     last_error: clean(r.last_error as string | undefined),
     updated_at: (r.updated_at ?? r.last_run ?? r.ts) as string | undefined,
+    last_runs: Array.isArray(r.last_runs) ? (r.last_runs as ModelHealth["last_runs"]) : undefined,
     series: Array.isArray(r.series) ? (r.series as ModelHealth["series"]) : undefined,
   };
 }

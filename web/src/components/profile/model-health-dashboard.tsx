@@ -102,6 +102,13 @@ export function ModelHealthDashboard() {
                   <div className="mt-1 h-1 overflow-hidden rounded-full bg-zinc-800">
                     <div className={"h-full transition-all duration-700 " + barColor(m.success_rate)} style={{ width: `${Math.round((m.success_rate ?? 0) * 100)}%` }} />
                   </div>
+                  {m.last_runs?.length ? (
+                    <div className="mt-1 flex gap-[3px]" aria-label="Последние запуски">
+                      {m.last_runs.slice(0, 20).reverse().map((r, i) => (
+                        <span key={i} title={`${fmtTime(r.ts)} · ${r.ok ? "успех" : "ошибка"}`} className={"h-2 w-2 rounded-[2px] " + (r.ok ? "bg-emerald-400/70" : "bg-rose-400/80")} />
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="mt-1 text-[11px] text-zinc-500">
                     {m.kind ? (KIND_LABEL[m.kind] ?? m.kind) + " · " : ""}{m.success} ок · {m.errors} ошиб.{m.avg_latency_s != null ? ` · ~${Math.round(m.avg_latency_s)} с` : ""} · {fmtTime(m.updated_at)}
                   </div>

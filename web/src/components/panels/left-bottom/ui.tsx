@@ -28,7 +28,7 @@ export function PanelShell({ title, onClose, children, wip }: { title: string; o
   const [shown, setShown] = useState(false);
   useEffect(() => { const t = requestAnimationFrame(() => setShown(true)); return () => cancelAnimationFrame(t); }, []);
   return (
-    <div data-rail-panel={title} className="fixed bottom-3 left-[72px] z-50 flex max-h-[calc(100vh-24px)] w-[380px] flex-col rounded-[14px] border border-white/[0.08] bg-[#141417] shadow-2xl transition-all duration-200 ease-out" style={{ fontFamily: "Rubik, sans-serif", opacity: shown ? 1 : 0, transform: shown ? "translateX(0)" : "translateX(-8px)" }}>
+    <div data-rail-panel={title} data-testid={title === "Выплаты" ? "payouts-panel" : title === "Оплата" ? "payments-panel" : undefined} className="fixed bottom-3 left-[72px] z-50 flex max-h-[calc(100vh-24px)] w-[380px] flex-col rounded-[14px] border border-white/[0.08] bg-[#141417] shadow-2xl transition-all duration-200 ease-out" style={{ fontFamily: "Rubik, sans-serif", opacity: shown ? 1 : 0, transform: shown ? "translateX(0)" : "translateX(-8px)" }}>
       <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="text-[17px] font-medium text-white">{title}</span>

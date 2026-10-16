@@ -116,7 +116,7 @@ function Field({ label, icon, value, onChange, type = "text", error, ok, placeho
           className="h-full min-w-0 flex-1 bg-transparent text-[17px] text-white outline-none placeholder:text-zinc-600" />
         {ok && !error ? <Check className="h-5 w-5" style={{ color: A }} /> : null}
         {reveal ? (
-          <button type="button" aria-label={show ? "Скрыть пароль" : "Показать пароль"} onClick={() => setShow((s) => !s)} className="text-zinc-500 transition-colors hover:text-zinc-200">
+          <button type="button" aria-label={show ? "Скрыть символы" : "Показать символы"} title={show ? "Скрыть" : "Показать"} onClick={() => setShow((s) => !s)} className="text-zinc-500 transition-colors hover:text-zinc-200">
             {show ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
           </button>
         ) : null}

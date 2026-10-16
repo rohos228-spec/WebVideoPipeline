@@ -119,7 +119,7 @@ export function StoragePanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      data-rail-panel="Хранилище"
+      data-rail-panel="Хранилище" data-testid="storage-panel"
       className={"fixed left-[72px] top-3 bottom-3 z-50 flex w-[420px] flex-col rounded-[16px] border border-white/[0.08] bg-[#141417] shadow-2xl transition-all duration-200 ease-out " + (shown ? "translate-x-0 opacity-100" : "-translate-x-2 opacity-0")}
       style={{ fontFamily: "Rubik, sans-serif" }}
     >
