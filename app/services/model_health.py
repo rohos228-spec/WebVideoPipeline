@@ -10,7 +10,7 @@ import os
 import re
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -85,35 +85,69 @@ def record_run(
         )
 
 
-def get_health(window: int = 500) -> list[dict[str, Any]]:
-    """Сводка по моделям за последние ``window`` запусков каждой модели."""
+_KIND = {"text": "llm", "llm": "llm", "chat": "llm", "image": "image", "video": "video", "audio": "audio", "tts": "audio", "music": "audio", "sfx": "audio"}
+
+
+def parse_window(window: str | None) -> int:
+    """"24h" / "7d" / "48" -> hours (default 24, max 90 days)."""
+    w = (window or "24h").strip().lower()
+    try:
+        if w.endswith("d"):
+            h = int(float(w[:-1]) * 24)
+        else:
+            h = int(float(w.rstrip("h")))
+    except ValueError:
+        h = 24
+    return max(1, min(h, 24 * 90))
+
+
+def get_health(window_hours: int = 24) -> dict[str, Any]:
+    """Real per-model success/error stats over the last ``window_hours``."""
+    since_dt = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    since = since_dt.isoformat()
+    bucket_h = 1 if window_hours <= 48 else 24
     with _LOCK, _connect() as conn:
-        models = [r[0] for r in conn.execute("SELECT DISTINCT model FROM model_runs ORDER BY model")]
-        out: list[dict[str, Any]] = []
-        for m in models:
-            rows = conn.execute(
-                "SELECT ts, ok, duration_sec, error, call_type FROM model_runs "
-                "WHERE model=? ORDER BY id DESC LIMIT ?",
-                (m, window),
-            ).fetchall()
-            ok = sum(1 for r in rows if r[1])
-            fail = len(rows) - ok
-            durs = [r[2] for r in rows if r[1] and r[2]]
-            last_err = next((r[3] for r in rows if not r[1] and r[3]), "")
-            out.append(
-                {
-                    "model": m,
-                    "call_type": rows[0][4] if rows else "",
-                    "success": ok,
-                    "errors": fail,
-                    "total": len(rows),
-                    "success_rate": round(ok / len(rows), 4) if rows else None,
-                    "avg_duration_sec": round(sum(durs) / len(durs), 2) if durs else None,
-                    "updated_at": rows[0][0] if rows else None,
-                    "last_error": last_err,
-                    "last_runs": [
-                        {"ts": r[0], "ok": bool(r[1])} for r in rows[:_LAST_RUNS]
-                    ],
-                }
-            )
-        return out
+        rows = conn.execute(
+            "SELECT model, ts, ok, duration_sec, error, call_type FROM model_runs "
+            "WHERE ts >= ? ORDER BY id DESC",
+            (since,),
+        ).fetchall()
+    by: dict[str, list[tuple]] = {}
+    for r in rows:
+        by.setdefault(r[0], []).append(r)
+    models: list[dict[str, Any]] = []
+    for m in sorted(by):
+        rs = by[m]
+        ok = sum(1 for r in rs if r[2])
+        fail = len(rs) - ok
+        durs = [r[3] for r in rs if r[2] and r[3]]
+        series: dict[str, dict[str, Any]] = {}
+        for r in rs:
+            t = datetime.fromisoformat(r[1])
+            t = t.replace(minute=0, second=0, microsecond=0)
+            if bucket_h == 24:
+                t = t.replace(hour=0)
+            k = t.isoformat()
+            b = series.setdefault(k, {"ts": k, "success": 0, "errors": 0})
+            b["success" if r[2] else "errors"] += 1
+        models.append(
+            {
+                "model": m,
+                "title": m,
+                "kind": _KIND.get((rs[0][5] or "").lower(), (rs[0][5] or "").lower() or None),
+                "success": ok,
+                "errors": fail,
+                "total": len(rs),
+                "success_rate": round(ok / len(rs), 4),
+                "avg_latency_s": round(sum(durs) / len(durs), 2) if durs else None,
+                "last_error": next((r[4] for r in rs if not r[2] and r[4]), ""),
+                "updated_at": rs[0][1],
+                "last_runs": [{"ts": r[1], "ok": bool(r[2])} for r in rs[:_LAST_RUNS]],
+                "series": sorted(series.values(), key=lambda b: b["ts"]),
+            }
+        )
+    return {
+        "models": models,
+        "window_hours": window_hours,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }

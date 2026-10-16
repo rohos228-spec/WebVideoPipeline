@@ -297,6 +297,9 @@ def create_app() -> FastAPI:
     app.include_router(meta_agent_router.router, prefix=API_PREFIX)
     app.include_router(nii67_router.router, prefix=API_PREFIX)
     app.include_router(style_agent_router.router, prefix=API_PREFIX)
+    from app.web.routers import model_health as model_health_router
+
+    app.include_router(model_health_router.router, prefix=API_PREFIX)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
     async def api_write_not_found(rest: str) -> None:

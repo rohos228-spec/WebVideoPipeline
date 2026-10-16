@@ -14,8 +14,8 @@ router = APIRouter(tags=["model-health"])
 
 @router.get("/models/health")
 @router.get("/model-health")
-def models_health() -> dict:
-    return {"models": model_health.get_health()}
+def models_health(window: str = "24h") -> dict:
+    return model_health.get_health(model_health.parse_window(window))
 
 
 class _RunIn(BaseModel):
@@ -25,7 +25,14 @@ class _RunIn(BaseModel):
 
 
 def _hooks_enabled() -> bool:
-    return os.environ.get("VIA_TEST_HOOKS", "").strip() in ("1", "true", "yes")
+    if os.environ.get("VIA_TEST_HOOKS", "").strip() not in ("1", "true", "yes"):
+        return False
+    # Billing test hooks (agent E) own this path when present.
+    try:
+        import app.billing.test_hooks  # noqa: F401
+    except Exception:  # noqa: BLE001
+        return True
+    return False
 
 
 @router.post("/_test/generation/run", include_in_schema=False)
