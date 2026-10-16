@@ -144,8 +144,14 @@ async def get_item(session: AsyncSession, item_id: int) -> LibraryItem | None:
 
 
 async def get_item_by_key(session: AsyncSession, kind: str, key: str) -> LibraryItem | None:
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    cond = LibraryItem.tenant_id.is_(None) if tenant is None else LibraryItem.tenant_id == tenant
     return (
-        await session.execute(select(LibraryItem).where(LibraryItem.kind == kind, LibraryItem.key == key))
+        await session.execute(
+            select(LibraryItem).where(LibraryItem.kind == kind, LibraryItem.key == key, cond)
+        )
     ).scalar_one_or_none()
 
 
@@ -183,11 +189,15 @@ async def create_or_update_item(
 
     Returns (item, version, created_new_version).
     """
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
     _ensure_safe_rel_path(file_path)
     h = content_hash(content)
     item = await get_item_by_key(session, kind, key)
     if item is None:
         item = LibraryItem(
+            tenant_id=tenant,
             kind=kind,
             key=key,
             title=title,
@@ -199,6 +209,7 @@ async def create_or_update_item(
         session.add(item)
         await session.flush()
         version = LibraryVersion(
+            tenant_id=tenant,
             item_id=item.id,
             version=1,
             content=content,
@@ -211,8 +222,9 @@ async def create_or_update_item(
         )
         session.add(version)
         await session.flush()
-        _write_current(item.file_path, content)
-        _write_old_snapshot(item, version.version, content)
+        if tenant is None:
+            _write_current(item.file_path, content)
+            _write_old_snapshot(item, version.version, content)
         await log_event(
             session,
             "created",
@@ -226,7 +238,8 @@ async def create_or_update_item(
         item.title = title or item.title
         item.file_path = file_path
         item.meta = {**(item.meta or {}), **(meta or {})}
-        _write_current(item.file_path, latest.content)
+        if tenant is None:
+            _write_current(item.file_path, latest.content)
         return item, latest, False
 
     next_version = (item.active_version or 0) + 1
@@ -236,6 +249,7 @@ async def create_or_update_item(
     item.content_hash = h
     item.meta = {**(item.meta or {}), **(meta or {})}
     version = LibraryVersion(
+        tenant_id=tenant,
         item_id=item.id,
         version=next_version,
         content=content,
@@ -248,8 +262,9 @@ async def create_or_update_item(
     )
     session.add(version)
     await session.flush()
-    _write_current(item.file_path, content)
-    _write_old_snapshot(item, version.version, content)
+    if tenant is None:
+        _write_current(item.file_path, content)
+        _write_old_snapshot(item, version.version, content)
     await log_event(
         session,
         "updated",

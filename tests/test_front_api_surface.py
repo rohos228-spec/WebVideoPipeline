@@ -35,7 +35,6 @@ OWNER_UI_PREFIXES: tuple[str, ...] = (
     "/api/fleet",  # парк машин, запуск команд
     "/api/library",  # библиотека платформы
     "/api/llm-costs",  # СЕБЕСТОИМОСТЬ: отсюда видно маржу
-    "/api/prompt-files",  # промты платформы, одни на всех
     "/api/prompt-studio",
     "/api/prompts",
     "/api/studio-version",  # версия сборки: сведения об установке

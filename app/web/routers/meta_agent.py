@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -103,6 +104,11 @@ async def save_and_activate_endpoint(
     db: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Сохраняет скомпилированный .md файл и при необходимости активирует его."""
+    from app.services import local_library as lib
+    from app.services import prompt_store
+    from app.services.prompt_library import prompts_writable
+    from app.services.tenant import current_tenant
+
     clean_code = (req.step_code or "").strip().lower()
     if clean_code not in STEP_FOLDERS:
         raise HTTPException(status_code=400, detail=f"Неизвестный step_code: {clean_code}")
@@ -114,9 +120,30 @@ async def save_and_activate_endpoint(
     folder = step_dir(clean_code)
     target_file = folder / f"{clean_name}.md"
 
-    # Запись на диск
-    target_file.write_text(req.content, encoding="utf-8")
-    touch_prompt_meta(clean_code, clean_name, len(req.content.encode("utf-8")))
+    tenant = current_tenant()
+    await prompt_store.save(db, clean_code, clean_name, req.content)
+
+    file_path = (Path("prompts") / STEP_FOLDERS[clean_code] / f"{clean_name}.md").as_posix()
+    await lib.create_or_update_item(
+        db,
+        kind="prompt",
+        key=file_path,
+        title=clean_name,
+        file_path=file_path,
+        content=req.content,
+        message=f"create meta prompt {clean_code}/{clean_name}",
+        author="tenant" if tenant else "meta_agent",
+        source="meta_agent",
+        meta={"step_code": clean_code, "name": clean_name},
+        force_version=True,
+    )
+
+    if prompts_writable():
+        try:
+            target_file.write_text(req.content, encoding="utf-8")
+            touch_prompt_meta(clean_code, clean_name, len(req.content.encode("utf-8")))
+        except OSError:
+            pass
 
     activated = False
     if req.activate and req.project_id:
@@ -127,6 +154,8 @@ async def save_and_activate_endpoint(
             project.prompt_overrides = overrides
             await commit_with_retry(db)
             activated = True
+    else:
+        await commit_with_retry(db)
 
     return {
         "ok": True,

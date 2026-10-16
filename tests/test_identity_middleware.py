@@ -91,7 +91,7 @@ OWNER_TOOLS = (
     "/api/fleet/nodes",
     "/api/db/overview",
     "/api/prompts",
-    "/api/prompt-files/global-active",
+    "/api/prompt-studio/catalog",
     "/api/library/items",
 )
 

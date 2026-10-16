@@ -568,12 +568,7 @@ def _variant_from_studio_meta(meta: dict | None, step_code: str) -> str | None:
             clean = _clean_variant_name(str(variant or ""))
             if not clean:
                 continue
-            exists = (
-                excel_gpt_prompt_exists(clean)
-                if is_excel_gpt_prompt_step(step_code)
-                else prompt_path(step_code, clean).exists()
-            )
-            if not exists:
+            if not prompt_exists(step_code, clean):
                 continue
             if slot_id == preferred_slot:
                 found_preferred = clean
@@ -625,18 +620,30 @@ def _available_prompt_names(step_code: str) -> list[str]:
     return names
 
 
-def _default_prompt_available(step_code: str) -> bool:
-    """Есть ли у шага вариант `default` — в базе или на диске."""
+def prompt_exists(step_code: str, name: str) -> bool:
+    """Существует ли вариант промта: в БД (prompt_store), среди excel_gpt или на диске."""
+    clean = _clean_variant_name(name) if name else ""
+    if not clean:
+        return False
     from app.services import prompt_store
 
-    if prompt_store.resolve(step_code, DEFAULT_NAME) is not None:
-        return True
     if is_excel_gpt_prompt_step(step_code):
-        return excel_gpt_prompt_exists(DEFAULT_NAME)
+        for code in excel_gpt_source_steps():
+            if prompt_store.resolve(code, clean) is not None:
+                return True
+        return excel_gpt_prompt_exists(clean)
+
+    if prompt_store.resolve(step_code, clean) is not None:
+        return True
     try:
-        return prompt_path(step_code, DEFAULT_NAME).exists()
+        return prompt_path(step_code, clean).exists()
     except ValueError:
         return False
+
+
+def _default_prompt_available(step_code: str) -> bool:
+    """Есть ли у шага вариант `default` — в базе или на диске."""
+    return prompt_exists(step_code, DEFAULT_NAME)
 
 
 def resolve_project_prompt_with_source(
@@ -672,31 +679,19 @@ def resolve_project_prompt_with_source(
                     if clean:
                         bound = clean
                         break
-            if bound:
-                exists = (
-                    excel_gpt_prompt_exists(bound)
-                    if is_excel_gpt_prompt_step(step_code)
-                    else prompt_path(step_code, bound).exists()
-                )
-                if exists:
-                    return bound, "slot"
+            if bound and prompt_exists(step_code, bound):
+                return bound, "slot"
         if effective_slot and effective_slot != "main":
             preferred = _clean_variant_name(effective_slot)
-            if preferred:
-                exists = (
-                    excel_gpt_prompt_exists(preferred)
-                    if is_excel_gpt_prompt_step(step_code)
-                    else prompt_path(step_code, preferred).exists()
-                )
-                if exists:
-                    return preferred, "preferred"
+            if preferred and prompt_exists(step_code, preferred):
+                return preferred, "preferred"
 
     if is_excel_gpt_prompt_step(step_code):
         for key in excel_gpt_source_steps():
             chosen = overrides.get(key)
             if chosen:
                 clean = _clean_variant_name(str(chosen))
-                if clean and excel_gpt_prompt_exists(clean):
+                if clean and prompt_exists(step_code, clean):
                     return clean, "override"
         # Слоты проекта (в т.ч. унаследованные ребёнком) важнее global —
         # иначе active_variants.json с «default» перекрывает выбор родителя.
@@ -716,7 +711,7 @@ def resolve_project_prompt_with_source(
         from app.services.prompt_active_global import get_global_active
 
         global_name = get_global_active(EXCEL_GPT_UNIFIED_STEP)
-        if global_name and excel_gpt_prompt_exists(global_name):
+        if global_name and prompt_exists(EXCEL_GPT_UNIFIED_STEP, global_name):
             return global_name, "global"
         # `default` у шага может отсутствовать (перенесли/переименовали).
         # Молча вернуть его имя — значит уронить шаг на FileNotFoundError вместо
@@ -731,7 +726,7 @@ def resolve_project_prompt_with_source(
     chosen = overrides.get(step_code)
     if chosen:
         clean = _clean_variant_name(str(chosen))
-        if clean and prompt_path(step_code, clean).exists():
+        if clean and prompt_exists(step_code, clean):
             return clean, "override"
 
     # Project-level слоты Node Studio / child inheritance — до global.
