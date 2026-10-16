@@ -18,6 +18,7 @@ served_model (фактическая модель ответа, этап 5), fal
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
@@ -33,6 +34,8 @@ from loguru import logger
 
 from app.db import session_scope
 from app.models import LlmCall
+from app.services.step_cancel import is_stop_requested
+from app.services.tenant import current_tenant
 
 _PRICES_PATH = Path(__file__).resolve().parent / "llm_prices.json"
 
@@ -250,9 +253,7 @@ async def record(
     cost, pt, ct, tt, unbilled = compute_cost(usage, model=model, served_model=served_model)
     if not prompt_version_hash:
         prompt_version_hash = current_prompt_hash()
-    from app.services.tenant import current_tenant
-
-    from app.services.step_cancel import is_stop_requested
+    tenant = current_tenant()
 
     row_dict = {
         "tenant_id": tenant,
