@@ -773,6 +773,8 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                     for e in ents
                 ],
                 scene_registry=meta.get("scene_registry") or [],
+                items=project.item_descriptions or [],
+                entities=ents,
             )
             ctx_dir = project.data_dir / "excel_gpt_uploads" / safe_upload_node_key(node_key)
             ctx_dir.mkdir(parents=True, exist_ok=True)
@@ -981,12 +983,19 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                             attrs.get("characters") or attrs.get("персонажи") or attrs.get("persons") or ""
                         )
                     frame_rows.append(row)
+                from app.services.db_frames_context import _normalize_items
+
+                item_cards, item_descs = _normalize_items(
+                    project.item_descriptions or [], entities=ents
+                )
                 db_ctx = {
                     "source": "db_v2",
                     "project_id": project.id,
                     "slug": project.slug,
                     "frames": frame_rows,
                     "characters": entity_cards_for_gpt(ents),
+                    "items": item_cards,
+                    "item_descriptions": item_descs,
                 }
             else:
                 db_ctx = build_excel_gpt_db_context(
@@ -994,6 +1003,8 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                     slug=project.slug,
                     frames=frames_for_map,
                     characters=entity_cards_for_gpt(ents),
+                    items=project.item_descriptions or [],
+                    entities=ents,
                 )
             ctx_dir = project.data_dir / "excel_gpt_uploads" / safe_upload_node_key(node_key)
             ctx_dir.mkdir(parents=True, exist_ok=True)
@@ -1012,11 +1023,12 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             data_paths = [ctx_path]
             logger.info(
                 "[#{}] enrich_xlsx node={!r}: project_file/DB SoT — "
-                "только db_frames.json frames={} characters={}",
+                "только db_frames.json frames={} characters={} items={}",
                 project.id,
                 node_key,
                 len(db_ctx["frames"]),
                 len(db_ctx.get("characters") or []),
+                len(db_ctx.get("items") or []),
             )
             if scene_grammar:
                 hint = _SCENE_GRAMMAR_APPLY_HINT

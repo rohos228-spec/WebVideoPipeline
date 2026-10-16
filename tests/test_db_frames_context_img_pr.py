@@ -434,3 +434,32 @@ def test_excel_gpt_exposes_vo_shot_copy_not_as_voiceover() -> None:
     assert "voiceover_text" not in row
     assert row["vo_shot"] == "фрагмент шота из копии"
     assert row["закадр_шота"] == "фрагмент шота из копии"
+
+
+def test_excel_gpt_db_context_includes_items_and_props_alias() -> None:
+    from app.services.db_frames_context import build_excel_gpt_db_context
+
+    fr = SimpleNamespace(
+        number=1,
+        uuid="a" * 24,
+        voiceover_text="текст",
+        meaning="",
+        image_prompt="",
+        animation_prompt="",
+        attrs={"shot01_props": "predmet1", "shot01_action": "держит планшет"},
+    )
+    ctx = build_excel_gpt_db_context(
+        project_id=77,
+        slug="props-test",
+        frames=[fr],
+        characters=[],
+        items=["Защищенный планшет инженера"],
+    )
+    assert ctx["items"] == [{"id": "predmet1", "description": "Защищенный планшет инженера"}]
+    assert ctx["item_descriptions"] == ["Защищенный планшет инженера"]
+    row = ctx["frames"][0]
+    assert row["shot01_props"] == "predmet1"
+    assert row["предметы"] == "predmet1"
+    assert row["shot01_action"] == "держит планшет"
+    assert row["действие"] == "держит планшет"
+

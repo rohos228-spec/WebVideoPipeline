@@ -10,6 +10,7 @@ import {
   Eye,
   Film,
   Loader2,
+  Package,
   RefreshCw,
   SlidersHorizontal,
   Upload,
@@ -113,20 +114,41 @@ export function ExcelGptSettingsPanel({
     return overrides?.["excel_gpt"] || "default";
   }, [metaRecord.prompt_slot_variants, nodeKey, project.data?.prompt_overrides]);
 
-  const activePreset: "characters" | "scenes" | "audit" | "custom" = useMemo(() => {
+  const isSecondSlot = nodeKey === "n_excel_gpt_2";
+
+  const activePreset: "characters" | "scenes" | "props" | "audit" | "custom" = useMemo(() => {
     if (checkMode) return "audit";
     const lower = currentPromptVariant.toLowerCase();
+    if (lower.includes("prop") || lower.includes("реквизит")) return "props";
     if (lower.includes("персонаж") || lower.includes("character")) return "characters";
-    if (lower.includes("scene") || lower.includes("grammar")) return "scenes";
+    if (lower.includes("scene") || lower.includes("grammar") || lower.includes("director")) return "scenes";
     return "custom";
   }, [checkMode, currentPromptVariant]);
 
   const [applyingPreset, setApplyingPreset] = useState<string | null>(null);
 
-  const handleApplyPreset = async (preset: "characters" | "scenes" | "audit") => {
+  const handleApplyPreset = async (preset: "characters" | "scenes" | "props" | "audit") => {
     setApplyingPreset(preset);
     try {
-      if (preset === "characters") {
+      if (preset === "props") {
+        await patch.mutateAsync({
+          role: "assist",
+          checkMode: false,
+          outputMode: "project_file",
+          emitKinds: ["result", "reply_txt"],
+          transport: "api",
+        });
+        const nextMeta = withSlotVariant(
+          metaRecord,
+          nodeKey,
+          "main",
+          "cinematic_props_director",
+        );
+        await api.patchProject(projectId, { meta: nextMeta });
+        await qc.invalidateQueries({ queryKey: ["project", projectId] });
+        await qc.invalidateQueries({ queryKey: ["gpt-operator-resolve", projectId, nodeKey] });
+        toast.success("Режим «Привязка реквизита» установлен");
+      } else if (preset === "characters") {
         await patch.mutateAsync({
           role: "assist",
           checkMode: false,
@@ -156,7 +178,7 @@ export function ExcelGptSettingsPanel({
           metaRecord,
           nodeKey,
           "main",
-          "scene_grammar_unified_agent_v1",
+          "cinematic_scene_director",
         );
         await api.patchProject(projectId, { meta: nextMeta });
         await qc.invalidateQueries({ queryKey: ["project", projectId] });
@@ -171,6 +193,14 @@ export function ExcelGptSettingsPanel({
           emitKinds: ["inputs", "reply_txt"],
           transport: "api",
         });
+        const nextMeta = withSlotVariant(
+          metaRecord,
+          nodeKey,
+          "main",
+          "scene_qc_check",
+        );
+        await api.patchProject(projectId, { meta: nextMeta });
+        await qc.invalidateQueries({ queryKey: ["project", projectId] });
         await qc.invalidateQueries({ queryKey: ["gpt-operator-resolve", projectId, nodeKey] });
         toast.success("Режим «Проверка качества (Аудит)» включён");
       }
@@ -280,68 +310,102 @@ export function ExcelGptSettingsPanel({
           </div>
         </div>
 
-        <div className="mt-3.5 grid gap-3 sm:grid-cols-3">
-          {/* Preset 1: Characters */}
-          <button
-            type="button"
-            disabled={applyingPreset !== null}
-            onClick={() => handleApplyPreset("characters")}
-            className={cn(
-              "flex flex-col text-left p-3.5 rounded-xl border transition-all relative group",
-              activePreset === "characters"
-                ? "border-cyan-400 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/60 shadow-sm"
-                : "border-white/10 bg-zinc-900/40 text-zinc-300 hover:border-cyan-500/40 hover:bg-zinc-900/80",
-            )}
-          >
-            <div className="flex items-center gap-2 mb-1.5">
-              <Users
-                className={cn(
-                  "h-4 w-4",
-                  activePreset === "characters" ? "text-cyan-300" : "text-zinc-400 group-hover:text-cyan-400",
-                )}
-              />
-              <span className="font-semibold text-xs text-foreground">Разметка персонажей</span>
-            </div>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Распределяет героев (c01, c02, c03) по кадрам перед генерацией референсов.
-            </p>
-            {activePreset === "characters" && (
-              <span className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 w-fit">
-                <CheckCircle2 className="h-3 w-3" /> Активно
-              </span>
-            )}
-          </button>
+        <div className={cn("mt-3.5 grid gap-3", isSecondSlot ? "sm:grid-cols-2" : "sm:grid-cols-3")}>
+          {/* Preset 1: Characters (slot 1) OR Props (slot 2) */}
+          {isSecondSlot ? (
+            <button
+              type="button"
+              disabled={applyingPreset !== null}
+              onClick={() => handleApplyPreset("props")}
+              className={cn(
+                "flex flex-col text-left p-3.5 rounded-xl border transition-all relative group",
+                activePreset === "props"
+                  ? "border-cyan-400 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/60 shadow-sm"
+                  : "border-white/10 bg-zinc-900/40 text-zinc-300 hover:border-cyan-500/40 hover:bg-zinc-900/80",
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <Package
+                  className={cn(
+                    "h-4 w-4",
+                    activePreset === "props" ? "text-cyan-300" : "text-zinc-400 group-hover:text-cyan-400",
+                  )}
+                />
+                <span className="font-semibold text-xs text-foreground">Привязка реквизита</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Интегрирует созданные предметы (predmet1, predmet2) в кадры и связывает их с действием.
+              </p>
+              {activePreset === "props" && (
+                <span className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 w-fit">
+                  <CheckCircle2 className="h-3 w-3" /> Активно
+                </span>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={applyingPreset !== null}
+              onClick={() => handleApplyPreset("characters")}
+              className={cn(
+                "flex flex-col text-left p-3.5 rounded-xl border transition-all relative group",
+                activePreset === "characters"
+                  ? "border-cyan-400 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/60 shadow-sm"
+                  : "border-white/10 bg-zinc-900/40 text-zinc-300 hover:border-cyan-500/40 hover:bg-zinc-900/80",
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <Users
+                  className={cn(
+                    "h-4 w-4",
+                    activePreset === "characters" ? "text-cyan-300" : "text-zinc-400 group-hover:text-cyan-400",
+                  )}
+                />
+                <span className="font-semibold text-xs text-foreground">Разметка персонажей</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Распределяет героев (c01, c02, c03) по кадрам перед генерацией референсов.
+              </p>
+              {activePreset === "characters" && (
+                <span className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 w-fit">
+                  <CheckCircle2 className="h-3 w-3" /> Активно
+                </span>
+              )}
+            </button>
+          )}
 
-          {/* Preset 2: Scenes */}
-          <button
-            type="button"
-            disabled={applyingPreset !== null}
-            onClick={() => handleApplyPreset("scenes")}
-            className={cn(
-              "flex flex-col text-left p-3.5 rounded-xl border transition-all relative group",
-              activePreset === "scenes"
-                ? "border-cyan-400 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/60 shadow-sm"
-                : "border-white/10 bg-zinc-900/40 text-zinc-300 hover:border-cyan-500/40 hover:bg-zinc-900/80",
-            )}
-          >
-            <div className="flex items-center gap-2 mb-1.5">
-              <Film
-                className={cn(
-                  "h-4 w-4",
-                  activePreset === "scenes" ? "text-cyan-300" : "text-zinc-400 group-hover:text-cyan-400",
-                )}
-              />
-              <span className="font-semibold text-xs text-foreground">Режиссура сцен</span>
-            </div>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Обогащает кадры светом, планами камеры, окружением и атмосферой.
-            </p>
-            {activePreset === "scenes" && (
-              <span className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 w-fit">
-                <CheckCircle2 className="h-3 w-3" /> Активно
-              </span>
-            )}
-          </button>
+          {/* Preset 2: Scenes (only for slot 1, redundant for slot 2) */}
+          {!isSecondSlot && (
+            <button
+              type="button"
+              disabled={applyingPreset !== null}
+              onClick={() => handleApplyPreset("scenes")}
+              className={cn(
+                "flex flex-col text-left p-3.5 rounded-xl border transition-all relative group",
+                activePreset === "scenes"
+                  ? "border-cyan-400 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/60 shadow-sm"
+                  : "border-white/10 bg-zinc-900/40 text-zinc-300 hover:border-cyan-500/40 hover:bg-zinc-900/80",
+              )}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <Film
+                  className={cn(
+                    "h-4 w-4",
+                    activePreset === "scenes" ? "text-cyan-300" : "text-zinc-400 group-hover:text-cyan-400",
+                  )}
+                />
+                <span className="font-semibold text-xs text-foreground">Режиссура сцен</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Обогащает кадры светом, планами камеры, окружением и атмосферой.
+              </p>
+              {activePreset === "scenes" && (
+                <span className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 w-fit">
+                  <CheckCircle2 className="h-3 w-3" /> Активно
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Preset 3: Audit */}
           <button

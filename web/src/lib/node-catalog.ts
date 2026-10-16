@@ -300,8 +300,8 @@ export function formatNodeTypeLabel(type: string): string {
     .replace(/\bGpt\b/gi, "GPT");
 }
 
-export function getNodeSpec(type: string): NodeSpec {
-  return (
+export function getNodeSpec(type: string, nodeKey?: string | null): NodeSpec {
+  const base =
     NODE_CATALOG[type] ?? {
       type,
       label: formatNodeTypeLabel(type),
@@ -309,6 +309,26 @@ export function getNodeSpec(type: string): NodeSpec {
       category: "planning",
       accent: "0 0% 55%",
       iconKey: "plan",
+    };
+
+  if (type === "excel_gpt" && nodeKey) {
+    if (nodeKey === "n_excel_gpt_1") {
+      return {
+        ...base,
+        label: "ИИ-режиссер 1: Сцены и каст",
+        description:
+          "Первичная режиссура: раскадровка, свет, планы камеры и разметка персонажей (c01, c02) перед генерацией их концепт-артов.",
+      };
     }
-  );
+    if (nodeKey === "n_excel_gpt_2") {
+      return {
+        ...base,
+        label: "ИИ-режиссер 2: Реквизит и аудит",
+        description:
+          "Финальная режиссура и аудит: привязка сгенерированного реквизита к кадрам, сверка планов и контроль качества перед промптами картинок.",
+      };
+    }
+  }
+
+  return base;
 }

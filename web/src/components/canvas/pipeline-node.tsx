@@ -173,7 +173,7 @@ function NodeExecutionTimer({
 
 export function PipelineNode({ data, selected }: NodeProps) {
   const d = data as PipelineNodeData;
-  const spec = getNodeSpec(d.type);
+  const spec = getNodeSpec(d.type, d.nodeKey);
   const Icon = getNodeIcon(spec.iconKey);
   const actions = useCanvasActionsOptional();
   const disabled = actions?.disabledNodes.has(d.nodeKey) ?? false;

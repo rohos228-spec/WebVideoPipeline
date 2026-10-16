@@ -209,7 +209,7 @@ function NodeInspector({
   project?: ProjectDetail | null;
 }) {
   const type = nodeTypeFromKey(nodeKey);
-  const spec = getNodeSpec(type);
+  const spec = getNodeSpec(type, nodeKey);
   const globalActivePrompts = useQuery({
     queryKey: ["prompt-global-active"],
     queryFn: () => api.getGlobalActivePrompts(),
