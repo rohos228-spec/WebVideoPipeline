@@ -562,7 +562,7 @@ function computeNodeResult(
         if (replyPreview) {
           items.push({
             id: "gpt_reply",
-            label: "Ответ GPT",
+            label: "Режиссура сцен",
             kind: "text",
             content: replyPreview,
           });
@@ -570,10 +570,10 @@ function computeNodeResult(
         return ready(
           items,
           snapName
-            ? `Снимок Excel: ${snapName}`
+            ? `Снимок: ${snapName}`
             : hasReplyMeta
-              ? "Excel + ответ GPT"
-              : "Таблица Excel",
+              ? "Режиссура сцен готова"
+              : "Данные сцен",
           "xlsx",
           "default",
         );
@@ -583,12 +583,12 @@ function computeNodeResult(
           [
             {
               id: "gpt_reply",
-              label: "Ответ GPT",
+              label: "Режиссура сцен",
               kind: "text",
               content: replyPreview,
             },
           ],
-          "Ответ GPT готов",
+          "Режиссура сцен готова",
           "text",
         );
       }
@@ -597,11 +597,11 @@ function computeNodeResult(
         return {
           hasResult: true,
           itemCount: 1,
-          summary: "Ответ GPT на диске",
+          summary: "Режиссура сцен готова",
           items: [
             {
               id: "gpt_reply_path",
-              label: "Ответ GPT",
+              label: "Режиссура сцен",
               kind: "text",
               content: "",
             },

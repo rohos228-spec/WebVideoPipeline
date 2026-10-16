@@ -85,9 +85,9 @@ def test_scene_without_people_is_left_alone() -> None:
 
 def test_action_contract_no_longer_asks_for_the_field() -> None:
     """Нагрузка снята с промта — иначе смысл расчёта теряется."""
-    from pathlib import Path
+    from app.services.prompt_library import resolve_excel_gpt_prompt_path
 
-    text = Path("prompts/05_excel_gpt/sd_action_chrono_dyn.md").read_text(encoding="utf-8")
+    text = resolve_excel_gpt_prompt_path("sd_action_chrono_dyn").read_text(encoding="utf-8")
     assert '"в_кадре"' not in text
     assert "НЕ пиши" in text
 

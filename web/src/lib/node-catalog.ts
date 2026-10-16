@@ -158,7 +158,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
     type: "excel_gpt",
     label: "ИИ-редактор сцен",
     description:
-      "ИИ-редактор сцен: роли, файлы со стрелок, сверка с диском. API без браузера. Пульт — меню V.",
+      "Режиссура сцен, свет, ракурсы камеры и распределение персонажей (c01, c02) по кадрам перед генерацией артов.",
     category: "enrich",
     accent: "270 55% 64%",
     iconKey: "sparkles",

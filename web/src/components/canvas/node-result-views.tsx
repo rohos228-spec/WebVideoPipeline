@@ -1162,7 +1162,6 @@ function TopicEditView({
 function ExcelGptResultView({
   projectId,
   nodeKey,
-  nodeType,
   snapshot,
 }: {
   projectId: number;
@@ -1182,33 +1181,24 @@ function ExcelGptResultView({
       ? String(resolve.data.lastResult.replyPreview).trim()
       : "";
   const reply = replyFromMeta || replyFromApi;
-  const xlsxItem = snapshot.items.find((i) => i.kind === "xlsx");
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <XlsxUploadBar
-          projectId={projectId}
-          nodeKey={nodeKey}
-          nodeType={nodeType}
-        />
-        {reply ? (
+      {reply ? (
+        <div className="flex items-center justify-end">
           <Button
             size="sm"
             variant="outline"
             className="mb-2 h-8 gap-1.5 text-xs text-zinc-300 hover:text-white"
             onClick={() => {
               void navigator.clipboard.writeText(reply);
-              toast.success("Ответ GPT скопирован в буфер");
+              toast.success("Ответ скопирован в буфер");
             }}
           >
             <Copy className="h-3.5 w-3.5" />
             Копировать текст
           </Button>
-        ) : null}
-      </div>
-      {xlsxItem ? (
-        <p className="text-xs text-muted-foreground">{snapshot.summary}</p>
+        </div>
       ) : null}
       {resolve.isLoading && !reply ? (
         <LoadingBlock />
@@ -1220,8 +1210,7 @@ function ExcelGptResultView({
         </div>
       ) : (
         <p className="py-4 text-sm text-muted-foreground">
-          Ответа GPT пока нет. Запустите ноду — после прогона здесь появится
-          текст из gpt_reply.txt.
+          Результат пока не сформирован. Запустите шаг — после выполнения здесь появится режиссерский сценарий и раскадровка сцен.
         </p>
       )}
     </div>
