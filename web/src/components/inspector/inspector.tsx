@@ -11,7 +11,9 @@ import { formatNodeCategory, formatNodeKeyLabel, formatHeroMode, formatProjectSt
 import { projectDisplayName, projectStatusVariant } from "@/lib/project-display";
 import { formatRelativeTime } from "@/lib/utils";
 import { getNodeSpec } from "@/lib/node-catalog";
-import { nodeTypeFromKey } from "@/lib/node-key";
+import { nodeTypeFromKey, stepCodeForNodeKey } from "@/lib/node-key";
+import { legacyPromptFolder } from "@/lib/prompt-catalog";
+import type { ProjectDetail } from "@/lib/types";
 import { ProjectSettingsPanel } from "@/components/inspector/project-settings";
 import { TopicEditor } from "@/components/inspector/topic-editor";
 import { MontageHandoffCard } from "@/components/fleet/montage-handoff-card";
@@ -59,7 +61,7 @@ export function Inspector({
           )}
           {selectedNodeKey && (
             <div className="flex flex-col gap-3">
-              <NodeInspector nodeKey={selectedNodeKey} projectId={projectId} />
+              <NodeInspector nodeKey={selectedNodeKey} projectId={projectId} project={project.data} />
               {project.data ? <MontageHandoffCard project={project.data} /> : null}
               {onOpenNodeStudio && nodeTypeFromKey(selectedNodeKey) !== "topic" && (
                 <Button
@@ -200,15 +202,26 @@ function FramesPreview({
 function NodeInspector({
   nodeKey,
   projectId,
+  project,
 }: {
   nodeKey: string;
   projectId: number | null;
+  project?: ProjectDetail | null;
 }) {
   const type = nodeTypeFromKey(nodeKey);
   const spec = getNodeSpec(type);
   if (type === "topic" && projectId != null) {
     return <TopicEditor projectId={projectId} />;
   }
+  const stepCode = stepCodeForNodeKey(nodeKey);
+  const hasPrompt = Boolean(stepCode && legacyPromptFolder(stepCode));
+  const meta = (project?.meta || {}) as Record<string, unknown>;
+  const slotMap = (meta.prompt_slot_variants as Record<string, Record<string, string>> | undefined)?.[nodeKey];
+  const overrides = (project?.prompt_overrides || {}) as Record<string, unknown>;
+  const activePrompt =
+    (slotMap?.main || slotMap?.default) ??
+    (stepCode && typeof overrides[stepCode] === "string" ? (overrides[stepCode] as string) : undefined);
+
   return (
     <div className="flex flex-col gap-3">
       <div>
@@ -218,7 +231,13 @@ function NodeInspector({
       </div>
       <Row label="Тип">{humanizeSlug(spec.type)}</Row>
       <Row label="Категория">{formatNodeCategory(spec.category)}</Row>
-      <Row label="Ключ">{formatNodeKeyLabel(nodeKey)}</Row>
+      {hasPrompt && (
+        <Row label="Активный промт">
+          <span className="inline-block font-mono text-xs px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/20 text-violet-300">
+            {activePrompt || "default"}
+          </span>
+        </Row>
+      )}
     </div>
   );
 }

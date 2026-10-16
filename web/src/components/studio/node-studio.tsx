@@ -659,28 +659,18 @@ export function NodeStudio({
                   {excelConfig.label?.trim() || spec.label}
                 </h2>
                 <p className="text-xs text-muted-foreground">{spec.description}</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <Badge variant="muted" className="text-[10px]">
-                    {formatNodeKeyLabel(nodeKey)}
-                  </Badge>
-                  {isExcelGptNode(nodeType) ? (
-                    <>
-                      <Badge variant="muted" className="text-[10px] text-violet-200/90">
-                        {workModeLabel(excelConfig.workMode)}
-                      </Badge>
-                      <Badge variant="muted" className="text-[10px] text-emerald-200/90">
-                        {excelGptAttachmentChipTitle(
-                          excelConfig.inputSource ?? "project_xlsx",
-                        )}
-                      </Badge>
-                    </>
-                  ) : null}
-                  {promptPaths.legacyDir && (
-                    <Badge variant="muted" className="text-[9px] font-mono">
-                      prompts/{promptPaths.legacyDir}
+                {isExcelGptNode(nodeType) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Badge variant="muted" className="text-[10px] text-violet-200/90">
+                      {workModeLabel(excelConfig.workMode)}
                     </Badge>
-                  )}
-                </div>
+                    <Badge variant="muted" className="text-[10px] text-emerald-200/90">
+                      {excelGptAttachmentChipTitle(
+                        excelConfig.inputSource ?? "project_xlsx",
+                      )}
+                    </Badge>
+                  </div>
+                )}
               </div>
               <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap items-center">
                 {stepCode && (
