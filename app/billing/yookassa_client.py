@@ -62,7 +62,7 @@ class MockProvider:
                        email: str | None = None) -> CreatedPayment:
         pid = f"mock-{uuid.uuid4().hex}"
         _payload(amount_rub, description, metadata, email, pid)  # валидируем формирование чека
-        return CreatedPayment(pid, f"/billing/mock-checkout?payment_id={pid}", f"{amount_rub:.2f}")
+        return CreatedPayment(pid, f"/billing/?payment=mock&payment_id={pid}", f"{amount_rub:.2f}")
 
 
 class SandboxProvider:
