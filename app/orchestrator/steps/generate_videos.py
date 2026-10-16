@@ -515,7 +515,7 @@ async def _generate_shot2_one(
 
 
 async def _note_video_fail_db(
-    project_id: int, frame_id: int, err: BaseException
+    project_id: int, frame_id: int, err: BaseException, *, session_maker: Any = None
 ) -> int:
     """+1 счётчик ошибок в БД; ≥5 подряд → video_gen_skip (кадр больше не claim)."""
     if session_maker is None:
@@ -965,7 +965,8 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                         fr, prompt2, s2_img = batch2[0]
                         try:
                             async with acquire_outsee_slot():
-                                await _shot2_sync(
+                                await _generate_shot2_one(
+                                    session=session,
                                     outsee=outsee,
                                     gpt=gpt,
                                     project=project,
