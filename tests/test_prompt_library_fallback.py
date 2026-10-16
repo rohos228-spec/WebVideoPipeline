@@ -54,3 +54,18 @@ def test_resolve_empty_dir_keeps_default(monkeypatch: pytest.MonkeyPatch, tmp_pa
     monkeypatch.setattr(pag, "get_global_active", lambda _step: "")
 
     assert resolve_project_prompt_with_source({}, "hero") == (DEFAULT_NAME, "default")
+
+
+def test_resolve_finds_database_backed_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from app.services import prompt_store
+
+    monkeypatch.setattr(pl, "PROMPTS_ROOT", tmp_path)
+    monkeypatch.setattr(pag, "get_global_active", lambda _step: "")
+    monkeypatch.setattr(
+        prompt_store,
+        "resolve",
+        lambda step, name, scope=None: "db prompt text" if name == "db_custom" else None,
+    )
+
+    name, source = resolve_project_prompt_with_source({"plan": "db_custom"}, "plan")
+    assert (name, source) == ("db_custom", "override")
