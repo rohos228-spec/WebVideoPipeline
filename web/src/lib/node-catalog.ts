@@ -149,7 +149,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   items: {
     type: "items",
     label: "Предметы",
-    description: "Reference-картинки повторяющихся предметов.",
+    description: "Референс-листы ключевого реквизита и предметов для сохранения визуальной консистентности в сценах.",
     category: "objects",
     accent: "195 75% 58%",
     iconKey: "package",

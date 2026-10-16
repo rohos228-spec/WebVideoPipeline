@@ -5,6 +5,7 @@
   "excel_gpt": "cinematic_scene_director",
   "hero_style": "cinematic_realism",
   "hero": "default",
+  "items": "item_reference_sheet_16x9",
   "img_pr": "img_prompts_trash_polka_watercolor",
   "anim_pr": "anim_prompts_veo31_relax"
 }

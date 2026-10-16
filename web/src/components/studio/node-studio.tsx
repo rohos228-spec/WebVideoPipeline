@@ -917,9 +917,7 @@ export function NodeStudio({
                     <NodeStepParamsPanel projectId={projectId!} nodeType={nodeType} />
                   ) : null}
                   {nodeType === "items" && projectId ? (
-                    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-                      <ItemsConfigPanel projectId={projectId} />
-                    </div>
+                    <ItemsConfigPanel projectId={projectId} inStudio />
                   ) : null}
                   {nodeType === "hero" && projectId ? (
                     <HeroConfigPanel projectId={projectId} inStudio />
