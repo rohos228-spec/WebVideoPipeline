@@ -99,7 +99,7 @@ export function NodeStudio({
   promptSlots?: NodePromptSlot[];
 }) {
   const nodeType = nodeTypeFromKey(nodeKey);
-  const spec = getNodeSpec(nodeType);
+  const spec = getNodeSpec(nodeType, nodeKey);
   const stepCode = stepCodeForNodeType(nodeType);
   const NodeIcon = getNodeIcon(spec.iconKey);
 
