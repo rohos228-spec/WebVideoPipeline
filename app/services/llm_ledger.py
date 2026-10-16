@@ -18,6 +18,7 @@ served_model (фактическая модель ответа, этап 5), fal
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
@@ -33,6 +34,8 @@ from loguru import logger
 
 from app.db import session_scope
 from app.models import LlmCall
+from app.services.step_cancel import is_stop_requested
+from app.services.tenant import current_tenant
 
 _PRICES_PATH = Path(__file__).resolve().parent / "llm_prices.json"
 
@@ -250,33 +253,39 @@ async def record(
     cost, pt, ct, tt, unbilled = compute_cost(usage, model=model, served_model=served_model)
     if not prompt_version_hash:
         prompt_version_hash = current_prompt_hash()
-    from app.services.tenant import current_tenant
-
     tenant = current_tenant()
+
+    row_dict = {
+        "tenant_id": tenant,
+        "project_id": project_id,
+        "node_key": node_key or "adhoc",
+        "logical_call_id": logical_call_id,
+        "model": model or "",
+        "served_model": served_model or "",
+        "relay": relay or "",
+        "endpoint": endpoint or "chat",
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
+        "total_tokens": tt,
+        "cost_usd": cost,
+        "result": result,
+        "error_kind": (error_kind or "")[:60],
+        "unbilled": unbilled,
+        "prompt_version_hash": prompt_version_hash or "",
+        "response_id": (response_id or "")[:120],
+        "duration_ms": int(duration_ms),
+    }
+
+    if project_id and is_stop_requested(project_id):
+        _unpersisted_spent[project_id] += cost
+        _queue_pending(row_dict)
+        return None
+
     try:
         async with session_scope() as session:
-            row = LlmCall(
-                tenant_id=tenant,
-                project_id=project_id,
-                node_key=node_key or "adhoc",
-                logical_call_id=logical_call_id,
-                model=model or "",
-                served_model=served_model or "",
-                relay=relay or "",
-                endpoint=endpoint or "chat",
-                prompt_tokens=pt,
-                completion_tokens=ct,
-                total_tokens=tt,
-                cost_usd=cost,
-                result=result,
-                error_kind=(error_kind or "")[:60],
-                unbilled=unbilled,
-                prompt_version_hash=prompt_version_hash or "",
-                response_id=(response_id or "")[:120],
-                duration_ms=int(duration_ms),
-            )
+            row = LlmCall(**row_dict)
             session.add(row)
-            await session.flush()
+            await asyncio.wait_for(session.flush(), timeout=2.0)
             row_id = row.id
         collector = _attempt_rows.get()
         if collector is not None and row_id:
@@ -285,27 +294,7 @@ async def record(
     except Exception as e:  # noqa: BLE001 — учёт не валит платный вызов
         _failed_inserts += 1
         _unpersisted_spent[project_id] += cost
-        _queue_pending(
-            {
-                "project_id": project_id,
-                "node_key": node_key or "adhoc",
-                "logical_call_id": logical_call_id,
-                "model": model or "",
-                "served_model": served_model or "",
-                "relay": relay or "",
-                "endpoint": endpoint or "chat",
-                "prompt_tokens": pt,
-                "completion_tokens": ct,
-                "total_tokens": tt,
-                "cost_usd": cost,
-                "result": result,
-                "error_kind": (error_kind or "")[:60],
-                "unbilled": unbilled,
-                "prompt_version_hash": prompt_version_hash or "",
-                "response_id": (response_id or "")[:120],
-                "duration_ms": int(duration_ms),
-            }
-        )
+        _queue_pending(row_dict)
         logger.warning(
             "llm_ledger: INSERT llm_calls упал (#{} всего): {} — unpersisted_spent[{}]={:.4f}$, "
             "строка в очереди на дозапись ({} шт.)",

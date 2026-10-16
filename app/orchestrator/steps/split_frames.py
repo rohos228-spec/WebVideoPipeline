@@ -95,6 +95,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             current_split_hash[:24],
         )
 
+    # Отпустить SQLite write-lock перед долгим вызовом модели разбивки
+    await session.commit()
+
     result = await xsr.run_split_xlsx(project)
     if result.degraded_no_llm:
         # Спека этапа 5: деградация без LLM — только с явным маркером и

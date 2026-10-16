@@ -163,6 +163,8 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
             from app.orchestrator.auto_advance import _prepare_node_run_for_status
 
             await _prepare_node_run_for_status(session, project, status, allow_restart=True)
+            # Отпустить SQLite write-lock перед запуском шага (GPT/сеть не должны держать блокировку)
+            await session.commit()
         except Exception:  # noqa: BLE001
             logger.debug(
                 "advance #{}: prepare NodeRun for {} failed",

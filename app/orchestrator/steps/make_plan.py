@@ -41,6 +41,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         project.topic,
     )
 
+    # Отпустить SQLite write-lock перед сетевыми GPT-вызовами
+    await session.commit()
+
     # Режим героя решается здесь, один раз, и попадает в промт плана готовым
     # указанием — модель внутри плана его больше не выбирает. Явный выбор
     # человека (`hero` / `no_hero`) не трогаем; решается только `auto`.
@@ -49,6 +52,8 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
 
     await ensure_hero_mode(project, get_gpt_client(), template=_hero_decision_template())
     await session.flush()
+    # Отпустить SQLite write-lock перед долгим вызовом модели плана
+    await session.commit()
 
     result = await xsr.run_plan_xlsx(project)
     plan_text = (result.plan_text or "").strip()
