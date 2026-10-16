@@ -34,6 +34,17 @@ def test_split_cell_limits_from_project() -> None:
     assert "ЖЁСТКО" not in block
 
 
+def test_split_fallback_limits_when_unconfigured() -> None:
+    p = Project(topic="t")
+    p.meta = {}
+    p.general_plan = "Кадр 1: начало\nКадр 2: середина\nКадр 3: финал"
+    p.script_text = "Короткий закадровый текст для проверки расчёта лимитов на кадр."
+    block = build_split_params_block(p)
+    assert "____" not in block
+    assert "Минимальное количество символов в ячейке" in block
+    assert "Максимальное количество символов в ячейке" in block
+
+
 def test_split_not_succeeded_without_split_completed() -> None:
     """Reconcile не красит n_split в done без split_completed."""
     p = Project(topic="t", status=ProjectStatus.enrich_1_ready)

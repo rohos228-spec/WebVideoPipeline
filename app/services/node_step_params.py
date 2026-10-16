@@ -84,8 +84,67 @@ def split_params_fingerprint(project: Project) -> str:
     return f"{mn or ''}:{mx or ''}:{amn or ''}:{amx or ''}"
 
 
+def calculate_fallback_split_limits(
+    project: Project,
+) -> tuple[int, int, int, int]:
+    """Вычисляет рекомендованные лимиты разбивки (min, max, avg_min, avg_max)
+    на основе сценария и длины закадрового текста проекта."""
+    import re
+    from pathlib import Path
+
+    char_count = len((getattr(project, "script_text", "") or "").strip())
+    if not char_count:
+        data_dir = getattr(project, "data_dir", None)
+        if data_dir:
+            vo_path = Path(data_dir) / "voiceover.txt"
+            if vo_path.is_file():
+                try:
+                    char_count = len(vo_path.read_text(encoding="utf-8", errors="replace").strip())
+                except Exception:
+                    pass
+
+    general_plan = (getattr(project, "general_plan", "") or "").strip()
+    target_frames: int | None = None
+    if general_plan:
+        matches = [int(m) for m in re.findall(r"(?:Кадр|кадр|Сцена|сцена)\s*(\d+)", general_plan)]
+        if matches:
+            target_frames = max(matches)
+        else:
+            m = re.search(r"(\d+)\s*(?:кадр|кадров|кадра|сцен|сцены)", general_plan, re.IGNORECASE)
+            if m:
+                target_frames = int(m.group(1))
+
+    if not target_frames:
+        dur = duration_seconds_for_step(project, "plan")
+        if dur:
+            target_frames = max(8, min(30, int(round(dur / 3.5))))
+        elif char_count > 0:
+            target_frames = max(8, min(30, int(round(char_count / 50))))
+        else:
+            target_frames = 18
+    else:
+        target_frames = max(4, min(30, target_frames))
+
+    if char_count > 0 and target_frames > 0:
+        avg = max(20, round(char_count / target_frames))
+        calc_min = max(15, round(avg * 0.5))
+        calc_max = max(45, round(avg * 1.8))
+        calc_avg_min = max(20, round(avg * 0.8))
+        calc_avg_max = max(30, round(avg * 1.15))
+    else:
+        calc_min, calc_max, calc_avg_min, calc_avg_max = 20, 85, 35, 60
+
+    return calc_min, calc_max, calc_avg_min, calc_avg_max
+
+
 def build_split_params_block(project: Project) -> str:
     mn, mx, amn, amx = split_cell_limits_from_project(project)
+    if mn is None or mx is None or amn is None or amx is None:
+        def_mn, def_mx, def_amn, def_amx = calculate_fallback_split_limits(project)
+        mn = mn if mn is not None else def_mn
+        mx = mx if mx is not None else def_mx
+        amn = amn if amn is not None else def_amn
+        amx = amx if amx is not None else def_amx
     return (
         "Разбивка\n"
         f"Минимальное количество символов в ячейке {_fmt_num(float(mn) if mn else None)}\n"
