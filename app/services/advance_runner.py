@@ -62,23 +62,39 @@ async def advance_project_job(project_id: int, bot: Bot) -> AdvanceJobResult:
                     logger.warning("advance_project_job: повторное открытие #{} не удалось", project_id)
                     return AdvanceJobResult(project_id, "", None)
 
-            # Синхронизируем статус и мета из master, если мастер был переведён в running (например, через веб-UI)
-            if master_status is not None and project.status != master_status:
+            status_before = project.status
+            from app.project_db import pull_master_runtime_into_project
+
+            await pull_master_runtime_into_project(session, project)
+            # pull берёт running / parked pause и runtime-meta, не затирая
+            # контент project.db. Текст и недостающие ключи meta — только
+            # когда статус master реально принят (веб перевёл в running).
+            adopted_master = (
+                master_status is not None
+                and status_before != master_status
+                and project.status == master_status
+            )
+            if adopted_master:
                 logger.info(
                     "advance_project_job: синхронизация статуса #{} project.db {} -> master {}",
                     project_id,
-                    project.status.value,
+                    status_before.value,
                     master_status.value,
                 )
-                project.status = master_status
-                if master_meta:
-                    project.meta = master_meta
                 if master_general_plan:
                     project.general_plan = master_general_plan
                 if master_script_text:
                     project.script_text = master_script_text
                 if master_hero_desc:
                     project.hero_description = master_hero_desc
+                if master_meta:
+                    merged = (
+                        dict(project.meta) if isinstance(project.meta, dict) else {}
+                    )
+                    for key, val in master_meta.items():
+                        if key not in merged:
+                            merged[key] = val
+                    project.meta = merged
                 await session.flush()
 
             prev = project.status.value
@@ -93,7 +109,14 @@ async def advance_project_job(project_id: int, bot: Bot) -> AdvanceJobResult:
                     prev_status=prev_status,
                     new_status=project.status,
                 )
-                # Синхронизируем статус, данные и NodeRun в master state.db
+            try:
+                from app.project_db import push_runtime_to_master
+
+                await push_runtime_to_master(session, project)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("advance_project_job: sync runtime to master failed: {}", exc)
+            if new != prev:
+                # Статус, текст, полный meta и закрытие ноды в master state.db.
                 try:
                     async with session_scope() as master_sess:
                         m_proj = await master_sess.get(Project, project_id)
@@ -114,8 +137,10 @@ async def advance_project_job(project_id: int, bot: Bot) -> AdvanceJobResult:
                             new_status=project.status,
                         )
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("advance_project_job: sync status to master failed: {}", exc)
-
+                    logger.warning(
+                        "advance_project_job: sync status to master failed: {}", exc
+                    )
+            if new != prev:
                 logger.debug(
                     "advance_project_job: #{} {} -> {}", project_id, prev, new
                 )
