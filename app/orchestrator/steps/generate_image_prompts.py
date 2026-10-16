@@ -25,13 +25,29 @@ def is_parent_grid_frame(fr: Frame) -> bool:
     return True
 
 
+def _is_img_pr_grid_parent(fr: Frame) -> bool:
+    """Кадр, которому img_pr пишет промт.
+
+    main: есть закадр и это родитель сетки (не is_shot / shot_child / role=shot).
+    housepc: если uuid уже есть — тот же контракт, что is_img_pr_vo_parent
+    (только VO-родитель ячейки, не K2/K3). Кадр без uuid остаётся по правилу main.
+    """
+    if not (fr.voiceover_text or "").strip():
+        return False
+    if not is_parent_grid_frame(fr):
+        return False
+    if not str(getattr(fr, "uuid", "") or "").strip():
+        return True
+    from app.services.vo_shot_expand import is_img_pr_vo_parent
+
+    return is_img_pr_vo_parent(fr)
+
+
 def _frames_needing_image_prompt(frames: list[Frame]) -> list[Frame]:
     return [
         fr
         for fr in frames
-        if (fr.voiceover_text or "").strip()
-        and not (fr.image_prompt or "").strip()
-        and is_parent_grid_frame(fr)
+        if _is_img_pr_grid_parent(fr) and not (fr.image_prompt or "").strip()
     ]
 
 
@@ -39,9 +55,7 @@ def _frames_with_image_prompt(frames: list[Frame]) -> list[Frame]:
     return [
         fr
         for fr in frames
-        if (fr.voiceover_text or "").strip()
-        and (fr.image_prompt or "").strip()
-        and is_parent_grid_frame(fr)
+        if _is_img_pr_grid_parent(fr) and (fr.image_prompt or "").strip()
     ]
 
 
@@ -75,6 +89,22 @@ async def _finish_success(
 
     await harness_gate_or_raise(session, project, step="img_pr")
 
+    from app.services.vo_shot_expand import (
+        is_shot_child,
+        write_coverage_child_prompts,
+    )
+
+    n_kids = write_coverage_child_prompts(frames)
+    for fr in frames:
+        if is_shot_child(fr) and (fr.image_prompt or "").strip():
+            fr.status = FrameStatus.image_prompt_ready
+    if n_kids:
+        logger.info(
+            "[#{}] generate_image_prompts: wrote {} coverage child prompts",
+            project.id,
+            n_kids,
+        )
+
     for fr in filled:
         fr.status = FrameStatus.image_prompt_ready
     project.status = ProjectStatus.image_prompts_ready
@@ -89,7 +119,7 @@ async def _finish_success(
         logger.warning("[#{}] clear img_pr checkpoint: {}", project.id, e)
 
     logger.info(
-        "[#{}] generate_image_prompts complete: {} промтов (DB)",
+        "[#{}] generate_image_prompts complete: {} промтов VO-родителей (DB)",
         project.id,
         len(filled),
     )
@@ -153,8 +183,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
             cancelled = True
             break
         try:
-            from app.db import SessionLocal
-            from app.services import db_apply, xlsx_step_runners as xsr
+            from app.services import xlsx_step_runners as xsr
 
             result = await xsr.run_img_pr_xlsx(
                 project,
@@ -169,7 +198,7 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                 ops = filter_ops_for_node(ops, node_kind="img_pr")
             if not ops and not result.ops_applied_inline:
                 raise RuntimeError("пустой apply-ops после GPT")
-            # Один apply в конце (не по батчам) — отдельная короткая сессия.
+            # Один apply в конце (не по батчам) — та же project.db, что wipe.
             if ops and not result.ops_applied_inline:
                 import asyncio
 
@@ -181,20 +210,27 @@ async def run(session: AsyncSession, project: Project, bot: Bot) -> None:
                             sync_project_row_to_master_db,
                         )
 
+                        # main: project.db должна существовать (миграция), проект жив.
                         async with project_db_session_scope(project.id) as apply_session:
                             proj = await apply_session.get(Project, project.id)
                             if proj is None:
                                 raise RuntimeError(
                                     "project gone during img_pr apply"
                                 )
-                            await db_apply.apply_ops(
-                                apply_session,
-                                proj,
-                                ops,
-                                export_xlsx=False,
-                                node_kind="img_pr",
-                            )
-                            await apply_session.commit()
+                        # housepc: writeable ops, пропуск shot-child, child prompts.
+                        await xsr._apply_img_pr_ops_now(
+                            project,
+                            ops,
+                            export_xlsx=False,
+                            label="final",
+                        )
+                        # main: статус/meta из project.db обратно в master.
+                        async with project_db_session_scope(project.id) as apply_session:
+                            proj = await apply_session.get(Project, project.id)
+                            if proj is None:
+                                raise RuntimeError(
+                                    "project gone during img_pr apply"
+                                )
                             await sync_project_row_to_master_db(proj)
                         last_apply_err = None
                         break
