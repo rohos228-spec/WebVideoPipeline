@@ -278,6 +278,8 @@ class Settings(BaseSettings):
     fleet_montage_hub: bool = Field(True, alias="FLEET_MONTAGE_HUB")
     fleet_hub_is_worker: bool = Field(True, alias="FLEET_HUB_IS_WORKER")
     fleet_auto_pull: bool = Field(True, alias="FLEET_AUTO_PULL")
+    # False -> pipeline worker loop is not started (test worktrees / CI).
+    pipeline_worker_enabled: bool = Field(True, alias="PIPELINE_WORKER_ENABLED")
     fleet_montage_max_parallel: int = Field(1, alias="FLEET_MONTAGE_MAX_PARALLEL")
     # Tailscale URL этого ПК для agents (например http://100.x.x.x:8765)
     fleet_public_url: str = Field("", alias="FLEET_PUBLIC_URL")

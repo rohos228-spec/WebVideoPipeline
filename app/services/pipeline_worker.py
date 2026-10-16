@@ -9,9 +9,14 @@ from loguru import logger
 _worker_task: asyncio.Task | None = None
 
 
-def ensure_pipeline_worker_started(bot) -> asyncio.Task:
+def ensure_pipeline_worker_started(bot) -> asyncio.Task | None:
     """Поднимает `_run_worker_loop`, если ещё не запущен."""
     global _worker_task
+    from app.settings import settings
+
+    if not settings.pipeline_worker_enabled:
+        logger.warning("pipeline_worker: disabled by PIPELINE_WORKER_ENABLED=false")
+        return None
     if _worker_task is not None and not _worker_task.done():
         return _worker_task
     from app.main import _run_worker_loop
