@@ -1245,7 +1245,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                             [],
                             characters=chars_list or None,
                             scenes=scenes_list or None,
-                            export_xlsx=bool(ops_data.get("export_xlsx", False)),
+                            export_xlsx=bool(ops_data.get("export_xlsx", False) if isinstance(ops_data, dict) else False),
                             node_kind=apply_node_kind,
                         )
                         await session.commit()
