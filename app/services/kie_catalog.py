@@ -1276,13 +1276,13 @@ MODELS: list[dict[str, Any]] = [
     # ============================ ЗВУКИ ============================
     {
         "id": "elevenlabs-sfx",
-        "hint": "kie отключил ElevenLabs SFX (500 Internal Error). Здесь Foley через Suno Sounds V5: «разбитое стекло», «whoosh» — без песни.",
+        "hint": "kie отключил Озвучка VIA SFX (500 Internal Error). Здесь Foley через Suno Sounds V5: «разбитое стекло», «whoosh» — без песни.",
         "label": "Звуковые эффекты",
         "category": "sound",
         "api": "suno",
         "endpoint": "/api/v1/generate/sounds",
         "result": "audio",
-        "desc": "Foley/SFX через Suno Sounds Task (V5). kie больше не гоняет elevenlabs/sound-effect-v2.",
+        "desc": "Foley/SFX через Suno Sounds Task (V5). kie больше не гоняет Озвучка VIA/sound-effect-v2.",
         "prompt_wrap": (
             "Foley sound effect only: {prompt}. "
             "No music, no melody, no singing, no vocals, no speech, no lyrics."
@@ -1298,7 +1298,7 @@ MODELS: list[dict[str, Any]] = [
     },
     {
         "id": "suno-sounds",
-        "hint": "Suno Sounds — короткие музыкальные петли/атмосфера. Часто с вокалом. Для ударов/whoosh бери ElevenLabs SFX.",
+        "hint": "Suno Sounds — короткие музыкальные петли/атмосфера. Часто с вокалом. Для ударов/whoosh бери Озвучка VIA SFX.",
         "label": "Suno — саундскейп (не Foley)",
         "category": "sound",
         "api": "suno",
@@ -1322,7 +1322,7 @@ MODELS: list[dict[str, Any]] = [
     {
         "id": "elevenlabs-tts-turbo",
         "hint": "Текст → озвучка. Цена растёт от длины текста (за 1000 символов).",
-        "label": "ElevenLabs Turbo 2.5",
+        "label": "Озвучка VIA Turbo 2.5",
         "category": "voice",
         "api": "jobs",
         "model": "elevenlabs/text-to-speech-turbo-2-5",
@@ -1331,7 +1331,7 @@ MODELS: list[dict[str, Any]] = [
         "fields": [
             _f("text", "Текст", "textarea", required=True),
             _f("voice", "Голос (имя или voice_id)", "text", default="Rachel",
-               desc="Rachel, Adam, Bella, Elli, Josh, Domi… или voice_id из ElevenLabs"),
+               desc="Rachel, Adam, Bella, Elli, Josh, Domi… или voice_id из Озвучка VIA"),
             _f("stability", "Стабильность (0–1)", "number", default=0.5, min=0, max=1, step=0.01),
             _f("similarity_boost", "Схожесть (0–1)", "number", default=0.75, min=0, max=1, step=0.01),
             _f("style", "Стиль (0–1)", "number", default=0, min=0, max=1, step=0.01),
@@ -1351,7 +1351,7 @@ MODELS: list[dict[str, Any]] = [
     {
         "id": "elevenlabs-tts-multilingual",
         "hint": "Текст → озвучка качественнее Turbo, дороже. Цена за 1000 символов.",
-        "label": "ElevenLabs Multilingual V2",
+        "label": "Озвучка VIA Multilingual V2",
         "category": "voice",
         "api": "jobs",
         "model": "elevenlabs/text-to-speech-multilingual-v2",
@@ -1377,7 +1377,7 @@ MODELS: list[dict[str, Any]] = [
     {
         "id": "elevenlabs-dialogue-v3",
         "hint": "Диалог нескольких голосов: каждая строка = «Голос | реплика». Цена за 1000 символов суммарно.",
-        "label": "ElevenLabs Dialogue V3",
+        "label": "Озвучка VIA Dialogue V3",
         "category": "voice",
         "api": "jobs",
         "model": "elevenlabs/text-to-dialogue-v3",
@@ -1399,7 +1399,7 @@ MODELS: list[dict[str, Any]] = [
     {
         "id": "elevenlabs-audio-isolation",
         "hint": "Аудио с шумом → чистая речь. Промпт не нужен.",
-        "label": "ElevenLabs — изоляция голоса",
+        "label": "Озвучка VIA — изоляция голоса",
         "category": "voice",
         "api": "jobs",
         "model": "elevenlabs/audio-isolation",

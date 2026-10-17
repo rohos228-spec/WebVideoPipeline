@@ -141,13 +141,13 @@ def _log_elevenlabs_error(*, kind: str, text: str, node: str = "elevenlabs") -> 
         with ERRORS_LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as e:
-        logger.warning("11Labs: cannot write {}: {}", ERRORS_LOG_PATH, e)
+        logger.warning("Озвучка VIA: cannot write {}: {}", ERRORS_LOG_PATH, e)
 
 
 async def _check_elevenlabs_session(page: Page) -> None:
     url = page.url or ""
     if elevenlabs_login_url(url):
-        msg = "11Labs: слетела сессия — нужно перелогиниться"
+        msg = "Озвучка VIA: слетела сессия — нужно перелогиниться"
         _log_elevenlabs_error(kind="session_lost", text=msg)
         raise RuntimeError(msg)
     try:
@@ -160,7 +160,7 @@ async def _check_elevenlabs_session(page: Page) -> None:
     except Exception:  # noqa: BLE001
         return
     if has_pw or elevenlabs_login_page_text(body_text):
-        msg = "11Labs: слетела сессия — нужно перелогиниться"
+        msg = "Озвучка VIA: слетела сессия — нужно перелогиниться"
         _log_elevenlabs_error(kind="session_lost", text=msg)
         raise RuntimeError(msg)
 
@@ -182,10 +182,10 @@ async def _dump_elevenlabs_page(page: Page, label: str) -> Path | None:
         path = _PAGE_DUMP_DIR / f"elevenlabs_{label}_{ts}.html"
         html = await page.evaluate("() => document.documentElement.outerHTML || ''")
         path.write_text(html or "", encoding="utf-8")
-        logger.warning("11Labs: дамп страницы → {}", path)
+        logger.warning("Озвучка VIA: дамп страницы → {}", path)
         return path
     except Exception as e:  # noqa: BLE001
-        logger.warning("11Labs: dump page failed: {}", e)
+        logger.warning("Озвучка VIA: dump page failed: {}", e)
         return None
 
 
@@ -278,10 +278,10 @@ async def _ensure_tts_page(page: Page) -> None:
             await _check_elevenlabs_session(page)
             sel = await _first_visible(page, INPUT_SELECTORS, timeout_ms=8_000)
             if sel:
-                logger.info("11Labs: страница TTS ok ({})", url)
+                logger.info("Озвучка VIA: страница TTS ok ({})", url)
                 return
         except Exception as e:  # noqa: BLE001
-            logger.warning("11Labs: TTS url {} — {}", url, e)
+            logger.warning("Озвучка VIA: TTS url {} — {}", url, e)
 
     await page.goto(settings.elevenlabs_web_url, wait_until="domcontentloaded", timeout=60_000)
     await asyncio.sleep(2.0)
@@ -387,13 +387,13 @@ async def _click_v3_card_in_model_panel(page: Page) -> bool:
 async def _select_v3_model(page: Page) -> None:
     """Модель Eleven v3 — с проверкой, что в Settings не остался Multilingual v2."""
     if await _is_model_v3_active(page):
-        logger.info("11Labs: модель {} уже выбрана", V3_MODEL_LABEL)
+        logger.info("Озвучка VIA: модель {} уже выбрана", V3_MODEL_LABEL)
         return
 
     for attempt in range(5):
         await _open_model_picker(page)
         if not await _panel_open(page, "Select a model"):
-            logger.warning("11Labs: панель Select a model не открылась (попытка {})", attempt + 1)
+            logger.warning("Озвучка VIA: панель Select a model не открылась (попытка {})", attempt + 1)
             await asyncio.sleep(0.5)
             continue
 
@@ -403,17 +403,17 @@ async def _select_v3_model(page: Page) -> None:
         await asyncio.sleep(0.4)
 
         if await _is_model_v3_active(page):
-            logger.info("11Labs: модель {} выбрана (попытка {})", V3_MODEL_LABEL, attempt + 1)
+            logger.info("Озвучка VIA: модель {} выбрана (попытка {})", V3_MODEL_LABEL, attempt + 1)
             return
 
         logger.warning(
-            "11Labs: v3 не подтверждена после клика (clicked={}, попытка {})",
+            "Озвучка VIA: v3 не подтверждена после клика (clicked={}, попытка {})",
             clicked,
             attempt + 1,
         )
 
     await _dump_elevenlabs_page(page, "select_v3_model_failed")
-    msg = f"11Labs: не удалось выбрать модель {V3_MODEL_LABEL}"
+    msg = f"Озвучка VIA: не удалось выбрать модель {V3_MODEL_LABEL}"
     _log_elevenlabs_error(kind="select_model", text=msg)
     raise RuntimeError(msg)
 
@@ -473,7 +473,7 @@ async def _open_voice_panel(page: Page) -> None:
     )
     await asyncio.sleep(1.0)
     if not await _panel_open(page, "Select a voice"):
-        raise RuntimeError("11Labs: не открылась панель Select a voice (кликните Voice в Settings)")
+        raise RuntimeError("Озвучка VIA: не открылась панель Select a voice (кликните Voice в Settings)")
 
 
 async def _voice_search_input(page: Page) -> Locator:
@@ -529,7 +529,7 @@ async def _voice_search_input(page: Page) -> Locator:
         except Exception:  # noqa: BLE001
             continue
 
-    raise RuntimeError("11Labs: не найдено поле поиска голоса (откройте Voice в Settings)")
+    raise RuntimeError("Озвучка VIA: не найдено поле поиска голоса (откройте Voice в Settings)")
 
 
 def _voice_name_hint(voice_id: str) -> str:
@@ -680,21 +680,21 @@ async def _select_voice_by_id(page: Page, voice_id: str) -> None:
     await search.click()
     await search.fill("")
     await search.press_sequentially(voice_id, delay=40)
-    logger.info("11Labs: в поиск голоса вставлен id {}", voice_id)
+    logger.info("Озвучка VIA: в поиск голоса вставлен id {}", voice_id)
     await asyncio.sleep(2.5)
 
     for attempt in range(6):
         if await _click_voice_result_card(page, voice_id, search):
             await _dismiss_overlay_panels(page)
-            logger.info("11Labs: голос {} выбран (попытка {})", voice_id, attempt + 1)
+            logger.info("Озвучка VIA: голос {} выбран (попытка {})", voice_id, attempt + 1)
             return
-        logger.warning("11Labs: голос не выбран (попытка {})", attempt + 1)
+        logger.warning("Озвучка VIA: голос не выбран (попытка {})", attempt + 1)
         await search.click()
         await search.fill(voice_id)
         await asyncio.sleep(1.2)
 
     await _dump_elevenlabs_page(page, f"select_voice_{voice_id[:8]}_failed")
-    msg = f"11Labs: не удалось выбрать голос {voice_id} после поиска"
+    msg = f"Озвучка VIA: не удалось выбрать голос {voice_id} после поиска"
     _log_elevenlabs_error(kind="select_voice", text=msg)
     raise RuntimeError(msg)
 
@@ -734,7 +734,7 @@ class ElevenLabsBot:
         await _ensure_tts_page(page)
 
         await _select_voice_by_id(page, vid)
-        logger.info("11Labs: ждём {:.0f} с после выбора голоса", VOICE_SETUP_WAIT_SEC)
+        logger.info("Озвучка VIA: ждём {:.0f} с после выбора голоса", VOICE_SETUP_WAIT_SEC)
         await asyncio.sleep(VOICE_SETUP_WAIT_SEC)
 
         input_sel = await _first_visible(page, INPUT_SELECTORS, timeout_ms=45_000)
@@ -742,7 +742,7 @@ class ElevenLabsBot:
             await _ensure_tts_page(page)
             input_sel = await _first_visible(page, INPUT_SELECTORS, timeout_ms=20_000)
         if not input_sel:
-            raise RuntimeError("11Labs: не найден textarea для текста")
+            raise RuntimeError("Озвучка VIA: не найден textarea для текста")
 
         await _fill_tts_text(page, input_sel, text)
         from app.services.sidebar_layout import log_prompt_send
@@ -754,11 +754,11 @@ class ElevenLabsBot:
             source="voiceover",
             text=text,
         )
-        logger.info("11Labs: текст в поле ({} симв.)", len(text))
+        logger.info("Озвучка VIA: текст в поле ({} симв.)", len(text))
 
         gen_sel = await _first_visible(page, GENERATE_SELECTORS, timeout_ms=15_000)
         if not gen_sel:
-            raise RuntimeError("11Labs: не найдена кнопка Generate / Regenerate speech")
+            raise RuntimeError("Озвучка VIA: не найдена кнопка Generate / Regenerate speech")
         await page.locator(gen_sel).first.click()
 
         deadline = asyncio.get_running_loop().time() + timeout
@@ -767,7 +767,7 @@ class ElevenLabsBot:
             await _check_elevenlabs_session(page)
             err_snip = await _detect_elevenlabs_failure(page)
             if err_snip:
-                msg = f"11Labs: {err_snip[:160]}"
+                msg = f"Озвучка VIA: {err_snip[:160]}"
                 _log_elevenlabs_error(kind="tts_ui", text=msg)
                 raise RuntimeError(msg)
             sel = await _first_visible(page, DOWNLOAD_SELECTORS, timeout_ms=3_000)
@@ -780,7 +780,7 @@ class ElevenLabsBot:
                 download = await dl_info.value
                 await download.save_as(str(out_path))
                 if out_path.stat().st_size < 500:
-                    raise RuntimeError(f"11Labs: mp3 слишком мал ({out_path.stat().st_size} B)")
+                    raise RuntimeError(f"Озвучка VIA: mp3 слишком мал ({out_path.stat().st_size} B)")
                 logger.info("11Labs mp3 saved → {} ({} B)", out_path, out_path.stat().st_size)
                 return out_path
             except PWTimeoutError:
@@ -794,9 +794,9 @@ class ElevenLabsBot:
                 await asyncio.sleep(1.0)
                 continue
         err_snip = await _detect_elevenlabs_failure(page)
-        msg = f"11Labs: не дождались загрузки mp3"
+        msg = f"Озвучка VIA: не дождались загрузки mp3"
         if err_snip:
-            msg = f"11Labs: {err_snip[:160]}"
+            msg = f"Озвучка VIA: {err_snip[:160]}"
         _log_elevenlabs_error(kind="tts_timeout", text=msg)
         raise PWTimeoutError(msg)
 

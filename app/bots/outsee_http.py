@@ -1644,6 +1644,6 @@ async def generate_music_http(
     del page, args, kwargs
     raise OutseeApiError(
         "Outsee Developer API не поддерживает audio — "
-        "используй пайплайн ElevenLabs/Suno или CDP UI",
+        "используй пайплайн озвучки VIA / музыки или CDP UI",
         context={"hint": "нет /api/v1/audio"},
     )

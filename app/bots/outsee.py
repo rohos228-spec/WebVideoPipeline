@@ -1966,7 +1966,7 @@ class OutseeBot:
 
         raise OutseeApiError(
             "Outsee Developer API не поддерживает audio — "
-            "используй шаг audio (ElevenLabs/Suno) или CDP UI",
+            "используй шаг audio (Озвучка VIA / музыка) или CDP UI",
             context={"hint": "нет /api/v1/audio"},
         )
 

@@ -19,11 +19,11 @@ _RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b52\s?pay\b|\bpay52\b", re.I), "VIA"),
     (re.compile(r"\bvibe\s?code\b", re.I), "VIA"),
     (re.compile(r"\bwavespeed(?:\.ai)?\b", re.I), "VIA Render"),
-    (re.compile(r"\beleven\s?labs\b", re.I), "VIA Voice"),
+    (re.compile(r"\beleven\s?labs\b|\b11\s?labs\b", re.I), "Озвучка VIA"),
     (re.compile(r"\b(?:anthropic|openai)\b", re.I), "VIA"),
 ]
 _ANY = re.compile(
-    r"outsee|оутси|аутси|\bkie\b|\bкие\b|52\s?pay|pay52|vibe\s?code|wavespeed|eleven\s?labs|anthropic|openai",
+    r"outsee|оутси|аутси|\bkie\b|\bкие\b|52\s?pay|pay52|vibe\s?code|wavespeed|eleven\s?labs|11\s?labs|anthropic|openai",
     re.I,
 )
 # Переменные окружения с ключами в тексте ошибок: KIE_API_KEY -> API_KEY
