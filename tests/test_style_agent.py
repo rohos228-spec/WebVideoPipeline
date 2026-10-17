@@ -368,7 +368,7 @@ def test_build_passport_three_videos_stable() -> None:
     assert schema.passport_confidence(p, "format.duration_s") == "high"
     assert schema.passport_value(p, "visual.medium") == "2d_flat_vector"
     assert schema.passport_confidence(p, "visual.medium") == "high"
-    assert schema.passport_value(p, "motion.camera_vocab")["static"] == pytest.approx(0.6)
+    assert "static" in schema.passport_value(p, "motion.camera_vocab")  # v2.2: по описаниям планов
     assert schema.passport_value(p, "music.present") is True
     assert schema.passport_value(p, "visual.palette_hex")
     assert schema.passport_value(p, "narrative.forbidden_phrases_seed") == ["в современном мире", "давайте разберёмся"]
@@ -1218,3 +1218,87 @@ def test_blueprint_templates_readable_and_new_nodes() -> None:
     assert "hook" in t["segment_shot_map"]
     types = [n["node_type"] for n in bp.default_chain(passport)]
     assert "world_bible" in types and "overlay_plan" in types
+
+
+# ── v2.2: стилизованный 3D, дозапрос shots, починка JSON, семейства приёмов ──
+
+
+def test_medium_stylized_beats_photoreal_text() -> None:
+    shots_a = [{"i": k, "what": "съёмка, фотореалистичная фактура, документальная съемка", "camera": "static"} for k in range(1, 4)]
+    videos = [
+        {"video": "a.mp4", "metrics": {}, "shots_final": shots_a, "agents": {"visual": {"medium": "stock_footage", "line": "без контура, фотореалистичная фактура", "forbidden": ["глянцевый 3d-рендер"]}}},
+        {"video": "b.mp4", "metrics": {}, "agents": {"visual": {"medium": "3d_render", "line": "без контура, объёмным светотеневым моделированием", "subjects": "стилизованная модель человека"}}},
+    ]
+    p = aggregate.build_passport(videos)
+    assert p["visual"]["medium"]["value"] == "3d_render"
+    assert "фотореал" not in p["visual"]["line"]["value"].lower()
+    p["mapping"] = {"visual_core_en": "photorealistic texture, soft light", "negative_en": ["3d render", "neon"]}
+    p["label"] = "Фотореализм в поле"
+    aggregate.finalize_mapping(p)
+    assert "photoreal" not in p["mapping"]["visual_core_en"].lower()
+    assert not any("3d" in x.lower() and "photoreal" not in x.lower() for x in p["mapping"]["negative_en"])
+    assert p["label"] == ""
+    assert "Camera (measured" in p["mapping"]["camera_motion_en"]
+    assert p["motion"]["camera_vocab"]["value"]["static"] == 1.0
+
+
+def test_repair_json_truncated_and_largest_block() -> None:
+    d = llm.repair_json_object('ok ```json {"shots":[{"i":1,"what":"a"},{"i":2,"what":"b"},{"i":3,"wh')
+    assert [s["i"] for s in d["shots"]][:2] == [1, 2]
+    d2 = llm.repair_json_object('x {"a":1} y {"b":{"c":[1,2]},"d":"}"}')
+    assert d2 == {"b": {"c": [1, 2]}, "d": "}"}
+
+
+def test_shots_patch_missing_and_merge(tmp_path: Path) -> None:
+    reply = {"shots": [{"i": 1, "what": "a", "framing": "wide", "camera": "static"}, {"i": 2, "what": "(не на листе) x"}]}
+    assert agents.missing_shot_ids(reply, 6) == [2, 3, 4, 5, 6]
+    prof = {"shots": [{"i": k} for k in range(1, 7)], "sheets": {"shots": ["s1.jpg", "s2.jpg"]}}
+    assert [p.name for p in agents.sheets_for_shot_ids(prof, [2, 5])] == ["s1.jpg", "s2.jpg"]
+    assert [p.name for p in agents.sheets_for_shot_ids(prof, [6])] == ["s2.jpg"]
+    patch = {"shots": [{"i": 2, "what": "b", "framing": "close", "camera": "push_in"}, {"i": 5, "what": "(не на листе) y"}]}
+    out, fixed = agents.merge_patch_shots(reply, patch, [2, 3, 4, 5, 6])
+    assert fixed == 1 and out["shots"][1]["what"] == "b"
+    assert agents.missing_shot_ids(out, 6) == [3, 4, 5, 6]
+
+
+def test_pattern_families_merge_across_videos() -> None:
+    videos = [
+        {"video": "a.mp4", "agents": {"patterns": {"patterns": [{"name": "Подсветка ключевого предмета", "kind": "vfx", "description": "жёлтое свечение"}, {"name": "Нижние субтитры фразами", "kind": "subtitle"}]}}},
+        {"video": "b.mp4", "agents": {"patterns": {"patterns": [{"name": "Цветовая вспышка предмета", "kind": "vfx", "description": "жёлтая заливка"}, {"name": "Фразовый титр через склейку", "kind": "subtitle"}, {"name": "Склейка по речевому шагу", "kind": "linkage"}]}}},
+    ]
+    pats = aggregate.aggregate_patterns(videos)
+    sup = {p["name"]: p["support"] for p in pats}
+    assert sup["Подсветка / цветовая вспышка ключевого предмета"] == "2/2"
+    assert sup["Субтитры фразами"] == "2/2"
+    assert sup["Склейка по речевому шагу"] == "1/2"
+
+
+def test_narrative_quotes_cleaned_from_subtitles() -> None:
+    prof = {"script": {"sentences_list": [{"text": "So you walk through the field and pick the biggest one."}]}, "subtitles": [{"text": "So you walk through the field"}]}
+    r = agents.clean_narrative_reply({"segments": [{"quote": "S0 you wallk through te field and pick the biggest one."}]}, prof)
+    assert r["segments"][0]["quote"] == "So you walk through the field and pick the biggest one."
+
+
+def test_blueprint_consistency_music_sfx_medium() -> None:
+    from app.services.style_agent import blueprint as bp
+
+    p = aggregate.build_passport([{"video": "b.mp4", "metrics": {}, "agents": {"visual": {"medium": "3d_render"}}}])
+    schema.set_path(p, "music.level_vs_voice_db", schema.field(-5.4, confidence="medium", support="2/2"))
+    schema.set_path(p, "sfx.density", schema.field("sparse", confidence="medium", support="2/2"))
+    reply = {"chain": [{"type": "music", "params": {"music_db": "ниже голоса, точное значение не задано"}}, {"type": "sfx_plan", "params": {"density": "none"}}, {"type": "image_gen", "prompt_hint": "volumetric photorealistic texture"}],
+             "notes": ["Значение громкости музыки не задано"]}
+    out = bp.build_blueprint(p, reply)
+    by = {n["node_type"]: n for n in out["chain"]}
+    assert by["music"]["params"]["level_db"] == -5.4 and "music_db" not in by["music"]["params"]
+    assert by["sfx_plan"]["params"]["density"] == "sparse"
+    assert "photoreal" not in by["image_gen"]["prompt_hint"].lower()
+    assert not any("не задано" in n for n in out["notes"])
+
+
+
+
+def test_estimator_shots_four_sheets_per_call() -> None:
+    p = budget.plan_calls(n_videos=1, sheets_per_video=11, max_calls=40)
+    # 11 шот-листов + 6 листов склеек = 17 → по 4 за вызов = 5
+    assert p["per_video"]["shots"] == 5
+    assert p["per_video"]["patterns"] == 2

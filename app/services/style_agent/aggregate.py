@@ -439,7 +439,39 @@ def build_passport(
     passport["videos"] = [video_section(v) for v in videos]
     passport["patterns"] = aggregate_patterns(videos)
     passport["peculiarities"] = aggregate_peculiarities(videos, passport)
+    unify_motion_audio(passport)
     return passport
+
+
+def unify_motion_audio(passport: dict[str, Any]) -> None:
+    """Единый источник: камера — по описаниям ВСЕХ планов; SFX/музыка — без противоречий."""
+    from app.services.style_agent import blueprint as bp
+
+    st = bp.camera_stats(passport)
+    if st.get("dist"):
+        vids = sum(1 for v in passport.get("videos") or [] if any((s or {}).get("camera") for s in v.get("shots") or []))
+        n = max(1, len(passport.get("videos") or []))
+        old = get_path(passport, "motion.camera_vocab")
+        note = f"по описаниям {st['shots']} планов ({vids}/{n} роликов); резкие движения {int(round(st.get('strong_share', 0) * 100))}%"
+        if isinstance(old, dict) and old.get("value"):
+            note += "; ответ агента (" + str(old.get("support")) + "): " + ", ".join(f"{k} {v}" for k, v in (old.get("value") or {}).items())
+        set_path(passport, "motion.camera_vocab", field(st["dist"], confidence="high" if vids >= 3 else ("medium" if vids == 2 else "low"), support=f"{vids}/{n}", note=note))
+    dens = get_path(passport, "sfx.density")
+    if isinstance(dens, dict) and str(dens.get("value") or "").lower() in ("none", "нет", "") and dens.get("confidence") == "low":
+        dens["note"] = ((dens.get("note") or "") + f" было «{dens.get('value')}» ({dens.get('support')}), ролики расходятся → по умолчанию sparse: точечные звуки действий").strip()
+        dens["value"] = "sparse"
+
+
+def finalize_mapping(passport: dict[str, Any]) -> None:
+    """После synth: рисовка и камера из кода главнее текстов LLM."""
+    enforce_medium(passport)
+    st = get_path(passport, "motion.camera_vocab")
+    if isinstance(st, dict) and isinstance(st.get("value"), dict) and st["value"]:
+        dist = ", ".join(f"{k.replace('_', ' ')} {int(round(float(v) * 100))}%" for k, v in sorted(st["value"].items(), key=lambda kv: -float(kv[1])))
+        mp = passport.setdefault("mapping", {})
+        prev = str(mp.get("camera_motion_en") or "")
+        keep = [x for x in re.split(r"(?<=[.!?])\s+", prev) if x and not re.search(r"(?i)%|percent|\b0\.\d+|camera \(measured", x)]
+        mp["camera_motion_en"] = f"Camera (measured over all shots): {dist}." + (" " + " ".join(keep) if keep else "")
 
 
 # ── v2: по-роликовые секции, приёмы, особенности ──────────────────────────
@@ -469,6 +501,61 @@ def video_section(v: dict[str, Any]) -> dict[str, Any]:
         "sheets": m.get("sheets") or {},
         "problems": v.get("problems") or {},
     }
+
+
+# Семейства приёмов: разные имена у разных роликов → один приём (support k/N).
+PATTERN_FAMILIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Субтитры фразами", ("субтитр", "титр", "caption")),
+    ("Подсветка / цветовая вспышка ключевого предмета", ("подсвет", "вспышк", "свечени", "glow", "highlight")),
+    ("Цепочка превращений (результат → инструмент)", ("превращ", "цепочк", "трансформ")),
+    ("Склейка по фразе закадра", ("склейка на фраз", "склейка по фраз", "по речев", "речевому шаг", "по реплик", "по слову")),
+    ("Камера следует за действием/героем", ("следует", "следован", "сопровожд", "tracking", "follow")),
+    ("Наезд на ключевой объект", ("наезд", "push-in", "push in")),
+)
+
+
+def _family(p: dict[str, Any]) -> str | None:
+    text = (str(p.get("name") or "") + " " + str(p.get("description") or "")[:160]).lower()
+    name = str(p.get("name") or "").lower()
+    for fam, keys in PATTERN_FAMILIES:
+        if any(k in name for k in keys):
+            return fam
+    for fam, keys in PATTERN_FAMILIES:
+        if sum(text.count(k) for k in keys) >= 2:
+            return fam
+    return None
+
+
+def merge_pattern_families(merged: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Схлопнуть приёмы одного семейства из РАЗНЫХ роликов (внутри ролика — оставить раздельно)."""
+    out: dict[str, dict[str, Any]] = {}
+    fam_of: dict[str, str] = {}
+    for key, p in merged.items():
+        fam = _family(p)
+        if not fam:
+            out[key] = p
+            continue
+        tgt_key = fam_of.get(fam + "|" + str(p.get("kind")))
+        tgt = out.get(tgt_key) if tgt_key else None
+        if tgt is None or tgt.get("kind") != p.get("kind"):
+            # первый в семействе или другой тип приёма → отдельная запись
+            out[key] = p
+            if tgt is None:
+                fam_of[fam + "|" + str(p.get("kind"))] = key
+            continue
+        names = tgt.setdefault("aliases", [tgt["name"]])
+        names.append(p["name"])
+        tgt["name"] = fam
+        tgt["videos"] = tgt["videos"] + p["videos"]
+        tgt["frequency"].update(p["frequency"])
+        tgt["examples"] = tgt["examples"] + p["examples"]
+        if len(p.get("description") or "") > len(tgt.get("description") or ""):
+            tgt["description_alt"] = tgt.get("description")
+            tgt["description"] = p["description"]
+        how = [h for h in (tgt.get("how_to_reproduce"), p.get("how_to_reproduce")) if h]
+        tgt["how_to_reproduce"] = " | ".join(dict.fromkeys(how))
+        tgt["signature"] = tgt["signature"] or p["signature"]
+    return out
 
 
 def aggregate_patterns(videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -504,6 +591,7 @@ def aggregate_patterns(videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 if not cur["how_to_reproduce"] and p.get("how_to_reproduce"):
                     cur["how_to_reproduce"] = str(p["how_to_reproduce"])
                 cur["signature"] = cur["signature"] or bool(p.get("signature"))
+    merged = merge_pattern_families(merged)
     n = max(1, len(videos))
     out = []
     for p in merged.values():
@@ -543,6 +631,66 @@ def aggregate_peculiarities(videos: list[dict[str, Any]], passport: dict[str, An
     if pv("script.transcript_source") == "subtitles":
         out.append("Вшитые субтитры — одна строка в нижней трети; транскрипт снят с них (OCR).")
     return out[:30]
+
+
+_PHOTOREAL_RX = [
+    (r"(?i)\bphoto-?realistic(ally)?\b", "stylized 3D"),
+    (r"(?i)\bphoto-?real(ism)?\b", "stylized 3D"),
+    (r"(?i)\brealistic footage\b", "stylized 3D render"),
+    (r"(?i)\blive[- ]action\b", "stylized 3D"),
+    (r"(?i)фотореалистичн\w*", "стилизованная 3D"),
+    (r"(?i)фотореализм\w*", "стилизованный 3D"),
+]
+
+
+def _scrub_photoreal(text: str) -> str:
+    import re as _re
+
+    out = str(text)
+    for rx, rep in _PHOTOREAL_RX:
+        out = _re.sub(rx, rep, out)
+    out = _re.sub(r"(?i)stylized 3D\s+stylized 3D", "stylized 3D", out)
+    return out
+
+
+def scrub_for_medium(obj: Any, medium: str) -> Any:
+    """Синтетическая рисовка → вычистить фотореализм из любых текстов (mapping/blueprint)."""
+    if str(medium) not in _SYNTHETIC_MEDIA:
+        return obj
+    if isinstance(obj, str):
+        return _scrub_photoreal(obj)
+    if isinstance(obj, list):
+        syn = MEDIUM_SYNONYMS.get(medium, ()) + (medium,)
+        return [scrub_for_medium(x, medium) for x in obj]
+    if isinstance(obj, dict):
+        return {k: scrub_for_medium(v, medium) for k, v in obj.items()}
+    return obj
+
+
+def enforce_medium(passport: dict[str, Any]) -> None:
+    """Пост-synth: рисовка из кода главнее текста LLM. Негативы без своей техники, без фотореализма."""
+    medium = str(schema.passport_value(passport, "visual.medium") or "").lower()
+    if not medium:
+        return
+    mp = passport.get("mapping") or {}
+    if medium in _SYNTHETIC_MEDIA:
+        neg_keys = ("negative_en", "anim_negative_en", "forbidden_negative_en")
+        for k, v in list(mp.items()):
+            if k in neg_keys:
+                continue
+            mp[k] = scrub_for_medium(v, medium)
+        syn = MEDIUM_SYNONYMS.get(medium, ()) + (medium, medium.replace("_", " "))
+        for k in neg_keys:
+            if isinstance(mp.get(k), list):
+                mp[k] = [x for x in mp[k] if not any(w in str(x).lower() for w in syn) or "photoreal" in str(x).lower()]
+        neg = mp.get("negative_en")
+        if isinstance(neg, list) and not any("photoreal" in str(x).lower() for x in neg):
+            neg.append("photorealistic live-action footage")
+        lbl = str(passport.get("label") or "")
+        if any(b in lbl.lower() for b in ("реализм", "фотореал", "сток", "съёмк", "съемк")):
+            passport["label"] = ""
+            passport["style_id"] = ""
+    passport["mapping"] = mp
 
 
 def apply_synth(passport: dict[str, Any], synth: dict[str, Any] | None) -> dict[str, Any]:
@@ -711,12 +859,33 @@ def _video_texts(v: dict[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
+# Сильные визуальные признаки стилизации (рисовка, а не съёмка): вес ×5.
+# «Фотореалистичная фактура» у стилизованного рендера — частая ошибка vision, её вес ×1.
+STYLIZED_CUES: tuple[str, ...] = (
+    "стилизован", "stylized", "stylised", "карикатур", "мультяш", "cartoon", "утрирован", "пропорци",
+    "игрушеч", "toy-like", "объёмным светотен", "объемным светотен", "светотеневым моделир", "clay", "pixar",
+    "упрощённ", "упрощенн", "simplified",
+)
+STYLIZED_WEIGHT = 5.0
+
+
+def _visual_reply_texts(videos: list[dict[str, Any]]) -> str:
+    parts = []
+    for v in videos:
+        vis = (v.get("agents") or {}).get("visual") or {}
+        parts.extend(str(vis.get(k) or "") for k in ("line", "subjects", "composition", "light", "world"))
+    return " ".join(parts).lower()
+
+
 def medium_scores(videos: list[dict[str, Any]], candidates: list[str]) -> dict[str, float]:
     text = " ".join(_video_texts(v) for v in videos)
+    stylized = sum(text.count(w) for w in STYLIZED_CUES) + sum(_visual_reply_texts(videos).count(w) for w in STYLIZED_CUES)
     out: dict[str, float] = {}
     for c in candidates:
         lex = MEDIUM_LEXICON.get(c, (c.replace("_", " "),))
         out[c] = float(sum(text.count(w) for w in lex))
+        if c in _SYNTHETIC_MEDIA and stylized:
+            out[c] += STYLIZED_WEIGHT * stylized
     return out
 
 
@@ -757,6 +926,9 @@ def resolve_medium(passport: dict[str, Any], videos: list[dict[str, Any]]) -> No
             alts = [str(x) for x in _values(videos, "agents.visual.line") if x and not any(b in str(x).lower() for b in bad)]
             if alts:
                 line["value"] = alts[0]
+            else:
+                line["value"] = _scrub_photoreal(line["value"])
+            line["note"] = ((line.get("note") or "") + f" (фотореализм убран: рисовка {medium})").strip()
 
 
 # Поля, которые описывают СЮЖЕТ конкретного ролика, а не стиль.

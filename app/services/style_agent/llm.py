@@ -111,4 +111,106 @@ async def ask_json(
         log_path=log_path,
     )
     data = parse_json_object(strip_markdown_fences(raw or ""))
+    if data is None and raw:
+        data = repair_json_object(raw)
+        if data is not None:
+            logger.info("style_agent: JSON {} восстановлен (repair), ключей {}", label, len(data))
     return data, raw or ""
+
+
+def _largest_brace_block(text: str) -> str | None:
+    """Самый длинный сбалансированный {...} блок (строки/экранирование учитываются)."""
+    best: tuple[int, int] | None = None
+    stack = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if stack == 0:
+                start = i
+            stack += 1
+        elif ch == "}" and stack > 0:
+            stack -= 1
+            if stack == 0 and start >= 0 and (best is None or i + 1 - start > best[1] - best[0]):
+                best = (start, i + 1)
+    return text[best[0] : best[1]] if best else None
+
+
+def _close_truncated(text: str) -> str | None:
+    """Обрезанный JSON → отрезать до последнего завершённого элемента и закрыть скобки."""
+    i0 = text.find("{")
+    if i0 < 0:
+        return None
+    t = text[i0:]
+    stack: list[str] = []
+    in_str = False
+    esc = False
+    last_ok = -1
+    for i, ch in enumerate(t):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            last_ok = i
+        elif ch == "," and stack:
+            last_ok = i - 1
+    if last_ok < 0:
+        return None
+    head = t[: last_ok + 1].rstrip().rstrip(",")
+    # пересчитать незакрытые скобки для обрезанной головы
+    stack = []
+    in_str = False
+    esc = False
+    for ch in head:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]" and stack:
+            stack.pop()
+    return head + "".join(reversed(stack))
+
+
+def repair_json_object(raw: str) -> dict[str, Any] | None:
+    """Устойчивый разбор ответа: самый большой JSON-блок → починка обрезанного хвоста."""
+    text = strip_markdown_fences(raw or "")
+    for cand in (_largest_brace_block(text), _close_truncated(text)):
+        if not cand:
+            continue
+        try:
+            obj = json.loads(cand)
+        except ValueError:
+            obj = parse_json_object(cand)
+        if isinstance(obj, dict) and obj:
+            return obj
+    return None

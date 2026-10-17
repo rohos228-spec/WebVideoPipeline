@@ -80,7 +80,7 @@ async def run_style_agent(
     if not sa_job.list_ref_videos(project, node_key):
         raise HTTPException(status_code=400, detail="нет роликов: загрузите mp4 в ноду или подключите «Файлы»")
     if overrides:
-        sa_job.set_meta(project, {"settings": {**sa_job.get_settings(project), **{k: v for k, v in overrides.items() if k != "resume"}}})
+        sa_job.set_meta(project, {"settings": {**sa_job.get_settings(project), **{k: v for k, v in overrides.items() if k not in ("resume", "only_videos")}}})
         await _commit(session, project)
     est = sa_job.estimate(project, node_key, {"resume": True} if overrides.get("resume") else None)
     sa_job.spawn_style_extract_job(project.id, node_key=node_key, overrides=overrides)

@@ -330,6 +330,7 @@ def build_blueprint(passport: dict[str, Any], reply: dict[str, Any] | None = Non
         if reply.get("new_nodes_needed"):
             new_nodes = [str(x) for x in reply["new_nodes_needed"]]
         notes = [str(x) for x in reply.get("notes") or []]
+    chain, templates, notes = _consistency(passport, chain, templates, notes)
     return {
         "chain": chain,
         "prompt_templates": templates,
@@ -337,6 +338,51 @@ def build_blueprint(passport: dict[str, Any], reply: dict[str, Any] | None = Non
         "notes": notes,
         "source": "llm+default" if reply else "default",
     }
+
+
+def _consistency(passport: dict[str, Any], chain: list[dict[str, Any]], templates: dict[str, Any], notes: list[str]):
+    """Измеренное (музыка dB, плотность SFX, рисовка, камера) главнее текста агента blueprint."""
+    from app.services.style_agent import aggregate
+
+    medium = str(_f(passport, "visual.medium") or "")
+    chain = aggregate.scrub_for_medium(chain, medium)
+    templates = aggregate.scrub_for_medium(templates, medium)
+    level = _num(passport, "music.level_vs_voice_db", -6, 1)
+    dens = _f(passport, "sfx.density") or "sparse"
+    unset = ("не задан", "не указан", "неизвест", "not set", "unknown")
+    for n in chain:
+        prm = n.get("params") if isinstance(n.get("params"), dict) else {}
+        for k in list(prm):
+            v = prm[k]
+            if isinstance(v, str) and any(u in v.lower() for u in unset) and any(w in k.lower() + v.lower() for w in ("music", "муз", "db", "дб", "bgm", "sfx", "громк")):
+                del prm[k]
+            elif "density" in k.lower() or "плотн" in k.lower():
+                prm[k] = dens
+        t = str(n.get("node_type") or "")
+        if t in ("music", "mix", "edit", "montage") or "music" in t:
+            if t == "music":
+                prm["level_db"] = level
+            if any("bgm" in k or "music" in k for k in prm) or t in ("mix", "edit", "montage"):
+                for k in list(prm):
+                    if ("bgm" in k or "music" in k) and ("db" in k or "level" in k):
+                        prm[k] = level
+        if t == "sfx_plan" or "sfx" in t:
+            prm["density"] = dens
+        n["params"] = prm
+        for key in ("prompt_hint", "prompt_template"):
+            if isinstance(n.get(key), str) and any(u in n[key].lower() for u in unset) and "dB" not in n[key]:
+                n[key] = re.sub(r"(?i)(громкост\w*|уровень)[^.;]*(не задан\w*|не указан\w*)[^.;]*", f"уровень музыки {level} dB к голосу (измерено)", n[key])
+    out_notes = []
+    for x in notes:
+        lx = x.lower()
+        if any(u in lx for u in unset) and any(w in lx for w in ("муз", "громк", "music", "db", "дб")):
+            continue
+        out_notes.append(aggregate.scrub_for_medium(x, medium))
+    out_notes.append(f"Музыка: {level} dB относительно голоса (измерено по рефам); SFX: плотность {dens}.")
+    cam = camera_stats(passport)
+    if cam.get("dist"):
+        out_notes.append("Камера по всем планам: " + ", ".join(f"{k} {int(round(v * 100))}%" for k, v in cam["dist"].items()) + f" ({cam['shots']} планов).")
+    return chain, templates, out_notes
 
 
 # ── v2.1: статистика по фактическим планам ────────────────────────────────

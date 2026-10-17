@@ -26,7 +26,7 @@ from typing import Any
 from loguru import logger
 
 from app.services.style_agent import linkage, llm, schema
-from app.services.style_agent.budget import IMAGES_PER_CALL, BudgetExceeded, LlmBudget
+from app.services.style_agent.budget import IMAGES_PER_CALL, SHOTS_IMAGES_PER_CALL, BudgetExceeded, LlmBudget
 from app.services.style_analyzer import batch_paths, scrub_style_topic
 
 PROMPTS_DIR = Path("prompts/style_agent")
@@ -43,6 +43,7 @@ ROLE_FILES = {
 }
 _TOPIC_SCRUB_KEYS = {"visual_core_en", "frame_style_lock_en", "subjects", "world", "composition_en"}
 _TRANSCRIPT_MAX = 7000
+NOT_ON_SHEET = "(не на листе)"
 _TABLE_MAX = 9000
 
 
@@ -236,7 +237,8 @@ async def run_specialist(
     problems_all: list[str] = []
     calls_before = budget.used
     if sheets:
-        batches = batch_paths(list(sheets), IMAGES_PER_CALL)[: max(1, int(max_batches))]
+        per_call = SHOTS_IMAGES_PER_CALL if role == "shots" else IMAGES_PER_CALL
+        batches = batch_paths(list(sheets), per_call)[: max(1, int(max_batches))]
         for i, batch in enumerate(batches, start=1):
             suffix = f"\nЛисты {i}/{len(batches)}: {', '.join(p.name for p in batch)}." if len(batches) > 1 else ""
             try:
@@ -299,6 +301,141 @@ def _slim_videos(per_video: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _fixed_inputs(passport: dict[str, Any]) -> str:
+    """Решения кода, которые synth/blueprint не имеют права менять."""
+    medium = schema.passport_value(passport, "visual.medium")
+    cam = schema.passport_value(passport, "motion.camera_vocab")
+    lines = []
+    if medium:
+        lines.append(f"- visual.medium = {medium} (решено кодом). Не меняй технику в текстах; label/style_id и visual_core_en должны ей соответствовать.")
+        if str(medium) in ("3d_render", "2d_flat_vector", "anime", "claymation", "pixel_art", "watercolor"):
+            lines.append("- Запрещены слова photoreal/photorealistic/realistic footage/реализм/фотореалистичный в любых полях; рисовка — стилизованная.")
+            lines.append(f"- {medium} и его синонимы НЕ могут быть в negative_en.")
+    if cam:
+        lines.append(f"- motion.camera_vocab (по описаниям всех планов) = {_compact(cam)}; camera_motion_en пиши по этим долям.")
+    lvl = schema.passport_value(passport, "music.level_vs_voice_db")
+    if lvl is not None:
+        lines.append(f"- музыка: {lvl} dB относительно голоса (измерено) — не пиши, что уровень не задан.")
+    dens = schema.passport_value(passport, "sfx.density")
+    if dens:
+        lines.append(f"- плотность SFX = {dens}.")
+    return ("ЗАФИКСИРОВАНО КОДОМ (не менять):\n" + "\n".join(lines) + "\n\n") if lines else ""
+
+
+def missing_shot_ids(reply: dict[str, Any] | None, n_shots: int) -> list[int]:
+    """Планы без vision-описания: нет записи, нет крупности/камеры или пометка «(не на листе)»."""
+    by_i = {int(e["i"]): e for e in (reply or {}).get("shots") or [] if isinstance(e, dict) and e.get("i") is not None}
+    out = []
+    for i in range(1, n_shots + 1):
+        e = by_i.get(i)
+        if not e or str(e.get("what") or "").startswith(NOT_ON_SHEET) or not (e.get("framing") and e.get("camera")):
+            out.append(i)
+    return out
+
+
+def sheets_for_shot_ids(profile: dict[str, Any], ids: list[int], *, per_sheet: int = 4) -> list[Path]:
+    """Шот-листы, на которых стоят планы ``ids`` (план i → лист (pos)//4 в порядке таблицы)."""
+    sheets = [Path(p) for p in (profile.get("sheets") or {}).get("shots") or []]
+    order = [int(s["i"]) for s in profile.get("shots") or []]
+    idx = sorted({order.index(i) // per_sheet for i in ids if i in order})
+    return [sheets[k] for k in idx if k < len(sheets)]
+
+
+def merge_patch_shots(reply: dict[str, Any], patch: dict[str, Any] | None, ids: list[int]) -> tuple[dict[str, Any], int]:
+    """Подставить описания из дозапроса только для недостающих планов."""
+    if not patch:
+        return reply, 0
+    new = {int(e["i"]): e for e in patch.get("shots") or [] if isinstance(e, dict) and e.get("i") is not None}
+    rows = [dict(e) for e in reply.get("shots") or []]
+    pos = {int(e["i"]): k for k, e in enumerate(rows) if e.get("i") is not None}
+    fixed = 0
+    for i in ids:
+        e = new.get(i)
+        if not e or str(e.get("what") or "").startswith(NOT_ON_SHEET):
+            continue
+        if i in pos:
+            rows[pos[i]] = {**rows[pos[i]], **{k: v for k, v in e.items() if v not in (None, "", [])}}
+        else:
+            rows.append(e)
+        fixed += 1
+    rows.sort(key=lambda e: int(e.get("i") or 0))
+    out = dict(reply)
+    out["shots"] = rows
+    return out, fixed
+
+
+async def run_shots_patch(
+    profile: dict[str, Any],
+    reply: dict[str, Any],
+    ids: list[int],
+    *,
+    budget: LlmBudget,
+    video_label: str,
+    project_id: int | None = None,
+    log_path: Path | None = None,
+    prompts_dir: Path | None = None,
+    max_calls: int = 1,
+) -> dict[str, Any]:
+    """Дозапрос shots только по листам с недостающими планами (≤4 листа за вызов)."""
+    files = sheets_for_shot_ids(profile, ids)
+    if not files:
+        return {"reply": reply, "fixed": 0, "problems": ["нет листов для недостающих планов"]}
+    text = _user_text("shots", profile, video_label) + (
+        f"\n\nДОЗАПРОС: опиши ТОЛЬКО планы № {', '.join(map(str, ids))} (они есть на приложенных листах; метки «#N» на кадрах). "
+        "Остальные планы не возвращай. false_cuts — только среди этих планов."
+    )
+    problems: list[str] = []
+    fixed_total = 0
+    for k, batch in enumerate(batch_paths(files, SHOTS_IMAGES_PER_CALL)[: max(1, max_calls)], start=1):
+        clean, probs = await _ask_role(
+            "shots", text, files=batch, budget=budget, label=f"shots:{video_label}:patch{k}",
+            project_id=project_id, log_path=log_path, prompts_dir=prompts_dir, allow_retry=False,
+        )
+        problems.extend(probs)
+        reply, fixed = merge_patch_shots(reply, clean, ids)
+        fixed_total += fixed
+    return {"reply": reply, "fixed": fixed_total, "problems": problems}
+
+
+def clean_narrative_reply(reply: dict[str, Any] | None, profile: dict[str, Any]) -> dict[str, Any] | None:
+    """OCR-мусор в цитатах нарратива (кэш до чистки субтитров) → по очищенным предложениям/словарю."""
+    if not reply:
+        return reply
+    import difflib
+
+    from app.services.style_agent import ocr
+
+    sents = [str(x.get("text") or "") for x in (profile.get("script") or {}).get("sentences_list") or [] if isinstance(x, dict)]
+    lines = [str(x.get("text") or "") for x in profile.get("subtitles") or [] if isinstance(x, dict)]
+    vocab = set(ocr._COMMON_EN) | {w for t in lines for w in t.lower().split() if len(w) >= 3}
+
+    def fix(q: str) -> str:
+        q = str(q)
+        best, score = None, 0.0
+        for sent in sents:
+            r = difflib.SequenceMatcher(None, q.lower(), sent.lower()).ratio()
+            if r > score:
+                best, score = sent, r
+        if best and score >= 0.8:
+            return best
+        prefix = ""
+        m = __import__("re").match(r"^(\[[^\]]*\]\s*)(.*)$", q)
+        if m:
+            prefix, q = m.group(1), m.group(2)
+        return prefix + ocr.clean_text(q, vocab)
+
+    def walk(x: Any, key: str = "") -> Any:
+        if isinstance(x, dict):
+            return {k: walk(v, k) for k, v in x.items()}
+        if isinstance(x, list):
+            return [walk(v, key) for v in x]
+        if isinstance(x, str) and key in ("quote", "example", "examples", "example_hook", "example_payoff", "hook_text"):
+            return fix(x)
+        return x
+
+    return walk(reply)
+
+
 async def run_synth(
     passport_draft: dict[str, Any],
     per_video: list[dict[str, Any]],
@@ -311,7 +448,8 @@ async def run_synth(
     """Синтез текстовых блоков для промптов Studio (1 вызов + ≤1 повтор)."""
     draft_slim = {k: v for k, v in passport_draft.items() if k in ("sources", *schema.AXES)}
     text = (
-        "Агрегированный паспорт (значения/уверенность/поддержка — не менять):\n"
+        _fixed_inputs(passport_draft)
+        + "Агрегированный паспорт (значения/уверенность/поддержка — не менять):\n"
         + _compact(draft_slim)
         + "\n\nОтветы специалистов по роликам:\n"
         + _compact(_slim_videos(per_video))[:16000]
@@ -339,7 +477,8 @@ async def run_blueprint(
     slim = {k: passport.get(k) for k in ("style_id", "label", "mapping", "script", "linkage", "patterns", "peculiarities")}
     slim["axes"] = {ax: passport.get(ax) for ax in ("format", "visual", "voice", "music", "sfx", "motion", "narrative")}
     text = (
-        "Паспорт стиля v2 (агрегат по роликам):\n"
+        _fixed_inputs(passport)
+        + "Паспорт стиля v2 (агрегат по роликам):\n"
         + _compact(slim)[:18000]
         + "\n\nДоступные типы нод Studio (existing) и их назначение:\n"
         + _compact(bp.node_catalog_for_prompt())

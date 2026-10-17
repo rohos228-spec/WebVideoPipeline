@@ -51,6 +51,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "skip_asr": False,
     "skip_ocr": False,
     "resume": False,
+    # дозапуск только по этим роликам (имена файлов); пусто = все. Не сохраняется в meta.
+    "only_videos": [],
     "agents": list(PER_VIDEO_AGENTS),
 }
 
@@ -189,6 +191,9 @@ def normalize_settings(patch: dict[str, Any]) -> dict[str, Any]:
                 continue
         elif key in ("skip_llm", "skip_asr", "skip_ocr", "resume"):
             out[key] = bool(val)
+        elif key == "only_videos":
+            if isinstance(val, list):
+                out[key] = [str(x).strip() for x in val if str(x).strip()][:50]
         elif key == "agents":
             if isinstance(val, list):
                 out[key] = [a for a in PER_VIDEO_AGENTS if a in {str(x) for x in val}]
@@ -478,18 +483,27 @@ def resume_plan(out_root: Path, video_names: list[Any], roles: tuple[str, ...], 
                 prof = {}
         sig = shots_signature(prof.get("shots") or [])
         for role in roles:
-            if load_cached_reply(vdir, role, sig) is not None:
+            cached = load_cached_reply(vdir, role, sig)
+            if cached is not None:
+                if role == "shots" and prof:
+                    miss = agents.missing_shot_ids(cached, len(prof.get("shots") or []))
+                    pf = agents.sheets_for_shot_ids(prof, miss) if miss else []
+                    if pf:
+                        c = -(-len(pf) // agents.SHOTS_IMAGES_PER_CALL)
+                        items.append({"video": str(name), "role": "shots:patch", "calls": c, "shots": miss})
+                        total += c
                 continue
             files = agents.sheets_for_role(role, prof) if prof else []
             if role in ("voice", "narrative") and prof and not (prof.get("speech") or {}).get("words"):
                 continue
-            calls = max(1, -(-len(files) // IMAGES_PER_CALL)) if role in ("shots",) and files else 1
+            calls = max(1, -(-len(files) // agents.SHOTS_IMAGES_PER_CALL)) if role in ("shots",) and files else 1
             if role == "patterns" and files:
                 calls = 1
             items.append({"video": str(name), "role": role, "calls": calls})
             total += calls
+    per_video_pending = bool(items)
     for g in ("synth", "blueprint"):
-        if load_cached_reply(out_root, g, None) is None:
+        if per_video_pending or load_cached_reply(out_root, g, None) is None:
             items.append({"video": "*", "role": g, "calls": 1})
             total += 1
     return {"calls": total, "steps": items}
@@ -576,6 +590,31 @@ async def run_style_extract(
             if _stopped():
                 break
             cached = load_cached_reply(vdir, role, sig) if (resume or skip_llm) else None
+            if cached is not None and role == "narrative":
+                cached = agents.clean_narrative_reply(cached, profile)
+            only = settings.get("only_videos") or []
+            if cached is not None and role == "shots" and resume and not skip_llm and not _stopped() and (not only or video.name in only):
+                miss = agents.missing_shot_ids(cached, len(profile.get("shots") or []))
+                if miss and budget.can_reserve():
+                    _p(stage="agent", video=video.name, agent="shots:patch", llm=budget.snapshot())
+                    try:
+                        pr = await agents.run_shots_patch(
+                            profile, cached, miss, budget=budget, video_label=video.name,
+                            project_id=project_id, log_path=log_path, prompts_dir=prompts_dir,
+                            max_calls=max(1, -(-len(agents.sheets_for_shot_ids(profile, miss)) // agents.SHOTS_IMAGES_PER_CALL)),
+                        )
+                    except BudgetExceeded as exc:
+                        pr = {"reply": cached, "fixed": 0, "problems": [str(exc)]}
+                    logger.info("style_extract: {} дозапрос shots: недоставало {}, описано {}", video.name, len(miss), pr.get("fixed"))
+                    if pr.get("fixed"):
+                        cached = pr["reply"]
+                        fresh["v"] = True
+                        left = agents.missing_shot_ids(cached, len(profile.get("shots") or []))
+                        save_cached_reply(vdir, "shots", cached, sig)  # недостающие планы добираются дозапросом
+                        if left:
+                            entry["problems"].setdefault("shots", []).append(f"без описания осталось планов: {len(left)}")
+                    if pr.get("problems"):
+                        entry["problems"]["shots"] = pr["problems"]
             if cached is not None:
                 entry["agents"][role] = cached
                 entry.setdefault("cached", []).append(role)
@@ -594,7 +633,7 @@ async def run_style_extract(
                 entry["problems"][role] = ["нет листов кадров — специалист пропущен"]
                 continue
             # vision: пачек столько, чтобы просмотреть ВСЕ листы (лимит бюджета всё равно жёсткий)
-            need_batches = -(-len(files or []) // IMAGES_PER_CALL) if files else 1
+            need_batches = -(-len(files or []) // (agents.SHOTS_IMAGES_PER_CALL if role == "shots" else IMAGES_PER_CALL)) if files else 1
             max_b = max(int(per_video_alloc.get(role) or 1), need_batches if role == "shots" else int(per_video_alloc.get(role) or 1))
             _p(stage="agent", video=video.name, agent=role, llm=budget.snapshot())
             try:
@@ -617,6 +656,8 @@ async def run_style_extract(
                 logger.warning("style_extract: {}/{} упал: {}", role, video.name, exc)
                 entry["problems"][role] = [str(exc)[:300]]
                 continue
+            if res.get("reply") and role == "narrative":
+                res["reply"] = agents.clean_narrative_reply(res["reply"], profile)
             if res.get("reply"):
                 entry["agents"][role] = res["reply"]
                 fresh["v"] = True
@@ -675,6 +716,7 @@ async def run_style_extract(
             synth_problems = [str(exc)[:300]]
     aggregate.apply_synth(passport, synth_reply)
     aggregate.fallback_mapping(passport)
+    aggregate.finalize_mapping(passport)
     auto_label, auto_sid = aggregate.default_label(passport)
     if not passport.get("label"):
         passport["label"] = auto_label

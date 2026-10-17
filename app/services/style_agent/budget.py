@@ -28,6 +28,8 @@ SYNTH_AGENT = "synth"
 
 # Лимит vision-входа gpt_api (см. style_analyzer.BATCH_SIZE): ≤ 8 картинок/запрос.
 IMAGES_PER_CALL = 8
+# shots: ответ на 8 листов не влезал в JSON → по 4 листа за вызов (единый источник для агента и сметы)
+SHOTS_IMAGES_PER_CALL = 4
 
 # Приближённые токены на вызов — для оценки цены (не биллинг).
 _TOKENS_IN_TEXT = 4500
@@ -122,10 +124,10 @@ def model_prices(model: dict[str, Any] | None, model_id: str | None = None) -> t
     return FALLBACK_PRICES_USD_PER_M.get(mid, _DEFAULT_PRICE)
 
 
-def _vision_sheet_batches(n_sheets: int) -> int:
+def _vision_sheet_batches(n_sheets: int, per_call: int = IMAGES_PER_CALL) -> int:
     if n_sheets <= 0:
         return 0
-    return (n_sheets + IMAGES_PER_CALL - 1) // IMAGES_PER_CALL
+    return (n_sheets + per_call - 1) // per_call
 
 
 def plan_calls(
@@ -157,7 +159,8 @@ def plan_calls(
         if agent in VISION_AGENTS:
             # shots видит шот-листы + листы склеек (≈ +50 %), visual — 1 overview, patterns — шот-листы
             n_sheets = sheets_per_video + (sheets_per_video // 2 + 1) if agent == "shots" else (1 if agent == "visual" else sheets_per_video)
-            per_video[agent] = max(1, _vision_sheet_batches(n_sheets)) if n_videos else 0
+            per_call = SHOTS_IMAGES_PER_CALL if agent == "shots" else IMAGES_PER_CALL
+            per_video[agent] = max(1, _vision_sheet_batches(n_sheets, per_call)) if n_videos else 0
         else:
             per_video[agent] = 1 if n_videos else 0
 
@@ -233,7 +236,8 @@ def estimate_cost(plan: dict[str, Any], *, model: dict[str, Any] | None, model_i
     for agent, calls in per_video.items():
         calls = int(calls or 0) * n
         if agent in VISION_AGENTS:
-            imgs_per_call = min(IMAGES_PER_CALL, max(1, sheets)) if sheets else 1
+            cap = SHOTS_IMAGES_PER_CALL if agent == "shots" else IMAGES_PER_CALL
+            imgs_per_call = min(cap, max(1, sheets)) if sheets else 1
             tok_in += calls * (_TOKENS_IN_TEXT // 2 + imgs_per_call * _TOKENS_IN_PER_IMAGE)
             tok_out += calls * _TOKENS_OUT_VISION
         else:
