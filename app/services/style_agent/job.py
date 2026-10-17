@@ -21,7 +21,10 @@ from loguru import logger
 
 from app.services.style_agent import META_KEY, STYLE_DIR_NAME, STYLE_EXTRACT_NODE_TYPE
 from app.services.style_agent import aggregate, agents, extract, schema
+from app.services.style_agent import blueprint as blueprint_mod
+from app.services.style_agent import report as report_mod
 from app.services.style_agent.budget import (
+    IMAGES_PER_CALL,
     DEFAULT_MAX_LLM_CALLS,
     PER_VIDEO_AGENTS,
     BudgetExceeded,
@@ -41,12 +44,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "iqr_threshold": aggregate.DEFAULT_IQR_THRESHOLD,
     "max_sheets_per_video": extract.DEFAULT_MAX_SHEETS,
     "frames_per_min": extract.DEFAULT_FRAMES_PER_MIN,
-    "hook_seconds": extract.DEFAULT_HOOK_SECONDS,
     "language": "ru",
     "style_id": "",
     "label": "",
     "skip_llm": False,
     "skip_asr": False,
+    "skip_ocr": False,
+    "resume": False,
     "agents": list(PER_VIDEO_AGENTS),
 }
 
@@ -79,7 +83,7 @@ def approved_path(project: Any) -> Path:
 
 
 def report_path(project: Any) -> Path:
-    return style_dir(project) / "variance_report.md"
+    return style_dir(project) / "style_report.md"
 
 
 def llm_log_path(project: Any) -> Path:
@@ -175,17 +179,15 @@ def normalize_settings(patch: dict[str, Any]) -> dict[str, Any]:
                 continue
         elif key == "max_sheets_per_video":
             try:
-                out[key] = max(0, min(extract.MAX_SHEETS_HARD, int(val)))
+                out[key] = max(0, min(extract.MAX_SHEETS_AUTO, int(val)))
             except (TypeError, ValueError):
                 continue
         elif key == "frames_per_min":
-            out[key] = extract.clamp_frames_per_min(val)
-        elif key == "hook_seconds":
             try:
-                out[key] = max(0.0, min(30.0, float(val)))
+                out[key] = max(30, min(600, int(val)))
             except (TypeError, ValueError):
                 continue
-        elif key in ("skip_llm", "skip_asr"):
+        elif key in ("skip_llm", "skip_asr", "skip_ocr", "resume"):
             out[key] = bool(val)
         elif key == "agents":
             if isinstance(val, list):
@@ -219,9 +221,30 @@ def job_state(project: Any) -> dict[str, Any]:
     if task is not None and not task.done():
         out["status"] = "running"
     elif out.get("status") == "running":
-        out["status"] = "failed"
-        out["error"] = out.get("error") or "процесс прерван (рестарт бэкенда)"
+        # задача завершилась, но финальная запись статуса потерялась (гонка записи meta):
+        # если черновик паспорта записан после старта — разбор на самом деле завершён.
+        if _draft_written_after(project, out.get("startedAt")):
+            out["status"] = "done"
+            out["stage"] = "done"
+            out["error"] = None
+        elif task is None:
+            out["status"] = "failed"
+            out["error"] = out.get("error") or "процесс прерван (рестарт бэкенда)"
+        else:
+            out["status"] = "failed"
+            out["error"] = out.get("error") or "задача завершилась без итогового статуса"
     return out
+
+
+def _draft_written_after(project: Any, started_at: Any) -> bool:
+    try:
+        fp = draft_path(project)
+        if not fp.exists() or not started_at:
+            return False
+        started = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+        return datetime.fromtimestamp(fp.stat().st_mtime, tz=timezone.utc) >= started
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def is_running(project_id: int) -> bool:
@@ -239,33 +262,21 @@ def resolve_model(project: Any, node_key: str | None) -> dict[str, Any] | None:
         return None
 
 
-def sheets_estimate(videos: list[Path], st: dict[str, Any]) -> dict[str, Any]:
-    """Листы на ролик по ffprobe (длительность/формат); без LLM. Берём максимум по роликам."""
-    per: list[dict[str, Any]] = []
+def _auto_sheets_estimate(project: Any, videos: list[Path]) -> int:
+    """Авто-листы: по уже найденным планам (metrics.json), иначе ~1 план на 1.5 с."""
+    best = 0
     for v in videos:
-        try:
-            fmt = extract.probe(v)
-        except Exception:  # noqa: BLE001
-            fmt = {"duration_s": 60.0, "width": 1920, "height": 1080}
-        dur = float(fmt.get("duration_s") or 0) or 60.0
-        est = extract.estimate_sheets(
-            dur,
-            int(fmt.get("width") or 0),
-            int(fmt.get("height") or 0),
-            frames_per_min=int(st.get("frames_per_min") or extract.DEFAULT_FRAMES_PER_MIN),
-            hook_seconds=float(st.get("hook_seconds") if st.get("hook_seconds") is not None else extract.DEFAULT_HOOK_SECONDS),
-            max_sheets=int(st.get("max_sheets_per_video") or 0),
-        )
-        per.append({"video": v.name, "duration_s": dur, "width": int(fmt.get("width") or 1920), "height": int(fmt.get("height") or 1080), **est})
-    sv = max((p["sheets_overview"] for p in per), default=0)
-    sm = max((p["sheets_motion"] for p in per), default=0)
-    from app.services.style_agent.budget import image_tokens, sheet_pixels
-
-    img = 0
-    for v, p in zip(videos, per):
-        w, h = int(p.get("width") or 16), int(p.get("height") or 9)
-        img = max(img, image_tokens(*sheet_pixels(p["grid"], w, h, extract.FRAME_HEIGHT)))
-    return {"per_video": per, "sheets_visual": sv, "sheets_motion": sm, "image_tokens": img or None}
+        mp = analysis_dir(project) / v.stem / "metrics.json"
+        n = 0
+        if mp.exists():
+            try:
+                n = len(json.loads(mp.read_text(encoding="utf-8")).get("shots") or [])
+            except (OSError, ValueError):
+                n = 0
+        if not n:
+            n = 40
+        best = max(best, extract.auto_max_sheets(n))
+    return best or extract.auto_max_sheets(40)
 
 
 def estimate(project: Any, node_key: str | None = None, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -273,29 +284,36 @@ def estimate(project: Any, node_key: str | None = None, overrides: dict[str, Any
     st = get_settings(project)
     st.update(normalize_settings(overrides or {}))
     videos = list_ref_videos(project, node_key)
-    se = sheets_estimate(videos, st)
+    sheets_est = int(st["max_sheets_per_video"] or 0)
+    if sheets_est <= 0:
+        sheets_est = _auto_sheets_estimate(project, videos)
     plan = plan_calls(
         n_videos=len(videos),
-        sheets_per_video=max(se["sheets_visual"], se["sheets_motion"]),
+        sheets_per_video=sheets_est,
         max_calls=int(st["max_llm_calls"]),
         agents=tuple(st["agents"]),
         with_synth=True,
-        sheets_visual=se["sheets_visual"],
-        sheets_motion=se["sheets_motion"],
+        with_blueprint=True,
     )
-    plan["frames"] = se["per_video"]
-    if se.get("image_tokens"):
-        plan["image_tokens_per_sheet"] = se["image_tokens"]
     if st.get("skip_llm"):
         plan = {
             **plan,
             "per_video": {k: 0 for k in (plan.get("per_video") or {})},
             "planned_total": 0,
             "with_synth": False,
-            "hint": "LLM отключён — только метрики",
+            "with_blueprint": False,
+            "global_agents": [],
+            "hint": "LLM отключён — только метрики, детерминированный blueprint",
         }
+    if st.get("resume") and not st.get("skip_llm"):
+        rp = resume_plan(style_dir(project), [p.name for p in videos], tuple(st["agents"]))
+        plan = {**plan, "planned_total": rp["calls"], "resume": rp, "hint": f"дозапуск: только недостающие шаги ({rp['calls']} вызовов)"}
     model = resolve_model(project, node_key)
     cost = estimate_cost(plan, model=model, model_id=(model or {}).get("id"))
+    if plan.get("resume"):
+        full = max(1, int(plan.get("ideal_total") or 1))
+        k = min(1.0, plan["planned_total"] / full)
+        cost = {**cost, "calls": plan["planned_total"], "usd": round(float(cost.get("usd") or 0) * k, 4), "usd_hi": round(float(cost.get("usd_hi") or 0) * k, 4)}
     return {
         "settings": st,
         "videos": [p.name for p in videos],
@@ -370,6 +388,113 @@ def snapshot(project: Any, node_key: str | None = None) -> dict[str, Any]:
 # ── основной прогон (чистая функция; тесты вызывают напрямую) ─────────────
 
 
+# ── кэш ответов агентов (resume: перезапуск только упавших шагов) ─────────
+
+
+def shots_signature(shots: list[dict[str, Any]]) -> str:
+    """Отпечаток сегментации: ответы shots/patterns валидны только для тех же планов."""
+    import hashlib
+
+    key = ",".join(f"{float(s.get('start') or 0):.1f}" for s in shots)
+    return hashlib.sha1(key.encode()).hexdigest()[:12]
+
+
+_SHOT_BOUND_ROLES = ("shots", "patterns")
+
+
+def load_cached_reply(vdir: Path, role: str, sig: str | None) -> dict[str, Any] | None:
+    fp = vdir / f"q_{role}.json"
+    meta_fp = vdir / f"q_{role}.meta.json"
+    if not fp.exists():
+        return None
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not data:
+        return None
+    meta: dict[str, Any] = {}
+    if meta_fp.exists():
+        try:
+            meta = json.loads(meta_fp.read_text(encoding="utf-8")) or {}
+        except (OSError, ValueError):
+            meta = {}
+    if meta.get("complete") is False:
+        return None
+    if role in _SHOT_BOUND_ROLES and sig is not None:
+        cached_sig = meta.get("shots_sig")
+        if cached_sig is None:
+            # старый кэш без отпечатка: принимаем, если номера планов совпадают с текущей таблицей
+            legacy = _legacy_shot_count(vdir)
+            if legacy is None or legacy != _current_shot_count(vdir):
+                return None
+            return data
+        if cached_sig != sig:
+            return None
+    return data
+
+
+def _legacy_shot_count(vdir: Path) -> int | None:
+    try:
+        q = json.loads((vdir / "q_shots.json").read_text(encoding="utf-8"))
+        ids = [int(e["i"]) for e in q.get("shots") or [] if e.get("i") is not None]
+        return max(ids) if ids else None
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _current_shot_count(vdir: Path) -> int | None:
+    try:
+        return len(json.loads((vdir / "shots.json").read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return None
+
+
+def save_cached_reply(vdir: Path, role: str, reply: dict[str, Any], sig: str | None, *, complete: bool = True) -> None:
+    try:
+        vdir.mkdir(parents=True, exist_ok=True)
+        (vdir / f"q_{role}.json").write_text(json.dumps(reply, ensure_ascii=False, indent=2), encoding="utf-8")
+        (vdir / f"q_{role}.meta.json").write_text(
+            json.dumps({"shots_sig": sig, "complete": bool(complete), "at": _utc_now()}, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError as exc:
+        logger.warning("style_agent: кэш {} не записан: {}", role, exc)
+
+
+def resume_plan(out_root: Path, video_names: list[Any], roles: tuple[str, ...], per_video: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Сколько вызовов нужно, чтобы дозапустить только недостающие шаги (по текущей сегментации)."""
+    items: list[dict[str, Any]] = []
+    total = 0
+    pv_by = {str(v.get("video")): v for v in per_video or []}
+    for name in video_names:
+        stem = Path(str(name)).stem
+        vdir = out_root / "analysis" / stem
+        prof: dict[str, Any] = {}
+        mp = vdir / "metrics.json"
+        if mp.exists():
+            try:
+                prof = json.loads(mp.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                prof = {}
+        sig = shots_signature(prof.get("shots") or [])
+        for role in roles:
+            if load_cached_reply(vdir, role, sig) is not None:
+                continue
+            files = agents.sheets_for_role(role, prof) if prof else []
+            if role in ("voice", "narrative") and prof and not (prof.get("speech") or {}).get("words"):
+                continue
+            calls = max(1, -(-len(files) // IMAGES_PER_CALL)) if role in ("shots",) and files else 1
+            if role == "patterns" and files:
+                calls = 1
+            items.append({"video": str(name), "role": role, "calls": calls})
+            total += calls
+    for g in ("synth", "blueprint"):
+        if load_cached_reply(out_root, g, None) is None:
+            items.append({"video": "*", "role": g, "calls": 1})
+            total += 1
+    return {"calls": total, "steps": items}
+
+
 async def run_style_extract(
     videos: list[Path],
     out_root: Path,
@@ -379,11 +504,18 @@ async def run_style_extract(
     project_id: int | None = None,
     model_id: str = "",
     asr_fn: extract.AsrFn | None = None,
+    ocr_fn: Any = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
     prompts_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Ролики → паспорт-черновик. Возвращает {passport, per_video, report, budget}."""
+    """Ролики → паспорт-черновик v2 + отчёт. Возвращает {passport, per_video, report, budget, plan}.
+
+    Порядок по ролику: детерминированное извлечение → ``shots`` (vision:
+    планы + подтверждение склеек → слияние ложных) → ``visual`` → ``voice`` →
+    ``narrative`` → ``patterns`` (видит разбор shots). Затем агрегация →
+    ``synth`` (блоки промптов) → ``blueprint`` (цепочка нод) → отчёт.
+    """
 
     def _p(**kw: Any) -> None:
         if progress:
@@ -395,18 +527,21 @@ async def run_style_extract(
     out_root.mkdir(parents=True, exist_ok=True)
     log_path = out_root / "llm_calls.jsonl"
     skip_llm = bool(settings.get("skip_llm"))
+    resume = bool(settings.get("resume"))
     enabled_agents = tuple(a for a in PER_VIDEO_AGENTS if a in set(settings.get("agents") or PER_VIDEO_AGENTS))
-    se = sheets_estimate(videos, settings)
     plan = plan_calls(
         n_videos=len(videos),
-        sheets_per_video=max(se["sheets_visual"], se["sheets_motion"]),
+        sheets_per_video=int(settings.get("max_sheets_per_video") or extract.DEFAULT_MAX_SHEETS),
         max_calls=budget.max_calls,
         agents=enabled_agents,
         with_synth=True,
-        sheets_visual=se["sheets_visual"],
-        sheets_motion=se["sheets_motion"],
+        with_blueprint=True,
     )
     videos_covered = int(plan.get("videos_covered") or 0) if not skip_llm else 0
+    if resume and not skip_llm:
+        # дозапуск: кэш закрывает успешные шаги, недостающие — по всем роликам (лимит вызовов жёсткий)
+        videos_covered = len(videos)
+    fresh = {"v": False}  # появились новые ответы по роликам → кэш synth/blueprint устарел
     per_video_alloc = plan.get("per_video") or {}
 
     per_video: list[dict[str, Any]] = []
@@ -420,62 +555,92 @@ async def run_style_extract(
                 extract.analyze_video,
                 video,
                 vdir,
-                max_sheets=int(settings.get("max_sheets_per_video") or 0),
-                frames_per_min=int(settings.get("frames_per_min") or extract.DEFAULT_FRAMES_PER_MIN),
-                hook_seconds=float(settings.get("hook_seconds") if settings.get("hook_seconds") is not None else extract.DEFAULT_HOOK_SECONDS),
+                max_sheets=int(settings.get("max_sheets_per_video") or extract.DEFAULT_MAX_SHEETS),
                 language=str(settings.get("language") or "ru"),
                 asr_fn=asr_fn,
                 skip_asr=bool(settings.get("skip_asr")),
+                ocr_fn=ocr_fn,
+                skip_ocr=bool(settings.get("skip_ocr")),
+                frames_per_min=int(settings.get("frames_per_min") or extract.DEFAULT_FRAMES_PER_MIN),
+                progress=lambda st, _v=video: _p(stage=f"extract:{st}", video=_v.name, index=idx, total=len(videos)),
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("style_extract: ролик {} не разобран", video.name)
             per_video.append({"video": video.name, "error": str(exc)[:400], "metrics": {}, "agents": {}})
             continue
         entry: dict[str, Any] = {"video": video.name, "metrics": profile, "agents": {}, "problems": {}}
-        if not skip_llm and idx < videos_covered:
-            sheets_ov = [Path(p) for p in (profile.get("sheets") or {}).get("overview") or []]
-            sheets_mo = [Path(p) for p in (profile.get("sheets") or {}).get("motion") or []]
-            for role in enabled_agents:
-                if _stopped():
-                    break
-                files: list[Path] | None
-                if role == "visual":
-                    files = sheets_ov or sheets_mo or None
-                elif role == "motion":
-                    files = sheets_mo or sheets_ov or None
-                else:
-                    files = None
-                    if not (profile.get("speech") or {}).get("words") and not (profile.get("speech") or {}).get("transcript"):
-                        entry["problems"][role] = ["нет транскрипта — специалист пропущен"]
-                        continue
-                if role in ("visual", "motion") and not files:
-                    entry["problems"][role] = ["нет листов кадров — специалист пропущен"]
-                    continue
-                _p(stage="agent", video=video.name, agent=role, llm=budget.snapshot())
-                try:
-                    res = await agents.run_specialist(
-                        role,
-                        profile,
-                        sheets=files,
-                        budget=budget,
-                        video_label=video.name,
-                        project_id=project_id,
-                        log_path=log_path,
-                        prompts_dir=prompts_dir,
-                        max_batches=int(per_video_alloc.get(role) or 1),
-                    )
-                except BudgetExceeded as exc:
-                    entry["problems"][role] = [str(exc)]
-                    break
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("style_extract: {}/{} упал: {}", role, video.name, exc)
-                    entry["problems"][role] = [str(exc)[:300]]
-                    continue
-                if res.get("reply"):
-                    entry["agents"][role] = res["reply"]
-                    (vdir / f"q_{role}.json").write_text(json.dumps(res["reply"], ensure_ascii=False, indent=2), encoding="utf-8")
-                if res.get("problems"):
-                    entry["problems"][role] = res["problems"]
+        shots_final = [dict(s) for s in profile.get("shots") or []]
+        sig = shots_signature(profile.get("shots") or [])
+        shots_reply: dict[str, Any] | None = None
+        for role in enabled_agents:
+            if _stopped():
+                break
+            cached = load_cached_reply(vdir, role, sig) if (resume or skip_llm) else None
+            if cached is not None:
+                entry["agents"][role] = cached
+                entry.setdefault("cached", []).append(role)
+                if role == "shots":
+                    shots_reply = cached
+                    shots_final = agents.apply_false_cuts(shots_final, shots_reply.get("false_cuts"))
+                    shots_final = agents.merge_shot_descriptions(shots_final, shots_reply)
+                continue
+            if skip_llm or idx >= videos_covered:
+                continue
+            files = agents.sheets_for_role(role, profile) or None
+            if role in ("voice", "narrative") and not (profile.get("speech") or {}).get("words"):
+                entry["problems"][role] = ["нет транскрипта (ни субтитров, ни ASR) — специалист пропущен"]
+                continue
+            if role in ("shots", "visual", "patterns") and not files:
+                entry["problems"][role] = ["нет листов кадров — специалист пропущен"]
+                continue
+            # vision: пачек столько, чтобы просмотреть ВСЕ листы (лимит бюджета всё равно жёсткий)
+            need_batches = -(-len(files or []) // IMAGES_PER_CALL) if files else 1
+            max_b = max(int(per_video_alloc.get(role) or 1), need_batches if role == "shots" else int(per_video_alloc.get(role) or 1))
+            _p(stage="agent", video=video.name, agent=role, llm=budget.snapshot())
+            try:
+                res = await agents.run_specialist(
+                    role,
+                    profile,
+                    sheets=files,
+                    budget=budget,
+                    video_label=video.name,
+                    project_id=project_id,
+                    log_path=log_path,
+                    prompts_dir=prompts_dir,
+                    max_batches=max_b,
+                    shots_reply=shots_reply,
+                )
+            except BudgetExceeded as exc:
+                entry["problems"][role] = [str(exc)]
+                break
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("style_extract: {}/{} упал: {}", role, video.name, exc)
+                entry["problems"][role] = [str(exc)[:300]]
+                continue
+            if res.get("reply"):
+                entry["agents"][role] = res["reply"]
+                fresh["v"] = True
+                save_cached_reply(vdir, role, res["reply"], sig, complete=not any("лимит" in str(x) or "останов" in str(x) or "провайдер" in str(x) for x in res.get("problems") or []))
+                if role == "shots":
+                    shots_reply = res["reply"]
+                    shots_final = agents.apply_false_cuts(shots_final, shots_reply.get("false_cuts"))
+                    shots_final = agents.merge_shot_descriptions(shots_final, shots_reply)
+            if res.get("problems"):
+                entry["problems"][role] = res["problems"]
+            if budget.fatal:
+                break
+        # закадр по планам (после возможного слияния ложных склеек)
+        from app.services.style_agent import linkage as linkage_mod
+
+        link2 = linkage_mod.link_subtitles_to_shots(profile.get("subtitles") or [], shots_final)
+        for s, ls in zip(shots_final, link2.get("shots") or []):
+            s["vo_text"] = ls.get("text") or ""
+            s["line_ids"] = ls.get("line_ids") or []
+        if shots_final != profile.get("shots"):
+            profile["linkage"] = link2
+            profile["motion"] = {**(profile.get("motion") or {}), **extract.shot_metrics(shots_final, float((profile.get("format") or {}).get("duration_s") or 0))}
+        entry["shots_final"] = shots_final
+        (vdir / "shots_final.json").write_text(json.dumps(shots_final, ensure_ascii=False, indent=1), encoding="utf-8")
         (vdir / "video_profile.json").write_text(
             json.dumps({k: v for k, v in entry.items() if k != "metrics"}, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -492,11 +657,16 @@ async def run_style_extract(
     )
     synth_reply: dict[str, Any] | None = None
     synth_problems: list[str] = []
-    if not skip_llm and good and budget.can_reserve() and not _stopped():
+    cached_synth = load_cached_reply(out_root, "synth", None) if ((resume and not fresh["v"]) or skip_llm) else None
+    if cached_synth is not None:
+        synth_reply = cached_synth
+    elif not skip_llm and good and budget.can_reserve() and not _stopped():
         _p(stage="synth", llm=budget.snapshot())
         try:
             res = await agents.run_synth(passport, good, budget=budget, project_id=project_id, log_path=log_path, prompts_dir=prompts_dir)
             synth_reply = res.get("reply")
+            if synth_reply:
+                save_cached_reply(out_root, "synth", synth_reply, None)
             synth_problems = list(res.get("problems") or [])
         except BudgetExceeded as exc:
             synth_problems = [str(exc)]
@@ -505,19 +675,46 @@ async def run_style_extract(
             synth_problems = [str(exc)[:300]]
     aggregate.apply_synth(passport, synth_reply)
     aggregate.fallback_mapping(passport)
-    if not passport.get("style_id"):
-        passport["style_id"] = schema.slugify_style_id(passport.get("label") or (videos[0].stem if videos else "style"))
+    auto_label, auto_sid = aggregate.default_label(passport)
     if not passport.get("label"):
-        passport["label"] = passport["style_id"]
+        passport["label"] = auto_label
+    if not passport.get("style_id"):
+        passport["style_id"] = auto_sid
+
+    bp_reply: dict[str, Any] | None = None
+    bp_problems: list[str] = []
+    cached_bp = load_cached_reply(out_root, "blueprint", None) if ((resume and not fresh["v"]) or skip_llm) else None
+    if cached_bp is not None:
+        bp_reply = cached_bp
+    elif not skip_llm and good and budget.can_reserve() and not _stopped():
+        _p(stage="blueprint", llm=budget.snapshot())
+        try:
+            res = await agents.run_blueprint(passport, good, budget=budget, project_id=project_id, log_path=log_path, prompts_dir=prompts_dir)
+            bp_reply = res.get("reply")
+            if bp_reply:
+                save_cached_reply(out_root, "blueprint", bp_reply, None)
+            bp_problems = list(res.get("problems") or [])
+        except BudgetExceeded as exc:
+            bp_problems = [str(exc)]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("style_extract: blueprint упал: {}", exc)
+            bp_problems = [str(exc)[:300]]
+    passport["blueprint"] = blueprint_mod.build_blueprint(passport, bp_reply)
+
     passport["llm"] = {"calls_used": budget.used, "calls_limit": budget.max_calls, "model": model_id}
     passport["errors"] = {
         "videos": [{"video": v["video"], "error": v["error"]} for v in per_video if v.get("error")],
         "synth": synth_problems,
+        "blueprint": bp_problems,
         "stopped": _stopped(),
+        "provider_fatal": budget.fatal,
     }
-    report = aggregate.variance_report(passport)
+    passport["resume_plan"] = resume_plan(out_root, [v.get("video") for v in per_video], enabled_agents, per_video)
+    _p(stage="report", llm=budget.snapshot())
+    report = report_mod.render_report(passport)
     (out_root / "style_passport.draft.json").write_text(json.dumps(passport, ensure_ascii=False, indent=2), encoding="utf-8")
-    (out_root / "variance_report.md").write_text(report, encoding="utf-8")
+    (out_root / "style_report.md").write_text(report, encoding="utf-8")
+    (out_root / "variance_report.md").write_text(aggregate.variance_report(passport), encoding="utf-8")
     return {"passport": passport, "per_video": per_video, "report": report, "budget": budget.snapshot(), "plan": plan}
 
 
@@ -545,6 +742,24 @@ async def _set_meta_retry(project_id: int, patch: dict[str, Any]) -> None:
             raise
     if last is not None:
         raise last
+
+
+async def _verify_final_status(project_id: int, status: str) -> None:
+    """Перечитать meta: если поздняя запись прогресса затёрла итог — записать итог ещё раз."""
+    from app.models import Project
+    from app.project_db import project_db_session_scope
+
+    for _ in range(3):
+        try:
+            async with project_db_session_scope(project_id) as session:
+                project = await session.get(Project, project_id)
+                cur = (get_meta(project).get("job") or {}).get("status") if project is not None else status
+            if cur == status:
+                return
+            await _set_meta_retry(project_id, {"job": {"status": status, "stage": "done", "finishedAt": _utc_now(), "error": None}})
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("style_agent: verify status: {}", exc)
+        await asyncio.sleep(0.5)
 
 
 async def _publish(project_id: int, status: str, extra: dict[str, Any] | None = None) -> None:
@@ -577,8 +792,7 @@ def spawn_style_extract_job(project_id: int, *, node_key: str | None, overrides:
 
 
 def _pipeline_text_override(model: dict[str, Any] | None) -> Any:
-    """Тот же провайдер, что у остального пайплайна: если модель есть в 52pay-маршрутах
-    (gpt-5.6-sol и т.п., ключ задан) — идём через 52pay, а не через vibecode."""
+    """Как во всём пайплайне: текстовые вызовы разбора идут через 52pay (gpt-5.6-sol и т.п.), а не через vibecode."""
     from app.services.llm_override import NodeLlmOverride
     from app.services.pay52_routes import resolve_text
     from app.settings import settings
@@ -630,12 +844,30 @@ async def _run_job(project_id: int, *, node_key: str | None, overrides: dict[str
     loop = asyncio.get_running_loop()
     pending: list[dict[str, Any]] = []
 
+    finished = {"v": False}
+    flushes: set[asyncio.Future[Any]] = set()
+
+    def _schedule_flush() -> None:
+        fut = asyncio.ensure_future(_flush_progress())
+        flushes.add(fut)
+        fut.add_done_callback(flushes.discard)
+
     def _progress(info: dict[str, Any]) -> None:
+        if finished["v"]:
+            return
         pending.append(info)
-        loop.call_soon_threadsafe(lambda: asyncio.ensure_future(_flush_progress()))
+        loop.call_soon_threadsafe(_schedule_flush)
+
+    async def _drain_progress() -> None:
+        finished["v"] = True
+        pending.clear()
+        for _ in range(3):
+            if not flushes:
+                break
+            await asyncio.gather(*list(flushes), return_exceptions=True)
 
     async def _flush_progress() -> None:
-        if not pending:
+        if not pending or finished["v"]:
             return
         info = pending.pop()
         pending.clear()
@@ -671,6 +903,7 @@ async def _run_job(project_id: int, *, node_key: str | None, overrides: dict[str
                 should_stop=lambda: is_stop_requested(project_id),
             )
         stopped = bool(result["passport"].get("errors", {}).get("stopped"))
+        await _drain_progress()
         await _set_meta_retry(
             project_id,
             {
@@ -684,13 +917,16 @@ async def _run_job(project_id: int, *, node_key: str | None, overrides: dict[str
                 "passport": {"draftAt": _utc_now(), "style_id": result["passport"].get("style_id"), "approvedAt": None},
             },
         )
+        await _verify_final_status(project_id, "stopped" if stopped else "done")
         await _publish(project_id, "stopped" if stopped else "done")
     except asyncio.CancelledError:
+        await _drain_progress()
         await _set_meta_retry(project_id, {"job": {"status": "stopped", "finishedAt": _utc_now(), "llm": budget.snapshot()}})
         await _publish(project_id, "stopped")
         raise
     except Exception as exc:  # noqa: BLE001
         logger.exception("style_extract #{} failed", project_id)
+        await _drain_progress()
         await _set_meta_retry(
             project_id,
             {"job": {"status": "failed", "finishedAt": _utc_now(), "error": str(exc)[:500], "llm": budget.snapshot()}},

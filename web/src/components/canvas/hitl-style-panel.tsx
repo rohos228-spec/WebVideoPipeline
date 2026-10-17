@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckSquare, FileText, Loader2, Save } from "lucide-react";
+import { CheckSquare, Download, FileText, Loader2, Maximize2, Save } from "lucide-react";
 import { toast } from "sonner";
 import { api, type StylePassport, type StylePassportField } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { MarkdownRenderer } from "@/components/gpt/markdown-renderer";
 import { STYLE_AGENT_QUERY_KEY } from "./style-extract-panel";
 
 const AXES: { key: keyof StylePassport; label: string }[] = [
@@ -18,6 +20,8 @@ const AXES: { key: keyof StylePassport; label: string }[] = [
   { key: "music", label: "Музыка" },
   { key: "sfx", label: "SFX" },
   { key: "narrative", label: "Повествование" },
+  { key: "linkage", label: "Связка VO↔план" },
+  { key: "script", label: "Сценарий (метрики)" },
 ];
 
 const MAPPING_KEYS: { key: string; label: string; multiline?: boolean }[] = [
@@ -76,6 +80,8 @@ export function HitlStylePanel({ projectId }: { projectId: number }) {
   const [axis, setAxis] = useState<string>("visual");
   const [edited, setEdited] = useState<StylePassport | null>(null);
   const [showReport, setShowReport] = useState(false);
+  const [reportView, setReportView] = useState<"full" | "variance">("full");
+  const [reportOpen, setReportOpen] = useState(false);
 
   const snap = useQuery({
     queryKey: [STYLE_AGENT_QUERY_KEY, projectId, "hitl"],
@@ -93,7 +99,7 @@ export function HitlStylePanel({ projectId }: { projectId: number }) {
   const reportQ = useQuery({
     queryKey: [STYLE_AGENT_QUERY_KEY, projectId, "report", snap.data?.passport?.approvedAt ?? ""],
     queryFn: () => api.getStyleAgentReport(projectId),
-    enabled: showReport || tab === "report",
+    enabled: showReport || reportOpen || tab === "report",
     staleTime: 5000,
   });
 
@@ -297,7 +303,7 @@ export function HitlStylePanel({ projectId }: { projectId: number }) {
           ) : null}
 
           {tab === "report" ? (
-            <div className="max-h-64 space-y-1.5 overflow-auto pr-1 text-[9.5px]">
+            <div className="max-h-[32rem] space-y-1.5 overflow-auto pr-1 text-[9.5px]">
               {approvedAt ? (
                 <div className="rounded-md border border-emerald-400/30 bg-emerald-500/10 p-1.5 text-emerald-100">
                   <div className="font-semibold">Записано в Studio</div>
@@ -313,14 +319,87 @@ export function HitlStylePanel({ projectId }: { projectId: number }) {
                   ))}
                 </div>
               ) : null}
+              <div className="flex flex-wrap items-center gap-1">
+                {(["full", "variance"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setReportView(v)}
+                    className={cn(
+                      "rounded-md border px-1.5 py-0.5 text-[9px]",
+                      reportView === v ? "border-fuchsia-400/70 bg-fuchsia-500/25 text-fuchsia-50" : "border-white/10 text-muted-foreground",
+                    )}
+                  >
+                    {v === "full" ? "Полный разбор" : "Разброс"}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="ml-auto inline-flex items-center gap-1 text-[9px] text-fuchsia-200 underline-offset-2 hover:underline"
+                  onClick={() => setReportOpen(true)}
+                  title="Открыть отчёт во весь экран (таблицы планов читаются целиком)"
+                >
+                  <Maximize2 className="h-3 w-3" />
+                  развернуть
+                </button>
+                <a
+                  className="inline-flex items-center gap-1 text-[9px] text-fuchsia-200 underline-offset-2 hover:underline"
+                  href={api.styleReportMdUrl(projectId)}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="style_report.md: планы с таймкодами, связка закадра, сценарий, приёмы, blueprint"
+                >
+                  <Download className="h-3 w-3" />
+                  .md
+                </a>
+                {p.blueprint?.chain?.length ? (
+                  <span className="text-[8.5px] text-muted-foreground" title={(p.blueprint.new_nodes_needed ?? []).join("; ")}>
+                    blueprint: {p.blueprint.chain.length} нод · новых {p.blueprint.chain.filter((n) => n.new).length}
+                  </span>
+                ) : null}
+              </div>
               {reportQ.isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-              {reportQ.data?.variance_report ? (
+              {reportView === "full" ? (
+                reportQ.data?.report ? (
+                  <div className="rounded-md border border-white/10 bg-black/30 p-2 [&_table]:text-[9px] [&_td]:px-1.5 [&_td]:py-1 [&_th]:px-1.5 [&_th]:py-1">
+                    <MarkdownRenderer content={reportQ.data.report} />
+                  </div>
+                ) : reportQ.isSuccess ? (
+                  <div className="text-muted-foreground">Отчёт пуст — перезапустите «Разбор стиля».</div>
+                ) : null
+              ) : reportQ.data?.variance_report ? (
                 <pre className="whitespace-pre-wrap rounded-md border border-white/10 bg-black/30 p-1.5 font-mono text-[8.5px] text-zinc-300">
                   {reportQ.data.variance_report}
                 </pre>
               ) : null}
             </div>
           ) : null}
+
+          <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+            <DialogContent className="max-h-[92vh] w-[96vw] max-w-[1400px] overflow-hidden p-0 sm:max-w-[1400px]">
+              <DialogHeader className="border-b border-white/10 px-5 py-3">
+                <DialogTitle className="flex items-center gap-2 text-sm">
+                  <FileText className="h-4 w-4 text-fuchsia-300" />
+                  Разбор стиля {p.label ? `· ${p.label}` : ""}
+                  <a
+                    className="ml-auto inline-flex items-center gap-1 text-[11px] font-normal text-fuchsia-200 underline-offset-2 hover:underline"
+                    href={api.styleReportMdUrl(projectId)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Download className="h-3 w-3" />
+                    style_report.md
+                  </a>
+                </DialogTitle>
+                <DialogDescription className="text-[11px]">
+                  Планы с таймкодами, связка закадра и картинки, сценарий, приёмы, особенности, blueprint цепочки нод и шаблоны промптов.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="nodrag nopan max-h-[80vh] overflow-auto px-5 py-3" onWheel={(e) => e.stopPropagation()}>
+                {reportQ.data?.report ? <MarkdownRenderer content={reportQ.data.report} /> : <Loader2 className="h-4 w-4 animate-spin" />}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {snap.data?.passport?.problems?.length ? (
             <div className="rounded-md border border-red-400/30 bg-red-500/10 p-1.5 text-[9px] text-red-200">

@@ -32,11 +32,15 @@ for (const vp of VIEWPORTS) {
 
     const canvas = await boxOf(page, '.react-flow');
     expect(canvas, 'канвас не найден').not.toBeNull();
-    for (const sel of ['[data-testid="orchestrator-panel"]', '[data-testid="project-sidebar"]', '[data-testid="inspector"]']) {
+    for (const sel of ['[data-testid="project-sidebar"]'] /* orchestrator + right float overlay the canvas by design (housepc); nodes must stay uncovered (checked below) */) {
       expect(overlap(canvas, await boxOf(page, sel)), `${sel} перекрывает канвас`).toBeFalsy();
     }
     // оркестратор виден и его можно открыть/закрыть
     await expect(page.locator('[data-testid="orchestrator-panel"]')).toBeVisible();
+    // housepc design: no inspector, no API/Bug/Logs/Network/Base rail buttons; right float with run controls + streams
+    await expect(page.locator('[data-testid="inspector"]')).toHaveCount(0);
+    for (const t of ['API', 'Логи', 'Сеть', 'База']) await expect(page.locator(`button[title="${t}"], button:has-text("${t}")`).filter({ hasText: new RegExp(`^${t}$`) })).toHaveCount(0);
+    await expect(page.locator('[data-testid="right-float"] #vp-right-controls')).toHaveCount(1);
 
     const n = await nodes.count();
     const c = canvas!;

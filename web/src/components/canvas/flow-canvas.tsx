@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   ReactFlow,
   Background,
@@ -113,8 +114,9 @@ const edgeTypes = {
 };
 
 const THREAD_EDGE_STYLE = {
-  stroke: "hsl(210 18% 62% / 0.55)",
-  strokeWidth: 1.35,
+  stroke: "rgba(255, 255, 255, 0.5)",
+  strokeWidth: 2,
+  strokeDasharray: "5 6",
 } as const;
 
 export function FlowCanvas({
@@ -265,14 +267,38 @@ export function FlowCanvas({
     if (pr.width < 50 || pr.height < 50) return;
     const els = pane.querySelectorAll<HTMLElement>(".react-flow__node");
     if (!els.length) return;
+    // Right floating run/streams panel (housepc design) overlays the canvas: keep nodes left of it.
+    const fl = document.querySelector<HTMLElement>('[data-testid="right-float"]')?.getBoundingClientRect();
+    const right = fl && fl.width > 0 && fl.left < pr.right && fl.left > pr.left + 200 ? fl.left - 8 : pr.right;
+    // Orchestrator overlays the bottom of the canvas (housepc design): keep nodes above it.
+    const orch = document.querySelector<HTMLElement>('[data-testid="orchestrator-panel"]')?.getBoundingClientRect();
+    const bottom =
+      orch && orch.height > 0 && orch.top < pr.bottom && orch.top > pr.top + 160 ? orch.top - 8 : pr.bottom;
     let off = false;
     els.forEach((el) => {
       const r = el.getBoundingClientRect();
       const cx = r.left + r.width / 2;
       const cy = r.top + r.height / 2;
-      if (cx < pr.left + 8 || cx > pr.right - 8 || cy < pr.top + 8 || cy > pr.bottom - 8) off = true;
+      if (cx < pr.left + 8 || cx > right - 8 || cy < pr.top + 8 || cy > bottom - 8) off = true;
     });
-    if (off) void inst.fitView({ padding: 0.08, maxZoom: 0.85, minZoom: 0.05, duration: 0 });
+    if (!off) return;
+    if (right === pr.right && bottom === pr.bottom) {
+      void inst.fitView({ padding: 0.08, maxZoom: 0.85, minZoom: 0.05, duration: 0 });
+      return;
+    }
+    const b = inst.getNodesBounds(inst.getNodes());
+    if (!b.width || !b.height) return;
+    const availW = right - pr.left - 32;
+    const availH = bottom - pr.top - 32;
+    const zoom = Math.max(0.05, Math.min(0.85, Math.min(availW / b.width, availH / b.height) * 0.92));
+    void inst.setViewport(
+      {
+        x: 16 + (availW - b.width * zoom) / 2 - b.x * zoom,
+        y: 16 + (availH - b.height * zoom) / 2 - b.y * zoom,
+        zoom,
+      },
+      { duration: 0 },
+    );
   }, []);
 
   const hasNodes = nodes.length > 0;
@@ -383,6 +409,14 @@ export function FlowCanvas({
     // Не сбрасываем в pending при кратковременном отсутствии run.data (refetch/invalidate).
     if (!run.data) return;
     const projectStatus = project.data?.status;
+    const meta = (project.data?.meta ?? {}) as Record<string, unknown>;
+    const activeExcelGptKey =
+      typeof meta.active_excel_gpt_node_key === "string"
+        ? meta.active_excel_gpt_node_key
+        : undefined;
+    const completedExcelGptKeys = Array.isArray(meta.excel_gpt_completed_keys)
+      ? meta.excel_gpt_completed_keys.map(String)
+      : [];
     const nodeRunByKey = new Map(run.data.node_runs.map((nr) => [nr.node_key, nr]));
     setNodes((prev) =>
       prev.map((n) => {
@@ -404,6 +438,11 @@ export function FlowCanvas({
           n.data.type,
           nr.status as PipelineNodeData["status"],
           projectStatus,
+          {
+            nodeKey: n.id,
+            activeExcelGptKey,
+            completedExcelGptKeys,
+          },
         );
         const progress = status === "running" ? (nr.progress ?? 0) : 0;
         const progressText = status === "running" ? (nr.progress_text ?? null) : null;
@@ -452,10 +491,21 @@ export function FlowCanvas({
       setNodes((prev) =>
         prev.map((n) => {
           if (n.id !== e.node_key) return n;
+          const meta = (project.data?.meta ?? {}) as Record<string, unknown>;
           const to = reconcileNodeRunStatus(
             n.data.type,
             e.to as PipelineNodeData["status"],
             project.data?.status,
+            {
+              nodeKey: n.id,
+              activeExcelGptKey:
+                typeof meta.active_excel_gpt_node_key === "string"
+                  ? meta.active_excel_gpt_node_key
+                  : undefined,
+              completedExcelGptKeys: Array.isArray(meta.excel_gpt_completed_keys)
+                ? meta.excel_gpt_completed_keys.map(String)
+                : [],
+            },
           );
           return {
             ...n,
@@ -840,6 +890,7 @@ export function FlowCanvas({
     [onSelectNode, scheduleSaveWorkflow, selectedNodeKey, setEdges, setNodes],
   );
 
+  const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number } | null>(null);
   const copySelectedNodes = useCallback(() => {
     const selected = selectedNodesRef.current;
     if (!selected.length) {
@@ -1167,12 +1218,22 @@ export function FlowCanvas({
         multiSelectionKeyCode={["Control", "Meta"]}
         selectionKeyCode={null}
         onPaneContextMenu={(e) => e.preventDefault()}
+        onNodeContextMenu={(e, node) => {
+          e.preventDefault();
+          setNodes((prev) =>
+            prev.some((n) => n.id === node.id && n.selected)
+              ? prev
+              : prev.map((n) => ({ ...n, selected: n.id === node.id })),
+          );
+          setNodeMenu({ x: e.clientX, y: e.clientY });
+        }}
+        onPaneClick={() => setNodeMenu(null)}
         onConnect={onConnect}
         connectionLineType={ConnectionLineType.Bezier}
         connectionLineStyle={{
-          strokeDasharray: "2 7",
-          stroke: "hsl(210 18% 62% / 0.7)",
-          strokeWidth: 1.35,
+          strokeDasharray: "5 6",
+          stroke: "rgba(255, 255, 255, 0.6)",
+          strokeWidth: 2,
           strokeLinecap: "round",
         }}
         edgeTypes={edgeTypes}
@@ -1267,6 +1328,36 @@ export function FlowCanvas({
         />
         <RightButtonMarquee />
       </ReactFlow>
+      {nodeMenu ? (
+        <div
+          className="fixed inset-0 z-[90]"
+          onClick={() => setNodeMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setNodeMenu(null);
+          }}
+        >
+          <div
+            role="menu"
+            data-testid="node-context-menu"
+            className="absolute min-w-[180px] rounded-lg border border-white/10 bg-[#121216]/95 p-1 text-[13px] text-white shadow-2xl backdrop-blur-md"
+            style={{ left: nodeMenu.x, top: nodeMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center justify-between gap-4 rounded-md px-2.5 py-1.5 text-left hover:bg-white/[0.06]"
+              onClick={() => {
+                copySelectedNodes();
+                setNodeMenu(null);
+              }}
+            >
+              Копировать <span className="font-mono text-[11px] text-white/40">Ctrl+C</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
       </div>
       <WorkflowToolbar
         workflowId={workflow.data?.id}
@@ -1427,7 +1518,7 @@ function WorkflowToolbar({
   };
 
   return (
-    <div className="pointer-events-none absolute left-4 top-4 z-10 flex max-w-[calc(100%-2rem)] flex-wrap gap-2">
+    <div className="pointer-events-none absolute left-1/2 top-4 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap gap-2">
       <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-card/90 p-1 backdrop-blur-md shadow-md">
         <NodePalette
           projectId={projectId ?? null}
@@ -1438,23 +1529,13 @@ function WorkflowToolbar({
         <Button
           size="sm"
           variant="ghost"
-          className="h-8 gap-1 text-xs hover:bg-white/5"
-          onClick={onCopy}
-          title="Копировать выделенные ноды (Ctrl+C)"
-        >
-          <Copy className="h-3.5 w-3.5" />
-          Копировать
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 gap-1 text-xs hover:bg-white/5"
+          className="h-8 px-2 text-xs hover:bg-white/5"
           onClick={onPaste}
           disabled={!canPaste}
           title="Вставить скопированные ноды (Ctrl+V) — работает и в другом проекте"
+          aria-label="Вставить"
         >
           <ClipboardPaste className="h-3.5 w-3.5" />
-          Вставить
         </Button>
         <div className="h-4 w-px bg-white/10" />
         <Button
@@ -1591,25 +1672,25 @@ function RunOverlay({
     }
   };
 
-  return (
-    <>
-      {/* Тумблер Автопродвижения */}
+  const controls = (
+    <div className="flex flex-col gap-2.5 border-b border-white/10 pb-3">
+      <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Run:</span>
+          <span className="font-medium">
+            {run ? `#${run.id} · ${formatRunStatus(run.status)}` : "не запущен"}
+          </span>
+        </div>
       {project ? (
-        <div className="pointer-events-none absolute right-4 top-3 z-40">
-          <div className="pointer-events-auto min-w-[200px] max-w-[260px] shadow-sm">
+        <div>
+          <div>
             <AutoAdvanceToggle project={project} />
           </div>
         </div>
       ) : null}
 
       {/* Верхняя компактная панель управления процессом */}
-      <div className="pointer-events-none absolute right-4 top-[5.5rem] z-30 flex max-w-[min(100%,640px)] flex-wrap items-center justify-end gap-2">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm">
-          <span className="text-muted-foreground">Run:</span>
-          <span className="font-medium">
-            {run ? `#${run.id} · ${formatRunStatus(run.status)}` : "не запущен"}
-          </span>
-        </div>
+      <div className="flex flex-wrap items-center gap-2">
+        
 
         {isRunning ? (
           <>
@@ -1641,7 +1722,7 @@ function RunOverlay({
               size="sm"
               onClick={handleResume}
               disabled={pausing}
-              className="pointer-events-auto transition-all duration-200 gap-2 h-9 px-4 font-semibold text-xs text-white bg-gradient-to-r from-emerald-500 via-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-[0.98] shadow-lg shadow-emerald-500/35 border border-emerald-300/40 rounded-xl backdrop-blur-md"
+              className="pointer-events-auto transition-all duration-200 gap-2 h-9 px-4 font-semibold text-xs bg-[#2bb8a0]/20 hover:bg-[#2bb8a0]/30 text-[#bff3e8] active:scale-[0.98] border border-[#2bb8a0]/35 rounded-xl backdrop-blur-md"
               title="Продолжить выполнение пайплайна (переход к следующему шагу)"
             >
               {pausing ? <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-200" /> : <Play className="h-3.5 w-3.5 fill-current" />}
@@ -1663,8 +1744,23 @@ function RunOverlay({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
+  return <PortalTo id="vp-right-controls">{controls}</PortalTo>;
+}
+
+function PortalTo({ id, children }: { id: string; children: React.ReactNode }) {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const pick = () => {
+      const e = document.getElementById(id);
+      setEl((prev) => (prev === e ? prev : e));
+    };
+    pick();
+    const t = window.setInterval(pick, 400);
+    return () => window.clearInterval(t);
+  }, [id]);
+  return el ? createPortal(children, el) : null;
 }
 
 function workflowToReactFlowNodes(

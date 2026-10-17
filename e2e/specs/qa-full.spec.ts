@@ -41,6 +41,7 @@ function watch(page: Page, issues: Issue[], authOn: boolean) {
     if (s >= 500) issues.push({ kind: '5xx', detail: `${s} ${r.request().method()} ${u}` });
     else if (s === 404 && u.includes('/api/')) issues.push({ kind: '404', detail: `${r.request().method()} ${u}` });
     else if (s === 422 && u.includes('/api/')) issues.push({ kind: '422', detail: `${r.request().method()} ${u}` });
+    else if (s >= 400 && r.request().resourceType() === 'image') issues.push({ kind: 'img', detail: `${s} ${u}` });
   });
 }
 
@@ -50,6 +51,12 @@ async function layoutIssues(page: Page, issues: Issue[]) {
   const text = await page.locator('body').innerText().catch(() => '');
   const m = text.match(PROVIDER_RE);
   if (m) issues.push({ kind: 'provider', detail: `виден «${m[0]}»` });
+  const broken = await page.evaluate(() =>
+    [...document.querySelectorAll('img')]
+      .filter((im) => im.complete && im.naturalWidth === 0 && !!im.getAttribute('src'))
+      .map((im) => im.getAttribute('src') || ''),
+  );
+  for (const b of broken.slice(0, 10)) issues.push({ kind: 'img', detail: `broken <img> ${b.slice(0, 160)}` });
 }
 
 /** Закрыть всё, что открыто поверх страницы: Esc, кнопка «Закрыть» в диалоге. */
@@ -98,7 +105,7 @@ async function clickAll(page: Page, route: string, issues: Issue[], scope = 'bod
           // перекрыто тем, что открыл предыдущий клик — закрываем и пробуем снова
           await closeOverlays(page);
           if (reopen) await reopen();
-        } else issues.push({ kind: 'covered', detail: `«${label || '#' + i}» перекрыта другим элементом` });
+        } else issues.push({ kind: 'covered', detail: `«${label || '#' + i}» перекрыта другим элементом :: ${(msg.match(/[^\n]{0,220}intercepts pointer events/) || [''])[0]}` });
       }
     }
     if (ok) clicked++;

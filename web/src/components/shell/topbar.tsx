@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, createContext, useContext } from "react";
-import { Activity, Network, Film, Bot, Database, User, Settings, Code2, FolderOpen, HardDrive, CreditCard, Wallet } from "lucide-react";
+import { Film, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet } from "lucide-react";
 import { LogPanel } from "@/components/logs/log-panel";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
-import { BugReportButton } from "@/components/shell/bug-report-button";
 import { UserPanel, UserPrefsApplier } from "@/components/panels/top/user-panel";
 import { StoragePanel } from "@/components/panels/left-top/storage-panel";
 import { PaymentsPanel } from "@/components/panels/left-bottom/payments-panel";
@@ -57,11 +56,6 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         <RailBtn icon={<Film className="h-[18px] w-[18px]" />} label="Генерация" title="Полный интерфейс генерации" onClick={() => openOutsee()} />
         <RailBtn icon={<FolderOpen className="h-[18px] w-[18px]" />} label="Проекты" title="Показать / скрыть панель проектов" onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))} />
         <RailBtn icon={<HardDrive className="h-[18px] w-[18px]" />} label="Хранилище" active={railPanel === "Хранилище"} onClick={() => togglePanel("Хранилище")} />
-        <RailBtn icon={<Bot className="h-[18px] w-[18px]" />} label="Чат" title="Свободный чат с активной текстовой моделью (GPT или Kimi)" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))} />
-        <RailBtn icon={<Database className="h-[18px] w-[18px]" />} label="База" title="Визуализация базы данных: карточки кадров, связи, версии промтов" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-baza"))} />
-        <RailBtn icon={<Network className="h-[18px] w-[18px]" />} label="Сеть" title="Станции Tailscale и очередь монтажа" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-fleet"))} />
-        <RailBtn icon={<Activity className="h-[18px] w-[18px]" />} label="Логи" title="Логи" onClick={() => setLogsOpen(true)} />
-        <RailBtn icon={<Code2 className="h-[18px] w-[18px]" />} label="API" title="API" onClick={() => window.open("/api/docs", "_blank", "noopener,noreferrer")} />
         <div className="flex-1" />
         <RailBtn icon={<CreditCard className="h-[18px] w-[18px]" />} label="Оплата" active={railPanel === "Оплата"} onClick={() => togglePanel("Оплата")} />
         <RailBtn icon={<Wallet className="h-[18px] w-[18px]" />} label="Выплаты" active={railPanel === "Выплаты"} onClick={() => togglePanel("Выплаты")} />
@@ -80,7 +74,6 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         <button type="button" onClick={() => { window.location.href = "/profile"; }} className={"flex h-10 w-10 items-center justify-center hover:bg-white/[0.05] hover:text-white " + (userOpen ? "text-white" : "text-zinc-400")} title="Пользователь" aria-label="Пользователь">
           <User className="h-5 w-5" strokeWidth={1.6} />
         </button>
-        <BugReportButton />
         <div className="relative">
           <button type="button" onClick={() => setSettingsOpen((v) => !v)} className={"flex h-10 w-10 items-center justify-center hover:bg-white/[0.05] hover:text-white " + (settingsOpen ? "text-white" : "text-zinc-400")} title="Настройки" aria-label="Настройки">
             <Settings className="h-5 w-5" strokeWidth={1.6} />

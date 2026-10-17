@@ -47,9 +47,16 @@ export async function assertNoProviderNames(page: Page, where: string) {
 
 /** Логин тестовым пользователем (создаётся seed-скриптом перед e2e). */
 export async function loginAsQa(page: Page) {
+  // auth off: nothing to log into (navigating /login and submitting would abort the next goto)
+  const st = await page.request.get('/api/auth/status').then((r) => r.json()).catch(() => ({}));
+  if (!st?.auth_required) return;
   await page.goto('/login');
   await page.getByLabel(/почта|email/i).fill(process.env.QA_EMAIL ?? 'qa@test.local');
   await page.getByLabel(/пароль|password/i).fill(process.env.QA_PASSWORD ?? 'Str0ng!pass');
   await page.getByRole('button', { name: /войти|login/i }).click();
+  // wait for the post-login redirect to finish, otherwise the caller's goto is aborted
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 }).catch(() => {});
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(500);
   await page.waitForLoadState('networkidle');
 }

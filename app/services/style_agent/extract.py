@@ -1,12 +1,13 @@
 """Детерминированное извлечение признаков из ролика (без LLM).
 
-ffprobe → формат; ffmpeg scene-detect → границы планов; кадры → листы
-(overview 3×2, motion 3×N) и палитра; аудио → голос / музыкальная
-подложка, громкость (ebur128), паузы (silencedetect); ASR через
-``app.services.asr.transcribe_words`` → темп речи.
+ffprobe → формат; scene-score ffmpeg по **каждому** кадру → адаптивный
+детектор склеек (z-score к локальному фону + подсказки от смены субтитров
++ «плавные» переходы); таймлайн кадров 120/мин (хук — в 2 раза плотнее,
+плюс кадры вокруг каждой склейки); OCR субтитров → транскрипт №1 (ASR —
+запасной); листы для vision-агентов с вшитыми таймкодами; аудио → голос /
+подложка, громкость (ebur128), паузы (silencedetect).
 
-Все внешние процессы идут через ``run_cmd`` (тесты подменяют/или
-используют реальный ffmpeg на синтетическом ролике).
+Все внешние процессы идут через ``run_cmd`` (точка подмены в тестах).
 """
 
 from __future__ import annotations
@@ -24,36 +25,46 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from app.services.image_strip import compose_grid_strip
+from app.services.style_agent import ocr as ocr_mod
 
-SCENE_THRESHOLD = 0.30
+# ── параметры ──────────────────────────────────────────────────────────────
+SCENE_THRESHOLD = 0.30  # старый порог (оставлен для совместимости/справки)
+CUT_FLOOR = 0.045  # минимальный scene-score «жёсткой» склейки
+CUT_Z_MIN = 5.0  # z-score к локальному фону (±1.5 с)
+CUT_WEAK_FLOOR = 0.02  # слабый кандидат — принимается только рядом со сменой субтитра
+CUT_WEAK_Z = 3.0
+UNCERTAIN_SCORE = 0.12  # ниже — проверяем гистограммой «до/после»; похожи → uncertain (вспышка/рывок)
+UNCERTAIN_HIST = 0.10
+CUT_CUE_WINDOW_S = 0.4
+CUT_LOCAL_WINDOW_S = 1.5
+CUT_NMS_S = 0.3  # два кандидата ближе — один
+GRADUAL_MIN_SPAN_S = 0.25
 MIN_SHOT_LEN_S = 0.4
-MAX_SHOTS = 60
-OVERVIEW_COLS, OVERVIEW_ROWS = 3, 2
-MOTION_COLS, MOTION_ROWS = 3, 2
-FRAME_HEIGHT = 360
-# 0 = без лимита: в листы попадают ВСЕ отобранные кадры.
-DEFAULT_MAX_SHEETS = 0
-MAX_SHEETS_HARD = 400
+MAX_SHOTS = 120
 
-# Плотная выборка кадров.
-DEFAULT_FRAMES_PER_MIN = 120  # базово 1 кадр / 0.5 с
-MIN_FRAMES_PER_MIN, MAX_FRAMES_PER_MIN = 6, 600
-DEFAULT_HOOK_SECONDS = 5.0  # первые секунды (хук) — гуще
-HOOK_STEP_S = 0.25
-CUT_OFFSET_S = 0.12  # кадры прямо до/после склейки
-PEAK_THRESHOLD = 0.12  # scene-score пиков движения (ниже порога склейки)
-MAX_PEAKS_PER_MIN = 30
-MIN_GAP_S = 0.1  # ближе — считаем одним моментом
-DEDUPE_DIFF = 0.012  # средняя разница яркости 0..1 — «почти тот же кадр»
-MAX_FRAMES_HARD = 3000
-# Для оценки до запуска (до реального scene-detect).
-EST_CUTS_PER_MIN = 20
-EST_PEAKS_PER_MIN = 10
+DEFAULT_FRAMES_PER_MIN = 120
+HOOK_SECONDS = 5.0
+HOOK_DENSITY = 2
+CUT_PAD_S = 0.2
+TIMELINE_WIDTH = 720  # кадры таймлайна (нужны OCR) — не шире 720
+
+SHEET_COLS, SHEET_ROWS = 3, 4  # шот-лист: 4 плана × (start/mid/end)
+OVERVIEW_COLS, OVERVIEW_ROWS = 3, 2
+CUT_PAIRS_PER_SHEET = 8  # лист пар «до/после» склейки
+FRAME_HEIGHT = 360
+DEFAULT_MAX_SHEETS = 0  # 0 = авто: листов столько, чтобы каждый план получил ячейку
+MAX_SHEETS_AUTO = 40
+# Повторная проверка длинных планов (3D: склейка при похожей палитре даёт score 0.02–0.04)
+LONG_SHOT_S = 4.0
+REFINE_FLOOR = 0.016
+REFINE_REL = 6.0  # пик ≥ REFINE_REL × медиана сегмента
+REFINE_Z = 8.0
+REFINE_EDGE_S = 0.6  # не ближе к границам плана
+REFINE_NMS_S = 0.6
 PALETTE_COLORS = 6
 
 _PTS_RE = re.compile(r"pts_time:\s*([0-9.]+)")
-_SIL_START_RE = re.compile(r"silence_start:\s*([0-9.]+)")
+_SCORE_RE = re.compile(r"lavfi\.scene_score=([0-9.]+)")
 _SIL_END_RE = re.compile(r"silence_end:\s*([0-9.]+)\s*\|\s*silence_duration:\s*([0-9.]+)")
 _LUFS_RE = re.compile(r"I:\s*(-?[0-9.]+)\s*LUFS")
 _LRA_RE = re.compile(r"LRA:\s*(-?[0-9.]+)\s*LU")
@@ -76,21 +87,16 @@ def run_cmd(cmd: list[str], *, timeout: float = 600) -> subprocess.CompletedProc
     )
 
 
+def _ff(*args: str) -> list[str]:
+    return ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *args]
+
+
 # ── ffprobe ────────────────────────────────────────────────────────────────
 
 
 def probe(video: Path) -> dict[str, Any]:
     proc = run_cmd(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-print_format",
-            "json",
-            "-show_format",
-            "-show_streams",
-            str(video),
-        ],
+        ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(video)],
         timeout=60,
     )
     if proc.returncode != 0:
@@ -160,11 +166,11 @@ def resolution_label(w: int, h: int) -> str:
     return f"{w}x{h}" if w and h else "unknown"
 
 
-# ── планы (shot detection) ─────────────────────────────────────────────────
+# ── склейки (cut detection) ────────────────────────────────────────────────
 
 
-def detect_shots(video: Path, duration_s: float, *, threshold: float = SCENE_THRESHOLD) -> list[dict[str, float]]:
-    """Границы планов по ffmpeg select=gt(scene,thr) → список {start,end,len}."""
+def scene_scores(video: Path, out_file: Path | None = None) -> list[tuple[float, float]]:
+    """scene-score ffmpeg для каждого кадра → [(t, score)]."""
     proc = run_cmd(
         [
             "ffmpeg",
@@ -173,7 +179,7 @@ def detect_shots(video: Path, duration_s: float, *, threshold: float = SCENE_THR
             "-i",
             str(video),
             "-vf",
-            f"select='gt(scene,{threshold})',showinfo",
+            "select='gte(scene,0)',metadata=print",
             "-an",
             "-f",
             "null",
@@ -181,44 +187,243 @@ def detect_shots(video: Path, duration_s: float, *, threshold: float = SCENE_THR
         ],
         timeout=900,
     )
-    cuts = sorted({round(float(m), 3) for m in _PTS_RE.findall(proc.stderr or "")})
-    bounds = [0.0] + [c for c in cuts if MIN_SHOT_LEN_S < c < max(duration_s - MIN_SHOT_LEN_S, 0.0)] + [duration_s]
-    shots: list[dict[str, float]] = []
-    for a, b in zip(bounds, bounds[1:]):
-        if b - a < MIN_SHOT_LEN_S and shots:
-            shots[-1]["end"] = b
-            shots[-1]["len"] = round(b - shots[-1]["start"], 3)
+    text = (proc.stderr or "") + "\n" + (proc.stdout or "")
+    return parse_scene_scores(text, out_file)
+
+
+def parse_scene_scores(text: str, out_file: Path | None = None) -> list[tuple[float, float]]:
+    out: list[tuple[float, float]] = []
+    cur: float | None = None
+    for line in text.splitlines():
+        m = _PTS_RE.search(line)
+        if m:
+            cur = float(m.group(1))
             continue
-        shots.append({"start": round(a, 3), "end": round(b, 3), "len": round(b - a, 3)})
+        m = _SCORE_RE.search(line)
+        if m and cur is not None:
+            out.append((round(cur, 4), float(m.group(1))))
+            cur = None
+    if out_file is not None:
+        try:
+            out_file.write_text(json.dumps([[t, round(s, 5)] for t, s in out]), encoding="utf-8")
+        except OSError:
+            pass
+    return out
+
+
+def detect_cuts(
+    scores: list[tuple[float, float]],
+    duration_s: float,
+    *,
+    floor: float = CUT_FLOOR,
+    z_min: float = CUT_Z_MIN,
+    cue_times: list[float] | None = None,
+    weak_floor: float = CUT_WEAK_FLOOR,
+    weak_z: float = CUT_WEAK_Z,
+    cue_window_s: float = CUT_CUE_WINDOW_S,
+) -> list[dict[str, Any]]:
+    """Адаптивный детектор склеек по per-frame scene-score.
+
+    Жёсткая склейка: score ≥ floor и z ≥ z_min к локальному фону (медиана/MAD
+    в окне ±1.5 с) и локальный максимум (±0.3 с). Слабый кандидат (score ≥
+    weak_floor, z ≥ weak_z) принимается, если рядом (±cue_window) сменился
+    субтитр — в 3D-анимации с похожей палитрой cut часто даёт score 0.03–0.07.
+    Серия высоких значений ≥ 0.25 с → «плавный» переход (dissolve/whip/morph),
+    отмечается одной склейкой с ``kind='gradual'`` и ``span``.
+    """
+    if len(scores) < 3 or duration_s <= 0:
+        return []
+    ts = [t for t, _ in scores]
+    ss = [s for _, s in scores]
+    n = len(ss)
+    fps = (n - 1) / max(ts[-1] - ts[0], 1e-3)
+    win = max(3, int(CUT_LOCAL_WINDOW_S * fps))
+    nms = max(1, int(CUT_NMS_S * fps))
+    cues = sorted(cue_times or [])
+
+    def _near_cue(t: float) -> bool:
+        return any(abs(t - c) <= cue_window_s for c in cues)
+
+    cands: list[dict[str, Any]] = []
+    for i in range(1, n):
+        s = ss[i]
+        if s < weak_floor:
+            continue
+        lo, hi = max(0, i - win), min(n, i + win + 1)
+        nb = ss[lo:i] + ss[i + 1 : hi]
+        if not nb:
+            continue
+        base = statistics.median(nb)
+        mad = statistics.median([abs(x - base) for x in nb]) + 0.002
+        z = (s - base) / mad
+        a, b = max(0, i - nms), min(n, i + nms + 1)
+        if s < max(ss[a:b]):
+            continue
+        t = ts[i]
+        if t < MIN_SHOT_LEN_S or t > duration_s - MIN_SHOT_LEN_S:
+            continue
+        hard = s >= floor and z >= z_min
+        weak = (not hard) and s >= weak_floor and z >= weak_z and _near_cue(t)
+        if not (hard or weak):
+            continue
+        # плавный переход: сколько соседних кадров держатся выше floor/2
+        j = i
+        while j - 1 > 0 and ss[j - 1] >= floor / 2:
+            j -= 1
+        k = i
+        while k + 1 < n and ss[k + 1] >= floor / 2:
+            k += 1
+        span = ts[k] - ts[j]
+        kind = "gradual" if span >= GRADUAL_MIN_SPAN_S else ("cue" if weak else "hard")
+        cands.append(
+            {
+                "t": round(t, 3),
+                "score": round(s, 4),
+                "z": round(z, 1),
+                "kind": kind,
+                "span": round(span, 3) if kind == "gradual" else 0.0,
+                "subtitle_cue": _near_cue(t),
+            }
+        )
+    # NMS по времени: ближе MIN_SHOT_LEN_S — оставить сильнейший
+    cands.sort(key=lambda c: c["t"])
+    out: list[dict[str, Any]] = []
+    for c in cands:
+        if out and c["t"] - out[-1]["t"] < MIN_SHOT_LEN_S:
+            if c["score"] > out[-1]["score"]:
+                out[-1] = c
+            continue
+        out.append(c)
+    return out[: MAX_SHOTS - 1]
+
+
+def refine_long_shots(
+    scores: list[tuple[float, float]],
+    cuts: list[dict[str, Any]],
+    duration_s: float,
+    *,
+    long_s: float = LONG_SHOT_S,
+    floor: float = REFINE_FLOOR,
+    rel: float = REFINE_REL,
+    z_min: float = REFINE_Z,
+) -> list[dict[str, Any]]:
+    """Локальный адаптивный проход по планам длиннее ``long_s``.
+
+    Фон считается по самому сегменту (медиана/MAD), поэтому слабые, но резкие
+    пики (3D-склейка с похожей палитрой) находятся там, где глобальный порог их
+    пропустил. Повторяется, пока длинные планы делятся. Новые склейки:
+    ``kind='refined'``, ``refined=True``.
+    """
+    if len(scores) < 3 or duration_s <= 0:
+        return list(cuts)
+    out = sorted((dict(c) for c in cuts), key=lambda c: float(c["t"]))
+    for _round in range(3):
+        bounds = [0.0] + [float(c["t"]) for c in out] + [float(duration_s)]
+        added: list[dict[str, Any]] = []
+        for a, b in zip(bounds, bounds[1:]):
+            if b - a < long_s:
+                continue
+            seg = [(t, v) for t, v in scores if a + REFINE_EDGE_S < t < b - REFINE_EDGE_S]
+            if len(seg) < 5:
+                continue
+            vals = [v for _, v in seg]
+            base = statistics.median(vals)
+            mad = statistics.median([abs(v - base) for v in vals]) + 0.001
+            cands = []
+            for i, (t, v) in enumerate(seg):
+                if v < floor or v < rel * base + 0.004:
+                    continue
+                z = (v - base) / mad
+                if z < z_min:
+                    continue
+                lo, hi = max(0, i - 3), min(len(seg), i + 4)
+                if v < max(x for _, x in seg[lo:hi]):
+                    continue
+                cands.append({"t": round(t, 3), "score": round(v, 4), "z": round(z, 1)})
+            cands.sort(key=lambda c: -c["score"])
+            kept: list[dict[str, Any]] = []
+            for c in cands:
+                if all(abs(c["t"] - k["t"]) >= REFINE_NMS_S for k in kept):
+                    kept.append(c)
+            for c in kept:
+                added.append({**c, "kind": "refined", "span": 0.0, "subtitle_cue": False, "refined": True})
+        if not added:
+            break
+        out = sorted(out + added, key=lambda c: float(c["t"]))
+    return out[: MAX_SHOTS - 1]
+
+
+def _add_cut_pairs(video: Path, new: list[dict[str, Any]], tl_dir: Path, timeline: dict[str, Any], duration: float) -> None:
+    """Кадры «до/после» (±CUT_PAD_S) для новых склеек → timeline['cuts']."""
+    if not new:
+        return
+    for c in new:
+        pair: dict[str, Any] = {"t": float(c["t"])}
+        for tag, tt in (("before", c["t"] - CUT_PAD_S), ("after", c["t"] + CUT_PAD_S)):
+            fp = tl_dir / f"cut_{int(round(c['t'] * 1000)):07d}_{tag}.jpg"
+            try:
+                pair[tag] = str(extract_frame(video, min(max(tt, 0.0), max(duration - 0.05, 0.0)), fp))
+            except ExtractError:
+                pass
+        timeline.setdefault("cuts", []).append(pair)
+    timeline["cuts"].sort(key=lambda c: c["t"])
+
+
+def auto_max_sheets(n_shots: int, requested: int = 0) -> int:
+    """Шот-листов столько, чтобы каждый план получил ≥1 строку (4 плана на лист)."""
+    need = max(1, math.ceil(max(0, int(n_shots)) / SHEET_ROWS))
+    return min(MAX_SHEETS_AUTO, max(int(requested or 0), need))
+
+
+def shots_from_cuts(cuts: list[dict[str, Any]], duration_s: float) -> list[dict[str, Any]]:
+    """Склейки → планы [{i, start, end, len, transition_in, cut_score, cut_kind}]."""
+    bounds: list[tuple[float, dict[str, Any] | None]] = [(0.0, None)] + [(float(c["t"]), c) for c in cuts]
+    shots: list[dict[str, Any]] = []
+    for idx, ((a, cut), (b, _nxt)) in enumerate(zip(bounds, bounds[1:] + [(float(duration_s), None)])):
+        if b <= a:
+            continue
+        shots.append(
+            {
+                "i": idx + 1,
+                "start": round(a, 3),
+                "end": round(b, 3),
+                "len": round(b - a, 3),
+                "transition_in": (cut or {}).get("kind") or "start",
+                "cut_score": (cut or {}).get("score"),
+                "subtitle_cue": bool((cut or {}).get("subtitle_cue")) if cut else False,
+                "uncertain": bool((cut or {}).get("uncertain")) if cut else False,
+            }
+        )
     if not shots and duration_s > 0:
-        shots = [{"start": 0.0, "end": round(duration_s, 3), "len": round(duration_s, 3)}]
-    return shots[:MAX_SHOTS]
+        shots = [{"i": 1, "start": 0.0, "end": round(duration_s, 3), "len": round(duration_s, 3), "transition_in": "start", "cut_score": None, "subtitle_cue": False}]
+    return shots
 
 
-def detect_motion_peaks(
-    video: Path, duration_s: float, cuts: list[float], *, threshold: float = PEAK_THRESHOLD
-) -> list[float]:
-    """Пики движения/смены сцены, которые НЕ являются склейками (scene > thr, вдали от cut)."""
-    proc = run_cmd(
-        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(video), "-vf", f"select='gt(scene,{threshold})',showinfo", "-an", "-f", "null", "-"],
-        timeout=900,
-    )
-    times = sorted({round(float(m), 3) for m in _PTS_RE.findall(proc.stderr or "")})
-    out = [t for t in times if 0 < t < duration_s and all(abs(t - c) > 0.3 for c in cuts)]
-    cap = max(1, int(math.ceil(duration_s / 60.0 * MAX_PEAKS_PER_MIN)))
-    return _pick_evenly(out, cap) if len(out) > cap else out
+def detect_shots(video: Path, duration_s: float, *, cue_times: list[float] | None = None) -> list[dict[str, Any]]:
+    """Совместимость: scene_scores + detect_cuts + shots_from_cuts."""
+    scores = scene_scores(video)
+    return shots_from_cuts(detect_cuts(scores, duration_s, cue_times=cue_times), duration_s)
 
 
-def shot_metrics(shots: list[dict[str, float]], duration_s: float) -> dict[str, Any]:
+def shot_metrics(shots: list[dict[str, Any]], duration_s: float) -> dict[str, Any]:
     lens = [float(s["len"]) for s in shots if float(s.get("len") or 0) > 0]
     if not lens:
         return {"shots": 0, "shot_len_s": None, "shot_len_p10_s": None, "shot_len_p90_s": None, "cuts_per_min": None}
+    kinds = [str(s.get("transition_in") or "") for s in shots[1:]]
+    total_t = max(1, len(kinds))
     return {
         "shots": len(lens),
         "shot_len_s": round(statistics.median(lens), 3),
         "shot_len_p10_s": round(_percentile(lens, 10), 3),
         "shot_len_p90_s": round(_percentile(lens, 90), 3),
+        "shot_len_min_s": round(min(lens), 3),
+        "shot_len_max_s": round(max(lens), 3),
         "cuts_per_min": round(max(0, len(lens) - 1) / duration_s * 60.0, 2) if duration_s > 0 else None,
+        "transitions_measured": {
+            "cut": round(sum(1 for k in kinds if k in ("hard", "cue")) / total_t, 3),
+            "gradual": round(sum(1 for k in kinds if k == "gradual") / total_t, 3),
+        },
+        "hook_shots_first_5s": sum(1 for s in shots if float(s["start"]) < HOOK_SECONDS),
     }
 
 
@@ -234,33 +439,214 @@ def _percentile(values: list[float], pct: float) -> float:
     return vals[lo] + (vals[hi] - vals[lo]) * (k - lo)
 
 
-# ── кадры и листы ──────────────────────────────────────────────────────────
+# ── кадры: таймлайн и листы ────────────────────────────────────────────────
 
 
 def extract_frame(video: Path, t: float, out: Path, *, height: int = FRAME_HEIGHT) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     proc = run_cmd(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-ss",
-            f"{max(0.0, t):.3f}",
-            "-i",
-            str(video),
-            "-frames:v",
-            "1",
-            "-vf",
-            f"scale=-2:{height}",
-            str(out),
-        ],
+        _ff("-ss", f"{max(0.0, t):.3f}", "-i", str(video), "-frames:v", "1", "-vf", f"scale=-2:{height}", str(out)),
         timeout=120,
     )
     if proc.returncode != 0 or not out.is_file():
         raise ExtractError(f"ffmpeg frame @{t:.2f}s: {proc.stderr.strip()[:200]}")
     return out
+
+
+def _extract_series(video: Path, out_dir: Path, prefix: str, rate: float, *, t_max: float | None = None) -> list[tuple[float, Path]]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    args = ["-i", str(video)]
+    if t_max is not None:
+        args += ["-t", f"{t_max:.3f}"]
+    args += ["-vf", f"fps={rate:.4f},scale='min({TIMELINE_WIDTH},iw)':-2", "-q:v", "4", str(out_dir / f"{prefix}_%05d.jpg")]
+    proc = run_cmd(_ff(*args), timeout=900)
+    if proc.returncode != 0:
+        raise ExtractError(f"ffmpeg timeline ({prefix}): {proc.stderr.strip()[:200]}")
+    out: list[tuple[float, Path]] = []
+    for fp in sorted(out_dir.glob(f"{prefix}_*.jpg")):
+        idx = int(fp.stem.rsplit("_", 1)[1]) - 1
+        out.append((round(idx / rate, 3), fp))
+    return out
+
+
+def sample_timeline(
+    video: Path,
+    duration_s: float,
+    out_dir: Path,
+    *,
+    frames_per_min: int = DEFAULT_FRAMES_PER_MIN,
+    cuts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Кадры таймлайна: базовая сетка 120/мин, хук (первые 5 с) ×2, ±0.2 с вокруг склеек.
+
+    Возвращает {"base": [(t, path)], "hook": [...], "cuts": [{"t", "before", "after"}], "rate"}.
+    """
+    rate = max(0.5, float(frames_per_min) / 60.0)
+    base = _extract_series(video, out_dir, "tl", rate)
+    hook: list[tuple[float, Path]] = []
+    if duration_s > 1.0:
+        dense = _extract_series(video, out_dir, "hk", rate * HOOK_DENSITY, t_max=min(HOOK_SECONDS, duration_s))
+        # чётные индексы плотной сетки совпадают с базовой — оставляем промежуточные
+        hook = [(t, p) for i, (t, p) in enumerate(dense) if i % HOOK_DENSITY != 0]
+    around: list[dict[str, Any]] = []
+    for c in cuts or []:
+        t = float(c["t"])
+        pair: dict[str, Any] = {"t": t}
+        for tag, tt in (("before", t - CUT_PAD_S), ("after", t + CUT_PAD_S)):
+            fp = out_dir / f"cut_{int(round(t * 1000)):07d}_{tag}.jpg"
+            try:
+                pair[tag] = str(extract_frame(video, min(max(tt, 0.0), max(duration_s - 0.05, 0.0)), fp))
+            except ExtractError as exc:
+                logger.debug("style_extract: кадр у склейки пропущен: {}", exc)
+        around.append(pair)
+    return {"base": base, "hook": hook, "cuts": around, "rate": rate, "count": len(base) + len(hook) + 2 * len(around)}
+
+
+def frame_at(timeline: dict[str, Any], t: float) -> Path | None:
+    """Ближайший кадр таймлайна к моменту t."""
+    best: tuple[float, Path] | None = None
+    for tt, fp in list(timeline.get("base") or []) + list(timeline.get("hook") or []):
+        d = abs(tt - t)
+        if best is None or d < best[0]:
+            best = (d, fp)
+    return best[1] if best else None
+
+
+def _tc(t: float) -> str:
+    m = int(t // 60)
+    s = t - m * 60
+    return f"{m:02d}:{s:05.2f}"
+
+
+def _font(size: int):  # noqa: ANN202
+    from PIL import ImageFont
+
+    for name in ("DejaVuSans-Bold.ttf", "DejaVuSans.ttf", "arial.ttf", "Arial.ttf", "segoeui.ttf"):
+        try:
+            return ImageFont.truetype(name, size=size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def compose_labeled_grid(cells: list[tuple[Path, str]], out: Path, *, cols: int, cell_height: int = FRAME_HEIGHT) -> Path:
+    """Сетка кадров с подписью (таймкод/роль) на чёрной полосе сверху каждого кадра."""
+    from PIL import Image, ImageDraw
+
+    if not cells:
+        raise ExtractError("пустой лист")
+    ims = []
+    for fp, label in cells:
+        im = Image.open(fp).convert("RGB")
+        im.thumbnail((10_000, cell_height))
+        ims.append((im, label))
+    cw = max(im.width for im, _ in ims)
+    bar = 22
+    rows = (len(ims) + cols - 1) // cols
+    canvas = Image.new("RGB", (cols * (cw + 4), rows * (cell_height + bar + 4)), (16, 16, 16))
+    draw = ImageDraw.Draw(canvas)
+    font = _font(15)
+    for i, (im, label) in enumerate(ims):
+        x = (i % cols) * (cw + 4)
+        y = (i // cols) * (cell_height + bar + 4)
+        draw.rectangle((x, y, x + cw, y + bar), fill=(0, 0, 0))
+        draw.text((x + 4, y + 3), label, fill=(255, 230, 0), font=font)
+        canvas.paste(im, (x + (cw - im.width) // 2, y + bar))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(out, quality=86)
+    return out
+
+
+@dataclass
+class Sheets:
+    overview: list[Path] = field(default_factory=list)
+    shots: list[Path] = field(default_factory=list)
+    cuts: list[Path] = field(default_factory=list)
+    keyframes: list[Path] = field(default_factory=list)
+    # совместимость с v1
+    motion: list[Path] = field(default_factory=list)
+
+    def all(self) -> list[Path]:
+        return [*self.overview, *self.shots, *self.cuts]
+
+
+def build_sheets(
+    video: Path,
+    shots: list[dict[str, Any]],
+    duration_s: float,
+    out_dir: Path,
+    *,
+    max_sheets: int = DEFAULT_MAX_SHEETS,
+    timeline: dict[str, Any] | None = None,
+) -> Sheets:
+    """Листы для vision-агентов (все — с таймкодами на кадрах).
+
+    - ``shot_NN.jpg`` — по 4 плана на лист: start / mid / end каждого плана;
+    - ``overview_NN.jpg`` — 6 кадров, равномерно по ролику (рисовка/палитра);
+    - ``cuts_NN.jpg`` — пары «до/после» для подтверждения склеек (если есть timeline).
+    ``max_sheets`` ограничивает число шот-листов (по 4 плана = ~24 плана на 6 листов;
+    при большем числе планов берутся равномерно).
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    key_dir = out_dir / "keyframes"
+    key_dir.mkdir(parents=True, exist_ok=True)
+    sheets = Sheets()
+    if duration_s <= 0:
+        return sheets
+    max_sheets = auto_max_sheets(len(shots), int(max_sheets or 0))
+
+    # overview
+    ov_times = _spread_times(duration_s, OVERVIEW_COLS * OVERVIEW_ROWS)
+    ov_cells: list[tuple[Path, str]] = []
+    for i, t in enumerate(ov_times):
+        fp = key_dir / f"ov_{i:03d}.jpg"
+        try:
+            ov_cells.append((extract_frame(video, t, fp), _tc(t)))
+            sheets.keyframes.append(fp)
+        except ExtractError as exc:
+            logger.warning("style_extract: кадр пропущен: {}", exc)
+    if ov_cells:
+        try:
+            sheets.overview.append(compose_labeled_grid(ov_cells, out_dir / "overview_01.jpg", cols=OVERVIEW_COLS))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("style_extract: overview-лист не собран: {}", exc)
+
+    # shot sheets
+    per_sheet = SHEET_ROWS
+    picked = shots if len(shots) <= max_sheets * per_sheet else _pick_evenly(shots, max_sheets * per_sheet)
+    cells: list[tuple[Path, str]] = []
+    for s in picked:
+        a, b = float(s["start"]), float(s["end"])
+        for tag, t in (("start", a + 0.05), ("mid", (a + b) / 2), ("end", max(a, b - 0.15))):
+            fp = key_dir / f"sh_{int(s['i']):03d}_{tag}.jpg"
+            try:
+                extract_frame(video, min(t, max(duration_s - 0.05, 0.0)), fp)
+            except ExtractError as exc:
+                logger.warning("style_extract: кадр плана пропущен: {}", exc)
+                continue
+            sheets.keyframes.append(fp)
+            cells.append((fp, f"#{int(s['i'])} {tag} {_tc(t)}"))
+    for n, i in enumerate(range(0, len(cells), per_sheet * SHEET_COLS), start=1):
+        chunk = cells[i : i + per_sheet * SHEET_COLS]
+        try:
+            sheets.shots.append(compose_labeled_grid(chunk, out_dir / f"shot_{n:02d}.jpg", cols=SHEET_COLS))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("style_extract: шот-лист не собран: {}", exc)
+    sheets.motion = list(sheets.shots)
+
+    # cut pairs
+    pairs = [c for c in (timeline or {}).get("cuts") or [] if c.get("before") and c.get("after")]
+    for n, i in enumerate(range(0, len(pairs), CUT_PAIRS_PER_SHEET), start=1):
+        chunk = pairs[i : i + CUT_PAIRS_PER_SHEET]
+        cells_c: list[tuple[Path, str]] = []
+        for c in chunk:
+            cells_c.append((Path(c["before"]), f"cut {_tc(float(c['t']))} −0.2s"))
+            cells_c.append((Path(c["after"]), f"cut {_tc(float(c['t']))} +0.2s"))
+        try:
+            sheets.cuts.append(compose_labeled_grid(cells_c, out_dir / f"cuts_{n:02d}.jpg", cols=4, cell_height=240))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("style_extract: лист склеек не собран: {}", exc)
+    return sheets
 
 
 def _pick_evenly(items: list[Any], n: int) -> list[Any]:
@@ -270,222 +656,6 @@ def _pick_evenly(items: list[Any], n: int) -> list[Any]:
         return list(items)
     step = len(items) / n
     return [items[min(len(items) - 1, int(i * step + step / 2))] for i in range(n)]
-
-
-def grid_for_aspect(width: int, height: int) -> tuple[int, int]:
-    """(cols, rows) листа: 16:9 → 3×2, 9:16 → 2×3, квадрат → 3×3."""
-    if not width or not height:
-        return OVERVIEW_COLS, OVERVIEW_ROWS
-    r = width / height
-    if r >= 1.15:
-        return 3, 2
-    if r <= 0.87:
-        return 2, 3
-    return 3, 3
-
-
-def clamp_frames_per_min(v: Any) -> int:
-    try:
-        n = int(v)
-    except (TypeError, ValueError):
-        return DEFAULT_FRAMES_PER_MIN
-    return max(MIN_FRAMES_PER_MIN, min(MAX_FRAMES_PER_MIN, n))
-
-
-def sample_times(
-    duration_s: float,
-    shots: list[dict[str, float]],
-    peaks: list[float] | None = None,
-    *,
-    frames_per_min: int = DEFAULT_FRAMES_PER_MIN,
-    hook_seconds: float = DEFAULT_HOOK_SECONDS,
-) -> list[tuple[float, str]]:
-    """Моменты кадров: база (frames_per_min) + хук + до/после склеек + пики. Возвращает [(t, tag)]."""
-    if duration_s <= 0:
-        return []
-    end = max(0.0, duration_s - 0.05)
-    step = 60.0 / clamp_frames_per_min(frames_per_min)
-    cand: list[tuple[float, str, int]] = []  # (t, tag, приоритет: меньше = важнее)
-    t = 0.0
-    while t <= end:
-        cand.append((t, "base", 3))
-        t += step
-    t = 0.0
-    while t < min(hook_seconds, end + 1e-9):
-        cand.append((t, "hook", 1))
-        t += HOOK_STEP_S
-    for s in shots[1:]:
-        c = float(s["start"])
-        cand.append((max(0.0, c - CUT_OFFSET_S), "cut_pre", 0))
-        cand.append((min(end, c + CUT_OFFSET_S), "cut_post", 0))
-    for pk in peaks or []:
-        cand.append((min(end, max(0.0, float(pk))), "peak", 2))
-    cand.sort(key=lambda x: (x[0], x[2]))
-    out: list[tuple[float, str, int]] = []
-    for t, tag, pr in cand:
-        if out and t - out[-1][0] < MIN_GAP_S:
-            # cut_pre/cut_post по разные стороны склейки не сливаем
-            if pr < out[-1][2] and not (out[-1][1] == "cut_pre" and tag == "cut_post"):
-                out[-1] = (t, tag, pr)
-            continue
-        out.append((t, tag, pr))
-    out = out[:MAX_FRAMES_HARD]
-    return [(round(t, 3), tag) for t, tag, _ in out]
-
-
-def _sheet_count(n_frames: int, cells: int) -> int:
-    return (n_frames + cells - 1) // cells if n_frames > 0 else 0
-
-
-def _cap_sheets(n: int, max_sheets: int) -> int:
-    return min(n, max_sheets) if max_sheets and max_sheets > 0 else n
-
-
-def estimate_sheets(
-    duration_s: float,
-    width: int,
-    height: int,
-    *,
-    frames_per_min: int = DEFAULT_FRAMES_PER_MIN,
-    hook_seconds: float = DEFAULT_HOOK_SECONDS,
-    max_sheets: int = DEFAULT_MAX_SHEETS,
-    cuts_per_min: float = EST_CUTS_PER_MIN,
-    peaks_per_min: float = EST_PEAKS_PER_MIN,
-) -> dict[str, Any]:
-    """Оценка кадров/листов ДО запуска (склейки и пики — по средней плотности)."""
-    dur = max(0.0, float(duration_s or 0))
-    n_cuts = int(round(dur / 60.0 * cuts_per_min))
-    shots = [{"start": 0.0, "end": dur, "len": dur}] + [
-        {"start": dur * (i + 1) / (n_cuts + 1), "end": dur, "len": 0} for i in range(n_cuts)
-    ]
-    n_pk = int(round(dur / 60.0 * peaks_per_min))
-    peaks = [dur * (i + 0.5) / max(1, n_pk) for i in range(n_pk)]
-    times = sample_times(dur, shots, peaks, frames_per_min=frames_per_min, hook_seconds=hook_seconds)
-    cols, rows = grid_for_aspect(width, height)
-    cells = cols * rows
-    n_motion_frames = sum(1 for _, tag in times if tag in ("cut_pre", "cut_post", "peak"))
-    return {
-        "frames": len(times),
-        "motion_frames": n_motion_frames,
-        "grid": f"{cols}x{rows}",
-        "sheets_overview": _cap_sheets(_sheet_count(len(times), cells), max_sheets),
-        "sheets_motion": _cap_sheets(_sheet_count(n_motion_frames, cells), max_sheets),
-    }
-
-
-@dataclass
-class Sheets:
-    overview: list[Path] = field(default_factory=list)
-    motion: list[Path] = field(default_factory=list)
-    keyframes: list[Path] = field(default_factory=list)
-    pairs: list[tuple[Path, Path]] = field(default_factory=list)
-    grid: str = ""
-    frames_sampled: int = 0
-    frames_deduped: int = 0
-
-    def all(self) -> list[Path]:
-        return [*self.overview, *self.motion]
-
-
-def _frame_sig(fp: Path) -> Any:
-    try:
-        from PIL import Image
-
-        return Image.open(fp).convert("L").resize((32, 18))
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def _sig_diff(a: Any, b: Any) -> float:
-    try:
-        from PIL import ImageChops, ImageStat
-
-        return ImageStat.Stat(ImageChops.difference(a, b)).mean[0] / 255
-    except Exception:  # noqa: BLE001
-        return 1.0
-
-
-def _compose_sheets(frames: list[Path], out_dir: Path, prefix: str, cols: int, rows: int, cap: int) -> list[Path]:
-    cells = cols * rows
-    out: list[Path] = []
-    for i in range(0, len(frames), cells):
-        if cap and len(out) >= cap:
-            break
-        chunk = list(frames[i : i + cells])
-        chunk += [chunk[-1]] * (cells - len(chunk))  # добить последний лист
-        fp = out_dir / f"{prefix}_{len(out) + 1:03d}.jpg"
-        try:
-            out.append(compose_grid_strip(chunk, fp, cols=cols, rows=rows))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("style_extract: лист {} не собран: {}", fp.name, exc)
-    return out
-
-
-def build_sheets(
-    video: Path,
-    shots: list[dict[str, float]],
-    duration_s: float,
-    out_dir: Path,
-    *,
-    width: int = 0,
-    height: int = 0,
-    peaks: list[float] | None = None,
-    frames_per_min: int = DEFAULT_FRAMES_PER_MIN,
-    hook_seconds: float = DEFAULT_HOOK_SECONDS,
-    max_sheets: int = DEFAULT_MAX_SHEETS,
-) -> Sheets:
-    """Плотная выборка → дедуп → листы по формату (16:9 3×2, 9:16 2×3, 1:1 3×3).
-
-    overview — ВСЕ кадры по порядку; motion — кадры до/после склеек и пики движения.
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    key_dir = out_dir / "keyframes"
-    sheets = Sheets()
-    if duration_s <= 0:
-        return sheets
-    cols, rows = grid_for_aspect(width, height)
-    sheets.grid = f"{cols}x{rows}"
-    cells = cols * rows
-    max_sheets = max(0, int(max_sheets or 0))
-    times = sample_times(duration_s, shots, peaks, frames_per_min=frames_per_min, hook_seconds=hook_seconds)
-    if max_sheets and len(times) > max_sheets * cells:
-        keep = [x for x in times if x[1] in ("cut_pre", "cut_post")]
-        rest = [x for x in times if x[1] not in ("cut_pre", "cut_post")]
-        room = max(0, max_sheets * cells - len(keep))
-        times = sorted(keep[: max_sheets * cells] + _pick_evenly(rest, room))
-    sheets.frames_sampled = len(times)
-
-    kept: list[tuple[float, str, Path]] = []
-    last_sig: Any = None
-    for i, (t, tag) in enumerate(times):
-        fp = key_dir / f"f_{i:04d}_{tag}.jpg"
-        try:
-            extract_frame(video, t, fp)
-        except ExtractError as exc:
-            logger.warning("style_extract: кадр пропущен: {}", exc)
-            continue
-        sig = _frame_sig(fp)
-        if tag not in ("cut_pre", "cut_post") and last_sig is not None and sig is not None and _sig_diff(sig, last_sig) < DEDUPE_DIFF:
-            sheets.frames_deduped += 1
-            try:
-                fp.unlink()
-            except OSError:
-                pass
-            continue
-        last_sig = sig
-        kept.append((t, tag, fp))
-    sheets.keyframes = [fp for _, _, fp in kept]
-    sheets.overview = _compose_sheets(sheets.keyframes, out_dir, "overview", cols, rows, max_sheets)
-    motion_frames = [fp for _, tag, fp in kept if tag in ("cut_pre", "cut_post", "peak")]
-    if not motion_frames and len(kept) >= 2:
-        motion_frames = _pick_evenly(sheets.keyframes, cells)
-    sheets.motion = _compose_sheets(motion_frames, out_dir, "motion", cols, rows, max_sheets)
-    # пары начало/конец плана для static_ratio
-    for s in shots:
-        inside = [fp for t, _, fp in kept if float(s["start"]) <= t <= float(s["end"])]
-        if len(inside) >= 2:
-            sheets.pairs.append((inside[0], inside[-1]))
-    return sheets
 
 
 def _spread_times(duration_s: float, n: int) -> list[float]:
@@ -507,9 +677,11 @@ def palette(frames: list[Path], *, n_colors: int = PALETTE_COLORS) -> dict[str, 
     if not frames:
         return {"palette_hex": [], "saturation": None, "contrast": None}
     tiles = []
-    for fp in frames[:24]:
+    for fp in frames[:40]:
         try:
             im = Image.open(fp).convert("RGB")
+            # субтитры внизу — не считать в палитру
+            im = im.crop((0, 0, im.width, int(im.height * 0.7)))
             im.thumbnail((160, 160))
             tiles.append(im)
         except Exception:  # noqa: BLE001
@@ -547,27 +719,72 @@ def palette(frames: list[Path], *, n_colors: int = PALETTE_COLORS) -> dict[str, 
     }
 
 
-def static_ratio(keyframe_pairs: list[tuple[Path, Path]]) -> float | None:
-    """Доля планов, где start≈end (камера и объект почти не движутся)."""
+def frame_diff(a: Path, b: Path) -> float | None:
     try:
         from PIL import Image, ImageChops, ImageStat
+
+        ia = Image.open(a).convert("L").resize((48, 27))
+        ib = Image.open(b).convert("L").resize((48, 27))
     except Exception:  # noqa: BLE001
         return None
-    if not keyframe_pairs:
+    return ImageStat.Stat(ImageChops.difference(ia, ib)).mean[0] / 255
+
+
+def hist_distance(a: Path, b: Path) -> float | None:
+    """1 − пересечение RGB-гистограмм (4×4×4) двух кадров без полосы субтитров, 0..1."""
+    try:
+        from PIL import Image
+    except Exception:  # noqa: BLE001
         return None
-    static = 0
-    total = 0
-    for a, b in keyframe_pairs:
-        try:
-            ia = Image.open(a).convert("L").resize((48, 27))
-            ib = Image.open(b).convert("L").resize((48, 27))
-        except Exception:  # noqa: BLE001
+
+    def _hist(fp: Path) -> list[float]:
+        im = Image.open(fp).convert("RGB")
+        im = im.crop((0, 0, im.width, int(im.height * 0.7))).resize((64, 64))
+        h = [0] * 64
+        for r, g, bb in im.getdata():
+            h[(r // 64) * 16 + (g // 64) * 4 + (bb // 64)] += 1
+        n = float(sum(h)) or 1.0
+        return [x / n for x in h]
+
+    try:
+        ha, hb = _hist(a), _hist(b)
+    except Exception:  # noqa: BLE001
+        return None
+    return round(1.0 - sum(min(x, y) for x, y in zip(ha, hb)), 4)
+
+
+def annotate_cuts(cuts: list[dict[str, Any]], pairs: list[dict[str, Any]]) -> None:
+    """В каждую склейку — ``hist_delta`` и ``uncertain`` (слабый score + похожие кадры до/после)."""
+    by_t = {round(float(p["t"]), 3): p for p in pairs}
+    for c in cuts:
+        p = by_t.get(round(float(c["t"]), 3))
+        if not p or not p.get("before") or not p.get("after"):
             continue
-        diff = ImageStat.Stat(ImageChops.difference(ia, ib)).mean[0] / 255
-        total += 1
-        if diff < 0.04:
-            static += 1
-    return round(static / total, 3) if total else None
+        d = hist_distance(Path(p["before"]), Path(p["after"]))
+        if d is None:
+            continue
+        c["hist_delta"] = d
+        c["uncertain"] = bool(float(c["score"]) < UNCERTAIN_SCORE and d < UNCERTAIN_HIST)
+
+
+def static_ratio(keyframe_pairs: list[tuple[Path, Path]]) -> float | None:
+    """Доля планов, где start≈end (камера и объект почти не движутся)."""
+    vals = [d for d in (frame_diff(a, b) for a, b in keyframe_pairs) if d is not None]
+    if not vals:
+        return None
+    return round(sum(1 for d in vals if d < 0.04) / len(vals), 3)
+
+
+def shot_motion_energy(key_dir: Path, shots: list[dict[str, Any]]) -> None:
+    """В каждый план — ``motion_energy`` (start→end diff 0..1) и ``static`` (bool)."""
+    for s in shots:
+        a = key_dir / f"sh_{int(s['i']):03d}_start.jpg"
+        b = key_dir / f"sh_{int(s['i']):03d}_end.jpg"
+        if a.is_file() and b.is_file():
+            d = frame_diff(a, b)
+            if d is not None:
+                s["motion_energy"] = round(d, 3)
+                s["static"] = d < 0.04
 
 
 # ── аудио ──────────────────────────────────────────────────────────────────
@@ -575,10 +792,7 @@ def static_ratio(keyframe_pairs: list[tuple[Path, Path]]) -> float | None:
 
 def extract_audio(video: Path, out: Path) -> Path | None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    proc = run_cmd(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", str(out)],
-        timeout=600,
-    )
+    proc = run_cmd(_ff("-i", str(video), "-vn", "-ac", "1", "-ar", "16000", str(out)), timeout=600)
     if proc.returncode != 0 or not out.is_file():
         logger.warning("style_extract: аудио не извлечено: {}", proc.stderr.strip()[:200])
         return None
@@ -591,10 +805,7 @@ def separate_voice_music(audio: Path, out_dir: Path) -> dict[str, Path | None]:
     voice = out_dir / "voice.wav"
     music = out_dir / "music_bed.wav"
     if shutil.which("demucs"):
-        proc = run_cmd(
-            ["demucs", "--two-stems=vocals", "-o", str(out_dir / "demucs"), str(audio)],
-            timeout=1800,
-        )
+        proc = run_cmd(["demucs", "--two-stems=vocals", "-o", str(out_dir / "demucs"), str(audio)], timeout=1800)
         if proc.returncode == 0:
             stem_dir = next((p for p in (out_dir / "demucs").rglob("vocals.wav")), None)
             if stem_dir is not None:
@@ -603,48 +814,25 @@ def separate_voice_music(audio: Path, out_dir: Path) -> dict[str, Path | None]:
                 if other.is_file():
                     shutil.copyfile(other, music)
                 return {"voice": voice, "music": music if music.is_file() else None, "method": "demucs"}  # type: ignore[dict-item]
-    proc = run_cmd(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(audio), "-af", "highpass=f=120,lowpass=f=3800", str(voice)],
-        timeout=600,
-    )
+    proc = run_cmd(_ff("-i", str(audio), "-af", "highpass=f=120,lowpass=f=3800", str(voice)), timeout=600)
     v = voice if proc.returncode == 0 and voice.is_file() else None
-    proc = run_cmd(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(audio), "-af", "lowpass=f=160,highpass=f=40", str(music)],
-        timeout=600,
-    )
+    proc = run_cmd(_ff("-i", str(audio), "-af", "lowpass=f=160,highpass=f=40", str(music)), timeout=600)
     m = music if proc.returncode == 0 and music.is_file() else None
     return {"voice": v, "music": m, "method": "bandpass"}  # type: ignore[dict-item]
 
 
 def loudness(audio: Path) -> dict[str, float | None]:
-    proc = run_cmd(
-        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(audio), "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
-        timeout=600,
-    )
+    proc = run_cmd(["ffmpeg", "-hide_banner", "-nostats", "-i", str(audio), "-af", "ebur128=framelog=quiet", "-f", "null", "-"], timeout=600)
     text = proc.stderr or ""
     m = _LUFS_RE.findall(text)
     lra = _LRA_RE.findall(text)
     lufs = float(m[-1]) if m else None
-    return {
-        "lufs": None if lufs is None or lufs < -60 else round(lufs, 2),
-        "lra": round(float(lra[-1]), 2) if lra else None,
-    }
+    return {"lufs": None if lufs is None or lufs < -60 else round(lufs, 2), "lra": round(float(lra[-1]), 2) if lra else None}
 
 
 def silences(audio: Path, *, noise_db: float = -35.0, min_len_s: float = 0.25) -> list[dict[str, float]]:
     proc = run_cmd(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-nostats",
-            "-i",
-            str(audio),
-            "-af",
-            f"silencedetect=noise={noise_db}dB:d={min_len_s}",
-            "-f",
-            "null",
-            "-",
-        ],
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(audio), "-af", f"silencedetect=noise={noise_db}dB:d={min_len_s}", "-f", "null", "-"],
         timeout=600,
     )
     out: list[dict[str, float]] = []
@@ -656,7 +844,7 @@ def silences(audio: Path, *, noise_db: float = -35.0, min_len_s: float = 0.25) -
 
 
 def speech_metrics(words: list[Any], duration_s: float, sil: list[dict[str, float]]) -> dict[str, Any]:
-    """Темп речи и паузы по словам ASR (``WordTS``: word/start/end)."""
+    """Темп речи и паузы по словам (``WordTS``: word/start/end)."""
     toks = [w for w in words if str(getattr(w, "word", "")).strip()]
     if not toks:
         return {
@@ -688,7 +876,7 @@ def speech_metrics(words: list[Any], duration_s: float, sil: list[dict[str, floa
         "pause_p90_s": round(_percentile(gaps, 90), 3) if gaps else 0.0,
         "speech_ratio": round(min(1.0, speaking / duration_s), 3) if duration_s > 0 else None,
         "first_3s_text": first_3s[:300],
-        "transcript": text[:6000],
+        "transcript": text[:8000],
         "silences": len(sil),
     }
 
@@ -704,21 +892,41 @@ def _default_asr(audio: Path, language: str) -> list[Any]:
     return transcribe_words(audio, language=language)
 
 
+def _dump_words(words: list[Any], out: Path) -> None:
+    try:
+        from app.services.whisper import dump_words_json
+
+        dump_words_json(words, out)
+    except Exception:  # noqa: BLE001
+        out.write_text(
+            json.dumps(
+                [{"word": getattr(w, "word", ""), "start": getattr(w, "start", 0), "end": getattr(w, "end", 0)} for w in words],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+
 def analyze_video(
     video: Path,
     out_dir: Path,
     *,
     max_sheets: int = DEFAULT_MAX_SHEETS,
-    frames_per_min: int = DEFAULT_FRAMES_PER_MIN,
-    hook_seconds: float = DEFAULT_HOOK_SECONDS,
-    subtitles_ocr: bool = True,
-    ocr_fn: Any = None,
     language: str = "ru",
     asr_fn: AsrFn | None = None,
     skip_asr: bool = False,
+    ocr_fn: ocr_mod.OcrFn | None = None,
+    skip_ocr: bool = False,
+    frames_per_min: int = DEFAULT_FRAMES_PER_MIN,
     progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-    """Полный детерминированный разбор одного ролика → ``metrics.json`` + листы."""
+    """Полный детерминированный разбор одного ролика → ``metrics.json`` + листы.
+
+    Порядок: probe → scene-scores → предварительные склейки → таймлайн кадров
+    (120/мин + хук + ±0.2 с у склеек) → OCR субтитров → уточнение склеек по
+    сменам субтитров → листы → палитра/энергия движения → аудио (стемы,
+    громкость, паузы) → транскрипт (субтитры, иначе ASR) → метрики речи.
+    """
 
     def _p(stage: str) -> None:
         if progress:
@@ -730,54 +938,74 @@ def analyze_video(
     duration = float(fmt["duration_s"] or 0.0)
     (out_dir / "probe.json").write_text(json.dumps(fmt, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    _p("shots")
-    shots = detect_shots(video, duration)
-    (out_dir / "shots.json").write_text(json.dumps(shots, ensure_ascii=False, indent=2), encoding="utf-8")
+    _p("cuts")
+    scores = scene_scores(video, out_dir / "scene_scores.json")
+    cuts = detect_cuts(scores, duration)
+
+    _p("frames")
+    tl_dir = out_dir / "timeline"
+    timeline = sample_timeline(video, duration, tl_dir, frames_per_min=frames_per_min, cuts=cuts)
+
+    # OCR субтитров
+    subs: list[dict[str, Any]] = []
+    sub_info: dict[str, Any] = {"backend": "", "lines": 0, "band": None}
+    if not skip_ocr:
+        fn = ocr_fn or ocr_mod.default_ocr()
+        if fn is None:
+            sub_info["error"] = "OCR-бэкенд не найден (pip install rapidocr-onnxruntime)"
+        else:
+            _p("ocr")
+            frames_sorted = sorted(list(timeline["base"]) + list(timeline["hook"]), key=lambda x: x[0])
+            raw = ocr_mod.read_frames(frames_sorted, fn)
+            (out_dir / "ocr_raw.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+            band = ocr_mod.subtitle_band(raw)
+            lines = ocr_mod.build_lines(raw, band=band, frame_step_s=1.0 / float(timeline["rate"]))
+            subs = [ln.as_dict() for ln in lines]
+            sub_info = {"backend": "injected" if ocr_fn else ocr_mod.backend_name(), "lines": len(subs), "band": band}
+    (out_dir / "subtitles.json").write_text(json.dumps(subs, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    # уточнение склеек по сменам субтитров (слабые кандидаты)
+    if subs:
+        cue_times = [float(s["start"]) for s in subs]
+        cuts2 = detect_cuts(scores, duration, cue_times=cue_times)
+        new = [c for c in cuts2 if all(abs(c["t"] - o["t"]) > MIN_SHOT_LEN_S for o in cuts)]
+        _add_cut_pairs(video, new, tl_dir, timeline, duration)
+        cuts = cuts2
+    # повторная проверка длинных планов (локальный адаптивный порог)
+    before = {float(c["t"]) for c in cuts}
+    cuts = refine_long_shots(scores, cuts, duration)
+    _add_cut_pairs(video, [c for c in cuts if float(c["t"]) not in before], tl_dir, timeline, duration)
+    annotate_cuts(cuts, timeline["cuts"])
+    shots = shots_from_cuts(cuts, duration)
+    for s_ in shots:
+        cut = next((c for c in cuts if abs(float(c["t"]) - float(s_["start"])) < 1e-6), None)
+        if cut and cut.get("refined"):
+            s_["refined"] = True
+    # чистка OCR-текста (после того как смены субтитров отработали как подсказки склеек)
+    if subs:
+        (out_dir / "subtitles_raw.json").write_text(json.dumps(subs, ensure_ascii=False, indent=1), encoding="utf-8")
+        subs = ocr_mod.clean_lines(subs)
+        sub_info["lines"] = len(subs)
+        sub_info["cleaned"] = True
+        (out_dir / "subtitles.json").write_text(json.dumps(subs, ensure_ascii=False, indent=1), encoding="utf-8")
+    (out_dir / "cuts.json").write_text(json.dumps(cuts, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    _p("sheets")
+    sheets = build_sheets(video, shots, duration, out_dir / "sheets", max_sheets=max_sheets, timeline=timeline)
+    shot_motion_energy(out_dir / "sheets" / "keyframes", shots)
+    (out_dir / "shots.json").write_text(json.dumps(shots, ensure_ascii=False, indent=1), encoding="utf-8")
     motion = shot_metrics(shots, duration)
+    energies = [float(s["motion_energy"]) for s in shots if s.get("motion_energy") is not None]
+    motion["static_ratio"] = round(sum(1 for e in energies if e < 0.04) / len(energies), 3) if energies else None
+    motion["motion_energy_median"] = round(statistics.median(energies), 3) if energies else None
+    pal = palette([p for _t, p in timeline["base"]][:: max(1, len(timeline["base"]) // 24 or 1)])
 
-    _p("frames")
-    _p("peaks")
-    cuts = [float(s["start"]) for s in shots[1:]]
-    try:
-        peaks = detect_motion_peaks(video, duration, cuts)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("style_extract: пики движения не найдены: {}", exc)
-        peaks = []
-    _p("frames")
-    sheets = build_sheets(
-        video,
-        shots,
-        duration,
-        out_dir / "sheets",
-        width=int(fmt.get("width") or 0),
-        height=int(fmt.get("height") or 0),
-        peaks=peaks,
-        frames_per_min=frames_per_min,
-        hook_seconds=hook_seconds,
-        max_sheets=max_sheets,
-    )
-    pal = palette(_pick_evenly(sheets.keyframes, 24))
-    motion["static_ratio"] = static_ratio(sheets.pairs)
-    motion["motion_peaks"] = len(peaks)
-
-    subs: dict[str, Any] = {}
-    if subtitles_ocr:
-        _p("subtitles")
-        try:
-            from app.services.style_agent import subtitles as subs_mod
-
-            if ocr_fn is not None or subs_mod.ocr_available():
-                subs = subs_mod.extract_subtitles(
-                    video, out_dir, duration, int(fmt.get("width") or 0), int(fmt.get("height") or 0), ocr_fn=ocr_fn
-                )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("style_extract: OCR субтитров не удался ({}): {}", video.name, exc)
-            subs = {"error": str(exc)[:300]}
-
+    # аудио
     audio_info: dict[str, Any] = {"has_audio": bool(fmt.get("has_audio"))}
     speech: dict[str, Any] = {}
     music: dict[str, Any] = {"present": False}
-    words_n = 0
+    words: list[Any] = []
+    transcript_source = "none"
     if fmt.get("has_audio"):
         _p("audio")
         audio = extract_audio(video, out_dir / "audio.wav")
@@ -789,8 +1017,7 @@ def analyze_video(
             music_loud = loudness(stems["music"]) if stems.get("music") else {"lufs": None, "lra": None}
             sil = silences(audio)
             (out_dir / "loudness.json").write_text(
-                json.dumps({"full": full_loud, "voice": voice_loud, "music": music_loud}, ensure_ascii=False, indent=2),
-                encoding="utf-8",
+                json.dumps({"full": full_loud, "voice": voice_loud, "music": music_loud}, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             (out_dir / "silence.json").write_text(json.dumps(sil, ensure_ascii=False), encoding="utf-8")
             audio_info["loudness_lufs"] = full_loud.get("lufs")
@@ -800,71 +1027,62 @@ def analyze_video(
             music = {
                 "present": music_lufs is not None and music_lufs > -50,
                 "loudness_lufs": music_lufs,
-                "level_vs_voice_db": (
-                    round(music_lufs - voice_lufs, 2) if music_lufs is not None and voice_lufs is not None else None
-                ),
+                "level_vs_voice_db": round(music_lufs - voice_lufs, 2) if music_lufs is not None and voice_lufs is not None else None,
             }
-            words: list[Any] = []
-            if not skip_asr:
+            if len(subs) >= 3:
+                transcript_source = "subtitles"
+                words = ocr_mod.lines_to_words([ocr_mod.SubtitleLine(**{k: s[k] for k in ("start", "end", "text", "conf")}) for s in subs])
+            elif not skip_asr:
                 _p("asr")
                 try:
                     words = (asr_fn or _default_asr)(stems.get("voice") or audio, language)
+                    transcript_source = "asr" if words else "none"
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("style_extract: ASR не удался ({}): {}", video.name, exc)
                     audio_info["asr_error"] = str(exc)[:300]
-            words_n = len(words)
-            try:
-                from app.services.whisper import dump_words_json
-
-                dump_words_json(words, out_dir / "words.json")
-            except Exception:  # noqa: BLE001
-                (out_dir / "words.json").write_text(
-                    json.dumps(
-                        [
-                            {"word": getattr(w, "word", ""), "start": getattr(w, "start", 0), "end": getattr(w, "end", 0)}
-                            for w in words
-                        ],
-                        ensure_ascii=False,
-                    ),
-                    encoding="utf-8",
-                )
+            _dump_words(words, out_dir / "words.json")
             speech = speech_metrics(words, duration, sil)
-            if speech.get("transcript"):
-                speech["asr_transcript"] = speech["transcript"]
+    elif len(subs) >= 3:
+        transcript_source = "subtitles"
+        words = ocr_mod.lines_to_words([ocr_mod.SubtitleLine(**{k: s[k] for k in ("start", "end", "text", "conf")}) for s in subs])
+        speech = speech_metrics(words, duration, [])
+    speech["transcript_source"] = transcript_source
 
-    if subs.get("segments"):
-        # субтитры точнее ASR: основной текст — из них; ASR — только тайминг/темп
-        speech = dict(speech or {})
-        speech["transcript"] = subs["text"]
-        speech["transcript_source"] = "subtitles_ocr"
-        speech.setdefault("words", len(subs["text"].split()))
-        if not speech.get("pace_wpm") and duration > 0:
-            speech["pace_wpm"] = round(len(subs["text"].split()) / duration * 60, 1)
-    elif speech.get("transcript"):
-        speech["transcript_source"] = "asr"
+    # связка закадра и планов (детерминированная часть)
+    from app.services.style_agent import linkage as linkage_mod
+
+    link = linkage_mod.link_subtitles_to_shots(subs, shots)
+    script = linkage_mod.script_metrics(subs, duration)
+    (out_dir / "linkage.json").write_text(json.dumps(link, ensure_ascii=False, indent=1), encoding="utf-8")
+
     profile = {
         "video": video.name,
-        "subtitles": {
-            "lines": len(subs.get("segments") or []),
-            "style": subs.get("style") or {},
-            "band": subs.get("band"),
-            "error": subs.get("error"),
-        },
         "format": fmt,
         "shots": shots,
+        "cuts": cuts,
         "motion": motion,
         "palette": pal,
         "audio": audio_info,
         "speech": speech,
         "music": music,
-        "words_n": words_n,
+        "subtitles": subs,
+        "subtitles_info": sub_info,
+        "linkage": link,
+        "script": script,
+        "words_n": len(words),
+        "timeline": {
+            "frames": int(timeline.get("count") or 0),
+            "rate_fps": timeline.get("rate"),
+            "frames_per_min": frames_per_min,
+            "hook_density": HOOK_DENSITY,
+            "cut_pad_s": CUT_PAD_S,
+        },
         "sheets": {
             "overview": [str(p) for p in sheets.overview],
-            "motion": [str(p) for p in sheets.motion],
+            "shots": [str(p) for p in sheets.shots],
+            "cuts": [str(p) for p in sheets.cuts],
+            "motion": [str(p) for p in sheets.shots],
             "keyframes": len(sheets.keyframes),
-            "frames_sampled": sheets.frames_sampled,
-            "frames_deduped": sheets.frames_deduped,
-            "grid": sheets.grid,
         },
     }
     (out_dir / "metrics.json").write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")

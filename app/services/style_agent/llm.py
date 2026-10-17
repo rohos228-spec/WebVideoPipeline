@@ -15,7 +15,7 @@ from typing import Any
 
 from loguru import logger
 
-from app.services.style_agent.budget import LlmBudget
+from app.services.style_agent.budget import BudgetExceeded, LlmBudget, is_fatal_provider_error
 from app.services.style_analyzer import parse_json_object, strip_markdown_fences
 
 DEFAULT_TIMEOUT = 420.0
@@ -67,6 +67,10 @@ async def ask(
         return raw
     except Exception as exc:  # noqa: BLE001
         err = str(exc)
+        if is_fatal_provider_error(err):
+            budget.fail(err)
+            logger.warning("style_agent: провайдер отказал, дальнейшие вызовы остановлены: {}", err[:200])
+            raise BudgetExceeded(f"провайдер отказал (баланс/доступ): {err[:200]}") from exc
         raise
     finally:
         _append_log(
