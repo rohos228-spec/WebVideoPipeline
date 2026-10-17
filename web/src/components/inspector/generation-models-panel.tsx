@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image as ImageIcon, Loader2, Video } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { brandText } from "@/lib/brand";
 import { api } from "@/lib/api";
 import type { ProjectDetail } from "@/lib/types";
 
@@ -46,9 +47,9 @@ function ModelSelect({
       <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
         Сейчас:{" "}
         <span className="font-medium text-foreground/80">
-          {current?.label?.replace(/^\+\s*/, "") || currentId}
+          {brandText(current?.label?.replace(/^\+\s*/, "") || currentId)}
         </span>
-        <span className="font-mono text-muted-foreground"> · {currentId}</span>
+        <span className="font-mono text-muted-foreground"> · {brandText(currentId)}</span>
       </p>
       <select
         className="h-8 w-full rounded-md border border-border/60 bg-background px-2 text-xs"
@@ -58,7 +59,7 @@ function ModelSelect({
       >
         {options.map((ch) => (
           <option key={ch.id} value={ch.id}>
-            {ch.label.replace(/^\+\s*/, "")}
+            {brandText(ch.label.replace(/^\+\s*/, ""))}
           </option>
         ))}
       </select>
@@ -96,12 +97,12 @@ export function GenerationModelsPanel({ project }: { project: ProjectDetail }) {
       if (vars.image_generator) {
         const lab = choiceById(imageChoices, vars.image_generator)?.label?.replace(/^\+\s*/, "")
           || vars.image_generator;
-        toast.success(`Картинки: ${lab}`);
+        toast.success(`Картинки: ${brandText(lab)}`);
       }
       if (vars.video_generator) {
         const lab = choiceById(videoChoices, vars.video_generator)?.label?.replace(/^\+\s*/, "")
           || vars.video_generator;
-        toast.success(`Видео: ${lab}`);
+        toast.success(`Видео: ${brandText(lab)}`);
       }
     },
     onError: (e, _vars, ctx) => {

@@ -313,6 +313,39 @@ export function NodeCatalogPanel({
     );
   }, [items, q, cat]);
 
+  const detailItem = detail ? items.find((it) => it.id === detail) ?? null : null;
+  useEffect(() => {
+    if (!embedded) return;
+    window.dispatchEvent(
+      new CustomEvent("vp-catalog-detail", {
+        detail: { nodeKey, item: detailItem ? { id: detailItem.id, label: detailItem.label } : null },
+      }),
+    );
+  }, [embedded, nodeKey, detailItem?.id, detailItem?.label]);
+  useEffect(() => {
+    if (!embedded) return;
+    return () => {
+      window.dispatchEvent(new CustomEvent("vp-catalog-detail", { detail: { nodeKey, item: null } }));
+    };
+  }, [embedded, nodeKey]);
+  const [actionsTarget, setActionsTarget] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (!embedded || !detailItem) { setActionsTarget(null); return; }
+    let raf = 0;
+    const find = () => {
+      const el = document.getElementById(`vp-detail-actions-${nodeKey}`);
+      if (el) setActionsTarget(el); else raf = requestAnimationFrame(find);
+    };
+    find();
+    return () => cancelAnimationFrame(raf);
+  }, [embedded, nodeKey, detailItem?.id]);
+  useEffect(() => {
+    if (!embedded) return;
+    const on = (ev: Event) => { if ((ev as CustomEvent<{ nodeKey: string }>).detail?.nodeKey === nodeKey) setDetail(null); };
+    window.addEventListener("vp-catalog-back", on);
+    return () => window.removeEventListener("vp-catalog-back", on);
+  }, [embedded, nodeKey]);
+
   if (typeof document === "undefined") return null;
 
   const W = 560;
@@ -352,21 +385,6 @@ export function NodeCatalogPanel({
     dLeft = best[0];
     dWidth = Math.max(280, best[1] - best[0]);
   }
-  const detailItem = detail ? items.find((it) => it.id === detail) ?? null : null;
-  useEffect(() => {
-    if (!embedded) return;
-    window.dispatchEvent(
-      new CustomEvent("vp-catalog-detail", {
-        detail: { nodeKey, item: detailItem ? { id: detailItem.id, label: detailItem.label } : null },
-      }),
-    );
-  }, [embedded, nodeKey, detailItem?.id, detailItem?.label]);
-  useEffect(() => {
-    if (!embedded) return;
-    return () => {
-      window.dispatchEvent(new CustomEvent("vp-catalog-detail", { detail: { nodeKey, item: null } }));
-    };
-  }, [embedded, nodeKey]);
 
   const catalogBody = (
     <>
@@ -498,23 +516,6 @@ export function NodeCatalogPanel({
             </label>
           </div>
   ) : null;
-  const [actionsTarget, setActionsTarget] = useState<HTMLElement | null>(null);
-  useLayoutEffect(() => {
-    if (!embedded || !detailItem) { setActionsTarget(null); return; }
-    let raf = 0;
-    const find = () => {
-      const el = document.getElementById(`vp-detail-actions-${nodeKey}`);
-      if (el) setActionsTarget(el); else raf = requestAnimationFrame(find);
-    };
-    find();
-    return () => cancelAnimationFrame(raf);
-  }, [embedded, nodeKey, detailItem?.id]);
-  useEffect(() => {
-    if (!embedded) return;
-    const on = (ev: Event) => { if ((ev as CustomEvent<{ nodeKey: string }>).detail?.nodeKey === nodeKey) setDetail(null); };
-    window.addEventListener("vp-catalog-back", on);
-    return () => window.removeEventListener("vp-catalog-back", on);
-  }, [embedded, nodeKey]);
   const detailBody = detailItem ? (
     <>
           {embedded ? null : (

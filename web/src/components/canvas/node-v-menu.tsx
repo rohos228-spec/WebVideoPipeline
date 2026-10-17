@@ -24,6 +24,7 @@ import {
 } from "@/lib/node-prompts";
 import { nodeSupportsGptText } from "@/lib/gpt-text-steps";
 import { cn } from "@/lib/utils";
+import { brandText } from "@/lib/brand";
 import { api } from "@/lib/api";
 import { stepCodeForNodeType } from "@/lib/node-step-map";
 import {
@@ -305,7 +306,7 @@ export function NodeVMenu({
                         ? "border-emerald-500/40 bg-emerald-500/10 hover:border-emerald-400/60 hover:bg-emerald-500/20"
                         : "border-white/10 bg-white/[0.04] hover:border-amber-400/40 hover:bg-amber-400/10",
                     )}
-                    title={slot.description || slot.title}
+                    title={brandText(slot.description || slot.title)}
                   >
                     {slot.kind === "excel" ? (
                       isExcelGptNode(nodeType) && source === "voiceover" ? (
@@ -329,7 +330,7 @@ export function NodeVMenu({
                         ? isExcelGptNode(nodeType)
                           ? excelAttachmentTitle
                           : "Excel"
-                        : slot.title}
+                        : brandText(slot.title)}
                     </span>
                     <span
                       className={cn(

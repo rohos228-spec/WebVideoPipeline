@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { brandText } from "@/lib/brand";
 import {
   DEFAULT_TEXT_MODEL_ID,
   catalogForNodeType,
@@ -129,6 +130,23 @@ export function normalizeEffort(v?: string | null): ReasoningEffortUi {
   return "med";
 }
 
+function vendorTabLabel(id: string, label: string): string {
+  switch (id) {
+    case "anthropic":
+      return "Claude";
+    case "openai":
+      return "GPT";
+    case "gemini":
+      return "Gemini";
+    case "deepseek":
+      return "DeepSeek";
+    case "xai":
+      return "Grok";
+    default:
+      return brandText(label);
+  }
+}
+
 function vendorNote(m: CatalogModel): string {
   if (m.kind === "text") {
     return `${formatUsdPrice(m.pricing.input_usd_per_m)} вход · ${formatUsdPrice(m.pricing.output_usd_per_m)} выход / 1M`;
@@ -183,7 +201,7 @@ export function NodeModelPicker({
     selected?.kind === "video" &&
     (selected.id.endsWith("-t2v") || Boolean(selected.api_model?.endsWith("-t2v")));
   const summaryBits = [
-    selected?.label || selectedId,
+    brandText(selected?.label || selectedId),
     isSelectedT2V ? "T2V" : null,
     priceBit,
     media?.resolutions.length
@@ -309,6 +327,14 @@ function ModelNodeMenu({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- catalog identity churns every render
   }, [open]);
 
+  // main: re-sync vendor tab when the selected model changes while open
+  useEffect(() => {
+    if (!open) return;
+    const next = findCatalogModel(catalog, selectedId)?.vendor;
+    if (next) setVendor(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- catalog identity churns every render
+  }, [open, selectedId]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -370,7 +396,7 @@ function ModelNodeMenu({
         >
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-black/30" />
           <div className="absolute inset-0 flex items-center px-4 pr-14 text-[17px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]">
-            <span className="truncate">Модель: {selectedModel?.label || selectedId}</span>
+            <span className="truncate">Модель: {brandText(selectedModel?.label || selectedId)}</span>
           </div>
           <button
             type="button"
@@ -424,7 +450,7 @@ function ModelNodeMenu({
                       )}
                     >
                       <VendorGlyph icon={v.icon} className="h-4 w-4" />
-                      {v.label}
+                      {vendorTabLabel(v.id, v.label)}
                       <span className="text-[12px] text-white/40">{v.count}</span>
                     </button>
                   );
@@ -446,9 +472,9 @@ function ModelNodeMenu({
                     patchNodeModel(nodeKey, patch, isText);
                     onClose();
                     if (isText) {
-                      toast.success(`Модель «${m.label}» применена ко всем текстовым нодам`);
+                      toast.success(`Модель «${brandText(m.label)}» применена ко всем текстовым нодам`);
                     } else {
-                      toast.success(`Модель: ${m.label}`);
+                      toast.success(`Модель: ${brandText(m.label)}`);
                     }
                   }}
                 />
@@ -530,7 +556,7 @@ function ModelRow({
     clampMediaOption(aspectRatio, media?.aspects ?? [], media?.defaultAspect ?? ""),
   );
   const [expanded, setExpanded] = useState(selected && hasMediaMenus);
-  const label = model.label.replace(/\s*\(1K\/2K\/4K\)\s*$/i, "");
+  const label = brandText(model.label.replace(/\s*\(1K\/2K\/4K\)\s*$/i, ""));
   const isT2V =
     model.kind === "video" &&
     (model.id.endsWith("-t2v") || Boolean(model.api_model?.endsWith("-t2v")));
@@ -567,7 +593,7 @@ function ModelRow({
             ) : null}
           </div>
           <div className="mt-0.5 truncate text-[13px] text-white/50">
-            {vendorNote(model)}
+            {brandText(vendorNote(model))}
           </div>
         </div>
         {selected ? <Check className="h-5 w-5 shrink-0" style={{ color: ACC }} /> : null}
@@ -682,5 +708,5 @@ export function selectedModelLabel(
 ): string {
   const id = (modelId || "").trim() || defaultModelIdForNodeType(nodeType);
   const found = findCatalogModel(catalog ?? localCatalog(), id);
-  return found?.label || id || DEFAULT_TEXT_MODEL_ID;
+  return brandText(found?.label || id || DEFAULT_TEXT_MODEL_ID);
 }

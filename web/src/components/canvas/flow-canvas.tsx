@@ -58,6 +58,7 @@ import {
   workflowStructureKey,
 } from "@/lib/node-run-status";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { brandText } from "@/lib/brand";
 import { shouldShowStopBar } from "@/lib/project-running";
 import { nodeTypeFromKey } from "@/lib/node-key";
 import {
@@ -526,7 +527,7 @@ export function FlowCanvas({
         toast.error(
           cycle
             ? `Граф не сохранён: жёсткий цикл без проверяющей ноды. Петля через excel_gpt помечается сама; иначе уберите кольцо.`
-            : `Граф не сохранён: ${check.errors.join("; ")}`,
+            : `Граф не сохранён: ${brandText(check.errors.join("; "))}`,
         );
         return;
       }
@@ -558,8 +559,8 @@ export function FlowCanvas({
       }
       if (check.warnings.length) {
         const soft = check.warnings.find((w) => w.includes("Не ок") || w.includes("петля"));
-        if (soft) toast.message(soft);
-        else toast.message(check.warnings[0]);
+        if (soft) toast.message(brandText(soft));
+        else toast.message(brandText(check.warnings[0]));
       }
       if (projectId) {
         // Только дельта: НЕ слать весь meta из кэша — иначе stale
@@ -587,7 +588,7 @@ export function FlowCanvas({
       }
       toast.success("Граф сохранён");
     } catch (e) {
-      toast.error(`Не сохранилось: ${errorMessageFromUnknown(e)}`);
+      toast.error(`Не сохранилось: ${brandText(errorMessageFromUnknown(e))}`);
     } finally {
       setSaving(false);
       persistInFlightRef.current = false;
@@ -893,7 +894,7 @@ export function FlowCanvas({
     }
     if (projectId && Object.keys(excelRemap).length > 0) {
       void api.remapExcelGptNodes(projectId, excelRemap).catch((e) => {
-        toast.error(`Не перенесены настройки Excel: ${errorMessageFromUnknown(e)}`);
+        toast.error(`Не перенесены настройки Excel: ${brandText(errorMessageFromUnknown(e))}`);
       });
       for (const [oldId, newId] of Object.entries(excelRemap)) {
         const src = clip.nodes.find((n) => n.id === oldId);
@@ -1328,7 +1329,7 @@ function WorkflowToolbar({
       await qc.invalidateQueries({ queryKey: ["workflows"] });
       toast.success("Workflow скопирован на сервере");
     } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     }
   };
 
@@ -1454,7 +1455,7 @@ function RunOverlay({
       toast.success("Проект на паузе");
       onRunCreated();
     } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     } finally {
       setPausing(false);
     }
@@ -1473,7 +1474,7 @@ function RunOverlay({
       }
       onRunCreated();
     } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     } finally {
       setPausing(false);
     }
@@ -1483,7 +1484,7 @@ function RunOverlay({
     setBusy(true);
     try {
       const r = await api.stopProject(projectId);
-      toast.success(r.message || "⏹ Шаг остановлен");
+      toast.success(brandText(r.message || "⏹ Шаг остановлен"));
       qc.invalidateQueries({ queryKey: ["project-run", projectId] });
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       await qc.refetchQueries({ queryKey: ["project", projectId] });
@@ -1491,7 +1492,7 @@ function RunOverlay({
       qc.invalidateQueries({ queryKey: ["runs"] });
       onRunCreated();
     } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     } finally {
       setBusy(false);
     }

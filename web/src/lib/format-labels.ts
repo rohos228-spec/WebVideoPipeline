@@ -1,5 +1,6 @@
 /** Русские подписи для UI — без технических slug с подчёркиваниями. */
 
+import { brandText } from "./brand";
 import type { ProjectStatus } from "./types";
 import type { NodeCategory } from "./node-catalog";
 
@@ -113,13 +114,14 @@ export function formatStepCode(code: string): string {
 
 /** Заменяет _ на пробелы, убирает лишние технические префиксы. */
 export function humanizeSlug(value: string): string {
-  return value
-    .replace(/^n_/, "")
-    .replace(/_/g, " ")
-    .replace(/\bhitl\b/gi, "проверка")
-    .replace(/\bgpt\b/gi, "GPT")
-    .replace(/\boutsee\b/gi, "генератор")
-    .trim();
+  return brandText(
+    value
+      .replace(/^n_/, "")
+      .replace(/_/g, " ")
+      .replace(/\bhitl\b/gi, "проверка")
+      .replace(/\bgpt\b/gi, "GPT")
+      .trim(),
+  );
 }
 
 export function formatNodeKeyLabel(key: string): string {
@@ -133,7 +135,7 @@ const STYLE_PRESET_RU: Record<string, string> = {
 
 export function formatStylePresetLabel(preset: { id: string; label?: string }): string {
   if (preset.label && !/^[A-Za-z][A-Za-z0-9 _-]+$/.test(preset.label.trim())) {
-    return preset.label;
+    return brandText(preset.label);
   }
-  return STYLE_PRESET_RU[preset.id] ?? humanizeSlug(preset.id);
+  return brandText(STYLE_PRESET_RU[preset.id] ?? humanizeSlug(preset.id));
 }

@@ -11,6 +11,7 @@ import { formatNodeCategory, formatNodeKeyLabel, formatHeroMode, formatProjectSt
 import { projectDisplayName } from "@/lib/project-display";
 import { formatRelativeTime } from "@/lib/utils";
 import { getNodeSpec } from "@/lib/node-catalog";
+import { brandText } from "@/lib/brand";
 import { nodeTypeFromKey } from "@/lib/node-key";
 import { ProjectSettingsPanel } from "@/components/inspector/project-settings";
 import { OutseeGenPanel } from "@/components/inspector/outsee-gen-panel";
@@ -216,7 +217,7 @@ function NodeInspector({
       <div>
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Нода</div>
         <div className="mt-1 text-base font-semibold">{spec.label}</div>
-        <div className="mt-1 text-[12px] text-muted-foreground">{spec.description}</div>
+        <div className="mt-1 text-[12px] text-muted-foreground">{brandText(spec.description)}</div>
       </div>
       <Row label="Тип">{humanizeSlug(spec.type)}</Row>
       <Row label="Категория">{formatNodeCategory(spec.category)}</Row>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity, ArrowLeft, Award, Bell, Bot, Camera, Check, CheckCircle2, CircleAlert, CircleDashed, Clapperboard,
@@ -223,11 +224,11 @@ function ProjectList({ d, limit }: { d: D; limit: number }) {
   return (
     <div className="flex flex-col gap-1.5">
       {list.map((p) => (
-        <a key={p.id} href="/" onClick={() => { try { localStorage.setItem("vp-studio-selected-project-id", String(p.id)); } catch {} }}
+        <Link key={p.id} href="/" onClick={() => { try { localStorage.setItem("vp-studio-selected-project-id", String(p.id)); } catch {} }}
           className="flex items-center gap-3 rounded-[10px] bg-black/20 px-3 py-2 transition-colors hover:bg-white/[0.05]">
           <Cover id={p.id} className="h-10 w-16 rounded-[7px]" />
           <div className="min-w-0 flex-1"><div className="truncate text-[14px] text-white">{p.title || p.topic || p.slug}</div><div className="text-[12px] text-zinc-500">{statusLabel(p.status)} · {fmtDate(p.updated_at)}</div></div>
-        </a>
+        </Link>
       ))}
     </div>
   );
@@ -268,7 +269,7 @@ function Projects({ d, onlyPublished }: { d: D; onlyPublished?: boolean }) {
           {list.map((p, i) => {
             const k = per[p.id] ?? {};
             return (
-              <a key={p.id} href="/" onClick={() => { try { localStorage.setItem("vp-studio-selected-project-id", String(p.id)); } catch {} }}
+              <Link key={p.id} href="/" onClick={() => { try { localStorage.setItem("vp-studio-selected-project-id", String(p.id)); } catch {} }}
                 className="group overflow-hidden rounded-[14px] border border-white/[0.07] bg-white/[0.03] transition-all duration-300 hover:-translate-y-0.5 hover:border-[#2dd4bf]/40"
                 style={{ animation: `vpFadeUp .35s ease ${Math.min(i, 12) * 25}ms both` }}>
                 <Cover id={p.id} className="aspect-video w-full" />
@@ -284,7 +285,7 @@ function Projects({ d, onlyPublished }: { d: D; onlyPublished?: boolean }) {
                     {onlyPublished ? <span className="flex items-center gap-1" style={{ color: A }}><CheckCircle2 className="h-3.5 w-3.5" />{k.final_video ?? 0} финал</span> : null}
                   </div>
                 </div>
-              </a>
+              </Link>
             );
           })}
         </div>
@@ -652,7 +653,7 @@ export function ProfilePage() {
       <style>{`@keyframes vpFadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}`}</style>
       <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-5 py-4">
         <div className="flex items-center gap-3">
-          <a href="/" className="inline-flex items-center gap-2 rounded-[10px] bg-white/[0.05] px-3.5 py-2 text-[14px] text-zinc-200 transition-colors hover:bg-white/[0.09]"><ArrowLeft className="h-4 w-4" />В студию</a>
+          <Link href="/" className="inline-flex items-center gap-2 rounded-[10px] bg-white/[0.05] px-3.5 py-2 text-[14px] text-zinc-200 transition-colors hover:bg-white/[0.09]"><ArrowLeft className="h-4 w-4" />В студию</Link>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/via-logo.png" alt="VIA" className="h-6 opacity-80" />
           <div className="flex-1" />

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { brandText } from "@/lib/brand";
 import { api } from "@/lib/api";
 import { Copy as CopyIcon, Play as PlayIcon, X as XIcon, Loader2 as SpinIcon, Maximize2 as OpenIcon } from "lucide-react";
 import { NodeModelPicker } from "@/components/canvas/node-model-picker";
@@ -394,7 +395,7 @@ export function NodeStudio({
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       qc.invalidateQueries({ queryKey: ["prompt-global-active"] });
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const runStep = useMutation({
@@ -414,7 +415,7 @@ export function NodeStudio({
       qc.invalidateQueries({ queryKey: ["project-run", projectId] });
       void qc.refetchQueries({ queryKey: ["project-run", projectId] });
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const reloadXlsx = useMutation({
@@ -425,7 +426,7 @@ export function NodeStudio({
       qc.invalidateQueries({ queryKey: ["xlsx-sheets", projectId] });
       qc.invalidateQueries({ queryKey: ["xlsx-general-plan", projectId] });
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const uploadXlsx = useMutation({
@@ -471,7 +472,7 @@ export function NodeStudio({
         );
       }
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const filteredArtifacts = useMemo(() => {
@@ -820,7 +821,7 @@ export function NodeStudio({
                 activeVariant={activeVariant ? String(activeVariant) : undefined}
                 onActivate={(v) => activateVariant.mutate(v)}
                 nodeKey={nodeKey ?? ""}
-                description={ds.description || spec.description || ""}
+                description={brandText(ds.description || spec.description || "")}
               />
             ) : null}
             {showFilesPanel && promptStepCode && !canCatalog && !promptStepCode.startsWith("") ? (
@@ -994,7 +995,7 @@ export function NodeStudio({
                   </span>
                   {excelConfig.label?.trim() || spec.label}
                 </h2>
-                <p className="text-[13px] text-muted-foreground">{spec.description}</p>
+                <p className="text-[13px] text-muted-foreground">{brandText(spec.description)}</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   <Badge variant="muted" className="text-[13px]">
                     {formatNodeKeyLabel(nodeKey)}
@@ -1531,7 +1532,7 @@ function SfxPlanSettingsPanel({ projectId }: { projectId: number }) {
         <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
           <div className="text-[11px] font-medium text-zinc-400">Провайдер генерации SFX</div>
           <div className="mt-1.5 text-sm font-medium text-foreground">
-            ElevenLabs SFX API + Локальный синтез
+            Озвучка VIA + Локальный синтез
           </div>
         </div>
       </div>
@@ -1577,7 +1578,7 @@ function SfxGenSettingsPanel({ projectId }: { projectId: number }) {
       <div>
         <h3 className="text-sm font-semibold text-foreground">Параметры синтеза звуков (SFX)</h3>
         <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-          Генерация аудиофайлов для каждого запланированного звукового события через нейросеть ElevenLabs Sound Generation или встроенный офлайн-синтезатор.
+          Генерация аудиофайлов для каждого запланированного звукового события через Озвучка VIA или встроенный офлайн-синтезатор.
         </p>
       </div>
 
@@ -1604,7 +1605,7 @@ function SfxGenSettingsPanel({ projectId }: { projectId: number }) {
         <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
           <div className="text-[11px] font-medium text-zinc-400">Провайдер ИИ-звуков</div>
           <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">ElevenLabs SFX API</span>
+            <span className="text-sm font-medium text-foreground">Озвучка VIA</span>
             <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300 border border-violet-500/30">
               ~$0.01 / звук
             </span>

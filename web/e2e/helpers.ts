@@ -60,9 +60,14 @@ export async function openNodeVMenu(page: Page, nodeTitle: string | RegExp): Pro
       const trigger = node.first().locator(".node-v-trigger");
       await trigger.scrollIntoViewIfNeeded();
       await trigger.click({ timeout: 4000, force: true });
-      await expect(page.getByRole("button", { name: "Запустить шаг" })).toBeVisible({
-        timeout: 8000,
-      });
+      // Inline node menu (housepc design) renders node-step-params-panel; legacy V-menu
+      // renders a "Запустить шаг" action. Accept either.
+      await expect(
+        page
+          .locator('[data-testid="node-step-params-panel"], .node-v-menu')
+          .or(page.getByRole("button", { name: /Запустить шаг/ }))
+          .first(),
+      ).toBeVisible({ timeout: 8000 });
       return;
     } catch (e) {
       lastErr = e;

@@ -1,3 +1,4 @@
+import { brandText } from "./brand";
 import type { VibecodeSnapshotModel } from "./vibecode-models-snapshot";
 import { VIBECODE_MODELS_SNAPSHOT } from "./vibecode-models-snapshot";
 
@@ -107,8 +108,8 @@ export const VENDOR_META: Record<
   Exclude<ModelVendorId, "other">,
   { id: Exclude<ModelVendorId, "other">; label: string; icon: string }
 > = {
-  anthropic: { id: "anthropic", label: "Anthropic", icon: "A" },
-  openai: { id: "openai", label: "OpenAI", icon: "hex" },
+  anthropic: { id: "anthropic", label: "Claude", icon: "A" },
+  openai: { id: "openai", label: "GPT", icon: "hex" },
   gemini: { id: "gemini", label: "Gemini", icon: "spark" },
   deepseek: { id: "deepseek", label: "DeepSeek", icon: "D" },
   xai: { id: "xai", label: "xAI", icon: "X" },
@@ -422,7 +423,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
 function normalizeSnapshot(row: SnapshotRow): CatalogModel {
   const isImage = Boolean(row.is_image);
   const pricing = applyMarkup(row.pricing as RawVibecodePricing);
-  const label = row.id === "gpt-image-2-vip" ? "GPT Image 2" : row.display_name;
+  const label = brandText(row.id === "gpt-image-2-vip" ? "GPT Image 2" : row.display_name);
   return {
     id: row.id,
     label,

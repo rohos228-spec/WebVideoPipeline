@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { ArrowLeft, Check, CircleAlert, Eye, EyeOff, Loader2, Lock, Mail, MailCheck, User, AtSign, ImageIcon } from "lucide-react";
 import { LegalFooter } from "@/components/shell/legal-footer";
 
@@ -180,7 +181,7 @@ export function LoginPage() {
         <Field name="password" label="Пароль" icon={<Lock className="h-5 w-5" />} value={pw} onChange={setPw} reveal autoComplete="current-password" placeholder="••••••••" error={touched && !pw ? "Введите пароль" : null} />
         <div className="-mt-2 mb-6 text-right text-[15px]"><L href="/forgot-password">Забыли пароль?</L></div>
         <Submit loading={loading}>Войти</Submit>
-        <a href="/" className="mt-4 flex h-[52px] items-center justify-center gap-2 rounded-[14px] border border-white/10 text-[16px] text-zinc-400 transition-colors hover:text-zinc-200"><ArrowLeft className="h-4 w-4" />В студию без входа</a>
+        <Link href="/" className="mt-4 flex h-[52px] items-center justify-center gap-2 rounded-[14px] border border-white/10 text-[16px] text-zinc-400 transition-colors hover:text-zinc-200"><ArrowLeft className="h-4 w-4" />В студию без входа</Link>
       </form>
     </Shell>
   );

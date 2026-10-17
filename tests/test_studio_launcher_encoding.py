@@ -93,7 +93,7 @@ def test_studio_cmd_heals_bom_before_powershell() -> None:
     root = Path(__file__).resolve().parents[1]
     data = (root / "STUDIO.cmd").read_bytes()
     assert not data.startswith(UTF8_BOM), "UTF-8 BOM before @echo off breaks cmd.exe"
-    text = data.decode("ascii")
+    text = data.decode("utf-8")
     assert "STUDIO_HEALED" in text
     assert "heal-studio-ps1.ps1" in text
     assert "git reset --hard origin/main" not in text

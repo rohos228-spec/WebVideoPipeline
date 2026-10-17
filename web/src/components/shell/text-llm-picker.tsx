@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { brandText } from "@/lib/brand";
 
 type TextLlmModel = {
   id: string;
@@ -73,7 +74,7 @@ export function TextLlmPicker() {
       )}
       disabled={busy}
       value={active.id}
-      title={`${status.active_label}\nGPT 5.6 Sol / 5.5 — vibecode.moe; kie и Kimi остаются в списке`}
+      title={brandText(`${status.active_label}\nGPT 5.6 Sol / 5.5; Kimi остаётся в списке`)}
       onChange={(e) => {
         const m = status.models.find((x) => x.id === e.target.value);
         if (m) void onChange(m.provider, m.id);
@@ -81,7 +82,7 @@ export function TextLlmPicker() {
     >
       {status.models.map((m) => (
         <option key={m.id} value={m.id} disabled={!m.key_configured && m.provider !== "kie"}>
-          {m.label}
+          {brandText(m.label)}
           {!m.key_configured && m.provider !== "kie" ? " · нет ключа" : ""}
         </option>
       ))}

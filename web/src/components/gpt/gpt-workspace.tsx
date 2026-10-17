@@ -51,6 +51,7 @@ import {
 } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { cn } from "@/lib/utils";
+import { brandText } from "@/lib/brand";
 import { MarkdownRenderer } from "./markdown-renderer";
 
 function stemOf(name: string): string {
@@ -142,7 +143,7 @@ function cleanModelTitle(label: string | undefined): string {
   }
   // Strip trailing (id)
   t = t.replace(/\s*\([^)]*\)$/, "").trim();
-  return t || "GPT 5.6 Sol";
+  return brandText(t || "GPT 5.6 Sol");
 }
 
 const STARTER_PROMPTS = [
@@ -817,15 +818,15 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                         <div key={groupName} className="space-y-0.5">
                           <div className="px-2.5 pt-1.5 pb-1 font-mono text-[10px] font-bold uppercase tracking-wider text-white/35">
                             {groupName === "Anthropic"
-                              ? "🟣 Anthropic (Claude)"
+                              ? "🟣 Claude"
                               : groupName === "xAI"
-                                ? "⚡ xAI (Grok)"
+                                ? "⚡ Grok"
                                 : groupName === "Google"
-                                  ? "✨ Google Gemini"
+                                  ? "✨ Gemini"
                                   : groupName === "DeepSeek"
                                     ? "🧠 DeepSeek"
                                     : groupName === "OpenAI"
-                                      ? "⚡ OpenAI (GPT)"
+                                      ? "⚡ GPT"
                                       : "🌐 VIA"}
                           </div>
                           {groupModels.map((m: any) => {
@@ -852,14 +853,14 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                               >
                                 <div className="min-w-0 flex-1">
                                   <div className="truncate font-medium flex items-center gap-1.5">
-                                    <span>{m.label}</span>
+                                    <span>{brandText(m.label)}</span>
                                     {isNew && (
                                       <span className="rounded bg-[#22d3ee] px-1 py-0.2 font-mono text-[9px] font-extrabold text-black">
                                         NEW
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-[10px] text-white/40">{m.site}</div>
+                                  <div className="text-[10px] text-white/40">{brandText(m.site)}</div>
                                 </div>
                                 {active && <Check className="h-4 w-4 text-[#22d3ee] shrink-0 ml-2" />}
                               </button>

@@ -1,6 +1,7 @@
 "use client";
 
 import type React from "react";
+import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PLANS, PLAN_GROUPS, limitRows, type Plan } from "@/lib/pricing";
 import { PeriodToggle, PriceTag, PricingNote } from "@/components/home/billing-period";
@@ -309,10 +310,10 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
               </Reveal>
             ))}
             <Reveal delay={PIPE.length * 45}>
-              <a href="/" className="flex h-44 flex-col justify-end rounded-2xl border border-dashed border-[#2bb8a0]/35 bg-[#2bb8a0]/[0.06] p-4 transition duration-500 hover:bg-[#2bb8a0]/[0.12]">
+              <Link href="/" className="flex h-44 flex-col justify-end rounded-2xl border border-dashed border-[#2bb8a0]/35 bg-[#2bb8a0]/[0.06] p-4 transition duration-500 hover:bg-[#2bb8a0]/[0.12]">
                 <div className="text-xl font-medium text-[#7fe3cf]">+ Свой шаг</div>
                 <div className="mt-0.5 text-sm text-white/55">Любая нода из библиотеки</div>
-              </a>
+              </Link>
             </Reveal>
           </div>
         </div>

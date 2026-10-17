@@ -1,25 +1,32 @@
 "use client";
 
+import { brandText } from "@/lib/brand";
+
 /** Локальные упрощённые логотипы провайдеров для фона строк в меню модели (без внешних ссылок). */
 
 type Brand = { id: string; name: string };
 
 export function brandForModel(id: string, label: string): Brand {
   const s = `${id} ${label}`.toLowerCase();
-  if (s.includes("claude")) return { id: "anthropic", name: "Anthropic" };
-  if (s.includes("gpt")) return { id: "openai", name: "OpenAI" };
-  if (s.includes("veo")) return { id: "google", name: "Google Veo" };
-  if (s.includes("gemini") || s.includes("nano-banana")) return { id: "google", name: "Google" };
+  if (s.includes("claude")) return { id: "anthropic", name: "Claude" };
+  if (s.includes("gpt")) return { id: "openai", name: "GPT" };
+  if (s.includes("veo")) return { id: "google", name: "Veo" };
+  if (s.includes("gemini")) return { id: "google", name: "Gemini" };
+  if (s.includes("nano-banana") || s.includes("nano banana")) return { id: "google", name: "Nano Banana" };
   if (s.includes("deepseek")) return { id: "deepseek", name: "DeepSeek" };
-  if (s.includes("grok")) return { id: "xai", name: "xAI" };
-  if (s.includes("flux")) return { id: "bfl", name: "Black Forest" };
-  if (s.includes("seed")) return { id: "bytedance", name: "ByteDance" };
-  if (s.includes("qwen") || s.includes("wan") || s.includes("z-image")) return { id: "alibaba", name: "Alibaba" };
+  if (s.includes("grok")) return { id: "xai", name: "Grok" };
+  if (s.includes("flux")) return { id: "bfl", name: "Flux" };
+  if (s.includes("seedance")) return { id: "bytedance", name: "Seedance" };
+  if (s.includes("seed")) return { id: "bytedance", name: "Seedream" };
+  if (s.includes("qwen")) return { id: "alibaba", name: "Qwen" };
+  if (s.includes("wan")) return { id: "alibaba", name: "Wan" };
+  if (s.includes("z-image")) return { id: "alibaba", name: "Z-Image" };
   if (s.includes("kling")) return { id: "kling", name: "Kling" };
-  if (s.includes("hailuo") || s.includes("minimax")) return { id: "minimax", name: "MiniMax" };
+  if (s.includes("hailuo")) return { id: "minimax", name: "Hailuo" };
+  if (s.includes("minimax")) return { id: "minimax", name: "MiniMax" };
   if (s.includes("pixverse")) return { id: "pixverse", name: "PixVerse" };
   if (s.includes("topaz")) return { id: "topaz", name: "Topaz" };
-  if (s.includes("eleven")) return { id: "elevenlabs", name: "ElevenLabs" };
+  if (s.includes("eleven")) return { id: "elevenlabs", name: "Озвучка" };
   return { id: "generic", name: "" };
 }
 
@@ -100,7 +107,7 @@ export function BrandLogo({ brand, className }: { brand: string; className?: str
 export function ModelBrandBackdrop({ id, label }: { id: string; label: string }) {
   const brand = brandForModel(id, label);
   const ver = versionForModel(id, label);
-  const name = label.replace(/\s*\(.*\)\s*$/, "").replace(ver, "").replace(/\s+/g, " ").trim();
+  const name = brandText(label.replace(/\s*\(.*\)\s*$/, "").replace(ver, "").replace(/\s+/g, " ").trim());
   return (
     <div
       aria-hidden

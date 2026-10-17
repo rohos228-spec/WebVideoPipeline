@@ -827,10 +827,6 @@ function FrameImagesView({
   items: NodeResultItem[];
   onHeroReplaced?: () => void;
 }) {
-  if (nodeType === "images") {
-    return <SceneImagesGalleryView projectId={projectId} />;
-  }
-
   const [index, setIndex] = useState(0);
   const [zoomOpen, setZoomOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -849,6 +845,10 @@ function FrameImagesView({
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
+
+  if (nodeType === "images") {
+    return <SceneImagesGalleryView projectId={projectId} />;
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -1611,7 +1611,7 @@ function SfxGenView({
             <p className="text-sm font-medium text-foreground">Звуки ещё не сгенерированы</p>
             <p className="mt-1 text-xs text-muted-foreground max-w-md">
               {plannedEvents.length > 0
-                ? `В плане подготовлено ${plannedEvents.length} звуковых событий. Нажмите «Запустить шаг», чтобы синтезировать звуки через ElevenLabs API / локальный синтезатор.`
+                ? `В плане подготовлено ${plannedEvents.length} звуковых событий. Нажмите «Запустить шаг», чтобы синтезировать звуки через Озвучка VIA / локальный синтезатор.`
                 : "Сначала запустите шаг «План звуков», чтобы разметить звуковые эффекты по таймлайну."}
             </p>
           </div>
@@ -1699,8 +1699,8 @@ function SfxGenView({
   const providers = Array.from(new Set(displayItems.map((d) => d.provider)));
   const providerLabel = providers.includes("elevenlabs")
     ? providers.includes("local_synth")
-      ? "ElevenLabs + Синтез"
-      : "ElevenLabs SFX API"
+      ? "Озвучка VIA + Синтез"
+      : "Озвучка VIA"
     : "Локальный синтез";
 
   return (
@@ -1778,7 +1778,7 @@ function SfxGenView({
                         : "bg-zinc-500/10 text-zinc-300 border-zinc-500/20",
                     )}
                   >
-                    {item.provider === "elevenlabs" ? "ElevenLabs" : "Синтез"}
+                    {item.provider === "elevenlabs" ? "Озвучка VIA" : "Синтез"}
                   </span>
                   <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" asChild>
                     <a href={item.audioUrl} download={item.fileName} title="Скачать аудио">

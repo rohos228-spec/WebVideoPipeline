@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { brandText } from "@/lib/brand";
 import { api, type PromptFileInfo, type PromptVersionInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,7 +42,7 @@ import { NodeCatalogPanel, type CatalogPanelItem } from "@/components/prompts/pr
 const POLL_INTERVAL_MS = 8000;
 
 function toastError(e: unknown) {
-  toast.error(errorMessageFromUnknown(e));
+  toast.error(brandText(errorMessageFromUnknown(e)));
 }
 
 function formatBytes(n: number): string {
@@ -692,7 +693,7 @@ export function PromptFilesPanel({
               <p className="mt-1 text-[13px] text-destructive">
                 Не удалось загрузить тело промта
                 {content.error instanceof Error && content.error.message
-                  ? `: ${content.error.message}`
+                  ? `: ${brandText(content.error.message)}`
                   : "."}
               </p>
             ) : null}

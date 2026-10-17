@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { brandText } from "@/lib/brand";
 import type { KieField, KieModelSpec } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { cn } from "@/lib/utils";
@@ -531,13 +532,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     }
   }, [kieCatalogQ.data, kieModels, mediaType, imageSlug, videoSlug, audioSlug]);
 
-  const currentName = kieActive
-    ? (kieModel.label ?? kieModel.id)
-    : mediaType === "image"
-      ? imageModel.displayName
-      : mediaType === "video"
-        ? videoModel.displayName
-        : audioModel.displayName;
+  const currentName = brandText(
+    kieActive
+      ? (kieModel.label ?? kieModel.id)
+      : mediaType === "image"
+        ? imageModel.displayName
+        : mediaType === "video"
+          ? videoModel.displayName
+          : audioModel.displayName,
+  );
   const currentWired = false;
   const outseeConfigured = Boolean(outseeStatusQ.data?.configured);
   const kieConfigured = Boolean(kieCatalogQ.data?.configured);
@@ -760,7 +763,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       qc.invalidateQueries({ queryKey: ["outsee-create-settings"] });
       toast.success("Глобальные настройки Create сохранены");
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const applyToProject = useMutation({
@@ -789,7 +792,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       if (projectId != null) qc.invalidateQueries({ queryKey: ["project", projectId] });
       toast.success("Настройки применены к проекту");
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const deleteItem = useMutation({
@@ -800,7 +803,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       if (selectedId === item.id) setSelectedId(null);
       qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const cancelJobMut = useMutation({
@@ -810,7 +813,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       qc.invalidateQueries({ queryKey: ["create-queue"] });
       qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const [trackingJobs, setTrackingJobs] = useState<
@@ -831,9 +834,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               job.elapsed_label ||
               (job.elapsed_sec != null ? formatElapsedMinSec(job.elapsed_sec) : null);
             toast.success(
-              took
-                ? `Готово · ${job.model || "файл"} · ${took}`
-                : `Готово · ${job.model || "файл"}`,
+              brandText(
+                took
+                  ? `Готово · ${job.model || "файл"} · ${took}`
+                  : `Готово · ${job.model || "файл"}`,
+              ),
             );
             if (job.history_id) setSelectedId(job.history_id);
             setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
@@ -843,9 +848,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               job.elapsed_label ||
               (job.elapsed_sec != null ? formatElapsedMinSec(job.elapsed_sec) : null);
             toast.error(
-              took
-                ? `${job.error || "Генерация не удалась"} · ${took}`
-                : job.error || "Генерация не удалась",
+              brandText(
+                took
+                  ? `${job.error || "Генерация не удалась"} · ${took}`
+                  : job.error || "Генерация не удалась",
+              ),
             );
             setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
             qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
@@ -909,7 +916,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         // ---- KIE: динамическая модель из каталога kie.ai ----
         if (kieActive && kieModel) {
           if (!kieConfigured) {
-            throw new Error("KIE_API_KEY не задан в .env");
+            throw new Error("API_KEY не задан в .env");
           }
           const vals: Record<string, unknown> = { ...kieValues, _nonce: nonce };
           if (kieTextField) vals[kieTextField] = text;
@@ -953,7 +960,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               return false;
             });
           if (missing.length) {
-            throw new Error(`Заполни: ${missing.map((f) => f.label).join(", ")}`);
+            throw new Error(`Заполни: ${missing.map((f) => brandText(f.label)).join(", ")}`);
           }
           const res = await api.kieGenerate({ model_id: kieModel.id, values: vals });
           return {
@@ -977,7 +984,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           return api.runProjectStep(projectId, step);
         }
         if (!outseeConfigured) {
-          throw new Error("OUTSEE_API_KEY не задан в .env");
+          throw new Error("API_KEY не задан в .env");
         }
         // Settings не блокируют enqueue: параллельные клики иначе ломаются
         // на гонке записи outsee_create_settings.json.
@@ -1082,7 +1089,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
       qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
     },
     onError: (e) => {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     },
   });
 
@@ -1323,7 +1330,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           ? "border-[#22d3ee] ring-2 ring-[#22d3ee]/40 shadow-[0_0_20px_rgba(34,211,238,0.25)]"
                           : "border-white/[0.08] hover:border-white/25 hover:bg-[#18181f]",
                       )}
-                      title={`${item.label}${item.project_slug ? ` · ${item.project_slug}` : ""}`}
+                      title={brandText(`${item.label}${item.project_slug ? ` · ${item.project_slug}` : ""}`)}
                     >
                       {item.preview_url && !pending ? (
                         isVideo ? (
@@ -1378,7 +1385,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         </div>
                       )}
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-2 py-1.5">
-                        <div className="truncate font-mono text-[9px] font-semibold text-white/80">{item.label}</div>
+                        <div className="truncate font-mono text-[9px] font-semibold text-white/80">{brandText(item.label)}</div>
                         {item.project_slug && (
                           <div className="truncate text-[8px] text-white/45">{item.project_slug}</div>
                         )}
@@ -1419,7 +1426,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                                 e.stopPropagation();
                                 downloadMediaFile(
                                   item.preview_url || item.raw_url || "",
-                                  item.label || "generation",
+                                  brandText(item.label || "generation"),
                                   item.kind === "video" ? "mp4" : item.kind === "audio" ? "mp3" : "png",
                                   item.path,
                                 );
@@ -1467,7 +1474,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 {selected.model && (
                   <div className="text-white/45">
                     Модель:{" "}
-                    <span className="font-mono font-semibold text-white/75">{selected.model}</span>
+                    <span className="font-mono font-semibold text-white/75">{brandText(selected.model)}</span>
                   </div>
                 )}
               </div>
@@ -1555,7 +1562,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                   <span>{getLiveElapsed(selected)}</span>
                 </div>
                 <div className="text-[12px] text-white/50">
-                  {selected.model || selected.label}
+                  {brandText(selected.model || selected.label)}
                   {queueCount > 1 ? ` · очередь ${queueCount}` : ""}
                 </div>
                 {selected.prompt && (
@@ -1581,7 +1588,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-8 text-center backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
                 <div className="text-sm font-bold text-red-300">Ошибка генерации</div>
                 <div className="text-[12px] text-white/60">
-                  {selected.error || "Не удалось получить файл"}
+                  {brandText(selected.error || "Не удалось получить файл")}
                 </div>
                 <div className="text-[12px] font-medium text-white/55">
                   Результат ·{" "}
@@ -2009,7 +2016,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 {kieActive && kieModel && !kieTextField && (
                   <div className="px-3 pt-3 lg:px-4">
                     <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 text-[12px] leading-relaxed text-white/60">
-                      {kieModel.hint || kieModel.desc}
+                      {brandText(kieModel.hint || kieModel.desc)}
                     </div>
                   </div>
                 )}
@@ -2034,7 +2041,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         />
                       ) : (
                         <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md bg-[#38bdf8]/20 font-mono text-[10px] font-bold text-[#38bdf8] ring-1 ring-white/10">
-                          K
+                          {currentName.slice(0, 1)}
                         </span>
                       )}
                       <span className="font-medium">
@@ -2262,7 +2269,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     {kieActive && kieCreditsQ.data?.credits != null && (
                       <div
                         className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/10 bg-[#16161b] px-2.5 font-mono text-[11px] text-white/60"
-                        title="Баланс kie.ai"
+                        title="Баланс"
                       >
                         {kieCreditsQ.data.credits.toFixed(0)} кр
                       </div>
@@ -2271,7 +2278,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/10 bg-[#16161b] px-2.5 font-mono text-[11px] text-white/80"
                       title={
                         kieActive
-                          ? "kie.ai: 1 кр = $0.005. Цена за выбранные параметры."
+                          ? "1 кр = $0.005. Цена за выбранные параметры."
                           : "1 токен = $0.10 (10¢). Цена за выбранные параметры."
                       }
                     >
@@ -2323,7 +2330,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         createGenerate.isPending
                           ? "Уже ставится в очередь…"
                           : !canApiDirect && mediaType !== "audio"
-                            ? "Нужен OUTSEE_API_KEY или KIE_API_KEY в .env"
+                            ? "Нужен API_KEY в .env"
                             : `Сгенерировать (${batchCount > 1 ? `${batchCount} шт` : "1 шт"}, лимит ${maxParallel}) · ${priceLabel}`
                       }
                     >
@@ -2454,7 +2461,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 </div>
                 {selected.model && (
                   <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] text-white/70">
-                    {selected.model}
+                    {brandText(selected.model)}
                   </span>
                 )}
               </div>
@@ -2578,6 +2585,8 @@ function KieFieldChip({
   onChange: (name: string, v: unknown) => void;
 }) {
   const v = values[field.name] ?? field.default;
+  const label = brandText(field.label);
+  const desc = brandText(field.desc);
 
   if (field.kind === "toggle") {
     const on = v === true || String(v).toLowerCase() === "true";
@@ -2585,7 +2594,7 @@ function KieFieldChip({
       <button
         type="button"
         onClick={() => onChange(field.name, !on)}
-        title={field.desc || field.label}
+        title={desc || label}
         className={cn(
           "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-medium transition",
           on
@@ -2593,7 +2602,7 @@ function KieFieldChip({
             : "border-white/10 bg-[#16161b] text-white/70 hover:border-white/20 hover:text-white",
         )}
       >
-        {field.label}
+        {label}
         <span className="font-mono text-[10px] text-white/45">{on ? "on" : "off"}</span>
       </button>
     );
@@ -2625,7 +2634,7 @@ function KieFieldChip({
 
     return (
       <OptionDropdown
-        label={field.label}
+        label={label}
         value={displayVal}
         selectedValue={currentVal}
         open={openChip === field.name}
@@ -2644,9 +2653,9 @@ function KieFieldChip({
     return (
       <div
         className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/10 bg-[#16161b] px-2.5"
-        title={field.desc || field.label}
+        title={desc || label}
       >
-        <span className="text-[11px] text-white/55">{field.label}</span>
+        <span className="text-[11px] text-white/55">{label}</span>
         <input
           type="number"
           value={v === undefined || v === null ? "" : String(v)}
@@ -2666,9 +2675,9 @@ function KieFieldChip({
   return (
     <div
       className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/10 bg-[#16161b] px-2.5"
-      title={field.desc || field.label}
+      title={desc || label}
     >
-      <span className="text-[11px] text-white/55">{field.label}</span>
+      <span className="text-[11px] text-white/55">{label}</span>
       <input
         value={String(v ?? "")}
         onChange={(e) => onChange(field.name, e.target.value)}
@@ -2704,6 +2713,8 @@ function KieAttachButton({
     : [];
   const max = field.max_items ?? 99;
   const canAdd = items.length < max;
+  const label = brandText(field.label);
+  const desc = brandText(field.desc);
 
   const addUrl = () => {
     const u = urlDraft.trim();
@@ -2771,9 +2782,9 @@ function KieAttachButton({
                 .kieUpload(f)
                 .then((r) => {
                   onChange(field.name, [...items, r.url]);
-                  toast.success(`${field.label}: файл загружен`);
+                  toast.success(`${label}: файл загружен`);
                 })
-                .catch((err) => toast.error(errorMessageFromUnknown(err)))
+                .catch((err) => toast.error(brandText(errorMessageFromUnknown(err))))
                 .finally(() => setBusy(false));
               e.target.value = "";
             }}
@@ -2782,7 +2793,7 @@ function KieAttachButton({
             type="button"
             disabled={busy}
             onClick={() => inputRef.current?.click()}
-            title={field.desc || field.label}
+            title={desc || label}
             className="inline-flex h-10 items-center gap-2 rounded-xl border border-dashed border-white/25 bg-white/[0.03] px-3 text-[12px] font-medium text-white/70 transition hover:border-white/40 hover:text-white disabled:opacity-50"
           >
             {busy ? (
@@ -2790,7 +2801,7 @@ function KieAttachButton({
             ) : (
               <Paperclip className="h-4 w-4" />
             )}
-            {field.label}
+            {label}
             {field.required ? <span className="text-red-400">*</span> : null}
           </button>
           <button
@@ -2974,13 +2985,18 @@ function ModelPickerPopover({
 
   const filteredKie = useMemo(() => {
     if (!q) return kieForType;
-    return kieForType.filter(
-      (m) =>
+    return kieForType.filter((m) => {
+      const label = brandText(m.label).toLowerCase();
+      const desc = brandText(m.desc || "").toLowerCase();
+      const hint = brandText(m.hint || "").toLowerCase();
+      return (
+        label.includes(q) ||
+        desc.includes(q) ||
+        hint.includes(q) ||
         m.label.toLowerCase().includes(q) ||
-        (m.desc || "").toLowerCase().includes(q) ||
-        (m.hint || "").toLowerCase().includes(q) ||
-        m.id.toLowerCase().includes(q),
-    );
+        m.id.toLowerCase().includes(q)
+      );
+    });
   }, [kieForType, q]);
 
   const unifiedItems = useMemo(() => {
@@ -3017,13 +3033,13 @@ function ModelPickerPopover({
 
       return {
         slug: `kie:${m.id}`,
-        label: m.label,
-        desc: m.hint || m.desc,
+        label: brandText(m.label),
+        desc: brandText(m.hint || m.desc),
         icon,
-        letter: m.label.slice(0, 1),
+        letter: brandText(m.label).slice(0, 1),
         isKie: true,
         isTop: Boolean(m.is_top || m.isTop),
-        badge: m.badge || (m.is_top || m.isTop ? "ТОП" : undefined),
+        badge: brandText(m.badge || "") || (m.is_top || m.isTop ? "ТОП" : undefined),
         priceLabel: null as string | null,
         priceUsd: est.usd > 0 ? est.usd : null,
       };
@@ -3038,8 +3054,8 @@ function ModelPickerPopover({
       })
       .map((m) => ({
         slug: m.slug,
-        label: m.displayName,
-        desc: m.description,
+        label: brandText(m.displayName),
+        desc: brandText(m.description),
         icon: m.icon,
         letter: null as string | null,
         isKie: false,

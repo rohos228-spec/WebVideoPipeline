@@ -1,5 +1,7 @@
 /** Каталог голосов 11Labs для ноды «Озвучка». */
 
+import { brandText } from "./brand";
+
 export type ElevenLabsVoice = {
   id: string;
   name: string;
@@ -57,7 +59,7 @@ export const ELEVENLABS_VOICES: ElevenLabsVoice[] = [
 export const DEFAULT_ELEVENLABS_VOICE_ID = "pNInz6obpgDQGcFmaJgB";
 
 export function elevenLabsVoiceLabel(v: ElevenLabsVoice): string {
-  return `${v.name} — ${v.description}`;
+  return brandText(`${v.name} — ${v.description}`);
 }
 
 export function findElevenLabsVoice(id: string | null | undefined): ElevenLabsVoice | undefined {

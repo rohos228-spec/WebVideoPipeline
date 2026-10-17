@@ -4,6 +4,7 @@
  * сам отдаёт фронт + API из одного origin.
  */
 
+import { brandText } from "./brand";
 import type { Nii67Card } from "./nii67";
 import type { Nii67Frame } from "@/components/canvas/nii67-frame-menu";
 import type {
@@ -600,29 +601,29 @@ export function formatApiError(
   if (typeof detail === "string") {
     try {
       const parsed = JSON.parse(detail) as { detail?: unknown };
-      if (typeof parsed.detail === "string") return parsed.detail;
+      if (typeof parsed.detail === "string") return brandText(parsed.detail);
     } catch {
-      return detail;
+      return brandText(detail);
     }
-    return detail;
+    return brandText(detail);
   }
   if (detail && typeof detail === "object") {
     const d = detail as Record<string, unknown>;
     if (Array.isArray(d.errors) && d.errors.length > 0) {
-      return d.errors.map(String).join("; ");
+      return brandText(d.errors.map(String).join("; "));
     }
-    if (typeof d.error === "string" && d.error.trim()) return d.error;
-    if (typeof d.message === "string" && d.message.trim()) return d.message;
+    if (typeof d.error === "string" && d.error.trim()) return brandText(d.error);
+    if (typeof d.message === "string" && d.message.trim()) return brandText(d.message);
     if ("detail" in d) {
       const inner = d.detail;
-      if (typeof inner === "string") return inner;
-      if (Array.isArray(inner)) return inner.map(String).join("; ");
+      if (typeof inner === "string") return brandText(inner);
+      if (Array.isArray(inner)) return brandText(inner.map(String).join("; "));
       if (inner && typeof inner === "object") {
         const nested = inner as Record<string, unknown>;
         if (Array.isArray(nested.errors) && nested.errors.length > 0) {
-          return nested.errors.map(String).join("; ");
+          return brandText(nested.errors.map(String).join("; "));
         }
-        if (typeof nested.error === "string") return nested.error;
+        if (typeof nested.error === "string") return brandText(nested.error);
       }
     }
   }
@@ -2554,7 +2555,7 @@ export const api = {
       detail?: string;
     };
     if (!r.ok || !data.url) {
-      throw new Error(data.detail || `upload HTTP ${r.status}`);
+      throw new Error(brandText(data.detail || `upload HTTP ${r.status}`));
     }
     return data as { url: string; filename: string; bytes: number };
   },
@@ -3229,3 +3230,8 @@ export function subscribeWS(
     onClose?.("closed");
   };
 }
+
+// Agent E/C/D client modules re-exported for a single import surface.
+export * as billing from "./billing-client";
+export * as health from "./health-client";
+export * as authClient from "./auth-client";

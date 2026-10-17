@@ -72,7 +72,7 @@ export function StreamsPanel({ project }: { project: ProjectDetail | null }) {
       if (vars.worker_max_parallel != null) {
         toast.success(`Параллель проектов: ${vars.worker_max_parallel}`);
       } else if (vars.default_outsee_streams != null) {
-        toast.success(`Default Outsee: ${vars.default_outsee_streams}`);
+        toast.success(`Потоки изображений по умолчанию: ${vars.default_outsee_streams}`);
       } else if (vars.default_check_streams != null) {
         toast.success(`Default check: ${vars.default_check_streams}`);
       }
@@ -117,8 +117,8 @@ export function StreamsPanel({ project }: { project: ProjectDetail | null }) {
         const n = Number(m.img_streams ?? m.outsee_streams);
         toast.success(
           n === 0
-            ? "Потоки Outsee: 0 (без генерации)"
-            : `Потоки Outsee (проект): ${n}`,
+            ? "Потоки изображений: 0 (без генерации)"
+            : `Потоки изображений (проект): ${n}`,
         );
         outseeHoldUntilRef.current = Date.now() + 8000;
       }
@@ -162,7 +162,7 @@ export function StreamsPanel({ project }: { project: ProjectDetail | null }) {
       </div>
       <p className="text-xs leading-relaxed text-zinc-400">
         Параллель проектов — глобально. Картинки/видео и проверка GPT ниже — для текущего проекта
-        (Create делит Outsee-пул ≤{cfg.create_max_parallel_outsee ?? 4}).
+        (Create делит пул изображений ≤{cfg.create_max_parallel_outsee ?? 4}).
       </p>
 
       <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">

@@ -32,6 +32,7 @@ import { api, subscribeWS, type MontagePendingOp } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import type { MontageBoardDTO, MontageBoardFrame } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { brandText } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -252,7 +253,7 @@ function MontageExtrasPopover({
                       await api.uploadMontageVoice(projectId, file);
                       toast.success("Озвучка загружена → audio/voice_full.*");
                     } catch (e) {
-                      toast.error(errorMessageFromUnknown(e));
+                      toast.error(brandText(errorMessageFromUnknown(e)));
                     }
                   }}
                   onMusicUpload={async (file) => {
@@ -260,7 +261,7 @@ function MontageExtrasPopover({
                       await api.uploadMontageMusic(projectId, file);
                       toast.success("Музыка загружена → music/bgm.*");
                     } catch (e) {
-                      toast.error(errorMessageFromUnknown(e));
+                      toast.error(brandText(errorMessageFromUnknown(e)));
                     }
                   }}
                 />
@@ -1372,7 +1373,7 @@ export function AssembleMontageBoard({
     mutationFn: () => {
       const ops = pendingOpsRef.current;
       if (ops.length > 0) {
-        toast.message(`Генерация: ${ops.length} операций… (Outsee API)`);
+        toast.message(`Генерация: ${ops.length} операций… (VIA Render)`);
       }
       return api.applyMontageBoard(projectId!, {
         video_trims: trims,
@@ -1396,7 +1397,7 @@ export function AssembleMontageBoard({
         lastPatchedPathRef.current = "";
         setApplyRunning(true);
         lastApplyToastKeyRef.current = "";
-        toast.message(res.message || `Генерация ${queued} операций через API…`);
+        toast.message(brandText(res.message || `Генерация ${queued} операций через API…`));
         return;
       }
       if (res.already_running) {
@@ -1426,18 +1427,18 @@ export function AssembleMontageBoard({
       }
       void queryClient.invalidateQueries({ queryKey: ["montage-board", projectId] });
       if (!res.ok && res.errors?.length) {
-        toast.error(res.errors.join("; "));
+        toast.error(brandText(res.errors.join("; ")));
         return;
       }
       if (queued === 0) {
         toast.success("Trim сохранён");
       } else {
         // Фоновый job должен вернуть started/already_running. Иначе не врём «завершено».
-        toast.message(res.message || "Генерация принята — ждём статус…");
+        toast.message(brandText(res.message || "Генерация принята — ждём статус…"));
         setApplyRunning(true);
       }
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const montageMutation = useMutation({
@@ -1454,7 +1455,7 @@ export function AssembleMontageBoard({
         toast.message("Монтаж запущен в фоне");
       }
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const recoverOutseeMutation = useMutation({
@@ -1463,25 +1464,25 @@ export function AssembleMontageBoard({
       if (res.started || res.already_running || res.job?.status === "running") {
         lastRecoverToastKeyRef.current = "";
         setRecoverRunning(true);
-        toast.message(res.message || "Забираем правки из Outsee…");
+        toast.message(brandText(res.message || "Забираем правки из галереи…"));
         return;
       }
       // Совместимость со старым синхронным ответом (если бэкенд ещё не обновлён).
       const n = res.saved_count ?? res.saved?.length ?? 0;
       if (n > 0) {
-        toast.success(`Забрано и заменено из Outsee: ${n} кадр(ов)`);
+        toast.success(`Забрано и заменено из галереи: ${n} кадр(ов)`);
         localQueueDirtyRef.current = false;
         setPendingOps([]);
       } else if (res.errors?.length) {
-        toast.error(res.errors.join("; "));
+        toast.error(brandText(res.errors.join("; ")));
       } else {
         toast.message(
-          `В истории Outsee нет карточек для выделенных правок (просмотрено ${res.hits_scanned ?? 0})`,
+          `В истории галереи нет карточек для выделенных правок (просмотрено ${res.hits_scanned ?? 0})`,
         );
       }
       void queryClient.invalidateQueries({ queryKey: ["montage-board", projectId] });
     },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+    onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   useEffect(() => {
@@ -1516,7 +1517,7 @@ export function AssembleMontageBoard({
       }
       if (showToast) {
         if (status === "done") toast.success("Генерация завершена");
-        else if (status === "error") toast.error(errText || "Генерация не удалась");
+        else if (status === "error") toast.error(brandText(errText || "Генерация не удалась"));
         else if (status === "cancelled") toast.message("Генерация остановлена");
       }
       void queryClient
@@ -1553,15 +1554,15 @@ export function AssembleMontageBoard({
       setRecoverRunning(false);
       const n = savedCount ?? 0;
       if (status === "done" && n > 0) {
-        toast.success(`Забрано и заменено из Outsee: ${n} кадр(ов)`);
+        toast.success(`Забрано и заменено из галереи: ${n} кадр(ов)`);
         localQueueDirtyRef.current = false;
         setPendingOps([]);
       } else if (status === "done") {
-        toast.message(errText || "В истории Outsee нет подходящих карточек");
+        toast.message(brandText(errText || "В истории галереи нет подходящих карточек"));
       } else if (status === "error") {
-        toast.error(errText || "Не удалось забрать из Outsee");
+        toast.error(brandText(errText || "Не удалось забрать из галереи"));
       } else if (status === "cancelled") {
-        toast.message("Забор из Outsee остановлен");
+        toast.message("Забор из галереи остановлен");
       }
       void queryClient.invalidateQueries({ queryKey: ["montage-board", projectId] });
     },
@@ -1577,7 +1578,7 @@ export function AssembleMontageBoard({
       if (status === "done") {
         toast.success("Монтаж завершён");
         void queryClient.invalidateQueries({ queryKey: ["montage-board", projectId] });
-      } else if (status === "error") toast.error(errText || "Монтаж не удался");
+      } else if (status === "error") toast.error(brandText(errText || "Монтаж не удался"));
       else if (status === "cancelled") toast.message("Монтаж остановлен");
     },
     [projectId, queryClient],
@@ -1827,7 +1828,7 @@ export function AssembleMontageBoard({
       refreshBoard();
       toast.success("Изображение удалено");
     } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     }
   };
 
@@ -1856,7 +1857,7 @@ export function AssembleMontageBoard({
           : `Обмен #${from.frameNumber}.${from.shot} ↔ #${to.frameNumber}.${to.shot}`,
       );
     } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     } finally {
       setMoveImageBusy(false);
     }
@@ -1869,7 +1870,7 @@ export function AssembleMontageBoard({
       refreshBoard();
       toast.success("Видео удалено");
     } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     }
   };
 
@@ -1883,7 +1884,7 @@ export function AssembleMontageBoard({
       refreshBoard();
       toast.success("Изображение загружено");
     } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     }
   };
 
@@ -1895,7 +1896,7 @@ export function AssembleMontageBoard({
       refreshBoard();
       toast.success("Видео загружено");
     } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     }
   };
 
@@ -1965,7 +1966,7 @@ export function AssembleMontageBoard({
           : `${label}: обмен #${swapPick.frameNumber}.${swapPick.shot} ↔ #${slot.frameNumber}.${slot.shot}`,
       );
     } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
+      toast.error(brandText(errorMessageFromUnknown(e)));
     } finally {
       setSwapBusy(false);
     }
@@ -2206,7 +2207,7 @@ export function AssembleMontageBoard({
                 recoverRunning ||
                 applyRunning
               }
-              title="Опционально: CDP-подбор готовых карточек из галереи Outsee (перегенерация через API этого не требует)"
+              title="Опционально: CDP-подбор готовых карточек из галереи (перегенерация через API этого не требует)"
               onClick={() => recoverOutseeMutation.mutate()}
             >
               {recoverOutseeMutation.isPending || recoverRunning ? (
@@ -2214,7 +2215,7 @@ export function AssembleMontageBoard({
               ) : (
                 <RefreshCw className="h-4 w-4" />
               )}
-              {recoverRunning ? "Забираем из галереи…" : "Галерея Outsee (CDP)"}
+              {recoverRunning ? "Забираем из галереи…" : "Галерея (CDP)"}
             </Button>
             <AudioAlignPopover
               projectId={projectId}
@@ -2278,9 +2279,11 @@ export function AssembleMontageBoard({
               <div className="flex flex-col items-center gap-3 py-10 px-4 text-center">
                 <p className="text-sm text-destructive">Не удалось загрузить данные монтажа</p>
                 <p className="max-w-lg text-xs text-muted-foreground break-words whitespace-pre-wrap">
-                  {board.error instanceof Error
-                    ? board.error.message || String(board.error)
-                    : String(board.error ?? "неизвестная ошибка")}
+                  {brandText(
+                    board.error instanceof Error
+                      ? board.error.message || String(board.error)
+                      : String(board.error ?? "неизвестная ошибка"),
+                  )}
                   {projectId != null ? `\nproject #${projectId}` : ""}
                 </p>
                 <Button

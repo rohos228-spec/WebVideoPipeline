@@ -45,6 +45,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { brandText } from "@/lib/brand";
 import { GroupPreview } from "./group-preview";
 
 // sd_agent/sd_assemble — legacy-типы старых канвасов; scene-агенты теперь
@@ -314,7 +315,7 @@ function NodesTab({
                     {spec.label}
                   </span>
                   <span className="mt-0.5 line-clamp-2 block text-[10px] leading-snug text-muted-foreground">
-                    {spec.description}
+                    {brandText(spec.description)}
                   </span>
                 </span>
               </button>
@@ -359,7 +360,7 @@ function NodesTab({
               </span>
             </div>
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-              {selectedSpec.description || "Без описания."}
+              {brandText(selectedSpec.description || "Без описания.")}
             </p>
             <div className="mt-auto pt-3">
               <Button
@@ -664,7 +665,7 @@ function GroupDetailPane({
           <>
             {g.description && (
               <p className="text-xs leading-relaxed text-muted-foreground">
-                {g.description}
+                {brandText(g.description)}
               </p>
             )}
 
@@ -690,10 +691,10 @@ function GroupDetailPane({
                 {g.nodes.map((n) => (
                   <span
                     key={n.key}
-                    title={n.description || n.label}
+                    title={brandText(n.description || n.label)}
                     className="rounded-full border border-white/10 bg-black/30 px-2 py-0.5 text-[10px] text-muted-foreground"
                   >
-                    {n.label}
+                    {brandText(n.label)}
                     {n.prompt_variant ? (
                       <span className="ml-1 text-violet-300">
                         · {n.prompt_variant}

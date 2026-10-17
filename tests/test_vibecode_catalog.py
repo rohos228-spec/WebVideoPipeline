@@ -196,8 +196,9 @@ def test_frontend_picker_wired() -> None:
     # Вкладки вендоров: не сбрасывать setVendor из‑за нового catalog каждый рендер
     assert "[open, selectedId]" in picker
     assert "[open, selectedId, catalog]" not in picker
-    assert "Соотношение" in picker
-    assert "MiniMenu" in picker
+    # housepc design labels the aspect menu "Формат" (same media options)
+    assert "Соотношение" in picker or "label=\"Формат\"" in picker
+    assert "MiniMenu" in picker or "media.aspects" in picker
     media_opts = Path("web/src/lib/node-media-options.ts").read_text(encoding="utf-8")
     assert "mediaOptionsForModel" in media_opts
     assert "мало" in media_opts

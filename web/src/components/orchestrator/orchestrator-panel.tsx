@@ -211,7 +211,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                 detail: { projectId },
               }),
             );
-            notes.push("открыл Create / Outsee");
+            notes.push("открыл VIA · Create");
           }
         }
         if (r.error) notes.push(`ошибка: ${r.error}`);

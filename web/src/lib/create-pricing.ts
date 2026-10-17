@@ -51,7 +51,7 @@ function fmtTokens(n: number): string {
 
 function parseCatalogPrice(raw?: string | null): number | null {
   if (!raw) return null;
-  let s = raw.trim().toLowerCase().replace(/^от\s*/, "").replace(",", ".");
+  const s = raw.trim().toLowerCase().replace(/^от\s*/, "").replace(",", ".");
   let num = "";
   for (const ch of s) {
     if ((ch >= "0" && ch <= "9") || ch === ".") num += ch;

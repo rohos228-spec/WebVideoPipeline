@@ -174,7 +174,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   images: {
     type: "images",
     label: "Картинки",
-    description: "Генерация изображений на outsee.io.",
+    description: "Генерация изображений.",
     category: "media",
     accent: "270 50% 62%",
     iconKey: "image",
@@ -198,7 +198,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   music: {
     type: "music",
     label: "Музыка",
-    description: "Фоновая музыка через GPT + Suno (Outsee).",
+    description: "Фоновая музыка через GPT + Suno.",
     category: "audio",
     accent: "300 55% 62%",
     iconKey: "music",
@@ -216,7 +216,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
     type: "sfx_gen",
     label: "Звуки (SFX)",
     description:
-      "Создание звуков сопровождения по плану: 11Labs SFX API или локальный синтез; микс в сборке.",
+      "Создание звуков сопровождения по плану: Озвучка VIA или локальный синтез; микс в сборке.",
     category: "audio",
     accent: "340 60% 60%",
     iconKey: "audio-waveform",
@@ -224,7 +224,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   audio: {
     type: "audio",
     label: "Озвучка",
-    description: "ElevenLabs TTS + Whisper-субтитры.",
+    description: "Озвучка VIA + Whisper-субтитры.",
     category: "audio",
     accent: "320 60% 62%",
     iconKey: "audio-waveform",

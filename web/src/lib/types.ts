@@ -584,3 +584,6 @@ export type BusEvent =
   | { type: "hitl_decided"; project_id: number; hitl_id: number; decision: string; kind: string }
   | { type: "log"; run_id: number; level: string; line: string }
   | (Record<string, unknown> & { type: string });
+
+export * from "./types.billing";
+export * from "./types.health";

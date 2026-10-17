@@ -633,7 +633,10 @@ async def test_run_apply_ops_splits_2_to_4_on_second_error(
         dense=True,
     )
     # 160 fail, 80 fail → 40+40, other 80 fail → 40+40
-    assert calls == [160, 80, 40, 40, 80, 40, 40]
+    # housepc scheme 1->2->4 runs halves level-by-level (parallel), so only the
+    # multiset of call sizes is stable, not their order.
+    assert calls[0] == 160
+    assert sorted(calls) == sorted([160, 80, 40, 40, 80, 40, 40])
     assert len(res.apply_ops["ops"]) == 160
 
 

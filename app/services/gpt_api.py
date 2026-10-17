@@ -3284,8 +3284,10 @@ async def chat(
     use_model = (
         model or current_text_model_id() or settings.gpt_model_effective or "gpt-5.5"
     ).strip()
-    is_anthropic = is_anthropic_model(use_model)
-    routed = None if is_anthropic else resolve_text(use_model)
+    # 52pay route first (housepc): Claude/Fable with a PAY52_CLAUDE_* key go via
+    # 52pay chat/completions (stream). Without the key -> main's Anthropic /messages path.
+    routed = resolve_text(use_model)
+    is_anthropic = is_anthropic_model(use_model) and routed is None
     if routed is not None:
         use_model = routed.api_model
         headers = routed.headers()

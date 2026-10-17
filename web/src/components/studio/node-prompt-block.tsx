@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { brandText } from "@/lib/brand";
 
 /** Flat prompt editor at the bottom of the node settings: pick / view / edit / save / rename + node description. */
 export function NodePromptBlock({
@@ -40,10 +41,10 @@ export function NodePromptBlock({
   });
   const [draft, setDraft] = useState("");
   const [nameDraft, setNameDraft] = useState("");
-  const [descDraft, setDescDraft] = useState(description);
+  const [descDraft, setDescDraft] = useState(() => brandText(description));
   useEffect(() => setDraft(content.data?.content ?? ""), [content.data?.content]);
   useEffect(() => setNameDraft(sel ?? ""), [sel]);
-  useEffect(() => setDescDraft(description), [description]);
+  useEffect(() => setDescDraft(brandText(description)), [description]);
   const inval = () => {
     qc.invalidateQueries({ queryKey: ["prompt-files"] });
     qc.invalidateQueries({ queryKey: ["prompt-file"] });
@@ -79,7 +80,7 @@ export function NodePromptBlock({
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
   const delDisabled = !sel || sel === activeVariant || Boolean(list.find((f) => f.name === sel)?.is_default) || del.isPending;
-  const descDirty = descDraft.trim() !== description.trim();
+  const descDirty = descDraft.trim() !== brandText(description).trim();
   const dirty = draft !== (content.data?.content ?? "") || (nameDraft.trim() && nameDraft.trim() !== sel);
   return (
     <div data-vp-prompt-block className="flex flex-col gap-3">
@@ -109,7 +110,7 @@ export function NodePromptBlock({
       {(() => {
         const cur = list.find((f) => f.name === sel);
         const d = cur?.description || (content.data?.content ?? "").split(/\n/).map((l) => l.replace(/^[#>*\-\s]+/, "").trim()).find((l) => l.length >= 20)?.split(/(?<=[.!?])\s/)[0];
-        return d ? <p data-vp-prompt-desc className="text-[13px] leading-relaxed text-white/60">{d}</p> : null;
+        return d ? <p data-vp-prompt-desc className="text-[13px] leading-relaxed text-white/60">{brandText(d)}</p> : null;
       })()}
       <label className="flex flex-col gap-1">
         <span className="text-[13px] text-white/60">Название промта (файл)</span>

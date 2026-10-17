@@ -30,6 +30,7 @@ import { cn, parseUtcDate } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { brandText } from "@/lib/brand";
 import {
   assetTrayKindForNodeType,
   useCanvasActionsOptional,
@@ -538,12 +539,12 @@ export function PipelineNode({ data, selected }: NodeProps) {
                   ? () => {
                       void api
                         .stopProject(actions.projectId as number)
-                        .then((r) => toast.success(r.message || "Остановлено"))
-                        .catch((e) => toast.error(errorMessageFromUnknown(e)));
+                        .then((r) => toast.success(brandText(r.message || "Остановлено")))
+                        .catch((e) => toast.error(brandText(errorMessageFromUnknown(e))));
                     }
                   : undefined
               }
-              description={(d.description && d.description.trim()) || spec.description || fallbackDescription(d.type, title)}
+              description={brandText((d.description && d.description.trim()) || spec.description || fallbackDescription(d.type, title))}
               expanded={tileExpanded && !inlineStudio}
               vis={vis}
               onMenuReady={() => setVis(true)}
@@ -770,11 +771,11 @@ export function PipelineNode({ data, selected }: NodeProps) {
                 </span>
               )}
               {d.error && d.status === "failed" && (
-                <span className="line-clamp-2 text-[9px] text-destructive">{truncate(d.error, 48)}</span>
+                <span className="line-clamp-2 text-[9px] text-destructive">{truncate(brandText(d.error), 48)}</span>
               )}
               {d.progressText && d.status === "running" && (
                 <span className="line-clamp-1 font-mono text-[9px] text-muted-foreground">
-                  {d.progressText}
+                  {brandText(d.progressText)}
                 </span>
               )}
             </div>
@@ -1137,8 +1138,8 @@ function PosterTile({
     body = (
       <div className="absolute inset-x-0 bottom-0 top-10 flex flex-col gap-1 overflow-hidden px-3 pb-2">
         {settingsLines.slice(0, 5).map((l) => (
-          <div key={l} className="truncate text-[12.5px] leading-[1.45] text-white/75" title={l}>
-            <span className="vp-hl">{l}</span>
+          <div key={l} className="truncate text-[12.5px] leading-[1.45] text-white/75" title={brandText(l)}>
+            <span className="vp-hl">{brandText(l)}</span>
           </div>
         ))}
         {text ? (
@@ -1366,8 +1367,8 @@ function PosterTile({
         {failed ? (
           <div className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 px-4 text-center">
             {error ? (
-              <span className="line-clamp-3 text-[12px] text-red-400" title={error}>
-                {truncate(error, 140)}
+              <span className="line-clamp-3 text-[12px] text-red-400" title={brandText(error)}>
+                {truncate(brandText(error), 140)}
               </span>
             ) : null}
             {onRetry ? (
@@ -1391,7 +1392,7 @@ function PosterTile({
           </div>
         ) : null}
         {running && progressText ? (
-          <div className="absolute bottom-1.5 right-2.5 font-mono text-[11px] text-white/70">{truncate(progressText, 36)}</div>
+          <div className="absolute bottom-1.5 right-2.5 font-mono text-[11px] text-white/70">{truncate(brandText(progressText), 36)}</div>
         ) : null}
       <div className={`pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-3 pb-1.5 pt-2 [&>*]:pointer-events-auto`}>
         {groupId ? (

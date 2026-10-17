@@ -149,9 +149,9 @@ function AudioFields({
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
       <div>
-        <h3 className="text-sm font-semibold text-foreground">11Labs — голос</h3>
+        <h3 className="text-sm font-semibold text-foreground">Озвучка VIA — голос</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Генерация через официальный ElevenLabs HTTP API (модель eleven_multilingual_v2) с нарезкой таймингов слов через ASR.
+          Генерация через Озвучка VIA (модель eleven_multilingual_v2) с нарезкой таймингов слов через ASR.
         </p>
       </div>
       <label className="flex flex-col gap-1.5">

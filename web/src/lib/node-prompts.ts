@@ -1,5 +1,6 @@
 /** Схема промтов для ноды (меню «V»). */
 
+import { brandText } from "./brand";
 import { excelGptPromptStepCode, excelGptSlotIndex, isExcelGptNode, EXCEL_GPT_STEP_CODE } from "./excel-gpt-config";
 import { gptTextStepForNode, isHitlNodeType } from "./gpt-text-steps";
 import { NODE_CATALOG } from "./node-catalog";
@@ -80,7 +81,7 @@ const BASE: Record<string, NodePromptSlot[]> = {
       id: "frame_prompts",
       title: "Промты кадров",
       kind: "frame_prompts",
-      description: "image_prompt по кадрам — уходит в outsee",
+      description: "image_prompt по кадрам — уходит в VIA Render",
     },
     {
       id: "master",
@@ -112,7 +113,7 @@ const BASE: Record<string, NodePromptSlot[]> = {
   ],
   audio: [
     { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "audio" },
-    { id: "tts", title: "ElevenLabs TTS", kind: "gpt" },
+    { id: "tts", title: "Озвучка VIA", kind: "gpt" },
   ],
   music: [
     { id: "voiceover", title: "voiceover.txt", kind: "text", stepCode: "music" },
@@ -199,8 +200,8 @@ export function mergePromptSlotsWithDefaults(
         id: d.id,
         kind: d.kind,
         stepCode,
-        title: custom.custom ? custom.title : d.title,
-        description: d.description ?? custom.description,
+        title: brandText(custom.custom ? custom.title : d.title),
+        description: brandText(d.description ?? custom.description),
       });
       byId.delete(d.id);
     } else {
@@ -262,12 +263,13 @@ function applyExcelGptNodeContext(
       return {
         ...s,
         stepCode: enrichStep,
-        title:
+        title: brandText(
           s.kind === "blocks"
             ? s.title
             : s.custom
               ? s.title
               : "Промты",
+        ),
       };
     }
     if (!s.stepCode) return { ...s, stepCode: enrichStep };
@@ -302,7 +304,13 @@ export function resolvePromptSlots(
       excelSlotForNodeType(nodeType);
     result = [excel, ...rest];
   }
-  return result.filter((s) => s.kind !== "blocks");
+  return result
+    .filter((s) => s.kind !== "blocks")
+    .map((s) => ({
+      ...s,
+      title: brandText(s.title),
+      description: brandText(s.description),
+    }));
 }
 
 export function customPromptsForExcelGptNode(
