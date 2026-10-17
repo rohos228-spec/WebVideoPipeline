@@ -492,7 +492,7 @@ export function ProjectSidebar({
   const visibleRootProjects = rootProjects.filter(matchProject);
 
   return (
-    <aside
+    <aside data-testid="project-sidebar"
       style={{ width: sidebarWidth }}
       className="relative flex min-h-0 shrink-0 flex-col border-r border-white/[0.06] bg-gradient-to-b from-card/50 via-card/25 to-background/80 font-light shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)] backdrop-blur-xl"
     >

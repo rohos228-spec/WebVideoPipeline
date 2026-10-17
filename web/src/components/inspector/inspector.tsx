@@ -41,7 +41,7 @@ export function Inspector({
   });
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col 2xl:w-80 border-l border-white/[0.06] bg-black/30 backdrop-blur-xl">
+    <aside data-testid="inspector" className="flex w-72 shrink-0 flex-col 2xl:w-80 border-l border-white/[0.06] bg-black/30 backdrop-blur-xl">
       <div className="flex h-10 items-center gap-2 border-b border-white/[0.06] px-4">
         <Info className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">

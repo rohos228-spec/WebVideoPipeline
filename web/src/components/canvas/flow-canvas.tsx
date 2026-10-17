@@ -252,6 +252,51 @@ export function FlowCanvas({
   const paneRef = useRef<HTMLDivElement | null>(null);
   const savedViewport = projectId != null ? readPipelineViewport(projectId) : null;
 
+  /**
+   * Keep every node inside the visible pane (P2, small screens 1280/1366): a viewport saved on a
+   * wider screen, a server-saved graph without viewport, or the pane shrinking when side panels
+   * appear would otherwise leave nodes off-screen / under the projects panel. Uses real DOM boxes.
+   */
+  const ensureNodesVisible = useCallback(() => {
+    const inst = reactFlowRef.current;
+    const pane = paneRef.current;
+    if (!inst || !pane) return;
+    const pr = pane.getBoundingClientRect();
+    if (pr.width < 50 || pr.height < 50) return;
+    const els = pane.querySelectorAll<HTMLElement>(".react-flow__node");
+    if (!els.length) return;
+    let off = false;
+    els.forEach((el) => {
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      if (cx < pr.left + 8 || cx > pr.right - 8 || cy < pr.top + 8 || cy > pr.bottom - 8) off = true;
+    });
+    if (off) void inst.fitView({ padding: 0.08, maxZoom: 0.85, minZoom: 0.05, duration: 0 });
+  }, []);
+
+  const hasNodes = nodes.length > 0;
+  useEffect(() => {
+    if (!hasNodes) return;
+    const a = window.setTimeout(ensureNodesVisible, 250);
+    const b = window.setTimeout(ensureNodesVisible, 900);
+    const pane = paneRef.current;
+    let t: number | undefined;
+    const ro =
+      pane && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            window.clearTimeout(t);
+            t = window.setTimeout(ensureNodesVisible, 200);
+          })
+        : null;
+    if (pane && ro) ro.observe(pane);
+    return () => {
+      window.clearTimeout(a);
+      window.clearTimeout(b);
+      window.clearTimeout(t);
+      ro?.disconnect();
+    };
+  }, [hasNodes, projectId, ensureNodesVisible]);
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
@@ -1099,29 +1144,6 @@ export function FlowCanvas({
             const vp = readPipelineViewport(projectId);
             if (vp) inst.setViewport(vp, { duration: 0 });
           }
-          // Make sure every node is inside the visible pane (saved viewport from a wider screen,
-          // or a server-saved graph without a viewport would otherwise leave nodes off-screen /
-          // under the side panels on 1280–1366 px screens).
-          const ensureVisible = () => {
-            const pane = paneRef.current;
-            if (!pane) return;
-            const ns = inst.getNodes().filter((n) => !n.hidden);
-            if (!ns.length) return;
-            const { x, y, zoom } = inst.getViewport();
-            const w = pane.clientWidth;
-            const h = pane.clientHeight;
-            const off = ns.some((n) => {
-              const nw = n.measured?.width ?? n.width ?? 0;
-              const nh = n.measured?.height ?? n.height ?? 0;
-              const pos = n.position;
-              const cx = (pos.x + nw / 2) * zoom + x;
-              const cy = (pos.y + nh / 2) * zoom + y;
-              return cx < 8 || cy < 8 || cx > w - 8 || cy > h - 8;
-            });
-            if (off) inst.fitView({ padding: 0.12, maxZoom: 0.85, minZoom: 0.15, duration: 0 });
-          };
-          window.setTimeout(ensureVisible, 120);
-          window.setTimeout(ensureVisible, 600);
         }}
         onMoveEnd={(_event, vp) => {
           if (projectId != null) writePipelineViewport(projectId, vp);
@@ -1131,8 +1153,8 @@ export function FlowCanvas({
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         fitView={!savedViewport && !canvasGraph?.saved_at}
-        fitViewOptions={{ padding: 0.12, maxZoom: 0.85, minZoom: 0.2 }}
-        minZoom={0.15}
+        fitViewOptions={{ padding: 0.08, maxZoom: 0.85, minZoom: 0.05 }}
+        minZoom={0.05}
         maxZoom={1.5}
         proOptions={{ hideAttribution: true }}
         nodesDraggable

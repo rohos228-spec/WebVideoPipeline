@@ -35,9 +35,7 @@ function StudioPage() {
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistedState(
     "vp-studio-sidebar-collapsed",
-    // small screens (1280/1366): start with the projects panel collapsed so the canvas gets the room.
-    // Studio is rendered client-only (inside AuthGate), so reading window here is hydration-safe.
-    typeof window !== "undefined" && window.innerWidth < 1440,
+    false,
   );
   const [studioOpen, setStudioOpen] = useState(false);
   const [fleetOpen, setFleetOpen] = useState(false);

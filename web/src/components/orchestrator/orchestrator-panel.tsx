@@ -465,7 +465,7 @@ export function OrchestratorPanel({ projectId }: Props) {
   );
 
   return (
-    <div
+    <div data-testid="orchestrator-panel"
       className={cn(
         "z-40 flex flex-col border border-white/[0.1] bg-[#0c0c0c]/97 shadow-2xl backdrop-blur transition-all duration-200",
         // collapsed / normal: in the layout flow under the canvas (never covers nodes);
