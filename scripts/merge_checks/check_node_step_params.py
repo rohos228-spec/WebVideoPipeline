@@ -18,10 +18,10 @@ import sys
 
 # Файлы с определениями параметров нод (правим список при переименованиях)
 FILES = [
-    "web/components/studio/node-step-params-panel.tsx",
-    "web/components/studio/excel-gpt-settings-panel.tsx",
-    "web/components/studio/node-studio.tsx",
-    "web/components/canvas/node-model-picker.tsx",
+    "web/src/components/studio/node-step-params-panel.tsx",
+    "web/src/components/studio/excel-gpt-settings-panel.tsx",
+    "web/src/components/studio/node-studio.tsx",
+    "web/src/components/canvas/node-model-picker.tsx",
     "app/services/prompt_style_vars.py",
 ]
 
@@ -33,6 +33,9 @@ PARAM_PATTERNS = [
     re.compile(r"""setParam\(\s*['"]([A-Za-z0-9_]+)['"]"""),      # setParam('foo'
     re.compile(r"""node_step_params\[['"]([A-Za-z0-9_]+)['"]\]"""),
 ]
+
+# Новые файлы, которых нет в main (их отсутствие в base — не ошибка)
+NEW_FILES = {"app/services/prompt_style_vars.py"}
 
 # Служебные слова, не являющиеся параметрами
 NOISE = {
@@ -61,8 +64,8 @@ def extract_params(src: str) -> set[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base", default="upstream/main")
-    ap.add_argument("--head", default="test/merge-housepc")
+    ap.add_argument("--base", default="sync/sp0")
+    ap.add_argument("--head", default="HEAD")
     args = ap.parse_args()
 
     lost_total: dict[str, set[str]] = {}
@@ -72,7 +75,11 @@ def main() -> int:
         base_src = git_show(args.base, path)
         head_src = git_show(args.head, path)
         if base_src is None:
-            print(f"[skip] {path}: нет в {args.base}")
+            if path in NEW_FILES:
+                print(f"[skip] {path}: новый файл, нет в {args.base}")
+                continue
+            print(f"[FAIL] {path}: нет в {args.base} — неверный путь в FILES?")
+            lost_total[path] = {"<missing-in-base>"}
             continue
         if head_src is None:
             print(f"[FAIL] {path}: файл есть в {args.base}, но отсутствует в {args.head}")
