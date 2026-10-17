@@ -76,6 +76,7 @@ async def _init_db() -> None:
             ("batch_slug", "VARCHAR(120)"),
             ("auto_mode", "BOOLEAN DEFAULT 0"),
             ("title", "VARCHAR(240)"),
+            ("user_id", "VARCHAR(64)"),
         ]
         cols_rows = (
             await conn.exec_driver_sql("PRAGMA table_info(projects)")
