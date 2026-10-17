@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -331,6 +332,25 @@ def create_app() -> FastAPI:
     # Neutral public aliases for provider-named routes (frontend uses these).
     app.add_middleware(_NeutralPathAliasASGI)
 
+    @app.middleware("http")
+    async def _bind_user_for_billing(request, call_next):
+        """Expose the authenticated user id to generation queues (billing/limits)."""
+        from app.services.create_jobs import CURRENT_USER_ID
+
+        uid = None
+        try:
+            from app.services.roles import user_context
+
+            ctx = user_context(request)
+            uid = str(ctx["user_id"]) if ctx and ctx.get("user_id") else None
+        except Exception:  # noqa: BLE001
+            uid = None
+        token = CURRENT_USER_ID.set(uid)
+        try:
+            return await call_next(request)
+        finally:
+            CURRENT_USER_ID.reset(token)
+
     app.include_router(workflows_router.router, prefix=API_PREFIX)
     app.include_router(projects_router.router, prefix=API_PREFIX)
     app.include_router(project_ops_router.router, prefix=API_PREFIX)
@@ -372,6 +392,32 @@ def create_app() -> FastAPI:
     from app.billing.register import register as billing_register
 
     billing_register(app, prefix=API_PREFIX)
+    # Billing identity <- accounts/roles (agent D).
+    from app.billing import identity as billing_identity
+
+    def _billing_user(request):
+        from app.services.roles import user_context
+
+        ctx = user_context(request)
+        if not ctx or not ctx.get("user_id"):
+            return None
+        return {
+            "id": str(ctx["user_id"]),
+            "email": ctx.get("email"),
+            "email_verified": bool(ctx.get("email_verified")),
+            "role": ctx.get("role") or "user",
+            "plan": ctx.get("plan"),
+            "team_owner_id": ctx.get("team_owner_id"),
+        }
+
+    if os.environ.get("VIA_AUTH_ENABLED", os.environ.get("AUTH_REQUIRED", "0")).strip().lower() in ("1", "true", "yes"):
+        billing_identity.set_resolver(_billing_user)
+    else:
+        billing_identity.set_resolver(None)
+
+    @app.get("/openapi.json", include_in_schema=False)
+    async def _root_openapi() -> dict:
+        return app.openapi()
 
     @app.get(f"{API_PREFIX}/fleet/transfers/active")
     async def fleet_transfers_active() -> dict:

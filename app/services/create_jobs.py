@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -88,6 +89,9 @@ class CreateJob:
             "prompt_preview": (self.prompt or "")[:120],
         }
 
+
+# user id of the current HTTP request (set by middleware in app.web.api)
+CURRENT_USER_ID: ContextVar[str | None] = ContextVar("create_jobs_user_id", default=None)
 
 _JOBS: dict[str, CreateJob] = {}
 _LOCK = asyncio.Lock()
@@ -213,6 +217,8 @@ async def enqueue_generation(
     user_id: str | None = None,
 ) -> CreateJob:
     """Регистрирует job (queued) и стартует task — слот API берёт семафор."""
+    if user_id is None:
+        user_id = CURRENT_USER_ID.get()
     fp = _job_fingerprint(
         media=media, model=model, provider=provider, prompt=prompt, params=params
     )

@@ -27,6 +27,8 @@ class EnqIn(BaseModel):
 @router.post("/generation/run")
 async def run_generation(body: GenIn, user: CurrentUser) -> dict:
     job = f"test-{uuid.uuid4().hex}"
+    from app.services.model_health import record_run
+
     try:
         with charge_hook.charged(user["id"], job, model=body.model, kind=body.kind) as cost:
             if body.fail:
@@ -34,7 +36,9 @@ async def run_generation(body: GenIn, user: CurrentUser) -> dict:
     except charge_hook.InsufficientCredits as e:
         raise HTTPException(402, str(e)) from e
     except RuntimeError as e:
+        record_run(model=body.model, ok=False, call_type=body.kind or "", error="simulated failure")
         raise HTTPException(502, "Ошибка генерации, кредиты возвращены") from e
+    record_run(model=body.model, ok=True, call_type=body.kind or "")
     return {"ok": True, "job_id": job, "charged": cost}
 
 
