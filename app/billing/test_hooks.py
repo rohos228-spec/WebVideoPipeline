@@ -52,3 +52,36 @@ async def enqueue(body: EnqIn, user: CurrentUser) -> dict:
 @router.get("/queue/state")
 async def queue_state(user: CurrentUser, kind: str = "video") -> dict:
     return limits.state(user["id"], kind)
+
+
+class SeedIn(BaseModel):
+    email: str
+    password: str
+    verified: bool = True
+    credits: int = 0
+    role: str | None = None
+    plan: str | None = None
+
+
+@router.post("/seed-user")
+async def seed_user(body: SeedIn) -> dict:
+    """e2e seed (VIA_TEST_HOOKS=1 only): verified QA user + starting credits. Idempotent."""
+    from app.services import user_accounts as ua
+
+    u = ua.get_by_login(body.email)
+    if u is None:
+        u = ua.create_user(body.email, body.password, plan=body.plan)
+    else:
+        ua.set_password(int(u["id"]), body.password)
+    uid = int(u["id"])
+    if body.verified:
+        ua._mark_verified(uid)
+    if body.role:
+        ua.set_role(uid, body.role)
+    if body.plan:
+        ua.set_plan(uid, body.plan)
+    if body.credits:
+        from app.billing import ledger
+
+        ledger.credit(str(uid), int(body.credits), idempotency_key=f"seed:{uid}:{body.credits}", purpose="test_seed")
+    return {"ok": True, "user_id": uid, "email": body.email}

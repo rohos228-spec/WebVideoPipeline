@@ -3001,9 +3001,12 @@ def _active_prompt_for(p: Project, step_code: str, node_key: str | None, slot_id
         resolve_project_prompt_with_source,
     )
 
-    name, _src = resolve_project_prompt_with_source(
-        p.prompt_overrides or {}, step_code, meta=p.meta or {}, node_key=node_key, slot_id=slot_id
-    )
+    try:
+        name, _src = resolve_project_prompt_with_source(
+            p.prompt_overrides or {}, step_code, meta=p.meta or {}, node_key=node_key, slot_id=slot_id
+        )
+    except ValueError:  # step without a prompt folder (e.g. publish) -> no style vars
+        return None, None
     try:
         path = (
             resolve_excel_gpt_prompt_path(name, project=p, node_key=node_key)

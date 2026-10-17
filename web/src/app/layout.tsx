@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { BrandScrub } from "@/components/brand-scrub";
+import { AuthGate } from "@/components/auth/auth-gate";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -37,7 +38,9 @@ export default function RootLayout({
   return (
     <html lang="ru" suppressHydrationWarning className="dark">
       <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased font-sans`}>
-        <Providers>{children}</Providers>
+        <Providers>
+          <AuthGate>{children}</AuthGate>
+        </Providers>
         <BrandScrub />
       </body>
     </html>

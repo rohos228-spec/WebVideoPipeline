@@ -27,6 +27,7 @@ def test_oauth_telegram_link_then_login(client, user, monkeypatch):
     assert client.post("/api/auth/oauth/telegram/link", json=p, headers=u["h"]).status_code == 200
     me = client.get("/api/auth/me", headers=u["h"]).json()
     assert [x["provider"] for x in me["oauth"]] == ["telegram"]
+    client.cookies.clear()  # login flow = no browser session (vp_session cookie set on register)
     r = client.post("/api/auth/oauth/telegram/callback", json=p)
     assert r.status_code == 200 and r.json()["user"]["id"] == u["id"]
     bad = dict(p, hash="0" * 64)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Response, APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import settings_auth
@@ -86,6 +86,12 @@ class InviteBody(BaseModel):
 
 
 # ------------------------------------------------------------------ auth
+
+def _set_session_cookie(response: Response, token: str | None) -> None:
+    """Same token as Bearer, also as HttpOnly cookie: covers plain fetch/EventSource/img in the studio."""
+    if token:
+        response.set_cookie("vp_session", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30, path="/")
+
 @auth.get("/status")
 async def auth_status(request: Request) -> dict:
     u = roles.current_user(request)
@@ -95,7 +101,7 @@ async def auth_status(request: Request) -> dict:
 
 
 @auth.post("/register")
-async def register(body: RegisterBody, request: Request) -> dict:
+async def register(body: RegisterBody, request: Request, response: Response) -> dict:
     email = body.email.strip().lower()
     if not _EMAIL.match(email):
         raise HTTPException(422, "Некорректный email")
@@ -111,32 +117,36 @@ async def register(body: RegisterBody, request: Request) -> dict:
     row = ua.get(u["id"])
     sent = ua.send_verification(row, base_url(request))
     token = ua.new_session(u["id"], request.headers.get("user-agent", ""))
+    _set_session_cookie(response, token)
     return {"ok": True, "token": token, "access_token": token, "user": u, **sent}
 
 
 @auth.post("/login")
-async def login(body: LoginBody, request: Request) -> dict:
+async def login(body: LoginBody, request: Request, response: Response) -> dict:
     login_ = (body.email or body.username or "").strip()
     if not login_:
         raise HTTPException(422, "Укажите почту или логин")
     u = ua.get_by_login(login_)
     if u and ua.verify_password(body.password, u["password_hash"]):
         token = ua.new_session(u["id"], request.headers.get("user-agent", ""))
+        _set_session_cookie(response, token)
         return {"ok": True, "token": token, "access_token": token,
                 "auth_required": settings_auth.auth_enabled(), "user": ua.public(u)}
     legacy_user = settings.web_auth_user.strip()
     if legacy_user and settings.web_auth_password and login_ == legacy_user and body.password == settings.web_auth_password:
         token = issue_session_token(login_)
+        _set_session_cookie(response, token)
         return {"ok": True, "token": token, "access_token": token, "auth_required": True, "user": None}
     raise HTTPException(401, "Неверный логин или пароль")
 
 
 @auth.post("/logout")
-async def logout(request: Request) -> dict:
+async def logout(request: Request, response: Response) -> dict:
     tok = _extract_bearer(request)
     if tok:
         ua.drop_session(tok)
         revoke_legacy_token(tok)
+    response.delete_cookie("vp_session", path="/")
     return {"ok": True}
 
 
@@ -200,7 +210,7 @@ async def reset(body: ResetBody) -> dict:
 
 
 @auth.post("/change-password")
-async def change_password(body: ChangePasswordBody, request: Request) -> dict:
+async def change_password(body: ChangePasswordBody, request: Request, response: Response) -> dict:
     u = roles.require_user(request)
     if not ua.verify_password(body.old_password, u["password_hash"]):
         raise HTTPException(401, "Неверный пароль")
@@ -208,6 +218,7 @@ async def change_password(body: ChangePasswordBody, request: Request) -> dict:
         raise HTTPException(422, _PW_MSG)
     ua.set_password(u["id"], body.new_password)
     token = ua.new_session(u["id"], request.headers.get("user-agent", ""))
+    _set_session_cookie(response, token)
     return {"ok": True, "token": token}
 
 

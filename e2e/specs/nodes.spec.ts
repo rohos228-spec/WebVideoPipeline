@@ -12,6 +12,9 @@ test('настройки каждой ноды открываются; в пан
   await loginAsQa(page);
   await page.goto(STUDIO_PATH);
   await page.waitForLoadState('networkidle');
+  // оркестратор перекрывает канвас — сворачиваем, если развёрнут
+  const collapse = page.getByTitle(/Свернуть панель/).or(page.getByRole('button', { name: /Свернуть панель/ })).first();
+  if (await collapse.isVisible().catch(() => false)) { await collapse.click().catch(() => {}); await page.waitForTimeout(400); }
 
   const nodes = page.locator(NODE_SELECTOR);
   const count = await nodes.count();
@@ -21,7 +24,8 @@ test('настройки каждой ноды открываются; в пан
   for (let i = 0; i < count; i++) {
     const node = nodes.nth(i);
     const title = (await node.innerText().catch(() => `node-${i}`)).split('\n')[0];
-    await node.click({ timeout: 3000 }).catch(() => {});
+    // ноды за краем видимой области (под боковой панелью) кликаем через DOM-событие
+    await node.click({ timeout: 3000 }).catch(() => node.dispatchEvent('click').catch(() => {}));
     // некоторые ноды открывают настройки по двойному клику
     const panel = page.locator(SETTINGS_PANEL).first();
     if (!(await panel.isVisible().catch(() => false))) {

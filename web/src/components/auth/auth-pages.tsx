@@ -108,12 +108,14 @@ function Field({ label, icon, value, onChange, type = "text", error, ok, placeho
   const [show, setShow] = useState(false);
   const t = reveal ? (show ? "text" : "password") : type;
   const border = error ? "border-red-500/60" : ok ? "border-teal-400/40" : "border-white/10 focus-within:border-teal-400/50";
+  const id = `f-${name}`;
+  // Label is bound only to the input (htmlFor), so the reveal button is not part of it (a11y + getByLabel).
   return (
-    <label className="mb-5 block">
-      <span className="mb-2 block text-[15px] text-zinc-300">{label}</span>
+    <div className="mb-5 block">
+      <label htmlFor={id} className="mb-2 block text-[15px] text-zinc-300">{label}</label>
       <span className={`flex h-[56px] items-center gap-3 rounded-[14px] border bg-white/[0.03] px-4 transition-colors duration-200 ${border}`}>
         <span className="text-zinc-500">{icon}</span>
-        <input name={name} type={t} value={value} placeholder={placeholder} autoComplete={autoComplete} onChange={(e) => onChange(e.target.value)}
+        <input id={id} name={name} type={t} value={value} placeholder={placeholder} autoComplete={autoComplete} onChange={(e) => onChange(e.target.value)}
           className="h-full min-w-0 flex-1 bg-transparent text-[17px] text-white outline-none placeholder:text-zinc-600" />
         {ok && !error ? <Check className="h-5 w-5" style={{ color: A }} /> : null}
         {reveal ? (
@@ -123,7 +125,7 @@ function Field({ label, icon, value, onChange, type = "text", error, ok, placeho
         ) : null}
       </span>
       {error ? <span className="mt-1.5 flex items-center gap-1.5 text-[14px] text-red-400"><CircleAlert className="h-4 w-4" />{error}</span> : hint ? <span className="mt-1.5 block text-[14px] text-zinc-500">{hint}</span> : null}
-    </label>
+    </div>
   );
 }
 
