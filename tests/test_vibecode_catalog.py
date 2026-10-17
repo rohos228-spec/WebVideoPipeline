@@ -338,7 +338,7 @@ def test_node_override_empty_vibecode_key_does_not_steal_kie_key(
         label="GPT 5.6 Sol",
     )
     with use_override(ov):
-        with pytest.raises(GptApiError, match="VIBECODE_API_KEY") as ei:
+        with pytest.raises(GptApiError, match="VIBECODE_API_KEY|Ключ текстового LLM пуст") as ei:
             gpt_api._headers()
         assert "kie-key" not in str(ei.value)
 

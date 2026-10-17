@@ -33,10 +33,10 @@ def default_graph() -> tuple[list[dict], list[dict]]:
         ("images", "Картинки", "Генерация изображений"),
         ("animation_prompts", "Промты анимации", "Генерация animation-prompt'ов"),
         ("videos", "Видео", "Генерация 8-сек клипов"),
-        ("audio", "Озвучка", "ElevenLabs TTS + Whisper"),
-        ("music", "Музыка", "GPT + Suno (Outsee)"),
+        ("audio", "Озвучка", "Озвучка VIA + Whisper"),
+        ("music", "Музыка", "GPT + Suno"),
         ("sfx_plan", "План звуков", "GPT: метки звуков сопровождения по таймлайну"),
-        ("sfx_gen", "Звуки", "Создание SFX (11Labs API / локальный синтез)"),
+        ("sfx_gen", "Звуки", "Создание SFX (Озвучка VIA / локальный синтез)"),
         ("assemble", "Сборка", "FFmpeg финальный mp4"),
         ("publish", "Публикация", "Публикация на 5 площадок"),
     ]

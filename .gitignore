@@ -35,6 +35,7 @@ STUDIO-LOCAL.cmd
 .idea/
 .vscode/
 *.swp
+.cursor/hooks/state/
 
 # Data (артефакты проектов — не коммитим в git)
 data/
@@ -47,6 +48,8 @@ scratch/
 api-tracker/*.db
 api-tracker/*.db-shm
 api-tracker/*.db-wal
+.worktrees/
+tasks/out/
 
 # OS
 .DS_Store
@@ -55,6 +58,11 @@ Thumbs.db
 # Logs (только корневая папка; не web/src/components/logs)
 *.log
 /logs/
+
+# API Tracker local DB
+api-tracker/*.db
+api-tracker/*.db-shm
+api-tracker/*.db-wal
 
 # Локальная история версий промтов (не коммитим)
 prompts/**/.history/
@@ -73,3 +81,11 @@ prompts/*
 !prompts/04_hero/character_model_sheet_16x9.md
 !prompts/07_animation/
 !prompts/07_animation/default.md
+web/out/
+build.lock
+*.bak_*
+# Лаборатория: раунды, ответы моделей, свои копии промтов
+/lab/threads/
+
+# Черновики агента в корне репозитория
+/_tmp*

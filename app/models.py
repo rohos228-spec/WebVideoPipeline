@@ -219,6 +219,8 @@ class Project(Base):
     slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     # Короткое имя в сайдбаре (не путать с topic — тема для шага «Тема ролика»).
     title: Mapped[str | None] = mapped_column(String(240), default=None)
+    # Владелец (аккаунт сайта); None — локальный режим без авторизации.
+    user_id: Mapped[str | None] = mapped_column(String(64), default=None, index=True)
     topic: Mapped[str] = mapped_column(Text)
     hero_mode: Mapped[str] = mapped_column(String(20), default="auto")  # hero | no_hero | auto
     status: Mapped[ProjectStatus] = mapped_column(
@@ -918,3 +920,22 @@ class WorkflowVersion(Base):
     edges: Mapped[list] = mapped_column(JSON, default=list)
     message: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(default=_now, index=True)
+
+
+def _fill_project_owner(mapper, connection, target) -> None:  # noqa: ARG001
+    """Проставляет user_id из текущего HTTP-запроса (auth включена)."""
+    if getattr(target, "user_id", None):
+        return
+    try:
+        from app.services.create_jobs import CURRENT_USER_ID
+
+        uid = CURRENT_USER_ID.get()
+    except Exception:  # noqa: BLE001
+        uid = None
+    if uid:
+        target.user_id = uid
+
+
+from sqlalchemy import event as _sa_event  # noqa: E402
+
+_sa_event.listen(Project, "before_insert", _fill_project_owner)

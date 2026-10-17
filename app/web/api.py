@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -44,6 +45,9 @@ from app.web.routers import (
     frames as frames_router,
 )
 from app.web.routers import (
+    gen_assistant as gen_assistant_router,
+)
+from app.web.routers import (
     generation_options as generation_options_router,
 )
 from app.web.routers import (
@@ -59,13 +63,20 @@ from app.web.routers import (
     knowledge as knowledge_router,
 )
 from app.web.routers import (
-    meta_agent as meta_agent_router,
-)
-from app.web.routers import (
     library as library_router,
 )
 from app.web.routers import (
+    meta_agent as meta_agent_router,
+)
+from app.web.routers import (
+    nii67 as nii67_router,
+)
+from app.web.routers import (
+    style_agent as style_agent_router,
+)
+from app.web.routers import (
     node_groups as node_groups_router,
+    storage as storage_router,
 )
 from app.web.routers import (
     outsee_create as outsee_create_router,
@@ -75,6 +86,8 @@ from app.web.routers import (
 )
 from app.web.routers import (
     project_ops as project_ops_router,
+    ratings as ratings_router,
+    profile as profile_router,
 )
 from app.web.routers import (
     projects as projects_router,
@@ -122,10 +135,14 @@ async def _lifespan(app: FastAPI):
         from app.models import Base
 
         async with engine.begin() as conn:
+            from app.services.scene_space import models as _scene_space_models  # noqa: F401
+
             await conn.run_sync(Base.metadata.create_all)
             from app.services.db_v2 import migrate_db_v2_schema
+            from app.services.scene_space.migrate import migrate_scene_space_schema
 
             await migrate_db_v2_schema(conn)
+            await migrate_scene_space_schema(conn)
     except Exception:  # noqa: BLE001
         logger.exception("create_all failed (non-fatal — possibly already exists)")
     try:
@@ -228,6 +245,65 @@ async def _lifespan(app: FastAPI):
             pass
 
 
+_PROVIDER_WORD_RE = re.compile(
+    r"(?i)(52pay|kie(?:\.ai)?|outsee|vibecode|wavespeed|elevenlabs|anthropic|openai|grsai)"
+)
+
+
+def _scrub_provider_words(obj):
+    """Hide provider names in the public OpenAPI schema (TZ p.22)."""
+    if isinstance(obj, str):
+        return _PROVIDER_WORD_RE.sub("via", obj)
+    if isinstance(obj, list):
+        return [_scrub_provider_words(x) for x in obj]
+    if isinstance(obj, dict):
+        return {_scrub_provider_words(k): _scrub_provider_words(v) for k, v in obj.items()}
+    return obj
+
+
+def _install_scrubbed_openapi(app: FastAPI) -> None:
+    from fastapi.openapi.utils import get_openapi
+
+    def _openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+        app.openapi_schema = _scrub_provider_words(schema)
+        return app.openapi_schema
+
+    app.openapi = _openapi  # type: ignore[method-assign]
+
+
+_PATH_ALIASES: tuple[tuple[str, str], ...] = (
+    ("/api/render-create/", "/api/outsee-create/"),
+    ("/api/img-create/", "/api/kie-create/"),
+    ("/api/render/", "/api/outsee/"),
+)
+
+
+class _NeutralPathAliasASGI:
+    """Rewrites neutral public paths to internal provider-named routes."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") in ("http", "websocket"):
+            path = scope.get("path", "")
+            new = path
+            for pub, internal in _PATH_ALIASES:
+                if new.startswith(pub) or new + "/" == pub:
+                    new = internal + new[len(pub):]
+                    break
+            if "/montage-board/recover-render" in new:
+                new = new.replace("/montage-board/recover-render", "/montage-board/recover-outsee")
+            if new != path:
+                scope = dict(scope)
+                scope["path"] = new
+                scope["raw_path"] = new.encode()
+        await self.app(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="video-pipeline web",
@@ -245,10 +321,41 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Auth gate (agent D): off unless VIA_AUTH_ENABLED=1 / AUTH_REQUIRED=1.
+    from app.web.middleware_auth import AuthGateMiddleware
+
+    app.add_middleware(AuthGateMiddleware)
+    # Scrub provider names from error bodies (agent C, TZ p.22).
+    from app.brand import ErrorScrubASGI
+
+    app.add_middleware(ErrorScrubASGI)
+    # Neutral public aliases for provider-named routes (frontend uses these).
+    app.add_middleware(_NeutralPathAliasASGI)
+
+    @app.middleware("http")
+    async def _bind_user_for_billing(request, call_next):
+        """Expose the authenticated user id to generation queues (billing/limits)."""
+        from app.services.create_jobs import CURRENT_USER_ID
+
+        uid = None
+        try:
+            from app.services.roles import user_context
+
+            ctx = user_context(request)
+            uid = str(ctx["user_id"]) if ctx and ctx.get("user_id") else None
+        except Exception:  # noqa: BLE001
+            uid = None
+        token = CURRENT_USER_ID.set(uid)
+        try:
+            return await call_next(request)
+        finally:
+            CURRENT_USER_ID.reset(token)
 
     app.include_router(workflows_router.router, prefix=API_PREFIX)
     app.include_router(projects_router.router, prefix=API_PREFIX)
     app.include_router(project_ops_router.router, prefix=API_PREFIX)
+    app.include_router(ratings_router.router, prefix=API_PREFIX)
+    app.include_router(profile_router.router, prefix=API_PREFIX)
     app.include_router(generation_options_router.router, prefix=API_PREFIX)
     app.include_router(config_presets_router.router, prefix=API_PREFIX)
     app.include_router(outsee_create_router.router, prefix=API_PREFIX)
@@ -257,6 +364,7 @@ def create_app() -> FastAPI:
     app.include_router(kie_create_router.router, prefix=API_PREFIX)
     app.include_router(gpt_workspace_router.router, prefix=API_PREFIX)
     app.include_router(text_llm_router.router, prefix=API_PREFIX)
+    app.include_router(gen_assistant_router.router, prefix=API_PREFIX)
     app.include_router(sidebar_layout_router.router, prefix=API_PREFIX)
     app.include_router(runtime_streams_router.router, prefix=API_PREFIX)
     app.include_router(runs_router.router, prefix=API_PREFIX)
@@ -274,7 +382,47 @@ def create_app() -> FastAPI:
     app.include_router(auth_router.router, prefix=API_PREFIX)
     app.include_router(db_browser_router.router, prefix=API_PREFIX)
     app.include_router(node_groups_router.router, prefix=API_PREFIX)
+    app.include_router(storage_router.router, prefix=API_PREFIX)
     app.include_router(meta_agent_router.router, prefix=API_PREFIX)
+    app.include_router(nii67_router.router, prefix=API_PREFIX)
+    app.include_router(style_agent_router.router, prefix=API_PREFIX)
+    from app.web.routers import model_health as model_health_router
+
+    app.include_router(model_health_router.router, prefix=API_PREFIX)
+    from app.billing.register import register as billing_register
+
+    billing_register(app, prefix=API_PREFIX)
+    # Billing identity <- accounts/roles (agent D).
+    from app.billing import identity as billing_identity
+
+    def _billing_user(request):
+        from app.services.roles import user_context
+
+        ctx = user_context(request)
+        if not ctx or not ctx.get("user_id"):
+            return None
+        return {
+            "id": str(ctx["user_id"]),
+            "email": ctx.get("email"),
+            "email_verified": bool(ctx.get("email_verified")),
+            "role": ctx.get("role") or "user",
+            "plan": ctx.get("plan"),
+            "team_owner_id": ctx.get("team_owner_id"),
+        }
+
+    if os.environ.get("VIA_AUTH_ENABLED", os.environ.get("AUTH_REQUIRED", "0")).strip().lower() in ("1", "true", "yes"):
+        billing_identity.set_resolver(_billing_user)
+    else:
+        billing_identity.set_resolver(None)
+
+    @app.get("/openapi.json", include_in_schema=False)
+    async def _root_openapi() -> dict:
+        return app.openapi()
+
+    @app.get(f"{API_PREFIX}/fleet/transfers/active")
+    async def fleet_transfers_active() -> dict:
+        """Stub: no active fleet transfers (frontend polls this; was 404)."""
+        return {"transfers": []}
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
     async def api_write_not_found(rest: str) -> None:
@@ -365,6 +513,8 @@ def create_app() -> FastAPI:
     # ── Статика Next.js (export → ./web/out) ──
     _mount_frontend(app)
 
+    _install_scrubbed_openapi(app)
+
     return app
 
 
@@ -433,11 +583,25 @@ def _mount_frontend(app: FastAPI) -> None:
             from fastapi import HTTPException
 
             raise HTTPException(status_code=404, detail="not found")
+        if full_path.startswith("gen-styles/"):
+            from app.web.routers.gen_assistant import resolve_style_cover
+
+            cover = resolve_style_cover(full_path.split("/", 1)[1])
+            if cover is not None:
+                return FileResponse(
+                    cover,
+                    headers={"Cache-Control": "no-cache, must-revalidate"},
+                )
         # Next static export — все маршруты как .html-файлы.
         candidate = out_dir / full_path
         if candidate.is_file():
             if candidate.suffix.lower() in {".html", ".htm"}:
                 return _html_response(candidate)
+            if candidate.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"}:
+                return FileResponse(
+                    candidate,
+                    headers={"Cache-Control": "no-cache, must-revalidate"},
+                )
             return FileResponse(candidate)
         html_variant = out_dir / f"{full_path}.html"
         if html_variant.is_file():

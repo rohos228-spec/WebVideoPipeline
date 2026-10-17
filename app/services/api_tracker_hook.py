@@ -137,6 +137,8 @@ def _push_to_supabase(payload: dict[str, Any]) -> bool:
     """Асинхронная отправка записи в Supabase."""
     import os
     import httpx
+    if os.environ.get("TRACKER_CLOUD", "0").strip().lower() not in ("1", "true", "yes", "on"):
+        return False  # cloud sync off by default; TRACKER_CLOUD=1 enables
     url = os.environ.get("SUPABASE_URL", "").strip() or "https://jubhhajwknvhlntmwpoj.supabase.co"
     key = os.environ.get("SUPABASE_KEY", "").strip() or os.environ.get("SUPABASE_ANON_KEY", "").strip() or "sb_publishable_qxcebL4M8lXRj0s2qF4ZLA_VkHhp3a-"
     if not url or not key:
@@ -174,6 +176,19 @@ def record_api_call(
     timestamp: str | None = None,
 ) -> None:
     """Асинхронная запись вызова API в базу трекера и облако Supabase."""
+    try:
+        from app.services.model_health import record_run
+
+        record_run(
+            model=model,
+            ok=200 <= int(status_code or 0) < 400 and not error_message,
+            call_type=call_type,
+            duration_sec=duration_sec,
+            error=error_message,
+        )
+    except Exception:  # noqa: BLE001 - monitoring must never break the pipeline
+        pass
+
     def _write():
         try:
             _TRACKER_DB.parent.mkdir(parents=True, exist_ok=True)

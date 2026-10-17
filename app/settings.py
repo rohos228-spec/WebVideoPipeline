@@ -94,7 +94,16 @@ class Settings(BaseSettings):
         "https://vibecode.moe/v1", alias="VIBECODE_BASE_URL"
     )
 
-    # GPT / kie.ai — основной текстовый стек
+    # Отдельный ключ на группу моделей. Пустой ключ — модель остаётся на текстовом стеке.
+    pay52_base_url: str = Field("https://api.52pay.com/v1", alias="PAY52_BASE_URL")
+    pay52_glm_api_key: str = Field("", alias="PAY52_GLM_API_KEY")
+    pay52_claude_low_api_key: str = Field("", alias="PAY52_CLAUDE_LOW_API_KEY")
+    pay52_claude_high_api_key: str = Field("", alias="PAY52_CLAUDE_HIGH_API_KEY")
+    pay52_gpt_api_key: str = Field("", alias="PAY52_GPT_API_KEY")
+    pay52_seedance_mini_api_key: str = Field("", alias="PAY52_SEEDANCE_MINI_API_KEY")
+    pay52_seedance_faces_api_key: str = Field("", alias="PAY52_SEEDANCE_FACES_API_KEY")
+
+    # Основной текстовый стек (не удалять при добавлении других моделей)
     gpt_api_key: str = Field("", alias="GPT_API_KEY")
     gpt_base_url: str = Field("", alias="GPT_BASE_URL")
     gpt_model: str = Field("gpt-5-6-sol", alias="GPT_MODEL")
@@ -122,7 +131,7 @@ class Settings(BaseSettings):
     # Формат API: chat (messages/choices) | responses (input/output) | auto.
     # auto → responses, если в пути есть "responses" (kie.ai gpt-5.6/5.5/5.4 codex).
     gpt_api_mode: str = Field("auto", alias="GPT_API_MODE")
-    gpt_timeout_s: float = Field(600.0, alias="GPT_TIMEOUT_S")
+    gpt_timeout_s: float = Field(1200.0, alias="GPT_TIMEOUT_S")
     gpt_max_retries: int = Field(4, alias="GPT_MAX_RETRIES")
     # 0 = ждать EOF SSE (не рвать по GPT_TIMEOUT). >0 = httpx read timeout.
     gpt_stream_read_timeout_s: float = Field(0.0, alias="GPT_STREAM_READ_TIMEOUT_S")
@@ -182,10 +191,13 @@ class Settings(BaseSettings):
     def gpt_api_effective_base_url(self) -> str:
         """База активного текстового LLM.
 
-        kie — через VPS-relay, если задан. vibecode — всегда прямиком на
-        vibecode.moe (VPS часто ещё только на api.kie.ai; иначе 401-envelope).
+        kie и vibecode — через VPS-relay, если задан (Caddy: /v1/* → vibecode.moe,
+        остальное → api.kie.ai). Без relay vibecode идёт прямиком на vibecode.moe.
         """
         if self.text_llm_is_vibecode:
+            vps = self.vps_relay_base_url
+            if vps:
+                return vps
             return (self.vibecode_base_url or "https://vibecode.moe/v1").strip().rstrip("/")
         vps = self.vps_relay_base_url
         if vps:
@@ -278,6 +290,8 @@ class Settings(BaseSettings):
     fleet_montage_hub: bool = Field(True, alias="FLEET_MONTAGE_HUB")
     fleet_hub_is_worker: bool = Field(True, alias="FLEET_HUB_IS_WORKER")
     fleet_auto_pull: bool = Field(True, alias="FLEET_AUTO_PULL")
+    # False -> pipeline worker loop is not started (test worktrees / CI).
+    pipeline_worker_enabled: bool = Field(True, alias="PIPELINE_WORKER_ENABLED")
     fleet_montage_max_parallel: int = Field(1, alias="FLEET_MONTAGE_MAX_PARALLEL")
     # Tailscale URL этого ПК для agents (например http://100.x.x.x:8765)
     fleet_public_url: str = Field("", alias="FLEET_PUBLIC_URL")
