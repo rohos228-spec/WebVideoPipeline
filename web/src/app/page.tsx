@@ -16,9 +16,18 @@ import { useGlobalEvents } from "@/hooks/use-bus";
 import { useFleetTransfer, FLEET_TRANSFER_PUSH_START, optimisticPushTransfer } from "@/hooks/use-fleet-transfer";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { api } from "@/lib/api";
+import { AuthGate } from "@/components/auth/auth-gate";
 import { fleetPushToHub } from "@/lib/fleet-api";
 
 export default function HomePage() {
+  return (
+    <AuthGate>
+      <StudioPage />
+    </AuthGate>
+  );
+}
+
+function StudioPage() {
   const [selectedProjectId, setSelectedProjectId] = usePersistedState<number | null>(
     "vp-studio-selected-project-id",
     null,
@@ -26,7 +35,9 @@ export default function HomePage() {
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistedState(
     "vp-studio-sidebar-collapsed",
-    false,
+    // small screens (1280/1366): start with the projects panel collapsed so the canvas gets the room.
+    // Studio is rendered client-only (inside AuthGate), so reading window here is hydration-safe.
+    typeof window !== "undefined" && window.innerWidth < 1440,
   );
   const [studioOpen, setStudioOpen] = useState(false);
   const [fleetOpen, setFleetOpen] = useState(false);
@@ -60,8 +71,8 @@ export default function HomePage() {
       if (detail?.projectId != null) setSelectedProjectId(detail.projectId);
       setOutseeOpen(true);
     };
-    window.addEventListener("studio-open-outsee", openOutsee);
-    return () => window.removeEventListener("studio-open-outsee", openOutsee);
+    window.addEventListener("studio-open-create", openOutsee);
+    return () => window.removeEventListener("studio-open-create", openOutsee);
   }, [setSelectedProjectId]);
 
   useEffect(() => {
@@ -107,7 +118,8 @@ export default function HomePage() {
           collapsed={sidebarCollapsed}
           onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
         />
-        <main className="relative min-w-0 flex-1 overflow-hidden">
+        <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="relative min-h-0 flex-1">
           <StudioWorkspace
             projectId={selectedProjectId}
             selectedNodeKey={selectedNodeKey}
@@ -115,6 +127,7 @@ export default function HomePage() {
             studioOpen={studioOpen}
             onStudioOpenChange={setStudioOpen}
           />
+          </div>
           <FleetTransferBanner
             transfer={transfer}
             onPushToHub={

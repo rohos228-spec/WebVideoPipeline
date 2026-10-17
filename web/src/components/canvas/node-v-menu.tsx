@@ -470,7 +470,7 @@ function slotKindLabel(kind: NodePromptSlot["kind"]): string {
   if (kind === "gpt") return "файл .md";
   if (kind === "text") return "текст GPT";
   if (kind === "excel") return "project.xlsx";
-  if (kind === "blocks") return "outsee";
+  if (kind === "blocks") return "блоки";
   if (kind === "frame_prompts") return "кадры";
   return kind;
 }

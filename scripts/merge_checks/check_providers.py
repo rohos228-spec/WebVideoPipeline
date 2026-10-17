@@ -24,6 +24,15 @@ API_PATHS = [
     "/api/billing/plans",
     "/api/models/health",
     "/openapi.json",
+    "/api/openapi.json",
+    "/api/text-llm",
+    "/api/render/status",
+    "/api/render-create/settings",
+    "/api/render-create/history?kind=image",
+    "/api/img-create/catalog",
+    "/api/img-create/credits",
+    "/api/workflows",
+    "/api/projects",
     "/api/definitely/not/here",   # тело 404 тоже не должно светить провайдеров
 ]
 
@@ -35,9 +44,9 @@ def scan_out(out_dir: pathlib.Path) -> list[str]:
             continue
         text = f.read_text(encoding="utf-8", errors="replace")
         for i, line in enumerate(text.splitlines(), 1):
-            m = PROVIDER_RE.search(line)
-            if m:
-                hits.append(f"{f}:{i}: «{m.group(0)}»")
+            for m in PROVIDER_RE.finditer(line):
+                ctx = line[max(0, m.start() - 40): m.end() + 40]
+                hits.append(f"{f}:{i}: «{m.group(0)}» …{ctx}…")
     return hits
 
 
@@ -52,9 +61,8 @@ def scan_api(base: str) -> list[str]:
         except Exception as e:
             hits.append(f"{path}: недоступен ({e})")
             continue
-        m = PROVIDER_RE.search(body)
-        if m:
-            hits.append(f"API {path}: «{m.group(0)}»")
+        for m in PROVIDER_RE.finditer(body):
+            hits.append(f"API {path}: «{m.group(0)}» …{body[max(0, m.start() - 40): m.end() + 40]}…")
     return hits
 
 

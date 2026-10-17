@@ -34,6 +34,8 @@ def client(tmp_path, monkeypatch, outbox):
     monkeypatch.setenv("VIA_DATA_DIR", str(tmp_path))
     # Авторизация включена (ТЗ п.32: на сайте включена)
     monkeypatch.setenv("VIA_AUTH_ENABLED", "1")
+    # Browser wire codec on (TZ p.22: no provider ids in API JSON)
+    monkeypatch.setenv("VIA_WIRE_NEUTRAL", "1")
     # ЮKassa — только sandbox, исходящих запросов нет
     monkeypatch.setenv("YOOKASSA_MODE", "sandbox")
     monkeypatch.setenv("YOOKASSA_SHOP_ID", "sandbox-shop")

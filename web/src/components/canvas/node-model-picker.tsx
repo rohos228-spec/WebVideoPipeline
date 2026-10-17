@@ -132,9 +132,9 @@ export function normalizeEffort(v?: string | null): ReasoningEffortUi {
 
 function vendorTabLabel(id: string, label: string): string {
   switch (id) {
-    case "anthropic":
+    case "zaq":
       return "Claude";
-    case "openai":
+    case "zgq":
       return "GPT";
     case "gemini":
       return "Gemini";
@@ -309,7 +309,7 @@ function ModelNodeMenu({
   const [mounted, setMounted] = useState(false);
   const [vis, setVis] = useState(false);
   const selectedModel = findCatalogModel(catalog, selectedId);
-  const [vendor, setVendor] = useState<string>(selectedModel?.vendor || "openai");
+  const [vendor, setVendor] = useState<string>(selectedModel?.vendor || "zgq");
   const [tab, setTab] = useState<"models" | "thinking">("models");
 
   useEffect(() => {

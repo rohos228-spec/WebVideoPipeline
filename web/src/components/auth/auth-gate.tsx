@@ -1,53 +1,73 @@
 "use client";
 
 /**
- * Client auth gate (VIA_AUTH_ENABLED=1): before mounting protected pages ask the public
- * /api/auth/status; without a session redirect to /login instead of firing dozens of
- * protected API calls that would all answer 401. With auth off it renders immediately.
+ * Client auth gate for PRIVATE routes only (studio "/", /profile, /billing).
+ * Public pages (/home, /login, /register, /legal/*, …) are NOT wrapped, so their static HTML
+ * paints immediately. Here: ask the public /api/auth/status; without a session redirect to
+ * /login?next=…; with auth off render at once. The last "auth not required" answer is cached in
+ * sessionStorage so in-app navigation does not flash the loader.
  */
 import { useEffect, useState } from "react";
 
-const PUBLIC_PATHS = ["/home", "/login", "/register", "/verify-email", "/forgot-password", "/reset-password", "/legal", "/pricing"];
+const CACHE_KEY = "vp-auth-open";
 
-function isPublic(path: string): boolean {
-  const p = path.replace(/\/+$/, "") || "/";
-  return PUBLIC_PATHS.some((x) => p === x || p.startsWith(x + "/"));
+type Status = { auth_required?: boolean; user?: unknown } | null;
+
+function hasLocalToken(): boolean {
+  try {
+    return Boolean(window.localStorage.getItem("vp_token"));
+  } catch {
+    return false;
+  }
 }
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
-  // false on the server and first client render (static export: avoids hydration mismatch)
-  const [ok, setOk] = useState(false);
+  // "checking" on the server and on the first client render (static export: no hydration mismatch)
+  const [state, setState] = useState<"checking" | "ok">("checking");
 
   useEffect(() => {
-    if (isPublic(window.location.pathname)) {
-      setOk(true);
-      return;
-    }
     let cancelled = false;
+    try {
+      if (window.sessionStorage.getItem(CACHE_KEY) === "1") setState("ok");
+    } catch {
+      /* ignore */
+    }
     fetch("/api/auth/status", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((st: { auth_required?: boolean; user?: unknown } | null) => {
+      .then((st: Status) => {
         if (cancelled) return;
-        let hasToken = false;
+        const open = !st || !st.auth_required;
         try {
-          hasToken = Boolean(window.localStorage.getItem("vp_token"));
+          window.sessionStorage.setItem(CACHE_KEY, open ? "1" : "0");
         } catch {
           /* ignore */
         }
-        if (st && st.auth_required && !st.user && !hasToken) {
+        if (!open && !st?.user && !hasLocalToken()) {
           const next = encodeURIComponent(window.location.pathname + window.location.search);
           window.location.replace(`/login?next=${next}`);
           return;
         }
-        setOk(true);
+        setState("ok");
       })
       .catch(() => {
-        if (!cancelled) setOk(true);
+        if (!cancelled) setState("ok");
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  return ok ? <>{children}</> : null;
+  if (state === "ok") return <>{children}</>;
+  return (
+    <div
+      data-testid="auth-gate-loading"
+      className="flex min-h-screen w-full items-center justify-center bg-[#07080b]"
+      aria-busy="true"
+    >
+      <div className="flex flex-col items-center gap-3 text-white/60">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-[#22d3ee]" />
+        <span className="font-mono text-xs tracking-widest">VIA</span>
+      </div>
+    </div>
+  );
 }

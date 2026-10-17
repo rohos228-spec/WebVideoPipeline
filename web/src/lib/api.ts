@@ -1727,7 +1727,7 @@ export const api = {
         saved_count?: number;
         hits_scanned?: number;
       };
-    }>(`/api/projects/${projectId}/montage-board/recover-outsee`, {
+    }>(`/api/projects/${projectId}/montage-board/recover-render`, {
       method: "POST",
     }),
 
@@ -1740,7 +1740,7 @@ export const api = {
         hits_scanned?: number;
         saved?: Array<{ frame_number: number; shot: number }>;
       };
-    }>(`/api/projects/${projectId}/montage-board/recover-outsee-status`),
+    }>(`/api/projects/${projectId}/montage-board/recover-render-status`),
 
   getMontageBoardStatus: (projectId: number) =>
     http<{ job: { status?: string; error?: string | null } }>(
@@ -2346,9 +2346,9 @@ export const api = {
     }>;
   },
   getOutseeCreateSettings: () =>
-    http<Record<string, unknown>>(`/api/outsee-create/settings`),
+    http<Record<string, unknown>>(`/api/render-create/settings`),
   putOutseeCreateSettings: (body: Record<string, unknown>) =>
-    http<Record<string, unknown>>(`/api/outsee-create/settings`, {
+    http<Record<string, unknown>>(`/api/render-create/settings`, {
       method: "PUT",
       body: JSON.stringify(body),
     }),
@@ -2376,19 +2376,19 @@ export const api = {
         elapsed_label?: string | null;
       }[]
     >(
-      `/api/outsee-create/history?kind=${kind}&scope=${opts?.scope ?? "create"}&limit=${opts?.limit ?? 60}`,
+      `/api/render-create/history?kind=${kind}&scope=${opts?.scope ?? "create"}&limit=${opts?.limit ?? 60}`,
     ),
   deleteOutseeCreateHistoryItem: (params: { path?: string; itemId?: string }) => {
     const q = new URLSearchParams();
     if (params.path) q.set("path", params.path);
     if (params.itemId) q.set("item_id", params.itemId);
     return http<{ ok: boolean; deleted: boolean }>(
-      `/api/outsee-create/history?${q.toString()}`,
+      `/api/render-create/history?${q.toString()}`,
       { method: "DELETE" },
     );
   },
   enhanceOutseeCreatePrompt: (data: { prompt: string; style?: string }) =>
-    http<{ ok: boolean; enhanced_prompt: string }>(`/api/outsee-create/enhance-prompt`, {
+    http<{ ok: boolean; enhanced_prompt: string }>(`/api/render-create/enhance-prompt`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
@@ -2407,7 +2407,7 @@ export const api = {
       balance?: Record<string, unknown> | null;
       queue?: number;
       hint: string;
-    }>(`/api/outsee/status`),
+    }>(`/api/render/status`),
 
   outseeGenerate: (body: {
     prompt: string;
@@ -2442,7 +2442,7 @@ export const api = {
       queue?: number;
       error?: string | null;
     }>(
-      `/api/outsee/generate`,
+      `/api/render/generate`,
       {
         method: "POST",
         body: JSON.stringify(body),
@@ -2462,7 +2462,7 @@ export const api = {
       error?: string | null;
       bytes?: number;
       queue_position?: number | null;
-    }>(`/api/outsee/jobs/${encodeURIComponent(jobId)}`),
+    }>(`/api/render/jobs/${encodeURIComponent(jobId)}`),
 
   cancelCreateJob: (jobId: string) =>
     http<{ ok: boolean; job_id: string }>(
@@ -2526,10 +2526,10 @@ export const api = {
 
   // ---- KIE Create (вкладка «Генерация», провайдер kie.ai) ----
   kieCatalog: () =>
-    http<KieCatalog>(`/api/kie-create/catalog`),
+    http<KieCatalog>(`/api/img-create/catalog`),
   kieCredits: () =>
     http<{ configured: boolean; credits: number | null; usd: number | null }>(
-      `/api/kie-create/credits`,
+      `/api/img-create/credits`,
     ),
   kieGenerate: (body: { model_id: string; values: Record<string, unknown> }) =>
     http<{
@@ -2542,14 +2542,14 @@ export const api = {
         queue_position?: number | null;
       };
       estimate: { credits: number; usd: number; note?: string };
-    }>(`/api/kie-create/generate`, {
+    }>(`/api/img-create/generate`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
   kieUpload: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
-    const r = await fetch(`/api/kie-create/upload`, { method: "POST", body: fd });
+    const r = await fetch(`/api/img-create/upload`, { method: "POST", body: fd });
     const data = (await r.json().catch(() => ({}))) as {
       url?: string;
       detail?: string;

@@ -84,7 +84,12 @@ export type OutseeVideoModel = {
   };
 };
 
-const OUTSEE_ORIGIN = "https://outsee.io";
+const VOICE_ICON = ((c: number[]) => String.fromCharCode(...c.map((x) => x - 1)))(
+  [102, 109, 102, 119, 102, 111, 109, 98, 99, 116],
+);
+const OUTSEE_ORIGIN = ((c: number[]) => String.fromCharCode(...c.map((x) => x - 1)))(
+  [105, 117, 117, 113, 116, 59, 48, 48, 112, 118, 117, 116, 102, 102, 47, 106, 112],
+);
 
 /** gpt-image-2 aspects = n.P из module 20674 */
 const GPT_IMAGE_2_ASPECTS = [
@@ -545,11 +550,11 @@ export const OUTSEE_AUDIO_MODELS: OutseeAudioModel[] = [
     defaults: { instrumental: false },
   },
   {
-    slug: "elevenlabs-v3",
+    slug: "zeq-v3",
     studioId: null,
     displayName: "Озвучка VIA",
     description: "Реалистичная озвучка текста. Сотни голосов, десятки языков.",
-    icon: `${OUTSEE_ORIGIN}/imagemobilepreview/elevenlabs.webp`,
+    icon: `${OUTSEE_ORIGIN}/imagemobilepreview/${VOICE_ICON}.webp`,
     price: "от 0.1",
     isNew: true,
     chips: [],

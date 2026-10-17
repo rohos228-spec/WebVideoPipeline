@@ -1099,6 +1099,29 @@ export function FlowCanvas({
             const vp = readPipelineViewport(projectId);
             if (vp) inst.setViewport(vp, { duration: 0 });
           }
+          // Make sure every node is inside the visible pane (saved viewport from a wider screen,
+          // or a server-saved graph without a viewport would otherwise leave nodes off-screen /
+          // under the side panels on 1280–1366 px screens).
+          const ensureVisible = () => {
+            const pane = paneRef.current;
+            if (!pane) return;
+            const ns = inst.getNodes().filter((n) => !n.hidden);
+            if (!ns.length) return;
+            const { x, y, zoom } = inst.getViewport();
+            const w = pane.clientWidth;
+            const h = pane.clientHeight;
+            const off = ns.some((n) => {
+              const nw = n.measured?.width ?? n.width ?? 0;
+              const nh = n.measured?.height ?? n.height ?? 0;
+              const pos = n.position;
+              const cx = (pos.x + nw / 2) * zoom + x;
+              const cy = (pos.y + nh / 2) * zoom + y;
+              return cx < 8 || cy < 8 || cx > w - 8 || cy > h - 8;
+            });
+            if (off) inst.fitView({ padding: 0.12, maxZoom: 0.85, minZoom: 0.15, duration: 0 });
+          };
+          window.setTimeout(ensureVisible, 120);
+          window.setTimeout(ensureVisible, 600);
         }}
         onMoveEnd={(_event, vp) => {
           if (projectId != null) writePipelineViewport(projectId, vp);

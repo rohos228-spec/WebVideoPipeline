@@ -453,7 +453,12 @@ function Invoke-StudioRecoverPromptsFromAllStashes {
 function Invoke-StudioStart {
     Write-StudioMsg "=== [1] Запуск студии ===" "Cyan"
     if (-not (Test-Path (Join-Path $Root "web\out\index.html"))) {
-        Write-StudioMsg "ВНИМАНИЕ: web/out отсутствует. Сначала [6] Починить установку." "Yellow"
+        if (Get-Command npm -ErrorAction SilentlyContinue) {
+            Write-StudioMsg "ВНИМАНИЕ: web/out отсутствует - собираю интерфейс (npm)..." "Yellow"
+            Invoke-StudioRepairWeb | Out-Null
+        } else {
+            Write-StudioMsg "ВНИМАНИЕ: web/out отсутствует. Сначала [2] Обновить (git) или [6] Починить установку." "Yellow"
+        }
     }
     Invoke-StudioRecoverPromptsFromAllStashes
     Stop-StudioBackend

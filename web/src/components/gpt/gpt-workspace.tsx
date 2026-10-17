@@ -809,15 +809,15 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                     <span>Выберите ИИ модель</span>
                   </div>
                   <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
-                    {["Anthropic", "xAI", "Google", "OpenAI", "DeepSeek", "VIA"].map((groupName) => {
+                    {["Zaq", "xAI", "Google", "Zgq", "DeepSeek", "VIA"].map((groupName) => {
                       const groupModels = (textLlmQ.data?.models || []).filter(
-                        (m: any) => (m.group || (m.provider === "kie" ? "VIA" : "OpenAI")) === groupName
+                        (m: any) => (m.group || (m.provider === "zkq" ? "VIA" : "Zgq")) === groupName
                       );
                       if (!groupModels.length) return null;
                       return (
                         <div key={groupName} className="space-y-0.5">
                           <div className="px-2.5 pt-1.5 pb-1 font-mono text-[10px] font-bold uppercase tracking-wider text-white/35">
-                            {groupName === "Anthropic"
+                            {groupName === "Zaq"
                               ? "🟣 Claude"
                               : groupName === "xAI"
                                 ? "⚡ Grok"
@@ -825,7 +825,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                                   ? "✨ Gemini"
                                   : groupName === "DeepSeek"
                                     ? "🧠 DeepSeek"
-                                    : groupName === "OpenAI"
+                                    : groupName === "Zgq"
                                       ? "⚡ GPT"
                                       : "🌐 VIA"}
                           </div>

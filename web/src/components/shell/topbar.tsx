@@ -42,7 +42,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
 
   const openOutsee = (projectId?: number | null) => {
     window.dispatchEvent(
-      new CustomEvent("studio-open-outsee", {
+      new CustomEvent("studio-open-create", {
         detail: { projectId: projectId ?? null },
       }),
     );

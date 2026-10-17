@@ -5,8 +5,8 @@ import { VIBECODE_MODELS_SNAPSHOT } from "./vibecode-models-snapshot";
 export type ModelChannel = "stable";
 export type ModelKind = "text" | "image" | "video";
 export type ModelVendorId =
-  | "anthropic"
-  | "openai"
+  | "zaq"
+  | "zgq"
   | "gemini"
   | "deepseek"
   | "xai"
@@ -108,8 +108,8 @@ export const VENDOR_META: Record<
   Exclude<ModelVendorId, "other">,
   { id: Exclude<ModelVendorId, "other">; label: string; icon: string }
 > = {
-  anthropic: { id: "anthropic", label: "Claude", icon: "A" },
-  openai: { id: "openai", label: "GPT", icon: "hex" },
+  zaq: { id: "zaq", label: "Claude", icon: "A" },
+  zgq: { id: "zgq", label: "GPT", icon: "hex" },
   gemini: { id: "gemini", label: "Gemini", icon: "spark" },
   deepseek: { id: "deepseek", label: "DeepSeek", icon: "D" },
   xai: { id: "xai", label: "xAI", icon: "X" },
@@ -118,8 +118,8 @@ export const VENDOR_META: Record<
 };
 
 const VENDOR_ORDER: Exclude<ModelVendorId, "other">[] = [
-  "anthropic",
-  "openai",
+  "zaq",
+  "zgq",
   "gemini",
   "deepseek",
   "xai",
@@ -133,11 +133,11 @@ function vendorOf(id: string, isImage: boolean, isVideo = false): ModelVendorId 
   if (isVideo) return "video";
   if (isImage) return "images";
   const mid = id.toLowerCase();
-  if (mid.startsWith("claude")) return "anthropic";
+  if (mid.startsWith("claude")) return "zaq";
   if (mid.startsWith("gemini")) return "gemini";
   if (mid.startsWith("deepseek")) return "deepseek";
   if (mid.startsWith("grok")) return "xai";
-  return "openai";
+  return "zgq";
 }
 
 function resolutionBadge(displayName: string, modelId: string): string | null {
@@ -228,7 +228,7 @@ const IMAGE_EXTRA: CatalogModel[] = [
     resolution: "1K/2K",
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.05 },
     api_model: "flux-2-pro",
-    provider: "kie",
+    provider: "zkq",
     image_generator: "flux_2_pro",
     channel: "stable",
   },
@@ -242,7 +242,7 @@ const IMAGE_EXTRA: CatalogModel[] = [
     resolution: "1K/2K",
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.045 },
     api_model: "seedream-5-pro",
-    provider: "kie",
+    provider: "zkq",
     image_generator: "seedream_5_pro",
     channel: "stable",
   },
@@ -255,7 +255,7 @@ const IMAGE_EXTRA: CatalogModel[] = [
     resolution: "1K/2K",
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.02 },
     api_model: "z-image",
-    provider: "kie",
+    provider: "zkq",
     image_generator: "z_image",
     channel: "stable",
   },
@@ -268,7 +268,7 @@ const IMAGE_EXTRA: CatalogModel[] = [
     resolution: "2K",
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_image: 0.035 },
     api_model: "qwen3-image",
-    provider: "kie",
+    provider: "zkq",
     image_generator: "qwen3_image",
     channel: "stable",
   },
@@ -284,7 +284,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.18 },
     api_model: "seedance-2-5",
-    provider: "kie",
+    provider: "zkq",
     video_generator: "seedance_2_5",
     channel: "stable",
   },
@@ -297,7 +297,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.21 },
     api_model: "seedance-1-5-pro",
-    provider: "kie",
+    provider: "zkq",
     video_generator: "seedance_1_5_pro",
     channel: "stable",
   },
@@ -310,7 +310,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.36 },
     api_model: "kling-3-0",
-    provider: "kie",
+    provider: "zkq",
     video_generator: "kling_3_0",
     channel: "stable",
   },
@@ -323,7 +323,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.24 },
     api_model: "kling-v3-turbo-t2v",
-    provider: "kie",
+    provider: "zkq",
     video_generator: "kling_v3_turbo_t2v",
     channel: "stable",
   },
@@ -336,7 +336,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.24 },
     api_model: "kling-v3-turbo-i2v",
-    provider: "kie",
+    provider: "zkq",
     video_generator: "kling_v3_turbo_i2v",
     channel: "stable",
   },
@@ -349,7 +349,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.42 },
     api_model: "kling-3-0-omni-t2v",
-    provider: "kie",
+    provider: "zkq",
     video_generator: "kling_3_0_omni_t2v",
     channel: "stable",
   },
@@ -362,7 +362,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.27 },
     api_model: "hailuo-2-3-i2v",
-    provider: "kie",
+    provider: "zkq",
     video_generator: "hailuo_2_3_i2v",
     channel: "stable",
   },
@@ -375,7 +375,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.15 },
     api_model: "wan-2-7-t2v",
-    provider: "kie",
+    provider: "zkq",
     video_generator: "wan_2_7_t2v",
     channel: "stable",
   },
@@ -388,7 +388,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.21 },
     api_model: "pixverse-v6-t2v",
-    provider: "kie",
+    provider: "zkq",
     video_generator: "pixverse_v6_t2v",
     channel: "stable",
   },
@@ -401,7 +401,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.15 },
     api_model: "topaz-video-upscale",
-    provider: "kie",
+    provider: "zkq",
     video_generator: "topaz_video_upscale",
     channel: "stable",
   },
@@ -414,7 +414,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
     is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.45 },
     api_model: "veo-3-1-lite",
-    provider: "outsee",
+    provider: "zoq",
     video_generator: "veo_3_1_lite",
     channel: "stable",
   },
@@ -434,7 +434,7 @@ function normalizeSnapshot(row: SnapshotRow): CatalogModel {
     resolution: resolutionBadge(row.display_name, row.id),
     pricing,
     api_model: row.id,
-    provider: isImage ? "outsee" : "vibecode",
+    provider: isImage ? "zoq" : "zvq",
     channel: "stable",
   };
 }
@@ -487,12 +487,12 @@ export function findCatalogModel(
 ): CatalogModel | undefined {
   if (!catalog || !modelId) return undefined;
   let want = IMAGE_MODEL_ALIASES[modelId] || modelId;
-  if (want.endsWith("-vibecode")) {
+  if (want.endsWith("-zvq")) {
     want = want.slice(0, -9);
   }
   return catalog.models.find((m) => m.id === want || m.id === modelId || m.api_model === want);
 }
 
 export function vendorForModel(model: CatalogModel | undefined): ModelVendorId {
-  return (model?.vendor as ModelVendorId) || "openai";
+  return (model?.vendor as ModelVendorId) || "zgq";
 }

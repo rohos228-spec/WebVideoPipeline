@@ -331,6 +331,10 @@ def create_app() -> FastAPI:
     app.add_middleware(ErrorScrubASGI)
     # Neutral public aliases for provider-named routes (frontend uses these).
     app.add_middleware(_NeutralPathAliasASGI)
+    # Neutral wire codes for the browser: provider ids never reach the UI (TZ p.22).
+    from app.web.wire_neutral import WireNeutralASGI
+
+    app.add_middleware(WireNeutralASGI)
 
     @app.middleware("http")
     async def _bind_user_for_billing(request, call_next):

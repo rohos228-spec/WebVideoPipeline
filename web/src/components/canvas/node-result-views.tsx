@@ -1684,7 +1684,7 @@ function SfxGenView({
         return {
           idx,
           kind: rawKind,
-          provider: "elevenlabs",
+          provider: "zeq",
           tStart: planEv?.t_start ?? 0,
           duration: planEv?.duration ?? 0,
           frameNumber: planEv?.frame_number ?? (idx + 1),
@@ -1697,7 +1697,7 @@ function SfxGenView({
       });
 
   const providers = Array.from(new Set(displayItems.map((d) => d.provider)));
-  const providerLabel = providers.includes("elevenlabs")
+  const providerLabel = providers.includes("zeq")
     ? providers.includes("local_synth")
       ? "Озвучка VIA + Синтез"
       : "Озвучка VIA"
@@ -1773,12 +1773,12 @@ function SfxGenView({
                   <span
                     className={cn(
                       "rounded px-1.5 py-0.5 text-[10px] font-medium border",
-                      item.provider === "elevenlabs"
+                      item.provider === "zeq"
                         ? "bg-violet-500/10 text-violet-300 border-violet-500/20"
                         : "bg-zinc-500/10 text-zinc-300 border-zinc-500/20",
                     )}
                   >
-                    {item.provider === "elevenlabs" ? "Озвучка VIA" : "Синтез"}
+                    {item.provider === "zeq" ? "Озвучка VIA" : "Синтез"}
                   </span>
                   <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" asChild>
                     <a href={item.audioUrl} download={item.fileName} title="Скачать аудио">

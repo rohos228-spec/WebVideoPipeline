@@ -49,7 +49,7 @@ export function TextLlmPicker() {
       if (r.ok) {
         const data = (await r.json()) as TextLlmStatus;
         setStatus(data);
-        const cleanId = modelId.replace(/-vibecode$/, "");
+        const cleanId = modelId.replace(/-zvq$/, "");
         window.dispatchEvent(
           new CustomEvent("canvas-patch-global-model", {
             detail: { modelId: cleanId },
@@ -81,9 +81,9 @@ export function TextLlmPicker() {
       }}
     >
       {status.models.map((m) => (
-        <option key={m.id} value={m.id} disabled={!m.key_configured && m.provider !== "kie"}>
+        <option key={m.id} value={m.id} disabled={!m.key_configured && m.provider !== "zkq"}>
           {brandText(m.label)}
-          {!m.key_configured && m.provider !== "kie" ? " · нет ключа" : ""}
+          {!m.key_configured && m.provider !== "zkq" ? " · нет ключа" : ""}
         </option>
       ))}
     </select>

@@ -24,7 +24,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "gpt-5.5",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.042646,
@@ -38,7 +38,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "gpt-5.6-sol",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.042646,
@@ -52,7 +52,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "gpt-5.6-terra",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.017058,
@@ -66,7 +66,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "gpt-5.6-luna",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.013122,
@@ -80,7 +80,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "claude-haiku-4-5",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.246036,
       "cache_read_usd_per_m": 0.019683,
@@ -94,7 +94,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "claude-sonnet-5",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.246036,
       "cache_read_usd_per_m": 0.019683,
@@ -108,7 +108,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "claude-opus-5",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.61509,
       "cache_read_usd_per_m": 0.049207,
@@ -122,7 +122,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "grok-4-5",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.06561,
       "cache_read_usd_per_m": 0.009841,
@@ -136,7 +136,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "grok-4-6",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.06561,
       "cache_read_usd_per_m": 0.016402,
@@ -150,7 +150,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "gemini-3-flash-preview",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.009841,
@@ -164,7 +164,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "gemini-3.1-pro-preview",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.039366,
@@ -178,7 +178,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "gpt-image-2-vip",
     "is_image": true,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "currency": "usd",
       "usd_per_image": 0.042646
@@ -189,7 +189,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "nano-banana",
     "is_image": true,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "currency": "usd",
       "usd_per_image": 0.045927
@@ -200,7 +200,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "nano-banana-2",
     "is_image": true,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "currency": "usd",
       "usd_per_image": 0.039366
@@ -211,7 +211,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "nano-banana-2-lite",
     "is_image": true,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "currency": "usd",
       "usd_per_image": 0.016402
@@ -222,7 +222,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "gemini-3.7-flash",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.014762,
@@ -236,7 +236,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "deepseek-v4-flash",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.00973,
@@ -250,7 +250,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "deepseek-v4-pro",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.02919,
@@ -264,7 +264,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "gpt-6-astra",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.085292,
@@ -278,7 +278,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "claude-opus-4-8",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.61509,
       "cache_read_usd_per_m": 0.049207,
@@ -292,7 +292,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "claude-fable-5-1",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 2.46036,
       "cache_read_usd_per_m": 0.049207,
@@ -306,7 +306,7 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     "id": "gemini-3.8-flash",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "zvq",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.014762,

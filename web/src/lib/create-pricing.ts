@@ -37,7 +37,7 @@ const VIDEO_BASE: Record<string, number> = {
 
 const AUDIO_BASE: Record<string, number> = {
   "suno-5-5": 2.5,
-  "elevenlabs-v3": 1,
+  "zeq-v3": 1,
 };
 
 function roundTokens(n: number): number {

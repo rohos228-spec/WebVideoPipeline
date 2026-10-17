@@ -8,8 +8,8 @@ type Brand = { id: string; name: string };
 
 export function brandForModel(id: string, label: string): Brand {
   const s = `${id} ${label}`.toLowerCase();
-  if (s.includes("claude")) return { id: "anthropic", name: "Claude" };
-  if (s.includes("gpt")) return { id: "openai", name: "GPT" };
+  if (s.includes("claude")) return { id: "zaq", name: "Claude" };
+  if (s.includes("gpt")) return { id: "zgq", name: "GPT" };
   if (s.includes("veo")) return { id: "google", name: "Veo" };
   if (s.includes("gemini")) return { id: "google", name: "Gemini" };
   if (s.includes("nano-banana") || s.includes("nano banana")) return { id: "google", name: "Nano Banana" };
@@ -26,7 +26,7 @@ export function brandForModel(id: string, label: string): Brand {
   if (s.includes("minimax")) return { id: "minimax", name: "MiniMax" };
   if (s.includes("pixverse")) return { id: "pixverse", name: "PixVerse" };
   if (s.includes("topaz")) return { id: "topaz", name: "Topaz" };
-  if (s.includes("eleven")) return { id: "elevenlabs", name: "Озвучка" };
+  if (s.includes("eleven")) return { id: "zeq", name: "Озвучка" };
   return { id: "generic", name: "" };
 }
 
@@ -40,7 +40,7 @@ export function versionForModel(id: string, label: string): string {
 export function BrandLogo({ brand, className }: { brand: string; className?: string }) {
   const p = { fill: "none", stroke: "currentColor", strokeWidth: 3.2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (brand) {
-    case "openai":
+    case "zgq":
       return (
         <svg viewBox="0 0 64 64" className={className} aria-hidden>
           {[0, 60, 120, 180, 240, 300].map((r) => (
@@ -48,7 +48,7 @@ export function BrandLogo({ brand, className }: { brand: string; className?: str
           ))}
         </svg>
       );
-    case "anthropic":
+    case "zaq":
       return (
         <svg viewBox="0 0 64 64" className={className} aria-hidden>
           <path fill="currentColor" d="M23 12h8l15 40h-8.4l-3.3-9H19.7l-3.3 9H8zm-.8 24h10.6L27.5 21z" />
@@ -74,7 +74,7 @@ export function BrandLogo({ brand, className }: { brand: string; className?: str
           <circle cx="40" cy="30" r="2.6" fill="currentColor" />
         </svg>
       );
-    case "elevenlabs":
+    case "zeq":
       return (
         <svg viewBox="0 0 64 64" className={className} aria-hidden>
           <rect x="20" y="10" width="7" height="44" rx="2" fill="currentColor" />

@@ -11,6 +11,12 @@
 
 from __future__ import annotations
 
+import os as _os_wire
+
+# Legacy unit tests assert internal provider ids in API JSON; the browser wire codec
+# (app/web/wire_neutral.py) is exercised explicitly in tests/qa_merge.
+_os_wire.environ.setdefault("VIA_WIRE_NEUTRAL", "0")
+
 from pathlib import Path
 
 import pytest

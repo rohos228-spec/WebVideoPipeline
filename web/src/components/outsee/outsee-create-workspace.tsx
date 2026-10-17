@@ -229,7 +229,7 @@ function downloadMediaFile(
   params.set("format", format);
   params.set("filename", filename);
 
-  const downloadUrl = `/api/outsee-create/download?${params.toString()}`;
+  const downloadUrl = `/api/render-create/download?${params.toString()}`;
   const a = document.createElement("a");
   a.href = downloadUrl;
   a.download = `${filename.replace(/\.[^/.]+$/, "")}.${format}`;
@@ -281,13 +281,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const multiRefInputRef = useRef<HTMLInputElement>(null);
 
   const settingsQ = useQuery({
-    queryKey: ["outsee-create-settings"],
+    queryKey: ["create-settings"],
     queryFn: api.getOutseeCreateSettings,
     enabled: open,
   });
 
   const outseeStatusQ = useQuery({
-    queryKey: ["outsee-status"],
+    queryKey: ["render-status"],
     queryFn: api.outseeStatus,
     enabled: open,
     staleTime: 30_000,
@@ -301,13 +301,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   });
 
   const kieCatalogQ = useQuery({
-    queryKey: ["kie-catalog"],
+    queryKey: ["img-catalog"],
     queryFn: api.kieCatalog,
     enabled: open,
     staleTime: 60_000,
   });
   const kieCreditsQ = useQuery({
-    queryKey: ["kie-credits"],
+    queryKey: ["img-credits"],
     queryFn: api.kieCredits,
     enabled: open,
     refetchInterval: open ? 60_000 : false,
@@ -321,7 +321,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const historyBusy = queueCount > 0;
 
   const historyQ = useQuery({
-    queryKey: ["outsee-create-history", feedKind],
+    queryKey: ["create-history", feedKind],
     queryFn: () =>
       api.listOutseeCreateHistory(feedKind, { scope: "create", limit: 60 }),
     enabled: open,
@@ -333,20 +333,20 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     if (!open || !settingsQ.data || settingsHydrated) return;
     const s = settingsQ.data;
     const mt = (s.media_type as OutseeMediaType) || "image";
-    const rawImg = String(s.image_slug || "gpt-image-2").replace("kie:", "");
+    const rawImg = String(s.image_slug || "gpt-image-2").replace("zkq:", "");
     if (rawImg === "gpt-image-2" || rawImg === "nano-banana-2") {
       setImageSlug(rawImg);
     } else {
-      setImageSlug(rawImg.startsWith("kie:") ? rawImg : `kie:${rawImg}`);
+      setImageSlug(rawImg.startsWith("zkq:") ? rawImg : `zkq:${rawImg}`);
     }
-    const rawVid = String(s.video_slug || "veo-3-1-lite").replace("kie:", "");
+    const rawVid = String(s.video_slug || "veo-3-1-lite").replace("zkq:", "");
     if (rawVid === "veo-3-1-lite" || rawVid === "veo-3-1") {
       setVideoSlug("veo-3-1-lite");
     } else {
-      setVideoSlug(rawVid.startsWith("kie:") ? rawVid : `kie:${rawVid}`);
+      setVideoSlug(rawVid.startsWith("zkq:") ? rawVid : `zkq:${rawVid}`);
     }
-    const rawAud = String(s.audio_slug || "kie:suno-music");
-    setAudioSlug(rawAud.startsWith("kie:") ? rawAud : rawAud === "suno-5-5" ? "kie:suno-music" : `kie:${rawAud}`);
+    const rawAud = String(s.audio_slug || "zkq:suno-music");
+    setAudioSlug(rawAud.startsWith("zkq:") ? rawAud : rawAud === "suno-5-5" ? "zkq:suno-music" : `zkq:${rawAud}`);
     setAspect(String(s.aspect || "16:9"));
     setResolution(String(s.image_resolution || "2K"));
     setDetail(String(s.image_quality || "medium"));
@@ -467,7 +467,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     [kieCatalogQ.data],
   );
   const kieModel = useMemo(() => {
-    if (!activeSlug.startsWith("kie:")) return null;
+    if (!activeSlug.startsWith("zkq:")) return null;
     return kieModels.find((m) => m.id === activeSlug.slice(4)) ?? null;
   }, [activeSlug, kieModels]);
   const kieActive = kieModel != null;
@@ -511,7 +511,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   // Veo 3.1 Lite; аудио — только KIE (Suno/ElevenLabs не дублируются).
   useEffect(() => {
     if (!kieCatalogQ.data) return;
-    const isKie = (s: string) => kieModels.some((m) => `kie:${m.id}` === s);
+    const isKie = (s: string) => kieModels.some((m) => `zkq:${m.id}` === s);
     if (
       mediaType === "image" &&
       !isKie(imageSlug) &&
@@ -522,11 +522,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     if (mediaType === "video" && !isKie(videoSlug) && videoSlug !== "veo-3-1-lite") {
       setVideoSlug("veo-3-1-lite");
     }
-    if (mediaType === "audio" && audioSlug === "kie:suno-sounds") {
+    if (mediaType === "audio" && audioSlug === "zkq:suno-sounds") {
       // Suno Sounds Task поёт / делает петли — настоящий SFX это ElevenLabs.
-      setAudioSlug("kie:elevenlabs-sfx");
+      setAudioSlug("zkq:zeq-sfx");
     } else if (mediaType === "audio" && !isKie(audioSlug)) {
-      setAudioSlug("kie:suno-music");
+      setAudioSlug("zkq:suno-music");
     }
   }, [kieCatalogQ.data, kieModels, mediaType, imageSlug, videoSlug, audioSlug]);
 
@@ -543,15 +543,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   const outseeConfigured = Boolean(outseeStatusQ.data?.configured);
   const kieConfigured = Boolean(kieCatalogQ.data?.configured);
 
-  const autoProvider: "outsee" | null = useMemo(() => {
+  const autoProvider: "zoq" | null = useMemo(() => {
     if (kieActive) return null;
     if (mediaType === "audio") return null;
-    if (outseeConfigured) return "outsee";
+    if (outseeConfigured) return "zoq";
     return null;
   }, [kieActive, mediaType, outseeConfigured]);
 
   const maxParallel =
-    autoProvider === "outsee"
+    autoProvider === "zoq"
       ? (createQueueQ.data?.max_parallel_outsee ?? 5)
       : (createQueueQ.data?.max_parallel ?? 5);
 
@@ -750,15 +750,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     motion_quality: motionQuality,
     instrumental,
     prompt,
-    image_provider: "outsee",
-    video_provider: "outsee",
+    image_provider: "zoq",
+    video_provider: "zoq",
     sora_size: soraSize,
   });
 
   const saveGlobal = useMutation({
     mutationFn: () => api.putOutseeCreateSettings(settingsPayload()),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["outsee-create-settings"] });
+      qc.invalidateQueries({ queryKey: ["create-settings"] });
       toast.success("Глобальные настройки Create сохранены");
     },
     onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
@@ -799,7 +799,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     onSuccess: (_, item) => {
       toast.success("Удалено из истории");
       if (selectedId === item.id) setSelectedId(null);
-      qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+      qc.invalidateQueries({ queryKey: ["create-history"] });
     },
     onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
@@ -809,13 +809,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     onSuccess: () => {
       toast.success("Генерация остановлена");
       qc.invalidateQueries({ queryKey: ["create-queue"] });
-      qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+      qc.invalidateQueries({ queryKey: ["create-history"] });
     },
     onError: (e) => toast.error(brandText(errorMessageFromUnknown(e))),
   });
 
   const [trackingJobs, setTrackingJobs] = useState<
-    { provider: "outsee" | "kie"; jobId: string; historyId: string }[]
+    { provider: "zoq" | "zkq"; jobId: string; historyId: string }[]
   >([]);
 
   useEffect(() => {
@@ -840,7 +840,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             );
             if (job.history_id) setSelectedId(job.history_id);
             setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
-            qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+            qc.invalidateQueries({ queryKey: ["create-history"] });
           } else if (job.status === "failed") {
             const took =
               job.elapsed_label ||
@@ -853,7 +853,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               ),
             );
             setTrackingJobs((prev) => prev.filter((x) => x.jobId !== t.jobId));
-            qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+            qc.invalidateQueries({ queryKey: ["create-history"] });
           }
         } catch {
           /* job may not be ready yet */
@@ -966,7 +966,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             history_id: res.job.history_id,
             status: res.job.status,
             queue_position: res.job.queue_position,
-            provider: "kie" as const,
+            provider: "zkq" as const,
           };
         }
         if (!text) throw new Error("Введите промпт");
@@ -1021,7 +1021,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                 nonce,
                 batch_index: index,
               });
-        return { ...enqueued, provider: "outsee" as const };
+        return { ...enqueued, provider: "zoq" as const };
       };
 
       const count = (mediaType === "image" || mediaType === "video") ? batchCount : 1;
@@ -1036,7 +1036,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     onSuccess: (res) => {
       if (res && typeof res === "object" && "batch" in res && Array.isArray((res as any).results)) {
         const batchRes = (res as any).results as any[];
-        const newTrackers: { provider: "outsee" | "kie"; jobId: string; historyId: string }[] = [];
+        const newTrackers: { provider: "zoq" | "zkq"; jobId: string; historyId: string }[] = [];
         let firstHistId: string | null = null;
         for (const r of batchRes) {
           if (r && typeof r === "object" && "job_id" in r && r.job_id) {
@@ -1049,7 +1049,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           ...prev.filter((x) => !newTrackers.some((n) => n.jobId === x.jobId)),
           ...newTrackers,
         ]);
-        qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+        qc.invalidateQueries({ queryKey: ["create-history"] });
         qc.invalidateQueries({ queryKey: ["create-queue"] });
         toast.success(`Запущено ${batchRes.length} генерации 🚀`);
         return;
@@ -1063,14 +1063,14 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           running_count?: number;
           status?: string;
           queue_position?: number | null;
-          provider: "outsee" | "kie";
+          provider: "zoq" | "zkq";
         };
         if (r.history_id) setSelectedId(r.history_id);
         setTrackingJobs((prev) => [
           ...prev.filter((x) => x.jobId !== r.job_id),
           { provider: r.provider, jobId: r.job_id, historyId: r.history_id },
         ]);
-        qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+        qc.invalidateQueries({ queryKey: ["create-history"] });
         qc.invalidateQueries({ queryKey: ["create-queue"] });
         const wait = r.waiting_count ?? 0;
         const run = r.running_count ?? 0;
@@ -1084,7 +1084,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         return;
       }
       toast.success("Шаг запущен");
-      qc.invalidateQueries({ queryKey: ["outsee-create-history"] });
+      qc.invalidateQueries({ queryKey: ["create-history"] });
     },
     onError: (e) => {
       toast.error(brandText(errorMessageFromUnknown(e)));
@@ -1157,6 +1157,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               проект #{projectId}
             </span>
           )}
+
         </div>
       </header>
 
@@ -2051,7 +2052,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                           if (mediaType === "image") setImageSlug(slug);
                           else if (mediaType === "video") setVideoSlug(slug);
                           else setAudioSlug(slug);
-                          if (!slug.startsWith("kie:")) applyModelDefaults(slug, mediaType);
+                          if (!slug.startsWith("zkq:")) applyModelDefaults(slug, mediaType);
                           setModelOpen(false);
                         }}
                       />
@@ -3021,7 +3022,7 @@ function ModelPickerPopover({
         null;
 
       return {
-        slug: `kie:${m.id}`,
+        slug: `zkq:${m.id}`,
         label: brandText(m.label),
         desc: brandText(m.hint || m.desc),
         icon,

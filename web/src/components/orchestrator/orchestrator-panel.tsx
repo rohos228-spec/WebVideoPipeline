@@ -60,7 +60,7 @@ const FIX_BUGS_PREFIX =
 
 export function OrchestratorPanel({ projectId }: Props) {
   const [open, setOpen] = usePersistedState("vp-orchestrator-open", true);
-  const [expanded, setExpanded] = usePersistedState("vp-orchestrator-expanded", true);
+  const [expanded, setExpanded] = usePersistedState("vp-orchestrator-expanded-v2", false);
   const storageKey = `vp-orchestrator-log-${projectId ?? "none"}`;
   const [chatLog, setChatLog] = usePersistedState<ChatMsg[]>(storageKey, []);
   const [chatInput, setChatInput] = useState("");
@@ -207,7 +207,7 @@ export function OrchestratorPanel({ projectId }: Props) {
             notes.push("открыл «Сеть»");
           } else if (u.kind === "create") {
             window.dispatchEvent(
-              new CustomEvent("studio-open-outsee", {
+              new CustomEvent("studio-open-create", {
                 detail: { projectId },
               }),
             );
@@ -467,12 +467,14 @@ export function OrchestratorPanel({ projectId }: Props) {
   return (
     <div
       className={cn(
-        "absolute z-40 flex flex-col border border-white/[0.1] bg-[#0c0c0c]/97 shadow-2xl backdrop-blur transition-all duration-200",
+        "z-40 flex flex-col border border-white/[0.1] bg-[#0c0c0c]/97 shadow-2xl backdrop-blur transition-all duration-200",
+        // collapsed / normal: in the layout flow under the canvas (never covers nodes);
+        // big window: explicit user choice, overlays the canvas.
         open && expanded
-          ? "inset-x-0 bottom-0 top-[158px] rounded-t-xl border-x-0 border-b-0"
+          ? "absolute inset-x-0 bottom-0 top-[158px] rounded-t-xl border-x-0 border-b-0"
           : open
-            ? "inset-x-0 bottom-0 h-64 rounded-none border-x-0 border-b-0"
-            : "inset-x-0 bottom-0 h-10 rounded-none border-x-0 border-b-0",
+            ? "relative h-64 max-h-[34vh] shrink-0 rounded-none border-x-0 border-b-0"
+            : "relative h-10 shrink-0 rounded-none border-x-0 border-b-0",
       )}
     >
       <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-white/[0.08] px-2">
