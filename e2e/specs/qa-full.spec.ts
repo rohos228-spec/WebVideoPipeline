@@ -77,6 +77,15 @@ async function clickAll(page: Page, route: string, issues: Issue[], scope = 'bod
       (await btn.getAttribute('title').catch(() => '')) || '').trim().replace(/\s+/g, ' ').slice(0, 60);
     if (UNSAFE_BUTTON_RE.test(label) || EXTRA_UNSAFE.test(label)) { if (!seen.has(label)) skipped.push(label); seen.add(label); continue; }
     if (await btn.isDisabled().catch(() => false)) continue;
+    // hover-only controls (opacity 0 / pointer-events none / ~0px at low zoom) are not clickable for a user either
+    const hiddenForUser = await btn.evaluate((el) => {
+      const own = getComputedStyle(el);
+      if (own.pointerEvents === 'none' || own.visibility === 'hidden') return true;
+      for (let e: Element | null = el; e; e = e.parentElement) if (getComputedStyle(e).opacity === '0') return true;
+      const r = el.getBoundingClientRect();
+      return r.width < 4 || r.height < 4;
+    }).catch(() => false);
+    if (hiddenForUser) continue;
     let ok = false;
     for (let attempt = 0; attempt < 2 && !ok; attempt++) {
       try {
