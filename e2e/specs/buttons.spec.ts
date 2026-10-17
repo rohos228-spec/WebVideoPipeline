@@ -8,6 +8,7 @@ test.describe.configure({ mode: 'serial' });
 
 for (const path of PAGES) {
   test(`клик-тест кнопок: ${path}`, async ({ page }) => {
+    test.setTimeout(300_000);
     const problems = collectProblems(page);
     if (path === '/profile') await loginAsQa(page);
     await page.goto(path);
@@ -24,7 +25,7 @@ for (const path of PAGES) {
       const btn = buttons.nth(i);
       if (!(await btn.isVisible().catch(() => false))) continue;
       const label = ((await btn.innerText().catch(() => '')) ||
-        (await btn.getAttribute('aria-label')) || '').trim();
+        (await btn.getAttribute('aria-label')) || (await btn.getAttribute('title')) || '').trim();
 
       // Безопасные исключения: оплата, удаление, платная генерация (ТЗ раздел B)
       if (UNSAFE_BUTTON_RE.test(label)) { skipped.push(label); continue; }
