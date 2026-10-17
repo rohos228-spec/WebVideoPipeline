@@ -40,7 +40,12 @@ export default function HomePage() {
   useEffect(() => {
     const openSidebar = () => setSidebarCollapsed(false);
     window.addEventListener("studio-open-projects-sidebar", openSidebar);
-    return () => window.removeEventListener("studio-open-projects-sidebar", openSidebar);
+    const toggleSidebar = () => setSidebarCollapsed((v) => !v);
+    window.addEventListener("studio-toggle-projects-sidebar", toggleSidebar);
+    return () => {
+      window.removeEventListener("studio-open-projects-sidebar", openSidebar);
+      window.removeEventListener("studio-toggle-projects-sidebar", toggleSidebar);
+    };
   }, []);
 
   useEffect(() => {
@@ -91,7 +96,7 @@ export default function HomePage() {
 
   return (
     <AppShell>
-      <div className="flex h-[calc(100vh-48px)] min-h-0">
+      <div className="flex h-screen min-h-0">
         <ProjectSidebar
           selectedProjectId={selectedProjectId}
           onSelect={(id) => {
