@@ -273,6 +273,36 @@ def _install_scrubbed_openapi(app: FastAPI) -> None:
     app.openapi = _openapi  # type: ignore[method-assign]
 
 
+_PATH_ALIASES: tuple[tuple[str, str], ...] = (
+    ("/api/render-create/", "/api/outsee-create/"),
+    ("/api/img-create/", "/api/kie-create/"),
+    ("/api/render/", "/api/outsee/"),
+)
+
+
+class _NeutralPathAliasASGI:
+    """Rewrites neutral public paths to internal provider-named routes."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") in ("http", "websocket"):
+            path = scope.get("path", "")
+            new = path
+            for pub, internal in _PATH_ALIASES:
+                if new.startswith(pub) or new + "/" == pub:
+                    new = internal + new[len(pub):]
+                    break
+            if "/montage-board/recover-render" in new:
+                new = new.replace("/montage-board/recover-render", "/montage-board/recover-outsee")
+            if new != path:
+                scope = dict(scope)
+                scope["path"] = new
+                scope["raw_path"] = new.encode()
+        await self.app(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="video-pipeline web",
@@ -290,6 +320,16 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Auth gate (agent D): off unless VIA_AUTH_ENABLED=1 / AUTH_REQUIRED=1.
+    from app.web.middleware_auth import AuthGateMiddleware
+
+    app.add_middleware(AuthGateMiddleware)
+    # Scrub provider names from error bodies (agent C, TZ p.22).
+    from app.brand import ErrorScrubASGI
+
+    app.add_middleware(ErrorScrubASGI)
+    # Neutral public aliases for provider-named routes (frontend uses these).
+    app.add_middleware(_NeutralPathAliasASGI)
 
     app.include_router(workflows_router.router, prefix=API_PREFIX)
     app.include_router(projects_router.router, prefix=API_PREFIX)
@@ -329,6 +369,14 @@ def create_app() -> FastAPI:
     from app.web.routers import model_health as model_health_router
 
     app.include_router(model_health_router.router, prefix=API_PREFIX)
+    from app.billing.register import register as billing_register
+
+    billing_register(app, prefix=API_PREFIX)
+
+    @app.get(f"{API_PREFIX}/fleet/transfers/active")
+    async def fleet_transfers_active() -> dict:
+        """Stub: no active fleet transfers (frontend polls this; was 404)."""
+        return {"transfers": []}
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
     async def api_write_not_found(rest: str) -> None:

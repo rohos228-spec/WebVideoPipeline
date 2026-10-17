@@ -1,6 +1,7 @@
 """Профиль пользователя студии: имя/аватар (data/profile.json), статистика, ключи."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -36,11 +37,11 @@ _DEFAULT = {
 
 # Ключи, которые разрешено показывать (маской) и менять из профиля.
 _KEYS = [
-    ("gpt", "GPT (текст)", "GPT_API_KEY"),
-    ("vibecode", "Vibecode (текст)", "VIBECODE_API_KEY"),
-    ("kie", "Kie", "KIE_API_KEY"),
-    ("outsee", "Outsee", "OUTSEE_API_KEY"),
-    ("elevenlabs", "ElevenLabs", "ELEVENLABS_API_KEY"),
+    ("text1", "Текстовые модели — ключ 1", "GPT_API_KEY"),
+    ("text2", "Текстовые модели — ключ 2", "VIBECODE_API_KEY"),
+    ("images", "Генерация изображений", "KIE_API_KEY"),
+    ("render", "Рендер видео", "OUTSEE_API_KEY"),
+    ("voice", "Озвучка", "ELEVENLABS_API_KEY"),
 ]
 
 
@@ -142,7 +143,7 @@ async def post_avatar(file: UploadFile = File(...)) -> dict[str, Any]:
     except Exception:
         ext = (Path(file.filename or "a.png").suffix or ".png").lower()
         if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
-            raise HTTPException(400, "Нужна картинка")
+            raise HTTPException(400, "Нужна картинка") from None
         (_AVATAR_DIR / f"avatar{ext}").write_bytes(raw)
     return _public(_load())
 
@@ -262,7 +263,7 @@ async def get_keys() -> list[dict[str, Any]]:
     out = []
     for kid, label, env in _KEYS:
         val = _env_value(env)
-        out.append({"id": kid, "label": label, "env": env, "configured": bool(val), "masked": _mask(val)})
+        out.append({"id": kid, "label": label, "configured": bool(val), "masked": _mask(val)})
     return out
 
 
@@ -292,8 +293,30 @@ async def put_key(key_id: str, body: KeyUpdate) -> dict[str, Any]:
         lines.append(f"{env}={value}")
     _ENV.write_text("\n".join(lines) + "\n", encoding="utf-8")
     os.environ[env] = value
-    try:
+    with contextlib.suppress(Exception):
         setattr(settings, env.lower(), value)
-    except Exception:
+    return {"id": key_id, "label": label, "configured": bool(value), "masked": _mask(value)}
+
+
+@router.get("/render-status")
+async def render_status() -> dict[str, Any]:
+    """Статус рендера картинок/видео для профиля и панели пользователя — без имён провайдеров и URL."""
+    from app.brand import scrub_obj
+
+    out: dict[str, Any] = {"configured": False, "balance": None, "default_image_model": None, "default_video_model": None}
+    try:
+        from app.bots import outsee_http as oh  # внутренний адаптер, наружу не светится
+
+        out["configured"] = bool(oh.outsee_api_configured())
+        out["default_image_model"] = getattr(settings, "outsee_default_image_model", None)
+        out["default_video_model"] = getattr(settings, "outsee_default_video_model", None)
+        if out["configured"]:
+            try:
+                bal = await oh.fetch_balance()
+                credits = bal.get("balance_credits") if isinstance(bal, dict) else None
+                out["balance"] = {"balance_credits": credits}
+            except Exception:  # noqa: BLE001
+                out["balance"] = {"error": "Баланс временно недоступен"}
+    except Exception:  # noqa: BLE001
         pass
-    return {"id": key_id, "label": label, "env": env, "configured": bool(value), "masked": _mask(value)}
+    return scrub_obj(out)
