@@ -89,3 +89,9 @@ build.lock
 
 # Черновики агента в корне репозитория
 /_tmp*
+
+web/test-results/
+web/playwright-report/
+e2e/test-results/
+e2e/playwright-report/
+

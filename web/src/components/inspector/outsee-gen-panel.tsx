@@ -5,11 +5,11 @@
  * Сами настройки — в OutseeCreateWorkspace.
  */
 
-import { ExternalLink, Wand2, Sparkles } from "lucide-react";
+import { Wand2 } from "lucide-react";
 import type { ProjectDetail } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useUi } from "@/components/shell/topbar";
-import { studioIdToSlug, outseeCreateUrl } from "@/lib/outsee-catalog";
+import { studioIdToSlug } from "@/lib/outsee-catalog";
 
 export function OutseeGenPanel({ project }: { project: ProjectDetail }) {
   const { openOutsee } = useUi();
@@ -27,15 +27,6 @@ export function OutseeGenPanel({ project }: { project: ProjectDetail }) {
             <div className="text-[10px] text-white/40">глобально · Фото / Видео / Аудио</div>
           </div>
         </div>
-        <a
-          href={outseeCreateUrl("image", slug)}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-[10px] text-white/45 hover:text-cyan-400 transition-colors"
-        >
-          сайт
-          <ExternalLink className="h-3 w-3" />
-        </a>
       </div>
       <div className="flex flex-col gap-2.5 p-3.5">
         <p className="text-xs leading-relaxed text-zinc-300">

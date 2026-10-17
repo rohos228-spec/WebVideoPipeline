@@ -19,7 +19,6 @@ import {
   CornerDownLeft,
   Dices,
   Download,
-  ExternalLink,
   FileText,
   History,
   ImageIcon,
@@ -57,7 +56,6 @@ import {
   getAudioModel,
   getImageModel,
   getVideoModel,
-  outseeCreateUrl,
   pickerModelsForType,
   slugToStudioId,
   type OutseeChip,
@@ -1145,7 +1143,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             <div className="leading-tight">
               <div className="text-sm font-bold tracking-tight text-white/95">Генерация</div>
               <div className="text-[10px] uppercase tracking-[0.16em] text-white/40">
-                outsee create · глобально
+                VIA create · глобально
               </div>
             </div>
           </div>
@@ -1159,15 +1157,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               проект #{projectId}
             </span>
           )}
-          <a
-            href={outseeCreateUrl(mediaType, activeSlug)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/60 transition hover:border-white/25 hover:bg-white/[0.07] hover:text-white"
-          >
-            outsee.io
-            <ExternalLink className="h-3 w-3" />
-          </a>
         </div>
       </header>
 
@@ -1672,7 +1661,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         />
                       ))}
                     <span className="text-[10px] text-white/35">
-                      файл грузится в kie → публичный URL; или вставь свой URL в поле
+                      файл загружается → публичный URL; или вставь свой URL в поле
                     </span>
                   </div>
                 )}

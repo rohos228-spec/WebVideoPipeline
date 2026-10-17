@@ -40,7 +40,7 @@ export async function selectProjectInSidebar(
   await row.click({ timeout: 10_000 });
 
   await expect(
-    page.getByRole("button", { name: /Создать Run|Перезапустить/ }),
+    page.getByRole("button", { name: /Создать Run|Перезапустить|Продолжить/ }).first(),
   ).toBeVisible({ timeout: 25_000 });
 
   if (errors.length) {
@@ -51,15 +51,28 @@ export async function selectProjectInSidebar(
 
 /** Клик V-меню на ноде канваса (устойчиво к перерисовке React Flow). */
 export async function openNodeVMenu(page: Page, nodeTitle: string | RegExp): Promise<void> {
+  // housepc layout: the orchestrator dock can cover the canvas on small viewports.
+  const collapse = page.getByRole("button", { name: "Свернуть панель" }).first();
+  if (await collapse.isVisible().catch(() => false)) {
+    await collapse.click().catch(() => {});
+  }
   const node = page.locator(".react-flow__node").filter({ hasText: nodeTitle });
   await expect(node.first()).toBeVisible({ timeout: 20_000 });
 
   let lastErr: unknown;
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     try {
+      // Legacy V-trigger if present; housepc node cards open the inline settings
+      // menu on click (or double-click) of the card itself.
       const trigger = node.first().locator(".node-v-trigger");
-      await trigger.scrollIntoViewIfNeeded();
-      await trigger.click({ timeout: 4000, force: true });
+      if ((await trigger.count()) > 0) {
+        await trigger.first().scrollIntoViewIfNeeded();
+        await trigger.first().click({ timeout: 4000, force: true });
+      } else if (attempt % 2 === 0) {
+        await node.first().click({ timeout: 4000, position: { x: 24, y: 12 } });
+      } else {
+        await node.first().dblclick({ timeout: 4000, position: { x: 24, y: 12 } });
+      }
       // Inline node menu (housepc design) renders node-step-params-panel; legacy V-menu
       // renders a "Запустить шаг" action. Accept either.
       await expect(
@@ -67,7 +80,7 @@ export async function openNodeVMenu(page: Page, nodeTitle: string | RegExp): Pro
           .locator('[data-testid="node-step-params-panel"], .node-v-menu')
           .or(page.getByRole("button", { name: /Запустить шаг/ }))
           .first(),
-      ).toBeVisible({ timeout: 8000 });
+      ).toBeVisible({ timeout: 6000 });
       return;
     } catch (e) {
       lastErr = e;

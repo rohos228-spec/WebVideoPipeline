@@ -17,7 +17,7 @@ test.describe("Studio smoke", () => {
   test("V-menu enables toolbar run for video node", async ({ page, request }) => {
     await selectProjectInSidebar(page, request);
     await openNodeVMenu(page, /видео/i);
-    const runTop = page.getByRole("button", { name: /Перезапустить|Создать Run/ });
+    const runTop = page.getByRole("button", { name: /Создать Run|Перезапустить|Продолжить/ }).first();
     await expect(runTop).toBeEnabled({ timeout: 10_000 });
   });
 });
