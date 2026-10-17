@@ -52,7 +52,7 @@ def load() -> BillingSettings:
         shop_id=os.getenv("YOOKASSA_SHOP_ID", ""),
         secret_key=os.getenv("YOOKASSA_SECRET_KEY", ""),
         webhook_secret=os.getenv("YOOKASSA_WEBHOOK_SECRET", ""),
-        return_url=os.getenv("VIA_BILLING_RETURN_URL", "http://127.0.0.1:8765/?billing=return"),
+        return_url=os.getenv("VIA_BILLING_RETURN_URL", "http://127.0.0.1:8765/billing?payment=return"),
         db_path=Path(db) if db else _data_dir() / "billing.db",
         test_hooks=os.getenv("VIA_TEST_HOOKS", "") in ("1", "true", "yes"),
         webhook_ip_check=os.getenv("YOOKASSA_WEBHOOK_IP_CHECK", "") in ("1", "true", "yes"),

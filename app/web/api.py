@@ -597,6 +597,8 @@ def _mount_frontend(app: FastAPI) -> None:
                     headers={"Cache-Control": "no-cache, must-revalidate"},
                 )
         # Next static export — все маршруты как .html-файлы.
+        # /billing/?payment=… (return URL) must open billing.html, not the studio index.
+        full_path = full_path.rstrip("/")
         candidate = out_dir / full_path
         if candidate.is_file():
             if candidate.suffix.lower() in {".html", ".htm"}:
