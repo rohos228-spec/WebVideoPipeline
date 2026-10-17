@@ -50,6 +50,8 @@ class CreateJob:
     history_id: str = ""
     # позиция в очереди ожидания (1-based), None если уже processing/done
     queue_position: int | None = None
+    # владелец задачи (биллинг/лимиты); None — локальный режим без авторизации
+    user_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         from app.services.generation_storage import elapsed_from_iso, format_elapsed_min_sec
@@ -208,6 +210,7 @@ async def enqueue_generation(
     params: dict[str, Any] | None,
     quote: dict[str, Any] | None,
     run: GenerateFn,
+    user_id: str | None = None,
 ) -> CreateJob:
     """Регистрирует job (queued) и стартует task — слот API берёт семафор."""
     fp = _job_fingerprint(
@@ -256,6 +259,7 @@ async def enqueue_generation(
         prompt=prompt,
         status="queued",
         history_id=history_id,
+        user_id=user_id,
     )
     async with _LOCK:
         _JOBS[job_id] = job
@@ -362,7 +366,59 @@ async def cancel_job(job_id: str) -> bool:
     return False
 
 
+def _mark_failed(job: CreateJob, error: str) -> None:
+    job.status = "failed"
+    job.error = error
+    job.queue_position = None
+    job.finished_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    try:
+        update_sidecar(job.path, status="failed", error=error, finished_at=job.finished_at)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _run_job(
+    job: CreateJob,
+    *,
+    run: GenerateFn,
+    params: dict[str, Any] | None,
+    quote: dict[str, Any] | None,
+) -> None:
+    """Биллинг (агент E): лимит потоков -> резерв кредитов -> генерация -> списание/возврат."""
+    if not job.user_id:
+        await _run_job_inner(job, run=run, params=params, quote=quote)
+        return
+    try:
+        from app.billing import charge_hook, limits
+        from app.billing.ledger import InsufficientCredits
+    except Exception as e:  # noqa: BLE001
+        logger.warning("create_job.billing unavailable, running without charge: {}", e)
+        await _run_job_inner(job, run=run, params=params, quote=quote)
+        return
+    kind = "video" if (job.media or "").lower() == "video" else "images"
+    charge_kind = "video" if kind == "video" else "image"
+    async with limits.slot(job.user_id, kind, job.id):
+        try:
+            charge_hook.reserve(job.user_id, job.id, model=job.model, kind=charge_kind, units=1)
+        except InsufficientCredits:
+            _mark_failed(job, "Недостаточно кредитов")
+            _refresh_queue_positions()
+            return
+        try:
+            await _run_job_inner(job, run=run, params=params, quote=quote)
+        except asyncio.CancelledError:
+            charge_hook.refund(job.id, "cancelled")
+            raise
+        except Exception:
+            charge_hook.refund(job.id, "error")
+            raise
+        if job.status == "done":
+            charge_hook.settle(job.id)
+        else:
+            charge_hook.refund(job.id, (job.error or "failed")[:200])
+
+
+async def _run_job_inner(
     job: CreateJob,
     *,
     run: GenerateFn,
