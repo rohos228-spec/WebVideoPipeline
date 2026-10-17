@@ -312,12 +312,16 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
         } else if (modelPickerOpen) {
           e.stopPropagation();
           setModelPickerOpen(false);
+        } else if (open && !e.defaultPrevented && document.querySelectorAll('[role="dialog"]').length <= 1) {
+          const t = e.target as HTMLElement | null;
+          if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable)) return;
+          onOpenChange(false);
         }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [previewImage, modelPickerOpen]);
+  }, [previewImage, modelPickerOpen, open, onOpenChange]);
 
   // Session Mutations
   const createMut = useMutation({
@@ -597,6 +601,10 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Чат"
+      data-testid="gpt-workspace"
       className="fixed inset-0 z-[80] flex bg-[#0a0a0a] text-white font-sans backdrop-blur-2xl animate-in fade-in duration-200"
       onDragOver={(e) => {
         e.preventDefault();
@@ -952,6 +960,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
             <button
               type="button"
               onClick={() => onOpenChange(false)}
+              aria-label="Закрыть"
               className="rounded-xl border border-white/10 bg-white/[0.04] p-2 text-white/60 transition hover:bg-white/10 hover:text-white outline-none"
               title="Закрыть (Esc)"
             >

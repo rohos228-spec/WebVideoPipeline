@@ -388,6 +388,20 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     };
   }, [modelOpen]);
 
+  // Esc closes the whole workspace when no inner popup is open.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (modelOpen || openChip || lightboxOpen) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable)) return;
+      onOpenChange(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, modelOpen, openChip, lightboxOpen, onOpenChange]);
+
   const [nowTs, setNowTs] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNowTs(Date.now()), 1000);
@@ -1128,12 +1142,13 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex flex-col bg-[#0a0a0a] text-white">
+    <div role="dialog" aria-modal="true" aria-label="Генерация" data-testid="create-workspace" className="fixed inset-0 z-[80] flex flex-col bg-[#0a0a0a] text-white">
       <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-white/10 bg-[#0d0d11]/90 px-4 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
+            aria-label="Закрыть"
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
           >
             <X className="h-4 w-4" />

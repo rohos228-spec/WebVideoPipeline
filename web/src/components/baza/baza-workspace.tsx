@@ -332,15 +332,30 @@ export function BazaWorkspace({ open, onOpenChange, projectId }: Props) {
     [scopedGraph, frameSheet],
   );
 
+  // Esc closes the workspace when no nested dialog/popup is open.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelectorAll('[role="dialog"]').length > 1) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable)) return;
+      onOpenChange(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onOpenChange]);
+
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[80] flex flex-col bg-[#0a0a0a] text-white">
+    <div role="dialog" aria-modal="true" aria-label="База" data-testid="baza-workspace" className="fixed inset-0 z-[80] flex flex-col bg-[#0a0a0a] text-white">
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-white/[0.06] px-4">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
+            aria-label="Закрыть"
             className="rounded-md p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
             title="Закрыть"
           >

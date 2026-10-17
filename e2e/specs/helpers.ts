@@ -15,7 +15,7 @@ export const PROVIDER_RE =
 
 /** Небезопасные кнопки — НЕ кликаем (оплата, удаление, платная генерация). */
 export const UNSAFE_BUTTON_RE =
-  /оплат|купить|checkout|pay\b|подписа|оформить|удал|delete|remove|очист|clear all|запустить|сгенерир|generate|run\b|старт|start render/i;
+  /оплат|купить|checkout|pay\b|подписа|оформить|удал|delete|remove|очист|clear all|запустить|сгенерир|генерир|generate|run\b|старт|start render/i;
 
 export type PageProblems = { consoleErrors: string[]; serverErrors: string[] };
 

@@ -444,7 +444,7 @@ function Invoke-StudioRecoverPromptsFromAllStashes {
         $p = Start-Process -FilePath $exe -ArgumentList $argList -WorkingDirectory $Root -WindowStyle Hidden -PassThru
         if ($null -eq $p) { return }
         if (-not $p.WaitForExit(8000)) {
-            Write-StudioMsg "Возврат prompts из stash пропущен (долго) — запускаю студию." "DarkGray"
+            Write-StudioMsg "Возврат prompts из stash пропущен (долго) - запускаю студию." "DarkGray"
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
         }
     } catch { }
@@ -1121,7 +1121,7 @@ function Show-StudioMenu {
     Write-Host ""
     Write-Host "  [1] Запустить студию (бэкенд API + веб-интерфейс http://127.0.0.1:8765)"
     Write-Host "  [2] Остановить всё (бэкенд :8765)"
-    Write-Host "  [3] Открыть внешний браузер с ИИ (Chrome CDP :29229 — опционально)"
+    Write-Host "  [3] Открыть внешний браузер с ИИ (Chrome CDP :29229 - опционально)"
     Write-Host "  [4] Обновить и запустить (ветка $brLabel + зависимости + запуск)"
     Write-Host "  [5] Ветка ПК ($brLabel): сменить"
     Write-Host "  [6] Починить установку (pip, web, Playwright, FFmpeg)"
