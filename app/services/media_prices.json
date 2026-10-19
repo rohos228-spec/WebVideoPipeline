@@ -31,10 +31,6 @@
       "unit": "item",
       "usd_per_unit": null
     },
-    "outsee:gpt-image-2-vip": {
-      "unit": "item",
-      "usd_per_unit": null
-    },
     "vibecode:gpt-image-2.5": {
       "unit": "item",
       "usd_per_unit": 0.019683

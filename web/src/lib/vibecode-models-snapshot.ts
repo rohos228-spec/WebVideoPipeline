@@ -230,17 +230,6 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
     }
   },
   {
-    "display_name": "GPT Image 2",
-    "id": "gpt-image-2-vip",
-    "is_image": true,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "currency": "usd",
-      "usd_per_image": 0.042646
-    }
-  },
-  {
     "display_name": "Nano Banana",
     "id": "nano-banana",
     "is_image": true,

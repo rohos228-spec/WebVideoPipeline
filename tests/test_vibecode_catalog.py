@@ -30,10 +30,11 @@ def test_snapshot_has_screenshot_tabs() -> None:
     assert "glm-5.3-flash" in ids
     assert "gpt-6-astra" in ids
     assert "kimi-k3" not in ids
-    assert "gpt-image-2-vip" in ids
+    assert "gpt-image-2-vip" not in ids
     assert "gpt-image-2" not in ids
+    assert "nano-banana-2" in ids
     assert "nano-banana-pro" in ids
-    assert len(ids) >= 20
+    assert len(ids) >= 18
 
 
 def test_prices_use_expensive_markup() -> None:
@@ -55,7 +56,7 @@ def test_legacy_cheap_channel_arg_is_ignored() -> None:
 
 
 def test_image_price_marked_up() -> None:
-    raw = next(m for m in load_snapshot() if m["id"] == "gpt-image-2-vip")
+    raw = next(m for m in load_snapshot() if m["id"] == "nano-banana-2")
     priced = apply_markup(raw["pricing"])
     assert priced["usd_per_image"] == round(raw["pricing"]["usd_per_image"] * PRICE_MARKUP, 6)
 
@@ -73,7 +74,7 @@ def test_grouped_vendors_match_ui_tabs() -> None:
     assert counts["gemini"] == 2
     assert counts["xai"] == 1
     assert "moonshot" not in counts
-    assert counts["images"] == 7
+    assert counts["images"] == 6
     assert counts["video"] == 7
     sonnet = find_model("claude-sonnet-5-5")
     assert sonnet is not None
@@ -104,11 +105,10 @@ def test_default_model_by_node_type() -> None:
     assert default_model_id_for_node_type("plan") == DEFAULT_TEXT_MODEL_ID
     assert default_model_id_for_node_type("images") == DEFAULT_IMAGE_MODEL_ID
     assert default_model_id_for_node_type("videos") == "veo-3-1-lite"
-    gpt2 = find_model("gpt-image-2")
-    assert gpt2 is not None
-    assert gpt2["id"] == "gpt-image-2-vip"
-    assert gpt2["label"] == "GPT Image 2"
-    assert gpt2["image_generator"] == "gpt_image_2_vip"
+    banana = find_model("nano-banana-2")
+    assert banana is not None
+    assert banana["id"] == "nano-banana-2"
+    assert banana["image_generator"] == "nano_banana_2"
     assert default_model_id_for_node_type("hero") == DEFAULT_IMAGE_MODEL_ID
 
 
@@ -169,7 +169,7 @@ def test_resolve_node_media_settings_from_images_node() -> None:
                     "id": "n_images_1",
                     "type": "images",
                     "data": {
-                        "modelId": "gpt-image-2-vip",
+                        "modelId": "nano-banana-2",
                         "imageResolution": "4K",
                         "imageQuality": "high",
                         "aspectRatio": "9:16",
@@ -189,7 +189,7 @@ def test_resolve_node_media_settings_from_images_node() -> None:
             self.aspect_ratio = "16_9"
 
     media = resolve_node_media_settings(_Proj(), node_type="images")
-    assert media["image_generator_id"] == "gpt_image_2_vip"
+    assert media["image_generator_id"] == "nano_banana_2"
     assert media["resolution_id"] == "2k"
     assert media["resolution_slug"] == "2K"
     assert media["aspect_slug"] == "9:16"

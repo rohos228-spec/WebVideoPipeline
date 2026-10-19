@@ -23,7 +23,6 @@ from app.generation_options import (
 def test_outsee_image_model_slugs_match_live_ui() -> None:
     """Slug'и из outsee JS (июль 2026), не «интуитивные» с дефисами."""
     expected = {
-        "gpt_image_2_vip": "gpt-image-2-vip",
         "nano_banana_2": "nano-banana-2",
     }
     for gid, slug in expected.items():
@@ -35,7 +34,6 @@ def test_outsee_image_model_slugs_match_live_ui() -> None:
 
 def test_gpt_image_2_resolutions() -> None:
     assert allowed_image_resolution_ids("gpt_image_2") == ("1k",)
-    assert allowed_image_resolution_ids("gpt_image_2_vip") == ("1k", "2k")
     assert clamp_image_resolution_id("gpt_image_1_5", "4k") == "2k"
     assert clamp_image_resolution_id("nano_banana_2", "4k") == "2k"
     assert "4k" not in IMAGE_RESOLUTIONS_BY_GENERATOR["nano_banana_2"]

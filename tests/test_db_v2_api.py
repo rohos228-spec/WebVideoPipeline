@@ -542,7 +542,7 @@ async def test_orchestrator_chat_settings_actions(api_client, monkeypatch, tmp_p
     client, project_id, factory = api_client
     reply = (
         '{"actions":['
-        '{"set_option":{"key":"image_generator","value":"gpt_image_2_vip"}},'
+        '{"set_option":{"key":"image_generator","value":"nano_banana_2"}},'
         '{"set_option":{"key":"image_resolution","value":"2k"}},'
         '{"set_option":{"key":"hero_mode","value":"no_hero"}},'
         '{"set_option":{"key":"auto_mode","value":"вкл"}},'
@@ -571,7 +571,7 @@ async def test_orchestrator_chat_settings_actions(api_client, monkeypatch, tmp_p
     ]
     async with factory() as session:
         p = await session.get(Project, project_id)
-        assert p.image_generator == "gpt_image_2_vip"
+        assert p.image_generator == "nano_banana_2"
         assert p.image_resolution == "2k"
         assert p.hero_mode == "no_hero"
         assert p.auto_mode is True
