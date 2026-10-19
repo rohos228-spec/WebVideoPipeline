@@ -226,7 +226,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   audio: {
     type: "audio",
     label: "Озвучка",
-    description: "ElevenLabs TTS + Whisper-субтитры.",
+    description: "Голосовая озвучка закадрового текста через ElevenLabs v4 (WaveSpeed, 200 русских голосов) и Whisper ASR.",
     category: "audio",
     accent: "320 60% 62%",
     iconKey: "audio-waveform",

@@ -12,7 +12,7 @@ export function FramePromptsPanel({
   field,
 }: {
   projectId: number;
-  field: "image_prompt" | "animation_prompt";
+  field: "image_prompt" | "animation_prompt" | "voiceover_text";
 }) {
   const framesQuery = useQuery({
     queryKey: ["frames", projectId],
@@ -40,7 +40,11 @@ export function FramePromptsPanel({
     return frames
       .filter((f) => {
         const text =
-          field === "image_prompt" ? f.image_prompt : f.animation_prompt;
+          field === "image_prompt"
+            ? f.image_prompt
+            : field === "animation_prompt"
+              ? f.animation_prompt
+              : f.voiceover_text;
         return Boolean(text?.trim());
       })
       .map((f) => ({
@@ -50,8 +54,11 @@ export function FramePromptsPanel({
         previewUrl:
           previewByNumber.get(f.number) ?? previewByFrameId.get(f.id) ?? null,
         content:
-          (field === "image_prompt" ? f.image_prompt : f.animation_prompt) ??
-          "",
+          (field === "image_prompt"
+            ? f.image_prompt
+            : field === "animation_prompt"
+              ? f.animation_prompt
+              : f.voiceover_text) ?? "",
         frameNumber: f.number,
       }));
   }, [framesQuery.data, mediaReviewQuery.data, field]);
@@ -69,7 +76,9 @@ export function FramePromptsPanel({
       <p className="text-sm text-muted-foreground">
         {field === "image_prompt"
           ? "Промты кадров пусты — сначала выполните шаг «Промты картинок» (6) или перечитайте Excel."
-          : "Промты анимации пусты — выполните шаг «Промты анимации»."}
+          : field === "animation_prompt"
+            ? "Промты анимации пусты — выполните шаг «Промты анимации»."
+            : "Закадровый текст кадров пуст — выполните шаг «Разбивка закадра»."}
       </p>
     );
   }
@@ -77,7 +86,10 @@ export function FramePromptsPanel({
   return (
     <div className="flex min-h-[50vh] flex-col gap-2">
       <p className="text-xs text-muted-foreground">
-        {items.length} кадр(ов) — эти тексты уходят в outsee при генерации.
+        {items.length} кадр(ов) —{" "}
+        {field === "voiceover_text"
+          ? "этот закадровый текст отправляется в ElevenLabs / WaveSpeed для озвучки."
+          : "эти тексты уходят в outsee при генерации."}
       </p>
       <FramePromptsView items={items} />
     </div>

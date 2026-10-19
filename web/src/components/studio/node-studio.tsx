@@ -15,12 +15,15 @@ import {
   Layers,
   Loader2,
   MessageSquareText,
+  Mic,
+  Pause,
   Play,
   RefreshCw,
   Settings2,
   ShieldCheck,
   Sparkles,
   Upload,
+  Volume2,
   X,
   Zap,
 } from "lucide-react";
@@ -53,6 +56,9 @@ import { ExcelGptSettingsPanel } from "@/components/studio/excel-gpt-settings-pa
 import { ItemsConfigPanel } from "@/components/canvas/items-config-panel";
 import { HeroConfigPanel } from "@/components/canvas/hero-config-panel";
 import { CheckNodePromptPanel } from "@/components/studio/check-node-prompt-panel";
+import { VoiceLibraryModal, getVoiceById } from "@/components/outsee/voice-library-modal";
+import { DEFAULT_ELEVENLABS_VOICE_ID, findElevenLabsVoice } from "@/lib/elevenlabs-voices";
+import { readNodeStepParams, withNodeStepParams } from "@/lib/node-step-params";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -567,7 +573,6 @@ export function NodeStudio({
     (nodeType === "plan" ||
       nodeType === "script" ||
       nodeType === "split" ||
-      nodeType === "audio" ||
       nodeType === "assemble");
 
   const showFramePromptsPanel =
@@ -973,6 +978,16 @@ export function NodeStudio({
                       }}
                     />
                   ) : null}
+                  {nodeType === "audio" && projectId ? (
+                    <AudioSettingsPanel
+                      projectId={projectId}
+                      onOpenVoiceover={() => {
+                        setTab("prompts");
+                        const targetSlot = pipelineSlots.find((s) => s.id === "voiceover" || s.kind === "frame_prompts") ?? pipelineSlots[0];
+                        setActiveSlotId(targetSlot?.id ?? null);
+                      }}
+                    />
+                  ) : null}
                   {nodeDisabled && (
                     <p className="text-amber-400">Нода отключена в графе — шаг не запустится.</p>
                   )}
@@ -991,7 +1006,13 @@ export function NodeStudio({
                     <FramePromptsPanel
                       key={`frame-prompts-${projectId}-${nodeType}`}
                       projectId={projectId}
-                      field={nodeType === "videos" || nodeType === "animation_prompts" ? "animation_prompt" : "image_prompt"}
+                      field={
+                        nodeType === "audio"
+                          ? "voiceover_text"
+                          : nodeType === "videos" || nodeType === "animation_prompts"
+                            ? "animation_prompt"
+                            : "image_prompt"
+                      }
                     />
                   ) : showFilesPanel && isCheckNode ? (
                     <CheckNodePromptPanel
@@ -2092,5 +2113,341 @@ function VideosSettingsPanel({
     </section>
   );
 }
+
+function AudioSettingsPanel({
+  projectId,
+  onOpenVoiceover,
+}: {
+  projectId: number;
+  onOpenVoiceover?: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const project = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId),
+    enabled: Boolean(projectId),
+  });
+
+  const frames = useQuery({
+    queryKey: ["project-frames", projectId],
+    queryFn: () => api.listFrames(projectId),
+    enabled: Boolean(projectId),
+  });
+
+  const artifacts = useQuery({
+    queryKey: ["artifacts", projectId, "audio"],
+    queryFn: () => api.listArtifacts({ project_id: projectId }),
+    enabled: Boolean(projectId),
+  });
+
+  const voicesStatus = useQuery({
+    queryKey: ["elevenlabs-voices-status"],
+    queryFn: () => api.elevenLabsVoicesStatus(),
+    staleTime: 3600_000,
+    retry: false,
+  });
+
+  const frameList = frames.data || [];
+  const totalFrames = frameList.length;
+  const readyVoCount = frameList.filter((f) => Boolean(f.voiceover_text?.trim())).length;
+  const totalVoChars = frameList.reduce((acc, f) => acc + (f.voiceover_text?.trim().length || 0), 0);
+  const estSeconds = totalVoChars > 0 ? Math.round(totalVoChars / 15) : 0;
+  const estMinutes = (estSeconds / 60).toFixed(1);
+  const estCostUsd = (totalVoChars * 0.0001).toFixed(2);
+
+  const audioArtifact = (artifacts.data || []).find(
+    (a) => a.kind === "audio" && a.path?.match(/\.(mp3|wav|m4a|ogg)$/i),
+  );
+  const whisperArtifact = (artifacts.data || []).find(
+    (a) => a.kind === "whisper_words" || a.path?.includes("words_"),
+  );
+
+  const metaRecord = useMemo(
+    () => ((project.data?.meta || {}) as Record<string, unknown>),
+    [project.data?.meta],
+  );
+  const stepParams = useMemo(() => readNodeStepParams(metaRecord), [metaRecord]);
+
+  const savedVoiceId =
+    stepParams.audio?.elevenlabs_voice_id ?? DEFAULT_ELEVENLABS_VOICE_ID;
+  const [voiceDraft, setVoiceDraft] = useState(savedVoiceId);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [isPlayingSample, setIsPlayingSample] = useState(false);
+  const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    setVoiceDraft(savedVoiceId);
+  }, [savedVoiceId]);
+
+  useEffect(() => {
+    return () => {
+      if (sampleAudioRef.current) {
+        sampleAudioRef.current.pause();
+        sampleAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  const selectedStandard = findElevenLabsVoice(voiceDraft);
+  const ruVoice = getVoiceById(voiceDraft);
+
+  const deadIds = new Set(
+    voicesStatus.data?.checked ? (voicesStatus.data?.dead ?? []) : [],
+  );
+
+  const patchVoice = useMutation({
+    mutationFn: async (voiceId: string) => {
+      const nextMeta = withNodeStepParams(metaRecord, "audio", {
+        elevenlabs_voice_id: voiceId,
+      });
+      await api.patchProject(projectId, { meta: nextMeta });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+    onError: (err) => {
+      toast.error(errorMessageFromUnknown(err) || "Не удалось сохранить голос");
+    },
+  });
+
+  const handleSelectVoice = (voiceId: string, voiceName: string) => {
+    setVoiceDraft(voiceId);
+    patchVoice.mutate(voiceId);
+    toast.success(`Выбран голос: ${voiceName}`);
+  };
+
+  const togglePlaySample = () => {
+    if (isPlayingSample) {
+      if (sampleAudioRef.current) {
+        sampleAudioRef.current.pause();
+        sampleAudioRef.current = null;
+      }
+      setIsPlayingSample(false);
+      return;
+    }
+    const sampleUrl = ruVoice?.sample_url || (ruVoice ? `/api/voices/${ruVoice.id}/sample` : null);
+    if (!sampleUrl) return;
+    const a = new Audio(sampleUrl);
+    sampleAudioRef.current = a;
+    setIsPlayingSample(true);
+    a.play().catch(() => setIsPlayingSample(false));
+    a.onended = () => {
+      setIsPlayingSample(false);
+      sampleAudioRef.current = null;
+    };
+    a.onerror = () => {
+      setIsPlayingSample(false);
+      sampleAudioRef.current = null;
+    };
+  };
+
+  const isReadyForAudio = totalFrames > 0 && readyVoCount === totalFrames;
+  const isAudioGenerated = Boolean(audioArtifact);
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      {/* Шапка */}
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-pink-500/15 text-pink-400 border border-pink-500/30">
+          <Mic className="h-5 w-5" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Параметры озвучки (ElevenLabs v4)</h3>
+          <p className="text-xs text-muted-foreground">
+            Выбор голоса диктора, готовность закадрового текста и синтезированное аудио
+          </p>
+        </div>
+      </div>
+
+      {/* Индикатор готовности входных данных */}
+      <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.02] p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-foreground">Готовность к озвучке:</span>
+          {isAudioGenerated ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400 border border-emerald-500/30">
+              <CheckCircle2 className="h-3 w-3" /> Озвучка готова
+            </span>
+          ) : isReadyForAudio ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/15 px-2.5 py-0.5 text-[11px] font-medium text-cyan-400 border border-cyan-500/30">
+              <CheckCircle2 className="h-3 w-3" /> Закадр готов ({totalFrames} кадров)
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-medium text-amber-400 border border-amber-500/30">
+              <Clock className="h-3 w-3" /> Не все кадры содержат закадр ({readyVoCount}/{totalFrames})
+            </span>
+          )}
+        </div>
+
+        {/* Метрики готовности */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+          <div className="rounded-md border border-white/5 bg-white/[0.03] p-3 flex flex-col gap-1">
+            <span className="text-[11px] text-muted-foreground">1. Закадровый текст</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-bold text-foreground">{readyVoCount}</span>
+              <span className="text-xs text-muted-foreground">/ {totalFrames}</span>
+            </div>
+            <span className="text-[10px] text-muted-foreground/80">
+              {totalVoChars > 0
+                ? `${totalVoChars.toLocaleString()} симв. (~${estMinutes} мин) · ~$${estCostUsd}`
+                : "Закадр пуст"}
+            </span>
+          </div>
+
+          <div className="rounded-md border border-white/5 bg-white/[0.03] p-3 flex flex-col gap-1">
+            <span className="text-[11px] text-muted-foreground">2. Выбранный голос</span>
+            <div className="flex items-baseline gap-1.5 truncate">
+              <span className="text-sm font-bold text-foreground truncate">
+                {ruVoice ? ruVoice.name : selectedStandard ? selectedStandard.name : "По умолчанию"}
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground/80 truncate">
+              {ruVoice
+                ? `${ruVoice.gender === "female" ? "Женский" : "Мужской"} · ElevenLabs v4`
+                : "Стандартный ElevenLabs"}
+            </span>
+          </div>
+
+          <div className="rounded-md border border-white/5 bg-white/[0.03] p-3 flex flex-col gap-1">
+            <span className="text-[11px] text-muted-foreground">3. Синтез и субтитры</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-sm font-bold text-foreground">
+                {isAudioGenerated ? "Синтезировано" : "Не сгенерировано"}
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground/80">
+              {whisperArtifact ? "✓ Whisper субтитры готовы" : isAudioGenerated ? "ASR завершён" : "Ожидает запуска шага"}
+            </span>
+          </div>
+        </div>
+
+        {onOpenVoiceover && (
+          <div className="pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-xs h-7 text-muted-foreground hover:text-foreground"
+              onClick={onOpenVoiceover}
+            >
+              Просмотреть закадр по кадрам →
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Карточка выбранного голоса */}
+      <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.02] p-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h4 className="text-xs font-semibold text-foreground">Голос диктора (WaveSpeed ElevenLabs v4)</h4>
+            <span className="rounded bg-cyan-500/10 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] font-medium text-cyan-400">
+              200 русских голосов
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Премиальные голоса с естественной интонацией, расстановкой пауз и пословной разметкой Whisper ASR
+          </p>
+        </div>
+
+        {voicesStatus.data?.checked && deadIds.size > 0 && deadIds.has(voiceDraft) ? (
+          <p className="text-xs font-medium text-amber-400">
+            Выбранный голос недоступен в API — выбери другой голос из библиотеки.
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-pink-500/10 border border-pink-500/25 text-pink-400">
+              <Mic className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex flex-col">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-semibold text-foreground">
+                  {ruVoice ? ruVoice.name : selectedStandard ? selectedStandard.name : `Голос ${voiceDraft}`}
+                </span>
+                {ruVoice ? (
+                  <span className="shrink-0 rounded bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] text-cyan-300">
+                    {ruVoice.gender === "female" ? "Женский" : "Мужской"} #{ruVoice.index}
+                  </span>
+                ) : null}
+              </div>
+              <span className="truncate text-xs text-muted-foreground">
+                {ruVoice ? ruVoice.description : selectedStandard ? selectedStandard.description : "Пользовательский голос"}
+              </span>
+              <span className="font-mono text-[10px] text-muted-foreground/60">
+                ID: {voiceDraft}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {ruVoice ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={togglePlaySample}
+                className="h-8 gap-1.5 px-2.5 text-xs border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/10"
+                title="Прослушать образец голоса"
+              >
+                {isPlayingSample ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current" />}
+                {isPlayingSample ? "Пауза" : "Слушать"}
+              </Button>
+            ) : null}
+
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setLibraryOpen(true)}
+              className="h-8 gap-1.5 px-3 text-xs font-medium bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg border border-cyan-400/30 shadow-sm shadow-cyan-500/20"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Библиотека 200 голосов
+            </Button>
+          </div>
+        </div>
+
+        {patchVoice.isPending ? (
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
+            Сохранение голоса…
+          </span>
+        ) : null}
+      </div>
+
+      {/* Встроенный аудиоплеер полной озвучки (если уже сгенерирована) */}
+      {audioArtifact ? (
+        <div className="flex flex-col gap-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.03] p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Volume2 className="h-4 w-4 text-emerald-400" />
+              <span className="text-xs font-semibold text-foreground">Сгенерированная озвучка (voice_full)</span>
+            </div>
+            <a
+              href={api.artifactFileUrl(audioArtifact.uuid)}
+              download
+              className="text-[11px] text-emerald-400 hover:underline inline-flex items-center gap-1"
+            >
+              <Download className="h-3 w-3" /> Скачать MP3
+            </a>
+          </div>
+          <audio
+            controls
+            className="w-full mt-1"
+            src={api.artifactFileUrl(audioArtifact.uuid)}
+          />
+        </div>
+      ) : null}
+
+      <VoiceLibraryModal
+        open={libraryOpen}
+        onOpenChange={setLibraryOpen}
+        selectedVoiceId={voiceDraft}
+        onSelectVoice={handleSelectVoice}
+      />
+    </section>
+  );
+}
+
 
 
