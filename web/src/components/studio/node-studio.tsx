@@ -9,6 +9,7 @@ import {
   Download,
   FileSpreadsheet,
   FileText,
+  Film,
   Image as ImageIcon,
   Layers,
   Loader2,
@@ -947,6 +948,21 @@ export function NodeStudio({
                   {nodeType === "images" && projectId ? (
                     <ImagesSettingsPanel projectId={projectId} />
                   ) : null}
+                  {nodeType === "animation_prompts" && projectId ? (
+                    <AnimationPromptsSettingsPanel
+                      projectId={projectId}
+                      onOpenPrompts={() => {
+                        setTab("prompts");
+                        const targetSlot = pipelineSlots.find((s) => s.id === "main") ?? pipelineSlots[0];
+                        setActiveSlotId(targetSlot?.id ?? null);
+                      }}
+                      onOpenFramePrompts={() => {
+                        setTab("prompts");
+                        const targetSlot = pipelineSlots.find((s) => s.id === "frame_prompts") ?? pipelineSlots[0];
+                        setActiveSlotId(targetSlot?.id ?? null);
+                      }}
+                    />
+                  ) : null}
                   {nodeDisabled && (
                     <p className="text-amber-400">Нода отключена в графе — шаг не запустится.</p>
                   )}
@@ -965,7 +981,7 @@ export function NodeStudio({
                     <FramePromptsPanel
                       key={`frame-prompts-${projectId}-${nodeType}`}
                       projectId={projectId}
-                      field={nodeType === "videos" ? "animation_prompt" : "image_prompt"}
+                      field={nodeType === "videos" || nodeType === "animation_prompts" ? "animation_prompt" : "image_prompt"}
                     />
                   ) : showFilesPanel && isCheckNode ? (
                     <CheckNodePromptPanel
@@ -1646,6 +1662,222 @@ function ImagesSettingsPanel({ projectId }: { projectId: number }) {
               )}
             </span>
           </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AnimationPromptsSettingsPanel({
+  projectId,
+  onOpenPrompts,
+  onOpenFramePrompts,
+}: {
+  projectId: number;
+  onOpenPrompts?: () => void;
+  onOpenFramePrompts?: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const project = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId),
+    enabled: Boolean(projectId),
+  });
+
+  const frames = useQuery({
+    queryKey: ["project-frames", projectId],
+    queryFn: () => api.listFrames(projectId),
+    enabled: Boolean(projectId),
+  });
+
+  const frameList = frames.data || [];
+  const totalFrames = frameList.length;
+  const readyAnimPrompts = frameList.filter((f) => Boolean(f.animation_prompt?.trim())).length;
+  const readyImgPrompts = frameList.filter((f) => Boolean(f.image_prompt?.trim())).length;
+
+  const rawBatchSize = (project.data?.meta as Record<string, unknown> | undefined)?.anim_pr_batch_size;
+  const batchSize =
+    typeof rawBatchSize === "number" && rawBatchSize >= 2 && rawBatchSize <= 8
+      ? rawBatchSize
+      : 6;
+
+  const patchBatchSize = useMutation({
+    mutationFn: async (size: number) => {
+      const meta = { ...((project.data?.meta as Record<string, unknown>) || {}), anim_pr_batch_size: size };
+      await api.patchProject(projectId, { meta });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Размер батча анимации сохранён");
+    },
+    onError: (err) => {
+      toast.error(errorMessageFromUnknown(err) || "Не удалось сохранить размер батча");
+    },
+  });
+
+  const calculatedBatches = totalFrames > 0 ? Math.ceil(totalFrames / batchSize) : 0;
+  const framesPerCalcBatch = calculatedBatches > 0 ? Math.ceil(totalFrames / calculatedBatches) : batchSize;
+
+  const videoGen = project.data?.video_generator || "veo_3_1_lite";
+  const videoGenLabel =
+    videoGen === "veo_3_1_lite"
+      ? "Veo 3.1 Lite (Outsee)"
+      : videoGen === "kling_2_6"
+      ? "Kling 2.6 (Kie)"
+      : videoGen === "seedance_2_5"
+      ? "Seedance 2.5 (ByteDance)"
+      : videoGen === "kling_v3_turbo_i2v"
+      ? "Kling 3.0 Turbo"
+      : videoGen;
+
+  const rawAspect = project.data?.aspect_ratio || "16_9";
+  const aspectLabel =
+    rawAspect === "9_16" ? "9:16 (Вертикальный)" : rawAspect === "1_1" ? "1:1 (Квадрат)" : "16:9 (Горизонтальный)";
+
+  const isAllReady = readyAnimPrompts === totalFrames && totalFrames > 0;
+  const isPartial = readyAnimPrompts > 0 && !isAllReady;
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Параметры генерации промптов анимации (I2V)</h3>
+          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+            ИИ-режиссер формирует промпты движения для каждого кадра: направленная динамика камеры, микро-движения объектов, свет и физика без смены планов и лип-синка.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {onOpenFramePrompts && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onOpenFramePrompts}
+              className="gap-1.5 text-xs border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10"
+            >
+              <Film className="h-3.5 w-3.5" />
+              По кадрам ({readyAnimPrompts}/{totalFrames})
+            </Button>
+          )}
+          {onOpenPrompts && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onOpenPrompts}
+              className="gap-1.5 text-xs border-violet-500/30 text-violet-300 hover:bg-violet-500/10"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Мастер-промт
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+          <div className="text-[11px] font-medium text-zinc-400">Статус готовности видеопромптов</div>
+          <div className="mt-1.5 flex items-center gap-2">
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                isAllReady
+                  ? "bg-emerald-400"
+                  : isPartial
+                  ? "bg-amber-400"
+                  : "bg-zinc-500",
+              )}
+            />
+            <span className="text-sm font-medium text-foreground">
+              {isAllReady
+                ? `Готово: ${readyAnimPrompts} из ${totalFrames} кадров`
+                : isPartial
+                ? `Частично: ${readyAnimPrompts} / ${totalFrames} кадров`
+                : totalFrames > 0
+                ? `Ожидает запуска (${totalFrames} кадров)`
+                : "Кадры не найдены"}
+            </span>
+          </div>
+          <div className="mt-1.5 text-[11px] text-zinc-400">
+            Исходные промпты картинок: <strong className="text-zinc-200">{readyImgPrompts} из {totalFrames}</strong>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+          <div className="text-[11px] font-medium text-zinc-400">Целевой видеогенератор и формат</div>
+          <div className="mt-1.5 flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">{videoGenLabel}</span>
+            <span className="rounded bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-300 border border-sky-500/30">
+              {aspectLabel}
+            </span>
+          </div>
+          <div className="mt-1.5 text-[11px] text-zinc-400 flex items-center gap-1.5">
+            <span className="text-emerald-400 font-medium">Single continuous take</span>
+            <span>·</span>
+            <span className="text-amber-300 font-medium">NO VOICE (без лип-синка)</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Настройка размера батча */}
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-foreground">Кадров в одном батче:</span>
+              <span className="rounded bg-sky-500/15 px-2 py-0.5 text-xs font-bold text-sky-300 border border-sky-500/30">
+                {batchSize} {batchSize === 1 ? "кадр" : batchSize < 5 ? "кадра" : "кадров"}
+              </span>
+              {batchSize === 6 && (
+                <span className="text-[10px] text-emerald-400 font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  по умолчанию
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground leading-snug">
+              Кадры склеиваются в горизонтальную ленту-стрип и отправляются в GPT vision с привязкой по frame_uuid.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-1.5 self-start sm:self-auto">
+            <span className="text-[11px] text-zinc-400 mr-1 hidden sm:inline">Выбор:</span>
+            {[2, 3, 4, 5, 6, 7, 8].map((size) => (
+              <Button
+                key={size}
+                size="sm"
+                variant={batchSize === size ? "default" : "outline"}
+                disabled={patchBatchSize.isPending}
+                onClick={() => patchBatchSize.mutate(size)}
+                className={cn(
+                  "h-7 w-7 p-0 text-xs font-medium",
+                  batchSize === size
+                    ? "bg-sky-600 text-white hover:bg-sky-500 font-bold border-sky-500"
+                    : "border-white/10 hover:bg-white/5 text-zinc-300",
+                )}
+              >
+                {size}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {totalFrames > 0 && (
+          <div className="flex items-center justify-between rounded-md bg-black/30 px-3 py-2 text-xs border border-white/5">
+            <span className="text-zinc-400">
+              Расчёт для этого проекта ({totalFrames} кадров):
+            </span>
+            <span className="font-medium text-sky-200">
+              {calculatedBatches} {calculatedBatches === 1 ? "батч" : calculatedBatches < 5 ? "батча" : "батчей"} (по ~{framesPerCalcBatch} кадров)
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-black/20 p-3.5 flex flex-col gap-2">
+        <div className="text-xs font-semibold text-zinc-300">Анатомия кинематографичного видеопромпта:</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11px] text-zinc-400">
+          <div><strong className="text-emerald-300">Камера (continuous movement):</strong> Slow push-in, Dolly, Pan, Lock-off. Без смены планов и резких склеек.</div>
+          <div><strong className="text-cyan-300">Действие и физика:</strong> микро-динамика персонажа и реквизита. Без появления новых предметов.</div>
+          <div><strong className="text-amber-300">Свет и атмосфера:</strong> скользящие тени, лучи сквозь окна, колыхание ткани или листвы.</div>
+          <div><strong className="text-rose-300">Строгие запреты:</strong> NO VOICE, silent, no lip-sync, mouth closed, no scene morph.</div>
         </div>
       </div>
     </section>

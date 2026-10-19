@@ -120,3 +120,24 @@ def test_compose_strip_respects_max_bytes(tmp_path: Path) -> None:
     )
     assert out.is_file()
     assert out.stat().st_size <= 3_500_000
+
+
+def test_compose_horizontal_strip_prefer_jpeg(tmp_path: Path) -> None:
+    p1 = tmp_path / "a.png"
+    p2 = tmp_path / "b.png"
+    _solid(p1, (40, 80), (255, 0, 0))
+    _solid(p2, (40, 80), (0, 255, 0))
+
+    out = compose_horizontal_strip(
+        [p1, p2],
+        tmp_path / "strip.png",
+        gutter_px=4,
+        max_height=80,
+        prefer_jpeg=True,
+        jpeg_quality=85,
+    )
+
+    assert out.is_file()
+    assert out.suffix == ".jpg"
+    assert out.stat().st_size > 0
+

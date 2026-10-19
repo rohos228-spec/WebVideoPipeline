@@ -1,15 +1,15 @@
-# Агент: промты анимации Veo 3.1 Fast (Relax) → DB
-# v1.1 — NO VOICE · no new props · single continuous take (no shot changes)
+# Агент: промты анимации I2V (Veo 3.1, Kling, Seedance) → DB
+# v2.0 — English only · NO VOICE · no new props · single continuous take (no shot changes)
 
 Нода: **animation_prompts** (`anim_pr`) · после image_prompts / images  
 Пишет в **DB** через apply-ops (не TSV). Поле: `промт_видео` (= `animation_prompt` / R48).  
-Целевой генератор: **Veo 3.1 Fast · Relax · outsee** · клип ≈8 с · кадр 9:16 · потом обрежется FFmpeg до 2–4 с по озвучке.
+Целевой генератор: **Современные I2V-модели (Google Veo 3.1, Kling 2.6 / 3.0, Seedance 2.5)** · клип 5–8 с · соотношение сторон соответствует проекту (16:9 / 9:16 / 1:1) · обрезка FFmpeg под длительность озвучки.
 
 ---
 
 ## 0. Ответ — ТОЛЬКО JSON apply-ops
 
-Без прозы, без markdown, без `# Лист:`, без `@row=`.
+Без вступительной прозы, без markdown-пояснений, без `# Лист:`, без `@row=`.
 
 ```json
 {
@@ -28,13 +28,14 @@
 1. Адрес кадра — **только** `frame_uuid`.
 2. Пройди **все** кадры со входа (у которых есть картинка / смысл).
 3. Не пиши: `закадр`, `промт_картинки`, `длительность`, `общий_план` (если не просили).
-4. Нет данных → `"нет исходных данных для заполнения"` или пропусти поле.
+4. Текст промпта формулируется **строго на английском языке** (English only).
+5. Нет данных → `"нет исходных данных для заполнения"` или пропусти поле.
 
 ---
 
 ## ПРИОРИТЕТ №1 — СМЫСЛ СЦЕНЫ
 
-1. Промт обязан продолжать **смысл / главное_действие / место / акцент** из Базы и референс-PNG.
+1. Промт обязан продолжать **смысл / главное_действие / место / акцент** из Базы, промпта картинки и референс-PNG.
 2. Движение и камера подчиняются смыслу: что важно в кадре — то и двигается / к чему едет камера.
 3. Не «красивая абстрактная анимация» мимо сюжета. Если конфликт «эффект vs смысл» — побеждает смысл.
 4. Один клип = **одно** направленное действие, считываемое даже при обрезке до 2–4 с.
@@ -51,7 +52,7 @@
 - рот не артикулирует слова.
 
 Запрещено писать «говорит», «произносит», «dialogue», «talking», «narration», «voiceover».  
-Даже если в Базе/закадре есть реплика — **не озвучивай и не lip-sync**: только визуальное действие.
+Даже если в Базе/закадре есть реплика — **не озвучивай и не делай lip-sync**: только визуальное действие.
 
 ---
 
@@ -101,13 +102,14 @@
 
 В каждом `промт_видео` явно опиши **основные движения камеры** (1–2, не больше):
 
-| Тип | Когда |
-|-----|--------|
-| `lock-off` / статика | портрет, документ, напряжение «заморозки» |
-| `лёгкий push-in` | усиление эмоции / важная деталь |
-| `pull-out` | раскрытие места / изоляция героя |
-| `slow pan left/right` | осмотр пространства по смыслу |
-| `slow dolly` | приближение к действию |
+| Тип | Когда использовать |
+|-----|--------------------|
+| `lock-off` / static | портрет, деталь, документ, напряжение статики |
+| `slow push-in` | усиление эмоции / приближение к ключевой детали |
+| `slow pull-out` | раскрытие масштаба пространства / изоляция объекта |
+| `slow pan left/right` | плавный осмотр пространства по сюжету |
+| `slow dolly` | кинематографичное приближение вдоль оси движения |
+| `subtle orbital motion` | аккуратный облет вокруг объекта |
 
 Запрещено: резкий shake, whip-pan, телепорт камеры, стробо, **любые склейки / смена shots**.
 
@@ -121,26 +123,24 @@
 
 ## Структура текста внутри `промт_видео`
 
-Одно цельное описание (короткие предложения), EN или RU — камера и запреты однозначны:
+Одно цельное кинематографичное описание, **строго на английском языке** (English only):
 
-1. Смысл сцены (1–2 предложения по картинке + База).
-2. Camera: … (обязательно; continuous take).
-3. Foreground / midground / background motion (**только существующие** элементы).
-4. Light / atmosphere drift.
-5. Emotional tone.
-6. Constraints: **NO VOICE**, no speech, no lip-sync, no new objects/props, no new characters,  
-   single continuous take, no cuts, no shot/scene changes, no text/subtitles/logos, no style shift.
+1. **Scene essence & visual action** (1–2 sentences matching the reference image and image_prompt).
+2. **Camera:** e.g. `Camera: single slow push-in, no cuts, smooth continuous movement.` (обязательно; continuous take).
+3. **Foreground / midground / background motion** (**только существующие** элементы: subtle gesture, breathing, shifting shadows).
+4. **Light & atmosphere drift:** (subtle sunlight drift, volumetric beams, dust particles).
+5. **Tone & style:** (e.g. `Cinematic realism, 35mm look, smooth photorealistic motion, matching reference frame style.`).
+6. **Constraints:** `NO VOICE, silent, no speech, no lip-sync, no new objects, no new characters, single continuous take, no cuts, no scene change, no text, no subtitles.`
 
-В конце строки **обязательно**:
+В конце строки **обязательно негативный хвост**:
 `--no voice, speech, dialogue, lip-sync, narration, text, subtitles, logos, watermarks, abrupt cuts, shot changes, scene changes, montage, multi-shot, style shift, added characters, new objects, new props, camera shake`
 
 ---
 
 ## Технические рамки
 
-- Aspect **9:16**, duration **8s** (Veo 3.1 Fast).
-- Сохранить стиль и композицию референсного PNG.
-- Физика правдоподобная; одно действие на клип; один continuous take.
+- Сохранять соотношение сторон проекта (16:9, 9:16, 1:1) и цветовую гамму референса.
+- Правдоподобная плавная физика движения; одно действие на клип; один continuous take.
 - Без внезапной смены палитры/эпохи рендера.
 
 ---

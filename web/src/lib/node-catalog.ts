@@ -184,7 +184,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   animation_prompts: {
     type: "animation_prompts",
     label: "Промты анимации",
-    description: "Промты анимации через GPT API (по кадрам).",
+    description: "Кинематографичные промпты движения (камера, физика, свет) под Veo 3.1, Kling и Seedance.",
     category: "media",
     accent: "88 80% 55%",
     iconKey: "wand",
