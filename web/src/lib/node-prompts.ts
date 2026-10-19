@@ -19,7 +19,7 @@ export interface NodePromptSlot {
   preferredFile?: string;
 }
 
-const NO_EXCEL_NODE_TYPES = new Set(["topic", "excel_feed", "excel_gpt", "hero", "items", "image_prompts", "images", "animation_prompts", "videos", "storage", "shot_menu"]);
+const NO_EXCEL_NODE_TYPES = new Set(["topic", "excel_feed", "excel_gpt", "hero", "items", "image_prompts", "images", "animation_prompts", "videos", "audio", "storage", "shot_menu"]);
 
 const BASE: Record<string, NodePromptSlot[]> = {
   topic: [],
@@ -117,8 +117,12 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   audio: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "audio" },
-    { id: "tts", title: "ElevenLabs TTS", kind: "gpt" },
+    {
+      id: "voiceover",
+      title: "Закадр по кадрам",
+      kind: "frame_prompts",
+      description: "Закадровый текст диктора по кадрам (Frame.voiceover_text)",
+    },
   ],
   music: [
     { id: "voiceover", title: "voiceover.txt", kind: "text", stepCode: "music" },
