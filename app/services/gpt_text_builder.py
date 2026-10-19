@@ -415,6 +415,12 @@ def _build_img_pr_default(
 def _build_music_default(project: Project, **_ctx) -> str:  # noqa: ARG001
     """Сопроводительный текст для GPT → Suno (шаг «Музыка»)."""
     topic = (project.topic or "").strip() or "(тема не задана)"
+    try:
+        master = get_project_prompt(project, "music").strip()
+    except Exception:
+        master = ""
+    if master:
+        return f"Тема ролика: {topic}\n\n{master}"
     return (
         f"Тема ролика: {topic}\n\n"
         "На основе приложенного voiceover.txt составь один промт для генерации "

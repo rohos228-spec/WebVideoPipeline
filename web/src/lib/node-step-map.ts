@@ -38,6 +38,7 @@ export const STEPS_WITH_PROMPT_VARIANTS = new Set([
   "enrich_5",
   "img_pr",
   "anim_pr",
+  "music",
 ]);
 
 export function stepCodeForNodeType(nodeType: string): string | undefined {
