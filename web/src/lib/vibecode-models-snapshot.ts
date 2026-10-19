@@ -231,10 +231,10 @@ export const VIBECODE_MODELS_SNAPSHOT: VibecodeSnapshotModel[] = [
   },
   {
     "display_name": "GPT Image 2",
-    "id": "gpt-image-2-vip",
+    "id": "gpt-image-2",
     "is_image": true,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "outsee",
     "pricing": {
       "currency": "usd",
       "usd_per_image": 0.042646

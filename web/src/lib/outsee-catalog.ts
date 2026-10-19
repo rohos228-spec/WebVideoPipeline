@@ -506,12 +506,12 @@ export function chipOptions(slug: string, chip: OutseeChip): string[] {
   if (image) {
     if (chip === "aspect") {
       if (clean === "gpt-image-1.5") return ["1:1", "3:2", "2:3"];
-      if (clean === "gpt-image-2" || clean === "gpt-image-2-vip") return [...GPT_IMAGE_2_ASPECTS];
+      if (clean === "gpt-image-2") return [...GPT_IMAGE_2_ASPECTS];
       if (clean.startsWith("nano-banana")) return [...NANO_BANANA_ASPECTS];
       return [...SEEDREAM_ASPECTS];
     }
     if (chip === "resolution") {
-      if (clean === "gpt-image-2" || clean === "gpt-image-2-vip") return ["2K"];
+      if (clean === "gpt-image-2") return ["2K"];
       if (clean.startsWith("nano-banana")) return ["2K"];
       if (clean === "seedream-4.5") return ["2K", "4K"];
       if (clean === "seedream-5-pro") return ["1K", "2K"];

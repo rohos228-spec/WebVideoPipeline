@@ -5,18 +5,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  CheckCircle2,
   Download,
   FileSpreadsheet,
   FileText,
+  Image as ImageIcon,
+  Layers,
   Loader2,
   MessageSquareText,
   Play,
   RefreshCw,
   Settings2,
+  ShieldCheck,
+  Sparkles,
   Upload,
   X,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { ProjectDetail } from "@/lib/types";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { getNodeSpec } from "@/lib/node-catalog";
@@ -560,7 +567,6 @@ export function NodeStudio({
       nodeType === "split" ||
       nodeType === "audio" ||
       nodeType === "assemble" ||
-      nodeType === "images" ||
       nodeType === "videos");
 
   const showFramePromptsPanel =
@@ -928,6 +934,19 @@ export function NodeStudio({
                   {(nodeType === "sfx_gen" || nodeType === "sfx") && projectId ? (
                     <SfxGenSettingsPanel projectId={projectId} />
                   ) : null}
+                  {nodeType === "image_prompts" && projectId ? (
+                    <ImagePromptsSettingsPanel
+                      projectId={projectId}
+                      onOpenPrompts={() => {
+                        setTab("prompts");
+                        const targetSlot = pipelineSlots.find((s) => s.kind !== "excel") ?? pipelineSlots[0];
+                        setActiveSlotId(targetSlot?.id ?? null);
+                      }}
+                    />
+                  ) : null}
+                  {nodeType === "images" && projectId ? (
+                    <ImagesSettingsPanel projectId={projectId} />
+                  ) : null}
                   {nodeDisabled && (
                     <p className="text-amber-400">Нода отключена в графе — шаг не запустится.</p>
                   )}
@@ -1230,3 +1249,406 @@ function SfxGenSettingsPanel({ projectId }: { projectId: number }) {
     </section>
   );
 }
+
+function ImagePromptsSettingsPanel({
+  projectId,
+  onOpenPrompts,
+}: {
+  projectId: number;
+  onOpenPrompts?: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const project = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId),
+  });
+  const frames = useQuery({
+    queryKey: ["project-frames", projectId],
+    queryFn: () => api.listFrames(projectId),
+  });
+
+  const frameList = frames.data || [];
+  const totalCount = frameList.length;
+  const readyCount = frameList.filter((f) => Boolean(f.image_prompt?.trim())).length;
+  const generatorName = project.data?.image_generator || "Outsee (Midjourney / Flux)";
+  const isMiniMax = generatorName.toLowerCase().includes("minimax");
+  const promptLimit = isMiniMax ? "до 1 460 знаков (Компактный замок)" : "до 4 860 знаков (Полный замок)";
+
+  const rawBatchSize = (project.data?.meta as Record<string, unknown> | undefined)?.img_pr_batch_size;
+  const batchSize =
+    typeof rawBatchSize === "number" && rawBatchSize >= 2 && rawBatchSize <= 8
+      ? rawBatchSize
+      : 7;
+
+  const patchBatchSize = useMutation({
+    mutationFn: async (size: number) => {
+      const meta = { ...((project.data?.meta as Record<string, unknown>) || {}), img_pr_batch_size: size };
+      await api.patchProject(projectId, { meta });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Размер батча сохранён");
+    },
+    onError: (err) => {
+      toast.error(errorMessageFromUnknown(err) || "Не удалось сохранить размер батча");
+    },
+  });
+
+  const calculatedBatches = totalCount > 0 ? Math.ceil(totalCount / batchSize) : 0;
+  const framesPerCalcBatch = calculatedBatches > 0 ? Math.ceil(totalCount / calculatedBatches) : batchSize;
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Параметры генерации промптов картинок</h3>
+          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+            ИИ-режиссер формирует законченные промпты для нейросети-художника, объединяя персонажей, реквизит, освещение и блоки стиля.
+          </p>
+        </div>
+        {onOpenPrompts && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onOpenPrompts}
+            className="shrink-0 gap-1.5 text-xs border-violet-500/30 text-violet-300 hover:bg-violet-500/10"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Выбрать стиль
+          </Button>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+          <div className="text-[11px] font-medium text-zinc-400">Статус генерации промптов</div>
+          <div className="mt-1.5 flex items-center gap-2">
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                readyCount === totalCount && totalCount > 0
+                  ? "bg-emerald-400"
+                  : readyCount > 0
+                    ? "bg-amber-400"
+                    : "bg-zinc-500",
+              )}
+            />
+            <span className="text-sm font-medium text-foreground">
+              {readyCount === totalCount && totalCount > 0
+                ? `Готово: ${readyCount} из ${totalCount} кадров`
+                : readyCount > 0
+                  ? `Частично: ${readyCount} / ${totalCount} кадров`
+                  : totalCount > 0
+                    ? `Ожидает запуска (${totalCount} кадров)`
+                    : "Кадры не найдены"}
+            </span>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+          <div className="text-[11px] font-medium text-zinc-400">Целевой генератор и лимит символов</div>
+          <div className="mt-1.5 flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">{generatorName}</span>
+            <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300 border border-violet-500/30">
+              {promptLimit}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Настройка размера пачки (батча) */}
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-foreground">Кадров в одном батче:</span>
+              <span className="rounded bg-sky-500/15 px-2 py-0.5 text-xs font-bold text-sky-300 border border-sky-500/30">
+                {batchSize} {batchSize === 1 ? "кадр" : batchSize < 5 ? "кадра" : "кадров"}
+              </span>
+              {batchSize === 7 && (
+                <span className="text-[10px] text-emerald-400 font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  по умолчанию
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground leading-snug">
+              Безопасный диапазон от 2 до 8 кадров гарантирует, что ответ нейросети не обрежется по лимиту токенов шлюза.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-1.5 self-start sm:self-auto">
+            <span className="text-[11px] text-zinc-400 mr-1 hidden sm:inline">Выбор:</span>
+            {[2, 3, 4, 5, 6, 7, 8].map((size) => (
+              <Button
+                key={size}
+                size="sm"
+                variant={batchSize === size ? "default" : "outline"}
+                disabled={patchBatchSize.isPending}
+                onClick={() => patchBatchSize.mutate(size)}
+                className={cn(
+                  "h-7 w-7 p-0 text-xs font-medium",
+                  batchSize === size
+                    ? "bg-sky-600 text-white hover:bg-sky-500 font-bold border-sky-500"
+                    : "border-white/10 hover:bg-white/5 text-zinc-300",
+                )}
+              >
+                {size}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {totalCount > 0 && (
+          <div className="flex items-center justify-between rounded-md bg-black/30 px-3 py-2 text-xs border border-white/5">
+            <span className="text-zinc-400">
+              Расчёт для этого проекта ({totalCount} кадров):
+            </span>
+            <span className="font-medium text-sky-200">
+              {calculatedBatches} {calculatedBatches === 1 ? "батч" : calculatedBatches < 5 ? "батча" : "батчей"} (по ~{framesPerCalcBatch} кадров)
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-black/20 p-3.5 flex flex-col gap-2">
+        <div className="text-xs font-semibold text-zinc-300">Анатомия каждого промпта кадра:</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-[11px] text-zinc-400">
+          <div><strong className="text-emerald-300">Референс (c01..):</strong> привязка каста и внешности</div>
+          <div><strong className="text-cyan-300">Реквизит (predmet1):</strong> ключевые предметы сцены</div>
+          <div><strong className="text-sky-300">Расстановка (continuity):</strong> геометрия и взгляды</div>
+          <div><strong className="text-amber-300">Действие (mid-motion):</strong> физика в динамике, не поза</div>
+          <div><strong className="text-indigo-300">Свет и ракурс:</strong> оптика 35mm и кинематографичный свет</div>
+          <div><strong className="text-purple-300">Style Lock + Negative:</strong> защита от искажений и стилизации</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ImagesSettingsPanel({ projectId }: { projectId: number }) {
+  const queryClient = useQueryClient();
+  const project = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId),
+    enabled: Boolean(projectId),
+  });
+
+  const frames = useQuery({
+    queryKey: ["project-frames", projectId],
+    queryFn: () => api.listFrames(projectId),
+    enabled: Boolean(projectId),
+  });
+
+  const excelHero = useQuery({
+    queryKey: ["excel-hero", projectId],
+    queryFn: () => api.getExcelHero(projectId),
+    enabled: Boolean(projectId),
+  });
+
+  const currentAspect = project.data?.aspect_ratio || "16_9";
+  const currentRes = project.data?.image_resolution || "2k";
+  const currentStreams =
+    typeof (project.data?.meta as Record<string, unknown> | undefined)?.img_streams === "number"
+      ? ((project.data?.meta as Record<string, unknown>).img_streams as number)
+      : 2;
+
+  const patchSettings = useMutation({
+    mutationFn: async (patch: Partial<ProjectDetail>) => {
+      await api.patchProject(projectId, patch);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Настройки генерации сохранены");
+    },
+    onError: (err) => {
+      toast.error(errorMessageFromUnknown(err) || "Не удалось сохранить настройки");
+    },
+  });
+
+  const patchStreams = useMutation({
+    mutationFn: async (streams: number) => {
+      const meta = { ...((project.data?.meta as Record<string, unknown>) || {}), img_streams: streams };
+      await api.patchProject(projectId, { meta });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Количество потоков обновлено");
+    },
+    onError: (err) => {
+      toast.error(errorMessageFromUnknown(err) || "Не удалось сохранить потоки");
+    },
+  });
+
+  const totalFrames = frames.data?.length ?? 0;
+  const readyPromptsCount =
+    frames.data?.filter((f) => Boolean(f.image_prompt && f.image_prompt.trim())).length ?? 0;
+  const allPromptsReady = totalFrames > 0 && readyPromptsCount === totalFrames;
+
+  const ASPECT_OPTIONS = [
+    { id: "16_9", label: "16:9", sub: "YouTube / TV" },
+    { id: "9_16", label: "9:16", sub: "Shorts / Reels" },
+    { id: "1_1", label: "1:1", sub: "Квадрат" },
+  ];
+
+  const RESOLUTION_OPTIONS = [
+    { id: "2k", label: "2K", sub: "Высокая чёткость" },
+    { id: "1k", label: "1K", sub: "Базовое" },
+  ];
+
+  const STREAM_OPTIONS = [1, 2, 3, 4];
+
+  const chars = excelHero.data?.characters ?? [];
+  const items = (project.data?.item_descriptions ?? []).filter((d: string) => d && d.trim());
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      {/* Шапка */}
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+          <ImageIcon className="h-5 w-5" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Параметры генерации изображений</h3>
+          <p className="text-xs text-muted-foreground">
+            Настройка соотношения сторон, разрешения и параллельности стримов
+          </p>
+        </div>
+      </div>
+
+      {/* Сетка настроек: Формат, Разрешение, Потоки */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Соотношение сторон */}
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-2">
+          <span className="text-xs font-semibold text-foreground">Соотношение сторон:</span>
+          <div className="flex items-center gap-1.5">
+            {ASPECT_OPTIONS.map((opt) => (
+              <Button
+                key={opt.id}
+                size="sm"
+                variant={currentAspect === opt.id ? "default" : "outline"}
+                disabled={patchSettings.isPending}
+                onClick={() => patchSettings.mutate({ aspect_ratio: opt.id })}
+                className={cn(
+                  "flex-1 h-8 text-xs font-medium",
+                  currentAspect === opt.id
+                    ? "bg-sky-600 text-white hover:bg-sky-500 font-bold border-sky-500"
+                    : "border-white/10 hover:bg-white/5 text-zinc-300",
+                )}
+              >
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+          <p className="text-[11px] text-zinc-400">
+            {ASPECT_OPTIONS.find((o) => o.id === currentAspect)?.sub ?? currentAspect}
+          </p>
+        </div>
+
+        {/* Разрешение */}
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-2">
+          <span className="text-xs font-semibold text-foreground">Разрешение кадров:</span>
+          <div className="flex items-center gap-1.5">
+            {RESOLUTION_OPTIONS.map((opt) => (
+              <Button
+                key={opt.id}
+                size="sm"
+                variant={currentRes === opt.id ? "default" : "outline"}
+                disabled={patchSettings.isPending}
+                onClick={() => patchSettings.mutate({ image_resolution: opt.id })}
+                className={cn(
+                  "flex-1 h-8 text-xs font-medium",
+                  currentRes === opt.id
+                    ? "bg-sky-600 text-white hover:bg-sky-500 font-bold border-sky-500"
+                    : "border-white/10 hover:bg-white/5 text-zinc-300",
+                )}
+              >
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+          <p className="text-[11px] text-zinc-400">
+            {RESOLUTION_OPTIONS.find((o) => o.id === currentRes)?.sub ?? currentRes}
+          </p>
+        </div>
+
+        {/* Потоки (параллельность) */}
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-foreground">Параллельных потоков:</span>
+            <span className="text-xs font-bold text-sky-300">{currentStreams}x</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {STREAM_OPTIONS.map((streams) => (
+              <Button
+                key={streams}
+                size="sm"
+                variant={currentStreams === streams ? "default" : "outline"}
+                disabled={patchStreams.isPending}
+                onClick={() => patchStreams.mutate(streams)}
+                className={cn(
+                  "flex-1 h-8 text-xs font-medium",
+                  currentStreams === streams
+                    ? "bg-sky-600 text-white hover:bg-sky-500 font-bold border-sky-500"
+                    : "border-white/10 hover:bg-white/5 text-zinc-300",
+                )}
+              >
+                {streams}
+              </Button>
+            ))}
+          </div>
+          <p className="text-[11px] text-zinc-400">
+            {currentStreams === 2 ? "Оптимально (баланс скорости и API)" : `${currentStreams} потока одновременно`}
+          </p>
+        </div>
+      </div>
+
+      {/* Карточка готовности и преемственности */}
+      <div className="rounded-lg border border-white/10 bg-black/20 p-3.5 flex flex-col gap-2.5">
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className={cn("h-4 w-4", allPromptsReady ? "text-emerald-400" : "text-amber-400")} />
+            <span className="font-semibold text-zinc-200">
+              Готовность к запуску:
+            </span>
+            <span className={cn("font-medium", allPromptsReady ? "text-emerald-300" : "text-amber-300")}>
+              {readyPromptsCount} из {totalFrames} кадров с готовыми промтами
+            </span>
+          </div>
+          <span className="text-[11px] text-zinc-400">
+            Оценка времени: ~{Math.ceil(totalFrames / (currentStreams * 4))}–{Math.ceil(totalFrames / (currentStreams * 2))} мин
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs border-t border-white/5 pt-2.5">
+          <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+            <span>
+              Каст персонажей:{" "}
+              {chars.length > 0 ? (
+                <strong className="text-emerald-300">
+                  {chars.map((c: { code?: string; name?: string }) => c.code || "c01").join(", ")} ({chars.length})
+                </strong>
+              ) : (
+                <span className="text-zinc-500">c01.png (из папки characters)</span>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+            <Layers className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+            <span>
+              Реквизит / предметы:{" "}
+              {items.length > 0 ? (
+                <strong className="text-cyan-300">
+                  {items.length} {items.length === 1 ? "предмет" : "предмета"} (predmet1)
+                </strong>
+              ) : (
+                <span className="text-zinc-500">predmet1.png (из папки items)</span>
+              )}
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+

@@ -938,11 +938,11 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     if (!open || !settingsQ.data || settingsHydrated) return;
     const s = settingsQ.data;
     const mt = (s.media_type as OutseeMediaType) || "image";
-    const rawImg = String(s.image_slug || "gpt-image-2").replace("kie:", "");
+    const rawImg = String(s.image_slug || "nano-banana-2").replace("kie:", "");
     if (rawImg === "gpt-image-2" || rawImg === "nano-banana-2") {
       setImageSlug(rawImg);
-    } else if (rawImg === "gpt-image-2-vip" || rawImg === "gpt-image-2.5") {
-      setImageSlug("gpt-image-2");
+    } else if (rawImg === "gpt-image-2.5") {
+      setImageSlug("nano-banana-2");
     } else {
       setImageSlug(rawImg.startsWith("kie:") ? rawImg : `kie:${rawImg}`);
     }

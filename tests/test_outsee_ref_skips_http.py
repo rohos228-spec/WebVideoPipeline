@@ -44,7 +44,7 @@ async def test_generate_with_reference_uses_http_api_refs(
         gpt_rewrite=False,
         reference_image=[ref],
         project_id=1,
-        model_slug="gpt-image-2-vip",
+        model_slug="nano-banana-2",
     )
     assert result.file_path == out
     assert len(api_calls) == 1

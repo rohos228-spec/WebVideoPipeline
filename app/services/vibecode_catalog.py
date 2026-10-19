@@ -20,10 +20,10 @@ _SNAPSHOT_PATH = Path(__file__).resolve().parent / "vibecode_models_snapshot.jso
 IMAGE_NODE_TYPES = frozenset({"images", "hero", "items", "hitl_images"})
 VIDEO_NODE_TYPES = frozenset({"videos", "hitl_videos"})
 DEFAULT_TEXT_MODEL_ID = "gpt-5.6-sol"
-DEFAULT_IMAGE_MODEL_ID = "gpt-image-2-vip"
+DEFAULT_IMAGE_MODEL_ID = "nano-banana-2"
 DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite"
-HIDDEN_IMAGE_IDS = frozenset({"gpt-image-2", "nano-banana", "nano-banana-pro"})
-IMAGE_MODEL_ALIASES = {"gpt-image-2": "gpt-image-2-vip"}
+HIDDEN_IMAGE_IDS = frozenset({"nano-banana", "nano-banana-pro"})
+IMAGE_MODEL_ALIASES: dict[str, str] = {}
 #: Написания текстовых моделей, которые приходят с ноды/из .env, → id снимка.
 TEXT_MODEL_ALIASES = {
     "gpt-5-5": "gpt-5.6-sol",
@@ -57,8 +57,7 @@ TEXT_MODEL_ALIASES = {
 }
 
 IMAGE_MODEL_TO_GENERATOR: dict[str, str] = {
-    "gpt-image-2": "gpt_image_2_vip",
-    "gpt-image-2-vip": "gpt_image_2_vip",
+    "gpt-image-2": "gpt_image_2",
     "gpt-image-2.5": "gpt_image_2_5",
     "nano-banana": "nano_banana",
     "nano-banana-2": "nano_banana_2",
@@ -305,8 +304,6 @@ def normalize_model(raw: dict[str, Any], *, channel: str | None = None) -> dict[
     is_image = bool(raw.get("is_image"))
     is_video = bool(raw.get("is_video")) or mid in VIDEO_MODEL_TO_GENERATOR
     display = str(raw.get("display_name") or mid)
-    if mid == "gpt-image-2-vip":
-        display = "GPT Image 2"
     vendor = _vendor_of(mid, is_image, is_video)
     if is_video:
         kind = "video"
@@ -606,8 +603,6 @@ def effective_image_generator_id(
         or _provider_default("image")
         or DEFAULTS["image_generator"]
     )
-    if gid == "gpt_image_2":
-        return "gpt_image_2_vip"
     return gid
 
 

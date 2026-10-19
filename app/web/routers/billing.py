@@ -549,7 +549,6 @@ def _clean_model_name(raw: str) -> tuple[str, str]:
         "veo-3-1-lite": "Veo 3.1 Lite",
         "veo-3-1-pro": "Veo 3.1 Pro",
         "gpt-image-2": "GPT Image 2",
-        "gpt-image-2-vip": "GPT Image 2 VIP",
         "nano-banana-2": "Nano Banana 2",
         "nano-banana-pro": "Nano Banana Pro",
         "claude-sonnet-5": "Claude Sonnet 5",

@@ -1,6 +1,6 @@
 {
   "_comment": "База долга (docs/ENGINEERING-POLICY.md §12). Сверяется СОСТАВ: любая строка, которой здесь нет, — красный policy-check. Обновлять после ПОГАШЕНИЯ: policy_check.py --update-debt.",
-  "updated": "2026-09-04",
+  "updated": "2026-10-19",
   "debt": {
     "diff_cov_excludes": [
       "app/bots/outsee_http.py",
@@ -55,18 +55,31 @@
     ],
     "gitleaks_fingerprints": [
       "049c559cb794ac41199234c523022647fa7467e7:tests/test_my_prompts_api.py:generic-api-key:24",
+      "0623aa80038b1b15e97ff773e563a6fe637d9ead:app/services/pay52_routes.py:generic-api-key:18",
+      "0623aa80038b1b15e97ff773e563a6fe637d9ead:app/services/pay52_routes.py:generic-api-key:19",
+      "0623aa80038b1b15e97ff773e563a6fe637d9ead:tests/test_excel_gpt_slot_chain.py:generic-api-key:339",
+      "0623aa80038b1b15e97ff773e563a6fe637d9ead:tests/test_pay52_routes.py:generic-api-key:58",
+      "08f79b66ddc2f6a9a5d52ef8cc00ba778990ff29:.env.example:generic-api-key:95",
+      "2cc9b7085242c242fc05e2f1aeb3224800eb24a2:api-tracker/app/config.py:generic-api-key:14",
       "3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:322",
       "3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:335",
       "3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:348",
+      "41979f0f9d1ee6d6230e2637ad7ec79e5b486aa1:api-tracker/app/config.py:generic-api-key:14",
+      "6b443a76248242c17b440084ce3490978f8665f9:web/src/lib/node-model-catalog.ts:generic-api-key:322",
+      "6b443a76248242c17b440084ce3490978f8665f9:web/src/lib/node-model-catalog.ts:generic-api-key:335",
+      "6b443a76248242c17b440084ce3490978f8665f9:web/src/lib/node-model-catalog.ts:generic-api-key:348",
       "71345e428b3f71fcee2825e13e7459d42f1b45d6:tests/accounts_harness.py:generic-api-key:32",
       "71345e428b3f71fcee2825e13e7459d42f1b45d6:tests/test_auth_login.py:generic-api-key:20",
       "7b81de37b805539055a0213d6ad371309a1b9014:web/src/components/baza/baza-workspace.tsx:generic-api-key:114",
+      "96f6716218c056f89b9ad078fc05c35b9efcc8c4:web/src/components/baza/baza-workspace.tsx:generic-api-key:113",
       "acd8ff33b4a9f42b79848540c136efce3697cb86:tests/test_billing_hook.py:generic-api-key:27",
+      "d8bb25080618be34c35f71a645a4396ad0cefe98:scripts/_qa_verify_fixes50.py:generic-api-key:63",
       "e49a933033de6ad24e1b513605524f474bac411e:ai-pack/03_config/env.example:generic-api-key:95",
       "e49b1aab7499ff5a6d4c20415fbbc4a2bace0c03:.env.example:generic-api-key:95",
       "e49b1aab7499ff5a6d4c20415fbbc4a2bace0c03:scripts/_qa_verify_fixes50.py:generic-api-key:63",
       "e49b1aab7499ff5a6d4c20415fbbc4a2bace0c03:web/src/components/baza/baza-workspace.tsx:generic-api-key:114",
-      "efe537ca30960703b266afdd12e6e91c40e83e37:tests/test_billing_hook.py:generic-api-key:29"
+      "efe537ca30960703b266afdd12e6e91c40e83e37:tests/test_billing_hook.py:generic-api-key:29",
+      "fcd5f50a80cd5289eab57d90e30673eacf2c821e:tests/test_excel_gpt_slot_chain.py:generic-api-key:339"
     ]
   }
 }

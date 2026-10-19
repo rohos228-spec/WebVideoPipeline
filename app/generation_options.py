@@ -63,9 +63,9 @@ IMAGE_GENERATORS: list[OptionChoice] = [
         "Outsee · Nano Banana 2",
     ),
     OptionChoice(
-        "gpt_image_2_vip",
+        "gpt_image_2",
         "+ GPT Image 2",
-        "gpt-image-2-vip",
+        "gpt-image-2",
         "Outsee · GPT Image 2",
     ),
     OptionChoice(
@@ -117,8 +117,7 @@ IMAGE_RESOLUTIONS: list[OptionChoice] = [
 IMAGE_RESOLUTIONS_BY_GENERATOR: dict[str, tuple[str, ...]] = {
     "nano_banana_2": ("1k", "2k"),
     "gpt_image_1_5": ("2k",),
-    "gpt_image_2": ("1k",),
-    "gpt_image_2_vip": ("1k", "2k"),
+    "gpt_image_2": ("1k", "2k"),
     "gpt_image_2_5": ("1k",),
     "flux_2_pro": ("1k", "2k"),
     "seedream_5_pro": ("1k", "2k"),
@@ -145,7 +144,7 @@ IMAGE_QUALITY_DOM_VALUE: dict[str, str] = {
     "Высокое": "high",
 }
 
-GPT_IMAGE_GENERATOR_IDS = frozenset({"gpt_image_1_5", "gpt_image_2", "gpt_image_2_vip"})
+GPT_IMAGE_GENERATOR_IDS = frozenset({"gpt_image_1_5", "gpt_image_2"})
 
 
 def is_gpt_image_generator(generator_id: str | None) -> bool:
@@ -268,7 +267,6 @@ def _by_id(choices: list[OptionChoice]) -> dict[str, OptionChoice]:
 
 
 IMAGE_GENERATORS_BY_ID = _by_id(IMAGE_GENERATORS)
-IMAGE_GENERATORS_BY_ID["gpt_image_2"] = IMAGE_GENERATORS_BY_ID["gpt_image_2_vip"]
 ASPECT_RATIOS_BY_ID = _by_id(ASPECT_RATIOS)
 IMAGE_RESOLUTIONS_BY_ID = _by_id(IMAGE_RESOLUTIONS)
 IMAGE_QUALITIES_BY_ID = _by_id(IMAGE_QUALITIES)
@@ -323,7 +321,7 @@ def outsee_video_fallback_kwargs(
 # ---- Дефолты (используются если юзер ещё не прошёл мастер) -----------------
 
 DEFAULTS = {
-    "image_generator": "gpt_image_2_vip",
+    "image_generator": "nano_banana_2",
     "aspect_ratio": "16_9",
     "image_resolution": "2k",
     "image_quality": "medium",

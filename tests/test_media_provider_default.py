@@ -45,4 +45,4 @@ def test_unknown_provider_falls_back_to_catalog_default(monkeypatch) -> None:
     from app.settings import settings
 
     monkeypatch.setattr(settings, "image_provider", "outsee")
-    assert effective_image_generator_id(_Project()) == "gpt_image_2_vip"
+    assert effective_image_generator_id(_Project()) == "nano_banana_2"
