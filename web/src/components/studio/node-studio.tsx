@@ -606,6 +606,8 @@ export function NodeStudio({
     if (status === "generating_videos" && (nodeType === "videos" || stepCode === "video")) return true;
     if (status === "generating_audio" && (nodeType === "audio" || stepCode === "audio")) return true;
     if (status === "generating_music" && (nodeType === "music" || stepCode === "music")) return true;
+    if (status === "sfx_planning" && (nodeType === "sfx_plan" || stepCode === "sfx_plan")) return true;
+    if (status === "generating_sfx" && (nodeType === "sfx_gen" || nodeType === "sfx" || stepCode === "sfx_gen")) return true;
     if (status === "assembling" && (nodeType === "assemble" || stepCode === "assemble")) return true;
     if (status === "generating_hero" && (nodeType === "hero" || stepCode === "hero")) return true;
     if (status === "generating_items" && (nodeType === "items" || stepCode === "items")) return true;

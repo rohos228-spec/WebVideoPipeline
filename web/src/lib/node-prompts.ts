@@ -19,7 +19,24 @@ export interface NodePromptSlot {
   preferredFile?: string;
 }
 
-const NO_EXCEL_NODE_TYPES = new Set(["topic", "excel_feed", "excel_gpt", "hero", "items", "image_prompts", "images", "animation_prompts", "videos", "audio", "storage", "shot_menu"]);
+const NO_EXCEL_NODE_TYPES = new Set([
+  "topic",
+  "excel_feed",
+  "excel_gpt",
+  "hero",
+  "items",
+  "image_prompts",
+  "images",
+  "animation_prompts",
+  "videos",
+  "audio",
+  "music",
+  "sfx_plan",
+  "sfx_gen",
+  "sfx",
+  "storage",
+  "shot_menu",
+]);
 
 const BASE: Record<string, NodePromptSlot[]> = {
   topic: [],
@@ -133,6 +150,9 @@ const BASE: Record<string, NodePromptSlot[]> = {
       description: "prompts/10_music — инструкция для GPT по созданию промпта Suno",
     },
   ],
+  sfx_plan: [],
+  sfx_gen: [],
+  sfx: [],
   assemble: [
     { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "assemble" },
   ],
