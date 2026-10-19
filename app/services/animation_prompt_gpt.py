@@ -36,7 +36,24 @@ from app.storage.plan_sheet_v8 import (
 
 MIN_ANIM_PROMPT_LEN = 10
 
-BATCH_SIZE = 6
+DEFAULT_ANIM_PR_BATCH_SIZE = 6
+MIN_ANIM_PR_BATCH_SIZE = 2
+MAX_ANIM_PR_BATCH_SIZE = 8
+BATCH_SIZE = DEFAULT_ANIM_PR_BATCH_SIZE
+
+
+def anim_pr_batch_size(project: Project | None) -> int:
+    """Размер пачки из meta.anim_pr_batch_size (от 2 до 8, по умолчанию 6)."""
+    meta = getattr(project, "meta", None)
+    if isinstance(meta, dict) and meta.get("anim_pr_batch_size") is not None:
+        try:
+            val = int(meta["anim_pr_batch_size"])
+            return max(MIN_ANIM_PR_BATCH_SIZE, min(MAX_ANIM_PR_BATCH_SIZE, val))
+        except (ValueError, TypeError):
+            pass
+    return DEFAULT_ANIM_PR_BATCH_SIZE
+
+
 STRIP_GUTTER_PX = 6
 STRIP_MAX_HEIGHT_PX = 512
 STRIP_MAX_BYTES = 3_500_000
@@ -209,17 +226,25 @@ def panel_label_for_item(it: FrameImageBatchItem) -> str:
     return f"F{it.frame.number:03d}"
 
 
-def build_batch_message(items: list[FrameImageBatchItem]) -> str:
+def build_batch_message(
+    items: list[FrameImageBatchItem],
+    *,
+    aspect_ratio: str | None = None,
+    generator_name: str | None = None,
+) -> str:
     """Текст к пачке: промт картинки (+ опционально PNG-лента); ответ — JSON apply-ops.
 
     Главный вход — ``image_prompt`` кадра. PNG-лента вспомогательна, если есть.
     """
     n = len(items)
     use_strip = batch_has_full_strip(items)
+    fmt = aspect_ratio or "16:9"
+    gen = generator_name or "Veo 3.1 / Kling / Seedance"
     parts: list[str] = [
+        f"Целевой генератор: {gen}. Формат кадра: {fmt}.",
         "Источник №1 для промт_видео — ПРОМТ КАРТИНКИ каждого кадра ниже.",
-        "Сделай видеопромт (Veo): анимация ЭТОГО кадра, смысл/действие/место "
-        "из промта картинки. NO VOICE, single continuous take, без новых props.",
+        "Сделай видеопромт на английском языке (English only): анимация ЭТОГО кадра, смысл/действие/место "
+        "из промта картинки. NO VOICE, single continuous take, без новых props, плавное кинематографичное движение камеры.",
     ]
     if use_strip:
         parts.extend(
@@ -241,7 +266,7 @@ def build_batch_message(items: list[FrameImageBatchItem]) -> str:
             f"Верни ТОЛЬКО JSON apply-ops на все {n} кадров (без markdown, без прозы):",
             '{"ops":[{"frame_uuid":"…","fields":{"промт_видео":"…"}}, …]}',
             f"Ровно {n} объектов в ops — по одному на каждый frame_uuid ниже.",
-            "Нельзя писать весь JSON в одно поле промта — только короткий текст анимации.",
+            "Нельзя писать весь JSON в одно поле промта — только короткий текст анимации на английском.",
             "",
         ]
     )
@@ -269,8 +294,7 @@ def build_batch_strip_path(items: list[FrameImageBatchItem], out_dir: Path) -> P
     if not batch_has_full_strip(items):
         raise ValueError("build_batch_strip_path: не у всех кадров есть PNG")
     numbers = "_".join(f"{it.frame.number:03d}" for it in items)
-    out_path = out_dir / f"anim_pr_strip_{numbers}.png"
-    # compose_horizontal_strip может вернуть .jpg вместо запрошенного .png
+    out_path = out_dir / f"anim_pr_strip_{numbers}.jpg"
     return compose_horizontal_strip(
         [it.image_path for it in items if it.image_path is not None],
         out_path,
@@ -278,6 +302,7 @@ def build_batch_strip_path(items: list[FrameImageBatchItem], out_dir: Path) -> P
         max_height=STRIP_MAX_HEIGHT_PX,
         max_bytes=STRIP_MAX_BYTES,
         panel_labels=[panel_label_for_item(it) for it in items],
+        prefer_jpeg=True,
     )
 
 

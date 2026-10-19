@@ -341,14 +341,28 @@ async def fill_animation_prompts(
             if max_batches is not None and stats["batches"] >= max_batches:
                 break
 
-            take = shot1_force or shot1_cap or apg.BATCH_SIZE
+            configured_batch_size = apg.anim_pr_batch_size(project)
+            take = shot1_force or shot1_cap or configured_batch_size
             shot1_force = None
             batch = pending[: max(1, take)]
             use_strip = apg.batch_has_full_strip(batch)
             strip_path: Path | None = None
             if use_strip:
                 strip_path = await asyncio.to_thread(apg.build_batch_strip_path, batch, tmp_dir)
-            batch_msg = apg.build_batch_message(batch)
+            aspect = getattr(project, "aspect_ratio", None) or "16:9"
+            aspect_clean = (
+                "9:16"
+                if "9_16" in aspect or "9:16" in aspect
+                else "1:1"
+                if "1_1" in aspect or "1:1" in aspect
+                else "16:9"
+            )
+            gen_name = getattr(project, "video_generator", None) or "Veo 3.1 Lite"
+            batch_msg = apg.build_batch_message(
+                batch,
+                aspect_ratio=aspect_clean,
+                generator_name=gen_name,
+            )
             logger.info(
                 "[#{}] anim_pr: ФАЗА 2 shot_01 batch {} кадров {} — {} ({} симв.)",
                 project.id,
@@ -407,7 +421,7 @@ async def fill_animation_prompts(
             if not pending2:
                 break
 
-            take2 = shot2_force or shot2_cap or apg.BATCH_SIZE
+            take2 = shot2_force or shot2_cap or apg.anim_pr_batch_size(project)
             shot2_force = None
             batch2 = pending2[: max(1, take2)]
             use_strip2 = apg.batch_has_full_strip(batch2)

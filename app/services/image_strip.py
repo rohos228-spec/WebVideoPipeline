@@ -45,11 +45,14 @@ def compose_horizontal_strip(
     gutter_color: tuple[int, int, int] = _GUTTER_RGB,
     max_bytes: int | None = 3_500_000,
     panel_labels: list[str] | None = None,
+    prefer_jpeg: bool = False,
+    jpeg_quality: int = 85,
 ) -> Path:
     """Склеивает изображения слева направо; между ними — тонкие вертикальные полоски.
 
-    Если max_bytes задан и PNG не влезает — сохраняет JPEG (`.jpg`) с понижением
-    высоты/качества (нужно для GPT vision ≤4MB). Возвращает фактический путь.
+    Если prefer_jpeg=True — сразу пишет оптимизированный JPEG (быстрее передача в API).
+    Если prefer_jpeg=False и max_bytes задан и PNG не влезает — сохраняет JPEG (`.jpg`)
+    с понижением высоты/качества (нужно для GPT vision ≤4MB). Возвращает фактический путь.
     """
     if not image_paths:
         raise ValueError("compose_horizontal_strip: image_paths пустой")
@@ -101,41 +104,62 @@ def compose_horizontal_strip(
                         x += gutter
 
                 out_path.parent.mkdir(parents=True, exist_ok=True)
-                png_path = out_path.with_suffix(".png")
-                canvas.save(png_path, format="PNG", optimize=True)
-                size = png_path.stat().st_size
-                if max_bytes is None or size <= max_bytes:
-                    logger.info(
-                        "image_strip: {} → {} ({}×{} px, gutter={}, {} bytes)",
-                        len(image_paths),
-                        png_path.name,
-                        total_w,
-                        target_h,
-                        gutter,
-                        size,
-                    )
-                    canvas.close()
-                    return png_path
-
-                png_path.unlink(missing_ok=True)
                 jpg_path = out_path.with_suffix(".jpg")
-                for quality in (85, 70, 55, 40):
-                    canvas.save(jpg_path, format="JPEG", quality=quality, optimize=True)
-                    size = jpg_path.stat().st_size
+                qualities = [jpeg_quality] + [q for q in (85, 70, 55, 40) if q < jpeg_quality]
+
+                if prefer_jpeg:
+                    for quality in qualities:
+                        canvas.save(jpg_path, format="JPEG", quality=quality, optimize=True)
+                        size = jpg_path.stat().st_size
+                        if max_bytes is None or size <= max_bytes:
+                            logger.info(
+                                "image_strip: {} → {} ({}×{} px, gutter={}, jpeg q={}, {} bytes)",
+                                len(image_paths),
+                                jpg_path.name,
+                                total_w,
+                                target_h,
+                                gutter,
+                                quality,
+                                size,
+                            )
+                            canvas.close()
+                            return jpg_path
+                    jpg_path.unlink(missing_ok=True)
+                else:
+                    png_path = out_path.with_suffix(".png")
+                    canvas.save(png_path, format="PNG", optimize=True)
+                    size = png_path.stat().st_size
                     if max_bytes is None or size <= max_bytes:
                         logger.info(
-                            "image_strip: {} → {} ({}×{} px, gutter={}, jpeg q={}, {} bytes)",
+                            "image_strip: {} → {} ({}×{} px, gutter={}, {} bytes)",
                             len(image_paths),
-                            jpg_path.name,
+                            png_path.name,
                             total_w,
                             target_h,
                             gutter,
-                            quality,
                             size,
                         )
                         canvas.close()
-                        return jpg_path
-                jpg_path.unlink(missing_ok=True)
+                        return png_path
+
+                    png_path.unlink(missing_ok=True)
+                    for quality in (85, 70, 55, 40):
+                        canvas.save(jpg_path, format="JPEG", quality=quality, optimize=True)
+                        size = jpg_path.stat().st_size
+                        if max_bytes is None or size <= max_bytes:
+                            logger.info(
+                                "image_strip: {} → {} ({}×{} px, gutter={}, jpeg q={}, {} bytes)",
+                                len(image_paths),
+                                jpg_path.name,
+                                total_w,
+                                target_h,
+                                gutter,
+                                quality,
+                                size,
+                            )
+                            canvas.close()
+                            return jpg_path
+                    jpg_path.unlink(missing_ok=True)
                 canvas.close()
             finally:
                 for s in scaled:
