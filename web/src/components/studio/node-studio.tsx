@@ -1249,6 +1249,7 @@ function ImagePromptsSettingsPanel({
   projectId: number;
   onOpenPrompts?: () => void;
 }) {
+  const queryClient = useQueryClient();
   const project = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId),
@@ -1264,6 +1265,29 @@ function ImagePromptsSettingsPanel({
   const generatorName = project.data?.image_generator || "Outsee (Midjourney / Flux)";
   const isMiniMax = generatorName.toLowerCase().includes("minimax");
   const promptLimit = isMiniMax ? "до 1 460 знаков (Компактный замок)" : "до 4 860 знаков (Полный замок)";
+
+  const rawBatchSize = (project.data?.meta as Record<string, unknown> | undefined)?.img_pr_batch_size;
+  const batchSize =
+    typeof rawBatchSize === "number" && rawBatchSize >= 2 && rawBatchSize <= 8
+      ? rawBatchSize
+      : 7;
+
+  const patchBatchSize = useMutation({
+    mutationFn: async (size: number) => {
+      const meta = { ...((project.data?.meta as Record<string, unknown>) || {}), img_pr_batch_size: size };
+      await api.patchProject(projectId, { meta });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Размер батча сохранён");
+    },
+    onError: (err) => {
+      toast.error(errorMessageFromUnknown(err) || "Не удалось сохранить размер батча");
+    },
+  });
+
+  const calculatedBatches = totalCount > 0 ? Math.ceil(totalCount / batchSize) : 0;
+  const framesPerCalcBatch = calculatedBatches > 0 ? Math.ceil(totalCount / calculatedBatches) : batchSize;
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
@@ -1322,6 +1346,60 @@ function ImagePromptsSettingsPanel({
             </span>
           </div>
         </div>
+      </div>
+
+      {/* Настройка размера пачки (батча) */}
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-foreground">Кадров в одном батче:</span>
+              <span className="rounded bg-sky-500/15 px-2 py-0.5 text-xs font-bold text-sky-300 border border-sky-500/30">
+                {batchSize} {batchSize === 1 ? "кадр" : batchSize < 5 ? "кадра" : "кадров"}
+              </span>
+              {batchSize === 7 && (
+                <span className="text-[10px] text-emerald-400 font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  по умолчанию
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground leading-snug">
+              Безопасный диапазон от 2 до 8 кадров гарантирует, что ответ нейросети не обрежется по лимиту токенов шлюза.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-1.5 self-start sm:self-auto">
+            <span className="text-[11px] text-zinc-400 mr-1 hidden sm:inline">Выбор:</span>
+            {[2, 3, 4, 5, 6, 7, 8].map((size) => (
+              <Button
+                key={size}
+                size="sm"
+                variant={batchSize === size ? "default" : "outline"}
+                disabled={patchBatchSize.isPending}
+                onClick={() => patchBatchSize.mutate(size)}
+                className={cn(
+                  "h-7 w-7 p-0 text-xs font-medium",
+                  batchSize === size
+                    ? "bg-sky-600 text-white hover:bg-sky-500 font-bold border-sky-500"
+                    : "border-white/10 hover:bg-white/5 text-zinc-300",
+                )}
+              >
+                {size}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {totalCount > 0 && (
+          <div className="flex items-center justify-between rounded-md bg-black/30 px-3 py-2 text-xs border border-white/5">
+            <span className="text-zinc-400">
+              Расчёт для этого проекта ({totalCount} кадров):
+            </span>
+            <span className="font-medium text-sky-200">
+              {calculatedBatches} {calculatedBatches === 1 ? "батч" : calculatedBatches < 5 ? "батча" : "батчей"} (по ~{framesPerCalcBatch} кадров)
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border border-white/10 bg-black/20 p-3.5 flex flex-col gap-2">

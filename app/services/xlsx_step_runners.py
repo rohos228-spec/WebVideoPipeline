@@ -7,6 +7,7 @@ GPT-сессия (browser → new_conversation → ask_with_files → download) 
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,25 @@ XLSX_STEP_RUNNERS_ID = "xlsx_step_runners-v84-img-pr-sem"
 # Сколько живых GPT-стримов img_pr держать одновременно (1 = строго по очереди).
 _IMG_PR_LIVE_STREAMS = 1
 _EMPTY_OPS_BACKOFF_S = (5.0, 10.0, 15.0, 20.0)
+
+DEFAULT_IMG_PR_BATCH_SIZE = 7
+MIN_IMG_PR_BATCH_SIZE = 2
+MAX_IMG_PR_BATCH_SIZE = 8
+
+
+def img_pr_batch_size(project: Project | None) -> int:
+    """Максимальный размер одного батча кадров для генерации промтов картинок.
+
+    Берётся из meta.img_pr_batch_size (от 2 до 8, по умолчанию 7).
+    """
+    meta = getattr(project, "meta", None)
+    if isinstance(meta, dict) and meta.get("img_pr_batch_size") is not None:
+        try:
+            val = int(meta["img_pr_batch_size"])
+            return max(MIN_IMG_PR_BATCH_SIZE, min(MAX_IMG_PR_BATCH_SIZE, val))
+        except (TypeError, ValueError):
+            pass
+    return DEFAULT_IMG_PR_BATCH_SIZE
 
 
 def img_pr_live_streams(project: Project | None) -> int:
@@ -1078,11 +1098,14 @@ async def run_img_pr_xlsx(
 
     # Старт: N батчей в волне, живых стримов не больше img_pr_live_streams.
     live_streams = img_pr_live_streams(project)
-    parts = pack_frames_img_pr(frames, n_batches=n_batches)
+    batch_size = img_pr_batch_size(project)
+    calc_batches = max(1, math.ceil(len(frames) / batch_size)) if frames else 1
+    parts = pack_frames_img_pr(frames, n_batches=n_batches or calc_batches)
     work: deque[tuple[list, int]] = deque((part, 1) for part in parts)
     logger.info(
-        "img_pr_db: frames={} start_batches={} sizes={} parallel={} checkpoint_done={}",
+        "img_pr_db: frames={} batch_size={} start_batches={} sizes={} parallel={} checkpoint_done={}",
         len(frames),
+        batch_size,
         len(parts),
         [len(p) for p in parts],
         live_streams,
@@ -1275,7 +1298,7 @@ async def run_img_pr_xlsx(
                         item,
                     )
                     nxt = next_split_level(level)
-                    if nxt is not None and len(batch) > 8:
+                    if nxt is not None and len(batch) >= 4:
                         for half in split_in_half(batch):
                             work.append((half, nxt))
                         continue
@@ -1287,7 +1310,7 @@ async def run_img_pr_xlsx(
                 replies.append(last_reply)
                 if not batch_ops:
                     nxt = next_split_level(level)
-                    if nxt is not None and len(batch) > 8:
+                    if nxt is not None and len(batch) >= 4:
                         for half in split_in_half(batch):
                             work.append((half, nxt))
                         logger.warning(
