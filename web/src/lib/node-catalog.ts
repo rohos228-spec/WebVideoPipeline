@@ -166,7 +166,8 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   image_prompts: {
     type: "image_prompts",
     label: "Промты картинок",
-    description: "Генерация image-prompt'ов для каждого кадра.",
+    description:
+      "Генерация детальных промтов для нейросети-художника на основе режиссуры сцен, персонажей и реквизита с сохранением единого стиля.",
     category: "media",
     accent: "270 50% 62%",
     iconKey: "wand",

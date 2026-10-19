@@ -13,6 +13,7 @@ import {
   Play,
   RefreshCw,
   Settings2,
+  Sparkles,
   Upload,
   X,
 } from "lucide-react";
@@ -928,6 +929,16 @@ export function NodeStudio({
                   {(nodeType === "sfx_gen" || nodeType === "sfx") && projectId ? (
                     <SfxGenSettingsPanel projectId={projectId} />
                   ) : null}
+                  {nodeType === "image_prompts" && projectId ? (
+                    <ImagePromptsSettingsPanel
+                      projectId={projectId}
+                      onOpenPrompts={() => {
+                        setTab("prompts");
+                        const targetSlot = pipelineSlots.find((s) => s.kind !== "excel") ?? pipelineSlots[0];
+                        setActiveSlotId(targetSlot?.id ?? null);
+                      }}
+                    />
+                  ) : null}
                   {nodeDisabled && (
                     <p className="text-amber-400">Нода отключена в графе — шаг не запустится.</p>
                   )}
@@ -1230,3 +1241,101 @@ function SfxGenSettingsPanel({ projectId }: { projectId: number }) {
     </section>
   );
 }
+
+function ImagePromptsSettingsPanel({
+  projectId,
+  onOpenPrompts,
+}: {
+  projectId: number;
+  onOpenPrompts?: () => void;
+}) {
+  const project = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId),
+  });
+  const frames = useQuery({
+    queryKey: ["project-frames", projectId],
+    queryFn: () => api.listFrames(projectId),
+  });
+
+  const frameList = frames.data || [];
+  const totalCount = frameList.length;
+  const readyCount = frameList.filter((f) => Boolean(f.image_prompt?.trim())).length;
+  const generatorName = project.data?.image_generator || "Outsee (Midjourney / Flux)";
+  const isMiniMax = generatorName.toLowerCase().includes("minimax");
+  const promptLimit = isMiniMax ? "до 1 460 знаков (Компактный замок)" : "до 4 860 знаков (Полный замок)";
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Параметры генерации промптов картинок</h3>
+          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+            ИИ-режиссер формирует законченные промпты для нейросети-художника, объединяя персонажей, реквизит, освещение и блоки стиля.
+          </p>
+        </div>
+        {onOpenPrompts && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onOpenPrompts}
+            className="shrink-0 gap-1.5 text-xs border-violet-500/30 text-violet-300 hover:bg-violet-500/10"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Выбрать стиль
+          </Button>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+          <div className="text-[11px] font-medium text-zinc-400">Статус генерации промптов</div>
+          <div className="mt-1.5 flex items-center gap-2">
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                readyCount === totalCount && totalCount > 0
+                  ? "bg-emerald-400"
+                  : readyCount > 0
+                    ? "bg-amber-400"
+                    : "bg-zinc-500",
+              )}
+            />
+            <span className="text-sm font-medium text-foreground">
+              {readyCount === totalCount && totalCount > 0
+                ? `Готово: ${readyCount} из ${totalCount} кадров`
+                : readyCount > 0
+                  ? `Частично: ${readyCount} / ${totalCount} кадров`
+                  : totalCount > 0
+                    ? `Ожидает запуска (${totalCount} кадров)`
+                    : "Кадры не найдены"}
+            </span>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+          <div className="text-[11px] font-medium text-zinc-400">Целевой генератор и лимит символов</div>
+          <div className="mt-1.5 flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">{generatorName}</span>
+            <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300 border border-violet-500/30">
+              {promptLimit}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-black/20 p-3.5 flex flex-col gap-2">
+        <div className="text-xs font-semibold text-zinc-300">Анатомия каждого промпта кадра:</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-[11px] text-zinc-400">
+          <div><strong className="text-emerald-300">Референс (c01..):</strong> привязка каста и внешности</div>
+          <div><strong className="text-cyan-300">Реквизит (predmet1):</strong> ключевые предметы сцены</div>
+          <div><strong className="text-sky-300">Расстановка (continuity):</strong> геометрия и взгляды</div>
+          <div><strong className="text-amber-300">Действие (mid-motion):</strong> физика в динамике, не поза</div>
+          <div><strong className="text-indigo-300">Свет и ракурс:</strong> оптика 35mm и кинематографичный свет</div>
+          <div><strong className="text-purple-300">Style Lock + Negative:</strong> защита от искажений и стилизации</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
