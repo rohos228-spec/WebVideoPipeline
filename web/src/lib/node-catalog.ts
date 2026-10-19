@@ -192,7 +192,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   videos: {
     type: "videos",
     label: "Видео",
-    description: "Генерация клипов из картинок (Veo 8с; fallback Kling 5с).",
+    description: "Генерация динамичных видеоклипов из картинок через I2V-модели (Seedance 2.5/Mini, Kling 2.6, Veo 3.1, WAN 2.7).",
     category: "media",
     accent: "88 80% 55%",
     iconKey: "film",

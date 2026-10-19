@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
+  Clock,
   Download,
   FileSpreadsheet,
   FileText,
@@ -567,8 +568,7 @@ export function NodeStudio({
       nodeType === "script" ||
       nodeType === "split" ||
       nodeType === "audio" ||
-      nodeType === "assemble" ||
-      nodeType === "videos");
+      nodeType === "assemble");
 
   const showFramePromptsPanel =
     activeSlot?.kind === "frame_prompts" && projectId != null;
@@ -956,6 +956,16 @@ export function NodeStudio({
                         const targetSlot = pipelineSlots.find((s) => s.id === "main") ?? pipelineSlots[0];
                         setActiveSlotId(targetSlot?.id ?? null);
                       }}
+                      onOpenFramePrompts={() => {
+                        setTab("prompts");
+                        const targetSlot = pipelineSlots.find((s) => s.id === "frame_prompts") ?? pipelineSlots[0];
+                        setActiveSlotId(targetSlot?.id ?? null);
+                      }}
+                    />
+                  ) : null}
+                  {nodeType === "videos" && projectId ? (
+                    <VideosSettingsPanel
+                      projectId={projectId}
                       onOpenFramePrompts={() => {
                         setTab("prompts");
                         const targetSlot = pipelineSlots.find((s) => s.id === "frame_prompts") ?? pipelineSlots[0];
@@ -1883,4 +1893,204 @@ function AnimationPromptsSettingsPanel({
     </section>
   );
 }
+
+function VideosSettingsPanel({
+  projectId,
+  onOpenFramePrompts,
+}: {
+  projectId: number;
+  onOpenFramePrompts?: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const project = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId),
+    enabled: Boolean(projectId),
+  });
+
+  const frames = useQuery({
+    queryKey: ["project-frames", projectId],
+    queryFn: () => api.listFrames(projectId),
+    enabled: Boolean(projectId),
+  });
+
+  const mediaImages = useQuery({
+    queryKey: ["media-review", projectId, "images"],
+    queryFn: () => api.listMediaReview(projectId, "images"),
+    enabled: Boolean(projectId),
+  });
+
+  const mediaVideos = useQuery({
+    queryKey: ["media-review", projectId, "videos"],
+    queryFn: () => api.listMediaReview(projectId, "videos"),
+    enabled: Boolean(projectId),
+  });
+
+  const frameList = frames.data || [];
+  const totalFrames = frameList.length;
+  const readyImagesCount = (mediaImages.data || []).filter((m) => Boolean(m.preview_url)).length;
+  const readyAnimPrompts = frameList.filter((f) => Boolean(f.animation_prompt?.trim())).length;
+  const generatedVideosCount = (mediaVideos.data || []).filter((v) => Boolean(v.preview_url)).length;
+
+  const currentStreams = Number(
+    (project.data?.meta as Record<string, unknown> | undefined)?.outsee_streams ??
+      (project.data?.meta as Record<string, unknown> | undefined)?.img_streams ??
+      2,
+  );
+
+  const [streams, setStreams] = useState<number>(currentStreams);
+
+  useEffect(() => {
+    const meta = project.data?.meta as Record<string, unknown> | undefined;
+    setStreams(Number(meta?.outsee_streams ?? meta?.img_streams ?? 2));
+  }, [project.data?.meta]);
+
+  const patchStreams = useMutation({
+    mutationFn: async (val: number) => {
+      const meta = {
+        ...((project.data?.meta as Record<string, unknown>) || {}),
+        img_streams: val,
+        outsee_streams: val,
+      };
+      await api.patchProject(projectId, { meta });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      toast.success("Параллельные потоки сохранены");
+    },
+    onError: (err) => {
+      toast.error(errorMessageFromUnknown(err) || "Не удалось сохранить потоки");
+    },
+  });
+
+  const handleSelectStreams = (val: number) => {
+    setStreams(val);
+    patchStreams.mutate(val);
+  };
+
+  const isReadyForVideo = totalFrames > 0 && readyAnimPrompts === totalFrames && readyImagesCount === totalFrames;
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
+      {/* Шапка */}
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+          <Film className="h-5 w-5" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Параметры генерации видео</h3>
+          <p className="text-xs text-muted-foreground">
+            Параллельные потоки генерации и статус готовности входных данных
+          </p>
+        </div>
+      </div>
+
+      {/* Индикатор готовности входных данных */}
+      <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.02] p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-foreground">Готовность кадров к генерации:</span>
+          {isReadyForVideo ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400 border border-emerald-500/30">
+              <CheckCircle2 className="h-3 w-3" /> Все {totalFrames} кадров готовы
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-medium text-amber-400 border border-amber-500/30">
+              <Clock className="h-3 w-3" /> В процессе подготовки ({readyAnimPrompts}/{totalFrames} промптов)
+            </span>
+          )}
+        </div>
+
+        {/* Метрики готовности */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+          <div className="rounded-md border border-white/5 bg-white/[0.03] p-3 flex flex-col gap-1">
+            <span className="text-[11px] text-muted-foreground">1. Исходные картинки</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-bold text-foreground">{readyImagesCount}</span>
+              <span className="text-xs text-muted-foreground">/ {totalFrames}</span>
+            </div>
+            <span className="text-[10px] text-muted-foreground/80">
+              {readyImagesCount === totalFrames ? "✓ Все картинки готовы" : "Ожидают генерации"}
+            </span>
+          </div>
+
+          <div className="rounded-md border border-white/5 bg-white/[0.03] p-3 flex flex-col gap-1">
+            <span className="text-[11px] text-muted-foreground">2. Промты анимации</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-bold text-foreground">{readyAnimPrompts}</span>
+              <span className="text-xs text-muted-foreground">/ {totalFrames}</span>
+            </div>
+            <span className="text-[10px] text-muted-foreground/80">
+              {readyAnimPrompts === totalFrames ? "✓ Все промпты созданы" : "Ожидают генерации"}
+            </span>
+          </div>
+
+          <div className="rounded-md border border-white/5 bg-white/[0.03] p-3 flex flex-col gap-1">
+            <span className="text-[11px] text-muted-foreground">3. Сгенерировано видео</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-bold text-foreground">{generatedVideosCount}</span>
+              <span className="text-xs text-muted-foreground">/ {totalFrames}</span>
+            </div>
+            <span className="text-[10px] text-muted-foreground/80">
+              {generatedVideosCount > 0 ? `${generatedVideosCount} клипов готово` : "Клипы ещё не созданы"}
+            </span>
+          </div>
+        </div>
+
+        {onOpenFramePrompts && (
+          <div className="pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-xs h-7 text-muted-foreground hover:text-foreground"
+              onClick={onOpenFramePrompts}
+            >
+              Просмотреть промпты анимации по кадрам →
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Параллельные потоки */}
+      <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.02] p-4">
+        <div>
+          <h4 className="text-xs font-semibold text-foreground">
+            Параллельные потоки генерации
+          </h4>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Количество одновременных задач в API для генерации видеоклипов
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          {[1, 2, 3, 4].map((num) => (
+            <Button
+              key={num}
+              type="button"
+              size="sm"
+              variant={streams === num ? "default" : "outline"}
+              disabled={patchStreams.isPending}
+              className={cn(
+                "h-8 px-3.5 text-xs",
+                streams === num
+                  ? "bg-primary text-black font-semibold shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => handleSelectStreams(num)}
+            >
+              {num} {num === 1 ? "поток" : num < 5 ? "потока" : "потоков"}
+              {num === 2 && <span className="ml-1 opacity-60 text-[10px]">(дефолт)</span>}
+              {num === 4 && <span className="ml-1 opacity-60 text-[10px]">(макс)</span>}
+            </Button>
+          ))}
+        </div>
+
+        <p className="text-[11px] text-muted-foreground">
+          💡 При выборе 3 или 4 потоков генерация клипов завершается быстрее, если ваш провайдер и баланс поддерживают параллельные запросы.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 
