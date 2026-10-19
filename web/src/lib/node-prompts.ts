@@ -19,7 +19,7 @@ export interface NodePromptSlot {
   preferredFile?: string;
 }
 
-const NO_EXCEL_NODE_TYPES = new Set(["topic", "excel_feed", "excel_gpt", "hero", "items", "image_prompts", "images", "animation_prompts", "storage", "shot_menu"]);
+const NO_EXCEL_NODE_TYPES = new Set(["topic", "excel_feed", "excel_gpt", "hero", "items", "image_prompts", "images", "animation_prompts", "videos", "storage", "shot_menu"]);
 
 const BASE: Record<string, NodePromptSlot[]> = {
   topic: [],
@@ -102,7 +102,6 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   videos: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "video" },
     {
       id: "frame_prompts",
       title: "Промты анимации",
@@ -114,7 +113,7 @@ const BASE: Record<string, NodePromptSlot[]> = {
       title: "Мастер-промт",
       kind: "gpt",
       stepCode: "anim_pr",
-      description: "prompts/07_animation_prompts",
+      description: "prompts/07_animation — правила сборки видеопромптов",
     },
   ],
   audio: [
