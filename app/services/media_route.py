@@ -16,6 +16,7 @@ from app.settings import settings
 # После нормализации (_ → -) и алиасов.
 OUTSEE_IMAGE_IDS = frozenset(
     {
+        "gpt-image-2",
         "nano-banana-2",
         "nano-banana-2-lite",
         "gpt-image-1.5",
@@ -58,7 +59,7 @@ KIE_VIDEO_IDS = frozenset(
 
 # Старый Slow и studio-id → канонический slug.
 _ALIASES = {
-    "gpt-image-2": "nano-banana-2",
+    "gpt-image-2": "gpt-image-2",
     "nano-banana-2": "nano-banana-2",
     "nano-banana-2-lite": "nano-banana-2-lite",
     "veo-3-1-lite": "veo-3-1-lite",

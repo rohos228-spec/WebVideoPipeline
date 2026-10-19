@@ -63,6 +63,12 @@ IMAGE_GENERATORS: list[OptionChoice] = [
         "Outsee · Nano Banana 2",
     ),
     OptionChoice(
+        "gpt_image_2",
+        "+ GPT Image 2",
+        "gpt-image-2",
+        "Outsee · GPT Image 2",
+    ),
+    OptionChoice(
         "gpt_image_2_5",
         "+ GPT Image 2.5",
         "gpt-image-2.5",
@@ -111,7 +117,7 @@ IMAGE_RESOLUTIONS: list[OptionChoice] = [
 IMAGE_RESOLUTIONS_BY_GENERATOR: dict[str, tuple[str, ...]] = {
     "nano_banana_2": ("1k", "2k"),
     "gpt_image_1_5": ("2k",),
-    "gpt_image_2": ("1k",),
+    "gpt_image_2": ("1k", "2k"),
     "gpt_image_2_5": ("1k",),
     "flux_2_pro": ("1k", "2k"),
     "seedream_5_pro": ("1k", "2k"),

@@ -10,8 +10,8 @@ from app.services.media_route import (
 
 
 def test_aliases_slow_gpt_image() -> None:
-    assert canonical_media_id("gpt-image-2") == "nano-banana-2"
-    assert canonical_media_id("gpt_image_2") == "nano-banana-2"
+    assert canonical_media_id("gpt-image-2") == "gpt-image-2"
+    assert canonical_media_id("gpt_image_2") == "gpt-image-2"
 
 
 def test_image_known_ids_route_outsee(monkeypatch) -> None:
@@ -23,6 +23,7 @@ def test_image_known_ids_route_outsee(monkeypatch) -> None:
     s = Settings()
     monkeypatch.setattr(settings_mod, "settings", s)
     monkeypatch.setattr(mr, "settings", s)
+    assert image_provider_for("gpt-image-2") == "outsee"
     assert image_provider_for("nano-banana-2") == "outsee"
     assert image_provider_for("gpt-image-1.5") == "outsee"
     assert image_provider_for("nano_banana_2_lite") == "outsee"

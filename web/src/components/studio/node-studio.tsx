@@ -567,7 +567,6 @@ export function NodeStudio({
       nodeType === "split" ||
       nodeType === "audio" ||
       nodeType === "assemble" ||
-      nodeType === "images" ||
       nodeType === "videos");
 
   const showFramePromptsPanel =
@@ -946,14 +945,7 @@ export function NodeStudio({
                     />
                   ) : null}
                   {nodeType === "images" && projectId ? (
-                    <ImagesSettingsPanel
-                      projectId={projectId}
-                      onOpenPrompts={() => {
-                        setTab("prompts");
-                        const targetSlot = pipelineSlots.find((s) => s.kind === "frame_prompts") ?? pipelineSlots[0];
-                        setActiveSlotId(targetSlot?.id ?? null);
-                      }}
-                    />
+                    <ImagesSettingsPanel projectId={projectId} />
                   ) : null}
                   {nodeDisabled && (
                     <p className="text-amber-400">Нода отключена в графе — шаг не запустится.</p>
@@ -1433,13 +1425,7 @@ function ImagePromptsSettingsPanel({
   );
 }
 
-function ImagesSettingsPanel({
-  projectId,
-  onOpenPrompts,
-}: {
-  projectId: number;
-  onOpenPrompts?: () => void;
-}) {
+function ImagesSettingsPanel({ projectId }: { projectId: number }) {
   const queryClient = useQueryClient();
   const project = useQuery({
     queryKey: ["project", projectId],
@@ -1453,19 +1439,12 @@ function ImagesSettingsPanel({
     enabled: Boolean(projectId),
   });
 
-  const outseeStatus = useQuery({
-    queryKey: ["outseeStatus"],
-    queryFn: () => api.outseeStatus(),
-    staleTime: 30_000,
-  });
-
   const excelHero = useQuery({
     queryKey: ["excel-hero", projectId],
     queryFn: () => api.getExcelHero(projectId),
     enabled: Boolean(projectId),
   });
 
-  const currentGen = project.data?.image_generator || "nano_banana_2";
   const currentAspect = project.data?.aspect_ratio || "16_9";
   const currentRes = project.data?.image_resolution || "2k";
   const currentStreams =
@@ -1505,55 +1484,6 @@ function ImagesSettingsPanel({
     frames.data?.filter((f) => Boolean(f.image_prompt && f.image_prompt.trim())).length ?? 0;
   const allPromptsReady = totalFrames > 0 && readyPromptsCount === totalFrames;
 
-  const outseeBalanceRaw = outseeStatus.data?.balance as { balance?: number } | undefined;
-  const outseeBalanceVal =
-    typeof outseeBalanceRaw?.balance === "number"
-      ? Math.round(outseeBalanceRaw.balance).toLocaleString("ru-RU")
-      : null;
-
-  const MODEL_OPTIONS = [
-    {
-      id: "nano_banana_2",
-      label: "+ Nano Banana 2",
-      provider: "Outsee · HTTP",
-      desc: "Основная модель: 2K, поддержка связки 2 референсов (персонаж + предмет)",
-      badge: "По умолчанию",
-      tagColor: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-    },
-    {
-      id: "flux_2_pro",
-      label: "Flux 2 Pro",
-      provider: "Kie · Market",
-      desc: "Высокая детализация кожи, текстур и кинематографичный свет",
-      badge: "Kie 2K",
-      tagColor: "bg-purple-500/15 text-purple-300 border-purple-500/30",
-    },
-    {
-      id: "seedream_5_pro",
-      label: "Seedream 5 Pro",
-      provider: "Kie · Market",
-      desc: "Скоростная генерация ByteDance с естественной гаммой",
-      badge: "Kie 2K",
-      tagColor: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-    },
-    {
-      id: "gpt_image_2_5",
-      label: "+ GPT Image 2.5",
-      provider: "Vibecode · Gateway",
-      desc: "Генератор через шлюз Vibecode (1K)",
-      badge: "Vibecode",
-      tagColor: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-    },
-    {
-      id: "z_image",
-      label: "Z-Image",
-      provider: "Kie · Fast",
-      desc: "Быстрый рендеринг черновиков и эскизов",
-      badge: "Kie Fast",
-      tagColor: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30",
-    },
-  ];
-
   const ASPECT_OPTIONS = [
     { id: "16_9", label: "16:9", sub: "YouTube / TV" },
     { id: "9_16", label: "9:16", sub: "Shorts / Reels" },
@@ -1572,84 +1502,16 @@ function ImagesSettingsPanel({
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
-      {/* Шапка с балансом Outsee */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-            <ImageIcon className="h-5 w-5" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">Параметры генерации изображений</h3>
-            <p className="text-xs text-muted-foreground">
-              Настройка модели, соотношения сторон, разрешения и параллельности стримов
-            </p>
-          </div>
+      {/* Шапка */}
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+          <ImageIcon className="h-5 w-5" />
         </div>
-
-        <div className="flex items-center gap-2">
-          {outseeBalanceVal ? (
-            <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Outsee API: <strong>{outseeBalanceVal}</strong> кр.</span>
-            </div>
-          ) : outseeStatus.data?.configured ? (
-            <div className="flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs text-sky-300">
-              <span className="h-2 w-2 rounded-full bg-sky-400" />
-              <span>Outsee HTTP API активен</span>
-            </div>
-          ) : null}
-
-          {onOpenPrompts && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onOpenPrompts}
-              className="text-xs h-8 border-white/10 hover:bg-white/5 text-zinc-300"
-            >
-              <FileText className="h-3.5 w-3.5 mr-1 text-indigo-400" />
-              Промты кадров
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Выбор модели генератора */}
-      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-2.5">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-foreground">Нейросеть-генератор:</span>
-          <span className="text-[11px] text-zinc-400">
-            Провайдер:{" "}
-            <span className="text-indigo-300 font-medium">
-              {MODEL_OPTIONS.find((m) => m.id === currentGen)?.provider ?? currentGen}
-            </span>
-          </span>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-          {MODEL_OPTIONS.map((m) => {
-            const isSelected = currentGen === m.id;
-            return (
-              <button
-                key={m.id}
-                type="button"
-                disabled={patchSettings.isPending}
-                onClick={() => patchSettings.mutate({ image_generator: m.id })}
-                className={cn(
-                  "flex flex-col text-left p-3 rounded-lg border transition-all text-xs relative",
-                  isSelected
-                    ? "border-sky-500 bg-sky-500/10 text-white shadow-sm ring-1 ring-sky-500/50"
-                    : "border-white/10 bg-black/20 hover:bg-white/5 text-zinc-300",
-                )}
-              >
-                <div className="flex items-center justify-between w-full mb-1">
-                  <span className="font-semibold">{m.label}</span>
-                  <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-medium border", m.tagColor)}>
-                    {m.badge}
-                  </span>
-                </div>
-                <span className="text-[11px] text-zinc-400 leading-snug">{m.desc}</span>
-              </button>
-            );
-          })}
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Параметры генерации изображений</h3>
+          <p className="text-xs text-muted-foreground">
+            Настройка соотношения сторон, разрешения и параллельности стримов
+          </p>
         </div>
       </div>
 

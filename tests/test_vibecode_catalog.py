@@ -31,10 +31,10 @@ def test_snapshot_has_screenshot_tabs() -> None:
     assert "gpt-6-astra" in ids
     assert "kimi-k3" not in ids
     assert "gpt-image-2-vip" not in ids
-    assert "gpt-image-2" not in ids
+    assert "gpt-image-2" in ids
     assert "nano-banana-2" in ids
     assert "nano-banana-pro" in ids
-    assert len(ids) >= 18
+    assert len(ids) >= 19
 
 
 def test_prices_use_expensive_markup() -> None:
@@ -74,7 +74,7 @@ def test_grouped_vendors_match_ui_tabs() -> None:
     assert counts["gemini"] == 2
     assert counts["xai"] == 1
     assert "moonshot" not in counts
-    assert counts["images"] == 6
+    assert counts["images"] == 7
     assert counts["video"] == 7
     sonnet = find_model("claude-sonnet-5-5")
     assert sonnet is not None
@@ -109,6 +109,10 @@ def test_default_model_by_node_type() -> None:
     assert banana is not None
     assert banana["id"] == "nano-banana-2"
     assert banana["image_generator"] == "nano_banana_2"
+    gpt2 = find_model("gpt-image-2")
+    assert gpt2 is not None
+    assert gpt2["id"] == "gpt-image-2"
+    assert gpt2["image_generator"] == "gpt_image_2"
     assert default_model_id_for_node_type("hero") == DEFAULT_IMAGE_MODEL_ID
 
 

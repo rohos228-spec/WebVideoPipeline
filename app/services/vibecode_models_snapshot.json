@@ -210,6 +210,17 @@
     }
   },
   {
+    "display_name": "GPT Image 2",
+    "id": "gpt-image-2",
+    "is_image": true,
+    "object": "model",
+    "owned_by": "outsee",
+    "pricing": {
+      "currency": "usd",
+      "usd_per_image": 0.042646
+    }
+  },
+  {
     "display_name": "Nano Banana",
     "id": "nano-banana",
     "is_image": true,
