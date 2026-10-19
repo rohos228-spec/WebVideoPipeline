@@ -77,6 +77,7 @@ STEP_FOLDERS: dict[str, str] = {
     # переехала, но имя папки на диске не зависит от позиции в меню.
     "img_pr": "05_image_prompts",
     "anim_pr": "07_animation",
+    "music": "10_music",
     # Мульти-агентный дизайн сцен: все агенты и сборщик живут в одной
     # папке prompts/scene_design/ (characters.md, world.md, ..., assemble.md).
     "scene_d": "scene_design",

@@ -16,12 +16,15 @@ import {
   Loader2,
   MessageSquareText,
   Mic,
+  Music,
   Pause,
   Play,
   RefreshCw,
   Settings2,
   ShieldCheck,
+  Sliders,
   Sparkles,
+  Trash2,
   Upload,
   Volume2,
   X,
@@ -482,8 +485,11 @@ export function NodeStudio({
     if (nodeType === "hero" || nodeType === "items") {
       return list.filter((a) => a.kind.includes("hero") || a.kind.includes("item"));
     }
-    if (nodeType === "audio" || nodeType === "music") {
-      return list.filter((a) => a.kind.includes("audio") || a.kind.includes("music"));
+    if (nodeType === "audio") {
+      return list.filter((a) => a.kind.includes("audio") && !a.kind.includes("music"));
+    }
+    if (nodeType === "music") {
+      return list.filter((a) => a.kind.includes("music") || /[/\\]music[/\\]/i.test(a.path || ""));
     }
     if (nodeType === "assemble" || nodeType === "hitl_final") {
       return list.filter((a) => a.kind.includes("final"));
@@ -1346,26 +1352,6 @@ function ImagePromptsSettingsPanel({
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Параметры генерации промптов картинок</h3>
-          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-            ИИ-режиссер формирует законченные промпты для нейросети-художника, объединяя персонажей, реквизит, освещение и блоки стиля.
-          </p>
-        </div>
-        {onOpenPrompts && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onOpenPrompts}
-            className="shrink-0 gap-1.5 text-xs border-violet-500/30 text-violet-300 hover:bg-violet-500/10"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Выбрать стиль
-          </Button>
-        )}
-      </div>
-
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
           <div className="text-[11px] font-medium text-zinc-400">Статус генерации промптов</div>
@@ -1456,24 +1442,11 @@ function ImagePromptsSettingsPanel({
           </div>
         )}
       </div>
-
-      <div className="rounded-lg border border-white/10 bg-black/20 p-3.5 flex flex-col gap-2">
-        <div className="text-xs font-semibold text-zinc-300">Анатомия каждого промпта кадра:</div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-[11px] text-zinc-400">
-          <div><strong className="text-emerald-300">Референс (c01..):</strong> привязка каста и внешности</div>
-          <div><strong className="text-cyan-300">Реквизит (predmet1):</strong> ключевые предметы сцены</div>
-          <div><strong className="text-sky-300">Расстановка (continuity):</strong> геометрия и взгляды</div>
-          <div><strong className="text-amber-300">Действие (mid-motion):</strong> физика в динамике, не поза</div>
-          <div><strong className="text-indigo-300">Свет и ракурс:</strong> оптика 35mm и кинематографичный свет</div>
-          <div><strong className="text-purple-300">Style Lock + Negative:</strong> защита от искажений и стилизации</div>
-        </div>
-      </div>
     </section>
   );
 }
 
 function ImagesSettingsPanel({ projectId }: { projectId: number }) {
-  const queryClient = useQueryClient();
   const project = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId),
@@ -1492,163 +1465,21 @@ function ImagesSettingsPanel({ projectId }: { projectId: number }) {
     enabled: Boolean(projectId),
   });
 
-  const currentAspect = project.data?.aspect_ratio || "16_9";
-  const currentRes = project.data?.image_resolution || "2k";
   const currentStreams =
     typeof (project.data?.meta as Record<string, unknown> | undefined)?.img_streams === "number"
       ? ((project.data?.meta as Record<string, unknown>).img_streams as number)
       : 2;
-
-  const patchSettings = useMutation({
-    mutationFn: async (patch: Partial<ProjectDetail>) => {
-      await api.patchProject(projectId, patch);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      toast.success("Настройки генерации сохранены");
-    },
-    onError: (err) => {
-      toast.error(errorMessageFromUnknown(err) || "Не удалось сохранить настройки");
-    },
-  });
-
-  const patchStreams = useMutation({
-    mutationFn: async (streams: number) => {
-      const meta = { ...((project.data?.meta as Record<string, unknown>) || {}), img_streams: streams };
-      await api.patchProject(projectId, { meta });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      toast.success("Количество потоков обновлено");
-    },
-    onError: (err) => {
-      toast.error(errorMessageFromUnknown(err) || "Не удалось сохранить потоки");
-    },
-  });
 
   const totalFrames = frames.data?.length ?? 0;
   const readyPromptsCount =
     frames.data?.filter((f) => Boolean(f.image_prompt && f.image_prompt.trim())).length ?? 0;
   const allPromptsReady = totalFrames > 0 && readyPromptsCount === totalFrames;
 
-  const ASPECT_OPTIONS = [
-    { id: "16_9", label: "16:9", sub: "YouTube / TV" },
-    { id: "9_16", label: "9:16", sub: "Shorts / Reels" },
-    { id: "1_1", label: "1:1", sub: "Квадрат" },
-  ];
-
-  const RESOLUTION_OPTIONS = [
-    { id: "2k", label: "2K", sub: "Высокая чёткость" },
-    { id: "1k", label: "1K", sub: "Базовое" },
-  ];
-
-  const STREAM_OPTIONS = [1, 2, 3, 4];
-
   const chars = excelHero.data?.characters ?? [];
   const items = (project.data?.item_descriptions ?? []).filter((d: string) => d && d.trim());
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
-      {/* Шапка */}
-      <div className="flex items-center gap-2.5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-          <ImageIcon className="h-5 w-5" />
-        </div>
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Параметры генерации изображений</h3>
-          <p className="text-xs text-muted-foreground">
-            Настройка соотношения сторон, разрешения и параллельности стримов
-          </p>
-        </div>
-      </div>
-
-      {/* Сетка настроек: Формат, Разрешение, Потоки */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Соотношение сторон */}
-        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-2">
-          <span className="text-xs font-semibold text-foreground">Соотношение сторон:</span>
-          <div className="flex items-center gap-1.5">
-            {ASPECT_OPTIONS.map((opt) => (
-              <Button
-                key={opt.id}
-                size="sm"
-                variant={currentAspect === opt.id ? "default" : "outline"}
-                disabled={patchSettings.isPending}
-                onClick={() => patchSettings.mutate({ aspect_ratio: opt.id })}
-                className={cn(
-                  "flex-1 h-8 text-xs font-medium",
-                  currentAspect === opt.id
-                    ? "bg-sky-600 text-white hover:bg-sky-500 font-bold border-sky-500"
-                    : "border-white/10 hover:bg-white/5 text-zinc-300",
-                )}
-              >
-                {opt.label}
-              </Button>
-            ))}
-          </div>
-          <p className="text-[11px] text-zinc-400">
-            {ASPECT_OPTIONS.find((o) => o.id === currentAspect)?.sub ?? currentAspect}
-          </p>
-        </div>
-
-        {/* Разрешение */}
-        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-2">
-          <span className="text-xs font-semibold text-foreground">Разрешение кадров:</span>
-          <div className="flex items-center gap-1.5">
-            {RESOLUTION_OPTIONS.map((opt) => (
-              <Button
-                key={opt.id}
-                size="sm"
-                variant={currentRes === opt.id ? "default" : "outline"}
-                disabled={patchSettings.isPending}
-                onClick={() => patchSettings.mutate({ image_resolution: opt.id })}
-                className={cn(
-                  "flex-1 h-8 text-xs font-medium",
-                  currentRes === opt.id
-                    ? "bg-sky-600 text-white hover:bg-sky-500 font-bold border-sky-500"
-                    : "border-white/10 hover:bg-white/5 text-zinc-300",
-                )}
-              >
-                {opt.label}
-              </Button>
-            ))}
-          </div>
-          <p className="text-[11px] text-zinc-400">
-            {RESOLUTION_OPTIONS.find((o) => o.id === currentRes)?.sub ?? currentRes}
-          </p>
-        </div>
-
-        {/* Потоки (параллельность) */}
-        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-foreground">Параллельных потоков:</span>
-            <span className="text-xs font-bold text-sky-300">{currentStreams}x</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {STREAM_OPTIONS.map((streams) => (
-              <Button
-                key={streams}
-                size="sm"
-                variant={currentStreams === streams ? "default" : "outline"}
-                disabled={patchStreams.isPending}
-                onClick={() => patchStreams.mutate(streams)}
-                className={cn(
-                  "flex-1 h-8 text-xs font-medium",
-                  currentStreams === streams
-                    ? "bg-sky-600 text-white hover:bg-sky-500 font-bold border-sky-500"
-                    : "border-white/10 hover:bg-white/5 text-zinc-300",
-                )}
-              >
-                {streams}
-              </Button>
-            ))}
-          </div>
-          <p className="text-[11px] text-zinc-400">
-            {currentStreams === 2 ? "Оптимально (баланс скорости и API)" : `${currentStreams} потока одновременно`}
-          </p>
-        </div>
-      </div>
-
       {/* Карточка готовности и преемственности */}
       <div className="rounded-lg border border-white/10 bg-black/20 p-3.5 flex flex-col gap-2.5">
         <div className="flex items-center justify-between text-xs">
@@ -1749,102 +1580,36 @@ function AnimationPromptsSettingsPanel({
   const calculatedBatches = totalFrames > 0 ? Math.ceil(totalFrames / batchSize) : 0;
   const framesPerCalcBatch = calculatedBatches > 0 ? Math.ceil(totalFrames / calculatedBatches) : batchSize;
 
-  const videoGen = project.data?.video_generator || "veo_3_1_lite";
-  const videoGenLabel =
-    videoGen === "veo_3_1_lite"
-      ? "Veo 3.1 Lite (Outsee)"
-      : videoGen === "kling_2_6"
-      ? "Kling 2.6 (Kie)"
-      : videoGen === "seedance_2_5"
-      ? "Seedance 2.5 (ByteDance)"
-      : videoGen === "kling_v3_turbo_i2v"
-      ? "Kling 3.0 Turbo"
-      : videoGen;
-
-  const rawAspect = project.data?.aspect_ratio || "16_9";
-  const aspectLabel =
-    rawAspect === "9_16" ? "9:16 (Вертикальный)" : rawAspect === "1_1" ? "1:1 (Квадрат)" : "16:9 (Горизонтальный)";
-
   const isAllReady = readyAnimPrompts === totalFrames && totalFrames > 0;
   const isPartial = readyAnimPrompts > 0 && !isAllReady;
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Параметры генерации промптов анимации (I2V)</h3>
-          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-            ИИ-режиссер формирует промпты движения для каждого кадра: направленная динамика камеры, микро-движения объектов, свет и физика без смены планов и лип-синка.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {onOpenFramePrompts && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onOpenFramePrompts}
-              className="gap-1.5 text-xs border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10"
-            >
-              <Film className="h-3.5 w-3.5" />
-              По кадрам ({readyAnimPrompts}/{totalFrames})
-            </Button>
-          )}
-          {onOpenPrompts && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onOpenPrompts}
-              className="gap-1.5 text-xs border-violet-500/30 text-violet-300 hover:bg-violet-500/10"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Мастер-промт
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-          <div className="text-[11px] font-medium text-zinc-400">Статус готовности видеопромптов</div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full",
-                isAllReady
-                  ? "bg-emerald-400"
-                  : isPartial
-                  ? "bg-amber-400"
-                  : "bg-zinc-500",
-              )}
-            />
-            <span className="text-sm font-medium text-foreground">
-              {isAllReady
-                ? `Готово: ${readyAnimPrompts} из ${totalFrames} кадров`
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+        <div className="text-[11px] font-medium text-zinc-400">Статус готовности видеопромптов</div>
+        <div className="mt-1.5 flex items-center gap-2">
+          <span
+            className={cn(
+              "h-2 w-2 rounded-full",
+              isAllReady
+                ? "bg-emerald-400"
                 : isPartial
-                ? `Частично: ${readyAnimPrompts} / ${totalFrames} кадров`
-                : totalFrames > 0
-                ? `Ожидает запуска (${totalFrames} кадров)`
-                : "Кадры не найдены"}
-            </span>
-          </div>
-          <div className="mt-1.5 text-[11px] text-zinc-400">
-            Исходные промпты картинок: <strong className="text-zinc-200">{readyImgPrompts} из {totalFrames}</strong>
-          </div>
+                ? "bg-amber-400"
+                : "bg-zinc-500",
+            )}
+          />
+          <span className="text-sm font-medium text-foreground">
+            {isAllReady
+              ? `Готово: ${readyAnimPrompts} из ${totalFrames} кадров`
+              : isPartial
+              ? `Частично: ${readyAnimPrompts} / ${totalFrames} кадров`
+              : totalFrames > 0
+              ? `Ожидает запуска (${totalFrames} кадров)`
+              : "Кадры не найдены"}
+          </span>
         </div>
-
-        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-          <div className="text-[11px] font-medium text-zinc-400">Целевой видеогенератор и формат</div>
-          <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">{videoGenLabel}</span>
-            <span className="rounded bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-300 border border-sky-500/30">
-              {aspectLabel}
-            </span>
-          </div>
-          <div className="mt-1.5 text-[11px] text-zinc-400 flex items-center gap-1.5">
-            <span className="text-emerald-400 font-medium">Single continuous take</span>
-            <span>·</span>
-            <span className="text-amber-300 font-medium">NO VOICE (без лип-синка)</span>
-          </div>
+        <div className="mt-1.5 text-[11px] text-zinc-400">
+          Исходные промпты картинок: <strong className="text-zinc-200">{readyImgPrompts} из {totalFrames}</strong>
         </div>
       </div>
 
@@ -1900,16 +1665,6 @@ function AnimationPromptsSettingsPanel({
             </span>
           </div>
         )}
-      </div>
-
-      <div className="rounded-lg border border-white/10 bg-black/20 p-3.5 flex flex-col gap-2">
-        <div className="text-xs font-semibold text-zinc-300">Анатомия кинематографичного видеопромпта:</div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11px] text-zinc-400">
-          <div><strong className="text-emerald-300">Камера (continuous movement):</strong> Slow push-in, Dolly, Pan, Lock-off. Без смены планов и резких склеек.</div>
-          <div><strong className="text-cyan-300">Действие и физика:</strong> микро-динамика персонажа и реквизита. Без появления новых предметов.</div>
-          <div><strong className="text-amber-300">Свет и атмосфера:</strong> скользящие тени, лучи сквозь окна, колыхание ткани или листвы.</div>
-          <div><strong className="text-rose-300">Строгие запреты:</strong> NO VOICE, silent, no lip-sync, mouth closed, no scene morph.</div>
-        </div>
       </div>
     </section>
   );
@@ -2448,6 +2203,3 @@ function AudioSettingsPanel({
     </section>
   );
 }
-
-
-

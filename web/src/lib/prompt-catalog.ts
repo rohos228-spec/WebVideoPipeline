@@ -21,6 +21,7 @@ export const LEGACY_STEP_FOLDER: Record<string, string> = {
   excel_gpt: "05_excel_gpt",
   img_pr: "05_image_prompts",
   anim_pr: "07_animation",
+  music: "10_music",
 };
 
 /** Папка blocks/steps v2 (prompts/steps/) */
@@ -38,6 +39,7 @@ export const STEPS_V2_FOLDER: Record<string, string> = {
   excel_gpt: "05_excel_gpt",
   image_prompts: "05_image_prompts",
   animation_prompts: "07_animation",
+  music: "10_music",
 };
 
 export const CHECK_PROMPT_FOLDER: Record<string, string> = {

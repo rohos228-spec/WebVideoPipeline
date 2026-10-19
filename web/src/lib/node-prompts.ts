@@ -125,8 +125,13 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   music: [
-    { id: "voiceover", title: "voiceover.txt", kind: "text", stepCode: "music" },
-    { id: "gpt_text", title: "Текст для GPT (Suno)", kind: "text", stepCode: "music" },
+    {
+      id: "main",
+      title: "Промт музыки",
+      kind: "gpt",
+      stepCode: "music",
+      description: "prompts/10_music — инструкция для GPT по созданию промпта Suno",
+    },
   ],
   assemble: [
     { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "assemble" },
