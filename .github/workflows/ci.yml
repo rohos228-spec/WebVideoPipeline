@@ -8,12 +8,9 @@
 #    поднимается сервисом, и двенадцать тестов, которые единственные могут
 #    подтвердить, что чужая строка невидима, наконец исполняются на каждом
 #    push. Локально их гоняют, когда вспомнят.
-# 2. **Чистый чекаут.** Промт-библиотека намеренно вне git
-#    (`.gitignore: prompts/*`), и на машине владельца она есть, а здесь — нет.
-#    Именно поэтому гейт устроен храповиком: список известных падений лежит в
-#    `.claude/baselines/pytest-failures.txt`, и красным становится только
-#    появление нового. Требовать здесь зелёной суиты значит требовать
-#    невозможного и получить отключённый гейт.
+# 2. **Детерминированные тесты ядра.** Проверяются критичные контракты:
+#    изоляция данных, миграции, авторизация, согласованность API фронтенда и бэкенда,
+#    статус-машина нод, сохранение параметров шагов и граф Студии.
 name: CI
 
 on:
@@ -41,7 +38,8 @@ on:
   # (`.githooks/pre-push`).
   pull_request:
   push:
-    branches: ["feat/unified"]
+    branches: ["feat/**", "fix/**", "test"]
+  workflow_dispatch: {}
   workflow_call: {}
 
 # Новый push в ту же ветку отменяет предыдущий прогон: суита идёт десять минут,
@@ -173,6 +171,29 @@ jobs:
 
       - name: Смоук-тесты авторизации и сессий
         run: python -m pytest tests/test_identity_middleware.py -q -p no:cacheprovider
+
+      - name: Поверхность API (проверка вызовов фронтенда в бэкенде)
+        # Сканирует вызовы во фронтенде (web/src/**) и проверяет наличие эндпоинтов в FastAPI
+        run: python -m pytest tests/test_front_api_surface.py -q -p no:cacheprovider
+
+      - name: Контракты промптов и схемы эвалов
+        # Проверяет парсеры ответов LLM и валидаторы схем без обращения к сети
+        run: python -m pytest tests/test_prompt_goldens.py tests/test_eval_suites.py -q -p no:cacheprovider
+
+      - name: Ядро Студии (граф нод, статус-машина, параметры шагов)
+        # Быстрые тесты ядра Студии без внешних вызовов и сети (~10 сек)
+        run: |
+          python -m pytest \
+            tests/test_node_config.py \
+            tests/test_node_catalog.py \
+            tests/test_node_status_machine.py \
+            tests/test_node_step_params.py \
+            tests/test_graph_planner.py \
+            tests/test_graph_validate.py \
+            tests/test_project_graph.py \
+            tests/test_project_graph_api.py \
+            tests/test_assemble_local_chrono.py \
+            -q -p no:cacheprovider
 
       # Покрытия здесь НЕТ намеренно — ни храповика, ни diff-cov, ни отчёта.
       #
