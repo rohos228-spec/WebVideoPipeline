@@ -37,8 +37,6 @@ on:
   # изменение попадает только через PR, а до того держит локальный gauntlet
   # (`.githooks/pre-push`).
   pull_request:
-  push:
-    branches: ["feat/**", "fix/**", "test"]
   workflow_dispatch: {}
   workflow_call: {}
 
@@ -62,7 +60,7 @@ env:
 
 jobs:
   lint:
-    name: Формат, стиль, типы
+    name: Бэкенд: стиль и типы (Ruff, Mypy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -114,7 +112,7 @@ jobs:
           /tmp/gitleaks detect --no-banner --redact --exit-code 1
 
   tests:
-    name: Суита, храповик, изоляция
+    name: Бэкенд: тесты и база данных
     runs-on: ubuntu-latest
 
     services:
@@ -214,7 +212,7 @@ jobs:
       # и выгрузка отчёта артефактом.
 
   frontend:
-    name: Фронт
+    name: Фронтенд: сборка и типы (Next.js, TS)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
