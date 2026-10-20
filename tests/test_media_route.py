@@ -12,6 +12,8 @@ from app.services.media_route import (
 def test_aliases_slow_gpt_image() -> None:
     assert canonical_media_id("gpt-image-2") == "gpt-image-2"
     assert canonical_media_id("gpt_image_2") == "gpt-image-2"
+    assert canonical_media_id("gpt-image-2-vip") == "gpt-image-2"
+    assert canonical_media_id("gpt_image_2_vip") == "gpt-image-2"
 
 
 def test_image_known_ids_route_outsee(monkeypatch) -> None:
