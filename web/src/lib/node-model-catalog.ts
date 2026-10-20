@@ -94,7 +94,9 @@ export const MEDIA_NODE_TYPES = new Set([
 export function isTextNodeType(nodeType: string): boolean {
   return !MEDIA_NODE_TYPES.has(nodeType);
 }
-export const IMAGE_MODEL_ALIASES: Record<string, string> = {};
+export const IMAGE_MODEL_ALIASES: Record<string, string> = {
+  "gpt-image-2-vip": "gpt-image-2",
+};
 export const HIDDEN_IMAGE_IDS = new Set([
   "nano-banana",
   "nano-banana-pro",
