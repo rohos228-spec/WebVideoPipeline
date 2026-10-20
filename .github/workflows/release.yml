@@ -209,6 +209,10 @@ jobs:
           printf '%s' "$GH_TOKEN" | ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" \
             -- 'docker login ghcr.io -u '"$GH_ACTOR"' --password-stdin'
 
+          # Синхронизация библиотеки мастер-промтов из репозитория на VPS
+          tar -czf - prompts/ | ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" \
+            -- "tar -xzf - -C $VPS_PATH && chmod -R a+rX $VPS_PATH/prompts"
+
           if [ "${{ github.ref_name }}" = "test" ]; then
             remote_cmd=$(printf 'cd %q && STUDIO_V2_IMAGE=%q ./deploy.sh v2' \
               "$VPS_PATH" "${IMAGE}@${DIGEST}")

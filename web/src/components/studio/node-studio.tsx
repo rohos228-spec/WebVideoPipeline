@@ -91,7 +91,7 @@ import { NodeStepParamsPanel } from "@/components/studio/node-step-params-panel"
 import { PromptFilesPanel } from "@/components/studio/prompt-files-panel";
 import { shouldShowStopBar } from "@/lib/project-running";
 
-type StudioTab = "settings" | "prompts" | "results" | "excel";
+type StudioTab = "settings" | "prompts" | "results";
 
 function slotStepCode(slot: NodePromptSlot | null, nodeStepCode: string | undefined): string | undefined {
   return slot?.stepCode ?? nodeStepCode;
@@ -204,63 +204,15 @@ export function NodeStudio({
     return resolvePromptSlots(nodeType, null);
   }, [project.data?.meta, nodeKey, nodeType, promptSlotsProp]);
 
-  const showExcel =
-    nodeTypeRequiresExcel(nodeType) ||
-    allSlots.some((s) => s.kind === "excel") ||
-    tab === "excel" ||
-    isExcelGptNode(nodeType);
-
-  const xlsxSheetsMeta = useQuery({
-    queryKey: ["xlsx-sheets", projectId, nodeKey ?? "live"],
-    queryFn: () =>
-      api.previewProjectXlsx(projectId!, {
-        maxRows: 1,
-        nodeKey: nodeKey ?? undefined,
-      }),
-    enabled: open && projectId != null && showExcel,
-  });
-
-  const focusAvailable = useMemo(() => xlsxPreviewFocusForNode(nodeType) != null, [nodeType]);
-  const xlsxParams = useMemo(
-    () => xlsxStudioPreviewParams(nodeType, { focusKeyRows: xlsxFocusKeyRows && focusAvailable }),
-    [nodeType, xlsxFocusKeyRows, focusAvailable],
-  );
-
-  const xlsxPreview = useQuery({
-    queryKey: [
-      "xlsx-preview",
-      projectId,
-      nodeKey ?? "live",
-      xlsxSheet,
-      xlsxParams.startRow,
-      xlsxParams.maxRows,
-      xlsxFocusKeyRows,
-    ],
-    queryFn: () =>
-      api.previewProjectXlsx(projectId!, {
-        sheet: xlsxSheet || undefined,
-        raw: true,
-        maxRows: xlsxParams.maxRows,
-        maxCols: xlsxParams.maxCols,
-        startRow: xlsxParams.startRow,
-        nodeKey: nodeKey ?? undefined,
-      }),
-    enabled:
-      open &&
-      projectId != null &&
-      tab === "excel" &&
-      Boolean(xlsxSheet || xlsxSheetsMeta.data?.sheets?.length),
-  });
-
   const pipelineSlots = useMemo(() => pipelinePromptSlots(allSlots), [allSlots]);
 
   useEffect(() => {
     if (!open) return;
     if (promptFocus) {
-      setTab(promptFocus.kind === "excel" ? "excel" : "prompts");
+      setTab(promptFocus.kind === "excel" ? "settings" : "prompts");
       return;
     }
-    setTab(initialTab);
+    setTab(initialTab === ("excel" as unknown) ? "settings" : initialTab);
   }, [open, initialTab, promptFocus]);
 
   useEffect(() => {
@@ -270,34 +222,8 @@ export function NodeStudio({
       return;
     }
     const firstPrompt = pipelineSlots.find((s) => s.kind !== "excel");
-    if (firstPrompt) {
-      setActiveSlotId(firstPrompt.id);
-      return;
-    }
-    const excel = pipelineSlots.find((s) => s.kind === "excel");
-    if (excel) {
-      setActiveSlotId(excel.id);
-    } else {
-      setActiveSlotId(pipelineSlots[0]?.id ?? null);
-    }
+    setActiveSlotId(firstPrompt?.id ?? pipelineSlots[0]?.id ?? null);
   }, [promptFocus, pipelineSlots, open, nodeKey]);
-
-  useEffect(() => {
-    if (!open || tab !== "excel") return;
-    const sheets = xlsxSheetsMeta.data?.sheets ?? [];
-    if (!sheets.length) return;
-    setXlsxSheet((prev) => {
-      if (prev && sheets.includes(prev)) return prev;
-      return pickDefaultSheetForNode(nodeType, sheets);
-    });
-  }, [open, tab, nodeType, xlsxSheetsMeta.data?.sheets]);
-
-  useEffect(() => {
-    if (!open) {
-      setXlsxSheet("");
-      setXlsxFocusKeyRows(false);
-    }
-  }, [open, nodeKey]);
 
   const activeSlot =
     (tab === "prompts"
@@ -743,7 +669,6 @@ export function NodeStudio({
                   ...(pipelineSlots.some((s) => s.kind !== "excel")
                     ? ([["prompts", "Промпты", FileText]] as const)
                     : []),
-                  ...(showExcel ? [["excel", "Excel", FileSpreadsheet] as const] : []),
                   ["results", "Результаты", FileText],
                 ] as const
               ).map(([id, label, Icon]) => (
@@ -798,129 +723,6 @@ export function NodeStudio({
             )}
           </header>
 
-          {tab === "excel" && projectId ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-5">
-                  <div className="flex shrink-0 flex-wrap gap-2">
-                    <Button size="sm" variant="outline" asChild>
-                      <a
-                        href={api.downloadProjectXlsx(projectId, {
-                          nodeKey: nodeKey ?? undefined,
-                        })}
-                        download
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Скачать Excel
-                      </a>
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => fileRef.current?.click()}
-                      disabled={uploadXlsx.isPending}
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      Загрузить
-                    </Button>
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept=".xlsx"
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) uploadXlsx.mutate(f);
-                        e.target.value = "";
-                      }}
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => reloadXlsx.mutate()}
-                      disabled={reloadXlsx.isPending}
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      Перечитать
-                    </Button>
-                  </div>
-                  {(xlsxSheetsMeta.data?.sheets?.length ?? 0) > 0 && (
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
-                      <select
-                        className="studio-select h-8 max-w-xs rounded-md border border-input bg-card px-2 text-xs"
-                        value={xlsxSheet || pickDefaultSheetForNode(nodeType, xlsxSheetsMeta.data?.sheets ?? [])}
-                        onChange={(e) => setXlsxSheet(e.target.value)}
-                      >
-                        {(xlsxSheetsMeta.data?.sheets ?? []).map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                      {focusAvailable ? (
-                        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <input
-                            type="checkbox"
-                            className="rounded border-white/20"
-                            checked={xlsxFocusKeyRows}
-                            onChange={(e) => setXlsxFocusKeyRows(e.target.checked)}
-                          />
-                          Только ключевые строки
-                        </label>
-                      ) : null}
-                    </div>
-                  )}
-                  {(xlsxSheetsMeta.isLoading || xlsxPreview.isLoading) && (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                    </div>
-                  )}
-                  {!xlsxSheetsMeta.isLoading && !xlsxPreview.isLoading && (
-                    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-                      {xlsxPreview.data?.xlsx_snapshot || xlsxSheetsMeta.data?.xlsx_snapshot ? (
-                        <p className="shrink-0 text-[10px] text-muted-foreground">
-                          Показан файл:{" "}
-                          <span className="font-mono text-foreground/90">
-                            {xlsxPreview.data?.xlsx_snapshot ||
-                              xlsxSheetsMeta.data?.xlsx_snapshot}
-                          </span>
-                        </p>
-                      ) : null}
-                      {xlsxParams.hint && xlsxFocusKeyRows ? (
-                        <p className="shrink-0 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100/90">
-                          {xlsxParams.hint}
-                        </p>
-                      ) : null}
-                      {xlsxPreview.data?.truncated_rows || xlsxPreview.data?.truncated_cols ? (
-                        <p className="shrink-0 rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-[11px] text-sky-100/90">
-                          Показана часть листа
-                          {xlsxPreview.data.sheet_max_row
-                            ? ` (в файле ~${xlsxPreview.data.sheet_max_row}×${xlsxPreview.data.sheet_max_col || "?"})`
-                            : ""}
-                          . Для полного файла — «Скачать Excel».
-                        </p>
-                      ) : null}
-                      {(xlsxPreview.data?.rows?.length ?? 0) > 0 ? (
-                        <StudioExcelGrid
-                          className="min-h-0 flex-1"
-                          rows={xlsxPreview.data?.rows ?? []}
-                          startRow={xlsxPreview.data?.start_row ?? xlsxParams.startRow}
-                          colLetters={xlsxPreview.data?.col_letters}
-                        />
-                      ) : (
-                        <p className="rounded-xl border border-white/10 p-4 text-xs text-muted-foreground">
-                          {nodeType === "plan"
-                            ? "Лист пуст или Excel ещё не создан — запустите шаг или загрузите project.xlsx. Переключите лист в списке выше (например «план»)."
-                            : "Таблица пуста или ещё не создана. Проверьте выбранный лист."}
-                          {nodeType === "plan" && project.data?.general_plan?.trim() ? (
-                            <span className="mt-2 block whitespace-pre-wrap text-foreground/90">
-                              Текст плана в БД: {project.data.general_plan}
-                            </span>
-                          ) : null}
-                        </p>
-                      )}
-                    </div>
-                  )}
-            </div>
-          ) : (
           <ScrollArea className="min-h-0 flex-1">
             <div className="p-5">
               {tab === "settings" && (
@@ -1047,29 +849,13 @@ export function NodeStudio({
                       onActivateVariant={(variant) => activateVariant.mutate(variant)}
                       activating={activateVariant.isPending}
                     />
-                  ) : activeSlot?.kind === "excel" ? (
-                    <div className="flex flex-col gap-3 text-sm text-muted-foreground">
-                      <p>
-                        Для этой ноды мастер-промт задаётся через{" "}
-                        <span className="font-medium text-foreground">project.xlsx</span> — откройте
-                        вкладку «Excel».
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-fit"
-                        onClick={() => setTab("excel")}
-                      >
-                        Открыть Excel
-                      </Button>
-                    </div>
                   ) : (
                     <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-sm text-muted-foreground">
                       <p>
                         Для этой ноды нет отдельных текстовых промтов на этом шаге.
                       </p>
                       <p className="text-xs text-white/50">
-                        Промпты и параметры настраиваются на предшествующих шагах или в таблице Excel.
+                        Промпты и параметры настраиваются на предшествующих шагах.
                       </p>
                     </div>
                   )}
@@ -1146,7 +932,6 @@ export function NodeStudio({
               )}
             </div>
           </ScrollArea>
-          )}
         </div>
       </aside>
     </>,
