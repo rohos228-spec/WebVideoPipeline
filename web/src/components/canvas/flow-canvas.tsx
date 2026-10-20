@@ -255,8 +255,9 @@ export function FlowCanvas({
 
   const baseNodes = useMemo(() => {
     if (!graphSource) return [];
-    return workflowToReactFlowNodes(graphSource, null);
-  }, [graphSource]);
+    const hasTopic = Boolean(project.data?.topic?.trim() || project.data?.title?.trim());
+    return workflowToReactFlowNodes(graphSource, null, { hasTopic });
+  }, [graphSource, project.data?.topic, project.data?.title]);
   const baseEdges = useMemo(() => {
     if (!graphSource) return [];
     return workflowToReactFlowEdges(graphSource);
@@ -391,6 +392,7 @@ export function FlowCanvas({
     // Не сбрасываем в pending при кратковременном отсутствии run.data (refetch/invalidate).
     if (!run.data) return;
     const projectStatus = project.data?.status;
+    const hasTopic = Boolean(project.data?.topic?.trim() || project.data?.title?.trim());
     const meta = (project.data?.meta ?? {}) as Record<string, unknown>;
     const activeExcelGptKey =
       typeof meta.active_excel_gpt_node_key === "string" ? meta.active_excel_gpt_node_key : undefined;
@@ -402,7 +404,7 @@ export function FlowCanvas({
       prev.map((n) => {
         const nr = nodeRunByKey.get(n.id);
         if (!nr) {
-          const status = inferNodeStatusFromProject(n.data.type, projectStatus);
+          const status = inferNodeStatusFromProject(n.data.type, projectStatus, { hasTopic });
           return {
             ...n,
             data: {
@@ -422,6 +424,7 @@ export function FlowCanvas({
             nodeKey: n.id,
             activeExcelGptKey,
             completedExcelGptKeys,
+            hasTopic,
           },
         );
         const progress = status === "running" ? (nr.progress ?? 0) : 0;
@@ -441,7 +444,16 @@ export function FlowCanvas({
         };
       }),
     );
-  }, [run.data, project.data?.status, project.data?.meta, setNodes, nodes.length, projectId]);
+  }, [
+    run.data,
+    project.data?.status,
+    project.data?.meta,
+    project.data?.topic,
+    project.data?.title,
+    setNodes,
+    nodes.length,
+    projectId,
+  ]);
 
   // Выделение на канвасе ← selectedNodeKey (кнопка V без клика по телу ноды).
   useEffect(() => {
@@ -485,6 +497,7 @@ export function FlowCanvas({
               completedExcelGptKeys: Array.isArray(meta.excel_gpt_completed_keys)
                 ? meta.excel_gpt_completed_keys.map(String)
                 : [],
+              hasTopic: Boolean(project.data?.topic?.trim() || project.data?.title?.trim()),
             },
           );
           return {
@@ -1765,7 +1778,8 @@ function RunOverlay({
 
 function workflowToReactFlowNodes(
   wf: WorkflowDetail,
-  run: WorkflowRunDetail | null
+  run: WorkflowRunDetail | null,
+  opts?: { hasTopic?: boolean },
 ): Node<PipelineNodeData>[] {
   const nodeRunByKey = new Map<string, NodeRunDTO>();
   if (run) {
@@ -1778,6 +1792,7 @@ function workflowToReactFlowNodes(
     const nr = nodeRunByKey.get(n.id);
     const spec = getNodeSpec(n.type);
     const data = (n.data ?? {}) as Record<string, unknown>;
+    const defaultStatus = n.type === "topic" && opts?.hasTopic ? "done" : "pending";
     return {
       id: n.id,
       type: "pipeline",
@@ -1813,7 +1828,7 @@ function workflowToReactFlowNodes(
           typeof data.aspectRatio === "string" && data.aspectRatio.trim()
             ? data.aspectRatio.trim()
             : undefined,
-        status: (nr?.status ?? "pending") as PipelineNodeData["status"],
+        status: (nr?.status ?? defaultStatus) as PipelineNodeData["status"],
         progress: nr?.progress ?? 0,
         progressText: nr?.progress_text ?? null,
         error: nr?.error ?? null,
