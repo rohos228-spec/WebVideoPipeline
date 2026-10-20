@@ -12,7 +12,7 @@
 # Идёт на КАЖДЫЙ push без исключений по путям — включая main, ради чего
 # workflow и заведён. `pull_request` не нужен: push уже покрывает и ветки, и
 # main, а второй триггер дал бы ровно тот дубль, от которого ушёл `ci.yml`.
-name: Политика
+name: Политика кода
 
 on:
   push:
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   policy:
-    name: Политика и долг
+    name: Проверка стандартов
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
