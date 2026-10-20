@@ -162,6 +162,8 @@ jobs:
       url: ${{ vars.STUDIO_URL }}
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Ключ SSH
         # Ключ отдельный, только под деплой, и лучше с ограничением команды в
         # authorized_keys (`command="…deploy.sh"`). Секреты и переменные:
