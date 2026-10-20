@@ -61,9 +61,9 @@ export function StudioWorkspace({
     nodeKey: string;
     nodeType: string;
     promptFocus: NodePromptSlot | null;
-    tab: "settings" | "prompts" | "results" | "excel";
+    tab: "settings" | "prompts" | "results";
   } | null>(null);
-  const [studioTab, setStudioTab] = useState<"settings" | "prompts" | "results" | "excel">(
+  const [studioTab, setStudioTab] = useState<"settings" | "prompts" | "results">(
     "settings",
   );
   const [vMenuNodeKey, setVMenuNodeKey] = useState<string | null>(null);
@@ -132,15 +132,13 @@ export function StudioWorkspace({
       nodeKey: string,
       nodeType: string,
       slot: NodePromptSlot | null,
-      tab: "settings" | "prompts" | "results" | "excel" = "prompts",
+      tab: "settings" | "prompts" | "results" = "prompts",
     ) => {
       suppressStudioOpenUntil.current = 0;
       const resolvedTab =
-        slot?.kind === "excel" && isExcelGptNode(nodeType)
+        slot?.kind === "excel"
           ? "settings"
-          : slot?.kind === "excel"
-            ? "excel"
-            : tab;
+          : tab;
       let focus = slot;
       if (!focus) {
         const slots = resolvePromptSlots(nodeType, null);
@@ -151,11 +149,9 @@ export function StudioWorkspace({
           null;
       }
       const focusTab =
-        slot?.kind === "excel" && isExcelGptNode(nodeType)
+        focus?.kind === "excel"
           ? "settings"
-          : focus?.kind === "excel"
-            ? "excel"
-            : resolvedTab;
+          : resolvedTab;
       setStudioTarget({
         nodeKey,
         nodeType,
@@ -373,12 +369,7 @@ export function StudioWorkspace({
         openStudioForNode(nodeKey, nodeType, slot, "prompts");
       },
       onViewAllPrompts: (nodeKey: string, nodeType: string) => {
-        if (nodeType === "images") {
-          const excel = getPromptSlots(nodeKey, nodeType).find((s) => s.kind === "excel");
-          openStudioForNode(nodeKey, nodeType, excel ?? null, "excel");
-        } else {
-          openStudioForNode(nodeKey, nodeType, null, "prompts");
-        }
+        openStudioForNode(nodeKey, nodeType, null, "prompts");
       },
       onAddPrompt: async (nodeKey: string, nodeType: string) => {
         const meta = (project.data?.meta || {}) as {

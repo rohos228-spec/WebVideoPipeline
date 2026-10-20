@@ -42,19 +42,15 @@ const BASE: Record<string, NodePromptSlot[]> = {
   topic: [],
   shot_menu: [],
   plan: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "plan" },
     { id: "main", title: "Промт сценария", kind: "gpt", stepCode: "plan" },
   ],
   script: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "script" },
     { id: "main", title: "Промт закадрового текста", kind: "gpt", stepCode: "script" },
   ],
   split: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "split" },
     { id: "main", title: "Промт разбивки", kind: "gpt", stepCode: "split" },
   ],
   sd_agent: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "scene_d" },
     {
       id: "main",
       title: "Промт агента",
@@ -64,7 +60,6 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   sd_assemble: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "scene_asm" },
     {
       id: "main",
       title: "Промт сборщика",
@@ -82,7 +77,6 @@ const BASE: Record<string, NodePromptSlot[]> = {
     { id: "main", title: "Промт предмета", kind: "gpt", stepCode: "items" },
   ],
   excel_gpt: [
-    { id: "excel", title: "Excel", kind: "excel", stepCode: "excel_gpt" },
     { id: "main", title: "Промты", kind: "gpt", stepCode: "excel_gpt" },
   ],
   image_prompts: [
@@ -153,12 +147,8 @@ const BASE: Record<string, NodePromptSlot[]> = {
   sfx_plan: [],
   sfx_gen: [],
   sfx: [],
-  assemble: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "assemble" },
-  ],
-  publish: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "publish" },
-  ],
+  assemble: [],
+  publish: [],
 };
 
 const SD_AGENT_KEY_RE = /_sd_(characters|world|style|camera|action)$/;
@@ -177,16 +167,11 @@ export function defaultPromptSlots(nodeType: string): NodePromptSlot[] {
   if (isHitlNodeType(nodeType) || nodeType === "shot_menu") return [];
   const base = BASE[nodeType];
   if (base?.length) return base;
-  if (nodeTypeRequiresExcel(nodeType)) {
-    return [excelSlotForNodeType(nodeType), { id: "main", title: "Настройки ноды", kind: "gpt" }];
-  }
   return [{ id: "main", title: "Настройки ноды", kind: "gpt" }];
 }
 
-export function nodeTypeRequiresExcel(nodeType: string): boolean {
-  if (!nodeType || isHitlNodeType(nodeType)) return false;
-  if (NO_EXCEL_NODE_TYPES.has(nodeType)) return false;
-  return nodeType in NODE_CATALOG;
+export function nodeTypeRequiresExcel(_nodeType: string): boolean {
+  return false;
 }
 
 export function excelSlotForNodeType(nodeType: string): NodePromptSlot {
