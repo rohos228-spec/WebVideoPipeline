@@ -18,6 +18,8 @@ const NODE_RUNNING_STATUS: Record<string, ProjectStatus> = {
   videos: "generating_videos",
   audio: "generating_audio",
   music: "generating_music",
+  sfx_plan: "sfx_planning" as ProjectStatus,
+  sfx_gen: "generating_sfx" as ProjectStatus,
   assemble: "assembling",
   publish: "publishing",
 };
@@ -35,12 +37,15 @@ const NODE_READY_STATUS: Record<string, ProjectStatus> = {
   videos: "videos_ready",
   audio: "audio_ready",
   music: "music_ready",
+  sfx_plan: "sfx_plan_ready" as ProjectStatus,
+  sfx_gen: "sfx_ready" as ProjectStatus,
   assemble: "assembled",
   publish: "published",
 };
 
 /** Порядок цепочки шагов для «Project уже дальше» → badge done. */
 const FULL_PIPELINE_ORDER: string[] = [
+  "topic",
   "plan",
   "script",
   "split",
@@ -53,6 +58,8 @@ const FULL_PIPELINE_ORDER: string[] = [
   "videos",
   "audio",
   "music",
+  "sfx_plan",
+  "sfx_gen",
   "assemble",
   "publish",
 ];
@@ -70,6 +77,9 @@ function projectImpliesNodeDone(
   projectStatus: ProjectStatus | undefined,
 ): boolean {
   if (!projectStatus) return false;
+  if (nodeType === "topic" && projectStatus !== "new") {
+    return true;
+  }
   const ready = NODE_READY_STATUS[nodeType];
   if (ready && projectStatus === ready) return true;
 
@@ -78,7 +88,7 @@ function projectImpliesNodeDone(
   if (
     (typeof projectStatus === "string" &&
       (projectStatus.startsWith("enriching_") || projectStatus.startsWith("enrich_"))) &&
-    (nodeType === "plan" || nodeType === "script" || nodeType === "split")
+    (nodeType === "topic" || nodeType === "plan" || nodeType === "script" || nodeType === "split")
   ) {
     return true;
   }
@@ -119,9 +129,16 @@ export function reconcileNodeRunStatus(
     nodeKey?: string;
     activeExcelGptKey?: string;
     completedExcelGptKeys?: string[];
+    hasTopic?: boolean;
   },
 ): NodeRunStatus {
   const ps = projectStatus as ProjectStatus | undefined;
+  if (nodeType === "topic") {
+    if (opts?.hasTopic || (ps && ps !== "new") || projectImpliesNodeDone("topic", ps)) {
+      return "done";
+    }
+    return runStatus;
+  }
   const nodeKey = opts?.nodeKey;
   if (nodeType === "excel_gpt" && typeof ps === "string" && ps.startsWith("enriching_") && nodeKey) {
     if ((opts?.completedExcelGptKeys || []).includes(nodeKey)) {
@@ -154,8 +171,17 @@ export function reconcileNodeRunStatus(
 export function inferNodeStatusFromProject(
   nodeType: string,
   projectStatus?: ProjectStatus | unknown,
+  opts?: {
+    hasTopic?: boolean;
+  },
 ): NodeRunStatus {
   const ps = projectStatus as ProjectStatus | undefined;
+  if (nodeType === "topic") {
+    if (opts?.hasTopic || (ps && ps !== "new") || projectImpliesNodeDone("topic", ps)) {
+      return "done";
+    }
+    return "pending";
+  }
   if (projectImpliesNodeRunning(nodeType, ps)) return "running";
   if (projectImpliesNodeDone(nodeType, ps)) return "done";
   return "pending";
