@@ -36,7 +36,7 @@ on:
   # Ветка без открытого PR на сервере не проверяется намеренно: в main
   # изменение попадает только через PR, а до того держит локальный gauntlet
   # (`.githooks/pre-push`).
-  pull_request:
+  pull_request: {}
   workflow_dispatch: {}
   workflow_call: {}
 
@@ -60,7 +60,7 @@ env:
 
 jobs:
   lint:
-    name: Бэкенд: стиль и типы (Ruff, Mypy)
+    name: "Бэкенд: стиль и типы (Ruff, Mypy)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -112,7 +112,7 @@ jobs:
           /tmp/gitleaks detect --no-banner --redact --exit-code 1
 
   tests:
-    name: Бэкенд: тесты и база данных
+    name: "Бэкенд: тесты и база данных"
     runs-on: ubuntu-latest
 
     services:
@@ -212,7 +212,7 @@ jobs:
       # и выгрузка отчёта артефактом.
 
   frontend:
-    name: Фронтенд: сборка и типы (Next.js, TS)
+    name: "Фронтенд: сборка и типы (Next.js, TS)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
