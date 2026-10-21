@@ -16,6 +16,11 @@
   3. После завершения фазы A — для каждой сцены с shot_02 генерит
      ``frame_NNN_s2_<uuid>.png`` с референсом = PNG первого кадра той же колонки.
 
+  Если кадры уже разрезаны по кускам закадра (дети покрытия / группа
+  script_frames_qc) — legacy-колонки shot_02 нет: один кадр = один кусок VO =
+  одна картинка. В фазу B тогда идут только конечные still раскладки
+  СТАРТ/КОНЕЦ (freeze).
+
   HITL-карточки шлются, но воркер не ждёт approve между кадрами.
 """
 
@@ -208,7 +213,7 @@ def normalize_ref_id(token: str) -> str | None:
 
 
 def ref_id_file_aliases(ref_id: str) -> list[str]:
-    """Варианты имён файлов: i01 ↔ predmet1 (новый/старый лист «Предметы»)."""
+    """Варианты имён файлов: i01 ↔ predmet1; c02 ↔ кириллица «с02»."""
     rid = normalize_ref_id(ref_id)
     if not rid:
         return []
@@ -218,6 +223,9 @@ def ref_id_file_aliases(ref_id: str) -> list[str]:
     elif rid.startswith("predmet") and rid[7:].isdigit():
         n = int(rid[7:])
         aliases.append(f"i{n:02d}")
+    # Explorer/Windows часто сохраняет c02.png как «с02.png» (U+0441).
+    if rid.startswith("c") and rid[1:].isdigit():
+        aliases.append("с" + rid[1:])
     return list(dict.fromkeys(aliases))
 
 
@@ -360,7 +368,11 @@ def _hero_legacy_ref(project_data_dir: Path, persons_id: str) -> Path | None:
     if not chars_dir.is_dir():
         return None
     candidates = sorted(
-        chars_dir.glob(f"hero_{idx}_v1_*.png"),
+        [
+            p
+            for p in chars_dir.glob(f"hero_{idx}_v1_*")
+            if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+        ],
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -585,6 +597,73 @@ async def _load_refs_for_frame(
     return refs[: _max_refs()]
 
 
+def frame_hidden_from_paid_generation(fr: Frame) -> bool:
+    """Скрытый кадр (удалён / карантин / активен=нет) не ставим в платную очередь.
+
+    Перенос с линии int/chat-v1 (25835a70, 7701ab9f). Матрица флагов живёт в
+    ``app.orchestrator.validators.activity_flags``; пока модуль не перенесён в
+    эту линию — тот же смысл по базовым ключам attrs, без зависимостей.
+    """
+    attrs = getattr(fr, "attrs", None) or {}
+    if not isinstance(attrs, dict):
+        return False
+    try:
+        from app.orchestrator.validators.activity_flags import frame_is_active
+    except ImportError:
+        return _frame_hidden_fallback(attrs)
+    return not frame_is_active(attrs)
+
+
+_HIDE_TRUE = frozenset({"1", "true", "да", "yes", "on", "истина"})
+_ACTIVE_FALSE = frozenset({"0", "0.0", "false", "нет", "no", "off", "ложь"})
+
+
+def _frame_hidden_fallback(attrs: dict) -> bool:
+    """Упрощённая матрица activity_flags: «удалён»/«карантин» — скрыт, «активен»=нет — скрыт."""
+
+    def _truthy(v: object) -> bool:
+        if v is None or v is False:
+            return False
+        if isinstance(v, str):
+            return v.strip().casefold() in _HIDE_TRUE
+        return bool(v)
+
+    for mark in ("удалён", "карантин"):
+        if _truthy(attrs.get(mark)):
+            return True
+    active = attrs.get("активен")
+    if active is False or (not isinstance(active, bool) and active == 0):
+        return True
+    return isinstance(active, str) and active.strip().casefold() in _ACTIVE_FALSE
+
+
+def _frame_rejected_by_human(fr: Frame) -> bool:
+    """Кадр, отвергнутый человеком, не возвращается в очередь (int/chat-v1 db838366)."""
+    attrs = getattr(fr, "attrs", None) or {}
+    return isinstance(attrs, dict) and bool(attrs.get("rejected_by_human"))
+
+
+def _hollow_prompt_frames(frames: list[Frame]) -> list[int]:
+    """Кадры-VO-родители с «пустым» промтом-заглушкой (int/chat-v1 30921a90).
+
+    Хелпер ``is_scene_prompt_hollow`` переносится вместе с generate_image_prompts;
+    пока его нет в ``app.generation_options`` — проверка не включается.
+    """
+    from app import generation_options as _go
+    from app.services.vo_shot_expand import is_shot_child
+
+    is_hollow = getattr(_go, "is_scene_prompt_hollow", None)
+    if is_hollow is None:
+        return []
+    return [
+        fr.number
+        for fr in frames
+        if not is_shot_child(fr)
+        and not frame_hidden_from_paid_generation(fr)
+        and is_hollow(fr.image_prompt or "")
+    ]
+
+
 async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.generating_images:
         return
@@ -628,6 +707,17 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         # Не отправляем оператора искать несуществующее.
         raise RuntimeError("нет кадров в БД — сначала шаг «Разбивка на блоки» (split).")
 
+    # Платная генерация не стартует на промтах-заглушках «нет исходных данных».
+    if not getattr(settings, "images_allow_hollow_prompts", False):
+        hollow = _hollow_prompt_frames(frames)
+        if hollow:
+            raise RuntimeError(
+                f"промты картинок пустые у {len(hollow)} кадров ({hollow[:12]}): поля сцены "
+                "заполнены заглушкой «нет исходных данных». Платная генерация не запускается. "
+                "Заполните сцены шагом «Работа с GPT» или задайте IMAGES_ALLOW_HOLLOW_PROMPTS=true, "
+                "если так и задумано."
+            )
+
     missing_prompts = [fr.number for fr in frames if is_skippable_empty_prompt(fr.image_prompt or "")]
 
     if missing_prompts:
@@ -662,6 +752,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     # Иначе failed-навсегда выпадает из фильтра и очередь пуста при живых missing.
     retried = 0
     for fr in frames:
+        # Скрытый или отвергнутый человеком кадр не воскрешаем в платную очередь.
+        if frame_hidden_from_paid_generation(fr) or _frame_rejected_by_human(fr):
+            continue
         if (
             fr.status is FrameStatus.failed
             and (fr.image_prompt or "").strip()
@@ -688,6 +781,8 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
 
     queued = 0
     for fr in frames:
+        if frame_hidden_from_paid_generation(fr):
+            continue
         if disk_has_valid_frame_image(out_dir, fr.number):
             current_hash = _frame_image_input_hash(fr)
             stored_hash = (fr.attrs or {}).get("img_input_hash")
@@ -888,6 +983,12 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                                     project.id,
                                 )
                                 break
+                            if _skip_legacy_shot2(project, frames):
+                                logger.info(
+                                    "[#{}] generate_images: shot_02 пропущен — каждый кадр = свой кусок закадра",
+                                    project.id,
+                                )
+                                break
                             xlsx_path = project.data_dir / "project.xlsx"
                             shot2_queued = await _init_shot2_queue(
                                 session, project, frames, out_dir, xlsx_path
@@ -934,8 +1035,16 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                                 project.id,
                                 pending[:8],
                             )
+                            if _skip_legacy_shot2(project, frames):
+                                break
                             phase = "shot2"
                             continue
+                    elif _skip_legacy_shot2(project, frames):
+                        logger.info(
+                            "[#{}] generate_images: shot1 пуст, shot_02 нет — завершаю",
+                            project.id,
+                        )
+                        break
 
                     # phase == "shot2"
                     batch2 = await _claim_shot2_batch(session, project.id, project=project, limit=streams)
@@ -1200,6 +1309,9 @@ async def _claim_shot1_batch(
                     continue
             if not frame_needs_shot1_image(fr, out_dir):
                 continue
+            # Скрытый кадр с уже выставленным image_prompt_ready не захватываем.
+            if frame_hidden_from_paid_generation(fr):
+                continue
             child = is_shot_child(fr)
             if child != prefer_child:
                 continue
@@ -1276,6 +1388,8 @@ async def _claim_shot2_batch(
         if attrs.get(SHOT2_STATUS_ATTR) != "image_prompt_ready":
             continue
         if is_skippable_empty_prompt(attrs.get(SHOT2_PROMPT_ATTR) or ""):
+            continue
+        if frame_hidden_from_paid_generation(fr):
             continue
         # Этап 2 (D.3): захват — lease в _generate_frame_job.
         claimed.append(fr)
@@ -1510,6 +1624,20 @@ async def _all_frames_have_image_or_failed(
     return True
 
 
+def _skip_legacy_shot2(project: Project | None, frames: list[Frame]) -> bool:
+    """True — не генерить legacy shot2-колонку: каждый кадр уже свой кусок закадра.
+
+    Перенос с int/chat-v1 (57b8810f). Freeze СТАРТ/КОНЕЦ при этом идёт через
+    ``_queue_freeze_end_stills`` (ab1028f6).
+    """
+    from app.services.node_groups import canvas_has_script_frames_qc
+    from app.services.vo_shot_expand import is_shot_child
+
+    if project is not None and canvas_has_script_frames_qc(project):
+        return True
+    return any(is_shot_child(fr) for fr in frames)
+
+
 async def _init_shot2_queue(
     session: AsyncSession,
     project: Project,
@@ -1517,7 +1645,13 @@ async def _init_shot2_queue(
     out_dir: Path,
     xlsx_path: Path,
 ) -> int:
-    """Подготовить очередь shot_02 из xlsx → ``frame.attrs``."""
+    """Подготовить очередь shot_02 из xlsx → ``frame.attrs``.
+
+    Кадры разрезаны по кускам VO — legacy-колонку не читаем, в очередь
+    только конечные still раскладки СТАРТ/КОНЕЦ.
+    """
+    if _skip_legacy_shot2(project, frames):
+        return await _queue_freeze_end_stills(session, frames, out_dir)
     by_num = read_shot2_columns(xlsx_path)
     queued = 0
     for fr in frames:
@@ -1536,6 +1670,50 @@ async def _init_shot2_queue(
             attrs[SHOT2_STATUS_ATTR] = "image_prompt_ready"
             queued += 1
         fr.attrs = attrs
+    await session.flush()
+    return queued
+
+
+async def _queue_freeze_end_stills(
+    session: AsyncSession,
+    frames: list[Frame],
+    out_dir: Path,
+) -> int:
+    """При skip_legacy: конечный still раскладки СТАРТ/КОНЕЦ всё равно в очередь.
+
+    Перенос с int/chat-v1 (ab1028f6). Модуль ``app.services.freeze_stills``
+    в этой линии пока не перенесён — без него конечных still нет (0 в очереди),
+    как и было в новой линии.
+    """
+    try:
+        from app.services.freeze_stills import (  # type: ignore[import-not-found]
+            frame_needs_end_still,
+            seed_end_still_prompt,
+        )
+    except ImportError:
+        logger.debug("freeze_stills не перенесён — конечные still СТАРТ/КОНЕЦ не ставятся")
+        return 0
+
+    queued = 0
+    for fr in frames:
+        if frame_hidden_from_paid_generation(fr):
+            continue
+        seed_end_still_prompt(fr)
+        if not frame_needs_end_still(fr):
+            continue
+        attrs = dict(fr.attrs or {})
+        if str(attrs.get(SHOT2_STATUS_ATTR) or "") == "skipped":
+            attrs[SHOT2_STATUS_ATTR] = "image_prompt_ready"
+        prompt = str(attrs.get(SHOT2_PROMPT_ATTR) or "").strip()
+        if is_skippable_empty_prompt(prompt):
+            continue
+        if disk_has_shot2_image(out_dir, fr.number):
+            attrs[SHOT2_STATUS_ATTR] = "image_generated"
+            fr.attrs = attrs
+            continue
+        attrs[SHOT2_STATUS_ATTR] = "image_prompt_ready"
+        fr.attrs = attrs
+        queued += 1
     await session.flush()
     return queued
 
@@ -1634,6 +1812,45 @@ async def _apply_pending_regens(session: AsyncSession, project_id: int) -> None:
     await session.flush()
 
 
+async def _with_donor_style_lock(
+    session: AsyncSession,
+    project: Project,
+    frame: Frame,
+    prompt_text: str,
+) -> str:
+    """VO-родитель без STYLE-lock берёт стиль с донора (int/chat-v1 36740537).
+
+    Дети K2/K3 (uses_parent_still) стиль берут с PNG родителя — не трогаем.
+    ``ensure_style_lock`` пока не перенесён в ``app.services.img_pr_style``
+    этой линии — тогда промт уходит как есть (поведение новой линии).
+    """
+    from app.services import img_pr_style as _style
+    from app.services.vo_shot_expand import uses_parent_still
+
+    ensure_style_lock = getattr(_style, "ensure_style_lock", None)
+    if ensure_style_lock is None or uses_parent_still(frame):
+        return prompt_text
+    siblings = list(
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+        .scalars()
+        .all()
+    )
+    return ensure_style_lock(prompt_text, siblings, frame)
+
+
+def _frame_card_with_substitution(attrs: dict | None, line: str) -> dict:
+    """Пометка подмены модели на карточке кадра (int/chat-v1 b6339e29)."""
+    try:
+        from app.services.model_substitution import (  # type: ignore[import-not-found]
+            frame_card_with_substitution,
+        )
+    except ImportError:
+        out = dict(attrs or {})
+        out["подмена_модели"] = line
+        return out
+    return frame_card_with_substitution(attrs, line)
+
+
 async def _generate_and_send(
     session: AsyncSession,
     bot: Any,
@@ -1666,6 +1883,8 @@ async def _generate_and_send(
             frame.attrs = attrs
         await session.flush()
         return
+    if not is_shot2:
+        prompt_text = await _with_donor_style_lock(session, project, frame, prompt_text)
     # Проверяем последний HITL: если последнее решение было regenerate —
     # используем кнопку «Повторить» (без перезаполнения промта); иначе —
     # обычная генерация с текущим image_prompt.
@@ -1937,6 +2156,7 @@ async def _generate_and_send(
         await session.commit()
         return
 
+    sub_line = getattr(result, "model_substitution", None)
     art = Artifact(
         project_id=project.id,
         frame_id=frame.id,
@@ -1947,6 +2167,8 @@ async def _generate_and_send(
             "gen_id": gen_id,
             "raw_url": result.raw_url or "",
             "shot": shot,
+            # gpt-image-2 → nano-banana-2 по модерации: подмену видно в Artifact.
+            **({"model_substitution": str(sub_line)} if sub_line else {}),
         },
     )
     session.add(art)
@@ -1963,6 +2185,8 @@ async def _generate_and_send(
             attrs = dict(frame.attrs or {})
             attrs["img_input_hash"] = gen_hash
             frame.attrs = attrs
+    if sub_line:
+        frame.attrs = _frame_card_with_substitution(frame.attrs, str(sub_line))
     await session.flush()
 
     try:

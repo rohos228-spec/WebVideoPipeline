@@ -886,8 +886,12 @@ async def _load_img_pr_context(
             continue
         if not _is_real_shot(fr):
             continue
-        # Уже заполненные пропускаем (resume / soft retry).
-        if (fr.image_prompt or "").strip():
+        # Уже заполненные пропускаем (resume / soft retry); промт из одних
+        # заглушек — не заполненный (перенос 144b05d7 из int/chat-v1, то же
+        # правило, что в шаге img_pr).
+        from app.orchestrator.steps.generate_image_prompts import _image_prompt_missing
+
+        if not _image_prompt_missing(fr.image_prompt):
             continue
         selected.append(fr)
     return selected, cards, general_plan, frames

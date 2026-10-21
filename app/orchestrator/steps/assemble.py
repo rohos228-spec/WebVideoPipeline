@@ -164,9 +164,14 @@ async def _run_assemble(session: AsyncSession, project: Project, bot: Any = None
     if not frames_all:
         raise RuntimeError("нет кадров — положите clip_*/frame_* в videos/scenes или project.xlsx")
 
+    from app.orchestrator.steps.generate_images import frame_hidden_from_paid_generation
+
     frames: list[Frame] = []
     skipped_no_video: list[int] = []
     for fr in frames_all:
+        # Скрытый кадр не идёт в сборку (наша линия 25835a70, R0a #352 п.8).
+        if frame_hidden_from_paid_generation(fr):
+            continue
         p1 = await _scene_video_path(session, project, fr, shot=1)
         p2 = await _scene_video_path(session, project, fr, shot=2)
         if p1 is not None or p2 is not None:

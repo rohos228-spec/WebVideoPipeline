@@ -699,7 +699,23 @@ async def _prepare_node_run_for_status(
         meta = dict(project.meta) if isinstance(project.meta, dict) else {}
         node_key = str(meta.get("active_excel_gpt_node_key") or "").strip() or None
         # Stale active: уже done → иначе снова крутим ноду ДО hero.
+        # НО: ▶ overflow (slot 0) живёт в enriching_1. Если шаг уже running
+        # с этим active_key, re-resolve(slot=1) стартует чужую линейную ноду
+        # параллельно, а выбранная через секунду heal'ится в done (#63).
+        already_running = project.status is running_status
         if node_key and node_key in completed_node_keys(project):
+            if already_running:
+                # Leftover worker tick после успеха: ключ уже в
+                # completed_keys, статус ещё enriching_N. Раньше pop
+                # completed_keys + allow_restart заново гнал GPT.
+                logger.info(
+                    "auto_advance: #{} keep active_excel_gpt_node_key={} "
+                    "(already {}, still in completed_keys — no restart)",
+                    project.id,
+                    node_key,
+                    running_status.value,
+                )
+                return False
             logger.warning(
                 "auto_advance: #{} stale active_excel_gpt_node_key={} (already completed) — re-resolve",
                 project.id,
@@ -721,6 +737,29 @@ async def _prepare_node_run_for_status(
                     slot,
                     node_key,
                 )
+        if node_key:
+            # scene-агент (sd_agent: world/style/…) — это шаги scene_d/scene_asm,
+            # его нельзя гнать как обычную excel_gpt.
+            from app.services.canvas_graph import canvas_graph_from_meta
+            from app.services.excel_gpt_node import sd_agent_marker
+
+            _cg = canvas_graph_from_meta(project.meta if isinstance(project.meta, dict) else {}) or {}
+            _node = next(
+                (
+                    n
+                    for n in (_cg.get("nodes") or [])
+                    if isinstance(n, dict) and str(n.get("id") or "").strip() == node_key
+                ),
+                None,
+            )
+            if _node is not None and sd_agent_marker(_node):
+                logger.warning(
+                    "auto_advance: #{} slot={} active/resolve sd_agent {} — не запускаем как excel_gpt",
+                    project.id,
+                    slot,
+                    node_key,
+                )
+                return False
     else:
         node_type = RUNNING_TO_NODE_TYPE.get(running_status)
         if node_type is not None:

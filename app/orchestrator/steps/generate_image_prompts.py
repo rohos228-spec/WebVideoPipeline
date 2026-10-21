@@ -14,9 +14,33 @@ from app.services.step_cancel import StepCancelledError, raise_if_cancelled
 from app.services.xlsx_step_runners import _is_real_shot  # единый отбор, не дублировать
 from app.storage import for_project as _sheet_for_project
 
+# Перенос из int/chat-v1 (8d1fa5c0, 144b05d7): промт, собранный из одних
+# заглушек «нет исходных данных для заполнения», считается отсутствующим.
+# Шаг картинок такой промт не примет, а img_pr без этого правила повторным
+# запуском сразу выходил «уже в БД» — тупик для пользователя.
+_HOLLOW_PLACEHOLDER = "нет исходных данных для заполнения"
+
+
+def _is_scene_prompt_hollow(prompt: str, *, min_placeholders: int = 3) -> bool:
+    try:
+        from app.generation_options import is_scene_prompt_hollow
+    except ImportError:
+        return (prompt or "").lower().count(_HOLLOW_PLACEHOLDER) >= min_placeholders
+    return is_scene_prompt_hollow(prompt, min_placeholders=min_placeholders)
+
+
+def _image_prompt_missing(prompt: str | None) -> bool:
+    """Промта нет: пусто или одни заглушки (если заглушки не разрешены настройкой)."""
+    from app.settings import settings
+
+    text = (prompt or "").strip()
+    if not text:
+        return True
+    return not getattr(settings, "images_allow_hollow_prompts", False) and _is_scene_prompt_hollow(text)
+
 
 def _frames_needing_image_prompt(frames: list[Frame]) -> list[Frame]:
-    return [fr for fr in frames if _is_real_shot(fr) and not (fr.image_prompt or "").strip()]
+    return [fr for fr in frames if _is_real_shot(fr) and _image_prompt_missing(fr.image_prompt)]
 
 
 _STAGING_ATTRS = (

@@ -110,6 +110,14 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         meta = dict(project.meta or {})
         meta["split_degraded_no_llm"] = True
         project.meta = meta
+    # Перенос из int/chat-v1 (30921a90): ответ разбивки, не прошедший
+    # предпроверку, не пишем в кадры. getattr — в новой линии раннер пока
+    # не выставляет split_verified, тогда проверка молчит.
+    if getattr(result, "split_verified", None) is False:
+        raise RuntimeError(
+            "split_frames: ответ разбивки не прошёл предпроверку "
+            f"(источник={getattr(result, 'split_source', None)}); кадры не записаны"
+        )
     ops = list(result.apply_ops or [])
     if not ops and result.frames_spec:
         ops = [{"target": "replace_frames", "frames": result.frames_spec}]

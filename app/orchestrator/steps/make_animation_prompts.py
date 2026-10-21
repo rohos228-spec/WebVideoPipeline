@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Frame, FrameStatus, Project, ProjectStatus
 from app.services import animation_prompt_gpt as apg
 from app.services import db_apply, db_v2
-from app.services.animation_prompt_local import build_local_ops_for_missing
+from app.services.animation_prompt_local import build_local_ops_for_missing, project_aspect_slug
 from app.services.chatgpt_xlsx import tmp_gpt_dir, write_anim_pr_prompt_file
 from app.services.gpt_api import GptApiError
 from app.services.gpt_client import get_gpt_client
@@ -110,7 +110,7 @@ async def _fill_remaining_local(
     sheet,
 ) -> int:
     """Добить пустые shot_01 промты локальным Veo-composer (без GPT)."""
-    ops = build_local_ops_for_missing(frames, shot=1)
+    ops = build_local_ops_for_missing(frames, shot=1, aspect=project_aspect_slug(project))
     if not ops:
         return 0
     logger.warning(
