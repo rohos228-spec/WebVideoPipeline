@@ -3211,7 +3211,7 @@ async def _chat_unscoped(
         except GptApiError as e:
             provider_breaker.note_failure(
                 breaker_key,
-                status=int(e.context.get("status_code") or e.context.get("provider_code") or 0) or None,
+                status=_safe_int(e.context.get("status_code") or e.context.get("provider_code")) or None,
                 error_kind=str(e.context.get("error_kind") or ""),
                 retry_after=e.context.get("retry_after_s"),
             )
@@ -3222,8 +3222,8 @@ async def _chat_unscoped(
             if (
                 responses_mode
                 and (
-                    int(e.context.get("provider_code") or 0) == 500
-                    or int(e.context.get("status_code") or 0) == 500
+                    _safe_int(e.context.get("provider_code")) == 500
+                    or _safe_int(e.context.get("status_code")) == 500
                     or "server exception" in str(e).lower()
                 )
                 and _drop_input_file_parts(body)
@@ -3247,11 +3247,18 @@ async def _chat_unscoped(
     raise last_exc or GptApiError("GPT: неизвестная ошибка", context={"model": use_model})
 
 
+def _safe_int(val: Any, default: int = 0) -> int:
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def is_pdf_provider_failure(exc: BaseException) -> bool:
     """kie 500 Server exception / timeout на большом PDF — имеет смысл chunked retry."""
     if isinstance(exc, GptApiError):
         kind = str(exc.context.get("error_kind") or "")
-        code = int(exc.context.get("provider_code") or exc.context.get("status_code") or 0)
+        code = _safe_int(exc.context.get("provider_code") or exc.context.get("status_code"))
         if kind == "timeout" or code >= 500:
             return True
     msg = str(exc).lower()
