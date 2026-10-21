@@ -1130,6 +1130,8 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
     cfg = operator_config(project, node_key)
     role: OperatorRole = cfg["role"]
     output_mode: OutputMode = cfg["outputMode"]
+    check_mode = bool(cfg.get("checkMode"))
+    db_sot = output_mode == "project_file" and not check_mode
     emit_kinds: list[EmitKind] = list(cfg.get("emitKinds") or [])
     use_snapshot = bool(cfg.get("useSnapshot"))
     take_from_edges = bool(cfg.get("takeFromEdges", True))
@@ -1172,10 +1174,19 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
                 limit=edge_limit,
             )
             if not paths:
-                msg = f"у ноды {src} нет файлов на диске (вход со стрелки)"
-                summary["ok"] = False
-                summary["errors"].append(msg)
-                errors.append(msg)
+                src_typ = _node_type_map(project).get(src, "")
+                if db_sot and src_typ in ("split", "plan"):
+                    summary["ok"] = True
+                    summary["fileCount"] = 0
+                    summary["takesFiles"] = False
+                    warnings.append(
+                        f"узел {src}: данные в базе кадров (DB SoT), на диске xlsx не требуется"
+                    )
+                else:
+                    msg = f"у ноды {src} нет файлов на диске (вход со стрелки)"
+                    summary["ok"] = False
+                    summary["errors"].append(msg)
+                    errors.append(msg)
             for p in paths:
                 probe = _file_probe(
                     p,

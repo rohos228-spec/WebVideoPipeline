@@ -310,3 +310,38 @@ def test_resolve_hydrates_assist_reply_from_disk(tmp_path: Path, monkeypatch) ->
     assert last.get("replyPreview")
     assert "frame_uuid" in str(last.get("replyPreview"))
     assert any(str(p).endswith("gpt_reply.txt") for p in (last.get("outputPaths") or []))
+
+
+def test_incoming_split_edge_db_sot_no_xlsx_error(tmp_path: Path, monkeypatch) -> None:
+    """В режиме DB SoT (project_file) стрелка от split без project.xlsx на диске не ошибка."""
+    p = _project(tmp_path, monkeypatch)
+    split_node = "n_split"
+    gpt = "n_excel_gpt_1"
+    p.meta = {
+        "canvas_graph": {
+            "nodes": [
+                {"id": split_node, "type": "split", "position": {"x": 0, "y": 0}},
+                {"id": gpt, "type": "excel_gpt", "position": {"x": 200, "y": 0}},
+            ],
+            "edges": [
+                {
+                    "id": "e1",
+                    "source": split_node,
+                    "target": gpt,
+                    "data": {"kind": "after"},
+                }
+            ],
+        },
+        "excel_gpt_nodes": {
+            gpt: {
+                "role": "assist",
+                "outputMode": "project_file",
+                "transport": "api",
+                "takeFromEdges": True,
+            }
+        },
+    }
+    res = resolve_operator(p, gpt)
+    assert res["canRun"] is True
+    assert res["consistent"] is True
+    assert not any("нет файлов на диске" in err for err in res["errors"])
