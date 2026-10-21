@@ -309,8 +309,42 @@ def force_full_strip_output_keys(
     node_key: str | None = None,
     *,
     footer_kind: str | None = None,
+    kadry: bool = False,
 ) -> tuple[str, ...]:
-    """Поля, которые нельзя кормить GPT на прогоне ноды группы.
+    """Поля ЭТОЙ ноды, которые нельзя кормить GPT на ручном ▶.
+
+    strip_prompts оставляет биты/действие/кадры как вход следующих нод.
+    Если перезапускаем саму ноду — старый выход надо выкинуть, иначе
+    модель копирует 1-в-1 и «результат тот же».
+
+    ``kadry=True`` — прогоны группы «Кадры» (script_frames_qc): см.
+    ``_kadry_strip_output_keys``.
+    """
+    if kadry:
+        return _kadry_strip_output_keys(node_key, footer_kind=footer_kind)
+    kind = str(footer_kind or "").strip()
+    if kind == "bits":
+        return ("биты",)
+    if kind == "action_chain":
+        return ("main_action", "главное_действие")
+    if kind in {"shots_coverage", "shots_qc", "qc_shots"}:
+        return ("кадры",)
+    nk = str(node_key or "")
+    if nk.endswith("_fw_script"):
+        return ("биты",)
+    if nk.endswith("_fw_action"):
+        return ("main_action", "главное_действие")
+    if nk.endswith(("_fw_shots", "_fw_qc")):
+        return ("кадры",)
+    return ()
+
+
+def _kadry_strip_output_keys(
+    node_key: str | None = None,
+    *,
+    footer_kind: str | None = None,
+) -> tuple[str, ...]:
+    """Группа «Кадры»: поля, которые нельзя кормить GPT на прогоне ноды группы.
 
     Выход самой ноды + протухший downstream (кадры на action, действие
     на script). Иначе модель копирует прошлый прогон 1-в-1.
@@ -626,10 +660,14 @@ def _coverage_parent_snapshot(parent: Any) -> dict[str, Any]:
     return snap
 
 
-def _slim_img_pr_frame_row(row: dict[str, Any]) -> None:
-    """img_pr: действие/раскладка кадра, без 73 битов и всей площадки проекта."""
+def _slim_img_pr_frame_row(row: dict[str, Any], *, own_shot_id: str = "") -> None:
+    """img_pr: действие/раскладка кадра, без 73 битов и всей площадки проекта.
+
+    ``own_shot_id`` — ``camera_subdivide.shot_id`` самого кадра: у K2 в
+    ``кадры`` лежит весь план ячейки, и ``кадры[0]`` (K1) — чужой шот.
+    """
     row.pop("биты", None)
-    shot_id = str(row.get("shot_id") or "").strip()
+    shot_id = str(own_shot_id or row.get("shot_id") or "").strip()
     kadry = row.get("кадры")
     if isinstance(kadry, list):
         match: dict[str, Any] | None = None
@@ -752,7 +790,10 @@ def build_img_pr_db_context(
         needs = characters_needing_description(cast_raw)
         if needs:
             row["describe_appearance"] = ", ".join(needs)
-        _slim_img_pr_frame_row(row)
+        _slim_img_pr_frame_row(
+            row,
+            own_shot_id=str(_camera_subdivide_from(fr).get("shot_id") or "").strip(),
+        )
         frame_rows.append(row)
     out: dict[str, Any] = {
         "source": "db_v2",

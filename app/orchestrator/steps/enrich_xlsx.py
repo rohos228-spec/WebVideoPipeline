@@ -592,7 +592,7 @@ async def _run_four_node_markup_pass(
         frames=frames,
         characters=entity_cards_for_gpt(ents),
         strip_prompts=True,
-        strip_output_keys=force_full_strip_output_keys(node_key, footer_kind=footer_kind),
+        strip_output_keys=force_full_strip_output_keys(node_key, footer_kind=footer_kind, kadry=True),
         full_vo=True,
     )
     upload_key = safe_upload_node_key(node_key)
@@ -661,6 +661,7 @@ async def _run_four_node_markup_pass(
         footer_kind=footer_kind,
         on_progress=_locked_progress,
         allow_empty_ops=False,
+        kadry=True,
     )
 
 
@@ -2524,7 +2525,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
 
                     gpt_frames = [fr for fr in gpt_frames if not is_shot_child(fr)]
                 rewrite_group = _is_script_frames_qc_rewrite_node(node_key)
-                strip_keys = force_full_strip_output_keys(node_key) if force_full or rewrite_group else ()
+                strip_keys = (
+                    force_full_strip_output_keys(node_key, kadry=True) if force_full or rewrite_group else ()
+                )
                 if rewrite_group and strip_keys:
                     logger.info(
                         "[#{}] enrich_xlsx node={!r}: group strip stale {} (force_full={})",
@@ -3171,6 +3174,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                             output_mode=output_mode,
                             check_mode=check_mode,
                         ),
+                        kadry=True,
                     )
                     if fw_frames:
                         from sqlalchemy import select as _sel_fw
@@ -3252,6 +3256,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                                 footer_kind="camera_menu",
                                 on_progress=_progress,
                                 allow_empty_ops=False,
+                                kadry=True,
                             )
                             session.expire_all()
                             await session.refresh(project)

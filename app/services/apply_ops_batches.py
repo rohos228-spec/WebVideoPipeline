@@ -3,6 +3,15 @@
 Эмпирика #6 n_excel_gpt_2: 116 плотных shot_01 в одном ответе →
 stream_partial, salvage ops=65, нода done. Аналитика (короткие поля)
 на тех же 116 кадрах проходит целиком.
+
+Два движка в одном модуле:
+
+* основной (линия WebVideoPipeline main) — ``run_apply_ops_batched`` без
+  параметров группы: 1→2→4, повтор пачки целиком (vps-relay), стена
+  ``pack_call_timeout_s``;
+* группа «Кадры» (script_frames_qc: биты, площадка, шоты, промты, QC) —
+  ``kadry=True`` или любой параметр группы (``footer_kind``, ``chunk_size``,
+  ``parallel_max`` …): конвейер пачек, проходы правил, гейт шотов.
 """
 
 from __future__ import annotations
@@ -58,14 +67,20 @@ from app.services.shot_templates import fill_kadry_from_catalog
 
 # Плотный выход (shot_01 + главное_действие): 102+ кадров одним ответом
 # рвёт SSE (~90с timeout) и подмешивает фейковые uuid. 10 пачек параллельно.
+# Группа «Кадры»: dense shot fill.
 DENSE_TARGET_BATCHES = 10
 DENSE_PARALLEL_MAX = 10
-_DENSE_TARGET_BATCHES = DENSE_TARGET_BATCHES
-_DENSE_FRAMES_PER_BATCH = 8
-_DENSE_JSON_BYTES_PER_BATCH = 20_000
+# Основной движок (frames_per_batch): 160 кадров одним ответом рвёт SSE и
+# подмешивает фейковые uuid. Режем на 5 пачек (~32 кадра).
+_DENSE_TARGET_BATCHES = 5
+_DENSE_FRAMES_PER_BATCH = 32
+_DENSE_JSON_BYTES_PER_BATCH = 40_000
 # Короткий выход (аналитика 54–59): 116 кадров / ~44k символов — ок.
 _LIGHT_FRAMES_PER_BATCH = 120
 _LIGHT_JSON_BYTES_PER_BATCH = 180_000
+# Image prompts (~5000 символов/кадр): меньше, чем shot_fill.
+_IMG_FRAMES_PER_BATCH = 8
+_IMG_JSON_BYTES_PER_BATCH = 24_000
 # Сценарист / закадр (прочие ноды): пачка = 6 ячеек VO.
 VO_UNITS_PER_BATCH = 6
 # Группа script_frames_qc (биты → действие → кадры-шаги → QC):
@@ -132,9 +147,22 @@ ProgressFn = Callable[[str], Awaitable[None]]
 
 
 def pack_call_timeout_s(footer_kind: str | None = None) -> float:
-    """Стена на одну пачку: тройной GPT-таймаут, не короче 180 с.
+    """Стена на одну apply-ops пачку: GPT_TIMEOUT_S, минимум 180с.
 
-    ``footer_kind`` не меняет стену: шоты и остальные ноды ждут одно и то же.
+    Короткие таймауты резали script/shots на больших промтах: GPT пишет
+    дольше, а обрыв превращался в ошибку вместо добора.
+    """
+    del footer_kind
+    from app.settings import settings
+
+    wall = float(getattr(settings, "gpt_timeout_s", 600.0) or 600.0)
+    return max(180.0, wall)
+
+
+def _kadry_pack_call_timeout_s(footer_kind: str | None = None) -> float:
+    """Группа «Кадры»: тройной GPT-таймаут, не короче 180 с.
+
+    ``footer_kind`` не меняет стену: шоты и остальные ноды группы ждут одно и то же.
     """
     del footer_kind
     from app.settings import settings
@@ -202,18 +230,24 @@ def frames_per_batch(
     skip_if_field: str | None = None,
     target_batches: int | None = None,
 ) -> int:
+    """Сколько кадров в одном GPT-вызове. 0 кадров → 1 (не делить на ноль)."""
     n = max(int(n_frames), 0)
     if n <= 0:
         return 1
     if target_batches and int(target_batches) > 0:
         from math import ceil
 
-        if dense and n <= 32:
+        # Добор хвоста (≤32 кадра) — один вызов, не 5 крошечных пачек.
+        if dense and n <= _DENSE_FRAMES_PER_BATCH:
             return n
         return max(1, int(ceil(n / int(target_batches))))
     avg = max(int(json_bytes), 0) / n if n else 0
     if skip_if_field:
-        return n
+        by_count = _IMG_FRAMES_PER_BATCH
+        if avg > 0:
+            by_bytes = max(4, int(_IMG_JSON_BYTES_PER_BATCH / avg))
+            return max(4, min(by_count, by_bytes, n))
+        return min(by_count, n)
     if dense:
         by_count = _DENSE_FRAMES_PER_BATCH
         if avg > 0:
@@ -245,6 +279,13 @@ def should_batch_apply_ops(
 
 
 def split_frames(frames: list[Any], size: int) -> list[list[Any]]:
+    if size <= 0:
+        size = 1
+    return [frames[i : i + size] for i in range(0, len(frames), size)]
+
+
+def _kadry_split_frames(frames: list[Any], size: int) -> list[list[Any]]:
+    """Группа «Кадры»: жирная ячейка шотов — соло-пачка, остальные по size."""
     if size <= 0:
         size = 1
     if not frames:
@@ -407,7 +448,7 @@ def split_into_n_packs(frames: list[dict[str, Any]], n: int) -> list[list[dict[s
         return split_vo_units(frames, per)
     n = min(n, len(frames))
     per = max(1, (len(frames) + n - 1) // n)
-    return split_frames(frames, per)
+    return _kadry_split_frames(frames, per)
 
 
 def _any_field(frame: dict[str, Any], attrs: dict[str, Any], keys: tuple[str, ...]) -> bool:
@@ -464,6 +505,11 @@ def _has_uuid(frame: dict[str, Any]) -> bool:
 
 
 def _has_voiceover(frame: dict[str, Any]) -> bool:
+    return bool(str(frame.get("voiceover_text") or "").strip())
+
+
+def _kadry_has_voiceover(frame: dict[str, Any]) -> bool:
+    """Группа «Кадры»: закадр есть и у шота (vo_shot / vo_cell_full)."""
     if str(frame.get("voiceover_text") or "").strip():
         return True
     if str(frame.get("vo_shot") or frame.get("закадр_шота") or "").strip():
@@ -500,14 +546,33 @@ def _pending_frames(
     *,
     dense: bool,
     skip_if_field: str | None = None,
-    force_full: bool = False,
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for fr in frames:
         if not _has_uuid(fr):
             continue
+        if not _has_voiceover(fr) and not skip_if_field:
+            continue
+        if _frame_complete(fr, dense=dense, skip_if_field=skip_if_field):
+            continue
+        out.append(fr)
+    return out
+
+
+def _kadry_pending_frames(
+    frames: list[dict[str, Any]],
+    *,
+    dense: bool,
+    skip_if_field: str | None = None,
+    force_full: bool = False,
+) -> list[dict[str, Any]]:
+    """Группа «Кадры»: шоты покрытия без своего закадра тоже идут в пачку."""
+    out: list[dict[str, Any]] = []
+    for fr in frames:
+        if not _has_uuid(fr):
+            continue
         # Меню съёмки и промты нужны и молчаливому покрытию (K3/K4 без vo_shot).
-        if skip_if_field != SKIP_CAMERA_MENU and not _has_voiceover(fr) and not _is_coverage_shot(fr):
+        if skip_if_field != SKIP_CAMERA_MENU and not _kadry_has_voiceover(fr) and not _is_coverage_shot(fr):
             continue
         if (not force_full) and _frame_complete(fr, dense=dense, skip_if_field=skip_if_field):
             continue
@@ -522,15 +587,22 @@ def select_frames_for_batches(
     skip_if_field: str | None = None,
     target_batches: int | None = None,
     force_full: bool = False,
+    kadry: bool = False,
 ) -> list[dict[str, Any]]:
-    """Кадры в GPT-пачки. force_full (ручной ▶) — все, без skip filled."""
+    """Кадры в GPT-пачки: уже заполненные shot-поля пропускаем.
+
+    ``kadry`` или ``force_full`` (ручной ▶ группы «Кадры») — отбор группы:
+    шоты покрытия без закадра тоже идут, force_full берёт все без skip filled.
+    """
     del target_batches
-    return _pending_frames(
-        frames,
-        dense=dense,
-        skip_if_field=skip_if_field,
-        force_full=force_full,
-    )
+    if kadry or force_full:
+        return _kadry_pending_frames(
+            frames,
+            dense=dense,
+            skip_if_field=skip_if_field,
+            force_full=force_full,
+        )
+    return _pending_frames(frames, dense=dense, skip_if_field=skip_if_field)
 
 
 def _norm_analytics_text(value: Any) -> str:
@@ -2842,7 +2914,7 @@ def apply_only_cells_hook(
     return [f for f in all_frames if str(f.get("uuid") or "") in want]
 
 
-async def run_apply_ops_batched(
+async def _run_apply_ops_batched_kadry(
     *,
     project_dir: Path,
     node_key: str,
@@ -2890,6 +2962,7 @@ async def run_apply_ops_batched(
         dense=dense,
         skip_if_field=skip_if_field,
         force_full=force_full,
+        kadry=True,
     )
     try:
         pending = apply_only_cells_hook(project_dir, project_id, node_key, all_frames, pending)
@@ -2921,7 +2994,7 @@ async def run_apply_ops_batched(
     elif size and chunk_by_vo_unit:
         packs = split_vo_units(pending, size)
     elif size:
-        packs = split_frames(pending, size)
+        packs = _kadry_split_frames(pending, size)
     else:
         packs = [pending]
     # В полёте не больше 8. Старт пачек без сдвига.
@@ -3006,7 +3079,7 @@ async def run_apply_ops_batched(
         )
         if allow_empty_ops:
             api_kw["allow_empty_ops"] = True
-        pack_timeout = pack_call_timeout_s(footer_kind)
+        pack_timeout = _kadry_pack_call_timeout_s(footer_kind)
         await _acquire_pack_send_slot()
         try:
             try:
@@ -3606,3 +3679,346 @@ async def run_apply_ops_batched(
         )
     finally:
         _pack_gate.reset(gate_token)
+
+
+async def run_apply_ops_batched(
+    *,
+    project_dir: Path,
+    node_key: str,
+    role: str,
+    output_mode: str,
+    prompt: str,
+    accompanying: str,
+    db_ctx: dict[str, Any],
+    ctx_path: Path,
+    project_id: int,
+    dense: bool,
+    apply_fn: ApplyFn | None = None,
+    skip_if_field: str | None = None,
+    target_batches: int | None = None,
+    force_full: bool = False,
+    chunk_size: int | None = None,
+    parallel_max: int | None = None,
+    stagger_sec: float | None = None,
+    chunk_by_vo_unit: bool = False,
+    footer_kind: str | None = None,
+    on_progress: ProgressFn | None = None,
+    allow_empty_ops: bool = False,
+    shots_gate: bool | None = None,
+    kadry: bool | None = None,
+) -> OperatorApiResult:
+    """Один GPT-вызов на все кадры. Ошибка → 2 пачки. Снова ошибка → 4.
+
+    Группа «Кадры» (``kadry=True``; при ``None`` включается, если передан
+    любой параметр группы) идёт своим движком ``_run_apply_ops_batched_kadry``.
+    Без них — поведение основной линии, ``target_batches`` не используется.
+    """
+    if kadry is None:
+        kadry = bool(
+            force_full
+            or chunk_size
+            or parallel_max
+            or stagger_sec is not None
+            or chunk_by_vo_unit
+            or footer_kind
+            or on_progress is not None
+            or allow_empty_ops
+            or shots_gate is not None
+        )
+    if kadry:
+        return await _run_apply_ops_batched_kadry(
+            project_dir=project_dir,
+            node_key=node_key,
+            role=role,
+            output_mode=output_mode,
+            prompt=prompt,
+            accompanying=accompanying,
+            db_ctx=db_ctx,
+            ctx_path=ctx_path,
+            project_id=project_id,
+            dense=dense,
+            apply_fn=apply_fn,
+            skip_if_field=skip_if_field,
+            force_full=force_full,
+            target_batches=target_batches,
+            chunk_size=chunk_size,
+            parallel_max=parallel_max,
+            stagger_sec=stagger_sec,
+            chunk_by_vo_unit=chunk_by_vo_unit,
+            footer_kind=footer_kind,
+            on_progress=on_progress,
+            allow_empty_ops=allow_empty_ops,
+            shots_gate=shots_gate,
+        )
+    return await _run_apply_ops_batched_main(
+        project_dir=project_dir,
+        node_key=node_key,
+        role=role,
+        output_mode=output_mode,
+        prompt=prompt,
+        accompanying=accompanying,
+        db_ctx=db_ctx,
+        ctx_path=ctx_path,
+        project_id=project_id,
+        dense=dense,
+        apply_fn=apply_fn,
+        skip_if_field=skip_if_field,
+    )
+
+
+async def _run_apply_ops_batched_main(
+    *,
+    project_dir: Path,
+    node_key: str,
+    role: str,
+    output_mode: str,
+    prompt: str,
+    accompanying: str,
+    db_ctx: dict[str, Any],
+    ctx_path: Path,
+    project_id: int,
+    dense: bool,
+    apply_fn: ApplyFn | None = None,
+    skip_if_field: str | None = None,
+) -> OperatorApiResult:
+    """Основной движок: 1→2→4, пачка до 8 кадров — до 5 повторов целиком."""
+    from app.services.adaptive_llm_batches import next_split_level, split_in_half
+
+    all_frames = list(db_ctx.get("frames") or [])
+    pending = select_frames_for_batches(
+        all_frames,
+        dense=dense,
+        skip_if_field=skip_if_field,
+    )
+    if not pending:
+        logger.info(
+            "[#{}] apply_ops batched node={!r}: нечего писать (все кадры уже заполнены или без закадра)",
+            project_id,
+            node_key,
+        )
+        return OperatorApiResult(
+            reply_text='{"ops":[]}',
+            output_paths=[ctx_path],
+            apply_ops={"ops": [], "report": "already_filled"},
+            applied_in_runner=True,
+        )
+
+    logger.info(
+        "[#{}] apply_ops batched node={!r}: pending={} adaptive 1→2→4 dense={}",
+        project_id,
+        node_key,
+        len(pending),
+        dense,
+    )
+
+    merged_ops: list[dict[str, Any]] = []
+    merged_characters: list[dict[str, Any]] = []
+    merged_scenes: list[dict[str, Any]] = []
+    replies: list[str] = []
+    last_paths: list[Path] = [ctx_path]
+    call_i = 0
+
+    async def _one_chunk(chunk: list[dict[str, Any]], level: int) -> list[dict[str, Any]]:
+        nonlocal call_i, last_paths
+        call_i += 1
+        batch_ctx = {
+            **db_ctx,
+            "frames": chunk,
+            "batch": {
+                "index": call_i,
+                "split_level": level,
+                "frames": len(chunk),
+            },
+        }
+        batch_path = ctx_path.with_name(f"db_frames_batch_{call_i:02d}_L{level}.json")
+        batch_path.write_text(
+            json.dumps(batch_ctx, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        ctx_path.write_text(
+            json.dumps(batch_ctx, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        foot = _batch_footer(call_i, level, len(chunk))
+        # Стена вместо вечного зависания: таймаут уходит в split полосой выше.
+        res = await asyncio.wait_for(
+            run_operator_api(
+                project_dir=project_dir,
+                node_key=node_key,
+                role=role,
+                output_mode=output_mode,
+                prompt=prompt,
+                accompanying=f"{accompanying}{foot}",
+                input_paths=[batch_path],
+                auto_pack=False,
+            ),
+            timeout=pack_call_timeout_s(),
+        )
+        last_paths = list(res.output_paths or []) or [batch_path]
+        replies.append(res.reply_text or "")
+        ops = []
+        chars = []
+        scenes = []
+        if isinstance(res.apply_ops, dict):
+            ops = list(res.apply_ops.get("ops") or [])
+            chars = list(res.apply_ops.get("characters") or [])
+            scenes = list(res.apply_ops.get("scenes") or [])
+            if chars:
+                existing_codes = {
+                    str(c.get("id") or c.get("code") or "").strip().lower() for c in merged_characters
+                }
+                for c in chars:
+                    cid = str(c.get("id") or c.get("code") or "").strip().lower()
+                    if cid and cid not in existing_codes:
+                        merged_characters.append(c)
+                        existing_codes.add(cid)
+            if scenes:
+                existing_scenes = {
+                    str(s.get("id") or s.get("number") or "").strip().lower() for s in merged_scenes
+                }
+                for s in scenes:
+                    sid = str(s.get("id") or s.get("number") or "").strip().lower()
+                    if sid and sid not in existing_scenes:
+                        merged_scenes.append(s)
+                        existing_scenes.add(sid)
+        known = {str(fr.get("uuid") or "").strip() for fr in chunk if str(fr.get("uuid") or "").strip()}
+        dropped = 0
+        kept: list[dict[str, Any]] = []
+        for op in ops:
+            if not isinstance(op, dict):
+                continue
+            uid = str(op.get("frame_uuid") or "").strip()
+            if uid in known:
+                kept.append(op)
+            else:
+                dropped += 1
+        if dropped:
+            logger.warning(
+                "[#{}] apply_ops batched node={!r}: call {} L{} dropped {} unknown frame_uuid",
+                project_id,
+                node_key,
+                call_i,
+                level,
+                dropped,
+            )
+        ops = kept
+        logger.info(
+            "[#{}] apply_ops batched node={!r}: call {} L{} sent={} got_ops={}",
+            project_id,
+            node_key,
+            call_i,
+            level,
+            len(chunk),
+            len(ops),
+        )
+        if not ops:
+            raise RuntimeError(
+                f"enrich_xlsx node={node_key}: L{level} call {call_i} без ops (ждали {len(chunk)} кадров)."
+            )
+        if apply_fn is not None:
+            payload = dict(res.apply_ops or {})
+            payload["ops"] = ops
+            payload["characters"] = chars
+            payload["scenes"] = scenes
+            payload["export_xlsx"] = False
+            await apply_fn(payload)
+        merged_ops.extend(ops)
+        got_uuids = {str(op.get("frame_uuid") or "").strip() for op in ops if isinstance(op, dict)}
+        missing = [fr for fr in chunk if str(fr.get("uuid") or "").strip() not in got_uuids]
+        return missing
+
+    async def _run_adaptive(chunk: list[dict[str, Any]], level: int) -> None:
+        max_whole_attempts = 5 if len(chunk) <= 8 else 1
+        last_exc: Exception | None = None
+        missing: list[dict[str, Any]] = []
+        for attempt in range(1, max_whole_attempts + 1):
+            try:
+                missing = await _one_chunk(chunk, level)
+                last_exc = None
+                break
+            except Exception as exc:
+                from app.services.llm_ledger import BudgetExhausted
+
+                # Этап 3: бюджет исчерпан — дробить чанк бессмысленно (каждая
+                # половина упрётся в тот же предохранитель), сразу наверх.
+                if isinstance(exc, BudgetExhausted):
+                    raise
+                last_exc = exc
+                if attempt < max_whole_attempts:
+                    logger.warning(
+                        "[#{}] apply_ops node={!r}: L{} whole-pack retry {}/{} ({} frames): {}",
+                        project_id,
+                        node_key,
+                        level,
+                        attempt,
+                        max_whole_attempts,
+                        len(chunk),
+                        str(exc)[:160],
+                    )
+                    await asyncio.sleep(2.0 * attempt)
+        if last_exc is not None:
+            nxt = next_split_level(level)
+            if nxt is None or len(chunk) <= 8:
+                raise last_exc
+            parts = split_in_half(chunk)
+            logger.warning(
+                "[#{}] apply_ops node={!r}: L{} fail ({}) → split {} frames into {} packs",
+                project_id,
+                node_key,
+                level,
+                str(last_exc)[:160],
+                len(chunk),
+                len(parts),
+            )
+            for part in parts:
+                await _run_adaptive(part, nxt)
+            return
+        if not missing:
+            return
+        nxt = next_split_level(level)
+        if nxt is None or len(missing) <= 1:
+            raise RuntimeError(
+                f"enrich_xlsx node={node_key}: L{level} неполный apply-ops "
+                f"({len(chunk) - len(missing)}/{len(chunk)}). uuid: "
+                f"{', '.join(str(fr.get('uuid') or '')[:8] for fr in missing[:8])}"
+            )
+        if len(missing) <= 8:
+            logger.warning(
+                "[#{}] apply_ops node={!r}: L{} incomplete {}/{} → retry missing {} frames as whole pack",
+                project_id,
+                node_key,
+                level,
+                len(chunk) - len(missing),
+                len(chunk),
+                len(missing),
+            )
+            await _run_adaptive(missing, nxt)
+            return
+        logger.warning(
+            "[#{}] apply_ops node={!r}: L{} incomplete {}/{} → split L{}",
+            project_id,
+            node_key,
+            level,
+            len(chunk) - len(missing),
+            len(chunk),
+            nxt,
+        )
+        for part in split_in_half(missing):
+            await _run_adaptive(part, nxt)
+
+    await _run_adaptive(pending, 1)
+
+    ctx_path.write_text(
+        json.dumps(db_ctx, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return OperatorApiResult(
+        reply_text="\n\n".join(replies),
+        output_paths=last_paths,
+        apply_ops={
+            "ops": merged_ops,
+            "characters": merged_characters,
+            "scenes": merged_scenes,
+        },
+        applied_in_runner=apply_fn is not None,
+    )

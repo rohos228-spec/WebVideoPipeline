@@ -868,10 +868,9 @@ def _coerce_hero_sheet_variant(name: str, source: str) -> tuple[str, str]:
     )
 
     def _ok(variant: str) -> bool:
-        path = prompt_path("hero", variant)
-        if not path.is_file():
+        text = _variant_text_db_first("hero", variant)
+        if text is None:
             return False
-        text = path.read_text(encoding="utf-8")
         if hero_master_looks_like_registry_agent(text):
             return False
         return hero_master_looks_like_sheet(text)
@@ -892,16 +891,36 @@ def _coerce_hero_sheet_variant(name: str, source: str) -> tuple[str, str]:
     return (clean or DEFAULT_NAME), source
 
 
+def _variant_text_db_first(step_code: str, variant: str) -> str | None:
+    """Текст варианта для проверки: сначала база, потом файл (как read_prompt).
+
+    На сервере диск только для чтения, и вариант, сохранённый редактором,
+    живёт лишь в базе — проверка ``path.is_file()`` его бы отбросила.
+    ``None`` — варианта нет ни там, ни там.
+    """
+    from app.services import prompt_store
+
+    from_db = prompt_store.resolve(step_code, variant)
+    if from_db is not None:
+        return from_db
+    try:
+        path = prompt_path(step_code, variant)
+    except ValueError:
+        return None
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8")
+
+
 def _hero_style_file_ok(variant: str) -> bool:
     from app.services.hero_prompt_contract import (
         hero_style_looks_like_character_lock,
         hero_style_looks_like_img_pr_template,
     )
 
-    path = prompt_path("hero_style", variant)
-    if not path.is_file():
+    text = _variant_text_db_first("hero_style", variant)
+    if text is None:
         return False
-    text = path.read_text(encoding="utf-8")
     if hero_style_looks_like_img_pr_template(text):
         return False
     return hero_style_looks_like_character_lock(text) or len(text.strip()) >= 80
@@ -909,7 +928,7 @@ def _hero_style_file_ok(variant: str) -> bool:
 
 def _hero_style_fallback_names() -> list[str]:
     """Сначала «ДЛЯ ПЕРСОНАЖА», потом любой лок в 04_hero_style/."""
-    names = _list_prompts_in_dir("hero_style")
+    names = _available_prompt_names("hero_style")
     preferred = [n for n in names if "персонаж" in n.lower()]
     rest = [n for n in names if n not in preferred and n != DEFAULT_NAME]
     return [*preferred, *rest]
