@@ -210,9 +210,29 @@ export function FlowCanvas({
       ) {
         void qc.invalidateQueries({ queryKey: ["project-run", projectId] });
         void qc.invalidateQueries({ queryKey: ["project", projectId] });
+        void qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
+        void qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
+        void qc.invalidateQueries({ queryKey: ["frames", projectId] });
+        void qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
       }
     });
   }, [projectId, qc]);
+
+  const prevProjectStatusRef = useRef(project.data?.status);
+  useEffect(() => {
+    if (projectId == null) return;
+    if (
+      prevProjectStatusRef.current !== undefined &&
+      prevProjectStatusRef.current !== project.data?.status
+    ) {
+      void qc.invalidateQueries({ queryKey: ["project-run", projectId] });
+      void qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
+      void qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
+      void qc.invalidateQueries({ queryKey: ["frames", projectId] });
+      void qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
+    }
+    prevProjectStatusRef.current = project.data?.status;
+  }, [projectId, project.data?.status, qc]);
 
   // Базовая структура графа — из project.meta.canvas_graph (приоритет) или workflow.
   // workflow_id берём из самого canvas_graph: ролик мог быть заведён не от

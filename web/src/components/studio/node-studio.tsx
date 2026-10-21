@@ -356,6 +356,10 @@ export function NodeStudio({
       );
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       qc.invalidateQueries({ queryKey: ["project-run", projectId] });
+      qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
+      qc.invalidateQueries({ queryKey: ["frames", projectId] });
+      qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
       void qc.refetchQueries({ queryKey: ["project-run", projectId] });
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
@@ -454,7 +458,64 @@ export function NodeStudio({
     enabled: open && projectId != null,
   });
 
+  const frames = useQuery({
+    queryKey: ["project-frames", projectId],
+    queryFn: () => api.listFrames(projectId!),
+    enabled: open && projectId != null,
+  });
+
   const isRunning = shouldShowStopBar(project.data?.status);
+
+  // Реактивная инвалидация и обновление данных при смене статуса или окончании запуска
+  const prevStatusRef = useRef(project.data?.status);
+  const prevRunningRef = useRef(generationRunning);
+  useEffect(() => {
+    if (!open || !projectId) return;
+    const statusChanged =
+      prevStatusRef.current !== undefined &&
+      prevStatusRef.current !== project.data?.status;
+    const runFinished = prevRunningRef.current && !generationRunning;
+
+    if (statusChanged || runFinished) {
+      void qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
+      void qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
+      void qc.invalidateQueries({ queryKey: ["frames", projectId] });
+      void qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
+      void qc.invalidateQueries({ queryKey: ["project-assets", projectId] });
+      void qc.invalidateQueries({ queryKey: ["media-review", projectId] });
+      void qc.invalidateQueries({ queryKey: ["gpt-operator-resolve", projectId] });
+      void dbBrowser.refetch();
+      void frames.refetch();
+    }
+    prevStatusRef.current = project.data?.status;
+    prevRunningRef.current = generationRunning;
+  }, [open, projectId, project.data?.status, generationRunning, qc]);
+
+  // Обновление при переключении на вкладку "results"
+  useEffect(() => {
+    if (!open || !projectId || tab !== "results") return;
+    void dbBrowser.refetch();
+    void frames.refetch();
+    void artifacts.refetch();
+    void assets.refetch();
+    void mediaImages.refetch();
+    void mediaVideos.refetch();
+    if (isExcelGptNode(nodeType)) {
+      void operatorResolve.refetch();
+    }
+  }, [tab, open, projectId, nodeType]);
+
+  // Обновление при открытии модального окна Studio
+  useEffect(() => {
+    if (!open || !projectId) return;
+    void dbBrowser.refetch();
+    void frames.refetch();
+    void artifacts.refetch();
+    void assets.refetch();
+    if (isExcelGptNode(nodeType)) {
+      void operatorResolve.refetch();
+    }
+  }, [open, projectId, nodeType]);
 
   const mediaImages = useQuery({
     queryKey: ["media-review", projectId, "images"],
@@ -489,6 +550,14 @@ export function NodeStudio({
     [],
   );
 
+  const effectiveFrames = useMemo(() => {
+    const listFramesData = (frames.data || []) as FrameDTO[];
+    const dbFramesData = ((dbBrowser.data?.frames as unknown as FrameDTO[]) || []);
+    if (listFramesData.some((f) => f.image_prompt?.trim())) return listFramesData;
+    if (dbFramesData.some((f) => f.image_prompt?.trim())) return dbFramesData;
+    return listFramesData.length ? listFramesData : dbFramesData;
+  }, [frames.data, dbBrowser.data?.frames]);
+
   const resultSnapshot = useMemo(() => {
     if (!projectId) return null;
     return resolveNodeResult(
@@ -497,7 +566,7 @@ export function NodeStudio({
         project: project.data,
         artifacts: artifacts.data ?? [],
         assets: assets.data ?? [],
-        frames: (dbBrowser.data?.frames as unknown as FrameDTO[]) ?? [],
+        frames: effectiveFrames,
         mediaImages: mapMedia(mediaImages.data ?? [], "images"),
         mediaVideos: mapMedia(mediaVideos.data ?? [], "videos"),
         operatorResolve: operatorResolve.data,
@@ -511,7 +580,7 @@ export function NodeStudio({
     project.data,
     artifacts.data,
     assets.data,
-    dbBrowser.data?.frames,
+    effectiveFrames,
     mediaImages.data,
     mediaVideos.data,
     mapMedia,
@@ -871,6 +940,35 @@ export function NodeStudio({
 
               {tab === "results" && (
                 <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                    <span className="text-xs text-muted-foreground">
+                      {resultSnapshot?.summary || "Результаты шага"}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 text-xs text-zinc-400 hover:text-zinc-100"
+                      onClick={() => {
+                        void dbBrowser.refetch();
+                        void frames.refetch();
+                        void artifacts.refetch();
+                        void assets.refetch();
+                        if (isExcelGptNode(nodeType)) {
+                          void operatorResolve.refetch();
+                        }
+                      }}
+                    >
+                      <RefreshCw
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          (dbBrowser.isFetching || frames.isFetching) && "animate-spin",
+                        )}
+                      />
+                      Обновить
+                    </Button>
+                  </div>
+
                   {resultSnapshot && (resultSnapshot.hasResult || resultSnapshot.items.length > 0 || isExcelGptNode(nodeType)) ? (
                     <NodeResultViewBody
                       projectId={projectId!}
@@ -928,10 +1026,29 @@ export function NodeStudio({
                       ))}
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground gap-3">
                       <p className="text-sm">
                         {resultSnapshot?.summary || "Результаты ещё не сформированы. Запустите шаг для генерации."}
                       </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs"
+                        onClick={() => {
+                          void dbBrowser.refetch();
+                          void frames.refetch();
+                          void artifacts.refetch();
+                        }}
+                      >
+                        <RefreshCw
+                          className={cn(
+                            "h-3.5 w-3.5",
+                            (dbBrowser.isFetching || frames.isFetching) && "animate-spin",
+                          )}
+                        />
+                        Обновить результаты
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -1098,12 +1215,10 @@ function SfxGenSettingsPanel({ projectId }: { projectId: number }) {
 
 function ImagePromptsSettingsPanel({
   projectId,
-  onOpenPrompts,
 }: {
   projectId: number;
   onOpenPrompts?: () => void;
 }) {
-  const queryClient = useQueryClient();
   const project = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId),
@@ -1119,29 +1234,6 @@ function ImagePromptsSettingsPanel({
   const generatorName = project.data?.image_generator || "Outsee (Midjourney / Flux)";
   const isMiniMax = generatorName.toLowerCase().includes("minimax");
   const promptLimit = isMiniMax ? "до 1 460 знаков (Компактный замок)" : "до 4 860 знаков (Полный замок)";
-
-  const rawBatchSize = (project.data?.meta as Record<string, unknown> | undefined)?.img_pr_batch_size;
-  const batchSize =
-    typeof rawBatchSize === "number" && rawBatchSize >= 2 && rawBatchSize <= 8
-      ? rawBatchSize
-      : 7;
-
-  const patchBatchSize = useMutation({
-    mutationFn: async (size: number) => {
-      const meta = { ...((project.data?.meta as Record<string, unknown>) || {}), img_pr_batch_size: size };
-      await api.patchProject(projectId, { meta });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      toast.success("Размер батча сохранён");
-    },
-    onError: (err) => {
-      toast.error(errorMessageFromUnknown(err) || "Не удалось сохранить размер батча");
-    },
-  });
-
-  const calculatedBatches = totalCount > 0 ? Math.ceil(totalCount / batchSize) : 0;
-  const framesPerCalcBatch = calculatedBatches > 0 ? Math.ceil(totalCount / calculatedBatches) : batchSize;
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
@@ -1180,60 +1272,6 @@ function ImagePromptsSettingsPanel({
             </span>
           </div>
         </div>
-      </div>
-
-      {/* Настройка размера пачки (батча) */}
-      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3.5 flex flex-col gap-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-foreground">Кадров в одном батче:</span>
-              <span className="rounded bg-sky-500/15 px-2 py-0.5 text-xs font-bold text-sky-300 border border-sky-500/30">
-                {batchSize} {batchSize === 1 ? "кадр" : batchSize < 5 ? "кадра" : "кадров"}
-              </span>
-              {batchSize === 7 && (
-                <span className="text-[10px] text-emerald-400 font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                  по умолчанию
-                </span>
-              )}
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground leading-snug">
-              Безопасный диапазон от 2 до 8 кадров гарантирует, что ответ нейросети не обрежется по лимиту токенов шлюза.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-1.5 self-start sm:self-auto">
-            <span className="text-[11px] text-zinc-400 mr-1 hidden sm:inline">Выбор:</span>
-            {[2, 3, 4, 5, 6, 7, 8].map((size) => (
-              <Button
-                key={size}
-                size="sm"
-                variant={batchSize === size ? "default" : "outline"}
-                disabled={patchBatchSize.isPending}
-                onClick={() => patchBatchSize.mutate(size)}
-                className={cn(
-                  "h-7 w-7 p-0 text-xs font-medium",
-                  batchSize === size
-                    ? "bg-sky-600 text-white hover:bg-sky-500 font-bold border-sky-500"
-                    : "border-white/10 hover:bg-white/5 text-zinc-300",
-                )}
-              >
-                {size}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        {totalCount > 0 && (
-          <div className="flex items-center justify-between rounded-md bg-black/30 px-3 py-2 text-xs border border-white/5">
-            <span className="text-zinc-400">
-              Расчёт для этого проекта ({totalCount} кадров):
-            </span>
-            <span className="font-medium text-sky-200">
-              {calculatedBatches} {calculatedBatches === 1 ? "батч" : calculatedBatches < 5 ? "батча" : "батчей"} (по ~{framesPerCalcBatch} кадров)
-            </span>
-          </div>
-        )}
       </div>
     </section>
   );
