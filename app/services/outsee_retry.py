@@ -1029,6 +1029,20 @@ async def generate_image_with_retries(
                             )
                         except Exception:  # noqa: BLE001
                             logger.debug("kie sidecar write skipped", exc_info=True)
+                        try:
+                            from app.services.media_ledger import record as record_media
+                            await record_media(
+                                provider="kie",
+                                kind="image",
+                                model=str(slug),
+                                units=1.0,
+                                unit="item",
+                                project_id=pid if isinstance(pid, int) else None,
+                                external_id=str(result.gen_id or ""),
+                                result="ok",
+                            )
+                        except Exception:
+                            logger.debug("kie image media record skipped", exc_info=True)
                         return result
                     if use_outsee_api:
                         result = await outsee_api_generate_image(
@@ -1064,6 +1078,20 @@ async def generate_image_with_retries(
                             )
                         except Exception:  # noqa: BLE001
                             logger.debug("outsee sidecar write skipped", exc_info=True)
+                        try:
+                            from app.services.media_ledger import record as record_media
+                            await record_media(
+                                provider="outsee",
+                                kind="image",
+                                model=str(slug),
+                                units=1.0,
+                                unit="item",
+                                project_id=pid if isinstance(pid, int) else None,
+                                external_id=str(result.gen_id or ""),
+                                result="ok",
+                            )
+                        except Exception:
+                            logger.debug("outsee image media record skipped", exc_info=True)
                         return result
                     if outsee is None:
                         raise OutseeImageError("outsee client is None")
@@ -1396,6 +1424,20 @@ async def generate_video_with_retries(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("kie video sidecar skipped", exc_info=True)
+            try:
+                from app.services.media_ledger import record as record_media
+                await record_media(
+                    provider="kie",
+                    kind="video",
+                    model=str(raw_slug),
+                    units=float(attempt_kwargs.get("duration") or 5),
+                    unit="second",
+                    project_id=project_id,
+                    external_id=str(result.gen_id or ""),
+                    result="ok",
+                )
+            except Exception:
+                logger.debug("kie video media record skipped", exc_info=True)
             return result
         if use_outsee_api_video:
             raw_slug = attempt_kwargs.get("model_slug") or getattr(
@@ -1440,6 +1482,20 @@ async def generate_video_with_retries(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("outsee video sidecar skipped", exc_info=True)
+            try:
+                from app.services.media_ledger import record as record_media
+                await record_media(
+                    provider="outsee",
+                    kind="video",
+                    model=str(slug),
+                    units=float(dur or 5),
+                    unit="second",
+                    project_id=project_id,
+                    external_id=str(result.gen_id or ""),
+                    result="ok",
+                )
+            except Exception:
+                logger.debug("outsee video media record skipped", exc_info=True)
             return result
         if outsee is None:
             raise OutseeImageError("outsee client is None")

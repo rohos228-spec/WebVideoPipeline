@@ -54,7 +54,11 @@ def _gpt_codes(exc: BaseException) -> tuple[str, int]:
     if not isinstance(exc, GptApiError):
         return "", 0
     kind = str(exc.context.get("error_kind") or "")
-    code = int(exc.context.get("provider_code") or exc.context.get("status_code") or 0)
+    raw_code = exc.context.get("provider_code") or exc.context.get("status_code") or 0
+    try:
+        code = int(raw_code)
+    except (TypeError, ValueError):
+        code = 0
     return kind, code
 
 

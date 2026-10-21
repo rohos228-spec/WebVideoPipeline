@@ -247,12 +247,20 @@ export function CostsPanelSheet({
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      list = list.filter(
-        (m) =>
-          m.display_name.toLowerCase().includes(q) ||
-          m.model.toLowerCase().includes(q) ||
-          m.provider.toLowerCase().includes(q),
-      );
+      const qNorm = q.replace(/[-_\s.]+/g, "");
+      list = list.filter((m) => {
+        const dLow = m.display_name.toLowerCase();
+        const mLow = m.model.toLowerCase();
+        const pLow = m.provider.toLowerCase();
+        return (
+          dLow.includes(q) ||
+          mLow.includes(q) ||
+          pLow.includes(q) ||
+          (qNorm.length > 1 &&
+            (dLow.replace(/[-_\s.]+/g, "").includes(qNorm) ||
+              mLow.replace(/[-_\s.]+/g, "").includes(qNorm)))
+        );
+      });
     }
     return list;
   }, [data?.models, kindFilter, searchQuery]);
@@ -266,12 +274,18 @@ export function CostsPanelSheet({
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      list = list.filter(
-        (r) =>
-          r.model.toLowerCase().includes(q) ||
-          r.provider.toLowerCase().includes(q) ||
-          r.description.toLowerCase().includes(q),
-      );
+      const qNorm = q.replace(/[-_\s.]+/g, "");
+      list = list.filter((r) => {
+        const mLow = r.model.toLowerCase();
+        const pLow = r.provider.toLowerCase();
+        const dLow = r.description.toLowerCase();
+        return (
+          mLow.includes(q) ||
+          pLow.includes(q) ||
+          dLow.includes(q) ||
+          (qNorm.length > 1 && mLow.replace(/[-_\s.]+/g, "").includes(qNorm))
+        );
+      });
     }
     return list;
   }, [data?.recent, kindFilter, searchQuery]);

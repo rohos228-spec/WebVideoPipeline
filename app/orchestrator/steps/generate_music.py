@@ -150,6 +150,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     prompt_id_prefix = f"[ID: P{project.id}-MUSIC-{short_uuid}]"
 
     from app.bots.kie_http import kie_configured
+    from app.services.media_ledger import media_call
 
     if kie_configured():
         logger.info("[#{}] generate_music: генерация музыки через API Kie (Suno V5.5)", project.id)
@@ -177,19 +178,21 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                 "duration": track_secs,
             },
         )
-        await run_generation(spec, payload, music_path, timeout_s=900)
+        async with media_call("kie", "audio", model="suno-v5.5", units=1.0, unit="track", project_id=project.id):
+            await run_generation(spec, payload, music_path, timeout_s=900)
     else:
         logger.info("[#{}] generate_music: генерация музыки браузером Outsee (Suno)", project.id)
-        async with browser_session() as bs:
-            outsee = OutseeBot(bs)
-            await outsee.generate_music(
-                suno_prompt,
-                music_path,
-                title=title,
-                timeout=900,
-                prompt_id_prefix=prompt_id_prefix,
-                project_id=project.id,
-            )
+        async with media_call("outsee", "audio", model="suno-v5.5", units=1.0, unit="track", project_id=project.id):
+            async with browser_session() as bs:
+                outsee = OutseeBot(bs)
+                await outsee.generate_music(
+                    suno_prompt,
+                    music_path,
+                    title=title,
+                    timeout=900,
+                    prompt_id_prefix=prompt_id_prefix,
+                    project_id=project.id,
+                )
 
     session.add(
         Artifact(

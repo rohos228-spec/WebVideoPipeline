@@ -124,9 +124,24 @@ def price_for(provider: str, model: str, variant: str = "") -> PriceEntry:
     символы TTS) не требуют вариантов вовсе.
     """
     prov = (provider or "").strip().lower()
-    base_key = f"{prov}:{(model or '').strip()}"
-    keys = [f"{base_key}@{variant.strip()}"] if variant.strip() else []
+    clean_model = (model or "").strip()
+    for pfx in ("kie:", "outsee:", "elevenlabs:", "wavespeed:", "minimax:", "vibecode:"):
+        if clean_model.lower().startswith(pfx):
+            clean_model = clean_model[len(pfx) :]
+            break
+
+    base_key = f"{prov}:{clean_model}" if prov else clean_model
+    keys: list[str] = []
+    if variant.strip():
+        keys.append(f"{base_key}@{variant.strip()}")
     keys.append(base_key)
+    if clean_model not in keys:
+        keys.append(clean_model)
+    # Поиск по альтернативным провайдерам, если модель зарегистрирована под другим
+    for alt_prov in ("kie", "outsee", "elevenlabs", "wavespeed", "minimax", "vibecode"):
+        k = f"{alt_prov}:{clean_model}"
+        if k not in keys:
+            keys.append(k)
 
     prices = _prices()
     for key in keys:

@@ -262,7 +262,17 @@ async def generate_sfx_files(
         actual_provider = "elevenlabs" if use_api else "local_synth"
         try:
             if use_api:
-                await _elevenlabs_sfx(ev.prompt, ev.duration, out_path)
+                from app.services.media_ledger import media_call
+
+                async with media_call(
+                    "elevenlabs",
+                    "audio",
+                    model="elevenlabs-sfx",
+                    units=1.0,
+                    unit="item",
+                    project_id=project.id,
+                ):
+                    await _elevenlabs_sfx(ev.prompt, ev.duration, out_path)
             else:
                 samples = _synth(ev.kind, ev.duration, seed=1000 + idx)
                 _write_wav(out_path, samples)
