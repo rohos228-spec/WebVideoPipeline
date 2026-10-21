@@ -13,6 +13,29 @@ from loguru import logger
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "0")
 
+def _patch_pyav_metadata_errors() -> None:
+    """PyAV 14+ removed metadata_errors keyword argument from av.open.
+    faster-whisper passes metadata_errors='ignore', causing TypeError.
+    This patch strips metadata_errors when PyAV doesn't support it.
+    """
+    try:
+        import av
+
+        if not getattr(av, "_metadata_errors_patched", False):
+            _orig_av_open = av.open
+
+            def _safe_av_open(*args, **kwargs):
+                kwargs.pop("metadata_errors", None)
+                return _orig_av_open(*args, **kwargs)
+
+            av.open = _safe_av_open
+            av._metadata_errors_patched = True
+    except Exception:
+        pass
+
+
+_patch_pyav_metadata_errors()
+
 
 @dataclass
 class WordTS:
