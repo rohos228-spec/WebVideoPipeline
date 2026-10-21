@@ -10,7 +10,6 @@ import {
   Download,
   FileSpreadsheet,
   FileText,
-  Film,
   Image as ImageIcon,
   Loader2,
   MessageSquareText,
@@ -1539,19 +1538,6 @@ function VideosSettingsPanel({
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
-      {/* Шапка */}
-      <div className="flex items-center gap-2.5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-          <Film className="h-5 w-5" />
-        </div>
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Параметры генерации видео</h3>
-          <p className="text-xs text-muted-foreground">
-            Параллельные потоки генерации и статус готовности входных данных
-          </p>
-        </div>
-      </div>
-
       {/* Индикатор готовности входных данных */}
       <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.02] p-4">
         <div className="flex items-center justify-between">
