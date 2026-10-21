@@ -847,18 +847,20 @@ async def _load_markers_db_first(
     from app.db import SessionLocal
     from app.models import Frame
     from app.services.montage.r15 import db_markers
+    from app.services.tenant import tenant_scope
 
     try:
-        async with SessionLocal() as session:
-            frames = list(
-                (
-                    await session.execute(
-                        select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+        with tenant_scope(getattr(project, "tenant_id", None)):
+            async with SessionLocal() as session:
+                frames = list(
+                    (
+                        await session.execute(
+                            select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                        )
                     )
+                    .scalars()
+                    .all()
                 )
-                .scalars()
-                .all()
-            )
     except Exception as e:  # noqa: BLE001
         logger.warning("[#{}] montage: БД недоступна для тайминга ({}) — беру R15", project.id, e)
         frames = []
