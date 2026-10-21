@@ -1175,6 +1175,8 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                     session,
                     project,
                     ops,
+                    characters=payload.get("characters"),
+                    scenes=payload.get("scenes"),
                     export_xlsx=bool(payload.get("export_xlsx", False)),
                     node_kind="excel_gpt_no_prompts",
                 )
