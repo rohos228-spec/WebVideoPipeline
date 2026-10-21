@@ -375,7 +375,7 @@ class Settings(BaseSettings):
     # Parakeet ~4–8 ГБ RAM/VRAM — не грузить при старте Studio (lazy при шаге «Аудио»)
     nvidia_asr_preload_on_startup: bool = Field(False, alias="NVIDIA_ASR_PRELOAD_ON_STARTUP")
     # Без файла в audio/ — ошибка, а не 11Labs (импорт озвучки с диска)
-    audio_use_elevenlabs_fallback: bool = Field(False, alias="AUDIO_USE_ELEVENLABS_FALLBACK")
+    audio_use_elevenlabs_fallback: bool = Field(True, alias="AUDIO_USE_ELEVENLABS_FALLBACK")
 
     # Ветка для commit/push оркестратора с этого ПК (housepc|tompc|strangepc|workpc).
     # Пусто = main. На каждом ПК своё значение в локальном .env.
