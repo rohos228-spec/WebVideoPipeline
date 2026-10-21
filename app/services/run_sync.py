@@ -715,6 +715,9 @@ async def prepare_node_for_step_start(
             return False
 
     if nr.status in (NodeRunStatus.running, NodeRunStatus.queued):
+        # Если нода уже выполняется и у неё есть started_at — сохраняем реальный таймер
+        if nr.status == NodeRunStatus.running and nr.started_at is not None and not (explicit_ui_start and strict):
+            return True
         if is_generation_active(project.id) and not explicit_ui_start:
             msg = f"нода «{nr.node_type}» уже в работе ({nr.status.value}) — дождитесь или «Сбросить шаг»"
             if strict:
