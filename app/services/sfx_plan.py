@@ -314,3 +314,75 @@ def load_sfx_plan(project: Project) -> list[SfxEvent] | None:
         except (ValueError, json.JSONDecodeError):
             return None
     return None
+
+
+# --- Перенесено из video-pipeline int/chat-v1 (волна 2 слияния движка) ---
+
+
+def sfx_plan_contract():
+    return {
+        "node_type": "sfx_plan",
+        "executor": "plan_sfx.run -> sfx_plan.plan_sfx_events -> ai_result_io.text_job",
+        "input": "Frame rows ordered by sort_key/number (duration_seconds, scene attrs) and the "
+        "_PLAN_PROMPT constant of app/services/sfx_plan.py; no attachments, no images",
+        "output": {
+            "checkpoint": "Project.meta.ai_jobs.sfx_plan",
+            "file": "sfx_plan.json",
+            "flag": "Project.meta.sfx_plan",
+            "frames_written": False,
+        },
+        "format": '{"events": [{"frame_number", "t_start", "duration", "kind", "prompt", "gain", "duck"}]}',
+        "kinds": list(SFX_KINDS),
+        "rules": {
+            "max_events_per_frame": MAX_EVENTS_PER_FRAME,
+            "min_gap_s": MIN_GAP_S,
+            "duration_s": [MIN_DUR_S, MAX_DUR_S],
+            "gain": [0.05, 1.0],
+            "t_start": "inside the frame timeline",
+            "prompt": "non-empty",
+        },
+        "payload_required": True,
+        "payload_required_note": "of a model reply only; a replayed checkpoint is not a model answer",
+        "data_applied": "staged by plan_sfx.run in the same transaction as the plan commit "
+        "(record_sfx_plan_applied); absent for a pass-through",
+        "checkpoint_reset": "inside a supervisor recovery attempt a persisted checkpoint that fails "
+        "the current timeline rules is dropped before the model call",
+        "native_attempts_per_run": 2,
+        "native_json_retry_fact": False,
+        "verification": "node_result_verification: independent re-read of the plan checkpoint "
+        "and sfx_plan.json; managed scope holds the execution when it is not 'passed'",
+        "retry_policy": "ONE supervisor retry_same per node and execution, only for invalid_json / "
+        "missing_payload of a model reply with no data applied; never starts sfx_gen "
+        "and never changes frames",
+        "human_approval_preserved": True,
+        "semantic_quality_verified": False,
+        "arbitrary_shell_code_paths": False,
+        "write_authority": "existing worker only",
+    }
+
+
+def sfx_plan_current_output(project, frames):
+    from app.services.ai_result_io import ai_job_checkpoint
+
+    meta = project.meta if isinstance(getattr(project, "meta", None), dict) else {}
+    cached = ai_job_checkpoint(project, "sfx_plan")
+    out = {
+        "checkpoint_present": cached is not None,
+        "plan_flag": bool(meta.get("sfx_plan")),
+        "frame_count": len(frames),
+        "events": None,
+        "problems": [],
+    }
+    if cached is None:
+        return out
+    try:
+        events = _parse_events(cached)
+        out["events"] = len(events)
+        out["problems"] = (
+            validate_events(events, total_duration=frame_timeline(frames)[-1]["end"])
+            if frames
+            else ["нет кадров"]
+        )
+    except ValueError as error:
+        out["problems"] = [str(error)]
+    return out

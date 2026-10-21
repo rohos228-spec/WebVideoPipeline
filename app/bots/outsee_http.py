@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextvars
 import json
 import re
 import sys
@@ -60,6 +61,23 @@ class NanoBananaProOutseeBannedError(OutseeApiError):
 # Обратная совместимость с cookie-era hooks в OutseeBot
 OutseeHttpError = OutseeApiError
 OutseeHttpAuthError = OutseeApiError
+
+
+# Проба исхода submit для outsee_guard (video-pipeline int/chat-v1). Здесь
+# клиент её не заполняет: guard видит «до отправки не дошло», как и раньше.
+submit_probe: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "outsee_submit_probe", default=None
+)
+
+
+class OutseeSubmitUnknownError(OutseeApiError):
+    """Исход платного submit неизвестен (запрос мог дойти): повторять нельзя, только сверка."""
+
+    def __init__(self, reason: str, *, context: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            reason,
+            context={**(context or {}), "uncertain": True, "no_resubmit": True, "submit_unknown": True},
+        )
 
 
 def outsee_api_key() -> str:
@@ -146,6 +164,11 @@ def studio_id_to_outsee_image_slug(studio_id: str | None) -> str:
     if mapped in OUTSEE_WIRED_IMAGE_MODELS:
         return mapped
     return default
+
+
+# Модели Outsee, которые отдают только 720p (1080p → invalid_request; каталог
+# Studio Create: VIDEO_RESOLUTIONS["veo-3-1-lite"] == ["720p"]).
+OUTSEE_720P_ONLY_VIDEO_MODELS = frozenset({"veo-3-1-lite"})
 
 
 def studio_id_to_outsee_video_slug(studio_id: str | None) -> str:

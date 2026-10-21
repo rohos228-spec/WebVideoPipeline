@@ -13,6 +13,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
+from loguru import logger
+
 from app.contracts.prompt_ops import MIN_IMAGE_PROMPT_CHARS
 from app.services.db_apply import extract_apply_ops_json
 from app.services.img_pr_budget import (
@@ -493,3 +495,59 @@ def write_rejected_reply(tmp_dir: Path, *, batch_i: int, attempt: int, reply: st
 
 def uuid_of_op(op: dict) -> str:
     return str(op.get("frame_uuid") or op.get("uuid") or "").strip()
+
+
+# --- Перенесено из video-pipeline int/chat-v1 (волна 2 слияния движка) ---
+
+
+_SHOT1_PROMPT_KEYS = (
+    "промт_картинки",
+    "image_prompt",
+    "промпт_картинки",
+)
+
+
+_SHOT2_PROMPT_KEYS = (
+    "промт_картинки_2",
+    "image_prompt_shot2",
+)
+
+
+# Запись в DB: короче — заглушка (портрет 1 строка / «…»), не сцена+STYLE.
+IMG_PR_MIN_WRITE_CHARS = 200
+
+
+def _field_prompt(fields: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        text = str(fields.get(key) or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _shot1_prompt_of(fields: dict[str, Any]) -> str:
+    return _field_prompt(fields, _SHOT1_PROMPT_KEYS)
+
+
+def _shot2_prompt_of(fields: dict[str, Any]) -> str:
+    return _field_prompt(fields, _SHOT2_PROMPT_KEYS)
+
+
+def writeable_img_pr_ops(ops: list[Any]) -> list[dict]:
+    """Ops, которые можно писать в DB: реальный uuid + полный промт."""
+    kept: list[dict] = []
+    for op in filter_prompt_ops(ops):
+        fields = op.get("fields") or {}
+        shot1 = _shot1_prompt_of(fields)
+        shot2 = _shot2_prompt_of(fields)
+        if len(shot1) < IMG_PR_MIN_WRITE_CHARS and len(shot2) < IMG_PR_MIN_WRITE_CHARS:
+            logger.warning(
+                "img_pr: промт короче {} симв., кадр {} не записан (shot1={} shot2={})",
+                IMG_PR_MIN_WRITE_CHARS,
+                op.get("frame_uuid") or op.get("uuid") or "?",
+                len(shot1),
+                len(shot2),
+            )
+            continue
+        kept.append(op)
+    return kept

@@ -192,8 +192,8 @@ async def _pre_step_cost(ctx, params):
 
 
 async def _pre_step_runnable(ctx, params):
-    from app.telegram.menu import is_step_runnable, step_by_code
     from app.models import ProjectStatus
+    from app.orchestrator.pipeline_steps import is_step_runnable, step_by_code
 
     step = step_by_code(params["step_code"])
     if step is None:

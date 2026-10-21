@@ -674,3 +674,16 @@ async def _assemble_body(
         caption=f"Финальный ролик #{project.id} готов. Одобрить и публиковать?",
         payload={"step": "final"},
     )
+
+
+# --- Перенесено из video-pipeline int/chat-v1 (волна 2 слияния движка) ---
+
+
+class AssembleVerificationError(RuntimeError):
+    pass
+
+
+def _assemble_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, (AssembleVerificationError, OSError)):
+        return True
+    return isinstance(exc, RuntimeError) and "ffmpeg" in str(exc).lower()

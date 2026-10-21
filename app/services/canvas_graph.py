@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import NodeRun, Project, WorkflowRun
+from app.models import NodeRun, Project, Workflow, WorkflowRun
 from app.services.excel_gpt_node import effective_node_type
 
 
@@ -60,6 +61,151 @@ def build_canvas_graph_payload(
         "edges": edges,
         "saved_at": datetime.now(UTC).isoformat(),
     }
+
+
+GRAPH_SOURCE_PROJECT = "project"
+GRAPH_SOURCE_DEFAULT = "default"
+
+
+def _graph_items(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    return [copy.deepcopy(item) for item in raw if isinstance(item, dict)]
+
+
+async def _default_workflow(session: AsyncSession) -> Workflow | None:
+    stmt = select(Workflow).where(Workflow.is_default.is_(True)).order_by(Workflow.id.asc()).limit(1)
+    # Одна база: дефолтный Workflow лежит в той же сессии, что и проект.
+    try:
+        return (await session.execute(stmt)).scalars().first()
+    except Exception:
+        logger.debug("effective graph: default workflow lookup failed", exc_info=True)
+        return None
+
+
+def _pack_graph(
+    nodes: Any, edges: Any, workflow_id: int | None, source: str, origin: str
+) -> dict[str, Any] | None:
+    items = _graph_items(nodes)
+    if not items:
+        return None
+    return {
+        "workflow_id": workflow_id,
+        "nodes": items,
+        "edges": _graph_items(edges),
+        "source": source,
+        "origin": origin,
+    }
+
+
+async def resolve_effective_graph(session: AsyncSession, project: Project) -> dict[str, Any] | None:
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    own = canvas_graph_from_meta(meta)
+    if own:
+        return _pack_graph(
+            own["nodes"],
+            own["edges"],
+            own.get("workflow_id"),
+            GRAPH_SOURCE_PROJECT,
+            "canvas_graph",
+        )
+    with session.no_autoflush:
+        default = await _default_workflow(session)
+        default_id = default.id if default is not None else None
+        run = (
+            (
+                await session.execute(
+                    select(WorkflowRun)
+                    .where(WorkflowRun.project_id == project.id)
+                    .order_by(WorkflowRun.id.asc())
+                    .limit(1)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if run is not None:
+            packed = _pack_graph(
+                run.nodes_snapshot,
+                run.edges_snapshot,
+                default_id or run.workflow_id,
+                GRAPH_SOURCE_DEFAULT,
+                "run_snapshot",
+            )
+            if packed:
+                return packed
+            if run.workflow_id:
+                wf = await session.get(Workflow, run.workflow_id)
+                if wf is not None:
+                    packed = _pack_graph(
+                        wf.nodes,
+                        wf.edges,
+                        default_id or wf.id,
+                        GRAPH_SOURCE_DEFAULT,
+                        "run_workflow",
+                    )
+                    if packed:
+                        return packed
+    if default is not None:
+        return _pack_graph(default.nodes, default.edges, default.id, GRAPH_SOURCE_DEFAULT, "default_workflow")
+    return None
+
+
+def with_effective_graph(meta: dict[str, Any] | None, graph: dict[str, Any] | None) -> dict[str, Any]:
+    out = dict(meta) if isinstance(meta, dict) else {}
+    if graph and graph.get("nodes") and not canvas_graph_from_meta(out):
+        out["canvas_graph"] = build_canvas_graph_payload(
+            workflow_id=graph.get("workflow_id"),
+            nodes=_graph_items(graph.get("nodes")),
+            edges=_graph_items(graph.get("edges")),
+        )
+    return out
+
+
+async def effective_project_meta(
+    session: AsyncSession, project: Project
+) -> tuple[dict[str, Any], str | None]:
+    graph = await resolve_effective_graph(session, project)
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    return with_effective_graph(meta, graph), (graph or {}).get("source")
+
+
+EFFECTIVE_GRAPH_ATTR = "_effective_canvas_graph"
+
+
+async def attach_effective_graph(session: AsyncSession, project: Project) -> dict[str, Any] | None:
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    graph = None if canvas_graph_from_meta(meta) else await resolve_effective_graph(session, project)
+    setattr(project, EFFECTIVE_GRAPH_ATTR, graph)
+    return graph
+
+
+def project_graph(project: Any) -> dict[str, Any] | None:
+    meta = getattr(project, "meta", None)
+    own = canvas_graph_from_meta(meta if isinstance(meta, dict) else {})
+    if own:
+        return own
+    attached = getattr(project, EFFECTIVE_GRAPH_ATTR, None)
+    if not isinstance(attached, dict):
+        return None
+    return canvas_graph_from_meta({"canvas_graph": attached})
+
+
+async def materialize_project_graph(session: AsyncSession, project: Project) -> bool:
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    if canvas_graph_from_meta(meta):
+        return False
+    graph = await resolve_effective_graph(session, project)
+    if not graph:
+        return False
+    project.meta = with_effective_graph(meta, graph)
+    logger.info(
+        "[#{}] canvas_graph: project got its own copy of the {} graph ({} nodes)",
+        project.id,
+        graph.get("origin"),
+        len(graph.get("nodes") or []),
+    )
+    return True
 
 
 def canvas_topology_key(

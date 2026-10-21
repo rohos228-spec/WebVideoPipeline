@@ -72,3 +72,6 @@ deploy/studio/.last-image
 
 # ключи в любом dotenv-файле с любым суффиксом — не в git (у заказчика такой файл читался кодом)
 .env.env
+
+# Журнал api_tracker_hook по умолчанию (API_TRACKER_DB): не коммитить
+api-tracker/

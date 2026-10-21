@@ -140,6 +140,9 @@ async def project_activity(ctx: ActionContext, project_id: int | None) -> str | 
     except Exception as exc:
         logger.debug("action layer activity probe failed project={}: {}", project_id, exc)
         return None
+    # Ручки новой линии могут ответить не объектом (404-текст, другой контракт).
+    proj = proj if isinstance(proj, dict) else {}
+    run = run if isinstance(run, dict) else {}
     rows = sorted(
         (str(r.get("node_key")), str(r.get("status")), str(r.get("progress")),
          str(r.get("progress_text")), str(r.get("updated_at")), str(r.get("finished_at")))

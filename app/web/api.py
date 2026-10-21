@@ -336,9 +336,44 @@ async def _lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001
         logger.exception("startup reconcile failed (non-fatal)")
 
+    # Движок оркестратора (перенесён из video-pipeline int/chat-v1). Подъём
+    # задач после рестарта только по ORCH_RECOVER_ON_START, иначе прерванные
+    # задачи и планы действий закрываются с честной пометкой.
+    try:
+        from app.orchestrator.agents.runtime import get_runtime, recover_on_start
+
+        if recover_on_start():
+            recovered = await get_runtime().start()
+            if recovered:
+                logger.info("orchestrator recovered tasks {}", recovered)
+        else:
+            closed = await get_runtime().supervisor.settle_after_restart()
+            if closed:
+                logger.warning("orchestrator tasks interrupted by restart closed {}", closed)
+            from app.services.orch_bridge import close_interrupted_plans
+
+            plans = await close_interrupted_plans()
+            if plans:
+                logger.warning("orchestrator action plans interrupted by restart closed {}", plans)
+    except Exception:  # noqa: BLE001
+        logger.exception("orchestrator restart recovery failed (non-fatal)")
+
+    approval_expiry_task = None
+    try:
+        from app.orchestrator.agents.approval_expiry import start_approval_expiry
+        from app.orchestrator.agents.runtime import get_runtime
+
+        approval_expiry_task = start_approval_expiry(get_runtime().supervisor)
+    except Exception:  # noqa: BLE001
+        logger.exception("orchestrator approval expiry failed to start (non-fatal)")
+
     try:
         yield
     finally:
+        if approval_expiry_task is not None:
+            approval_expiry_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await approval_expiry_task
         logger.remove(live_log_sink)
 
 
@@ -371,6 +406,11 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(workflows_router.router, prefix=API_PREFIX)
+    # Отчёты движка раньше projects: `/projects/reports/{name}` не должен
+    # попасть в `/{project_id}/...`. Доступ: только админ (engine_access).
+    from app.web.routers import project_reports as project_reports_router
+
+    app.include_router(project_reports_router.router, prefix=API_PREFIX)
     app.include_router(projects_router.router, prefix=API_PREFIX)
     app.include_router(project_ops_router.router, prefix=API_PREFIX)
     app.include_router(generation_options_router.router, prefix=API_PREFIX)
@@ -408,6 +448,14 @@ def create_app() -> FastAPI:
     app.include_router(meta_agent_router.router, prefix=API_PREFIX)
     app.include_router(project_graph_router.router, prefix=API_PREFIX)
     app.include_router(voices_router.router, prefix=API_PREFIX)
+    # Чат оркестратора (движок). /api/orchestrator/** не в TENANT_ALLOWED_PREFIXES,
+    # IdentityMiddleware закрывает его от участников; роутер дополнительно
+    # требует админа (engine_access.require_engine_operator).
+    from app.orchestrator import app_ref
+    from app.web.routers import orchestrator_chat as orchestrator_chat_router
+
+    app.include_router(orchestrator_chat_router.router, prefix=API_PREFIX)
+    app_ref.bind(app)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
     async def api_write_not_found(rest: str) -> None:

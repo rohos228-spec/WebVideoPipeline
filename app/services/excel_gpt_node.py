@@ -215,12 +215,24 @@ def migrate_enrich_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return assign_slot_indices(migrated)
 
 
+def _slot_status_pair(slot: int) -> tuple[ProjectStatus, ProjectStatus, str]:
+    """Пара running/ready для слота 1..5.
+
+    Слот 0 (slotOverflow / sd_agent без enrich) и любой мусор — занимаем
+    enriching_1: фактическая нода задаётся ``active_excel_gpt_node_key``.
+    Иначе ▶ overflow-ноды даёт KeyError → HTTP 500.
+    """
+    if slot in _SLOT_MAP:
+        return _SLOT_MAP[slot]
+    return _SLOT_MAP[1]
+
+
 def running_status_for_slot(slot: int) -> ProjectStatus:
-    return _SLOT_MAP[slot][0]
+    return _slot_status_pair(slot)[0]
 
 
 def ready_status_for_slot(slot: int) -> ProjectStatus:
-    return _SLOT_MAP[slot][1]
+    return _slot_status_pair(slot)[1]
 
 
 def slot_from_running_status(status: ProjectStatus) -> int | None:
@@ -291,7 +303,7 @@ def first_work_successor_along_edges(project: Project, from_node_key: str) -> tu
             continue
         visited.add(key)
         node = by_id.get(key) or {}
-        typ = str(node.get("type") or "")
+        typ = effective_node_type(node)
         if is_passthrough_node_type(typ):
             queue.extend(outs.get(key, []))
             continue
@@ -360,15 +372,30 @@ def prepare_enrich_chain_for_auto_advance(
         return None
     from_key = (finished_key or "").strip() or None
     if not from_key:
-        # Последний completed key на этом слоте, иначе resolve.
+        # Последний completed key на этом слоте. overflow-группа (slot 0)
+        # тоже ходит через enrich_N_ready — слот в meta не 1..5, поэтому
+        # берём последний не-sd completed, иначе resolve(N) хватает world.
         meta0 = project.meta if isinstance(project.meta, dict) else {}
         for raw in reversed(list(meta0.get("excel_gpt_completed_keys") or [])):
             k = str(raw or "").strip()
             if not k:
                 continue
-            if slot_for_excel_gpt_node_key(project, k) == finished:
+            slot_k = slot_for_excel_gpt_node_key(project, k)
+            if slot_k == finished:
                 from_key = k
                 break
+        if not from_key:
+            for raw in reversed(list(meta0.get("excel_gpt_completed_keys") or [])):
+                k = str(raw or "").strip()
+                if not k:
+                    continue
+                node = canvas_node_by_key(project, k)
+                if node is None or sd_agent_marker(node):
+                    continue
+                slot_k = slot_for_excel_gpt_node_key(project, k)
+                if slot_k in (0, None):
+                    from_key = k
+                    break
         if not from_key:
             from_key = resolve_excel_gpt_node_key_for_slot(project, finished)
     succ = first_work_successor_from_excel_slot(project, finished, from_key=from_key)
@@ -381,8 +408,23 @@ def prepare_enrich_chain_for_auto_advance(
         return None
     if nxt_slot is None:
         nxt_slot = slot_for_excel_gpt_node_key(project, next_key)
-    if nxt_slot is None or nxt_slot < 1:
+    if nxt_slot is None:
         return None
+    meta = dict(project.meta or {})
+    if nxt_slot < 1:
+        # overflow → overflow: слот общий (enriching_1), различаем по id.
+        # Хвост группы (action/shots/QC) снимаем целиком — иначе heal
+        # помечает старые ключи done и новые биты не доходят до записи.
+        if from_key:
+            clear_overflow_excel_gpt_successors(project, from_key)
+            meta = dict(project.meta or {})
+        else:
+            keys = [str(k) for k in (meta.get("excel_gpt_completed_keys") or [])]
+            if next_key in keys:
+                meta["excel_gpt_completed_keys"] = [k for k in keys if k != next_key]
+        meta["active_excel_gpt_node_key"] = next_key
+        project.meta = meta
+        return running_status_for_slot(nxt_slot)
     ensure_enrich_auto_chain_to(project, finished, from_key=from_key)
     clear_excel_gpt_tail_completion(project, nxt_slot)
     meta = dict(project.meta or {})
@@ -397,14 +439,29 @@ def active_excel_gpt_node_key(project: Project) -> str | None:
     return key or None
 
 
+def canvas_node_by_key(project: Project, node_key: str) -> dict[str, Any] | None:
+    """Нода канваса по id (включая scene-агентов type=excel_gpt)."""
+    key = (node_key or "").strip()
+    if not key:
+        return None
+    from app.services.canvas_graph import canvas_graph_from_meta
+
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    cg = canvas_graph_from_meta(meta) or {}
+    for n in cg.get("nodes") or []:
+        if isinstance(n, dict) and str(n.get("id") or "").strip() == key:
+            return n
+    return None
+
+
 def excel_gpt_nodes_from_project(project: Project) -> list[dict[str, Any]]:
-    """Ноды excel_gpt из canvas_graph meta (fallback — пусто)."""
+    """Ноды excel_gpt из canvas_graph meta (без scene-агентов sd_agent)."""
     from app.services.canvas_graph import canvas_graph_from_meta
 
     meta = project.meta if isinstance(project.meta, dict) else {}
     cg = canvas_graph_from_meta(meta)
     nodes = list((cg or {}).get("nodes") or [])
-    return [n for n in nodes if is_excel_gpt_node_type(str(n.get("type") or ""))]
+    return [n for n in nodes if is_excel_gpt_node_type(str(n.get("type") or "")) and not sd_agent_marker(n)]
 
 
 def _resolve_colliding_slot_via_graph(
@@ -460,6 +517,7 @@ def resolve_excel_gpt_node_key_for_slot(
     if not (1 <= int(slot) <= MAX_EXCEL_GPT_SLOTS):
         return None
     pool = nodes if nodes is not None else excel_gpt_nodes_from_project(project)
+    pool = [n for n in pool if not sd_agent_marker(n)]
     if not pool:
         return None
     matches = [
@@ -612,6 +670,150 @@ def completed_node_keys(project: Project) -> set[str]:
     meta = project.meta if isinstance(project.meta, dict) else {}
     raw = meta.get("excel_gpt_completed_keys") or []
     return {str(k) for k in raw if k}
+
+
+def excel_gpt_already_completed_no_force(project: Project) -> bool:
+    """True — активная excel_gpt уже в completed_keys и это не явный ▶.
+
+    Leftover worker tick (enriching_N + generation_active=false) не должен
+    снова вызывать GPT. start_step с explicit_ui_start снимает ключ и/или
+    ставит excel_gpt_ui_force_full.
+    """
+    key = active_node_key(project)
+    if not key or key not in completed_node_keys(project):
+        return False
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    if meta.get("excel_gpt_ui_force_full") or meta.get("excel_gpt_force_full_rerun"):
+        return False
+    return True
+
+
+def excel_gpt_artifact_exists(project: Project, node_key: str) -> bool:
+    """Есть gpt_reply / отчёт на диске — нода уже отработала."""
+    key = (node_key or "").strip()
+    if not key:
+        return False
+    folder = upload_dir(project, key)
+    for name in ("gpt_reply.txt", "shots-report.html", "fragments.json", "skeleton.json"):
+        path = folder / name
+        try:
+            if path.is_file() and path.stat().st_size > 0:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def overflow_excel_gpt_successors(project: Project, node_key: str) -> list[str]:
+    """excel_gpt-потомки по стрелкам канваса, ближние первыми."""
+    from app.services.canvas_graph import canvas_graph_from_meta
+
+    want = (node_key or "").strip()
+    if not want:
+        return []
+    cg = canvas_graph_from_meta(project.meta if isinstance(project.meta, dict) else {})
+    if not cg:
+        return []
+    by_id = {
+        str(n.get("id") or ""): n for n in (cg.get("nodes") or []) if isinstance(n, dict) and n.get("id")
+    }
+    outgoing: dict[str, list[str]] = {}
+    for e in cg.get("edges") or []:
+        if not isinstance(e, dict):
+            continue
+        src = str(e.get("source") or "")
+        tgt = str(e.get("target") or "")
+        if not src or not tgt:
+            continue
+        outgoing.setdefault(src, []).append(tgt)
+    out: list[str] = []
+    seen: set[str] = {want}
+    wave = list(outgoing.get(want) or [])
+    while wave:
+        cur = wave.pop(0)
+        if not cur or cur in seen:
+            continue
+        seen.add(cur)
+        node = by_id.get(cur) or {}
+        if str(node.get("type") or "") == EXCEL_GPT_NODE_TYPE:
+            out.append(cur)
+        wave.extend(outgoing.get(cur) or [])
+    return out
+
+
+def clear_overflow_excel_gpt_successors(project: Project, node_key: str) -> list[str]:
+    """Снять completed_keys у потомков overflow-ноды — хвост пишется заново."""
+    succ = overflow_excel_gpt_successors(project, node_key)
+    if not succ:
+        return []
+    meta = dict(project.meta or {}) if isinstance(project.meta, dict) else {}
+    keys = [str(k) for k in (meta.get("excel_gpt_completed_keys") or [])]
+    drop = set(succ)
+    cleared = [k for k in keys if k in drop]
+    if not cleared:
+        return []
+    meta["excel_gpt_completed_keys"] = [k for k in keys if k not in drop]
+    project.meta = meta
+    return cleared
+
+
+def overflow_excel_gpt_predecessors(project: Project, node_key: str) -> list[str]:
+    """excel_gpt-предки по стрелкам канваса, ближние первыми."""
+    from app.services.canvas_graph import canvas_graph_from_meta
+
+    want = (node_key or "").strip()
+    if not want:
+        return []
+    cg = canvas_graph_from_meta(project.meta if isinstance(project.meta, dict) else {})
+    if not cg:
+        return []
+    by_id = {
+        str(n.get("id") or ""): n for n in (cg.get("nodes") or []) if isinstance(n, dict) and n.get("id")
+    }
+    incoming: dict[str, list[str]] = {}
+    for e in cg.get("edges") or []:
+        if not isinstance(e, dict):
+            continue
+        src = str(e.get("source") or "")
+        tgt = str(e.get("target") or "")
+        if not src or not tgt:
+            continue
+        incoming.setdefault(tgt, []).append(src)
+    out: list[str] = []
+    seen: set[str] = {want}
+    wave = list(incoming.get(want) or [])
+    while wave:
+        cur = wave.pop(0)
+        if not cur or cur in seen:
+            continue
+        seen.add(cur)
+        node = by_id.get(cur) or {}
+        if str(node.get("type") or "") == EXCEL_GPT_NODE_TYPE:
+            out.append(cur)
+        wave.extend(incoming.get(cur) or [])
+    return out
+
+
+def backfill_overflow_completed_predecessors(project: Project, node_key: str) -> list[str]:
+    """Вернуть в completed_keys предков с артефактом (сценарист после ⏹)."""
+    preds = overflow_excel_gpt_predecessors(project, node_key)
+    if not preds:
+        return []
+    meta = dict(project.meta or {}) if isinstance(project.meta, dict) else {}
+    keys = [str(k) for k in (meta.get("excel_gpt_completed_keys") or [])]
+    added: list[str] = []
+    for pred in preds:
+        if pred in keys:
+            continue
+        if not excel_gpt_artifact_exists(project, pred):
+            continue
+        keys.append(pred)
+        added.append(pred)
+    if not added:
+        return []
+    meta["excel_gpt_completed_keys"] = keys
+    project.meta = meta
+    return added
 
 
 def max_excel_gpt_slot(project: Project) -> int:
@@ -864,11 +1066,16 @@ async def clear_slot_completion_meta(
     if node_key:
         targets.add(str(node_key))
     graph = await load_graph_for_project(session, project)
-    for nid, n in graph._by_id.items():
-        if str(n.get("type") or "") != EXCEL_GPT_NODE_TYPE:
-            continue
-        if slot_index_from_node(n) == slot:
-            targets.add(str(nid))
+    # overflow / slot 0: вся fw-группа и sd_agent имеют slotIndex=0.
+    # ▶ одной ноды не должен сносить completed_keys соседей.
+    if slot >= 1:
+        for nid, n in graph._by_id.items():
+            if str(n.get("type") or "") != EXCEL_GPT_NODE_TYPE:
+                continue
+            if sd_agent_marker(n):
+                continue
+            if slot_index_from_node(n) == slot:
+                targets.add(str(nid))
     for k in list(keys):
         if k in targets:
             keys.remove(k)

@@ -597,7 +597,9 @@ async def _project_db_frames(row, pid: int) -> int | None:
     if row is None:
         return None
     try:
-        from app.project_db import get_project_sessionmaker, resolve_project_db_path
+        from app.project_db import get_project_sessionmaker, resolve_project_db_path, worker_use_project_db
+        if not worker_use_project_db():
+            return None  # одна база: отдельного счёта «в базе проекта» нет
         if not resolve_project_db_path(row.data_dir).exists():
             return None
         factory = await get_project_sessionmaker(row.data_dir)

@@ -206,3 +206,11 @@ def apply_shot2_prompts_to_frames(
             changed += 1
         fr.attrs = attrs
     return changed
+
+
+# --- Перенесено из video-pipeline int/chat-v1 (волна 2 слияния движка) ---
+
+
+def is_parent_still_filename(name: str) -> bool:
+    """Отдельный still общего плана: ``frame_NNN_parent*.png``, не shot1."""
+    return "_parent" in (name or "").lower()
