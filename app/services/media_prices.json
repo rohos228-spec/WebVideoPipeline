@@ -29,7 +29,7 @@
   "models": {
     "outsee:gpt-image-2": {
       "unit": "item",
-      "usd_per_unit": null
+      "usd_per_unit": 0.02
     },
     "vibecode:gpt-image-2.5": {
       "unit": "item",
@@ -41,23 +41,24 @@
     },
     "outsee:nano-banana-2": {
       "unit": "item",
-      "usd_per_unit": null
+      "usd_per_unit": 0.02
     },
     "outsee:nano-banana-2-lite": {
       "unit": "item",
-      "usd_per_unit": null
+      "usd_per_unit": 0.015
     },
     "outsee:nano-banana-fast": {
       "unit": "item",
-      "usd_per_unit": null
+      "usd_per_unit": 0.015
     },
     "outsee:nano-banana-pro": {
       "unit": "item",
-      "usd_per_unit": null
+      "usd_per_unit": 0.03
     },
     "outsee:veo-3-1-lite": {
       "unit": "second",
-      "usd_per_unit": null
+      "usd_per_unit": 0.075,
+      "usd_per_call": 0.45
     },
     "outsee:veo-3-1-fast": {
       "unit": "second",
@@ -77,11 +78,11 @@
     },
     "elevenlabs:eleven_flash_v2_5": {
       "unit": "char",
-      "usd_per_unit": 0.00005
+      "usd_per_unit": 5e-05
     },
     "elevenlabs:eleven_turbo_v2_5": {
       "unit": "char",
-      "usd_per_unit": 0.00005
+      "usd_per_unit": 5e-05
     },
     "wavespeed:elevenlabs/eleven-v4": {
       "unit": "char",
@@ -158,6 +159,102 @@
     "minimax:MiniMax-Hailuo-02@1080P:6": {
       "unit": "second",
       "usd_per_call": 0.49
+    },
+    "kie:suno-v5.5": {
+      "unit": "track",
+      "usd_per_call": 0.08
+    },
+    "kie:suno-v5": {
+      "unit": "track",
+      "usd_per_call": 0.08
+    },
+    "kie:suno-v4": {
+      "unit": "track",
+      "usd_per_call": 0.08
+    },
+    "outsee:suno-v5.5": {
+      "unit": "track",
+      "usd_per_call": 0.08
+    },
+    "elevenlabs:elevenlabs-sfx": {
+      "unit": "item",
+      "usd_per_call": 0.01
+    },
+    "elevenlabs:elevenlabs/eleven-v4": {
+      "unit": "char",
+      "usd_per_unit": 0.0001
+    },
+    "kie:flux-2-pro": {
+      "unit": "item",
+      "usd_per_unit": 0.05
+    },
+    "kie:flux-dev": {
+      "unit": "item",
+      "usd_per_unit": 0.025
+    },
+    "kie:seedream-5-pro": {
+      "unit": "item",
+      "usd_per_unit": 0.045
+    },
+    "kie:z-image": {
+      "unit": "item",
+      "usd_per_unit": 0.02
+    },
+    "kie:qwen3-image": {
+      "unit": "item",
+      "usd_per_unit": 0.035
+    },
+    "kie:seedance-2-0-mini": {
+      "unit": "second",
+      "usd_per_call": 0.2
+    },
+    "kie:seedance-2-0-fast-overseas": {
+      "unit": "second",
+      "usd_per_call": 0.22
+    },
+    "kie:seedance-2-5": {
+      "unit": "second",
+      "usd_per_call": 0.18
+    },
+    "kie:seedance-1-5-pro": {
+      "unit": "second",
+      "usd_per_call": 0.21
+    },
+    "kie:kling-3-0": {
+      "unit": "second",
+      "usd_per_call": 0.36
+    },
+    "kie:kling-v3-turbo-t2v": {
+      "unit": "second",
+      "usd_per_call": 0.24
+    },
+    "kie:kling-v3-turbo-i2v": {
+      "unit": "second",
+      "usd_per_call": 0.24
+    },
+    "kie:kling-3-0-omni-t2v": {
+      "unit": "second",
+      "usd_per_call": 0.42
+    },
+    "kie:hailuo-2-3-i2v": {
+      "unit": "second",
+      "usd_per_call": 0.27
+    },
+    "kie:wan-2-7-t2v": {
+      "unit": "second",
+      "usd_per_call": 0.15
+    },
+    "kie:wan-2-7-i2v": {
+      "unit": "second",
+      "usd_per_call": 0.4
+    },
+    "kie:pixverse-v6-t2v": {
+      "unit": "second",
+      "usd_per_call": 0.21
+    },
+    "kie:topaz-video-upscale": {
+      "unit": "second",
+      "usd_per_call": 0.15
     }
   }
 }

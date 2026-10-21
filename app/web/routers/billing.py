@@ -538,43 +538,144 @@ class UsageHistoryResponse(BaseModel):
 
 
 def _clean_model_name(raw: str) -> tuple[str, str]:
-    clean = (raw or "unknown").strip().removeprefix("kie:").removeprefix("outsee:")
+    import re
+
+    from app.services.text_llm_catalog import catalog_item
+
+    raw_clean = (raw or "unknown").strip()
+    clean = raw_clean
+    for pfx in ("kie:", "outsee:", "elevenlabs:", "wavespeed:", "minimax:", "vibecode:", "pay52:"):
+        if clean.lower().startswith(pfx):
+            clean = clean[len(pfx) :]
+            break
+
+    # 1. Динамическое разрешение через каталог текстовых LLM
+    item = catalog_item(clean) or catalog_item(raw_clean)
+    if item and item.get("label"):
+        return clean, item["label"]
+
+    # 2. Статический справочник для всех медиа (видео, картинки, аудио/SFX) и известных LLM
     display_map = {
-        "flux-2-pro": "Flux 2 Pro",
-        "flux-dev": "Flux Dev",
-        "alibaba-qwen-image-3": "Alibaba Qwen Image 3",
-        "seedream-5-pro": "Seedream 5 Pro",
-        "z-image": "Z-Image",
-        "kling-3-0": "Kling 3.0 Pro",
-        "veo-3-1-lite": "Veo 3.1 Lite",
-        "veo-3-1-pro": "Veo 3.1 Pro",
-        "gpt-image-2": "GPT Image 2",
-        "nano-banana-2": "Nano Banana 2",
-        "nano-banana-pro": "Nano Banana Pro",
-        "claude-sonnet-5": "Claude Sonnet 5",
-        "claude-sonnet-5-vibecode": "Claude Sonnet 5",
-        "claude-3-5-sonnet": "Claude Sonnet 5",
-        "claude-3.5-sonnet": "Claude Sonnet 5",
-        "claude-opus-5": "Claude Opus 5",
-        "claude-opus-5-vibecode": "Claude Opus 5",
-        "claude-opus-4-8": "Claude Opus 4.8",
-        "claude-opus-4-8-vibecode": "Claude Opus 4.8",
-        "claude-fable-5": "Claude Fable 5",
-        "claude-fable-5-vibecode": "Claude Fable 5",
-        "gpt-5.6-sol": "GPT-5.6 Sol",
+        # OpenAI
+        "gpt-6.1-sol": "GPT 6.1 Sol",
+        "gpt-6-1-sol": "GPT 6.1 Sol",
+        "gpt-6-sol": "GPT 6 Sol",
+        "gpt-6-astra": "GPT 6 Astra",
+        "gpt-6-luna": "GPT 6 Luna",
+        "gpt-5.6-sol": "GPT 5.6 Sol",
+        "gpt-5-6-sol": "GPT 5.6 Sol",
+        "gpt-5.6-terra": "GPT 5.6 Terra",
+        "gpt-5.6-luna": "GPT 5.6 Luna",
+        "gpt-5.5": "GPT 5.5",
+        "gpt-5.5-openai-compact": "GPT 5.5 Compact",
+        "gpt-5.4-mini": "GPT 5.4 Mini",
         "gpt-4o": "GPT-4o",
         "gpt-4o-mini": "GPT-4o Mini",
-        "eleven_multilingual_v2": "ElevenLabs Multilingual v2",
-        "elevenlabs": "ElevenLabs",
-        "suno-v4": "Suno v4",
+        "gpt-image-2": "GPT Image 2",
+        "gpt-image-2.5": "GPT Image 2.5",
+        "gpt-image-2.5-flare": "GPT Image 2.5 Flare",
+        "gpt-kie": "GPT (kie.ai)",
+        # Anthropic
+        "claude-sonnet-5-5": "Claude Sonnet 5.5",
+        "claude-sonnet-5": "Claude Sonnet 5",
+        "claude-opus-5-5": "Claude Opus 5.5",
+        "claude-opus-5": "Claude Opus 5",
+        "claude-opus-4-8": "Claude Opus 4.8",
+        "claude-opus-4-7": "Claude Opus 4.7",
+        "claude-opus-4-6": "Claude Opus 4.6",
+        "claude-haiku-5-5": "Claude Haiku 5.5",
+        "claude-haiku-4-5": "Claude Haiku 4.5",
+        "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+        "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
+        "claude-fable-5-1": "Claude Fable 5.1",
+        "claude-fable-5": "Claude Fable 5",
+        "claude-3-5-sonnet": "Claude 3.5 Sonnet",
+        "claude-3.5-sonnet": "Claude 3.5 Sonnet",
+        # Google Gemini
+        "gemini-3.8-flash": "Gemini 3.8 Flash",
+        "gemini-3.7-flash": "Gemini 3.7 Flash",
+        "gemini-3.6-flash": "Gemini 3.6 Flash",
+        "gemini-3.5-flash": "Gemini 3.5 Flash",
+        "gemini-3-flash": "Gemini 3 Flash",
+        "gemini-3-flash-preview": "Gemini 3 Flash",
+        "gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+        "gemini-4-argon": "Gemini 4 Argon",
+        # xAI
+        "grok-4-7": "Grok 4.7",
+        "grok-4.7": "Grok 4.7",
+        "grok-4-6": "Grok 4.6",
+        "grok-4.6": "Grok 4.6",
+        "grok-4-5": "Grok 4.5",
+        "grok-4.5": "Grok 4.5",
+        # GLM & DeepSeek
+        "glm-5.3-flash": "GLM 5.3 Flash",
+        "glm-5.3-flashx": "GLM 5.3 FlashX",
+        "glm-5.3": "GLM 5.3",
+        "glm-5.2": "GLM 5.2",
+        "deepseek-v4-flash": "DeepSeek v4 Flash",
+        "deepseek-v4-pro": "DeepSeek v4 Pro",
+        "deepseek-v4.1-flash": "DeepSeek v4.1 Flash",
+        # Картинки (Images)
+        "flux-2-pro": "Flux 2 Pro",
+        "flux-dev": "Flux Dev",
+        "nano-banana-2": "Nano Banana 2",
+        "nano-banana-2-lite": "Nano Banana 2 Lite",
+        "nano-banana-fast": "Nano Banana Fast",
+        "nano-banana-pro": "Nano Banana Pro",
+        "nano-banana": "Nano Banana",
+        "seedream-5-pro": "Seedream 5 Pro",
+        "z-image": "Z-Image",
+        "qwen3-image": "Alibaba Qwen Image 3",
+        "alibaba-qwen-image-3": "Alibaba Qwen Image 3",
+        # Видео (Video)
+        "veo-3-1-lite": "Veo 3.1 Lite",
+        "veo-3-1-pro": "Veo 3.1 Pro",
+        "veo-3-1-fast": "Veo 3.1 Fast",
+        "veo-3-fast": "Veo 3.1 Fast",
+        "seedance-2-0-mini": "Seedance 2.0 Mini",
+        "seedance-2-0-fast-overseas": "Seedance 2.0 Fast",
+        "seedance-2-5": "Seedance 2.5",
+        "seedance-1-5-pro": "Seedance 1.5 Pro",
+        "kling-3-0": "Kling 3.0 Pro",
+        "kling-v3-turbo-t2v": "Kling 3.0 Turbo (T2V)",
+        "kling-v3-turbo-i2v": "Kling 3.0 Turbo (I2V)",
+        "kling-3-0-omni-t2v": "Kling 3.0 Omni",
+        "hailuo-2-3-i2v": "MiniMax Hailuo 2.3",
+        "hailuo-01": "MiniMax Hailuo 01",
+        "hailuo-02": "MiniMax Hailuo 02",
+        "minimax-hailuo-2.3": "MiniMax Hailuo 2.3",
+        "minimax-hailuo-02": "MiniMax Hailuo 02",
         "minimax": "MiniMax",
-        "hailuo-01": "Hailuo-01",
+        "wan-2-7-t2v": "Wan 2.7 (T2V)",
+        "wan-2-7-i2v": "Wan 2.7 (I2V)",
+        "pixverse-v6-t2v": "PixVerse v6",
+        "topaz-video-upscale": "Topaz Video Upscale",
+        # Аудио / Озвучка / Музыка / SFX
+        "suno-v5.5": "Suno v5.5",
+        "suno-v5": "Suno v5",
+        "suno-v4": "Suno v4",
+        "suno-music": "Suno Music",
+        "elevenlabs-sfx": "ElevenLabs SFX",
+        "elevenlabs/eleven-v4": "ElevenLabs v4 (TTS)",
+        "eleven_multilingual_v2": "ElevenLabs Multilingual v2",
+        "eleven_flash_v2_5": "ElevenLabs Flash v2.5",
+        "eleven_turbo_v2_5": "ElevenLabs Turbo v2.5",
+        "elevenlabs": "ElevenLabs",
+        "tts": "ElevenLabs TTS",
     }
     low = clean.lower()
     for k, v in display_map.items():
         if low == k or low == k.lower():
             return clean, v
-    return clean, clean
+
+    # 3. Аккуратный fallback: замена дефисов на пробелы и Title Case
+    formatted = clean.replace("-", " ").replace("_", " ").title()
+    formatted = re.sub(r"\bGpt\b", "GPT", formatted)
+    formatted = re.sub(r"\bLlm\b", "LLM", formatted)
+    formatted = re.sub(r"\bTts\b", "TTS", formatted)
+    formatted = re.sub(r"\bSfx\b", "SFX", formatted)
+    formatted = re.sub(r"\bAi\b", "AI", formatted)
+    return clean, formatted
 
 
 def _unit_label(kind: str, unit: str = "") -> str:
@@ -583,7 +684,11 @@ def _unit_label(kind: str, unit: str = "") -> str:
     if kind == "video":
         return "сек."
     if kind == "audio":
-        return "симв." if unit == "char" else "треков"
+        if unit == "char":
+            return "симв."
+        if unit in ("item", "sfx", "sound"):
+            return "звуков"
+        return "треков"
     if kind == "llm":
         return "токенов"
     return unit or "шт."

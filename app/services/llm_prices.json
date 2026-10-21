@@ -144,6 +144,38 @@
     "glm-5.3-flashx": {
       "input_usd_per_m": 0.098,
       "output_usd_per_m": 0.34
+    },
+    "glm-5.2": {
+      "input_usd_per_m": 0.04,
+      "output_usd_per_m": 0.15
+    },
+    "glm-5.3": {
+      "input_usd_per_m": 0.04,
+      "output_usd_per_m": 0.15
+    },
+    "claude-haiku-4-5-20251001": {
+      "input_usd_per_m": 0.2,
+      "output_usd_per_m": 0.98
+    },
+    "claude-sonnet-4-5-20250929": {
+      "input_usd_per_m": 0.295243,
+      "output_usd_per_m": 1.476216
+    },
+    "claude-haiku-5-5": {
+      "input_usd_per_m": 0.25,
+      "output_usd_per_m": 1.25
+    },
+    "deepseek-v4-flash": {
+      "input_usd_per_m": 0.02,
+      "output_usd_per_m": 0.08
+    },
+    "deepseek-v4-pro": {
+      "input_usd_per_m": 0.14,
+      "output_usd_per_m": 0.28
+    },
+    "deepseek-v4.1-flash": {
+      "input_usd_per_m": 0.02,
+      "output_usd_per_m": 0.08
     }
   }
 }
