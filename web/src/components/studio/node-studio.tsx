@@ -12,7 +12,6 @@ import {
   FileText,
   Film,
   Image as ImageIcon,
-  Layers,
   Loader2,
   MessageSquareText,
   Mic,
@@ -21,7 +20,6 @@ import {
   Play,
   RefreshCw,
   Settings2,
-  ShieldCheck,
   Sliders,
   Sparkles,
   Trash2,
@@ -1290,12 +1288,6 @@ function ImagesSettingsPanel({ projectId }: { projectId: number }) {
     enabled: Boolean(projectId),
   });
 
-  const excelHero = useQuery({
-    queryKey: ["excel-hero", projectId],
-    queryFn: () => api.getExcelHero(projectId),
-    enabled: Boolean(projectId),
-  });
-
   const currentStreams =
     typeof (project.data?.meta as Record<string, unknown> | undefined)?.img_streams === "number"
       ? ((project.data?.meta as Record<string, unknown>).img_streams as number)
@@ -1306,12 +1298,9 @@ function ImagesSettingsPanel({ projectId }: { projectId: number }) {
     frames.data?.filter((f) => Boolean(f.image_prompt && f.image_prompt.trim())).length ?? 0;
   const allPromptsReady = totalFrames > 0 && readyPromptsCount === totalFrames;
 
-  const chars = excelHero.data?.characters ?? [];
-  const items = (project.data?.item_descriptions ?? []).filter((d: string) => d && d.trim());
-
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
-      {/* Карточка готовности и преемственности */}
+      {/* Карточка готовности */}
       <div className="rounded-lg border border-white/10 bg-black/20 p-3.5 flex flex-col gap-2.5">
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
@@ -1326,35 +1315,6 @@ function ImagesSettingsPanel({ projectId }: { projectId: number }) {
           <span className="text-[11px] text-zinc-400">
             Оценка времени: ~{Math.ceil(totalFrames / (currentStreams * 4))}–{Math.ceil(totalFrames / (currentStreams * 2))} мин
           </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs border-t border-white/5 pt-2.5">
-          <div className="flex items-center gap-2 text-[11px] text-zinc-400">
-            <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-            <span>
-              Каст персонажей:{" "}
-              {chars.length > 0 ? (
-                <strong className="text-emerald-300">
-                  {chars.map((c: { code?: string; name?: string }) => c.code || "c01").join(", ")} ({chars.length})
-                </strong>
-              ) : (
-                <span className="text-zinc-500">c01.png (из папки characters)</span>
-              )}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-[11px] text-zinc-400">
-            <Layers className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
-            <span>
-              Реквизит / предметы:{" "}
-              {items.length > 0 ? (
-                <strong className="text-cyan-300">
-                  {items.length} {items.length === 1 ? "предмет" : "предмета"} (predmet1)
-                </strong>
-              ) : (
-                <span className="text-zinc-500">predmet1.png (из папки items)</span>
-              )}
-            </span>
-          </div>
         </div>
       </div>
     </section>
