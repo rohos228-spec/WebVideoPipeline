@@ -14,7 +14,7 @@ from app.services.action_layer.plan import PlanFormatError
 from app.services.action_layer.spec import ensure_builtin_actions
 from app.services.action_layer.spec import registry as default_registry
 from app.services.access_guard import LocalOnlyDep
-from app.web.auth_sessions import AuthDep
+from app.web.engine_access import EngineAuthDep as AuthDep
 
 router = APIRouter(prefix="/action-layer", tags=["action-layer"])
 

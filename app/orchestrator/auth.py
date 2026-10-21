@@ -1,9 +1,9 @@
 """Доступ к ``/api/orchestrator/**``.
 
 Два пути. Внешний клиент — Bearer из окружения ``ORCH_API_TOKEN``,
-сравнение constant-time. Студия — обычный доступ Studio: вход (если он
-включён) или прямой loopback без прокси, плюс токен оператора
-``X-VP-Operator``. Нет ни того, ни другого — 401. Значения токенов никуда
+сравнение constant-time. Студия — личность новой линии (админ при
+включённых учётках) или прямой loopback без прокси в режиме владельца, плюс
+токен оператора ``X-VP-Operator`` в режиме владельца. Нет ни того, ни другого — 401. Значения токенов никуда
 не пишутся.
 """
 
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hmac
 import os
-from http.cookies import SimpleCookie
 
 from fastapi import HTTPException, Request
 
@@ -49,35 +48,20 @@ def scope_headers(scope: dict) -> dict[str, str]:
     return found
 
 
-def studio_session_token(headers: dict[str, str]) -> str | None:
-    raw = headers.get("authorization") or ""
-    if raw.startswith("Bearer "):
-        token = raw.removeprefix("Bearer ").strip()
-        if token:
-            return token
-    cookie = headers.get("cookie")
-    if not cookie:
-        return None
-    jar = SimpleCookie()
-    try:
-        jar.load(cookie)
-    except Exception:
-        return None
-    morsel = jar.get("vp_session")
-    return morsel.value if morsel is not None and morsel.value else None
-
-
 def studio_ok(scope: dict) -> bool:
+    """Студия: личность новой линии (``app.web.identity``), не наши сессии.
+
+    Режим учётных записей — только админ студии (``scope["studio_identity"]``).
+    Режим владельца — прямой loopback без прокси, если удалённый доступ без
+    входа не разрешён явно.
+    """
     from app.services import access_guard
-    from app.settings import settings
 
     headers = scope_headers(scope)
-    if settings.web_auth_enabled:
-        from app.web.auth_sessions import validate_session_token
-
-        if not validate_session_token(studio_session_token(headers)):
-            return False
-    elif not settings.orchestrator_allow_remote_without_auth:
+    if access_guard._auth_enabled():
+        ident = scope.get("studio_identity")
+        return ident is not None and bool(getattr(ident, "is_admin", False))
+    if not access_guard._allow_remote_without_auth():
         client = scope.get("client")
         if not access_guard.is_loopback_host(client[0] if client else None):
             return False

@@ -9,7 +9,7 @@ from app.services.action_layer.context import ActionContext
 from app.services.change_control import service, tiers
 from app.services.change_control.errors import ChangeRefused
 from app.services.change_control.gateway import CtxGateway
-from app.web.auth_sessions import AuthDep
+from app.web.engine_access import EngineAuthDep as AuthDep
 
 router = APIRouter(prefix="/change-control", tags=["change-control"])
 
