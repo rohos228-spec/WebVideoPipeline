@@ -75,6 +75,7 @@ async def advance_project_job(project_id: int, bot: Any = None) -> AdvanceJobRes
                             prev_status=prev_status,
                             new_status=project.status,
                         )
+                        await session.commit()
                         logger.debug("advance_project_job: #{} {} -> {}", project_id, prev, new)
                         await _publish_artifacts(session, project_id)
                         return AdvanceJobResult(project_id, prev, new)
