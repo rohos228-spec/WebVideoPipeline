@@ -50,7 +50,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         return
     logger.info("[#{}] generate_music starting", project.id)
 
-    if not settings.music_enabled:
+    from app.bots.kie_http import kie_configured
+
+    if not settings.music_enabled and not kie_configured():
         # Метка обязательна: без неё `compute_actual_status` не подтвердит
         # `music_ready` (артефакта-то нет), страж откатит статус, авто-
         # продвижение вернёт — и так каждые пять секунд без конца. Ровно
@@ -60,7 +62,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         project.meta = meta
         project.status = ProjectStatus.music_ready
         await session.flush()
-        logger.info("[#{}] generate_music: MUSIC_ENABLED=false — без музыки (music_skipped)", project.id)
+        logger.info("[#{}] generate_music: MUSIC_ENABLED=false и нет KIE — без музыки (music_skipped)", project.id)
         return
 
     music_dir = project.data_dir / "music"
