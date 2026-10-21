@@ -881,7 +881,11 @@ export function ExcelGptSettingsPanel({
             </li>
           ))}
           {!resolve.isLoading && !(data?.files || []).length ? (
-            <li className="text-[11px] text-muted-foreground">Файлов нет</li>
+            <li className="text-[11px] text-muted-foreground">
+              {data?.outputMode === "project_file" && !data?.checkMode
+                ? "Данные из базы кадров (DB SoT) — внешние файлы не требуются"
+                : "Файлов нет"}
+            </li>
           ) : null}
         </ul>
       </section>

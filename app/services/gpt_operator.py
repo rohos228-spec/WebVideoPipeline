@@ -934,6 +934,9 @@ def files_from_source_node(
     if typ == "hero":
         return _collect_under(root / "characters", suffixes=_IMAGE_SUFFIXES, limit=limit)
 
+    if typ == "items":
+        return _collect_under(root / "items", suffixes=_IMAGE_SUFFIXES, limit=limit)
+
     if typ == "storage":
         from app.services.storage_node import stored_paths
 
@@ -982,7 +985,7 @@ def files_from_source_node(
             if xlsx.is_file():
                 return [xlsx]
 
-    if typ in ("plan", "split", "items", "excel_feed"):
+    if typ in ("plan", "split", "excel_feed"):
         if use_snapshot:
             snap = _snapshot_xlsx_for_node(project, source_key)
             if snap is not None:
@@ -1175,7 +1178,14 @@ def resolve_operator(project: Project, node_key: str) -> dict[str, Any]:
             )
             if not paths:
                 src_typ = _node_type_map(project).get(src, "")
-                if db_sot and src_typ in ("split", "plan"):
+                if src_typ == "items":
+                    summary["ok"] = True
+                    summary["fileCount"] = 0
+                    summary["takesFiles"] = False
+                    warnings.append(
+                        f"узел {src}: реквизит не задан в проекте (шаг опционален)"
+                    )
+                elif db_sot and src_typ in ("split", "plan", "scene_design"):
                     summary["ok"] = True
                     summary["fileCount"] = 0
                     summary["takesFiles"] = False
