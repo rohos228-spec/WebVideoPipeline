@@ -241,6 +241,8 @@ async def run_apply_ops_batched(
     )
 
     merged_ops: list[dict[str, Any]] = []
+    merged_characters: list[dict[str, Any]] = []
+    merged_scenes: list[dict[str, Any]] = []
     replies: list[str] = []
     last_paths: list[Path] = [ctx_path]
     call_i = 0
@@ -284,8 +286,26 @@ async def run_apply_ops_batched(
         last_paths = list(res.output_paths or []) or [batch_path]
         replies.append(res.reply_text or "")
         ops = []
+        chars = []
+        scenes = []
         if isinstance(res.apply_ops, dict):
             ops = list(res.apply_ops.get("ops") or [])
+            chars = list(res.apply_ops.get("characters") or [])
+            scenes = list(res.apply_ops.get("scenes") or [])
+            if chars:
+                existing_codes = {str(c.get("id") or c.get("code") or "").strip().lower() for c in merged_characters}
+                for c in chars:
+                    cid = str(c.get("id") or c.get("code") or "").strip().lower()
+                    if cid and cid not in existing_codes:
+                        merged_characters.append(c)
+                        existing_codes.add(cid)
+            if scenes:
+                existing_scenes = {str(s.get("id") or s.get("number") or "").strip().lower() for s in merged_scenes}
+                for s in scenes:
+                    sid = str(s.get("id") or s.get("number") or "").strip().lower()
+                    if sid and sid not in existing_scenes:
+                        merged_scenes.append(s)
+                        existing_scenes.add(sid)
         known = {str(fr.get("uuid") or "").strip() for fr in chunk if str(fr.get("uuid") or "").strip()}
         dropped = 0
         kept: list[dict[str, Any]] = []
@@ -323,6 +343,8 @@ async def run_apply_ops_batched(
         if apply_fn is not None:
             payload = dict(res.apply_ops or {})
             payload["ops"] = ops
+            payload["characters"] = chars
+            payload["scenes"] = scenes
             payload["export_xlsx"] = False
             await apply_fn(payload)
         merged_ops.extend(ops)
@@ -418,6 +440,10 @@ async def run_apply_ops_batched(
     return OperatorApiResult(
         reply_text="\n\n".join(replies),
         output_paths=last_paths,
-        apply_ops={"ops": merged_ops},
+        apply_ops={
+            "ops": merged_ops,
+            "characters": merged_characters,
+            "scenes": merged_scenes,
+        },
         applied_in_runner=apply_fn is not None,
     )
