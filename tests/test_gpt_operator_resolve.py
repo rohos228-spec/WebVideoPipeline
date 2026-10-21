@@ -345,3 +345,83 @@ def test_incoming_split_edge_db_sot_no_xlsx_error(tmp_path: Path, monkeypatch) -
     assert res["canRun"] is True
     assert res["consistent"] is True
     assert not any("нет файлов на диске" in err for err in res["errors"])
+
+def test_incoming_items_edge_optional_no_files_error(tmp_path: Path, monkeypatch) -> None:
+    """Шаг items опционален: отсутствие сгенерированных предметов на диске не ошибка для оператора."""
+    p = _project(tmp_path, monkeypatch)
+    items_node = "n_items"
+    gpt = "n_excel_gpt_2"
+    p.meta = {
+        "items_skipped_empty": True,
+        "canvas_graph": {
+            "nodes": [
+                {"id": items_node, "type": "items", "position": {"x": 0, "y": 0}},
+                {"id": gpt, "type": "excel_gpt", "position": {"x": 200, "y": 0}},
+            ],
+            "edges": [
+                {
+                    "id": "e_items",
+                    "source": items_node,
+                    "target": gpt,
+                    "data": {"kind": "after"},
+                }
+            ],
+        },
+        "excel_gpt_nodes": {
+            gpt: {
+                "role": "assist",
+                "outputMode": "project_file",
+                "transport": "api",
+                "takeFromEdges": True,
+            }
+        },
+    }
+    res = resolve_operator(p, gpt)
+    assert res["canRun"] is True
+    assert res["consistent"] is True
+    assert not any("нет файлов на диске" in err for err in res["errors"])
+    edge_summary = next(s for s in res["incomingEdges"] if s["source"] == items_node)
+    assert edge_summary["ok"] is True
+    assert edge_summary["fileCount"] == 0
+
+
+def test_incoming_items_edge_collects_items_images(tmp_path: Path, monkeypatch) -> None:
+    """Если предметы есть на диске в items/, они корректно собираются со стрелки items."""
+    p = _project(tmp_path, monkeypatch)
+    items_dir = p.data_dir / "items"
+    items_dir.mkdir(parents=True)
+    (items_dir / "predmet1.png").write_bytes(b"\x89PNG" + b"0" * 300)
+
+    items_node = "n_items"
+    gpt = "n_excel_gpt_2"
+    p.meta = {
+        "canvas_graph": {
+            "nodes": [
+                {"id": items_node, "type": "items", "position": {"x": 0, "y": 0}},
+                {"id": gpt, "type": "excel_gpt", "position": {"x": 200, "y": 0}},
+            ],
+            "edges": [
+                {
+                    "id": "e_items",
+                    "source": items_node,
+                    "target": gpt,
+                    "data": {"kind": "after"},
+                }
+            ],
+        },
+        "excel_gpt_nodes": {
+            gpt: {
+                "role": "assist",
+                "outputMode": "project_file",
+                "transport": "api",
+                "takeFromEdges": True,
+            }
+        },
+    }
+    res = resolve_operator(p, gpt)
+    assert res["canRun"] is True
+    assert res["consistent"] is True
+    edge_summary = next(s for s in res["incomingEdges"] if s["source"] == items_node)
+    assert edge_summary["ok"] is True
+    assert edge_summary["fileCount"] == 1
+
