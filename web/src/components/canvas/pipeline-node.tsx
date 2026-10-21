@@ -24,8 +24,6 @@ import { hideResultBadgeForNodeType } from "@/lib/xlsx-sheets";
 import { isHitlNodeType } from "@/lib/gpt-text-steps";
 import { ExcelFeedPanel } from "./excel-feed-panel";
 import { StoragePanel } from "./storage-panel";
-import { HeroConfigPanel } from "./hero-config-panel";
-import { ItemsConfigPanel } from "./items-config-panel";
 import { AssembleMontageTrigger } from "./montage-board-router";
 import { ShotMenuPanel, ShotMenuTrigger } from "./shot-menu-panel";
 import { GptOperatorCardPanel } from "./gpt-operator-card-panel";
@@ -210,8 +208,6 @@ export function PipelineNode({ data, selected }: NodeProps) {
   const isExcelFeed = d.type === "excel_feed";
   const isStorage = d.type === "storage";
   const isShotMenu = d.type === "shot_menu";
-  const isHero = d.type === "hero";
-  const isItems = d.type === "items";
   const isExcelGpt = isExcelGptNode(d.type);
   const isGptWork = isExcelGpt || isSdAgent;
   const isAssemble = d.type === "assemble";
@@ -427,8 +423,6 @@ export function PipelineNode({ data, selected }: NodeProps) {
                 onOpenBoard={(cellIndex) => actions.onOpenShotMenu(cellIndex)}
               />
             )}
-            {isHero && actions?.projectId && <HeroConfigPanel projectId={actions.projectId} />}
-            {isItems && actions?.projectId && <ItemsConfigPanel projectId={actions.projectId} />}
             {isExcelGpt && actions?.projectId && (
               <GptOperatorCardPanel
                 projectId={actions.projectId}

@@ -122,13 +122,9 @@ export function ItemsConfigPanel({
               <span className="font-semibold text-xs text-foreground">
                 Реквизит и ключевые предметы
               </span>
-              {savedCount > 0 ? (
+              {savedCount > 0 && (
                 <span className="rounded-full bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-medium text-cyan-300">
                   Задано: {savedCount} {savedCount === 1 ? "предмет" : "предметов"}
-                </span>
-              ) : (
-                <span className="rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  Шаг опционален
                 </span>
               )}
             </div>
@@ -184,23 +180,15 @@ export function ItemsConfigPanel({
           </div>
         ) : null}
 
-        {/* Если предметов нет и не открыт редактор — дружелюбный баннер */}
+        {/* Если предметов нет и не открыт редактор */}
         {savedCount === 0 && !showManual ? (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-cyan-500/20 bg-cyan-950/25 p-3 text-xs">
-            <div className="flex items-start gap-2.5">
-              <span className="text-base leading-none">💡</span>
-              <div className="flex flex-col gap-0.5">
-                <span className="font-semibold text-cyan-300">Шаг опционален</span>
-                <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  Если в видео нет постоянного реквизита (оружие, артефакты, гаджеты, техника) — заполнять ничего не нужно. Нажмите «Запустить шаг», и он автоматически завершится за 1 секунду.
-                </p>
-              </div>
-            </div>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs">
+            <span className="text-muted-foreground text-xs">Реквизит не задан</span>
             <Button
               type="button"
               size="sm"
               variant="outline"
-              className="h-7 text-xs border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/10 shrink-0 self-start sm:self-center"
+              className="h-7 text-xs border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/10 shrink-0"
               onClick={() => setShowManual(true)}
             >
               + Добавить предмет
@@ -333,15 +321,6 @@ export function ItemsConfigPanel({
 
       {open && (
         <div className="flex flex-col gap-2 px-3 pb-2.5">
-          <div className="rounded-md border border-cyan-500/25 bg-cyan-950/30 p-2 text-[10px] text-cyan-200/90 leading-relaxed">
-            <p className="font-semibold text-cyan-300 flex items-center gap-1">
-              <span>💡</span> Шаг опционален
-            </p>
-            <p className="mt-0.5 text-muted-foreground text-[9.5px]">
-              Если в видео нет постоянного реквизита — просто нажмите «Запустить шаг».
-            </p>
-          </div>
-
           <button
             type="button"
             className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-cyan-300 transition"

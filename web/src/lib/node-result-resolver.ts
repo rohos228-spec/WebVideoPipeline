@@ -490,7 +490,7 @@ function computeNodeResult(
           viewMode: "default",
         };
       }
-      return empty("Предметы не заданы (шаг опционален)", "assets");
+      return empty("Предметы не заданы", "assets");
     }
 
     case "excel_gpt":

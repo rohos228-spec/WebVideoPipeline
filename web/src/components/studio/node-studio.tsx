@@ -56,8 +56,6 @@ import {
   type ExcelGptNodeConfig,
 } from "@/lib/excel-gpt-config";
 import { ExcelGptSettingsPanel } from "@/components/studio/excel-gpt-settings-panel";
-import { ItemsConfigPanel } from "@/components/canvas/items-config-panel";
-import { HeroConfigPanel } from "@/components/canvas/hero-config-panel";
 import { CheckNodePromptPanel } from "@/components/studio/check-node-prompt-panel";
 import { VoiceLibraryModal, getVoiceById } from "@/components/outsee/voice-library-modal";
 import { DEFAULT_ELEVENLABS_VOICE_ID, findElevenLabsVoice } from "@/lib/elevenlabs-voices";
@@ -206,14 +204,35 @@ export function NodeStudio({
 
   const pipelineSlots = useMemo(() => pipelinePromptSlots(allSlots), [allSlots]);
 
+  const showStepParams =
+    projectId != null &&
+    (nodeType === "plan" ||
+      nodeType === "script" ||
+      nodeType === "split" ||
+      nodeType === "assemble");
+
+  const hasSettings = useMemo(() => {
+    if (nodeDisabled) return true;
+    if (isExcelGptNode(nodeType)) return true;
+    if (showStepParams) return true;
+    if (nodeType === "sfx_plan" || nodeType === "sfx_gen" || nodeType === "sfx") return true;
+    if (nodeType === "image_prompts" || nodeType === "images") return true;
+    if (nodeType === "animation_prompts" || nodeType === "videos" || nodeType === "audio") return true;
+    return false;
+  }, [nodeDisabled, nodeType, showStepParams]);
+
   useEffect(() => {
     if (!open) return;
     if (promptFocus) {
-      setTab(promptFocus.kind === "excel" ? "settings" : "prompts");
+      setTab(promptFocus.kind === "excel" && hasSettings ? "settings" : "prompts");
       return;
     }
-    setTab(initialTab === ("excel" as unknown) ? "settings" : initialTab);
-  }, [open, initialTab, promptFocus]);
+    const defaultTab =
+      !hasSettings && initialTab === "settings"
+        ? (pipelineSlots.some((s) => s.kind !== "excel") ? "prompts" : "results")
+        : (initialTab === ("excel" as unknown) ? "settings" : initialTab);
+    setTab(defaultTab);
+  }, [open, initialTab, promptFocus, hasSettings, pipelineSlots]);
 
   useEffect(() => {
     if (!open) return;
@@ -500,13 +519,6 @@ export function NodeStudio({
     operatorResolve.data,
   ]);
 
-  const showStepParams =
-    projectId != null &&
-    (nodeType === "plan" ||
-      nodeType === "script" ||
-      nodeType === "split" ||
-      nodeType === "assemble");
-
   const showFramePromptsPanel =
     activeSlot?.kind === "frame_prompts" && projectId != null;
   const showFilesPanel =
@@ -665,7 +677,7 @@ export function NodeStudio({
             <div className="mt-3 flex flex-wrap gap-1">
               {(
                 [
-                  ["settings", "Настройки", Settings2],
+                  ...(hasSettings ? ([["settings", "Настройки", Settings2]] as const) : []),
                   ...(pipelineSlots.some((s) => s.kind !== "excel")
                     ? ([["prompts", "Промпты", FileText]] as const)
                     : []),
@@ -737,12 +749,6 @@ export function NodeStudio({
                   ) : null}
                   {showStepParams ? (
                     <NodeStepParamsPanel projectId={projectId!} nodeType={nodeType} />
-                  ) : null}
-                  {nodeType === "items" && projectId ? (
-                    <ItemsConfigPanel projectId={projectId} inStudio />
-                  ) : null}
-                  {nodeType === "hero" && projectId ? (
-                    <HeroConfigPanel projectId={projectId} inStudio />
                   ) : null}
                   {nodeType === "sfx_plan" && projectId ? (
                     <SfxPlanSettingsPanel projectId={projectId} />
