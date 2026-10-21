@@ -356,6 +356,10 @@ export function NodeStudio({
       );
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       qc.invalidateQueries({ queryKey: ["project-run", projectId] });
+      qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
+      qc.invalidateQueries({ queryKey: ["frames", projectId] });
+      qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
       void qc.refetchQueries({ queryKey: ["project-run", projectId] });
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
@@ -454,7 +458,64 @@ export function NodeStudio({
     enabled: open && projectId != null,
   });
 
+  const frames = useQuery({
+    queryKey: ["project-frames", projectId],
+    queryFn: () => api.listFrames(projectId!),
+    enabled: open && projectId != null,
+  });
+
   const isRunning = shouldShowStopBar(project.data?.status);
+
+  // Реактивная инвалидация и обновление данных при смене статуса или окончании запуска
+  const prevStatusRef = useRef(project.data?.status);
+  const prevRunningRef = useRef(generationRunning);
+  useEffect(() => {
+    if (!open || !projectId) return;
+    const statusChanged =
+      prevStatusRef.current !== undefined &&
+      prevStatusRef.current !== project.data?.status;
+    const runFinished = prevRunningRef.current && !generationRunning;
+
+    if (statusChanged || runFinished) {
+      void qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
+      void qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
+      void qc.invalidateQueries({ queryKey: ["frames", projectId] });
+      void qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
+      void qc.invalidateQueries({ queryKey: ["project-assets", projectId] });
+      void qc.invalidateQueries({ queryKey: ["media-review", projectId] });
+      void qc.invalidateQueries({ queryKey: ["gpt-operator-resolve", projectId] });
+      void dbBrowser.refetch();
+      void frames.refetch();
+    }
+    prevStatusRef.current = project.data?.status;
+    prevRunningRef.current = generationRunning;
+  }, [open, projectId, project.data?.status, generationRunning, qc]);
+
+  // Обновление при переключении на вкладку "results"
+  useEffect(() => {
+    if (!open || !projectId || tab !== "results") return;
+    void dbBrowser.refetch();
+    void frames.refetch();
+    void artifacts.refetch();
+    void assets.refetch();
+    void mediaImages.refetch();
+    void mediaVideos.refetch();
+    if (isExcelGptNode(nodeType)) {
+      void operatorResolve.refetch();
+    }
+  }, [tab, open, projectId, nodeType]);
+
+  // Обновление при открытии модального окна Studio
+  useEffect(() => {
+    if (!open || !projectId) return;
+    void dbBrowser.refetch();
+    void frames.refetch();
+    void artifacts.refetch();
+    void assets.refetch();
+    if (isExcelGptNode(nodeType)) {
+      void operatorResolve.refetch();
+    }
+  }, [open, projectId, nodeType]);
 
   const mediaImages = useQuery({
     queryKey: ["media-review", projectId, "images"],
@@ -489,6 +550,14 @@ export function NodeStudio({
     [],
   );
 
+  const effectiveFrames = useMemo(() => {
+    const listFramesData = (frames.data || []) as FrameDTO[];
+    const dbFramesData = ((dbBrowser.data?.frames as unknown as FrameDTO[]) || []);
+    if (listFramesData.some((f) => f.image_prompt?.trim())) return listFramesData;
+    if (dbFramesData.some((f) => f.image_prompt?.trim())) return dbFramesData;
+    return listFramesData.length ? listFramesData : dbFramesData;
+  }, [frames.data, dbBrowser.data?.frames]);
+
   const resultSnapshot = useMemo(() => {
     if (!projectId) return null;
     return resolveNodeResult(
@@ -497,7 +566,7 @@ export function NodeStudio({
         project: project.data,
         artifacts: artifacts.data ?? [],
         assets: assets.data ?? [],
-        frames: (dbBrowser.data?.frames as unknown as FrameDTO[]) ?? [],
+        frames: effectiveFrames,
         mediaImages: mapMedia(mediaImages.data ?? [], "images"),
         mediaVideos: mapMedia(mediaVideos.data ?? [], "videos"),
         operatorResolve: operatorResolve.data,
@@ -511,7 +580,7 @@ export function NodeStudio({
     project.data,
     artifacts.data,
     assets.data,
-    dbBrowser.data?.frames,
+    effectiveFrames,
     mediaImages.data,
     mediaVideos.data,
     mapMedia,
@@ -871,6 +940,35 @@ export function NodeStudio({
 
               {tab === "results" && (
                 <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                    <span className="text-xs text-muted-foreground">
+                      {resultSnapshot?.summary || "Результаты шага"}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 text-xs text-zinc-400 hover:text-zinc-100"
+                      onClick={() => {
+                        void dbBrowser.refetch();
+                        void frames.refetch();
+                        void artifacts.refetch();
+                        void assets.refetch();
+                        if (isExcelGptNode(nodeType)) {
+                          void operatorResolve.refetch();
+                        }
+                      }}
+                    >
+                      <RefreshCw
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          (dbBrowser.isFetching || frames.isFetching) && "animate-spin",
+                        )}
+                      />
+                      Обновить
+                    </Button>
+                  </div>
+
                   {resultSnapshot && (resultSnapshot.hasResult || resultSnapshot.items.length > 0 || isExcelGptNode(nodeType)) ? (
                     <NodeResultViewBody
                       projectId={projectId!}
@@ -928,10 +1026,29 @@ export function NodeStudio({
                       ))}
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground gap-3">
                       <p className="text-sm">
                         {resultSnapshot?.summary || "Результаты ещё не сформированы. Запустите шаг для генерации."}
                       </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs"
+                        onClick={() => {
+                          void dbBrowser.refetch();
+                          void frames.refetch();
+                          void artifacts.refetch();
+                        }}
+                      >
+                        <RefreshCw
+                          className={cn(
+                            "h-3.5 w-3.5",
+                            (dbBrowser.isFetching || frames.isFetching) && "animate-spin",
+                          )}
+                        />
+                        Обновить результаты
+                      </Button>
                     </div>
                   )}
                 </div>

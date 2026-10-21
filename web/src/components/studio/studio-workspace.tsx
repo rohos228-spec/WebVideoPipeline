@@ -454,6 +454,10 @@ export function StudioWorkspace({
           );
           qc.invalidateQueries({ queryKey: ["project", projectId] });
           qc.invalidateQueries({ queryKey: ["project-run", projectId] });
+          qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
+          qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
+          qc.invalidateQueries({ queryKey: ["frames", projectId] });
+          qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
           await qc.refetchQueries({ queryKey: ["project-run", projectId] });
         } catch (e) {
           toast.error(errorMessageFromUnknown(e));
