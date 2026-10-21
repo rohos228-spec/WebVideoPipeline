@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.browser import browser_session
 from app.bots.elevenlabs import ElevenLabsBot
+from app.bots.elevenlabs_api import ElevenLabsApi, elevenlabs_api_configured
 from app.models import (
     Artifact,
     ArtifactKind,
@@ -322,8 +323,6 @@ async def run(
             "нет закадрового текста (строка 49 / voiceover.txt / script_text) — "
             "положите готовый mp3/wav в audio/ или заполните текст"
         )
-
-    from app.bots.elevenlabs_api import ElevenLabsApi, elevenlabs_api_configured
 
     if not settings.audio_use_elevenlabs_fallback and not elevenlabs_api_configured():
         audio_hint = project.data_dir / "audio"
