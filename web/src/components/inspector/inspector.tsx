@@ -7,7 +7,14 @@ import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatNodeCategory, formatNodeKeyLabel, formatHeroMode, formatProjectStatus, humanizeSlug } from "@/lib/format-labels";
+import {
+  formatNodeCategory,
+  formatNodeType,
+  formatNodeKeyLabel,
+  formatHeroMode,
+  formatProjectStatus,
+  humanizeSlug,
+} from "@/lib/format-labels";
 import { projectDisplayName, projectStatusVariant } from "@/lib/project-display";
 import { formatRelativeTime } from "@/lib/utils";
 import { getNodeSpec } from "@/lib/node-catalog";
@@ -235,7 +242,7 @@ function NodeInspector({
         <div className="mt-1 text-base font-semibold">{spec.label}</div>
         <div className="mt-1 text-[12px] text-muted-foreground">{spec.description}</div>
       </div>
-      <Row label="Тип">{humanizeSlug(spec.type)}</Row>
+      <Row label="Тип">{formatNodeType(spec.type)}</Row>
       <Row label="Категория">{formatNodeCategory(spec.category)}</Row>
       {hasPrompt && (
         <Row label="Активный промт">

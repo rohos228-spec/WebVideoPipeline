@@ -56,7 +56,7 @@ const PROJECT_STATUS: Partial<Record<ProjectStatus | string, string>> = {
 const NODE_CATEGORY: Record<NodeCategory, string> = {
   planning: "планирование",
   objects: "объекты",
-  enrich: "дополнение Excel",
+  enrich: "постановка сцен",
   media: "медиа",
   audio: "аудио",
   assembly: "сборка",
@@ -87,6 +87,41 @@ export function formatNodeCategory(cat: string): string {
   return NODE_CATEGORY[cat as NodeCategory] ?? humanizeSlug(cat);
 }
 
+const NODE_TYPE_LABELS: Record<string, string> = {
+  excel_gpt: "ИИ-режиссер",
+  topic: "Тема",
+  plan: "План",
+  script: "Сценарий",
+  split: "Нарезка кадров",
+  hero: "Персонажи",
+  items: "Предметы",
+  scene_design: "Дизайн сцен",
+  sd_agent: "Агент сцен",
+  sd_assemble: "Сборка сцен",
+  image_prompts: "Промты картинок",
+  images: "Картинки",
+  animation_prompts: "Промты анимации",
+  videos: "Видео",
+  music: "Музыка",
+  sfx_plan: "План звуков",
+  sfx_gen: "Звуки",
+  audio: "Озвучка",
+  assemble: "Монтаж",
+  publish: "Публикация",
+  storage: "Хранилище",
+  shot_menu: "Меню съёмки",
+  excel_feed: "Темы",
+  hitl_hero: "Проверка персонажей",
+  hitl_images: "Проверка картинок",
+  hitl_videos: "Проверка видео",
+  hitl_final: "Финальная проверка",
+};
+
+export function formatNodeType(type: string): string {
+  if (type.startsWith("enrich_")) return "ИИ-режиссер";
+  return NODE_TYPE_LABELS[type] ?? humanizeSlug(type);
+}
+
 export function formatRunStatus(status: string): string {
   return RUN_STATUS[status] ?? humanizeSlug(status);
 }
@@ -109,11 +144,12 @@ export function formatStepCode(code: string): string {
     sd_act: "агент: действие",
     hero: "персонажи",
     items: "предметы",
-    enrich_1: "дополнение 1",
-    enrich_2: "дополнение 2",
-    enrich_3: "дополнение 3",
-    enrich_4: "дополнение 4",
-    enrich_5: "дополнение 5",
+    enrich_1: "режиссура 1",
+    enrich_2: "режиссура 2",
+    enrich_3: "режиссура 3",
+    enrich_4: "режиссура 4",
+    enrich_5: "режиссура 5",
+    excel_gpt: "ИИ-режиссер",
     img_pr: "промты картинок",
     images: "картинки",
     anim_pr: "промты анимации",

@@ -32,7 +32,7 @@ export const WORK_MODE_OPTIONS: {
   {
     value: "assist",
     title: "Участвует в работе",
-    hint: "Шлёт ввод в GPT вместе с промтом — как этап пайплайна (Excel и др.).",
+    hint: "Шлёт ввод в GPT вместе с промтом как этап пайплайна.",
   },
   {
     value: "review",
@@ -102,7 +102,7 @@ export function excelGptAttachmentChipTitle(source: ExcelGptInputSource): string
   if (source === "image") return "Изображение";
   if (source === "hero_refs") return "Рефы";
   if (source === "scene_images") return "Кадры";
-  return "Excel";
+  return "Кадры";
 }
 
 export function workModeLabel(mode?: ExcelGptWorkMode | null): string {

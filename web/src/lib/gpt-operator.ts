@@ -170,16 +170,16 @@ export const OUTPUT_OPTIONS: {
   title: string;
   hint: string;
 }[] = [
-  { value: "text", title: "Текст", hint: "Ответ в gpt_reply.txt (Excel не трогает)" },
+  { value: "text", title: "Текст", hint: "Ответ в gpt_reply.txt (не меняет базу кадров)" },
   {
     value: "project_file",
-    title: "Excel проекта",
-    hint: "Пишет в DB через apply-ops (db_frames.json); project.xlsx — только зеркало",
+    title: "Кадры проекта (База)",
+    hint: "Пишет в DB через apply-ops (db_frames.json)",
   },
   {
     value: "sidecar",
     title: "Отдельный .txt",
-    hint: "Сохраняет ответ рядом с нодой, project.xlsx не меняет",
+    hint: "Сохраняет ответ рядом с нодой",
   },
 ];
 
