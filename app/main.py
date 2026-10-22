@@ -796,7 +796,14 @@ async def _startup_maintenance() -> None:
         await sync_prompts_from_files()
         from app.services.prompt_history import bootstrap_saved_at_from_history
 
-        bootstrap_saved_at_from_history()
+        # Отдельная страховка: правка истории промтов — не повод пропустить
+        # остальную обслуживалку (импорт библиотеки, сверку графа). На сервере
+        # каталог промтов смонтирован только на чтение, и падение здесь раньше
+        # обрывало весь блок.
+        try:
+            bootstrap_saved_at_from_history()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("prompt history bootstrap skipped: {}", e)
         from app.services.default_project import ensure_default_project
 
         await ensure_default_project()
