@@ -593,30 +593,14 @@ async def _frame_count(factory, pid: int) -> int | None:
         return None
 
 
-async def _project_db_frames(row, pid: int) -> int | None:
-    if row is None:
-        return None
-    try:
-        from app.project_db import get_project_sessionmaker, resolve_project_db_path, worker_use_project_db
-        if not worker_use_project_db():
-            return None  # одна база: отдельного счёта «в базе проекта» нет
-        if not resolve_project_db_path(row.data_dir).exists():
-            return None
-        factory = await get_project_sessionmaker(row.data_dir)
-    except Exception:
-        return None
-    return await _frame_count(factory, pid)
-
-
 async def _status_sources(pid: int, row, recomputed: str) -> dict:
     listed = _row_status(row)
     out = {"studio_list": listed or None, "studio_list_ru": _status_ru(listed) if listed else None,
            "recomputed": recomputed or None, "recomputed_ru": _status_ru(recomputed) if recomputed else None,
            "mismatch": bool(listed and recomputed and listed != recomputed),
-           "frames_studio_db": None, "frames_project_db": None}
+           "frames_studio_db": None}
     if out["mismatch"]:
         out["frames_studio_db"] = await _frame_count(_sessions(), pid)
-        out["frames_project_db"] = await _project_db_frames(row, pid)
     return out
 
 
@@ -625,11 +609,7 @@ def _mismatch_text(src: dict) -> str:
             f"проекта при открытии даёт «{src['recomputed_ru']}» — статус и данные расходятся.")
     counts = []
     if src.get("frames_studio_db") is not None:
-        counts.append(f"в общей базе студии {src['frames_studio_db']}")
-    if src.get("frames_project_db") is not None:
-        counts.append(f"в базе проекта {src['frames_project_db']}")
-    if counts:
-        text += " Кадров: " + ", ".join(counts) + "."
+        text += f" Кадров в базе: {src['frames_studio_db']}."
     return text + " Здесь показан статус, как в списке; сам статус я не меняю."
 
 

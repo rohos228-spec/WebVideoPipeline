@@ -7,11 +7,27 @@ import uuid
 
 from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, UniqueConstraint, select, update
 from sqlalchemy.orm import Mapped, mapped_column
-from app.models import Base
+from app.models import Base, NodeRunStatus
 from app.services.decision_state import DecisionControl, DecisionRecord, DecisionTurn
 from app.services.profiles_state import ProfileOverlay
 from app.services import kill_switch
 from app.services import revisions
+
+
+def _existing_node_statuses(*names: str) -> frozenset:
+    """Статусы ноды из перечисления модели, без отсутствующих в ней.
+
+    Линия движка знала ещё «waiting_approval» (ждёт одобрения трат); в модели
+    WebVideoPipeline его нет, и обращение к атрибуту роняло бы проверку на любом
+    непустом списке нод. Берём только то, что в перечислении есть.
+    """
+    return frozenset(status for status in NodeRunStatus if status.value in names)
+
+
+# Нода ещё занята: идёт, в очереди или ждёт решения человека.
+ACTIVE_NODE_STATUSES = _existing_node_statuses("running", "queued", "waiting_hitl", "waiting_approval")
+# Нода в работе или в очереди (решение человека здесь не считается занятостью).
+BUSY_NODE_STATUSES = _existing_node_statuses("running", "queued", "waiting_approval")
 
 
 class ActionExecutionControl(Base):
@@ -295,7 +311,7 @@ async def continue_managed_image(session, project, source_key, target_key, node_
     target = next((n for n in rows if n.node_key == target_key), None)
     if (not source or source.status != NodeRunStatus.done or not target
             or target.node_type != node_type or target.status != NodeRunStatus.pending
-            or any(n.status in {NodeRunStatus.running, NodeRunStatus.queued, NodeRunStatus.waiting_hitl, NodeRunStatus.waiting_approval} for n in rows)):
+            or any(n.status in ACTIVE_NODE_STATUSES for n in rows)):
         return denied("node_state_not_ready")
     replicas = {n.node_key: n for n in master_nodes}
     if set(replicas) != {n.node_key for n in rows} or any(
@@ -397,7 +413,7 @@ class ActionSupervisor:
                 NodeRun.workflow_run_id == scope.workflow_run_id,
                 NodeRun.node_key.in_(node_keys),
             ))).all()
-            if any(row.status in {NodeRunStatus.running, NodeRunStatus.queued, NodeRunStatus.waiting_approval} for row in rows):
+            if any(row.status in BUSY_NODE_STATUSES for row in rows):
                 raise ValueError("selected group already has queued/running nodes")
             if {row.node_key for row in rows} != set(node_keys):
                 raise ValueError("selected nodes do not match workflow run")
@@ -576,7 +592,7 @@ class ActionSupervisor:
             active = (await session.scalars(select(NodeRun).where(
                 NodeRun.workflow_run_id == control.workflow_run_id,
                 NodeRun.node_key.in_(control.node_keys),
-                NodeRun.status.in_([NodeRunStatus.queued, NodeRunStatus.running, NodeRunStatus.waiting_approval]),
+                NodeRun.status.in_(sorted(BUSY_NODE_STATUSES)),
             ))).all()
             if active:
                 raise ValueError("cannot revoke while a managed node is queued/running")

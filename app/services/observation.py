@@ -578,8 +578,7 @@ class Observer:
 
     async def catch_up(self):
         # Одна база: события читаются только из основной сессии. Второго
-        # прохода по project.db нет (адаптер `app.project_db` отдал бы ту же
-        # SessionLocal, и outbox прочитался бы дважды).
+        # прохода по отдельной базе проекта нет — outbox прочитался бы дважды.
         async with self.master() as session:
             deliveries = (await session.scalars(select(ExecutionControl))).all()
         for scope in deliveries:
@@ -1234,7 +1233,7 @@ async def observe_attempt(session, project):
     if scope is None:
         yield
         return
-    source = "project" if Path(str(session.bind.url.database)).name == "project.db" else "master"
+    source = "master"  # одна база: отдельного project.db проекта нет
     attempt_id = str(uuid.uuid4())
     revision = None
     revision_parts = {}
@@ -1396,7 +1395,7 @@ async def record_project_event(session, project, kind, payload):
     if scope is None:
         return False
     sync_session = getattr(session, "sync_session", session)
-    source = "project" if Path(str(sync_session.bind.url.database)).name == "project.db" else "master"
+    source = "master"  # одна база: отдельного project.db проекта нет
     try:
         return bool(observer.stage(sync_session, scope, kind, db_scope=source, node_key=None, payload=payload))
     except Exception as exc:
@@ -1409,7 +1408,7 @@ def _stage_node_changes(session, _flush_context, _instances):
     observer = _observer
     if observer is None or not observer.scopes:
         return
-    source = "project" if Path(str(session.bind.url.database)).name == "project.db" else "master"
+    source = "master"  # одна база: отдельного project.db проекта нет
     for row in list(session.dirty):
         if isinstance(row, Project) and inspect(row).attrs.meta.history.has_changes():
             meta = row.meta or {}
@@ -1507,7 +1506,7 @@ def stage_project_fact(session, project, kind, payload):
     pending = sync_session.info.setdefault("observation_fact_signatures", {})
     if pending.get(key, observer.last_project_facts.get(key)) == signature:
         return
-    source = "project" if Path(str(sync_session.bind.url.database)).name == "project.db" else "master"
+    source = "master"  # одна база: отдельного project.db проекта нет
     try:
         if observer.stage(sync_session, scope, kind, db_scope=source, node_key=node_key, payload=payload):
             pending[key] = signature

@@ -4,7 +4,7 @@ import uuid
 from sqlalchemy import JSON, String, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models import Base, NodeRun, NodeRunStatus, Project, ProjectStatus, WorkflowRun
+from app.models import Base, NodeRun, NodeRunStatus, Project, WorkflowRun
 from app.services.observation import ExecutionControl, digest
 from app.services import revisions
 
@@ -57,11 +57,12 @@ def validate_scope(run, project, rows, selected):
     from app.orchestrator.graph.planner import WorkflowGraph
     from app.services.excel_gpt_node import effective_node_type
     from app.services.node_capabilities import require_managed_node
+    from app.services.actions_v1 import ACTIVE_NODE_STATUSES
     if not selected or len(selected)!=len(set(selected)):raise ValueError('explicit unique node scope required')
     graph=WorkflowGraph(run.nodes_snapshot,run.edges_snapshot)
     states={n.node_key:n for n in rows}
     contracts={}
-    if any(n.status in {NodeRunStatus.running,NodeRunStatus.queued,NodeRunStatus.waiting_hitl,NodeRunStatus.waiting_approval} for n in rows):
+    if any(n.status in ACTIVE_NODE_STATUSES for n in rows):
         raise ValueError('active node or HITL must settle first')
     for key in selected:
         node=graph._by_id.get(key)
@@ -91,7 +92,9 @@ def validate_scope(run, project, rows, selected):
     return roots[0],contracts
 
 
-async def prepare(observer, project_session, *, project_id, request, initiator):
+async def prepare(observer, *, project_id, request, initiator):
+    # База одна: проект, прогон и ноды читаются той же сессией, что пишет запуск.
+    # Сверки «основная база против базы проекта» нет — второй копии не бывает.
     from app.services.actions_v1 import ActionExecutionControl,ActionRecord,ExecutionPermission,install_permission
     from app.services.decision_state import DecisionControl
     from app.services.decision_config import runtime_config,check_route,DecisionRuntimeBinding
@@ -113,27 +116,16 @@ async def prepare(observer, project_session, *, project_id, request, initiator):
         if active or prior_control:raise ValueError('existing observation/managed history must be handled explicitly')
         run=await s.get(WorkflowRun,request['workflow_run_id'])
         project=await s.get(Project,project_id)
-        primary=await project_session.get(Project,project_id)
-        require_idle_project(project);require_idle_project(primary)
+        require_idle_project(project)
         if not run or run.project_id!=project_id:raise ValueError('workflow/project mismatch')
         revision=revisions.graph_version(run.nodes_snapshot,run.edges_snapshot)
         if revision!=request['graph_version']:raise ValueError('graph revision changed')
         from app.services.canvas_graph import canvas_graph_from_meta
-        canvas=canvas_graph_from_meta(primary.meta)
+        canvas=canvas_graph_from_meta(project.meta)
         if canvas and revisions.graph_version(canvas['nodes'],canvas['edges'])!=revision:
             raise ValueError('runtime canvas and selected graph disagree')
         rows=(await s.scalars(select(NodeRun).where(NodeRun.workflow_run_id==run.id))).all()
         entry,contracts=validate_scope(run,project,rows,request['node_keys'])
-        replica=await project_session.get(WorkflowRun,run.id)
-        replica_rows=(await project_session.scalars(select(NodeRun).where(NodeRun.workflow_run_id==run.id))).all()
-        if (not replica or revisions.graph_version(replica.nodes_snapshot,replica.edges_snapshot)!=revision
-                or {r.node_key:(r.status,r.attempts) for r in rows}!={r.node_key:(r.status,r.attempts) for r in replica_rows}):
-            raise ValueError('master/project state disagreement')
-        initial_status_projection=None
-        if project.status!=primary.status:
-            if project.status!=ProjectStatus.new and primary.status!=ProjectStatus.new:raise ValueError('master/project status disagreement requires review')
-            initial_status_projection={'from':project.status.value,'to':primary.status.value,'source':'project_db',
-                'reason':'idle project readiness computed by original runtime'}
         cfg=runtime_config();check_route(cfg,cfg['endpoint'])
         strategies=request['strategies']
         if not strategies or len(strategies)!=len(set(strategies)) or not set(strategies)<= {'wait','human_review','retry_same','retry_profile'}:
@@ -169,12 +161,9 @@ async def prepare(observer, project_session, *, project_id, request, initiator):
             'contracts':contracts,'runtime_config_hash':digest(cfg),'owner_budget_policy':owner_policy,
             'profile_ids':list(profile_ids),'profile_catalog_hash':profile_hash,'profiles':profiles,
             'revision_scheme':revisions.REVISION_SCHEME,
-            'node_config_revisions':_node_config_revisions(run,primary,request['node_keys'])}
+            'node_config_revisions':_node_config_revisions(run,project,request['node_keys'])}
         await claim_run_allowance(s,project_id=project_id,workflow_run_id=run.id,
             execution_id=execution,request_limit=request['request_limit'],owner_policy=owner_policy)
-        if initial_status_projection:
-            project.status=primary.status
-            policy['initial_status_projection']=initial_status_projection
         row=ManagedLaunch(launch_id=launch_id,execution_id=execution,project_id=project_id,workflow_run_id=run.id,
             idempotency_key=request['idempotency_key'],request_hash=identity,policy=policy,entry_node=entry,
             status='dispatching',result={})

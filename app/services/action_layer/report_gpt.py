@@ -352,7 +352,7 @@ async def _grouped(pids: list[int]) -> dict[str, dict[int, float]]:
     from app.services.frame_store import session_factory_for
 
     async def count(s, ids: list[int]) -> None:
-        # Кадры и файлы живут в project.db проекта; в state.db бывают старые копии — берём большее.
+        # Счёт по проектам из единой базы; max — на случай повторного прохода по тем же id.
         for pid, n in (await s.execute(select(Frame.project_id, func.count(Frame.id)).where(
                 Frame.project_id.in_(ids)).group_by(Frame.project_id))).all():
             out["frames"][int(pid)] = max(out["frames"].get(int(pid), 0), int(n))

@@ -28,21 +28,12 @@ def board_frame_count(board: Any) -> int | None:
 
 
 async def project_frames(project_id: int) -> int | None:
-    from app.services.action_layer.builtin_insight import (
-        _frame_count, _project_db_frames, _project_row, _sessions)
+    """Сколько кадров у проекта в базе; None — проекта нет или база не ответила."""
+    from app.services.action_layer.builtin_insight import _frame_count, _project_row, _sessions
 
-    row = await _project_row(project_id)
-    if row is None:
+    if await _project_row(project_id) is None:
         return None
-    studio = await _frame_count(_sessions(), project_id)
-    if studio:
-        return studio
-    local = await _project_db_frames(row, project_id)
-    if local:
-        return local
-    if studio is None and local is None:
-        return None
-    return 0
+    return await _frame_count(_sessions(), project_id)
 
 
 def _pid(raw: Any, fallback: int | None) -> int | None:
