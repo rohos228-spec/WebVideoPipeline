@@ -543,13 +543,18 @@ class TaskSummarizer:
 
 
 def has_prior_text(session_id: str, task_id: int) -> bool:
+    from sqlalchemy import text
+
     from app.orchestrator.db.migrations import connect
 
     conn = connect()
     try:
         row = conn.execute(
-            "SELECT 1 FROM orch_events WHERE session_id = ? AND task_id = ? AND type IN ('message', 'token') LIMIT 1",
-            (session_id, int(task_id)),
+            text(
+                "SELECT 1 FROM orch_events WHERE session_id = :sid AND task_id = :task_id"
+                " AND type IN ('message', 'token') LIMIT 1"
+            ),
+            {"sid": session_id, "task_id": int(task_id)},
         ).fetchone()
     finally:
         conn.close()

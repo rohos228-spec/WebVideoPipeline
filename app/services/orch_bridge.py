@@ -587,18 +587,21 @@ def _notice_payload(notice: dict) -> dict:
 
 
 def _seen_sync(session_id: str) -> set[int]:
+    from sqlalchemy import text
+
     from app.orchestrator.db.migrations import connect
     conn = connect()
     try:
-        rows = conn.execute(
-            "SELECT payload_json FROM orch_events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT 2000",
-            (session_id, NOTICE_EVENT)).fetchall()
+        rows: list[Any] = list(conn.execute(
+            text("SELECT payload_json FROM orch_events WHERE session_id = :sid AND type = :type"
+                 " ORDER BY seq DESC LIMIT 2000"),
+            {"sid": session_id, "type": NOTICE_EVENT}).scalars())
     finally:
         conn.close()
     found: set[int] = set()
-    for row in rows:
+    for raw in rows:
         try:
-            payload = json.loads(row["payload_json"] or "{}")
+            payload = json.loads(raw or "{}")
         except ValueError:
             continue
         value = payload.get("notice_id") if isinstance(payload, dict) else None

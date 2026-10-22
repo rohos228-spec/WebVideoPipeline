@@ -4,12 +4,14 @@
 событий и в БД не пишутся. Номера для них берутся из памяти пачками
 (``SEQ_RESERVE``): в ``orch_event_seq`` уходит верхняя отметка резерва,
 не каждый токен. Укрупнённые события пишутся в ``orch_events`` через
-одно долгоживущее соединение на файл БД (WAL). Компакция — отдельно.
+одно долгоживущее соединение на базу (файл SQLite в WAL или Postgres
+по ``DATABASE_URL``). Компакция — отдельно.
 
-``publish`` отдаёт запись sqlite в рабочий поток (``asyncio.to_thread``).
+``publish`` отдаёт запись в рабочий поток (``asyncio.to_thread``).
 Цикл на время commit не останавливается: кольцо и подписчики обновляются
 уже после возврата из потока. Соединения в ``_CONNS`` живут до конца
-процесса — одно на файл.
+процесса — одно на базу. Оборванное соединение (рестарт Postgres)
+выбрасывается из ``_CONNS``, следующая запись открывает новое.
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import bindparam, text
+
 from app.orchestrator.contracts import (
     EPHEMERAL_EVENT_TYPES,
     EVENT_RETENTION_DAYS,
@@ -33,7 +37,7 @@ from app.orchestrator.contracts import (
     TOKEN_RING_SIZE,
     OrchEvent,
 )
-from app.orchestrator.db.migrations import connect, resolve_db_path
+from app.orchestrator.db.migrations import connect, target_key
 
 # Сколько seq резервировать одним UPDATE. Токен не трогает БД, пока пачка не кончилась.
 SEQ_RESERVE = 64
@@ -170,20 +174,22 @@ def compact_events(
     conn = connect()
     try:
         if session_id is None:
-            sessions = [row[0] for row in conn.execute("SELECT DISTINCT session_id FROM orch_events")]
+            sessions = list(conn.execute(text("SELECT DISTINCT session_id FROM orch_events")).scalars())
         else:
             sessions = [session_id]
         deleted_age = 0
         deleted_cap = 0
         for sid in sessions:
             cur = conn.execute(
-                f"""
-                DELETE FROM orch_events
-                WHERE session_id = ?
-                  AND created_at < ?
-                  AND type NOT IN ({_KEEP_SQL})
-                """,
-                (sid, cutoff),
+                text(
+                    f"""
+                    DELETE FROM orch_events
+                    WHERE session_id = :sid
+                      AND created_at < :cutoff
+                      AND type NOT IN ({_KEEP_SQL})
+                    """
+                ),
+                {"sid": sid, "cutoff": cutoff},
             )
             deleted_age += cur.rowcount if cur.rowcount is not None else 0
             deleted_cap += _enforce_cap(conn, sid, cap)
@@ -194,10 +200,14 @@ def compact_events(
 
 
 def _enforce_cap(conn: Any, session_id: str, cap: int) -> int:
-    rows = conn.execute(
-        "SELECT id, type FROM orch_events WHERE session_id = ? ORDER BY seq ASC, id ASC",
-        (session_id,),
-    ).fetchall()
+    rows = (
+        conn.execute(
+            text("SELECT id, type FROM orch_events WHERE session_id = :sid ORDER BY seq ASC, id ASC"),
+            {"sid": session_id},
+        )
+        .mappings()
+        .fetchall()
+    )
     overflow = len(rows) - cap
     if overflow <= 0:
         return 0
@@ -205,51 +215,48 @@ def _enforce_cap(conn: Any, session_id: str, cap: int) -> int:
     victims = ordinary[:overflow]
     if not victims:
         return 0
-    conn.executemany("DELETE FROM orch_events WHERE id = ?", [(item,) for item in victims])
+    conn.execute(
+        text("DELETE FROM orch_events WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
+        {"ids": victims},
+    )
     return len(victims)
 
 
 def seq_reserve_count(session_id: str, path: Path | None = None) -> int:
     """Сколько раз для сессии писали верхнюю отметку seq (не число событий)."""
-    key = (str(resolve_db_path(path)), session_id)
+    key = (target_key(path), session_id)
     with _LOCK:
         return _RESERVES.get(key, 0)
 
 
 def forget_seq_batch(session_id: str, path: Path | None = None) -> None:
     """Сбросить память пачки, как после рестарта процесса. Отметка в БД остаётся."""
-    key = (str(resolve_db_path(path)), session_id)
+    key = (target_key(path), session_id)
     with _LOCK:
         _BATCHES.pop(key, None)
 
 
-def _event_conn(path: Path) -> Any:
-    """Одно соединение на файл. Вызывать под ``_LOCK``."""
-    key = str(path)
+def _event_conn(key: str) -> Any:
+    """Одно соединение на базу. Вызывать под ``_LOCK``.
+
+    PRAGMA для SQLite (WAL, ``busy_timeout=5000``, внешние ключи) ставит
+    движок ``app.orchestrator.db.engine`` при открытии соединения.
+    """
     conn = _CONNS.get(key)
     if conn is not None:
         return conn
-    from app.orchestrator.db.migrations import ensure_migrated
-
-    ensure_migrated(path)
-    import sqlite3
-
-    conn = sqlite3.connect(key, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute("PRAGMA journal_mode=WAL").fetchone()
+    conn = connect()
     _CONNS[key] = conn
     return conn
 
 
-def _take_seq(path: Path, session_id: str) -> int:
+def _take_seq(db_key: str, session_id: str) -> int:
     """Следующий seq. БД обновляется пачкой ``SEQ_RESERVE``, не на каждый токен."""
-    key = (str(path), session_id)
+    key = (db_key, session_id)
     with _LOCK:
         window = _BATCHES.get(key)
         if window is None or window[0] > window[1]:
-            conn = _event_conn(path)
+            conn = _event_conn(db_key)
             window = _reserve_seq(conn, session_id)
             _BATCHES[key] = window
             _RESERVES[key] = _RESERVES.get(key, 0) + 1
@@ -260,21 +267,21 @@ def _take_seq(path: Path, session_id: str) -> int:
 
 def _reserve_seq(conn: Any, session_id: str) -> list[int]:
     try:
-        row = conn.execute(
-            "SELECT seq FROM orch_event_seq WHERE session_id = ?",
-            (session_id,),
-        ).fetchone()
-        current = int(row["seq"]) if row is not None else 0
+        stored = conn.execute(
+            text("SELECT seq FROM orch_event_seq WHERE session_id = :sid"),
+            {"sid": session_id},
+        ).scalar()
+        current = int(stored) if stored is not None else 0
         high = current + SEQ_RESERVE
-        if row is None:
+        if stored is None:
             conn.execute(
-                "INSERT INTO orch_event_seq (session_id, seq) VALUES (?, ?)",
-                (session_id, high),
+                text("INSERT INTO orch_event_seq (session_id, seq) VALUES (:sid, :seq)"),
+                {"sid": session_id, "seq": high},
             )
         else:
             conn.execute(
-                "UPDATE orch_event_seq SET seq = ? WHERE session_id = ?",
-                (high, session_id),
+                text("UPDATE orch_event_seq SET seq = :seq WHERE session_id = :sid"),
+                {"sid": session_id, "seq": high},
             )
         conn.commit()
     except BaseException:
@@ -286,6 +293,23 @@ def _reserve_seq(conn: Any, session_id: str) -> list[int]:
 def _rollback(conn: Any) -> None:
     try:
         conn.rollback()
+    except Exception:
+        return
+
+
+def _drop_if_broken(key: str) -> None:
+    """Соединение, которое SQLAlchemy признал оборванным, больше не держим.
+
+    Вызывать под ``_LOCK``. На SQLite обрывов не бывает; на Postgres это
+    рестарт сервера или сети — без сброса шина писала бы в мёртвое
+    соединение до рестарта процесса.
+    """
+    conn = _CONNS.get(key)
+    if conn is None or not (getattr(conn, "invalidated", False) or getattr(conn, "closed", False)):
+        return
+    _CONNS.pop(key, None)
+    try:
+        conn.close()
     except Exception:
         return
 
@@ -304,30 +328,37 @@ def _insert_event(
     ``_CONNS`` открыты из пула потоков. Без этого лока два ``publish``
     делят одно соединение.
     """
-    path = resolve_db_path()
+    db_key = target_key()
     with _LOCK:
-        conn = _event_conn(path)
-        seq = _take_seq(path, session_id)
+        try:
+            conn = _event_conn(db_key)
+            seq = _take_seq(db_key, session_id)
+        except BaseException:
+            _drop_if_broken(db_key)
+            raise
         stamp = created_at or _utc_stamp(conn)
         if persist:
             try:
                 conn.execute(
-                    """
-                    INSERT INTO orch_events (session_id, task_id, seq, type, payload_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        session_id,
-                        task_id,
-                        seq,
-                        event_type,
-                        json.dumps(payload, ensure_ascii=False, default=str),
-                        stamp,
+                    text(
+                        """
+                        INSERT INTO orch_events (session_id, task_id, seq, type, payload_json, created_at)
+                        VALUES (:sid, :task_id, :seq, :type, :payload, :created_at)
+                        """
                     ),
+                    {
+                        "sid": session_id,
+                        "task_id": task_id,
+                        "seq": seq,
+                        "type": event_type,
+                        "payload": json.dumps(payload, ensure_ascii=False, default=str),
+                        "created_at": stamp,
+                    },
                 )
                 conn.commit()
             except BaseException:
                 _rollback(conn)
+                _drop_if_broken(db_key)
                 raise
         return seq, stamp
 
@@ -342,15 +373,21 @@ def _utc_stamp(conn: Any) -> str:
 def _load_persisted(session_id: str, last_seq: int) -> list[OrchEvent]:
     conn = connect()
     try:
-        rows = conn.execute(
-            """
-            SELECT session_id, task_id, seq, type, payload_json
-            FROM orch_events
-            WHERE session_id = ? AND seq > ?
-            ORDER BY seq ASC
-            """,
-            (session_id, last_seq),
-        ).fetchall()
+        rows = (
+            conn.execute(
+                text(
+                    """
+                    SELECT session_id, task_id, seq, type, payload_json
+                    FROM orch_events
+                    WHERE session_id = :sid AND seq > :last_seq
+                    ORDER BY seq ASC
+                    """
+                ),
+                {"sid": session_id, "last_seq": int(last_seq)},
+            )
+            .mappings()
+            .fetchall()
+        )
     finally:
         conn.close()
     events: list[OrchEvent] = []
@@ -371,10 +408,12 @@ def _load_persisted(session_id: str, last_seq: int) -> list[OrchEvent]:
 def persisted_types(session_id: str) -> list[str]:
     conn = connect()
     try:
-        rows = conn.execute(
-            "SELECT type FROM orch_events WHERE session_id = ? ORDER BY seq ASC",
-            (session_id,),
-        ).fetchall()
+        rows: list[Any] = list(
+            conn.execute(
+                text("SELECT type FROM orch_events WHERE session_id = :sid ORDER BY seq ASC"),
+                {"sid": session_id},
+            ).scalars()
+        )
+        return [str(item) for item in rows]
     finally:
         conn.close()
-    return [row["type"] for row in rows]

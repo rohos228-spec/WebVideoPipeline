@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import threading
 
+from sqlalchemy import text
+
 from app.orchestrator.contracts import CheckpointData, PlanStep, SpendSnapshot
 from app.orchestrator.db.migrations import connect, utc_now
 
@@ -33,27 +35,30 @@ class CheckpointStore:
     def _insert(self, task_id: int, session_id: str, data: CheckpointData) -> int:
         conn = connect()
         try:
-            cur = conn.execute(
-                """
-                INSERT INTO orch_checkpoints (
-                    task_id, session_id, plan_json, position,
-                    change_ids_json, spend_json, context, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    task_id,
-                    session_id,
-                    json.dumps([step.model_dump() for step in data.plan], ensure_ascii=False),
-                    int(data.position),
-                    json.dumps(list(data.change_ids), ensure_ascii=False),
-                    json.dumps(data.spend.model_dump(), ensure_ascii=False),
-                    data.context or "",
-                    utc_now(),
+            new_id = conn.execute(
+                text(
+                    """
+                    INSERT INTO orch_checkpoints (
+                        task_id, session_id, plan_json, position,
+                        change_ids_json, spend_json, context, created_at
+                    )
+                    VALUES (:task_id, :sid, :plan, :position, :change_ids, :spend, :context, :stamp)
+                    RETURNING id
+                    """
                 ),
-            )
+                {
+                    "task_id": int(task_id),
+                    "sid": session_id,
+                    "plan": json.dumps([step.model_dump() for step in data.plan], ensure_ascii=False),
+                    "position": int(data.position),
+                    "change_ids": json.dumps(list(data.change_ids), ensure_ascii=False),
+                    "spend": json.dumps(data.spend.model_dump(), ensure_ascii=False),
+                    "context": data.context or "",
+                    "stamp": utc_now(),
+                },
+            ).scalar()
             conn.commit()
-            return int(cur.lastrowid or 0)
+            return int(new_id or 0)
         finally:
             conn.close()
 
@@ -64,16 +69,22 @@ class CheckpointStore:
     def _load(self, task_id: int) -> CheckpointData | None:
         conn = connect()
         try:
-            row = conn.execute(
-                """
-                SELECT plan_json, position, change_ids_json, spend_json, context
-                FROM orch_checkpoints
-                WHERE task_id = ?
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (task_id,),
-            ).fetchone()
+            row = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT plan_json, position, change_ids_json, spend_json, context
+                        FROM orch_checkpoints
+                        WHERE task_id = :task_id
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"task_id": int(task_id)},
+                )
+                .mappings()
+                .fetchone()
+            )
         finally:
             conn.close()
         if row is None:

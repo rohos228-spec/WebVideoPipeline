@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from sqlalchemy import text
 
 from app.orchestrator.routing.types import LlmCallRecord
 
@@ -27,7 +28,7 @@ def _pick(value: Any, allowed: frozenset[str], default: str) -> str:
 def _project_of(conn: Any, task_id: str | None) -> int | None:
     if task_id is None or not str(task_id).strip().isdigit():
         return None
-    row = conn.execute("SELECT project_id FROM orch_tasks WHERE id = ?", (int(task_id),)).fetchone()
+    row = conn.execute(text("SELECT project_id FROM orch_tasks WHERE id = :id"), {"id": int(task_id)}).fetchone()
     if row is None or row[0] is None:
         return None
     try:
@@ -42,42 +43,52 @@ def insert_call(row: LlmCallRecord) -> int | None:
 
     conn = connect()
     try:
+        # Повтор той же записи (тот же call_id) — не ошибка: ON CONFLICT
+        # одинаково понимают SQLite и Postgres, в отличие от INSERT OR IGNORE.
         conn.execute(
-            """
-            INSERT OR IGNORE INTO orch_llm_calls (
-                call_id, task_id, run_id, agent_role, requested_tier, tier, model, provider,
-                reasoning_effort, fallback_index, attempt, status, error, deterministic_flag,
-                classifier_confidence, latency_ms, prompt_tokens, completion_tokens, reasoning_tokens,
-                cost_usd, budget_scope, router_impl, messages_sha256, fixture_key, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                row.call_id,
-                row.task_id,
-                row.run_id,
-                _pick(row.agent_role, _ROLES, "supervisor"),
-                _pick(row.requested_tier, _TIERS, "auto"),
-                _pick(row.tier, _TIERS, "strong"),
-                str(row.model or "unknown"),
-                _pick(row.provider, _PROVIDERS, "52pay"),
-                row.reasoning_effort,
-                int(row.fallback_index or 0),
-                int(row.attempt or 1),
-                _pick(row.status, _STATUSES, "error"),
-                (str(row.error)[:500] if row.error else None),
-                1 if row.deterministic_flag else 0,
-                row.classifier_confidence,
-                int(row.latency_ms or 0),
-                int(row.prompt_tokens or 0),
-                int(row.completion_tokens or 0),
-                int(row.reasoning_tokens or 0),
-                float(row.cost_usd or 0.0),
-                _pick(row.budget_scope, frozenset({"internal", "pipeline"}), "internal"),
-                _pick(row.router_impl, _IMPLS, "live"),
-                row.messages_sha256 or None,
-                row.fixture_key,
-                row.created_at or "",
+            text(
+                """
+                INSERT INTO orch_llm_calls (
+                    call_id, task_id, run_id, agent_role, requested_tier, tier, model, provider,
+                    reasoning_effort, fallback_index, attempt, status, error, deterministic_flag,
+                    classifier_confidence, latency_ms, prompt_tokens, completion_tokens, reasoning_tokens,
+                    cost_usd, budget_scope, router_impl, messages_sha256, fixture_key, created_at
+                ) VALUES (
+                    :call_id, :task_id, :run_id, :agent_role, :requested_tier, :tier, :model, :provider,
+                    :reasoning_effort, :fallback_index, :attempt, :status, :error, :deterministic_flag,
+                    :classifier_confidence, :latency_ms, :prompt_tokens, :completion_tokens, :reasoning_tokens,
+                    :cost_usd, :budget_scope, :router_impl, :messages_sha256, :fixture_key, :created_at
+                )
+                ON CONFLICT (call_id) DO NOTHING
+                """
             ),
+            {
+                "call_id": row.call_id,
+                "task_id": None if row.task_id is None else str(row.task_id),
+                "run_id": None if row.run_id is None else str(row.run_id),
+                "agent_role": _pick(row.agent_role, _ROLES, "supervisor"),
+                "requested_tier": _pick(row.requested_tier, _TIERS, "auto"),
+                "tier": _pick(row.tier, _TIERS, "strong"),
+                "model": str(row.model or "unknown"),
+                "provider": _pick(row.provider, _PROVIDERS, "52pay"),
+                "reasoning_effort": row.reasoning_effort,
+                "fallback_index": int(row.fallback_index or 0),
+                "attempt": int(row.attempt or 1),
+                "status": _pick(row.status, _STATUSES, "error"),
+                "error": (str(row.error)[:500] if row.error else None),
+                "deterministic_flag": 1 if row.deterministic_flag else 0,
+                "classifier_confidence": row.classifier_confidence,
+                "latency_ms": int(row.latency_ms or 0),
+                "prompt_tokens": int(row.prompt_tokens or 0),
+                "completion_tokens": int(row.completion_tokens or 0),
+                "reasoning_tokens": int(row.reasoning_tokens or 0),
+                "cost_usd": float(row.cost_usd or 0.0),
+                "budget_scope": _pick(row.budget_scope, frozenset({"internal", "pipeline"}), "internal"),
+                "router_impl": _pick(row.router_impl, _IMPLS, "live"),
+                "messages_sha256": row.messages_sha256 or None,
+                "fixture_key": row.fixture_key,
+                "created_at": row.created_at or "",
+            },
         )
         project_id = _project_of(conn, row.task_id)
         conn.commit()

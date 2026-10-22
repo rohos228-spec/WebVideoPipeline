@@ -1,24 +1,56 @@
-"""Идемпотентный раннер миграций оркестратора.
+"""Схема таблиц оркестратора и короткие соединения к ним.
 
-В репозитории нет каталога Alembic: схема студии создаётся через
-``Base.metadata.create_all`` и точечные ALTER (``db_v2``). Для таблиц
-оркестратора (D5) — отдельный пронумерованный каталог SQL рядом с этим
-модулем. Повторный запуск безопасен: имя файла пишется в
-``orch_schema_migrations``.
+Схема ``orch_*`` / ``node_*`` описана пронумерованными SQL-файлами рядом с
+этим модулем (диалект SQLite). Где она применяется:
+
+* **alembic** (ревизия ``0018_orch_tables``) — основной путь. На SQLite
+  ревизия выполняет эти же файлы по одному оператору и пишет их в журнал
+  ``orch_schema_migrations``; на Postgres — свою DDL того же смысла.
+* **этот раннер** — только SQLite и только для баз, которые alembic не
+  проходили (тестовые файлы, базы инструментов). Повторный запуск безопасен:
+  имя файла пишется в ``orch_schema_migrations``, ``ADD COLUMN`` для уже
+  существующей колонки пропускается.
+
+На Postgres раннер ничего не создаёт: схема сервера меняется только
+миграциями. Если таблиц нет — это ошибка развёртывания, и о ней говорится
+сразу, а не первой упавшей вставкой события.
 """
 
 from __future__ import annotations
 
 import re
-import sqlite3
 import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
-from app.settings import settings
+from sqlalchemy.engine import Connection
+
+from app.orchestrator.db.engine import (
+    BUSY_TIMEOUT_MS,
+    busy_timeout,
+    get_engine,
+    is_locked,
+    resolve_db_path,
+    target_key,
+    uses_postgres,
+)
+
+__all__ = [
+    "BUSY_TIMEOUT_MS",
+    "ORCH_SQL_FILES",
+    "ORCH_TABLES",
+    "apply_migrations",
+    "busy_timeout",
+    "connect",
+    "ensure_migrated",
+    "is_locked",
+    "node_key_ok",
+    "resolve_db_path",
+    "sqlite_statements",
+    "target_key",
+    "utc_now",
+]
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent
 _NODE_KEY_RE = re.compile(r"^n_[a-z0-9_]+$")
@@ -28,8 +60,42 @@ _ADD_COLUMN_RE = re.compile(
 )
 _MIGRATED: set[str] = set()
 _MIGRATE_LOCK = threading.Lock()
-BUSY_TIMEOUT_MS = 5000
-_BUSY_MS: ContextVar[int | None] = ContextVar("orch_busy_ms", default=None)
+
+#: Файлы, которые накатывает ревизия alembic 0018. Новый файл схемы —
+#: новая ревизия alembic, этот список не дописывается.
+ORCH_SQL_FILES: tuple[str, ...] = (
+    "001_node_defs.sql",
+    "002_node_prompt_versions.sql",
+    "003_orch_reports.sql",
+    "004_orch_tasks.sql",
+    "005_orch_checkpoints.sql",
+    "006_orch_events.sql",
+    "007_orch_messages.sql",
+    "008_orch_llm_calls.sql",
+    "009_orch_tasks_project.sql",
+)
+
+#: Таблицы, без которых движок на Postgres не стартует.
+ORCH_TABLES: tuple[str, ...] = (
+    "node_defs",
+    "node_prompt_versions",
+    "orch_reports",
+    "orch_report_versions",
+    "orch_tasks",
+    "orch_steps",
+    "orch_checkpoints",
+    "orch_events",
+    "orch_event_seq",
+    "orch_messages",
+    "orch_llm_calls",
+)
+
+JOURNAL_DDL = """
+CREATE TABLE IF NOT EXISTS orch_schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL
+)
+"""
 
 
 def utc_now() -> str:
@@ -37,90 +103,67 @@ def utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
-def resolve_db_path(path: Path | None = None) -> Path:
-    """Абсолютный путь БД студии. ``None`` — ``settings.sqlite_path`` в момент вызова."""
-    db_path = Path(path) if path is not None else Path(settings.sqlite_path)
-    if not db_path.is_absolute():
-        db_path = Path.cwd() / db_path
-    return db_path
+def ensure_migrated(path: Path | None = None) -> str:
+    """Подготовить схему один раз на процесс для этой базы. Возвращает ключ базы.
 
-
-def ensure_migrated(path: Path | None = None) -> Path:
-    """Применить миграции один раз на процесс для этого файла.
-
-    Повторный вызов с тем же путём не открывает каталог SQL и не читает журнал.
+    Повторный вызов с той же базой не открывает каталог SQL и не читает журнал.
     Старт процесса (``build_runtime``) вызывает это до горячего пути событий.
     """
-    db_path = resolve_db_path(path)
-    key = str(db_path)
+    key = target_key(path)
     if key in _MIGRATED:
-        return db_path
+        return key
     with _MIGRATE_LOCK:
         if key in _MIGRATED:
-            return db_path
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(key)
-        try:
-            conn.row_factory = sqlite3.Row
-            _prepare(conn)
-            apply_migrations(conn)
-        finally:
-            conn.close()
+            return key
+        engine = get_engine(path)
+        if uses_postgres(path):
+            _require_tables(engine)
+        else:
+            raw = engine.raw_connection()
+            try:
+                apply_migrations(raw.driver_connection)
+            finally:
+                raw.close()
         _MIGRATED.add(key)
-    return db_path
+    return key
 
 
-def connect(path: Path | None = None) -> sqlite3.Connection:
-    """Короткое соединение. Миграции уже применены ``ensure_migrated``.
+def _require_tables(engine: Any) -> None:
+    from sqlalchemy import inspect
 
+    with engine.connect() as conn:
+        present = set(inspect(conn).get_table_names())
+    missing = [name for name in ORCH_TABLES if name not in present]
+    if missing:
+        raise RuntimeError(
+            "в базе Postgres нет таблиц оркестратора ("
+            + ", ".join(missing)
+            + "): выполните `alembic upgrade head`"
+        )
+
+
+def connect(path: Path | None = None) -> Connection:
+    """Короткое соединение SQLAlchemy. Схема готовится ``ensure_migrated``.
+
+    Запросы — ``text()`` с именованными параметрами, строки — ``.mappings()``.
     Горячий путь событий держит отдельное долгоживущее соединение, не это.
     """
-    db_path = ensure_migrated(path)
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    _prepare(conn)
-    return conn
+    ensure_migrated(path)
+    return get_engine(path).connect()
 
 
-@contextmanager
-def busy_timeout(ms: int) -> Iterator[None]:
-    token = _BUSY_MS.set(max(0, int(ms)))
-    try:
-        yield
-    finally:
-        _BUSY_MS.reset(token)
-
-
-def is_locked(exc: BaseException) -> bool:
-    if not isinstance(exc, sqlite3.OperationalError):
-        return False
-    text = str(exc).lower()
-    return "locked" in text or "busy" in text
-
-
-def _prepare(conn: sqlite3.Connection) -> None:
-    busy = _BUSY_MS.get()
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS if busy is None else busy}")
-    conn.execute("PRAGMA journal_mode=WAL").fetchone()
-
-
-def apply_migrations(conn: sqlite3.Connection) -> list[str]:
-    """Применить ещё не записанные ``*.sql`` в лексикографическом порядке."""
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS orch_schema_migrations (
-            name TEXT PRIMARY KEY,
-            applied_at TEXT NOT NULL
-        )
-        """
-    )
+def apply_migrations(conn: Any) -> list[str]:
+    """Применить ещё не записанные ``*.sql`` (SQLite, соединение sqlite3)."""
+    conn.execute(JOURNAL_DDL)
     applied = {row[0] for row in conn.execute("SELECT name FROM orch_schema_migrations")}
     done: list[str] = []
     for path in sorted(_MIGRATIONS_DIR.glob("*.sql")):
         if path.name in applied:
             continue
-        script = _without_existing_columns(conn, path.read_text(encoding="utf-8"))
+        script = _without_existing_columns(
+            lambda table, column: _has_column(conn, table, column),
+            path.read_text(encoding="utf-8"),
+        )
         if script.strip():
             conn.executescript(script)
         conn.execute(
@@ -132,16 +175,39 @@ def apply_migrations(conn: sqlite3.Connection) -> list[str]:
     return done
 
 
-def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+def sqlite_statements(name: str, has_column: Any) -> list[str]:
+    """Операторы файла схемы по одному — для исполнителей без ``executescript``.
+
+    Триггер с ``BEGIN … END`` содержит ``;`` внутри, поэтому граница
+    оператора — ``sqlite3.complete_statement``, а не разбиение по ``;``.
+    """
+    import sqlite3
+
+    script = _without_existing_columns(has_column, (_MIGRATIONS_DIR / name).read_text(encoding="utf-8"))
+    statements: list[str] = []
+    buffer = ""
+    for line in script.splitlines(keepends=True):
+        if not buffer and (not line.strip() or line.lstrip().startswith("--")):
+            continue
+        buffer += line
+        if sqlite3.complete_statement(buffer):
+            statements.append(buffer.strip())
+            buffer = ""
+    if buffer.strip():
+        raise ValueError(f"{name}: незавершённый оператор в конце файла")
+    return statements
+
+
+def _has_column(conn: Any, table: str, column: str) -> bool:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return any(row[1] == column for row in rows)
 
 
-def _without_existing_columns(conn: sqlite3.Connection, sql: str) -> str:
+def _without_existing_columns(has_column: Any, sql: str) -> str:
     """Повторный ALTER после обрыва между файлом и журналом не дублирует колонку."""
 
     def skip(match: re.Match[str]) -> str:
-        if _has_column(conn, match.group(1), match.group(2)):
+        if has_column(match.group(1), match.group(2)):
             return ""
         return match.group(0)
 

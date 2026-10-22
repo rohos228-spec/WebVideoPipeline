@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -132,14 +131,15 @@ def load_rules(path: Path) -> list[SourceDoc]:
 
 def load_history(
     *,
-    project_db: Path | None = None,
+    project_db: Path | Any | None = None,
     documents: list[dict[str, Any]] | None = None,
 ) -> list[SourceDoc]:
+    """``project_db`` — файл SQLite или ``APP_DATABASE`` (база приложения, в т.ч. Postgres)."""
     docs: list[SourceDoc] = []
     if documents:
         docs.extend(_docs_from_payloads(documents))
-    if project_db is not None and project_db.is_file():
-        docs.extend(_history_from_sqlite(project_db))
+    if project_db is not None:
+        docs.extend(_history_from_db(project_db))
     return docs
 
 
@@ -200,11 +200,25 @@ def _render_messages(messages: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _history_from_sqlite(db_path: Path) -> list[SourceDoc]:
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+def _history_from_db(source: Path | Any) -> list[SourceDoc]:
+    """Только чтение: файл SQLite одной студии в ``mode=ro``.
+
+    Общая база нескольких арендаторов (Postgres) историю не отдаёт: у
+    ``orch_tasks`` и ``orch_messages`` нет ``tenant_id`` и RLS, а индекс RAG
+    один на процесс, — задачи и чаты всех арендаторов попали бы в общий
+    корпус. Проекты под RLS тоже не выход: с арендатором в контексте в общий
+    индекс легли бы его проекты, видимые остальным. Пока строки и индекс не
+    разделены по арендаторам, история из такой базы пуста.
+    """
+    from app.orchestrator.db.engine import open_read, table_names
+
+    with open_read(source) as conn:
+        if conn is None:
+            return []
+        if not _single_tenant(conn):
+            logger.info("rag history: shared multi-tenant database, history corpus skipped")
+            return []
+        tables = table_names(conn)
         docs: list[SourceDoc] = []
         if "projects" in tables:
             docs.extend(_projects(conn))
@@ -213,27 +227,39 @@ def _history_from_sqlite(db_path: Path) -> list[SourceDoc]:
         if "orch_messages" in tables:
             docs.extend(_chats(conn))
         return docs
-    finally:
-        conn.close()
 
 
-def _cell(row: sqlite3.Row, cols: set[str], name: str, default: Any = "") -> Any:
+def _single_tenant(conn: Any) -> bool:
+    """Файл SQLite — база одной студии; сырое ``sqlite3`` (инструменты, тесты) тоже."""
+    dialect = getattr(conn, "dialect", None)
+    return dialect is None or dialect.name == "sqlite"
+
+
+def _cell(row: dict[str, Any], cols: set[str], name: str, default: Any = "") -> Any:
     if name not in cols:
         return default
     value = row[name]
     return default if value is None else value
 
 
-def _colnames(conn: sqlite3.Connection, table: str) -> set[str]:
-    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")}
+def _colnames(conn: Any, table: str) -> set[str]:
+    from app.orchestrator.db.engine import column_names
+
+    return column_names(conn, table)
 
 
-def _projects(conn: sqlite3.Connection) -> list[SourceDoc]:
+def _rows(conn: Any, sql: str) -> list[dict[str, Any]]:
+    from app.orchestrator.db.engine import read_rows
+
+    return read_rows(conn, sql)
+
+
+def _projects(conn: Any) -> list[SourceDoc]:
     cols = _colnames(conn, "projects")
     wanted = [name for name in ("id", "slug", "title", "topic", "status", "updated_at") if name in cols]
     if "id" not in wanted:
         return []
-    rows = conn.execute(f"SELECT {', '.join(wanted)} FROM projects").fetchall()
+    rows = _rows(conn, f"SELECT {', '.join(wanted)} FROM projects")
     docs: list[SourceDoc] = []
     for row in rows:
         project_id = int(row["id"])
@@ -266,11 +292,11 @@ def _projects(conn: sqlite3.Connection) -> list[SourceDoc]:
     return docs
 
 
-def _tasks(conn: sqlite3.Connection) -> list[SourceDoc]:
+def _tasks(conn: Any) -> list[SourceDoc]:
     cols = _colnames(conn, "orch_tasks")
     if "id" not in cols:
         return []
-    rows = conn.execute("SELECT * FROM orch_tasks").fetchall()
+    rows = _rows(conn, "SELECT * FROM orch_tasks")
     docs: list[SourceDoc] = []
     for row in rows:
         task_id = str(row["id"])
@@ -306,7 +332,7 @@ def _tasks(conn: sqlite3.Connection) -> list[SourceDoc]:
     return docs
 
 
-def _chats(conn: sqlite3.Connection) -> list[SourceDoc]:
+def _chats(conn: Any) -> list[SourceDoc]:
     cols = _colnames(conn, "orch_messages")
     if not {"role", "content"} <= cols:
         return []
@@ -314,7 +340,7 @@ def _chats(conn: sqlite3.Connection) -> list[SourceDoc]:
     if session_col is None:
         return []
     order_col = "id" if "id" in cols else session_col
-    rows = conn.execute(f"SELECT * FROM orch_messages ORDER BY {order_col}").fetchall()
+    rows = _rows(conn, f"SELECT * FROM orch_messages ORDER BY {order_col}")
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         session = str(row[session_col])

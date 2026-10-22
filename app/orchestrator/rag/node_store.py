@@ -20,7 +20,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -189,19 +188,27 @@ class MemoryNodeStore:
 
 
 class SqliteNodeStore:
-    """Читает ``node_defs`` + активную строку ``node_prompt_versions``, если таблицы есть."""
+    """Читает ``node_defs`` + активную строку ``node_prompt_versions``, если таблицы есть.
 
-    def __init__(self, db_path: Path | None) -> None:
-        self.db_path = Path(db_path) if db_path else None
+    ``db_path`` — файл SQLite (открывается в ``mode=ro``) или ``APP_DATABASE``:
+    база приложения, в режиме SaaS — Postgres. Имя класса историческое.
+    """
+
+    def __init__(self, db_path: Path | Any | None) -> None:
+        from app.orchestrator.db.engine import APP_DATABASE
+
+        if db_path is APP_DATABASE:
+            self.db_path: Any = APP_DATABASE
+        else:
+            self.db_path = Path(db_path) if db_path else None
 
     def list_overrides(self, *, templates_root: Path | None = None) -> list[ResolvedNode]:
-        conn = self._connect()
-        if conn is None:
-            return []
-        try:
+        from app.orchestrator.db.engine import open_read
+
+        with open_read(self.db_path) as conn:
+            if conn is None:
+                return []
             return _overrides_via_resolve(conn, templates_root)
-        finally:
-            conn.close()
 
     def resolve_node(self, node_key: str) -> ResolvedNode | None:
         for node in self.list_overrides():
@@ -209,12 +216,6 @@ class SqliteNodeStore:
                 return node
         return None
 
-    def _connect(self) -> sqlite3.Connection | None:
-        if self.db_path is None or not self.db_path.is_file():
-            return None
-        conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        return conn
 
 
 class NodeStoreError(Exception):
@@ -241,7 +242,7 @@ class NodeDef:
 
 def resolve_node(
     node_key: str,
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     templates_root: Path | None = None,
 ) -> NodeDef:
@@ -280,7 +281,7 @@ def resolve_node(
 
 def get_node(
     node_key: str,
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     templates_root: Path | None = None,
 ) -> NodeDef:
@@ -373,33 +374,44 @@ def _markdown_body(text: str) -> str:
     return text
 
 
-def _table_names(conn: sqlite3.Connection) -> set[str]:
-    return {str(row[0]) for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+# Соединение — SQLAlchemy (база приложения, в т.ч. Postgres) или сырое
+# sqlite3 (инструменты, тесты). Параметры именованные: их понимают оба.
 
 
-def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
-    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")}
+def _table_names(conn: Any) -> set[str]:
+    from app.orchestrator.db.engine import table_names
+
+    return table_names(conn)
 
 
-def _active_version(conn: sqlite3.Connection, node_key: str) -> Any:
+def _column_names(conn: Any, table: str) -> set[str]:
+    from app.orchestrator.db.engine import column_names
+
+    return column_names(conn, table)
+
+
+def _rows(conn: Any, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    from app.orchestrator.db.engine import read_rows
+
+    return read_rows(conn, sql, params)
+
+
+def _active_version(conn: Any, node_key: str) -> Any:
     if "node_defs" not in _table_names(conn):
         return _MISSING
     cols = _column_names(conn, "node_defs")
     if "node_key" not in cols:
         return _MISSING
     if "active_version" not in cols:
-        row = conn.execute("SELECT 1 FROM node_defs WHERE node_key = ?", (node_key,)).fetchone()
-        return _MISSING if row is None else None
-    row = conn.execute(
-        "SELECT active_version FROM node_defs WHERE node_key = ?",
-        (node_key,),
-    ).fetchone()
-    if row is None:
+        rows = _rows(conn, "SELECT 1 AS hit FROM node_defs WHERE node_key = :key", {"key": node_key})
+        return _MISSING if not rows else None
+    rows = _rows(conn, "SELECT active_version FROM node_defs WHERE node_key = :key", {"key": node_key})
+    if not rows:
         return _MISSING
-    return row[0]
+    return rows[0]["active_version"]
 
 
-def _version_row(conn: sqlite3.Connection, node_key: str, version: int) -> dict[str, Any] | None:
+def _version_row(conn: Any, node_key: str, version: int) -> dict[str, Any] | None:
     if "node_prompt_versions" not in _table_names(conn):
         return None
     cols = _column_names(conn, "node_prompt_versions")
@@ -410,15 +422,12 @@ def _version_row(conn: sqlite3.Connection, node_key: str, version: int) -> dict[
     ]
     if "version" not in cols or "node_key" not in cols or not wanted:
         return None
-    row = conn.execute(
-        f"SELECT {', '.join(wanted)} FROM node_prompt_versions WHERE node_key = ? AND version = ?",
-        (node_key, version),
-    ).fetchone()
-    if row is None:
-        return None
-    if isinstance(row, sqlite3.Row):
-        return {name: row[name] for name in row.keys()}  # noqa: SIM118
-    return dict(zip(wanted, row, strict=True))
+    rows = _rows(
+        conn,
+        f"SELECT {', '.join(wanted)} FROM node_prompt_versions WHERE node_key = :key AND version = :version",
+        {"key": node_key, "version": int(version)},
+    )
+    return rows[0] if rows else None
 
 
 def _params_object(raw: Any, node_key: str, version: int) -> dict[str, Any]:
@@ -448,7 +457,7 @@ def _git_def(node_key: str, baseline: _GitFile) -> NodeDef:
     )
 
 
-def _overrides_via_resolve(conn: sqlite3.Connection, templates_root: Path | None) -> list[ResolvedNode]:
+def _overrides_via_resolve(conn: Any, templates_root: Path | None) -> list[ResolvedNode]:
     """Ключи из ``node_defs``. Промпт и хеш — только через ``resolve_node``."""
     from app.orchestrator.rag.node_api import resolve_node as resolve_via_adapter
 
@@ -472,7 +481,7 @@ def _overrides_via_resolve(conn: sqlite3.Connection, templates_root: Path | None
     return nodes
 
 
-def _identity_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+def _identity_rows(conn: Any) -> list[dict[str, Any]]:
     """Подписи нод для чанка. Версию промпта отсюда не читаем."""
     if "node_defs" not in _table_names(conn):
         return []
@@ -484,13 +493,7 @@ def _identity_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         for name in ("node_key", "group_key", "title", "status", "description", "updated_change_id", "updated_at")
         if name in cols
     ]
-    rows = []
-    for row in conn.execute(f"SELECT {', '.join(wanted)} FROM node_defs"):
-        if isinstance(row, sqlite3.Row):
-            rows.append({name: row[name] for name in wanted})
-        else:
-            rows.append(dict(zip(wanted, row, strict=True)))
-    return rows
+    return _rows(conn, f"SELECT {', '.join(wanted)} FROM node_defs")
 
 
 def _source_name(source: Any) -> str:

@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from loguru import logger
+from sqlalchemy import text
 
 from app.orchestrator.contracts import (
     ORCH_DEFAULT_TIER,
@@ -500,15 +501,25 @@ def _insert_message(
 ) -> int:
     conn = connect()
     try:
-        cursor = conn.execute(
-            """
-            INSERT INTO orch_messages (session_id, task_id, role, content, mode, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (session_id, task_id, role, content, mode, utc_now()),
-        )
+        new_id: int = conn.execute(
+            text(
+                """
+                INSERT INTO orch_messages (session_id, task_id, role, content, mode, created_at)
+                VALUES (:sid, :task_id, :role, :content, :mode, :stamp)
+                RETURNING id
+                """
+            ),
+            {
+                "sid": session_id,
+                "task_id": None if task_id is None else int(task_id),
+                "role": role,
+                "content": content,
+                "mode": mode,
+                "stamp": utc_now(),
+            },
+        ).scalar_one()
         conn.commit()
-        return int(cursor.lastrowid)
+        return int(new_id)
     finally:
         conn.close()
 
@@ -517,8 +528,8 @@ def _set_message_mode(message_id: int, mode: str) -> None:
     conn = connect()
     try:
         conn.execute(
-            "UPDATE orch_messages SET mode = ? WHERE id = ? AND mode IS NULL",
-            (mode, message_id),
+            text("UPDATE orch_messages SET mode = :mode WHERE id = :id AND mode IS NULL"),
+            {"mode": mode, "id": int(message_id)},
         )
         conn.commit()
     finally:

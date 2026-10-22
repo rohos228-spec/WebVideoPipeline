@@ -1,12 +1,23 @@
-"""Строки ``orch_tasks`` / ``orch_steps``. Статус меняет только Supervisor."""
+"""Строки ``orch_tasks`` / ``orch_steps``. Статус меняет только Supervisor.
+
+SQL общий для SQLite и Postgres: именованные параметры, новый id — через
+``RETURNING id`` (``lastrowid`` у Postgres нет).
+"""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
+from sqlalchemy import text
+
 from app.orchestrator.contracts import PlanStep, SpendSnapshot
 from app.orchestrator.db.migrations import connect, utc_now
+
+
+def _id(value: Any) -> int | None:
+    """Ключ строки как int: Postgres не сравнивает BIGINT со строкой «5»."""
+    return None if value is None else int(value)
 
 
 class TaskStore:
@@ -20,27 +31,34 @@ class TaskStore:
         stamp = utc_now()
         conn = connect()
         try:
-            cur = conn.execute(
-                """
-                INSERT INTO orch_tasks (
-                    session_id, status, goal, position,
-                    spend_internal, spend_actions,
-                    cancel_requested, pause_requested,
-                    project_id, created_at, updated_at
-                )
-                VALUES (?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?)
-                """,
-                (session_id, status, goal, project_id, stamp, stamp),
-            )
+            new_id = conn.execute(
+                text(
+                    """
+                    INSERT INTO orch_tasks (
+                        session_id, status, goal, position,
+                        spend_internal, spend_actions,
+                        cancel_requested, pause_requested,
+                        project_id, created_at, updated_at
+                    )
+                    VALUES (:sid, :status, :goal, 0, 0, 0, 0, 0, :project_id, :stamp, :stamp)
+                    RETURNING id
+                    """
+                ),
+                {"sid": session_id, "status": status, "goal": goal, "project_id": project_id, "stamp": stamp},
+            ).scalar()
             conn.commit()
-            return int(cur.lastrowid or 0)
+            return int(new_id or 0)
         finally:
             conn.close()
 
     def get(self, task_id: int) -> dict[str, Any] | None:
         conn = connect()
         try:
-            row = conn.execute("SELECT * FROM orch_tasks WHERE id = ?", (task_id,)).fetchone()
+            row = (
+                conn.execute(text("SELECT * FROM orch_tasks WHERE id = :id"), {"id": _id(task_id)})
+                .mappings()
+                .fetchone()
+            )
         finally:
             conn.close()
         if row is None:
@@ -51,12 +69,14 @@ class TaskStore:
         conn = connect()
         try:
             conn.execute(
-                """
-                UPDATE orch_tasks
-                SET project_id = ?, updated_at = ?
-                WHERE id = ? AND project_id IS NULL
-                """,
-                (int(project_id), utc_now(), task_id),
+                text(
+                    """
+                    UPDATE orch_tasks
+                    SET project_id = :project_id, updated_at = :stamp
+                    WHERE id = :id AND project_id IS NULL
+                    """
+                ),
+                {"project_id": int(project_id), "stamp": utc_now(), "id": _id(task_id)},
             )
             conn.commit()
         finally:
@@ -66,12 +86,14 @@ class TaskStore:
         conn = connect()
         try:
             conn.execute(
-                """
-                UPDATE orch_tasks
-                SET status = ?, error = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (status, error, utc_now(), task_id),
+                text(
+                    """
+                    UPDATE orch_tasks
+                    SET status = :status, error = :error, updated_at = :stamp
+                    WHERE id = :id
+                    """
+                ),
+                {"status": status, "error": error, "stamp": utc_now(), "id": _id(task_id)},
             )
             conn.commit()
         finally:
@@ -86,24 +108,24 @@ class TaskStore:
         steer_text: str | None = None,
     ) -> None:
         sets: list[str] = []
-        args: list[Any] = []
+        args: dict[str, Any] = {}
         if cancel_requested is not None:
-            sets.append("cancel_requested = ?")
-            args.append(int(cancel_requested))
+            sets.append("cancel_requested = :cancel_requested")
+            args["cancel_requested"] = int(cancel_requested)
         if pause_requested is not None:
-            sets.append("pause_requested = ?")
-            args.append(int(pause_requested))
+            sets.append("pause_requested = :pause_requested")
+            args["pause_requested"] = int(pause_requested)
         if steer_text is not None:
-            sets.append("steer_text = ?")
-            args.append(steer_text)
+            sets.append("steer_text = :steer_text")
+            args["steer_text"] = steer_text
         if not sets:
             return
-        sets.append("updated_at = ?")
-        args.append(utc_now())
-        args.append(task_id)
+        sets.append("updated_at = :stamp")
+        args["stamp"] = utc_now()
+        args["id"] = _id(task_id)
         conn = connect()
         try:
-            conn.execute(f"UPDATE orch_tasks SET {', '.join(sets)} WHERE id = ?", args)
+            conn.execute(text(f"UPDATE orch_tasks SET {', '.join(sets)} WHERE id = :id"), args)
             conn.commit()
         finally:
             conn.close()
@@ -114,17 +136,19 @@ class TaskStore:
         try:
             if position is None:
                 conn.execute(
-                    "UPDATE orch_tasks SET plan_json = ?, updated_at = ? WHERE id = ?",
-                    (payload, utc_now(), task_id),
+                    text("UPDATE orch_tasks SET plan_json = :plan, updated_at = :stamp WHERE id = :id"),
+                    {"plan": payload, "stamp": utc_now(), "id": _id(task_id)},
                 )
             else:
                 conn.execute(
-                    """
-                    UPDATE orch_tasks
-                    SET plan_json = ?, position = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (payload, int(position), utc_now(), task_id),
+                    text(
+                        """
+                        UPDATE orch_tasks
+                        SET plan_json = :plan, position = :position, updated_at = :stamp
+                        WHERE id = :id
+                        """
+                    ),
+                    {"plan": payload, "position": int(position), "stamp": utc_now(), "id": _id(task_id)},
                 )
             conn.commit()
         finally:
@@ -140,19 +164,22 @@ class TaskStore:
         conn = connect()
         try:
             conn.execute(
-                """
-                UPDATE orch_tasks
-                SET plan_json = ?, position = ?, spend_internal = ?, spend_actions = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    json.dumps([step.model_dump() for step in plan], ensure_ascii=False),
-                    int(position),
-                    float(spend.internal),
-                    float(spend.actions),
-                    utc_now(),
-                    task_id,
+                text(
+                    """
+                    UPDATE orch_tasks
+                    SET plan_json = :plan, position = :position, spend_internal = :internal,
+                        spend_actions = :actions, updated_at = :stamp
+                    WHERE id = :id
+                    """
                 ),
+                {
+                    "plan": json.dumps([step.model_dump() for step in plan], ensure_ascii=False),
+                    "position": int(position),
+                    "internal": float(spend.internal),
+                    "actions": float(spend.actions),
+                    "stamp": utc_now(),
+                    "id": _id(task_id),
+                },
             )
             conn.commit()
         finally:
@@ -161,17 +188,23 @@ class TaskStore:
     def add_spend(self, task_id: int, *, internal: float = 0.0, actions: float = 0.0) -> SpendSnapshot:
         conn = connect()
         try:
-            row = conn.execute(
-                """
-                UPDATE orch_tasks
-                SET spend_internal = spend_internal + ?,
-                    spend_actions = spend_actions + ?,
-                    updated_at = ?
-                WHERE id = ?
-                RETURNING spend_internal, spend_actions
-                """,
-                (float(internal), float(actions), utc_now(), task_id),
-            ).fetchone()
+            row = (
+                conn.execute(
+                    text(
+                        """
+                        UPDATE orch_tasks
+                        SET spend_internal = spend_internal + :internal,
+                            spend_actions = spend_actions + :actions,
+                            updated_at = :stamp
+                        WHERE id = :id
+                        RETURNING spend_internal, spend_actions
+                        """
+                    ),
+                    {"internal": float(internal), "actions": float(actions), "stamp": utc_now(), "id": _id(task_id)},
+                )
+                .mappings()
+                .fetchone()
+            )
             if row is None:
                 raise LookupError(task_id)
             conn.commit()
@@ -185,27 +218,30 @@ class TaskStore:
     def insert_step(self, task_id: int, position: int, step: PlanStep) -> int:
         conn = connect()
         try:
-            cur = conn.execute(
-                """
-                INSERT INTO orch_steps (
-                    task_id, position, action_name, params_json, expected,
-                    paid, mutating, status, started_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?)
-                """,
-                (
-                    task_id,
-                    position,
-                    step.action,
-                    json.dumps(step.params, ensure_ascii=False),
-                    step.expected,
-                    1 if step.paid else 0,
-                    1 if step.mutating else 0,
-                    utc_now(),
+            new_id = conn.execute(
+                text(
+                    """
+                    INSERT INTO orch_steps (
+                        task_id, position, action_name, params_json, expected,
+                        paid, mutating, status, started_at
+                    )
+                    VALUES (:task_id, :position, :action, :params, :expected, :paid, :mutating, 'running', :stamp)
+                    RETURNING id
+                    """
                 ),
-            )
+                {
+                    "task_id": _id(task_id),
+                    "position": int(position),
+                    "action": step.action,
+                    "params": json.dumps(step.params, ensure_ascii=False),
+                    "expected": step.expected,
+                    "paid": 1 if step.paid else 0,
+                    "mutating": 1 if step.mutating else 0,
+                    "stamp": utc_now(),
+                },
+            ).scalar()
             conn.commit()
-            return int(cur.lastrowid or 0)
+            return int(new_id or 0)
         finally:
             conn.close()
 
@@ -214,12 +250,14 @@ class TaskStore:
         conn = connect()
         try:
             conn.execute(
-                """
-                UPDATE orch_steps
-                SET change_id = ?, cost = ?
-                WHERE id = ? AND status = 'running'
-                """,
-                (change_id, float(cost), step_id),
+                text(
+                    """
+                    UPDATE orch_steps
+                    SET change_id = :change_id, cost = :cost
+                    WHERE id = :id AND status = 'running'
+                    """
+                ),
+                {"change_id": change_id, "cost": float(cost), "id": _id(step_id)},
             )
             conn.commit()
         finally:
@@ -235,12 +273,14 @@ class TaskStore:
         conn = connect()
         try:
             conn.execute(
-                """
-                UPDATE orch_steps
-                SET status = ?, change_id = ?, cost = ?, finished_at = ?
-                WHERE id = ?
-                """,
-                (status, change_id, float(cost), utc_now(), step_id),
+                text(
+                    """
+                    UPDATE orch_steps
+                    SET status = :status, change_id = :change_id, cost = :cost, finished_at = :stamp
+                    WHERE id = :id
+                    """
+                ),
+                {"status": status, "change_id": change_id, "cost": float(cost), "stamp": utc_now(), "id": _id(step_id)},
             )
             conn.commit()
         finally:
@@ -250,13 +290,19 @@ class TaskStore:
         """Нетерминальные задачи по возрастанию id. Для подъёма после рестарта."""
         conn = connect()
         try:
-            rows = conn.execute(
-                """
-                SELECT * FROM orch_tasks
-                WHERE status NOT IN ('done', 'failed', 'cancelled')
-                ORDER BY id ASC
-                """
-            ).fetchall()
+            rows = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT * FROM orch_tasks
+                        WHERE status NOT IN ('done', 'failed', 'cancelled')
+                        ORDER BY id ASC
+                        """
+                    )
+                )
+                .mappings()
+                .fetchall()
+            )
         finally:
             conn.close()
         return [dict(row) for row in rows]
@@ -264,10 +310,14 @@ class TaskStore:
     def list_steps(self, task_id: int) -> list[dict[str, Any]]:
         conn = connect()
         try:
-            rows = conn.execute(
-                "SELECT * FROM orch_steps WHERE task_id = ? ORDER BY position ASC",
-                (task_id,),
-            ).fetchall()
+            rows = (
+                conn.execute(
+                    text("SELECT * FROM orch_steps WHERE task_id = :task_id ORDER BY position ASC"),
+                    {"task_id": _id(task_id)},
+                )
+                .mappings()
+                .fetchall()
+            )
         finally:
             conn.close()
         return [dict(row) for row in rows]
