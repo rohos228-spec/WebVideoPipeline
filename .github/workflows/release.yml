@@ -224,6 +224,13 @@ jobs:
           fi
           ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- "$remote_cmd"
 
+          # 80/443 держит не контейнер студии, а Caddy из gpt-relay. Контейнер
+          # студии может быть healthy, а снаружи оба домена при этом висят:
+          # прокси принял TCP и не завершает TLS. Перезапуск дешёвый и
+          # возвращает сайты; если контейнера нет, шаг ничего не ломает.
+          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- \
+            'c=$(docker ps -aq --filter name=caddy | head -n 1); if [ -n "$c" ]; then docker restart "$c"; echo "прокси перезапущен: $c"; else echo "контейнер caddy не найден"; fi'
+
           # Учётные данные на сервере не оставляем: скачивание уже произошло,
           # дальше они только лежат в ~/.docker/config.json и протухают.
           ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- 'docker logout ghcr.io' || true
