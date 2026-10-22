@@ -86,8 +86,27 @@ async def backfill(apply: bool) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Пересчёт стоимости медиа-вызовов без цены")
     parser.add_argument("--apply", action="store_true", help="записать результат в базу")
+    parser.add_argument(
+        "--tenant",
+        action="append",
+        default=[],
+        metavar="UUID",
+        help=(
+            "арендатор; можно повторять. Без флага скрипт работает в режиме "
+            "владельца и видит только строки без арендатора (RLS)"
+        ),
+    )
     args = parser.parse_args()
-    asyncio.run(backfill(apply=args.apply))
+
+    from app.services.tenant import set_tenant
+
+    tenants: list[str | None] = list(args.tenant) or [None]
+    for tenant in tenants:
+        if tenant:
+            set_tenant(tenant)
+            logger.info("backfill: арендатор {}", tenant)
+        asyncio.run(backfill(apply=args.apply))
+    set_tenant(None)
 
 
 if __name__ == "__main__":

@@ -107,6 +107,7 @@ function useMoneyData() {
   const [balance, setBalance] = useState<Balance | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [projects, setProjects] = useState<ProjectCost[]>([]);
+  const [projectsVisible, setProjectsVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -130,7 +131,10 @@ function useMoneyData() {
       if (!alive) return;
       setBalance(b);
       setUsage(u);
+      // Разрез по проектам закрыт для участников: ручка владельца отвечает 404,
+      // и это не ошибка — просто раздел не показываем.
       setProjects(p?.projects ?? []);
+      setProjectsVisible(p !== null);
       if (!b && !u) setError("Биллинг не ответил — показывать нечего");
       setLoading(false);
     })();
@@ -139,11 +143,11 @@ function useMoneyData() {
     };
   }, []);
 
-  return { balance, usage, projects, error, loading };
+  return { balance, usage, projects, projectsVisible, error, loading };
 }
 
 export function PaymentsPanel({ onClose }: { onClose: () => void }) {
-  const { balance, usage, projects, error, loading } = useMoneyData();
+  const { balance, usage, projects, projectsVisible, error, loading } = useMoneyData();
   const [f, setF] = useState<"Все" | "Пополнения" | "Списания">("Все");
 
   const rows = useMemo(() => {
@@ -174,6 +178,8 @@ export function PaymentsPanel({ onClose }: { onClose: () => void }) {
 
   const spent = usage?.summary.total_spent_credits ?? "0";
   const costUsd = usage?.summary.total_cost_usd ?? null;
+  // Себестоимость видит только владелец: участнику биллинг отдаёт null.
+  const showUsd = usage?.is_admin === true;
   const free = balance?.free_tier;
 
   return (
@@ -245,7 +251,7 @@ export function PaymentsPanel({ onClose }: { onClose: () => void }) {
                 <span className="flex-1 text-zinc-300">{KIND_LABEL[kind] ?? kind}</span>
                 <span className="text-zinc-500">{it.calls} выз.</span>
                 <span className="w-20 text-right text-zinc-200">{it.credits} кр.</span>
-                <span className="w-20 text-right text-zinc-500">{usd(it.cost_usd)}</span>
+                {showUsd ? <span className="w-20 text-right text-zinc-500">{usd(it.cost_usd)}</span> : null}
               </div>
             ))}
           </div>
@@ -303,27 +309,29 @@ export function PaymentsPanel({ onClose }: { onClose: () => void }) {
                   <span className="block truncate text-[11px] text-zinc-600">{KIND_LABEL[m.kind] ?? m.kind} · {m.provider} · {m.calls} выз.{m.units ? ` · ${m.units.toFixed(m.units < 10 ? 2 : 0)} ${m.unit_label}` : ""}</span>
                 </span>
                 <span className="w-20 text-right text-zinc-200">{m.credits_spent} кр.</span>
-                <span className="w-16 text-right text-zinc-500">{usd(m.cost_usd)}</span>
+                {showUsd ? <span className="w-16 text-right text-zinc-500">{usd(m.cost_usd)}</span> : null}
               </div>
             ))}
           </div>
         )}
       </Section>
 
-      <Section title="Расход по проектам">
-        {projectRows.length === 0 ? <Empty text="Текстовых вызовов по проектам нет" /> : (
-          <div className="space-y-1">
-            {projectRows.map((p) => (
-              <div key={p.project_id} className="flex items-center gap-2 px-2 py-1.5 text-sm">
-                <span className="min-w-0 flex-1 truncate text-zinc-300">{p.title || `Проект ${p.project_id}`}</span>
-                <span className="text-sm text-zinc-500">{p.calls} выз.</span>
-                <span className="w-16 text-right text-zinc-400">{usd(p.cost_usd)}</span>
-              </div>
-            ))}
-            <div className="px-2 text-sm text-zinc-600">Только текстовые модели — картинки и видео считаются в «Расход по моделям».</div>
-          </div>
-        )}
-      </Section>
+      {projectsVisible ? (
+        <Section title="Расход по проектам">
+          {projectRows.length === 0 ? <Empty text="Текстовых вызовов по проектам нет" /> : (
+            <div className="space-y-1">
+              {projectRows.map((p) => (
+                <div key={p.project_id} className="flex items-center gap-2 px-2 py-1.5 text-sm">
+                  <span className="min-w-0 flex-1 truncate text-zinc-300">{p.title || `Проект ${p.project_id}`}</span>
+                  <span className="text-sm text-zinc-500">{p.calls} выз.</span>
+                  <span className="w-16 text-right text-zinc-400">{usd(p.cost_usd)}</span>
+                </div>
+              ))}
+              <div className="px-2 text-sm text-zinc-600">Только текстовые модели — картинки и видео считаются в «Расход по моделям».</div>
+            </div>
+          )}
+        </Section>
+      ) : null}
     </PanelShell>
   );
 }
