@@ -7,21 +7,13 @@ import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  formatNodeCategory,
-  formatNodeType,
-  formatNodeKeyLabel,
-  formatHeroMode,
-  formatProjectStatus,
-  humanizeSlug,
-} from "@/lib/format-labels";
-import { projectDisplayName, projectStatusVariant } from "@/lib/project-display";
+import { formatNodeCategory, formatNodeKeyLabel, formatHeroMode, formatProjectStatus, humanizeSlug } from "@/lib/format-labels";
+import { projectDisplayName } from "@/lib/project-display";
 import { formatRelativeTime } from "@/lib/utils";
 import { getNodeSpec } from "@/lib/node-catalog";
-import { nodeTypeFromKey, stepCodeForNodeKey } from "@/lib/node-key";
-import { legacyPromptFolder } from "@/lib/prompt-catalog";
-import type { ProjectDetail } from "@/lib/types";
+import { nodeTypeFromKey } from "@/lib/node-key";
 import { ProjectSettingsPanel } from "@/components/inspector/project-settings";
+import { OutseeGenPanel } from "@/components/inspector/outsee-gen-panel";
 import { TopicEditor } from "@/components/inspector/topic-editor";
 import { MontageHandoffCard } from "@/components/fleet/montage-handoff-card";
 import { useUi } from "@/components/shell/topbar";
@@ -68,7 +60,12 @@ export function Inspector({
           )}
           {selectedNodeKey && (
             <div className="flex flex-col gap-3">
-              <NodeInspector nodeKey={selectedNodeKey} projectId={projectId} project={project.data} />
+              <NodeInspector nodeKey={selectedNodeKey} projectId={projectId} />
+              {project.data &&
+                (nodeTypeFromKey(selectedNodeKey) === "images" ||
+                  nodeTypeFromKey(selectedNodeKey) === "videos") && (
+                  <OutseeGenPanel project={project.data} />
+                )}
               {project.data ? <MontageHandoffCard project={project.data} /> : null}
               {onOpenNodeStudio && nodeTypeFromKey(selectedNodeKey) !== "topic" && (
                 <Button
@@ -83,6 +80,7 @@ export function Inspector({
           )}
           {projectId != null && !selectedNodeKey && project.data && (
             <div className="flex flex-col gap-4">
+              <OutseeGenPanel project={project.data} />
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3.5 shadow-sm">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Проект
@@ -116,12 +114,7 @@ export function Inspector({
                 </div>
               </div>
               <Row icon={<Folder className="h-3.5 w-3.5 text-zinc-400" />} label="Статус">
-                <Badge
-                  variant={projectStatusVariant(project.data.status)}
-                  className="text-xs font-semibold px-2 py-0.5"
-                >
-                  {formatProjectStatus(project.data.status)}
-                </Badge>
+                <Badge variant="default" className="text-xs font-semibold px-2 py-0.5">{formatProjectStatus(project.data.status)}</Badge>
               </Row>
               <Row label="Главный герой">{formatHeroMode(project.data.hero_mode)}</Row>
               <Row label="Создан">{formatRelativeTime(project.data.created_at)}</Row>
@@ -209,32 +202,15 @@ function FramesPreview({
 function NodeInspector({
   nodeKey,
   projectId,
-  project,
 }: {
   nodeKey: string;
   projectId: number | null;
-  project?: ProjectDetail | null;
 }) {
   const type = nodeTypeFromKey(nodeKey);
-  const spec = getNodeSpec(type, nodeKey);
-  const globalActivePrompts = useQuery({
-    queryKey: ["prompt-global-active"],
-    queryFn: () => api.getGlobalActivePrompts(),
-    staleTime: 5000,
-  });
+  const spec = getNodeSpec(type);
   if (type === "topic" && projectId != null) {
     return <TopicEditor projectId={projectId} />;
   }
-  const stepCode = stepCodeForNodeKey(nodeKey);
-  const hasPrompt = Boolean(stepCode && legacyPromptFolder(stepCode));
-  const meta = (project?.meta || {}) as Record<string, unknown>;
-  const slotMap = (meta.prompt_slot_variants as Record<string, Record<string, string>> | undefined)?.[nodeKey];
-  const overrides = (project?.prompt_overrides || {}) as Record<string, unknown>;
-  const activePrompt =
-    (slotMap?.main || slotMap?.default) ??
-    (stepCode && typeof overrides[stepCode] === "string" ? (overrides[stepCode] as string) : undefined) ??
-    (stepCode ? globalActivePrompts.data?.[stepCode] : undefined);
-
   return (
     <div className="flex flex-col gap-3">
       <div>
@@ -242,15 +218,9 @@ function NodeInspector({
         <div className="mt-1 text-base font-semibold">{spec.label}</div>
         <div className="mt-1 text-[12px] text-muted-foreground">{spec.description}</div>
       </div>
-      <Row label="Тип">{formatNodeType(spec.type)}</Row>
+      <Row label="Тип">{humanizeSlug(spec.type)}</Row>
       <Row label="Категория">{formatNodeCategory(spec.category)}</Row>
-      {hasPrompt && (
-        <Row label="Активный промт">
-          <span className="inline-block font-mono text-xs px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/20 text-violet-300">
-            {activePrompt || "default"}
-          </span>
-        </Row>
-      )}
+      <Row label="Ключ">{formatNodeKeyLabel(nodeKey)}</Row>
     </div>
   );
 }

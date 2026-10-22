@@ -2,16 +2,15 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Layers, Clapperboard, Check, Film } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { projectDisplayName } from "@/lib/project-display";
-import type { PipelineMode, ProjectSummary } from "@/lib/types";
-import { usePipelineMode } from "@/hooks/use-pipeline-mode";
+import type { ProjectSummary } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +21,26 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+
+const TONE_CHOICES = [
+  { id: "grimdark", label: "Grimdark / Sci-Fi" },
+  { id: "action", label: "Кино-экшен" },
+  { id: "drama", label: "Философия / Драма" },
+  { id: "mystery", label: "Мистика / Саспенс" },
+] as const;
+
+const VOICEOVER_CHOICES = [
+  { id: "epic_quotes", label: "Эпос + цитаты" },
+  { id: "narrator", label: "Кино-рассказчик" },
+  { id: "dynamic", label: "Динамичный темп" },
+  { id: "none", label: "Без диктора (SFX)" },
+] as const;
+
+const HERO_CHOICES = [
+  { id: "auto", label: "Авто" },
+  { id: "hero", label: "С героями" },
+  { id: "no_hero", label: "Без героев" },
+] as const;
 
 export function NewProjectWizard({
   trigger,
@@ -34,32 +53,48 @@ export function NewProjectWizard({
 }) {
   const [open, setOpen] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
-  const [pipelineMode, setPipelineMode] = useState<PipelineMode>("v1");
-  const [, setWorkspaceMode] = usePipelineMode();
+  const [topic, setTopic] = useState("");
+  const [selectedTone, setSelectedTone] = useState<string | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState<string | null>(null);
+  const [heroMode, setHeroMode] = useState<"hero" | "no_hero" | "auto">("auto");
   const qc = useQueryClient();
 
   const reset = () => {
     setProjectTitle("");
-    setPipelineMode("v1");
+    setTopic("");
+    setSelectedTone(null);
+    setSelectedVoice(null);
+    setHeroMode("auto");
   };
 
   const create = useMutation({
     mutationFn: async () => {
-      const rawTitle = projectTitle.trim() || "Новый проект";
+      let finalTopic = topic.trim();
+      const toneLabel = TONE_CHOICES.find((t) => t.id === selectedTone)?.label;
+      const voiceLabel = VOICEOVER_CHOICES.find((v) => v.id === selectedVoice)?.label;
+
+      const extras: string[] = [];
+      if (toneLabel && !finalTopic.toLowerCase().includes(toneLabel.toLowerCase())) {
+        extras.push(`Атмосфера: ${toneLabel}`);
+      }
+      if (voiceLabel && !finalTopic.toLowerCase().includes(voiceLabel.toLowerCase())) {
+        extras.push(`Стиль озвучки: ${voiceLabel}`);
+      }
+      if (extras.length > 0) {
+        finalTopic = finalTopic ? `${finalTopic}\n\n${extras.join(". ")}.` : extras.join(". ") + ".";
+      }
+
+      const rawTitle = projectTitle.trim() || (topic.trim() ? topic.trim().slice(0, 40) : "Новый проект");
       const p = await api.createProject({
         title: rawTitle.slice(0, 120),
-        topic: rawTitle,
-        hero_mode: "auto",
+        topic: finalTopic || rawTitle,
+        hero_mode: heroMode,
         auto_mode: false,
-        pipeline_mode: pipelineMode,
         sidebar_folder_id: folderId,
       });
       return p;
     },
     onSuccess: (p) => {
-      // Проект живёт в механике создания — переключаем воркспейс на неё,
-      // чтобы созданное сразу открылось в корректном режиме.
-      setWorkspaceMode(p.pipeline_mode === "v2" ? "v2" : "v1");
       qc.invalidateQueries({ queryKey: ["projects"] });
       onCreated(p);
       setOpen(false);
@@ -78,245 +113,138 @@ export function NewProjectWizard({
       }}
     >
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent
-        className="sm:max-w-[820px] max-h-[92vh] flex flex-col p-6 bg-zinc-950/95 border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.8)] backdrop-blur-2xl overflow-hidden"
-        onPointerDownOutside={(e) => e.preventDefault()}
-        onInteractOutside={(e) => e.preventDefault()}
-      >
-        <DialogHeader className="shrink-0 space-y-1.5 pb-2 border-b border-white/[0.08]">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/10 border border-cyan-400/20 text-cyan-400">
-              <Film className="h-4 w-4" />
-            </div>
-            <div>
-              <DialogTitle className="text-lg font-bold tracking-tight text-white">
-                Новый проект
-              </DialogTitle>
-              <DialogDescription className="text-xs text-zinc-400">
-                Выберите архитектуру пайплайна и укажите название проекта. Механика закрепляется за проектом при создании.
-              </DialogDescription>
-            </div>
-          </div>
+      <DialogContent className="sm:max-w-[560px] bg-card border-border p-6 shadow-2xl">
+        <DialogHeader className="space-y-1">
+          <DialogTitle className="text-lg font-semibold tracking-tight">Новый проект</DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Задайте сюжет и ключевые параметры ролика. Технические настройки генераторов можно настроить прямо на нодах.
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto pr-1 -mr-1 py-4 space-y-5">
-          {/* Сетка двух механик с подробным описанием */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Карточка: Классический пайплайн (v1) */}
-            <div
-              onClick={() => setPipelineMode("v1")}
-              className={cn(
-                "relative flex flex-col justify-between rounded-2xl border p-5 transition-all duration-200 cursor-pointer text-left select-none",
-                pipelineMode === "v1"
-                  ? "border-cyan-400/50 bg-gradient-to-b from-cyan-950/30 to-zinc-900/40 shadow-lg shadow-cyan-950/20 ring-1 ring-cyan-500/30"
-                  : "border-white/[0.08] bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]",
+        <div className="space-y-4 py-2">
+          {/* Название */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Название проекта
+            </label>
+            <Input
+              placeholder="Например: Warhammer 40K: Бастион Кровавых Ангелов"
+              value={projectTitle}
+              onChange={(e) => setProjectTitle(e.target.value)}
+              className="h-9 bg-background"
+            />
+          </div>
+
+          {/* Сюжет / Бриф */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Сюжет / Бриф
+            </label>
+            <Textarea
+              placeholder="Опишите сюжет и ключевые события ролика своими словами..."
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              rows={5}
+              className="resize-none bg-background text-sm leading-relaxed"
+            />
+          </div>
+
+          {/* Атмосфера (опционально) */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Атмосфера (по желанию)
+              </label>
+              {selectedTone && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedTone(null)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Сбросить
+                </button>
               )}
-            >
-              <div>
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-300">
-                      <Layers className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                        Классика (v1)
-                      </h3>
-                      <p className="text-[11px] font-medium text-cyan-300/80">Линейный конвейер</p>
-                    </div>
-                  </div>
-
-                  {pipelineMode === "v1" ? (
-                    <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 gap-1 text-[10px] font-semibold">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      Выбрано
-                    </Badge>
-                  ) : (
-                    <Badge variant="muted" className="text-zinc-500 border-white/10 text-[10px]">
-                      v1
-                    </Badge>
-                  )}
-                </div>
-
-                <p className="text-xs text-zinc-300 leading-relaxed mb-4">
-                  Сквозное линейное производство от общей идеи до готовых кадров. Быстро, просто и стабильно.
-                </p>
-
-                {/* Что внутри */}
-                <div className="space-y-2 mb-4 bg-black/30 rounded-xl p-3 border border-white/[0.05]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                    Что внутри:
-                  </span>
-                  <ul className="space-y-1.5 text-xs text-zinc-300">
-                    <li className="flex items-start gap-2">
-                      <span className="text-cyan-400 font-bold">•</span>
-                      <span><strong>Авто-сценарий:</strong> единый текст ролика и тайминг</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-cyan-400 font-bold">•</span>
-                      <span><strong>Линейная раскадровка:</strong> кадры строятся последовательно по тексту</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-cyan-400 font-bold">•</span>
-                      <span><strong>Пакетная генерация:</strong> параллельный рендер картинок и видео (KIE / Midjourney)</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-cyan-400 font-bold">•</span>
-                      <span><strong>Быстрый монтаж:</strong> мгновенный экспорт в Premiere / CapCut</span>
-                    </li>
-                  </ul>
-                </div>
-
-                {/* Рекомендации каналов */}
-                <div className="rounded-lg bg-cyan-950/20 border border-cyan-800/30 px-3 py-2 mb-4">
-                  <span className="text-[10px] font-semibold text-cyan-300 block mb-0.5">
-                    Идеально для каналов:
-                  </span>
-                  <p className="text-[11px] text-zinc-300 leading-snug">
-                    Shorts, Reels, TikTok, познавательные факты, цитаты, конвейерные каналы с частыми публикациями.
-                  </p>
-                </div>
-              </div>
-
-              <div
-                className={cn(
-                  "w-full text-xs font-semibold h-9 rounded-xl flex items-center justify-center transition-all",
-                  pipelineMode === "v1"
-                    ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-sm"
-                    : "bg-white/[0.04] text-zinc-400 border border-white/10 hover:text-zinc-200",
-                )}
-              >
-                {pipelineMode === "v1" ? (
-                  <>
-                    <Check className="h-3.5 w-3.5 mr-1 text-emerald-400" />
-                    Выбрана Классика
-                  </>
-                ) : (
-                  "Выбрать Классику (v1)"
-                )}
-              </div>
             </div>
-
-            {/* Карточка: Режиссёрский монтаж (v2) */}
-            <div
-              onClick={() => setPipelineMode("v2")}
-              className={cn(
-                "relative flex flex-col justify-between rounded-2xl border p-5 transition-all duration-200 cursor-pointer text-left select-none",
-                pipelineMode === "v2"
-                  ? "border-violet-400/50 bg-gradient-to-b from-violet-950/30 to-zinc-900/40 shadow-lg shadow-violet-950/20 ring-1 ring-violet-500/30"
-                  : "border-white/[0.08] bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]",
-              )}
-            >
-              <div>
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-500/30 bg-violet-500/10 text-violet-300">
-                      <Clapperboard className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                        Режиссёрский монтаж (v2)
-                      </h3>
-                      <p className="text-[11px] font-medium text-violet-300/80">Сцены и биты</p>
-                    </div>
-                  </div>
-
-                  {pipelineMode === "v2" ? (
-                    <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 gap-1 text-[10px] font-semibold">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      Выбрано
-                    </Badge>
-                  ) : (
-                    <Badge variant="muted" className="text-zinc-500 border-white/10 text-[10px]">
-                      v2
-                    </Badge>
+            <div className="flex flex-wrap gap-1.5">
+              {TONE_CHOICES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setSelectedTone((prev) => (prev === t.id ? null : t.id))}
+                  className={cn(
+                    "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                    selectedTone === t.id
+                      ? "border-cyan-400/60 bg-cyan-950/60 text-cyan-300 shadow-sm shadow-cyan-950/40 font-semibold"
+                      : "border-border bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
-                </div>
-
-                <p className="text-xs text-zinc-300 leading-relaxed mb-4">
-                  Драматургический подход с делением на сцены, эмоциональные биты и дубли. Полный контроль персонажей, локаций и операторской работы.
-                </p>
-
-                {/* Что внутри */}
-                <div className="space-y-2 mb-4 bg-black/30 rounded-xl p-3 border border-white/[0.05]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                    Что внутри:
-                  </span>
-                  <ul className="space-y-1.5 text-xs text-zinc-300">
-                    <li className="flex items-start gap-2">
-                      <span className="text-violet-400 font-bold">•</span>
-                      <span><strong>Дизайн сцен:</strong> персонажи, окружение, освещение и ракурсы для каждой сцены</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-violet-400 font-bold">•</span>
-                      <span><strong>Смысловые биты:</strong> расстановка смысловых акцентов и темпа сюжета</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-violet-400 font-bold">•</span>
-                      <span><strong>Система дублей:</strong> варианты кадров (shot_01, shot_02) и отбор лучших шотов</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-violet-400 font-bold">•</span>
-                      <span><strong>Монтажная доска:</strong> гибкое перекрытие планов и точный монтажный ритм</span>
-                    </li>
-                  </ul>
-                </div>
-
-                {/* Рекомендации каналов */}
-                <div className="rounded-lg bg-violet-950/20 border border-violet-800/30 px-3 py-2 mb-4">
-                  <span className="text-[10px] font-semibold text-violet-300 block mb-0.5">
-                    Идеально для каналов:
-                  </span>
-                  <p className="text-[11px] text-zinc-300 leading-snug">
-                    Длинные ролики (YouTube 16:9), документальные фильмы, сюжетные истории, авторские каналы с глубокой режиссурой.
-                  </p>
-                </div>
-              </div>
-
-              <div
-                className={cn(
-                  "w-full text-xs font-semibold h-9 rounded-xl flex items-center justify-center transition-all",
-                  pipelineMode === "v2"
-                    ? "bg-violet-500/20 text-violet-300 border border-violet-400/40 shadow-sm"
-                    : "bg-white/[0.04] text-zinc-400 border border-white/10 hover:text-zinc-200",
-                )}
-              >
-                {pipelineMode === "v2" ? (
-                  <>
-                    <Check className="h-3.5 w-3.5 mr-1 text-emerald-400" />
-                    Выбран Монтаж
-                  </>
-                ) : (
-                  "Выбрать Монтаж (v2)"
-                )}
-              </div>
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Название проекта */}
-          <div className="space-y-2 pt-2 border-t border-white/[0.08]">
-            <label className="text-xs font-semibold uppercase tracking-wider text-zinc-300 flex items-center justify-between">
-              <span>Название проекта</span>
-              <span className="text-[11px] font-normal text-zinc-500 lowercase">
-                обязательное поле
-              </span>
+          {/* Озвучка и цитаты (опционально) */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Озвучка и цитаты (по желанию)
+              </label>
+              {selectedVoice && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedVoice(null)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Сбросить
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {VOICEOVER_CHOICES.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setSelectedVoice((prev) => (prev === v.id ? null : v.id))}
+                  className={cn(
+                    "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                    selectedVoice === v.id
+                      ? "border-cyan-400/60 bg-cyan-950/60 text-cyan-300 shadow-sm shadow-cyan-950/40 font-semibold"
+                      : "border-border bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Персонажи */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Персонажи
             </label>
-            <Input
-              placeholder="Например: Киберпанк: Хроники мегаполиса"
-              value={projectTitle}
-              onChange={(e) => setProjectTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && projectTitle.trim() && !create.isPending) {
-                  create.mutate();
-                }
-              }}
-              className="h-10 bg-zinc-900/80 border-white/10 text-sm text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-1 focus-visible:ring-cyan-500/50"
-              autoFocus
-            />
+            <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/30">
+              {HERO_CHOICES.map((h) => (
+                <button
+                  key={h.id}
+                  type="button"
+                  onClick={() => setHeroMode(h.id)}
+                  className={cn(
+                    "rounded-md px-3 py-1 text-xs font-medium transition-all",
+                    heroMode === h.id
+                      ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 shadow-sm font-semibold"
+                      : "text-muted-foreground hover:text-foreground border border-transparent"
+                  )}
+                >
+                  {h.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 pt-3 flex items-center justify-between sm:justify-between border-t border-white/[0.08] mt-2">
+        <DialogFooter className="pt-2 flex items-center justify-between sm:justify-between border-t border-border mt-1">
           <Button
             type="button"
             variant="ghost"
@@ -325,21 +253,15 @@ export function NewProjectWizard({
               setOpen(false);
               reset();
             }}
-            className="text-xs text-zinc-400 hover:text-white"
           >
             Отмена
           </Button>
           <Button
             type="button"
             size="sm"
-            disabled={create.isPending || !projectTitle.trim()}
+            disabled={create.isPending || (!projectTitle.trim() && !topic.trim())}
             onClick={() => create.mutate()}
-            className={cn(
-              "min-w-[150px] h-9 text-xs font-semibold text-white shadow-md rounded-xl transition-all disabled:opacity-40",
-              pipelineMode === "v2"
-                ? "bg-violet-600 hover:bg-violet-500 border border-violet-400/50 shadow-violet-900/30"
-                : "bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/50 shadow-cyan-900/30",
-            )}
+            className="min-w-[140px] h-9 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/50 shadow-md shadow-cyan-500/25 rounded-xl transition-all disabled:opacity-50"
           >
             {create.isPending ? (
               <>

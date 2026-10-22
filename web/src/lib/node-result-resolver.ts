@@ -41,6 +41,7 @@ export type NodeResultViewMode =
   | "frame_images"
   | "frame_videos"
   | "topic_edit"
+  | "html_report"
   | "sfx_plan"
   | "sfx_gen";
 
@@ -62,14 +63,6 @@ export interface NodeResultContext {
   frames: FrameDTO[];
   mediaImages: ProjectAsset[];
   mediaVideos: ProjectAsset[];
-  operatorResolve?: {
-    lastResult?: {
-      replyPreview?: string;
-      outputPaths?: string[];
-      gateStatus?: string | null;
-    };
-    lastReplyText?: string;
-  } | null;
 }
 
 function meaningfulGeneralPlan(project: ProjectDetail | null | undefined): string | null {
@@ -164,8 +157,8 @@ function artifactItems(arts: ArtifactDTO[]): NodeResultItem[] {
       id: a.uuid,
       label: metaIdx ? `№${metaIdx}` : a.kind,
       kind: mediaKind(path, a.kind || ""),
-      previewUrl: api.artifactFileUrl(a.uuid),
-      downloadUrl: api.artifactFileUrl(a.uuid),
+      previewUrl: api.artifactFileUrl(a.uuid, a.project_id),
+      downloadUrl: api.artifactFileUrl(a.uuid, a.project_id),
       filePath: path || null,
       content: metaDesc,
       frameNumber: typeof metaIdx === "number" ? metaIdx : undefined,
@@ -480,17 +473,7 @@ function computeNodeResult(
           "assets",
         );
       }
-      if (project?.meta?.items_skipped_empty) {
-        return {
-          hasResult: true,
-          itemCount: 0,
-          summary: "Предметы пропущены (в ролике нет отдельного реквизита)",
-          items: [],
-          replaceMode: "assets",
-          viewMode: "default",
-        };
-      }
-      return empty("Предметы не заданы", "assets");
+      return empty("Предметы ещё не сгенерированы", "assets");
     }
 
     case "excel_gpt":
@@ -500,6 +483,23 @@ function computeNodeResult(
     case "enrich_4":
     case "enrich_5":
     case "enrich": {
+      if (nodeKey?.endsWith("_fw_report") && project?.id) {
+        const url = api.projectShotsReportUrl(project.id);
+        return ready(
+          [
+            {
+              id: "shots_report",
+              label: "Отчёт кадров",
+              kind: "file",
+              downloadUrl: url,
+              previewUrl: url,
+            },
+          ],
+          "HTML-отчёт кадров + промты/QC",
+          "none",
+          "html_report",
+        );
+      }
       const meta = project?.meta as
         | {
             xlsx_snapshots_by_node?: Record<string, { name?: string }>;
@@ -521,27 +521,8 @@ function computeNodeResult(
         nodeKey && meta?.excel_gpt_nodes?.[nodeKey]
           ? meta.excel_gpt_nodes[nodeKey]
           : undefined;
-      const opResolve = ctx.operatorResolve as
-        | {
-            lastResult?: {
-              replyPreview?: string;
-              outputPaths?: string[];
-              gateStatus?: string | null;
-            };
-            lastReplyText?: string;
-          }
-        | undefined;
-      const replyPreview = String(
-        last?.replyPreview ||
-        opResolve?.lastResult?.replyPreview ||
-        opResolve?.lastReplyText ||
-        ""
-      ).trim();
-      const hasReplyMeta = Boolean(
-        replyPreview ||
-        cfg?.lastReplyPath ||
-        (opResolve?.lastResult?.outputPaths && opResolve.lastResult.outputPaths.length > 0)
-      );
+      const replyPreview = String(last?.replyPreview || "").trim();
+      const hasReplyMeta = Boolean(replyPreview || cfg?.lastReplyPath);
       const xlsx = xlsxAsset(ctx.assets);
       const snapMeta = meta?.xlsx_snapshots_by_node;
       const snapName =
@@ -562,7 +543,7 @@ function computeNodeResult(
         if (replyPreview) {
           items.push({
             id: "gpt_reply",
-            label: "Режиссура сцен",
+            label: "Ответ GPT",
             kind: "text",
             content: replyPreview,
           });
@@ -570,10 +551,10 @@ function computeNodeResult(
         return ready(
           items,
           snapName
-            ? `Снимок: ${snapName}`
+            ? `Снимок Excel: ${snapName}`
             : hasReplyMeta
-              ? "Режиссура сцен готова"
-              : "Данные сцен",
+              ? "Excel + ответ GPT"
+              : "Таблица Excel",
           "xlsx",
           "default",
         );
@@ -583,12 +564,12 @@ function computeNodeResult(
           [
             {
               id: "gpt_reply",
-              label: "Режиссура сцен",
+              label: "Ответ GPT",
               kind: "text",
               content: replyPreview,
             },
           ],
-          "Режиссура сцен готова",
+          "Ответ GPT готов",
           "text",
         );
       }
@@ -597,11 +578,11 @@ function computeNodeResult(
         return {
           hasResult: true,
           itemCount: 1,
-          summary: "Режиссура сцен готова",
+          summary: "Ответ GPT на диске",
           items: [
             {
               id: "gpt_reply_path",
-              label: "Режиссура сцен",
+              label: "Ответ GPT",
               kind: "text",
               content: "",
             },
@@ -693,11 +674,8 @@ function computeNodeResult(
       const audioAssets = ctx.assets.filter(
         (a) => a.kind === "audio" || a.kind.includes("subtitle"),
       );
-      const audioArts = arts.filter(
-        (a) => a.kind === "audio" || (a.kind || "").includes("subtitle"),
-      );
       const items = dedupeResultItems([
-        ...artifactItems(audioArts),
+        ...artifactItems(arts),
         ...assetItems(audioAssets),
       ]);
       if (items.length) return ready(items, `${items.length} аудио-файлов`, "assets");
@@ -708,11 +686,8 @@ function computeNodeResult(
       const musicAssets = ctx.assets.filter(
         (a) => a.kind === "music" || /[/\\]music[/\\]/i.test(a.path || ""),
       );
-      const musicArts = arts.filter(
-        (a) => a.kind === "music" || /[/\\]music[/\\]/i.test(a.path || ""),
-      );
       const items = dedupeResultItems([
-        ...artifactItems(musicArts),
+        ...artifactItems(arts),
         ...assetItems(musicAssets),
       ]);
       if (items.length) {

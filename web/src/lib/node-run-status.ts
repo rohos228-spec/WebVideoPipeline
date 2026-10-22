@@ -4,64 +4,36 @@ import type { WorkflowDetail } from "@/lib/types";
 /** Минимальная длина general_plan — как sync_after_plan / plan_validation на бэкенде. */
 export const MIN_GENERAL_PLAN_CHARS = 200;
 
-/** Ноды пайплайна: Project.status ↔ node_type (для badge sync). */
+/** Линейные media-ноды: Project.status ↔ node_type (для badge sync). */
 const NODE_RUNNING_STATUS: Record<string, ProjectStatus> = {
-  plan: "planning",
-  script: "scripting",
-  split: "splitting",
-  scene_design: "scene_designing",
-  hero: "generating_hero",
-  items: "generating_items",
   image_prompts: "generating_image_prompts",
   images: "generating_images",
   animation_prompts: "generating_animation_prompts",
   videos: "generating_videos",
   audio: "generating_audio",
   music: "generating_music",
-  sfx_plan: "sfx_planning" as ProjectStatus,
-  sfx_gen: "generating_sfx" as ProjectStatus,
   assemble: "assembling",
-  publish: "publishing",
 };
 
 const NODE_READY_STATUS: Record<string, ProjectStatus> = {
-  plan: "plan_ready",
-  script: "script_ready",
-  split: "frames_ready",
-  scene_design: "scene_design_ready",
-  hero: "hero_ready",
-  items: "items_ready",
   image_prompts: "image_prompts_ready",
   images: "images_ready",
   animation_prompts: "animation_prompts_ready",
   videos: "videos_ready",
   audio: "audio_ready",
   music: "music_ready",
-  sfx_plan: "sfx_plan_ready" as ProjectStatus,
-  sfx_gen: "sfx_ready" as ProjectStatus,
   assemble: "assembled",
-  publish: "published",
 };
 
-/** Порядок цепочки шагов для «Project уже дальше» → badge done. */
-const FULL_PIPELINE_ORDER: string[] = [
-  "topic",
-  "plan",
-  "script",
-  "split",
-  "scene_design",
-  "hero",
-  "items",
+/** Порядок media-цепочки для «Project уже дальше» → badge done. */
+const MEDIA_PIPELINE_ORDER: string[] = [
   "image_prompts",
   "images",
   "animation_prompts",
   "videos",
   "audio",
   "music",
-  "sfx_plan",
-  "sfx_gen",
   "assemble",
-  "publish",
 ];
 
 function projectImpliesNodeRunning(
@@ -77,27 +49,13 @@ function projectImpliesNodeDone(
   projectStatus: ProjectStatus | undefined,
 ): boolean {
   if (!projectStatus) return false;
-  if (nodeType === "topic" && projectStatus !== "new") {
-    return true;
-  }
   const ready = NODE_READY_STATUS[nodeType];
   if (ready && projectStatus === ready) return true;
-
-  // Если проект уже на этапе обогащения данных (enriching_* / enrich_*_ready),
-  // то шаги plan, script, split гарантированно пройдены.
-  if (
-    (typeof projectStatus === "string" &&
-      (projectStatus.startsWith("enriching_") || projectStatus.startsWith("enrich_"))) &&
-    (nodeType === "topic" || nodeType === "plan" || nodeType === "script" || nodeType === "split")
-  ) {
-    return true;
-  }
-
-  const idx = FULL_PIPELINE_ORDER.indexOf(nodeType);
+  const idx = MEDIA_PIPELINE_ORDER.indexOf(nodeType);
   if (idx < 0) return false;
-  // Project на running/ready более поздней ноды → эта уже пройдена.
-  for (let i = idx + 1; i < FULL_PIPELINE_ORDER.length; i++) {
-    const later = FULL_PIPELINE_ORDER[i];
+  // Project на running/ready более поздней media-ноды → эта уже пройдена.
+  for (let i = idx + 1; i < MEDIA_PIPELINE_ORDER.length; i++) {
+    const later = MEDIA_PIPELINE_ORDER[i];
     if (
       projectStatus === NODE_RUNNING_STATUS[later] ||
       projectStatus === NODE_READY_STATUS[later]
@@ -116,9 +74,9 @@ function projectImpliesNodeDone(
 }
 
 /**
- * Статус ноды на канвасе = NodeRun.status, с минимальным sync от Project:
- * если проект уже завершил шаг (или ушёл дальше), нода рисуется done,
- * даже если фоновый NodeRun в БД ещё не обновился из-за задержки release.
+ * Статус ноды на канвасе = NodeRun.status, с минимальным sync от Project
+ * для линейных media: не рисовать «прервано», пока Project.generating_*
+ * того же шага (NodeRun отстал после sidecar / startup).
  */
 export function reconcileNodeRunStatus(
   nodeType: string,
@@ -129,40 +87,52 @@ export function reconcileNodeRunStatus(
     nodeKey?: string;
     activeExcelGptKey?: string;
     completedExcelGptKeys?: string[];
-    hasTopic?: boolean;
   },
 ): NodeRunStatus {
   const ps = projectStatus as ProjectStatus | undefined;
-  if (nodeType === "topic") {
-    if (opts?.hasTopic || (ps && ps !== "new") || projectImpliesNodeDone("topic", ps)) {
-      return "done";
-    }
-    return runStatus;
+  if (
+    (ps === "paused" || ps === "failed") &&
+    (runStatus === "running" || runStatus === "queued")
+  ) {
+    return ps === "failed" ? "failed" : "pending";
   }
   const nodeKey = opts?.nodeKey;
-  if (nodeType === "excel_gpt" && typeof ps === "string" && ps.startsWith("enriching_") && nodeKey) {
+  if (
+    nodeType === "excel_gpt" &&
+    typeof ps === "string" &&
+    ps.startsWith("enriching_") &&
+    nodeKey
+  ) {
     if ((opts?.completedExcelGptKeys || []).includes(nodeKey)) {
-      if (runStatus === "failed" || runStatus === "pending" || runStatus === "queued" || runStatus === "running") {
+      if (
+        runStatus === "failed" ||
+        runStatus === "pending" ||
+        runStatus === "queued"
+      ) {
         return "done";
       }
     }
     if (opts?.activeExcelGptKey && nodeKey === opts.activeExcelGptKey) {
-      if (runStatus === "failed" || runStatus === "pending" || runStatus === "queued") {
+      if (
+        runStatus === "failed" ||
+        runStatus === "pending" ||
+        runStatus === "queued"
+      ) {
         return "running";
       }
     }
-  }
-  if (
-    (runStatus === "failed" || runStatus === "pending" || runStatus === "queued" || runStatus === "running") &&
-    projectImpliesNodeDone(nodeType, ps)
-  ) {
-    return "done";
   }
   if (
     (runStatus === "failed" || runStatus === "pending" || runStatus === "queued") &&
     projectImpliesNodeRunning(nodeType, ps)
   ) {
     return "running";
+  }
+  if (
+    (runStatus === "failed" || runStatus === "pending" || runStatus === "queued") &&
+    projectImpliesNodeDone(nodeType, ps)
+  ) {
+    return "done";
   }
   return runStatus;
 }
@@ -171,17 +141,8 @@ export function reconcileNodeRunStatus(
 export function inferNodeStatusFromProject(
   nodeType: string,
   projectStatus?: ProjectStatus | unknown,
-  opts?: {
-    hasTopic?: boolean;
-  },
 ): NodeRunStatus {
   const ps = projectStatus as ProjectStatus | undefined;
-  if (nodeType === "topic") {
-    if (opts?.hasTopic || (ps && ps !== "new") || projectImpliesNodeDone("topic", ps)) {
-      return "done";
-    }
-    return "pending";
-  }
   if (projectImpliesNodeRunning(nodeType, ps)) return "running";
   if (projectImpliesNodeDone(nodeType, ps)) return "done";
   return "pending";

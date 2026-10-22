@@ -65,7 +65,8 @@ export function NodeResultViewBody({
           nodeKey={nodeKey}
           nodeType={nodeType}
         />
-      );    case "frame_prompts":
+      );
+    case "frame_prompts":
       return <FramePromptsView items={snapshot.items} />;
     case "frame_images":
       return (
@@ -83,11 +84,16 @@ export function NodeResultViewBody({
       return <FrameVideosView items={snapshot.items} />;
     case "topic_edit":
       return <TopicEditView projectId={projectId} snapshot={snapshot} />;
+    case "html_report":
+      return <ShotsReportView snapshot={snapshot} />;
     case "sfx_plan":
       return <SfxPlanView projectId={projectId} snapshot={snapshot} />;
     case "sfx_gen":
       return <SfxGenView projectId={projectId} snapshot={snapshot} />;
     default:
+      if (nodeKey?.endsWith("_fw_report")) {
+        return <ShotsReportView snapshot={snapshot} />;
+      }
       if (nodeType === "sfx_plan") {
         return <SfxPlanView projectId={projectId} snapshot={snapshot} />;
       }
@@ -1159,9 +1165,34 @@ function TopicEditView({
   );
 }
 
+function ShotsReportView({ snapshot }: { snapshot: NodeResultSnapshot }) {
+  const url =
+    snapshot.items.find((i) => i.previewUrl || i.downloadUrl)?.previewUrl ||
+    snapshot.items.find((i) => i.downloadUrl)?.downloadUrl ||
+    "";
+  if (!url) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Отчёт ещё не собран. Запусти ноду «Отчёт: кадры + промты».
+      </p>
+    );
+  }
+  return (
+    <div className="min-h-0 flex-1 overflow-auto bg-black">
+      <iframe
+        title="Отчёт кадров"
+        src={url}
+        sandbox="allow-scripts"
+        className="block h-full min-h-[70vh] w-full border-0 bg-black"
+      />
+    </div>
+  );
+}
+
 function ExcelGptResultView({
   projectId,
   nodeKey,
+  nodeType,
   snapshot,
 }: {
   projectId: number;
@@ -1181,36 +1212,30 @@ function ExcelGptResultView({
       ? String(resolve.data.lastResult.replyPreview).trim()
       : "";
   const reply = replyFromMeta || replyFromApi;
+  const xlsxItem = snapshot.items.find((i) => i.kind === "xlsx");
 
   return (
     <div className="space-y-3">
-      {reply ? (
-        <div className="flex items-center justify-end">
-          <Button
-            size="sm"
-            variant="outline"
-            className="mb-2 h-8 gap-1.5 text-xs text-zinc-300 hover:text-white"
-            onClick={() => {
-              void navigator.clipboard.writeText(reply);
-              toast.success("Ответ скопирован в буфер");
-            }}
-          >
-            <Copy className="h-3.5 w-3.5" />
-            Копировать текст
-          </Button>
-        </div>
+      <XlsxUploadBar
+        projectId={projectId}
+        nodeKey={nodeKey}
+        nodeType={nodeType}
+      />
+      {xlsxItem ? (
+        <p className="text-xs text-muted-foreground">{snapshot.summary}</p>
       ) : null}
       {resolve.isLoading && !reply ? (
         <LoadingBlock />
       ) : reply ? (
-        <div className="max-h-[65vh] overflow-y-auto overflow-x-auto rounded-xl border border-white/10 bg-black/30 p-4 shadow-inner [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.25)_transparent]">
-          <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground/90 select-text">
+        <ScrollArea className="max-h-[55vh] rounded-lg border border-white/10 bg-black/20 p-3">
+          <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground/90">
             {reply}
           </pre>
-        </div>
+        </ScrollArea>
       ) : (
         <p className="py-4 text-sm text-muted-foreground">
-          Результат пока не сформирован. Запустите шаг — после выполнения здесь появится режиссерский сценарий и раскадровка сцен.
+          Ответа GPT пока нет. Запустите ноду — после прогона здесь появится
+          текст из gpt_reply.txt.
         </p>
       )}
     </div>
@@ -1327,14 +1352,27 @@ function DefaultResultView({
               <p className="text-xs text-muted-foreground">Файл результатов готов</p>
             </div>
           </div>
-          {item.downloadUrl && (
-            <Button size="sm" variant="outline" asChild>
-              <a href={item.downloadUrl} download>
-                <Download className="h-3.5 w-3.5" />
-                Скачать
-              </a>
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {(item.previewUrl || item.downloadUrl) && (
+              <Button size="sm" variant="outline" asChild>
+                <a
+                  href={item.previewUrl || item.downloadUrl || "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Открыть отчёт
+                </a>
+              </Button>
+            )}
+            {item.downloadUrl && (
+              <Button size="sm" variant="outline" asChild>
+                <a href={item.downloadUrl} download>
+                  <Download className="h-3.5 w-3.5" />
+                  Скачать
+                </a>
+              </Button>
+            )}
+          </div>
         </div>
       )}
       {item.content && (
@@ -1776,4 +1814,3 @@ function SfxGenView({
     </div>
   );
 }
-

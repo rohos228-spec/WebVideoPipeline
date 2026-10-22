@@ -1,10 +1,11 @@
 /**
- * Тонкий fetch-обёртка для бэкенд-API. Все запросы относительные
- * (`/api/...`) — в dev next.config.ts проксирует на :8765, в проде FastAPI
- * сам отдаёт фронт + API из одного origin.
+ * РўРѕРЅРєРёР№ fetch-РѕР±С‘СЂС‚РєР° РґР»СЏ Р±СЌРєРµРЅРґ-API. Р’СЃРµ Р·Р°РїСЂРѕСЃС‹ РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅС‹Рµ
+ * (`/api/...`) вЂ” РІ dev next.config.ts РїСЂРѕРєСЃРёСЂСѓРµС‚ РЅР° :8765, РІ РїСЂРѕРґРµ FastAPI
+ * СЃР°Рј РѕС‚РґР°С‘С‚ С„СЂРѕРЅС‚ + API РёР· РѕРґРЅРѕРіРѕ origin.
  */
 
-import { authHeaders } from "./identity-api";
+import type { Nii67Card } from "./nii67";
+import type { Nii67Frame } from "@/components/canvas/nii67-frame-menu";
 import type {
   ArtifactDTO,
   ExcelHeroCharacter,
@@ -13,11 +14,11 @@ import type {
   MontageBoardFrame,
   MontageBoardMeta,
   MontageBoardParentRef,
+  MontageImproveReport,
   MontageRefAsset,
   GenerationConfigPreset,
   GenerationConfigPresetSettings,
   HITLDTO,
-  PipelineMode,
   ProjectDetail,
   ProjectSummary,
   SidebarLayout,
@@ -32,7 +33,6 @@ import type {
 } from "./types";
 import type { BlockSelection } from "./prompt-styles";
 import type { ShotMenuDTO } from "./shot-menu";
-import type { GraphApplyResult, GraphDiffResponse, GraphProposal } from "./stage-types";
 
 export interface StepTemplateBlock {
   number: number;
@@ -40,7 +40,7 @@ export interface StepTemplateBlock {
   body: string;
 }
 
-// ---- KIE Create типы (каталог моделей kie.ai) ----
+// ---- KIE Create С‚РёРїС‹ (РєР°С‚Р°Р»РѕРі РјРѕРґРµР»РµР№ kie.ai) ----
 export interface KieField {
   name: string;
   label: string;
@@ -74,10 +74,10 @@ export interface KieModelSpec {
   id: string;
   label: string;
   category: string;
-  /** В какой тип Create-пикера попадает: image | video | audio */
+  /** Р’ РєР°РєРѕР№ С‚РёРї Create-РїРёРєРµСЂР° РїРѕРїР°РґР°РµС‚: image | video | audio */
   media?: string;
   desc: string;
-  /** Понятное объяснение «как работает» (для утилит/звуков) */
+  /** РџРѕРЅСЏС‚РЅРѕРµ РѕР±СЉСЏСЃРЅРµРЅРёРµ В«РєР°Рє СЂР°Р±РѕС‚Р°РµС‚В» (РґР»СЏ СѓС‚РёР»РёС‚/Р·РІСѓРєРѕРІ) */
   hint?: string;
   is_top?: boolean;
   isTop?: boolean;
@@ -139,6 +139,210 @@ export interface BlockActivityEntry {
   created_at: string;
 }
 
+// в”Ђв”Ђ Style agent DTO в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+export interface StyleAgentSettings {
+  max_llm_calls: number;
+  min_support: number;
+  iqr_threshold: number;
+  max_sheets_per_video: number;
+  hook_seconds?: number;
+  language: string;
+  style_id: string;
+  label: string;
+  skip_llm: boolean;
+  skip_asr: boolean;
+  skip_ocr: boolean;
+  frames_per_min: number;
+  agents: string[];
+}
+
+export interface StyleAgentJob {
+  status: "idle" | "running" | "done" | "failed" | "stopped";
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  stage?: string;
+  progress?: Record<string, unknown>;
+  error?: string | null;
+  llm?: { used: number; limit: number; remaining?: number };
+  videos?: string[];
+}
+
+export interface StyleAgentVideo {
+  name: string;
+  size: number;
+  uploaded: boolean;
+  analyzed: boolean;
+  sheets: string[];
+}
+
+export interface StyleAgentSnapshot {
+  settings: StyleAgentSettings;
+  job: StyleAgentJob;
+  videos: StyleAgentVideo[];
+  passport: {
+    hasDraft: boolean;
+    hasApproved: boolean;
+    draftAt?: string | null;
+    approvedAt?: string | null;
+    style_id: string;
+    label: string;
+    problems: string[];
+  };
+  report: string;
+  apply: Record<string, unknown>;
+}
+
+export interface StyleAgentEstimate {
+  settings: StyleAgentSettings;
+  videos: string[];
+  plan: {
+    n_videos: number;
+    sheets_per_video: number;
+    sheets_by_agent?: Record<string, number>;
+    images_per_call?: number;
+    frames?: { video: string; duration_s: number; frames: number; motion_frames: number; grid: string; sheets_overview: number; sheets_motion: number }[];
+    max_calls: number;
+    agents: string[];
+    global_agents?: string[];
+    with_synth: boolean;
+    with_blueprint?: boolean;
+    per_video: Record<string, number>;
+    videos_covered: number;
+    minimal_total: number;
+    ideal_total: number;
+    planned_total: number;
+    fits: boolean;
+    hint: string;
+    skip_plan: string[];
+  };
+  cost: {
+    model_id: string;
+    usd_per_m_in: number;
+    usd_per_m_out: number;
+    tokens_in: number;
+    tokens_out: number;
+    usd: number;
+    usd_hi: number;
+    calls: number;
+  };
+  model: { id?: string | null; label?: string | null };
+}
+
+export interface StylePassportField {
+  value: unknown;
+  confidence: "high" | "medium" | "low";
+  support: string;
+  note?: string;
+  p10?: number;
+  p90?: number;
+}
+
+export interface StylePassportShot {
+  i: number;
+  start: number;
+  end: number;
+  len: number;
+  transition_in?: string;
+  uncertain?: boolean;
+  what?: string | null;
+  framing?: string | null;
+  camera?: string | null;
+  subject_anim?: string | null;
+  start_state?: string | null;
+  change?: string | null;
+  end_state?: string | null;
+  transition_out?: string | null;
+  transition_note?: string | null;
+  illustrates?: string | null;
+  vfx?: string | null;
+  vo_text?: string;
+}
+
+export interface StylePassportVideo {
+  video: string;
+  duration_s?: number | null;
+  transcript_source?: string | null;
+  shots: StylePassportShot[];
+  subtitles?: { start: number; end: number; text: string }[];
+  sentences?: { i: number; start: number; end: number; text: string; words: number }[];
+  linkage?: Record<string, unknown>;
+  script?: Record<string, unknown>;
+  problems?: Record<string, unknown>;
+}
+
+export interface StylePassportPattern {
+  name: string;
+  kind?: string;
+  description?: string;
+  how_to_reproduce?: string;
+  signature?: boolean;
+  support?: string;
+  confidence?: string;
+  frequency?: Record<string, string>;
+  examples?: { video: string; tc: string }[];
+}
+
+export interface StyleBlueprintNode {
+  node_type: string;
+  label?: string;
+  new?: boolean;
+  inputs?: string[];
+  outputs?: string[];
+  params?: Record<string, unknown>;
+  prompt_template?: string;
+  prompt_hint?: string;
+  fallback_existing?: string;
+}
+
+export interface StyleBlueprint {
+  chain: StyleBlueprintNode[];
+  prompt_templates: Record<string, string>;
+  new_nodes_needed: string[];
+  notes: string[];
+  source?: string;
+}
+
+export interface StylePassport {
+  $schema: string;
+  style_id: string;
+  label: string;
+  created_at?: string;
+  approved_at?: string;
+  sources?: { count: number; videos: string[] };
+  format?: Record<string, StylePassportField>;
+  visual?: Record<string, StylePassportField>;
+  voice?: Record<string, StylePassportField>;
+  music?: Record<string, StylePassportField>;
+  sfx?: Record<string, StylePassportField>;
+  motion?: Record<string, StylePassportField>;
+  narrative?: Record<string, StylePassportField>;
+  linkage?: Record<string, StylePassportField>;
+  script?: Record<string, StylePassportField>;
+  mapping?: Record<string, unknown>;
+  videos?: StylePassportVideo[];
+  patterns?: StylePassportPattern[];
+  peculiarities?: string[];
+  blueprint?: StyleBlueprint;
+  variance_notes?: string[];
+  llm?: { calls_used: number; calls_limit: number; model: string };
+  errors?: Record<string, unknown>;
+}
+
+export interface StyleApplyReport {
+  style_id: string;
+  materialized?: boolean;
+  blocks?: string[];
+  preset?: string;
+  frame_style?: string;
+  written?: string[];
+  backed_up?: string[];
+  skipped?: string[];
+  prompt_overrides_patch?: Record<string, unknown>;
+  node_step_params_patch?: Record<string, unknown>;
+  next_steps?: string[];
+  at?: string;
+}
+
 export interface LibraryConfigDTO {
   id: number;
   name: string;
@@ -149,7 +353,7 @@ export interface LibraryConfigDTO {
   created_at: string;
 }
 
-async function http<T>(
+export async function http<T>(
   path: string,
   options: RequestInit = {},
   timeoutMs = 30_000,
@@ -163,8 +367,8 @@ async function http<T>(
     else external.addEventListener("abort", onExtAbort);
   }
   try {
-    // FormData: не ставить Content-Type вручную — браузер сам добавит
-    // multipart boundary. Иначе FastAPI не видит UploadFile.
+    // FormData: РЅРµ СЃС‚Р°РІРёС‚СЊ Content-Type РІСЂСѓС‡РЅСѓСЋ вЂ” Р±СЂР°СѓР·РµСЂ СЃР°Рј РґРѕР±Р°РІРёС‚
+    // multipart boundary. РРЅР°С‡Рµ FastAPI РЅРµ РІРёРґРёС‚ UploadFile.
     const isFormData =
       typeof FormData !== "undefined" && options.body instanceof FormData;
     const { signal: _ignoredSignal, ...rest } = options;
@@ -173,11 +377,6 @@ async function http<T>(
       signal: controller.signal,
       headers: {
         ...(isFormData ? {} : { "Content-Type": "application/json" }),
-        // Токен биллинга — на КАЖДОМ запросе, а не только там, где вспомнили.
-        // В режиме SaaS без него не отвечает ни одна ручка `/api/*`, и
-        // добавлять заголовок по месту значит забыть его в одном вызове из
-        // сотни и получить одинокий 401 без объяснения.
-        ...authHeaders(),
         ...(options.headers || {}),
       },
     });
@@ -186,7 +385,7 @@ async function http<T>(
       try {
         detail = JSON.parse(detail as string);
       } catch {
-        // оставляем как text
+        // РѕСЃС‚Р°РІР»СЏРµРј РєР°Рє text
       }
       throw new ApiError(res.status, detail);
     }
@@ -195,7 +394,7 @@ async function http<T>(
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
       if (external?.aborted) {
-        throw new ApiError(0, "Отменено");
+        throw new ApiError(0, "РћС‚РјРµРЅРµРЅРѕ");
       }
       const sec = Math.max(1, Math.round(timeoutMs / 1000));
       const isGptLong = timeoutMs >= 120_000;
@@ -205,10 +404,10 @@ async function http<T>(
       throw new ApiError(
         0,
         isGptLong
-          ? `GPT не ответил за ${sec} с (vision/длинный ответ). Смотри окно BACKEND / лог; можно повторить.`
+          ? `GPT РЅРµ РѕС‚РІРµС‚РёР» Р·Р° ${sec} СЃ (vision/РґР»РёРЅРЅС‹Р№ РѕС‚РІРµС‚). РЎРјРѕС‚СЂРё РѕРєРЅРѕ BACKEND / Р»РѕРі; РјРѕР¶РЅРѕ РїРѕРІС‚РѕСЂРёС‚СЊ.`
           : looksOperator
-            ? `Пульт не сохранился за ${sec} с: БД занята воркером (hero/img/GPT). Подождите конец шага или повторите — бэкенд на :8765 обычно жив.`
-            : `Сервер не ответил за ${sec} с — проверьте окно BACKEND (Uvicorn на :8765)`,
+            ? `РџСѓР»СЊС‚ РЅРµ СЃРѕС…СЂР°РЅРёР»СЃСЏ Р·Р° ${sec} СЃ: Р‘Р” Р·Р°РЅСЏС‚Р° РІРѕСЂРєРµСЂРѕРј (hero/img/GPT). РџРѕРґРѕР¶РґРёС‚Рµ РєРѕРЅРµС† С€Р°РіР° РёР»Рё РїРѕРІС‚РѕСЂРёС‚Рµ вЂ” Р±СЌРєРµРЅРґ РЅР° :8765 РѕР±С‹С‡РЅРѕ Р¶РёРІ.`
+            : `РЎРµСЂРІРµСЂ РЅРµ РѕС‚РІРµС‚РёР» Р·Р° ${sec} СЃ вЂ” РїСЂРѕРІРµСЂСЊС‚Рµ РѕРєРЅРѕ BACKEND (Uvicorn РЅР° :8765)`,
       );
     }
     throw e;
@@ -233,6 +432,7 @@ export interface MontagePendingOp {
     | "coverage_delete"
     | "coverage_template"
     | "coverage_anchors"
+    | "coverage_vo_span"
     | "coverage_angle"
     | "coverage_move"
     | "coverage_stitch"
@@ -249,9 +449,11 @@ export interface MontagePendingOp {
     | "coverage_scene_action";
   frame_number: number;
   shot: 1 | 2;
+  /** РћР±С‰РёР№ РїР»Р°РЅ: РѕС‚РґРµР»СЊРЅС‹Р№ still, РЅРµ shot1. */
+  slot?: "parent";
   prompt?: string;
   correction?: string;
-  /** Заметка оператора для ИИзменения — агент img_pr пишет по ней новый промт. */
+  /** Р—Р°РјРµС‚РєР° РѕРїРµСЂР°С‚РѕСЂР° РґР»СЏ РРР·РјРµРЅРµРЅРёСЏ вЂ” Р°РіРµРЅС‚ img_pr РїРёС€РµС‚ РїРѕ РЅРµР№ РЅРѕРІС‹Р№ РїСЂРѕРјС‚. */
   instruction?: string;
   plan?: string;
   action?: string;
@@ -270,16 +472,25 @@ export interface MontagePendingOp {
   feature?: string;
   kind?: "parent" | "child";
   parent_number?: number;
-  /** Формат сцены: шаблон T0…T10 / X1 / X2 из каталога. */
+  /** Р¤РѕСЂРјР°С‚ СЃС†РµРЅС‹: С€Р°Р±Р»РѕРЅ T0вЂ¦T10 / X1 / X2 РёР· РєР°С‚Р°Р»РѕРіР°. */
   template?: string;
+  /** РЇРєРѕСЂСЏ Р·Р°РєР°РґСЂР° СЏС‡РµР№РєРё вЂ” С‚РѕС‡РєРё РЅР°СЂРµР·РєРё VO РїРѕ РєР°РґСЂР°Рј. */
   anchors?: SceneAnchorRow[];
+  /** Р’С‹РґРµР»РµРЅРёРµ Р·Р°РєР°РґСЂР°: start/end РІ РїРѕР»РЅРѕРј С‚РµРєСЃС‚Рµ СЏС‡РµР№РєРё. */
+  start?: number;
+  end?: number;
+  text?: string;
+  full?: string;
+  vo_cell_full?: string;
+  vo_span?: { start: number; end: number; text: string } | null;
+  clear?: boolean;
 }
 
 export interface SceneAnchorRow {
-  "порядок"?: number;
-  "якорь": string;
-  "изменение"?: string;
-  "главный"?: boolean;
+  "РїРѕСЂСЏРґРѕРє"?: number;
+  "СЏРєРѕСЂСЊ": string;
+  "РёР·РјРµРЅРµРЅРёРµ"?: string;
+  "РіР»Р°РІРЅС‹Р№"?: boolean;
   offset?: number;
   found?: boolean;
   cell_index?: number;
@@ -312,20 +523,20 @@ export interface SceneTemplateLadderRow {
 
 export interface SceneShotRow {
   id: string;
-  "порядок": number;
+  "РїРѕСЂСЏРґРѕРє": number;
   parent_id: string;
-  "шаблон": string;
-  "план": string;
-  "ракурс": string;
-  "движение"?: string;
-  "место": string;
-  "действие": string;
-  "закадр": string;
-  "якорь"?: string;
+  "С€Р°Р±Р»РѕРЅ": string;
+  "РїР»Р°РЅ": string;
+  "СЂР°РєСѓСЂСЃ": string;
+  "РґРІРёР¶РµРЅРёРµ"?: string;
+  "РјРµСЃС‚Рѕ": string;
+  "РґРµР№СЃС‚РІРёРµ": string;
+  "Р·Р°РєР°РґСЂ": string;
+  "СЏРєРѕСЂСЊ"?: string;
   frame_number: number | null;
 }
 
-/** Состояние редактора кадра на доске монтажа (GET .../scene-editor). */
+/** РЎРѕСЃС‚РѕСЏРЅРёРµ СЂРµРґР°РєС‚РѕСЂР° РєР°РґСЂР° РЅР° РґРѕСЃРєРµ РјРѕРЅС‚Р°Р¶Р° (GET .../scene-editor). */
 export interface SceneEditorState {
   frame: {
     frame_id: number;
@@ -404,14 +615,14 @@ export interface SceneEditorState {
 export type SceneVariantKind = "action" | "template" | "anchors";
 
 export interface SceneVariant {
-  "действие"?: string;
-  "план"?: string;
-  "шаблон"?: string;
-  "лестница"?: string;
-  "биты"?: SceneAnchorRow[];
+  "РґРµР№СЃС‚РІРёРµ"?: string;
+  "РїР»Р°РЅ"?: string;
+  "С€Р°Р±Р»РѕРЅ"?: string;
+  "Р»РµСЃС‚РЅРёС†Р°"?: string;
+  "Р±РёС‚С‹"?: SceneAnchorRow[];
   preview?: string[];
   dropped?: number;
-  "почему"?: string;
+  "РїРѕС‡РµРјСѓ"?: string;
 }
 
 export interface XlsxPreview {
@@ -458,7 +669,7 @@ export function formatApiError(
   status?: number,
 ): string {
   if (status === 405) {
-    return "API устарел (Method not allowed) — закройте Studio и запустите RUN-STUDIO.ps1 после git pull / UPDATE";
+    return "API СѓСЃС‚Р°СЂРµР» (Method not allowed) вЂ” Р·Р°РєСЂРѕР№С‚Рµ Studio Рё Р·Р°РїСѓСЃС‚РёС‚Рµ RUN-STUDIO.ps1 РїРѕСЃР»Рµ git pull / UPDATE";
   }
   if (typeof detail === "string") {
     try {
@@ -489,10 +700,10 @@ export function formatApiError(
       }
     }
   }
-  return "Ошибка операции";
+  return "РћС€РёР±РєР° РѕРїРµСЂР°С†РёРё";
 }
 
-// ── База (DB v2) типы ─────────────────────────────────────────────
+// в”Ђв”Ђ Р‘Р°Р·Р° (DB v2) С‚РёРїС‹ в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 export interface DbProjectOverview {
   id: number;
   slug: string;
@@ -542,7 +753,7 @@ export interface DbFrame {
   meaning: string | null;
   image_prompt?: string | null;
   animation_prompt?: string | null;
-  /** Превью картинки кадра (scenes/frame_NNN_*.png) — для фильм-стрипа. */
+  /** РџСЂРµРІСЊСЋ РєР°СЂС‚РёРЅРєРё РєР°РґСЂР° (scenes/frame_NNN_*.png) вЂ” РґР»СЏ С„РёР»СЊРј-СЃС‚СЂРёРїР°. */
   image_url?: string | null;
   attrs: Record<string, unknown>;
   texts: DbFrameText[];
@@ -606,95 +817,13 @@ export interface DbGraph {
   frames: DbFrame[];
   entities: DbEntity[];
   excel_rows?: Record<string, DbExcelRow>;
-  /** Сцены по словам (meta.scene_registry) — SoT для scene grammar. */
+  /** РЎС†РµРЅС‹ РїРѕ СЃР»РѕРІР°Рј (meta.scene_registry) вЂ” SoT РґР»СЏ scene grammar. */
   scene_registry?: DbSceneRegistryEntry[];
   harness?: DbHarnessSummary;
 }
 
-export interface UsageHistoryModelItem {
-  model: string;
-  display_name: string;
-  kind: "image" | "video" | "audio" | "llm" | string;
-  provider: string;
-  calls: number;
-  success_calls: number;
-  error_calls: number;
-  units: number;
-  unit_label: string;
-  credits_spent: string;
-  credits_spent_micro: number;
-  cost_usd: number | null;
-}
-
-export interface UsageHistoryKindSummary {
-  kind: string;
-  calls: number;
-  credits: string;
-  credits_micro: number;
-  cost_usd: number | null;
-}
-
-export interface UsageHistoryRecentItem {
-  id: string;
-  created_at: string;
-  kind: "image" | "video" | "audio" | "llm" | "topup" | "settle" | "promo" | string;
-  model: string;
-  provider: string;
-  description: string;
-  units_label: string;
-  credits_delta: string;
-  credits_delta_micro: number;
-  cost_usd: number | null;
-  status: "ok" | "error" | string;
-  duration_sec: number | null;
-  preview_url: string | null;
-}
-
-export interface UsageHistoryResponse {
-  summary: {
-    total_spent_credits: string;
-    total_spent_micro: number;
-    total_cost_usd: number | null;
-    by_kind: Record<string, UsageHistoryKindSummary>;
-  };
-  models: UsageHistoryModelItem[];
-  recent: UsageHistoryRecentItem[];
-  is_admin: boolean;
-}
-
 export const api = {
-  // ── Купоны и биллинг ──────────────────────────────────────────────
-  redeemCoupon: (code: string) =>
-    http<{
-      ok: boolean;
-      code: string;
-      credits_added: number;
-      balance_micro: number;
-      balance_credits: string;
-      message: string;
-    }>(`/api/billing/coupons/redeem`, {
-      method: "POST",
-      body: JSON.stringify({ code }),
-    }),
-
-  getUsageHistory: (params?: {
-    project_id?: number | null;
-    kind?: string;
-    all_tenants?: boolean;
-    limit?: number;
-    offset?: number;
-  }) => {
-    const q = new URLSearchParams();
-    if (params?.project_id != null) q.set("project_id", String(params.project_id));
-    if (params?.kind && params.kind !== "all") q.set("kind", params.kind);
-    if (params?.all_tenants) q.set("all_tenants", "true");
-    if (params?.limit != null) q.set("limit", String(params.limit));
-    if (params?.offset != null) q.set("offset", String(params.offset));
-    const qs = q.toString();
-    return http<UsageHistoryResponse>(`/api/billing/usage-history${qs ? `?${qs}` : ""}`);
-  },
-
-  // ── База (DB v2 browser) ─────────────────────────────────────────
+  // в”Ђв”Ђ Р‘Р°Р·Р° (DB v2 browser) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   dbOverview: () => http<DbOverview>(`/api/db/overview`),
   dbGraph: (projectId: number) => http<DbGraph>(`/api/db/projects/${projectId}/graph`),
   shotMenu: (projectId: number) =>
@@ -836,7 +965,7 @@ export const api = {
         }),
         signal: opts?.signal,
       },
-      // GPT-вызов длинный (контекст графа + ответ): 10 минут, как ask_fresh.
+      // GPT-РІС‹Р·РѕРІ РґР»РёРЅРЅС‹Р№ (РєРѕРЅС‚РµРєСЃС‚ РіСЂР°С„Р° + РѕС‚РІРµС‚): 10 РјРёРЅСѓС‚, РєР°Рє ask_fresh.
       600_000,
     ),
   dbOrchestratorConfirmRemove: (projectId: number, body: { node_key?: string | null; node_type?: string | null; only?: string | null }) =>
@@ -866,7 +995,7 @@ export const api = {
       120_000,
     ),
 
-  // ── Workflows ────────────────────────────────────────────────────
+  // в”Ђв”Ђ Workflows в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   listWorkflows: () => http<WorkflowSummary[]>(`/api/workflows`),
   getWorkflow: (id: number) => http<WorkflowDetail>(`/api/workflows/${id}`),
   saveWorkflow: (id: number, body: { name?: string; description?: string; nodes: WorkflowNode[]; edges: WorkflowEdge[] }) =>
@@ -876,7 +1005,7 @@ export const api = {
       valid: boolean;
       errors: string[];
       warnings: string[];
-      /** Только реально изменённые kind (Связь→Не ок). Не затирает остальные. */
+      /** РўРѕР»СЊРєРѕ СЂРµР°Р»СЊРЅРѕ РёР·РјРµРЅС‘РЅРЅС‹Рµ kind (РЎРІСЏР·СЊв†’РќРµ РѕРє). РќРµ Р·Р°С‚РёСЂР°РµС‚ РѕСЃС‚Р°Р»СЊРЅС‹Рµ. */
       edge_patches?: { id: string; kind: string }[];
       edges?: WorkflowEdge[];
     }>(`/api/workflows/validate`, {
@@ -892,41 +1021,7 @@ export const api = {
   resetDefaultWorkflow: () =>
     http<WorkflowDetail>(`/api/workflows/default/reset`, { method: "POST" }),
 
-  // ── Слой project_graph (появился после пивота) ────────────────────
-  //
-  // Канвас теперь сохраняет схему ролика НЕ прямой записью meta.canvas_graph,
-  // а через PUT /graph: сервер сам считает разницу, знает, какие сделанные
-  // шаги устаревают от правки (reset-план), и синхронизирует run. Дифф без
-  // применения — чтобы спросить человека, прежде чем жечь результаты.
-  getProjectGraph: (id: number) =>
-    http<{ proposal: GraphProposal | null; source: string; workflow_id: number | null }>(
-      `/api/projects/${id}/graph`,
-    ),
-  elevenLabsVoicesStatus: () =>
-    http<{ checked: boolean; live: string[]; dead: string[] }>(
-      `/api/projects/elevenlabs/voices-status`,
-    ),
-  projectGraphDiff: (id: number, nodes: WorkflowNode[], edges: WorkflowEdge[]) =>
-    http<GraphDiffResponse>(`/api/projects/${id}/graph/diff`, {
-      method: "POST",
-      body: JSON.stringify({ nodes, edges }),
-    }),
-  saveProjectGraph: (id: number, nodes: WorkflowNode[], edges: WorkflowEdge[], reset: boolean) =>
-    http<GraphApplyResult>(`/api/projects/${id}/graph`, {
-      method: "PUT",
-      body: JSON.stringify({ nodes, edges, reset }),
-    }),
-  resetProjectGraph: (id: number) =>
-    http<GraphApplyResult>(`/api/projects/${id}/graph/reset`, { method: "POST" }),
-  applyGraphProposal: (id: number, proposalId: string, reset = true) =>
-    http<GraphApplyResult>(`/api/projects/${id}/graph/proposal/apply`, {
-      method: "POST",
-      body: JSON.stringify({ proposal_id: proposalId, reset }),
-    }),
-  discardGraphProposal: (id: number) =>
-    http<void>(`/api/projects/${id}/graph/proposal`, { method: "DELETE" }),
-
-  // ── Группы нод (пресеты канваса) ──────────────────────────────────
+  // в”Ђв”Ђ Р“СЂСѓРїРїС‹ РЅРѕРґ (РїСЂРµСЃРµС‚С‹ РєР°РЅРІР°СЃР°) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   listNodeGroups: () => http<NodeGroupSummary[]>(`/api/node-groups`),
   getNodeGroup: (groupId: string) =>
     http<NodeGroupDetail>(`/api/node-groups/${encodeURIComponent(groupId)}`),
@@ -968,18 +1063,18 @@ export const api = {
       method: "DELETE",
     }),
 
-  // ── Projects ─────────────────────────────────────────────────────
-  listProjects: (pipelineMode?: PipelineMode) =>
-    http<ProjectSummary[]>(
-      pipelineMode ? `/api/projects?pipeline_mode=${encodeURIComponent(pipelineMode)}` : `/api/projects`,
-    ),
+  // в”Ђв”Ђ Projects в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  listProjects: () => http<ProjectSummary[]>(`/api/projects`),
   getProject: (id: number) => http<ProjectDetail>(`/api/projects/${id}`),
+  syncProject: (id: number) =>
+    http<ProjectDetail>(`/api/projects/${id}/sync`, { method: "POST" }),
+  getProjectRun: (projectId: number) =>
+    http<WorkflowRunDetail>(`/api/projects/${projectId}/run`),
   createProject: (body: {
     title: string;
     topic?: string;
     hero_mode?: string;
     auto_mode?: boolean;
-    pipeline_mode?: PipelineMode;
     sidebar_folder_id?: string | null;
   }) =>
     http<ProjectDetail>(`/api/projects`, { method: "POST", body: JSON.stringify(body) }),
@@ -989,6 +1084,47 @@ export const api = {
       { method: "PATCH", body: JSON.stringify(body) },
       90_000,
     ),
+  getNii67: (id: number) => http<{ card: Nii67Card; frames?: Nii67Frame[] }>(`/api/projects/${id}/nii67`),
+  putNii67: (id: number, card: Nii67Card, mode: "draft" | "save") =>
+    http<{ card: Nii67Card }>(`/api/projects/${id}/nii67?mode=${mode}`, {
+      method: "PUT",
+      body: JSON.stringify({ card }),
+    }),
+  previewNii67: (id: number, card: Nii67Card) =>
+    http<{ text: string }>(`/api/projects/${id}/nii67/preview`, {
+      method: "POST",
+      body: JSON.stringify({ card }),
+    }),
+  planNii67: (id: number, card: Nii67Card) =>
+    http<{ card: Nii67Card }>(
+      `/api/projects/${id}/nii67/plan`,
+      { method: "POST", body: JSON.stringify({ card }) },
+      300_000,
+    ),
+  storyboardNii67: (id: number, card: Nii67Card) =>
+    http<{ card: Nii67Card; general_plan: string; frames?: Nii67Frame[] }>(
+      `/api/projects/${id}/nii67/storyboard`,
+      {
+        method: "POST",
+        body: JSON.stringify({ card }),
+      },
+      420_000,
+    ),
+  putNii67Frames: (id: number, frames: Nii67Frame[]) =>
+    http<{ frames: Nii67Frame[] }>(`/api/projects/${id}/nii67/frames`, {
+      method: "PUT",
+      body: JSON.stringify({ frames }),
+    }),
+  uploadNii67: (id: number, slot: "intro_video" | "portal_image" | "portal_video", file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return http<{ slot: string; name: string; path: string; size: number }>(
+      `/api/projects/${id}/nii67/upload?slot=${slot}`,
+      { method: "POST", body: form },
+    );
+  },
+  resetNii67: (id: number) =>
+    http<{ card: Nii67Card }>(`/api/projects/${id}/nii67/reset`, { method: "POST" }),
   deleteProject: (id: number) =>
     http<void>(`/api/projects/${id}`, { method: "DELETE" }),
   createChildProject: (parentId: number) =>
@@ -998,7 +1134,7 @@ export const api = {
       120_000,
     ),
 
-  // ── Sidebar layout ───────────────────────────────────────────────
+  // в”Ђв”Ђ Sidebar layout в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   getSidebarLayout: () => http<SidebarLayout>(`/api/sidebar-layout`),
   getRuntimeStreams: () =>
     http<{
@@ -1074,6 +1210,7 @@ export const api = {
     const params = new URLSearchParams();
     if (opts?.dryRun) params.set("dry_run", "true");
     if (opts?.nodeKey) params.set("node_key", opts.nodeKey);
+    // РЇРІРЅС‹Р№ resume: РїРѕРІС‚РѕСЂ С€Р°РіР° РЅРµ РґРµР»Р°РµС‚ wipe. РЎРµСЂРІРµСЂРЅС‹Р№ РґРµС„РѕР»С‚ СЃСЋРґР° РЅРµ РїРѕРґСЃС‚Р°РІР»СЏРµС‚СЃСЏ.
     params.set("mode", opts?.mode ?? "resume");
     if (opts?.forceWipe != null) params.set("force_wipe", String(opts.forceWipe));
     const q = params.toString() ? `?${params.toString()}` : "";
@@ -1119,7 +1256,7 @@ export const api = {
       resolve?: import("@/lib/gpt-operator").OperatorResolve;
     }>(
       `/api/projects/${projectId}/excel-gpt/${encodeURIComponent(nodeKey)}/upload`,
-      { method: "POST", body: fd, headers: authHeaders() },
+      { method: "POST", body: fd },
     );
   },
   remapExcelGptNodes: (projectId: number, mapping: Record<string, string>) =>
@@ -1154,7 +1291,7 @@ export const api = {
       resolve: import("@/lib/gpt-operator").OperatorResolve;
     }>(
       `/api/projects/${projectId}/gpt-operator/${encodeURIComponent(nodeKey)}/check-agent`,
-      { method: "POST", body: fd, headers: authHeaders() },
+      { method: "POST", body: fd },
     );
   },
   clearCheckAgentFile: (projectId: number, nodeKey: string) =>
@@ -1231,7 +1368,7 @@ export const api = {
       clipboardPrompt: string;
     }>(`/api/bug-reports`, { method: "POST", body: JSON.stringify(body) }),
 
-  // ── Excel-Hero (читает лист «Персонажи» из project.xlsx) ─────────
+  // в”Ђв”Ђ Excel-Hero (С‡РёС‚Р°РµС‚ Р»РёСЃС‚ В«РџРµСЂСЃРѕРЅР°Р¶РёВ» РёР· project.xlsx) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   getExcelHero: (projectId: number) =>
     http<{ loaded: boolean; characters: ExcelHeroCharacter[] }>(
       `/api/projects/${projectId}/excel-hero`
@@ -1244,7 +1381,7 @@ export const api = {
   clearExcelHero: (projectId: number) =>
     http<void>(`/api/projects/${projectId}/excel-hero`, { method: "DELETE" }),
 
-  // ── Storage node (хранилище файлов по node_key) ─────────────────
+  // в”Ђв”Ђ Storage node (С…СЂР°РЅРёР»РёС‰Рµ С„Р°Р№Р»РѕРІ РїРѕ node_key) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   resolveStorage: (projectId: number, nodeKey: string) =>
     http<{
       nodeKey: string;
@@ -1296,7 +1433,7 @@ export const api = {
     fd.append("file", file);
     return http<{ ok: boolean; fileName: string; path: string }>(
       `/api/projects/${projectId}/storage/${encodeURIComponent(nodeKey)}/upload`,
-      { method: "POST", body: fd, headers: authHeaders() },
+      { method: "POST", body: fd },
     );
   },
   clearStorageFiles: (projectId: number, nodeKey: string) =>
@@ -1305,7 +1442,66 @@ export const api = {
       { method: "DELETE" },
     ),
 
-  // ── Frames ───────────────────────────────────────────────────────
+  // в”Ђв”Ђ Style agent (РЅРѕРґС‹ В«Р Р°Р·Р±РѕСЂ СЃС‚РёР»СЏВ» / В«РџСЂРѕРІРµСЂРєР° СЃС‚РёР»СЏВ») в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  getStyleAgent: (projectId: number, nodeKey?: string | null) =>
+    http<StyleAgentSnapshot>(
+      `/api/projects/${projectId}/style-agent${nodeKey ? `?node_key=${encodeURIComponent(nodeKey)}` : ""}`,
+    ),
+  patchStyleAgentSettings: (projectId: number, patch: Partial<StyleAgentSettings>) =>
+    http<{ settings: StyleAgentSettings }>(`/api/projects/${projectId}/style-agent`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  estimateStyleAgent: (projectId: number, nodeKey: string | null, patch?: Partial<StyleAgentSettings>) =>
+    http<StyleAgentEstimate>(
+      `/api/projects/${projectId}/style-agent/estimate${nodeKey ? `?node_key=${encodeURIComponent(nodeKey)}` : ""}`,
+      { method: "POST", body: JSON.stringify(patch ?? {}) },
+    ),
+  runStyleAgent: (projectId: number, nodeKey: string | null, patch?: Partial<StyleAgentSettings>) =>
+    http<{ started: boolean; estimate: StyleAgentEstimate }>(
+      `/api/projects/${projectId}/style-agent/run${nodeKey ? `?node_key=${encodeURIComponent(nodeKey)}` : ""}`,
+      { method: "POST", body: JSON.stringify(patch ?? {}) },
+    ),
+  stopStyleAgent: (projectId: number) =>
+    http<{ stopped: boolean }>(`/api/projects/${projectId}/style-agent/stop`, { method: "POST" }),
+  uploadStyleRef: (projectId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return http<{ name: string; size: number; videos: string[] }>(
+      `/api/projects/${projectId}/style-agent/upload`,
+      { method: "POST", body: fd },
+      600_000,
+    );
+  },
+  deleteStyleRef: (projectId: number, name: string) =>
+    http<{ videos: string[] }>(
+      `/api/projects/${projectId}/style-agent/refs/${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    ),
+  getStylePassport: (projectId: number, approved = false) =>
+    http<{ passport: StylePassport; problems: string[] }>(
+      `/api/projects/${projectId}/style-agent/passport${approved ? "?approved=true" : ""}`,
+    ),
+  putStylePassport: (projectId: number, passport: StylePassport) =>
+    http<{ ok: boolean; problems: string[] }>(`/api/projects/${projectId}/style-agent/passport`, {
+      method: "PUT",
+      body: JSON.stringify({ passport }),
+    }),
+  approveStylePassport: (projectId: number, passport?: StylePassport | null, materialize = true) =>
+    http<{ report: StyleApplyReport; snapshot: StyleAgentSnapshot }>(
+      `/api/projects/${projectId}/style-agent/approve`,
+      { method: "POST", body: JSON.stringify({ passport: passport ?? undefined, materialize }) },
+      120_000,
+    ),
+  getStyleAgentReport: (projectId: number) =>
+    http<{ report: string; variance_report: string; apply_report: StyleApplyReport | null }>(
+      `/api/projects/${projectId}/style-agent/report`,
+    ),
+  styleReportMdUrl: (projectId: number) => `/api/projects/${projectId}/style-agent/report?fmt=md`,
+  styleSheetUrl: (projectId: number, video: string, name: string) =>
+    `/api/projects/${projectId}/style-agent/sheet?video=${encodeURIComponent(video)}&name=${encodeURIComponent(name)}`,
+
+  // в”Ђв”Ђ Frames в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   listFrames: (projectId: number) =>
     http<FrameDTO[]>(`/api/projects/${projectId}/frames`),
   patchFrame: (projectId: number, frameId: number, body: Partial<FrameDTO>) =>
@@ -1335,6 +1531,7 @@ export const api = {
       ok: boolean;
       parent_id: number;
       parent_number: number;
+      parent_ordinal?: number | null;
       merged_frames: number;
       vo_scene_size: number;
     }>(`/api/projects/${projectId}/montage-board/scenes/merge`, {
@@ -1343,6 +1540,45 @@ export const api = {
         left_frame_id: leftFrameId,
         right_frame_id: rightFrameId,
       }),
+    }),
+
+  splitMontageScene: (
+    projectId: number,
+    frameId: number,
+    explode = false,
+    frameIds?: number[],
+  ) =>
+    http<{
+      ok: boolean;
+      scenes?: number;
+      parent_number?: number;
+      parent_ordinal?: number | null;
+      left_number?: number;
+      right_number?: number;
+      left_ordinal?: number | null;
+      right_ordinal?: number | null;
+      left_size?: number;
+      right_size?: number;
+      undo_id?: string | null;
+    }>(`/api/projects/${projectId}/montage-board/scenes/split`, {
+      method: "POST",
+      body: JSON.stringify({
+        frame_id: frameId,
+        all: explode,
+        ...(frameIds?.length ? { frame_ids: frameIds } : {}),
+      }),
+    }),
+
+  undoSplitMontageScene: (projectId: number, undoId?: string | null) =>
+    http<{
+      ok: boolean;
+      undo_id: string;
+      restored_frames: number;
+      paid_media_kept: { images: number; videos: number; total: number };
+      can_undo_more: boolean;
+    }>(`/api/projects/${projectId}/montage-board/scenes/split-undo`, {
+      method: "POST",
+      body: JSON.stringify(undoId ? { undo_id: undoId } : {}),
     }),
 
   insertMontageFrame: (
@@ -1387,19 +1623,106 @@ export const api = {
       240_000,
     ),
 
+  generateSceneAction: (
+    projectId: number,
+    frameId: number,
+    body: {
+      prompt?: string;
+      replace_ns?: number[];
+      passport?: Record<string, string>;
+    },
+  ) =>
+    http<{
+      ok: boolean;
+      frame_id: number;
+      frame_number: number;
+      replace_ns: number[];
+      chain: string;
+      shots?: number;
+      skipped_shots?: number;
+      inserted_frames?: number;
+      frame_numbers?: number[];
+    }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-action-generate`,
+      { method: "POST", body: JSON.stringify(body) },
+      240_000,
+    ),
+
+  generateSceneWithImages: (
+    projectId: number,
+    frameId: number,
+    body: {
+      prompt?: string;
+      passport?: Record<string, string>;
+      frame_ids?: number[];
+      mode?: string;
+    },
+  ) =>
+    http<{
+      ok: boolean;
+      started?: boolean;
+      already_running?: boolean;
+      frame_id?: number;
+      frame_number?: number;
+      chain?: string;
+      shots?: number;
+      skipped_shots?: number;
+      inserted_frames?: number;
+      images?: number;
+      fallback?: boolean;
+      generate_error?: string;
+      message?: string;
+      mode?: string;
+      job?: { status?: string; total_ops?: number };
+    }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-generate-with-images`,
+      { method: "POST", body: JSON.stringify(body) },
+      300_000,
+    ),
+
+  improveScene: (
+    projectId: number,
+    frameId: number,
+    body: {
+      prompt?: string;
+      passport?: Record<string, string>;
+      frame_ids?: number[];
+      /** РЇРєРѕСЂСЏ СЃ РґРѕСЃРєРё. Р’ 3-РЅРѕРґРЅС‹Р№ РїСЂРѕРіРѕРЅ РЅРµ РІС…РѕРґСЏС‚. */
+      anchors?: { "СЏРєРѕСЂСЊ": string; "РёР·РјРµРЅРµРЅРёРµ"?: string; "РіР»Р°РІРЅС‹Р№"?: boolean }[];
+    },
+  ) =>
+    http<{
+      ok: boolean;
+      started?: boolean;
+      already_running?: boolean;
+      frame_id?: number;
+      frame_number?: number;
+      chain?: string;
+      shots?: number;
+      skipped_shots?: number;
+      inserted_frames?: number;
+      images?: number;
+      fallback?: boolean;
+      generate_error?: string;
+      message?: string;
+      mode?: string;
+      job?: { status?: string; total_ops?: number };
+      improve_report?: MontageImproveReport;
+      image_ops?: MontagePendingOp[];
+    }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-improve`,
+      { method: "POST", body: JSON.stringify(body) },
+      900_000,
+    ),
+
+  /** РўРѕР»СЊРєРѕ СЂСѓС‡РЅРѕРµ СѓРґР°Р»РµРЅРёРµ РїРѕСЃР»Рµ confirm. РђРІС‚РѕРјР°С‚РёРєР° СЌС‚РѕС‚ РјРµС‚РѕРґ РЅРµ РІС‹Р·С‹РІР°РµС‚. */
   deleteMontageFrame: (projectId: number, frameId: number) =>
     http<{ ok: boolean; frame_id: number; number: number; deleted: number }>(
       `/api/projects/${projectId}/montage-board/frames/${frameId}`,
       { method: "DELETE" },
     ),
 
-  applyMontageCoverage: (
-    projectId: number,
-    body: Pick<
-      MontagePendingOp,
-      "type" | "frame_number" | "shot" | "kind" | "parent_number"
-    >,
-  ) =>
+  applyMontageCoverage: (projectId: number, body: MontagePendingOp) =>
     http<{
       ok: boolean;
       highlight?: string | null;
@@ -1417,7 +1740,7 @@ export const api = {
     body: {
       pending_ops: MontagePendingOp[];
       video_trims?: Record<string, { start: number; end: number }>;
-      /** Пустая очередь иначе не затирает серверную (should_accept_queue_save). */
+      /** РџСѓСЃС‚Р°СЏ РѕС‡РµСЂРµРґСЊ РёРЅР°С‡Рµ РЅРµ Р·Р°С‚РёСЂР°РµС‚ СЃРµСЂРІРµСЂРЅСѓСЋ (should_accept_queue_save). */
       force_clear?: boolean;
     },
   ) =>
@@ -1435,6 +1758,8 @@ export const api = {
     body: {
       video_trims: Record<string, { start: number; end: number }>;
       pending_ops: MontagePendingOp[];
+      /** РўРѕР»СЊРєРѕ СЌС‚Рё РєР°РґСЂС‹; РѕСЃС‚Р°Р»СЊРЅС‹Рµ РїСЂР°РІРєРё РѕСЃС‚Р°СЋС‚СЃСЏ РІ РѕС‡РµСЂРµРґРё. */
+      frame_numbers?: number[];
     },
   ) =>
     http<{
@@ -1470,6 +1795,13 @@ export const api = {
             frame_number?: number;
             shot?: number;
           };
+        }>;
+        pending_ops?: Array<{
+          type: string;
+          frame_number: number;
+          shot?: number | string;
+          slot?: string;
+          instruction?: string;
         }>;
       };
     }>(`/api/projects/${projectId}/montage-board/apply-status`),
@@ -1573,7 +1905,7 @@ export const api = {
       { method: "POST" },
     ),
 
-  /** Обмен двух слотов (картинка↔картинка или видео↔видео) из любых кадров. */
+  /** РћР±РјРµРЅ РґРІСѓС… СЃР»РѕС‚РѕРІ (РєР°СЂС‚РёРЅРєР°в†”РєР°СЂС‚РёРЅРєР° РёР»Рё РІРёРґРµРѕв†”РІРёРґРµРѕ) РёР· Р»СЋР±С‹С… РєР°РґСЂРѕРІ. */
   swapMontageSlots: (
     projectId: number,
     kind: "image" | "video",
@@ -1602,6 +1934,8 @@ export const api = {
     fromShot: 1 | 2,
     toFrame: number,
     toShot: 1 | 2,
+    fromSlot?: "parent" | "",
+    toSlot?: "parent" | "",
   ) =>
     http<{
       ok: boolean;
@@ -1613,13 +1947,21 @@ export const api = {
     }>(
       `/api/projects/${projectId}/montage-board/move-image` +
         `?from_frame=${fromFrame}&from_shot=${fromShot}` +
-        `&to_frame=${toFrame}&to_shot=${toShot}`,
+        `&to_frame=${toFrame}&to_shot=${toShot}` +
+        `${fromSlot ? `&from_slot=${fromSlot}` : ""}` +
+        `${toSlot ? `&to_slot=${toSlot}` : ""}`,
       { method: "POST" },
     ),
 
-  deleteMontageImage: (projectId: number, frameNumber: number, shot: 1 | 2) =>
+  deleteMontageImage: (
+    projectId: number,
+    frameNumber: number,
+    shot: 1 | 2,
+    slot?: "parent" | "",
+  ) =>
     http<{ ok: boolean }>(
-      `/api/projects/${projectId}/montage-board/delete-image?frame_number=${frameNumber}&shot=${shot}`,
+      `/api/projects/${projectId}/montage-board/delete-image?frame_number=${frameNumber}&shot=${shot}` +
+        `${slot ? `&slot=${slot}` : ""}`,
       { method: "POST" },
     ),
 
@@ -1629,50 +1971,22 @@ export const api = {
       { method: "POST" },
     ),
 
-  uploadMontageImage: async (projectId: number, frameNumber: number, shot: 1 | 2, file: File) => {
+  uploadMontageImage: async (
+    projectId: number,
+    frameNumber: number,
+    shot: 1 | 2,
+    file: File,
+    slot?: "parent" | "",
+  ) => {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch(
-      `/api/projects/${projectId}/montage-board/upload-image?frame_number=${frameNumber}&shot=${shot}`,
-      { method: "POST", body: fd, headers: authHeaders() },
+      `/api/projects/${projectId}/montage-board/upload-image?frame_number=${frameNumber}&shot=${shot}` +
+        `${slot ? `&slot=${slot}` : ""}`,
+      { method: "POST", body: fd },
     );
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ ok: boolean; preview_url: string }>;
-  },
-
-  uploadMontageVideo: async (projectId: number, frameNumber: number, shot: 1 | 2, file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch(
-      `/api/projects/${projectId}/montage-board/upload-video?frame_number=${frameNumber}&shot=${shot}`,
-      { method: "POST", body: fd, headers: authHeaders() },
-    );
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return res.json() as Promise<{ ok: boolean; preview_url: string }>;
-  },
-
-  uploadMontageVoice: async (projectId: number, file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch(`/api/projects/${projectId}/montage-board/upload-voice`, {
-      method: "POST",
-      body: fd,
-      headers: authHeaders(),
-    });
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return res.json() as Promise<{ ok: boolean; path: string }>;
-  },
-
-  uploadMontageMusic: async (projectId: number, file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch(`/api/projects/${projectId}/montage-board/upload-music`, {
-      method: "POST",
-      body: fd,
-      headers: authHeaders(),
-    });
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return res.json() as Promise<{ ok: boolean; path: string }>;
   },
 
   montageRefAssets: (projectId: number) =>
@@ -1712,7 +2026,6 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/montage-board/refs?${q}`, {
       method: "POST",
       body: fd,
-      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ ok: boolean }>;
@@ -1731,7 +2044,40 @@ export const api = {
       { method: "POST" },
     ),
 
-  // ── Runs ─────────────────────────────────────────────────────────
+  uploadMontageVideo: async (projectId: number, frameNumber: number, shot: 1 | 2, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(
+      `/api/projects/${projectId}/montage-board/upload-video?frame_number=${frameNumber}&shot=${shot}`,
+      { method: "POST", body: fd },
+    );
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.json() as Promise<{ ok: boolean; preview_url: string }>;
+  },
+
+  uploadMontageVoice: async (projectId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/projects/${projectId}/montage-board/upload-voice`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.json() as Promise<{ ok: boolean; path: string }>;
+  },
+
+  uploadMontageMusic: async (projectId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/projects/${projectId}/montage-board/upload-music`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.json() as Promise<{ ok: boolean; path: string }>;
+  },
+
+  // в”Ђв”Ђ Runs в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   listRuns: () => http<WorkflowRunDetail[]>(`/api/runs`),
   getRun: (id: number) => http<WorkflowRunDetail>(`/api/runs/${id}`),
   startRunFromWorkflow: (workflowId: number, body: { project_id?: number; topic?: string; hero_mode?: string }) =>
@@ -1742,7 +2088,7 @@ export const api = {
   cancelRun: (id: number) =>
     http<WorkflowRunDetail>(`/api/runs/${id}/cancel`, { method: "POST" }),
 
-  // ── HITL ─────────────────────────────────────────────────────────
+  // в”Ђв”Ђ HITL в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   listPendingHitl: () => http<HITLDTO[]>(`/api/hitl/pending`),
   listProjectHitl: (projectId: number) =>
     http<HITLDTO[]>(`/api/hitl/project/${projectId}`),
@@ -1754,13 +2100,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  visionDecision: (projectId: number, action: "more_rounds" | "accept_pending") =>
-    http<ProjectDetail>(`/api/projects/${projectId}/vision-decision`, {
-      method: "POST",
-      body: JSON.stringify({ action }),
-    }),
 
-  // ── Prompts ──────────────────────────────────────────────────────
+  // в”Ђв”Ђ Prompts в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   listPrompts: () => http<PromptDTO[]>(`/api/prompts`),
   patchPrompt: (id: number, body: { text?: string; active?: boolean }) =>
     http<PromptDTO>(`/api/prompts/${id}`, {
@@ -1768,7 +2109,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  // ── Artifacts ────────────────────────────────────────────────────
+  // в”Ђв”Ђ Artifacts в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   listArtifacts: (params: { project_id?: number; frame_id?: number; kind?: string }) => {
     const q = new URLSearchParams();
     if (params.project_id != null) q.set("project_id", String(params.project_id));
@@ -1778,7 +2119,7 @@ export const api = {
   },
   artifactFileUrl: (uuid: string) => `/api/artifacts/${uuid}/file`,
 
-  // ── Prompt studio (blocks v2) ────────────────────────────────────
+  // в”Ђв”Ђ Prompt studio (blocks v2) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   promptStudioCatalog: () =>
     http<{
       block_categories: Record<string, string[]>;
@@ -1851,7 +2192,7 @@ export const api = {
       `/api/prompt-studio/projects/${projectId}/prompt-config`,
       { method: "PATCH", body: JSON.stringify(body) }
     ),
-  // Блочный редактор шаблона шага (steps/<id>/template.md, карточки 1..N).
+  // Р‘Р»РѕС‡РЅС‹Р№ СЂРµРґР°РєС‚РѕСЂ С€Р°Р±Р»РѕРЅР° С€Р°РіР° (steps/<id>/template.md, РєР°СЂС‚РѕС‡РєРё 1..N).
   getStepTemplate: (stepId: string) =>
     http<{ step_id: string; blocks: StepTemplateBlock[] }>(
       `/api/prompt-studio/step-template/${stepId}`
@@ -2097,7 +2438,6 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/mass-lanes/parse-topics`, {
       method: "POST",
       body: fd,
-      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{
@@ -2136,10 +2476,6 @@ export const api = {
         model?: string | null;
         elapsed_sec?: number | null;
         elapsed_label?: string | null;
-        provider?: "outsee" | "kie" | string | null;
-        params?: Record<string, unknown> | null;
-        reference_images?: string[] | null;
-        first_frame_url?: string | null;
       }[]
     >(
       `/api/outsee-create/history?kind=${kind}&scope=${opts?.scope ?? "create"}&limit=${opts?.limit ?? 60}`,
@@ -2154,14 +2490,10 @@ export const api = {
     );
   },
   enhanceOutseeCreatePrompt: (data: { prompt: string; style?: string }) =>
-    http<{ ok: boolean; enhanced_prompt: string }>(
-      `/api/outsee-create/enhance-prompt`,
-      {
-        method: "POST",
-        body: JSON.stringify(data),
-      },
-      45_000,
-    ),
+    http<{ ok: boolean; enhanced_prompt: string }>(`/api/outsee-create/enhance-prompt`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 
   outseeStatus: () =>
     http<{
@@ -2217,7 +2549,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       },
-      180_000,
+      60_000,
     ),
 
   outseeJob: (jobId: string) =>
@@ -2294,7 +2626,7 @@ export const api = {
       }[];
     }>(`/api/create/queue`),
 
-  // ---- KIE Create (вкладка «Генерация», провайдер kie.ai) ----
+  // ---- KIE Create (РІРєР»Р°РґРєР° В«Р“РµРЅРµСЂР°С†РёСЏВ», РїСЂРѕРІР°Р№РґРµСЂ kie.ai) ----
   kieCatalog: () =>
     http<KieCatalog>(`/api/kie-create/catalog`),
   kieCredits: () =>
@@ -2312,14 +2644,10 @@ export const api = {
         queue_position?: number | null;
       };
       estimate: { credits: number; usd: number; note?: string };
-    }>(
-      `/api/kie-create/generate`,
-      {
-        method: "POST",
-        body: JSON.stringify(body),
-      },
-      180_000,
-    ),
+    }>(`/api/kie-create/generate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   kieUpload: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -2382,6 +2710,8 @@ export const api = {
       : "";
     return `/api/projects/${projectId}/xlsx${q}`;
   },
+  projectShotsReportUrl: (projectId: number) =>
+    `/api/projects/${projectId}/shots-report`,
   reloadProjectXlsx: (projectId: number) =>
     http<ProjectDetail>(`/api/projects/${projectId}/xlsx/reload`, { method: "POST" }),
   uploadProjectXlsx: async (
@@ -2397,7 +2727,6 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/xlsx/upload${q}`, {
       method: "POST",
       body: fd,
-      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<ProjectDetail>;
@@ -2438,7 +2767,6 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/assets/hero/replace${q}`, {
       method: "POST",
       body: fd,
-      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ path: string; preview_url: string; id: string }>;
@@ -2459,7 +2787,7 @@ export const api = {
       }[]
     >(`/api/projects/${projectId}/media-review?kind=${kind}`),
 
-  // ── Prompt files (prompts/<step>/*.md на диске) ────────────────────
+  // в”Ђв”Ђ Prompt files (prompts/<step>/*.md РЅР° РґРёСЃРєРµ) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   getGlobalActivePrompts: () =>
     http<Record<string, string>>("/api/prompt-files/global-active"),
   listPromptFiles: (stepCode: string) =>
@@ -2491,7 +2819,6 @@ export const api = {
     const res = await fetch(`/api/prompt-files/${stepCode}/upload${q}`, {
       method: "POST",
       body: fd,
-      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<PromptFileInfo>;
@@ -2525,7 +2852,7 @@ export const api = {
       { method: "POST" },
     ),
 
-  // ── Local library (data/library + SQLite versions) ────────────────
+  // в”Ђв”Ђ Local library (data/library + SQLite versions) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
   listLibraryItems: (params?: { kind?: string; q?: string }) => {
     const q = new URLSearchParams();
     if (params?.kind) q.set("kind", params.kind);
@@ -2588,7 +2915,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  // ── GPT Workspace (свободный чат) ──
+  // в”Ђв”Ђ GPT Workspace (СЃРІРѕР±РѕРґРЅС‹Р№ С‡Р°С‚) в”Ђв”Ђ
   gptListSessions: () =>
     http<{ sessions: GptWorkspaceSessionSummary[] }>(`/api/gpt-workspace/sessions`),
   gptCreateSession: (title?: string) =>
@@ -2617,7 +2944,7 @@ export const api = {
     }
     const res = await fetch(
       `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/attachments`,
-      { method: "POST", body: fd, headers: authHeaders() },
+      { method: "POST", body: fd },
     );
     if (!res.ok) throw new ApiError(res.status, await res.text());
     const body = await res.json();
@@ -2639,7 +2966,7 @@ export const api = {
       { method: "POST" },
     ),
   gptAsk: (sessionId: string, message: string, withAttachments = true) =>
-    // Совпадает с бэкендом gpt_workspace ask_timeout=1800с (30 мин).
+    // РЎРѕРІРїР°РґР°РµС‚ СЃ Р±СЌРєРµРЅРґРѕРј gpt_workspace ask_timeout=1800СЃ (30 РјРёРЅ).
     http<GptWorkspaceSession>(
       `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/ask`,
       {
@@ -2666,10 +2993,7 @@ export const api = {
         `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/ask-stream`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders(),
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message, with_attachments: withAttachments }),
           signal,
         },
@@ -2725,6 +3049,9 @@ export const api = {
       }
       throw err;
     }
+    if (!doneReceived && !signal?.aborted) {
+      callbacks?.onError?.("РЎС‚СЂРёРј РѕР±РѕСЂРІР°Р»СЃСЏ Р±РµР· РѕС‚РІРµС‚Р° РѕС‚ РјРѕРґРµР»Рё");
+    }
   },
   gptSaveToProject: (
     sessionId: string,
@@ -2742,12 +3069,6 @@ export const api = {
       `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/save-voiceover`,
       { method: "POST", body: JSON.stringify(body) },
     ),
-  textLlmStatus: () => http<any>(`/api/text-llm`),
-  textLlmSelect: (body: { provider?: string; model_id?: string; reasoning_effort?: string }) =>
-    http<any>(`/api/text-llm`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    }),
   compileMetaPrompt: (body: {
     step_code: string;
     user_intent: string;
@@ -2864,6 +3185,8 @@ export interface PromptFileInfo {
   size: number;
   modified: number | null;
   is_default: boolean;
+  title?: string | null;
+  description?: string | null;
 }
 
 export interface PromptFileContent {
@@ -2890,11 +3213,11 @@ export interface PromptVersionContent {
 }
 
 /**
- * WebSocket подписка на канал. Возвращает функцию отписки.
+ * WebSocket РїРѕРґРїРёСЃРєР° РЅР° РєР°РЅР°Р». Р’РѕР·РІСЂР°С‰Р°РµС‚ С„СѓРЅРєС†РёСЋ РѕС‚РїРёСЃРєРё.
  * channel: "global" | "runs.<id>" | "projects.<id>" | "hitl.<id>" | "logs.<id>"
  *
- * Один сокет на channel (hub): иначе React remount / несколько панелей /
- * CONNECTING без close() копят 100+ WS и душат backend (anim_pr / GPT).
+ * РћРґРёРЅ СЃРѕРєРµС‚ РЅР° channel (hub): РёРЅР°С‡Рµ React remount / РЅРµСЃРєРѕР»СЊРєРѕ РїР°РЅРµР»РµР№ /
+ * CONNECTING Р±РµР· close() РєРѕРїСЏС‚ 100+ WS Рё РґСѓС€Р°С‚ backend (anim_pr / GPT).
  */
 type WsHandler = (event: unknown) => void;
 
@@ -2914,7 +3237,7 @@ const WS_BACKOFF_MAX_MS = 15000;
 function _wsCloseQuiet(ws: WebSocket | null): void {
   if (!ws) return;
   try {
-    // Важно: CLOSE и CONNECTING — иначе orphan-сокеты копятся.
+    // Р’Р°Р¶РЅРѕ: CLOSE Рё CONNECTING вЂ” РёРЅР°С‡Рµ orphan-СЃРѕРєРµС‚С‹ РєРѕРїСЏС‚СЃСЏ.
     if (
       ws.readyState === WebSocket.CONNECTING ||
       ws.readyState === WebSocket.OPEN
@@ -2970,7 +3293,7 @@ function _wsConnectHub(hub: WsHub): void {
     }, delay);
   });
   ws.addEventListener("error", () => {
-    // close handler сделает reconnect
+    // close handler СЃРґРµР»Р°РµС‚ reconnect
   });
 }
 

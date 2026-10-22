@@ -13,12 +13,7 @@ export type GenStyleArt =
   | "infographic"
   | "photo"
   | "tutor"
-  | "retro"
-  | "concept"
-  | "anime"
-  | "fashion"
-  | "nature"
-  | "diagram";
+  | "retro";
 
 export type GenStyleDef = {
   id: string;
@@ -34,8 +29,6 @@ export type GenStyleDef = {
   color: "red" | "purple" | "gray" | "orange" | "cyan" | "blue" | "green" | "pink" | "yellow";
   tags: string[];
   promptCore: string;
-  /** Негативный промпт стиля (чего избегать). */
-  negativePrompt?: string;
 };
 
 export type GenCategoryDef = {
@@ -55,110 +48,68 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "trash_polka_noir_short",
         art: "polka",
-        cover: "/gen-styles/trash_polka_noir_short.webp",
         name: "Треш-полька нуар",
         file: "visual_style/trash_polka_noir_short.md",
         desc: "Grunge poster, ink splash, blood-red акценты, distressed paper",
         color: "red",
         tags: ["true-crime", "драма", "история", "постер", "взрослые"],
         promptCore:
-          "Trash Polka Noir Comic Grunge Poster Illustration: trash polka aesthetic, dark graphic novel art, high-contrast mixed media grunge poster. Palette: stark black, off-white, dirty cream, charcoal, and vivid blood-red splash accents. Raw ink splatters, energetic brush strokes, halftone dots, distressed vintage paper texture, gritty ink linework, single dramatic focal point.",
+          "Trash Polka Noir Comic Grunge Poster Illustration: trash polka + dark comic book + grunge poster + high-contrast mixed media. Палитра: black, off-white, dirty cream, charcoal, vivid blood-red accents. Raw brush smears, ink splashes, halftone, distressed paper, gritty inking, poster-like single focal point. Не clean minimalist, не photorealism, не collage panels.",
       },
       {
         id: "micro_pixelart",
         art: "pixel",
-        cover: "/gen-styles/micro_pixelart.webp",
         name: "Микро-пиксельарт",
         file: "visual_style/micro_pixelart.md",
-        desc: "16-bit pixel art, четкие пиксели, ретро-гейм эстетика",
+        desc: "Cinematic pixel, subpixel shading, мягкий дизеринг",
         color: "purple",
         tags: ["игры", "технологии", "коты", "ночь", "кибер"],
         promptCore:
-          "Detailed 16-bit pixel art illustration: authentic handcrafted pixel art aesthetic, crisp visible pixels, rich pixel shading, artistic color dithering, retro cinematic game atmosphere, vibrant color harmony, distinct pixel art sprites and textures. Pure 16-bit pixel art video game art style.",
-      },
-      {
-        id: "anime_cyber_tokyo",
-        art: "anime",
-        cover: "/gen-styles/anime_cyber_tokyo.webp",
-        name: "Киберпанк аниме",
-        file: "visual_style/anime_cyber_tokyo.md",
-        desc: "Неоновый Токио, детальные аниме-фоны, мокрый асфальт, вывески",
-        color: "pink",
-        tags: ["аниме", "киберпанк", "неон", "город", "ночь"],
-        promptCore:
-          "High-end anime film still, neo-tokyo cyberpunk aesthetic, intricate anime background art, dramatic wet reflections on streets, glowing holographic signage and neon lights, rich cinematic color palette, Studio Ghibli meets Ghost in the Shell background fidelity, crisp linework. No photorealism, no 3D render, no flat amateur art.",
-      },
-      {
-        id: "animation_pixar_3d",
-        art: "clay",
-        cover: "/gen-styles/animation_pixar_3d.webp",
-        name: "3D Мультфильм",
-        file: "visual_style/animation_pixar_3d.md",
-        desc: "Выразительные персонажи, мягкий студийный свет, объемный рендер",
-        color: "orange",
-        tags: ["3D", "персонажи", "сказка", "дети", "юмор"],
-        promptCore:
-          "Award-winning 3D animated feature film still: stylized expressive characters, warm volumetrics, soft studio key lighting, rich tactile subsurface scattering, tactile textures, Pixar and DreamWorks look, rich emotive atmosphere. Stylized 3D CGI animation render.",
-      },
-      {
-        id: "comic_watercolor_ink",
-        art: "polka",
-        cover: "/gen-styles/comic_watercolor_ink.webp",
-        name: "Акварельный комикс",
-        file: "visual_style/comic_watercolor_ink.md",
-        desc: "Франко-бельгийский стиль BD, легкая тушь, акварельные переходы",
-        color: "cyan",
-        tags: ["комикс", "акварель", "иллюстрация", "литература", "история"],
-        promptCore:
-          "European BD comic book graphic novel illustration: delicate ink line art, soft watercolor wash gradients, elegant crosshatching, expressive character silhouettes, textured artist watercolor paper, poetic mood. Graphic novel watercolor illustration.",
+          "Mature cinematic pixel art: ultra detailed cinematic pixel art, pixel-painted character design, premium pixel-art animation still, near-invisible pixel grid, subpixel shading, soft dithering. Не retro 8-bit, не крупные пиксели, не photorealism, не anime, не 3D render.",
       },
       {
         id: "noir_true_crime_poster",
         art: "noir",
-        cover: "/gen-styles/noir_true_crime_poster.webp",
         name: "Нуар true-crime",
         file: "visual_style/noir_true_crime_poster.md",
         desc: "Graphic novel, halftone grain, тяжёлые чёрные тени",
         color: "gray",
         tags: ["true-crime", "детектив", "ночь", "город", "документалка"],
         promptCore:
-          "Noir Graphic Novel True-Crime Thriller Poster: gritty noir graphic novel style, high-contrast crime thriller poster art, deep pitch-black shadows, stark chiaroscuro lighting, rough print texture with halftone dots and film scratches, dirty cream highlights, vivid crimson blood-red accents.",
+          "Noir Graphic Novel True-Crime Thriller Poster: noir graphic novel + gritty crime thriller poster + true-crime documentary title-image mood. Heavy black shadows, rough printed texture, halftone grain, scratch marks, dirty cream highlights, blood-red accents, high contrast. Не bright colors, не clean vector, не cute, не photorealism.",
       },
       {
         id: "clay_plasticine_2d",
         art: "clay",
-        cover: "/gen-styles/clay_plasticine_2d.webp",
         name: "Пластилин",
         file: "visual_style/clay_plasticine_2d.md",
         desc: "Claymation-миниатюра, отпечатки пальцев, matte texture",
         color: "orange",
         tags: ["дети", "сказка", "уют", "еда", "обучение"],
         promptCore:
-          "Claymation Plasticine Miniature Illustration: handcrafted polymer clay model, authentic tactile clay texture with subtle fingerprints and matte finish, soft rounded clay sculpts, warm earthy stop-motion lighting, charming handmade tactile diorama aesthetic.",
+          "Claymation Plasticine 2D-Look Miniature Illustration: handcrafted miniature scene, muted earthy colors, soft rounded edges, fingerprints, matte texture, slight imperfections, stop-motion charm, soft shadows, vintage educational mood. Не sharp vector, не photorealism, не glossy 3D, не neon.",
       },
       {
         id: "textile_cut_paper_knitted",
         art: "knit",
-        cover: "/gen-styles/textile_cut_paper_knitted.webp",
         name: "Вязаный / войлок",
         file: "visual_style/textile_cut_paper_knitted.md",
         desc: "Textile, cut-paper, тёплая осенняя палитра, вышивка",
         color: "cyan",
         tags: ["дети", "сказка", "зима", "уют", "животные"],
         promptCore:
-          "Handcrafted Textile and Cut-Paper Illustration: layered felt and textured craft paper collage, embroidered stitches, tactile woolen cloth textures, warm autumnal palette, cozy whimsical children's book aesthetic, soft dimensional papercraft shadows.",
+          "Textile Cut-Paper Family Illustration: children's book illustration, handmade textile texture, cut-paper / felt / embroidered fabric feel, stylized flat shapes, soft defined edges, layered surfaces, warm autumnal decorative palette, poetic emotional warmth. Не photorealistic humans, не glossy 3D, не anime.",
       },
       {
         id: "gritty_doc_noir_historical",
         art: "noir",
-        cover: "/gen-styles/gritty_doc_noir_historical.webp",
         name: "Док-нуар историч.",
         file: "visual_style/gritty_doc_noir_historical.md",
         desc: "Акварель и тушь, состаренная бумага, холодная луна",
         color: "blue",
         tags: ["история", "мистика", "документалка", "война", "тайны"],
         promptCore:
-          "Gritty Documentary Noir Historical Mystery Illustration: dark historical archival concept art, raw watercolor wash and expressive ink splatters on aged textured parchment, dramatic chiaroscuro shadows, cold moonlight with faded sepia and muted navy tones, mysterious atmospheric focal point.",
+          "Gritty Documentary Noir Historical Mystery Illustration: gritty documentary noir + dark historical concept art + cinematic mystery atmosphere. Watercolor and ink texture, rough brush strokes, aged paper grain, dramatic shadows, cold moonlight, muted gray-blue palette, faded sepia, small warm lamp highlights. Одна unified atmospheric scene, не collage, не cartoon.",
       },
     ],
   },
@@ -170,86 +121,58 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "infographic_tutor",
         art: "tutor",
-        cover: "/gen-styles/infographic_tutor.webp",
+        cover: "/gen-styles/infographic_tutor.jpg",
         name: "Tutor",
         file: "visual_style/infographic_tutor.md",
-        desc: "Обложка урока: крупный заголовок, 3D-тьютор у доски, кремовая палитра",
+        desc: "Обложка урока: крупный округлый заголовок, 3D-тьютор у доски, кремовая палитра",
         color: "yellow",
         tags: ["обучение", "обложка", "3D-тьютор", "заголовок", "урок"],
         promptCore:
-          "Tutor Title Card: stylized educational vertical poster. Ultra-detailed 3D animated movie aesthetic, cute fluffy animal tutor with a pointer at a dark chalkboard, warm cozy classroom setting, Pixar-like 3D render, soft studio lighting. Bold rounded display typography, clean uppercase headline, cream-beige backdrop with dark graphite blackboard and warm amber orange accents.",
-      },
-      {
-        id: "infographic_isometric_cutaway",
-        art: "diagram",
-        cover: "/gen-styles/infographic_isometric_cutaway.webp",
-        name: "3D Разрез в изометрии",
-        file: "visual_style/infographic_isometric_cutaway.md",
-        desc: "Архитектурный или технический разрез в изометрии, детализированные уровни",
-        color: "purple",
-        tags: ["3D", "изометрия", "схема", "архитектура", "технологии"],
-        promptCore:
-          "Detailed isometric 3D cutaway diorama illustration: cross-section revealing interior layers and rooms, miniature architectural model aesthetic, soft directional lighting, crisp clean lines, vibrant thematic color accents, educational exploded view. Stylized 3D isometric diorama.",
-      },
-      {
-        id: "infographic_modern_dashboard",
-        art: "diagram",
-        cover: "/gen-styles/infographic_modern_dashboard.webp",
-        name: "UI Дашборд / Glass",
-        file: "visual_style/infographic_modern_dashboard.md",
-        desc: "Премиальный интерфейс, матовое стекло, графики и карточки данных",
-        color: "cyan",
-        tags: ["UI", "бизнес", "технологии", "веб", "данные"],
-        promptCore:
-          "Modern high-tech UI dashboard presentation: floating dark glassmorphism cards, glowing telemetry graphs, sleek typography, clean data visualizations, minimalist isometric angle, soft ambient cyan and violet lighting.",
+          "Tutor Title Card: вертикальная обложка урока. Ultra-detailed 3D animated movie style, cute fluffy animal tutor with a pointer at a dark chalkboard, warm cozy classroom, Pixar-like render, soft studio lighting. Шрифт: жирный округлый display sans (Baloo / Nunito ExtraBold look); заголовок крупно сверху по центру, 2–4 слова из темы кадра, CAPS; подзаголовок тем же шрифтом меньшим кеглем; бейдж-стикер в углу («УРОК 1», «ПРАКТИКА»). Одна иллюстрация — герой кадра: тьютор у доски с меловой схемой по теме. Цвета: кремово-бежевый фон, тёмно-графитовая доска, оранжево-рыжие акценты. Механики: заголовок и подзаголовок из темы кадра, доска меняется под смысл фрагмента, эмоция тьютора — по тону озвучки. Не photorealism, не 2D, не несколько персонажей.",
       },
       {
         id: "infographic_flat_vector",
         art: "infographic",
-        cover: "/gen-styles/infographic_flat_vector.webp",
         name: "Flat vector",
         file: "visual_style/infographic_flat_vector.md",
         desc: "Плоские формы, иконки, стрелки, 2–4 акцентных цвета",
         color: "blue",
         tags: ["бизнес", "обучение", "технологии", "финансы", "шаги"],
         promptCore:
-          "Flat Vector Infographic Illustration: minimalist flat 2D vector graphic art, bold clean icons, modern flow diagrams, cohesive limited color palette (2-4 accent colors), sharp vector lines, ample clean negative space, corporate editorial infographic aesthetic.",
+          "Flat Vector Infographic Illustration: clean flat vector shapes, bold simple icons, arrows and flow diagrams, limited bright palette (2–4 accent colors), clear visual hierarchy, generous white space, crisp edges. Не photorealism, не 3D render, не текстуры, не мелкая детализация.",
       },
       {
         id: "infographic_isometric_data",
         art: "infographic",
-        cover: "/gen-styles/infographic_isometric_data.webp",
         name: "Изометрия data",
         file: "visual_style/infographic_isometric_data.md",
         desc: "Изометрические диаграммы, парящие блоки данных, сетка",
         color: "cyan",
         tags: ["данные", "технологии", "финансы", "статистика", "стартапы"],
         promptCore:
-          "Isometric Data 3D Illustration: clean isometric projection, 3D geometric charts and floating data cubes, sleek tech color palette (cyan, navy blue, white with warm orange accent), soft ambient shadows, precise technical diagram aesthetic.",
+          "Isometric Data Illustration: isometric 3D bars, pie charts and floating data blocks, clean geometric grid, soft even shadows, tech palette (blue, cyan, white, one warm accent), subtle depth without perspective distortion. Не фото, не hand-drawn, не реальная перспектива.",
       },
       {
         id: "infographic_chalkboard_sketch",
         art: "infographic",
-        cover: "/gen-styles/infographic_chalkboard_sketch.webp",
         name: "Меловая доска",
         file: "visual_style/infographic_chalkboard_sketch.md",
         desc: "Рукотворные маркерные схемы, стрелки, стик-фигуры",
         color: "green",
         tags: ["обучение", "лайфхаки", "план", "идеи", "наука"],
         promptCore:
-          "Chalkboard Sketch Infographic: hand-drawn chalk illustrations on dark slate blackboard, authentic chalk dust and smudge textures, crisp white and pastel chalk lines, hand-lettered labels and diagram arrows, cozy classroom lecture visual.",
+          "Chalkboard / Whiteboard Sketch Infographic: hand-drawn marker or chalk diagrams, arrows, stick figures, underlined keywords, slightly uneven lines, chalk dust texture on dark board или маркер на белой доске. Не чистый вектор, не идеальная геометрия, не photorealism.",
       },
       {
         id: "infographic_blueprint",
         art: "infographic",
-        cover: "/gen-styles/infographic_blueprint.webp",
         name: "Blueprint",
         file: "visual_style/infographic_blueprint.md",
         desc: "Белые линии на синьке, размерные линии, сечения",
         color: "blue",
         tags: ["техника", "механизмы", "архитектура", "наука", "изобретения"],
         promptCore:
-          "Architectural Blueprint Technical Drawing: crisp white drafting schematics on classic cyan-blue blueprint paper, fine grid lines, architectural cross-sections, precision technical annotations, vintage engineering draft aesthetic.",
+          "Blueprint Technical Drawing: white line schematics on blueprint blue background, dimension lines, cross-sections, grid paper texture, technical annotations, precise drafting style. Не цветные заливки, не фото, не мультяшные формы.",
       },
     ],
   },
@@ -261,74 +184,46 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
       {
         id: "photo_cinematic_film_still",
         art: "photo",
-        cover: "/gen-styles/photo_cinematic_film_still.webp",
         name: "Кинокадр",
         file: "visual_style/photo_cinematic_film_still.md",
         desc: "Анаморфот, малая ГРИП, киношный грейдинг",
         color: "orange",
         tags: ["драма", "кино", "история", "портрет", "ночь"],
         promptCore:
-          "Cinematic 35mm Film Still: captured on Panavision anamorphic lens, shallow depth of field, rich cinematic color grade, subtle film grain, natural rim lighting, soft halation around highlights, atmospheric movie screenshot quality.",
-      },
-      {
-        id: "photo_editorial_portrait",
-        art: "fashion",
-        cover: "/gen-styles/photo_editorial_portrait.webp",
-        name: "Fashion портрет",
-        file: "visual_style/photo_editorial_portrait.md",
-        desc: "Студийный портрет для журнала, контролируемый свет, фактура кожи",
-        color: "yellow",
-        tags: ["портрет", "мода", "люди", "глянец", "студия"],
-        promptCore:
-          "High-fashion editorial studio portrait: dramatic split and rim lighting, authentic skin texture with fine pores, cinematic depth of field, minimalist studio background, elegant pose, captured on medium format Hasselblad camera, 85mm prime lens. Professional studio portrait.",
-      },
-      {
-        id: "photo_wildlife_natgeo",
-        art: "nature",
-        cover: "/gen-styles/photo_wildlife_natgeo.webp",
-        name: "Дикая природа / NatGeo",
-        file: "visual_style/photo_wildlife_natgeo.md",
-        desc: "Крупный план животных в среде, телеобъектив, мягкий золотой свет",
-        color: "green",
-        tags: ["природа", "животные", "natgeo", "пейзаж", "золотой час"],
-        promptCore:
-          "National Geographic style wildlife photography: tack-sharp focus on animal eyes, natural golden hour sunlight, soft creamy background bokeh, authentic natural habitat, 400mm telephoto lens compression, breathtaking candid wildlife moment.",
+          "Cinematic Film Still Photo: anamorphic lens look, shallow depth of field, filmic color grading, natural skin tones, soft halation on highlights, киношный кадр как стоп-кадр из фильма. Не мульт, не 3D render, не flat vector, не постерная графика.",
       },
       {
         id: "photo_documentary",
         art: "photo",
-        cover: "/gen-styles/photo_documentary.webp",
         name: "Документальное",
         file: "visual_style/photo_documentary.md",
         desc: "Репортаж, естественный свет, зерно 35mm",
         color: "gray",
         tags: ["реальность", "люди", "город", "репортаж", "соцтемы"],
         promptCore:
-          "Documentary Photojournalism: authentic candid 35mm street photography, natural ambient lighting, genuine unposed composition, Kodak Tri-X film grain, muted realistic documentary color tones, compelling visual storytelling.",
+          "Documentary Photo: candid unposed moment, natural available light, 35mm film grain, honest muted colors, reportage composition, лёгкая несовершенность кадра как у реальной съёмки. Не постановочный глянец, не иллюстрация, не студийный свет.",
       },
       {
         id: "photo_macro_product",
         art: "photo",
-        cover: "/gen-styles/photo_macro_product.webp",
         name: "Макро-предметка",
         file: "visual_style/photo_macro_product.md",
         desc: "Предмет крупно, студийный свет, премиальный глянец",
         color: "yellow",
         tags: ["предметы", "еда", "техника", "детали", "реклама"],
         promptCore:
-          "Commercial Macro Studio Product Photography: extreme high-resolution close-up, razor-sharp micro details, shallow depth of field, soft seamless studio backdrop, controlled softbox diffusion lighting, commercial luxury advertising quality.",
+          "Macro Product Photography: extreme close-up, crisp micro-details, shallow focus, clean seamless background, controlled studio light, premium advertising look. Не иллюстрация, не сцена с персонажами, не захламлённый фон.",
       },
       {
         id: "photo_night_street",
         art: "photo",
-        cover: "/gen-styles/photo_night_street.webp",
         name: "Ночная улица",
         file: "visual_style/photo_night_street.md",
         desc: "Зерно высокого ISO, неон, мокрый асфальт, смаз",
         color: "pink",
         tags: ["город", "ночь", "неон", "молодёжь", "музыка"],
         promptCore:
-          "Cinematic Night Street Photography: moody rain-slicked asphalt reflecting vibrant neon city lights, natural high-ISO film grain, dramatic urban shadows, atmospheric night street scene, shallow depth of field.",
+          "Night Street Photography: high ISO grain, neon and shop-window reflections, wet asphalt, motion blur, candid urban night scenes, contrasty available light. Не студийный свет, не иллюстрация, не дневной кадр.",
       },
     ],
   },
@@ -338,131 +233,48 @@ export const GEN_ASSISTANT_CATEGORIES: GenCategoryDef[] = [
     name: "Ретро/архив",
     styles: [
       {
-        id: "retro_synthwave_80s",
-        art: "retro",
-        cover: "/gen-styles/retro_synthwave_80s.webp",
-        name: "Синтвейв 80-х",
-        file: "visual_style/retro_synthwave_80s.md",
-        desc: "Неоновая сетка, хром, фиолетово-бирюзовый закат, VHS",
-        color: "pink",
-        tags: ["80е", "синтвейв", "неон", "кибер", "музыка"],
-        promptCore:
-          "1980s retro synthwave outrun aesthetic: glowing neon grid landscape extending into a magenta and cyan horizon, low-poly wireframe mountain peaks, chrome reflections, vibrant sunset gradient, nostalgic VHS tape scanline glow.",
-      },
-      {
-        id: "retro_propaganda_poster",
-        art: "retro",
-        cover: "/gen-styles/retro_propaganda_poster.webp",
-        name: "Ретро-постер / Пин-ап",
-        file: "visual_style/retro_propaganda_poster.md",
-        desc: "Графика середины XX века, шелкография, текстура крафта",
-        color: "orange",
-        tags: ["винтаж", "постер", "середина века", "арт", "история"],
-        promptCore:
-          "Mid-century vintage illustrated travel / propaganda poster: bold flat shapes, screen printing halftone texture, limited warm nostalgic palette, aged kraft paper grain, elegant retro typography, stylized heroic figures.",
-      },
-      {
         id: "retro_archive_8mm",
         art: "retro",
-        cover: "/gen-styles/retro_archive_8mm.webp",
         name: "Хроника 8мм",
         file: "visual_style/retro_archive_8mm.md",
         desc: "Зерно, царапины, выцветшие цвета, мерцание кадра",
         color: "yellow",
         tags: ["история", "хроника", "война", "семья", "XX век"],
         promptCore:
-          "Archival 8mm Vintage Film Still: authentic 1960s color film footage, gentle grain and film dust scratches, warm Kodachrome faded tones, soft vintage vignette, nostalgic historical documentary footage look.",
+          "Archival 8mm Film Chronicle: grainy faded footage look, scratches and dust, slight frame flicker, desaturated shifted colors, rounded frame corners, историческая хроника середины XX века. Не чистое цифровое фото, не современная цветокоррекция, не иллюстрация.",
       },
       {
         id: "retro_polaroid",
         art: "retro",
-        cover: "/gen-styles/retro_polaroid.webp",
         name: "Полароид",
         file: "visual_style/retro_polaroid.md",
         desc: "Вспышка в лоб, вымытые цвета, снимок 80–90х",
         color: "orange",
         tags: ["90е", "семья", "ностальгия", "вечеринка", "личное"],
         promptCore:
-          "Vintage Polaroid SX-70 Instant Photo: direct retro on-camera flash, soft muted pastel colors, authentic instant film chemical border feel, subtle light leaks, nostalgic 1980s candid memory snapshot.",
+          "Polaroid Snapshot: direct on-camera flash, washed-out colors, slight overexposure on faces, casual 80s–90s snapshot aesthetic, soft focus, instant-film palette. Не студийное фото, не иллюстрация, не современный глянец.",
       },
       {
         id: "retro_newspaper_print",
         art: "retro",
-        cover: "/gen-styles/retro_newspaper_print.webp",
         name: "Газетная печать",
         file: "visual_style/retro_newspaper_print.md",
         desc: "Растр, пожелтевшая бумага, старые чернила",
         color: "gray",
         tags: ["история", "скандал", "пресса", "XX век", "криминал"],
         promptCore:
-          "Vintage Halftone Newspaper Print: high-contrast monochrome printing on aged yellowed newsprint paper, authentic halftone dot screen pattern, ink bleed artifacts, retro 1950s investigative press illustration.",
+          "Vintage Newspaper Print: halftone photo dots, yellowed aged paper, column layout feel, aged black ink, slight print misregistration, старая газетная полоса или вырезка. Не чистое цифровое фото, не глянцевая печать, не иллюстрация.",
       },
       {
         id: "retro_investigation_board",
         art: "retro",
-        cover: "/gen-styles/retro_investigation_board.webp",
         name: "Доска расследования",
         file: "visual_style/retro_investigation_board.md",
         desc: "Пробковая доска, фото, красные нити, заметки",
         color: "red",
         tags: ["true-crime", "детектив", "тайны", "расследование", "улики"],
         promptCore:
-          "Detective Crime Investigation Wall: cork board pinned with Polaroid evidence photos, red string connecting clues, aged newspaper clippings, handwritten case notes, dramatic warm desk lamp illumination.",
-      },
-    ],
-  },
-  {
-    id: "art_concept",
-    art: "concept",
-    name: "Концепт-арт / 3D",
-    styles: [
-      {
-        id: "concept_dark_fantasy",
-        art: "concept",
-        cover: "/gen-styles/concept_dark_fantasy.webp",
-        name: "Тёмное фэнтези",
-        file: "visual_style/concept_dark_fantasy.md",
-        desc: "Эпический масштаб, мрачная готика, туман, эстетика Elden Ring",
-        color: "orange",
-        tags: ["фэнтези", "готика", "мистика", "игры", "пейзаж"],
-        promptCore:
-          "Epic dark fantasy concept art: vast colossal gothic ruins, dense atmospheric fog, moody chiaroscuro lighting, faint glowing embers and magic runes, grim painterly digital matte painting, FromSoftware aesthetic. No cheerful bright colors, no cartoonish styles, no clean modern elements.",
-      },
-      {
-        id: "concept_isometric_diorama",
-        art: "clay",
-        cover: "/gen-styles/concept_isometric_diorama.webp",
-        name: "Миниатюрная 3D-диорама",
-        file: "visual_style/concept_isometric_diorama.md",
-        desc: "Изометрический мини-мир, эффект tilt-shift, осязаемые игрушечные материалы",
-        color: "cyan",
-        tags: ["3D", "изометрия", "диорама", "игрушки", "уют"],
-        promptCore:
-          "Whimsical miniature 3D isometric diorama: tiny handcrafted scene floating in void, tilt-shift macro lens depth of field, soft warm directional studio key light, tactile matte materials, charming tiny details. No flat 2D vector, no chaotic crowds, no realistic human faces.",
-      },
-      {
-        id: "concept_prismatic_glass",
-        art: "concept",
-        cover: "/gen-styles/concept_prismatic_glass.webp",
-        name: "Призматическое стекло",
-        file: "visual_style/concept_prismatic_glass.md",
-        desc: "Полупрозрачные стеклянные формы, дисперсия света, радужные блики",
-        color: "purple",
-        tags: ["абстракция", "стекло", "премиум", "3D", "дизайн"],
-        promptCore:
-          "Surreal translucent glass sculpture: iridescent refractive glass shapes, chromatic dispersion and caustics, soft pastel rainbow reflections, minimalist studio composition, ethereal clean lighting. No dark muddy tones, no flat cartoons, no noisy textures.",
-      },
-      {
-        id: "concept_whimsical_watercolor",
-        art: "knit",
-        cover: "/gen-styles/concept_whimsical_watercolor.webp",
-        name: "Акварельная сказка",
-        file: "visual_style/concept_whimsical_watercolor.md",
-        desc: "Мягкая акварель, карандашные контуры, атмосфера детской книжной иллюстрации",
-        color: "green",
-        tags: ["сказка", "акварель", "уют", "дети", "природа"],
-        promptCore:
-          "Whimsical storybook children's illustration: soft transparent watercolor washes, delicate graphite pencil outlines, gentle pastel color harmony, cozy dreamy atmosphere, textured watercolor paper background. Storybook watercolor illustration art.",
+          "Detective Investigation Board: cork board with pinned photos, red string connections, handwritten notes, newspaper clippings, evidence markers, warm desk lamp light, true-crime research wall. Не цифровой интерфейс, не чистая иллюстрация, не пустой фон.",
       },
     ],
   },
@@ -473,17 +285,16 @@ export const GEN_ASSISTANT_ALL_STYLES: GenStyleDef[] =
 
 /** Цвета плиток в палитре окна генерации (dark + cyan accent). */
 export const GEN_STYLE_COLORS: Record<GenStyleDef["color"], string> = {
-  red: "var(--gen-style-red)",
-  purple: "var(--gen-style-purple)",
-  gray: "var(--gen-style-gray)",
-  orange: "var(--gen-style-orange)",
-  cyan: "var(--gen-style-cyan)",
-  blue: "var(--gen-style-blue)",
-  green: "var(--gen-style-green)",
-  pink: "var(--gen-style-pink)",
-  yellow: "var(--gen-style-yellow)",
+  red: "#f87171",
+  purple: "#c084fc",
+  gray: "#9ca3af",
+  orange: "#fb923c",
+  cyan: "#22d3ee",
+  blue: "#60a5fa",
+  green: "#4ade80",
+  pink: "#f472b6",
+  yellow: "#facc15",
 };
-
 
 /** Длиннее — это агент-инструкция со слотами, а не ядро стиля. */
 export const STYLE_CORE_MAX_CHARS = 700;
@@ -573,6 +384,32 @@ export function assistantRefHandle(index: number): string {
 }
 
 /** Сырой запрос без ответа LLM — в генератор картинки слать нельзя. */
+/** Заглушка агента, не любой ручной промпт, где встретилась фраза из гайда. */
+export function isStyleGuideStub(text: string): boolean {
+  const p = text.trim().toLowerCase();
+  if (!p.includes("not example objects from the style guide")) return false;
+  return p.length < 400 && p.includes("aspect ratio:");
+}
+
+/** Готовые промпты остаются на своих draftId, пустые слоты не сдвигают индексы. */
+export function pairAssistantPrompts(
+  texts: readonly string[],
+  draftIds: readonly string[] | undefined,
+  unfilled: (text: string) => boolean,
+): { ready: { text: string; draftId?: string }[]; unused: string[] } {
+  const ready: { text: string; draftId?: string }[] = [];
+  const used = new Set<string>();
+  texts.forEach((raw, index) => {
+    const text = raw.trim();
+    if (!text || unfilled(text)) return;
+    const draftId = draftIds?.[index];
+    if (draftId) used.add(draftId);
+    ready.push(draftId ? { text, draftId } : { text });
+  });
+  const unused = (draftIds || []).filter((id) => !used.has(id));
+  return { ready, unused };
+}
+
 export function isUnfilledAssistantPrompt(prompt: string, request = ""): boolean {
   const p = prompt.trim();
   const req = request.trim();

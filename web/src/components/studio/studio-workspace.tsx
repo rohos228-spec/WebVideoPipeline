@@ -15,7 +15,7 @@ import { NodeStudio } from "@/components/studio/node-studio";
 import { api } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { gptTextSlotForNode, resolvePromptSlots, resolvePromptSlotsForNode, type NodePromptSlot } from "@/lib/node-prompts";
-import { isExcelGptNode, EXCEL_GPT_STEP_CODE } from "@/lib/excel-gpt-config";
+import { isExcelGptNode, isShotsReportNode, EXCEL_GPT_STEP_CODE } from "@/lib/excel-gpt-config";
 import { withSlotVariant } from "@/lib/prompt-slot-storage";
 import { stepCodeForNodeType } from "@/lib/node-step-map";
 import { getNodeSpec } from "@/lib/node-catalog";
@@ -24,7 +24,6 @@ import { shouldShowStopBar } from "@/lib/project-running";
 import { useMontageBusy } from "@/hooks/use-montage-busy";
 import { isAiControlMode } from "@/lib/control-mode";
 import { HitlModal } from "@/components/hitl/hitl-banner";
-import { VisionPauseBanner } from "@/components/hitl/vision-pause-banner";
 import { hitlKindForNodeType } from "@/components/canvas/node-hitl-badge";
 import { NodeAiReviewDialog } from "@/components/canvas/node-ai-review-dialog";
 import { isHitlNodeType } from "@/lib/gpt-text-steps";
@@ -33,20 +32,17 @@ import {
   type NodeResultContext,
 } from "@/lib/node-result-resolver";
 import { NodeResultPanel } from "@/components/canvas/node-result-panel";
-import { AssembleMontageBoard } from "@/components/canvas/montage-board-router";
+import { AssembleMontageBoard } from "@/components/canvas/assemble-montage-board";
 import { ShotMenuBoard } from "@/components/canvas/shot-menu-board";
 
 export function StudioWorkspace({
   projectId,
-  workflowId = null,
   selectedNodeKey,
   onSelectNode,
   studioOpen,
   onStudioOpenChange,
 }: {
   projectId: number | null;
-  /** Режим шаблона: без проекта канвас правит этот Workflow. */
-  workflowId?: number | null;
   selectedNodeKey: string | null;
   onSelectNode: (key: string | null) => void;
   studioOpen: boolean;
@@ -61,9 +57,9 @@ export function StudioWorkspace({
     nodeKey: string;
     nodeType: string;
     promptFocus: NodePromptSlot | null;
-    tab: "settings" | "prompts" | "results";
+    tab: "settings" | "prompts" | "results" | "excel";
   } | null>(null);
-  const [studioTab, setStudioTab] = useState<"settings" | "prompts" | "results">(
+  const [studioTab, setStudioTab] = useState<"settings" | "prompts" | "results" | "excel">(
     "settings",
   );
   const [vMenuNodeKey, setVMenuNodeKey] = useState<string | null>(null);
@@ -89,7 +85,7 @@ export function StudioWorkspace({
   const setVMenuNodeKeySynced = useCallback(
     (key: string | null) => {
       if (key) onSelectNode(key);
-      setVMenuNodeKey(key);
+      setVMenuNodeKey(null); // old V-menu detached
     },
     [onSelectNode],
   );
@@ -123,22 +119,27 @@ export function StudioWorkspace({
     onSelectNode(null);
     setPromptFocus(null);
     setStudioTarget(null);
+    setInlineStudioKey(null);
     setStudioTab("settings");
     setVMenuNodeKey(null);
   }, [onStudioOpenChange, onSelectNode]);
 
-  const openStudioForNode = useCallback(
+  const [inlineStudioKey, setInlineStudioKey] = useState<string | null>(null);
+  const openStudioInline = useCallback(
     (
       nodeKey: string,
       nodeType: string,
       slot: NodePromptSlot | null,
-      tab: "settings" | "prompts" | "results" = "prompts",
+      tab: "settings" | "prompts" | "results" | "excel" = "prompts",
     ) => {
       suppressStudioOpenUntil.current = 0;
+      setInlineStudioKey(null);
       const resolvedTab =
-        slot?.kind === "excel"
+        slot?.kind === "excel" && isExcelGptNode(nodeType)
           ? "settings"
-          : tab;
+          : slot?.kind === "excel"
+            ? "excel"
+            : tab;
       let focus = slot;
       if (!focus) {
         const slots = resolvePromptSlots(nodeType, null);
@@ -148,10 +149,13 @@ export function StudioWorkspace({
           slots[0] ??
           null;
       }
-      const focusTab =
-        focus?.kind === "excel"
+      const focusTab = isShotsReportNode(nodeKey)
+        ? "results"
+        : slot?.kind === "excel" && isExcelGptNode(nodeType)
           ? "settings"
-          : resolvedTab;
+          : focus?.kind === "excel"
+            ? "excel"
+            : resolvedTab;
       setStudioTarget({
         nodeKey,
         nodeType,
@@ -165,6 +169,14 @@ export function StudioWorkspace({
       onStudioOpenChange(true);
     },
     [onSelectNode, onStudioOpenChange],
+  );
+  // Every legacy "open node studio" path now just expands the node inline.
+  const openStudioForNode = useCallback(
+    (nodeKey: string, _nodeType?: string, _slot?: NodePromptSlot | null, _tab?: string) => {
+      onSelectNode(nodeKey);
+      window.dispatchEvent(new CustomEvent("vp-node-inline-open", { detail: { nodeKey } }));
+    },
+    [onSelectNode],
   );
 
   useEffect(() => {
@@ -210,22 +222,27 @@ export function StudioWorkspace({
         toast.error("Сначала выберите проект");
         return;
       }
-      const d = (ev as CustomEvent<{ nodeKey?: string | null }>).detail ?? {};
+      const d = (ev as CustomEvent<{ nodeKey?: string | null; initialTab?: "settings" | "prompts"; inline?: boolean }>).detail ?? {};
       const nodeKey = d.nodeKey ?? selectedNodeKey;
       if (!nodeKey) {
         toast.error("Выберите ноду на канвасе");
         return;
       }
       const nodeType = nodeTypeFromKey(nodeKey);
-      if (nodeType === "topic") {
+      if (nodeType === "topic" && d.initialTab !== "settings") {
         toast.message("У ноды «Тема» нет файловых промтов");
         return;
       }
-      openStudioForNode(nodeKey, nodeType, null, "prompts");
+      if (!d.inline) {
+        openStudioForNode(nodeKey);
+        return;
+      }
+      openStudioInline(nodeKey, nodeType, null, d.initialTab ?? "prompts");
+      setInlineStudioKey(nodeKey);
     };
     window.addEventListener("studio-open-node-prompts", onOpenPrompts);
     return () => window.removeEventListener("studio-open-node-prompts", onOpenPrompts);
-  }, [projectId, selectedNodeKey, openStudioForNode]);
+  }, [projectId, selectedNodeKey, openStudioForNode, openStudioInline]);
 
   const project = useQuery({
     queryKey: ["project", projectId],
@@ -369,7 +386,12 @@ export function StudioWorkspace({
         openStudioForNode(nodeKey, nodeType, slot, "prompts");
       },
       onViewAllPrompts: (nodeKey: string, nodeType: string) => {
-        openStudioForNode(nodeKey, nodeType, null, "prompts");
+        if (nodeType === "images") {
+          const excel = getPromptSlots(nodeKey, nodeType).find((s) => s.kind === "excel");
+          openStudioForNode(nodeKey, nodeType, excel ?? null, "excel");
+        } else {
+          openStudioForNode(nodeKey, nodeType, null, "prompts");
+        }
       },
       onAddPrompt: async (nodeKey: string, nodeType: string) => {
         const meta = (project.data?.meta || {}) as {
@@ -433,7 +455,7 @@ export function StudioWorkspace({
       onRunNode: async (nodeKey: string, nodeType: string, mode: "full" | "resume" = "resume") => {
         if (!projectId) return;
         if (disabledNodes.has(nodeKey)) {
-          toast.error("Нода отключена — включите её в меню V");
+          toast.error("Нода отключена — включите её в настройках ноды");
           return;
         }
         const step = stepCodeForNodeType(nodeType);
@@ -454,10 +476,6 @@ export function StudioWorkspace({
           );
           qc.invalidateQueries({ queryKey: ["project", projectId] });
           qc.invalidateQueries({ queryKey: ["project-run", projectId] });
-          qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
-          qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
-          qc.invalidateQueries({ queryKey: ["frames", projectId] });
-          qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
           await qc.refetchQueries({ queryKey: ["project-run", projectId] });
         } catch (e) {
           toast.error(errorMessageFromUnknown(e));
@@ -618,7 +636,6 @@ export function StudioWorkspace({
       <div className="relative h-full w-full">
         <FlowCanvas
           projectId={projectId}
-          workflowId={workflowId}
           selectedNodeKey={selectedNodeKey}
           onSelectNode={(key) => {
             onSelectNode(key);
@@ -626,12 +643,6 @@ export function StudioWorkspace({
           onCanvasZoom={setCanvasZoom}
           onNodeActivate={(nodeKey, nodeType) => {
             if (Date.now() < suppressStudioOpenUntil.current) return;
-            // Режим шаблона: НодСтудия проектная (промты, результаты, HITL),
-            // без ролика открывать нечего — только выделение.
-            if (!projectId) {
-              onSelectNode(nodeKey);
-              return;
-            }
             if (nodeType === "topic") {
               onSelectNode(nodeKey);
               return;
@@ -655,27 +666,12 @@ export function StudioWorkspace({
                 return;
               }
             }
+            // Old side-sheet auto-open on select removed; single click expands inline.
             onSelectNode(nodeKey);
-            setStudioTarget({
-              nodeKey,
-              nodeType,
-              promptFocus: null,
-              tab: "settings",
-            });
-            setPromptFocus(null);
-            setStudioTab("settings");
-            onStudioOpenChange(true);
           }}
           disabledNodes={disabledNodes}
           runStepNodeKey={effectiveNodeKey}
         />
-        {projectId != null && (
-          <div className="pointer-events-none absolute left-1/2 top-3 z-[6] w-[min(92%,34rem)] -translate-x-1/2">
-            <div className="pointer-events-auto">
-              <VisionPauseBanner projectId={projectId} />
-            </div>
-          </div>
-        )}
         {projectId && assetTray && (
           <AssetTray
             projectId={projectId}
@@ -707,6 +703,7 @@ export function StudioWorkspace({
         }}
         projectId={projectId}
         nodeKey={effectiveNodeKey}
+        inlineTargetId={inlineStudioKey && inlineStudioKey === effectiveNodeKey ? `vp-inline-studio-${inlineStudioKey}` : null}
         initialTab={studioTarget?.tab ?? studioTab}
         promptFocus={
           effectiveNodeKey && studioTarget?.nodeKey === effectiveNodeKey
@@ -715,6 +712,17 @@ export function StudioWorkspace({
         }
         nodeDisabled={
           effectiveNodeKey != null && disabledNodes.has(effectiveNodeKey)
+        }
+        onEnableNode={
+          effectiveNodeKey
+            ? () => {
+                const next = new Set(disabledNodes);
+                next.delete(effectiveNodeKey);
+                void persistMeta({ disabled_nodes: [...next] }).then(() => {
+                  toast.message("Нода включена");
+                });
+              }
+            : undefined
         }
         promptSlots={
           effectiveNodeKey

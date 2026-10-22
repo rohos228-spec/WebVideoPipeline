@@ -44,16 +44,18 @@ export type NodeMediaOptions = {
 };
 
 function normalizeModelId(modelId: string): string {
-  return (modelId || "").trim();
+  const id = (modelId || "").trim();
+  if (id === "gpt-image-2") return "gpt-image-2-vip";
+  return id;
 }
 
 export function mediaOptionsForModel(modelId: string | null | undefined): NodeMediaOptions | null {
   const id = normalizeModelId(modelId || "");
   if (!id) return null;
 
-  if (id === "gpt-image-2" || id === "gpt-image-1.5") {
+  if (id === "gpt-image-2-vip") {
     return {
-      resolutions: ["1K", "2K"],
+      resolutions: ["1K", "2K", "4K"],
       qualities: NODE_IMAGE_QUALITY_OPTIONS,
       aspects: [...GPT_IMAGE_ASPECTS],
       defaultResolution: "2K",
@@ -175,13 +177,10 @@ export function mediaOptionsForModel(modelId: string | null | undefined): NodeMe
 
   if (id.startsWith("seedance")) {
     return {
-      resolutions:
-        id === "seedance-2-0-mini" || id === "seedance-2-0-fast-overseas"
-          ? ["480p", "720p"]
-          : ["720p", "1080p"],
+      resolutions: ["720p", "1080p"],
       qualities: [],
-      aspects: ["16:9", "9:16", "1:1", "21:9", "4:3", "3:4"],
-      defaultResolution: "720p",
+      aspects: ["16:9", "9:16", "1:1", "21:9"],
+      defaultResolution: "1080p",
       defaultQuality: "medium",
       defaultAspect: "16:9",
     };

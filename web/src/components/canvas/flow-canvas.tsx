@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   ReactFlow,
   Background,
@@ -28,15 +29,14 @@ import {
   ChevronDown,
   Copy,
   ClipboardPaste,
+  FileSpreadsheet,
   Film,
   ImageIcon,
   Loader2,
   Play,
-  Redo2,
   Save,
   Square,
   Trash2,
-  Undo2,
   Video,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -51,7 +51,12 @@ import type {
 } from "@/lib/types";
 import { getNodeSpec } from "@/lib/node-catalog";
 import { stepCodeForNodeType } from "@/lib/node-step-map";
-import { formatNodeKeyLabel, formatRunStatus, formatStepCode } from "@/lib/format-labels";
+import {
+  formatNodeKeyLabel,
+  formatRunOverlayLabel,
+  formatStepCode,
+  nodeRunsFromPayload,
+} from "@/lib/format-labels";
 import { buildExcelLaneBindings } from "@/lib/excel-lane-bindings";
 import {
   inferNodeStatusFromProject,
@@ -76,15 +81,15 @@ import {
   migrateWorkflowNodes,
   workflowNodeFromCanvas,
 } from "@/lib/workflow-node-serialize";
-import { readCanvasGraph } from "@/lib/canvas-graph-storage";
+import {
+  buildCanvasGraph,
+  readCanvasGraph,
+} from "@/lib/canvas-graph-storage";
 import { mergeGraphNodesWithRuntime } from "@/lib/canvas-node-merge";
 import {
   readPipelineViewport,
   writePipelineViewport,
 } from "@/lib/pipeline-viewport";
-import { autoLayout, History, type Graph as EditGraph } from "@/lib/graph-edit";
-import type { GraphEdge as EditGraphEdge, ResetPlan } from "@/lib/stage-types";
-import { GraphResetDialog } from "./graph-reset-dialog";
 import { defaultModelIdForNodeType, isTextNodeType } from "@/lib/node-model-catalog";
 import { EdgeKindControls } from "./edge-kind-controls";
 import { SoftThreadEdge } from "./soft-thread-edge";
@@ -113,44 +118,21 @@ const edgeTypes = {
 };
 
 const THREAD_EDGE_STYLE = {
-  stroke: "hsl(210 18% 62% / 0.55)",
-  strokeWidth: 1.35,
+  stroke: "rgba(255, 255, 255, 0.5)",
+  strokeWidth: 2,
+  strokeDasharray: "5 6",
 } as const;
-
-/** Подпись графа для истории: структура, данные, позиции — без рантайма
- *  (статусы, прогресс, выделение), иначе каждый тик воркера — шаг отмены. */
-function graphHistorySignature(nodes: Node<PipelineNodeData>[], edges: Edge[]): string {
-  const ns = nodes.map((n) => {
-    const wf = workflowNodeFromCanvas(n);
-    return [
-      wf.id,
-      wf.type,
-      Math.round(wf.position.x),
-      Math.round(wf.position.y),
-      JSON.stringify(wf.data ?? {}),
-    ].join("|");
-  });
-  const es = edges.map((e) =>
-    [e.source, e.target, String((e.data as { kind?: string } | undefined)?.kind ?? "after")].join("|"),
-  );
-  return `${ns.sort().join(";")}#${es.sort().join(";")}`;
-}
 
 export function FlowCanvas({
   projectId,
-  workflowId = null,
   selectedNodeKey,
-  // runStepNodeKey: в студии заказчика шаг запускается из ноды, overlay его не знает;
-  // проп оставлен ради совместимости с app/pipeline/page.tsx.
-  runStepNodeKey: _runStepNodeKey,
+  runStepNodeKey,
   onSelectNode,
   onNodeActivate,
   disabledNodes = new Set<string>(),
   onCanvasZoom,
 }: {
   projectId: number | null;
-  /** Режим шаблона: канвас без проекта правит этот Workflow напрямую. */
-  workflowId?: number | null;
   selectedNodeKey: string | null;
   /** Нода для «Создать Run» / сброса — по умолчанию selectedNodeKey. */
   runStepNodeKey?: string | null;
@@ -160,7 +142,7 @@ export function FlowCanvas({
   onCanvasZoom?: (zoom: number) => void;
 }) {
   const qc = useQueryClient();
-  // 1) Workflow с бэкенда: явный (режим шаблона) или дефолтный.
+  // 1) Дефолтный Workflow с бэкенда.
   const workflows = useQuery({
     queryKey: ["workflows"],
     queryFn: api.listWorkflows,
@@ -169,11 +151,10 @@ export function FlowCanvas({
     () => (workflows.data ?? []).find((w) => w.is_default) ?? null,
     [workflows.data]
   );
-  const effectiveWorkflowId = workflowId ?? defaultWorkflow?.id ?? null;
   const workflow = useQuery({
-    queryKey: ["workflow", effectiveWorkflowId],
-    queryFn: () => api.getWorkflow(effectiveWorkflowId!),
-    enabled: effectiveWorkflowId != null,
+    queryKey: ["workflow", defaultWorkflow?.id],
+    queryFn: () => api.getWorkflow(defaultWorkflow!.id),
+    enabled: !!defaultWorkflow,
     staleTime: 0,
   });
 
@@ -190,10 +171,11 @@ export function FlowCanvas({
     queryKey: ["project-run", projectId],
     queryFn: async () => {
       if (!projectId) return null;
-      const runs = await api.listRuns();
-      const found = runs.find((r) => r.project_id === projectId);
-      if (!found) return null;
-      return api.getRun(found.id);
+      try {
+        return await api.getProjectRun(projectId);
+      } catch {
+        return null;
+      }
     },
     enabled: projectId != null,
     refetchInterval: 4000,
@@ -210,41 +192,17 @@ export function FlowCanvas({
       ) {
         void qc.invalidateQueries({ queryKey: ["project-run", projectId] });
         void qc.invalidateQueries({ queryKey: ["project", projectId] });
-        void qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
-        void qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
-        void qc.invalidateQueries({ queryKey: ["frames", projectId] });
-        void qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
       }
     });
   }, [projectId, qc]);
 
-  const prevProjectStatusRef = useRef(project.data?.status);
-  useEffect(() => {
-    if (projectId == null) return;
-    if (
-      prevProjectStatusRef.current !== undefined &&
-      prevProjectStatusRef.current !== project.data?.status
-    ) {
-      void qc.invalidateQueries({ queryKey: ["project-run", projectId] });
-      void qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
-      void qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
-      void qc.invalidateQueries({ queryKey: ["frames", projectId] });
-      void qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
-    }
-    prevProjectStatusRef.current = project.data?.status;
-  }, [projectId, project.data?.status, qc]);
-
   // Базовая структура графа — из project.meta.canvas_graph (приоритет) или workflow.
-  // workflow_id берём из самого canvas_graph: ролик мог быть заведён не от
-  // дефолтного шаблона, и сверка с дефолтом отбрасывала бы его живой граф
-  // (а автосейв затем перезаписал бы его дефолтной схемой).
   const canvasGraph = useMemo(() => {
-    const meta = project.data?.meta as Record<string, unknown> | undefined;
-    if (!meta) return null;
-    const stored = (meta.canvas_graph as { workflow_id?: unknown } | undefined)?.workflow_id;
-    const wfId = Number(stored ?? defaultWorkflow?.id ?? 0);
-    if (!Number.isFinite(wfId) || wfId <= 0) return null;
-    return readCanvasGraph(meta, wfId);
+    if (!project.data?.meta || !defaultWorkflow?.id) return null;
+    return readCanvasGraph(
+      project.data.meta as Record<string, unknown>,
+      defaultWorkflow.id,
+    );
   }, [project.data?.meta, defaultWorkflow?.id]);
 
   const graphSource = useMemo((): WorkflowDetail | null => {
@@ -275,9 +233,8 @@ export function FlowCanvas({
 
   const baseNodes = useMemo(() => {
     if (!graphSource) return [];
-    const hasTopic = Boolean(project.data?.topic?.trim() || project.data?.title?.trim());
-    return workflowToReactFlowNodes(graphSource, null, { hasTopic });
-  }, [graphSource, project.data?.topic, project.data?.title]);
+    return workflowToReactFlowNodes(graphSource, null);
+  }, [graphSource]);
   const baseEdges = useMemo(() => {
     if (!graphSource) return [];
     return workflowToReactFlowEdges(graphSource);
@@ -292,12 +249,9 @@ export function FlowCanvas({
   /** Подавить onSelectionChange после программного setNodes(selected). */
   const ignoreSelectionChangeRef = useRef(0);
   const saveTimerRef = useRef<number | null>(null);
+  const inlineClickTimerRef = useRef<number | null>(null);
   const persistInFlightRef = useRef(false);
   const persistQueuedRef = useRef(false);
-  /** История правок (Ctrl+Z): снимок графа на каждую устоявшуюся правку. */
-  const historyRef = useRef(new History<{ nodes: Node<PipelineNodeData>[]; edges: Edge[] }>());
-  const lastCommittedRef = useRef<{ nodes: Node<PipelineNodeData>[]; edges: Edge[] } | null>(null);
-  const [historyTick, setHistoryTick] = useState(0);
   const reactFlowRef = useRef<ReactFlowInstance<Node<PipelineNodeData>, Edge> | null>(null);
   const persistProjectIdRef = useRef(projectId);
   persistProjectIdRef.current = projectId;
@@ -312,33 +266,12 @@ export function FlowCanvas({
     edgesRef.current = edges;
   }, [edges]);
 
-  // История: пишем снимок «до правки», когда структура или позиции устоялись.
-  // Рантайм (статусы, прогресс, выделение) в подпись не входит — иначе каждый
-  // тик воркера становился бы шагом отмены.
-  useEffect(() => {
-    if (nodes.length === 0 && !lastCommittedRef.current) return;
-    const t = window.setTimeout(() => {
-      const prev = lastCommittedRef.current;
-      const sig = graphHistorySignature(nodes, edges);
-      if (prev && graphHistorySignature(prev.nodes, prev.edges) === sig) return;
-      if (prev) {
-        historyRef.current.push(prev);
-      }
-      lastCommittedRef.current = { nodes, edges };
-      setHistoryTick((v) => v + 1);
-    }, 350);
-    return () => window.clearTimeout(t);
-  }, [nodes, edges]);
-
-  // Смена проекта/шаблона — не тащим позиции/версию/историю соседа.
+  // Смена проекта — не тащим позиции/версию соседа с теми же node_key.
   useEffect(() => {
     setGraphVersion("");
     setNodes([]);
     setEdges([]);
-    historyRef.current.clear();
-    lastCommittedRef.current = null;
-    setHistoryTick((v) => v + 1);
-  }, [projectId, workflowId, setNodes, setEdges]);
+  }, [projectId, setNodes, setEdges]);
 
   useEffect(() => {
     if (!graphSource) return;
@@ -409,22 +342,26 @@ export function FlowCanvas({
   // (не рисовать «прервано», пока Project.generating_* того же шага).
   useEffect(() => {
     if (nodes.length === 0) return;
-    // Не сбрасываем в pending при кратковременном отсутствии run.data (refetch/invalidate).
-    if (!run.data) return;
+    // Не сбрасываем в pending при кратковременном отсутствии run.data (refetch/invalidate)
+    // и при пустом ответе ([] / объект без status): иначе node_runs.map падает.
+    if (!formatRunOverlayLabel(run.data)) return;
     const projectStatus = project.data?.status;
-    const hasTopic = Boolean(project.data?.topic?.trim() || project.data?.title?.trim());
     const meta = (project.data?.meta ?? {}) as Record<string, unknown>;
     const activeExcelGptKey =
-      typeof meta.active_excel_gpt_node_key === "string" ? meta.active_excel_gpt_node_key : undefined;
+      typeof meta.active_excel_gpt_node_key === "string"
+        ? meta.active_excel_gpt_node_key
+        : undefined;
     const completedExcelGptKeys = Array.isArray(meta.excel_gpt_completed_keys)
       ? meta.excel_gpt_completed_keys.map(String)
       : [];
-    const nodeRunByKey = new Map(run.data.node_runs.map((nr) => [nr.node_key, nr]));
+    const nodeRunByKey = new Map(
+      nodeRunsFromPayload<NodeRunDTO>(run.data).map((nr) => [nr.node_key, nr]),
+    );
     setNodes((prev) =>
       prev.map((n) => {
         const nr = nodeRunByKey.get(n.id);
         if (!nr) {
-          const status = inferNodeStatusFromProject(n.data.type, projectStatus, { hasTopic });
+          const status = inferNodeStatusFromProject(n.data.type, projectStatus);
           return {
             ...n,
             data: {
@@ -444,7 +381,6 @@ export function FlowCanvas({
             nodeKey: n.id,
             activeExcelGptKey,
             completedExcelGptKeys,
-            hasTopic,
           },
         );
         const progress = status === "running" ? (nr.progress ?? 0) : 0;
@@ -464,16 +400,7 @@ export function FlowCanvas({
         };
       }),
     );
-  }, [
-    run.data,
-    project.data?.status,
-    project.data?.meta,
-    project.data?.topic,
-    project.data?.title,
-    setNodes,
-    nodes.length,
-    projectId,
-  ]);
+  }, [run.data, project.data?.status, project.data?.meta, setNodes, nodes.length, projectId]);
 
   // Выделение на канвасе ← selectedNodeKey (кнопка V без клика по телу ноды).
   useEffect(() => {
@@ -517,7 +444,6 @@ export function FlowCanvas({
               completedExcelGptKeys: Array.isArray(meta.excel_gpt_completed_keys)
                 ? meta.excel_gpt_completed_keys.map(String)
                 : [],
-              hasTopic: Boolean(project.data?.topic?.trim() || project.data?.title?.trim()),
             },
           );
           return {
@@ -552,52 +478,6 @@ export function FlowCanvas({
       window.dispatchEvent(new CustomEvent("canvas-save-workflow"));
     }, 1200);
   }, []);
-
-  // ── Отмена / возврат / раскладка ────────────────────────────────────
-  const applyHistoryEntry = useCallback(
-    (entry: { nodes: Node<PipelineNodeData>[]; edges: Edge[] }) => {
-      // lastCommitted ставим до setNodes: эффект истории увидит равную
-      // подпись и не запишет откат как новую правку.
-      lastCommittedRef.current = entry;
-      setNodes(entry.nodes);
-      setEdges(entry.edges);
-      setHistoryTick((v) => v + 1);
-      scheduleSaveWorkflow();
-    },
-    [setNodes, setEdges, scheduleSaveWorkflow],
-  );
-
-  const undoGraph = useCallback(() => {
-    const cur = lastCommittedRef.current ?? { nodes: nodesRef.current, edges: edgesRef.current };
-    const prev = historyRef.current.undo(cur);
-    if (prev) applyHistoryEntry(prev);
-  }, [applyHistoryEntry]);
-
-  const redoGraph = useCallback(() => {
-    const cur = lastCommittedRef.current ?? { nodes: nodesRef.current, edges: edgesRef.current };
-    const next = historyRef.current.redo(cur);
-    if (next) applyHistoryEntry(next);
-  }, [applyHistoryEntry]);
-
-  const layoutGraph = useCallback(() => {
-    const laid = autoLayout({
-      nodes: nodesRef.current.map((n) => ({
-        id: n.id,
-        type: (n.data as PipelineNodeData).type,
-        position: n.position,
-        data: {},
-      })),
-      edges: edgesRef.current.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        data: { kind: String((e.data as { kind?: string } | undefined)?.kind ?? "after") },
-      })) as EditGraphEdge[],
-    } as EditGraph);
-    const pos = new Map(laid.nodes.map((n) => [n.id, n.position!]));
-    setNodes((prev) => prev.map((n) => (pos.has(n.id) ? { ...n, position: pos.get(n.id)! } : n)));
-    scheduleSaveWorkflow();
-  }, [setNodes, scheduleSaveWorkflow]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -648,37 +528,6 @@ export function FlowCanvas({
   const [saving, setSaving] = useState(false);
   const [selectedCount, setSelectedCount] = useState(0);
   const [hasClipboard, setHasClipboard] = useState(false);
-  /** Правка жжёт сделанные шаги — граф не применяем, пока человек не решил. */
-  const [pendingApply, setPendingApply] = useState<{
-    nodes: WorkflowNode[];
-    edges: WorkflowEdge[];
-    reset: ResetPlan;
-    summary: string;
-  } | null>(null);
-
-  /** Применить граф ролика через слой project_graph + хвост меты как раньше. */
-  const applyProjectGraph = useCallback(
-    async (wfNodes: WorkflowNode[], wfEdges: WorkflowEdge[], reset: boolean) => {
-      if (!projectId) return;
-      if (persistProjectIdRef.current !== projectId) return;
-      await api.saveProjectGraph(projectId, wfNodes, wfEdges, reset);
-      // Настройки вне графа — как раньше: ai_control и привязки excel-дорожек.
-      const projectData = project.data ?? (await api.getProject(projectId));
-      const prevMeta = (projectData.meta || {}) as Record<string, unknown>;
-      const topics = Array.isArray(prevMeta.mass_excel_topics)
-        ? (prevMeta.mass_excel_topics as string[])
-        : [];
-      const bindings = buildExcelLaneBindings(nodesRef.current, edgesRef.current, topics);
-      const meta: Record<string, unknown> = { ai_control: true };
-      if (bindings.length) {
-        meta.excel_lane_bindings = bindings;
-      }
-      if (persistProjectIdRef.current !== projectId) return;
-      await api.patchProject(projectId, { meta });
-      await qc.invalidateQueries({ queryKey: ["project", projectId] });
-    },
-    [projectId, project.data, qc],
-  );
 
   useEffect(() => {
     setHasClipboard(!!readCanvasClipboard()?.nodes.length);
@@ -756,34 +605,37 @@ export function FlowCanvas({
         );
       }
       if (check.warnings.length) {
-        console.warn("Graph validation warnings:", check.warnings);
+        const soft = check.warnings.find((w) => w.includes("Не ок") || w.includes("петля"));
+        if (soft) toast.message(soft);
+        else toast.message(check.warnings[0]);
       }
       if (projectId) {
-        // Через слой project_graph (не прямой записью meta.canvas_graph):
-        // сервер сам считает разницу, чинит run-синхронизацию и знает, какие
-        // сделанные шаги устаревают. Если план сброса не пуст — не применяем,
-        // а спрашиваем человека (диалог ниже).
-        const check2 = await api.projectGraphDiff(projectId, wfNodes, wfEdges);
-        if (!check2.valid) {
-          toast.error(`Граф не сохранён: ${check2.errors.join("; ")}`);
-          return;
+        if (persistProjectIdRef.current !== projectId) return;
+        // Только дельта: НЕ слать весь meta из кэша — иначе stale
+        // gpt_operator_results/storage_nodes затирают результаты всех нод.
+        const projectData = project.data ?? (await api.getProject(projectId));
+        const prevMeta = (projectData.meta || {}) as Record<string, unknown>;
+        const topics = Array.isArray(prevMeta.mass_excel_topics)
+          ? (prevMeta.mass_excel_topics as string[])
+          : [];
+        const bindings = buildExcelLaneBindings(currentNodes, currentEdges, topics);
+        const meta: Record<string, unknown> = {
+          canvas_graph: buildCanvasGraph(workflow.data.id, wfNodes, wfEdges),
+          ai_control: true,
+        };
+        if (bindings.length) {
+          meta.excel_lane_bindings = bindings;
         }
-        if (check2.reset.steps.length > 0) {
-          setPendingApply({
-            nodes: wfNodes,
-            edges: wfEdges,
-            reset: check2.reset,
-            summary: check2.diff.summary,
-          });
-          return;
-        }
-        await applyProjectGraph(wfNodes, wfEdges, false);
+        if (persistProjectIdRef.current !== projectId) return;
+        await api.patchProject(projectId, { meta });
+        await qc.invalidateQueries({ queryKey: ["project", projectId] });
       } else {
         await api.saveWorkflow(workflow.data.id, {
           nodes: wfNodes,
           edges: wfEdges,
         });
       }
+      toast.success("Граф сохранён");
     } catch (e) {
       toast.error(`Не сохранилось: ${errorMessageFromUnknown(e)}`);
     } finally {
@@ -796,7 +648,7 @@ export function FlowCanvas({
         }, 200);
       }
     }
-  }, [workflow, projectId, applyProjectGraph, setEdges]);
+  }, [workflow, projectId, project.data, qc, setEdges]);
 
   useEffect(() => {
     const onPatch = (ev: Event) => {
@@ -851,6 +703,9 @@ export function FlowCanvas({
         detail.patch.imageResolution != null ||
         detail.patch.imageQuality != null ||
         detail.patch.aspectRatio != null ||
+        detail.patch.label != null ||
+        detail.patch.description != null ||
+        detail.patch.customBg != null ||
         detail.patch.reasoningEffort != null
       ) {
         scheduleSaveWorkflow();
@@ -1011,8 +866,8 @@ export function FlowCanvas({
     );
   }, [projectId]);
 
-  const pasteFromClipboard = useCallback((clipOverride?: CanvasClipboardPayload) => {
-    const clip = clipOverride ?? readCanvasClipboard();
+  const pasteFromClipboard = useCallback(() => {
+    const clip = readCanvasClipboard();
     if (!clip?.nodes.length) {
       toast.error("Буфер пуст — выделите ноды и нажмите Ctrl+C");
       return;
@@ -1133,123 +988,24 @@ export function FlowCanvas({
     deleteNodesByIds(new Set(selected.map((n) => n.id)));
   }, [deleteNodesByIds, selectedNodeKey]);
 
-  /** Ctrl+D: копия выделенного на месте, буфер не трогаем. */
-  const duplicateSelectedNodes = useCallback(() => {
-    const selected = selectedNodesRef.current;
-    if (!selected.length) {
-      toast.error("Выделите ноды для дублирования");
-      return;
-    }
-    const ids = new Set(selected.map((n) => n.id));
-    pasteFromClipboard({
-      version: 1,
-      sourceProjectId: projectId,
-      copiedAt: Date.now(),
-      nodes: selected.map((n) => {
-        const wf = workflowNodeFromCanvas(n);
-        return { id: wf.id, type: wf.type, position: wf.position, data: wf.data ?? {} };
-      }),
-      edges: edgesRef.current
-        .filter((e) => ids.has(e.source) && ids.has(e.target))
-        .map((e) => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          sourceHandle: e.sourceHandle ?? "out",
-          targetHandle: e.targetHandle ?? "in",
-        })),
-    });
-  }, [pasteFromClipboard, projectId]);
-
-  const selectAllNodes = useCallback(() => {
-    ignoreSelectionChangeRef.current += 1;
-    setNodes((prev) => prev.map((n) => ({ ...n, selected: true })));
-    selectedNodesRef.current = nodesRef.current;
-    setSelectedCount(nodesRef.current.length);
-  }, [setNodes]);
-
-  // «Убрать, соединив соседей»: A → X → B становится A → B (пункт V-меню).
   useEffect(() => {
-    const onBridge = (ev: Event) => {
-      const key = (ev as CustomEvent<{ nodeKey: string }>).detail?.nodeKey;
-      if (!key) return;
-      const isAfter = (e: Edge) =>
-        String((e.data as { kind?: string } | undefined)?.kind ?? "after") === "after";
-      const inbound = edgesRef.current.filter((e) => e.target === key && isAfter(e));
-      const outbound = edgesRef.current.filter((e) => e.source === key && isAfter(e));
-      setNodes((prev) => prev.filter((n) => n.id !== key));
-      setEdges((prev) => {
-        const rest = prev.filter((e) => e.source !== key && e.target !== key);
-        const have = new Set(rest.map((e) => `${e.source}→${e.target}`));
-        const bridged: Edge[] = [];
-        for (const a of inbound) {
-          for (const b of outbound) {
-            if (a.source === b.target || have.has(`${a.source}→${b.target}`)) continue;
-            have.add(`${a.source}→${b.target}`);
-            bridged.push({
-              id: `e_${a.source}_${b.target}_${Date.now()}`,
-              source: a.source,
-              target: b.target,
-              sourceHandle: "out",
-              targetHandle: "in",
-              type: "thread",
-              animated: true,
-              style: { ...THREAD_EDGE_STYLE },
-              label: edgeKindLabel("after"),
-              data: { kind: "after" },
-            });
-          }
-        }
-        return [...rest, ...bridged];
-      });
-      if (selectedNodeKey === key) onSelectNode(null);
-      scheduleSaveWorkflow();
-      toast.success("Нода убрана, соседи соединены");
-    };
-    window.addEventListener("canvas-remove-bridge", onBridge);
-    return () => window.removeEventListener("canvas-remove-bridge", onBridge);
-  }, [setNodes, setEdges, scheduleSaveWorkflow, selectedNodeKey, onSelectNode]);
-
-  useEffect(() => {
-    if (!projectId && workflowId == null) return;
+    if (!projectId) return;
     const onKeyDown = (ev: KeyboardEvent) => {
       if (isEditableTarget(ev.target)) return;
       const mod = ev.ctrlKey || ev.metaKey;
-      if (!mod) return;
-      const key = ev.key.toLowerCase();
-      if (key === "c") {
+      if (mod && ev.key.toLowerCase() === "c") {
         ev.preventDefault();
         copySelectedNodes();
-      } else if (key === "v") {
+        return;
+      }
+      if (mod && ev.key.toLowerCase() === "v") {
         ev.preventDefault();
         pasteFromClipboard();
-      } else if (key === "d") {
-        ev.preventDefault();
-        duplicateSelectedNodes();
-      } else if (key === "a") {
-        ev.preventDefault();
-        selectAllNodes();
-      } else if (key === "z") {
-        ev.preventDefault();
-        if (ev.shiftKey) redoGraph();
-        else undoGraph();
-      } else if (key === "y") {
-        ev.preventDefault();
-        redoGraph();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    projectId,
-    workflowId,
-    copySelectedNodes,
-    pasteFromClipboard,
-    duplicateSelectedNodes,
-    selectAllNodes,
-    undoGraph,
-    redoGraph,
-  ]);
+  }, [projectId, copySelectedNodes, pasteFromClipboard]);
 
   const addNode = useCallback(
     (type: string) => {
@@ -1354,8 +1110,8 @@ export function FlowCanvas({
     );
   }
 
-  // Пустой выбор → онбординг (в режиме шаблона канвас работает без проекта).
-  if (!projectId && workflowId == null) {
+  // Пустой выбор → онбординг.
+  if (!projectId) {
     return (
       <div className="flex h-full items-center justify-center">
         <EmptyState />
@@ -1393,7 +1149,7 @@ export function FlowCanvas({
         nodesDraggable
         nodesConnectable
         edgesReconnectable
-        nodeDragThreshold={6}
+        nodeDragThreshold={4}
         selectNodesOnDrag={false}
         selectionOnDrag={false}
         panOnDrag={[0, 1]}
@@ -1403,15 +1159,25 @@ export function FlowCanvas({
         onConnect={onConnect}
         connectionLineType={ConnectionLineType.Bezier}
         connectionLineStyle={{
-          strokeDasharray: "2 7",
-          stroke: "hsl(210 18% 62% / 0.7)",
-          strokeWidth: 1.35,
+          strokeDasharray: "5 6",
+          stroke: "rgba(255, 255, 255, 0.6)",
+          strokeWidth: 2,
           strokeLinecap: "round",
         }}
         edgeTypes={edgeTypes}
         elementsSelectable
         deleteKeyCode={["Backspace", "Delete"]}
         onNodesDelete={onNodesDelete}
+        onNodeDoubleClick={(ev, node) => {
+          if (inlineClickTimerRef.current) {
+            window.clearTimeout(inlineClickTimerRef.current);
+            inlineClickTimerRef.current = null;
+          }
+          const t = ev.target as HTMLElement;
+          if (t.closest(".node-v-trigger") || t.closest(".node-v-menu") || t.closest("button") || t.closest("[data-inline-studio]")) return;
+          const d = node.data as PipelineNodeData;
+          void d; // double-click: old studio detached; single click opens the inline menu
+        }}
         onNodeClick={(ev, node) => {
           const t = ev.target as HTMLElement;
           if (
@@ -1424,6 +1190,19 @@ export function FlowCanvas({
           const d = node.data as PipelineNodeData;
           onSelectNode(d.nodeKey);
           onNodeActivate?.(d.nodeKey, d.type);
+          // Single click (no drag, RF threshold 4px) expands the node into the inline menu.
+          // Delayed so a double-click can still open the full studio.
+          if (
+            ev.detail > 1 ||
+            t.closest("button, input, textarea, select, a, label, [role=switch], .react-flow__handle, [data-inline-studio], .node-ai-review-trigger")
+          ) {
+            return;
+          }
+          if (inlineClickTimerRef.current) window.clearTimeout(inlineClickTimerRef.current);
+          inlineClickTimerRef.current = window.setTimeout(() => {
+            inlineClickTimerRef.current = null;
+            window.dispatchEvent(new CustomEvent("vp-node-inline-open", { detail: { nodeKey: d.nodeKey } }));
+          }, 0);
         }}
         onSelectionChange={(sel) => {
           selectedNodesRef.current = sel.nodes as Node<PipelineNodeData>[];
@@ -1459,7 +1238,7 @@ export function FlowCanvas({
         />
         {onCanvasZoom ? <ViewportZoomReporter onZoom={onCanvasZoom} /> : null}
         <GroupFrames />
-        <EdgeKindControls edges={edges} onEdgesLocal={setEdges} />
+        {/* edge kind labels removed */}
         <MiniMap
           pannable
           zoomable
@@ -1489,44 +1268,109 @@ export function FlowCanvas({
         onAddNode={addNode}
         getSelectedNodeIds={() => selectedNodesRef.current.map((n) => n.id)}
         onCopy={copySelectedNodes}
-        onPaste={() => pasteFromClipboard()}
+        onPaste={pasteFromClipboard}
         canPaste={hasClipboard}
         onDelete={deleteSelectedNodes}
         canDelete={selectedCount > 0 || !!selectedNodeKey}
-        onUndo={undoGraph}
-        canUndo={historyTick >= 0 && historyRef.current.canUndo}
-        onRedo={redoGraph}
-        canRedo={historyRef.current.canRedo}
-      />
-      {projectId != null && (
-        <RunOverlay
-          projectId={projectId}
-          project={project.data ?? null}
-          workflow={workflow.data ?? null}
-          run={run.data ?? null}
-          onRunCreated={() => run.refetch()}
-        />
-      )}
-      <GraphResetDialog
-        pending={pendingApply}
-        busy={saving}
-        onApply={async (reset) => {
-          if (!pendingApply) return;
-          setSaving(true);
-          try {
-            await applyProjectGraph(pendingApply.nodes, pendingApply.edges, reset);
-            setPendingApply(null);
-            toast.success(reset ? "Граф применён, устаревшие шаги сброшены" : "Граф применён, результаты оставлены");
-          } catch (e) {
-            toast.error(`Не применилось: ${errorMessageFromUnknown(e)}`);
-          } finally {
-            setSaving(false);
+        onAddExcelFeed={() => {
+          const stamp = Date.now();
+          const id = `excel_feed_${stamp}`;
+          const minX = nodes.reduce((m, n) => Math.min(m, n.position.x), 0);
+          const minY = nodes.reduce((m, n) => Math.min(m, n.position.y), 0);
+          setNodes((prev) => [
+            ...prev,
+            {
+              id,
+              type: "pipeline",
+              position: { x: minX - 320, y: minY },
+              data: {
+                nodeKey: id,
+                type: "excel_feed",
+                modelId: defaultModelIdForNodeType("excel_feed"),
+                modelChannel: "stable",
+                status: "pending",
+                progress: 0,
+                progressText: null,
+                error: null,
+                attempts: 0,
+              },
+              sourcePosition: Position.Right,
+              targetPosition: Position.Left,
+            } as Node<PipelineNodeData>,
+          ]);
+          toast.success("Нода Excel добавлена слева — загрузите topics.xlsx");
+        }}
+        onDuplicateBelow={() => {
+          if (nodes.length === 0) return;
+          const offsetY = 480;
+          const stamp = Date.now();
+          const idMap = new Map<string, string>();
+          const clones = nodes
+            .filter((n) => (n.data as PipelineNodeData).type !== "excel_feed")
+            .map((n) => {
+              const newId = `${n.id}_lane_${stamp}`;
+              idMap.set(n.id, newId);
+              const d = n.data as PipelineNodeData;
+              return {
+                ...n,
+                id: newId,
+                position: { x: n.position.x, y: n.position.y + offsetY },
+                data: { ...d, nodeKey: newId },
+                selected: false,
+              };
+            });
+          const cloneEdges = edges
+            .filter(
+              (e) =>
+                idMap.has(e.source) &&
+                idMap.has(e.target) &&
+                (nodes.find((n) => n.id === e.source)?.data as PipelineNodeData)?.type !==
+                  "excel_feed",
+            )
+            .map((e) => ({
+              ...e,
+              id: `${e.id}_lane_${stamp}`,
+              source: idMap.get(e.source) ?? e.source,
+              target: idMap.get(e.target) ?? e.target,
+              type: "thread",
+              animated: true,
+              style: { ...THREAD_EDGE_STYLE },
+            }));
+          const excelNode = nodes.find(
+            (n) => (n.data as PipelineNodeData).type === "excel_feed",
+          );
+          const excelEdges: Edge[] = [];
+          if (excelNode) {
+            for (const p of clones) {
+              const dt = (p.data as PipelineNodeData).type;
+              if (dt === "plan" || dt === "topic") {
+                excelEdges.push({
+                  id: `excel_${stamp}_${p.id}`,
+                  source: excelNode.id,
+                  target: p.id,
+                  type: "thread",
+                  animated: true,
+                  style: { ...THREAD_EDGE_STYLE },
+                  className: "excel-lane-edge",
+                });
+              }
+            }
           }
+          setNodes((prev) => [...prev, ...clones]);
+          setEdges((prev) => [...prev, ...cloneEdges, ...excelEdges]);
+          toast.success(
+            excelEdges.length
+              ? `Граф продублирован (${excelEdges.length} связей от Excel)`
+              : "Граф продублирован вниз — сохраните при необходимости",
+          );
         }}
-        onCancel={() => {
-          setPendingApply(null);
-          toast.message("Схема не применена — правки остались на канвасе, сохранение спросит ещё раз");
-        }}
+      />
+      <RunOverlay
+        projectId={projectId}
+        project={project.data ?? null}
+        workflow={workflow.data ?? null}
+        run={run.data ?? null}
+        onRunCreated={() => run.refetch()}
       />
     </>
   );
@@ -1544,10 +1388,8 @@ function WorkflowToolbar({
   canPaste,
   onDelete,
   canDelete,
-  onUndo,
-  canUndo,
-  onRedo,
-  canRedo,
+  onDuplicateBelow,
+  onAddExcelFeed,
 }: {
   workflowId?: number;
   projectId?: number | null;
@@ -1560,13 +1402,24 @@ function WorkflowToolbar({
   canPaste: boolean;
   onDelete: () => void;
   canDelete: boolean;
-  onUndo: () => void;
-  canUndo: boolean;
-  onRedo: () => void;
-  canRedo: boolean;
+  onDuplicateBelow: () => void;
+  onAddExcelFeed: () => void;
 }) {
+  const qc = useQueryClient();
+
+  const duplicateWf = async () => {
+    if (!workflowId) return;
+    try {
+      await api.duplicateWorkflow(workflowId);
+      await qc.invalidateQueries({ queryKey: ["workflows"] });
+      toast.success("Workflow скопирован на сервере");
+    } catch (e) {
+      toast.error(errorMessageFromUnknown(e));
+    }
+  };
+
   return (
-    <div className="pointer-events-none absolute left-4 top-4 z-10 flex max-w-[calc(100%-2rem)] flex-wrap gap-2">
+    <div className="pointer-events-none absolute left-1/2 top-4 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap gap-2">
       <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-card/90 p-1 backdrop-blur-md shadow-md">
         <NodePalette
           projectId={projectId ?? null}
@@ -1577,44 +1430,22 @@ function WorkflowToolbar({
         <Button
           size="sm"
           variant="ghost"
-          className="h-8 gap-1 text-xs hover:bg-white/5"
-          onClick={onCopy}
-          title="Копировать выделенные ноды (Ctrl+C)"
-        >
-          <Copy className="h-3.5 w-3.5" />
-          Копировать
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 gap-1 text-xs hover:bg-white/5"
+          className="h-8 px-2 text-xs hover:bg-white/5"
           onClick={onPaste}
           disabled={!canPaste}
           title="Вставить скопированные ноды (Ctrl+V) — работает и в другом проекте"
         >
           <ClipboardPaste className="h-3.5 w-3.5" />
-          Вставить
         </Button>
         <div className="h-4 w-px bg-white/10" />
         <Button
           size="sm"
           variant="ghost"
-          className="h-8 gap-1 text-xs"
-          onClick={onUndo}
-          disabled={!canUndo}
-          title="Отменить (Ctrl+Z)"
+          className="h-8 px-2 text-xs hover:bg-white/5"
+          onClick={onDuplicateBelow}
+          title="Дублировать весь граф ниже (массовые потоки)"
         >
-          <Undo2 className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 gap-1 text-xs"
-          onClick={onRedo}
-          disabled={!canRedo}
-          title="Вернуть (Ctrl+Shift+Z)"
-        >
-          <Redo2 className="h-3.5 w-3.5" />
+          <Copy className="h-3.5 w-3.5 text-muted-foreground" />
         </Button>
         <Button
           size="sm"
@@ -1720,25 +1551,25 @@ function RunOverlay({
     }
   };
 
-  return (
-    <>
-      {/* Тумблер Автопродвижения */}
+  const controls = (
+    <div className="flex flex-col gap-2.5 border-b border-white/10 pb-3">
+      <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Run:</span>
+          <span className="font-medium">
+            {formatRunOverlayLabel(run) ?? "не запущен"}
+          </span>
+        </div>
       {project ? (
-        <div className="pointer-events-none absolute right-4 top-3 z-40">
-          <div className="pointer-events-auto min-w-[200px] max-w-[260px] shadow-sm">
+        <div>
+          <div>
             <AutoAdvanceToggle project={project} />
           </div>
         </div>
       ) : null}
 
       {/* Верхняя компактная панель управления процессом */}
-      <div className="pointer-events-none absolute right-4 top-[5.5rem] z-30 flex max-w-[min(100%,640px)] flex-wrap items-center justify-end gap-2">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm">
-          <span className="text-muted-foreground">Run:</span>
-          <span className="font-medium">
-            {run ? `#${run.id} · ${formatRunStatus(run.status)}` : "не запущен"}
-          </span>
-        </div>
+      <div className="flex flex-wrap items-center gap-2">
+        
 
         {isRunning ? (
           <>
@@ -1770,7 +1601,7 @@ function RunOverlay({
               size="sm"
               onClick={handleResume}
               disabled={pausing}
-              className="pointer-events-auto transition-all duration-200 gap-2 h-9 px-4 font-semibold text-xs text-white bg-gradient-to-r from-emerald-500 via-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-[0.98] shadow-lg shadow-emerald-500/35 border border-emerald-300/40 rounded-xl backdrop-blur-md"
+              className="pointer-events-auto transition-all duration-200 gap-2 h-9 px-4 font-semibold text-xs bg-[#2bb8a0]/20 hover:bg-[#2bb8a0]/30 text-[#bff3e8] active:scale-[0.98] border border-[#2bb8a0]/35 rounded-xl backdrop-blur-md"
               title="Продолжить выполнение пайплайна (переход к следующему шагу)"
             >
               {pausing ? <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-200" /> : <Play className="h-3.5 w-3.5 fill-current" />}
@@ -1792,27 +1623,38 @@ function RunOverlay({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
+  return <PortalTo id="vp-right-controls">{controls}</PortalTo>;
+}
+
+function PortalTo({ id, children }: { id: string; children: React.ReactNode }) {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const pick = () => {
+      const e = document.getElementById(id);
+      setEl((prev) => (prev === e ? prev : e));
+    };
+    pick();
+    const t = window.setInterval(pick, 400);
+    return () => window.clearInterval(t);
+  }, [id]);
+  return el ? createPortal(children, el) : null;
 }
 
 function workflowToReactFlowNodes(
   wf: WorkflowDetail,
-  run: WorkflowRunDetail | null,
-  opts?: { hasTopic?: boolean },
+  run: WorkflowRunDetail | null
 ): Node<PipelineNodeData>[] {
   const nodeRunByKey = new Map<string, NodeRunDTO>();
-  if (run) {
-    for (const nr of run.node_runs) {
-      nodeRunByKey.set(nr.node_key, nr);
-    }
+  for (const nr of nodeRunsFromPayload<NodeRunDTO>(run)) {
+    if (nr && typeof nr.node_key === "string") nodeRunByKey.set(nr.node_key, nr);
   }
   const migrated = migrateWorkflowNodes(wf.nodes);
   return migrated.map((n) => {
     const nr = nodeRunByKey.get(n.id);
     const spec = getNodeSpec(n.type);
     const data = (n.data ?? {}) as Record<string, unknown>;
-    const defaultStatus = n.type === "topic" && opts?.hasTopic ? "done" : "pending";
     return {
       id: n.id,
       type: "pipeline",
@@ -1832,6 +1674,7 @@ function workflowToReactFlowNodes(
         sdAgent: (data.sd_agent ?? data.agent) as string | undefined,
         groupId: data.groupId as string | undefined,
         groupTitle: data.groupTitle as string | undefined,
+        customBg: typeof data.customBg === "string" && data.customBg.trim() ? data.customBg.trim() : undefined,
         modelId: (typeof data.modelId === "string" && data.modelId.trim())
           ? data.modelId.trim()
           : defaultModelIdForNodeType(n.type),
@@ -1848,7 +1691,11 @@ function workflowToReactFlowNodes(
           typeof data.aspectRatio === "string" && data.aspectRatio.trim()
             ? data.aspectRatio.trim()
             : undefined,
-        status: (nr?.status ?? defaultStatus) as PipelineNodeData["status"],
+        reasoningEffort:
+          typeof data.reasoningEffort === "string" && data.reasoningEffort.trim()
+            ? data.reasoningEffort.trim()
+            : undefined,
+        status: (nr?.status ?? "pending") as PipelineNodeData["status"],
         progress: nr?.progress ?? 0,
         progressText: nr?.progress_text ?? null,
         error: nr?.error ?? null,

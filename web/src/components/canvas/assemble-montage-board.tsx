@@ -27,8 +27,10 @@ import {
   MoreHorizontal,
   Plus,
   RefreshCw,
+  Scissors,
   Settings2,
   Trash2,
+  Unlink2,
   Upload,
   X,
 } from "lucide-react";
@@ -41,6 +43,15 @@ import {
 } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import {
+  montageOpSelectKey,
+  montageOpsToApply,
+  pendingApplyFrameNumbers,
+  queueAfterApply,
+  queueAfterCoverageApply,
+  reconcileIdleQueue,
+  serverQueueReplacesLocal,
+} from "@/lib/montage-apply-queue";
+import {
   readMontageAiChangeText,
   writeMontageAiChangeText,
 } from "@/lib/montage-ai-change-memory";
@@ -48,6 +59,7 @@ import type {
   MontageAnchorRow,
   MontageBoardDTO,
   MontageBoardFrame,
+  MontageImproveReport,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -67,9 +79,9 @@ import {
   RoleCell,
   SceneActionBlock,
   SceneCell,
-  SceneDataCell,
+  SceneGenerateBlock,
+  VoUnusedWarn,
   type CoverageMenuGroup,
-  type SceneDataField,
 } from "@/components/canvas/montage-scene-cells";
 import { FrameRefsStrip } from "@/components/canvas/montage-frame-refs";
 
@@ -104,9 +116,37 @@ const SCENE_GAP_CLASS = "w-[5.5rem] min-w-[5.5rem] max-w-[5.5rem] p-0 align-midd
 const SHOT_GAP_REM = 0.25;
 const SHOT_GAP_CLASS = "w-1 min-w-[4px] max-w-[4px] p-0 align-middle";
 
+const SCENE_GENERATE_CLEAR_TYPES = new Set<MontagePendingOp["type"]>([
+  "coverage_scene_action",
+  "coverage_sense",
+  "coverage_visual_type",
+  "coverage_place",
+  "coverage_characters",
+  "coverage_props",
+  "coverage_bg",
+  "coverage_accent",
+  "coverage_feature",
+  "coverage_set",
+  "coverage_light",
+]);
+
+/** «Улучшить сцену» переписывает покрытие всех шотов ячейки и берёт якоря с доски. */
+const SCENE_IMPROVE_CLEAR_TYPES = new Set<MontagePendingOp["type"]>([
+  ...SCENE_GENERATE_CLEAR_TYPES,
+  "coverage_plan",
+  "coverage_action",
+  "coverage_angle",
+  "coverage_move",
+  "coverage_stitch",
+  "coverage_anchors",
+  "coverage_template",
+  "coverage_kind",
+]);
+
 type RowKey =
   | "voiceover"
   | "scene_info"
+  | "scene_master"
   | "role"
   | "action"
   | "anchor"
@@ -118,7 +158,7 @@ type RowKey =
 
 const GRID_ROWS: { key: RowKey; label: string }[] = [
   { key: "voiceover", label: "Закадровый текст" },
-  { key: "image1", label: "Кадр" },
+  { key: "image1", label: "Кадры" },
   { key: "video1", label: "Видео 1" },
   { key: "timestamps", label: "Таймкоды" },
 ];
@@ -166,7 +206,9 @@ function trimKey(frameNumber: number, shot: 1 | 2): string {
 }
 
 /** Ключ слота: image → `N:imageS`, video → `N:S`. */
-function slotKeyFromOp(op: Pick<MontagePendingOp, "type" | "frame_number" | "shot">): string {
+function slotKeyFromOp(
+  op: Pick<MontagePendingOp, "type" | "frame_number" | "shot" | "slot">,
+): string {
   const t = String(op.type || "");
   if (t === "coverage_plan") return `${op.frame_number}:plan`;
   if (t === "coverage_action") return `${op.frame_number}:action`;
@@ -186,6 +228,7 @@ function slotKeyFromOp(op: Pick<MontagePendingOp, "type" | "frame_number" | "sho
   if (t === "coverage_feature") return `${op.frame_number}:feature`;
   if (t.startsWith("coverage_")) return `${op.frame_number}:kind`;
   if (t.startsWith("image_")) {
+    if (op.slot === "parent") return `${op.frame_number}:image_parent`;
     return `${op.frame_number}:image${op.shot}`;
   }
   return trimKey(op.frame_number, op.shot);
@@ -202,12 +245,20 @@ function editsWord(n: number): string {
   return "правок";
 }
 
+function framesWord(n: number): string {
+  const ones = n % 10;
+  const tens = n % 100;
+  if (ones === 1 && tens !== 11) return "кадр";
+  if (ones >= 2 && ones <= 4 && (tens < 10 || tens > 20)) return "кадра";
+  return "кадров";
+}
+
 function toastQueued(text: string): void {
   toast.message(text, { id: QUEUE_TOAST_ID });
 }
 
 function opSelectKey(op: MontagePendingOp): string {
-  return `${op.type}:${op.frame_number}:${op.shot}`;
+  return montageOpSelectKey(op);
 }
 
 function describePendingOp(op: MontagePendingOp): string {
@@ -252,6 +303,7 @@ function describePendingOp(op: MontagePendingOp): string {
     coverage_action: "действие",
     coverage_template: "формат",
     coverage_anchors: "якоря",
+    coverage_vo_span: "закадр сцены",
     coverage_kind: "роль",
     coverage_delete: "удаление",
     image_regen: "переген картинки",
@@ -271,6 +323,36 @@ function filesUrlFromAbsPath(absPath: string): string {
   return `/api/files?path=${encodeURIComponent(absPath)}&v=${Date.now()}`;
 }
 
+function frameStillUrl(fr: MontageBoardFrame): string {
+  const parent = (fr.image_parent_url || "").trim();
+  const shot1 = (fr.image_shot1_url || "").trim();
+  if (fr.shot_kind === "parent") return parent || shot1;
+  return shot1 || parent;
+}
+
+function startStillUrl(fr: MontageBoardFrame): string {
+  return (fr.image_shot1_url || "").trim();
+}
+
+type EndStillState = "yes" | "no" | "unknown";
+
+/** Конечный still только у СТАРТ/КОНЕЦ. Пустая раскладка — не угадываем. */
+function endStillState(fr: MontageBoardFrame): EndStillState {
+  if (fr.has_end_still === true) return "yes";
+  if (fr.has_layout === false) return "unknown";
+  if (fr.has_layout === true) return "no";
+  if (fr.has_end_still === false) return "no";
+  return "unknown";
+}
+
+function frameNeedsEndStill(fr: MontageBoardFrame): boolean {
+  return endStillState(fr) === "yes";
+}
+
+function framePairRem(fr: MontageBoardFrame, colRem: number): number {
+  return endStillState(fr) === "yes" ? colRem * 2 : colRem;
+}
+
 function patchBoardFrameMedia(
   data: MontageBoardDTO,
   frameNumber: number,
@@ -280,14 +362,16 @@ function patchBoardFrameMedia(
 ): MontageBoardDTO {
   const url = filesUrlFromAbsPath(absPath);
   const isImage = highlight.includes(":image");
+  const isParentStill =
+    highlight.includes("image_parent") || /_parent/i.test(absPath);
   let changed = false;
   const frames = data.frames.map((fr) => {
     if (fr.number !== frameNumber) return fr;
     changed = true;
     if (isImage) {
-      return shot === 2
-        ? { ...fr, image_shot2_url: url }
-        : { ...fr, image_shot1_url: url };
+      if (shot === 2) return { ...fr, image_shot2_url: url };
+      if (isParentStill) return { ...fr, image_parent_url: url };
+      return { ...fr, image_shot1_url: url };
     }
     return shot === 2
       ? { ...fr, video_shot2_url: url }
@@ -316,6 +400,7 @@ const COVERAGE_QUEUE_TYPES = new Set([
   "coverage_delete",
   "coverage_template",
   "coverage_anchors",
+  "coverage_vo_span",
   "coverage_angle",
   "coverage_move",
   "coverage_stitch",
@@ -397,35 +482,73 @@ function coverageCorrection(
   const plan = (pending.plan || fr?.shot_plan || "").trim();
   const angle = (pending.angle || fr?.shot_angle || "").trim();
   const move = (pending.move || fr?.shot_move || "").trim();
-  const light = (pending.light || fr?.scene_lighting || "").trim();
-  const setText = (pending.set || fr?.scene_set || "").trim();
   const action = (pending.action || fr?.shot_action || "").trim();
-  const sense = (pending.sense || fr?.scene_sense || "").trim();
-  const place = (pending.place || fr?.scene_place || "").trim();
-  const characters = (pending.characters || fr?.scene_characters || "").trim();
-  const visualType = (pending.visual_type || fr?.scene_visual_type || "").trim();
-  const props = (pending.props || fr?.scene_props || "").trim();
-  const bg = (pending.bg || fr?.scene_bg || "").trim();
-  const accent = (pending.accent || fr?.scene_accent || "").trim();
-  const feature = (pending.feature || fr?.scene_feature || "").trim();
+  const characters = (fr?.characters || "").trim();
   return [
     `План: ${plan || "как в кадре"}`,
     angle ? `Ракурс: ${angle}` : "",
     move ? `Движение: ${move}` : "",
-    light ? `Свет: ${light}` : "",
-    setText ? `Набор: ${setText}` : "",
-    sense ? `Смысл: ${sense}` : "",
-    place ? `Место: ${place}` : "",
     characters ? `Персонажи: ${characters}` : "",
-    visualType ? `Тип: ${visualType}` : "",
-    props ? `Предметы: ${props}` : "",
-    bg ? `Фон: ${bg}` : "",
-    accent ? `Акцент: ${accent}` : "",
-    feature ? `Особенность: ${feature}` : "",
     `Действие: ${action || "как в кадре"}`,
   ]
     .filter(Boolean)
     .join(". ");
+}
+
+/** Сначала still сцены, затем кадры: старт и при freeze — конец. leftover пропускаем. */
+function sceneImageOpsForFrames(
+  frames: MontageBoardFrame[],
+  scenePrompt?: string,
+): MontagePendingOp[] {
+  const live = frames.filter((fr) => !fr.shot_leftover);
+  if (!live.length) return [];
+  const byNumber = new Map(frames.map((fr) => [fr.number, fr]));
+  const parentNums = new Set<number>();
+  for (const fr of live) {
+    if (fr.shot_kind === "parent") parentNums.add(fr.number);
+    const p = fr.shot_parent_number;
+    if (typeof p === "number" && p >= 1 && p !== fr.number) parentNums.add(p);
+  }
+  const ops: MontagePendingOp[] = [];
+  const instructionOf = (fr: MontageBoardFrame, master: boolean) => {
+    const pending: PendingCoverage = {
+      plan: fr.shot_plan,
+      action: fr.shot_action,
+      angle: fr.shot_angle,
+      move: fr.shot_move,
+      characters: (fr.characters || "").trim(),
+    };
+    return coverageCorrection(pending, fr);
+  };
+  const sceneInstr = (scenePrompt || "").trim();
+  for (const n of [...parentNums].sort((a, b) => a - b)) {
+    const fr = byNumber.get(n);
+    if (!fr) continue;
+    ops.push({
+      type: "image_ai_change",
+      frame_number: n,
+      shot: 1,
+      slot: "parent",
+      instruction: sceneInstr || instructionOf(fr, true),
+    });
+  }
+  for (const fr of live) {
+    ops.push({
+      type: "image_ai_change",
+      frame_number: fr.number,
+      shot: 1,
+      instruction: instructionOf(fr, false),
+    });
+    if (frameNeedsEndStill(fr)) {
+      ops.push({
+        type: "image_ai_change",
+        frame_number: fr.number,
+        shot: 2,
+        instruction: `${instructionOf(fr, false)} Конечный кадр сцены.`,
+      });
+    }
+  }
+  return ops;
 }
 
 function formatTs(sec: number | null | undefined): string {
@@ -656,6 +779,8 @@ function parentFrameOf(
 function voSceneNumber(fr: MontageBoardFrame): number {
   const n = fr.vo_scene_number;
   if (typeof n === "number" && n > 0) return n;
+  const parent = fr.shot_parent_number;
+  if (typeof parent === "number" && parent > 0) return parent;
   return fr.number;
 }
 
@@ -672,9 +797,16 @@ type SceneRange = {
   frames: MontageBoardFrame[];
 };
 
+function visibleSceneFrames(frames: MontageBoardFrame[]): MontageBoardFrame[] {
+  // leftover-клей прячем. Длина scene_chain — не число шотов: у ячейки
+  // часто 1 N. и 3–8 живых дочерних кадров.
+  return frames.filter((fr) => !fr.shot_leftover);
+}
+
 function sceneRanges(frames: MontageBoardFrame[]): SceneRange[] {
   const out: SceneRange[] = [];
   frames.forEach((fr, i) => {
+    if (fr.shot_leftover) return;
     const scene = voSceneNumber(fr);
     const last = out[out.length - 1];
     if (last && (last.scene === scene || isChildOfScene(fr, last.scene))) {
@@ -684,7 +816,10 @@ function sceneRanges(frames: MontageBoardFrame[]): SceneRange[] {
       out.push({ key: fr.number, scene, start: i, end: i, frames: [fr] });
     }
   });
-  return out;
+  return out.map((range) => {
+    const vis = visibleSceneFrames(range.frames);
+    return { ...range, frames: vis };
+  }).filter((range) => range.frames.length > 0);
 }
 
 /** Действия кадров ячейки через « → » — вместо одного главного действия. */
@@ -695,6 +830,8 @@ function sceneShotSequence(
 ): string {
   const queued = (pendingScene.scene_action || "").trim();
   if (queued) return queued;
+  const fromCell = (range.frames[0]?.scene_action || "").trim();
+  if (fromCell) return fromCell;
   const steps = range.frames
     .map((fr) => {
       const pending = pendingCoverageForFrame(pendingOps, fr.number);
@@ -702,7 +839,7 @@ function sceneShotSequence(
     })
     .filter(Boolean);
   if (steps.length) return steps.join(" → ");
-  return (range.frames[0]?.scene_action || "").trim();
+  return "";
 }
 
 function pendingAnchorsForRange(
@@ -720,10 +857,9 @@ function sceneColSpan(frameCount: number): number {
   return Math.max(1, frameCount * 2 - 1);
 }
 
-function sceneBlockWidthPx(frameCount: number, colRem: number): number {
-  return (
-    frameCount * colRem * 16 + Math.max(0, frameCount - 1) * SHOT_GAP_REM * 16
-  );
+function sceneBlockWidthPx(frames: MontageBoardFrame[], colRem: number): number {
+  const cols = frames.reduce((sum, fr) => sum + framePairRem(fr, colRem), 0);
+  return cols * 16 + Math.max(0, frames.length - 1) * SHOT_GAP_REM * 16;
 }
 
 function MontageColGroup({
@@ -734,7 +870,6 @@ function MontageColGroup({
   colRem: number;
 }) {
   const label = 11 * 16;
-  const frame = colRem * 16;
   const scene = SCENE_GAP_REM * 16;
   const shot = SHOT_GAP_REM * 16;
   return (
@@ -745,7 +880,7 @@ function MontageColGroup({
           <col style={{ width: scene }} />
           {range.frames.map((fr, fi) => (
             <Fragment key={`colf-${fr.frame_id}`}>
-              <col style={{ width: frame }} />
+              <col style={{ width: framePairRem(fr, colRem) * 16 }} />
               {fi < range.frames.length - 1 ? (
                 <col style={{ width: shot }} />
               ) : null}
@@ -856,11 +991,17 @@ function VoiceoverCell({
   busy,
   onSave,
   onDelete,
+  unusedBefore,
+  unusedAfter,
+  unusedBetween,
 }: {
   frame: MontageBoardFrame;
   busy: boolean;
   onSave: (text: string) => Promise<void>;
   onDelete: () => void;
+  unusedBefore?: string;
+  unusedAfter?: string;
+  unusedBetween?: string[];
 }) {
   const source = voiceoverForFrame(frame);
   const [editing, setEditing] = useState(false);
@@ -889,6 +1030,13 @@ function VoiceoverCell({
   if (editing) {
     return (
       <div className="flex flex-col gap-1.5">
+        <div className="flex justify-end">
+          <VoUnusedWarn
+            before={unusedBefore}
+            after={unusedAfter}
+            between={unusedBetween}
+          />
+        </div>
         <textarea
           className="min-h-[88px] w-full rounded-md border border-white/15 bg-black/40 p-2 text-xs leading-snug"
           value={text}
@@ -926,19 +1074,28 @@ function VoiceoverCell({
 
   return (
     <div className="group/vo flex items-start gap-1">
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex justify-end">
+          <VoUnusedWarn
+            before={unusedBefore}
+            after={unusedAfter}
+            between={unusedBetween}
+          />
+        </div>
       <button
         type="button"
-        className="min-w-0 flex-1 whitespace-pre-wrap text-left text-xs leading-snug text-foreground/90 hover:text-white"
+        className="min-w-0 w-full whitespace-pre-wrap text-left text-xs leading-snug text-foreground/90 hover:text-white"
         title="Клик — править закадр"
         disabled={busy}
         onClick={() => setEditing(true)}
       >
         {source || <span className="text-muted-foreground">— добавить закадр</span>}
       </button>
+      </div>
       <button
         type="button"
         className="shrink-0 rounded-md p-1 text-white/30 opacity-0 hover:bg-rose-500/15 hover:text-rose-200 group-hover/vo:opacity-100"
-        title="Удалить кадр"
+        title="Скрыть кадр"
         disabled={busy}
         onClick={onDelete}
       >
@@ -1299,7 +1456,7 @@ const MediaActionBar = memo(function MediaActionBar({
 
 const MONTAGE_IMAGE_DRAG = "application/x-vp-montage-image";
 
-type ImageSlotRef = { frameNumber: number; shot: 1 | 2 };
+type ImageSlotRef = { frameNumber: number; shot: 1 | 2; slot?: "parent" };
 
 /** Chrome часто не отдаёт custom mime в dragOver.types — держим активный drag здесь. */
 let activeImageDrag: ImageSlotRef | null = null;
@@ -1316,7 +1473,11 @@ function parseImageDrag(e: ReactDragEvent): ImageSlotRef | null {
       typeof parsed.frameNumber === "number" &&
       (parsed.shot === 1 || parsed.shot === 2)
     ) {
-      return parsed;
+      return {
+        frameNumber: parsed.frameNumber,
+        shot: parsed.shot,
+        slot: parsed.slot === "parent" ? "parent" : undefined,
+      };
     }
   } catch {
     /* ignore */
@@ -1428,7 +1589,11 @@ const ClickableMedia = memo(function ClickableMedia({
           const from = parseImageDrag(e);
           activeImageDrag = null;
           if (!from || !imageSlot || !onImageDrop) return;
-          if (from.frameNumber === imageSlot.frameNumber && from.shot === imageSlot.shot) {
+          if (
+            from.frameNumber === imageSlot.frameNumber &&
+            from.shot === imageSlot.shot &&
+            (from.slot || "") === (imageSlot.slot || "")
+          ) {
             return;
           }
           onImageDrop(from);
@@ -1921,6 +2086,11 @@ export function AssembleMontageBoard({
   const [staleVideos, setStaleVideos] = useState<string[]>([]);
   const [montageRunning, setMontageRunning] = useState(false);
   const [applyRunning, setApplyRunning] = useState(false);
+  const applyRunningRef = useRef(false);
+  const setApplyRunningNow = (value: boolean) => {
+    applyRunningRef.current = value;
+    setApplyRunning(value);
+  };
   const [recoverRunning, setRecoverRunning] = useState(false);
   const [swapPick, setSwapPick] = useState<SwapSlotPick | null>(null);
   const [swapBusy, setSwapBusy] = useState(false);
@@ -1938,6 +2108,9 @@ export function AssembleMontageBoard({
     null,
   );
   const pendingOpsRef = useRef<MontagePendingOp[]>([]);
+  const sentApplyKeysRef = useRef<string[]>([]);
+  /** pending_ops чужого или своего job: done/idle сверяет очередь без submittedApplyRef. */
+  const jobAppliedOpsRef = useRef<MontagePendingOp[]>([]);
   const montageActive = montageRunning || montageBusy;
   pendingOpsRef.current = pendingOps;
   /** Пользователь набрал очередь локально — не затирать пустым meta с сервера. */
@@ -1948,8 +2121,6 @@ export function AssembleMontageBoard({
   const lastApplyToastKeyRef = useRef("");
   /** Этот прогон apply наш: принимаем done/idle даже если running не успел прийти. */
   const applySeenRunningRef = useRef(false);
-  const applyRunningRef = useRef(false);
-  applyRunningRef.current = applyRunning;
   const lastPatchedPathRef = useRef("");
   const lastMontageToastKeyRef = useRef("");
   const lastRecoverToastKeyRef = useRef("");
@@ -1989,7 +2160,7 @@ export function AssembleMontageBoard({
     setHighlights([]);
     setFailedHighlights([]);
     setStaleVideos([]);
-    setApplyRunning(false);
+    setApplyRunningNow(false);
     setApplyProgress(null);
     setMontageRunning(false);
     setRecoverRunning(false);
@@ -2036,13 +2207,20 @@ export function AssembleMontageBoard({
   const colRem = coverageOn ? frameColRem(frameAspect) : FRAME_COL_REM;
   const gridRows = useMemo(() => {
     if (!coverageOn) return GRID_ROWS;
-    // Сверху картинка кадра; строка «Сцены» — последовательность кадров и якоря
-    // всей VO-ячейки. Ниже — данные каждого кадра.
+    // Сцена ячейки сверху; под ней кадры: старт и рядом конец, если freeze.
     const frameRow = GRID_ROWS.filter((r) => r.key === "image1");
     const rest = GRID_ROWS.filter(
-      (r) => r.key !== "image1" && r.key !== "voiceover",
+      (r) =>
+        r.key !== "image1" &&
+        r.key !== "voiceover" &&
+        r.key !== "scene_info",
     );
-    return [...frameRow, ...SCENE_SHOT_ROWS, ...rest];
+    return [
+      { key: "scene_info" as RowKey, label: "Сцена" },
+      ...frameRow,
+      ...SCENE_SHOT_ROWS,
+      ...rest,
+    ];
   }, [coverageOn]);
   const meta = board.data?.meta;
   const pendingOpsKey = JSON.stringify(meta?.pending_ops ?? []);
@@ -2103,6 +2281,13 @@ export function AssembleMontageBoard({
       if (typeof rec.accent === "string") item.accent = rec.accent;
       if (typeof rec.feature === "string") item.feature = rec.feature;
       if (Array.isArray(rec.anchors)) item.anchors = rec.anchors as SceneAnchorRow[];
+      if (typeof rec.start === "number") item.start = rec.start;
+      if (typeof rec.end === "number") item.end = rec.end;
+      if (typeof rec.text === "string") item.text = rec.text;
+      if (rec.clear === true) item.clear = true;
+      if (rec.vo_span && typeof rec.vo_span === "object") {
+        item.vo_span = rec.vo_span as MontagePendingOp["vo_span"];
+      }
       if (rec.kind === "parent" || rec.kind === "child") item.kind = rec.kind;
       const parentNumber = Number(rec.parent_number);
       if (Number.isFinite(parentNumber) && parentNumber >= 1) {
@@ -2139,7 +2324,7 @@ export function AssembleMontageBoard({
     }
     if (
       pendingOpsRef.current.length > 0 &&
-      restored.length < pendingOpsRef.current.length
+      !serverQueueReplacesLocal(pendingOpsRef.current, restored, opSelectKey)
     ) {
       return;
     }
@@ -2173,7 +2358,7 @@ export function AssembleMontageBoard({
       if (projectId == null) return;
       // Во время apply очередь пишет сам apply (_finish_op) — клиентский
       // debounce с [] или устаревшим списком иначе затирает remaining.
-      if (applyRunning) return;
+      if (applyRunningRef.current) return;
       if (queueSaveTimerRef.current) clearTimeout(queueSaveTimerRef.current);
       const save = () => {
         void api
@@ -2192,7 +2377,7 @@ export function AssembleMontageBoard({
       }
       queueSaveTimerRef.current = setTimeout(save, 400);
     },
-    [projectId, trims, applyRunning],
+    [projectId, trims],
   );
 
   useEffect(() => {
@@ -2286,14 +2471,9 @@ export function AssembleMontageBoard({
     [persistQueue, frames],
   );
 
-  /** Правки из панели сцены: свои coverage-ops + одна перегенерация картинки. */
-  const queueSceneOps = useCallback(
-    (ops: MontagePendingOp[]) => {
-      if (!ops.length) return;
-      const frameNumber = ops[0].frame_number;
-      const changedTypes = new Set(ops.map((o) => String(o.type)));
-      // Картинку перегенерим только если поменялся её смысл: формат, план,
-      // действие. Якоря режут закадр, роль/удаление — структуру покрытия.
+  const applyCoverageNow = useCallback(
+    async (ops: MontagePendingOp[]) => {
+      if (!ops.length || projectId == null) return;
       const visualTypes = new Set([
         "coverage_template",
         "coverage_plan",
@@ -2312,42 +2492,69 @@ export function AssembleMontageBoard({
         "coverage_feature",
       ]);
       const needsImage = ops.some((o) => visualTypes.has(String(o.type)));
-      localQueueDirtyRef.current = true;
-      setPendingOps((prev) => {
-        let next = prev.filter(
-          (x) => !(x.frame_number === frameNumber && changedTypes.has(String(x.type))),
-        );
-        next = [...next, ...ops];
-        if (needsImage) {
-          next = next.filter(
-            (x) =>
-              !(
-                x.frame_number === frameNumber &&
-                x.shot === 1 &&
-                String(x.type).startsWith("image_")
-              ),
-          );
-          const fr = frames.find((f) => f.number === frameNumber);
-          const pending = pendingCoverageForFrame(next, frameNumber);
-          next = [
-            ...next,
-            {
-              type: "image_ai_change",
-              frame_number: frameNumber,
-              shot: 1,
-              correction: coverageCorrection(pending, fr),
-            },
-          ];
+      const numbers = [...new Set(ops.map((o) => o.frame_number))];
+      const changedTypes = new Set(ops.map((o) => String(o.type)));
+      setFrameEditBusy(true);
+      try {
+        for (const op of ops) {
+          await api.applyMontageCoverage(projectId, op);
         }
-        pendingOpsRef.current = next;
-        persistQueue(next);
-        return next;
-      });
-      toastQueued(
-        `Кадр #${frameNumber}: ${ops.length} ${editsWord(ops.length)} в очереди — нажмите «Применить правки»`,
-      );
+        localQueueDirtyRef.current = true;
+        setPendingOps((prev) => {
+          let next = queueAfterCoverageApply(prev, numbers, changedTypes);
+          if (needsImage) {
+            for (const frameNumber of numbers) {
+              next = next.filter(
+                (x) =>
+                  !(
+                    x.frame_number === frameNumber &&
+                    x.shot === 1 &&
+                    String(x.type).startsWith("image_")
+                  ),
+              );
+              const fr = frames.find((f) => f.number === frameNumber);
+              const pending = pendingCoverageForFrame(
+                [...next, ...ops.filter((o) => o.frame_number === frameNumber)],
+                frameNumber,
+              );
+              next = [
+                ...next,
+                {
+                  type: "image_ai_change",
+                  frame_number: frameNumber,
+                  shot: 1,
+                  correction: coverageCorrection(pending, fr),
+                },
+              ];
+            }
+          }
+          pendingOpsRef.current = next;
+          persistQueue(next);
+          return next;
+        });
+        void queryClient.invalidateQueries({ queryKey: ["montage-board", projectId] });
+        toast.success(
+          needsImage
+            ? `Кадр #${numbers[0]}: записано · картинка в «Применить правки»`
+            : ops[0].type === "coverage_anchors"
+              ? "Якоря записаны"
+              : `Кадр #${numbers[0]}: записано`,
+        );
+      } catch (err) {
+        toast.error(errorMessageFromUnknown(err));
+      } finally {
+        setFrameEditBusy(false);
+      }
     },
-    [persistQueue, frames],
+    [frames, persistQueue, projectId, queryClient],
+  );
+
+  /** Настройки пишутся сразу. В очередь — только картинка, если смысл кадра сменился. */
+  const queueSceneOps = useCallback(
+    (ops: MontagePendingOp[]) => {
+      void applyCoverageNow(ops);
+    },
+    [applyCoverageNow],
   );
 
   const toggleOpSelected = useCallback((key: string) => {
@@ -2420,33 +2627,49 @@ export function AssembleMontageBoard({
   );
 
   const applyMutation = useMutation({
-    mutationFn: () => {
-      const ops = pendingOpsRef.current;
+    mutationFn: (opts?: { frameNumbers?: number[] }) => {
+      const all = pendingOpsRef.current;
+      const ops = montageOpsToApply(all, opts?.frameNumbers);
+      sentApplyKeysRef.current = ops.map(opSelectKey);
+      const wanted = opts?.frameNumbers?.length ? new Set(opts.frameNumbers) : null;
+      const frameNs = [...new Set(ops.map((op) => op.frame_number))];
       if (ops.length > 0) {
-        toast.message(`Генерация: ${ops.length} операций… (Outsee API)`);
+        toast.message(
+          wanted
+            ? `Кадр #${[...wanted].join(", #")}…`
+            : `Правки: ${frameNs.length} ${framesWord(frameNs.length)}… (VIA Render)`,
+        );
       }
       return api.applyMontageBoard(projectId!, {
         video_trims: trims,
         pending_ops: ops,
+        ...(frameNs.length ? { frame_numbers: frameNs } : {}),
       });
     },
     onSuccess: (res) => {
-      const queued = pendingOpsRef.current.length;
+      const sent = new Set(sentApplyKeysRef.current);
+      const queued = sent.size;
+      const keepUnsent = (list: MontagePendingOp[]) =>
+        queueAfterApply(list, sent, opSelectKey);
       if (res.started) {
         submittedApplyRef.current = true;
-        localQueueDirtyRef.current = false;
         trimsDirtyRef.current = false;
         if (queueSaveTimerRef.current) {
           clearTimeout(queueSaveTimerRef.current);
           queueSaveTimerRef.current = null;
         }
-        setPendingOps([]);
-        pendingOpsRef.current = [];
-        setSelectedOpKeys(new Set());
+        const keep = keepUnsent(pendingOpsRef.current);
+        localQueueDirtyRef.current = keep.length > 0;
+        pendingOpsRef.current = keep;
+        setPendingOps(keep);
+        setSelectedOpKeys((prev) => {
+          const live = new Set(keep.map(opSelectKey));
+          return new Set([...prev].filter((k) => live.has(k)));
+        });
         setFailedHighlights([]);
         applySeenRunningRef.current = true;
         lastPatchedPathRef.current = "";
-        setApplyRunning(true);
+        setApplyRunningNow(true);
         queueMicrotask(restoreDocumentPointerEvents);
         lastApplyToastKeyRef.current = "";
         toast.message(res.message || `Генерация ${queued} операций через API…`);
@@ -2455,16 +2678,21 @@ export function AssembleMontageBoard({
       if (res.already_running) {
         // Чужой/текущий job — НЕ чистим локальную очередь пользователя.
         applySeenRunningRef.current = true;
-        setApplyRunning(true);
+        setApplyRunningNow(true);
         queueMicrotask(restoreDocumentPointerEvents);
         toast.message("Генерация уже выполняется");
         return;
       }
       submittedApplyRef.current = false;
-      localQueueDirtyRef.current = false;
       trimsDirtyRef.current = false;
-      setPendingOps([]);
-      pendingOpsRef.current = [];
+      const keep = keepUnsent(pendingOpsRef.current);
+      localQueueDirtyRef.current = keep.length > 0;
+      pendingOpsRef.current = keep;
+      setPendingOps(keep);
+      setSelectedOpKeys((prev) => {
+        const live = new Set(keep.map(opSelectKey));
+        return new Set([...prev].filter((k) => live.has(k)));
+      });
       if (res.meta) {
         setHighlights(res.meta.highlights ?? []);
         setFailedHighlights(res.meta.failed_highlights ?? []);
@@ -2474,8 +2702,11 @@ export function AssembleMontageBoard({
         }
         const restored = parsePendingOps(res.meta.pending_ops);
         if (restored.length > 0) {
-          pendingOpsRef.current = restored;
-          setPendingOps(restored);
+          const seen = new Set(keep.map(opSelectKey));
+          const extra = restored.filter((op) => !seen.has(opSelectKey(op)));
+          const next = [...keep, ...extra];
+          pendingOpsRef.current = next;
+          setPendingOps(next);
         }
       }
       void queryClient.invalidateQueries({ queryKey: ["montage-board", projectId] });
@@ -2489,7 +2720,7 @@ export function AssembleMontageBoard({
         // Фоновый job должен вернуть started/already_running. Иначе не врём «завершено».
         toast.message(res.message || "Генерация принята — ждём статус…");
         applySeenRunningRef.current = true;
-        setApplyRunning(true);
+        setApplyRunningNow(true);
         queueMicrotask(restoreDocumentPointerEvents);
       }
     },
@@ -2519,20 +2750,20 @@ export function AssembleMontageBoard({
       if (res.started || res.already_running || res.job?.status === "running") {
         lastRecoverToastKeyRef.current = "";
         setRecoverRunning(true);
-        toast.message(res.message || "Забираем правки из Outsee…");
+        toast.message(res.message || "Забираем правки из генератора…");
         return;
       }
       // Совместимость со старым синхронным ответом (если бэкенд ещё не обновлён).
       const n = res.saved_count ?? res.saved?.length ?? 0;
       if (n > 0) {
-        toast.success(`Забрано и заменено из Outsee: ${n} кадр(ов)`);
+        toast.success(`Забрано и заменено из генератора: ${n} кадр(ов)`);
         localQueueDirtyRef.current = false;
         setPendingOps([]);
       } else if (res.errors?.length) {
         toast.error(res.errors.join("; "));
       } else {
         toast.message(
-          `В истории Outsee нет карточек для выделенных правок (просмотрено ${res.hits_scanned ?? 0})`,
+          `В истории генератора нет карточек для выделенных правок (просмотрено ${res.hits_scanned ?? 0})`,
         );
       }
       void queryClient.invalidateQueries({ queryKey: ["montage-board", projectId] });
@@ -2548,7 +2779,7 @@ export function AssembleMontageBoard({
     void api.getMontageApplyStatus(projectId).then((st) => {
       if (st.job?.status === "running") {
         applySeenRunningRef.current = true;
-        setApplyRunning(true);
+        setApplyRunningNow(true);
       }
     }).catch(() => {});
     void api.getMontageRecoverOutseeStatus(projectId).then((st) => {
@@ -2568,18 +2799,10 @@ export function AssembleMontageBoard({
         localQueueDirtyRef.current && pendingOpsRef.current.length > 0;
       const localKept = keepLocal ? [...pendingOpsRef.current] : [];
       applySeenRunningRef.current = false;
-      setApplyRunning(false);
+      setApplyRunningNow(false);
       setApplyProgress(null);
       restoreDocumentPointerEvents();
-      if (submittedApplyRef.current && !keepLocal) {
-        // Очередь подтянется из meta после refetch (remaining / пусто).
-        localQueueDirtyRef.current = false;
-        setPendingOps([]);
-        pendingOpsRef.current = [];
-        submittedApplyRef.current = false;
-      } else if (submittedApplyRef.current) {
-        submittedApplyRef.current = false;
-      }
+      if (submittedApplyRef.current) submittedApplyRef.current = false;
       if (showToast) {
         if (status === "done") toast.success("Генерация завершена");
         else if (status === "error") toast.error(errText || "Генерация не удалась");
@@ -2601,19 +2824,17 @@ export function AssembleMontageBoard({
           const stale = data?.meta?.stale_videos;
           if (Array.isArray(stale)) setStaleVideos(stale.map(String));
           const restored = parsePendingOps(data?.meta?.pending_ops);
-          if (keepLocal) {
-            const seen = new Set(localKept.map(opSelectKey));
-            const merged = [
-              ...localKept,
-              ...restored.filter((op) => !seen.has(opSelectKey(op))),
-            ];
-            pendingOpsRef.current = merged;
-            setPendingOps(merged);
-            persistQueue(merged, true);
-            return;
-          }
-          pendingOpsRef.current = restored;
-          setPendingOps(restored);
+          const applied = new Set<string>([
+            ...sentApplyKeysRef.current,
+            ...jobAppliedOpsRef.current.map(opSelectKey),
+          ]);
+          const base = keepLocal ? localKept : pendingOpsRef.current;
+          const next = reconcileIdleQueue(base, restored, opSelectKey, applied);
+          const changed =
+            JSON.stringify(next) !== JSON.stringify(pendingOpsRef.current);
+          pendingOpsRef.current = next;
+          setPendingOps(next);
+          if (keepLocal || (changed && applied.size > 0)) persistQueue(next, true);
         })
         .catch(() => {
           void queryClient.invalidateQueries({ queryKey: ["montage-board", projectId] });
@@ -2630,15 +2851,15 @@ export function AssembleMontageBoard({
       setRecoverRunning(false);
       const n = savedCount ?? 0;
       if (status === "done" && n > 0) {
-        toast.success(`Забрано и заменено из Outsee: ${n} кадр(ов)`);
+        toast.success(`Забрано и заменено из генератора: ${n} кадр(ов)`);
         localQueueDirtyRef.current = false;
         setPendingOps([]);
       } else if (status === "done") {
-        toast.message(errText || "В истории Outsee нет подходящих карточек");
+        toast.message(errText || "В истории генератора нет подходящих карточек");
       } else if (status === "error") {
-        toast.error(errText || "Не удалось забрать из Outsee");
+        toast.error(errText || "Не удалось забрать из генератора");
       } else if (status === "cancelled") {
-        toast.message("Забор из Outsee остановлен");
+        toast.message("Забор из генератора остановлен");
       }
       void queryClient.invalidateQueries({ queryKey: ["montage-board", projectId] });
     },
@@ -2677,15 +2898,28 @@ export function AssembleMontageBoard({
           total_ops?: number;
           saved_count?: number;
           refresh_board?: boolean;
+          montage_scene_action_generate?: boolean;
+          montage_scenes_split?: boolean;
+          montage_scenes_merged?: boolean;
           highlight?: string;
           frame_number?: number;
           shot?: number;
           path?: string;
         };
       };
+      if (evt.payload?.montage_scene_action_generate) {
+        void queryClient.invalidateQueries({
+          queryKey: ["montage-board", projectId],
+        });
+      }
+      if (evt.payload?.montage_scenes_split || evt.payload?.montage_scenes_merged) {
+        void queryClient.invalidateQueries({
+          queryKey: ["montage-board", projectId],
+        });
+      }
       if (evt.payload?.stopped) {
         setMontageRunning(false);
-        setApplyRunning(false);
+        setApplyRunningNow(false);
         setRecoverRunning(false);
         setApplyProgress(null);
         applySeenRunningRef.current = false;
@@ -2717,7 +2951,7 @@ export function AssembleMontageBoard({
         const totalOps = evt.payload.total_ops as number | undefined;
         if (status === "running") {
           applySeenRunningRef.current = true;
-          setApplyRunning(true);
+          setApplyRunningNow(true);
           if (typeof doneOps === "number" && typeof totalOps === "number") {
             startTransition(() => {
               setApplyProgress({ done: doneOps, total: totalOps });
@@ -2817,6 +3051,9 @@ export function AssembleMontageBoard({
         const doneOps = st.job?.done_ops;
         const totalOps = st.job?.total_ops;
         if (cancelled) return;
+        if (Array.isArray(st.job?.pending_ops)) {
+          jobAppliedOpsRef.current = st.job.pending_ops as MontagePendingOp[];
+        }
         if (status === "running") {
           applySeenRunningRef.current = true;
           if (typeof doneOps === "number" && typeof totalOps === "number") {
@@ -2924,7 +3161,7 @@ export function AssembleMontageBoard({
   const handleDeleteFrame = async (fr: MontageBoardFrame) => {
     if (!projectId) return;
     const ok = window.confirm(
-      `Удалить кадр #${fr.number}? Остальные кадры сцены останутся.`,
+      `Скрыть кадр #${fr.number}? Остальные кадры сцены останутся.`,
     );
     if (!ok) return;
     setFrameEditBusy(true);
@@ -2940,7 +3177,7 @@ export function AssembleMontageBoard({
       persistQueue(next, true);
       await api.deleteMontageFrame(projectId, fr.frame_id);
       refreshBoard();
-      toast.success(`Кадр #${fr.number} удалён`);
+      toast.success(`Кадр #${fr.number} скрыт`);
     } catch (e) {
       toast.error(errorMessageFromUnknown(e));
     } finally {
@@ -2992,6 +3229,78 @@ export function AssembleMontageBoard({
     }
   };
 
+  const splitSceneAt = async (
+    frame: MontageBoardFrame,
+    sceneFrameIds: number[],
+  ) => {
+    if (!projectId) return;
+    const ok = window.confirm(
+      `Отделить кадр #${frame.number} и все правее в новую сцену?`,
+    );
+    if (!ok) return;
+    setFrameEditBusy(true);
+    try {
+      const res = await api.splitMontageScene(
+        projectId,
+        frame.frame_id,
+        false,
+        sceneFrameIds,
+      );
+      refreshBoard();
+      toast.success(
+        `Сцены #${res.left_number} (${res.left_size}) и #${res.right_number} (${res.right_size})`,
+      );
+    } catch (e) {
+      toast.error(errorMessageFromUnknown(e));
+    } finally {
+      setFrameEditBusy(false);
+    }
+  };
+
+  const splitSceneAll = async (head: MontageBoardFrame, sceneFrameIds: number[]) => {
+    if (!projectId) return;
+    const ok = window.confirm(
+      `Разделить сцену ${head.vo_scene_ordinal ?? `#${head.number}`} на ${sceneFrameIds.length} отдельных сцен? Каждый кадр станет своей ячейкой закадра. Деление можно отменить.`,
+    );
+    if (!ok) return;
+    setFrameEditBusy(true);
+    try {
+      const res = await api.splitMontageScene(
+        projectId,
+        head.frame_id,
+        true,
+        sceneFrameIds,
+      );
+      refreshBoard();
+      toast.success(`Сцена разделена на ${res.scenes} ячеек`);
+    } catch (e) {
+      toast.error(errorMessageFromUnknown(e));
+    } finally {
+      setFrameEditBusy(false);
+    }
+  };
+
+  const undoSplit = async () => {
+    if (!projectId) return;
+    const ok = window.confirm(
+      "Отменить последнее деление сцены? Сцены вернутся к состоянию до деления. Картинки и клипы не удаляются и остаются на своих кадрах.",
+    );
+    if (!ok) return;
+    setFrameEditBusy(true);
+    try {
+      const res = await api.undoSplitMontageScene(projectId, meta?.split_undo?.undo_id);
+      refreshBoard();
+      const kept = res.paid_media_kept.total;
+      toast.success(
+        `Деление отменено (кадров: ${res.restored_frames})${kept ? `. Файлы сохранены на кадрах: ${kept}` : ""}`,
+      );
+    } catch (e) {
+      toast.error(errorMessageFromUnknown(e));
+    } finally {
+      setFrameEditBusy(false);
+    }
+  };
+
   const insertChildAfter = async (afterFrameId: number) => {
     if (!projectId) return;
     setFrameEditBusy(true);
@@ -3013,10 +3322,14 @@ export function AssembleMontageBoard({
     return n != null ? `после #${n}` : "в ленту";
   })();
 
-  const handleDeleteImage = async (frameNumber: number, shot: 1 | 2) => {
+  const handleDeleteImage = async (
+    frameNumber: number,
+    shot: 1 | 2,
+    slot?: "parent",
+  ) => {
     if (!projectId) return;
     try {
-      await api.deleteMontageImage(projectId, frameNumber, shot);
+      await api.deleteMontageImage(projectId, frameNumber, shot, slot);
       setStaleVideos((prev) =>
         prev.includes(trimKey(frameNumber, shot)) ? prev : [...prev, trimKey(frameNumber, shot)],
       );
@@ -3029,7 +3342,12 @@ export function AssembleMontageBoard({
 
   const handleMoveImage = async (from: ImageSlotRef, to: ImageSlotRef) => {
     if (!projectId || moveImageBusy) return;
-    if (from.frameNumber === to.frameNumber && from.shot === to.shot) return;
+    if (
+      from.frameNumber === to.frameNumber &&
+      from.shot === to.shot &&
+      (from.slot || "") === (to.slot || "")
+    )
+      return;
     setMoveImageBusy(true);
     try {
       const res = await api.moveMontageImage(
@@ -3038,6 +3356,8 @@ export function AssembleMontageBoard({
         from.shot,
         to.frameNumber,
         to.shot,
+        from.slot,
+        to.slot,
       );
       setStaleVideos((prev) => {
         const next = new Set(prev);
@@ -3069,10 +3389,15 @@ export function AssembleMontageBoard({
     }
   };
 
-  const handleUploadImage = async (frameNumber: number, shot: 1 | 2, file: File) => {
+  const handleUploadImage = async (
+    frameNumber: number,
+    shot: 1 | 2,
+    file: File,
+    slot?: "parent",
+  ) => {
     if (!projectId) return;
     try {
-      await api.uploadMontageImage(projectId, frameNumber, shot, file);
+      await api.uploadMontageImage(projectId, frameNumber, shot, file, slot);
       setStaleVideos((prev) =>
         prev.includes(trimKey(frameNumber, shot)) ? prev : [...prev, trimKey(frameNumber, shot)],
       );
@@ -3175,8 +3500,13 @@ export function AssembleMontageBoard({
     const fr = frames.find((f) => f.number === frameNumber);
     if (!fr) return "";
     if (kind === "image") {
+      if (shot === 1) {
+        return (
+          (fr.image_prompt_shot1 || fr.layout_start || "")
+        ).trim();
+      }
       return (
-        (shot === 1 ? fr.image_prompt_shot1 : fr.image_prompt_shot2) ?? ""
+        (fr.image_prompt_shot2 || fr.layout_end || "")
       ).trim();
     }
     return (
@@ -3269,12 +3599,16 @@ export function AssembleMontageBoard({
     return n;
   }, [pendingSlotKeys, failedSlotKeys]);
 
+  const pendingFrameNumbers = useMemo(
+    () => pendingApplyFrameNumbers(pendingOps),
+    [pendingOps],
+  );
+
   const isStaleVideo = (frameNumber: number, shot: 1 | 2) =>
     staleVideos.includes(trimKey(frameNumber, shot));
 
   const tableWidthPx = useMemo(() => {
     const rowLabel = 11 * 16;
-    const col = colRem * 16;
     const sceneGap = SCENE_GAP_REM * 16;
     const shotGap = SHOT_GAP_REM * 16;
     const sceneGaps = frames.length > 0 ? ranges.length + 1 : 0;
@@ -3282,8 +3616,12 @@ export function AssembleMontageBoard({
       (n, r) => n + Math.max(0, r.frames.length - 1),
       0,
     );
-    return rowLabel + frames.length * col + sceneGaps * sceneGap + shotGaps * shotGap;
-  }, [frames.length, ranges, colRem]);
+    const framePx = frames.reduce(
+      (sum, fr) => sum + framePairRem(fr, colRem) * 16,
+      0,
+    );
+    return rowLabel + framePx + sceneGaps * sceneGap + shotGaps * shotGap;
+  }, [frames, ranges, colRem]);
 
   const syncScrollLeft = useCallback((from: HTMLDivElement, to: HTMLDivElement) => {
     if (Math.abs(to.scrollLeft - from.scrollLeft) < 0.5) return;
@@ -3335,14 +3673,19 @@ export function AssembleMontageBoard({
       if (projectId == null) return;
       setKindOverride((prev) => ({ ...prev, [frameNumber]: nextKind }));
       try {
+        const fallbackParent = frames.find((f) => f.number !== frameNumber)?.number;
+        const parentNum =
+          nextKind === "child"
+            ? nextParent && nextParent !== frameNumber
+              ? nextParent
+              : fallbackParent
+            : undefined;
         const res = await api.applyMontageCoverage(projectId, {
           type: "coverage_kind",
           frame_number: frameNumber,
           shot: 1,
           kind: nextKind,
-          ...(nextKind === "child" && nextParent
-            ? { parent_number: nextParent }
-            : {}),
+          ...(parentNum ? { parent_number: parentNum } : {}),
         });
         queryClient.setQueryData<MontageBoardDTO>(
           ["montage-board", projectId],
@@ -3400,7 +3743,7 @@ export function AssembleMontageBoard({
         toast.error(errorMessageFromUnknown(e));
       }
     },
-    [projectId, persistQueue, queryClient],
+    [projectId, persistQueue, queryClient, frames],
   );
 
   const hasPendingType = useCallback(
@@ -3488,38 +3831,140 @@ export function AssembleMontageBoard({
     return null;
   };
 
-  const enqueueSceneActionNow = useCallback(
+  const applySceneActionNow = useCallback(
     (frameNumber: number, action: string) => {
-      const op: MontagePendingOp = {
-        type: "coverage_scene_action",
-        frame_number: frameNumber,
-        shot: 1,
-        action,
-      };
+      void applyCoverageNow([
+        {
+          type: "coverage_scene_action",
+          frame_number: frameNumber,
+          shot: 1,
+          action,
+        },
+      ]);
+    },
+    [applyCoverageNow],
+  );
+
+  const afterSceneActionGenerate = useCallback(
+    (
+      frameNumber: number,
+      frameNumbers: number[] = [frameNumber],
+      types: Set<MontagePendingOp["type"]> = SCENE_GENERATE_CLEAR_TYPES,
+    ) => {
       localQueueDirtyRef.current = true;
-      const next = [
-        ...pendingOpsRef.current.filter(
-          (x) =>
-            !(x.frame_number === frameNumber && x.type === "coverage_scene_action"),
-        ),
-        op,
-      ];
+      const numbers = new Set([frameNumber, ...frameNumbers]);
+      const next = pendingOpsRef.current.filter(
+        (x) => !(numbers.has(x.frame_number) && types.has(x.type)),
+      );
       pendingOpsRef.current = next;
       persistQueue(next);
       setPendingOps(next);
-      toastQueued(
-        `Кадр #${frameNumber}: последовательность кадров в очереди — нажмите «Применить правки»`,
-      );
+      void queryClient.invalidateQueries({ queryKey: ["montage-board", projectId] });
     },
-    [persistQueue],
+    [persistQueue, projectId, queryClient],
   );
 
-  const applySceneActionNow = useCallback(
-    (frameNumber: number, action: string) => {
-      enqueueSceneActionNow(frameNumber, action);
-      applyMutation.mutate();
+  const improveSceneNow = useCallback(
+    async (
+      frameId: number,
+      frameNumber: number,
+      prompt: string,
+      anchors: MontageAnchorRow[],
+      frameNumbers: number[],
+    ): Promise<MontageImproveReport | undefined> => {
+      if (projectId == null) return undefined;
+      setFrameEditBusy(true);
+      try {
+        toast.message("Сцена идёт через 3 ноды: действие → кадры → QC…");
+        const res = await api.improveScene(projectId, frameId, {
+          prompt,
+          anchors: anchors
+            .filter((r) => (r["якорь"] || "").trim())
+            .map((r) => ({
+              "якорь": r["якорь"],
+              "изменение": r["изменение"] || "",
+              "главный": Boolean(r["главный"]),
+            })),
+        });
+        afterSceneActionGenerate(frameNumber, frameNumbers, SCENE_IMPROVE_CLEAR_TYPES);
+        const extra = Number(res.inserted_frames || 0);
+        const live = frames.filter(
+          (fr) => frameNumbers.includes(fr.number) && !fr.shot_leftover,
+        );
+        const apiOps = Array.isArray(res.image_ops)
+          ? (res.image_ops.filter(
+              (op) =>
+                op &&
+                typeof op === "object" &&
+                String(op.type || "").startsWith("image_"),
+            ) as MontagePendingOp[])
+          : [];
+        const ops = apiOps.length ? apiOps : sceneImageOpsForFrames(live, prompt);
+        if (ops.length) {
+          const numbers = [
+            ...new Set(ops.map((op) => Number(op.frame_number))),
+          ].filter((n) => n >= 1);
+          localQueueDirtyRef.current = true;
+          setPendingOps((prev) => {
+            const next = [
+              ...prev.filter(
+                (x) =>
+                  !numbers.includes(x.frame_number) ||
+                  !String(x.type).startsWith("image_"),
+              ),
+              ...ops,
+            ];
+            pendingOpsRef.current = next;
+            persistQueue(next, true);
+            return next;
+          });
+          toast.message(
+            res.message ||
+              `Сцена улучшена${extra ? ` · +${extra} кадров` : ""} · картинки: сцена → кадры`,
+          );
+          await applyMutation.mutateAsync({ frameNumbers: numbers });
+        } else {
+          toast.message(
+            res.message || `Сцена улучшена${extra ? ` · +${extra} кадров` : ""}`,
+          );
+        }
+        return res.improve_report;
+      } catch (err) {
+        toast.error(errorMessageFromUnknown(err));
+        return undefined;
+      } finally {
+        setFrameEditBusy(false);
+      }
     },
-    [applyMutation, enqueueSceneActionNow],
+    [afterSceneActionGenerate, applyMutation, frames, persistQueue, projectId],
+  );
+
+  const generateSceneImagesNow = useCallback(
+    async (range: SceneRange, scenePrompt?: string) => {
+      if (projectId == null) return;
+      const ops = sceneImageOpsForFrames(range.frames, scenePrompt);
+      if (!ops.length) {
+        toast.error("Нет живых кадров сцены для картинок");
+        return;
+      }
+      const numbers = [...new Set(ops.map((op) => op.frame_number))];
+      localQueueDirtyRef.current = true;
+      setPendingOps((prev) => {
+        const next = [
+          ...prev.filter(
+            (x) =>
+              !numbers.includes(x.frame_number) ||
+              !String(x.type).startsWith("image_"),
+          ),
+          ...ops,
+        ];
+        pendingOpsRef.current = next;
+        persistQueue(next, true);
+        return next;
+      });
+      await applyMutation.mutateAsync({ frameNumbers: numbers });
+    },
+    [applyMutation, persistQueue, projectId],
   );
 
   /** Клетка на всю VO-ячейку: последовательность кадров и якоря. */
@@ -3545,14 +3990,68 @@ export function AssembleMontageBoard({
     const anchorsPending = range.frames.some((fr) =>
       hasPendingType(fr.number, "coverage_anchors"),
     );
+    const parentStill = (head.image_parent_url || "").trim();
     return (
       <SceneCell
+        still={
+          parentStill ? (
+            <button
+              type="button"
+              title="Still сцены"
+              className="block overflow-hidden rounded-md border border-white/10"
+              onClick={() =>
+                showPreview({
+                  url: parentStill,
+                  kind: "image",
+                  label: `Сцена · #${head.number}`,
+                })
+              }
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={parentStill}
+                alt={`Сцена #${head.number}`}
+                className="max-h-28 w-full object-cover"
+              />
+            </button>
+          ) : null
+        }
+        generate={
+          projectId != null ? (
+            <SceneGenerateBlock
+              projectId={projectId}
+              frameId={head.frame_id}
+              chain={head.scene_chain ?? []}
+              disabled={sceneDisabled || applyMutation.isPending || applyRunning}
+              onDone={(result) => {
+                const nums =
+                  result?.frame_numbers?.filter((n) => Number.isFinite(n) && n >= 1) ??
+                  [];
+                afterSceneActionGenerate(
+                  head.number,
+                  nums.length ? nums : range.frames.map((fr) => fr.number),
+                  SCENE_GENERATE_CLEAR_TYPES,
+                );
+              }}
+              onImprove={(prompt) =>
+                improveSceneNow(
+                  head.frame_id,
+                  head.number,
+                  prompt,
+                  anchorRows,
+                  range.frames.map((fr) => fr.number),
+                )
+              }
+              onGenerateImages={() => generateSceneImagesNow(range)}
+            />
+          ) : null
+        }
         action={
           <SceneActionBlock
             value={sceneShotSequence(range, pendingOps, pending)}
             pending={hasPendingType(head.number, "coverage_scene_action")}
             disabled={sceneDisabled}
-            applyBusy={applyMutation.isPending || applyRunning}
+            applyBusy={applyMutation.isPending || applyRunning || frameEditBusy}
             onQueue={(action) =>
               queueCoverage({ ...base, type: "coverage_scene_action", action })
             }
@@ -3573,6 +4072,7 @@ export function AssembleMontageBoard({
               heading="якоря"
               pending={anchorsPending}
               disabled={sceneDisabled}
+              voSpan={head.vo_span ?? null}
               onCommit={(anchors) =>
                 queueCoverage({
                   frame_number: tail.number,
@@ -3581,52 +4081,36 @@ export function AssembleMontageBoard({
                   anchors,
                 })
               }
+              onSaveVoSpan={(next) => {
+                if (projectId == null) return;
+                void api
+                  .applyMontageCoverage(projectId, {
+                    type: "coverage_vo_span",
+                    frame_number: head.number,
+                    shot: 1,
+                    ...(next
+                      ? {
+                          start: next.start,
+                          end: next.end,
+                          text: next.text,
+                          ...(next.full ? { full: next.full } : {}),
+                        }
+                      : { clear: true }),
+                  })
+                  .then(() => {
+                    toast.success(
+                      next
+                        ? "Закадр сцены сохранён — перегенерация возьмёт этот кусок"
+                        : "Выделение закадра снято",
+                    );
+                    void queryClient.invalidateQueries({
+                      queryKey: ["montage-board", projectId],
+                    });
+                  })
+                  .catch((err) => toast.error(errorMessageFromUnknown(err)));
+              }}
             />
           </div>
-        }
-        data={
-          <SceneDataCell
-            values={{
-              sense: (pending.sense ?? head.scene_sense ?? "").trim(),
-              visual_type: (pending.visual_type ?? head.scene_visual_type ?? "").trim(),
-              place: (pending.place ?? head.scene_place ?? "").trim(),
-              characters: (pending.characters ?? head.scene_characters ?? "").trim(),
-              props: (pending.props ?? head.scene_props ?? "").trim(),
-              bg: (pending.bg ?? head.scene_bg ?? "").trim(),
-              accent: (pending.accent ?? head.scene_accent ?? "").trim(),
-              feature: (pending.feature ?? head.scene_feature ?? "").trim(),
-              set: (pending.set ?? head.scene_set ?? "").trim(),
-            }}
-            pending={{
-              sense: hasPendingType(head.number, "coverage_sense"),
-              visual_type: hasPendingType(head.number, "coverage_visual_type"),
-              place: hasPendingType(head.number, "coverage_place"),
-              characters: hasPendingType(head.number, "coverage_characters"),
-              props: hasPendingType(head.number, "coverage_props"),
-              bg: hasPendingType(head.number, "coverage_bg"),
-              accent: hasPendingType(head.number, "coverage_accent"),
-              feature: hasPendingType(head.number, "coverage_feature"),
-              set: hasPendingType(head.number, "coverage_set"),
-            }}
-            visualTypeChoices={board.data?.coverage_visual_type_choices}
-            disabled={sceneDisabled}
-            onCommit={(field: SceneDataField, value) => {
-              const type = (
-                {
-                  sense: "coverage_sense",
-                  visual_type: "coverage_visual_type",
-                  place: "coverage_place",
-                  characters: "coverage_characters",
-                  props: "coverage_props",
-                  bg: "coverage_bg",
-                  accent: "coverage_accent",
-                  feature: "coverage_feature",
-                  set: "coverage_set",
-                } as const
-              )[field];
-              queueCoverage({ ...base, type, [field]: value });
-            }}
-          />
         }
       />
     );
@@ -3764,24 +4248,47 @@ export function AssembleMontageBoard({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="default"
-              className="h-9 text-xs"
-              disabled={!projectId || applyMutation.isPending || applyRunning}
-              onClick={() => applyMutation.mutate()}
-            >
-              {applyMutation.isPending || applyRunning ? (
-                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-9 text-xs"
+                disabled={
+                  !projectId ||
+                  applyMutation.isPending ||
+                  applyRunning ||
+                  pendingFrameNumbers.length === 0
+                }
+                onClick={() => applyMutation.mutate({})}
+              >
+                {applyMutation.isPending || applyRunning ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : null}
+                Применить правки
+                {applyRunning && applyProgress
+                  ? ` (${applyProgress.done}/${applyProgress.total})`
+                  : pendingFrameNumbers.length > 0
+                    ? ` (${pendingFrameNumbers.length} ${framesWord(pendingFrameNumbers.length)})`
+                    : ""}
+              </Button>
+              {pendingFrameNumbers.length > 0 && !applyRunning ? (
+                <div className="flex max-w-[22rem] flex-wrap items-center gap-1">
+                  {pendingFrameNumbers.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      disabled={!projectId || applyMutation.isPending}
+                      title={`Применить правки кадра #${n}`}
+                      onClick={() => applyMutation.mutate({ frameNumbers: [n] })}
+                      className="h-7 rounded-md border border-white/15 bg-white/5 px-1.5 text-[10px] font-semibold text-white/80 transition hover:border-white/35 hover:bg-white/10 disabled:opacity-40"
+                    >
+                      #{n}
+                    </button>
+                  ))}
+                </div>
               ) : null}
-              Применить правки
-              {applyRunning && applyProgress
-                ? ` (${applyProgress.done}/${applyProgress.total})`
-                : pendingOps.length > 0
-                  ? ` (${pendingOps.length})`
-                  : ""}
-            </Button>
+            </div>
             <Popover>
               <PopoverTrigger asChild>
                 <Button
@@ -3789,10 +4296,12 @@ export function AssembleMontageBoard({
                   size="sm"
                   variant="outline"
                   className="h-9 text-xs"
-                  disabled={pendingOps.length === 0 || applyRunning}
+                  disabled={pendingFrameNumbers.length === 0 || applyRunning}
                 >
                   Очередь
-                  {pendingOps.length > 0 ? ` (${pendingOps.length})` : ""}
+                  {pendingFrameNumbers.length > 0
+                    ? ` (${pendingFrameNumbers.length})`
+                    : ""}
                 </Button>
               </PopoverTrigger>
               <PopoverContent
@@ -3812,7 +4321,7 @@ export function AssembleMontageBoard({
                   </button>
                 </div>
                 <ul className="max-h-64 space-y-1 overflow-y-auto">
-                  {pendingOps.map((op) => {
+                  {montageOpsToApply(pendingOps).map((op) => {
                     const key = opSelectKey(op);
                     const checked = selectedOpKeys.has(key);
                     return (
@@ -3856,7 +4365,7 @@ export function AssembleMontageBoard({
                 recoverRunning ||
                 applyRunning
               }
-              title="Опционально: CDP-подбор готовых карточек из галереи Outsee (перегенерация через API этого не требует)"
+              title="Опционально: CDP-подбор готовых карточек из галереи генератора (перегенерация через API этого не требует)"
               onClick={() => recoverOutseeMutation.mutate()}
             >
               {recoverOutseeMutation.isPending || recoverRunning ? (
@@ -3864,7 +4373,7 @@ export function AssembleMontageBoard({
               ) : (
                 <RefreshCw className="h-4 w-4" />
               )}
-              {recoverRunning ? "Забираем из галереи…" : "Галерея Outsee (CDP)"}
+              {recoverRunning ? "Забираем из галереи…" : "Галерея генератора (CDP)"}
             </Button>
             <AudioAlignPopover
               projectId={projectId}
@@ -4038,7 +4547,7 @@ export function AssembleMontageBoard({
                                   "border-b border-white/10 px-1.5 py-2 text-center font-mono text-xs",
                                   fi === 0 ? "border-l border-white/15" : null,
                                 )}
-                                style={frameColStyle(colRem)}
+                                style={frameColStyle(framePairRem(fr, colRem))}
                               >
                                 <span className="flex items-center justify-center gap-1">
                                   <span>#{fr.number}</span>
@@ -4053,7 +4562,7 @@ export function AssembleMontageBoard({
                                   </button>
                                   <button
                                     type="button"
-                                    title={`Удалить кадр #${fr.number}`}
+                                    title={`Скрыть кадр #${fr.number}`}
                                     disabled={frameEditBusy}
                                     onClick={() => void handleDeleteFrame(fr)}
                                     className="rounded p-0.5 text-white/30 transition hover:bg-rose-500/15 hover:text-rose-200 disabled:opacity-40"
@@ -4063,7 +4572,22 @@ export function AssembleMontageBoard({
                                 </span>
                               </th>
                               {fi < range.frames.length - 1 ? (
-                                <GapCell as="th" gap="shot" />
+                                <th className={cn(SHOT_GAP_CLASS, "relative border-b border-white/10")}>
+                                  <button
+                                    type="button"
+                                    title={`Отделить #${range.frames[fi + 1].number} в новую сцену`}
+                                    disabled={frameEditBusy}
+                                    onClick={() =>
+                                      void splitSceneAt(
+                                        range.frames[fi + 1],
+                                        range.frames.map((f) => f.frame_id),
+                                      )
+                                    }
+                                    className="absolute inset-y-0 left-1/2 z-20 flex w-6 -translate-x-1/2 items-center justify-center text-white/25 transition hover:text-[rgba(209,254,23,1)] disabled:opacity-40"
+                                  >
+                                    <Scissors className="h-3 w-3" />
+                                  </button>
+                                </th>
                               ) : null}
                             </Fragment>
                           ))}
@@ -4089,6 +4613,17 @@ export function AssembleMontageBoard({
                         )}
                       >
                         Сцены
+                        {meta?.split_undo?.can_undo ? (
+                          <button
+                            type="button"
+                            title="Вернуть сцены к состоянию до последнего деления; картинки и клипы не удаляются"
+                            disabled={frameEditBusy}
+                            onClick={() => void undoSplit()}
+                            className="mt-1 block rounded border border-white/15 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-white/60 transition hover:border-[rgba(209,254,23,0.45)] hover:text-[rgba(209,254,23,1)] disabled:opacity-40"
+                          >
+                            Отменить деление
+                          </button>
+                        ) : null}
                       </th>
                       {ranges.map((range, ri) => {
                         const head = range.frames[0];
@@ -4099,25 +4634,35 @@ export function AssembleMontageBoard({
                             <GapCell as="th" gap="scene" />
                             <th
                               colSpan={sceneColSpan(range.frames.length)}
-                              style={{ width: sceneBlockWidthPx(range.frames.length, colRem) }}
+                              style={{ width: sceneBlockWidthPx(range.frames, colRem) }}
                               className="border-b border-x border-white/20 bg-white/[0.05] px-2 py-1.5 text-left align-top"
                             >
-                              <p className="truncate text-[11px] font-semibold text-white/80">
-                                Сцена {ri + 1} · {nums}
+                              <p className="flex items-center gap-1.5 truncate text-[11px] font-semibold text-white/80">
+                                <span className="min-w-0 truncate">
+                                  Сцена {ri + 1} · {nums}
+                                </span>
+                                {range.frames.length > 1 ? (
+                                  <button
+                                    type="button"
+                                    title="Каждый кадр этой сцены станет отдельной сценой"
+                                    disabled={frameEditBusy}
+                                    onClick={() =>
+                                      void splitSceneAll(
+                                        head,
+                                        range.frames.map((f) => f.frame_id),
+                                      )
+                                    }
+                                    className="inline-flex shrink-0 items-center gap-1 rounded border border-white/15 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium text-white/55 transition hover:border-[rgba(209,254,23,0.45)] hover:text-[rgba(209,254,23,1)] disabled:opacity-40"
+                                  >
+                                    <Unlink2 className="h-3 w-3" />
+                                    Разделить
+                                  </button>
+                                ) : null}
                               </p>
-                              {head?.scene_place ? (
-                                <p className="truncate text-[10px] text-white/40">
-                                  {head.scene_place}
-                                </p>
-                              ) : last && last.number !== head?.number ? (
+                              {last && last.number !== head?.number ? (
                                 <p className="truncate text-[10px] text-white/35">
                                   {range.frames.length} кадра
                                 </p>
-                              ) : null}
-                              {coverageOn ? (
-                                <div className="mt-1.5 font-normal normal-case tracking-normal">
-                                  {renderSceneSpanCell("scene_info", range)}
-                                </div>
                               ) : null}
                             </th>
                           </Fragment>
@@ -4163,7 +4708,7 @@ export function AssembleMontageBoard({
                           {SCENE_SPAN_ROWS.has(row.key) ? (
                             <td
                               colSpan={sceneColSpan(range.frames.length)}
-                              style={{ width: sceneBlockWidthPx(range.frames.length, colRem) }}
+                              style={{ width: sceneBlockWidthPx(range.frames, colRem) }}
                               className="border-l border-white/15 px-2 py-2 align-top"
                             >
                               {collapsed ? (
@@ -4174,18 +4719,18 @@ export function AssembleMontageBoard({
                             </td>
                           ) : (
                           range.frames.map((fr, fi) => {
+                            const pairRem = framePairRem(fr, colRem);
+                            const endState = endStillState(fr);
                             const isMediaRow =
                               row.key.startsWith("image") || row.key.startsWith("video");
                             const mediaUrl =
                               row.key === "image1"
-                                ? fr.image_shot1_url
-                                : row.key === "image2"
-                                  ? fr.image_shot2_url
-                                  : row.key === "video1"
-                                    ? fr.video_shot1_url
-                                    : row.key === "video2"
-                                      ? fr.video_shot2_url
-                                      : "";
+                                ? `${startStillUrl(fr)}|${endState === "yes" ? fr.image_shot2_url || "" : ""}`
+                                : row.key === "video1"
+                                  ? fr.video_shot1_url
+                                  : row.key === "video2"
+                                    ? fr.video_shot2_url
+                                    : "";
                             return (
                             <Fragment key={
                               isMediaRow
@@ -4194,14 +4739,15 @@ export function AssembleMontageBoard({
                             }>
                             <td
                               className={cn(
-                                "relative isolate overflow-hidden px-1.5 py-2 align-top",
+                                "relative isolate px-1.5 py-2 align-top",
+                                row.key !== "voiceover" && "overflow-hidden",
                                 fi === 0 ? "border-l border-white/15" : null,
                               )}
                               style={
                                 isMediaRow || row.key === "voiceover"
-                                  ? frameColStyle(colRem)
+                                  ? frameColStyle(pairRem)
                                   : {
-                                      ...frameColStyle(colRem),
+                                      ...frameColStyle(pairRem),
                                       contentVisibility: "auto",
                                       // `auto` = помнить последний размер клетки:
                                       // иначе отрисовка соседней строки меняла
@@ -4217,6 +4763,21 @@ export function AssembleMontageBoard({
                                 <VoiceoverCell
                                   frame={fr}
                                   busy={frameEditBusy || applyRunning}
+                                  unusedBefore={
+                                    fr.number === fr.vo_unused_after_number
+                                      ? fr.vo_unused_before || ""
+                                      : ""
+                                  }
+                                  unusedAfter={
+                                    fr.number === fr.vo_unused_after_number
+                                      ? fr.vo_unused_after || ""
+                                      : ""
+                                  }
+                                  unusedBetween={
+                                    fr.number === fr.vo_unused_after_number
+                                      ? fr.vo_unused_between || []
+                                      : []
+                                  }
                                   onSave={(text) => handleSaveVoiceover(fr.frame_id, text)}
                                   onDelete={() => void handleDeleteFrame(fr)}
                                 />
@@ -4225,135 +4786,192 @@ export function AssembleMontageBoard({
                               ) : row.key === "timestamps" ? (
                                 <TimestampCell fr={fr} />
                               ) : row.key === "image1" ? (
-                                <ClickableMedia
-                                  url={fr.image_shot1_url}
-                                  kind="image"
-                                  tall={coverageOn}
-                                  tallAspect={frameAspect}
-                                  overlay={null}
-                                  caption={
-                                    <>
-                                      {coverageOn ? renderSceneFrameCell("role", fr) : null}
-                                      {coverageOn ? (
-                                        <CoverageMenu
-                                          title={`покрытие кадра #${fr.number}`}
-                                          groups={coverageGroups(fr)}
-                                          disabled={sceneDisabled}
-                                        />
-                                      ) : null}
-                                      <FrameRefsStrip
-                                        projectId={projectId}
-                                        frame={frameForRefs(
-                                          fr,
-                                          pendingCoverageForFrame(pendingOps, fr.number),
-                                          kindOverride[fr.number],
-                                        )}
-                                        parentFrame={
-                                          effectiveShotKind(
-                                            fr,
-                                            pendingCoverageForFrame(pendingOps, fr.number),
-                                            kindOverride[fr.number],
-                                          ) === "parent"
-                                            ? null
-                                            : parentFrameOf(frames, fr)
-                                        }
-                                        pendingKind={
-                                          effectiveShotKind(
-                                            fr,
-                                            pendingCoverageForFrame(pendingOps, fr.number),
-                                            kindOverride[fr.number],
-                                          ) || undefined
-                                        }
-                                        onPromoteToParent={() =>
-                                          applyKindNow(fr.number, "parent")
-                                        }
-                                        kinds={board.data?.ref_kind_choices}
-                                        disabled={frameEditBusy || applyRunning}
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-start gap-1">
+                                    <div className="min-w-0 flex-1">
+                                      <ClickableMedia
+                                        url={startStillUrl(fr)}
+                                        kind="image"
+                                        tall={coverageOn}
+                                        tallAspect={frameAspect}
+                                        overlay={null}
+                                        label={`Начальный кадр · #${fr.number}`}
                                         onPreview={showPreview}
-                                        onChanged={() => void board.refetch()}
+                                        scrollRootRef={tableScrollRef}
+                                        imageSlot={{ frameNumber: fr.number, shot: 1 }}
+                                        onImageDrop={(from) =>
+                                          void handleMoveImage(from, {
+                                            frameNumber: fr.number,
+                                            shot: 1,
+                                          })
+                                        }
+                                        onRegen={() =>
+                                          queueOp({
+                                            type: "image_regen",
+                                            frame_number: fr.number,
+                                            shot: 1,
+                                            prompt: sourcePromptFor("image", fr.number, 1),
+                                          })
+                                        }
+                                        onEditPrompt={() =>
+                                          openPromptModal("image", fr.number, 1, "prompt")
+                                        }
+                                        onAiChange={() =>
+                                          openAiChangeModal("image", fr.number, 1)
+                                        }
+                                        onRegenWithCorrection={() =>
+                                          openPromptModal(
+                                            "image",
+                                            fr.number,
+                                            1,
+                                            "correction",
+                                          )
+                                        }
+                                        onDelete={() =>
+                                          void handleDeleteImage(fr.number, 1)
+                                        }
+                                        onUpload={(file) =>
+                                          void handleUploadImage(fr.number, 1, file)
+                                        }
+                                        slotTone={toneForSlot(`${fr.number}:image1`)}
+                                        onSwapPick={() =>
+                                          void handleSwapPick({
+                                            kind: "image",
+                                            frameNumber: fr.number,
+                                            shot: 1,
+                                          })
+                                        }
+                                        swapSelected={isSwapSelected(
+                                          "image",
+                                          fr.number,
+                                          1,
+                                        )}
+                                        swapBusy={swapBusy}
                                       />
-                                    </>
-                                  }
-                                  label={`Кадр #${fr.number} · картинка`}
-                                  onPreview={showPreview}
-                                  scrollRootRef={tableScrollRef}
-                                  imageSlot={{ frameNumber: fr.number, shot: 1 }}
-                                  onImageDrop={(from) =>
-                                    void handleMoveImage(from, {
-                                      frameNumber: fr.number,
-                                      shot: 1,
-                                    })
-                                  }
-                                  onRegen={() =>
-                                    queueOp({
-                                      type: "image_regen",
-                                      frame_number: fr.number,
-                                      shot: 1,
-                                      prompt: sourcePromptFor("image", fr.number, 1),
-                                    })
-                                  }
-                                  onEditPrompt={() => openPromptModal("image", fr.number, 1, "prompt")}
-                                  onAiChange={() =>
-                                    openAiChangeModal("image", fr.number, 1)
-                                  }
-                                  onRegenWithCorrection={() =>
-                                    openPromptModal("image", fr.number, 1, "correction")
-                                  }
-                                  onDelete={() => void handleDeleteImage(fr.number, 1)}
-                                  onUpload={(file) => void handleUploadImage(fr.number, 1, file)}
-                                  slotTone={toneForSlot(`${fr.number}:image1`)}
-                                  onSwapPick={() =>
-                                    void handleSwapPick({
-                                      kind: "image",
-                                      frameNumber: fr.number,
-                                      shot: 1,
-                                    })
-                                  }
-                                  swapSelected={isSwapSelected("image", fr.number, 1)}
-                                  swapBusy={swapBusy}
-                                />
-                              ) : row.key === "image2" ? (
-                                <ClickableMedia
-                                  url={fr.image_shot2_url}
-                                  kind="image"
-                                  label={`Изображение 2 · кадр #${fr.number}`}
-                                  onPreview={showPreview}
-                                  scrollRootRef={tableScrollRef}
-                                  imageSlot={{ frameNumber: fr.number, shot: 2 }}
-                                  onImageDrop={(from) =>
-                                    void handleMoveImage(from, {
-                                      frameNumber: fr.number,
-                                      shot: 2,
-                                    })
-                                  }
-                                  onRegen={() =>
-                                    queueOp({
-                                      type: "image_regen",
-                                      frame_number: fr.number,
-                                      shot: 2,
-                                      prompt: sourcePromptFor("image", fr.number, 2),
-                                    })
-                                  }
-                                  onEditPrompt={() => openPromptModal("image", fr.number, 2, "prompt")}
-                                  onAiChange={() =>
-                                    openAiChangeModal("image", fr.number, 2)
-                                  }
-                                  onRegenWithCorrection={() =>
-                                    openPromptModal("image", fr.number, 2, "correction")
-                                  }
-                                  onDelete={() => void handleDeleteImage(fr.number, 2)}
-                                  onUpload={(file) => void handleUploadImage(fr.number, 2, file)}
-                                  slotTone={toneForSlot(`${fr.number}:image2`)}
-                                  onSwapPick={() =>
-                                    void handleSwapPick({
-                                      kind: "image",
-                                      frameNumber: fr.number,
-                                      shot: 2,
-                                    })
-                                  }
-                                  swapSelected={isSwapSelected("image", fr.number, 2)}
-                                  swapBusy={swapBusy}
-                                />
+                                    </div>
+                                    {endState === "yes" ? (
+                                      <div className="min-w-0 flex-1">
+                                        <ClickableMedia
+                                          url={fr.image_shot2_url}
+                                          kind="image"
+                                          tall={coverageOn}
+                                          tallAspect={frameAspect}
+                                          label={`Конечный кадр · #${fr.number}`}
+                                          onPreview={showPreview}
+                                          scrollRootRef={tableScrollRef}
+                                          imageSlot={{
+                                            frameNumber: fr.number,
+                                            shot: 2,
+                                          }}
+                                          onImageDrop={(from) =>
+                                            void handleMoveImage(from, {
+                                              frameNumber: fr.number,
+                                              shot: 2,
+                                            })
+                                          }
+                                          onRegen={() =>
+                                            queueOp({
+                                              type: "image_regen",
+                                              frame_number: fr.number,
+                                              shot: 2,
+                                              prompt: sourcePromptFor(
+                                                "image",
+                                                fr.number,
+                                                2,
+                                              ),
+                                            })
+                                          }
+                                          onEditPrompt={() =>
+                                            openPromptModal(
+                                              "image",
+                                              fr.number,
+                                              2,
+                                              "prompt",
+                                            )
+                                          }
+                                          onAiChange={() =>
+                                            openAiChangeModal("image", fr.number, 2)
+                                          }
+                                          onRegenWithCorrection={() =>
+                                            openPromptModal(
+                                              "image",
+                                              fr.number,
+                                              2,
+                                              "correction",
+                                            )
+                                          }
+                                          onDelete={() =>
+                                            void handleDeleteImage(fr.number, 2)
+                                          }
+                                          onUpload={(file) =>
+                                            void handleUploadImage(fr.number, 2, file)
+                                          }
+                                          slotTone={toneForSlot(
+                                            `${fr.number}:image2`,
+                                          )}
+                                          onSwapPick={() =>
+                                            void handleSwapPick({
+                                              kind: "image",
+                                              frameNumber: fr.number,
+                                              shot: 2,
+                                            })
+                                          }
+                                          swapSelected={isSwapSelected(
+                                            "image",
+                                            fr.number,
+                                            2,
+                                          )}
+                                          swapBusy={swapBusy}
+                                        />
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  {endState === "unknown" ? (
+                                    <p className="px-0.5 text-[11px] leading-snug text-muted-foreground">
+                                      Раскладка пустая — неясно, нужен ли конечный
+                                      кадр
+                                    </p>
+                                  ) : null}
+                                  {coverageOn ? renderSceneFrameCell("role", fr) : null}
+                                  {coverageOn ? (
+                                    <CoverageMenu
+                                      title={`покрытие кадра #${fr.number}`}
+                                      groups={coverageGroups(fr)}
+                                      disabled={sceneDisabled}
+                                    />
+                                  ) : null}
+                                  <FrameRefsStrip
+                                    projectId={projectId}
+                                    frame={frameForRefs(
+                                      fr,
+                                      pendingCoverageForFrame(pendingOps, fr.number),
+                                      kindOverride[fr.number],
+                                    )}
+                                    parentFrame={
+                                      effectiveShotKind(
+                                        fr,
+                                        pendingCoverageForFrame(pendingOps, fr.number),
+                                        kindOverride[fr.number],
+                                      ) === "parent"
+                                        ? null
+                                        : parentFrameOf(frames, fr)
+                                    }
+                                    pendingKind={
+                                      effectiveShotKind(
+                                        fr,
+                                        pendingCoverageForFrame(pendingOps, fr.number),
+                                        kindOverride[fr.number],
+                                      ) || undefined
+                                    }
+                                    onPromoteToParent={() =>
+                                      applyKindNow(fr.number, "parent")
+                                    }
+                                    kinds={board.data?.ref_kind_choices}
+                                    disabled={frameEditBusy || applyRunning}
+                                    onPreview={showPreview}
+                                    onChanged={() => void board.refetch()}
+                                  />
+                                </div>
                               ) : row.key === "video1" ? (
                                 <VideoMediaCell
                                   fr={fr}

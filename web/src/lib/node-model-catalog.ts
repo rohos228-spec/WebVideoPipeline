@@ -6,7 +6,6 @@ export type ModelKind = "text" | "image" | "video";
 export type ModelVendorId =
   | "anthropic"
   | "openai"
-  | "glm"
   | "gemini"
   | "deepseek"
   | "xai"
@@ -67,10 +66,10 @@ export type ModelCatalogPayload = {
   models: CatalogModel[];
 };
 
-export const PRICE_MARKUP = 1.5;
+export const PRICE_MARKUP = 3;
 export const PRICE_MARKUP_STABLE = PRICE_MARKUP;
 export const DEFAULT_TEXT_MODEL_ID = "gpt-5.6-sol";
-export const DEFAULT_IMAGE_MODEL_ID = "nano-banana-2";
+export const DEFAULT_IMAGE_MODEL_ID = "gpt-image-2-vip";
 export const DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite";
 export const IMAGE_NODE_TYPES = new Set(["images", "hero", "items", "hitl_images"]);
 export const VIDEO_NODE_TYPES = new Set(["videos", "hitl_videos"]);
@@ -90,14 +89,14 @@ export const MEDIA_NODE_TYPES = new Set([
   "topic",
   "excel_feed",
   "shot_menu",
+  "hitl_style",
 ]);
 export function isTextNodeType(nodeType: string): boolean {
   return !MEDIA_NODE_TYPES.has(nodeType);
 }
-export const IMAGE_MODEL_ALIASES: Record<string, string> = {
-  "gpt-image-2-vip": "gpt-image-2",
-};
+export const IMAGE_MODEL_ALIASES: Record<string, string> = { "gpt-image-2": "gpt-image-2-vip" };
 export const HIDDEN_IMAGE_IDS = new Set([
+  "gpt-image-2",
   "nano-banana",
   "nano-banana-pro",
   "seedream-4.5",
@@ -111,7 +110,6 @@ export const VENDOR_META: Record<
 > = {
   anthropic: { id: "anthropic", label: "Anthropic", icon: "A" },
   openai: { id: "openai", label: "OpenAI", icon: "hex" },
-  glm: { id: "glm", label: "GLM", icon: "Z" },
   gemini: { id: "gemini", label: "Gemini", icon: "spark" },
   deepseek: { id: "deepseek", label: "DeepSeek", icon: "D" },
   xai: { id: "xai", label: "xAI", icon: "X" },
@@ -122,7 +120,6 @@ export const VENDOR_META: Record<
 const VENDOR_ORDER: Exclude<ModelVendorId, "other">[] = [
   "anthropic",
   "openai",
-  "glm",
   "gemini",
   "deepseek",
   "xai",
@@ -137,7 +134,6 @@ function vendorOf(id: string, isImage: boolean, isVideo = false): ModelVendorId 
   if (isImage) return "images";
   const mid = id.toLowerCase();
   if (mid.startsWith("claude")) return "anthropic";
-  if (mid.startsWith("glm")) return "glm";
   if (mid.startsWith("gemini")) return "gemini";
   if (mid.startsWith("deepseek")) return "deepseek";
   if (mid.startsWith("grok")) return "xai";
@@ -203,14 +199,11 @@ function kindOf(row: SnapshotRow, isVideo = false): ModelKind {
 }
 
 const TOP_MODEL_IDS = new Set([
-  "claude-sonnet-5-5",
-  "gpt-6-sol",
   "flux-2-pro",
   "seedream-5-pro",
+  "gpt-image-2-vip",
   "gpt-image-2",
   "nano-banana-2",
-  "seedance-2-0-mini",
-  "seedance-2-0-fast-overseas",
   "seedance-2-5",
   "seedance-1-5-pro",
   "kling-3-0",
@@ -219,7 +212,6 @@ const TOP_MODEL_IDS = new Set([
   "kling-3-0-omni-t2v",
   "hailuo-2-3-i2v",
   "wan-2-7-t2v",
-  "wan-2-7-i2v",
   "pixverse-v6-t2v",
   "topaz-video-upscale",
   "veo-3-1-lite",
@@ -284,32 +276,6 @@ const IMAGE_EXTRA: CatalogModel[] = [
 
 const VIDEO_EXTRA: CatalogModel[] = [
   {
-    id: "seedance-2-0-mini",
-    label: "Seedance 2.0 Mini",
-    vendor: "video",
-    kind: "video",
-    online: true,
-    is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.20 },
-    api_model: "seedance-2-0-mini",
-    provider: "kie",
-    video_generator: "seedance_2_0_mini",
-    channel: "stable",
-  },
-  {
-    id: "seedance-2-0-fast-overseas",
-    label: "Seedance 2.0 Fast (Лица)",
-    vendor: "video",
-    kind: "video",
-    online: true,
-    is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.22 },
-    api_model: "seedance-2-0-fast-overseas",
-    provider: "kie",
-    video_generator: "seedance_2_0_fast_overseas",
-    channel: "stable",
-  },
-  {
     id: "seedance-2-5",
     label: "Seedance 2.5 (ByteDance)",
     vendor: "video",
@@ -340,9 +306,8 @@ const VIDEO_EXTRA: CatalogModel[] = [
     label: "Kling 3.0 Pro (1080p + звук)",
     vendor: "video",
     kind: "video",
-    // Релей kie мёртв (баланс −2.15, решение 2026-08-26 — не возвращаться);
-    // модель остаётся в списке, но выбрать её нельзя.
-    online: false,
+    online: true,
+    is_top: true,
     pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.36 },
     api_model: "kling-3-0",
     provider: "kie",
@@ -415,19 +380,6 @@ const VIDEO_EXTRA: CatalogModel[] = [
     channel: "stable",
   },
   {
-    id: "wan-2-7-i2v",
-    label: "Alibaba WAN 2.7 (фото)",
-    vendor: "video",
-    kind: "video",
-    online: true,
-    is_top: true,
-    pricing: { currency: "usd", markup: PRICE_MARKUP, usd_per_video: 0.40 },
-    api_model: "wan-2-7-i2v",
-    provider: "kie",
-    video_generator: "wan_2_7_i2v",
-    channel: "stable",
-  },
-  {
     id: "pixverse-v6-t2v",
     label: "PixVerse V6 (текст)",
     vendor: "video",
@@ -471,9 +423,7 @@ const VIDEO_EXTRA: CatalogModel[] = [
 function normalizeSnapshot(row: SnapshotRow): CatalogModel {
   const isImage = Boolean(row.is_image);
   const pricing = applyMarkup(row.pricing as RawVibecodePricing);
-  const label = row.display_name;
-  const provider =
-    row.owned_by === "kie" ? "kie" : isImage ? "outsee" : "vibecode";
+  const label = row.id === "gpt-image-2-vip" ? "GPT Image 2" : row.display_name;
   return {
     id: row.id,
     label,
@@ -484,7 +434,7 @@ function normalizeSnapshot(row: SnapshotRow): CatalogModel {
     resolution: resolutionBadge(row.display_name, row.id),
     pricing,
     api_model: row.id,
-    provider,
+    provider: isImage ? "outsee" : "vibecode",
     channel: "stable",
   };
 }
@@ -521,11 +471,10 @@ export function catalogForNodeType(
     : VIDEO_NODE_TYPES.has(nodeType || "")
       ? "video"
       : "text";
-  const visible = (m: CatalogModel) => !HIDDEN_IMAGE_IDS.has(m.id);
-  const models = catalog.models.filter((m) => m.kind === kind && visible(m));
+  const models = catalog.models.filter((m) => m.kind === kind);
   const vendors = catalog.vendors
     .map((v) => {
-      const items = v.models.filter((m) => m.kind === kind && visible(m));
+      const items = v.models.filter((m) => m.kind === kind);
       return { ...v, models: items, count: items.length };
     })
     .filter((v) => v.count > 0);

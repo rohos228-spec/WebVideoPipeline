@@ -32,7 +32,7 @@ export const WORK_MODE_OPTIONS: {
   {
     value: "assist",
     title: "Участвует в работе",
-    hint: "Шлёт ввод в GPT вместе с промтом как этап пайплайна.",
+    hint: "Шлёт ввод в GPT вместе с промтом — как этап пайплайна (Excel и др.).",
   },
   {
     value: "review",
@@ -61,6 +61,11 @@ export const INPUT_SOURCE_OPTIONS: {
 
 export function isExcelGptNode(nodeType: string): boolean {
   return nodeType === EXCEL_GPT_NODE_TYPE || nodeType.startsWith("enrich_");
+}
+
+/** Нода «Отчёт: кадры + промты» — HTML, не Excel. */
+export function isShotsReportNode(nodeKey?: string | null): boolean {
+  return Boolean(nodeKey?.endsWith("_fw_report"));
 }
 
 export function isImageUploadName(fileName?: string | null): boolean {
@@ -102,7 +107,7 @@ export function excelGptAttachmentChipTitle(source: ExcelGptInputSource): string
   if (source === "image") return "Изображение";
   if (source === "hero_refs") return "Рефы";
   if (source === "scene_images") return "Кадры";
-  return "Кадры";
+  return "Excel";
 }
 
 export function workModeLabel(mode?: ExcelGptWorkMode | null): string {

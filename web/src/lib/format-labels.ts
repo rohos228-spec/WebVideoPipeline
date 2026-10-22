@@ -3,7 +3,7 @@
 import type { ProjectStatus } from "./types";
 import type { NodeCategory } from "./node-catalog";
 
-const PROJECT_STATUS: Partial<Record<ProjectStatus | string, string>> = {
+const PROJECT_STATUS: Partial<Record<ProjectStatus, string>> = {
   new: "новый",
   planning: "сценарий",
   plan_ready: "сценарий готов",
@@ -19,16 +19,6 @@ const PROJECT_STATUS: Partial<Record<ProjectStatus | string, string>> = {
   hero_ready: "персонажи готовы",
   generating_items: "предметы",
   items_ready: "предметы готовы",
-  enriching_1: "дополнение 1",
-  enriching_2: "дополнение 2",
-  enriching_3: "дополнение 3",
-  enriching_4: "дополнение 4",
-  enriching_5: "дополнение 5",
-  enrich_1_ready: "дополнение 1 готово",
-  enrich_2_ready: "дополнение 2 готово",
-  enrich_3_ready: "дополнение 3 готово",
-  enrich_4_ready: "дополнение 4 готово",
-  enrich_5_ready: "дополнение 5 готово",
   generating_image_prompts: "промты картинок",
   image_prompts_ready: "промты картинок готовы",
   generating_images: "картинки",
@@ -39,12 +29,6 @@ const PROJECT_STATUS: Partial<Record<ProjectStatus | string, string>> = {
   videos_ready: "видео готово",
   generating_audio: "озвучка",
   audio_ready: "озвучка готова",
-  generating_music: "музыка",
-  music_ready: "музыка готова",
-  sfx_planning: "план звуков",
-  sfx_plan_ready: "план звуков готов",
-  generating_sfx: "звуки (sfx)",
-  sfx_ready: "звуки готовы",
   assembling: "сборка",
   assembled: "собрано",
   publishing: "публикация",
@@ -56,7 +40,7 @@ const PROJECT_STATUS: Partial<Record<ProjectStatus | string, string>> = {
 const NODE_CATEGORY: Record<NodeCategory, string> = {
   planning: "планирование",
   objects: "объекты",
-  enrich: "постановка сцен",
+  enrich: "дополнение Excel",
   media: "медиа",
   audio: "аудио",
   assembly: "сборка",
@@ -87,42 +71,8 @@ export function formatNodeCategory(cat: string): string {
   return NODE_CATEGORY[cat as NodeCategory] ?? humanizeSlug(cat);
 }
 
-const NODE_TYPE_LABELS: Record<string, string> = {
-  excel_gpt: "ИИ-режиссер",
-  topic: "Тема",
-  plan: "План",
-  script: "Сценарий",
-  split: "Нарезка кадров",
-  hero: "Персонажи",
-  items: "Предметы",
-  scene_design: "Дизайн сцен",
-  sd_agent: "Агент сцен",
-  sd_assemble: "Сборка сцен",
-  image_prompts: "Промты картинок",
-  images: "Картинки",
-  animation_prompts: "Промты анимации",
-  videos: "Видео",
-  music: "Музыка",
-  sfx_plan: "План звуков",
-  sfx_gen: "Звуки",
-  audio: "Озвучка",
-  assemble: "Монтаж",
-  publish: "Публикация",
-  storage: "Хранилище",
-  shot_menu: "Меню съёмки",
-  excel_feed: "Темы",
-  hitl_hero: "Проверка персонажей",
-  hitl_images: "Проверка картинок",
-  hitl_videos: "Проверка видео",
-  hitl_final: "Финальная проверка",
-};
-
-export function formatNodeType(type: string): string {
-  if (type.startsWith("enrich_")) return "ИИ-режиссер";
-  return NODE_TYPE_LABELS[type] ?? humanizeSlug(type);
-}
-
-export function formatRunStatus(status: string): string {
+export function formatRunStatus(status: string | null | undefined): string {
+  if (typeof status !== "string" || status.length === 0) return "";
   return RUN_STATUS[status] ?? humanizeSlug(status);
 }
 
@@ -144,12 +94,11 @@ export function formatStepCode(code: string): string {
     sd_act: "агент: действие",
     hero: "персонажи",
     items: "предметы",
-    enrich_1: "режиссура 1",
-    enrich_2: "режиссура 2",
-    enrich_3: "режиссура 3",
-    enrich_4: "режиссура 4",
-    enrich_5: "режиссура 5",
-    excel_gpt: "ИИ-режиссер",
+    enrich_1: "дополнение 1",
+    enrich_2: "дополнение 2",
+    enrich_3: "дополнение 3",
+    enrich_4: "дополнение 4",
+    enrich_5: "дополнение 5",
     img_pr: "промты картинок",
     images: "картинки",
     anim_pr: "промты анимации",
@@ -164,7 +113,8 @@ export function formatStepCode(code: string): string {
 }
 
 /** Заменяет _ на пробелы, убирает лишние технические префиксы. */
-export function humanizeSlug(value: string): string {
+export function humanizeSlug(value: string | null | undefined): string {
+  if (typeof value !== "string") return "";
   return value
     .replace(/^n_/, "")
     .replace(/_/g, " ")
@@ -172,6 +122,28 @@ export function humanizeSlug(value: string): string {
     .replace(/\bgpt\b/gi, "GPT")
     .replace(/\boutsee\b/gi, "генератор")
     .trim();
+}
+
+/**
+ * Подпись строки Run в оверлее канваса.
+ * null — пустой ответ (`[]`, null) или объект без status-slug: оверлей
+ * показывает «не запущен», а не вызывает humanizeSlug(undefined).
+ */
+export function formatRunOverlayLabel(run: unknown): string | null {
+  if (run == null || typeof run !== "object" || Array.isArray(run)) return null;
+  const rec = run as { id?: unknown; status?: unknown };
+  if (typeof rec.status !== "string" || rec.status.trim() === "") return null;
+  if (typeof rec.id !== "number" && typeof rec.id !== "string") return null;
+  const label = formatRunStatus(rec.status);
+  if (!label) return null;
+  return `#${rec.id} · ${label}`;
+}
+
+/** node_runs из ответа /run. Пустой или кривой payload → пустой список, без throw. */
+export function nodeRunsFromPayload<T>(run: unknown): T[] {
+  if (run == null || typeof run !== "object" || Array.isArray(run)) return [];
+  const rows = (run as { node_runs?: unknown }).node_runs;
+  return Array.isArray(rows) ? (rows as T[]) : [];
 }
 
 export function formatNodeKeyLabel(key: string): string {

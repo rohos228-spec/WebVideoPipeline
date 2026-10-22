@@ -1,18 +1,16 @@
 "use client";
 
-import { useState, useEffect, createContext, useContext } from "react";
-import { useSearchParams } from "next/navigation";
-import { Bot, CircleDollarSign, Database, Film, LogOut } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useState, createContext, useContext } from "react";
+import { Activity, Network, Film, Bot, Database, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet } from "lucide-react";
+import { LogPanel } from "@/components/logs/log-panel";
 import { FramesGrid } from "@/components/frames/frames-grid";
-import { CostsPanelSheet } from "@/components/costs/costs-panel-sheet";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
-import { BalanceBadge } from "@/components/shell/balance-badge";
-import { useMe, useOwnerMode } from "@/hooks/use-identity";
-import { useProjectMode } from "@/hooks/use-pipeline-mode";
-import { useDevRole } from "@/hooks/use-dev-role";
-import { clearToken } from "@/lib/identity-api";
-import { cn } from "@/lib/utils";
+import { TextLlmPicker } from "@/components/shell/text-llm-picker";
+import { BugReportButton } from "@/components/shell/bug-report-button";
+import { UserPrefsApplier } from "@/components/panels/top/user-panel";
+import { StoragePanel } from "@/components/panels/left-top/storage-panel";
+import { PaymentsPanel } from "@/components/panels/left-bottom/payments-panel";
+import { PayoutsPanel } from "@/components/panels/left-bottom/payouts-panel";
 
 interface UiState {
   framesProjectId: number | null;
@@ -29,25 +27,12 @@ export function useUi(): UiState {
 }
 
 export function Topbar({ children }: { children?: React.ReactNode }) {
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [railPanel, setRailPanel] = useState<null | "Хранилище" | "Оплата" | "Выплаты">(null);
+  const togglePanel = (k: "Хранилище" | "Оплата" | "Выплаты") => setRailPanel((v) => (v === k ? null : k));
   const [framesOpen, setFramesOpen] = useState(false);
   const [framesProjectId, setFramesProjectId] = useState<number | null>(null);
-  const ownerMode = useOwnerMode();
-  const { data: me } = useMe();
-  const { toggleDevRole, isMemberPreview } = useDevRole();
-  const [costsOpen, setCostsOpen] = useState(false);
-  // Бейдж механики: режим открытого проекта (только отображение, R1).
-  // Без проекта — режим воркспейса. Смена — в сайдбаре или по клику на бейдж.
-  const params = useSearchParams();
-  const urlProjectId = Number(params.get("project") ?? "");
-  const boardMode = useProjectMode(
-    Number.isFinite(urlProjectId) && urlProjectId > 0 ? urlProjectId : null,
-  );
-
-  useEffect(() => {
-    const onOpenCosts = () => setCostsOpen(true);
-    window.addEventListener("studio-open-costs", onOpenCosts);
-    return () => window.removeEventListener("studio-open-costs", onOpenCosts);
-  }, []);
 
   const openFrames = (id: number) => {
     setFramesProjectId(id);
@@ -64,145 +49,75 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
 
   return (
     <UiContext.Provider value={{ framesProjectId, openFrames, openOutsee }}>
-      <div className="flex h-full min-h-0 w-full flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center justify-between border-b border-white/[0.06] bg-black/40 px-4 backdrop-blur-xl">
-          <div className="flex items-center gap-2.5">
-            <img src="/icon.svg" alt="Studio" className="h-6 w-6 shrink-0 rounded-md shadow-sm" />
-            <div className="flex flex-col gap-0.5 leading-tight">
-              <span className="text-sm font-semibold tracking-tight text-white">Видео студия</span>
-              <div className="flex items-center gap-2">
-                {ownerMode ? (
-                  isMemberPreview ? (
-                    <span
-                      className="text-[10px] text-emerald-400 font-medium truncate max-w-[160px]"
-                      title="Локальный тестовый пользователь"
-                    >
-                      demo.user@zukiemi.space
-                    </span>
-                  ) : (
-                    <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-400 font-medium">
-                      автономный режим
-                    </span>
-                  )
-                ) : (
-                  <span className="text-[10px] text-zinc-400 font-medium truncate max-w-[160px]" title={me?.email}>
-                    {me?.email || "SaaS"}
-                  </span>
-                )}
-                <StudioVersionBadge />
-                <span
-                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold border border-white/10 bg-white/[0.04] text-zinc-300"
-                  title={
-                    boardMode === "v2"
-                      ? "Режиссёрский монтаж (v2)"
-                      : "Классический пайплайн (v1)"
-                  }
-                >
-                  {boardMode === "v2" ? "🎬 v2" : "🔹 v1"}
-                </span>
-                {ownerMode && (
-                  <button
-                    type="button"
-                    onClick={toggleDevRole}
-                    className={cn(
-                      "rounded px-1.5 py-0.5 text-[9px] font-semibold transition-colors border",
-                      isMemberPreview
-                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
-                        : "border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20",
-                    )}
-                    title="Локальный Dev-переключатель: нажмите, чтобы переключить вид (Админ / Пользователь)"
-                  >
-                    {isMemberPreview ? "Вид: Пользователь" : "Вид: Админ"}
-                  </button>
-                )}
-              </div>
+      <div className="flex h-full min-h-0 w-full flex-1 flex-row">
+      <nav className="flex w-[64px] shrink-0 flex-col items-center gap-1 border-r border-white/[0.06] bg-[#0e0e10] py-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <a href="/home" title="Главная"><img src="/via-logo.png" alt="VIA" className="mb-3 w-[46px] select-none" draggable={false} /></a>
+        <RailBtn icon={<Film className="h-[18px] w-[18px]" />} label="Генерация" title="Полный интерфейс генерации" onClick={() => openOutsee()} />
+        <RailBtn icon={<FolderOpen className="h-[18px] w-[18px]" />} label="Проекты" title="Показать / скрыть панель проектов" onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))} />
+        <RailBtn icon={<Activity className="h-[18px] w-[18px]" />} label="Логи" title="Журнал студии" onClick={() => setLogsOpen(true)} />
+        <RailBtn icon={<Bot className="h-[18px] w-[18px]" />} label="Чат" title="Чат GPT" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))} />
+        <RailBtn icon={<Database className="h-[18px] w-[18px]" />} label="База" title="База проекта" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-baza"))} />
+        <RailBtn icon={<Network className="h-[18px] w-[18px]" />} label="Сеть" title="Сеть машин" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-fleet"))} />
+        <BugReportButton />
+        <RailBtn icon={<HardDrive className="h-[18px] w-[18px]" />} label="Хранилище" active={railPanel === "Хранилище"} onClick={() => togglePanel("Хранилище")} />
+        <div className="flex-1" />
+        <RailBtn icon={<CreditCard className="h-[18px] w-[18px]" />} label="Оплата" active={railPanel === "Оплата"} onClick={() => togglePanel("Оплата")} />
+        <RailBtn icon={<Wallet className="h-[18px] w-[18px]" />} label="Выплаты" active={railPanel === "Выплаты"} onClick={() => togglePanel("Выплаты")} />
+        {railPanel === "Хранилище" ? <StoragePanel onClose={() => setRailPanel(null)} /> : null}
+        {railPanel === "Оплата" ? <PaymentsPanel onClose={() => setRailPanel(null)} /> : null}
+        {railPanel === "Выплаты" ? <PayoutsPanel onClose={() => setRailPanel(null)} /> : null}
+        {railPanel && railPanel !== "Хранилище" && railPanel !== "Оплата" && railPanel !== "Выплаты" ? (
+          <div data-rail-panel={railPanel} className="fixed left-[72px] top-3 z-50 w-[320px] rounded-[14px] border border-white/10 bg-[#0a0a0a] p-4 shadow-2xl" style={{ fontFamily: "Rubik, sans-serif" }}>
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[15px] font-medium text-white">{railPanel}</span>
+              <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-white" onClick={() => setRailPanel(null)} aria-label="Закрыть">×</button>
             </div>
+            <div className="rounded-lg border border-white/[0.06] bg-black/60 px-3 py-6 text-center text-[13px] text-zinc-400">скоро</div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => openOutsee()}
-              className="gap-2 text-xs font-semibold border-emerald-500/40 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200 hover:border-emerald-400/60 shadow-sm"
-              title="Полный интерфейс генерации outsee"
-            >
-              <Film className="h-3.5 w-3.5 text-emerald-400" />
-              Генерация
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))}
-              className="gap-2 text-xs font-semibold"
-              title="Свободный чат с активной текстовой моделью (GPT или Kimi)"
-            >
-              <Bot className="h-3.5 w-3.5" />
-              Чат
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("studio-open-baza"))}
-              className="gap-2 text-xs"
-              title="Визуализация базы данных: карточки кадров, связи, версии промтов"
-            >
-              <Database className="h-3.5 w-3.5" />
-              База
-            </Button>
-            <BalanceBadge className="mr-1" />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("studio-open-costs"))}
-              className="gap-2 text-xs"
-              title="Расходы и статистика использования всех моделей (фото, видео, аудио, LLM)"
-            >
-              <CircleDollarSign className="h-3.5 w-3.5" />
-              Расходы
-            </Button>
-            {ownerMode && isMemberPreview && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={toggleDevRole}
-                className="gap-1.5 text-xs text-zinc-400 hover:text-amber-300 hover:bg-amber-950/20"
-                title="Сбросить режим пользователя и вернуться к виду администратора"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                Выйти
-              </Button>
-            )}
-            {!ownerMode && me?.email && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  clearToken();
-                  window.location.reload();
-                }}
-                className="gap-1.5 text-xs text-zinc-400 hover:text-rose-300 hover:bg-rose-950/20"
-                title="Выйти из учётной записи"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                Выйти
-              </Button>
-            )}
-          </div>
-        </header>
-        <FramesGrid
-          projectId={framesProjectId}
-          open={framesOpen}
-          onOpenChange={setFramesOpen}
-        />
-        <CostsPanelSheet
-          open={costsOpen}
-          onOpenChange={setCostsOpen}
-          selectedProjectId={framesProjectId}
-        />
-        {children != null ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
         ) : null}
+        <button type="button" onClick={() => { window.location.href = "/profile"; }} className="flex h-10 w-10 items-center justify-center text-zinc-400 hover:bg-white/[0.05] hover:text-white" title="Пользователь" aria-label="Пользователь">
+          <User className="h-5 w-5" strokeWidth={1.6} />
+        </button>
+        <div className="relative">
+          <button type="button" onClick={() => setSettingsOpen((v) => !v)} className={"flex h-10 w-10 items-center justify-center hover:bg-white/[0.05] hover:text-white " + (settingsOpen ? "text-white" : "text-zinc-400")} title="Настройки" aria-label="Настройки">
+            <Settings className="h-5 w-5" strokeWidth={1.6} />
+          </button>
+          {settingsOpen ? (
+            <div className="absolute bottom-0 left-full z-50 ml-2 w-[300px] border border-white/10 bg-[#141417] p-3 shadow-2xl">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[13px] font-medium uppercase tracking-[0.12em] text-zinc-300">Настройки</span>
+                <button type="button" className="text-zinc-500 hover:text-white" onClick={() => setSettingsOpen(false)} aria-label="Закрыть">×</button>
+              </div>
+              <div className="mb-3 text-[13px] text-zinc-500">Текстовая модель</div>
+              <TextLlmPicker />
+              <div className="mt-3 flex items-center gap-2 text-[13px] text-zinc-500">Версия <StudioVersionBadge /></div>
+            </div>
+          ) : null}
+        </div>
+        <UserPrefsApplier />
+      </nav>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <LogPanel open={logsOpen} onOpenChange={setLogsOpen} />
+      <FramesGrid
+        projectId={framesProjectId}
+        open={framesOpen}
+        onOpenChange={setFramesOpen}
+      />
+      {children != null ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+      ) : null}
+      </div>
       </div>
     </UiContext.Provider>
+  );
+}
+
+function RailBtn({ icon, label, title, onClick, active }: { icon: React.ReactNode; label: string; title?: string; onClick: () => void; active?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} title={title ?? label} className={"flex w-[62px] flex-col items-center gap-1 py-1.5 text-[11px] tracking-[-0.02em] transition-colors " + (active ? "text-white" : "text-zinc-400") + " hover:bg-white/[0.05] hover:text-white"}>
+      {icon}
+      <span className="leading-none">{label}</span>
+    </button>
   );
 }

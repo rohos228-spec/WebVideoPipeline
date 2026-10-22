@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Save, ChevronDown, ChevronUp, Calculator, Mic, Play, Pause, Sparkles } from "lucide-react";
+import { Loader2, Save, ChevronDown, ChevronUp, Calculator } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import type { ProjectDetail } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { VoiceLibraryModal, getVoiceById } from "@/components/outsee/voice-library-modal";
 import {
   DEFAULT_ELEVENLABS_VOICE_ID,
+  ELEVENLABS_VOICES,
+  elevenLabsVoiceLabel,
   findElevenLabsVoice,
 } from "@/lib/elevenlabs-voices";
 import {
@@ -100,7 +101,6 @@ function PlanScriptFields({
       </div>
       <NumField
         label="Длина, секунд"
-        description="Пустое поле в GPT-сообщении отображается как ____"
         value={durDraft}
         onChange={setDurDraft}
       />
@@ -112,7 +112,7 @@ function PlanScriptFields({
       </div>
       <Button
         size="sm"
-        className="w-fit self-start h-8 px-5 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/50 shadow-md shadow-cyan-500/20 rounded-xl transition-all disabled:opacity-50"
+        className="w-fit self-start h-9 px-5 text-[13px] font-medium text-white border border-white/25 rounded-md shadow-none transition-colors hover:border-white/60 disabled:opacity-50"
         disabled={saving}
         onClick={() => {
           const trimmed = durDraft.trim();
@@ -139,153 +139,48 @@ function AudioFields({
 }) {
   const savedId = params.audio?.elevenlabs_voice_id ?? DEFAULT_ELEVENLABS_VOICE_ID;
   const [voiceDraft, setVoiceDraft] = useState(savedId);
-  const [libraryOpen, setLibraryOpen] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     setVoiceDraft(savedId);
   }, [savedId]);
 
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
-  }, []);
-
-  const selectedStandard = findElevenLabsVoice(voiceDraft);
-  const ruVoice = getVoiceById(voiceDraft);
-
-  const voicesStatus = useQuery({
-    queryKey: ["elevenlabs-voices-status"],
-    queryFn: () => api.elevenLabsVoicesStatus(),
-    staleTime: 3600_000,
-    retry: false,
-  });
-  const deadIds = new Set(
-    voicesStatus.data?.checked ? (voicesStatus.data?.dead ?? []) : [],
-  );
-
-  const togglePlaySample = () => {
-    if (isPlaying) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      setIsPlaying(false);
-      return;
-    }
-    const sampleUrl = ruVoice?.sample_url || (ruVoice ? `/api/voices/${ruVoice.id}/sample` : null);
-    if (!sampleUrl) return;
-    const a = new Audio(sampleUrl);
-    audioRef.current = a;
-    setIsPlaying(true);
-    a.play().catch(() => setIsPlaying(false));
-    a.onended = () => {
-      setIsPlaying(false);
-      audioRef.current = null;
-    };
-    a.onerror = () => {
-      setIsPlaying(false);
-      audioRef.current = null;
-    };
-  };
-
-  const handleSelectFromModal = (voiceId: string, voiceName: string) => {
-    setVoiceDraft(voiceId);
-    onSave({ elevenlabs_voice_id: voiceId });
-    toast.success(`Выбран голос: ${voiceName}`);
-  };
+  const selected = findElevenLabsVoice(voiceDraft);
 
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
       <div>
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-foreground">ElevenLabs v4 (WaveSpeed) — голос</h3>
-          <span className="rounded bg-cyan-500/10 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] font-medium text-cyan-400">
-            200 голосов
-          </span>
-        </div>
+        <h3 className="text-sm font-semibold text-foreground">11Labs — голос</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Сверхреалистичная озвучка ElevenLabs v4 через WaveSpeed AI с автоматической нарезкой таймингов слов через ASR.
+          Генерация через официальный ElevenLabs HTTP API (модель eleven_multilingual_v2) с нарезкой таймингов слов через ASR.
         </p>
       </div>
-
-      {voicesStatus.data?.checked && deadIds.size > 0 && deadIds.has(voiceDraft) ? (
-        <p className="text-xs font-medium text-amber-400">
-          Выбранный голос недоступен в API — выбери другой голос из списка.
-        </p>
-      ) : null}
-
-      {/* Карточка выбранного голоса */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-400">
-            <Mic className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex flex-col">
-            <div className="flex items-center gap-2">
-              <span className="truncate text-sm font-semibold text-foreground">
-                {ruVoice ? ruVoice.name : selectedStandard ? selectedStandard.name : `Голос ${voiceDraft}`}
-              </span>
-              {ruVoice ? (
-                <span className="shrink-0 rounded bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] text-cyan-300">
-                  {ruVoice.gender === "female" ? "Женский" : "Мужской"} #{ruVoice.index}
-                </span>
-              ) : null}
-            </div>
-            <span className="truncate text-xs text-muted-foreground">
-              {ruVoice ? ruVoice.description : selectedStandard ? selectedStandard.description : "Пользовательский голос"}
-            </span>
-            <span className="font-mono text-[10px] text-muted-foreground/60">
-              ID: {voiceDraft}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {ruVoice ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={togglePlaySample}
-              className="h-8 gap-1.5 px-2.5 text-xs border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/10"
-              title="Прослушать образец голоса"
-            >
-              {isPlaying ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current" />}
-              {isPlaying ? "Пауза" : "Слушать"}
-            </Button>
-          ) : null}
-
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => setLibraryOpen(true)}
-            className="h-8 gap-1.5 px-3 text-xs font-medium bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg border border-cyan-400/30 shadow-sm shadow-cyan-500/20"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Библиотека 200 голосов
-          </Button>
-        </div>
-      </div>
-
-      {saving ? (
-        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
-          Сохранение голоса…
-        </span>
-      ) : null}
-
-      <VoiceLibraryModal
-        open={libraryOpen}
-        onOpenChange={setLibraryOpen}
-        selectedVoiceId={voiceDraft}
-        onSelectVoice={handleSelectFromModal}
-      />
+      <label className="flex flex-col gap-1.5">
+        <span className="text-sm font-medium text-foreground">Голос</span>
+        <select
+          className="h-9 w-full max-w-md rounded-md border border-white/10 bg-[#0a0a0a] px-2 text-[14px] text-white"
+          value={voiceDraft}
+          onChange={(e) => setVoiceDraft(e.target.value)}
+        >
+          {ELEVENLABS_VOICES.map((v) => (
+            <option key={v.id} value={v.id}>
+              {elevenLabsVoiceLabel(v)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Button
+        size="sm"
+        className="w-fit self-start h-9 px-5 text-[13px] font-medium text-white border border-white/25 rounded-md shadow-none transition-colors hover:border-white/60 disabled:opacity-50"
+        disabled={saving}
+        onClick={() =>
+          onSave({
+            elevenlabs_voice_id: voiceDraft || DEFAULT_ELEVENLABS_VOICE_ID,
+          })
+        }
+      >
+        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+        Сохранить
+      </Button>
     </section>
   );
 }
@@ -423,18 +318,11 @@ function AssembleFields({
           </span>
         </span>
         <span
-          className={cn(
-            "mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors border shadow-inner",
-            sendToMain ? "bg-primary border-primary" : "bg-zinc-700/90 border-zinc-500/80",
-          )}
-        >
-          <span
-            className={cn(
-              "block h-4 w-4 rounded-full bg-white shadow-md transition-transform",
-              sendToMain && "translate-x-4",
-            )}
-          />
-        </span>
+          data-keep-bg
+          className={cn("mt-0.5 h-5 w-9 shrink-0 rounded-[3px] border p-0.5 transition-colors", sendToMain ? "border-white bg-white" : "border-white/30 bg-transparent")}
+          >
+            <span data-keep-bg className={cn("block h-4 w-4 rounded-[2px] transition-transform", sendToMain ? "translate-x-4 bg-[#0a0a0a]" : "bg-white/70")} />
+          </span>
       </button>
       <button
         type="button"
@@ -452,18 +340,11 @@ function AssembleFields({
           </span>
         </span>
         <span
-          className={cn(
-            "mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors border shadow-inner",
-            subsOn ? "bg-primary border-primary" : "bg-zinc-700/90 border-zinc-500/80",
-          )}
-        >
-          <span
-            className={cn(
-              "block h-4 w-4 rounded-full bg-white shadow-md transition-transform",
-              subsOn && "translate-x-4",
-            )}
-          />
-        </span>
+          data-keep-bg
+          className={cn("mt-0.5 h-5 w-9 shrink-0 rounded-[3px] border p-0.5 transition-colors", subsOn ? "border-white bg-white" : "border-white/30 bg-transparent")}
+          >
+            <span data-keep-bg className={cn("block h-4 w-4 rounded-[2px] transition-transform", subsOn ? "translate-x-4 bg-[#0a0a0a]" : "bg-white/70")} />
+          </span>
       </button>
       <button
         type="button"
@@ -488,18 +369,11 @@ function AssembleFields({
           </span>
         </span>
         <span
-          className={cn(
-            "mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors border shadow-inner",
-            skipIntroOn ? "bg-primary border-primary" : "bg-zinc-700/90 border-zinc-500/80",
-          )}
-        >
-          <span
-            className={cn(
-              "block h-4 w-4 rounded-full bg-white shadow-md transition-transform",
-              skipIntroOn && "translate-x-4",
-            )}
-          />
-        </span>
+          data-keep-bg
+          className={cn("mt-0.5 h-5 w-9 shrink-0 rounded-[3px] border p-0.5 transition-colors", skipIntroOn ? "border-white bg-white" : "border-white/30 bg-transparent")}
+          >
+            <span data-keep-bg className={cn("block h-4 w-4 rounded-[2px] transition-transform", skipIntroOn ? "translate-x-4 bg-[#0a0a0a]" : "bg-white/70")} />
+          </span>
       </button>
       {skipIntroOn ? (
         <StepperControl
@@ -652,7 +526,7 @@ function SplitFields({
       </div>
       <Button
         size="sm"
-        className="w-fit self-start h-8 px-5 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/50 shadow-md shadow-cyan-500/20 rounded-xl transition-all disabled:opacity-50"
+        className="w-fit self-start h-9 px-5 text-[13px] font-medium text-white border border-white/25 rounded-md shadow-none transition-colors hover:border-white/60 disabled:opacity-50"
         disabled={saving}
         onClick={() =>
           onSave({
@@ -708,7 +582,7 @@ function MediaStreamsFields({
           Параллельные потоки генерации
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Количество одновременных задач в Outsee API для генерации {nodeType === "images" ? "картинок" : "видео"}.
+          Количество одновременных задач в VIA Render для генерации {nodeType === "images" ? "картинок" : "видео"}.
         </p>
       </div>
 
@@ -723,7 +597,7 @@ function MediaStreamsFields({
             className={cn(
               "h-8 px-3.5 text-xs",
               streams === num
-                ? "bg-primary text-black font-semibold shadow-sm"
+                ? "bg-white text-black font-medium"
                 : "text-muted-foreground hover:text-foreground",
             )}
             onClick={() => handleSelect(num)}
@@ -735,9 +609,6 @@ function MediaStreamsFields({
         ))}
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
-        💡 При выборе 3 или 4 потоков генерация кадров завершается быстрее, если ваш API-токен поддерживает параллельные запросы.
-      </p>
     </section>
   );
 }
@@ -799,12 +670,6 @@ export function NodeStepParamsPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      {step !== "audio" && step !== "assemble" && step !== "images" && step !== "videos" ? (
-        <p className="text-xs text-muted-foreground">
-          Эти параметры автоматически добавляются в конец сопроводительного текста для генератора
-          (вкладка «Промпты»).
-        </p>
-      ) : null}
       {step === "plan" ? (
         <PlanScriptFields
           header="Сценарий"
@@ -842,14 +707,46 @@ export function NodeStepParamsPanel({
           saving={save.isPending}
         />
       ) : null}
-      {step === "images" || step === "videos" ? (
+      {false && (step === "images" || step === "videos") ? (
         <MediaStreamsFields
           metaRecord={metaRecord}
           onSave={persistMeta}
           saving={save.isPending}
-          nodeType={step}
+          nodeType={step as "images" | "videos"}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** Compact streams selector (project meta outsee_streams/img_streams, read by generate_images/videos/hero). */
+export function StreamsPicker({ projectId }: { projectId: number }) {
+  const qc = useQueryClient();
+  const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId), enabled: projectId > 0 });
+  const meta = (project.data?.meta || {}) as Record<string, unknown>;
+  const cur = Number(meta.outsee_streams ?? meta.img_streams ?? 2);
+  const save = useMutation({
+    mutationFn: (n: number) =>
+      api.patchProject(projectId, { meta: { img_streams: n, outsee_streams: n } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["project", projectId] }),
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+  return (
+    <div data-vp-streams className="flex items-center gap-2">
+      <span className="text-[11px] uppercase tracking-[0.12em] text-white/50">Потоки</span>
+      <div className="flex">
+        {[1, 2, 3, 4].map((n) => (
+          <button
+            key={n}
+            type="button"
+            disabled={save.isPending || !project.isSuccess}
+            onClick={() => save.mutate(n)}
+            className={cn("h-8 w-8 border text-[13px] first:rounded-l-md last:rounded-r-md", n === cur ? "border-white bg-white text-black" : "border-white/15 text-white/70 hover:text-white")}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

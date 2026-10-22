@@ -15,7 +15,6 @@ export type ProjectStatus =
   | "enrich_1_ready" | "enrich_2_ready" | "enrich_3_ready" | "enrich_4_ready" | "enrich_5_ready"
   | "image_prompts_ready" | "images_ready" | "animation_prompts_ready"
   | "videos_ready" | "audio_ready" | "music_ready"
-  | "sfx_planning" | "sfx_plan_ready" | "generating_sfx" | "sfx_ready"
   | "assembled" | "published" | "paused" | "failed";
 
 export type NodeType =
@@ -26,6 +25,7 @@ export type NodeType =
   | "animation_prompts" | "videos"
   | "audio" | "music" | "assemble" | "publish"
   | "hitl_gate" | "hitl_hero" | "hitl_images" | "hitl_videos" | "hitl_final"
+  | "style_extract" | "hitl_style"
   | string; // допускаем кастомные типы
 
 /** Один персонаж с листа «Персонажи» в project.xlsx. */
@@ -136,8 +136,6 @@ export interface NodeGroupDetail {
   internal_edges: { source: string; target: string; kind: string }[];
 }
 
-export type PipelineMode = "v1" | "v2";
-
 export interface ProjectSummary {
   id: number;
   slug: string;
@@ -146,8 +144,6 @@ export interface ProjectSummary {
   status: ProjectStatus;
   hero_mode: string;
   auto_mode: boolean;
-  /** Механика проекта (изоляция воркспейсов, immutable после создания). */
-  pipeline_mode?: PipelineMode | null;
   created_at: string;
   updated_at: string;
   mass_parent_id?: number | null;
@@ -329,6 +325,36 @@ export interface MontageAnchorRow {
   frame_number?: number | null;
 }
 
+export interface MontageSceneChainRow {
+  n: number;
+  place?: string;
+  action?: string;
+  vo?: string;
+}
+
+/** Отчёт «Улучшить сцену»: ячейка прошла 3 ноды группы script_frames_qc. */
+export interface MontageImproveReport {
+  nodes: { node: string; label: string; status: string; note: string }[];
+  budget?: number;
+  anchors?: { n: number; "якорь": string; "закадр": string; "бюджет"?: number }[];
+  shots: {
+    "порядок"?: number;
+    "якорь_n"?: number;
+    "зона"?: string;
+    "роль"?: string;
+    "действие"?: string;
+    "объект"?: string;
+    "план"?: string;
+    "ракурс"?: string;
+    "движение"?: string;
+    "стык"?: string;
+    "закадр"?: string;
+  }[];
+  passport?: Record<string, string>;
+  passport_changed?: string[];
+  warnings?: string[];
+}
+
 export interface MontageBoardFrame {
   frame_id: number;
   number: number;
@@ -347,6 +373,12 @@ export interface MontageBoardFrame {
   end_ts: number | null;
   duration_seconds: number | null;
   has_shot2: boolean;
+  /** Freeze СТАРТ/КОНЕЦ: колонка конечного still, даже без PNG. */
+  has_end_still?: boolean;
+  /** В кадре есть текст раскладки — иначе конечный кадр не угадываем. */
+  has_layout?: boolean;
+  layout_start?: string;
+  layout_end?: string;
   shot1_use_seconds: number | null;
   shot2_use_seconds: number | null;
   shot1_timeline_start: number | null;
@@ -357,6 +389,8 @@ export interface MontageBoardFrame {
   video_shot2_duration: number | null;
   image_shot1_url: string | null;
   image_shot2_url: string | null;
+  /** Отдельный still общего плана, не исходный shot1. */
+  image_parent_url?: string | null;
   video_shot1_url: string | null;
   video_shot2_url: string | null;
   /** Промт исходного изображения / видео (Excel → Frame), для модалки редактирования. */
@@ -390,6 +424,16 @@ export interface MontageBoardFrame {
   scene_anchor_rows?: MontageAnchorRow[];
   /** Полный закадр VO-ячейки (сцены). */
   vo_cell_full?: string;
+  /** Сохранённый кусок закадра — полный текст сцены при перегенерации. */
+  vo_span?: { start: number; end: number; text: string } | null;
+  /** Неиспользованный закадр до этой сцены (общий с «после» предыдущей). */
+  vo_unused_before?: string;
+  /** Неиспользованный закадр после этой сцены (общий с «до» следующей). */
+  vo_unused_after?: string;
+  /** Куски закадра ячейки, пропущенные между кадрами. */
+  vo_unused_between?: string[];
+  /** Номер последнего живого кадра с закадром до обрыва. */
+  vo_unused_after_number?: number | null;
   shot_angle?: string;
   shot_move?: string;
   shot_stitch?: string;
@@ -410,9 +454,14 @@ export interface MontageBoardFrame {
   scene_template_auto?: string;
   /** Последовательность кадров сцены (действие → действие) — на всю VO-ячейку. */
   scene_action?: string;
+  /** Нумерованные сцены ``N.`` внутри VO-ячейки (куски для пересборки). */
+  scene_chain?: MontageSceneChainRow[];
   /** Номер VO-родителя ячейки (сцена). Не coverage_parent_id / X1. */
   vo_scene_number?: number | null;
+  vo_scene_ordinal?: number | null;
   vo_scene_size?: number;
+  /** leftover-клей (не живой шот). Живых детей не режем по scene_chain.length. */
+  shot_leftover?: boolean;
 }
 
 export interface MontageBoardMeta {
@@ -434,6 +483,12 @@ export interface MontageBoardMeta {
     parent_number?: number;
   }>;
   applied_at: string | null;
+  split_undo?: {
+    can_undo: boolean;
+    undo_id: string | null;
+    kind: string | null;
+    depth: number;
+  };
 }
 
 export interface MontageBoardDTO {
@@ -534,6 +589,5 @@ export type BusEvent =
   | { type: "project_deleted"; project_id: number }
   | { type: "hitl_pending"; project_id: number; hitl_id: number; kind: string }
   | { type: "hitl_decided"; project_id: number; hitl_id: number; decision: string; kind: string }
-  | { type: "step_dry_run_ok"; project_id: number; step_code?: string; would_status?: string; current_status?: string; warnings?: string[] }
   | { type: "log"; run_id: number; level: string; line: string }
   | (Record<string, unknown> & { type: string });

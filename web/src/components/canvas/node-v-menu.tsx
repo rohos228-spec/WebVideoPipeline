@@ -10,7 +10,6 @@ import {
   FileSpreadsheet,
   FileText,
   MessageSquareText,
-  Milestone,
   Play,
   Plus,
   Trash2,
@@ -411,16 +410,6 @@ export function NodeVMenu({
             />
           )}
           <MenuAction icon={Unlink} label="Открепить связи" onClick={onDetachNode} />
-          <MenuAction
-            icon={Milestone}
-            label="Убрать, соединив соседей"
-            onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent("canvas-remove-bridge", { detail: { nodeKey } }),
-              );
-              onClose();
-            }}
-          />
           <MenuAction
             icon={Ban}
             label={disabled ? "Включить ноду" : "Отключить ноду"}

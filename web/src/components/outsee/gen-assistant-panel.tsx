@@ -7,18 +7,13 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
-  Check,
   ChevronDown,
   ChevronsDown,
   ChevronsUp,
   Paperclip,
-  Pencil,
   Plus,
-  Search,
   Sparkles,
-  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -60,7 +55,7 @@ type Props = {
   onPrepareGenerate: (preview: string, count: number) => string[];
   onFailGenerate: (draftIds: string[]) => void;
   /** Агент написал N промптов → сразу генерация всех (по одной на промпт). */
-  onGenerateAll: (texts: string[], draftIds?: string[], negativePrompt?: string) => void;
+  onGenerateAll: (texts: string[], draftIds?: string[]) => void;
   expanded: boolean;
   onExpandedChange: (v: boolean) => void;
   references: { id: string; url: string; name: string }[];
@@ -155,9 +150,9 @@ function readArtUrls(): Record<string, string> {
 }
 
 const selectCls =
-  "w-full rounded-md border border-white/12 bg-[#16161b] px-2.5 py-1.5 text-[13px] text-white/85 focus:border-white/25 focus:outline-none selection:bg-[#22d3ee]/40 selection:text-white";
+  "w-full rounded-md border border-white/12 bg-[#16161b] px-2.5 py-1.5 text-[13px] text-white/85 focus:border-white/25 focus:outline-none";
 const areaCls =
-  "w-full resize-none rounded-md border border-white/12 bg-[#16161b] px-3 py-2 text-[13px] font-normal leading-relaxed text-white/90 placeholder-white/35 focus:border-white/25 focus:outline-none selection:bg-[#22d3ee]/40 selection:text-white";
+  "w-full resize-none rounded-md border border-white/12 bg-[#16161b] px-3 py-2 text-[13px] font-normal leading-relaxed text-white/90 placeholder-white/35 focus:border-white/25 focus:outline-none";
 const chipCls = (active: boolean) =>
   cn(
     "inline-flex h-7 items-center gap-1 px-1 text-[12px] font-medium transition",
@@ -165,12 +160,13 @@ const chipCls = (active: boolean) =>
   );
 
 const STYLE_COVER_FILE: Record<string, string> = {
-  custom_mtwuuy1z: "/gen-styles/custom_mtwuuy1z.webp",
-  custom_mtwxwlev: "/gen-styles/custom_mtwxwlev.webp",
-  custom_mtxfckrd: "/gen-styles/custom_mtxfckrd.webp",
-  custom_mty20b3s: "/gen-styles/custom_mty20b3s.webp",
+  infographic_tutor: "/gen-styles/infographic_tutor.jpg",
+  custom_mtwuuy1z: "/gen-styles/custom_mtwuuy1z.jpg",
+  custom_mtwxwlev: "/gen-styles/custom_mtwxwlev.jpg",
+  custom_mtxfckrd: "/gen-styles/custom_mtxfckrd.jpg",
+  custom_mty20b3s: "/gen-styles/custom_mty20b3s.jpg",
 };
-const COVER_CACHE = "c7";
+const COVER_CACHE = "c6";
 
 function bustCover(u: string): string {
   if (!u.startsWith("/gen-styles/") && !u.includes("/api/files?path=")) return u;
@@ -216,22 +212,7 @@ function styleTileSrcs(
   return out;
 }
 
-const STYLE_CARD_FALLBACK_GRADIENTS: Record<
-  GenStyleDef["color"],
-  { from: string; to: string; border: string; glow: string }
-> = {
-  red: { from: "#450a0a", to: "#140303", border: "rgba(248,113,113,0.35)", glow: "rgba(239,68,68,0.3)" },
-  purple: { from: "#3b0764", to: "#0f021c", border: "rgba(192,132,252,0.35)", glow: "rgba(168,85,247,0.3)" },
-  gray: { from: "#27272a", to: "#09090b", border: "rgba(156,163,175,0.35)", glow: "rgba(156,163,175,0.25)" },
-  orange: { from: "#431407", to: "#150401", border: "rgba(251,146,60,0.35)", glow: "rgba(249,115,22,0.3)" },
-  cyan: { from: "#083344", to: "#011218", border: "rgba(34,211,238,0.35)", glow: "rgba(6,182,212,0.3)" },
-  blue: { from: "#172554", to: "#030818", border: "rgba(96,165,250,0.35)", glow: "rgba(59,130,246,0.3)" },
-  green: { from: "#052e16", to: "#010e06", border: "rgba(74,222,128,0.35)", glow: "rgba(34,197,94,0.3)" },
-  pink: { from: "#500724", to: "#18020a", border: "rgba(244,114,182,0.35)", glow: "rgba(236,72,153,0.3)" },
-  yellow: { from: "#422006", to: "#140801", border: "rgba(250,204,21,0.35)", glow: "rgba(234,179,8,0.3)" },
-};
-
-/** Фото обложки поверх стилизованного градиента и SVG. */
+/** Фото обложки поверх SVG. JPG/PNG — слой z-10; эскиз только пока фото не загрузилось. */
 function TileBg({
   art,
   color,
@@ -244,48 +225,15 @@ function TileBg({
   const [i, setI] = useState(0);
   const [photoOk, setPhotoOk] = useState(false);
   const src = srcs[i];
-  const grad = STYLE_CARD_FALLBACK_GRADIENTS[color] ?? STYLE_CARD_FALLBACK_GRADIENTS.cyan;
-
   return (
-    <div
-      className="relative flex h-full w-full items-center justify-center overflow-hidden transition-all duration-300"
-      style={{
-        background: `linear-gradient(145deg, ${grad.from} 0%, ${grad.to} 100%)`,
-      }}
-    >
-      {/* Декоративное радиальное свечение в тон стилю */}
-      <div
-        className="pointer-events-none absolute -inset-3 opacity-60 blur-md"
-        style={{
-          background: `radial-gradient(circle at 50% 35%, ${grad.glow}, transparent 70%)`,
-        }}
-      />
-      {/* Тонкая сетка-паттерн */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.06]"
-        style={{
-          backgroundImage: `linear-gradient(rgba(255,255,255,0.2) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.2) 1px, transparent 1px)`,
-          backgroundSize: "14px 14px",
-        }}
-      />
-
-      {/* SVG-эскиз пока нет или грузится реальное фото */}
-      {!photoOk ? (
-        <div className="relative z-[5] max-h-[85%] max-w-[85%] opacity-90 transition-transform duration-200 group-hover:scale-105">
-          <GenStyleArtView art={art} color={color} />
-        </div>
-      ) : null}
-
-      {/* Реальное фото обложки, если доступно */}
+    <>
+      {!photoOk ? <GenStyleArtView art={art} color={color} /> : null}
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={src}
           alt=""
-          className={cn(
-            "pointer-events-none absolute inset-0 z-10 h-full w-full object-cover transition-opacity duration-300",
-            photoOk ? "opacity-100" : "opacity-0",
-          )}
+          className="pointer-events-none absolute inset-0 z-10 h-full w-full object-cover"
           onLoad={() => setPhotoOk(true)}
           onError={() => {
             setPhotoOk(false);
@@ -293,10 +241,7 @@ function TileBg({
           }}
         />
       ) : null}
-
-      {/* Мягкий нижний градиент для контрастности текста */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-10 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
-    </div>
+    </>
   );
 }
 
@@ -338,28 +283,24 @@ export function GenAssistantPanel({
   const [menu, setMenu] = useState<null | "llm" | "aspect" | "resolution" | "detail">(null);
   const dockRef = useRef<HTMLDivElement | null>(null);
   const [agentError, setAgentError] = useState("");
-  const [stylesDrawerOpen, setStylesDrawerOpen] = useState(false);
-  const [styleSearch, setStyleSearch] = useState("");
-  const [activeCatFilter, setActiveCatFilter] = useState<string>("all");
-  const [addCatId, setAddCatId] = useState<string>(() => GEN_ASSISTANT_CATEGORIES[0].id);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Закрытие шторки по Escape
-  useEffect(() => {
-    if (!stylesDrawerOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setStylesDrawerOpen(false);
-        setAddOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [stylesDrawerOpen]);
+  const [catMenuOpen, setCatMenuOpen] = useState(false);
+  const [previewCat, setPreviewCat] = useState<string | null>(null);
+  // Позиция курсора (относительно поповера категорий) — окно стилей открывается поверх, у курсора
+  const [stylesPos, setStylesPos] = useState<{ x: number; y: number; w: number } | null>(null);
+  const popRef = useRef<HTMLDivElement | null>(null);
+  // Окно стилей живёт, пока курсор над категорией/окном; ушёл — исчезает (с задержкой на переход через зазор)
+  const hideTimer = useRef<number | null>(null);
+  const cancelHide = () => {
+    if (hideTimer.current !== null) {
+      window.clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+  };
+  const scheduleHide = () => {
+    if (addOpen) return;
+    cancelHide();
+    hideTimer.current = window.setTimeout(() => setPreviewCat(null), 180);
+  };
   const [agentOverrides, setAgentOverrides] = useState<Record<string, string>>(() => {
     try {
       return JSON.parse(lsGet(LS.agentOverrides, "{}")) as Record<string, string>;
@@ -385,17 +326,13 @@ export function GenAssistantPanel({
     }
   });
 
-  // добавление / редактирование стиля
+  // добавление стиля
   const [addOpen, setAddOpen] = useState(false);
-  const [editingStyleId, setEditingStyleId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newColor, setNewColor] = useState<GenStyleDef["color"]>("cyan");
   const [newArt, setNewArt] = useState<GenStyleArt>("infographic");
   const [newAgent, setNewAgent] = useState("");
-  const [newNegativePrompt, setNewNegativePrompt] = useState("");
-  const [existingCoverUrl, setExistingCoverUrl] = useState("");
-  const [selectedCoverIdx, setSelectedCoverIdx] = useState(0);
   // Референсы и пожелание пользователя → агент собирает LLM по картинкам
   const [newRefs, setNewRefs] = useState<File[]>([]);
   const [newHint, setNewHint] = useState("");
@@ -686,8 +623,6 @@ export function GenAssistantPanel({
       notifyAgentError("Выберите стиль: текст агента пуст");
       return;
     }
-    setRequest("");
-    setPromptOverrides({});
     setAgentError("");
     setEditorTab("request");
     const draftIds = onPrepareGenerate(req, count);
@@ -700,8 +635,6 @@ export function GenAssistantPanel({
           agent_text: agentText,
           aspect,
           count,
-          model: activeLlm?.model || activeLlm?.id || undefined,
-          negative_prompt: style?.negativePrompt || undefined,
           ref_labels: references.map(
             (r, i) => `${assistantRefHandle(i)} — ${r.name || "референс"}`,
           ),
@@ -724,6 +657,8 @@ export function GenAssistantPanel({
       if (!prompts.length) {
         throw new Error("Промпт не собран агентом — генерация не запущена");
       }
+      setRequest("");
+      setPromptOverrides({});
       const pending = { styleId: style.id, ts: Date.now(), prefix: prompts[0].slice(0, 48) };
       lsSet(LS.pendingStyle, JSON.stringify(pending));
       setPendingArt(pending);
@@ -732,7 +667,7 @@ export function GenAssistantPanel({
         position: "top-center",
       });
       onFailGenerate(draftIds.slice(prompts.length));
-      onGenerateAll(prompts, draftIds.slice(0, prompts.length), style?.negativePrompt);
+      onGenerateAll(prompts, draftIds.slice(0, prompts.length));
     } catch (e) {
       onFailGenerate(draftIds);
       notifyAgentError(
@@ -797,8 +732,8 @@ export function GenAssistantPanel({
 
   // Референсы + пожелание → готовый текст агента (vision-LLM разбирает стиль).
   const buildAgentFromRefs = async () => {
-    if (!newRefs.length && !newHint.trim()) {
-      toast.error("Приложите картинку-референс или опишите стиль в поле пожеланий");
+    if (!newRefs.length) {
+      toast.error("Приложите хотя бы одну картинку-референс");
       return;
     }
     setBuildBusy(true);
@@ -809,16 +744,8 @@ export function GenAssistantPanel({
       fd.append("name_hint", newName.trim());
       const r = await fetch("/api/gen-assistant/build-agent", { method: "POST", body: fd });
       if (!r.ok) {
-        const err = (await r.json().catch(() => null)) as { detail?: unknown } | null;
-        let msg = `HTTP ${r.status}`;
-        if (typeof err?.detail === "string") {
-          msg = err.detail;
-        } else if (Array.isArray(err?.detail)) {
-          msg = err.detail.map((d: any) => d?.msg || JSON.stringify(d)).join("; ");
-        } else if (err?.detail && typeof err.detail === "object") {
-          msg = JSON.stringify(err.detail);
-        }
-        throw new Error(msg);
+        const err = (await r.json().catch(() => null)) as { detail?: string } | null;
+        throw new Error(err?.detail || `HTTP ${r.status}`);
       }
       const data = (await r.json()) as {
         name?: string;
@@ -848,20 +775,7 @@ export function GenAssistantPanel({
       toast.error("Нужны название и текст агента");
       return;
     }
-    const isEdit = Boolean(editingStyleId);
-    const id = editingStyleId || `custom_${Date.now().toString(36)}`;
-
-    let coverUrl = existingCoverUrl || "";
-    const coverFile = newRefs[selectedCoverIdx] ?? newRefs[0];
-    if (coverFile) {
-      try {
-        coverUrl = await persistStyleCover(id, { file: coverFile });
-        applyStyleCover(id, coverUrl);
-      } catch (e) {
-        console.warn("Не удалось сохранить обложку стиля:", e);
-      }
-    }
-
+    const id = `custom_${Date.now().toString(36)}`;
     const cs: CustomStyle = {
       id,
       categoryId: catId,
@@ -872,99 +786,25 @@ export function GenAssistantPanel({
       color: newColor,
       tags: ["custom"],
       promptCore: agent,
-      negativePrompt: newNegativePrompt.trim() || undefined,
-      cover: coverUrl || undefined,
-      artUrl: coverUrl || undefined,
     };
-
-    setCustomStyles((prev) => {
-      const exists = prev.some((s) => s.id === id);
-      return exists ? prev.map((s) => (s.id === id ? cs : s)) : [...prev, cs];
-    });
+    setCustomStyles((prev) => [...prev, cs]);
     setAgentOverrides((prev) => ({ ...prev, [id]: agent }));
     setCategoryId(catId);
     setStyleId(id);
     setAddOpen(false);
-    setEditingStyleId(null);
-    setStylesDrawerOpen(false);
+    setCatMenuOpen(true);
+    setPreviewCat(catId);
     setNewName("");
     setNewDesc("");
     setNewAgent("");
-    setNewNegativePrompt("");
-    setExistingCoverUrl("");
-    setSelectedCoverIdx(0);
     setNewRefs([]);
     setNewHint("");
-    toast.success(isEdit ? `Стиль «${name}» обновлён` : `Стиль «${name}» добавлен`);
-  };
-
-  const deleteCustomStyle = async (delId: string) => {
-    const target = customStyles.find((s) => s.id === delId);
-    const targetName = target?.name || delId;
-    if (typeof window !== "undefined" && !window.confirm(`Удалить стиль «${targetName}»?`)) return;
-
-    setCustomStyles((prev) => prev.filter((s) => s.id !== delId));
-    if (styleId === delId) {
-      const fallback = category.styles.find((s) => s.id !== delId) || GEN_ASSISTANT_CATEGORIES[0].styles[0];
-      if (fallback) setStyleId(fallback.id);
-    }
-    try {
-      await fetch(`/api/gen-assistant/custom-styles/${delId}`, { method: "DELETE" });
-      toast.success(`Стиль «${targetName}» удалён`);
-    } catch {
-      toast.error("Ошибка при удалении стиля с диска");
-    }
-  };
-
-  const openEditCustomStyle = (s: CustomStyle) => {
-    setEditingStyleId(s.id);
-    setAddCatId(s.categoryId || categoryId);
-    setNewName(s.name);
-    setNewDesc(s.desc);
-    setNewAgent(agentOverrides[s.id] ?? s.promptCore);
-    setNewNegativePrompt(s.negativePrompt ?? "");
-    setNewColor(s.color);
-    setNewArt(s.art);
-    setExistingCoverUrl(s.cover || s.artUrl || "");
-    setSelectedCoverIdx(0);
-    setNewRefs([]);
-    setNewHint("");
-    setAddOpen(true);
+    toast.success(`Стиль «${name}» добавлен`);
   };
 
   const activeLlm = llmModels.find((m) => m.active) ?? llmModels[0];
-
-  const allStylesList = useMemo(() => {
-    const list: { style: GenStyleDef; cat: typeof categories[0] }[] = [];
-    for (const c of categories) {
-      for (const s of c.styles) {
-        list.push({ style: s, cat: c });
-      }
-    }
-    return list;
-  }, [categories]);
-
-  const displayedStyles = useMemo(() => {
-    let list = allStylesList;
-    if (activeCatFilter === "custom") {
-      const customIds = new Set(customStyles.map((s) => s.id));
-      list = list.filter((item) => customIds.has(item.style.id));
-    } else if (activeCatFilter !== "all") {
-      list = list.filter((item) => item.cat.id === activeCatFilter);
-    }
-    const q = styleSearch.trim().toLowerCase();
-    if (q) {
-      list = list.filter(({ style: s, cat }) => {
-        return (
-          s.name.toLowerCase().includes(q) ||
-          s.desc.toLowerCase().includes(q) ||
-          cat.name.toLowerCase().includes(q) ||
-          (s.tags && s.tags.some((t) => t.toLowerCase().includes(q)))
-        );
-      });
-    }
-    return list;
-  }, [allStylesList, activeCatFilter, customStyles, styleSearch]);
+  // Стили в выпадашке показываем только при наведении на категорию
+  const menuCat = previewCat ? (categories.find((c) => c.id === previewCat) ?? null) : null;
 
   return (
     <div
@@ -977,44 +817,35 @@ export function GenAssistantPanel({
     >
       <style>{`@keyframes gaUp{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
 
-      {/* header: стиль/шторка + вкладки + референсы + свернуть + закрыть */}
+      {/* header: категория + стиль + свернуть + закрыть */}
       <div className="flex h-8 shrink-0 items-center gap-1.5 px-2">
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-white/50" />
         <button
           type="button"
           onClick={() => {
-            setStylesDrawerOpen(true);
+            setCatMenuOpen((v) => {
+              if (!v) setPreviewCat(categoryId);
+              return !v;
+            });
             setAddOpen(false);
           }}
-          title="Открыть шторку со стилями и визуальными агентами"
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[12px] font-medium transition",
-            stylesDrawerOpen
-              ? "border-[#22d3ee] bg-[#22d3ee]/15 text-[#22d3ee] shadow-[0_0_12px_rgba(34,211,238,0.25)]"
-              : "border-white/10 bg-white/[0.04] text-white/80 hover:border-white/20 hover:bg-white/[0.08] hover:text-white",
+            "inline-flex items-center gap-1 px-1 py-1 text-[13px] font-medium transition",
+            catMenuOpen ? "text-white" : "text-white/70 hover:text-white",
           )}
         >
-          <Sparkles className="h-3 w-3 text-[#22d3ee]" />
-          <span className="max-w-[140px] truncate font-semibold">
-            {style ? style.name : category.name}
-          </span>
-          <span className="rounded bg-white/10 px-1 py-0.2 text-[9.5px] text-white/60">
-            {category.name}
-          </span>
-          <ChevronDown className={cn("h-3 w-3 opacity-60 transition", stylesDrawerOpen && "rotate-180")} />
+          {category.name}
+          <ChevronDown className={cn("h-3.5 w-3.5 transition", catMenuOpen && "rotate-180")} />
         </button>
-        {style && (style.id.startsWith("custom_") || customStyles.some((cs) => cs.id === style.id)) && (
-          <button
-            type="button"
-            onClick={() => {
-              setStylesDrawerOpen(true);
-              openEditCustomStyle(style as CustomStyle);
-            }}
-            title="Редактировать текущий стиль"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-white/60 hover:border-[#22d3ee]/40 hover:text-[#22d3ee] transition"
-          >
-            <Pencil className="h-3 w-3" />
-          </button>
-        )}
+        {style && expanded ? (
+          <span className="inline-flex min-w-0 items-center gap-1.5 px-1 py-1">
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: GEN_STYLE_COLORS[style.color] }}
+            />
+            <span className="truncate text-[12px] font-medium text-white/70">{style.name}</span>
+          </span>
+        ) : null}
         <input
           ref={genRefInput}
           type="file"
@@ -1189,543 +1020,205 @@ export function GenAssistantPanel({
         </span>
       </div>
 
-      {/* Компактная выезжающая шторка со стилями справа (на весь экран через Portal) */}
-      {stylesDrawerOpen && mounted && typeof document !== "undefined"
-        ? createPortal(
-            <div className="fixed inset-0 z-[9999] flex justify-end">
-              {/* Затемнение фона (backdrop) */}
-              <div
-                className="fixed inset-0 bg-black/65 backdrop-blur-[3px] transition-opacity animate-in fade-in duration-200"
-                onClick={() => {
-                  setStylesDrawerOpen(false);
-                  setAddOpen(false);
-                }}
-              />
-
-              {/* Сама панель/шторка справа — на ВСЮ высоту экрана */}
-              <aside
-                className="relative z-10 flex h-full w-[min(96vw,1260px)] flex-col border-l border-white/12 bg-[#101015]/98 shadow-[0_0_80px_rgba(0,0,0,0.9)] backdrop-blur-2xl transition-transform animate-in slide-in-from-right duration-250 ease-out"
-                aria-label="Каталог стилей"
-              >
-                {/* Шапка шторки */}
-                <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-5 py-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#22d3ee]/10 text-[#22d3ee]">
-                      <Sparkles className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <div className="text-[14px] font-semibold text-white">Каталог стилей</div>
-                      <div className="text-[11px] text-white/50">
-                        {allStylesList.length} готовых визуальных стилей
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!addOpen) {
-                          setEditingStyleId(null);
-                          setNewName("");
-                          setNewDesc("");
-                          setNewAgent("");
-                          setNewNegativePrompt("");
-                          setExistingCoverUrl("");
-                          setSelectedCoverIdx(0);
-                          setNewRefs([]);
-                          setNewHint("");
-                        }
-                        setAddOpen((v) => !v);
-                      }}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-medium transition",
-                        addOpen
-                          ? "border-[#22d3ee] bg-[#22d3ee]/15 text-[#22d3ee]"
-                          : "border-white/12 bg-white/[0.04] text-white/70 hover:border-white/25 hover:text-white",
-                      )}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {addOpen ? "К стилям" : "Свой стиль"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStylesDrawerOpen(false);
-                        setAddOpen(false);
-                        setEditingStyleId(null);
-                      }}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/50 transition hover:bg-white/10 hover:text-white"
-                      title="Закрыть шторку (Esc)"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {addOpen ? (
-                  <div className="flex-1 overflow-y-auto p-6">
-                    <div className="mx-auto max-w-xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="text-[14px] font-semibold text-white/90">
-                          {editingStyleId ? "Редактирование стиля" : "Новый стиль"}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAddOpen(false);
-                            setEditingStyleId(null);
-                          }}
-                          className="text-[11px] text-white/50 hover:text-white"
-                        >
-                          Вернуться к каталогу
-                        </button>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[11px] text-white/60">Категория для стиля</label>
-                        <select
-                          value={addCatId}
-                          onChange={(e) => setAddCatId(e.target.value)}
-                          className={selectCls}
-                        >
-                          {categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[11px] text-white/60">Референсы стиля (картинки)</label>
-                          {refPreviews.length > 0 && (
-                            <span className="text-[10px] text-[#22d3ee]">
-                              Кликните на фото, чтобы назначить обложкой
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {existingCoverUrl && refPreviews.length === 0 && (
-                            <span className="relative h-[56px] w-[56px] overflow-hidden rounded-md border border-[#22d3ee]/60 shadow-[0_0_8px_rgba(34,211,238,0.25)]">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={existingCoverUrl} alt="" className="h-full w-full object-cover" />
-                              <span className="absolute bottom-0 inset-x-0 bg-black/80 text-center py-0.5 text-[8.5px] font-bold text-[#22d3ee]">
-                                Обложка
-                              </span>
-                            </span>
-                          )}
-                          {refPreviews.map((url, i) => {
-                            const isCover = selectedCoverIdx === i;
-                            return (
-                              <span
-                                key={url}
-                                onClick={() => setSelectedCoverIdx(i)}
-                                className={cn(
-                                  "relative h-[56px] w-[56px] overflow-hidden rounded-md border cursor-pointer transition",
-                                  isCover
-                                    ? "border-[#22d3ee] ring-2 ring-[#22d3ee]/60 shadow-[0_0_8px_rgba(34,211,238,0.3)]"
-                                    : "border-white/15 hover:border-white/40",
-                                )}
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={url} alt="" className="h-full w-full object-cover" />
-                                {isCover && (
-                                  <span className="absolute bottom-0 inset-x-0 bg-[#22d3ee] text-center py-0.5 text-[8px] font-bold text-black">
-                                    Обложка
-                                  </span>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setNewRefs((prev) => prev.filter((_, k) => k !== i));
-                                    if (selectedCoverIdx === i) setSelectedCoverIdx(0);
-                                  }}
-                                  title="Убрать"
-                                  className="absolute right-0 top-0 bg-black/75 px-1 text-[11px] leading-none text-white/80 hover:text-white"
-                                >
-                                  ×
-                                </button>
-                              </span>
-                            );
-                          })}
-                          <button
-                            type="button"
-                            onClick={() => refInput.current?.click()}
-                            title="Добавить картинки-референсы"
-                            className="flex h-[56px] w-[56px] items-center justify-center rounded-md border border-dashed border-white/20 text-white/45 transition hover:border-[#22d3ee]/40 hover:text-white"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </button>
-                          <input
-                            ref={refInput}
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp,image/gif"
-                            multiple
-                            className="hidden"
-                            onChange={(e) => {
-                              const picked = Array.from(e.target.files ?? []);
-                              if (picked.length) setNewRefs((prev) => [...prev, ...picked]);
-                              e.target.value = "";
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[11px] text-white/60">Пожелания к стилю</label>
-                        <textarea
-                          value={newHint}
-                          onChange={(e) => setNewHint(e.target.value)}
-                          rows={2}
-                          placeholder="Что взять из картинок (цвета, освещение, текстуры)..."
-                          className={cn(areaCls, "text-[12px]")}
-                        />
-                        <button
-                          type="button"
-                          disabled={buildBusy || (!newRefs.length && !newHint.trim())}
-                          onClick={() => void buildAgentFromRefs()}
-                          className="w-full rounded-md bg-gradient-to-r from-[#22d3ee] to-[#0ea5e9] px-2.5 py-2 text-[12px] font-semibold text-black transition hover:brightness-110 disabled:opacity-40"
-                        >
-                          {buildBusy
-                            ? "Нейросеть собирает стиль..."
-                            : newRefs.length
-                              ? "Собрать агента стиля по картинкам"
-                              : "Собрать агента стиля по описанию"}
-                        </button>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[11px] text-white/60">Название стиля</label>
-                        <input
-                          value={newName}
-                          onChange={(e) => setNewName(e.target.value)}
-                          placeholder="Например: Неоновый кибер-нуар"
-                          className={selectCls}
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[11px] text-white/60">Краткое описание</label>
-                        <input
-                          value={newDesc}
-                          onChange={(e) => setNewDesc(e.target.value)}
-                          placeholder="1–2 предложения для карточки"
-                          className={selectCls}
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[11px] text-white/60">Текст визуального агента (promptCore)</label>
-                        <textarea
-                          value={newAgent}
-                          onChange={(e) => setNewAgent(e.target.value)}
-                          rows={4}
-                          placeholder="Инструкции стиля для сборки промпта..."
-                          className={cn(areaCls, "font-mono text-[12px]")}
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[11px] text-white/60">
-                          Негативный промпт (Negative Prompt, чего избегать)
-                        </label>
-                        <textarea
-                          value={newNegativePrompt}
-                          onChange={(e) => setNewNegativePrompt(e.target.value)}
-                          rows={2}
-                          placeholder="Например: blurry, bad anatomy, text, watermark, photorealistic..."
-                          className={cn(areaCls, "text-[12px]")}
-                        />
-                      </div>
-
-                      <div className="flex gap-2 pt-2">
-                        <button
-                          type="button"
-                          onClick={() => void saveCustomStyle(addCatId)}
-                          className="flex-1 rounded-lg bg-white px-3 py-2 text-[12px] font-semibold text-black transition hover:bg-white/90"
-                        >
-                          {editingStyleId ? "Сохранить изменения" : "Сохранить стиль"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAddOpen(false);
-                            setEditingStyleId(null);
-                          }}
-                          className="rounded-lg border border-white/12 px-3 py-2 text-[12px] font-medium text-white/70 hover:border-white/25 hover:text-white"
-                        >
-                          Отмена
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {/* Панель поиска и фильтрации */}
-                    <div className="shrink-0 space-y-2.5 border-b border-white/10 bg-white/[0.015] px-5 py-3">
-                      <div className="relative">
-                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
-                        <input
-                          type="text"
-                          value={styleSearch}
-                          onChange={(e) => setStyleSearch(e.target.value)}
-                          placeholder="Поиск по стилям, описанию, тегам…"
-                          className="w-full rounded-lg border border-white/10 bg-[#16161d] py-1.5 pl-8 pr-7 text-[12px] text-white/90 placeholder-white/35 transition focus:border-[#22d3ee]/50 focus:outline-none focus:ring-1 focus:ring-[#22d3ee]/30"
-                        />
-                        {styleSearch && (
-                          <button
-                            type="button"
-                            onClick={() => setStyleSearch("")}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Горизонтальный фильтр категорий */}
-                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setActiveCatFilter("all")}
-                          className={cn(
-                            "rounded-full px-3 py-1 text-[11px] font-medium transition",
-                            activeCatFilter === "all"
-                              ? "bg-[#22d3ee] font-semibold text-black shadow-[0_0_12px_rgba(34,211,238,0.3)]"
-                              : "bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white",
-                          )}
-                        >
-                          Все ({allStylesList.length})
-                        </button>
-                        {categories.map((c) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => setActiveCatFilter(c.id)}
-                            className={cn(
-                              "rounded-full px-3 py-1 text-[11px] font-medium transition",
-                              activeCatFilter === c.id
-                                ? "bg-[#22d3ee] font-semibold text-black shadow-[0_0_12px_rgba(34,211,238,0.3)]"
-                                : "bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white",
-                            )}
-                          >
-                            {c.name} ({c.styles.length})
-                          </button>
-                        ))}
-                        {customStyles.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setActiveCatFilter("custom")}
-                            className={cn(
-                              "rounded-full px-3 py-1 text-[11px] font-medium transition",
-                              activeCatFilter === "custom"
-                                ? "bg-[#22d3ee] font-semibold text-black shadow-[0_0_12px_rgba(34,211,238,0.3)]"
-                                : "bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white",
-                            )}
-                          >
-                            Мои ({customStyles.length})
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Сетка адаптивных карточек стилей — 5 колонок */}
-                    <div className="flex-1 overflow-y-auto p-4">
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
-                        {displayedStyles.map(({ style: s, cat }) => {
-                          const isCurrent = s.id === styleId;
-                          const isCustom = s.id.startsWith("custom_") || customStyles.some((cs) => cs.id === s.id);
-                          return (
-                            <div
-                              key={s.id}
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => {
-                                setCategoryId(cat.id);
-                                setStyleId(s.id);
-                                setEditorTab("request");
-                                toast.success(`Стиль «${s.name}» выбран`);
-                                setStylesDrawerOpen(false);
-                              }}
-                              className={cn(
-                                "group relative h-[152px] overflow-hidden rounded-xl border text-left transition-all duration-300 cursor-pointer select-none",
-                                isCurrent
-                                  ? "border-[#22d3ee] ring-2 ring-[#22d3ee]/50 shadow-[0_0_24px_rgba(34,211,238,0.35)]"
-                                  : "border-white/10 bg-[#16161c] hover:border-white/30 hover:shadow-[0_10px_30px_rgba(0,0,0,0.6)]",
-                              )}
-                            >
-                              {/* 1. Картинка / градиент на ВСЮ ячейку */}
-                              <div className="absolute inset-0 h-full w-full overflow-hidden transition-transform duration-500 ease-out group-hover:scale-105">
-                                <TileBg
-                                  art={s.art}
-                                  color={s.color}
-                                  srcs={styleTileSrcs(
-                                    { id: s.id, cover: s.cover, artUrl: (s as CustomStyle).artUrl },
-                                    artUrls,
-                                  )}
-                                />
-                              </div>
-
-                              {/* 2. Верхние бейджи (категория + индикатор) */}
-                              <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between p-2">
-                                <span className="rounded bg-black/65 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-white/85 backdrop-blur-md border border-white/10 shadow-sm">
-                                  {isCustom ? "Мой стиль" : cat.name}
-                                </span>
-                                {isCurrent ? (
-                                  <span className="flex items-center gap-1 rounded bg-[#22d3ee] px-1.5 py-0.5 text-[9.5px] font-bold text-black shadow-md">
-                                    <Check className="h-3 w-3" /> Выбран
-                                  </span>
-                                ) : (
-                                  <span
-                                    className="h-2.5 w-2.5 rounded-full shadow-[0_0_8px_currentColor]"
-                                    style={{ backgroundColor: GEN_STYLE_COLORS[s.color] }}
-                                  />
-                                )}
-                              </div>
-
-                              {/* 3. Спокойное состояние: название и краткое описание на картинке */}
-                              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col justify-end bg-gradient-to-t from-black/95 via-black/70 to-transparent p-2.5 pt-10 transition-opacity duration-200 group-hover:opacity-0">
-                                <div
-                                  className="line-clamp-1 text-[13px] font-bold text-white drop-shadow-md"
-                                  title={s.name}
-                                >
-                                  {s.name}
-                                </div>
-                                <div
-                                  className="mt-0.5 line-clamp-1 text-[10.5px] text-white/60"
-                                  title={s.desc}
-                                >
-                                  {s.desc}
-                                </div>
-                              </div>
-
-                              {/* 4. Оверлей при наведении курсора: заголовок, описание и текст промпта / агента */}
-                              <div className="absolute inset-0 z-30 flex flex-col justify-between bg-black/90 p-2.5 opacity-0 backdrop-blur-[3px] transition-all duration-200 group-hover:opacity-100">
-                                <div>
-                                  <div className="flex items-start justify-between gap-1">
-                                    <div className="min-w-0 flex-1">
-                                      <div className="line-clamp-1 text-[13px] font-bold text-[#22d3ee]">
-                                        {s.name}
-                                      </div>
-                                      <div className="mt-0.5 line-clamp-2 text-[10.5px] leading-tight text-white/85">
-                                        {s.desc}
-                                      </div>
-                                    </div>
-                                    {isCustom && (
-                                      <div className="flex items-center gap-1 shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openEditCustomStyle(s as CustomStyle);
-                                          }}
-                                          className="rounded p-1 text-white/70 hover:bg-white/20 hover:text-white transition"
-                                          title="Редактировать стиль"
-                                        >
-                                          <Pencil className="h-3.5 w-3.5" />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            void deleteCustomStyle(s.id);
-                                          }}
-                                          className="rounded p-1 text-red-400 hover:bg-red-500/25 hover:text-red-300 transition"
-                                          title="Удалить стиль"
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Текст промпта/агента стиля */}
-                                <div className="my-1 flex-1 overflow-hidden rounded bg-white/[0.06] p-1.5 border border-white/10">
-                                  <div className="text-[8.5px] font-mono uppercase tracking-wider text-[#22d3ee] font-bold mb-0.5">
-                                    Промпт / Агент:
-                                  </div>
-                                  <div className="font-mono text-[9.5px] leading-tight text-white/70 line-clamp-3">
-                                    {s.promptCore}
-                                  </div>
-                                </div>
-
-                                {/* Нижняя плашка: теги + подсказка Выбрать */}
-                                <div className="flex items-center justify-between gap-1 pt-0.5">
-                                  <div className="flex flex-wrap gap-1">
-                                    {s.tags.slice(0, 2).map((t) => (
-                                      <span
-                                        key={t}
-                                        className="rounded bg-white/10 px-1.5 py-0.5 text-[8.5px] text-white/60"
-                                      >
-                                        #{t}
-                                      </span>
-                                    ))}
-                                  </div>
-                                  <span className="shrink-0 text-[10px] font-semibold text-[#22d3ee]">
-                                    Выбрать →
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {displayedStyles.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-12 text-center">
-                          <Sparkles className="h-8 w-8 text-white/20 mb-2" />
-                          <p className="text-[13px] font-medium text-white/70">Ничего не найдено</p>
-                          <p className="mt-1 text-[11px] text-white/40">Попробуйте изменить поисковый запрос</p>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setStyleSearch("");
-                              setActiveCatFilter("all");
-                            }}
-                            className="mt-3 rounded-lg border border-white/10 bg-white/[0.05] px-3 py-1.5 text-[11px] text-white/80 hover:bg-white/10 hover:text-white transition"
-                          >
-                            Сбросить фильтры
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {/* Подвал шторки с текущим стилем */}
-                {style && (
-                  <div className="flex shrink-0 items-center justify-between border-t border-white/10 bg-[#121217]/95 px-4 py-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: GEN_STYLE_COLORS[style.color] }}
+      {/* категории — поповер вверх, панель не раскрывается */}
+      {catMenuOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => {
+              setCatMenuOpen(false);
+              setAddOpen(false);
+            }}
+          />
+          <div
+            ref={popRef}
+            className="absolute bottom-full left-0 z-50 mb-2 w-[min(100%,720px)] rounded-xl border border-white/12 bg-[#121216]/98 p-2.5 shadow-[0_16px_40px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
+            onMouseEnter={cancelHide}
+            onMouseLeave={scheduleHide}
+          >
+            <div className="grid grid-cols-4 gap-2">
+              {categories.map((c) => {
+                const rep = c.styles[0];
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onMouseEnter={(e) => {
+                      cancelHide();
+                      setPreviewCat(c.id);
+                      const rect = popRef.current?.getBoundingClientRect();
+                      if (rect) {
+                        setStylesPos({ x: e.clientX - rect.left, y: e.clientY - rect.top, w: rect.width });
+                      }
+                    }}
+                    onClick={() => setPreviewCat(c.id)}
+                    title={c.name}
+                    className={cn(
+                      "flex flex-col overflow-hidden rounded-md border text-left transition",
+                      c.id === menuCat?.id
+                        ? "border-white/30 bg-white/[0.04]"
+                        : "border-white/12 hover:border-white/25",
+                    )}
+                  >
+                    <span className="relative h-[72px] w-full overflow-hidden">
+                      <TileBg
+                        art={c.art}
+                        color={rep?.color ?? "cyan"}
+                        srcs={[]}
                       />
-                      <div className="min-w-0">
-                        <div className="truncate text-[12px] font-semibold text-white/90">
-                          {style.name}
-                        </div>
-                        <div className="truncate text-[10px] text-white/40">
-                          {category.name} · {style.tags.slice(0, 2).join(", ")}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setStylesDrawerOpen(false)}
-                      className="rounded-lg bg-[#22d3ee] px-3.5 py-1.5 text-[12px] font-semibold text-black transition hover:brightness-110 shadow-[0_0_14px_rgba(34,211,238,0.25)]"
-                    >
-                      Готово
-                    </button>
-                  </div>
-                )}
-              </aside>
-            </div>,
-            document.body,
-          )
-        : null}
+                    </span>
+                    <span className="px-1.5 py-1.5 text-center text-[12px] font-medium leading-tight text-white/85">
+                      {c.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {menuCat && (
+              <div
+                className="absolute z-10 w-[600px] rounded-xl border border-white/12 bg-[#121216]/98 p-2.5 shadow-[0_16px_40px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
+                style={{
+                  left: Math.max(4, Math.min((stylesPos?.x ?? 60) - 16, (stylesPos?.w ?? 700) - 604)),
+                  top: Math.min((stylesPos?.y ?? 60) + 8, 8 + Math.round(104 * 0.3)),
+                  transform: "translateY(-100%)",
+                }}
+                onMouseEnter={cancelHide}
+                onMouseLeave={scheduleHide}
+              >
+            {addOpen ? (
+              <div className="max-h-[360px] space-y-1.5 overflow-y-auto">
+                <div className="text-[13px] font-medium text-white/85">Новый стиль · {menuCat.name}</div>
+                <div className="flex flex-wrap items-center gap-1">
+                  {refPreviews.map((url, i) => (
+                    <span key={url} className="relative h-[46px] w-[46px] overflow-hidden rounded-md border border-white/15">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" className="h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setNewRefs((prev) => prev.filter((_, k) => k !== i))}
+                        title="Убрать"
+                        className="absolute right-0 top-0 bg-black/70 px-0.5 text-[12px] leading-none text-white/80 hover:text-white"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => refInput.current?.click()}
+                    title="Добавить картинки-референсы"
+                    className="flex h-[46px] w-[46px] items-center justify-center rounded-md border border-dashed border-white/20 text-white/45 transition hover:border-white/40 hover:text-white"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                  <input
+                    ref={refInput}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files ?? []);
+                      if (picked.length) setNewRefs((prev) => [...prev, ...picked]);
+                      e.target.value = "";
+                    }}
+                  />
+                </div>
+                <textarea
+                  value={newHint}
+                  onChange={(e) => setNewHint(e.target.value)}
+                  rows={2}
+                  placeholder="Что взять из картинок…"
+                  className={cn(areaCls, "text-[12px]")}
+                />
+                <button
+                  type="button"
+                  disabled={buildBusy || !newRefs.length}
+                  onClick={() => void buildAgentFromRefs()}
+                  className="w-full rounded-md bg-white px-2.5 py-1.5 text-[13px] font-medium text-black transition hover:bg-white/90 disabled:opacity-40"
+                >
+                  {buildBusy ? "Разбираю картинки…" : "Собрать агента по картинкам"}
+                </button>
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Название стиля"
+                  className={selectCls}
+                />
+                <textarea
+                  value={newAgent}
+                  onChange={(e) => setNewAgent(e.target.value)}
+                  rows={4}
+                  placeholder="Текст агента"
+                  className={cn(areaCls, "font-mono text-[12px]")}
+                />
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => void saveCustomStyle(menuCat.id)} className="rounded-md bg-white px-2.5 py-1.5 text-[13px] font-medium text-black">
+                    Сохранить
+                  </button>
+                  <button type="button" onClick={() => setAddOpen(false)} className="rounded-md px-2.5 py-1.5 text-[13px] font-medium text-white/60 hover:text-white">
+                    Отмена
+                  </button>
+                </div>
+              </div>
+            ) : (
+            <>
+            <div className="mb-2 px-0.5 text-[12px] font-medium text-white/50">
+              {menuCat.name}
+            </div>
+            <div className="grid max-h-[280px] grid-cols-3 gap-2 overflow-y-auto">
+                {menuCat.styles.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      setCategoryId(menuCat.id);
+                      setStyleId(s.id);
+                      setEditorTab("request");
+                      setCatMenuOpen(false);
+                    }}
+                    title={s.name}
+                    className={cn(
+                      "flex flex-col overflow-hidden rounded-md border text-left transition",
+                      s.id === styleId && menuCat.id === categoryId
+                        ? "border-white/30 bg-white/[0.04]"
+                        : "border-white/12 hover:border-white/25",
+                    )}
+                  >
+                    <span className="relative h-[90px] w-full overflow-hidden">
+                      <TileBg
+                        art={s.art}
+                        color={s.color}
+                        srcs={styleTileSrcs(
+                          { id: s.id, cover: s.cover, artUrl: (s as CustomStyle).artUrl },
+                          artUrls,
+                        )}
+                      />
+                    </span>
+                    <span className="px-1.5 py-1.5 text-center text-[12px] font-medium leading-tight text-white/85">
+                      {s.name}
+                    </span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryId(menuCat.id);
+                    setAddOpen(true);
+                  }}
+                  title="Добавить свой стиль по картинкам"
+                  className="flex min-h-[124px] items-center justify-center rounded-md border border-dashed border-white/15 text-white/40 transition hover:border-white/30 hover:text-white/70"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+            </>
+            )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {expanded ? (
       <div className="flex min-h-0 flex-col px-2 pb-1.5 pt-0">

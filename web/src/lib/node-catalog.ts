@@ -70,6 +70,15 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
     accent: "200 55% 55%",
     iconKey: "package",
   },
+  style_extract: {
+    type: "style_extract",
+    label: "Разбор стиля",
+    description:
+      "Агент разбора референсных роликов: рисовка, озвучка, монтаж, повествование → паспорт стиля. Лимит LLM-вызовов и оценка цены до запуска.",
+    category: "planning",
+    accent: "285 60% 62%",
+    iconKey: "sparkles",
+  },
   shot_menu: {
     type: "shot_menu",
     label: "Меню съёмки",
@@ -141,7 +150,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   hero: {
     type: "hero",
     label: "Персонажи",
-    description: "Эталонные референс-листы внешности героев (ракурсы 360°, лицо, костюм) для сохранения единого стиля в видео.",
+    description: "Reference-картинки героев (Nano Banana 2).",
     category: "objects",
     accent: "195 75% 58%",
     iconKey: "user-round",
@@ -149,7 +158,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   items: {
     type: "items",
     label: "Предметы",
-    description: "Референс-листы ключевого реквизита и предметов для сохранения визуальной консистентности в сценах.",
+    description: "Reference-картинки повторяющихся предметов.",
     category: "objects",
     accent: "195 75% 58%",
     iconKey: "package",
@@ -158,7 +167,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
     type: "excel_gpt",
     label: "ИИ-редактор сцен",
     description:
-      "Режиссура сцен, свет, ракурсы камеры и распределение персонажей (c01, c02) по кадрам перед генерацией артов.",
+      "ИИ-редактор сцен: роли, файлы со стрелок, сверка с диском. API без браузера. Пульт — меню V.",
     category: "enrich",
     accent: "270 55% 64%",
     iconKey: "sparkles",
@@ -166,8 +175,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   image_prompts: {
     type: "image_prompts",
     label: "Промты картинок",
-    description:
-      "Генерация детальных промтов для нейросети-художника на основе режиссуры сцен, персонажей и реквизита с сохранением единого стиля.",
+    description: "Генерация image-prompt'ов для каждого кадра.",
     category: "media",
     accent: "270 50% 62%",
     iconKey: "wand",
@@ -175,8 +183,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   images: {
     type: "images",
     label: "Картинки",
-    description:
-      "Генерация фотореалистичных кадров нейросетью-художником по промтам раскадровки с сохранением внешности персонажей и реквизита.",
+    description: "Генерация изображений в VIA Render.",
     category: "media",
     accent: "270 50% 62%",
     iconKey: "image",
@@ -184,7 +191,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   animation_prompts: {
     type: "animation_prompts",
     label: "Промты анимации",
-    description: "Кинематографичные промпты движения (камера, физика, свет) под Veo 3.1, Kling и Seedance.",
+    description: "Промты анимации через ChatGPT (по кадрам).",
     category: "media",
     accent: "88 80% 55%",
     iconKey: "wand",
@@ -192,7 +199,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   videos: {
     type: "videos",
     label: "Видео",
-    description: "Генерация динамичных видеоклипов из картинок через I2V-модели (Seedance 2.5/Mini, Kling 2.6, Veo 3.1, WAN 2.7).",
+    description: "Генерация 8-сек клипов из картинок.",
     category: "media",
     accent: "88 80% 55%",
     iconKey: "film",
@@ -200,7 +207,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   music: {
     type: "music",
     label: "Музыка",
-    description: "Фоновая музыка через GPT + Suno (Kie).",
+    description: "Фоновая музыка через GPT + Suno.",
     category: "audio",
     accent: "300 55% 62%",
     iconKey: "music",
@@ -226,7 +233,7 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   audio: {
     type: "audio",
     label: "Озвучка",
-    description: "Голосовая озвучка закадрового текста через ElevenLabs v4 (WaveSpeed, 200 русских голосов) и Whisper ASR.",
+    description: "ElevenLabs TTS + Whisper-субтитры.",
     category: "audio",
     accent: "320 60% 62%",
     iconKey: "audio-waveform",
@@ -279,6 +286,15 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
     accent: "0 0% 58%",
     iconKey: "check-square",
   },
+  hitl_style: {
+    type: "hitl_style",
+    label: "Проверка стиля",
+    description:
+      "Утверждение паспорта стиля: правка полей, подтверждение → блоки промптов, пресет и style lock записываются в Studio.",
+    category: "hitl",
+    accent: "285 45% 58%",
+    iconKey: "check-square",
+  },
 };
 
 /** Имена категорийных агентов scene_design (data.sd_agent → по-русски). */
@@ -302,8 +318,8 @@ export function formatNodeTypeLabel(type: string): string {
     .replace(/\bGpt\b/gi, "GPT");
 }
 
-export function getNodeSpec(type: string, nodeKey?: string | null): NodeSpec {
-  const base =
+export function getNodeSpec(type: string): NodeSpec {
+  return (
     NODE_CATALOG[type] ?? {
       type,
       label: formatNodeTypeLabel(type),
@@ -311,26 +327,6 @@ export function getNodeSpec(type: string, nodeKey?: string | null): NodeSpec {
       category: "planning",
       accent: "0 0% 55%",
       iconKey: "plan",
-    };
-
-  if (type === "excel_gpt" && nodeKey) {
-    if (nodeKey === "n_excel_gpt_1") {
-      return {
-        ...base,
-        label: "ИИ-режиссер 1: Сцены и каст",
-        description:
-          "Первичная режиссура: раскадровка, свет, планы камеры и разметка персонажей (c01, c02) перед генерацией их концепт-артов.",
-      };
     }
-    if (nodeKey === "n_excel_gpt_2") {
-      return {
-        ...base,
-        label: "ИИ-режиссер 2: Реквизит и аудит",
-        description:
-          "Финальная режиссура и аудит: привязка сгенерированного реквизита к кадрам, сверка планов и контроль качества перед промптами картинок.",
-      };
-    }
-  }
-
-  return base;
+  );
 }

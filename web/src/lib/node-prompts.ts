@@ -23,34 +23,31 @@ const NO_EXCEL_NODE_TYPES = new Set([
   "topic",
   "excel_feed",
   "excel_gpt",
-  "hero",
-  "items",
-  "image_prompts",
-  "images",
-  "animation_prompts",
-  "videos",
-  "audio",
-  "music",
-  "sfx_plan",
-  "sfx_gen",
-  "sfx",
   "storage",
   "shot_menu",
+  "style_extract",
+  "hitl_style",
 ]);
 
 const BASE: Record<string, NodePromptSlot[]> = {
   topic: [],
   shot_menu: [],
+  style_extract: [],
+  hitl_style: [],
   plan: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "plan" },
     { id: "main", title: "Промт сценария", kind: "gpt", stepCode: "plan" },
   ],
   script: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "script" },
     { id: "main", title: "Промт закадрового текста", kind: "gpt", stepCode: "script" },
   ],
   split: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "split" },
     { id: "main", title: "Промт разбивки", kind: "gpt", stepCode: "split" },
   ],
   sd_agent: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "scene_d" },
     {
       id: "main",
       title: "Промт агента",
@@ -60,6 +57,7 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   sd_assemble: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "scene_asm" },
     {
       id: "main",
       title: "Промт сборщика",
@@ -70,19 +68,24 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   hero: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "hero" },
     { id: "main", title: "Промт персонажа", kind: "gpt", stepCode: "hero" },
     { id: "style", title: "Стиль персонажа", kind: "gpt", stepCode: "hero_style" },
   ],
   items: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "items" },
     { id: "main", title: "Промт предмета", kind: "gpt", stepCode: "items" },
   ],
   excel_gpt: [
+    { id: "excel", title: "Excel", kind: "excel", stepCode: "excel_gpt" },
     { id: "main", title: "Промты", kind: "gpt", stepCode: "excel_gpt" },
   ],
   image_prompts: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "img_pr" },
     { id: "main", title: "Промт картинок", kind: "gpt", stepCode: "img_pr" },
   ],
   images: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "img" },
     {
       id: "frame_prompts",
       title: "Промты кадров",
@@ -98,21 +101,11 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   animation_prompts: [
-    {
-      id: "frame_prompts",
-      title: "Промты по кадрам",
-      kind: "frame_prompts",
-      description: "animation_prompt по кадрам — уходит в модель видео",
-    },
-    {
-      id: "main",
-      title: "Мастер-промт",
-      kind: "gpt",
-      stepCode: "anim_pr",
-      description: "prompts/07_animation — правила сборки видеопромптов",
-    },
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "anim_pr" },
+    { id: "main", title: "Промт анимации", kind: "gpt", stepCode: "anim_pr" },
   ],
   videos: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "video" },
     {
       id: "frame_prompts",
       title: "Промты анимации",
@@ -124,31 +117,23 @@ const BASE: Record<string, NodePromptSlot[]> = {
       title: "Мастер-промт",
       kind: "gpt",
       stepCode: "anim_pr",
-      description: "prompts/07_animation — правила сборки видеопромптов",
+      description: "prompts/07_animation_prompts",
     },
   ],
   audio: [
-    {
-      id: "voiceover",
-      title: "Закадр по кадрам",
-      kind: "frame_prompts",
-      description: "Закадровый текст диктора по кадрам (Frame.voiceover_text)",
-    },
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "audio" },
+    { id: "tts", title: "ElevenLabs TTS", kind: "gpt" },
   ],
   music: [
-    {
-      id: "main",
-      title: "Промт музыки",
-      kind: "gpt",
-      stepCode: "music",
-      description: "prompts/10_music — инструкция для GPT по созданию промпта Suno",
-    },
+    { id: "voiceover", title: "voiceover.txt", kind: "text", stepCode: "music" },
+    { id: "gpt_text", title: "Текст для GPT (Suno)", kind: "text", stepCode: "music" },
   ],
-  sfx_plan: [],
-  sfx_gen: [],
-  sfx: [],
-  assemble: [],
-  publish: [],
+  assemble: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "assemble" },
+  ],
+  publish: [
+    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "publish" },
+  ],
 };
 
 const SD_AGENT_KEY_RE = /_sd_(characters|world|style|camera|action)$/;
@@ -167,11 +152,16 @@ export function defaultPromptSlots(nodeType: string): NodePromptSlot[] {
   if (isHitlNodeType(nodeType) || nodeType === "shot_menu") return [];
   const base = BASE[nodeType];
   if (base?.length) return base;
+  if (nodeTypeRequiresExcel(nodeType)) {
+    return [excelSlotForNodeType(nodeType), { id: "main", title: "Настройки ноды", kind: "gpt" }];
+  }
   return [{ id: "main", title: "Настройки ноды", kind: "gpt" }];
 }
 
-export function nodeTypeRequiresExcel(_nodeType: string): boolean {
-  return false;
+export function nodeTypeRequiresExcel(nodeType: string): boolean {
+  if (!nodeType || isHitlNodeType(nodeType)) return false;
+  if (NO_EXCEL_NODE_TYPES.has(nodeType)) return false;
+  return nodeType in NODE_CATALOG;
 }
 
 export function excelSlotForNodeType(nodeType: string): NodePromptSlot {
