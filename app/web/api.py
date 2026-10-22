@@ -21,6 +21,9 @@ from loguru import logger
 from app.services.event_bus import get_bus
 from app.web.identity import IdentityMiddleware
 from app.web.routers import (
+    admin_access as admin_access_router,
+)
+from app.web.routers import (
     admin_costs as admin_costs_router,
 )
 from app.web.routers import (
@@ -388,6 +391,7 @@ def create_app() -> FastAPI:
     app.include_router(runtime_streams_router.router, prefix=API_PREFIX)
     app.include_router(runs_router.router, prefix=API_PREFIX)
     app.include_router(llm_costs_router.router, prefix=API_PREFIX)
+    app.include_router(admin_access_router.router, prefix=API_PREFIX)
     app.include_router(admin_costs_router.router, prefix=API_PREFIX)
     app.include_router(prompts_router.router, prefix=API_PREFIX)
     app.include_router(prompt_studio_router.router, prefix=API_PREFIX)
