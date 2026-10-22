@@ -182,45 +182,6 @@ jobs:
           echo "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      - name: Свой ключ на сервер
-        # ВРЕМЕННО: раскладываем публичный ключ разработчика в authorized_keys,
-        # чтобы смотреть логи и разбирать падения без пароля. Убрать, когда
-        # доступ будет выдан штатно.
-        env:
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          PUBKEY: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDBM4N8gqrXrEzYFWf4Jx2d66FCx0owhNUQ2lUuTRaiw dsh-local"
-        run: |
-          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- "
-            mkdir -p ~/.ssh && chmod 700 ~/.ssh;
-            touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys;
-            grep -qF 'dsh-local' ~/.ssh/authorized_keys || printf '%s\n' '$PUBKEY' >> ~/.ssh/authorized_keys;
-            echo '--- authorized_keys ---'; cut -c1-60 ~/.ssh/authorized_keys | tail -n 5
-          "
-
-      - name: Снимок состояния до выкладки
-        # ВРЕМЕННО (разбор падений сайта): снять состояние контейнера ДО
-        # пересоздания, иначе причина пропадает вместе со старым контейнером.
-        # Убрать после разбора.
-        env:
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-        run: |
-          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- '
-            echo "=== докер: все контейнеры ===";
-            docker ps -a --format "{{.Names}} | {{.Status}} | {{.Image}}";
-            echo "=== студия: состояние ===";
-            for c in $(docker ps -aq --filter name=app-v2); do
-              docker inspect "$c" --format "{{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} restarts={{.RestartCount}} started={{.State.StartedAt}} finished={{.State.FinishedAt}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}";
-            done;
-            echo "=== логи приложения, хвост ===";
-            for c in $(docker ps -aq --filter name=app-v2); do docker logs --tail 60 "$c" 2>&1; done;
-            echo "=== память контейнеров ===";
-            docker stats --no-stream --format "{{.Name}} {{.MemUsage}} {{.CPUPerc}}";
-            echo "=== OOM в ядре за сутки ===";
-            (sudo -n dmesg -T 2>/dev/null || dmesg -T 2>/dev/null) | grep -iE "out of memory|oom-kill|killed process" | tail -n 10
-          '
-
       - name: Pull и рестарт
         env:
           VPS_PATH: ${{ vars.VPS_PATH || '/opt/studio' }}

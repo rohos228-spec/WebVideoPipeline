@@ -57,7 +57,6 @@
     },
     "outsee:veo-3-1-lite": {
       "unit": "second",
-      "usd_per_unit": 0.075,
       "usd_per_call": 0.45
     },
     "outsee:veo-3-1-fast": {

@@ -542,18 +542,33 @@ async def generate_kie_video(
         )
     if not spec:
         from app.bots.kie_kling import generate_video as kie_kling_generate_video
+        from app.services.media_ledger import media_call
 
-        return await kie_kling_generate_video(
-            prompt,
-            out_path,
-            start_frame=start_frame,
-            aspect_ratio=aspect_ratio,
-            duration=duration,
-            generate_audio=generate_audio,
-            timeout=timeout,
+        # Та же дыра, что и ниже: клип Kling уходил в провайдера без записи
+        # в media_calls, поэтому в расходах его не было видно.
+        async with media_call(
+            "kie",
+            "video",
+            model=kie_id,
+            units=float(duration or 0.0),
+            unit="second",
             project_id=project_id,
-            gen_id=gen_id,
-        )
+        ) as call:
+            result = await kie_kling_generate_video(
+                prompt,
+                out_path,
+                start_frame=start_frame,
+                aspect_ratio=aspect_ratio,
+                duration=duration,
+                generate_audio=generate_audio,
+                timeout=timeout,
+                project_id=project_id,
+                gen_id=gen_id,
+            )
+            gid = getattr(result, "gen_id", None) or gen_id
+            if gid:
+                call.external_id = str(gid)
+            return result
 
     image_url = await _frame_to_public_url(start_frame)
     ar = (aspect_ratio or "9:16").replace("_", ":")
@@ -614,10 +629,26 @@ async def generate_kie_video(
         bool(image_url),
         project_id,
     )
-    if is_pay52:
-        return await pay52_video.run_generation(spec, values, out_path, timeout_s=timeout)
-    return await run_generation(spec, payload, out_path, timeout_s=timeout)
+    from app.services.media_ledger import media_call
 
+    # Учёт денег: без этой обёртки видео-KIE не попадало в media_calls вообще,
+    # и расход на видео в отчёте был нулём при реальных списаниях в ledger.
+    async with media_call(
+        "kie",
+        "video",
+        model=kie_id,
+        units=float(values.get("duration") or duration or 0.0),
+        unit="second",
+        project_id=project_id,
+    ) as call:
+        if is_pay52:
+            result = await pay52_video.run_generation(spec, values, out_path, timeout_s=timeout)
+        else:
+            result = await run_generation(spec, payload, out_path, timeout_s=timeout)
+        gid = getattr(result, "gen_id", None)
+        if gid:
+            call.external_id = str(gid)
+        return result
 
 async def generate_kie_image(
     prompt: str,
