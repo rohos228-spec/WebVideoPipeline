@@ -1,15 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
   CheckCircle2,
-  FileCode,
-  Save,
   Wand2,
   ShieldCheck,
   Zap,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,69 +27,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-const STEP_PRESETS: Record<string, { label: string; intent: string; name: string }[]> = {
-  excel_gpt: [
-    {
-      label: "🎨 Настроение и свет",
-      intent: "Определяй настроение каждого кадра (1-10), тип освещения и 3 ключевых цвета палитры.",
-      name: "mood_lighting",
-    },
-    {
-      label: "✍️ Сценарист (пачками)",
-      intent: "Упакуй закадровый текст в плотные смысловые блоки по 9 ячеек со связкой темпа.",
-      name: "scriptwriter_batch",
-    },
-    {
-      label: "🔍 Контроль качества (QC)",
-      intent: "Проверяй логику переходов между кадрами и отсутствие противоречий в действиях персонажей.",
-      name: "scene_qc_check",
-    },
-  ],
-  hero_style: [
-    {
-      label: "🌆 Киберпанк 8K",
-      intent: "Стиль киберпанк, неоновые акценты, ночной дождь, 8k, Unreal Engine 5, 85mm anamorphic lens, rim lighting.",
-      name: "cyberpunk_neon_8k",
-    },
-    {
-      label: "🌸 Аниме (Синкай)",
-      intent: "Высокохудожественное аниме в стиле Макото Синкая, мягкие облака, золотой час, акварельные детали.",
-      name: "anime_shinkai_sunset",
-    },
-    {
-      label: "🎬 Кинематографичный реализм",
-      intent: "Фотореалистичный 35mm пленочный кадр, естественная текстура кожи, естественные тени, Hasselblad.",
-      name: "cinematic_realism",
-    },
-  ],
-  items: [
-    {
-      label: "📱 Футуристичный гаджет",
-      intent: "Высокотехнологичное наручное устройство / коммуникатор с прозрачным голографическим дисплеем, титан и стекло.",
-      name: "holo_gadget_16_9",
-    },
-    {
-      label: "🛸 Дрон-разведчик",
-      intent: "Компактный автономный дрон с матовым карбоновым корпусом, оптическими сенсорами и подсветкой слотов.",
-      name: "stealth_drone_sheet",
-    },
-  ],
-  img_pr: [
-    {
-      label: "🎥 Кинематографичный ракурс",
-      intent: "Создавай детальные промпты кадров с указанием оптики, глубины резкости, ракурса камеры и световой схемы.",
-      name: "cinematic_shot_framing",
-    },
-  ],
-  anim_pr: [
-    {
-      label: "📹 Плавный наезд камеры",
-      intent: "Директивы движения для Veo 3.1 / Kling: медленный плавный зум вперед (slow dolly in), микро-движения и параллакс.",
-      name: "smooth_dolly_pan",
-    },
-  ],
-};
-
 export function MetaPromptDialog({
   stepCode,
   projectId,
@@ -101,6 +37,7 @@ export function MetaPromptDialog({
   onSaved?: (fileName: string) => void;
 }) {
   const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [intent, setIntent] = useState("");
   const [presetName, setPresetName] = useState("");
@@ -111,8 +48,6 @@ export function MetaPromptDialog({
     has_schema: boolean;
     has_guards: boolean;
   } | null>(null);
-
-  const presets = STEP_PRESETS[stepCode] ?? STEP_PRESETS.excel_gpt;
 
   const compileMutation = useMutation({
     mutationFn: async () => {
@@ -153,7 +88,7 @@ export function MetaPromptDialog({
     },
     onSuccess: (data) => {
       if (!data) return;
-      toast.success(`Промпт ${data.file_name} сохранён и активирован!`);
+      toast.success(`Личный промпт ${data.file_name} сохранён и активирован!`);
       qc.invalidateQueries({ queryKey: ["prompt-files"] });
       qc.invalidateQueries({ queryKey: ["project"] });
       if (onSaved) {
@@ -168,11 +103,6 @@ export function MetaPromptDialog({
       toast.error(errorMessageFromUnknown(err));
     },
   });
-
-  const handleApplyPreset = (p: { label: string; intent: string; name: string }) => {
-    setIntent(p.intent);
-    setPresetName(p.name);
-  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -189,66 +119,92 @@ export function MetaPromptDialog({
 
       <DialogContent
         overlayClassName="z-[200]"
-        className="z-[210] max-w-2xl max-h-[90vh] overflow-y-auto border-border/80 bg-card/95 backdrop-blur-xl"
+        className="z-[210] w-[94vw] max-w-5xl max-h-[92vh] overflow-y-auto overflow-x-hidden border-border/80 bg-card/95 backdrop-blur-xl p-6"
       >
-        <DialogHeader>
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20 text-primary">
-              <Wand2 className="h-4 w-4" />
+        <DialogHeader className="space-y-1">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/20 text-primary shadow-sm">
+              <Wand2 className="h-4.5 w-4.5" />
             </div>
-            <div>
-              <DialogTitle className="text-base font-semibold">
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-base font-semibold leading-tight">
                 Конструктор мастер-промптов ИИ-Агентом
               </DialogTitle>
-              <DialogDescription className="text-xs">
-                Шаг: <span className="font-mono text-foreground font-semibold">{stepCode}</span> — напишите задачу своими словами, агент скомпилирует системный .md промпт.
+              <DialogDescription className="text-xs text-muted-foreground break-words mt-0.5">
+                Шаг: <span className="font-mono text-foreground font-semibold">{stepCode}</span> — напишите задачу своими словами или загрузите текст из файла, агент скомпилирует системный .md промпт под этот шаг.
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {/* Быстрые шаблоны */}
-          <div>
-            <span className="text-[11px] font-medium text-muted-foreground">
-              Быстрые примеры для этого шага:
-            </span>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {presets.map((p, idx) => (
-                <button
-                  key={idx}
+          {/* Имя пресета и задача */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-1 flex flex-col justify-between space-y-1.5">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Имя файла (.md):
+                </label>
+                <Input
+                  placeholder="авто-генерация или имя"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  className="mt-1 h-9 text-xs font-mono"
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground/60 leading-tight">
+                Создаёт личный промпт, изолированный для вашего аккаунта
+              </span>
+            </div>
+            <div className="sm:col-span-2 space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Что должен делать этот промпт:
+                </label>
+                <Button
                   type="button"
-                  onClick={() => handleApplyPreset(p)}
-                  className="rounded-full border border-white/10 bg-muted/40 px-2.5 py-1 text-[11px] hover:border-primary/50 hover:bg-primary/10 transition-colors"
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 gap-1 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Загрузить текст из файла (.txt, .md)"
                 >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Имя пресета */}
-          <div className="grid grid-cols-3 gap-2">
-            <div className="col-span-1">
-              <label className="text-xs font-medium text-muted-foreground">
-                Имя файла (.md):
-              </label>
-              <Input
-                placeholder="my_custom_prompt"
-                value={presetName}
-                onChange={(e) => setPresetName(e.target.value)}
-                className="mt-1 h-8 text-xs font-mono"
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs font-medium text-muted-foreground">
-                Что должен делать этот промпт:
-              </label>
+                  <Upload className="h-3 w-3" />
+                  Из файла
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,.md,text/plain,text/markdown"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                      const text = event.target?.result;
+                      if (typeof text === "string" && text.trim()) {
+                        setIntent(text.trim());
+                        if (!presetName.trim()) {
+                          const autoName = file.name
+                            .replace(/\.[^/.]+$/, "")
+                            .replace(/[^a-zA-Z0-9_-]+/g, "_")
+                            .toLowerCase();
+                          setPresetName(autoName);
+                        }
+                        toast.success(`Текст из файла «${file.name}» загружен`);
+                      }
+                    };
+                    reader.readAsText(file, "utf-8");
+                    e.target.value = "";
+                  }}
+                />
+              </div>
               <Textarea
-                placeholder="Опишите желаемую логику, колонки, стиль или правила..."
+                placeholder="Опишите желаемую логику, стиль, правила или вставьте свой черновик промпта..."
                 value={intent}
                 onChange={(e) => setIntent(e.target.value)}
-                className="mt-1 min-h-[70px] text-xs resize-none"
+                className="mt-1 min-h-[90px] text-xs resize-none leading-relaxed"
               />
             </div>
           </div>
@@ -256,7 +212,7 @@ export function MetaPromptDialog({
           {/* Кнопка запуска компиляции */}
           <Button
             type="button"
-            className="w-full gap-2 text-xs font-semibold"
+            className="w-full gap-2 text-xs font-semibold h-9 shadow-sm"
             disabled={compileMutation.isPending || !intent.trim()}
             onClick={() => compileMutation.mutate()}
           >
@@ -275,14 +231,14 @@ export function MetaPromptDialog({
 
           {/* Результат компиляции */}
           {compiledPrompt && (
-            <div className="space-y-2 rounded-xl border border-border/80 bg-background/60 p-3">
+            <div className="space-y-2 rounded-xl border border-border/80 bg-background/60 p-3.5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   Готовый результат компиляции
                 </div>
                 {stats && (
-                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-2.5 text-[10px] text-muted-foreground">
                     <span>{stats.lines_count} строк</span>
                     <span>·</span>
                     <span>{stats.length_chars} символов</span>
@@ -298,13 +254,13 @@ export function MetaPromptDialog({
               <Textarea
                 value={compiledPrompt}
                 onChange={(e) => setCompiledPrompt(e.target.value)}
-                className="min-h-[220px] font-mono text-[11px] leading-relaxed bg-black/40"
+                className="min-h-[320px] font-mono text-[11px] leading-relaxed bg-black/50 whitespace-pre-wrap break-words resize-y overflow-y-auto"
               />
             </div>
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between">
+        <DialogFooter className="gap-2 sm:justify-between pt-1">
           <Button
             type="button"
             variant="ghost"
@@ -319,7 +275,7 @@ export function MetaPromptDialog({
             <Button
               type="button"
               size="sm"
-              className="w-28 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+              className="w-32 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm"
               disabled={saveMutation.isPending}
               onClick={() => saveMutation.mutate()}
             >
