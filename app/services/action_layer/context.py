@@ -281,6 +281,56 @@ def normalize_operator(value: Any) -> str:
     return text or "unknown"
 
 
+_STUDIO_USER_PREFIX = "studio_user:"
+
+
+async def _studio_bearer(operator: str) -> str | None:
+    """Токен студии для внутреннего вызова в режиме учётных записей.
+
+    Вызов идёт в то же приложение через ``ASGITransport`` и проходит
+    ``IdentityMiddleware``: без токена там 401, хотя план одобрил админ.
+    Личность не повышается никогда: берётся личность текущей задачи (запрос или
+    порождённая им задача — ContextVar наследуется) с её же ролью, а в фоновой
+    задаче без запроса — оператор плана ``studio_user:<uuid>``, только если
+    учётка жива и сейчас админ. Middleware внутреннего вызова ещё раз сверяет
+    учётку с базой. ``None`` — режим владельца, токен не нужен.
+    """
+    from app.services.studio_auth import current_identity, issue_token
+    from app.settings import settings
+
+    if not settings.accounts_enabled:
+        return None
+    ident = current_identity()
+    if ident is None and operator.startswith(_STUDIO_USER_PREFIX):
+        ident = await _live_admin(operator[len(_STUDIO_USER_PREFIX):])
+    if ident is None:
+        raise ActionCallError(401, (
+            "внутренний вызов без личности: план запущен не от имени админа студии "
+            "или его учётка отключена, запустите план заново из интерфейса"))
+    return issue_token(ident, ttl_hours=1)
+
+
+async def _live_admin(user_id: str):
+    import app.db as app_db
+    from app.models import StudioUser
+    from app.services.studio_auth import ROLE_ADMIN, identity_of
+    from app.services.tenant import _normalize, tenant_scope
+
+    try:
+        uid = _normalize(user_id)
+    except ValueError:
+        return None
+    if uid is None:
+        return None
+    # `studio_users` вне арендатора: читаем без него и возвращаем прежнего.
+    with tenant_scope(None):
+        async with app_db.SessionLocal() as session:
+            user = await session.get(StudioUser, uid)
+    if user is None or not user.is_active or user.role != ROLE_ADMIN:
+        return None
+    return identity_of(user)
+
+
 @dataclass(frozen=True)
 class _Replay:
     body: Any
@@ -323,16 +373,31 @@ class ActionContext:
                    access_guard.OPERATOR_HEADER: access_guard.get_operator_token()}
         if self.idempotency_key:
             headers["Idempotency-Key"] = self.idempotency_key
+        # До захвата ключа: отказ в личности не должен оставить начатый и не
+        # завершённый вызов, иначе повтор шага упрётся в 409.
+        bearer = await _studio_bearer(normalize_operator(self.operator))
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
         fingerprint = None
         if self.idempotency_key and method != "GET":
             fingerprint = await self._claim(method, path, params, json, multipart)
             if isinstance(fingerprint, _Replay):
                 return fingerprint.body
+        from app.services.studio_auth import current_identity, set_identity
+        from app.services.tenant import current_tenant, set_tenant
+
+        # ASGITransport исполняет приложение в этой же задаче, и IdentityMiddleware
+        # внутреннего вызова переписывает её личность и арендатора — возвращаем.
+        prev_identity, prev_tenant = current_identity(), current_tenant()
         transport = httpx.ASGITransport(app=self.app)
-        async with httpx.AsyncClient(transport=transport, base_url=_BASE_URL,
-                                     timeout=timeout) as client:
-            resp = await client.request(method, API_PREFIX + path, params=params,
-                                        json=json, files=multipart, headers=headers)
+        try:
+            async with httpx.AsyncClient(transport=transport, base_url=_BASE_URL,
+                                         timeout=timeout) as client:
+                resp = await client.request(method, API_PREFIX + path, params=params,
+                                            json=json, files=multipart, headers=headers)
+        finally:
+            set_identity(prev_identity)
+            set_tenant(prev_tenant)
         try:
             body = resp.json()
         except ValueError:

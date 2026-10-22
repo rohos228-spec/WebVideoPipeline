@@ -71,6 +71,63 @@ INFRA_TABLES: frozenset[str] = frozenset(
     }
 )
 
+#: Таблицы движка оркестратора, перенесённого из video-pipeline int/chat-v1:
+#: слой действий, контроль изменений, журнал наблюдения, касса провайдеров,
+#: выключатель. Колонки арендатора у них нет, и это решение, а не забывчивость.
+#:
+#: Читают их только ручки движка, а те открыты одному админу
+#: (`app/web/engine_access.py`, `IdentityMiddleware`: префиксов нет в
+#: `TENANT_ALLOWED_PREFIXES`). Касса провайдеров (`spend_ledger`,
+#: `provider_task_ledger`) и выключатель — общие на узел по смыслу: дневной
+#: лимит трат и остановка платных вызовов считаются по всей студии, и политика
+#: «видно только своё» молча обнулила бы лимит для каждого арендатора.
+#:
+#: Если ручку, читающую любую из этих таблиц, когда-нибудь откроют участнику,
+#: таблица переезжает в `TENANT_TABLES` вместе с миграцией колонки и политики.
+#: Пока они здесь, `assert_rls_or_die` на Postgres не роняет старт студии
+#: только из-за того, что модели движка зарегистрированы в `Base.metadata`.
+ENGINE_TABLES: frozenset[str] = frozenset(
+    {
+        "action_layer_approvals",
+        "action_layer_attachments",
+        "action_layer_calls",
+        "action_layer_history",
+        "action_layer_macros",
+        "action_layer_plan_context",
+        "action_layer_plans",
+        "action_layer_snapshots",
+        "action_layer_spend",
+        "action_layer_steps",
+        "action_execution_controls",
+        "action_node_recoveries",
+        "action_v1_records",
+        "change_proposals",
+        "config_pointers",
+        "config_versions",
+        "decision_execution_controls",
+        "decision_records",
+        "decision_runtime_bindings",
+        "decision_turns",
+        "managed_launches",
+        "managed_run_allowances",
+        "node_profile_overlays",
+        "observation_commit_uncertainty",
+        "observation_degradations",
+        "observation_diagnosis",
+        "observation_events",
+        "observation_executions",
+        "observation_incidents",
+        "observation_outbox",
+        "orchestrator_media_jobs",
+        "orchestrator_media_requests",
+        "outsee_idempotency",
+        "provider_task_ledger",
+        "spend_ledger",
+        "supervisor_kill_switch",
+        "supervisor_kill_switch_history",
+    }
+)
+
 #: Маршрутные таблицы: закрыты политикой, но политика **обратная**. Сессия
 #: без арендатора видит всё, сессия с арендатором — только своё.
 #:
@@ -109,5 +166,5 @@ def check_coverage() -> list[str]:
     """
     from app.models import Base
 
-    known = set(all_isolated()) | INFRA_TABLES
+    known = set(all_isolated()) | INFRA_TABLES | ENGINE_TABLES
     return sorted(name for name in Base.metadata.tables if name not in known)

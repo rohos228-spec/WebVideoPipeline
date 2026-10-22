@@ -136,6 +136,68 @@ from app.web.settings_default import seed_default_workflow
 API_PREFIX = "/api"
 
 
+async def _ensure_engine_schema() -> None:
+    """Таблицы слоя действий, вложений и контроля изменений движка.
+
+    В миграциях новой линии их нет: в video-pipeline их заводил свой раннер
+    схемы (`create_all` по списку таблиц, `checkfirst`), и функции перенесены
+    вместе с движком. Вызов идемпотентный. Делается при любом ENGINE_STARTUP:
+    ручки /api/action-layer и /api/change-control подключены всегда, и без
+    таблиц их чтение отвечало бы 500.
+    """
+    from app.db import engine
+    from app.services.action_layer.attachments import ensure_attachments_schema
+    from app.services.action_layer.store import ensure_action_layer_schema
+    from app.services.change_control.store import ensure_change_control_schema
+
+    async with engine.begin() as conn:
+        await ensure_action_layer_schema(conn)
+        await ensure_attachments_schema(conn)
+        await ensure_change_control_schema(conn)
+
+
+async def _start_engine() -> asyncio.Task | None:
+    """Фоновый старт движка оркестратора, только по ENGINE_STARTUP.
+
+    Подъём задач после рестарта — дополнительно по ORCH_RECOVER_ON_START, иначе
+    прерванные задачи и планы действий закрываются с честной пометкой.
+    Возвращает задачу истечения одобрений (её гасит lifespan) или ``None``.
+    """
+    from app.settings import settings
+
+    if not settings.engine_startup:
+        logger.info("orchestrator background startup off (ENGINE_STARTUP=0)")
+        return None
+
+    try:
+        from app.orchestrator.agents.runtime import get_runtime, recover_on_start
+
+        if recover_on_start():
+            recovered = await get_runtime().start()
+            if recovered:
+                logger.info("orchestrator recovered tasks {}", recovered)
+        else:
+            closed = await get_runtime().supervisor.settle_after_restart()
+            if closed:
+                logger.warning("orchestrator tasks interrupted by restart closed {}", closed)
+            from app.services.orch_bridge import close_interrupted_plans
+
+            plans = await close_interrupted_plans()
+            if plans:
+                logger.warning("orchestrator action plans interrupted by restart closed {}", plans)
+    except Exception:  # noqa: BLE001
+        logger.exception("orchestrator restart recovery failed (non-fatal)")
+
+    try:
+        from app.orchestrator.agents.approval_expiry import start_approval_expiry
+        from app.orchestrator.agents.runtime import get_runtime
+
+        return start_approval_expiry(get_runtime().supervisor)
+    except Exception:  # noqa: BLE001
+        logger.exception("orchestrator approval expiry failed to start (non-fatal)")
+        return None
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Идемпотентная инициализация:
@@ -200,6 +262,11 @@ async def _lifespan(app: FastAPI):
         # падать в lifespan значит не показать пользователю ни одной страницы
         # с причиной. Логируем и продолжаем — роуты отдадут ошибку сами.
         logger.exception("миграции не прошли — схема может быть неактуальной")
+
+    try:
+        await _ensure_engine_schema()
+    except Exception:  # noqa: BLE001
+        logger.exception("схема движка (action_layer/change_control) не создана")
 
     # Изоляция арендаторов — единственная проверка, после которой не
     # продолжают. Все три способа её потерять бесшумны: таблица без политики
@@ -336,36 +403,9 @@ async def _lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001
         logger.exception("startup reconcile failed (non-fatal)")
 
-    # Движок оркестратора (перенесён из video-pipeline int/chat-v1). Подъём
-    # задач после рестарта только по ORCH_RECOVER_ON_START, иначе прерванные
-    # задачи и планы действий закрываются с честной пометкой.
-    try:
-        from app.orchestrator.agents.runtime import get_runtime, recover_on_start
-
-        if recover_on_start():
-            recovered = await get_runtime().start()
-            if recovered:
-                logger.info("orchestrator recovered tasks {}", recovered)
-        else:
-            closed = await get_runtime().supervisor.settle_after_restart()
-            if closed:
-                logger.warning("orchestrator tasks interrupted by restart closed {}", closed)
-            from app.services.orch_bridge import close_interrupted_plans
-
-            plans = await close_interrupted_plans()
-            if plans:
-                logger.warning("orchestrator action plans interrupted by restart closed {}", plans)
-    except Exception:  # noqa: BLE001
-        logger.exception("orchestrator restart recovery failed (non-fatal)")
-
-    approval_expiry_task = None
-    try:
-        from app.orchestrator.agents.approval_expiry import start_approval_expiry
-        from app.orchestrator.agents.runtime import get_runtime
-
-        approval_expiry_task = start_approval_expiry(get_runtime().supervisor)
-    except Exception:  # noqa: BLE001
-        logger.exception("orchestrator approval expiry failed to start (non-fatal)")
+    # Движок оркестратора (перенесён из video-pipeline int/chat-v1): фоновая
+    # часть только по ENGINE_STARTUP, см. `_start_engine`.
+    approval_expiry_task = await _start_engine()
 
     try:
         yield
@@ -455,6 +495,17 @@ def create_app() -> FastAPI:
     from app.web.routers import orchestrator_chat as orchestrator_chat_router
 
     app.include_router(orchestrator_chat_router.router, prefix=API_PREFIX)
+    # Слой действий (планы, одобрения, резервы, вложения) и контроль изменений
+    # движка. Префиксы /api/action-layer и /api/change-control не в
+    # TENANT_ALLOWED_PREFIXES — участнику IdentityMiddleware отвечает 404; каждая
+    # ручка берёт EngineAuthDep (только админ, проверка ещё раз на роутере).
+    # Подключать до catch-all `api_write_not_found` ниже, иначе POST сюда
+    # ловил бы он.
+    from app.services.action_layer.router import router as action_layer_router
+    from app.services.change_control.router import router as change_control_router
+
+    app.include_router(action_layer_router, prefix=API_PREFIX)
+    app.include_router(change_control_router, prefix=API_PREFIX)
     app_ref.bind(app)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
