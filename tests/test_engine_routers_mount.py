@@ -8,8 +8,12 @@
 * без токена — 401 от ``IdentityMiddleware``; участнику — 404 (как всем
   инструментам владельца: существование ручки тоже сведения);
 * пути движка не совпадают с ручками новой линии и не перехвачены ими;
-* фоновый старт движка идёт только по ``ENGINE_STARTUP`` (по умолчанию выключен),
-  а таблицы движка создаются на старте всегда.
+* фоновый старт движка (закрытие прерванного, истечение одобрений) идёт по
+  ``ENGINE_STARTUP``, по умолчанию включён, а таблицы движка создаются всегда;
+* таблицы движка учтены в списках арендатора — иначе на Postgres
+  ``assert_rls_or_die`` роняет старт;
+* шаг плана в режиме учётных записей проходит ``IdentityMiddleware`` на
+  внутреннем вызове от имени того, кто запустил план, и не выше.
 """
 
 from __future__ import annotations
@@ -220,8 +224,11 @@ def test_engine_routes_are_admin_guarded_in_code() -> None:
 # ── старт ───────────────────────────────────────────────────────────────────
 
 
-def test_engine_startup_is_off_by_default() -> None:
-    assert Settings.model_fields["engine_startup"].default is False
+def test_engine_startup_is_on_by_default(monkeypatch) -> None:
+    """Закрытие прерванного и истечение одобрений — защита, а не опция."""
+    monkeypatch.delenv("ENGINE_STARTUP", raising=False)
+    assert Settings.model_fields["engine_startup"].default is True
+    assert Settings(_env_file=None).engine_startup is True
 
 
 async def test_engine_startup_off_touches_nothing(monkeypatch) -> None:
@@ -355,7 +362,7 @@ async def test_studio_starts_with_engine_mounted_and_background_off(monkeypatch)
     """Полный lifespan в режиме владельца: старт и остановка без отказа.
 
     Таблицы движка на месте (ручки рабочие), а фоновая часть движка не
-    запускалась — флаг по умолчанию выключен.
+    запускалась — флаг выключен явно (ENGINE_STARTUP=0).
     """
     import app.db as app_db
     from app.orchestrator.agents import runtime as rt_mod
@@ -377,3 +384,244 @@ async def test_studio_starts_with_engine_mounted_and_background_off(monkeypatch)
     async with app_db.engine.connect() as conn:
         tables = set(await conn.run_sync(lambda c: inspect(c).get_table_names()))
     assert tables >= ENGINE_TABLES, ENGINE_TABLES - tables
+
+
+async def test_studio_starts_with_engine_background_on_by_default(monkeypatch) -> None:
+    """Флаг не трогаем: прерванное закрывается, истечение одобрений запущено и
+    гасится на остановке."""
+    import asyncio
+
+    from app.orchestrator.agents import approval_expiry
+    from app.orchestrator.agents import runtime as rt_mod
+    from app.services import orch_bridge
+
+    monkeypatch.setattr(settings, "studio_session_secret", "")
+    monkeypatch.setattr(settings, "web_host", "127.0.0.1")
+    monkeypatch.setattr(settings, "engine_startup", Settings.model_fields["engine_startup"].default)
+    monkeypatch.delenv("ORCH_RECOVER_ON_START", raising=False)
+    fake = _FakeRuntime()
+    monkeypatch.setattr(rt_mod, "get_runtime", lambda: fake)
+
+    async def _close():
+        return []
+
+    monkeypatch.setattr(orch_bridge, "close_interrupted_plans", _close)
+    loops: list[asyncio.Task] = []
+
+    def _expiry(supervisor):
+        task = asyncio.create_task(asyncio.sleep(3600), name="orch-approval-expiry-test")
+        loops.append(task)
+        return task
+
+    monkeypatch.setattr(approval_expiry, "start_approval_expiry", _expiry)
+
+    sent = await _lifespan(create_app())
+    kinds = [m.get("type") for m in sent]
+    assert "lifespan.startup.complete" in kinds, sent
+    assert fake.supervisor.settled == 1
+    assert len(loops) == 1 and loops[0].cancelled()
+
+
+# ── изоляция арендаторов: таблицы движка учтены ─────────────────────────────
+
+
+def test_engine_tables_are_classified_for_the_rls_startup_check() -> None:
+    """На Postgres `assert_rls_or_die` падает на любой неучтённой таблице.
+
+    Модели движка регистрируются в `Base.metadata` при `create_app` (роутеры)
+    и при импорте модулей движка, поэтому сверка идёт после них, а не на
+    голых моделях новой линии, как в `test_tenant_isolation`.
+    """
+    import importlib
+
+    from app.models import Base
+    from app.services.tenant_tables import (
+        ENGINE_TABLES,
+        INFRA_TABLES,
+        TENANT_TABLES,
+        all_isolated,
+        check_coverage,
+    )
+
+    create_app()
+    for name in (
+        "app.services.actions_recovery",
+        "app.services.actions_v1",
+        "app.services.decision_config",
+        "app.services.decision_state",
+        "app.services.diagnosis",
+        "app.services.kill_switch",
+        "app.services.managed_launch",
+        "app.services.media_jobs",
+        "app.services.observation",
+        "app.services.outsee_idempotency",
+        "app.services.profiles_state",
+        "app.services.spend_guard",
+    ):
+        importlib.import_module(name)
+    assert check_coverage() == []
+
+    stale = sorted(ENGINE_TABLES - set(Base.metadata.tables))
+    assert stale == [], f"в ENGINE_TABLES таблицы, которых нет в моделях: {stale}"
+    assert not ENGINE_TABLES & (set(all_isolated()) | INFRA_TABLES)
+    with_tenant = sorted(t for t in ENGINE_TABLES if "tenant_id" in Base.metadata.tables[t].c)
+    assert with_tenant == [], f"у таблицы движка есть tenant_id, её место в TENANT_TABLES: {with_tenant}"
+    assert not set(TENANT_TABLES) & ENGINE_TABLES
+
+
+async def test_rls_startup_check_passes_coverage_with_engine_mounted(monkeypatch) -> None:
+    """Тот же путь, что в lifespan на Postgres, минус живая база.
+
+    Состояние политик подставлено «всё в порядке»: проверяется ровно то, что
+    раньше роняло старт, — список забытых таблиц после подключения движка.
+    """
+    from app.services import rls_check
+
+    async def _clean(session):
+        return rls_check.RlsReport(dialect="postgresql", role="studio_app")
+
+    monkeypatch.setattr(rls_check, "check_rls", _clean)
+    create_app()
+    await rls_check.assert_rls_or_die(None)
+
+
+# ── внутренние вызовы шагов плана в режиме учётных записей ──────────────────
+
+
+def _whoami_spec(action_id: str):
+    """Шаг, который делает то же, что любой HTTP-шаг: зовёт API студии изнутри."""
+    from app.services.action_layer.spec import ActionSpec
+
+    async def _run(ctx, params):
+        me = await ctx.call("GET", "/me")
+        return {"email": me.get("email"), "role": me.get("role")}
+
+    return ActionSpec(
+        id=action_id, title_ru="Кто я", description_ru="Проверка личности внутреннего вызова",
+        params_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        executor=_run, risk="read")
+
+
+async def _run_plan_as(env, operator_id: str, *, identity):
+    """Создать, одобрить и выполнить план из одного шага `t.whoami`.
+
+    `identity` — личность задачи, в которой план запускается: личность
+    запроса админа или `None` для фоновой задачи без запроса.
+    """
+    import asyncio
+
+    from app.services.action_layer import approval, executor, service
+    from app.services.action_layer.spec import ActionRegistry
+    from app.services.studio_auth import set_identity
+
+    reg = ActionRegistry()
+    reg.register(_whoami_spec("t.whoami"))
+    who = approval.OperatorIdentity(operator_id)
+    plan_id, preview = await service.create_plan(
+        env["app"], [{"action_id": "t.whoami", "params": {}}], operator=who,
+        request_text="кто я", registry=reg)
+    assert plan_id, preview
+    if preview.get("needs_approval"):
+        await service.approve_plan(env["app"], plan_id, who, registry=reg)
+    await service.prepare_run(plan_id, who, registry=reg)
+
+    async def _launch():
+        set_identity(identity)
+        executor.launch(env["app"], plan_id, who.id, registry=reg)
+
+    await asyncio.create_task(_launch())
+    await executor.wait(plan_id)
+    return await service.plan_view(plan_id)
+
+
+def _identity_of(account):
+    from app.services.studio_auth import StudioIdentity
+
+    return StudioIdentity(user_id=account.user_id, email=account.email, role=account.role)
+
+
+async def test_plan_step_calls_the_api_as_the_admin_who_started_it(env) -> None:
+    admin = env["admin"]
+    view = await _run_plan_as(env, f"studio_user:{admin.user_id}", identity=_identity_of(admin))
+    assert view["status"] == "succeeded", view
+    assert view["steps"][0]["result"] == {"email": admin.email, "role": "admin"}
+
+
+async def test_background_plan_step_uses_the_live_admin_operator(env) -> None:
+    """После запроса личности в задаче нет — берётся оператор плана из базы."""
+    admin = env["admin"]
+    view = await _run_plan_as(env, f"studio_user:{admin.user_id}", identity=None)
+    assert view["status"] == "succeeded", view
+    assert view["steps"][0]["result"] == {"email": admin.email, "role": "admin"}
+
+
+OPERATORS_WITHOUT_ADMIN = {
+    "member": None,  # подставляется из фикстуры
+    "nobody": "studio_user:00000000-0000-4000-8000-000000000999",
+    "orchestrator": "orchestrator:task-1",
+}
+
+
+@pytest.mark.parametrize("who", sorted(OPERATORS_WITHOUT_ADMIN))
+async def test_background_plan_step_is_not_elevated(env, who) -> None:
+    """Участник, неизвестный и безличный оператор не получают токен админа."""
+    operator = OPERATORS_WITHOUT_ADMIN[who] or f"studio_user:{env['member'].user_id}"
+    view = await _run_plan_as(env, operator, identity=None)
+    assert view["status"] == "failed", view
+    assert "без личности" in str(view["steps"][0].get("error")), view
+
+
+async def test_disabled_admin_loses_the_internal_call(env) -> None:
+    """Отключение учётки действует и на план, запущенный до отключения."""
+    from sqlalchemy import update
+
+    import app.db as app_db
+    from app.models import StudioUser
+
+    admin = env["admin"]
+    async with app_db.SessionLocal() as s:
+        await s.execute(update(StudioUser).where(StudioUser.id == admin.user_id).values(is_active=False))
+        await s.commit()
+    view = await _run_plan_as(env, f"studio_user:{admin.user_id}", identity=None)
+    assert view["status"] == "failed", view
+
+
+async def test_internal_call_restores_the_task_identity(env) -> None:
+    """Middleware внутреннего вызова не оставляет задаче чужую личность и арендатора."""
+    from app.services.action_layer.context import ActionContext
+    from app.services.studio_auth import current_identity, set_identity
+    from app.services.tenant import current_tenant, set_tenant
+
+    admin = env["admin"]
+    set_identity(None)
+    set_tenant(None)
+    ctx = ActionContext(app=env["app"], operator=f"studio_user:{admin.user_id}", read_only=True)
+    me = await ctx.call("GET", "/me")
+    assert me["email"] == admin.email
+    assert current_identity() is None and current_tenant() is None
+
+
+async def test_plan_run_through_the_router_reaches_the_api_in_accounts_mode(env) -> None:
+    """Сквозной путь: админ создаёт, одобряет и запускает план HTTP-ручками."""
+    from app.services.action_layer import executor
+    from app.services.action_layer.spec import ensure_builtin_actions, registry
+
+    ensure_builtin_actions()
+    registry.register(_whoami_spec("t.whoami_http"))
+    try:
+        c, auth = env["client"], env["admin"].auth
+        res = await c.post("/api/action-layer/plans/preview", headers=auth,
+                           json={"steps": [{"action_id": "t.whoami_http", "params": {}}]})
+        assert res.status_code == 200, res.text
+        plan_id = res.json()["plan_id"]
+        if res.json()["preview"].get("needs_approval"):
+            ok = await c.post(f"/api/action-layer/plans/{plan_id}/approve", headers=auth)
+            assert ok.status_code == 200, ok.text
+        run = await c.post(f"/api/action-layer/plans/{plan_id}/run", headers=auth)
+        assert run.status_code == 200, run.text
+        await executor.wait(plan_id)
+        view = (await c.get(f"/api/action-layer/plans/{plan_id}", headers=auth)).json()
+    finally:
+        registry.unregister("t.whoami_http")
+    assert view["status"] == "succeeded", view
+    assert view["steps"][0]["result"] == {"email": env["admin"].email, "role": "admin"}
