@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Copy,
   Download,
   FileText,
   History,
@@ -190,11 +191,32 @@ export function PromptFilesPanel({
   );
   const selectedIsDefault =
     selectedName === "default" || Boolean(selectedMeta?.is_default);
+  const selectedIsShared = Boolean(selectedMeta?.is_shared);
+
+  const copyPrompt = useMutation({
+    mutationFn: (newName: string) =>
+      api.savePromptFile(stepCode, newName, draft),
+    onSuccess: (_, newName) => {
+      toast.success(`Личная копия ${newName}.md создана и сохранена!`);
+      setSelectedName(newName);
+      userPickedRef.current = true;
+      setDirty(false);
+      qc.invalidateQueries({ queryKey: ["prompt-files", cacheKey] });
+      qc.invalidateQueries({ queryKey: ["prompt-file-history", cacheKey] });
+      qc.invalidateQueries({ queryKey: ["prompt-global-active"] });
+      qc.invalidateQueries({ queryKey: ["prompt-variants", stepCode] });
+    },
+    onError: toastError,
+  });
 
   const save = useMutation({
     mutationFn: () => api.savePromptFile(stepCode, selectedName!, draft),
     onSuccess: () => {
-      toast.success(`Сохранено: ${selectedName}.md (старая версия в истории)`);
+      if (selectedIsShared) {
+        toast.success(`Сохранено как личный промпт (оригинальный общий шаблон не затронут)`);
+      } else {
+        toast.success(`Сохранено: ${selectedName}.md (старая версия в истории)`);
+      }
       setDirty(false);
       setPreviewVersion(null);
       qc.invalidateQueries({ queryKey: ["prompt-files", cacheKey] });
@@ -432,6 +454,15 @@ export function PromptFilesPanel({
                         def
                       </span>
                     )}
+                    {f.is_shared ? (
+                      <span className="ml-1 rounded bg-blue-500/20 px-1 py-px text-[8px] font-medium uppercase text-blue-300" title="Общий системный шаблон (только чтение)">
+                        общий
+                      </span>
+                    ) : (
+                      <span className="ml-1 rounded bg-purple-500/20 px-1 py-px text-[8px] font-medium uppercase text-purple-300" title="Личный промпт вашего аккаунта">
+                        личный
+                      </span>
+                    )}
                     {activeVariant === f.name && (
                       <span className="ml-1 rounded bg-emerald-500/20 px-1 py-px text-[8px] uppercase text-emerald-300">
                         ✓
@@ -484,14 +515,16 @@ export function PromptFilesPanel({
               size="sm"
               variant="outline"
               className="h-7 gap-1 px-2 text-[10px]"
-              disabled={!selectedName || selectedIsDefault || renamePrompt.isPending}
+              disabled={!selectedName || selectedIsDefault || selectedIsShared || renamePrompt.isPending}
               title={
-                selectedIsDefault
-                  ? "default переименовывать нельзя"
-                  : "Переименовать файл промта"
+                selectedIsShared
+                  ? "Общие промпты нельзя переименовывать (создайте личную копию через кнопку «Копия»)"
+                  : selectedIsDefault
+                    ? "default переименовывать нельзя"
+                    : "Переименовать файл промта"
               }
               onClick={() => {
-                if (!selectedName || selectedIsDefault) return;
+                if (!selectedName || selectedIsDefault || selectedIsShared) return;
                 const next = window.prompt("Новое имя промта (без .md):", selectedName);
                 if (next == null) return;
                 const name = next.trim().replace(/\.md$/i, "");
@@ -505,6 +538,31 @@ export function PromptFilesPanel({
                 <Pencil className="h-3 w-3" />
               )}
               Имя
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 px-2 text-[10px]"
+              disabled={!selectedName || copyPrompt.isPending}
+              title="Создать личную копию этого промпта для редактирования"
+              onClick={() => {
+                if (!selectedName) return;
+                const defaultCopyName = selectedName.endsWith("_custom")
+                  ? `${selectedName}_v2`
+                  : `${selectedName}_custom`;
+                const next = window.prompt("Имя личной копии (без .md):", defaultCopyName);
+                if (next == null) return;
+                const name = next.trim().replace(/\.md$/i, "");
+                if (!name) return;
+                copyPrompt.mutate(name);
+              }}
+            >
+              {copyPrompt.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
+              Копия
             </Button>
             <PromptActionButton
               label="Скачать"
@@ -553,17 +611,23 @@ export function PromptFilesPanel({
               className="h-7 gap-1 px-2 text-[10px] text-destructive hover:text-destructive"
               onClick={() => {
                 if (!selectedName) return;
-                if (selectedIsDefault) {
-                  toast.error("default удалять нельзя");
+                if (selectedIsDefault || selectedIsShared) {
+                  toast.error("Общие системные промпты удалять нельзя");
                   return;
                 }
-                if (!confirm(`Удалить ${selectedName}.md?`)) return;
+                if (!confirm(`Удалить личный промпт ${selectedName}.md?`)) return;
                 remove.mutate(selectedName);
               }}
               disabled={
-                !selectedName || selectedIsDefault || remove.isPending
+                !selectedName || selectedIsDefault || selectedIsShared || remove.isPending
               }
-              title={selectedIsDefault ? "default удалять нельзя" : "Удалить файл"}
+              title={
+                selectedIsShared
+                  ? "Общие системные промпты нельзя удалять"
+                  : selectedIsDefault
+                    ? "default удалять нельзя"
+                    : "Удалить файл"
+              }
             >
               <Trash2 className="h-3 w-3" />
               Удалить

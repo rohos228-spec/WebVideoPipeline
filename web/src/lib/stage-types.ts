@@ -184,6 +184,7 @@ export interface PromptFileInfo {
   size: number;
   modified: number | null;
   is_default: boolean;
+  is_shared?: boolean;
 }
 
 export interface PromptFileContent {
