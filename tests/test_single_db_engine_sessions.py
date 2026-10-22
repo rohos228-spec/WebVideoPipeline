@@ -136,12 +136,25 @@ async def test_snapshot_reads_single_sqlite_file():
     assert len(got["frames"]) == 2
 
 
-def test_snapshot_unavailable_in_postgres_mode(monkeypatch):
+def test_snapshot_on_postgres_reads_the_app_database(monkeypatch):
+    """На Postgres файла нет: снимок читается соединением базы приложения
+    (studio_read(None) ставит арендатора на каждую транзакцию), а не по пути."""
+    from contextlib import contextmanager
+
     from app.orchestrator.validators import snapshot
 
     monkeypatch.setattr(type(settings), "is_postgres", property(lambda self: True))
+    asked: list[object] = []
+
+    @contextmanager
+    def no_database(path):
+        asked.append(path)
+        yield None
+
+    monkeypatch.setattr(snapshot, "studio_read", no_database)
     assert snapshot._resolve_path(1, None) is None
     assert snapshot.load_project_snapshot(1) == {"scenes": [], "frames": [], "available": False}
+    assert asked == [None]
 
 
 async def test_studio_allows_leaves_project_untouched():
