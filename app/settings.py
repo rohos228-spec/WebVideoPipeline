@@ -408,6 +408,15 @@ class Settings(BaseSettings):
     # Пусто = main. На каждом ПК своё значение в локальном .env.
     orchestrator_git_branch: str = Field("main", alias="ORCHESTRATOR_GIT_BRANCH")
 
+    # Фоновая часть движка оркестратора на старте студии: закрыть задачи и
+    # планы действий, прерванные рестартом (или поднять их по
+    # ORCH_RECOVER_ON_START), и запустить истечение просроченных одобрений.
+    # Выключено по умолчанию, как было в новой линии до переноса движка:
+    # хранилище задач движка — отдельный файл SQLite по SQLITE_PATH, и на
+    # установке с Postgres заводить его на старте незачем. Ручки движка
+    # подключены в любом случае (только админ), их таблицы создаются всегда.
+    engine_startup: bool = Field(False, alias="ENGINE_STARTUP")
+
     # Fleet — сеть рабочих станций (hub = этот ПК, agent = удалённый)
     fleet_enabled: bool = Field(True, alias="FLEET_ENABLED")
     fleet_role: str = Field("hub", alias="FLEET_ROLE")

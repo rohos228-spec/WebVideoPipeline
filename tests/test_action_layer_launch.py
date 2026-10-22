@@ -15,12 +15,13 @@ from tests.action_layer_support import env, fresh_registry, make_spec
 
 BASE = "/api/action-layer"
 
-# Перенесено из video-pipeline int/chat-v1. HTTP-часть ждёт роутер
-# /api/action-layer и ручки старой линии (/api/runtime-streams, пакетное
-# создание проектов), которые в app.web.api ещё не подключены — шаг
-# «роутеры» вертикального среза. Тесты без HTTP проходят (XPASS).
-pytestmark = pytest.mark.xfail(
-    reason="роутер /api/action-layer и ручки старой линии не подключены в app.web.api", strict=False
+# Перенесено из video-pipeline int/chat-v1. Роутер /api/action-layer подключён
+# в app.web.api; четыре теста ниже ждут поведения старой линии, которого в
+# новой нет (лимиты /api/runtime-streams, предупреждение о занятом проекте,
+# таймауты долгого шага), и помечены по отдельности.
+_OLD_LINE = pytest.mark.xfail(
+    reason="поведение старой линии ещё не перенесено (runtime-streams, предупреждения, таймауты)",
+    strict=False,
 )
 OP = approval.OperatorIdentity("web_operator:launch")
 PROJ_SCHEMA = {"type": "object", "properties": {"project_id": {"type": "integer", "minimum": 1}},
@@ -196,6 +197,7 @@ async def test_early_step_preview_warns_about_ready_nodes_and_user_stop(env, not
     assert any("сбрасываются" in d["text"] for d in pv["destructive_effects"])
 
 
+@_OLD_LINE
 async def test_busy_and_auto_mode_need_explicit_flags_and_are_warned(env, not_managed, stub,
                                                                      steps_open) -> None:
     pid = await env.add_project(frames=1)
@@ -345,6 +347,7 @@ async def test_set_parallel_goes_through_runtime_streams(env) -> None:
     assert too_many.status_code in (400, 422)
 
 
+@_OLD_LINE
 async def test_set_parallel_accepts_ten_projects(env) -> None:
     spec = registry.get("queue.set_parallel")
     assert spec.params_schema["properties"]["workers"]["maximum"] == 10
@@ -363,6 +366,7 @@ async def test_set_parallel_accepts_ten_projects(env) -> None:
     assert got["limits"]["default_outsee_streams"] == [0, 4]
 
 
+@_OLD_LINE
 async def test_runtime_streams_route_caps_projects_at_ten_and_outsee_at_four(env) -> None:
     ok = await env.client.patch("/api/runtime-streams", json={"worker_max_parallel": 10})
     assert ok.status_code == 200 and ok.json()["worker_max_parallel"] == 10
@@ -409,6 +413,7 @@ async def test_progress_watch_resets_on_any_change(monkeypatch) -> None:
     assert not watch.stalled()
 
 
+@_OLD_LINE
 async def test_long_job_with_progress_is_not_cut(env, monkeypatch) -> None:
     from app.settings import settings
     monkeypatch.setattr(settings, "action_layer_no_progress_timeout_s", 0.4)
