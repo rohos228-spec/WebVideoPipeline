@@ -182,41 +182,6 @@ jobs:
           echo "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      - name: ДИАГНОСТИКА сети (временно)
-        # ВРЕМЕННО: сайт не открывается снаружи (белый экран), при этом с самого
-        # хоста отвечает 200. Снимаем картину с двух точек: раннер (интернет) и
-        # сервер (его собственные MTU/маршруты/файрвол). Убрать после разбора.
-        env:
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          URL: ${{ vars.STUDIO_URL || 'https://v2.studio.zukiemi.space' }}
-        run: |
-          echo "=== 1. снаружи, с раннера ==="
-          curl -sS -o /dev/null -m 20 -w "v2: код=%{http_code} dns=%{time_namelookup} connect=%{time_connect} tls=%{time_appconnect} total=%{time_total}\n" "$URL/api/health" || echo "снаружи не достучались"
-          curl -sS -o /dev/null -m 20 -w "prod: код=%{http_code} connect=%{time_connect} tls=%{time_appconnect}\n" "https://studio.zukiemi.space/api/health" || echo "прод снаружи тоже не отвечает"
-          echo "=== 2. с сервера ==="
-          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- '
-            echo "--- интерфейсы (MTU) ---"
-            ip -br addr | head -5
-            ip link show | grep -oE "^[0-9]+: [a-z0-9]+.*mtu [0-9]+" | head -6
-            echo "--- путь до интернета с разными размерами пакета ---"
-            for s in 1472 1400 1200; do
-              ping -M do -s $s -c 2 -W 3 -q 8.8.8.8 >/dev/null 2>&1 && echo "  $s байт: идёт" || echo "  $s байт: НЕ идёт";
-            done
-            echo "--- conntrack ---"
-            echo "  занято=$(cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null) max=$(cat /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null)"
-            echo "--- слушатели 443 ---"
-            ss -lntp | grep ":443" | head -4
-            echo "--- TLS локально по 127.0.0.1 ---"
-            timeout 8 openssl s_client -connect 127.0.0.1:443 -servername v2.studio.zukiemi.space </dev/null 2>&1 | grep -E "CONNECTED|subject=" | head -2
-            echo "--- исходящий интернет с хоста ---"
-            curl -s -o /dev/null -m 8 -w "  api.ipify.org=%{http_code}\n" https://api.ipify.org || echo "  наружу тоже не ходит"
-            echo "--- dmesg про сеть ---"
-            dmesg -T 2>/dev/null | grep -iE "conntrack|nf_|mtu|link is|dropped" | tail -5
-            echo "--- fail2ban: кого забанил ---"
-            fail2ban-client status sshd 2>/dev/null | tail -3
-          '
-
       - name: Pull и рестарт
         env:
           VPS_PATH: ${{ vars.VPS_PATH || '/opt/studio' }}
