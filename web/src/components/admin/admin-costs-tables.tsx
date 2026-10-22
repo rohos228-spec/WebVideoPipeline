@@ -22,7 +22,7 @@ import {
   tdCls,
   thCls,
 } from "./admin-kit";
-import { fmtCredits, fmtPrice, fmtUnits, fmtUsdCost, kindLabel } from "./admin-costs-format";
+import { fmtCredits, fmtPrice, fmtUnits, fmtUsdCost, fmtUsdRow, kindLabel } from "./admin-costs-format";
 
 type SortDir = "asc" | "desc";
 type SortState<K extends string> = { key: K; dir: SortDir };
@@ -175,14 +175,14 @@ export function ModelsCard({
                     <span className="whitespace-nowrap">{fmtUnits(m.units, m.unit)}</span>
                   </td>
                   <td className={tdCls}>
-                    <span className="whitespace-nowrap font-mono text-[13px]">{fmtUsdCost(m.actual_usd)}</span>
+                    <span className="whitespace-nowrap font-mono text-[13px]">{fmtUsdRow(m.actual_usd, m.calls, m.unpriced_calls)}</span>
                   </td>
                   <td className={tdCls}>
                     <span className="whitespace-nowrap">{fmtCredits(m.credits_charged)}</span>
                   </td>
                   <td className={tdCls}>
                     <span className="whitespace-nowrap font-mono text-[13px] text-zinc-400">
-                      {fmtUsdCost(m.avg_usd)}
+                      {fmtUsdRow(m.avg_usd, m.calls, m.unpriced_calls)}
                     </span>
                   </td>
                   <td className={tdCls}>
@@ -276,7 +276,7 @@ export function ProjectsCard({
                     )}
                   </td>
                   <td className={tdCls}>
-                    <span className="whitespace-nowrap font-mono text-[13px]">{fmtUsdCost(p.actual_usd)}</span>
+                    <span className="whitespace-nowrap font-mono text-[13px]">{fmtUsdRow(p.actual_usd, p.calls, p.unpriced_calls)}</span>
                   </td>
                   <td className={tdCls}>
                     <span className="whitespace-nowrap">{fmtCredits(p.credits_charged)}</span>

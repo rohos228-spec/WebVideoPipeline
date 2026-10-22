@@ -13,6 +13,17 @@ export const fmtUsdCost = (n?: number | null): string => {
   return `$${v.toLocaleString("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 };
 
+/**
+ * Себестоимость строки отчёта. Если ВСЕ вызовы строки без цены — прочерк:
+ * `$0,00` здесь читается как «бесплатно», а это ложь (цена неизвестна).
+ */
+export const fmtUsdRow = (usd?: number | null, calls?: number | null, unpriced?: number | null): string => {
+  const total = calls ?? 0;
+  const unknown = unpriced ?? 0;
+  if (total > 0 && unknown >= total && !usd) return "—";
+  return fmtUsdCost(usd);
+};
+
 /** Цена из прайса: null — «нет цены», а не ноль. */
 export const fmtPrice = (n?: number | null): string => (n === null || n === undefined ? "—" : fmtUsdCost(n));
 
