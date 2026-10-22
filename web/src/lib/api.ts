@@ -33,6 +33,7 @@ import type {
 } from "./types";
 import type { BlockSelection } from "./prompt-styles";
 import type { ShotMenuDTO } from "./shot-menu";
+import { readOrchToken } from "./orchestratorApi";
 
 export interface StepTemplateBlock {
   number: number;
@@ -139,7 +140,7 @@ export interface BlockActivityEntry {
   created_at: string;
 }
 
-// в”Ђв”Ђ Style agent DTO в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// ── Style agent DTO ─────────────────────────────────────────────────
 export interface StyleAgentSettings {
   max_llm_calls: number;
   min_support: number;
@@ -353,7 +354,21 @@ export interface LibraryConfigDTO {
   created_at: string;
 }
 
-export async function http<T>(
+/**
+ * Bearer для легаси-ручек оркестратора (`/api/db/projects/{id}/orchestrator/**`).
+ *
+ * A2 включает `orchestrator_chat_auth_required` (С3) на легаси-ручках: chat,
+ * feedback, confirm-remove, confirm-delete-projects, apply-ops, confirm-plan
+ * (`9771e75d5` + ручка плана). Токен тот же, что у нового чата — `ORCH_API_TOKEN`
+ * бэкенда, хранится в localStorage под ключом `vp-orch-api-token` (`readOrchToken`).
+ * Токена нет → заголовок не отправляем, бэкенд с выключенным флагом не против.
+ */
+export function orchAuthHeaders(): Record<string, string> {
+  const token = readOrchToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function http<T>(
   path: string,
   options: RequestInit = {},
   timeoutMs = 30_000,
@@ -368,7 +383,7 @@ export async function http<T>(
   }
   try {
     // FormData: не ставить Content-Type вручную — браузер сам добавит
-    // multipart boundary. РРЅР°С‡Рµ FastAPI РЅРµ РІРёРґРёС‚ UploadFile.
+    // multipart boundary. Иначе FastAPI не видит UploadFile.
     const isFormData =
       typeof FormData !== "undefined" && options.body instanceof FormData;
     const { signal: _ignoredSignal, ...rest } = options;
@@ -453,7 +468,7 @@ export interface MontagePendingOp {
   slot?: "parent";
   prompt?: string;
   correction?: string;
-  /** Р—Р°РјРµС‚РєР° РѕРїРµСЂР°С‚РѕСЂР° РґР»СЏ РРР·РјРµРЅРµРЅРёСЏ вЂ” Р°РіРµРЅС‚ img_pr РїРёС€РµС‚ РїРѕ РЅРµР№ РЅРѕРІС‹Р№ РїСЂРѕРјС‚. */
+  /** Заметка оператора для ИИзменения — агент img_pr пишет по ней новый промт. */
   instruction?: string;
   plan?: string;
   action?: string;
@@ -861,7 +876,9 @@ export const api = {
   dbAddText: (frameId: number, kind: string, text: string) =>
     http<{ id: number }>(`/api/db/frames/${frameId}/texts`, { method: "POST", body: JSON.stringify({ kind, text }) }),
   dbDeleteText: (textId: number) =>
-    http<{ ok: boolean }>(`/api/db/texts/${textId}`, { method: "DELETE" }),
+    http<{ ok: boolean }>(`/api/db/texts/${textId}?confirm=true`, { method: "DELETE" }),
+  dbRestoreText: (textId: number) =>
+    http<{ ok: boolean }>(`/api/db/texts/${textId}/restore`, { method: "POST" }),
   dbAddPrompt: (frameId: number, kind: string, text: string, setActive = true) =>
     http<{ id: number; version: number }>(`/api/db/frames/${frameId}/prompts`, {
       method: "POST",
@@ -874,11 +891,15 @@ export const api = {
   dbPatchEntity: (entityId: number, body: { type: string; code?: string | null; name?: string | null; attrs?: Record<string, unknown> }) =>
     http<{ ok: boolean }>(`/api/db/entities/${entityId}`, { method: "PATCH", body: JSON.stringify(body) }),
   dbDeleteEntity: (entityId: number) =>
-    http<{ ok: boolean }>(`/api/db/entities/${entityId}`, { method: "DELETE" }),
+    http<{ ok: boolean }>(`/api/db/entities/${entityId}?confirm=true`, { method: "DELETE" }),
+  dbRestoreEntity: (entityId: number) =>
+    http<{ ok: boolean }>(`/api/db/entities/${entityId}/restore`, { method: "POST" }),
   dbAddEdge: (frameId: number, toFrameId: number, type = "next") =>
     http<{ id: number }>(`/api/db/frames/${frameId}/edges`, { method: "POST", body: JSON.stringify({ to_frame_id: toFrameId, type }) }),
   dbDeleteEdge: (edgeId: number) =>
-    http<{ ok: boolean }>(`/api/db/edges/${edgeId}`, { method: "DELETE" }),
+    http<{ ok: boolean }>(`/api/db/edges/${edgeId}?confirm=true`, { method: "DELETE" }),
+  dbRestoreEdge: (edgeId: number) =>
+    http<{ ok: boolean }>(`/api/db/edges/${edgeId}/restore`, { method: "POST" }),
   dbAddScene: (projectId: number, body: { title?: string; after_scene_id?: number | null }) =>
     http<{ id: number; sort_key: number }>(`/api/db/projects/${projectId}/scenes`, { method: "POST", body: JSON.stringify(body) }),
   dbExportXlsx: (projectId: number) =>
@@ -909,7 +930,7 @@ export const api = {
   ) =>
     http<{ ok: boolean; updated: number; exported: { frames: number; cells: number } | null }>(
       `/api/db/projects/${projectId}/apply-ops`,
-      { method: "POST", body: JSON.stringify({ ops, export_xlsx: exportXlsx }) },
+      { method: "POST", headers: orchAuthHeaders(), body: JSON.stringify({ ops, export_xlsx: exportXlsx }) },
     ),
   dbOrchestratorChat: (
     projectId: number,
@@ -921,6 +942,10 @@ export const api = {
       reply: string;
       applied: { updated: number; exported: { frames: number; cells: number } | null } | null;
       actions_run: {
+        project_id?: number;
+        inspect_project?: unknown;
+        project_graph?: unknown;
+        error?: string;
         run_step?: string;
         status?: string;
         stop_step?: boolean;
@@ -941,10 +966,12 @@ export const api = {
         repair_graph?: string;
         hitl_decision?: string;
         set_topic?: string;
+        create_group?: string;
       }[];
-      ui_actions: { kind: string; step?: string; node_type?: string; node_key?: string; hitl_id?: number; project_id?: number }[];
+      ui_actions: { kind: string; step?: string; node_type?: string; node_key?: string; hitl_id?: number; project_id?: number; group_id?: string; node_keys?: string[]; title?: string }[];
       pending_confirm: {
         kind: string;
+        project_id?: number;
         node_key?: string | null;
         node_type?: string | null;
         only?: string | null;
@@ -952,12 +979,23 @@ export const api = {
         nodes: string[];
         message?: string;
         files?: string[];
+        /** kind="action_plan" (поток b, A2): план действий из слоя, ждёт кнопки «Запустить». */
+        plan_id?: string | number | null;
+        needs_approval?: boolean;
+        cost_low?: number | null;
+        cost_high?: number | null;
+        cost_unknown_steps?: number;
+        risk?: string | null;
+        steps?: { action_id: string }[];
+        /** A2: title_ru шагов, порядок совпадает со steps. */
+        step_titles?: string[];
       }[];
       error: string | null;
     }>(
       `/api/db/projects/${projectId}/orchestrator/chat`,
       {
         method: "POST",
+        headers: orchAuthHeaders(),
         body: JSON.stringify({
           message,
           history,
@@ -971,12 +1009,13 @@ export const api = {
   dbOrchestratorConfirmRemove: (projectId: number, body: { node_key?: string | null; node_type?: string | null; only?: string | null }) =>
     http<{ remove_node: string }>(`/api/db/projects/${projectId}/orchestrator/confirm-remove`, {
       method: "POST",
+      headers: orchAuthHeaders(),
       body: JSON.stringify(body),
     }),
   dbOrchestratorConfirmDeleteProjects: (projectId: number, body: { ids: number[] }) =>
     http<{ delete_projects: string; ids: number[] }>(
       `/api/db/projects/${projectId}/orchestrator/confirm-delete-projects`,
-      { method: "POST", body: JSON.stringify(body) },
+      { method: "POST", headers: orchAuthHeaders(), body: JSON.stringify(body) },
       120_000,
     ),
   dbOrchestratorConfirmGitPush: (
@@ -985,7 +1024,21 @@ export const api = {
   ) =>
     http<{ git_commit_push: string; sha: string; branch?: string; files: string[] }>(
       `/api/db/projects/${projectId}/orchestrator/confirm-git-push`,
-      { method: "POST", body: JSON.stringify(body) },
+      { method: "POST", headers: orchAuthHeaders(), body: JSON.stringify(body) },
+      180_000,
+    ),
+  /**
+   * Поток (b) A2: подтверждение плана слоя действий.
+   * 409 — план уже подтверждён (идемпотентность), 404 — неизвестный plan_id.
+   */
+  /** A2: plan_id плана слоя приходит строкой; approve=false — план не подтверждён. */
+  dbOrchestratorConfirmPlan: (
+    projectId: number,
+    body: { plan_id: string; approve?: boolean },
+  ) =>
+    http<{ ok: boolean; plan_id: string; status?: string; detail?: string }>(
+      `/api/db/projects/${projectId}/orchestrator/confirm-plan`,
+      { method: "POST", headers: orchAuthHeaders(), body: JSON.stringify(body) },
       180_000,
     ),
   runHarnessVerify: (projectId: number) =>
@@ -995,7 +1048,7 @@ export const api = {
       120_000,
     ),
 
-  // в”Ђв”Ђ Workflows в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Workflows ────────────────────────────────────────────────────
   listWorkflows: () => http<WorkflowSummary[]>(`/api/workflows`),
   getWorkflow: (id: number) => http<WorkflowDetail>(`/api/workflows/${id}`),
   saveWorkflow: (id: number, body: { name?: string; description?: string; nodes: WorkflowNode[]; edges: WorkflowEdge[] }) =>
@@ -1063,11 +1116,9 @@ export const api = {
       method: "DELETE",
     }),
 
-  // в”Ђв”Ђ Projects в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Projects ─────────────────────────────────────────────────────
   listProjects: () => http<ProjectSummary[]>(`/api/projects`),
   getProject: (id: number) => http<ProjectDetail>(`/api/projects/${id}`),
-  syncProject: (id: number) =>
-    http<ProjectDetail>(`/api/projects/${id}/sync`, { method: "POST" }),
   getProjectRun: (projectId: number) =>
     http<WorkflowRunDetail>(`/api/projects/${projectId}/run`),
   createProject: (body: {
@@ -1110,12 +1161,20 @@ export const api = {
       },
       420_000,
     ),
+  matrixPlanNii67: (id: number, card: Nii67Card) =>
+    http<{ card: Nii67Card; frames: Nii67Frame[]; preview?: boolean; issues?: string[] }>(
+      `/api/projects/${id}/nii67/matrix-plan`,
+      {
+        method: "POST",
+        body: JSON.stringify({ card }),
+      },
+    ),
   putNii67Frames: (id: number, frames: Nii67Frame[]) =>
     http<{ frames: Nii67Frame[] }>(`/api/projects/${id}/nii67/frames`, {
       method: "PUT",
       body: JSON.stringify({ frames }),
     }),
-  uploadNii67: (id: number, slot: "intro_video" | "portal_image" | "portal_video", file: File) => {
+  uploadNii67: (id: number, slot: string, file: File) => {
     const form = new FormData();
     form.append("file", file);
     return http<{ slot: string; name: string; path: string; size: number }>(
@@ -1123,6 +1182,8 @@ export const api = {
       { method: "POST", body: form },
     );
   },
+  nii67AssetUrl: (id: number, name: string) =>
+    `/api/projects/${id}/nii67/asset/${encodeURIComponent(name)}`,
   resetNii67: (id: number) =>
     http<{ card: Nii67Card }>(`/api/projects/${id}/nii67/reset`, { method: "POST" }),
   deleteProject: (id: number) =>
@@ -1134,7 +1195,7 @@ export const api = {
       120_000,
     ),
 
-  // в”Ђв”Ђ Sidebar layout в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Sidebar layout ───────────────────────────────────────────────
   getSidebarLayout: () => http<SidebarLayout>(`/api/sidebar-layout`),
   getRuntimeStreams: () =>
     http<{
@@ -1501,7 +1562,7 @@ export const api = {
   styleSheetUrl: (projectId: number, video: string, name: string) =>
     `/api/projects/${projectId}/style-agent/sheet?video=${encodeURIComponent(video)}&name=${encodeURIComponent(name)}`,
 
-  // в”Ђв”Ђ Frames в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Frames ───────────────────────────────────────────────────────
   listFrames: (projectId: number) =>
     http<FrameDTO[]>(`/api/projects/${projectId}/frames`),
   patchFrame: (projectId: number, frameId: number, body: Partial<FrameDTO>) =>
@@ -1531,7 +1592,6 @@ export const api = {
       ok: boolean;
       parent_id: number;
       parent_number: number;
-      parent_ordinal?: number | null;
       merged_frames: number;
       vo_scene_size: number;
     }>(`/api/projects/${projectId}/montage-board/scenes/merge`, {
@@ -1552,14 +1612,10 @@ export const api = {
       ok: boolean;
       scenes?: number;
       parent_number?: number;
-      parent_ordinal?: number | null;
       left_number?: number;
       right_number?: number;
-      left_ordinal?: number | null;
-      right_ordinal?: number | null;
       left_size?: number;
       right_size?: number;
-      undo_id?: string | null;
     }>(`/api/projects/${projectId}/montage-board/scenes/split`, {
       method: "POST",
       body: JSON.stringify({
@@ -1567,18 +1623,6 @@ export const api = {
         all: explode,
         ...(frameIds?.length ? { frame_ids: frameIds } : {}),
       }),
-    }),
-
-  undoSplitMontageScene: (projectId: number, undoId?: string | null) =>
-    http<{
-      ok: boolean;
-      undo_id: string;
-      restored_frames: number;
-      paid_media_kept: { images: number; videos: number; total: number };
-      can_undo_more: boolean;
-    }>(`/api/projects/${projectId}/montage-board/scenes/split-undo`, {
-      method: "POST",
-      body: JSON.stringify(undoId ? { undo_id: undoId } : {}),
     }),
 
   insertMontageFrame: (
@@ -1717,9 +1761,15 @@ export const api = {
 
   /** Только ручное удаление после confirm. Автоматика этот метод не вызывает. */
   deleteMontageFrame: (projectId: number, frameId: number) =>
-    http<{ ok: boolean; frame_id: number; number: number; deleted: number }>(
+    http<{ ok: boolean; frame_id: number; number: number; deleted: number; marked?: number }>(
       `/api/projects/${projectId}/montage-board/frames/${frameId}`,
       { method: "DELETE" },
+    ),
+
+  restoreMontageFrame: (projectId: number, frameId: number) =>
+    http<{ ok: boolean; frame_id: number; number: number; restored: number }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/restore`,
+      { method: "POST" },
     ),
 
   applyMontageCoverage: (projectId: number, body: MontagePendingOp) =>
@@ -2077,7 +2127,7 @@ export const api = {
     return res.json() as Promise<{ ok: boolean; path: string }>;
   },
 
-  // в”Ђв”Ђ Runs в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Runs ─────────────────────────────────────────────────────────
   listRuns: () => http<WorkflowRunDetail[]>(`/api/runs`),
   getRun: (id: number) => http<WorkflowRunDetail>(`/api/runs/${id}`),
   startRunFromWorkflow: (workflowId: number, body: { project_id?: number; topic?: string; hero_mode?: string }) =>
@@ -2088,7 +2138,7 @@ export const api = {
   cancelRun: (id: number) =>
     http<WorkflowRunDetail>(`/api/runs/${id}/cancel`, { method: "POST" }),
 
-  // в”Ђв”Ђ HITL в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── HITL ─────────────────────────────────────────────────────────
   listPendingHitl: () => http<HITLDTO[]>(`/api/hitl/pending`),
   listProjectHitl: (projectId: number) =>
     http<HITLDTO[]>(`/api/hitl/project/${projectId}`),
@@ -2101,7 +2151,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  // в”Ђв”Ђ Prompts в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Prompts ──────────────────────────────────────────────────────
   listPrompts: () => http<PromptDTO[]>(`/api/prompts`),
   patchPrompt: (id: number, body: { text?: string; active?: boolean }) =>
     http<PromptDTO>(`/api/prompts/${id}`, {
@@ -2109,7 +2159,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  // в”Ђв”Ђ Artifacts в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Artifacts ────────────────────────────────────────────────────
   listArtifacts: (params: { project_id?: number; frame_id?: number; kind?: string }) => {
     const q = new URLSearchParams();
     if (params.project_id != null) q.set("project_id", String(params.project_id));
@@ -2119,7 +2169,7 @@ export const api = {
   },
   artifactFileUrl: (uuid: string) => `/api/artifacts/${uuid}/file`,
 
-  // в”Ђв”Ђ Prompt studio (blocks v2) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Prompt studio (blocks v2) ────────────────────────────────────
   promptStudioCatalog: () =>
     http<{
       block_categories: Record<string, string[]>;
@@ -2790,19 +2840,49 @@ export const api = {
   // ── Prompt files (prompts/<step>/*.md на диске) ────────────────────
   getGlobalActivePrompts: () =>
     http<Record<string, string>>("/api/prompt-files/global-active"),
-  listPromptFiles: (stepCode: string) =>
-    http<PromptFileInfo[]>(`/api/prompt-files/${stepCode}`),
-  getPromptFile: (stepCode: string, name: string) =>
-    http<PromptFileContent>(
-      `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}/content`,
-    ),
+  listPromptFiles: (
+    stepCode: string,
+    opts?: { groupId?: string; nodeKey?: string },
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts?.groupId) qs.set("group_id", opts.groupId);
+    if (opts?.nodeKey) qs.set("node_key", opts.nodeKey);
+    const q = qs.toString();
+    return http<PromptFileInfo[]>(
+      `/api/prompt-files/${stepCode}${q ? `?${q}` : ""}`,
+    );
+  },
+  getPromptFile: (
+    stepCode: string,
+    name: string,
+    opts?: { groupId?: string; projectId?: number; nodeKey?: string },
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts?.groupId) qs.set("group_id", opts.groupId);
+    if (opts?.projectId) qs.set("project_id", String(opts.projectId));
+    if (opts?.nodeKey) qs.set("node_key", opts.nodeKey);
+    const q = qs.toString();
+    return http<PromptFileContent>(
+      `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}/content${q ? `?${q}` : ""}`,
+    );
+  },
   downloadPromptFileUrl: (stepCode: string, name: string) =>
     `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}/download`,
-  savePromptFile: (stepCode: string, name: string, content: string) =>
-    http<PromptFileContent>(
-      `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}`,
+  savePromptFile: (
+    stepCode: string,
+    name: string,
+    content: string,
+    opts?: { groupId?: string; nodeKey?: string },
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts?.groupId) qs.set("group_id", opts.groupId);
+    if (opts?.nodeKey) qs.set("node_key", opts.nodeKey);
+    const q = qs.toString();
+    return http<PromptFileContent>(
+      `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}${q ? `?${q}` : ""}`,
       { method: "PUT", body: JSON.stringify({ content }) },
-    ),
+    );
+  },
   deletePromptFile: (stepCode: string, name: string) =>
     http<{ removed: boolean }>(
       `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}`,
@@ -2852,7 +2932,7 @@ export const api = {
       { method: "POST" },
     ),
 
-  // в”Ђв”Ђ Local library (data/library + SQLite versions) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Local library (data/library + SQLite versions) ────────────────
   listLibraryItems: (params?: { kind?: string; q?: string }) => {
     const q = new URLSearchParams();
     if (params?.kind) q.set("kind", params.kind);

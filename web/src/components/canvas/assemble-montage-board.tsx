@@ -1094,12 +1094,21 @@ function VoiceoverCell({
       </div>
       <button
         type="button"
-        className="shrink-0 rounded-md p-1 text-white/30 opacity-0 hover:bg-rose-500/15 hover:text-rose-200 group-hover/vo:opacity-100"
-        title="Скрыть кадр"
+        className={cn(
+          "shrink-0 rounded-md p-1 opacity-0 group-hover/vo:opacity-100",
+          frame.удалён
+            ? "text-amber-200 hover:bg-amber-500/15"
+            : "text-white/30 hover:bg-rose-500/15 hover:text-rose-200",
+        )}
+        title={frame.удалён ? "Вернуть кадр в ленту" : "Пометить кадр"}
         disabled={busy}
         onClick={onDelete}
       >
-        <Trash2 className="h-3.5 w-3.5" />
+        {frame.удалён ? (
+          <span className="px-0.5 text-[10px] font-semibold">вернуть</span>
+        ) : (
+          <Trash2 className="h-3.5 w-3.5" />
+        )}
       </button>
     </div>
   );
@@ -3158,10 +3167,24 @@ export function AssembleMontageBoard({
     toast.success("Закадр сохранён");
   };
 
+  const handleRestoreFrame = async (fr: MontageBoardFrame) => {
+    if (!projectId) return;
+    setFrameEditBusy(true);
+    try {
+      await api.restoreMontageFrame(projectId, fr.frame_id);
+      refreshBoard();
+      toast.success(`Кадр #${fr.number} снова в ленте`);
+    } catch (e) {
+      toast.error(errorMessageFromUnknown(e));
+    } finally {
+      setFrameEditBusy(false);
+    }
+  };
+
   const handleDeleteFrame = async (fr: MontageBoardFrame) => {
     if (!projectId) return;
     const ok = window.confirm(
-      `Скрыть кадр #${fr.number}? Остальные кадры сцены останутся.`,
+      `Пометить кадр #${fr.number}? Он останется в ленте, его можно вернуть.`,
     );
     if (!ok) return;
     setFrameEditBusy(true);
@@ -3177,7 +3200,7 @@ export function AssembleMontageBoard({
       persistQueue(next, true);
       await api.deleteMontageFrame(projectId, fr.frame_id);
       refreshBoard();
-      toast.success(`Кадр #${fr.number} скрыт`);
+      toast.success(`Кадр #${fr.number} помечен. Его можно вернуть.`);
     } catch (e) {
       toast.error(errorMessageFromUnknown(e));
     } finally {
@@ -3260,7 +3283,7 @@ export function AssembleMontageBoard({
   const splitSceneAll = async (head: MontageBoardFrame, sceneFrameIds: number[]) => {
     if (!projectId) return;
     const ok = window.confirm(
-      `Разделить сцену ${head.vo_scene_ordinal ?? `#${head.number}`} на ${sceneFrameIds.length} отдельных сцен? Каждый кадр станет своей ячейкой закадра. Деление можно отменить.`,
+      `Разделить сцену #${head.number} на ${sceneFrameIds.length} отдельных сцен? Каждый кадр станет своей ячейкой закадра.`,
     );
     if (!ok) return;
     setFrameEditBusy(true);
@@ -3273,27 +3296,6 @@ export function AssembleMontageBoard({
       );
       refreshBoard();
       toast.success(`Сцена разделена на ${res.scenes} ячеек`);
-    } catch (e) {
-      toast.error(errorMessageFromUnknown(e));
-    } finally {
-      setFrameEditBusy(false);
-    }
-  };
-
-  const undoSplit = async () => {
-    if (!projectId) return;
-    const ok = window.confirm(
-      "Отменить последнее деление сцены? Сцены вернутся к состоянию до деления. Картинки и клипы не удаляются и остаются на своих кадрах.",
-    );
-    if (!ok) return;
-    setFrameEditBusy(true);
-    try {
-      const res = await api.undoSplitMontageScene(projectId, meta?.split_undo?.undo_id);
-      refreshBoard();
-      const kept = res.paid_media_kept.total;
-      toast.success(
-        `Деление отменено (кадров: ${res.restored_frames})${kept ? `. Файлы сохранены на кадрах: ${kept}` : ""}`,
-      );
     } catch (e) {
       toast.error(errorMessageFromUnknown(e));
     } finally {
@@ -4546,6 +4548,7 @@ export function AssembleMontageBoard({
                                 className={cn(
                                   "border-b border-white/10 px-1.5 py-2 text-center font-mono text-xs",
                                   fi === 0 ? "border-l border-white/15" : null,
+                                  fr.удалён ? "bg-rose-950/40 text-rose-200/80 line-through" : null,
                                 )}
                                 style={frameColStyle(framePairRem(fr, colRem))}
                               >
@@ -4562,12 +4565,29 @@ export function AssembleMontageBoard({
                                   </button>
                                   <button
                                     type="button"
-                                    title={`Скрыть кадр #${fr.number}`}
+                                    title={
+                                      fr.удалён
+                                        ? `Вернуть кадр #${fr.number}`
+                                        : `Пометить кадр #${fr.number}`
+                                    }
                                     disabled={frameEditBusy}
-                                    onClick={() => void handleDeleteFrame(fr)}
-                                    className="rounded p-0.5 text-white/30 transition hover:bg-rose-500/15 hover:text-rose-200 disabled:opacity-40"
+                                    onClick={() =>
+                                      void (fr.удалён
+                                        ? handleRestoreFrame(fr)
+                                        : handleDeleteFrame(fr))
+                                    }
+                                    className={cn(
+                                      "rounded p-0.5 transition disabled:opacity-40",
+                                      fr.удалён
+                                        ? "text-amber-200 hover:bg-amber-500/15"
+                                        : "text-white/30 hover:bg-rose-500/15 hover:text-rose-200",
+                                    )}
                                   >
-                                    <Trash2 className="h-3 w-3" />
+                                    {fr.удалён ? (
+                                      <span className="text-[9px] font-semibold no-underline">вернуть</span>
+                                    ) : (
+                                      <Trash2 className="h-3 w-3" />
+                                    )}
                                   </button>
                                 </span>
                               </th>
@@ -4613,17 +4633,6 @@ export function AssembleMontageBoard({
                         )}
                       >
                         Сцены
-                        {meta?.split_undo?.can_undo ? (
-                          <button
-                            type="button"
-                            title="Вернуть сцены к состоянию до последнего деления; картинки и клипы не удаляются"
-                            disabled={frameEditBusy}
-                            onClick={() => void undoSplit()}
-                            className="mt-1 block rounded border border-white/15 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-white/60 transition hover:border-[rgba(209,254,23,0.45)] hover:text-[rgba(209,254,23,1)] disabled:opacity-40"
-                          >
-                            Отменить деление
-                          </button>
-                        ) : null}
                       </th>
                       {ranges.map((range, ri) => {
                         const head = range.frames[0];
@@ -4779,7 +4788,11 @@ export function AssembleMontageBoard({
                                       : []
                                   }
                                   onSave={(text) => handleSaveVoiceover(fr.frame_id, text)}
-                                  onDelete={() => void handleDeleteFrame(fr)}
+                                  onDelete={() =>
+                                    void (fr.удалён
+                                      ? handleRestoreFrame(fr)
+                                      : handleDeleteFrame(fr))
+                                  }
                                 />
                               ) : SCENE_FRAME_ROWS.has(row.key) ? (
                                 renderSceneFrameCell(row.key, fr)

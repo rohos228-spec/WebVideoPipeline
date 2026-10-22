@@ -157,7 +157,14 @@ export function workflowStructureKey(wf: WorkflowDetail): string {
         n.type === "excel_gpt" && typeof data.slotIndex === "number"
           ? `:s${data.slotIndex}`
           : "";
-      return `${n.id}:${n.type}${slot}`;
+      // label/группа — в ключе: rename_node / create_group оркестратора должны
+      // пересеять data нод из canvas_graph (позиции в ключ по-прежнему не входят).
+      const ident = JSON.stringify([
+        typeof data.label === "string" ? data.label : "",
+        typeof data.groupId === "string" ? data.groupId : "",
+        typeof data.groupTitle === "string" ? data.groupTitle : "",
+      ]);
+      return `${n.id}:${n.type}${slot}:${ident}`;
     })
     .sort()
     .join(",");

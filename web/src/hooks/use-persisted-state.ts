@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 function readStorage<T>(key: string, defaultValue: T): T {
   if (typeof window === "undefined") return defaultValue;
@@ -18,11 +18,7 @@ export function usePersistedState<T>(
   key: string,
   defaultValue: T,
 ): [T, (next: T | ((prev: T) => T)) => void] {
-  const defaultRef = useRef(defaultValue);
-  const [value, setValueState] = useState<T>(() => defaultValue);
-  useEffect(() => {
-    setValueState(() => readStorage(key, defaultRef.current));
-  }, [key]);
+  const [value, setValueState] = useState<T>(() => readStorage(key, defaultValue));
 
   const setValue = useCallback(
     (next: T | ((prev: T) => T)) => {

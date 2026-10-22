@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Nii67FrameList, type Nii67Frame } from "./nii67-frame-menu";
+import type { Nii67Frame } from "./nii67-frame-menu";
+import { Nii67GenerationPanel } from "./nii67-generation-panel";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
-  Clapperboard,
   ListChecks,
   ChevronUp,
   Copy,
@@ -18,7 +18,6 @@ import {
   Plus,
   RotateCcw,
   Save,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,33 +28,33 @@ import { clearNii67ProjectViews } from "@/lib/nii67-project-state";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import {
   BLOCK_KINDS,
+  BLOCK_OUTCOME_OPTIONS,
   CREATURE_TYPES,
   FINALE_LIMIT,
-  PLAN_LIMIT,
-  PLAN_OUTCOMES,
-  type PlanOutcome,
-  planReady,
-  updatePlanDoor,
-  updatePlanFinale,
   GENERATE_HINT,
-  GENERATE_PENDING,
   KIND_LABEL,
   KIND_MARK,
+  MATRIX_CREATURE_ACTION_OPTIONS,
+  MATRIX_MOVE_OPTIONS,
+  MATRIX_STATE_FIELDS,
   TEMPERAMENTS,
   type BlockKind,
+  type BlockOutcome,
+  type MatrixCreatureAction,
+  type MatrixMove,
   type Nii67Block,
   type Nii67Card,
   type Nii67Door,
+  type Nii67MatrixState,
   cardFromUnknown,
   defaultCard,
-  deleteBlock,
-  duplicateBlock,
-  insertBlock,
-  moveBlock,
-  reorderBlock,
+  blockDoorPatch,
+  addDoorBlock,
+  removeDoorBlock,
   updateBlock,
   updateDoor,
   updateFinale,
+  updateHandsImage,
   updateIntroVideo,
   updatePortal,
 } from "@/lib/nii67";
@@ -63,6 +62,9 @@ import { cn } from "@/lib/utils";
 
 const fieldClass =
   "w-full resize-y rounded-lg border border-white/10 bg-black/35 px-2.5 py-2 text-[13px] leading-snug text-zinc-100 placeholder:text-zinc-500 focus:border-teal-400/50 focus:outline-none";
+
+const selectClass =
+  "w-full rounded-lg border border-white/10 bg-black/35 px-2 py-1.5 text-[12px] text-zinc-100 focus:border-teal-400/50 focus:outline-none";
 
 function Field({
   label,
@@ -242,6 +244,7 @@ function UploadSlot({
   accept,
   testId,
   fileName,
+  previewUrl,
   busy,
   onFile,
 }: {
@@ -249,12 +252,16 @@ function UploadSlot({
   accept: string;
   testId: string;
   fileName: string;
+  previewUrl?: string;
   busy: boolean;
   onFile: (file: File) => void;
 }) {
   return (
     <label className="block rounded-lg border border-dashed border-teal-400/30 bg-black/25 p-2 text-[11px] text-zinc-400">
       <span className="mb-1 block font-medium uppercase tracking-wide text-teal-200/80">{label}</span>
+      {previewUrl ? (
+        <img src={previewUrl} alt="" className="mb-1.5 h-28 w-full rounded-md border border-white/10 object-cover" />
+      ) : null}
       <span className="mb-1 block truncate">{busy ? "Загрузка…" : fileName || "Файл не выбран"}</span>
       <input
         data-testid={testId}
@@ -273,9 +280,11 @@ function UploadSlot({
 
 function InsertMenu({
   testId,
+  label,
   onInsert,
 }: {
   testId: string;
+  label: string;
   onInsert: (kind: BlockKind) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -288,7 +297,7 @@ function InsertMenu({
         onClick={() => setOpen((value) => !value)}
       >
         <Plus className="h-3 w-3" />
-        Вставить блок
+        {label}
       </button>
       {open ? (
         <div className="mt-1 overflow-hidden rounded-lg border border-white/10 bg-zinc-950">
@@ -313,109 +322,84 @@ function InsertMenu({
   );
 }
 
+function BlockImage({
+  label,
+  testId,
+  fileName,
+  previewUrl,
+  onFile,
+}: {
+  label: string;
+  testId: string;
+  fileName: string;
+  previewUrl?: string;
+  onFile: (file: File) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-dashed border-teal-400/30 bg-black/25 p-2">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-teal-200/80">
+        <ImageIcon className="h-3 w-3" />
+        {label}
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-md border border-white/10 bg-zinc-950">
+          {previewUrl ? (
+            <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <ImageIcon className="h-4 w-4 text-zinc-600" />
+          )}
+        </div>
+        <label className="min-w-0 flex-1 text-[11px] text-zinc-400">
+          <span className="mb-1 block truncate">{fileName || "Файл не выбран"}</span>
+          <input
+            data-testid={`${testId}-file`}
+            type="file"
+            accept="image/*"
+            className="block w-full text-[11px] text-zinc-300 file:mr-2 file:rounded-md file:border-0 file:bg-teal-500/20 file:px-2 file:py-1 file:text-[11px] file:text-teal-100"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) onFile(file);
+            }}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 function BlockCard({
   block,
-  index,
-  count,
-  dragging,
+  projectId,
   previewUrl,
-  onDragStart,
-  onDrop,
+  previewUrl2,
   onPatch,
-  onDuplicate,
   onDelete,
-  onMove,
   onFile,
 }: {
   block: Nii67Block;
-  index: number;
-  count: number;
-  dragging: boolean;
+  projectId: number;
   previewUrl?: string;
-  onDragStart: () => void;
-  onDrop: () => void;
+  previewUrl2?: string;
   onPatch: (patch: Parameters<typeof updateBlock>[3]) => void;
-  onDuplicate: () => void;
   onDelete: () => void;
-  onMove: (delta: number) => void;
-  onFile: (file: File) => void;
+  onFile: (slot: 1 | 2, file: File) => void;
 }) {
-  const character = block.character;
+  const finalPreview =
+    previewUrl ?? (block.image_name ? api.nii67AssetUrl(projectId, block.image_name) : undefined);
+  const deathPreview =
+    previewUrl2 ?? (block.image_name2 ? api.nii67AssetUrl(projectId, block.image_name2) : undefined);
   return (
     <article
       data-testid={`nii67-block-${block.id}`}
-      className={cn(
-        "rounded-xl border border-white/10 bg-[#0d1720] shadow-sm",
-        dragging && "border-teal-300/50 opacity-70",
-      )}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        event.preventDefault();
-        onDrop();
-      }}
+      className="rounded-xl border border-white/10 bg-[#0d1720] shadow-sm"
     >
       <div className="flex flex-wrap items-center gap-1.5 px-2 py-2">
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            data-testid={`nii67-up-${block.id}`}
-            className="rounded-md p-1 text-zinc-400 hover:bg-white/5 hover:text-zinc-100 disabled:opacity-30"
-            aria-label="Выше"
-            disabled={index === 0}
-            onClick={() => onMove(-1)}
-          >
-            <ChevronUp className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            data-testid={`nii67-down-${block.id}`}
-            className="rounded-md p-1 text-zinc-400 hover:bg-white/5 hover:text-zinc-100 disabled:opacity-30"
-            aria-label="Ниже"
-            disabled={index >= count - 1}
-            onClick={() => onMove(1)}
-          >
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            draggable
-            data-testid={`nii67-drag-${block.id}`}
-            className="cursor-grab rounded-md p-1 text-zinc-500 hover:bg-white/5 active:cursor-grabbing"
-            aria-label="Перетащить"
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData("text/plain", block.id);
-              onDragStart();
-            }}
-          >
-            <GripVertical className="h-3.5 w-3.5" />
-          </button>
-        </div>
         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-teal-400/15 text-[12px] font-bold text-teal-200">
           {KIND_MARK[block.kind]}
         </span>
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-zinc-100">
-          {block.kind === "custom" && block.custom_title.trim()
-            ? block.custom_title
-            : KIND_LABEL[block.kind]}
+          {KIND_LABEL[block.kind]}
         </span>
-        <button
-          type="button"
-          data-testid={`nii67-duplicate-${block.id}`}
-          className="rounded-md px-1.5 py-1 text-[11px] text-zinc-300 hover:bg-white/5"
-          onClick={onDuplicate}
-        >
-          <Copy className="mr-1 inline h-3 w-3" />
-          Дублировать
-        </button>
-        <button
-          type="button"
-          data-testid={`nii67-collapse-${block.id}`}
-          className="rounded-md px-1.5 py-1 text-[11px] text-zinc-300 hover:bg-white/5"
-          onClick={() => onPatch({ collapsed: !block.collapsed })}
-        >
-          {block.collapsed ? "Развернуть" : "Свернуть"}
-        </button>
         <button
           type="button"
           data-testid={`nii67-delete-${block.id}`}
@@ -426,153 +410,185 @@ function BlockCard({
           Удалить
         </button>
       </div>
-      {block.collapsed ? null : (
-        <div className="flex flex-col gap-2 border-t border-white/5 px-2.5 py-2.5">
-          {block.kind === "custom" ? (
-            <ShortField
-              label="Название своего блока"
-              value={block.custom_title}
-              testId={`nii67-custom-title-${block.id}`}
-              placeholder="Например: переход, деталь, пауза"
-              onChange={(custom_title) => onPatch({ custom_title })}
-            />
-          ) : null}
-          {block.kind === "world_frame" ? (
-            <ImageSlot
-              testId={`nii67-frame-${block.id}`}
-              prompt={block.image_prompt}
+      <div className="flex flex-col gap-2 border-t border-white/5 px-2.5 py-2.5">
+        {block.kind === "death" ? (
+          <>
+            <BlockImage
+              label="Финальное изображение"
+              testId={`nii67-block-final-${block.id}`}
               fileName={block.image_name}
-              previewUrl={previewUrl}
-              placeholder="Промпт первого кадра этого мира"
-              onPrompt={(image_prompt) => onPatch({ image_prompt })}
-              onFile={onFile}
+              previewUrl={finalPreview}
+              onFile={(file) => onFile(1, file)}
             />
-          ) : null}
-          {block.kind === "world_character" ? (
-            <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
-              <button
-                type="button"
-                data-testid={`nii67-character-enabled-${block.id}`}
-                aria-pressed={character.enabled}
-                className={cn(
-                  "rounded-lg border px-2 py-1.5 text-left text-[12px]",
-                  character.enabled
-                    ? "border-teal-300/50 bg-teal-400/10 text-teal-50"
-                    : "border-white/10 text-zinc-300",
-                )}
-                onClick={() => onPatch({ character: { enabled: !character.enabled } })}
-              >
-                {character.enabled
-                  ? "Персонаж этого мира включён"
-                  : "Без персонажа мира — нажмите, чтобы добавить"}
-              </button>
-              {character.enabled ? (
-                <>
-                  <ShortField
-                    label="Имя персонажа мира"
-                    value={character.name}
-                    testId={`nii67-character-name-${block.id}`}
-                    placeholder="Не главный герой"
-                    onChange={(name) => onPatch({ character: { name } })}
-                  />
-                  <ChipRow
-                    label="Тип существа"
-                    options={CREATURE_TYPES}
-                    value={character.creature_type}
-                    testId={`nii67-creature-${block.id}`}
-                    onChange={(creature_type) => onPatch({ character: { creature_type } })}
-                  />
-                  <ChipRow
-                    label="Характер"
-                    options={TEMPERAMENTS}
-                    value={character.temperament}
-                    testId={`nii67-temper-${block.id}`}
-                    onChange={(temperament) => onPatch({ character: { temperament } })}
-                  />
-                  <Field
-                    label="Позиция"
-                    value={character.position}
-                    rows={2}
-                    testId={`nii67-character-position-${block.id}`}
-                    placeholder="Справа от двери, в тени"
-                    onChange={(position) => onPatch({ character: { position } })}
-                  />
-                  <Field
-                    label="Поведение"
-                    value={character.behavior}
-                    rows={2}
-                    testId={`nii67-character-behavior-${block.id}`}
-                    placeholder="Стоит неподвижно и смотрит"
-                    onChange={(behavior) => onPatch({ character: { behavior } })}
-                  />
-                  <Field
-                    label="Эффект появления"
-                    value={character.appearance}
-                    rows={2}
-                    testId={`nii67-character-appearance-${block.id}`}
-                    placeholder="Дымка, частицы света"
-                    onChange={(appearance) => onPatch({ character: { appearance } })}
-                  />
-                </>
-              ) : null}
-            </div>
-          ) : null}
-          {block.kind === "exit" ? (
             <Field
-              label="Что произошло с героем (по описанию генерируется иллюстрация)"
+              label="Описание действия"
               value={block.text}
-              rows={3}
-              testId={`nii67-illustration-${block.id}`}
-              maxLength={4000}
-              placeholder="Итог этой двери для героя"
+              testId={`nii67-block-action-${block.id}`}
+              placeholder="Что герой делает в момент смерти"
               onChange={(text) => onPatch({ text })}
             />
-          ) : (
-          <Field
-            label={
-              block.kind === "gg_action"
-                ? "Действие единственного ГГ в этой двери"
-                : block.kind === "enter_action"
-                  ? "Текст оператора"
-                  : "Текст блока"
-            }
-            value={block.text}
-            testId={`nii67-text-${block.id}`}
-            maxLength={4000}
-            placeholder={
-              block.kind === "enter_action"
-                ? "Что происходит при попадании в мир"
-                : block.kind === "gg_action"
-                  ? "Сомнение, шаг, взгляд — тот же герой, что в шапке"
-                  : "Условия, действие, деталь кадра"
-            }
-            onChange={(text) => onPatch({ text })}
-          />
-          )}
-          {block.kind === "gg_action" ? (
-            <p className="text-[11px] text-zinc-500">
-              На весь ролик один главный герой. Здесь только его действие в этой двери.
-            </p>
-          ) : null}
-        </div>
-      )}
+            <Field
+              label="Описание иллюстрации смерти"
+              value={block.text2}
+              testId={`nii67-block-death-illustration-${block.id}`}
+              placeholder="Что изображено на иллюстрации смерти"
+              onChange={(text2) => onPatch({ text2 })}
+            />
+            <BlockImage
+              label="Иллюстрация смерти"
+              testId={`nii67-block-death-image-${block.id}`}
+              fileName={block.image_name2}
+              previewUrl={deathPreview}
+              onFile={(file) => onFile(2, file)}
+            />
+          </>
+        ) : null}
+        {block.kind === "creature" ? (
+          <>
+            <Field
+              label="Описание появления"
+              value={block.character.position}
+              testId={`nii67-block-creature-appear-${block.id}`}
+              placeholder="Как существо появляется в кадре"
+              onChange={(position) => onPatch({ character: { enabled: true, position } })}
+            />
+            <Field
+              label="Описание действия"
+              value={block.character.behavior}
+              testId={`nii67-block-creature-action-${block.id}`}
+              placeholder="Что существо делает"
+              onChange={(behavior) => onPatch({ character: { enabled: true, behavior } })}
+            />
+            <label className="block">
+              <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                Исход существа
+              </span>
+              <select
+                data-testid={`nii67-block-outcome-${block.id}`}
+                value={block.outcome}
+                onChange={(event) => onPatch({ outcome: event.target.value as BlockOutcome })}
+                className={selectClass}
+              >
+                {BLOCK_OUTCOME_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id} className="bg-zinc-900">
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : null}
+        {block.kind === "neutral" ? (
+          <>
+            <BlockImage
+              label="Кадр: где оказался герой"
+              testId={`nii67-block-place-${block.id}`}
+              fileName={block.image_name}
+              previewUrl={finalPreview}
+              onFile={(file) => onFile(1, file)}
+            />
+            <Field
+              label="Что видит герой"
+              value={block.text}
+              testId={`nii67-block-place-text-${block.id}`}
+              placeholder="Место, в котором оказался герой после двери"
+              onChange={(text) => onPatch({ text })}
+            />
+          </>
+        ) : null}
+        {block.kind === "back" ? (
+          <>
+            <Field
+              label="Описание мира"
+              value={block.text}
+              testId={`nii67-block-back-text-${block.id}`}
+              placeholder="Что герой увидел за дверью и почему вернулся"
+              onChange={(text) => onPatch({ text })}
+            />
+            <BlockImage
+              label="Тематическая иллюстрация"
+              testId={`nii67-block-back-image-${block.id}`}
+              fileName={block.image_name}
+              previewUrl={finalPreview}
+              onFile={(file) => onFile(1, file)}
+            />
+          </>
+        ) : null}
+      </div>
     </article>
+  );
+}
+
+function DoorMatrixFields({
+  door,
+  onChange,
+  compact = false,
+}: {
+  door: Nii67Door;
+  onChange: (mutator: (card: Nii67Card) => Nii67Card) => void;
+  compact?: boolean;
+}) {
+  const filled = MATRIX_STATE_FIELDS.filter((item) => door.state[item.key].trim()).length;
+  return (
+    <div className={cn("flex flex-col gap-1.5", compact && "rounded-lg border border-white/10 bg-black/20 p-2")}>
+      {compact ? (
+        <div className="flex items-center justify-between text-[11px] font-semibold text-teal-100">
+          <span>{door.title}</span>
+          <span className="text-[10px] font-normal text-zinc-500">
+            {filled}/{MATRIX_STATE_FIELDS.length}
+          </span>
+        </div>
+      ) : null}
+      <details
+        data-testid={`nii67-matrix-${door.id}`}
+        className="group rounded-lg border border-white/10 bg-black/20"
+      >
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-400 transition hover:text-zinc-200">
+          <ChevronDown className="h-3 w-3 transition group-open:rotate-180" />
+          Доп. данные для промтов
+          <span className="ml-auto tabular-nums text-zinc-500">
+            {filled}/{MATRIX_STATE_FIELDS.length}
+          </span>
+        </summary>
+        <div className={cn("overflow-y-auto border-t border-white/10 p-2", compact ? "max-h-64" : "max-h-72")}>
+          <div className="grid grid-cols-1 gap-2">
+            {MATRIX_STATE_FIELDS.map((item) => (
+              <Field
+                key={item.key}
+                label={item.label}
+                value={door.state[item.key]}
+                rows={item.rows}
+                placeholder={item.hint}
+                testId={`nii67-state-${door.id}-${item.key}`}
+                onChange={(value) =>
+                  onChange((card) =>
+                    updateDoor(card, door.id, {
+                      state: { [item.key]: value } as Partial<Nii67MatrixState>,
+                    }),
+                  )
+                }
+              />
+            ))}
+          </div>
+        </div>
+      </details>
+    </div>
   );
 }
 
 function DoorColumn({
   door,
-  drag,
+  projectId,
   previews,
-  onDrag,
   onChange,
+  onAddBlock,
   onFile,
 }: {
   door: Nii67Door;
-  drag: { doorId: string; index: number } | null;
+  projectId: number;
   previews: Record<string, string>;
-  onDrag: (next: { doorId: string; index: number } | null) => void;
   onChange: (mutator: (card: Nii67Card) => Nii67Card) => void;
+  onAddBlock: (doorId: string, kind: BlockKind) => void;
   onFile: (key: string, file: File, applyName: (name: string) => void) => void;
 }) {
   return (
@@ -593,12 +609,26 @@ function DoorColumn({
         </span>
       </header>
       <div className="mb-2 flex flex-col gap-2">
+        <BlockImage
+          label="Мир при открытии двери"
+          testId={`nii67-door-world-${door.id}`}
+          fileName={door.image_name}
+          previewUrl={
+            previews[`door:${door.id}:image`] ??
+            (door.image_name ? api.nii67AssetUrl(projectId, door.image_name) : undefined)
+          }
+          onFile={(file) =>
+            onFile(`door:${door.id}:image`, file, (image_name) =>
+              onChange((card) => updateDoor(card, door.id, { image_name })),
+            )
+          }
+        />
         <ShortField
           label="Мир"
           value={door.theme}
           maxLength={240}
           testId={`nii67-theme-${door.id}`}
-          placeholder="Появится после генерации"
+          placeholder="Опишите мир за этой дверью"
           onChange={(theme) => onChange((card) => updateDoor(card, door.id, { theme }))}
         />
         <Field
@@ -606,51 +636,56 @@ function DoorColumn({
           value={door.theme_note}
           rows={2}
           testId={`nii67-law-${door.id}`}
-          placeholder="Один закон мира — появится после генерации"
+          placeholder="Один закон мира"
           onChange={(theme_note) => onChange((card) => updateDoor(card, door.id, { theme_note }))}
         />
+        <DoorMatrixFields door={door} onChange={onChange} />
       </div>
-      <InsertMenu
-        testId={`nii67-insert-${door.id}-0`}
-        onInsert={(kind) => onChange((card) => insertBlock(card, door.id, 0, kind))}
-      />
       <div className="flex flex-col gap-1.5">
-        {door.blocks.length === 0 ? (
-          <p className="px-1 py-3 text-center text-[12px] text-zinc-500">
-            В этой двери пока нет блоков. Вставьте первый.
-          </p>
-        ) : null}
-        {door.blocks.map((block, index) => (
-          <div key={block.id}>
+        {door.blocks.map((block) => (
+          <div key={block.id} className="flex flex-col gap-1.5">
             <BlockCard
               block={block}
-              index={index}
-              count={door.blocks.length}
-              dragging={drag?.doorId === door.id && drag.index === index}
-              previewUrl={previews[`block:${block.id}`]}
-              onDragStart={() => onDrag({ doorId: door.id, index })}
-              onDrop={() => {
-                if (!drag || drag.doorId !== door.id) return;
-                const from = drag.index;
-                onDrag(null);
-                onChange((card) => reorderBlock(card, door.id, from, index));
-              }}
-              onPatch={(patch) => onChange((card) => updateBlock(card, door.id, block.id, patch))}
-              onDuplicate={() => onChange((card) => duplicateBlock(card, door.id, block.id))}
-              onDelete={() => onChange((card) => deleteBlock(card, door.id, block.id))}
-              onMove={(delta) => onChange((card) => moveBlock(card, door.id, block.id, delta))}
-              onFile={(file) =>
-                onFile(`block:${block.id}`, file, (image_name) =>
-                  onChange((card) => updateBlock(card, door.id, block.id, { image_name })),
+              projectId={projectId}
+              previewUrl={previews[`block:${block.id}:1`]}
+              previewUrl2={previews[`block:${block.id}:2`]}
+              onPatch={(patch) =>
+                onChange((card) => {
+                  const next = updateBlock(card, door.id, block.id, patch);
+                  const updated = next.doors
+                    .find((entry) => entry.id === door.id)
+                    ?.blocks.find((item) => item.id === block.id);
+                  return updated ? updateDoor(next, door.id, blockDoorPatch(updated)) : next;
+                })
+              }
+              onDelete={() => onChange((card) => removeDoorBlock(card, door.id, block.id))}
+              onFile={(slot, file) =>
+                onFile(`block:${block.id}:${slot}`, file, (image_name) =>
+                  onChange((card) =>
+                    updateBlock(card, door.id, block.id, slot === 1 ? { image_name } : { image_name2: image_name }),
+                  ),
                 )
               }
             />
             <InsertMenu
-              testId={`nii67-insert-${door.id}-${index + 1}`}
-              onInsert={(kind) => onChange((card) => insertBlock(card, door.id, index + 1, kind))}
+              testId={`nii67-insert-${door.id}-${block.id}`}
+              label="Добавить блок"
+              onInsert={(kind) => onAddBlock(door.id, kind)}
             />
           </div>
         ))}
+        {door.blocks.length === 0 ? (
+          <>
+            <InsertMenu
+              testId={`nii67-insert-${door.id}`}
+              label="Добавить блок"
+              onInsert={(kind) => onAddBlock(door.id, kind)}
+            />
+            <p className="rounded-lg border border-dashed border-white/10 px-2 py-3 text-center text-[12px] leading-snug text-zinc-500">
+              Смерть, Существо, Действие или Возвращается обратно.
+            </p>
+          </>
+        ) : null}
       </div>
     </section>
   );
@@ -662,7 +697,6 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
   const [open, setOpen] = useState(false);
   const [card, setCard] = useState<Nii67Card>(() => defaultCard());
   const [dirty, setDirty] = useState(false);
-  const [drag, setDrag] = useState<{ doorId: string; index: number } | null>(null);
   const [previewText, setPreviewText] = useState<string | null>(null);
   const [frames, setFrames] = useState<Nii67Frame[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
@@ -707,11 +741,6 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
     [],
   );
 
-  function onFramesChange(next: Nii67Frame[]) {
-    framesDirtyRef.current = true;
-    setFrames(next);
-  }
-
   function change(mutator: (current: Nii67Card) => Nii67Card) {
     editGen.current += 1;
     dirtyRef.current = true;
@@ -721,7 +750,7 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
 
   const [uploading, setUploading] = useState<string | null>(null);
   async function upload(
-    slot: "intro_video" | "portal_image" | "portal_video",
+    slot: string,
     file: File,
     applyName: (name: string) => void,
   ) {
@@ -740,13 +769,32 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
     }
   }
 
+  function fileSlot(key: string): string {
+    const [head, id, tail] = key.split(":");
+    if (head === "block") return `block_${id}_${tail}`;
+    if (head === "door") return `door_${id}_${tail}`;
+    return key;
+  }
+
   function rememberFile(key: string, file: File, applyName: (name: string) => void) {
     const url = URL.createObjectURL(file);
     setPreviews((prev) => {
       if (prev[key]) URL.revokeObjectURL(prev[key]);
       return { ...prev, [key]: url };
     });
-    applyName(file.name);
+    const pid = projectId;
+    const gen = editGen.current;
+    const slot = fileSlot(key);
+    void api
+      .uploadNii67(pid, slot, file)
+      .then((res) => {
+        if (pid !== projectRef.current || gen !== editGen.current) return;
+        applyName(res.name);
+      })
+      .catch(() => {
+        if (pid !== projectRef.current || gen !== editGen.current) return;
+        applyName(file.name);
+      });
   }
 
   const save = useMutation({
@@ -790,49 +838,25 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
     onError: (err) => toast.error(err instanceof Error ? err.message : "Не удалось сохранить кадры"),
   });
 
-  const makePlan = useMutation({
-    mutationFn: async () => {
-      const gen = editGen.current;
+  const matrix = useMutation({
+    mutationFn: async (next?: Nii67Card) => {
       const pid = projectId;
-      const res = await api.planNii67(pid, cardRef.current);
-      return { res, gen, pid };
+      const res = await api.matrixPlanNii67(pid, next ?? cardRef.current);
+      return { res, pid };
     },
-    onSuccess: ({ res, gen, pid }) => {
+    onSuccess: ({ res, pid }) => {
       if (pid !== projectRef.current) return;
-      if (editGen.current === gen) {
-        dirtyRef.current = false;
-        setDirty(false);
-        setCard(cardFromUnknown(res.card));
-      } else {
-        const plan = cardFromUnknown(res.card).plan;
-        setCard((prev) => ({ ...prev, plan }));
-      }
-      toast.success("План ролика готов — проверьте и поправьте текст");
-      void qc.invalidateQueries({ queryKey: ["nii67", projectId] });
-    },
-    onError: (error) => toast.error(errorMessageFromUnknown(error)),
-  });
-
-  const generate = useMutation({
-    mutationFn: async () => {
-      const gen = editGen.current;
-      const pid = projectId;
-      const res = await api.storyboardNii67(pid, cardRef.current);
-      return { res, gen, pid };
-    },
-    onSuccess: ({ res, gen, pid }) => {
-      if (pid !== projectRef.current) return;
-      if (editGen.current === gen) {
-        dirtyRef.current = false;
-        setDirty(false);
-        setCard(cardFromUnknown(res.card));
-      }
-      setPreviewText(res.general_plan);
-      framesDirtyRef.current = false;
+      dirtyRef.current = false;
+      setDirty(false);
+      setCard(cardFromUnknown(res.card));
+      framesDirtyRef.current = true;
       if (Array.isArray(res.frames)) setFrames(res.frames);
-      toast.success("Раскадровка готова и записана в общий план");
+      if (res.preview) {
+        toast.info("Кадры черновые: заполните условия двери, чтобы сохранить раскадровку");
+      } else {
+        toast.success("Кадры матрицы собраны и записаны");
+      }
       void qc.invalidateQueries({ queryKey: ["nii67", projectId] });
-      void qc.invalidateQueries({ queryKey: ["project", projectId] });
     },
     onError: (error) => toast.error(errorMessageFromUnknown(error)),
   });
@@ -854,105 +878,20 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
     onError: (error) => toast.error(errorMessageFromUnknown(error)),
   });
 
-  const busy = save.isPending || preview.isPending || generate.isPending || makePlan.isPending || reset.isPending;
-  const canStoryboard = planReady(card.plan);
+  const busy = save.isPending || preview.isPending || matrix.isPending || reset.isPending;
   const ggLabel = card.gg.name.trim() || "1 ГГ";
 
-  const renderPlan = (compact: boolean) => (
-            <section data-testid={compact ? "nii67-plan-inline" : "nii67-plan-block"} className={cn("rounded-2xl border border-teal-400/30 bg-[#0c161e] p-3", compact ? "m-2" : "mb-3")}>
-              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-50">
-                  <ListChecks className="h-4 w-4 text-teal-300" />
-                  План ролика
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  data-testid={compact ? "nii67-plan-inline-btn" : "nii67-plan"}
-                  disabled={busy}
-                  onClick={() => makePlan.mutate()}
-                >
-                  {makePlan.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  План ролика
-                </Button>
-              </div>
-              <p className="mb-2 text-[12px] text-zinc-400">
-                Шаг 1. Кнопка «План ролика» предложит мир, события и исход для каждой двери. Текст можно править или
-                написать целиком вручную. Шаг 2 — «Раскадровка» внизу строит кадры строго по этому тексту.
-              </p>
-              <div className={cn("grid gap-3", compact ? "grid-cols-1" : "md:grid-cols-2")}>
-                {(["door1", "door2"] as const).map((id) => (
-                  <div key={id} data-testid={`nii67-plan-${id}${compact ? "-inline" : ""}`} className="rounded-xl border border-white/10 bg-black/20 p-2">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-teal-200/90">
-                      {id === "door1" ? "Левая дверь" : "Правая дверь"}
-                    </div>
-                    <Field
-                      label="Мир"
-                      value={card.plan[id].world}
-                      maxLength={PLAN_LIMIT}
-                      rows={2}
-                      testId={`nii67-plan-${id}-world`}
-                      placeholder="Куда попадает герой: узнаваемая реальность"
-                      onChange={(world) => change((current) => updatePlanDoor(current, id, { world }))}
-                    />
-                    <Field
-                      label="Что происходит / пик"
-                      value={card.plan[id].happens}
-                      maxLength={PLAN_LIMIT}
-                      rows={4}
-                      testId={`nii67-plan-${id}-happens`}
-                      placeholder="Что видит, как мир действует на тело, поворот, пик, что делает герой"
-                      onChange={(happens) => change((current) => updatePlanDoor(current, id, { happens }))}
-                    />
-                    <label className="mt-1 block text-[11px] text-zinc-400">
-                      Исход
-                      <select
-                        data-testid={`nii67-plan-${id}-outcome`}
-                        className={cn(fieldClass, "mt-1 resize-none")}
-                        value={card.plan[id].outcome}
-                        onChange={(event) =>
-                          change((current) => updatePlanDoor(current, id, { outcome: event.target.value as PlanOutcome }))
-                        }
-                      >
-                        {PLAN_OUTCOMES.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2">
-                <Field
-                  label="Финал"
-                  value={card.plan.finale}
-                  maxLength={PLAN_LIMIT}
-                  rows={2}
-                  testId="nii67-plan-finale"
-                  placeholder="Что стало с героем в каждой ветке — по этому тексту строится финальная иллюстрация"
-                  onChange={(finale) => change((current) => updatePlanFinale(current, finale))}
-                />
-              </div>
-              {compact ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  data-testid="nii67-storyboard-inline"
-                  disabled={busy || !canStoryboard}
-                  className="mt-2 w-full border-teal-300/50 bg-teal-400 text-zinc-950 hover:bg-teal-300"
-                  title={canStoryboard ? "Построить раскадровку строго по плану" : "Сначала заполните план обеих дверей"}
-                  onClick={() => generate.mutate()}
-                >
-                  {generate.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clapperboard className="h-3.5 w-3.5" />}
-                  Раскадровка
-                </Button>
-              ) : null}
-            </section>
-  );
-
+  function addBlock(doorId: string, kind: BlockKind) {
+    editGen.current += 1;
+    dirtyRef.current = true;
+    setDirty(true);
+    framesDirtyRef.current = true;
+    const next = addDoorBlock(cardRef.current, doorId, kind);
+    cardRef.current = next;
+    setCard(next);
+    setFrames([]);
+    matrix.mutate(next);
+  }
 
   return (
     <div
@@ -972,7 +911,33 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
         <span className="ml-auto text-zinc-400">{dirty ? "не сохранено" : "две двери"}</span>
       </button>
 
-      {!open ? renderPlan(true) : null}
+      {!open ? (
+        <section
+          data-testid="nii67-matrix-inline"
+          className="mx-2 mb-2 rounded-2xl border border-teal-400/30 bg-[#0c161e] p-2"
+        >
+          <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-teal-200/90">
+            <ListChecks className="h-3.5 w-3.5" />
+            Данные для промтов
+          </div>
+          <div className="grid gap-2">
+            {card.doors.map((door) => (
+              <DoorMatrixFields key={door.id} door={door} onChange={change} compact />
+            ))}
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            data-testid="nii67-matrix-inline-btn"
+            disabled={busy}
+            className="mt-2 w-full border-teal-300/50 bg-teal-400 text-zinc-950 hover:bg-teal-300"
+            onClick={() => matrix.mutate(undefined)}
+          >
+            {matrix.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ListChecks className="h-3.5 w-3.5" />}
+            Собрать кадры
+          </Button>
+        </section>
+      ) : null}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
@@ -1018,16 +983,24 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <Nii67GenerationPanel
+              card={card}
+              frames={frames}
+              busy={busy}
+              matrixPending={matrix.isPending}
+              onCardChange={(next) => {
+                change(() => next);
+              }}
+              onFramesChange={setFrames}
+              onSaveFrames={(next) => saveFrames.mutate(next)}
+              onBuild={() => matrix.mutate(undefined)}
+              onSaveCard={() => save.mutate("save")}
+            />
             {cardQ.isLoading ? (
               <p className="mb-2 text-[12px] text-zinc-500">Загружаю карточку…</p>
             ) : null}
             {dirty ? (
               <p className="mb-2 text-[12px] text-amber-200/90">Есть несохранённые правки</p>
-            ) : null}
-            {generate.isPending ? (
-              <p data-testid="nii67-generating" className="mb-2 text-[12px] text-teal-100">
-                {GENERATE_PENDING}
-              </p>
             ) : null}
             {previewText !== null ? (
               <section className="mb-3 rounded-xl border border-teal-400/30 bg-black/40 p-3">
@@ -1050,8 +1023,6 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
               </section>
             ) : null}
 
-            {renderPlan(false)}
-
             <section data-testid="nii67-intro-block" className="mb-3 rounded-2xl border border-white/10 bg-[#0c161e] p-3">
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-teal-200/90">
                 Интро
@@ -1073,69 +1044,62 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-teal-200/90">
                 Двери
               </div>
-              <div className="mb-2 grid gap-2 md:grid-cols-2">
+              <div className="grid gap-2 md:grid-cols-2">
                 <UploadSlot
-                  label="Фото дверей (одно на обе)"
+                  label="Фото левой двери"
                   accept="image/*"
-                  testId="nii67-portal-image"
-                  fileName={card.portal.image_name}
-                  busy={uploading === "portal_image"}
+                  testId="nii67-portal-left-image"
+                  fileName={card.portal.left_image_name}
+                  previewUrl={
+                    previews["portal:left"] ??
+                    (card.portal.left_image_name
+                      ? api.nii67AssetUrl(projectId, card.portal.left_image_name)
+                      : undefined)
+                  }
+                  busy={uploading === "portal_left_image"}
                   onFile={(file) =>
-                    upload("portal_image", file, (image_name) =>
-                      change((current) => updatePortal(current, { image_name })),
+                    upload("portal_left_image", file, (left_image_name) =>
+                      change((current) => updatePortal(current, { left_image_name })),
                     )
                   }
                 />
                 <UploadSlot
-                  label="Видео трансформации (одно на обе)"
-                  accept="video/*"
-                  testId="nii67-portal-video"
-                  fileName={card.portal.video_name}
-                  busy={uploading === "portal_video"}
+                  label="Фото правой двери"
+                  accept="image/*"
+                  testId="nii67-portal-right-image"
+                  fileName={card.portal.right_image_name}
+                  previewUrl={
+                    previews["portal:right"] ??
+                    (card.portal.right_image_name
+                      ? api.nii67AssetUrl(projectId, card.portal.right_image_name)
+                      : undefined)
+                  }
+                  busy={uploading === "portal_right_image"}
                   onFile={(file) =>
-                    upload("portal_video", file, (video_name) =>
-                      change((current) => updatePortal(current, { video_name })),
+                    upload("portal_right_image", file, (right_image_name) =>
+                      change((current) => updatePortal(current, { right_image_name })),
                     )
                   }
                 />
               </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <Field
-                    label="Дизайн левой двери"
-                    value={card.portal.left_design}
-                    rows={2}
-                    testId="nii67-portal-left-design"
-                    placeholder="Как выглядит левая дверь"
-                    onChange={(left_design) => change((current) => updatePortal(current, { left_design }))}
-                  />
-                  <Field
-                    label="Анимация трансформации левой"
-                    value={card.portal.left_anim}
-                    rows={2}
-                    testId="nii67-portal-left-anim"
-                    placeholder="Как левая дверь превращается"
-                    onChange={(left_anim) => change((current) => updatePortal(current, { left_anim }))}
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Field
-                    label="Дизайн правой двери"
-                    value={card.portal.right_design}
-                    rows={2}
-                    testId="nii67-portal-right-design"
-                    placeholder="Как выглядит правая дверь"
-                    onChange={(right_design) => change((current) => updatePortal(current, { right_design }))}
-                  />
-                  <Field
-                    label="Анимация трансформации правой"
-                    value={card.portal.right_anim}
-                    rows={2}
-                    testId="nii67-portal-right-anim"
-                    placeholder="Как правая дверь превращается"
-                    onChange={(right_anim) => change((current) => updatePortal(current, { right_anim }))}
-                  />
-                </div>
+              <div className="mt-2">
+                <UploadSlot
+                  label="Референс рук"
+                  accept="image/*"
+                  testId="nii67-hands-image"
+                  fileName={card.hands_image_name}
+                  previewUrl={
+                    card.hands_image_name
+                      ? api.nii67AssetUrl(projectId, card.hands_image_name)
+                      : undefined
+                  }
+                  busy={uploading === "hands_image"}
+                  onFile={(file) =>
+                    upload("hands_image", file, (hands_image_name) =>
+                      change((current) => updateHandsImage(current, hands_image_name)),
+                    )
+                  }
+                />
               </div>
             </section>
 
@@ -1153,10 +1117,10 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
                 <DoorColumn
                   key={door.id}
                   door={door}
-                  drag={drag}
+                  projectId={projectId}
                   previews={previews}
-                  onDrag={setDrag}
                   onChange={change}
+                  onAddBlock={addBlock}
                   onFile={rememberFile}
                 />
               ))}
@@ -1191,24 +1155,6 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
             </section>
           </div>
 
-          {frames.length > 0 ? (
-            <section data-testid="nii67-frames" className="max-h-[45vh] shrink-0 overflow-y-auto border-t border-white/10 px-4 py-3">
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Кадры ({frames.length}) · 60 с · 9:16</h3>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  data-testid="nii67-frames-save"
-                  disabled={saveFrames.isPending}
-                  onClick={() => saveFrames.mutate(frames)}
-                >
-                  Сохранить кадры
-                </Button>
-              </div>
-              <Nii67FrameList frames={frames} onChange={onFramesChange} />
-            </section>
-          ) : null}
           <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-white/10 px-4 py-3">
             <p className="max-w-md text-[11px] text-zinc-500">
               Блоки — последовательные элементы, вставляются между любыми другими.
@@ -1242,18 +1188,14 @@ export function Nii67CardPanel({ projectId }: { projectId: number }) {
               <Button
                 type="button"
                 size="sm"
-                data-testid="nii67-storyboard"
-                disabled={busy || !canStoryboard}
-                title={canStoryboard ? "Построить раскадровку строго по плану" : "Сначала заполните план обеих дверей"}
-                className="border-teal-300/50 bg-teal-400 text-zinc-950 hover:bg-teal-300"
-                onClick={() => generate.mutate()}
+                variant="outline"
+                data-testid="nii67-matrix-plan"
+                disabled={busy}
+                title="Собрать кадры по полям матрицы (ход, состояние, существо) без GPT"
+                onClick={() => matrix.mutate(undefined)}
               >
-                {generate.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Clapperboard className="h-3.5 w-3.5" />
-                )}
-                Раскадровка
+                {matrix.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ListChecks className="h-3.5 w-3.5" />}
+                Матрица
               </Button>
             </div>
           </footer>

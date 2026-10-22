@@ -1,5 +1,3 @@
-import "./api-operator-token";
-
 const TOKEN_KEY = "vp_fleet_token";
 
 function authHeaders(): Record<string, string> {

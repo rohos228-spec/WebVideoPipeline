@@ -12,18 +12,20 @@ export function NodePromptBlock({
   activeVariant,
   onActivate,
   nodeKey,
+  projectId,
   description,
 }: {
   stepCode: string;
   activeVariant?: string;
   onActivate?: (name: string) => void;
   nodeKey: string;
+  projectId?: number;
   description: string;
 }) {
   const qc = useQueryClient();
   const files = useQuery({
-    queryKey: ["prompt-files", stepCode],
-    queryFn: () => api.listPromptFiles(stepCode),
+    queryKey: ["prompt-files", stepCode, nodeKey],
+    queryFn: () => api.listPromptFiles(stepCode, { nodeKey }),
     enabled: Boolean(stepCode),
   });
   const list = files.data ?? [];
@@ -34,8 +36,9 @@ export function NodePromptBlock({
     setSel(act?.name ?? list[0]?.name ?? null);
   }, [list, activeVariant, sel]);
   const content = useQuery({
-    queryKey: ["prompt-file", stepCode, sel],
-    queryFn: () => api.getPromptFile(stepCode, sel!),
+    queryKey: ["prompt-file", stepCode, sel, nodeKey],
+    queryFn: () =>
+      api.getPromptFile(stepCode, sel!, { projectId, nodeKey }),
     enabled: Boolean(sel),
   });
   const [draft, setDraft] = useState("");
@@ -57,7 +60,8 @@ export function NodePromptBlock({
         const info = await api.renamePromptFile(stepCode, name, nn);
         name = info.name;
       }
-      if (draft !== (content.data?.content ?? "")) await api.savePromptFile(stepCode, name, draft);
+      if (draft !== (content.data?.content ?? ""))
+        await api.savePromptFile(stepCode, name, draft, { nodeKey });
       return name;
     },
     onSuccess: (name) => {

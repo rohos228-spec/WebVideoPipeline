@@ -83,6 +83,8 @@ export interface PipelineNodeData extends Record<string, unknown> {
   groupTitle?: string;
   /** Выбранная модель vibecode (id каталога). */
   modelId?: string;
+  /** Модель закреплена за шагом оператором (per-step model). */
+  modelPinned?: boolean;
   /** Канал цен (всегда дорогой / stable). */
   modelChannel?: "stable" | string;
   /** Параметры media-ноды (картинка/видео) из пикера. */
@@ -587,6 +589,10 @@ export function PipelineNode({ data, selected }: NodeProps) {
             {/* hero config strip removed from tile (still in node menu) */}
             {showNii67 && actions?.projectId && <Nii67CardPanel projectId={actions.projectId} />}
             {/* items config strip removed from tile (still in node menu) */}
+            {/* Таймер выполнения под нодой */}
+            <div className="pointer-events-none absolute -bottom-3.5 left-1/2 z-30 -translate-x-1/2">
+              <NodeExecutionTimer status={d.status} startedAt={d.startedAt} finishedAt={d.finishedAt} />
+            </div>
           </div>
         ) : (
           /* Canon C: circular orb + label */

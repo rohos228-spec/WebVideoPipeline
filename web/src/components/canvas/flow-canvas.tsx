@@ -91,6 +91,7 @@ import {
   writePipelineViewport,
 } from "@/lib/pipeline-viewport";
 import { defaultModelIdForNodeType, isTextNodeType } from "@/lib/node-model-catalog";
+import { applyGlobalTextModel, applyNodeDataPatch } from "@/lib/node-model-patch";
 import { EdgeKindControls } from "./edge-kind-controls";
 import { SoftThreadEdge } from "./soft-thread-edge";
 import { edgeKindLabel } from "@/lib/gpt-operator";
@@ -661,45 +662,26 @@ export function FlowCanvas({
       ).detail;
       if (!detail?.nodeKey) return;
       const patch = detail.patch;
-      const isTextModelChange =
-        detail.globalText ||
-        (patch.modelId != null &&
-          !patch.imageResolution &&
-          !patch.aspectRatio &&
-          !patch.imageQuality);
-
+      // Модель — per-step: патчим только целевую ноду (globalText игнорируется).
       setNodes((prev) => {
-        const target = prev.find((n) => n.id === detail.nodeKey);
-        const targetType = (target?.data as PipelineNodeData)?.type || "";
-        const shouldApplyGlobally = Boolean(isTextModelChange && isTextNodeType(targetType));
-
-        return prev.map((n) => {
-          const nodeData = n.data as PipelineNodeData;
-          if (n.id === detail.nodeKey) {
-            return {
-              ...n,
-              data: {
-                ...nodeData,
-                ...patch,
-              },
-            };
-          }
-          if (shouldApplyGlobally && isTextNodeType(nodeData.type) && patch.modelId) {
-            return {
-              ...n,
-              data: {
-                ...nodeData,
-                modelId: patch.modelId as string,
-                modelChannel: (patch.modelChannel as "stable") || nodeData.modelChannel,
-              },
-            };
-          }
-          return n;
-        });
+        const next = applyNodeDataPatch(prev, detail.nodeKey, patch);
+        nodesRef.current = next;
+        return next;
       });
-      if (
-        detail.patch.modelId != null ||
-        detail.patch.modelChannel != null ||
+      const isModelChange =
+        patch.modelId != null ||
+        patch.modelChannel != null ||
+        patch.reasoningEffort != null;
+      if (isModelChange) {
+        // Сохраняем сразу, без 1.2с debounce: перезагрузка не должна терять выбор.
+        if (saveTimerRef.current != null) {
+          window.clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+        }
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("canvas-save-workflow"));
+        }, 0);
+      } else if (
         detail.patch.imageResolution != null ||
         detail.patch.imageQuality != null ||
         detail.patch.aspectRatio != null ||
@@ -714,20 +696,11 @@ export function FlowCanvas({
     const onGlobalModel = (ev: Event) => {
       const detail = (ev as CustomEvent<{ modelId: string }>).detail;
       if (!detail?.modelId) return;
+      // Глобальный дефолт не трогает ноды с явным выбором (modelPinned).
       setNodes((prev) =>
-        prev.map((n) => {
-          const nodeData = n.data as PipelineNodeData;
-          if (isTextNodeType(nodeData.type)) {
-            return {
-              ...n,
-              data: {
-                ...nodeData,
-                modelId: detail.modelId,
-              },
-            };
-          }
-          return n;
-        }),
+        applyGlobalTextModel(prev, detail.modelId, (n) =>
+          isTextNodeType((n.data as PipelineNodeData).type),
+        ),
       );
       scheduleSaveWorkflow();
     };
@@ -1141,7 +1114,7 @@ export function FlowCanvas({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
-        fitView={!savedViewport && !canvasGraph?.saved_at}
+        fitView={!canvasGraph?.saved_at}
         fitViewOptions={{ padding: 0.12, maxZoom: 0.85, minZoom: 0.2 }}
         minZoom={0.15}
         maxZoom={1.5}

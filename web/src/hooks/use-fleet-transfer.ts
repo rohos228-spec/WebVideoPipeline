@@ -130,12 +130,24 @@ export function useFleetTransfer(projectId: number | null) {
 
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      cancelled = true;
+      if (timer != null) clearInterval(timer);
+      timer = null;
+    };
     const poll = async () => {
       try {
         const res = await fetch("/api/fleet/transfers/active", {
           headers: fleetAuthHeaders(),
         });
-        if (!res.ok || cancelled) return;
+        if (cancelled) return;
+        // Хаб без реестра трансферов (404) — прекратить опрос, а не повторять бесконечно.
+        if (res.status === 404) {
+          stop();
+          return;
+        }
+        if (!res.ok) return;
         const data = (await res.json()) as { transfers?: FleetTransferState[] };
         const list = data.transfers ?? [];
         const pick =
@@ -149,11 +161,8 @@ export function useFleetTransfer(projectId: number | null) {
     };
     void poll();
     const ms = active?.status === "active" ? 1000 : 3000;
-    const id = setInterval(poll, ms);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
+    timer = setInterval(poll, ms);
+    return stop;
   }, [applyEvent, projectId, active?.status]);
 
   const display = pickDisplayTransfer(active, projectId, dismissed);

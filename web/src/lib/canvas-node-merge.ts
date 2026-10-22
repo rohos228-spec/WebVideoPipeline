@@ -17,6 +17,7 @@ export type CanvasRuntimeData = {
   inputSource?: unknown;
   uploadedFileName?: unknown;
   modelId?: unknown;
+  modelPinned?: unknown;
   modelChannel?: unknown;
   imageResolution?: unknown;
   imageQuality?: unknown;
@@ -58,6 +59,7 @@ export function mergeGraphNodesWithRuntime<T extends CanvasRuntimeData>(
         inputSource: n.data.inputSource ?? old.data.inputSource,
         uploadedFileName: n.data.uploadedFileName ?? old.data.uploadedFileName,
         modelId: n.data.modelId ?? old.data.modelId,
+        modelPinned: n.data.modelPinned ?? old.data.modelPinned,
         modelChannel: n.data.modelChannel ?? old.data.modelChannel,
         imageResolution: n.data.imageResolution ?? old.data.imageResolution,
         imageQuality: n.data.imageQuality ?? old.data.imageQuality,

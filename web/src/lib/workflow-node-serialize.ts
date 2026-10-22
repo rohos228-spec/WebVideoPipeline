@@ -62,6 +62,8 @@ export function workflowNodeFromCanvas(n: Node): WorkflowNode {
   if (typeof d.groupId === "string") data.groupId = d.groupId;
   if (typeof d.groupTitle === "string") data.groupTitle = d.groupTitle;
   if (typeof d.modelId === "string" && d.modelId.trim()) data.modelId = d.modelId.trim();
+  // Модель закреплена за шагом (per-step model) — не терять при сохранении канваса.
+  if (d.modelPinned === true) data.modelPinned = true;
   if (typeof d.modelChannel === "string" && d.modelChannel.trim()) {
     data.modelChannel = d.modelChannel.trim();
   }

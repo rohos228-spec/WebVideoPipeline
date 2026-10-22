@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/shell/app-shell";
+import { SiteEntryGate } from "@/components/shell/site-entry-gate";
 import { ProjectSidebar } from "@/components/sidebar/project-sidebar";
 import { StreamsPanel } from "@/components/inspector/streams-panel";
 import { useQuery } from "@tanstack/react-query";
@@ -12,13 +13,14 @@ import { FleetTransferBanner } from "@/components/fleet/fleet-transfer-banner";
 import { OutseeCreateWorkspace } from "@/components/outsee/outsee-create-workspace";
 import { GptWorkspace } from "@/components/gpt/gpt-workspace";
 import { BazaWorkspace } from "@/components/baza/baza-workspace";
+import { OrchestratorPanel } from "@/components/orchestrator/orchestrator-panel";
 import { useGlobalEvents } from "@/hooks/use-bus";
 import { useFleetTransfer, FLEET_TRANSFER_PUSH_START, optimisticPushTransfer } from "@/hooks/use-fleet-transfer";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { api } from "@/lib/api";
 import { fleetPushToHub } from "@/lib/fleet-api";
 
-export default function HomePage() {
+function HomePageInner() {
   const [selectedProjectId, setSelectedProjectId] = usePersistedState<number | null>(
     "vp-studio-selected-project-id",
     null,
@@ -76,15 +78,16 @@ export default function HomePage() {
     return () => window.removeEventListener("studio-open-baza", openBaza);
   }, []);
 
-  // Р С›РЎР‚Р С”Р ВµРЎРѓРЎвЂљРЎР‚Р В°РЎвЂљР С•РЎР‚ РЎРѓР С•Р В·Р Т‘Р В°Р В» Р С—РЎР‚Р С•Р ВµР С”РЎвЂљ РІвЂ вЂ™ Р Р†РЎвЂ№Р Т‘Р ВµР В»РЎРЏР ВµР С Р ВµР С–Р С• Р Р† Р С—Р В°Р в„–Р С—Р В»Р В°Р в„–Р Р…Р Вµ.
+  // Оркестратор создал проект → выделяем его в пайплайне.
   useEffect(() => {
     const onSelectProject = (ev: Event) => {
       const detail = (ev as CustomEvent<{ projectId?: number | null }>).detail;
-      if (detail?.projectId != null) {
-        setSelectedProjectId(detail.projectId);
-        setSelectedNodeKey(null);
-        setStudioOpen(false);
-      }
+      // null — текущий проект удалён оркестратором: снять выделение,
+      // чтобы канвас не держал граф удалённого проекта.
+      if (detail?.projectId === undefined) return;
+      setSelectedProjectId(detail.projectId);
+      setSelectedNodeKey(null);
+      setStudioOpen(false);
     };
     window.addEventListener("studio-select-project", onSelectProject);
     return () => window.removeEventListener("studio-select-project", onSelectProject);
@@ -128,13 +131,13 @@ export default function HomePage() {
                     );
                     const res = await fleetPushToHub(pid);
                     if ("started" in res && res.started) {
-                      toast.message("Р С›РЎвЂљР С—РЎР‚Р В°Р Р†Р С”Р В° Р С‘Р Т‘РЎвЂРЎвЂљ РІР‚вЂќ РЎРѓР СР С•РЎвЂљРЎР‚Р С‘ Р С—Р С•Р В»Р С•РЎРѓР С”РЎС“ Р Р†Р Р…Р С‘Р В·РЎС“");
+                      toast.message("Отправка идёт — смотри полоску внизу");
                       return;
                     }
                     toast.success(
                       res.size_mb
-                        ? `Р С›РЎвЂљР С—РЎР‚Р В°Р Р†Р В»Р ВµР Р…Р С• Р Р…Р В° Р С–Р В»Р В°Р Р†Р Р…РЎвЂ№Р в„– Р СџР С™ (${res.size_mb} MB)`
-                        : "Р С›РЎвЂљР С—РЎР‚Р В°Р Р†Р В»Р ВµР Р…Р С• Р Р…Р В° Р С–Р В»Р В°Р Р†Р Р…РЎвЂ№Р в„– Р СџР С™",
+                        ? `Отправлено на главный ПК (${res.size_mb} MB)`
+                        : "Отправлено на главный ПК",
                     );
                   }
                 : undefined
@@ -148,6 +151,7 @@ export default function HomePage() {
             }
             onDismiss={dismiss}
           />
+          <OrchestratorPanel key={selectedProjectId ?? "none"} projectId={selectedProjectId} />
           <StreamsFloat projectId={selectedProjectId} />
         </main>
         <FleetPanelSheet
@@ -192,5 +196,13 @@ function StreamsFloat({ projectId }: { projectId: number | null }) {
         <StreamsPanel project={project.data ?? null} hideTextModels bare />
       </div>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <SiteEntryGate>
+      <HomePageInner />
+    </SiteEntryGate>
   );
 }

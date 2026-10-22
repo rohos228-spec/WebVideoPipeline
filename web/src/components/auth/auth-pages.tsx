@@ -14,16 +14,20 @@ export function getToken(): string | null {
   try { return localStorage.getItem(AUTH_TOKEN_KEY); } catch { return null; }
 }
 export function setToken(t: string | null) {
+  // Cookie vp_session ставит сервер (HttpOnly, SameSite=Lax) — из JS её не трогаем,
+  // иначе можно случайно перетереть/удалить серверную сессию. localStorage остаётся
+  // только fallback'ом для Bearer-запросов, если сервер вернул токен.
   try {
-    const secure = typeof location !== "undefined" && location.protocol === "https:" ? "; secure" : "";
-    if (t) { localStorage.setItem(AUTH_TOKEN_KEY, t); document.cookie = `vp_session=${t}; path=/; max-age=${86400 * 7}; samesite=lax${secure}`; }
-    else { localStorage.removeItem(AUTH_TOKEN_KEY); document.cookie = `vp_session=; path=/; max-age=0${secure}`; }
+    if (t) localStorage.setItem(AUTH_TOKEN_KEY, t);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
   } catch {}
 }
 export async function authApi<T = any>(path: string, body?: unknown, method?: string): Promise<T> {
   const t = getToken();
   const r = await fetch(`/api/auth${path}`, {
     method: method ?? (body !== undefined ? "POST" : "GET"),
+    // same-origin: браузер обязан отправлять/принимать HttpOnly cookie сессии.
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...(t ? { Authorization: `Bearer ${t}` } : {}) },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -43,8 +47,14 @@ export function useAuthUser() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    if (!getToken()) { setLoading(false); return; }
-    authApi<{ user: AuthUser }>("/me").then((r) => setUser(r.user)).catch(() => setUser(null)).finally(() => setLoading(false));
+    // Сессия может жить только в HttpOnly cookie — localStorage-токен не обязателен.
+    // Поэтому /me спрашиваем всегда, а 401 просто означает «не залогинен».
+    let alive = true;
+    authApi<{ user: AuthUser }>("/me")
+      .then((r) => { if (alive) setUser(r.user); })
+      .catch(() => { if (alive) setUser(null); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
   }, []);
   return { user, loading, setUser };
 }
@@ -168,8 +178,9 @@ export function LoginPage() {
     if (!login.trim() || !pw) return;
     setLoading(true);
     try {
-      const r = await authApi<{ token: string | null }>("/login", { username: login.trim(), password: pw });
-      setToken(r.token); setOk(true); setTimeout(() => { location.href = next; }, 700);
+      const r = await authApi<{ token?: string | null; auth_required?: boolean }>("/login", { username: login.trim(), password: pw });
+      // Cookie сессии уже пришла в Set-Cookie; токен — только Bearer-fallback.
+      setToken(r.token ?? null); setOk(true); setTimeout(() => { location.href = next; }, 700);
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
   }
   return (
@@ -209,8 +220,8 @@ export function RegisterPage() {
     if (Object.values(e).some(Boolean)) return;
     setLoading(true);
     try {
-      const r = await authApi<{ token: string }>("/register", { email: f.email, username: f.username, name: f.name, password: f.password, plan: plan || null });
-      setToken(r.token);
+      const r = await authApi<{ token?: string | null }>("/register", { email: f.email, username: f.username, name: f.name, password: f.password, plan: plan || null });
+      setToken(r.token ?? null);
       location.href = "/verify-email";
     } catch (x: any) { setErr(x.message); } finally { setLoading(false); }
   }
@@ -315,7 +326,7 @@ export function ResetPasswordPage() {
     e.preventDefault(); setTouched(true); setErr(null);
     if (ep || ec) return;
     setLoading(true);
-    try { await authApi("/reset", { token, password: pw }); setDone(true); setToken(null); setTimeout(() => (location.href = "/login?reset=1"), 1200); }
+    try { await authApi("/reset", { token, password: pw }); setDone(true); await logout(); setTimeout(() => (location.href = "/login?reset=1"), 1200); }
     catch (x: any) { setErr(x.message); } finally { setLoading(false); }
   }
   return (

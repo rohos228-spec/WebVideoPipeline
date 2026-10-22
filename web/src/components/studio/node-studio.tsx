@@ -834,6 +834,7 @@ export function NodeStudio({
                 activeVariant={activeVariant ? String(activeVariant) : undefined}
                 onActivate={(v) => activateVariant.mutate(v)}
                 nodeKey={nodeKey ?? ""}
+                projectId={projectId ?? undefined}
                 description={ds.description || spec.description || ""}
               />
             ) : null}

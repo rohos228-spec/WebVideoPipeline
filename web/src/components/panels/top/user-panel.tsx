@@ -113,8 +113,24 @@ export function UserPanel({ onClose }: { onClose: () => void }) {
   const done = plist.filter((p) => /done|publish|ready_final|complete/i.test(p.status)).length;
   const authRequired = auth.data?.auth_required ?? false;
 
-  const logout = () => {
-    try { localStorage.removeItem("vp-auth-token"); sessionStorage.clear(); } catch {}
+  const logout = async () => {
+    // keepalive: запрос должен успеть уйти до reload — иначе POST отменяется
+    // и серверная cookie vp_session остаётся живой после «выхода».
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+        keepalive: true,
+      });
+    } catch {
+      /* сеть недоступна — всё равно чистим клиентское состояние */
+    }
+    try {
+      localStorage.removeItem("vp-auth-token");
+      sessionStorage.clear();
+      // document.cookie здесь не чистим: vp_session — HttpOnly, из JS её не видно.
+      // Cookie гасит серверный /api/auth/logout (clear_session_cookie).
+    } catch {}
     window.location.reload();
   };
 

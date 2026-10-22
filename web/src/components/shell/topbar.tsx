@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, createContext, useContext } from "react";
-import { Activity, Network, Film, Bot, Database, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet } from "lucide-react";
+import { useState, useEffect, createContext, useContext } from "react";
+import { Activity, Network, Film, Bot, Database, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet, ShieldCheck } from "lucide-react";
 import { LogPanel } from "@/components/logs/log-panel";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
@@ -61,6 +61,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         <RailBtn icon={<Network className="h-[18px] w-[18px]" />} label="Сеть" title="Сеть машин" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-fleet"))} />
         <BugReportButton />
         <RailBtn icon={<HardDrive className="h-[18px] w-[18px]" />} label="Хранилище" active={railPanel === "Хранилище"} onClick={() => togglePanel("Хранилище")} />
+        <AdminRailLink />
         <div className="flex-1" />
         <RailBtn icon={<CreditCard className="h-[18px] w-[18px]" />} label="Оплата" active={railPanel === "Оплата"} onClick={() => togglePanel("Оплата")} />
         <RailBtn icon={<Wallet className="h-[18px] w-[18px]" />} label="Выплаты" active={railPanel === "Выплаты"} onClick={() => togglePanel("Выплаты")} />
@@ -119,5 +120,33 @@ function RailBtn({ icon, label, title, onClick, active }: { icon: React.ReactNod
       {icon}
       <span className="leading-none">{label}</span>
     </button>
+  );
+}
+
+/** Вход в /admin — только если сервер подтвердил права администратора. */
+function AdminRailLink() {
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/admin/access")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { is_admin?: boolean } | null) => {
+        if (alive && d?.is_admin) setIsAdmin(true);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (!isAdmin) return null;
+  return (
+    <RailBtn
+      icon={<ShieldCheck className="h-[18px] w-[18px]" />}
+      label="Админка"
+      title="Админ-панель: метрики, пользователи, генерации, запросы и начисления"
+      onClick={() => {
+        window.location.href = "/admin";
+      }}
+    />
   );
 }

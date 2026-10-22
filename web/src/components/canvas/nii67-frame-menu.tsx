@@ -26,6 +26,12 @@ export type Nii67Frame = {
   duration_hint: number;
   scene?: Record<string, string>;
   visual_changes?: Partial<Nii67VisualChanges>;
+  // Поля появляются после сборки промтов на бэкенде; старые кадры их не имеют.
+  prompt?: string;
+  role?: string;
+  block_index?: number;
+  image_prompt?: string;
+  video_prompt?: string;
 };
 
 const CAMERAS: Nii67Camera[] = ["far", "mid", "close", "side", "POV"];
