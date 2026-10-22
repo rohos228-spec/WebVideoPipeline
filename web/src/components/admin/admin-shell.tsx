@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   ArrowLeft,
+  Coins,
   CreditCard,
   Gauge,
   Images,
@@ -29,14 +30,16 @@ import { AdminRequestsTab } from "./admin-requests";
 import { AdminPlansTab } from "./admin-plans";
 import { AdminSettingsTab } from "./admin-settings";
 import { AdminAuditTab } from "./admin-audit";
+import { AdminCostsTab } from "./admin-costs";
 
-type TabId = "overview" | "users" | "generations" | "requests" | "plans" | "settings" | "audit";
+type TabId = "overview" | "users" | "generations" | "requests" | "costs" | "plans" | "settings" | "audit";
 
 const TABS: { id: TabId; t: string; i: LucideIcon }[] = [
   { id: "overview", t: "Обзор", i: Gauge },
   { id: "users", t: "Пользователи", i: Users },
   { id: "generations", t: "Генерации", i: Images },
   { id: "requests", t: "Запросы", i: Activity },
+  { id: "costs", t: "Расходы", i: Coins },
   { id: "plans", t: "Тарифы", i: CreditCard },
   { id: "settings", t: "Настройки", i: Settings2 },
   { id: "audit", t: "Аудит", i: ScrollText },
@@ -54,6 +57,8 @@ function TabBody({ tab }: { tab: TabId }) {
       return <AdminGenerationsTab />;
     case "requests":
       return <AdminRequestsTab />;
+    case "costs":
+      return <AdminCostsTab />;
     case "plans":
       return <AdminPlansTab />;
     case "settings":

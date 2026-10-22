@@ -30,6 +30,10 @@ export class AdminHttpError extends Error {
 export const isUnauthorized = (err: unknown): boolean =>
   err instanceof AdminHttpError && err.status === 401;
 
+/** 404 — ручки нет или нет прав (участнику себестоимость отдаётся как 404). */
+export const isNotFound = (err: unknown): boolean =>
+  err instanceof AdminHttpError && err.status === 404;
+
 async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = authToken();
   const headers: Record<string, string> = {
@@ -324,6 +328,111 @@ export type AdminSettings = {
   updated_by: string;
 };
 
+/* ─────────────── расходы: /api/admin/costs/* (контракт v1) ─────────────── */
+
+/** Общие параметры периода: ISO-даты, по умолчанию бэкенд берёт последние 30 дней. */
+export type AdminCostPeriod = {
+  from?: string;
+  to?: string;
+  kind?: string;
+  provider?: string;
+  model?: string;
+  project_id?: string | number;
+};
+
+export type AdminCostTotals = {
+  actual_usd: number;
+  credits_charged: number;
+  credits_micro: number;
+  calls: number;
+  unpriced_calls: number;
+  /** Доля вызовов, у которых есть цена, в процентах (0–100). */
+  price_coverage_pct: number;
+};
+
+export type AdminCostByKind = {
+  kind: string;
+  calls: number;
+  units: number;
+  actual_usd: number;
+  credits_charged: number;
+  unpriced_calls: number;
+};
+
+export type AdminCostOverview = {
+  from: string;
+  to: string;
+  totals: AdminCostTotals;
+  by_kind: AdminCostByKind[];
+};
+
+export type AdminCostDay = {
+  day: string;
+  kind: string;
+  calls: number;
+  actual_usd: number;
+  credits_charged: number;
+  unpriced_calls: number;
+};
+
+export type AdminCostModel = {
+  kind: string;
+  provider: string;
+  model: string;
+  calls: number;
+  units: number;
+  unit: string;
+  actual_usd: number;
+  credits_charged: number;
+  avg_usd: number;
+  unpriced_calls: number;
+  has_price: boolean;
+};
+
+export type AdminCostProject = {
+  project_id: string;
+  project_title: string;
+  actual_usd: number;
+  credits_charged: number;
+  calls: number;
+  unpriced_calls: number;
+};
+
+export type AdminCostPrice = {
+  kind: string;
+  provider: string;
+  model: string;
+  unit: string;
+  usd_per_unit: number | null;
+  usd_per_call: number | null;
+  has_price: boolean;
+  calls_30d: number;
+  unpriced_30d: number;
+};
+
+export type AdminCostRecount = {
+  scanned: number;
+  priced: number;
+  still_unpriced: number;
+  added_usd: number;
+  dry_run: boolean;
+};
+
+export type AdminCostReconcileRow = {
+  ref_table: string;
+  charged_usd: number;
+  entries: number;
+  actual_usd: number;
+};
+
+export type AdminCostReconcile = {
+  actual_usd: number;
+  charged_usd: number;
+  delta_usd: number;
+  ratio: number;
+  by_ref_table: AdminCostReconcileRow[];
+};
+
 /* ──────────────────────────── запросы ──────────────────────────── */
 
 export const adminApi = {
@@ -430,6 +539,31 @@ export const adminApi = {
       q?: string;
     } = {},
   ) => adminFetch<AdminRequestsSummary>(`/requests/summary${qs(params)}`),
+
+  /* ── расходы (себестоимость): только админ, участнику 404 ── */
+
+  costsOverview: (params: AdminCostPeriod = {}) =>
+    adminFetch<AdminCostOverview>(`/costs/overview${qs(params)}`),
+
+  costsByDay: (params: AdminCostPeriod = {}) =>
+    adminFetch<AdminCostDay[]>(`/costs/by-day${qs(params)}`),
+
+  costsByModel: (params: AdminCostPeriod = {}) =>
+    adminFetch<AdminCostModel[]>(`/costs/by-model${qs(params)}`),
+
+  costsByProject: (params: AdminCostPeriod = {}) =>
+    adminFetch<AdminCostProject[]>(`/costs/by-project${qs(params)}`),
+
+  costsPrices: (params: AdminCostPeriod = {}) =>
+    adminFetch<AdminCostPrice[]>(`/costs/prices${qs(params)}`),
+
+  /** Сверка факта и списаний кредитов за период. */
+  costsReconcile: (params: AdminCostPeriod = {}) =>
+    adminFetch<AdminCostReconcile>(`/costs/reconcile${qs(params)}`),
+
+  /** Пересчёт себестоимости из прайсов; dry_run=true — только показать, что изменится. */
+  costsRecount: (body: { from?: string; to?: string; dry_run: boolean }) =>
+    adminFetch<AdminCostRecount>("/costs/recount", { method: "POST", body: JSON.stringify(body) }),
 
   plans: () => adminFetch<AdminPlan[]>("/plans"),
 

@@ -248,6 +248,12 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
     hold_amount_micro = int(round(credits_num * 1_000_000))
     if hold_amount_micro <= 0:
         hold_amount_micro = price_micro(cost_usd)
+    # Проект из запроса (вкладка «Генерация» его пока не шлёт — тогда adhoc):
+    # холд без проекта не находится при сверке «кто потратил».
+    try:
+        project_id = int((body or {}).get("project_id") or 0)
+    except (TypeError, ValueError):
+        project_id = 0
     hold_id: str | None = None
 
     if tenant and not is_admin:
@@ -256,7 +262,7 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
                 hold = await cl.open_hold(
                     session,
                     tenant,
-                    project_id=0,
+                    project_id=project_id,
                     step_code=f"kie_{media}",
                     amount_micro=hold_amount_micro,
                 )
@@ -267,49 +273,90 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
                     detail=f"Недостаточно кредитов: {exc}",
                 ) from exc
 
-    async def run(out_path: Path):
-        try:
-            if is_wavespeed:
-                res = await wavespeed_http.run_generation(payload, out_path)
-            elif is_pay52:
-                res = await pay52_video.run_generation(spec, payload, out_path)
-            elif result_kind == "text":
-                task_id = await kie_http.create_task(str(spec.get("api")), spec.get("endpoint"), payload)
-                data = await kie_http.poll_task(str(spec.get("api")), task_id)
-                text = _find_text(data) or str(data)[:4000]
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(text, encoding="utf-8")
-                from app.bots.outsee import GenerationResult
+    provider_name = "wavespeed" if is_wavespeed else ("pay52" if is_pay52 else "kie")
+    provider_label = {"wavespeed": "WaveSpeed", "pay52": "52pay", "kie": "KIE"}[provider_name]
+    # Какая запись журнала соответствует результату и в каких единицах платим.
+    pricing_unit = str(quote.get("unit") or "gen")
+    if result_kind == "video":
+        ledger_kind = "video"
+        ledger_unit = "second"
+        ledger_units = float(quote.get("multiplier") or 1.0) if pricing_unit == "sec" else 1.0
+    elif result_kind == "image":
+        ledger_kind, ledger_unit, ledger_units = "image", "item", 1.0
+    elif result_kind == "audio":
+        if pricing_unit == "1k_chars":
+            voiced = str(values.get("text") or values.get("prompt") or "")
+            ledger_kind, ledger_unit, ledger_units = "audio", "char", float(max(1, len(voiced)))
+        else:
+            ledger_kind, ledger_unit, ledger_units = "audio", "track", 1.0
+    else:
+        ledger_kind, ledger_unit, ledger_units = "text", "item", 1.0
+    fact_model = str(spec.get("id") or model_id)
+    memo = f"{provider_label} генерация {media} ({spec['label']})"
 
-                res = GenerationResult(file_path=out_path, gen_id=task_id, raw_url=None)
-            else:
-                res = await kie_http.run_generation(spec, payload, out_path)
+    async def run(out_path: Path):
+        from app.services.create_billing import charge_hold_by_fact
+        from app.services.media_ledger import capture_rows, media_call
+
+        try:
+            # Факт пишем здесь: kie_http.run_generation / wavespeed_http /
+            # pay52_video — это транспорт без учёта, и «Генерация» зовёт их
+            # напрямую. capture_rows собирает id ровно этих строк, чтобы
+            # списать по факту, а не по оценке каталога.
+            with capture_rows() as rows:
+                async with media_call(
+                    provider_name,
+                    ledger_kind,
+                    model=fact_model,
+                    units=ledger_units,
+                    unit=ledger_unit,
+                    project_id=project_id or None,
+                ) as call:
+                    if is_wavespeed:
+                        res = await wavespeed_http.run_generation(payload, out_path)
+                    elif is_pay52:
+                        res = await pay52_video.run_generation(spec, payload, out_path)
+                    elif result_kind == "text":
+                        task_id = await kie_http.create_task(
+                            str(spec.get("api")), spec.get("endpoint"), payload
+                        )
+                        data = await kie_http.poll_task(str(spec.get("api")), task_id)
+                        text = _find_text(data) or str(data)[:4000]
+                        out_path.parent.mkdir(parents=True, exist_ok=True)
+                        out_path.write_text(text, encoding="utf-8")
+                        from app.bots.outsee import GenerationResult
+
+                        res = GenerationResult(file_path=out_path, gen_id=task_id, raw_url=None)
+                    else:
+                        res = await kie_http.run_generation(spec, payload, out_path)
+                    gid = getattr(res, "gen_id", None)
+                    if gid:
+                        call.external_id = str(gid)
 
             if hold_id:
                 async with session_scope() as session:
-                    await cl.settle_hold(
+                    await charge_hold_by_fact(
                         session,
                         hold_id,
-                        cost_usd=cost_usd,
-                        ref_table="create_generations",
-                        ref_ids=[],
-                        memo=f"{'WaveSpeed' if is_wavespeed else ('52pay' if is_pay52 else 'KIE')} генерация {media} ({spec['label']})",
+                        rows,
+                        est_usd=cost_usd,
+                        memo=memo,
                     )
             return res
         except Exception:
             if hold_id:
                 async with session_scope() as session:
-                    await cl.release_hold(session, hold_id, memo=f"Сбой {'WaveSpeed' if is_wavespeed else ('52pay' if is_pay52 else 'KIE')} генерации {media}")
+                    await cl.release_hold(session, hold_id, memo=f"Сбой {provider_label} генерации {media}")
             raise
 
-    job_provider = "wavespeed" if is_wavespeed else ("pay52" if is_pay52 else "kie")
+    job_provider = provider_name
     job = await enqueue_generation(
         media=media,
         model=spec["label"],
         provider=job_provider,
         prompt=prompt,
         ext=ext,
-        params={"model_id": model_id, "values": values},
+        params={"model_id": model_id, "values": values, "project_id": project_id or None},
         quote={"credits": quote["credits"], "usd": quote["usd"], "note": quote["note"]},
         run=run,
     )

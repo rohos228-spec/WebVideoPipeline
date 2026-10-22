@@ -58,7 +58,8 @@ _ENRICH_SLOT = re.compile(r"^n_excel_gpt_(\d+)$")
 #: Веер сцен: `n_excel_gpt_sd_cd_camera`, `n_excel_gpt_sd_skel` → `scene_d`.
 _SCENE_AGENT = re.compile(r"^n_excel_gpt_sd_")
 #: Ключи, которые расходом шага не являются и в котировку не идут.
-NON_STEP_KEYS: frozenset[str] = frozenset({"adhoc", ""})
+#: ``chat`` — чат студии: деньги тратит, но шага DAG у него нет.
+NON_STEP_KEYS: frozenset[str] = frozenset({"adhoc", "", "chat"})
 
 
 def step_of_node_key(node_key: str) -> str | None:

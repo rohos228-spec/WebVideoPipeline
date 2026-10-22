@@ -107,7 +107,7 @@ async def test_null_price_means_unpriced(session, monkeypatch, tmp_path) -> None
 
 @pytest.mark.asyncio
 async def test_media_call_records_failure_and_reraises(session) -> None:
-    """Неуспешная генерация тоже попадает в учёт — за неё платят."""
+    """Неуспешная генерация попадает в учёт, но не по цене удачной."""
 
     class Boom(RuntimeError):
         pass
@@ -120,6 +120,8 @@ async def test_media_call_records_failure_and_reraises(session) -> None:
     assert len(rows) == 1
     assert rows[0].result == "error"
     assert rows[0].error_kind == "Boom"
+    assert rows[0].cost_usd == 0.0
+    assert rows[0].unpriced is False
 
 
 @pytest.mark.asyncio
@@ -280,3 +282,83 @@ async def test_failed_flush_keeps_rows_in_queue(session, monkeypatch) -> None:
     assert await media_ledger.flush_pending() == 0
     assert media_ledger.pending_count() == 1
     media_ledger._pending_rows.clear()
+
+
+# ── сбор id строк для списания по факту ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_capture_rows_collects_record_ids(session) -> None:
+    """capture_rows отдаёт id ровно своих строк — по ним касса и списывает."""
+    with media_ledger.capture_rows() as rows:
+        await media_ledger.record(provider="outsee", kind="image", model="gpt-image-2", units=1.0)
+        await media_ledger.record(provider="minimax", kind="video", model="MiniMax-Hailuo-2.3", units=6.0)
+
+    assert len(rows) == 2
+    db_rows = await _rows(session)
+    assert {row.id for row in db_rows} == set(rows)
+
+
+@pytest.mark.asyncio
+async def test_capture_rows_picks_up_flushed_pending(session, monkeypatch) -> None:
+    """Строка, отбитая занятой базой, доезжает через flush и тоже считается."""
+    media_ledger._pending_rows.clear()
+    real_scope = media_ledger.session_scope
+
+    @asynccontextmanager
+    async def locked_scope():
+        raise RuntimeError("(sqlite3.OperationalError) database is locked")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(media_ledger, "session_scope", locked_scope)
+    with media_ledger.capture_rows() as rows:
+        await media_ledger.record(provider="minimax", kind="video", model="X", units=6.0)
+        assert rows == []
+        monkeypatch.setattr(media_ledger, "session_scope", real_scope)
+        assert await media_ledger.flush_pending() == 1
+        assert len(rows) == 1
+    assert len(await _rows(session)) == 1
+
+
+@pytest.mark.asyncio
+async def test_kie_video_without_catalog_spec_writes_one_row(session, monkeypatch, tmp_path) -> None:
+    """Ветка KIE-видео без spec в каталоге: факт пишется ровно один раз.
+
+    Раньше такие клипы (Kling 2.6) уходили провайдеру вообще без строки в
+    `media_calls` — в расходах их не было видно. Второй записи быть не должно:
+    дубль завысил бы факт, по которому списывают кредиты.
+    """
+    from app.bots import kie_http, kie_kling
+    from app.bots.outsee import GenerationResult
+    from app.services import kie_catalog
+
+    monkeypatch.setattr(kie_http, "kie_configured", lambda: True)
+    monkeypatch.setattr(kie_catalog, "get_model", lambda _model_id: None)
+
+    async def _fake_generate(prompt, out_path, **kwargs):
+        out_path.write_bytes(b"x" * 2048)
+        return GenerationResult(file_path=out_path, gen_id="gen-1")
+
+    monkeypatch.setattr(kie_kling, "generate_video", _fake_generate)
+
+    await kie_http.generate_kie_video(
+        "промт", tmp_path / "clip.mp4", model_slug="kling-2-6", duration=5
+    )
+
+    rows = await _rows(session)
+    assert len(rows) == 1
+    assert rows[0].provider == "kie"
+    assert rows[0].kind == "video"
+    assert rows[0].external_id == "gen-1"
+    # kie:kling-2-6 закрыт в прайсе — цена подтверждённая, не unpriced
+    assert rows[0].unpriced is False
+    assert rows[0].cost_usd == pytest.approx(0.275)
+
+
+def test_shipped_prices_cover_kie_catalog_paths() -> None:
+    """Ключи, по которым реально ходят вызовы, закрыты подтверждёнными ценами."""
+    prices = media_ledger._prices()
+    for key in ("kie:kling-2-6", "kie:kling-2-6-t2v", "kie:suno-music", "wavespeed:elevenlabs-v4"):
+        assert key in prices, key
+        entry = prices[key]
+        assert entry.per_unit is not None or entry.per_call is not None, key

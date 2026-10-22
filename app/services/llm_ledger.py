@@ -101,17 +101,25 @@ def current_prompt_hash() -> str:
 # (list) — дочерние задачи gather получают копию контекста на тот же
 # объект, append'ы видны родителю. record() дописывает id строки, если
 # коллектор установлен; set/reset строго в try/finally.
-_attempt_rows: ContextVar[list[int] | None] = ContextVar("llm_attempt_rows", default=None)
+#
+# Коллекторов может быть несколько: касса шага (`step_billing`) собирает id
+# за весь шаг, а repair-политика внутри — свои за одну попытку. Стек, а не
+# один слот: иначе внутренний скоуп затирал бы внешний и расход шага терялся.
+_collectors: ContextVar[tuple[list[int], ...]] = ContextVar("llm_row_collectors", default=())
 
 
 @contextmanager
 def capture_attempt() -> Iterator[list[int]]:
     rows: list[int] = []
-    token = _attempt_rows.set(rows)
+    token = _collectors.set(_collectors.get() + (rows,))
     try:
         yield rows
     finally:
-        _attempt_rows.reset(token)
+        _collectors.reset(token)
+
+
+#: То же для кассы шага: id всех llm-строк, записанных внутри блока.
+capture_rows = capture_attempt
 
 
 async def mark_contract_rejected(row_ids: list[int]) -> None:
@@ -187,6 +195,11 @@ def price_for(model: str, served_model: str = "") -> tuple[float, float]:
             label,
         )
     return (0.0, 0.0)
+
+
+def price_known(model: str, served_model: str = "") -> bool:
+    """Есть ли модель в прайсе. Отличает «бесплатно» от «цены не знаем»."""
+    return price_for(model, served_model) != (0.0, 0.0)
 
 
 def _usage_tokens(usage: dict[str, Any] | None) -> tuple[int | None, int | None, int | None]:
@@ -267,7 +280,8 @@ async def record(
         "prompt_tokens": pt,
         "completion_tokens": ct,
         "total_tokens": tt,
-        "cost_usd": cost,
+        # NULL, а не 0: «цены не знаем» не должно выглядеть бесплатным.
+        "cost_usd": cost if price_known(model, served_model) else None,
         "result": result,
         "error_kind": (error_kind or "")[:60],
         "unbilled": unbilled,
@@ -287,9 +301,9 @@ async def record(
             session.add(row)
             await asyncio.wait_for(session.flush(), timeout=2.0)
             row_id = row.id
-        collector = _attempt_rows.get()
-        if collector is not None and row_id:
-            collector.append(int(row_id))
+        if row_id:
+            for collector in _collectors.get():
+                collector.append(int(row_id))
         _bump_spent(project_id, cost)
     except Exception as e:  # noqa: BLE001 — учёт не валит платный вызов
         _failed_inserts += 1
@@ -330,9 +344,16 @@ async def flush_pending() -> int:
     del _pending_rows[:]
     try:
         async with session_scope() as session:
+            rows = []
             for kw in batch:
-                session.add(LlmCall(**kw))
+                row = LlmCall(**kw)
+                session.add(row)
+                rows.append(row)
             await session.flush()
+            for row in rows:
+                if row.id:
+                    for collector in _collectors.get():
+                        collector.append(int(row.id))
     except Exception as e:  # noqa: BLE001 — не вышло, вернём в очередь
         _pending_rows[:0] = batch
         logger.warning("llm_ledger: дозапись {} строк не удалась: {}", len(batch), e)

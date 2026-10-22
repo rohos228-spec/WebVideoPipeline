@@ -96,16 +96,31 @@ async def outsee_job_status(job_id: str) -> dict[str, Any]:
 
 
 def _estimate_outsee_cost_usd(media: str, model: str | None, duration: int | None = None) -> float:
-    m = (model or "").lower()
+    """Оценка для ХОЛДА (не для списания). Сначала прайс, потом грубый резерв.
+
+    Списание идёт по факту (`create_billing`), но резерв обязан быть близок к
+    цене: иначе холд блокирует баланс в разы больше реального расхода.
+    """
+    from app.services.media_ledger import compute_cost
+
     if media == "image":
+        slug = oh.studio_id_to_outsee_image_slug(model)
+        cost, _unit, unpriced = compute_cost("outsee", slug, 1.0, "item")
+        if not unpriced:
+            return round(cost, 4)
+        m = (model or "").lower()
         if "vip" in m or "pro" in m:
             return 0.12
         if "lite" in m or "fast" in m:
             return 0.03
         return 0.08
     if media == "video":
-        d = duration or 5
-        base = 0.80 if "sora" in m else 1.20
+        d = int(duration or 5)
+        slug = oh.studio_id_to_outsee_video_slug(model)
+        cost, _unit, unpriced = compute_cost("outsee", slug, float(d), "second")
+        if not unpriced:
+            return round(cost, 4)
+        base = 0.80 if "sora" in (model or "").lower() else 1.20
         if d > 5:
             base *= d / 5.0
         return round(base, 2)
@@ -175,24 +190,28 @@ async def outsee_generate(body: OutseeGenerateBody) -> dict[str, Any]:
 
     def _wrap_with_billing(actual_run, media_type: str, model_slug: str):
         async def runner(out_path):
+            from app.services.create_billing import charge_hold_by_fact
+            from app.services.media_ledger import capture_rows
+
             try:
-                res = await actual_run(out_path)
-                if hold_id:
-                    async with session_scope() as session:
-                        await cl.settle_hold(
-                            session,
-                            hold_id,
-                            cost_usd=est_cost_usd,
-                            ref_table="create_generations",
-                            ref_ids=[],
-                            memo=f"Генерация {media_type} ({model_slug})",
-                        )
-                return res
+                # id фактов именно этой задачи — по ним и списываем (см. create_billing).
+                with capture_rows() as rows:
+                    res = await actual_run(out_path)
             except Exception:
                 if hold_id:
                     async with session_scope() as session:
                         await cl.release_hold(session, hold_id, memo=f"Сбой генерации {media_type}")
                 raise
+            if hold_id:
+                async with session_scope() as session:
+                    await charge_hold_by_fact(
+                        session,
+                        hold_id,
+                        rows,
+                        est_usd=est_cost_usd,
+                        memo=f"Генерация {media_type} ({model_slug})",
+                    )
+            return res
 
         return runner
 

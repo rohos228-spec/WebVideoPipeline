@@ -30,8 +30,9 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,37 @@ _warned_models: set[str] = set()
 # Строки, не доехавшие до БД (SQLite занят транзакцией шага) — см. `_queue_pending`.
 _pending_rows: list[dict[str, Any]] = []
 _PENDING_MAX = 2000
+
+# Собиратель id строк текущей операции (Create-задача, разовая генерация):
+# нужен, чтобы списать кредиты ровно по СВОИМ фактам, а не по чужим.
+# Список — mutable, поэтому копия контекста в дочерних задачах видит append'ы.
+_captured_rows: ContextVar[list[int] | None] = ContextVar("media_captured_rows", default=None)
+
+
+@contextmanager
+def capture_rows() -> Iterator[list[int]]:
+    """Собрать id строк ``media_calls``, записанных внутри блока.
+
+    Это ключ к сходимости: касса Create-задачи списывает сумму ``cost_usd``
+    ровно по этим строкам, а не по оценке каталога. Вложенный capture
+    наследует внешний коллектор (как `llm_ledger.capture_attempt`).
+    """
+    existing = _captured_rows.get()
+    if existing is not None:
+        yield existing
+        return
+    rows: list[int] = []
+    token = _captured_rows.set(rows)
+    try:
+        yield rows
+    finally:
+        _captured_rows.reset(token)
+
+
+def _capture_row(row_id: int | None) -> None:
+    collector = _captured_rows.get()
+    if collector is not None and row_id:
+        collector.append(int(row_id))
 
 
 @dataclass(frozen=True)
@@ -125,7 +157,7 @@ def price_for(provider: str, model: str, variant: str = "") -> PriceEntry:
     """
     prov = (provider or "").strip().lower()
     clean_model = (model or "").strip()
-    for pfx in ("kie:", "outsee:", "elevenlabs:", "wavespeed:", "minimax:", "vibecode:"):
+    for pfx in ("kie:", "outsee:", "elevenlabs:", "wavespeed:", "minimax:", "vibecode:", "pay52:"):
         if clean_model.lower().startswith(pfx):
             clean_model = clean_model[len(pfx) :]
             break
@@ -138,7 +170,7 @@ def price_for(provider: str, model: str, variant: str = "") -> PriceEntry:
     if clean_model not in keys:
         keys.append(clean_model)
     # Поиск по альтернативным провайдерам, если модель зарегистрирована под другим
-    for alt_prov in ("kie", "outsee", "elevenlabs", "wavespeed", "minimax", "vibecode"):
+    for alt_prov in ("kie", "outsee", "elevenlabs", "wavespeed", "minimax", "vibecode", "pay52"):
         k = f"{alt_prov}:{clean_model}"
         if k not in keys:
             keys.append(k)
@@ -219,6 +251,11 @@ async def record(
 
     tenant = current_tenant()
     cost, resolved_unit, unpriced = compute_cost(provider, model, units, unit, variant)
+    if result == "error":
+        # Упавший вызов не должен стоить как удачный: деньги за генерацию,
+        # которой нет, списывать нельзя. `unpriced` оставляем как есть —
+        # если цены нет вовсе, это по-прежнему «неизвестно».
+        cost = 0.0
     row_kwargs = {
         "tenant_id": tenant,
         "project_id": pid,
@@ -240,7 +277,9 @@ async def record(
             row = MediaCall(**row_kwargs)
             session.add(row)
             await session.flush()
-            return row.id
+            row_id = row.id
+        _capture_row(row_id)
+        return row_id
     except Exception as e:  # noqa: BLE001 — учёт не валит платную генерацию
         _failed_inserts += 1
         _queue_pending(row_kwargs)
@@ -274,9 +313,14 @@ async def flush_pending() -> int:
     del _pending_rows[:]
     try:
         async with session_scope() as session:
+            rows = []
             for kw in batch:
-                session.add(MediaCall(**kw))
+                row = MediaCall(**kw)
+                session.add(row)
+                rows.append(row)
             await session.flush()
+            for row in rows:
+                _capture_row(row.id)
     except Exception as e:  # noqa: BLE001 — не вышло, вернём в очередь
         _pending_rows[:0] = batch
         logger.warning("media_ledger: дозапись {} строк не удалась: {}", len(batch), e)

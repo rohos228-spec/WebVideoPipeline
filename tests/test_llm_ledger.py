@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models import Base, LlmCall
@@ -101,6 +101,25 @@ def test_unbilled_only_when_no_token_fields():
 
 
 # ── record ───────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_unknown_model_price_is_null_not_zero(ledger_db):
+    """Нет модели в прайсе — `cost_usd` NULL: «неизвестно», а не «бесплатно»."""
+    await ledger.record(
+        project_id=7,
+        node_key="check_1",
+        logical_call_id="lc-null",
+        model="no-such-model-x",
+        usage={"prompt_tokens": 1000, "completion_tokens": 100},
+    )
+    async with ledger_db() as s:
+        row = (await s.execute(select(LlmCall))).scalar_one()
+        # SUM игнорирует NULL: в отчёте такая строка unpriced, а не 0.
+        total = (await s.execute(select(func.sum(LlmCall.cost_usd)))).scalar_one()
+    assert row.cost_usd is None
+    assert row.unbilled is False  # usage был — это именно отсутствие цены
+    assert total is None
 
 
 @pytest.mark.asyncio

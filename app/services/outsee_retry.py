@@ -913,6 +913,24 @@ def _uniquify_prompt_id(base: str | None, round_idx: int, attempt: int) -> str |
     return f"{stripped} r{round_idx + 1}a{attempt}"
 
 
+async def _cdp_image_recorded(
+    outsee: OutseeBot,
+    prompt: str,
+    out_path: Path,
+    attempt_kwargs: dict[str, Any],
+    project_id: int | None,
+) -> GenerationResult:
+    """Картинка через бота. Факт пишет сам бот.
+
+    `OutseeBot.generate_image` пробует Developer API (там факт пишет
+    `outsee_http.generate_image`) и при неудаче идёт в CDP (там факт пишет
+    обёртка внутри бота). Снаружи решать, «был ли HTTP», нельзя: именно на
+    этом и терялся расход, когда HTTP упал и случился тихий fallback в CDP.
+    """
+    del project_id
+    return await outsee.generate_image(prompt, out_path, **attempt_kwargs)
+
+
 async def generate_image_with_retries(
     outsee: OutseeBot | None,
     gpt: Any | None,
@@ -1029,20 +1047,7 @@ async def generate_image_with_retries(
                             )
                         except Exception:  # noqa: BLE001
                             logger.debug("kie sidecar write skipped", exc_info=True)
-                        try:
-                            from app.services.media_ledger import record as record_media
-                            await record_media(
-                                provider="kie",
-                                kind="image",
-                                model=str(slug),
-                                units=1.0,
-                                unit="item",
-                                project_id=pid if isinstance(pid, int) else None,
-                                external_id=str(result.gen_id or ""),
-                                result="ok",
-                            )
-                        except Exception:
-                            logger.debug("kie image media record skipped", exc_info=True)
+                        # Факт уже записан внутри generate_kie_image (media_call).
                         return result
                     if use_outsee_api:
                         result = await outsee_api_generate_image(
@@ -1078,27 +1083,22 @@ async def generate_image_with_retries(
                             )
                         except Exception:  # noqa: BLE001
                             logger.debug("outsee sidecar write skipped", exc_info=True)
-                        try:
-                            from app.services.media_ledger import record as record_media
-                            await record_media(
-                                provider="outsee",
-                                kind="image",
-                                model=str(slug),
-                                units=1.0,
-                                unit="item",
-                                project_id=pid if isinstance(pid, int) else None,
-                                external_id=str(result.gen_id or ""),
-                                result="ok",
-                            )
-                        except Exception:
-                            logger.debug("outsee image media record skipped", exc_info=True)
+                        # Факт уже записан внутри outsee_http.generate_image.
                         return result
                     if outsee is None:
                         raise OutseeImageError("outsee client is None")
-                    return await outsee.generate_image(send_prompt, out_path, **attempt_kwargs)
+                    return await _cdp_image_recorded(
+                        outsee,
+                        send_prompt,
+                        out_path,
+                        attempt_kwargs,
+                        pid if isinstance(pid, int) else None,
+                    )
                 if outsee is None:
                     raise OutseeImageError("outsee client is None")
-                return await outsee.generate_image(send_prompt, out_path, **attempt_kwargs)
+                return await _cdp_image_recorded(
+                    outsee, send_prompt, out_path, attempt_kwargs, pid if isinstance(pid, int) else None
+                )
             except StepCancelledError:
                 raise
             except OutseeDownloadError as e:
@@ -1424,20 +1424,7 @@ async def generate_video_with_retries(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("kie video sidecar skipped", exc_info=True)
-            try:
-                from app.services.media_ledger import record as record_media
-                await record_media(
-                    provider="kie",
-                    kind="video",
-                    model=str(raw_slug),
-                    units=float(attempt_kwargs.get("duration") or 5),
-                    unit="second",
-                    project_id=project_id,
-                    external_id=str(result.gen_id or ""),
-                    result="ok",
-                )
-            except Exception:
-                logger.debug("kie video media record skipped", exc_info=True)
+            # Факт уже записан внутри generate_kie_video (media_call).
             return result
         if use_outsee_api_video:
             raw_slug = attempt_kwargs.get("model_slug") or getattr(
@@ -1482,24 +1469,14 @@ async def generate_video_with_retries(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("outsee video sidecar skipped", exc_info=True)
-            try:
-                from app.services.media_ledger import record as record_media
-                await record_media(
-                    provider="outsee",
-                    kind="video",
-                    model=str(slug),
-                    units=float(dur or 5),
-                    unit="second",
-                    project_id=project_id,
-                    external_id=str(result.gen_id or ""),
-                    result="ok",
-                )
-            except Exception:
-                logger.debug("outsee video media record skipped", exc_info=True)
+            # Факт уже записан внутри outsee_http.generate_video.
             return result
         if outsee is None:
             raise OutseeImageError("outsee client is None")
-        return await outsee.generate_video(send_prompt, out_path, project_id=project_id, **attempt_kwargs)
+        # CDP-ветка: факт пишет сам бот — и для HTTP, и для CDP-фолбэка.
+        return await outsee.generate_video(
+            send_prompt, out_path, project_id=project_id, **attempt_kwargs
+        )
 
     async def _rewrite_prompt_after_fail(err: BaseException) -> None:
         nonlocal current_prompt, local_sanitized

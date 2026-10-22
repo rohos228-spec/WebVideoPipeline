@@ -2011,43 +2011,56 @@ class OutseeBot:
             )
         _verify_prompt_length_before_send(prompt, where="generate_image")
 
+        # CDP-ветка: HTTP не сработал (или ключа нет). Факт пишем здесь —
+        # HTTP-слой пишет свой, поэтому двойного счёта нет.
+        from app.services.media_ledger import media_call
         from app.services.outsee_lane import outsee_lane
 
-        async with outsee_lane(project_id=project_id, op="generate_image"):
-            page_url = _image_page_url(model_slug)
-            logger.info(
-                "outsee.generate_image: открываю страницу gen_id={} url={}",
-                gen_id[:8],
-                page_url,
-            )
-            page = await self.session.open_page(page_url, reuse=True)
-            from app.services.step_cancel import (
-                register_active_page,
-                unregister_active_page,
-            )
-
-            if project_id is not None:
-                register_active_page(project_id, page)
-            try:
-                return await self._generate_image_on_page(
-                    page,
-                    prompt=prompt,
-                    out_path=out_path,
-                    aspect_ratio=aspect_ratio,
-                    timeout=timeout,
-                    gen_id=gen_id,
-                    model_slug=model_slug,
-                    resolution=resolution,
-                    quality=quality,
-                    relax=relax,
-                    prompt_id_prefix=prompt_id_prefix,
-                    reference_image=reference_image,
-                    project_id=project_id,
-                    page_url=page_url,
+        async with media_call(
+            "outsee",
+            "image",
+            model=str(model_slug or ""),
+            units=1.0,
+            unit="item",
+            project_id=project_id,
+        ) as call:
+            async with outsee_lane(project_id=project_id, op="generate_image"):
+                page_url = _image_page_url(model_slug)
+                logger.info(
+                    "outsee.generate_image: открываю страницу gen_id={} url={}",
+                    gen_id[:8],
+                    page_url,
                 )
-            finally:
+                page = await self.session.open_page(page_url, reuse=True)
+                from app.services.step_cancel import (
+                    register_active_page,
+                    unregister_active_page,
+                )
+
                 if project_id is not None:
-                    unregister_active_page(project_id)
+                    register_active_page(project_id, page)
+                try:
+                    result = await self._generate_image_on_page(
+                        page,
+                        prompt=prompt,
+                        out_path=out_path,
+                        aspect_ratio=aspect_ratio,
+                        timeout=timeout,
+                        gen_id=gen_id,
+                        model_slug=model_slug,
+                        resolution=resolution,
+                        quality=quality,
+                        relax=relax,
+                        prompt_id_prefix=prompt_id_prefix,
+                        reference_image=reference_image,
+                        project_id=project_id,
+                        page_url=page_url,
+                    )
+                    call.external_id = str(getattr(result, "gen_id", "") or "")
+                    return result
+                finally:
+                    if project_id is not None:
+                        unregister_active_page(project_id)
 
     async def _generate_image_on_page(
         self,
@@ -2445,7 +2458,7 @@ class OutseeBot:
             dumps=dumps or None,
         )
 
-    async def regenerate_image(
+    async def _regenerate_image_impl(
         self,
         out_path: Path,
         *,
@@ -2594,6 +2607,48 @@ class OutseeBot:
             finally:
                 if project_id is not None:
                     unregister_active_page(project_id)
+
+    async def regenerate_image(
+        self,
+        out_path: Path,
+        *,
+        timeout: float = 600,
+        gen_id: str | None = None,
+        project_id: int | None = None,
+        model_slug: str | None = None,
+    ) -> GenerationResult:
+        """«Повторить» на результате Outsee + факт в ``media_calls``.
+
+        CDP-перегенерация — такая же платная генерация, как обычная; до
+        этого она не попадала в расходы вообще (её зовут только шаги
+        «Повторить» из UI, HTTP-слоя у неё нет).
+        """
+        from app.services.media_ledger import media_call
+
+        # Без slug страница откроется с моделью по умолчанию (`settings.
+        # outsee_image_url`), и расход надо писать именно по ней, а не пустой
+        # строкой: пустой ключ в прайсе = unpriced. Герой исторически зовёт
+        # «Повторить» без slug.
+        from app.settings import settings as _st
+
+        fact_slug = str(model_slug or getattr(_st, "outsee_default_image_model", "") or "")
+        async with media_call(
+            "outsee",
+            "image",
+            model=fact_slug,
+            units=1.0,
+            unit="item",
+            project_id=project_id,
+        ) as call:
+            result = await self._regenerate_image_impl(
+                out_path,
+                timeout=timeout,
+                gen_id=gen_id,
+                project_id=project_id,
+                model_slug=model_slug,
+            )
+            call.external_id = str(result.gen_id or "")
+            return result
 
     async def retry_image_download(
         self,
@@ -4777,43 +4832,56 @@ class OutseeBot:
             )
         _verify_prompt_length_before_send(prompt, where="generate_video")
 
+        # CDP-ветка: HTTP не сработал (или ключа нет). Факт пишем здесь;
+        # HTTP-слой пишет свой, поэтому один вызов даёт одну строку.
+        from app.services.media_ledger import media_call
         from app.services.outsee_lane import outsee_lane
 
-        async with outsee_lane(project_id=project_id, op="generate_video"):
-            page_url = _video_page_url(model_slug)
-            logger.info(
-                "outsee.generate_video: открываю страницу gen_id={} url={}",
-                gen_id[:8],
-                page_url,
-            )
-            page = await self.session.open_page(page_url, reuse=True)
-            from app.services.step_cancel import (
-                register_active_page,
-                unregister_active_page,
-            )
-
-            if project_id is not None:
-                register_active_page(project_id, page)
-            try:
-                return await self._generate_video_on_page(
-                    page,
-                    prompt=prompt,
-                    out_path=out_path,
-                    start_frame=start_frame,
-                    aspect_ratio=aspect_ratio,
-                    timeout=timeout,
-                    gen_id=gen_id,
-                    model_slug=model_slug,
-                    resolution=resolution,
-                    relax=relax,
-                    prompt_id_prefix=prompt_id_prefix,
-                    project_id=project_id,
-                    page_url=page_url,
-                    duplicate_check_paths=dup_refs,
+        async with media_call(
+            "outsee",
+            "video",
+            model=str(model_slug or ""),
+            units=1.0,
+            unit="item",
+            project_id=project_id,
+        ) as call:
+            async with outsee_lane(project_id=project_id, op="generate_video"):
+                page_url = _video_page_url(model_slug)
+                logger.info(
+                    "outsee.generate_video: открываю страницу gen_id={} url={}",
+                    gen_id[:8],
+                    page_url,
                 )
-            finally:
+                page = await self.session.open_page(page_url, reuse=True)
+                from app.services.step_cancel import (
+                    register_active_page,
+                    unregister_active_page,
+                )
+
                 if project_id is not None:
-                    unregister_active_page(project_id)
+                    register_active_page(project_id, page)
+                try:
+                    result = await self._generate_video_on_page(
+                        page,
+                        prompt=prompt,
+                        out_path=out_path,
+                        start_frame=start_frame,
+                        aspect_ratio=aspect_ratio,
+                        timeout=timeout,
+                        gen_id=gen_id,
+                        model_slug=model_slug,
+                        resolution=resolution,
+                        relax=relax,
+                        prompt_id_prefix=prompt_id_prefix,
+                        project_id=project_id,
+                        page_url=page_url,
+                        duplicate_check_paths=dup_refs,
+                    )
+                    call.external_id = str(getattr(result, "gen_id", "") or "")
+                    return result
+                finally:
+                    if project_id is not None:
+                        unregister_active_page(project_id)
 
     async def _generate_video_on_page(
         self,

@@ -214,6 +214,49 @@ async def test_spend_before_the_step_is_not_recharged(no_history) -> None:
         assert bill.cost_usd == pytest.approx(0.02)
 
 
+async def test_spend_is_charged_by_captured_rows_not_by_time_window(no_history) -> None:
+    """Списание идёт по id вызовов, собранным вокруг шага.
+
+    Время создания строки роли не играет: если вызов сделан внутри шага, он
+    оплачен, даже если провайдер/лог задним числом отдал `created_at` из
+    прошлого. Обратное тоже верно — чужая работа в счёт не попадает, потому
+    что её id в сборщик не попали.
+    """
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import update
+
+    from app.services import llm_ledger, media_ledger
+
+    tenant = await _funded_tenant()
+    async with session_scope() as s:
+        project = Project(slug=f"cap-{uuid.uuid4().hex[:8]}", topic="тест")
+        s.add(project)
+        await s.flush()
+        project_id = project.id
+
+    with tenant_scope(tenant):
+        async with step_billing(_project(id=project_id), "video", frames=24) as bill:
+            media_id = await media_ledger.record(
+                provider="outsee", kind="video", model="veo-3-1-lite", units=5.0, unit="second"
+            )
+            llm_id = await llm_ledger.record(
+                project_id=project_id,
+                node_key="videos",
+                logical_call_id="cap-1",
+                model="gpt-5.6-sol",
+                usage={"prompt_tokens": 1_000_000, "completion_tokens": 0},
+            )
+            # Задним числом «старые» отметки: путь по времени их бы потерял.
+            old = datetime.utcnow() - timedelta(days=1)
+            async with session_scope() as s:
+                await s.execute(update(MediaCall).where(MediaCall.id == media_id).values(created_at=old))
+                await s.execute(update(LlmCall).where(LlmCall.id == llm_id).values(created_at=old))
+
+        in_rate, _out = llm_ledger.price_for("gpt-5.6-sol")
+        assert bill.cost_usd == pytest.approx(0.45 + in_rate)  # veo-3-1-lite + 1M входа
+
+
 async def test_insufficient_balance_stops_the_step(no_history) -> None:
     """Денег нет — шаг не стартует, а не падает на середине."""
     tenant = await _funded_tenant(1_000)  # 0.001 кредита

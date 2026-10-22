@@ -478,6 +478,37 @@ async def run_turn(
     project_id: int | None = None,
     native: bool | None = None,
 ) -> AsyncIterator[AgentEvent]:
+    """Виток чата с привязкой расходов к открытому ролику.
+
+    Раньше LLM-вызовы чата писались в `llm_calls` без `project_id`
+    (`node_key="adhoc"`): деньги считались, а спросить «сколько стоил чат по
+    этому ролику» было нельзя. Контекст учёта — тот же, что у шагов.
+    """
+    from app.services.llm_override import LlmAccountingContext, use_accounting
+
+    with use_accounting(LlmAccountingContext(project_id=project_id, node_key="chat")):
+        async for event in _run_turn_impl(
+            session,
+            message,
+            history=history,
+            ask=ask,
+            max_turns=max_turns,
+            project_id=project_id,
+            native=native,
+        ):
+            yield event
+
+
+async def _run_turn_impl(
+    session: Any,
+    message: str,
+    *,
+    history: list[Message] | None = None,
+    ask: Any = None,
+    max_turns: int = MAX_TURNS,
+    project_id: int | None = None,
+    native: bool | None = None,
+) -> AsyncIterator[AgentEvent]:
     """Обработать сообщение человека, отдавая события по мере готовности.
 
     ``ask`` — как спросить модель: ``async (messages, system, tools) -> ModelReply | str``.

@@ -1238,7 +1238,7 @@ def _normalize_refs(refs: list[Any] | None) -> list[str] | None:
     return out[:9] or None
 
 
-async def generate_image(
+async def _generate_image_impl(
     prompt: str,
     out_path: Path,
     *,
@@ -1372,7 +1372,7 @@ async def generate_image(
     )
 
 
-async def generate_video(
+async def _generate_video_impl(
     prompt: str,
     out_path: Path,
     *,
@@ -1610,6 +1610,103 @@ async def generate_video(
         raw_url=url,
         gen_id=str(gen_id or task_id),
     )
+
+
+async def generate_image(  # noqa: PLR0913 — обёртка повторяет публичный контракт
+    prompt: str,
+    out_path: Path,
+    *,
+    model_slug: str | None = None,
+    aspect_ratio: str = "9:16",
+    resolution: str | None = "2K",
+    detail_level: str | None = None,
+    reference_images: list[Any] | None = None,
+    prompt_id_prefix: str | None = None,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+    gen_id: str | None = None,
+    project_id: int | None = None,
+    **kwargs: Any,
+) -> GenerationResult:
+    """Картинка Outsee API + факт в ``media_calls``.
+
+    Учёт — на этом слое, а не у вызывающего: через API идут и пайплайн, и
+    вкладка «Генерация», и раньше часть путей вообще не писала расход.
+    """
+    from app.services.media_ledger import media_call
+
+    model = studio_id_to_outsee_image_slug(model_slug)
+    async with media_call(
+        "outsee", "image", model=model, units=1.0, unit="item", project_id=project_id
+    ) as call:
+        result = await _generate_image_impl(
+            prompt,
+            out_path,
+            model_slug=model_slug,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            detail_level=detail_level,
+            reference_images=reference_images,
+            prompt_id_prefix=prompt_id_prefix,
+            timeout=timeout,
+            gen_id=gen_id,
+            project_id=project_id,
+            **kwargs,
+        )
+        call.external_id = str(result.gen_id or "")
+        return result
+
+
+async def generate_video(  # noqa: PLR0913 — обёртка повторяет публичный контракт
+    prompt: str,
+    out_path: Path,
+    *,
+    model_slug: str | None = None,
+    aspect_ratio: str = "9:16",
+    resolution: str | None = "720p",
+    duration: int | float | None = None,
+    generate_audio: bool | None = False,
+    first_frame_url: str | None = None,
+    last_frame_url: str | None = None,
+    reference_image: Path | str | None = None,
+    last_frame_image: Path | str | None = None,
+    prompt_id_prefix: str | None = None,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+    gen_id: str | None = None,
+    project_id: int | None = None,
+    **kwargs: Any,
+) -> GenerationResult:
+    """Видео Outsee API + факт в ``media_calls`` (цена — за клип из прайса)."""
+    from app.services.media_ledger import media_call
+
+    model = studio_id_to_outsee_video_slug(model_slug)
+    async with media_call(
+        "outsee",
+        "video",
+        model=model,
+        units=float(duration or 8),
+        unit="second",
+        project_id=project_id,
+    ) as call:
+        result = await _generate_video_impl(
+            prompt,
+            out_path,
+            model_slug=model_slug,
+            aspect_ratio=aspect_ratio,
+            resolution=resolution,
+            duration=duration,
+            generate_audio=generate_audio,
+            first_frame_url=first_frame_url,
+            last_frame_url=last_frame_url,
+            reference_image=reference_image,
+            last_frame_image=last_frame_image,
+            prompt_id_prefix=prompt_id_prefix,
+            timeout=timeout,
+            gen_id=gen_id,
+            project_id=project_id,
+            **kwargs,
+        )
+        call.external_id = str(result.gen_id or "")
+        return result
 
 
 async def generate_image_http(

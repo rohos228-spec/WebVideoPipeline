@@ -717,4 +717,13 @@ async def generate_kie_image(
         len(ref_urls),
         project_id,
     )
-    return await run_generation(spec, payload, out_path, timeout_s=timeout)
+    from app.services.media_ledger import media_call
+
+    # Факт пишется здесь, а не у вызывающего: картинку заказывают и
+    # outsee_retry, и вкладка «Генерация», и регенерации в студии.
+    async with media_call(
+        "kie", "image", model=kie_id, units=1.0, unit="item", project_id=project_id
+    ) as call:
+        result = await run_generation(spec, payload, out_path, timeout_s=timeout)
+        call.external_id = str(getattr(result, "gen_id", "") or "")
+        return result

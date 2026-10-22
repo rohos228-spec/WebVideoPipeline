@@ -84,32 +84,35 @@ def test_generate_enqueues_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(kie_create.kie_http, "run_generation", fake_run)
 
-    c = TestClient(_app())
-    r = c.post(
-        "/api/kie-create/generate",
-        json={
-            "model_id": "seedance-2-5",
-            "values": {"prompt": "тестовый ролик", "resolution": "720p", "duration": 5},
-        },
-    )
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert data["job"]["status"] in ("queued", "processing", "done")
-    assert data["estimate"]["credits"] == 63 * 5
-    assert data["estimate"]["usd"] == round(63 * 5 * 0.005, 4)
-    job_id = data["job"]["job_id"]
+    # Контекстный TestClient держит event loop живым между запросами: job —
+    # отдельная задача, и теперь она успевает сходить в БД за фактом расхода,
+    # а не отменяется закрытием портала сразу после ответа на POST.
+    with TestClient(_app()) as c:
+        r = c.post(
+            "/api/kie-create/generate",
+            json={
+                "model_id": "seedance-2-5",
+                "values": {"prompt": "тестовый ролик", "resolution": "720p", "duration": 5},
+            },
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["job"]["status"] in ("queued", "processing", "done")
+        assert data["estimate"]["credits"] == 63 * 5
+        assert data["estimate"]["usd"] == round(63 * 5 * 0.005, 4)
+        job_id = data["job"]["job_id"]
 
-    # фоновая задача добегает моком → файл появляется
-    for _ in range(50):
-        jr = c.get(f"/api/kie-create/jobs/{job_id}")
-        if jr.json()["status"] in ("done", "failed"):
-            break
-        import time
+        # фоновая задача добегает моком → файл появляется
+        for _ in range(50):
+            jr = c.get(f"/api/kie-create/jobs/{job_id}")
+            if jr.json()["status"] in ("done", "failed"):
+                break
+            import time
 
-        time.sleep(0.1)
-    jr = c.get(f"/api/kie-create/jobs/{job_id}").json()
-    assert jr["status"] == "done", jr.get("error")
-    assert Path(jr["path"]).is_file()
+            time.sleep(0.1)
+        jr = c.get(f"/api/kie-create/jobs/{job_id}").json()
+        assert jr["status"] == "done", jr.get("error")
+        assert Path(jr["path"]).is_file()
 
 
 def test_upload_requires_config(monkeypatch: pytest.MonkeyPatch) -> None:

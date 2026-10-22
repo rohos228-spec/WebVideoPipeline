@@ -1,91 +1,74 @@
-"""Пересчёт стоимости медиа-вызовов, которые записались без цены.
+"""Пересчёт стоимости записанных вызовов, у которых цены не было.
 
 Зачем. До 21.10.2026 у ``outsee:gpt-image-2`` и ``outsee:nano-banana-2`` в
 прайсе стояла цена ``null``. Строки вызовов легли с ``unpriced=true`` и
 ``cost_usd=0``. Прайс заполнили, но история осталась нулевой — отчёт расходов
 занижен ровно на эти генерации, и «сколько стоят картинки» узнать неоткуда.
 
-Что делает. Берёт строки ``media_calls`` с ``unpriced=true``, считает цену
-текущим прайсом (``media_ledger.compute_cost``) и, если цена теперь известна,
-записывает ``cost_usd`` и снимает флаг. Строки, для которых цены по-прежнему
-нет, остаются ``unpriced`` — врать нулём нельзя.
+Что делает. Пересчитывает факты текущим прайсом: ``media_calls`` (цена из
+``media_prices.json``) и ``llm_calls`` (цена из токенов и ``llm_prices.json``).
+Логика живёт в ``app/services/cost_recount.py`` — её же зовёт админ-ручка
+``POST /api/admin/costs/recount``. Строки, для которых цены по-прежнему нет,
+остаются ``unpriced``: врать нулём нельзя.
 
 Запуск (внутри контейнера, где лежит пакет ``app``):
 
     python -m app.backfill_media_costs           # только показать
     python -m app.backfill_media_costs --apply   # записать
+    python -m app.backfill_media_costs --from 2026-10-01 --to 2026-10-31
+    python -m app.backfill_media_costs --tenant <uuid> --apply
 
-Повторный запуск безопасен: после ``--apply`` строк с известной ценой уже не
-будет ``unpriced``, останутся только те, что и должны.
+Повторный запуск безопасен: уже расценённые строки с той же ценой не
+трогаются, прирост ``added_usd`` во второй раз будет нулевым.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-from collections import defaultdict
+from datetime import UTC, datetime
 
 from loguru import logger
-from sqlalchemy import select
 
-from app.db import session_scope
-from app.models import MediaCall
-from app.services.media_ledger import compute_cost
+from app.services.cost_recount import recount_costs
 
 
-async def backfill(apply: bool) -> int:
-    updated = 0
-    total_usd = 0.0
-    still_unpriced: dict[str, int] = defaultdict(int)
+def _parse_day(raw: str | None) -> datetime | None:
+    """``YYYY-MM-DD`` → datetime в UTC; пусто — окно не ограничено."""
+    if not raw:
+        return None
+    return datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=UTC).replace(tzinfo=None)
 
-    async with session_scope() as session:
-        rows = (
-            (
-                await session.execute(
-                    select(MediaCall).where(MediaCall.unpriced.is_(True)).order_by(MediaCall.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        logger.info("backfill: строк без цены — {}", len(rows))
 
-        for row in rows:
-            cost, unit, unpriced = compute_cost(
-                row.provider or "",
-                row.model or "",
-                float(row.units or 0.0),
-                row.unit or "",
-            )
-            if unpriced:
-                still_unpriced[f"{row.provider}:{row.model}"] += 1
-                continue
-            updated += 1
-            total_usd += cost
-            if apply:
-                row.cost_usd = cost
-                row.unpriced = False
-                row.unit = unit or row.unit
-
-        if apply and updated:
-            await session.commit()
-
+async def backfill(
+    apply: bool,
+    *,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    mode: str = "unpriced",
+) -> int:
+    """Пересчитать факты в окне. Возвращает число расценённых строк."""
+    result = await recount_costs(since=since, until=until, dry_run=not apply, mode=mode)
     verb = "пересчитано" if apply else "будет пересчитано"
-    logger.info("backfill: {} строк, сумма ${:.4f}", verb, total_usd)
-    if still_unpriced:
-        logger.warning("backfill: цены по-прежнему нет у {}", dict(still_unpriced))
+    print(
+        f"{verb}: {result['priced']} строк на ${result['added_usd']:.4f}; "
+        f"просмотрено {result['scanned']}; без цены осталось: {result['still_unpriced']}"
+    )
     if not apply:
         logger.warning("backfill: это примерка, для записи добавь --apply")
-    print(
-        f"{verb}: {updated} строк на ${total_usd:.4f}; без цены осталось: "
-        f"{sum(still_unpriced.values())} ({dict(still_unpriced) or '—'})"
-    )
-    return updated
+    return int(result["priced"])
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Пересчёт стоимости медиа-вызовов без цены")
+    parser = argparse.ArgumentParser(description="Пересчёт стоимости вызовов без цены")
     parser.add_argument("--apply", action="store_true", help="записать результат в базу")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="переоценить всё окно, а не только строки без цены (вызовы могут подорожать/подешеветь)",
+    )
+    parser.add_argument("--from", dest="since", metavar="YYYY-MM-DD", help="начало окна (включительно)")
+    parser.add_argument("--to", dest="until", metavar="YYYY-MM-DD", help="конец окна (включительно)")
     parser.add_argument(
         "--tenant",
         action="append",
@@ -97,6 +80,9 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    since = _parse_day(args.since)
+    until = _parse_day(args.until)
+    mode = "all" if args.all else "unpriced"
 
     from app.services.tenant import set_tenant
 
@@ -105,7 +91,7 @@ def main() -> None:
         if tenant:
             set_tenant(tenant)
             logger.info("backfill: арендатор {}", tenant)
-        asyncio.run(backfill(apply=args.apply))
+        asyncio.run(backfill(apply=args.apply, since=since, until=until, mode=mode))
     set_tenant(None)
 
 

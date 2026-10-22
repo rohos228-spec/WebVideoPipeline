@@ -10,10 +10,12 @@
 их не с чего. Условие одно и проверяется первым, чтобы живой конвейер вёл
 себя ровно так же, как до появления кассы.
 
-**Факт считается по журналам, а не по оценке.** Перед шагом запоминается
-верхняя граница id в `llm_calls` и `media_calls`, после — суммируются
-строки выше неё. Это точнее временного окна: параллельный шаг соседнего
-проекта не попадёт в чужой счёт, а перезапущенный вызов попадёт в свой.
+**Факт считается по своим вызовам, а не по оценке.** Вокруг шага включены
+сборщики id (`media_ledger.capture_rows`, `llm_ledger.capture_rows`), и после
+шага суммируются `cost_usd` ровно этих строк. Раньше бралось «всё выше
+отметки id по проекту» — и в счёт шага попадала параллельная работа того же
+проекта (перегенерация монтажа, ручной шаг), а касса расходилась с фактом.
+Запасной путь по отметке остался на случай, когда сборщиков не было.
 
 **Журналы дописываются до подсчёта.** Учёт вызовов отбивается на занятой
 базе и копит строки в памяти (`llm_ledger._pending_rows`). Посчитать деньги
@@ -44,8 +46,9 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from loguru import logger
@@ -67,6 +70,8 @@ class _Mark:
 
     llm_id: int
     media_id: int
+    #: Начало шага: запасной фильтр, когда id вызовов собрать не удалось.
+    at: datetime
 
 
 @dataclass
@@ -93,6 +98,58 @@ async def step_billing(
     frames: int | None = None,
     voice_chars: int | None = None,
     node_key: str = "",
+) -> AsyncIterator[StepBill]:
+    """Касса шага + привязка расходов к проекту, если её ещё нет.
+
+    Конвейер ставит контекст учёта сам (`pipeline.bind_project_llm`), но
+    ручные шаги вне конвейера — варианты сцены, перегенерация монтажа —
+    зовут LLM без него. Тогда `llm_calls` ложились с `project_id=NULL`, и
+    списание шага по факту видело ноль: работа сделана, деньги не списаны.
+    Ставим контекст только если его нет — явный биндинг шага всегда сильнее.
+    """
+    from app.services import llm_ledger, media_ledger
+    from app.services.llm_override import (
+        LlmAccountingContext,
+        current_accounting,
+        use_accounting,
+    )
+
+    pid = int(getattr(project, "id", 0) or 0)
+    acct = (
+        nullcontext()
+        if current_accounting() is not None
+        else use_accounting(LlmAccountingContext(project_id=pid or None, node_key=step_code))
+    )
+    # id вызовов вокруг шага: списываем ровно свои строки. Без этого в счёт
+    # попадала любая работа того же проекта, сделанная параллельно (например,
+    # перегенерация монтажа в момент шага), и касса расходилась с фактом.
+    with (
+        media_ledger.capture_rows() as media_rows,
+        llm_ledger.capture_rows() as llm_rows,
+        acct,
+    ):
+        async with _step_billing_impl(
+            project,
+            step_code,
+            frames=frames,
+            voice_chars=voice_chars,
+            node_key=node_key,
+            media_rows=media_rows,
+            llm_rows=llm_rows,
+        ) as bill:
+            yield bill
+
+
+@asynccontextmanager
+async def _step_billing_impl(
+    project: Any,
+    step_code: str,
+    *,
+    frames: int | None = None,
+    voice_chars: int | None = None,
+    node_key: str = "",
+    media_rows: list[int] | None = None,
+    llm_rows: list[int] | None = None,
 ) -> AsyncIterator[StepBill]:
     """Обернуть выполнение шага резервом и списанием.
 
@@ -182,8 +239,8 @@ async def step_billing(
         # стоимость привлечения в собственном же отчёте.
         yield bill
         await _flush_ledgers()
+        cost, refs = await _spent(project_id, mark, media_rows, llm_rows)
         async with session_scope() as session:
-            cost, refs = await _spent_since(session, project_id, mark)
             await record_promo(
                 session,
                 tenant,
@@ -229,8 +286,8 @@ async def step_billing(
         raise
 
     await _flush_ledgers()
+    cost, refs = await _spent(project_id, mark, media_rows, llm_rows)
     async with session_scope() as session:
-        cost, refs = await _spent_since(session, project_id, mark)
         result = await settle_hold(
             session,
             hold_id,
@@ -284,6 +341,25 @@ async def step_volume(session: Any, project_id: int, step_code: str) -> tuple[in
     return (None, int(chars or 0) or None)
 
 
+async def _spent(project_id: int, mark: _Mark, media_rows: Any, llm_rows: Any) -> tuple[float, list[int]]:
+    """``(потрачено, id вызовов)`` за шаг — по своим строкам.
+
+    Основной путь — id, собранные контекстными сборщиками вокруг шага. Это
+    единственный способ не залезть в чужую работу того же проекта. Запасной
+    путь (`_spent_since`) остаётся на случай, когда сборщиков не было:
+    например, вызов сделан в чужом процессе или до появления захвата.
+    """
+    refs = [*(media_rows or ()), *(llm_rows or ())]
+    if refs:
+        from app.services.cost_recount import facts_for_rows
+
+        async with session_scope() as session:
+            facts = await facts_for_rows(session, refs)
+        return facts.cost_usd, facts.ref_ids
+    async with session_scope() as session:
+        return await _spent_since(session, project_id, mark)
+
+
 async def _ledger_mark(session: Any, project_id: int) -> _Mark:
     """Верхняя граница журналов до старта шага."""
     llm_id = (
@@ -296,20 +372,27 @@ async def _ledger_mark(session: Any, project_id: int) -> _Mark:
             select(func.coalesce(func.max(MediaCall.id), 0)).where(MediaCall.project_id == project_id)
         )
     ).scalar_one()
-    return _Mark(int(llm_id or 0), int(media_id or 0))
+    return _Mark(int(llm_id or 0), int(media_id or 0), datetime.utcnow())
 
 
 async def _spent_since(session: Any, project_id: int, mark: _Mark) -> tuple[float, list[int]]:
-    """``(потрачено, id оплаченных вызовов)`` за время шага."""
+    """``(потрачено, id оплаченных вызовов)`` за время шага.
+
+    Запасной путь: id выше отметки + строки не раньше старта шага + только
+    успешные медиа-вызовы. Упавшая генерация не должна списываться как
+    удачная. Точную привязку к шагу даёт только захват id (`_spent`).
+    """
     total = 0.0
     refs: list[int] = []
     for model, floor in ((LlmCall, mark.llm_id), (MediaCall, mark.media_id)):
-        rows = (
-            await session.execute(
-                select(model.id, model.cost_usd).where(model.project_id == project_id, model.id > floor)
-            )
-        ).all()
-        for row_id, cost in rows:
+        stmt = select(model.id, model.cost_usd).where(
+            model.project_id == project_id,
+            model.id > floor,
+            model.created_at >= mark.at,
+        )
+        if model is MediaCall:
+            stmt = stmt.where(MediaCall.result == "ok")
+        for row_id, cost in (await session.execute(stmt)).all():
             total += float(cost or 0.0)
             refs.append(int(row_id))
     return (round(total, 6), refs)

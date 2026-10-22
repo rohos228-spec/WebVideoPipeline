@@ -118,7 +118,7 @@ def test_managed_db_missing_late_tables_is_healed(tmp_path: Path) -> None:
 
     db = tmp_path / "nollm.db"
     upgrade_to_head_sync(db)
-    assert _revision(db) == "0017"
+    assert _revision(db) == "0018"
 
     cfg = alembic_config()
     cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
@@ -139,7 +139,7 @@ def test_managed_db_missing_late_tables_is_healed(tmp_path: Path) -> None:
 
     upgrade_to_head_sync(db)
 
-    assert _revision(db) == "0017"
+    assert _revision(db) == "0018"
     tables = _tables(db)
     assert "llm_calls" in tables
     assert "work_leases" in tables
@@ -213,7 +213,7 @@ def test_pipeline_mode_backfill(tmp_path: Path) -> None:
 
     upgrade_to_head_sync(db)
 
-    assert _revision(db) == "0017"
+    assert _revision(db) == "0018"
     assert _modes(db) == {
         "plain": "v1",
         "shot2": "v2",
@@ -235,3 +235,28 @@ def test_pipeline_mode_backfill(tmp_path: Path) -> None:
         "board": "v1",
         "empty": "v1",
     }
+
+
+def test_llm_calls_cost_usd_nullable_after_head(tmp_path: Path) -> None:
+    """0018: «цены не знаем» хранится как NULL, а не как ложный ноль."""
+    db = tmp_path / "nullcost.db"
+    upgrade_to_head_sync(db)
+
+    con = sqlite3.connect(db)
+    try:
+        cols = {row[1]: row for row in con.execute("PRAGMA table_info(llm_calls)")}
+        assert cols["cost_usd"][3] == 0  # notnull = 0
+        con.execute(
+            "INSERT INTO llm_calls (logical_call_id, model, served_model, relay, endpoint,"
+            " prompt_tokens, completion_tokens, total_tokens, cost_usd, result, error_kind,"
+            " unbilled, contract_rejected, prompt_version_hash, response_id, duration_ms,"
+            " node_key, created_at)"
+            " VALUES ('lc-null', 'модель-вне-прайса', '', '', 'chat',"
+            " 1000, 0, 1000, NULL, 'ok', '', 0, 0, '', '', 0,"
+            " 'adhoc', datetime('now'))"
+        )
+        con.commit()
+        stored = con.execute("SELECT cost_usd FROM llm_calls").fetchone()[0]
+    finally:
+        con.close()
+    assert stored is None
