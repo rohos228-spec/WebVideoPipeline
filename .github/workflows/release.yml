@@ -224,6 +224,24 @@ jobs:
           fi
           ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- "$remote_cmd"
 
+          # ВРЕМЕННО (диагностика падений сайта): что на сервере с памятью и
+          # прокси, плюс перезапуск Caddy, чтобы сайт вернулся. Убрать после
+          # разбора.
+          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- '
+            echo "=== uptime/load ==="; uptime; echo "=== память ==="; free -m | head -n 3;
+            echo "=== диск ==="; df -h / /var/lib/docker 2>/dev/null | head -n 5;
+            echo "=== OOM за сутки ==="; (sudo -n dmesg -T 2>/dev/null || dmesg -T 2>/dev/null) | grep -iE "out of memory|oom-kill|killed process" | tail -n 10;
+            echo "=== контейнеры ==="; docker ps --format "{{.Names}} {{.Status}} {{.Ports}}";
+            echo "=== перезапуск caddy ===";
+            c=$(docker ps -aq --filter name=caddy | head -n 1); echo "id=$c";
+            if [ -n "$c" ]; then docker restart "$c"; sleep 5; docker ps --filter id="$c" --format "{{.Names}} {{.Status}}"; fi;
+            echo "=== caddy: ошибки за 30 минут ===";
+            if [ -n "$c" ]; then docker logs --since 30m "$c" 2>&1 | grep -Ei "error|panic|certificate|obtain|timeout|refused" | tail -n 20; fi;
+            echo "=== проверка с сервера ===";
+            curl -s -o /dev/null -w "локально health=%{http_code}\n" --max-time 8 http://127.0.0.1:8765/api/health || true;
+            curl -s -o /dev/null -w "через домен health=%{http_code}\n" --max-time 10 https://v2.studio.zukiemi.space/api/health || true
+          '
+
           # Учётные данные на сервере не оставляем: скачивание уже произошло,
           # дальше они только лежат в ~/.docker/config.json и протухают.
           ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- 'docker logout ghcr.io' || true
