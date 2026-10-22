@@ -154,9 +154,9 @@ async def test_usage_history_aggregates_models_and_credits(env):
     assert models["Kling 3.0 Pro"]["kind"] == "video"
     assert models["Kling 3.0 Pro"]["calls"] == 1
 
-    assert "Claude Sonnet 5" in models
-    assert models["Claude Sonnet 5"]["kind"] == "llm"
-    assert models["Claude Sonnet 5"]["calls"] == 1
+    assert "Claude Sonnet 5.5" in models
+    assert models["Claude Sonnet 5.5"]["kind"] == "llm"
+    assert models["Claude Sonnet 5.5"]["calls"] == 1
 
     # Проверяем непустые категории в сводке
     by_kind = data["summary"]["by_kind"]
@@ -170,3 +170,77 @@ async def test_usage_history_aggregates_models_and_credits(env):
     assert "video" in recent_kinds
     assert "llm" in recent_kinds
     assert "topup" in recent_kinds
+
+
+async def test_usage_history_shows_unknown_price_as_null(env):
+    """NULL = цена неизвестна: у админа «—», а не «$0.00, значит бесплатно».
+
+    Миграция 0018: неизвестная цена в llm_calls — NULL; у media_calls признак —
+    `unpriced`. Строка с ценой остаётся числом, чтобы не сломать сортировку.
+    """
+    client: AsyncClient = env["client"]
+    admin = env["admin"]
+    tenant_id = admin.user_id
+
+    async with env["factory"]() as s:
+        s.add(
+            MediaCall(
+                tenant_id=tenant_id,
+                project_id=None,
+                provider="acme",
+                kind="image",
+                model="mystery-model",
+                units=1.0,
+                unit="item",
+                cost_usd=0.0,
+                unpriced=True,
+                result="ok",
+            )
+        )
+        s.add(
+            LlmCall(
+                tenant_id=tenant_id,
+                project_id=None,
+                logical_call_id=str(uuid.uuid4()),
+                model="no-such-llm",
+                prompt_tokens=10,
+                completion_tokens=5,
+                total_tokens=15,
+                cost_usd=None,
+                result="ok",
+            )
+        )
+        s.add(
+            MediaCall(
+                tenant_id=tenant_id,
+                project_id=None,
+                provider="outsee",
+                kind="image",
+                model="nano-banana-2",
+                units=1.0,
+                unit="item",
+                cost_usd=0.02,
+                unpriced=False,
+                result="ok",
+            )
+        )
+        await s.commit()
+
+    data = (await client.get("/api/billing/usage-history", headers=admin.auth)).json()
+    models = data["models"]
+
+    unknown_media = [m for m in models if m["provider"] == "acme"]
+    unknown_llm = [m for m in models if m["kind"] == "llm"]
+    priced = [m for m in models if m["provider"] == "outsee" and m["kind"] == "image"]
+    assert unknown_media and unknown_media[0]["cost_usd"] is None
+    assert unknown_llm and all(m["cost_usd"] is None for m in unknown_llm)
+    assert priced and priced[0]["cost_usd"] == 0.02
+
+    # В журнале последних операций неизвестная цена тоже не ноль.
+    recent_unknown = [
+        r
+        for r in data["recent"]
+        if (r["id"].startswith("mc-") or r["id"].startswith("llm-")) and r["cost_usd"] is None
+    ]
+    assert len(recent_unknown) == 2, "ровно две строки без цены; оценённая — числом"
+    assert data["summary"]["total_cost_usd"] == 0.02, "частичная сумма: только известное"
