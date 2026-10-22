@@ -229,7 +229,7 @@ jobs:
           # прокси принял TCP и не завершает TLS. Перезапуск дешёвый и
           # возвращает сайты; если контейнера нет, шаг ничего не ломает.
           ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- \
-            'c=$(docker ps -aq --filter name=caddy | head -n 1); if [ -n "$c" ]; then echo "прокси: $c"; docker ps --filter id="$c" --format "{{.Names}} {{.Status}} {{.Ports}}"; echo "--- ошибки за 10 минут ---"; docker logs --since 10m "$c" 2>&1 | grep -Ei "error|warn|certificate|obtain|handshake|timeout" | tail -n 40; echo "--- последний доступ ---"; docker logs --since 5m "$c" 2>&1 | grep "handled request" | tail -n 5; else echo "контейнер caddy не найден"; fi'
+            'echo "=== ufw ==="; sudo -n ufw status verbose 2>&1 | head -n 40; echo "=== iptables drop ==="; sudo -n iptables -L INPUT -n -v 2>&1 | head -n 40; echo "=== fail2ban ==="; sudo -n fail2ban-client status 2>&1 | head -n 20'
 
           # Учётные данные на сервере не оставляем: скачивание уже произошло,
           # дальше они только лежат в ~/.docker/config.json и протухают.
