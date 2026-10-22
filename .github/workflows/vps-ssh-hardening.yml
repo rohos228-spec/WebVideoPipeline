@@ -1,8 +1,9 @@
 name: "VPS: защита SSH (разово)"
 
 # Разовая операция: на сервер постоянно ломятся перебором пароля, из-за этого
-# sshd перестаёт отдавать баннер и «зависает» вход (TCP открыт, ответа нет).
-# Скрипт ставит лимиты sshd и fail2ban. Запускается вручную.
+# sshd перестаёт отдавать баннер и вход «зависает» (TCP открыт, ответа нет).
+# Скрипт ставит лимиты sshd и fail2ban. Перед перезагрузкой конфига обязательна
+# проверка `sshd -t`: сломанный конфиг sshd запирает сервер без входа.
 on:
   workflow_dispatch:
 
@@ -23,42 +24,54 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
-          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- '
-            set -e
-            echo "=== было ==="
-            ssh -V
-            grep -hE "^(LoginGraceTime|MaxAuthTries|MaxStartups)" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null || echo "лимитов не задано"
+          cat > /tmp/harden.sh <<'SCRIPT'
+          set -e
+          LIMITS=/etc/ssh/sshd_config.d/99-limits.conf
 
-            cat > /etc/ssh/sshd_config.d/99-limits.conf <<EOF
-            # Защита от перебора: не держать полуоткрытые сессии и не давать
-            # одному адресу забить очередь неаутентифицированных подключений.
-            LoginGraceTime 10
-            MaxAuthTries 3
-            MaxStartups 10:30:60
-            EOF
-            chmod 644 /etc/ssh/sshd_config.d/99-limits.conf
-            sshd -t
+          echo "=== было ==="
+          ssh -V
+          ls -la "$LIMITS" 2>/dev/null && head -n 5 "$LIMITS" || echo "файла лимитов нет"
+
+          # Прошлый заход оставил в этом файле мусор от неверного heredoc —
+          # сохраняем как есть для разбора и пишем чистый конфиг.
+          if [ -f "$LIMITS" ]; then cp -a "$LIMITS" /root/99-limits.conf.broken.$(date +%s); fi
+          printf '%s\n' \
+            '# Защита от перебора: не держать полуоткрытые сессии и не давать одному' \
+            '# адресу забить очередь неаутентифицированных подключений.' \
+            'LoginGraceTime 10' \
+            'MaxAuthTries 3' \
+            'MaxStartups 10:30:60' > "$LIMITS"
+          chmod 644 "$LIMITS"
+
+          echo "=== проверка конфига до перезагрузки ==="
+          if sshd -t; then
             systemctl reload ssh 2>/dev/null || systemctl reload sshd
-            echo "=== лимиты применены ==="
-            grep -hE "^(LoginGraceTime|MaxAuthTries|MaxStartups)" /etc/ssh/sshd_config.d/99-limits.conf
+            echo "лимиты применены:"
+            cat "$LIMITS"
+          else
+            rm -f "$LIMITS"
+            echo "::error::sshd -t не принял конфиг, файл удалён — вход не тронут"
+            sshd -t && echo "после отката конфиг валиден"
+          fi
 
-            if ! command -v fail2ban-client >/dev/null 2>&1; then
-              echo "=== ставлю fail2ban ==="
-              DEBIAN_FRONTEND=noninteractive apt-get update -qq
-              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fail2ban
-            fi
-            cat > /etc/fail2ban/jail.d/sshd.local <<EOF
-            [sshd]
-            enabled = true
-            maxretry = 5
-            findtime = 10m
-            bantime = 1h
-            ignoreip = 127.0.0.1/8 ::1
-            EOF
-            systemctl enable fail2ban >/dev/null 2>&1 || true
-            systemctl restart fail2ban
-            sleep 3
-            echo "=== fail2ban ==="
-            fail2ban-client status || true
-            fail2ban-client status sshd 2>/dev/null | sed -n "1,12p" || true
-          '
+          if ! command -v fail2ban-client >/dev/null 2>&1; then
+            echo "=== ставлю fail2ban ==="
+            DEBIAN_FRONTEND=noninteractive apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fail2ban
+          fi
+          printf '%s\n' \
+            '[sshd]' \
+            'enabled = true' \
+            'maxretry = 5' \
+            'findtime = 10m' \
+            'bantime = 1h' \
+            'ignoreip = 127.0.0.1/8 ::1' > /etc/fail2ban/jail.d/sshd.local
+          systemctl enable fail2ban >/dev/null 2>&1 || true
+          systemctl restart fail2ban
+          sleep 3
+          echo "=== fail2ban ==="
+          fail2ban-client status || true
+          fail2ban-client status sshd 2>/dev/null | head -n 12 || true
+          SCRIPT
+
+          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" 'bash -s' < /tmp/harden.sh
