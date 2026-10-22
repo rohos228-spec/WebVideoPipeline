@@ -1,24 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { AppShell } from "@/components/shell/app-shell";
 import { SiteEntryGate } from "@/components/shell/site-entry-gate";
 import { ProjectSidebar } from "@/components/sidebar/project-sidebar";
 import { StreamsPanel } from "@/components/inspector/streams-panel";
 import { useQuery } from "@tanstack/react-query";
 import { StudioWorkspace } from "@/components/studio/studio-workspace";
-import { FleetPanelSheet } from "@/components/fleet/fleet-panel-sheet";
-import { FleetTransferBanner } from "@/components/fleet/fleet-transfer-banner";
 import { OutseeCreateWorkspace } from "@/components/outsee/outsee-create-workspace";
 import { GptWorkspace } from "@/components/gpt/gpt-workspace";
-import { BazaWorkspace } from "@/components/baza/baza-workspace";
 import { OrchestratorPanel } from "@/components/orchestrator/orchestrator-panel";
 import { useGlobalEvents } from "@/hooks/use-bus";
-import { useFleetTransfer, FLEET_TRANSFER_PUSH_START, optimisticPushTransfer } from "@/hooks/use-fleet-transfer";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { api } from "@/lib/api";
-import { fleetPushToHub } from "@/lib/fleet-api";
 
 function HomePageInner() {
   const [selectedProjectId, setSelectedProjectId] = usePersistedState<number | null>(
@@ -31,11 +25,8 @@ function HomePageInner() {
     false,
   );
   const [studioOpen, setStudioOpen] = useState(false);
-  const [fleetOpen, setFleetOpen] = useState(false);
   const [outseeOpen, setOutseeOpen] = useState(false);
   const [gptOpen, setGptOpen] = useState(false);
-  const [bazaOpen, setBazaOpen] = useState(false);
-  const { transfer, dismiss } = useFleetTransfer(selectedProjectId);
 
   useGlobalEvents();
 
@@ -48,12 +39,6 @@ function HomePageInner() {
       window.removeEventListener("studio-open-projects-sidebar", openSidebar);
       window.removeEventListener("studio-toggle-projects-sidebar", toggleSidebar);
     };
-  }, []);
-
-  useEffect(() => {
-    const openFleet = () => setFleetOpen(true);
-    window.addEventListener("studio-open-fleet", openFleet);
-    return () => window.removeEventListener("studio-open-fleet", openFleet);
   }, []);
 
   useEffect(() => {
@@ -70,12 +55,6 @@ function HomePageInner() {
     const openGpt = () => setGptOpen(true);
     window.addEventListener("studio-open-gpt", openGpt);
     return () => window.removeEventListener("studio-open-gpt", openGpt);
-  }, []);
-
-  useEffect(() => {
-    const openBaza = () => setBazaOpen(true);
-    window.addEventListener("studio-open-baza", openBaza);
-    return () => window.removeEventListener("studio-open-baza", openBaza);
   }, []);
 
   // Оркестратор создал проект → выделяем его в пайплайне.
@@ -118,51 +97,9 @@ function HomePageInner() {
             studioOpen={studioOpen}
             onStudioOpenChange={setStudioOpen}
           />
-          <FleetTransferBanner
-            transfer={transfer}
-            onPushToHub={
-              (transfer?.project_id ?? selectedProjectId) != null
-                ? async () => {
-                    const pid = transfer?.project_id ?? selectedProjectId!;
-                    window.dispatchEvent(
-                      new CustomEvent(FLEET_TRANSFER_PUSH_START, {
-                        detail: optimisticPushTransfer(pid, transfer?.slug),
-                      }),
-                    );
-                    const res = await fleetPushToHub(pid);
-                    if ("started" in res && res.started) {
-                      toast.message("Отправка идёт — смотри полоску внизу");
-                      return;
-                    }
-                    toast.success(
-                      res.size_mb
-                        ? `Отправлено на главный ПК (${res.size_mb} MB)`
-                        : "Отправлено на главный ПК",
-                    );
-                  }
-                : undefined
-            }
-            onCancelTransfer={
-              (transfer?.project_id ?? selectedProjectId) != null
-                ? async () => {
-                    await api.stopProject(transfer?.project_id ?? selectedProjectId!);
-                  }
-                : undefined
-            }
-            onDismiss={dismiss}
-          />
           <OrchestratorPanel key={selectedProjectId ?? "none"} projectId={selectedProjectId} />
           <StreamsFloat projectId={selectedProjectId} />
         </main>
-        <FleetPanelSheet
-          open={fleetOpen}
-          onOpenChange={setFleetOpen}
-          onOpenProject={(projectId) => {
-            setSelectedProjectId(projectId);
-            setSelectedNodeKey(null);
-            setStudioOpen(false);
-          }}
-        />
       </div>
       <OutseeCreateWorkspace
         open={outseeOpen}
@@ -172,11 +109,6 @@ function HomePageInner() {
       <GptWorkspace
         open={gptOpen}
         onOpenChange={setGptOpen}
-      />
-      <BazaWorkspace
-        open={bazaOpen}
-        onOpenChange={setBazaOpen}
-        projectId={selectedProjectId}
       />
     </AppShell>
   );

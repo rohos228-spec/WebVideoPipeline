@@ -15,7 +15,7 @@ import { nodeTypeFromKey } from "@/lib/node-key";
 import { ProjectSettingsPanel } from "@/components/inspector/project-settings";
 import { OutseeGenPanel } from "@/components/inspector/outsee-gen-panel";
 import { TopicEditor } from "@/components/inspector/topic-editor";
-import { MontageHandoffCard } from "@/components/fleet/montage-handoff-card";
+import { FramesGrid } from "@/components/frames/frames-grid";
 import { useUi } from "@/components/shell/topbar";
 
 export function Inspector({
@@ -66,7 +66,6 @@ export function Inspector({
                   nodeTypeFromKey(selectedNodeKey) === "videos") && (
                   <OutseeGenPanel project={project.data} />
                 )}
-              {project.data ? <MontageHandoffCard project={project.data} /> : null}
               {onOpenNodeStudio && nodeTypeFromKey(selectedNodeKey) !== "topic" && (
                 <Button
                   size="sm"
@@ -119,7 +118,6 @@ export function Inspector({
               <Row label="Главный герой">{formatHeroMode(project.data.hero_mode)}</Row>
               <Row label="Создан">{formatRelativeTime(project.data.created_at)}</Row>
               <Row label="Обновлён">{formatRelativeTime(project.data.updated_at)}</Row>
-              <MontageHandoffCard project={project.data} />
               <ProjectSettingsPanel project={project.data} />
               {project.data.general_plan && (
                 <div className="mt-3">

@@ -225,9 +225,6 @@ export function OrchestratorPanel({ projectId }: Props) {
               new CustomEvent("canvas-select-node", { detail: { nodeKey: null } }),
             );
             notes.push("настройки проекта — в инспекторе справа");
-          } else if (u.kind === "baza") {
-            window.dispatchEvent(new CustomEvent("studio-open-baza"));
-            notes.push("открыл «Базу»");
           } else if (u.kind === "shot_menu") {
             window.dispatchEvent(new CustomEvent("studio-open-shot-menu"));
             notes.push("открыл меню съёмки");
@@ -250,9 +247,6 @@ export function OrchestratorPanel({ projectId }: Props) {
               );
               notes.push(`открыл проект #${u.project_id}`);
             }
-          } else if (u.kind === "fleet") {
-            window.dispatchEvent(new CustomEvent("studio-open-fleet"));
-            notes.push("открыл «Сеть»");
           } else if (u.kind === "canvas_group") {
             window.dispatchEvent(
               new CustomEvent("canvas-select-node", {
