@@ -277,6 +277,20 @@ def take_pending() -> Pending | None:
     return pending
 
 
+# Условие потолков в `reserve`: у каждого значения в WHERE свой параметр с
+# явным типом. Значения списка SELECT Postgres типизирует по колонкам
+# `spend_ledger`, а тот же `$n` в сравнении (`:run = ''`, `:pid IS NULL`,
+# `:cap <= 0`) получил бы другой тип, и asyncpg отказывает: «inconsistent
+# types deduced for parameter». SQLite CAST понимает так же.
+_RUN = "CAST(:run_w AS TEXT)"
+_PID = "CAST(:pid_w AS INTEGER)"
+_DAY = "CAST(:day_w AS TEXT)"
+_USD = "CAST(:usd_w AS DOUBLE PRECISION)"
+_RCAP = "CAST(:rcap AS DOUBLE PRECISION)"
+_PCAP = "CAST(:pcap AS DOUBLE PRECISION)"
+_DCAP = "CAST(:dcap AS DOUBLE PRECISION)"
+
+
 async def reserve(
     session,
     *,
@@ -300,11 +314,17 @@ async def reserve(
             "INSERT INTO spend_ledger (created_at, day, kind, provider, project_id, run_id, source, usd, credits, note, "
             "request_id, ref) "
             "SELECT :now, :day, 'reserve', :prov, :pid, :run, :src, :usd, :cr, :note, :rid, :ref WHERE "
-            "(:rcap <= 0 OR :run = '' OR COALESCE((SELECT SUM(usd) FROM spend_ledger WHERE run_id = :run), 0) + :usd <= :rcap) AND "
-            "(:pcap <= 0 OR :pid IS NULL OR COALESCE((SELECT SUM(usd) FROM spend_ledger WHERE project_id = :pid), 0) + :usd <= :pcap) AND "
-            "(:dcap <= 0 OR COALESCE((SELECT SUM(usd) FROM spend_ledger WHERE day = :day), 0) + :usd <= :dcap)"
+            f"({_RCAP} <= 0 OR {_RUN} = '' OR COALESCE((SELECT SUM(usd) FROM spend_ledger WHERE run_id = {_RUN}), 0) "
+            f"+ {_USD} <= {_RCAP}) AND "
+            f"({_PCAP} <= 0 OR {_PID} IS NULL OR COALESCE((SELECT SUM(usd) FROM spend_ledger WHERE project_id = {_PID}), 0) "
+            f"+ {_USD} <= {_PCAP}) AND "
+            f"({_DCAP} <= 0 OR COALESCE((SELECT SUM(usd) FROM spend_ledger WHERE day = {_DAY}), 0) + {_USD} <= {_DCAP})"
         ),
         {
+            "run_w": run_id[:80],
+            "pid_w": project_id,
+            "day_w": _today(),
+            "usd_w": usd,
             "now": datetime.utcnow(),
             "day": _today(),
             "prov": provider[:32],

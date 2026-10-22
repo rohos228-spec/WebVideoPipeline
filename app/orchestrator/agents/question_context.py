@@ -169,13 +169,25 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
             reads.append(("media.list_unknown_outcomes", {"project_id": pid}))
         if cost_q:
             reads.append(("step.get_run_cost_basis", {"project_id": pid, "step_code": _cost_step(norm)}))
-        return reads
+        return _allowed(reads)
     reads.append(("projects.overview", {"limit": 15}))
     if logs:
         reads.append(("logs.tail", {"kind": "errors", "limit": 20}))
     if _has(norm, _SPEND):
         reads.append(("spend.summary", {}))
-    return reads
+    return _allowed(reads)
+
+
+def _allowed(reads: list[tuple[str, dict[str, Any]]]) -> list[tuple[str, dict[str, Any]]]:
+    """Чтения, доступные текущей личности.
+
+    Участник студии не получает в ответ сведений всей студии: общий лог
+    сервера (строки чужих клиентов) и кассу провайдеров с себестоимостью
+    (`app/services/action_layer/plan.py::ADMIN_ONLY_ACTIONS`).
+    """
+    from app.services.action_layer.plan import admin_only_refused
+
+    return [(action, params) for action, params in reads if not admin_only_refused(action, params)]
 
 
 def _clip(text: str, limit: int) -> str:
@@ -217,6 +229,9 @@ async def run_read_action(action: str, params: dict[str, Any], app: Any) -> Any:
     errors = registry.validate_params(action, params)
     if errors:
         raise ValueError("; ".join(errors))
+    from app.services.action_layer.plan import refuse_admin_only
+
+    refuse_admin_only(action, params)
     ctx = ActionContext(app=app, operator="system", read_only=True)
     for pre in spec.preconditions:
         problem = await pre.check(ctx, params)

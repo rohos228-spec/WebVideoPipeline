@@ -433,9 +433,15 @@ async def _grouped(pids: list[int]) -> dict[str, dict[int, float]]:
                 await count(s, [pid])
         except Exception:  # noqa: BLE001
             continue
+    from app.services.action_layer.plan import member_view
+
+    # Траты — себестоимость из общей кассы провайдеров: участнику не видны.
+    hide_spent = member_view()
     try:
         async with bi._sessions()() as s:
             await count(s, pids)
+            if hide_spent:
+                return out
             marks = ", ".join(f":p{i}" for i in range(len(pids)))
             rows = (
                 await s.execute(
@@ -535,11 +541,17 @@ async def _project_row_report(ctx: ActionContext, pid: int, row: Any, counts: di
     }
 
 
+def _without_spent(columns: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+    return tuple(col for col in columns if col[0] != "spent_usd")
+
+
 async def report_projects(ctx: ActionContext, params: dict) -> dict:
     from app.models import Project
     from app.services.action_layer import builtin_insight as bi
+    from app.services.action_layer.plan import member_view
 
     fmt = params.get("kind", "chat")
+    show_spent = not member_view()
     pids, total = await _project_ids(params)
     counts = await _grouped(pids)
     rows: list[dict] = []
@@ -561,7 +573,8 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
             else ""
         )
         + f". Кадров {sum(r['frames'] for r in found)}, картинок {sum(r['images'] for r in found)}, "
-        f"видео {sum(r['videos'] for r in found)}, траты ${round(spent, 4)} (оценка)."
+        f"видео {sum(r['videos'] for r in found)}"
+        + (f", траты ${round(spent, 4)} (оценка)." if show_spent else ".")
     )
     if missing:
         head += " Не найдены: " + ", ".join(f"#{p}" for p in missing) + "."
@@ -571,7 +584,7 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         "frames": sum(r["frames"] for r in found),
         "images": sum(r["images"] for r in found),
         "videos": sum(r["videos"] for r in found),
-        "spent_usd_estimate": round(spent, 4),
+        "spent_usd_estimate": round(spent, 4) if show_spent else None,
     }
     out: dict[str, Any] = {"format": fmt, "project_ids": pids, "summary": summary}
     if fmt == "json":
@@ -584,18 +597,21 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         ("Кадров", summary["frames"]),
         ("Картинок", summary["images"]),
         ("Видео", summary["videos"]),
-        ("Траты, $ (оценка)", summary["spent_usd_estimate"]),
     ]
+    if show_spent:
+        pairs.append(("Траты, $ (оценка)", summary["spent_usd_estimate"]))
+    columns = tpl.PROJECTS_COLUMNS if show_spent else _without_spent(tpl.PROJECTS_COLUMNS)
+    chat_columns = tpl.PROJECTS_CHAT_COLUMNS if show_spent else _without_spent(tpl.PROJECTS_CHAT_COLUMNS)
     if missing:
         pairs.append(("Не найдены", ", ".join(f"#{p}" for p in missing)))
     from app.web.routers.project_reports import SHARED_PREFIX, shared_report_url
 
     path = shared_reports_dir() / f"{SHARED_PREFIX}{_stamp()}.xlsx"
-    write_workbook(path, [(tpl.PROJECTS_SHEET, tpl.PROJECTS_COLUMNS, rows)], pairs)
+    write_workbook(path, [(tpl.PROJECTS_SHEET, columns, rows)], pairs)
     url = shared_report_url(path)
     out.update(path=str(path), download_url=url, file_name=path.name, rows=len(rows), file_format="xlsx")
     shown = rows[: tpl.CHAT_ROWS]
-    table = markdown_table(shown, tpl.PROJECTS_CHAT_COLUMNS)
+    table = markdown_table(shown, chat_columns)
     tail = f"\n\nЕщё проектов: {len(rows) - len(shown)} (все в файле)." if len(rows) > len(shown) else ""
     gpt_lines = [
         f"- #{r['project_id']}: {clip(r['gpt'], 160)}" for r in shown if r.get("gpt") not in (None, "", "нет")

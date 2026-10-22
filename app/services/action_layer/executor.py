@@ -635,11 +635,12 @@ async def _run_step(app: Any, plan_id: str, step_id: int, operator: str, registr
             )
             return "результат неизвестен после прерывания, нужен ручной разбор"
 
-    from app.services.action_layer.plan import ADMIN_ONLY_MESSAGE, admin_only_refused
+    from app.services.action_layer.plan import admin_only_message, admin_only_refused
 
-    if admin_only_refused(spec.id):
-        await _close_step(plan_id, step, store.STEP_FAILED, ADMIN_ONLY_MESSAGE, "step_failed", operator)
-        return ADMIN_ONLY_MESSAGE
+    if admin_only_refused(spec.id, step.params):
+        refusal = admin_only_message(spec.id)
+        await _close_step(plan_id, step, store.STEP_FAILED, refusal, "step_failed", operator)
+        return refusal
 
     if spec.id not in KILL_EXEMPT_ACTIONS and await _kill_switch_on():
         async with store.sessions()() as s:

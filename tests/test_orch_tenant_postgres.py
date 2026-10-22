@@ -473,3 +473,241 @@ async def test_studio_tools_are_admin_only(pg) -> None:
     assert (await client.get("/api/action-layer/reserves", headers=pg["a"].auth)).status_code == 403
     assert (await client.get("/api/action-layer/reserves", headers=pg["admin"].auth)).status_code == 200
     assert (await client.get("/api/action-layer/catalog", headers=pg["a"].auth)).status_code == 200
+
+
+# ── сведения всей студии: участнику нет ─────────────────────────────────────
+
+
+async def test_member_plan_refuses_studio_wide_reads(pg) -> None:
+    """Общий лог сервера и касса провайдеров — сведения всей студии.
+
+    Участнику план с ними не строится; админу — строится. Лог по своему
+    проекту участнику не закрыт: там только строки проекта.
+    """
+    from app.services.action_layer.plan import ADMIN_ONLY_READ_MESSAGE
+
+    client = pg["client"]
+    studio_reads = (
+        ("spend.summary", {}),
+        ("logs.tail", {"kind": "errors"}),
+    )
+    for action_id, params in studio_reads:
+        body = {"steps": [{"action_id": action_id, "params": params}]}
+        member = await client.post("/api/action-layer/plans/preview", json=body, headers=pg["a"].auth)
+        assert ADMIN_ONLY_READ_MESSAGE in member.text, (action_id, member.status_code, member.text[:400])
+        admin = await client.post("/api/action-layer/plans/preview", json=body, headers=pg["admin"].auth)
+        assert admin.status_code == 200, admin.text
+        assert ADMIN_ONLY_READ_MESSAGE not in admin.text, action_id
+
+
+async def test_member_question_reads_skip_studio_wide_facts(pg) -> None:
+    """Вопрос в чате про ошибки и траты: участнику — без общего лога и кассы."""
+    from app.orchestrator.agents.question_context import plan_reads, run_read_action
+    from app.services.studio_auth import ROLE_ADMIN, ROLE_MEMBER, StudioIdentity, set_identity
+    from app.services.tenant import tenant_scope
+
+    question = "почему упало и сколько потрачено, покажи логи"
+    member = StudioIdentity(user_id=pg["a"].user_id, email=pg["a"].email, role=ROLE_MEMBER)
+    admin = StudioIdentity(user_id=pg["admin"].user_id, email=pg["admin"].email, role=ROLE_ADMIN)
+    try:
+        with tenant_scope(member.user_id):
+            set_identity(member)
+            names = [action for action, _ in plan_reads(question, None)]
+            assert "logs.tail" not in names and "spend.summary" not in names, names
+            with_project = [action for action, _ in plan_reads(question, 7)]
+            assert "logs.tail" in with_project and "spend.summary" not in with_project, with_project
+            for action, params in (("logs.tail", {"kind": "all"}), ("spend.summary", {})):
+                with pytest.raises(PermissionError):
+                    await run_read_action(action, params, pg["app"])
+        with tenant_scope(admin.user_id):
+            set_identity(admin)
+            names = [action for action, _ in plan_reads(question, None)]
+            assert "logs.tail" in names and "spend.summary" in names, names
+            out = await run_read_action("spend.summary", {}, pg["app"])
+            assert "вся фабрика" in out["text_ru"]
+    finally:
+        set_identity(None)
+
+
+# ── реестр резервов: админ видит и снимает резервы каждого клиента ──────────
+
+
+async def test_admin_lists_and_releases_a_member_reserve(pg) -> None:
+    """Резерв шага участника держит общий потолок студии: снять его может админ."""
+    from datetime import datetime, timedelta
+
+    from app.services import spend_guard
+    from app.services.action_layer import budget, store
+    from app.services.action_layer.spec import CostEstimate
+    from app.services.tenant import tenant_scope
+
+    a = pg["a"].user_id
+    plan_id = uuid.uuid4().hex[:24]
+    ended = datetime.utcnow() - timedelta(hours=2)
+    with tenant_scope(a):
+        async with pg["factory"]() as session:
+            await spend_guard.ensure_schema(session)
+            session.add(store.ActionPlan(id=plan_id, plan_hash="t", status="failed", operator="t"))
+            session.add(
+                store.ActionPlanStep(
+                    plan_id=plan_id,
+                    idx=0,
+                    action_id="spend.summary",
+                    status=store.STEP_UNKNOWN,
+                    idempotency_key=f"{plan_id}:0",
+                    started_at=ended,
+                    finished_at=ended,
+                )
+            )
+            await session.flush()
+            # Резерв настоящим путём: строка в журнале плана и строка
+            # `reserve` в общей кассе провайдеров (потолки студии).
+            await budget.reserve(
+                session,
+                key=budget.session_key(plan_id),
+                plan_id=plan_id,
+                step_index=0,
+                estimate=CostEstimate(5.0, 5.0),
+                cap=0,
+            )
+            await session.commit()
+
+    client = pg["client"]
+    listed = await client.get("/api/action-layer/reserves", headers=pg["admin"].auth)
+    assert listed.status_code == 200, listed.text
+    mine = [row for row in listed.json()["items"] if row["plan_id"] == plan_id]
+    assert len(mine) == 1 and mine[0]["tenant_id"] == a, listed.json()
+
+    released = await client.post(
+        "/api/action-layer/reserves/release",
+        json={"plan_id": plan_id, "step_index": 0, "reason": "сверил кабинет провайдера"},
+        headers={**pg["admin"].auth, "Idempotency-Key": f"release-{plan_id}"},
+    )
+    assert released.status_code == 200, released.text
+    after = await client.get("/api/action-layer/reserves", headers=pg["admin"].auth)
+    assert plan_id not in [row["plan_id"] for row in after.json()["items"]]
+    # Строка `settle` легла к A: его резерв закрыт в его же журнале.
+    sql = "select coalesce(sum(credits), 0) from action_layer_spend where plan_id = :p"
+    assert await _scalar_as(pg["factory"], a, sql, p=plan_id) == pytest.approx(0.0)
+    assert await _scalar_as(pg["factory"], pg["b"].user_id, sql, p=plan_id) == 0
+    ledger = "select coalesce(sum(usd), 0) from spend_ledger where run_id = :r"
+    assert await _scalar_as(pg["factory"], None, ledger, r=f"plan:{plan_id}") == pytest.approx(0.0)
+    again = await client.post(
+        "/api/action-layer/reserves/release",
+        json={"plan_id": plan_id, "step_index": 0, "reason": "сверил кабинет провайдера"},
+        headers={**pg["admin"].auth, "Idempotency-Key": f"release2-{plan_id}"},
+    )
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "not_releasable"
+
+
+# ── 0020 на базе, где движком уже пользовался админ ─────────────────────────
+
+
+def _migrate_schema_with_engine_rows(monkeypatch, *, accounts: bool, admins: int) -> dict:
+    """Своя схема на сервере: alembic до 0019, строки движка без арендатора, 0020.
+
+    Схема отдельная, чтобы не трогать общую базу тестов: `search_path`
+    соединения указывает на неё, alembic и инспектор работают в ней.
+    """
+    from alembic import command
+    from sqlalchemy import create_engine
+
+    from app.db_migrations import alembic_config
+    from app.settings import settings
+    from tests import accounts_harness as ah
+
+    monkeypatch.setattr(settings, "database_url", TEST_DB_URL)
+    if accounts:
+        ah.configure(monkeypatch, allow_sqlite=False)
+    else:
+        monkeypatch.setattr(settings, "studio_session_secret", "")
+    schema = f"mig_{uuid.uuid4().hex[:10]}"
+    sync_url = TEST_DB_URL.replace("+asyncpg", "+psycopg")
+    engine = create_engine(sync_url, connect_args={"options": f"-csearch_path={schema}"})
+    ids = [str(uuid.uuid4()) for _ in range(admins)]
+    now = "2026-10-01T00:00:00Z"
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(f"CREATE SCHEMA {schema}")
+        with engine.begin() as conn:
+            command.upgrade(alembic_config(conn), "0019")
+            for i, uid in enumerate(ids):
+                conn.execute(
+                    text(
+                        "insert into studio_users (id, email, password_hash, role, display_name, is_active, "
+                        "token_epoch, email_verified, created_at, updated_at) "
+                        "values (:i, :e, '', 'admin', '', true, 0, true, now(), now())"
+                    ),
+                    {"i": uid, "e": f"admin{i}-{schema}@studio.local"},
+                )
+            task = conn.execute(
+                text(
+                    "insert into orch_tasks (session_id, status, created_at, updated_at) "
+                    "values ('main', 'waiting_approval', :n, :n) returning id"
+                ),
+                {"n": now},
+            ).scalar()
+            conn.execute(
+                text(
+                    "insert into orch_events (session_id, task_id, seq, type, created_at) "
+                    "values ('main', :t, 1, 'task_started', :n)"
+                ),
+                {"t": task, "n": now},
+            )
+            conn.execute(text("insert into orch_event_seq (session_id, seq) values ('main', 1)"))
+            conn.execute(
+                text(
+                    "insert into notification_log (ts, channel, kind, text_redacted, ok) "
+                    "values (:n, 'chat', 'test', '', 1)"
+                ),
+                {"n": now},
+            )
+        with engine.begin() as conn:
+            command.upgrade(alembic_config(conn), "0020")
+        out: dict = {"admins": ids}
+        with engine.begin() as conn:
+            # Перенесённые строки видны только от имени админа (политика FORCE).
+            if accounts and len(ids) == 1:
+                conn.execute(text("select set_config('app.tenant_id', :t, true)"), {"t": ids[0]})
+            for table in ("orch_tasks", "orch_events", "orch_event_seq", "notification_log"):
+                out[table] = [
+                    tuple(row)
+                    for row in conn.execute(
+                        text(
+                            f"select tenant_id::text, {'session_id' if table != 'notification_log' else 'kind'} "  # noqa: S608
+                            f"from {table}"
+                        )
+                    )
+                ]
+        with engine.begin() as conn:
+            if ids:
+                conn.execute(text("select set_config('app.tenant_id', :t, true)"), {"t": ids[0]})
+            out["admin_sees"] = conn.execute(text("select count(*) from orch_tasks")).scalar()
+        return out
+    finally:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+        engine.dispose()
+
+
+def test_upgrade_gives_pre_tenant_engine_rows_to_the_single_admin(monkeypatch) -> None:
+    """До 0020 движком пользовался только админ: его история остаётся его."""
+    out = _migrate_schema_with_engine_rows(monkeypatch, accounts=True, admins=1)
+    admin = out["admins"][0]
+    session = f"main.{admin}"
+    assert out["orch_tasks"] == [(admin, session)]
+    assert out["orch_events"] == [(admin, session)]
+    assert out["orch_event_seq"] == [(admin, session)]
+    # Журнал только на дописывание: перенос прошёл, триггер снова на месте.
+    assert out["notification_log"] == [(admin, "test")]
+    assert out["admin_sees"] == 1
+
+
+@pytest.mark.parametrize(("accounts", "admins"), [(False, 1), (True, 2)])
+def test_upgrade_leaves_owner_rows_when_owner_is_unknown(monkeypatch, accounts, admins) -> None:
+    """Режим владельца или несколько админов: чьи строки, не угадать — NULL."""
+    out = _migrate_schema_with_engine_rows(monkeypatch, accounts=accounts, admins=admins)
+    assert out["orch_tasks"] == [(None, "main")]
+    assert out["notification_log"] == [(None, "test")]
+    # Админ строк владельца не видит — их видит проход без арендатора.
+    assert out["admin_sees"] == 0

@@ -644,7 +644,18 @@ def _trace(project, key: str) -> dict | None:
 
 
 async def _node_costs(pid: int) -> tuple[dict[str, float], float | None]:
+    """Траты проекта и по нодам из общей кассы провайдеров.
+
+    Участнику — ничего: это себестоимость вызовов, а не его списания
+    (`app/services/action_layer/plan.py::member_view`). Пустой ответ здесь
+    убирает траты из карточки ноды и отчётов одним местом.
+    """
     from sqlalchemy import text
+
+    from app.services.action_layer.plan import member_view
+
+    if member_view():
+        return {}, None
 
     per = (
         "SELECT e.node_key, SUM(s.usd) FROM spend_ledger s JOIN (SELECT DISTINCT node_key, "
@@ -1022,6 +1033,10 @@ def _pick_lines(rows: list[dict], limit: int) -> list[dict]:
 
 
 async def _logs_tail(ctx: ActionContext, params: dict) -> dict:
+    from app.services.action_layer.plan import refuse_admin_only
+
+    # Без проекта — общий лог сервера со строками всех клиентов: только админу.
+    refuse_admin_only("logs.tail", params)
     pid = params.get("project_id")
     level = params.get("kind", "warnings")
     limit = int(params.get("limit", 40))
@@ -1140,7 +1155,10 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
     from sqlalchemy import text
 
     from app.services import spend_guard
+    from app.services.action_layer.plan import refuse_admin_only
 
+    # Общая касса студии и себестоимость: участнику не показывается.
+    refuse_admin_only("spend.summary", params)
     pid = params.get("project_id")
     day = spend_guard._today()
     cols = "SELECT kind, source, note, usd FROM spend_ledger WHERE "
@@ -1323,13 +1341,21 @@ _NODES_WIDTHS = {
 }
 
 
+def _without_cost(columns: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+    return tuple(col for col in columns if col[0] != "cost_usd")
+
+
 def _write_xlsx(
-    path: Path, rows: list[dict], summary: list[tuple[str, Any]], gpt: list[dict] | None = None
+    path: Path,
+    rows: list[dict],
+    summary: list[tuple[str, Any]],
+    gpt: list[dict] | None = None,
+    columns: tuple[tuple[str, str], ...] = _REPORT_COLUMNS,
 ) -> None:
     from app.services.action_layer import report_gpt as rg
     from app.services.action_layer import report_template as tpl
 
-    sheets = [("Ноды", _REPORT_COLUMNS, rows)]
+    sheets = [("Ноды", columns, rows)]
     if gpt:
         sheets += [
             (tpl.GPT_SHEET, tpl.GPT_NODE_COLUMNS, gpt),
@@ -1417,6 +1443,8 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
         # «из них по нодам $0» без разнесённых трат только путает — пишем, лишь если есть что показать.
         head += f", из них по нодам ${summary['attributed_usd_estimate']}." if attributed else "."
     intro = head + (f"\n{gpt_text}" if gpt_text else "")
+    # Трат нет (участник студии, `_node_costs`) — нет и колонки с ними.
+    columns = _REPORT_COLUMNS if spent is not None else _without_cost(_REPORT_COLUMNS)
     out: dict[str, Any] = {"project_id": pid, "format": fmt, "summary": summary, "gpt": gpt}
     if fmt == "json":
         out["rows"] = rows
@@ -1425,7 +1453,7 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
     if fmt == "md":
         out["markdown"] = (
             f"## Отчёт по нодам проекта #{pid} «{title}»\n\n{intro}\n\n"
-            + _markdown(rows, _REPORT_COLUMNS)
+            + _markdown(rows, columns)
             + _gpt_markdown(gpt, full=True)
         )
         out["text_ru"] = intro
@@ -1444,10 +1472,12 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
         ("Персонажей в проекте", extra["characters_in_project"]),
         ("Сцен в реестре", extra["scenes_in_registry"]),
     ]
+    if spent is None:
+        pairs = [pair for pair in pairs if not pair[0].startswith(("Траты", "Из них"))]
     pairs += [(f"Статус: {k}", v) for k, v in counts.items()]
     if gpt_text:
         pairs.append(("Кратко", gpt_text))
-    _write_xlsx(path, rows, pairs, gpt)
+    _write_xlsx(path, rows, pairs, gpt, columns)
     from app.web.routers.project_reports import report_url
 
     url = report_url(pid, path)
@@ -1465,6 +1495,8 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
         ("result", "Результат"),
         ("cost_usd", "$ (оценка)"),
     )
+    if spent is None:
+        short_cols = _without_cost(short_cols)
     shown = rows[:_CHAT_ROWS]
     table = _markdown([{**r, "title": f"{r['title']} ({r['node_key']})"} for r in shown], short_cols)
     tail = f"\n\nЕщё нод: {len(rows) - len(shown)} (полный отчёт в файле)." if len(rows) > len(shown) else ""

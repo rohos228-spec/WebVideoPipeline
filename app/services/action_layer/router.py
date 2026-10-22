@@ -428,15 +428,24 @@ class ReleaseReserveIn(BaseModel):
 
 
 # Реестр неснятых резервов — инструмент студии (кассу провайдеров сверяет
-# владелец), поэтому только админ. Строки резервов при этом под RLS: админ
-# видит резервы своего арендатора.
+# владелец), поэтому только админ. Строки резервов и шагов под RLS, а резерв
+# клиента держит общий потолок студии (строка `reserve` в `spend_ledger`),
+# значит админ обязан видеть и снимать резервы КАЖДОГО арендатора, а не только
+# своего. Проход тот же, что у фоновых задач движка: владелец, затем каждый
+# арендатор под своим `tenant_scope` (`app/services/orch_tenancy.py`).
 @router.get("/reserves")
 async def list_unresolved_reserves(operator: AdminDep, older_than_s: float = Query(0.0, ge=0)) -> dict:
     from app.services.action_layer import budget
     from app.services.kie_catalog import CREDIT_USD
+    from app.services.orch_tenancy import tenants_to_serve
+    from app.services.tenant import tenant_scope
 
-    async with store.sessions()() as s:
-        rows = await budget.unresolved_reserves(s, older_than_s=older_than_s)
+    rows: list[dict] = []
+    for tenant in await tenants_to_serve():
+        with tenant_scope(tenant):
+            async with store.sessions()() as s:
+                found = await budget.unresolved_reserves(s, older_than_s=older_than_s)
+        rows.extend({**row, "tenant_id": tenant} for row in found)
     ensure_builtin_actions()
     for row in rows:
         spec = default_registry.find(row["action_id"])
@@ -462,16 +471,31 @@ async def release_unresolved_reserve(
 
     async def call() -> dict:
         from app.services.action_layer import budget
+        from app.services.orch_tenancy import tenants_to_serve
+        from app.services.tenant import tenant_scope
 
-        async with store.sessions()() as s:
-            try:
-                out = await budget.release_reserve(
-                    s, plan_id=body.plan_id, step_index=body.step_index, operator=who.id, reason=body.reason
-                )
-            except budget.BudgetError as exc:
-                raise HTTPException(409, detail={"code": exc.code, "message": str(exc)}) from exc
-            await s.commit()
-        return out
+        # Шаг ищется у владельца и у каждого арендатора: снять резерв надо там,
+        # где лежит план, — история и строка `settle` получают его арендатора.
+        refusal = budget.BudgetError("not_releasable", "У этого шага нет незакрытого резерва.")
+        for tenant in await tenants_to_serve():
+            with tenant_scope(tenant):
+                async with store.sessions()() as s:
+                    try:
+                        out = await budget.release_reserve(
+                            s,
+                            plan_id=body.plan_id,
+                            step_index=body.step_index,
+                            operator=who.id,
+                            reason=body.reason,
+                        )
+                    except budget.BudgetError as exc:
+                        if exc.code != "not_releasable":
+                            raise HTTPException(409, detail={"code": exc.code, "message": str(exc)}) from exc
+                        refusal = exc
+                        continue
+                    await s.commit()
+            return out
+        raise HTTPException(409, detail={"code": refusal.code, "message": str(refusal)})
 
     return await _once(request, idem, who, call, body=body.model_dump())
 

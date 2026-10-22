@@ -72,9 +72,22 @@ async def reserve(
             text(
                 "INSERT INTO action_layer_spend (session_key, plan_id, step_index, kind, credits, created_at) "
                 "SELECT :k, :p, :i, 'reserve', :c, :now WHERE "
-                "COALESCE((SELECT SUM(credits) FROM action_layer_spend WHERE session_key = :k), 0) + :c <= :cap"
+                "COALESCE((SELECT SUM(credits) FROM action_layer_spend WHERE session_key = :k_where), 0) "
+                "+ :c_where <= :cap"
             ),
-            {"k": key, "p": plan_id, "i": step_index, "c": amount, "cap": cap, "now": datetime.utcnow()},
+            # Значение в списке SELECT и то же значение в WHERE — разные
+            # параметры: asyncpg выводит тип каждого `$n` по месту, и общий
+            # параметр получил бы два типа (text и varchar) — отказ Postgres.
+            {
+                "k": key,
+                "k_where": key,
+                "p": plan_id,
+                "i": step_index,
+                "c": amount,
+                "c_where": amount,
+                "cap": cap,
+                "now": datetime.utcnow(),
+            },
         )
         if result.rowcount != 1:
             left = await remaining(session, key, cap)
@@ -349,12 +362,17 @@ async def release_reserve(session, *, plan_id: str, step_index: int, operator: s
         text(
             "INSERT INTO action_layer_spend (session_key, plan_id, step_index, kind, credits, created_at) "
             "SELECT :k, :p, :i, 'settle', :neg, :now WHERE "
-            "ABS(COALESCE((SELECT SUM(credits) FROM action_layer_spend WHERE plan_id = :p AND step_index = :i), 0) - :held) < 1e-9"
+            "ABS(COALESCE((SELECT SUM(credits) FROM action_layer_spend "
+            "WHERE plan_id = :p_where AND step_index = :i_where), 0) - :held) < 1e-9"
         ),
+        # Отдельные параметры для WHERE — как в `reserve`: иначе Postgres
+        # отказывает «inconsistent types deduced for parameter».
         {
             "k": session_key(plan_id),
             "p": plan_id,
+            "p_where": plan_id,
             "i": int(step_index),
+            "i_where": int(step_index),
             "neg": -held,
             "held": held,
             "now": datetime.utcnow(),

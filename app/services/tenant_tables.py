@@ -159,6 +159,10 @@ INFRA_TABLES: frozenset[str] = frozenset(
 #:
 #: Ручки, которые их показывают и меняют (реестр резервов, аварийный стоп),
 #: открыты только админу (`app/web/engine_access.py::require_engine_admin`).
+#: Действия чата, которые читают их или общий лог сервера (`spend.summary`,
+#: `logs.tail` без проекта), участнику закрыты так же —
+#: `app/services/action_layer/plan.py::ADMIN_ONLY_ACTIONS`; себестоимость в
+#: карточках нод и отчётах участнику не показывается (`member_view`).
 ENGINE_TABLES: frozenset[str] = frozenset(
     {
         "provider_task_ledger",

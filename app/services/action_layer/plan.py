@@ -93,28 +93,78 @@ def plan_hash(plan: Plan, registry: ActionRegistry) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-#: Действия, которые меняют студию целиком, а не данные клиента: аварийный
-#: стоп платных вызовов один на всю студию (`supervisor_kill_switch`, общая
-#: таблица). Участнику (роль `member`) такой шаг в план не попадает.
-ADMIN_ONLY_ACTIONS: frozenset[str] = frozenset({"kill_switch.engage"})
+#: Действия студии целиком, а не данных клиента. Участнику (роль `member`)
+#: такой шаг в план не попадает, исполнитель и чтения чата его отклоняют.
+#:
+#: * `kill_switch.engage` — аварийный стоп платных вызовов один на всю студию
+#:   (`supervisor_kill_switch`, общая таблица).
+#: * `spend.summary` — читает общую кассу провайдеров (`spend_ledger`, без
+#:   RLS): траты всей студии за день, потолки студии и себестоимость вызовов
+#:   по проекту. Себестоимость участнику не показывается вовсе — та же
+#:   ловушка, что `/api/llm-costs` (`app/web/identity.py`); свои списания он
+#:   видит в оплате.
+ADMIN_ONLY_ACTIONS: frozenset[str] = frozenset({"kill_switch.engage", "spend.summary"})
+
+#: Действия, которые без проекта читают общие ресурсы студии. С проектом —
+#: только строки этого проекта (проект проверен под RLS), без проекта —
+#: всё подряд, в том числе строки чужих клиентов. `logs.tail` без проекта —
+#: хвост общего лога сервера: там проекты и брифы всех арендаторов.
+ADMIN_ONLY_WITHOUT_PROJECT: frozenset[str] = frozenset({"logs.tail"})
 
 ADMIN_ONLY_MESSAGE = "действие меняет всю студию и доступно только админу"
+ADMIN_ONLY_READ_MESSAGE = "сведения всей студии доступны только админу"
 
 
-def admin_only_refused(action_id: str) -> bool:
-    """Шаг запрещён текущей личности: участнику — действия всей студии.
+def member_view() -> bool:
+    """Запрос идёт от участника студии, а не от админа или владельца.
 
-    Режим владельца (учётки выключены) и админ — без ограничений.
+    Режим владельца (учётки выключены) и админ видят всё; участник — только
+    своё и без себестоимости.
     """
-    if action_id not in ADMIN_ONLY_ACTIONS:
-        return False
     from app.services.studio_auth import current_identity
     from app.settings import settings
 
     if not settings.accounts_enabled:
         return False
     ident = current_identity()
-    return ident is None or not ident.is_admin
+    if ident is None:
+        # Ни личности, ни арендатора — проход владельца в фоне (строки без
+        # арендатора, `orch_tenancy.for_each_tenant`): запросу участника без
+        # токена middleware сюда дойти не даёт. Арендатор без личности —
+        # отключённая учётка: участник.
+        from app.services.tenant import current_tenant
+
+        return current_tenant() is not None
+    return not ident.is_admin
+
+
+def admin_only_refused(action_id: str, params: dict | None = None) -> bool:
+    """Шаг запрещён текущей личности: участнику — действия всей студии.
+
+    Режим владельца (учётки выключены) и админ — без ограничений.
+    """
+    if action_id in ADMIN_ONLY_ACTIONS:
+        return member_view()
+    if action_id in ADMIN_ONLY_WITHOUT_PROJECT and (params or {}).get("project_id") is None:
+        return member_view()
+    return False
+
+
+def admin_only_message(action_id: str) -> str:
+    """Текст отказа: меняющее действие или чтение сведений всей студии."""
+    if action_id == "kill_switch.engage":
+        return ADMIN_ONLY_MESSAGE
+    return ADMIN_ONLY_READ_MESSAGE
+
+
+def refuse_admin_only(action_id: str, params: dict | None = None) -> None:
+    """Исполнитель действия сам закрывает себя: путей вызова несколько.
+
+    План, исполнитель плана, движок чата и чтения для ответа на вопрос — все
+    приходят к одному `spec.executor`. Проверка в нём не даёт забыть путь.
+    """
+    if admin_only_refused(action_id, params):
+        raise PermissionError(admin_only_message(action_id))
 
 
 async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
@@ -162,11 +212,12 @@ async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
             steps_out.append(item)
             errors.append(f"шаг {step.index + 1}: неизвестное действие {step.action_id!r}")
             continue
-        if admin_only_refused(spec.id):
-            item["errors"].append(ADMIN_ONLY_MESSAGE)
+        if admin_only_refused(spec.id, step.params):
+            refusal = admin_only_message(spec.id)
+            item["errors"].append(refusal)
             item["valid"] = False
             steps_out.append(item)
-            errors.append(f"шаг {step.index + 1}: {ADMIN_ONLY_MESSAGE}")
+            errors.append(f"шаг {step.index + 1}: {refusal}")
             continue
         item.update(
             {

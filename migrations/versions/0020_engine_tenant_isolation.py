@@ -29,12 +29,29 @@ Create Date: 2026-10-22
   `WITH CHECK`. Забыть проставить нельзя, подставить чужого — тоже.
 * **Postgres: ENABLE + FORCE + политика `tenant_isolation`** с предикатом
   0006 — слово в слово, чтобы `rls_check` и человек видели одну политику.
+* **Postgres, режим учётных записей: строки движка до перехода — админу.**
+  До этой ревизии у таблиц движка не было арендатора, и движком пользовался
+  только админ: чат и слой действий были закрыты участникам. Строки с NULL
+  — это его история, одобрения, планы, предложения и снимки. Оставить их с
+  NULL значило бы спрятать их от него же: запросы админа идут под его
+  `tenant_id`, а NULL политика пропускает только проходу без арендатора.
+  Поэтому, если учётки включены (`STUDIO_SESSION_SECRET`) и активный админ
+  в `studio_users` ровно один, строки с NULL получают его арендатора, а имя
+  сессии чата — его суффикс (`main` → `main.<uuid>`,
+  `app/services/orch_tenancy.py`), иначе история не нашлась бы и по имени.
+  Делается ДО включения политики (иначе `WITH CHECK` не дал бы сменить
+  арендатора) и с выключенными пользовательскими триггерами таблицы
+  (`notification_log` и др. — только на дописывание). Режим владельца
+  (учёток нет) строки не трогает: там их видит проход без арендатора, как
+  и проекты до перехода (0005). Админов несколько — чьи строки, не
+  угадать; ревизия оставляет NULL и пишет предупреждение в журнал.
 
 SQLite: колонка и индекс есть, политик нет — как у остальных таблиц
 арендатора; многоарендный режим на SQLite запрещён `require_isolation`.
 
 downgrade: снимает политики и значения по умолчанию, у сырых таблиц движка
-убирает колонку. У таблиц с моделями колонка остаётся — её объявляет
+убирает колонку. Перенос строк админу не откатывается: суффикс сессии
+остаётся в имени, у таблиц с моделями — арендатор в колонке. У таблиц с моделями колонка остаётся — её объявляет
 модель, и baseline на свежей базе создаёт её так же.
 """
 
@@ -127,11 +144,83 @@ def _runner_tenant_sqlite(bind: sa.engine.Connection) -> None:
     )
 
 
+#: Сырые таблицы движка, где имя сессии чата лежит в `session_id`.
+SESSION_TABLES: tuple[str, ...] = (
+    "orch_tasks",
+    "orch_checkpoints",
+    "orch_events",
+    "orch_event_seq",
+    "orch_messages",
+)
+
+
+def engine_owner(bind: sa.engine.Connection) -> str | None:
+    """Чьи строки движка без арендатора: единственный активный админ или никто.
+
+    ``None`` — не трогать: режим владельца (учётки выключены), нет таблицы
+    учёток, нет админа или их несколько.
+    """
+    from loguru import logger
+
+    from app.services.studio_auth import ROLE_ADMIN
+    from app.settings import settings
+
+    if bind.dialect.name != "postgresql" or not settings.accounts_enabled:
+        return None
+    if not sa.inspect(bind).has_table("studio_users"):
+        return None
+    admins = [
+        str(row[0])
+        for row in bind.execute(
+            sa.text("SELECT id FROM studio_users WHERE role = :r AND is_active ORDER BY created_at, id"),
+            {"r": ROLE_ADMIN},
+        )
+    ]
+    if len(admins) != 1:
+        if admins:
+            logger.warning(
+                "0020: активных админов {} — строки движка без арендатора оставлены с NULL, "
+                "назначьте их владельцу вручную",
+                len(admins),
+            )
+        return None
+    return admins[0]
+
+
+def backfill_owner(bind: sa.engine.Connection, table: str, owner: str) -> int:
+    """Строкам таблицы без арендатора — арендатор админа; сессиям чата — его суффикс.
+
+    Вызывается до включения политики. Пользовательские триггеры таблицы
+    (запрет UPDATE у журналов только на дописывание) на время выключаются:
+    это смена владельца строки, а не правка записи.
+    """
+    from app.services.orch_tenancy import SEPARATOR
+
+    if not bind.execute(sa.text(f"SELECT 1 FROM {table} WHERE tenant_id IS NULL LIMIT 1")).first():
+        return 0
+    sets = ["tenant_id = CAST(:t AS uuid)"]
+    if table in SESSION_TABLES:
+        # Отдельный параметр на каждый тип: asyncpg выводит тип по месту.
+        sets.append(
+            "session_id = CASE WHEN strpos(session_id, :sep) = 0 THEN session_id || :suffix ELSE session_id END"
+        )
+    bind.exec_driver_sql(f"ALTER TABLE {table} DISABLE TRIGGER USER")
+    try:
+        result = bind.execute(
+            sa.text(f"UPDATE {table} SET {', '.join(sets)} WHERE tenant_id IS NULL"),
+            {"t": owner, "sep": SEPARATOR, "suffix": f"{SEPARATOR}{owner}"},
+        )
+    finally:
+        bind.exec_driver_sql(f"ALTER TABLE {table} ENABLE TRIGGER USER")
+    return int(result.rowcount or 0)
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
     if not is_pg:
         _runner_tenant_sqlite(bind)
+    owner = engine_owner(bind)
 
     model_tables = _engine_model_tables()
     from app.models import Base
@@ -151,6 +240,8 @@ def upgrade() -> None:
             op.create_index(_index_name(table), table, ["tenant_id"])
         if not is_pg:
             continue
+        if owner is not None:
+            backfill_owner(bind, table, owner)
         policy = policy_for(table)
         op.execute(f"ALTER TABLE {table} ALTER COLUMN tenant_id SET DEFAULT {_DEFAULT}")
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
