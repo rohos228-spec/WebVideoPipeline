@@ -231,10 +231,44 @@ async def test_project_report_and_telemetry_read_it(sessions, tracker, monkeypat
     assert any("Открытые резервы" in line for line in rec["lines_ru"])
 
 
+async def _drop(sessions, *tables):
+    async with sessions() as s:
+        for name in tables:
+            await s.execute(text(f"DROP TABLE IF EXISTS {name}"))
+        await s.commit()
+
+
 async def test_report_without_tables_and_summary_without_reconcile(sessions, tracker):
+    # Свежая база после alembic: spend_ledger появляется только при первой трате.
+    await _drop(sessions, "spend_ledger", "observation_incidents")
     async with sessions() as s:
         rep = await sr.project_report(s, 99, tracker_db=tracker)
+        start = await sr.mark(s, tracker_db=tracker)
+        sums = await sr.window_sums(s, start, provider="kie", project_id=99, tracker_db=tracker)
+        assert (await s.execute(text("SELECT 1"))).scalar() == 1
     assert rep["ledger_total_usd"] == 0 and not rep["balance_reconciled"]
+    assert rep["open_mismatch_incidents"] == 0
+    assert start.ledger_max_id == 0
+    assert sums == {"ledger_usd": 0.0, "tracker_usd": 0.0, "foreign_usd": 0.0, "boundary_usd": 0.0}
     lines = reconcile_summary(rep)["lines_ru"]
     assert "не выполнялась" in lines[-1]
     assert reconcile_summary(None)["available"] is False
+
+
+async def test_telemetry_keeps_loaded_incidents_when_ledger_is_missing(sessions, tracker, monkeypatch):
+    # Телеметрия читает инциденты до отчёта о деньгах; отсутствие spend_ledger
+    # не должно откатывать сессию и протухать уже загруженные объекты.
+    from app.services import api_tracker_hook
+    monkeypatch.setattr(api_tracker_hook, "_TRACKER_DB", tracker)
+    await _drop(sessions, "spend_ledger")
+    async with sessions() as s:
+        s.add(Incident(incident_id="inc-1", execution_id="x", project_id=7, type="node_failed",
+                       status="open", severity="warning", details={}))
+        await s.commit()
+    async with sessions() as s:
+        tele = await project_telemetry(s, 7)
+        loaded = (await s.scalars(select(Incident).where(Incident.project_id == 7))).all()
+    assert tele["incidents"]["total"] == 1 and tele["incidents"]["by_type"] == {"node_failed": 1}
+    assert tele["reconcile"]["available"] is True
+    assert tele["reconcile"]["estimated_usd"] == 0
+    assert [i.incident_id for i in loaded] == ["inc-1"]

@@ -21,8 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import text
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy import inspect as sa_inspect, text
 
 DEFAULT_TOLERANCE = 0.05
 SOURCE_OK = "reconcile_ok"
@@ -190,12 +189,19 @@ def _tracker_sync(project_id: int | None, provider: str | None, after_id: int,
     return total, int(max_id or 0)
 
 
+async def _has_table(session, name: str) -> bool:
+    # spend_ledger создаёт spend_guard при первой трате, observation_incidents —
+    # диагностика; на свежей базе их может не быть. Проверяем заранее, а не ловим
+    # ошибку запроса: откат сессии вызывающего протух бы уже загруженные им
+    # объекты (телеметрия проекта читает инциденты до отчёта о деньгах), а в
+    # Postgres упавший запрос ещё и ломает всю транзакцию.
+    return await session.run_sync(lambda sync: sa_inspect(sync.connection()).has_table(name))
+
+
 async def _ledger_max_id(session) -> int:
-    try:
-        return int((await session.execute(text("SELECT COALESCE(MAX(id), 0) FROM spend_ledger"))).scalar() or 0)
-    except (OperationalError, ProgrammingError):
-        await session.rollback()
+    if not await _has_table(session, "spend_ledger"):
         return 0
+    return int((await session.execute(text("SELECT COALESCE(MAX(id), 0) FROM spend_ledger"))).scalar() or 0)
 
 
 async def mark(session, *, tracker_db=None) -> Mark:
@@ -209,19 +215,17 @@ async def window_sums(session, start: Mark, *, provider: str, project_id: int | 
     sql = "SELECT id, usd, provider, project_id FROM spend_ledger WHERE id > :a"
     params: dict[str, Any] = {"a": start.ledger_max_id}
     ledger = foreign = boundary = 0.0
-    try:
-        for rid, usd, prov, pid in (await session.execute(text(sql), params)).all():
-            if _norm(prov) != _norm(provider):
-                continue
-            usd = float(usd or 0.0)
-            if project_id is not None and pid != project_id:
-                foreign += abs(usd)
-                continue
-            ledger += usd
-            if any(rid > lo and (hi is None or rid <= hi) for lo, hi in (ambiguous or ())):
-                boundary += abs(usd)
-    except (OperationalError, ProgrammingError):
-        await session.rollback()
+    rows = (await session.execute(text(sql), params)).all() if await _has_table(session, "spend_ledger") else []
+    for rid, usd, prov, pid in rows:
+        if _norm(prov) != _norm(provider):
+            continue
+        usd = float(usd or 0.0)
+        if project_id is not None and pid != project_id:
+            foreign += abs(usd)
+            continue
+        ledger += usd
+        if any(rid > lo and (hi is None or rid <= hi) for lo, hi in (ambiguous or ())):
+            boundary += abs(usd)
     tracker, _ = await asyncio.to_thread(_tracker_sync, project_id, provider, start.tracker_max_id, tracker_db)
     return {"ledger_usd": ledger, "tracker_usd": tracker, "foreign_usd": foreign, "boundary_usd": boundary}
 
@@ -326,12 +330,10 @@ async def project_report(session, project_id: int, *, since: datetime | None = N
         where += " AND created_at >= :s"
         params["s"] = since
     rows: list[Any] = []
-    try:
+    if await _has_table(session, "spend_ledger"):
         rows = (await session.execute(text(
             "SELECT id, kind, provider, run_id, source, usd, note, created_at FROM spend_ledger WHERE "
             + where + " ORDER BY id"), params)).all()
-    except (OperationalError, ProgrammingError):
-        await session.rollback()
     est = act = settle = total = 0.0
     by_kind: dict[str, float] = {}
     reserve_by_run: dict[str, float] = {}
@@ -412,10 +414,8 @@ def _tracker_sync_total(project_id: int, since: datetime | None, db_path=None) -
 
 
 async def _open_incident_count(session, project_id: int) -> int:
-    try:
-        return int((await session.execute(text(
-            "SELECT COUNT(*) FROM observation_incidents WHERE project_id = :p AND type = :t "
-            "AND status != 'resolved_confirmed'"), {"p": project_id, "t": INCIDENT_TYPE})).scalar() or 0)
-    except (OperationalError, ProgrammingError):
-        await session.rollback()
+    if not await _has_table(session, "observation_incidents"):
         return 0
+    return int((await session.execute(text(
+        "SELECT COUNT(*) FROM observation_incidents WHERE project_id = :p AND type = :t "
+        "AND status != 'resolved_confirmed'"), {"p": project_id, "t": INCIDENT_TYPE})).scalar() or 0)
