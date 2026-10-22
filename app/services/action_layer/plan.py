@@ -93,6 +93,30 @@ def plan_hash(plan: Plan, registry: ActionRegistry) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+#: Действия, которые меняют студию целиком, а не данные клиента: аварийный
+#: стоп платных вызовов один на всю студию (`supervisor_kill_switch`, общая
+#: таблица). Участнику (роль `member`) такой шаг в план не попадает.
+ADMIN_ONLY_ACTIONS: frozenset[str] = frozenset({"kill_switch.engage"})
+
+ADMIN_ONLY_MESSAGE = "действие меняет всю студию и доступно только админу"
+
+
+def admin_only_refused(action_id: str) -> bool:
+    """Шаг запрещён текущей личности: участнику — действия всей студии.
+
+    Режим владельца (учётки выключены) и админ — без ограничений.
+    """
+    if action_id not in ADMIN_ONLY_ACTIONS:
+        return False
+    from app.services.studio_auth import current_identity
+    from app.settings import settings
+
+    if not settings.accounts_enabled:
+        return False
+    ident = current_identity()
+    return ident is None or not ident.is_admin
+
+
 async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
     ro_ctx = ctx.readonly_copy()
     errors: list[str] = []
@@ -137,6 +161,12 @@ async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
             item["valid"] = False
             steps_out.append(item)
             errors.append(f"шаг {step.index + 1}: неизвестное действие {step.action_id!r}")
+            continue
+        if admin_only_refused(spec.id):
+            item["errors"].append(ADMIN_ONLY_MESSAGE)
+            item["valid"] = False
+            steps_out.append(item)
+            errors.append(f"шаг {step.index + 1}: {ADMIN_ONLY_MESSAGE}")
             continue
         item.update(
             {

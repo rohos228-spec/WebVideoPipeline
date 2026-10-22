@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Index, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
@@ -41,6 +41,7 @@ def sha(value: Any) -> str:
 class ChangeProposal(Base):
     __tablename__ = "change_proposals"
     __table_args__ = (Index("ix_change_proposals_target", "target", "status"),)
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     tier: Mapped[str] = mapped_column(String(4))
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
@@ -74,6 +75,7 @@ class ConfigVersion(Base):
         UniqueConstraint("target", "version", name="uq_config_version"),
         Index("ix_config_versions_proposal", "source_proposal_id"),
     )
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     target: Mapped[str] = mapped_column(String(240))
     version: Mapped[int] = mapped_column(Integer)
@@ -90,6 +92,7 @@ class ConfigVersion(Base):
 
 class ConfigPointer(Base):
     __tablename__ = "config_pointers"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     target: Mapped[str] = mapped_column(String(240), primary_key=True)
     current_version: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, String, UniqueConstraint, select, update
+from sqlalchemy import JSON, String, UniqueConstraint, Uuid, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -62,6 +62,7 @@ class RecoveryAction(Base):
         UniqueConstraint("execution_id", "node_key", name="uq_single_node_recovery"),
         UniqueConstraint("execution_id", "idempotency_key", name="uq_recovery_key"),
     )
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     action_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     execution_id: Mapped[str] = mapped_column(String(36), index=True)
     project_id: Mapped[int] = mapped_column(index=True)

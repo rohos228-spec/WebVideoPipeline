@@ -1,12 +1,13 @@
-"""Ручки движка подключены к приложению новой линии и закрыты для всех, кроме админа.
+"""Ручки движка подключены к приложению новой линии: клиентам — своё, студия — админу.
 
 Движок (чат оркестратора, слой действий, контроль изменений, отчёты проектов)
 перенесён из video-pipeline int/chat-v1. Здесь проверяется не логика движка —
 её покрывают тесты action_layer/change_control/agents, — а стык с новой линией:
 
 * каждый роутер движка достижим через ``create_app`` и отвечает админу;
-* без токена — 401 от ``IdentityMiddleware``; участнику — 404 (как всем
-  инструментам владельца: существование ручки тоже сведения);
+* без токена — 401 от ``IdentityMiddleware``; участнику открыт чат, планы,
+  журнал и контроль изменений (изоляция — RLS и арендатор в имени сессии),
+  а инструменты студии (реестр резервов, общие отчёты) — 403;
 * пути движка не совпадают с ручками новой линии и не перехвачены ими;
 * фоновый старт движка (закрытие прерванного, истечение одобрений) идёт по
   ``ENGINE_STARTUP``, по умолчанию включён, а таблицы движка создаются всегда;
@@ -42,15 +43,22 @@ REPORT_NAME = "projects_report_mount.md"
 
 #: Ручка чтения на каждый подключённый роутер движка и то, по чему видно, что
 #: ответил именно он, а не чужой маршрут с похожим путём.
-ENGINE_READS: dict[str, tuple[str, str]] = {
+MEMBER_READS: dict[str, tuple[str, str]] = {
     "action_layer": ("/api/action-layer/catalog", "actions"),
     "action_layer_db": ("/api/action-layer/plans", "items"),
     "action_layer_attachments": ("/api/action-layer/attachments/rules", ""),
     "change_control": ("/api/change-control/allow-list", ""),
     "change_control_db": ("/api/change-control/proposals", "items"),
     "orchestrator_chat": ("/api/orchestrator/chat/mount-check/status", "session"),
+}
+
+#: Инструменты студии целиком: участнику 403, админу 200.
+ADMIN_READS: dict[str, tuple[str, str]] = {
+    "action_layer_reserves": ("/api/action-layer/reserves", "items"),
     "project_reports": (f"/api/projects/reports/{REPORT_NAME}", ""),
 }
+
+ENGINE_READS: dict[str, tuple[str, str]] = {**MEMBER_READS, **ADMIN_READS}
 
 ENGINE_PREFIXES = ("/api/action-layer", "/api/change-control", "/api/orchestrator/chat")
 
@@ -90,17 +98,32 @@ async def test_engine_read_needs_a_token(env, name) -> None:
     assert res.status_code == 401, f"{path} без токена отдал {res.status_code}"
 
 
-@pytest.mark.parametrize("name", sorted(ENGINE_READS))
-async def test_engine_read_is_closed_to_members(env, name) -> None:
-    """Участнику — 404, как у всех инструментов владельца в новой линии.
-
-    Для /api/action-layer, /api/change-control, /api/orchestrator отказ даёт
-    `IdentityMiddleware` (префиксов нет в TENANT_ALLOWED_PREFIXES), для отчётов
-    под открытым участникам /api/projects — зависимость роутера.
-    """
-    path, _ = ENGINE_READS[name]
+@pytest.mark.parametrize("name", sorted(MEMBER_READS))
+async def test_engine_read_is_open_to_members(env, name) -> None:
+    """Чат оркестратора — для каждого клиента студии, не только для админа."""
+    path, key = MEMBER_READS[name]
     res = await env["client"].get(path, headers=env["member"].auth)
-    assert res.status_code == 404, f"{path} отдал участнику {res.status_code}"
+    assert res.status_code == 200, f"{path} отдал участнику {res.status_code}: {res.text[:300]}"
+    if key:
+        assert key in res.json(), f"{path} ответил не ручкой движка: {res.text[:300]}"
+
+
+@pytest.mark.parametrize("name", sorted(ADMIN_READS))
+async def test_studio_tools_are_closed_to_members(env, name) -> None:
+    """Реестр резервов и общие отчёты — инструменты студии: участнику 403."""
+    path, _ = ADMIN_READS[name]
+    res = await env["client"].get(path, headers=env["member"].auth)
+    assert res.status_code == 403, f"{path} отдал участнику {res.status_code}"
+
+
+async def test_member_cannot_release_a_reserve(env) -> None:
+    """Запись в реестр резервов — тоже только админ, проверка роли раньше тела."""
+    res = await env["client"].post(
+        "/api/action-layer/reserves/release",
+        json={"plan_id": "x", "step_index": 0, "reason": "проверка"},
+        headers=env["member"].auth,
+    )
+    assert res.status_code == 403, res.text
 
 
 @pytest.mark.parametrize("name", sorted(ENGINE_READS))
@@ -124,11 +147,11 @@ async def test_engine_writes_are_not_swallowed_by_the_api_catch_all(env) -> None
 
 
 async def test_router_dependency_refuses_a_member_even_past_the_middleware() -> None:
-    """Вторая стена: если путь когда-нибудь откроют участникам, роутер не пустит."""
+    """Вторая стена: инструмент студии не пускает участника и после middleware."""
     from starlette.requests import Request
 
     from app.services.studio_auth import ROLE_ADMIN, ROLE_MEMBER, StudioIdentity
-    from app.web.engine_access import require_engine_operator
+    from app.web.engine_access import require_engine_admin, require_engine_member
 
     def _req(role: str | None) -> Request:
         scope = {"type": "http", "headers": [], "path": "/api/action-layer/catalog"}
@@ -143,13 +166,15 @@ async def test_router_dependency_refuses_a_member_even_past_the_middleware() -> 
     old = settings.studio_session_secret
     settings.studio_session_secret = ah.SECRET
     try:
-        with pytest.raises(HTTPException) as no_one:
-            await require_engine_operator(_req(None))
-        assert no_one.value.status_code == 401
+        for check in (require_engine_admin, require_engine_member):
+            with pytest.raises(HTTPException) as no_one:
+                await check(_req(None))
+            assert no_one.value.status_code == 401
         with pytest.raises(HTTPException) as member:
-            await require_engine_operator(_req(ROLE_MEMBER))
-        assert member.value.status_code == 404
-        assert await require_engine_operator(_req(ROLE_ADMIN)) is None
+            await require_engine_admin(_req(ROLE_MEMBER))
+        assert member.value.status_code == 403
+        assert await require_engine_admin(_req(ROLE_ADMIN)) is None
+        assert await require_engine_member(_req(ROLE_MEMBER)) is None
     finally:
         settings.studio_session_secret = old
 
@@ -199,13 +224,16 @@ def test_engine_routes_do_not_collide_with_the_new_line() -> None:
     assert foreign == [], f"под префиксом движка чужие ручки: {foreign}"
 
 
-def test_engine_routes_are_admin_guarded_in_code() -> None:
-    """Каждая ручка движка берёт проверку роли, а не надеется на middleware."""
+def test_engine_routes_are_role_guarded_in_code() -> None:
+    """Каждая ручка движка берёт проверку роли, а не надеется на middleware.
+
+    Реестр резервов — только админ (`engine_admin_token`).
+    """
     from fastapi.routing import APIRoute
 
     from app.services.action_layer.router import router as al_router
     from app.services.change_control.router import router as cc_router
-    from app.web.engine_access import engine_operator_token, require_engine_operator
+    from app.web.engine_access import engine_admin_token, engine_operator_token
 
     def _calls(dependant) -> set:
         seen = {dependant.call}
@@ -218,7 +246,10 @@ def test_engine_routes_are_admin_guarded_in_code() -> None:
             if not isinstance(route, APIRoute):
                 continue
             calls = _calls(route.dependant)
-            assert engine_operator_token in calls or require_engine_operator in calls, route.path
+            if route.path.startswith("/action-layer/reserves"):
+                assert engine_admin_token in calls, route.path
+            else:
+                assert engine_operator_token in calls or engine_admin_token in calls, route.path
 
 
 # ── старт ───────────────────────────────────────────────────────────────────
@@ -437,6 +468,7 @@ def test_engine_tables_are_classified_for_the_rls_startup_check() -> None:
     from app.models import Base
     from app.services.tenant_tables import (
         ENGINE_TABLES,
+        ENGINE_TENANT_TABLES,
         INFRA_TABLES,
         TENANT_TABLES,
         all_isolated,
@@ -467,6 +499,11 @@ def test_engine_tables_are_classified_for_the_rls_startup_check() -> None:
     with_tenant = sorted(t for t in ENGINE_TABLES if "tenant_id" in Base.metadata.tables[t].c)
     assert with_tenant == [], f"у таблицы движка есть tenant_id, её место в TENANT_TABLES: {with_tenant}"
     assert not set(TENANT_TABLES) & ENGINE_TABLES
+    # Данные клиента в движке: модель несёт колонку, политика 0020 её читает.
+    missing = sorted(t for t in ENGINE_TENANT_TABLES if "tenant_id" not in Base.metadata.tables[t].c)
+    assert missing == [], f"у таблицы арендатора нет tenant_id: {missing}"
+    # Касса провайдеров и аварийный стоп остаются общими на студию.
+    assert {"spend_ledger", "provider_task_ledger", "supervisor_kill_switch"} <= ENGINE_TABLES
 
 
 async def test_rls_startup_check_passes_coverage_with_engine_mounted(monkeypatch) -> None:

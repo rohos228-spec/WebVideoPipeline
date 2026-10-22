@@ -64,10 +64,20 @@ class EventCompaction:
             if self._stop.is_set():
                 return
             now = self._clock() if self._clock is not None else None
+            await self._compact_each_tenant(now)
+
+    async def _compact_each_tenant(self, now: datetime | None) -> None:
+        """Сжатие от имени владельца и каждого арендатора: ``orch_events`` под RLS."""
+        from app.services.orch_tenancy import for_each_tenant
+
+        async def _one() -> list[None]:
             if now is None:
                 self._compact()
             else:
                 self._compact(now=now)
+            return []
+
+        await for_each_tenant(_one, what="event compaction")
 
     def request_stop(self) -> None:
         self._stop.set()

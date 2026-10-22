@@ -364,7 +364,8 @@ def test_alembic_builds_the_runner_schema_on_sqlite(tmp_path: Path) -> None:
         assert apply_migrations(con) == []
     finally:
         con.close()
-    assert journal == set(ORCH_SQL_FILES)
+    # 0018 накатывает ORCH_SQL_FILES, 0020 — колонку арендатора (010).
+    assert journal == set(ORCH_SQL_FILES) | {"010_orch_tenant.sql"}
     assert {"chat_notices", "notification_log"} <= tables
 
 

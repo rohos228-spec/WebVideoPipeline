@@ -171,18 +171,25 @@ async def _start_engine() -> asyncio.Task | None:
 
     try:
         from app.orchestrator.agents.runtime import get_runtime, recover_on_start
+        from app.services.orch_tenancy import for_each_tenant
 
+        # Подъём и закрытие идут как проход воркера: владелец, затем каждый
+        # арендатор под своим `tenant_scope`. Под RLS проход без арендатора
+        # видел бы только задачи владельца, а задачи, поднятые внутри
+        # прохода, уносят арендатора и личность в свой контекст.
         if recover_on_start():
-            recovered = await get_runtime().start()
+            recovered = await for_each_tenant(get_runtime().start, what="restart recovery")
             if recovered:
                 logger.info("orchestrator recovered tasks {}", recovered)
         else:
-            closed = await get_runtime().supervisor.settle_after_restart()
+            closed = await for_each_tenant(
+                get_runtime().supervisor.settle_after_restart, what="restart settle"
+            )
             if closed:
                 logger.warning("orchestrator tasks interrupted by restart closed {}", closed)
             from app.services.orch_bridge import close_interrupted_plans
 
-            plans = await close_interrupted_plans()
+            plans = await for_each_tenant(close_interrupted_plans, what="interrupted plans")
             if plans:
                 logger.warning("orchestrator action plans interrupted by restart closed {}", plans)
     except Exception:  # noqa: BLE001

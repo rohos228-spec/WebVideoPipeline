@@ -308,12 +308,14 @@ async def _studio_bearer(operator: str) -> str | None:
     """Токен студии для внутреннего вызова в режиме учётных записей.
 
     Вызов идёт в то же приложение через ``ASGITransport`` и проходит
-    ``IdentityMiddleware``: без токена там 401, хотя план одобрил админ.
+    ``IdentityMiddleware``: без токена там 401, хотя план одобрил человек.
     Личность не повышается никогда: берётся личность текущей задачи (запрос или
     порождённая им задача — ContextVar наследуется) с её же ролью, а в фоновой
-    задаче без запроса — оператор плана ``studio_user:<uuid>``, только если
-    учётка жива и сейчас админ. Middleware внутреннего вызова ещё раз сверяет
-    учётку с базой. ``None`` — режим владельца, токен не нужен.
+    задаче без запроса — оператор плана ``studio_user:<uuid>`` с его же ролью,
+    только если учётка жива и принадлежит арендатору задачи (участник сам себе
+    арендатор, админ — арендатор своих данных). Middleware внутреннего вызова
+    ещё раз сверяет учётку с базой и закрывает участнику ручки владельца.
+    ``None`` — режим владельца, токен не нужен.
     """
     from app.services.studio_auth import current_identity, issue_token
     from app.settings import settings
@@ -322,7 +324,7 @@ async def _studio_bearer(operator: str) -> str | None:
         return None
     ident = current_identity()
     if ident is None and operator.startswith(_STUDIO_USER_PREFIX):
-        ident = await _live_admin(operator[len(_STUDIO_USER_PREFIX) :])
+        ident = await _live_operator(operator[len(_STUDIO_USER_PREFIX) :])
     if ident is None:
         raise ActionCallError(
             401,
@@ -334,23 +336,34 @@ async def _studio_bearer(operator: str) -> str | None:
     return issue_token(ident, ttl_hours=1)
 
 
-async def _live_admin(user_id: str):
+async def _live_operator(user_id: str):
+    """Живая учётка оператора плана — если она и есть арендатор этой задачи.
+
+    Арендатор и учётка совпадают (``StudioIdentity.tenant_id == user_id``).
+    Задача, которая идёт от имени арендатора A, не может выписать себе токен
+    учётки B, даже если B записан оператором: проверка ниже это и держит.
+    Задача без арендатора (данные владельца) получает токен только живого
+    админа — как до открытия чата участникам.
+    """
     import app.db as app_db
     from app.models import StudioUser
     from app.services.studio_auth import ROLE_ADMIN, identity_of
-    from app.services.tenant import _normalize, tenant_scope
+    from app.services.tenant import _normalize, current_tenant, tenant_scope
 
     try:
         uid = _normalize(user_id)
     except ValueError:
         return None
-    if uid is None:
+    tenant = current_tenant()
+    if uid is None or (tenant is not None and uid != tenant):
         return None
     # `studio_users` вне арендатора: читаем без него и возвращаем прежнего.
     with tenant_scope(None):
         async with app_db.SessionLocal() as session:
             user = await session.get(StudioUser, uid)
-    if user is None or not user.is_active or user.role != ROLE_ADMIN:
+    if user is None or not user.is_active:
+        return None
+    if tenant is None and user.role != ROLE_ADMIN:
         return None
     return identity_of(user)
 

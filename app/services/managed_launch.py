@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, String, UniqueConstraint, select
+from sqlalchemy import JSON, String, UniqueConstraint, Uuid, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base, NodeRun, NodeRunStatus, Project, WorkflowRun
@@ -15,6 +15,7 @@ class ManagedLaunch(Base):
         UniqueConstraint("project_id", "idempotency_key", name="uq_managed_launch_key"),
         UniqueConstraint("project_id", "workflow_run_id", name="uq_managed_launch_run"),
     )
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     launch_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     execution_id: Mapped[str] = mapped_column(String(36), unique=True)
     project_id: Mapped[int] = mapped_column(index=True)

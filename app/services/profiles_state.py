@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, String, UniqueConstraint
+from sqlalchemy import JSON, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
@@ -9,6 +9,7 @@ from app.models import Base
 class ProfileOverlay(Base):
     __tablename__ = "node_profile_overlays"
     __table_args__ = (UniqueConstraint("execution_id", "node_key", name="uq_one_node_profile"),)
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     overlay_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     execution_id: Mapped[str] = mapped_column(String(36), index=True)
     project_id: Mapped[int] = mapped_column(index=True)

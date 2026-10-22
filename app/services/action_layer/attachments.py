@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Index, Integer, String, delete, select, update
+from sqlalchemy import BigInteger, DateTime, Index, Integer, String, Uuid, delete, select, update
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
@@ -145,6 +145,7 @@ def max_request_bytes() -> int:
 class ActionAttachment(Base):
     __tablename__ = "action_layer_attachments"
     __table_args__ = (Index("ix_action_layer_attachments_project", "project_id", "consumed_at"),)
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     project_id: Mapped[int] = mapped_column(Integer)
     operator: Mapped[str] = mapped_column(String(120), default="")

@@ -320,4 +320,6 @@ def test_startup_closes_orphans_when_recovery_is_off() -> None:
     from pathlib import Path
 
     source = Path("app/web/api.py").read_text(encoding="utf-8")
-    assert "settle_after_restart()" in source
+    # Проход идёт по каждому арендатору: метод передаётся в `for_each_tenant`.
+    assert "supervisor.settle_after_restart" in source
+    assert "for_each_tenant" in source

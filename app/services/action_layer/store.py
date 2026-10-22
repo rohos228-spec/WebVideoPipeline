@@ -5,7 +5,19 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String, Text, UniqueConstraint, event
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    event,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
@@ -32,6 +44,7 @@ def new_id() -> str:
 
 class ActionPlan(Base):
     __tablename__ = "action_layer_plans"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     operator: Mapped[str] = mapped_column(String(120), default="")
@@ -59,6 +72,7 @@ class ActionPlanStep(Base):
         UniqueConstraint("idempotency_key", name="uq_action_layer_step_key"),
         Index("ix_action_layer_steps_plan", "plan_id", "idx"),
     )
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     plan_id: Mapped[str] = mapped_column(String(32))
     idx: Mapped[int] = mapped_column(Integer)
@@ -81,6 +95,7 @@ class ActionPlanStep(Base):
 
 class ActionApproval(Base):
     __tablename__ = "action_layer_approvals"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     plan_id: Mapped[str] = mapped_column(String(32), index=True)
     plan_hash: Mapped[str] = mapped_column(String(64))
@@ -92,6 +107,7 @@ class ActionApproval(Base):
 
 class ActionSpend(Base):
     __tablename__ = "action_layer_spend"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     session_key: Mapped[str] = mapped_column(String(80), index=True)
     plan_id: Mapped[str] = mapped_column(String(32), default="")
@@ -103,6 +119,7 @@ class ActionSpend(Base):
 
 class ActionHistory(Base):
     __tablename__ = "action_layer_history"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     plan_id: Mapped[str] = mapped_column(String(32), default="", index=True)
@@ -124,6 +141,7 @@ class ActionHistory(Base):
 
 class ActionPlanContext(Base):
     __tablename__ = "action_layer_plan_context"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     plan_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     source: Mapped[str] = mapped_column(String(16), default="planner")
     macro_id: Mapped[str] = mapped_column(String(80), default="")
@@ -136,6 +154,7 @@ class ActionPlanContext(Base):
 
 class ActionMacro(Base):
     __tablename__ = "action_layer_macros"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     owner: Mapped[str] = mapped_column(String(120), index=True)
     title_ru: Mapped[str] = mapped_column(String(200))
@@ -155,6 +174,7 @@ CALL_FAILED = "failed"
 class ActionCallRecord(Base):
     __tablename__ = "action_layer_calls"
     __table_args__ = (UniqueConstraint("idem_key", "fingerprint", name="uq_action_layer_call"),)
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     idem_key: Mapped[str] = mapped_column(String(80), index=True)
     fingerprint: Mapped[str] = mapped_column(String(64))
@@ -172,6 +192,7 @@ class ActionCallRecord(Base):
 
 class ActionSnapshot(Base):
     __tablename__ = "action_layer_snapshots"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     plan_id: Mapped[str] = mapped_column(String(32), default="", index=True)
@@ -328,8 +349,18 @@ def call_fingerprint(
     import hashlib
     import json
 
+    from app.services.tenant import current_tenant
+
+    # Арендатор входит в отпечаток: ключ `uq_action_layer_call` общий на базу,
+    # а строки под RLS. Два клиента с одинаковым Idempotency-Key и одинаковым
+    # запросом иначе столкнулись бы о невидимую чужую строку. Без арендатора
+    # (режим владельца) отпечаток прежний — записанные ключи не теряются.
+    parts: dict[str, Any] = {"m": method.upper(), "p": path, "q": params, "b": body, "f": files}
+    tenant = current_tenant()
+    if tenant is not None:
+        parts["t"] = tenant
     raw = json.dumps(
-        {"m": method.upper(), "p": path, "q": params, "b": body, "f": files},
+        parts,
         sort_keys=True,
         ensure_ascii=False,
         default=str,

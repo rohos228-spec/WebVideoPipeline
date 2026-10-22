@@ -533,7 +533,10 @@ def human_operator(scope: dict) -> approval.OperatorIdentity | None:
     """Человек-оператор запроса по личности новой линии (``app.web.identity``).
 
     Наша авторизация (сессии, ORCH_API_TOKEN, X-VP-Operator) не перенесена.
-    Режим учётных записей: только админ, id ``studio_user:<uuid>``.
+    Режим учётных записей: любой клиент студии одобряет шаги СВОЕГО чата, id
+    ``studio_user:<uuid>``. Чужую карточку он не видит: сессия, задача и план
+    другого арендатора для него не существуют (RLS и арендатор в имени
+    сессии), поэтому роль здесь не проверяется.
     Режим владельца (учётки выключены): локальный оператор, как остальной API.
     """
     from app.services.studio_auth import current_identity
@@ -541,8 +544,6 @@ def human_operator(scope: dict) -> approval.OperatorIdentity | None:
 
     ident = scope.get("studio_identity") or current_identity()
     if ident is not None:
-        if not ident.is_admin:
-            return None
         return approval.OperatorIdentity("studio_user:" + str(ident.user_id), via_http=True)
     if settings.accounts_enabled:
         return None

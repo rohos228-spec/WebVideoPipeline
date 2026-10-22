@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.services.action_layer import schema as schema_mod
 from app.services.action_layer import store
@@ -600,7 +601,13 @@ async def save_macro(
         row.title_ru, row.description_ru = title_ru.strip(), description_ru
         row.steps, row.params_schema, row.shared = clean, params_schema, bool(shared)
         row.updated_at = datetime.utcnow()
-        await s.commit()
+        try:
+            await s.commit()
+        except IntegrityError as exc:
+            # Ключ макроса общий на базу, строки под RLS: имя мог занять
+            # другой клиент студии, и его строку отсюда не видно.
+            await s.rollback()
+            raise MacroError(["id макроса уже занят, выберите другое имя"]) from exc
         return _from_row(row)
 
 

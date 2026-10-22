@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from sqlalchemy import JSON, String
+from sqlalchemy import JSON, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
@@ -12,6 +12,7 @@ from app.models import Base
 
 class DecisionRuntimeBinding(Base):
     __tablename__ = "decision_runtime_bindings"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     execution_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     config_hash: Mapped[str] = mapped_column(String(64))
     config: Mapped[dict] = mapped_column(JSON)

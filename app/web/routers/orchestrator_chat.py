@@ -5,6 +5,12 @@ GET  ``/api/orchestrator/chat/{session}/status``
 GET  ``/api/orchestrator/chat/{session}/stream``  (Last-Event-ID)
 POST ``/api/orchestrator/chat/{session_id}/approve``
 GET  ``/api/orchestrator/chat/{session}/partial-changes``
+
+Чат открыт каждому клиенту студии. Имя сессии из пути — внешнее; внутрь
+движка уходит имя с арендатором (``orch_tenancy.scoped_session``), так что
+одинаково названные чаты двух клиентов — разные сессии со своей очередью,
+нумерацией событий и карточками одобрения. Строки задач, событий и планов
+закрыты RLS: чужая задача или план для клиента не существуют — 404.
 """
 
 from __future__ import annotations
@@ -29,14 +35,15 @@ from app.orchestrator.contracts import MessageMode, OrchEvent
 from app.services import orch_bridge
 from app.services.action_layer import approval as al_approval
 from app.services.action_layer import planner as al_planner
+from app.services.orch_tenancy import public_session, scoped_session
 from app.services.plain_ru import plain_ru
-from app.web.engine_access import require_engine_operator
+from app.web.engine_access import require_engine_member
 
 router = APIRouter(
     prefix="/orchestrator/chat",
     tags=["orchestrator-chat"],
-    # Доступ по личности новой линии (IdentityMiddleware), пока только админ.
-    dependencies=[Depends(require_engine_operator)],
+    # Доступ по личности новой линии (IdentityMiddleware): любой клиент студии.
+    dependencies=[Depends(require_engine_member)],
 )
 
 _SESSION_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
@@ -80,9 +87,37 @@ class ApproveIn(BaseModel):
 
 
 def _check_session(session: str) -> str:
+    """Проверить внешнее имя и вернуть внутреннее — с арендатором запроса."""
     if not _SESSION_RE.fullmatch(session):
         raise HTTPException(status_code=400, detail="bad session")
-    return session
+    return scoped_session(session)
+
+
+async def _assert_project_visible(project_id: int | None) -> None:
+    """Проект из тела или запроса виден текущему арендатору, иначе 404.
+
+    В режиме владельца проверки нет (прежнее поведение). Под арендатором
+    чужой проект не существует: без этой проверки поток уведомлений чата
+    подписался бы на чужой проект по одному его номеру.
+    """
+    from app.services.tenant import current_tenant
+
+    if project_id is None or current_tenant() is None:
+        return
+    from app.db import SessionLocal
+    from app.models import Project
+
+    async with SessionLocal() as session:
+        found = await session.get(Project, int(project_id))
+    if found is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+
+def _public(payload: Any) -> Any:
+    """Ответ движка с внешним именем сессии вместо внутреннего."""
+    if isinstance(payload, dict) and isinstance(payload.get("session"), str):
+        return {**payload, "session": public_session(payload["session"])}
+    return payload
 
 
 def remember_seq(cursor: int, seq: int) -> tuple[int, bool]:
@@ -93,6 +128,9 @@ def remember_seq(cursor: int, seq: int) -> tuple[int, bool]:
 
 
 def _sse(event: OrchEvent) -> dict[str, str]:
+    """Событие в SSE. Клиент видит своё внешнее имя сессии, без арендатора."""
+    if event.session_id:
+        event = event.model_copy(update={"session_id": public_session(event.session_id)})
     return {
         "event": event.type,
         "id": str(event.seq),
@@ -103,10 +141,11 @@ def _sse(event: OrchEvent) -> dict[str, str]:
 @router.post("/{session}/message")
 async def post_message(session: str, body: MessageIn, request: Request) -> dict[str, object]:
     """Принять реплику. Ack уходит в шину до классификации, ответ HTTP её не ждёт."""
-    _check_session(session)
+    internal = _check_session(session)
+    await _assert_project_visible(body.project_id)
     runtime = get_runtime()
     ack_seq = await runtime.queue.accept(
-        session,
+        internal,
         body.text,
         body.mode,
         project_id=body.project_id,
@@ -152,10 +191,12 @@ def _approval_result(
 @router.post("/{session}/project")
 async def post_project(session: str, body: ProjectIn) -> dict[str, object]:
     """Снять ``missing_project_id`` целым id проекта и продолжить задачу."""
-    _check_session(session)
+    internal = _check_session(session)
+    await _assert_project_visible(body.project_id)
     runtime = get_runtime()
     try:
-        return await runtime.supervisor.bind_project(session, body.project_id, task_id=body.task_id)
+        result = await runtime.supervisor.bind_project(internal, body.project_id, task_id=body.task_id)
+        return _public(result)
     except ProjectBindError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
@@ -227,12 +268,12 @@ DECISION_ERRORS = (
 @router.post("/{session_id}/approve")
 async def post_approve(session_id: str, body: ApproveIn, request: Request):
     """Решение человека. ``decision=null`` идёт прежним ``grant_approval``."""
-    _check_session(session_id)
+    internal = _check_session(session_id)
     runtime = get_runtime()
     try:
         result, _plan_id = await human_decision(
             request,
-            session_id=session_id,
+            session_id=internal,
             change_id=body.change_id,
             decision=body.decision,
             retry_grant=body.retry_grant,
@@ -242,7 +283,7 @@ async def post_approve(session_id: str, body: ApproveIn, request: Request):
         if isinstance(failure, JSONResponse):
             return failure
         raise failure from None
-    return _approval_result(runtime.supervisor, session_id, body, result)
+    return _approval_result(runtime.supervisor, internal, body, result)
 
 
 @router.post("/{session}/resume")
@@ -251,11 +292,11 @@ async def post_resume(session: str) -> dict[str, object]:
 
     ``cancelled`` → ``executing`` — 409. Нет задачи или чекпоинта — 404.
     """
-    _check_session(session)
+    internal = _check_session(session)
     runtime = get_runtime()
-    task_id = runtime.supervisor.active_task(session)
+    task_id = runtime.supervisor.active_task(internal)
     if task_id is None:
-        task_id = runtime.supervisor._session_task.get(session)
+        task_id = runtime.supervisor._session_task.get(internal)
     if task_id is None:
         raise HTTPException(status_code=404, detail="not found")
     try:
@@ -276,17 +317,17 @@ async def post_resume(session: str) -> dict[str, object]:
 @router.get("/{session}/status")
 async def get_session_status(session: str) -> dict[str, object]:
     """Снимок задачи сессии. ``resume_allowed`` совпадает с последним ``agent_status``."""
-    _check_session(session)
-    return get_runtime().supervisor.session_snapshot(session)
+    internal = _check_session(session)
+    return _public(get_runtime().supervisor.session_snapshot(internal))
 
 
 @router.get("/{session}/partial-changes")
 async def get_partial_changes(session: str, task_id: int) -> dict[str, object]:
     """Список ``change_id`` шагов ``partial``. Откат не выполняется."""
-    _check_session(session)
+    internal = _check_session(session)
     runtime = get_runtime()
-    row = runtime.tasks.get(task_id)
-    if row is None or str(row.get("session_id")) != session:
+    row = await asyncio.to_thread(runtime.tasks.get, task_id)
+    if row is None or str(row.get("session_id")) != internal:
         raise HTTPException(status_code=404, detail="not found")
     return {
         "ok": True,
@@ -303,7 +344,8 @@ async def stream_session(
     project_id: int | None = Query(None, ge=1),
 ) -> EventSourceResponse:
     """SSE. ``Last-Event-ID`` — последний увиденный seq, replay строго после него."""
-    _check_session(session)
+    internal = _check_session(session)
+    await _assert_project_visible(project_id)
     last_header = request.headers.get("last-event-id")
     try:
         last_seq = int(last_header) if last_header else 0
@@ -314,10 +356,10 @@ async def stream_session(
         runtime = get_runtime()
         cursor = last_seq
         async with (
-            runtime.bus.subscription(session) as queue,
-            orch_bridge.notice_relay(runtime.bus, session, project_id),
+            runtime.bus.subscription(internal) as queue,
+            orch_bridge.notice_relay(runtime.bus, internal, project_id),
         ):
-            for event in await runtime.bus.replay_from(session, last_seq):
+            for event in await runtime.bus.replay_from(internal, last_seq):
                 cursor, fresh = remember_seq(cursor, event.seq)
                 if fresh:
                     yield _sse(event)

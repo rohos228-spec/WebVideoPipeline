@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from threading import RLock
 
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, UniqueConstraint, select, update
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, UniqueConstraint, Uuid, select, update
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base, NodeRunStatus
@@ -31,6 +31,7 @@ BUSY_NODE_STATUSES = _existing_node_statuses("running", "queued", "waiting_appro
 
 class ActionExecutionControl(Base):
     __tablename__ = "action_execution_controls"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     execution_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[int] = mapped_column(Integer, index=True)
     workflow_run_id: Mapped[int] = mapped_column(Integer, index=True)
@@ -52,6 +53,7 @@ class ActionRecord(Base):
     __table_args__ = (
         UniqueConstraint("execution_id", "idempotency_key", name="uq_action_execution_idempotency"),
     )
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     action_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     execution_id: Mapped[str] = mapped_column(String(36), index=True)
     project_id: Mapped[int] = mapped_column(Integer, index=True)
@@ -70,6 +72,7 @@ class ActionRecord(Base):
 
 class ManagedRunAllowance(Base):
     __tablename__ = "managed_run_allowances"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     project_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     workflow_run_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     execution_id: Mapped[str] = mapped_column(String(36), unique=True)

@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
-from sqlalchemy import JSON, Boolean, String, UniqueConstraint, event, inspect, select
+from sqlalchemy import JSON, Boolean, String, UniqueConstraint, Uuid, event, inspect, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.models import Base, NodeRun, Project, WorkflowRun
@@ -26,6 +26,7 @@ from app.services.observation_files import secure_directory
 
 class ExecutionControl(Base):
     __tablename__ = "observation_executions"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     execution_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[int] = mapped_column(index=True)
     workflow_run_id: Mapped[int] = mapped_column(index=True)
@@ -40,6 +41,7 @@ class ExecutionControl(Base):
 
 class ObservationOutbox(Base):
     __tablename__ = "observation_outbox"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     event_id: Mapped[str] = mapped_column(String(36), unique=True)
     execution_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -57,6 +59,7 @@ class ObservationOutbox(Base):
 class ObservationEvent(Base):
     __tablename__ = "observation_events"
     __table_args__ = (UniqueConstraint("execution_id", "event_id", name="uq_observation_delivery"),)
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     event_id: Mapped[str] = mapped_column(String(36))
     execution_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -73,6 +76,7 @@ class ObservationEvent(Base):
 
 class ObservationDegradation(Base):
     __tablename__ = "observation_degradations"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     gap_id: Mapped[str] = mapped_column(String(36), unique=True)
     execution_id: Mapped[str] = mapped_column(String(36), index=True)
@@ -89,6 +93,7 @@ class ObservationDegradation(Base):
 
 class CommitUncertaintyMarker(Base):
     __tablename__ = "observation_commit_uncertainty"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     execution_id: Mapped[str] = mapped_column(String(36), index=True)
     project_id: Mapped[int | None] = mapped_column(default=None)

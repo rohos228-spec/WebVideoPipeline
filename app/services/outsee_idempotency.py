@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import DateTime, Integer, String, select
+from sqlalchemy import DateTime, Integer, String, Uuid, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.bots.outsee import GenerationResult, OutseeImageError
@@ -25,6 +25,7 @@ _MIN_IMAGE_BYTES = 1024
 
 class OutseeIdempotency(Base):
     __tablename__ = "outsee_idempotency"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     project_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)

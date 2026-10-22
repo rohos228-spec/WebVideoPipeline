@@ -17,8 +17,15 @@ def check_interval_s() -> float:
 
 
 async def expire_once(supervisor: Any) -> list[int]:
+    """Один проход: владелец, затем каждый арендатор под своим ``tenant_scope``.
+
+    Задачи чата закрыты RLS: проход без арендатора видел бы только задачи
+    владельца, и одобрения клиентов не истекали бы никогда.
+    """
+    from app.services.orch_tenancy import for_each_tenant
+
     try:
-        closed = await supervisor.expire_stale_approvals()
+        closed = await for_each_tenant(supervisor.expire_stale_approvals, what="approval expiry")
     except Exception:
         logger.exception("orch approval expiry pass failed")
         return []

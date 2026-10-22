@@ -9,11 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Project
 from app.web.deps import get_session
-from app.web.engine_access import require_engine_operator
+from app.web.engine_access import require_engine_admin, require_engine_member
 
-# /api/projects/** открыт участникам (TENANT_ALLOWED_PREFIXES), поэтому отчёты
-# движка закрыты явной зависимостью: пока только админ.
-router = APIRouter(prefix="/projects", tags=["reports"], dependencies=[Depends(require_engine_operator)])
+# Отчёт проекта лежит в папке проекта, а проект найден под RLS: участник
+# скачивает только отчёты своих проектов, чужой проект — 404. Общие отчёты по
+# нескольким проектам (DATA_DIR/reports) не принадлежат ни одному арендатору —
+# это инструмент студии, только админ.
+router = APIRouter(prefix="/projects", tags=["reports"], dependencies=[Depends(require_engine_member)])
 
 REPORTS_DIR = "reports"
 SHARED_PREFIX = "projects_report_"
@@ -46,7 +48,7 @@ def report_file(data_dir: str | Path, name: str) -> Path:
     return path
 
 
-@router.get("/reports/{name}")
+@router.get("/reports/{name}", dependencies=[Depends(require_engine_admin)])
 async def download_shared_report(name: str) -> FileResponse:
     from app.settings import settings
 

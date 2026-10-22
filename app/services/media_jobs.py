@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from sqlalchemy import JSON, String, UniqueConstraint, select, update
+from sqlalchemy import JSON, String, UniqueConstraint, Uuid, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +18,7 @@ from app.services.observation import _attempt, digest, record_fact
 class MediaJob(Base):
     __tablename__ = "orchestrator_media_jobs"
     __table_args__ = (UniqueConstraint("execution_id", "node_key", "resource_key"),)
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     job_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     execution_id: Mapped[str] = mapped_column(String(36), index=True)
     project_id: Mapped[int] = mapped_column(index=True)
@@ -40,6 +41,7 @@ class MediaJob(Base):
 
 class MediaRequest(Base):
     __tablename__ = "orchestrator_media_requests"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     job_id: Mapped[str] = mapped_column(String(36), index=True)
     execution_id: Mapped[str] = mapped_column(String(36), index=True)

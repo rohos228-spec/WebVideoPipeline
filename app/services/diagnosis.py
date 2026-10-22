@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import datetime
 
 from loguru import logger
-from sqlalchemy import JSON, String, func, select
+from sqlalchemy import JSON, String, Uuid, func, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 UNCERTAIN_ERROR_TYPES = frozenset(
@@ -45,6 +45,7 @@ STOPPED_RECHECK_S = 30
 
 class DiagnosisState(Base):
     __tablename__ = "observation_diagnosis"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     execution_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     cursor: Mapped[int] = mapped_column(default=0)
     checked_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
@@ -54,6 +55,7 @@ class DiagnosisState(Base):
 
 class Incident(Base):
     __tablename__ = "observation_incidents"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     incident_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     execution_id: Mapped[str] = mapped_column(String(36), index=True)
     project_id: Mapped[int] = mapped_column(index=True)

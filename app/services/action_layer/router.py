@@ -24,6 +24,7 @@ from app.services.action_layer import (
 from app.services.action_layer.plan import PlanFormatError
 from app.services.action_layer.spec import ensure_builtin_actions
 from app.services.action_layer.spec import registry as default_registry
+from app.web.engine_access import EngineAdminDep as AdminDep
 from app.web.engine_access import EngineAuthDep as AuthDep
 
 router = APIRouter(prefix="/action-layer", tags=["action-layer"])
@@ -426,8 +427,11 @@ class ReleaseReserveIn(BaseModel):
     reason: str = Field(..., min_length=3, max_length=500)
 
 
+# Реестр неснятых резервов — инструмент студии (кассу провайдеров сверяет
+# владелец), поэтому только админ. Строки резервов при этом под RLS: админ
+# видит резервы своего арендатора.
 @router.get("/reserves")
-async def list_unresolved_reserves(operator: AuthDep, older_than_s: float = Query(0.0, ge=0)) -> dict:
+async def list_unresolved_reserves(operator: AdminDep, older_than_s: float = Query(0.0, ge=0)) -> dict:
     from app.services.action_layer import budget
     from app.services.kie_catalog import CREDIT_USD
 
@@ -452,7 +456,7 @@ _RESERVE_STATUS_RU = {
 
 @router.post("/reserves/release", dependencies=[LocalOnlyDep])
 async def release_unresolved_reserve(
-    request: Request, body: ReleaseReserveIn, operator: AuthDep, idem: IdemDep
+    request: Request, body: ReleaseReserveIn, operator: AdminDep, idem: IdemDep
 ) -> dict:
     who = _operator(operator)
 

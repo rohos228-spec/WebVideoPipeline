@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, String, UniqueConstraint, select
+from sqlalchemy import JSON, Boolean, DateTime, String, UniqueConstraint, Uuid, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
@@ -8,6 +8,7 @@ from app.models import Base
 
 class DecisionControl(Base):
     __tablename__ = "decision_execution_controls"
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     execution_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     project_id: Mapped[int] = mapped_column(index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -19,6 +20,7 @@ class DecisionControl(Base):
 class DecisionRecord(Base):
     __tablename__ = "decision_records"
     __table_args__ = (UniqueConstraint("execution_id", "incident_id", name="uq_decision_incident"),)
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     decision_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     execution_id: Mapped[str] = mapped_column(String(36), index=True)
     project_id: Mapped[int] = mapped_column(index=True)
@@ -41,6 +43,7 @@ class DecisionRecord(Base):
 class DecisionTurn(Base):
     __tablename__ = "decision_turns"
     __table_args__ = (UniqueConstraint("decision_id", "turn_key", name="uq_decision_turn"),)
+    tenant_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), default=None, index=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     decision_id: Mapped[str] = mapped_column(String(36), index=True)
     turn_key: Mapped[str] = mapped_column(String(160))
