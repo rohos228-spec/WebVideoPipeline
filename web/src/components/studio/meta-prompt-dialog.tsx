@@ -119,9 +119,9 @@ export function MetaPromptDialog({
 
       <DialogContent
         overlayClassName="z-[200]"
-        className="z-[210] w-[94vw] max-w-5xl max-h-[92vh] overflow-y-auto overflow-x-hidden border-border/80 bg-card/95 backdrop-blur-xl p-6"
+        className="z-[210] flex max-h-[90vh] w-[94vw] max-w-5xl flex-col overflow-hidden border border-zinc-800 bg-zinc-950 p-6 shadow-2xl backdrop-blur-none"
       >
-        <DialogHeader className="space-y-1">
+        <DialogHeader className="shrink-0 space-y-1 pb-2">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/20 text-primary shadow-sm">
               <Wand2 className="h-4.5 w-4.5" />
@@ -137,7 +137,7 @@ export function MetaPromptDialog({
           </div>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden py-1 pr-1.5 overscroll-contain">
           {/* Имя пресета и задача */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-1 flex flex-col justify-between space-y-1.5">
@@ -204,7 +204,7 @@ export function MetaPromptDialog({
                 placeholder="Опишите желаемую логику, стиль, правила или вставьте свой черновик промпта..."
                 value={intent}
                 onChange={(e) => setIntent(e.target.value)}
-                className="mt-1 min-h-[90px] text-xs resize-none leading-relaxed"
+                className="mt-1 min-h-[90px] text-xs resize-none leading-relaxed overscroll-contain"
               />
             </div>
           </div>
@@ -254,13 +254,13 @@ export function MetaPromptDialog({
               <Textarea
                 value={compiledPrompt}
                 onChange={(e) => setCompiledPrompt(e.target.value)}
-                className="min-h-[320px] font-mono text-[11px] leading-relaxed bg-black/50 whitespace-pre-wrap break-words resize-y overflow-y-auto"
+                className="min-h-[320px] font-mono text-[11px] leading-relaxed bg-black/60 border-zinc-800 whitespace-pre-wrap break-words resize-y overscroll-contain"
               />
             </div>
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between pt-1">
+        <DialogFooter className="shrink-0 gap-2 sm:justify-between pt-3 border-t border-white/5">
           <Button
             type="button"
             variant="ghost"
