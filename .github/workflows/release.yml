@@ -229,7 +229,7 @@ jobs:
           # прокси принял TCP и не завершает TLS. Перезапуск дешёвый и
           # возвращает сайты; если контейнера нет, шаг ничего не ломает.
           ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- \
-            'c=$(docker ps -aq --filter name=caddy | head -n 1); if [ -n "$c" ]; then docker restart "$c"; echo "прокси перезапущен: $c"; else echo "контейнер caddy не найден"; fi'
+            'c=$(docker ps -aq --filter name=caddy | head -n 1); if [ -n "$c" ]; then docker restart "$c"; echo "прокси перезапущен: $c"; docker ps --filter id="$c" --format "{{.Names}} {{.Status}} {{.Ports}}"; echo "--- логи ---"; docker logs --tail 30 "$c"; else echo "контейнер caddy не найден"; fi; echo "--- кто слушает ---"; ss -lntp | grep -E ":80|:443" || netstat -lntp | grep -E ":80|:443" || true'
 
           # Учётные данные на сервере не оставляем: скачивание уже произошло,
           # дальше они только лежат в ~/.docker/config.json и протухают.
