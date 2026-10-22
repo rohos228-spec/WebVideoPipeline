@@ -38,6 +38,16 @@ OWNER_UI_PREFIXES: tuple[str, ...] = (
     "/api/prompt-studio",
     "/api/prompts",
     "/api/studio-version",  # версия сборки: сведения об установке
+    # Оболочка из video-pipeline main принесла свои панели владельца: профиль,
+    # хранилище, оценки кадров, слой действий. Бэкенд под них в этом репозитории
+    # ещё не портирован — ручки отвечают 404, и это записанный долг, а не
+    # незамеченная кнопка. Арендатору они не показываются: вход в них только у
+    # владельца (role=admin, см. app/web/identity.py).
+    "/api/auth/operator-token",
+    "/api/node-reviews",
+    "/api/profile",
+    "/api/ratings",
+    "/api/storage",
 )
 
 #: Не адреса, а куски документации, префиксы и шаблоны в строках.
@@ -58,6 +68,10 @@ def _front_paths() -> set[str]:
 
 def _classified(path: str) -> bool:
     if path in PUBLIC_PATHS or path.startswith(tuple(PUBLIC_PATHS)):
+        return True
+    # Шаблон вида `/api/auth${path}` — литерал это префикс публичного адреса,
+    # а не отдельная ручка: конкретный путь подставляет код.
+    if any(public.startswith(path + "/") for public in PUBLIC_PATHS):
         return True
     # Схема API открыта владельцу и закрыта в SaaS — решение уже принято.
     if path in DOC_PATHS:
