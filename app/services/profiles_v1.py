@@ -226,17 +226,12 @@ class ProfilesSupervisor:
         problem=node_admission_problem(node)
         if problem:raise ValueError('incompatible accepted text node contract: '+str(problem)[:200])
         project=await s.get(Project,project_id)
+        if project is None:raise ValueError('user_stop or project unavailable')
         if not control.enabled or control.held or scope.observer_state!='active' or scope.gaps or (project.meta or {}).get('user_stop'):
             raise ValueError('stop, permission or audit blocker')
         graph=revisions.graph_version(run.nodes_snapshot,run.edges_snapshot)
         if graph!=control.graph_version or graph!=scope.graph_version:raise ValueError('stale graph revision')
-        if project.data_dir:
-            from app.project_db import project_db_session_scope
-            async with project_db_session_scope(project_id) as ps:
-                pp=await ps.get(Project,project_id)
-                if not pp or (pp.meta or {}).get('user_stop'):raise ValueError('user_stop or project unavailable')
-                revision=await input_revision(ps,pp,node_key)
-        else:revision=await input_revision(s,project,node_key)
+        revision=await input_revision(s,project,node_key)
         return revision,graph
 
     async def state(self,project_id,execution_id,node_key):

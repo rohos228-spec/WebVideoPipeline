@@ -239,8 +239,8 @@ async def _studio_allows(project_id: int, step, *, paused: bool = False) -> bool
     (их dry_run Студия запрещает) остаются на линейном порядке. Исключение — пауза:
     ручной запуск в Студии снимает паузу после ошибок для любого шага (start_step).
     """
+    from app.db import session_scope
     from app.models import Project
-    from app.project_db import project_db_session_scope
     from app.services.project_state import is_running_status
     from app.services.step_data_guard import can_enter_running
     from app.web.studio_dry_run import FORBIDDEN_DRY_RUN_STEPS
@@ -248,7 +248,7 @@ async def _studio_allows(project_id: int, step, *, paused: bool = False) -> bool
     if step.code in FORBIDDEN_DRY_RUN_STEPS and not paused:
         return False
     try:
-        async with project_db_session_scope(int(project_id)) as session:
+        async with session_scope() as session:
             project = await session.get(Project, int(project_id))
             if project is None or is_running_status(project.status):
                 return False

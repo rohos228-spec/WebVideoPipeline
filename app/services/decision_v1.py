@@ -4,6 +4,7 @@ import time
 import hashlib
 import uuid
 from datetime import datetime,timedelta
+from pathlib import Path
 from urllib.parse import urlsplit
 from app.services.decision_config import DecisionRuntimeBinding
 from app.services import decision_config
@@ -173,11 +174,6 @@ async def _contract_project_text(c):
     from app.services.node_capabilities import project_text_contract,verify_project_text
     project=await s.get(Project,row.project_id)
     if not project:raise ValueError('project contract unavailable')
-    if project.data_dir:
-        from app.project_db import project_db_session_scope
-        async with project_db_session_scope(row.project_id) as ps:
-            project=await ps.get(Project,row.project_id)
-            if not project:raise ValueError('project contract unavailable')
     return panel_safe({**capability.contract(),'node_key':row.node_key,
         'graph_version':scope.graph_version,'context_version':context['context_version'],
         'source':'native project text executor/validator; authoritative project DB',
@@ -190,17 +186,10 @@ async def _read_project_and_frames(s,row):
     from app.models import Frame
     project=await s.get(Project,row.project_id)
     if not project:raise ValueError('project contract unavailable')
-    if project.data_dir:
-        from app.project_db import project_db_session_scope
-        async with project_db_session_scope(row.project_id) as ps:
-            project=await ps.get(Project,row.project_id)
-            if not project:raise ValueError('project contract unavailable')
-            frames=(await ps.scalars(select(Frame).where(Frame.project_id==row.project_id)
-                .order_by(Frame.sort_key,Frame.number))).all()
-            return project,frames,{'sfx_plan_file':(project.data_dir/'sfx_plan.json').is_file()}
     frames=(await s.scalars(select(Frame).where(Frame.project_id==row.project_id)
         .order_by(Frame.sort_key,Frame.number))).all()
-    return project,frames,{'sfx_plan_file':False}
+    sfx_file=bool(project.data_dir) and (Path(project.data_dir)/'sfx_plan.json').is_file()
+    return project,frames,{'sfx_plan_file':sfx_file}
 
 
 async def _contract_sfx_plan(c):
@@ -237,12 +226,7 @@ async def _contract_frame_rows(c):
     from app.services.node_capabilities import split_contract,image_prompts_contract,verify_image_prompts
     project=await s.get(Project,row.project_id)
     if not project:raise ValueError('project contract unavailable')
-    if project.data_dir:
-        from app.project_db import project_db_session_scope
-        async with project_db_session_scope(row.project_id) as ps:
-            frames=(await ps.scalars(select(Frame).where(Frame.project_id==row.project_id).order_by(Frame.number))).all()
-    else:
-        frames=(await s.scalars(select(Frame).where(Frame.project_id==row.project_id).order_by(Frame.number))).all()
+    frames=(await s.scalars(select(Frame).where(Frame.project_id==row.project_id).order_by(Frame.number))).all()
     output_hash=(verify_image_prompts(frames,project_id=row.project_id,snapshot=None)['frame_set_sha256']
         if capability.result_kind=='frame_prompts' else digest([
             {'uuid':f.uuid,'number':f.number,'voiceover_text':f.voiceover_text} for f in frames]))
@@ -281,14 +265,6 @@ async def _contract_structured(c):
     contract_project=project
     cfg=node_config(project,row.node_key)
     count=await s.scalar(select(func.count()).select_from(Frame).where(Frame.project_id==row.project_id))
-    if project.data_dir:
-        from app.project_db import project_db_session_scope
-        async with project_db_session_scope(row.project_id) as ps:
-            pp=await ps.get(Project,row.project_id)
-            if not pp:raise ValueError('project contract unavailable')
-            contract_project=pp
-            cfg=node_config(pp,row.node_key)
-            count=await ps.scalar(select(func.count()).select_from(Frame).where(Frame.project_id==row.project_id))
     from app.services.node_write_contract import allows_qc_noop
     from app.services.gpt_operator import operator_config
     effective=operator_config(contract_project,row.node_key)
@@ -392,7 +368,7 @@ class DecisionSupervisor:
     async def _context(self,s,row):
         from app.services.diagnosis import Incident
         from app.services.actions_v1 import ActionExecutionControl
-        from app.services.actions_recovery import input_revision,RecoveryAction
+        from app.services.actions_recovery import input_revision,RecoveryAction,ACTIVE_NODE_STATUSES
         from app.models import NodeRun,NodeRunStatus
         scope=await s.get(ExecutionControl,row.execution_id);permission=await s.get(ActionExecutionControl,row.execution_id)
         incident=await s.get(Incident,row.incident_id)
@@ -415,14 +391,6 @@ class DecisionSupervisor:
         revision=await input_revision(s,project,row.node_key) if project else None
         native_node=await s.scalar(select(NodeRun).where(NodeRun.workflow_run_id==scope.workflow_run_id,
             NodeRun.node_key==row.node_key))
-        if project and project.data_dir:
-            from app.project_db import project_db_session_scope
-            async with project_db_session_scope(row.project_id) as ps:
-                pp=await ps.get(Project,row.project_id)
-                if pp:
-                    revision=await input_revision(ps,pp,row.node_key)
-                    native_node=await ps.scalar(select(NodeRun).where(NodeRun.workflow_run_id==scope.workflow_run_id,
-                        NodeRun.node_key==row.node_key))
         latest=await s.scalar(select(ObservationEvent).where(ObservationEvent.execution_id==row.execution_id,
             ObservationEvent.project_id==row.project_id,ObservationEvent.node_key==row.node_key,
             ObservationEvent.kind=='node_start').order_by(ObservationEvent.id.desc()).limit(1))
@@ -476,7 +444,7 @@ class DecisionSupervisor:
         return {'context_version':version,'stable_version':stable,'execution_id':row.execution_id,'node_key':row.node_key,
             'attempt_id':row.source_attempt_id,'incident_id':row.incident_id,
             'incident':panel_safe(incident.details),'incident_type':incident.type,'incident_status':incident.status,
-            'native_active':bool(native_node and native_node.status in {NodeRunStatus.running,NodeRunStatus.queued,NodeRunStatus.waiting_hitl,NodeRunStatus.waiting_approval}),
+            'native_active':bool(native_node and native_node.status in ACTIVE_NODE_STATUSES),
             'open_model_requests':open_requests,'evidence_ids':[e.event_id for e in events],
             'facts':[panel_safe({k:getattr(e,k) for k in ('event_id','kind','attempt_id','request_id','payload')}) for e in events[:20]],
             'approved_profiles':approved,

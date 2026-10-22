@@ -48,17 +48,25 @@ def _empty(available: bool) -> dict[str, Any]:
 
 
 def _resolve_path(project_id: int, db_path: str | Path | None) -> Path | None:
+    """Файл SQLite, где лежат кадры проекта.
+
+    База одна на все проекты, поэтому ``project_id`` путь не меняет. В режиме
+    Postgres файла нет — снимок недоступен (читать базу мимо RLS сырым sqlite3
+    нельзя и нечем).
+    """
+    del project_id
     if db_path is not None:
         path = Path(db_path)
         return path if path.is_file() else None
-    try:
-        from app.project_db import resolve_project_db_path_by_id
-    except Exception:  # noqa: BLE001
+    from app.settings import settings
+
+    if settings.is_postgres:
         return None
-    found = resolve_project_db_path_by_id(int(project_id))
-    if found is None:
+    sqlite_path = getattr(settings, "sqlite_path", None)
+    if not sqlite_path:
         return None
-    return found if found.is_file() else None
+    path = Path(sqlite_path)
+    return path if path.is_file() else None
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:

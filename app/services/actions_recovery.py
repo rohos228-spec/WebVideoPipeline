@@ -18,6 +18,13 @@ from app.services import revisions
 _active_nodes: dict[int, str] = {}
 _inflight_projects: set[int] = set()
 
+# Нода ещё занята: идёт, в очереди или ждёт решения человека. «waiting_approval»
+# линии движка в модели WebVideoPipeline может отсутствовать — берём только те
+# статусы, что в перечислении есть, иначе обращение к атрибуту роняет проверку.
+ACTIVE_NODE_STATUSES = frozenset(
+    status for status in NodeRunStatus
+    if status.value in {"running", "queued", "waiting_hitl", "waiting_approval"})
+
 
 def restricted_node(project_id):
     return _active_nodes.get(project_id)
@@ -159,10 +166,9 @@ def _require_node_admitted(graph_node, stage: str) -> None:
 async def recover_node(supervisor, *, project_id, execution_id, incident_id, node_key,
                        idempotency_key, initiator, rationale, decision_id=None, profile_overlay_id=None):
     from app.services.diagnosis import Incident, DiagnosisState, get_diagnoser
-    from app.services.observation import ExecutionControl, ObservationEvent, digest, get_observer, business_snapshot
+    from app.services.observation import ExecutionControl, ObservationEvent, digest, get_observer
     from app.services.step_failure_policy import exhausted_threshold, is_sleeping
     from app.services.step_cancel import is_generation_active, stop_flag_path
-    from app.project_db import project_db_session_scope
     from app.services.node_status_machine import start_node_running
     if not all(str(v).strip() for v in (idempotency_key, initiator, rationale)):
         raise ValueError("explicit recovery identity and rationale required")
@@ -281,141 +287,132 @@ async def recover_node(supervisor, *, project_id, execution_id, incident_id, nod
             RecoveryAction.execution_id == execution_id, RecoveryAction.node_key == node_key))
         if existing:
             raise ValueError("single recovery already consumed")
-        async with project_db_session_scope(project_id) as session:
-            project = await session.get(Project, project_id)
-            master_project = await master.get(Project, project_id)
-            if (not project or not master_project or (project.meta or {}).get("user_stop")
-                    or (master_project.meta or {}).get("user_stop") or stop_flag_path(project_id).exists()):
-                raise ValueError("user_stop is active")
-            primary_snapshot, _ = await business_snapshot(master, scope)
-            replica_snapshot, _ = await business_snapshot(session, scope)
-            if (primary_snapshot["nodes"] != replica_snapshot["nodes"]
-                    or primary_snapshot["project_status"] != replica_snapshot["project_status"]):
-                raise ValueError("master/project node or project state disagreement")
-            if is_generation_active(project_id):
-                raise ValueError("previous worker is still active")
-            fs = (project.meta or {}).get("step_failure") or {}
-            running = fs.get("last_running")
-            if (not fs.get("abandoned_at") or fs.get("abandoned_reason") == "fatal_config"
-                    or (fs.get("total_fails") or {}).get(running, 0) < exhausted_threshold(project)
-                    or is_sleeping(project) or project.status != ProjectStatus.paused):
-                raise ValueError("all native runtime retries must be exhausted")
-            nodes = (await session.scalars(select(NodeRun).where(
-                NodeRun.workflow_run_id == control.workflow_run_id))).all()
-            node = next((n for n in nodes if n.node_key == node_key), None)
-            if not node or node.status != NodeRunStatus.failed or not node.finished_at:
-                raise ValueError("previous node attempt is not terminal")
-            if any(n.status in {NodeRunStatus.running, NodeRunStatus.queued, NodeRunStatus.waiting_hitl, NodeRunStatus.waiting_approval} for n in nodes):
-                raise ValueError("another node or HITL is active")
-            replica = await session.get(WorkflowRun, control.workflow_run_id)
-            if not replica:
-                raise ValueError("project graph unavailable")
-            current_parts = {}
-            revision = await input_revision(session, project, node_key, parts=current_parts)
-            previous_parts = source.payload.get("recovery_revision_parts") or {}
-            scheme_problem = revisions.stored_revision_problem(previous_parts) if previous_parts else None
-            if scheme_problem:
-                raise ValueError(scheme_problem)
-            parts_match = bool(previous_parts) and all(previous_parts.get(k) == v for k,v in current_parts.items())
-            revision_changed = not parts_match and source.payload.get("recovery_input_revision") != revision
-            changed = [k for k,v in current_parts.items() if previous_parts.get(k) != v]
-            if rclass == RECOVERY_LOCAL_FIX:
-                if not source.payload.get("recovery_input_revision") or not revision_changed:
-                    raise ValueError("contract_rejected retry needs a recorded local correction: "
-                                     "node input/config revision is unchanged or was not recorded")
-            elif revision_changed:
-                raise ValueError("input/config revision changed or not recorded"
-                                 + ("" if previous_parts else " (no parts recorded: legacy scheme 1 or missing)")
-                                 + ": " + ",".join(changed))
-            admission = None
-            if media:
-                gate = _media_gate(node_type)
-                admission = (await gate.admit(project, node_type) if gate is not media_admission
-                             else await media_admission.admit(project, node_type,
-                                                              source_facts=facts if local else None))
-            profile = None
-            if profile_overlay_id:
-                from app.services.profiles_v1 import reservation, source_provider
-                profile = await reservation(master, profile_overlay_id, execution_id=execution_id,
-                    project_id=project_id,node_key=node_key,source_attempt_id=source.attempt_id,
-                    revision=revision,graph=control.graph_version,body_hash=starts[0].payload["input_revision"],
-                    source_provider=source_provider(starts[0].payload))
-            action = RecoveryAction(action_id=str(uuid.uuid4()), execution_id=execution_id,
-                project_id=project_id, incident_id=incident_id, node_key=node_key,
-                source_attempt_id=source.attempt_id, new_attempt_id=str(uuid.uuid4()),
-                idempotency_key=idempotency_key, preconditions={"native_failures": fs["total_fails"][running],
-                    "running_status": running, "input_revision": revision, "graph_version": control.graph_version,
-                    "action_type": action_type, "effective_node_type": node_type, "recovery_class": rclass,
-                    **({"local_correction_parts": changed, "same_body_required": False}
-                       if rclass == RECOVERY_LOCAL_FIX else {}),
-                    "capability_actions": list(capability.actions),
-                    "input_parts": current_parts, "revision_scheme": revisions.REVISION_SCHEME,
-                    "node_config_revision": current_parts.get("node_config_revision"),
-                    "graph_authority": "master revision + runtime canvas_graph",
-                    "first_body_hash": (None if rclass == RECOVERY_LOCAL_FIX
-                                        else starts[0].payload["input_revision"] if starts else None),
-                    "prior_attempt_terminal": True,
-                    "node_and_project_replicas_match": True,
-                    "workflow_aggregate_status": {"master": primary_snapshot["workflow_status"],
-                        "project": replica_snapshot["workflow_status"],
-                        "note": "run_sync derives aggregate; project_db copies NodeRuns, not WorkflowRun.status"},
-                    "no_partial_apply": True, "user_stop": False, "node_scope_authorized": True,
-                    **({"media": True, "media_operation": admission["operation"],
-                        "media_verdict": {k: admission["verdict"].get(k) for k in ("mode", "code", "reasons")},
-                        "submits_new_paid_request": False,
-                        **({"local_worker": True, "ledger_before": admission["ledger_before"],
-                            "source_proof": admission["source_proof"], "resume_only_scope": True,
-                            "verification": "independent facts (local_node_recovery)"} if local else {})}
-                       if media else {})},
-                budget_state={"request_limit": control.request_limit, "requests_used": control.requests_used,
-                    "recovery_limit": 1, "recoveries_reserved": 1}, status="reserved", result={}, verification_result={})
+        # Одна база: проект, ноды и билет читаются и пишутся в той же сессии.
+        project = await master.get(Project, project_id)
+        if (not project or (project.meta or {}).get("user_stop")
+                or stop_flag_path(project_id).exists()):
+            raise ValueError("user_stop is active")
+        if is_generation_active(project_id):
+            raise ValueError("previous worker is still active")
+        fs = (project.meta or {}).get("step_failure") or {}
+        running = fs.get("last_running")
+        if (not fs.get("abandoned_at") or fs.get("abandoned_reason") == "fatal_config"
+                or (fs.get("total_fails") or {}).get(running, 0) < exhausted_threshold(project)
+                or is_sleeping(project) or project.status != ProjectStatus.paused):
+            raise ValueError("all native runtime retries must be exhausted")
+        nodes = (await master.scalars(select(NodeRun).where(
+            NodeRun.workflow_run_id == control.workflow_run_id))).all()
+        node = next((n for n in nodes if n.node_key == node_key), None)
+        if not node or node.status != NodeRunStatus.failed or not node.finished_at:
+            raise ValueError("previous node attempt is not terminal")
+        if any(n.status in ACTIVE_NODE_STATUSES for n in nodes):
+            raise ValueError("another node or HITL is active")
+        current_parts = {}
+        revision = await input_revision(master, project, node_key, parts=current_parts)
+        previous_parts = source.payload.get("recovery_revision_parts") or {}
+        scheme_problem = revisions.stored_revision_problem(previous_parts) if previous_parts else None
+        if scheme_problem:
+            raise ValueError(scheme_problem)
+        parts_match = bool(previous_parts) and all(previous_parts.get(k) == v for k,v in current_parts.items())
+        revision_changed = not parts_match and source.payload.get("recovery_input_revision") != revision
+        changed = [k for k,v in current_parts.items() if previous_parts.get(k) != v]
+        if rclass == RECOVERY_LOCAL_FIX:
+            if not source.payload.get("recovery_input_revision") or not revision_changed:
+                raise ValueError("contract_rejected retry needs a recorded local correction: "
+                                 "node input/config revision is unchanged or was not recorded")
+        elif revision_changed:
+            raise ValueError("input/config revision changed or not recorded"
+                             + ("" if previous_parts else " (no parts recorded: legacy scheme 1 or missing)")
+                             + ": " + ",".join(changed))
+        admission = None
+        if media:
+            gate = _media_gate(node_type)
+            admission = (await gate.admit(project, node_type) if gate is not media_admission
+                         else await media_admission.admit(project, node_type,
+                                                          source_facts=facts if local else None))
+        profile = None
+        if profile_overlay_id:
+            from app.services.profiles_v1 import reservation, source_provider
+            profile = await reservation(master, profile_overlay_id, execution_id=execution_id,
+                project_id=project_id,node_key=node_key,source_attempt_id=source.attempt_id,
+                revision=revision,graph=control.graph_version,body_hash=starts[0].payload["input_revision"],
+                source_provider=source_provider(starts[0].payload))
+        action = RecoveryAction(action_id=str(uuid.uuid4()), execution_id=execution_id,
+            project_id=project_id, incident_id=incident_id, node_key=node_key,
+            source_attempt_id=source.attempt_id, new_attempt_id=str(uuid.uuid4()),
+            idempotency_key=idempotency_key, preconditions={"native_failures": fs["total_fails"][running],
+                "running_status": running, "input_revision": revision, "graph_version": control.graph_version,
+                "action_type": action_type, "effective_node_type": node_type, "recovery_class": rclass,
+                **({"local_correction_parts": changed, "same_body_required": False}
+                   if rclass == RECOVERY_LOCAL_FIX else {}),
+                "capability_actions": list(capability.actions),
+                "input_parts": current_parts, "revision_scheme": revisions.REVISION_SCHEME,
+                "node_config_revision": current_parts.get("node_config_revision"),
+                "graph_authority": "master revision + runtime canvas_graph",
+                "first_body_hash": (None if rclass == RECOVERY_LOCAL_FIX
+                                    else starts[0].payload["input_revision"] if starts else None),
+                "prior_attempt_terminal": True,
+                "workflow_aggregate_status": run.status.value if run.status else None,
+                "no_partial_apply": True, "user_stop": False, "node_scope_authorized": True,
+                **({"media": True, "media_operation": admission["operation"],
+                    "media_verdict": {k: admission["verdict"].get(k) for k in ("mode", "code", "reasons")},
+                    "submits_new_paid_request": False,
+                    **({"local_worker": True, "ledger_before": admission["ledger_before"],
+                        "source_proof": admission["source_proof"], "resume_only_scope": True,
+                        "verification": "independent facts (local_node_recovery)"} if local else {})}
+                   if media else {})},
+            budget_state={"request_limit": control.request_limit, "requests_used": control.requests_used,
+                "recovery_limit": 1, "recoveries_reserved": 1}, status="reserved", result={}, verification_result={})
+        if profile:
+            action.preconditions = {**action.preconditions,
+                "profile_overlay_id":profile.overlay_id,"candidate_hash":profile.candidate_hash,
+                "source_body_hash":profile.source_body_hash,"first_body_hash":profile.expected_body_hash}
+            profile.attempt_id=action.new_attempt_id;profile.status="reserved"
+            profile.history=[*profile.history,{"kind":"recovery_reserved","action_id":action.action_id,
+                "attempt_id":action.new_attempt_id,"at":datetime.utcnow().isoformat()}]
+        if capability.volatile_attachment_names and rclass != RECOVERY_LOCAL_FIX:
+            source_body = load_source_body(observer, starts[0])
             if profile:
-                action.preconditions = {**action.preconditions,
-                    "profile_overlay_id":profile.overlay_id,"candidate_hash":profile.candidate_hash,
-                    "source_body_hash":profile.source_body_hash,"first_body_hash":profile.expected_body_hash}
-                profile.attempt_id=action.new_attempt_id;profile.status="reserved"
-                profile.history=[*profile.history,{"kind":"recovery_reserved","action_id":action.action_id,
-                    "attempt_id":action.new_attempt_id,"at":datetime.utcnow().isoformat()}]
-            if capability.volatile_attachment_names and rclass != RECOVERY_LOCAL_FIX:
-                source_body = load_source_body(observer, starts[0])
-                if profile:
-                    from app.services.profiles_v1 import effective_body
-                    source_body = effective_body(source_body, profile.candidate)
-                action.preconditions = {**action.preconditions,
-                    "first_body_hash": body_identity(source_body, normalize_names=True),
-                    "first_body_normalization": STAMP_NORMALIZATION}
-            master.add(action)
-            master.add(ActionRecord(action_id=action.action_id, execution_id=execution_id, project_id=project_id,
-                action_kind="node_profile_recovery" if profile else ("media_recovery" if media else "node_recovery"),
-                node_key=node_key, attempt_id=action.new_attempt_id,
-                initiator=initiator, rationale=rationale, evidence_ids=incident.details.get("event_ids", []),
-                preconditions=action.preconditions, idempotency_key=idempotency_key, status="reserved", verification={}))
-            try:
-                await master.commit()
-            except IntegrityError as exc:
-                await master.rollback()
-                raise ValueError("another recovery of this node already holds the ticket; "
-                                 "this one is refused (nothing dispatched)") from exc
-            _active_nodes[project_id] = node_key
-            record = await master.get(ActionRecord, action.action_id)
-            if media and not local:
-                return await _execute_media(master, scope, control, action, record, project, node_type,
-                                            admission, project_id)
-            action.status = "queued"
-            record.status = "queued"
+                from app.services.profiles_v1 import effective_body
+                source_body = effective_body(source_body, profile.candidate)
+            action.preconditions = {**action.preconditions,
+                "first_body_hash": body_identity(source_body, normalize_names=True),
+                "first_body_normalization": STAMP_NORMALIZATION}
+        master.add(action)
+        master.add(ActionRecord(action_id=action.action_id, execution_id=execution_id, project_id=project_id,
+            action_kind="node_profile_recovery" if profile else ("media_recovery" if media else "node_recovery"),
+            node_key=node_key, attempt_id=action.new_attempt_id,
+            initiator=initiator, rationale=rationale, evidence_ids=incident.details.get("event_ids", []),
+            preconditions=action.preconditions, idempotency_key=idempotency_key, status="reserved", verification={}))
+        try:
             await master.commit()
-            if not start_node_running(node, project_id=project_id, initiator="supervisor_recovery"):
-                action.status = "human_review"
-                action.result = {"dispatch_refused": True, "new_attempt_started": False}
-                action.verification_result = {"verified": False, "reason": "FSM/permission changed before dispatch"}
-                record.status = "rejected"
-                record.verification = action.verification_result
-                control.held = True
-                await master.commit()
-                update_permission(project_id, held=True)
-                raise ValueError("FSM refused recovery dispatch")
-            project.status = ProjectStatus(running)
-            await session.flush()
+        except IntegrityError as exc:
+            await master.rollback()
+            raise ValueError("another recovery of this node already holds the ticket; "
+                             "this one is refused (nothing dispatched)") from exc
+        _active_nodes[project_id] = node_key
+        record = await master.get(ActionRecord, action.action_id)
+        if media and not local:
+            return await _execute_media(master, scope, control, action, record, project, node_type,
+                                        admission, project_id)
+        action.status = "queued"
+        record.status = "queued"
+        await master.commit()
+        if not start_node_running(node, project_id=project_id, initiator="supervisor_recovery"):
+            # Отказ FSM мог оставить ноду в памяти «queued»: в одной сессии с билетом
+            # это ушло бы в commit ниже. Сбрасываем несохранённое — нода остаётся failed.
+            master.expire(node)
+            action.status = "human_review"
+            action.result = {"dispatch_refused": True, "new_attempt_started": False}
+            action.verification_result = {"verified": False, "reason": "FSM/permission changed before dispatch"}
+            record.status = "rejected"
+            record.verification = action.verification_result
+            control.held = True
+            await master.commit()
+            update_permission(project_id, held=True)
+            raise ValueError("FSM refused recovery dispatch")
+        project.status = ProjectStatus(running)
+        await master.commit()
         return {**ticket_json(action), "idempotent_replay": False}
 
 
@@ -590,7 +587,6 @@ def defer_continuation(project_id, node_key):
 async def reconcile(observer):
     from app.services.observation import ObservationEvent, ExecutionControl, digest, AttemptContext, _attempt, emit
     from app.services.step_cancel import is_generation_active, stop_flag_path
-    from app.project_db import project_db_session_scope
     async with observer.master() as master:
         rows = (await master.scalars(select(RecoveryAction).where(
             RecoveryAction.status.in_(["reserved", "queued", "claimed", "await_verify"])))).all()
@@ -614,139 +610,142 @@ async def reconcile(observer):
             facts = (await master.scalars(select(ObservationEvent).where(
                 ObservationEvent.execution_id == row.execution_id,
                 ObservationEvent.attempt_id == row.new_attempt_id))).all()
-            async with project_db_session_scope(row.project_id) as session:
-                project = await session.get(Project, row.project_id)
-                run = await session.get(WorkflowRun, control.workflow_run_id)
-                master_run = await master.get(WorkflowRun, control.workflow_run_id)
-                node = await session.scalar(select(NodeRun).where(
-                    NodeRun.workflow_run_id == control.workflow_run_id, NodeRun.node_key == row.node_key))
-                verification = {
-                    "node_done": bool(node and node.status == NodeRunStatus.done),
-                    "node_end": any(e.kind == "node_end" for e in facts),
-                    "data_applied": any(e.kind == "data_applied" for e in facts),
-                    "accepted_payload": any(e.kind == "parse_result" and e.payload.get("payload_present") for e in facts),
-                    "graph_matches": bool(run and master_run and revisions.graph_version(
-                        master_run.nodes_snapshot, master_run.edges_snapshot) == control.graph_version),
-                    "audit_available": not bool(scope.gaps or row.execution_id in observer.failures
-                                                or row.execution_id in observer.commit_uncertainty),
-                    "no_user_stop": bool(project and not (project.meta or {}).get("user_stop")
-                                         and not stop_flag_path(row.project_id).exists()),
-                    "permission_active": control.enabled and not control.held,
-                    "requests_complete": all(any(end.kind == "model_end" and end.request_id == e.request_id
-                        and end.payload.get("complete") for end in facts) for e in facts if e.kind == "model_start"),
-                    "transactional_done": any(e.kind == "node_change" and e.db_scope == "project"
-                        and "done" in ((e.payload.get("changes") or {}).get("status") or {}).get("after", []) for e in facts),
-                }
-                if not verification["transactional_done"] and master_run is not None:
-                    from app.services.excel_gpt_node import effective_node_type
-                    from app.services.node_capabilities import capability_for
-                    boundary_node = next((n for n in (master_run.nodes_snapshot or [])
-                                          if isinstance(n, dict) and str(n.get("id")) == row.node_key), None)
-                    own_start = min((e.id for e in facts if e.kind == "node_start"), default=None)
-                    if (boundary_node is not None and own_start is not None
-                            and capability_for(effective_node_type(boundary_node)).recovery_continuation == "none"):
-                        later = (await master.scalars(select(ObservationEvent).where(
-                            ObservationEvent.execution_id == row.execution_id,
-                            ObservationEvent.node_key == row.node_key, ObservationEvent.id > own_start,
-                            ObservationEvent.kind.in_(["node_change", "node_start"])).order_by(ObservationEvent.id))).all()
-                        other_start = any(e.kind == "node_start" and e.attempt_id != row.new_attempt_id for e in later)
-                        verification["transactional_done"] = bool(not other_start and any(
-                            e.kind == "node_change" and e.db_scope == "project"
-                            and "done" in ((e.payload.get("changes") or {}).get("status") or {}).get("after", [])
-                            for e in later))
-                        verification["done_proof"] = "native text node: committed NodeRun done after this attempt's start"
-                from app.services.observation import confirmed_qc_noop
-                from app.services.node_write_contract import allows_qc_noop
-                from app.services.gpt_operator import operator_config
-                cfg = operator_config(project, row.node_key) if project else {}
-                variant = (((project.meta or {}).get('prompt_slot_variants') or {}).get(row.node_key) or {}).get('main') if project else None
-                trusted = bool(project and allows_qc_noop(project, row.node_key, variant=variant,
-                    output_mode=cfg.get('outputMode'), check_mode=cfg.get('checkMode')))
-                latest_start = await master.scalar(select(ObservationEvent).where(
-                    ObservationEvent.execution_id == row.execution_id,
-                    ObservationEvent.node_key == row.node_key,
-                    ObservationEvent.kind == 'node_start').order_by(ObservationEvent.id.desc()).limit(1))
-                events = [dict(kind=e.kind, request_id=e.request_id, payload=e.payload) for e in facts]
-                verification['accepted_noop'] = bool(trusted and latest_start
-                    and latest_start.attempt_id == row.new_attempt_id
-                    and any(e.kind == 'node_change' and e.db_scope == 'project'
-                        and e.payload.get('transactional') is True
-                        and 'done' in ((e.payload.get('changes') or {}).get('status') or {}).get('after', []) for e in facts)
-                    and any(confirmed_qc_noop(events, e.request_id) for e in facts if e.kind == 'parse_result'))
-                if (row.preconditions or {}).get("local_worker"):
-                    from app.services import local_node_recovery
-                    try:
-                        local_checks = await local_node_recovery.verify(session, project, row, facts)
-                    except Exception as exc:
-                        local_checks = {"result_confirmed": False, "local_verify_error": type(exc).__name__}
-                    verification.update(local_checks)
-                    verification['result_confirmed'] = bool(local_checks.get('result_confirmed'))
-                else:
-                    verification['result_confirmed'] = ((verification['data_applied'] and verification['accepted_payload'])
-                                                       or verification['accepted_noop'])
-                required_checks = ('node_done','node_end','result_confirmed','graph_matches','audit_available',
-                                   'no_user_stop','permission_active','requests_complete','transactional_done')
-                verified = row.status == "await_verify" and all(verification[k] for k in required_checks)
-                completion_checks = ('node_done','node_end','result_confirmed',
-                                     'requests_complete','transactional_done')
-                pending = [key for key in completion_checks if not verification[key]]
-                finished_at = row.result.get('worker_returned_at')
-                age = (datetime.utcnow()-datetime.fromisoformat(finished_at)).total_seconds() if finished_at else 999
-                hard_checks = ('graph_matches','audit_available','no_user_stop','permission_active')
-                if (row.status == 'await_verify' and pending and age < 30
-                        and all(verification[k] for k in hard_checks)):
-                    row.verification_result = {**verification,'verified':False,'waiting_for_evidence':pending}
-                    wait_key = 'recovery-wait:'+row.action_id+':'+digest(pending)[:12]
-                    prior = await master.scalar(select(ActionRecord).where(ActionRecord.execution_id==row.execution_id,
-                        ActionRecord.idempotency_key==wait_key))
-                    if not prior:
-                        master.add(ActionRecord(action_id=str(uuid.uuid4()),execution_id=row.execution_id,
-                            project_id=row.project_id,action_kind='verification_wait',node_key=row.node_key,
-                            attempt_id=row.new_attempt_id,initiator='supervisor',rationale='Wait for durable completion event delivery',
-                            idempotency_key=wait_key,status='await_verify',preconditions={'pending_evidence':pending},
-                            evidence_ids=[],verification=row.verification_result))
+            # Одна база: проект, ноды и билет в одной сессии; отдельной «базы проекта» нет.
+            project = await master.get(Project, row.project_id)
+            run = await master.get(WorkflowRun, control.workflow_run_id)
+            node = await master.scalar(select(NodeRun).where(
+                NodeRun.workflow_run_id == control.workflow_run_id, NodeRun.node_key == row.node_key))
+            verification = {
+                "node_done": bool(node and node.status == NodeRunStatus.done),
+                "node_end": any(e.kind == "node_end" for e in facts),
+                "data_applied": any(e.kind == "data_applied" for e in facts),
+                "accepted_payload": any(e.kind == "parse_result" and e.payload.get("payload_present") for e in facts),
+                "graph_matches": bool(run and revisions.graph_version(
+                    run.nodes_snapshot, run.edges_snapshot) == control.graph_version),
+                "audit_available": not bool(scope.gaps or row.execution_id in observer.failures
+                                            or row.execution_id in observer.commit_uncertainty),
+                "no_user_stop": bool(project and not (project.meta or {}).get("user_stop")
+                                     and not stop_flag_path(row.project_id).exists()),
+                "permission_active": control.enabled and not control.held,
+                "requests_complete": all(any(end.kind == "model_end" and end.request_id == e.request_id
+                    and end.payload.get("complete") for end in facts) for e in facts if e.kind == "model_start"),
+                "transactional_done": any(e.kind == "node_change"
+                    and "done" in ((e.payload.get("changes") or {}).get("status") or {}).get("after", []) for e in facts),
+            }
+            if not verification["transactional_done"] and run is not None:
+                from app.services.excel_gpt_node import effective_node_type
+                from app.services.node_capabilities import capability_for
+                boundary_node = next((n for n in (run.nodes_snapshot or [])
+                                      if isinstance(n, dict) and str(n.get("id")) == row.node_key), None)
+                own_start = min((e.id for e in facts if e.kind == "node_start"), default=None)
+                if (boundary_node is not None and own_start is not None
+                        and capability_for(effective_node_type(boundary_node)).recovery_continuation == "none"):
+                    later = (await master.scalars(select(ObservationEvent).where(
+                        ObservationEvent.execution_id == row.execution_id,
+                        ObservationEvent.node_key == row.node_key, ObservationEvent.id > own_start,
+                        ObservationEvent.kind.in_(["node_change", "node_start"])).order_by(ObservationEvent.id))).all()
+                    other_start = any(e.kind == "node_start" and e.attempt_id != row.new_attempt_id for e in later)
+                    verification["transactional_done"] = bool(not other_start and any(
+                        e.kind == "node_change"
+                        and "done" in ((e.payload.get("changes") or {}).get("status") or {}).get("after", [])
+                        for e in later))
+                    verification["done_proof"] = "native text node: committed NodeRun done after this attempt's start"
+            from app.services.observation import confirmed_qc_noop
+            from app.services.node_write_contract import allows_qc_noop
+            from app.services.gpt_operator import operator_config
+            cfg = operator_config(project, row.node_key) if project else {}
+            variant = (((project.meta or {}).get('prompt_slot_variants') or {}).get(row.node_key) or {}).get('main') if project else None
+            trusted = bool(project and allows_qc_noop(project, row.node_key, variant=variant,
+                output_mode=cfg.get('outputMode'), check_mode=cfg.get('checkMode')))
+            latest_start = await master.scalar(select(ObservationEvent).where(
+                ObservationEvent.execution_id == row.execution_id,
+                ObservationEvent.node_key == row.node_key,
+                ObservationEvent.kind == 'node_start').order_by(ObservationEvent.id.desc()).limit(1))
+            events = [dict(kind=e.kind, request_id=e.request_id, payload=e.payload) for e in facts]
+            verification['accepted_noop'] = bool(trusted and latest_start
+                and latest_start.attempt_id == row.new_attempt_id
+                and any(e.kind == 'node_change'
+                    and e.payload.get('transactional') is True
+                    and 'done' in ((e.payload.get('changes') or {}).get('status') or {}).get('after', []) for e in facts)
+                and any(confirmed_qc_noop(events, e.request_id) for e in facts if e.kind == 'parse_result'))
+            if (row.preconditions or {}).get("local_worker"):
+                from app.services import local_node_recovery
+                try:
+                    local_checks = await local_node_recovery.verify(master, project, row, facts)
+                except Exception as exc:
+                    local_checks = {"result_confirmed": False, "local_verify_error": type(exc).__name__}
+                verification.update(local_checks)
+                verification['result_confirmed'] = bool(local_checks.get('result_confirmed'))
+            else:
+                verification['result_confirmed'] = ((verification['data_applied'] and verification['accepted_payload'])
+                                                   or verification['accepted_noop'])
+            required_checks = ('node_done','node_end','result_confirmed','graph_matches','audit_available',
+                               'no_user_stop','permission_active','requests_complete','transactional_done')
+            verified = row.status == "await_verify" and all(verification[k] for k in required_checks)
+            completion_checks = ('node_done','node_end','result_confirmed',
+                                 'requests_complete','transactional_done')
+            pending = [key for key in completion_checks if not verification[key]]
+            finished_at = row.result.get('worker_returned_at')
+            age = (datetime.utcnow()-datetime.fromisoformat(finished_at)).total_seconds() if finished_at else 999
+            hard_checks = ('graph_matches','audit_available','no_user_stop','permission_active')
+            if (row.status == 'await_verify' and pending and age < 30
+                    and all(verification[k] for k in hard_checks)):
+                row.verification_result = {**verification,'verified':False,'waiting_for_evidence':pending}
+                wait_key = 'recovery-wait:'+row.action_id+':'+digest(pending)[:12]
+                prior = await master.scalar(select(ActionRecord).where(ActionRecord.execution_id==row.execution_id,
+                    ActionRecord.idempotency_key==wait_key))
+                if not prior:
+                    master.add(ActionRecord(action_id=str(uuid.uuid4()),execution_id=row.execution_id,
+                        project_id=row.project_id,action_kind='verification_wait',node_key=row.node_key,
+                        attempt_id=row.new_attempt_id,initiator='supervisor',rationale='Wait for durable completion event delivery',
+                        idempotency_key=wait_key,status='await_verify',preconditions={'pending_evidence':pending},
+                        evidence_ids=[],verification=row.verification_result))
+                await master.commit()
+                continue
+            row.verification_result = {**verification, "verified": verified, "semantic_quality_verified": False}
+            row.status = "verified" if verified else "human_review"
+            record = await master.get(ActionRecord, row.action_id)
+            record.status = row.status
+            record.verification = row.verification_result
+            if not verified:
+                control.held = True
+                update_permission(row.project_id, held=True)
+            observer.stage(master, scope, 'recovery_verification', db_scope='master',node_key=row.node_key,
+                attempt_id=row.new_attempt_id,payload={'action_id':row.action_id,**row.verification_result})
+            await master.commit()
+            if verified:
+                _active_nodes.pop(row.project_id, None)
+                from app.services.excel_gpt_node import slot_index_from_node, effective_node_type
+                from app.services.node_capabilities import capability_for
+                from app.orchestrator.steps.enrich_xlsx import _after_excel_gpt_done
+                graph_node = next(n for n in run.nodes_snapshot if str(n.get("id")) == row.node_key)
+                if capability_for(effective_node_type(graph_node)).recovery_continuation != "excel_gpt_chain":
+                    row.result = {**row.result, "continuation_submitted": False,
+                                  "continuation": "original runtime; mandatory HITL untouched"}
                     await master.commit()
                     continue
-                row.verification_result = {**verification, "verified": verified, "semantic_quality_verified": False}
-                row.status = "verified" if verified else "human_review"
-                record = await master.get(ActionRecord, row.action_id)
-                record.status = row.status
-                record.verification = row.verification_result
-                if not verified:
-                    control.held = True
-                    update_permission(row.project_id, held=True)
-                observer.stage(master, scope, 'recovery_verification', db_scope='master',node_key=row.node_key,
-                    attempt_id=row.new_attempt_id,payload={'action_id':row.action_id,**row.verification_result})
-                await master.commit()
-                if verified:
-                    _active_nodes.pop(row.project_id, None)
-                    from app.services.excel_gpt_node import slot_index_from_node, effective_node_type
-                    from app.services.node_capabilities import capability_for
-                    from app.orchestrator.steps.enrich_xlsx import _after_excel_gpt_done
-                    graph_node = next(n for n in run.nodes_snapshot if str(n.get("id")) == row.node_key)
-                    if capability_for(effective_node_type(graph_node)).recovery_continuation != "excel_gpt_chain":
-                        row.result = {**row.result, "continuation_submitted": False,
-                                      "continuation": "original runtime; mandatory HITL untouched"}
-                        await master.commit()
-                        continue
-                    token = _attempt.set(AttemptContext(observer,scope,session,'project',row.node_key,row.new_attempt_id,
-                        runtime_config_hash=row.result.get("runtime_config_hash")))
-                    try:
-                        await _after_excel_gpt_done(session, project, node_key=row.node_key,
+                # Продолжение пишет в ту же сессию, что и билет. Точка сохранения
+                # держит прежнюю семантику двух сессий: при ошибке записи продолжения
+                # откатываются, а пометка human_review ниже всё равно сохраняется.
+                token = _attempt.set(AttemptContext(observer,scope,master,'master',row.node_key,row.new_attempt_id,
+                    runtime_config_hash=row.result.get("runtime_config_hash")))
+                try:
+                    async with master.begin_nested():
+                        await _after_excel_gpt_done(master, project, node_key=row.node_key,
                             slot_idx=slot_index_from_node(graph_node), ready_status=project.status)
                         emit('recovery_continuation_submitted', {'action_id':row.action_id,
                             'next_node_key':(project.meta or {}).get('active_excel_gpt_node_key'),
                             'initiator':'supervisor','planner':'original_runtime'})
-                    except BaseException as exc:
-                        row.result = {**row.result,'continuation_error_type':type(exc).__name__,
-                            'continuation_unconfirmed':True}
-                        row.status = 'human_review'
-                        record.status = 'human_review'
-                        control.held = True
-                        await master.commit()
-                        update_permission(row.project_id,held=True)
-                        raise
-                    finally:
-                        _attempt.reset(token)
-                    row.result = {**row.result, "continuation_submitted": True}
+                except BaseException as exc:
+                    row.result = {**row.result,'continuation_error_type':type(exc).__name__,
+                        'continuation_unconfirmed':True}
+                    row.status = 'human_review'
+                    record.status = 'human_review'
+                    control.held = True
+                    await master.commit()
+                    update_permission(row.project_id,held=True)
+                    raise
+                finally:
+                    _attempt.reset(token)
+                row.result = {**row.result, "continuation_submitted": True}
             await master.commit()
