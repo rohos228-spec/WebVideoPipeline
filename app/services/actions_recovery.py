@@ -12,18 +12,11 @@ from sqlalchemy import JSON, String, UniqueConstraint, select, update
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base, NodeRun, NodeRunStatus, Project, ProjectStatus, WorkflowRun
-from app.services.actions_v1 import ActionExecutionControl, ActionRecord, update_permission
+from app.services.actions_v1 import ACTIVE_NODE_STATUSES, ActionExecutionControl, ActionRecord, update_permission
 from app.services import revisions
 
 _active_nodes: dict[int, str] = {}
 _inflight_projects: set[int] = set()
-
-# Нода ещё занята: идёт, в очереди или ждёт решения человека. «waiting_approval»
-# линии движка в модели WebVideoPipeline может отсутствовать — берём только те
-# статусы, что в перечислении есть, иначе обращение к атрибуту роняет проверку.
-ACTIVE_NODE_STATUSES = frozenset(
-    status for status in NodeRunStatus
-    if status.value in {"running", "queued", "waiting_hitl", "waiting_approval"})
 
 
 def restricted_node(project_id):
@@ -448,9 +441,33 @@ async def _execute_media(master, scope, control, action, record, project, node_t
     return {**ticket_json(action), "idempotent_replay": False}
 
 
+async def _holds_sqlite_write(session) -> bool:
+    """Держит ли сессия воркера незакоммиченную запись в SQLite.
+
+    У SQLite один писатель. Пока транзакция воркера с записью открыта, вторая
+    сессия на запись ждёт busy_timeout (минуту) и падает «database is locked».
+    Чтения транзакцию в драйвере не открывают — им ждать нечего.
+    """
+    from app.settings import settings
+    if settings.is_postgres or not session.in_transaction():
+        return False
+    raw = await (await session.connection()).get_raw_connection()
+    return bool(getattr(raw.driver_connection, "in_transaction", False))
+
+
 async def claim(observer, session, project, node_key, attempt_id, *, execution_id):
-    from app.services.observation import digest
+    """Забрать билет восстановления перед попыткой воркера.
+
+    База одна: билет, прогон и входы ноды читаются и билет пишется одной
+    сессией наблюдателя, и её commit не зависит от транзакции воркера — если
+    попытка потом откатится, отметка «claimed» останется. Сессия воркера
+    внутри не читается и не пишется; от неё требуется только не держать
+    незакоммиченную запись, иначе второй писатель SQLite ждал бы минуту.
+    """
     from app.services.step_cancel import stop_flag_path
+    if await _holds_sqlite_write(session):
+        raise RuntimeError("recovery claim needs the worker transaction without pending writes; "
+                           "commit or roll back before the attempt")
     async with observer.master() as master:
         row = await master.scalar(select(RecoveryAction).where(
             RecoveryAction.execution_id == execution_id,
@@ -465,20 +482,19 @@ async def claim(observer, session, project, node_key, attempt_id, *, execution_i
         control = await master.get(ActionExecutionControl, row.execution_id)
         if not control or not control.enabled or control.held:
             raise RuntimeError("recovery permission revoked or held")
-        run = await session.get(WorkflowRun, control.workflow_run_id)
-        master_run = await master.get(WorkflowRun, control.workflow_run_id)
+        run = await master.get(WorkflowRun, control.workflow_run_id)
         stored_parts = row.preconditions.get("input_parts")
         scheme_problem = revisions.stored_revision_problem(stored_parts) if stored_parts else None
         if scheme_problem:
             raise RuntimeError("recovery ticket rejected before claim: " + scheme_problem)
-        if run and master_run:
+        if run:
             graph_problem = revisions.graph_mismatch_reason(
-                master_run.nodes_snapshot, master_run.edges_snapshot, row.preconditions["graph_version"])
+                run.nodes_snapshot, run.edges_snapshot, row.preconditions["graph_version"])
             if graph_problem and "legacy scheme" in graph_problem:
                 raise RuntimeError("recovery ticket rejected before claim: " + graph_problem)
-        if (not run or not master_run
-                or revisions.graph_version(master_run.nodes_snapshot, master_run.edges_snapshot) != row.preconditions["graph_version"]
-                or await input_revision(session, project, node_key) != row.preconditions["input_revision"]):
+        if (not run
+                or revisions.graph_version(run.nodes_snapshot, run.edges_snapshot) != row.preconditions["graph_version"]
+                or await input_revision(master, project, node_key) != row.preconditions["input_revision"]):
             raise RuntimeError("recovery revisions changed before claim")
         action_type = row.preconditions.get("action_type")
         has_profile_marker = "profile_overlay_id" in row.preconditions
@@ -494,7 +510,7 @@ async def claim(observer, session, project, node_key, attempt_id, *, execution_i
             raise RuntimeError("recovery strategy/node outside current execution grant before claim")
         from app.services.excel_gpt_node import effective_node_type
         from app.services.node_capabilities import capability_for
-        graph_node = next((n for n in (master_run.nodes_snapshot or [])
+        graph_node = next((n for n in (run.nodes_snapshot or [])
                            if isinstance(n, dict) and str(n.get("id")) == node_key), None)
         if graph_node is None:
             raise RuntimeError("recovery node capability unavailable before claim")
