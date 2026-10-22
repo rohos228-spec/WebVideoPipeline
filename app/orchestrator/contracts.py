@@ -117,9 +117,7 @@ EVENT_RETENTION_DAYS = 14
 SESSION_EVENT_CAP = 20_000
 
 EPHEMERAL_EVENT_TYPES = frozenset({"token"})
-RETAINED_EVENT_TYPES = frozenset(
-    {"checkpoint", "approval_required", "approval_decided", "partial_write"}
-)
+RETAINED_EVENT_TYPES = frozenset({"checkpoint", "approval_required", "approval_decided", "partial_write"})
 
 EVENT_TYPES = (
     "ack",
@@ -413,7 +411,10 @@ def require_internal_run_id(run_id: str | None, budget_scope: str | None = None)
     что у WS5. Пустой id — ошибка, а не нулевой расход. ``pipeline`` без
     атрибуции — та же ошибка, отдельного безымянного бакета нет.
     """
-    if budget_scope is not None and budget_scope not in {BudgetScope.internal.value, BudgetScope.pipeline.value}:
+    if budget_scope is not None and budget_scope not in {
+        BudgetScope.internal.value,
+        BudgetScope.pipeline.value,
+    }:
         raise ValueError("budget_scope must be internal|pipeline")
     if not isinstance(run_id, str) or not run_id.strip():
         raise ValueError("budget requires run_id")
@@ -894,9 +895,7 @@ DELETION_ACTIONS: frozenset[str] = frozenset(
 )
 APPROVAL_RISKS: frozenset[str] = frozenset({"medium", "high"})
 # Destructive без медиа. Другие имена с destructive=True остаются deletion_blocked.
-APPROVABLE_DESTRUCTIVE = frozenset(
-    {"revert_node_to_git", "prompt.retire_master", "frame.restore"}
-)
+APPROVABLE_DESTRUCTIVE = frozenset({"revert_node_to_git", "prompt.retire_master", "frame.restore"})
 PIPELINE_FORECAST_LIMIT_USD = 40.0
 _RISK_RANK: dict[Risk, int] = {Risk.none: 0, Risk.low: 1, Risk.medium: 2, Risk.high: 3}
 
@@ -1003,8 +1002,7 @@ def budget_exhausted_response(response: Any) -> bool:
     approval = getattr(response, "approval", None)
     reason = getattr(approval, "reason", "") if approval is not None else ""
     return (
-        status_value == TaskStatus.waiting_approval.value
-        and reason == ApprovalReason.budget_exhausted.value
+        status_value == TaskStatus.waiting_approval.value and reason == ApprovalReason.budget_exhausted.value
     )
 
 

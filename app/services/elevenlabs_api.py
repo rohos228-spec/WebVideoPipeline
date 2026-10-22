@@ -34,7 +34,7 @@ class ElevenLabsUncertainError(ElevenLabsApiError):
     pass
 
 
-def _blocked_as_eleven(blocked: spend_guard.PaidCallBlocked) -> "ElevenLabsApiError":
+def _blocked_as_eleven(blocked: spend_guard.PaidCallBlocked) -> ElevenLabsApiError:
     err = ElevenLabsApiError(blocked.message_ru)
     err.context = dict(blocked.context)
     return err
@@ -47,7 +47,8 @@ MAX_POSTS_PER_SEGMENT = 2
 _UNCERTAIN_PREFIX = ".tts_uncertain_"
 _SIDECAR_SUFFIX = ".tts.json"
 _run_budget: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar(
-    "elevenlabs_tts_run_budget", default=None)
+    "elevenlabs_tts_run_budget", default=None
+)
 
 
 @contextlib.contextmanager
@@ -106,14 +107,23 @@ SFX_MAX_PROMPT_CHARS = 450
 
 
 def sfx_request_key(prompt: str, duration: float) -> str:
-    raw = json.dumps(["sfx", (prompt or "")[:SFX_MAX_PROMPT_CHARS],
-                      round(min(max(float(duration), 0.5), 22.0), 3), SFX_PROMPT_INFLUENCE], ensure_ascii=False)
+    raw = json.dumps(
+        [
+            "sfx",
+            (prompt or "")[:SFX_MAX_PROMPT_CHARS],
+            round(min(max(float(duration), 0.5), 22.0), 3),
+            SFX_PROMPT_INFLUENCE,
+        ],
+        ensure_ascii=False,
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def sfx_write_sidecar(sound: Path, key: str) -> None:
     try:
-        sound.with_name(sound.name + _SFX_SIDECAR_SUFFIX).write_text(json.dumps({"key": key}), encoding="utf-8")
+        sound.with_name(sound.name + _SFX_SIDECAR_SUFFIX).write_text(
+            json.dumps({"key": key}), encoding="utf-8"
+        )
     except OSError:
         pass
 
@@ -143,9 +153,7 @@ def _resolve_api_key() -> str:
     key = getattr(settings, "elevenlabs_api_key", None) or os.environ.get("ELEVENLABS_API_KEY", "")
     k = str(key or "").strip()
     if not k:
-        raise ElevenLabsApiError(
-            "Не задан ELEVENLABS_API_KEY в .env — укажите ключ для генерации озвучки."
-        )
+        raise ElevenLabsApiError("Не задан ELEVENLABS_API_KEY в .env — укажите ключ для генерации озвучки.")
     return k
 
 
@@ -261,6 +269,7 @@ async def synthesize_speech(
     ).strip()
 
     from app.services.api_tracker_hook import check_api_allowed
+
     check_api_allowed(provider="ElevenLabs", model=effective_model)
 
     url = f"{ELEVENLABS_API_BASE_URL}/text-to-speech/{effective_voice_id}"
@@ -297,14 +306,17 @@ async def synthesize_speech(
         if active_proxy:
             client_kwargs["proxy"] = active_proxy
         async with spend_guard.paid_call(
-            "elevenlabs", "tts post",
+            "elevenlabs",
+            "tts post",
             estimate_usd=len(clean_text) * media_spend.ELEVENLABS_USD_PER_CHAR,
             wrap_error=_blocked_as_eleven,
         ):
             async with httpx.AsyncClient(**client_kwargs) as client:
                 return await media_spend.track_eleven_post(
                     client.post(url, headers=headers, json=payload),
-                    chars=len(clean_text), model=effective_model)
+                    chars=len(clean_text),
+                    model=effective_model,
+                )
 
     import asyncio
 
@@ -333,9 +345,7 @@ async def synthesize_speech(
             resp = await _do_post(route_proxy)
         except _PRE_SEND_CAUSES as exc:
             if posts >= MAX_POSTS_PER_SEGMENT:
-                raise ElevenLabsApiError(
-                    f"11Labs API: ошибка сетевого соединения: {exc}"
-                ) from exc
+                raise ElevenLabsApiError(f"11Labs API: ошибка сетевого соединения: {exc}") from exc
             if route_proxy:
                 logger.warning("11Labs API: соединение через прокси не удалось ({}), прямой запрос", exc)
                 route_proxy = None
@@ -355,7 +365,10 @@ async def synthesize_speech(
             wait_sec = 2.5 * posts
             logger.warning(
                 "11Labs API: HTTP {} (Rate limit / upstream) — повтор через {:.1f}с ({}/{})",
-                resp.status_code, wait_sec, posts, MAX_POSTS_PER_SEGMENT,
+                resp.status_code,
+                wait_sec,
+                posts,
+                MAX_POSTS_PER_SEGMENT,
             )
             await asyncio.sleep(wait_sec)
             continue
@@ -367,7 +380,9 @@ async def synthesize_speech(
             err_json = resp.json()
             detail = err_json.get("detail")
             if isinstance(detail, dict):
-                err_msg = f"HTTP {resp.status_code}: {detail.get('message') or detail.get('code') or err_json}"
+                err_msg = (
+                    f"HTTP {resp.status_code}: {detail.get('message') or detail.get('code') or err_json}"
+                )
             elif isinstance(detail, str):
                 err_msg = f"HTTP {resp.status_code}: {detail}"
             else:
@@ -377,6 +392,7 @@ async def synthesize_speech(
 
         try:
             from app.services.api_tracker_hook import record_api_call
+
             record_api_call(
                 provider="ElevenLabs",
                 model=effective_model,
@@ -393,9 +409,7 @@ async def synthesize_speech(
             pass
 
         if resp.status_code == 401:
-            raise ElevenLabsApiError(
-                f"11Labs API: неверный API-ключ (401 Unauthorized) — {err_msg}"
-            )
+            raise ElevenLabsApiError(f"11Labs API: неверный API-ключ (401 Unauthorized) — {err_msg}")
         if resp.status_code == 402:
             raise ElevenLabsApiError(
                 f"11Labs API: недостаточно кредитов или выбранный голос требует платный тариф (402 Payment Required) — {err_msg}"
@@ -428,6 +442,7 @@ async def synthesize_speech(
     )
     try:
         from app.services.api_tracker_hook import record_api_call
+
         char_count = len(clean_text)
         cost_est = round(char_count * 0.00015, 6)
         record_api_call(

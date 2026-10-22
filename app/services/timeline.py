@@ -4,9 +4,10 @@ import base64
 import csv
 import io
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import text
 
@@ -19,13 +20,24 @@ EXPORT_MAX_ROWS = 50000
 _BATCH = 500
 _SCAN_CAP = 200000
 _DETAIL_MAX = 400
-EXPORT_COLUMNS = ("id", "ts", "kind", "source", "severity", "title_ru", "detail_ru",
-                  "project_id", "run_id", "request_id", "ref", "amount_usd")
+EXPORT_COLUMNS = (
+    "id",
+    "ts",
+    "kind",
+    "source",
+    "severity",
+    "title_ru",
+    "detail_ru",
+    "project_id",
+    "run_id",
+    "request_id",
+    "ref",
+    "amount_usd",
+)
 
 
 class TimelineError(ValueError):
     pass
-
 
 
 def to_dt(value) -> datetime | None:
@@ -35,21 +47,21 @@ def to_dt(value) -> datetime | None:
         if isinstance(value, datetime):
             dt = value
         elif isinstance(value, (int, float)):
-            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+            return datetime.fromtimestamp(float(value), tz=UTC)
         else:
             s = str(value).strip()
             try:
-                return datetime.fromtimestamp(float(s), tz=timezone.utc)
+                return datetime.fromtimestamp(float(s), tz=UTC)
             except ValueError:
                 pass
             dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
     except (ValueError, OverflowError, OSError):
         return None
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 
 def iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def parse_bound(value: str | None, name: str) -> datetime | None:
@@ -76,7 +88,6 @@ def decode_cursor(cursor: str) -> tuple[datetime, str, int]:
         return dt, source, int(rid)
     except Exception as exc:
         raise TimelineError("Параметр cursor: неверное значение") from exc
-
 
 
 def _clip(s: str, n: int = _DETAIL_MAX) -> str:
@@ -106,11 +117,21 @@ def _payload_text(value) -> str:
     return _clip(json.dumps(redact(v), ensure_ascii=False, sort_keys=True, default=str))
 
 
-_NODE_STATUS_RU = {"pending": "ожидает", "queued": "в очереди", "running": "выполняется",
-                   "waiting_hitl": "ждёт решения оператора", "done": "выполнен", "failed": "ошибка",
-                   "skipped": "пропущен"}
-_SPEND_KIND_RU = {"reserve": "резерв суммы", "settle": "уточнение суммы", "actual": "фактическая трата",
-                  "event": "событие учёта"}
+_NODE_STATUS_RU = {
+    "pending": "ожидает",
+    "queued": "в очереди",
+    "running": "выполняется",
+    "waiting_hitl": "ждёт решения оператора",
+    "done": "выполнен",
+    "failed": "ошибка",
+    "skipped": "пропущен",
+}
+_SPEND_KIND_RU = {
+    "reserve": "резерв суммы",
+    "settle": "уточнение суммы",
+    "actual": "фактическая трата",
+    "event": "событие учёта",
+}
 
 try:
     from app.services import timeline_ru as _ru
@@ -118,10 +139,21 @@ except Exception:
     _ru = None
 
 
-_RU_SOURCES = frozenset({
-    "node_runs", "observation_events", "observation_incidents", "decision_records", "action_v1_records",
-    "action_layer_history", "spend_ledger", "provider_task_ledger", "operator_audit", "publications",
-    "notification_log"})
+_RU_SOURCES = frozenset(
+    {
+        "node_runs",
+        "observation_events",
+        "observation_incidents",
+        "decision_records",
+        "action_v1_records",
+        "action_layer_history",
+        "spend_ledger",
+        "provider_task_ledger",
+        "operator_audit",
+        "publications",
+        "notification_log",
+    }
+)
 
 
 def _describe_row(source: str, row: dict) -> dict:
@@ -144,8 +176,9 @@ def _describe_row(source: str, row: dict) -> dict:
     return out
 
 
-def _describe(source: str, kind: str, row: dict, title: str, detail: str,
-              severity: str = "info") -> tuple[str, str, str]:
+def _describe(
+    source: str, kind: str, row: dict, title: str, detail: str, severity: str = "info"
+) -> tuple[str, str, str]:
     fn = getattr(_ru, "describe", None) if _ru is not None else None
     if not callable(fn) or source not in _RU_SOURCES:
         return title, detail, severity
@@ -159,7 +192,6 @@ def _describe(source: str, kind: str, row: dict, title: str, detail: str,
         sv = res[2] if len(res) > 2 and res[2] in ("info", "warn", "error") else severity
         return t, d, sv
     return title, detail, severity
-
 
 
 @dataclass
@@ -191,47 +223,85 @@ def _plan_node_runs(cols, have):
         return None
     return _Plan(
         "node_runs n JOIN workflow_runs w ON w.id = n.workflow_run_id",
-        "COALESCE(n.finished_at, n.started_at, n.created_at)", "n.rowid",
+        "COALESCE(n.finished_at, n.started_at, n.created_at)",
+        "n.rowid",
         "n.node_key AS node_key, n.node_type AS node_type, n.status AS status, n.error AS error, "
         "n.attempts AS attempts, n.progress_text AS progress_text, n.workflow_run_id AS workflow_run_id, "
         "w.project_id AS project_id",
-        "w.project_id = :p", "text", _b_node_run)
+        "w.project_id = :p",
+        "text",
+        _b_node_run,
+    )
 
 
 def _b_node_run(r):
     st = str(r.get("status") or "").replace("NodeRunStatus.", "")
     title = f"Шаг «{r.get('node_key')}» ({r.get('node_type')}): {_NODE_STATUS_RU.get(st, st)}"
-    detail = " · ".join(x for x in (
-        f"попытка {r['attempts']}" if r.get("attempts") else "", _safe(r.get("error")),
-        _safe(r.get("progress_text"))) if x)
-    return dict(kind="node_run", severity="error" if st == "failed" else "info", title_ru=title,
-                detail_ru=detail, run_id=str(r["workflow_run_id"]), ref=r.get("node_key"))
+    detail = " · ".join(
+        x
+        for x in (
+            f"попытка {r['attempts']}" if r.get("attempts") else "",
+            _safe(r.get("error")),
+            _safe(r.get("progress_text")),
+        )
+        if x
+    )
+    return dict(
+        kind="node_run",
+        severity="error" if st == "failed" else "info",
+        title_ru=title,
+        detail_ru=detail,
+        run_id=str(r["workflow_run_id"]),
+        ref=r.get("node_key"),
+    )
 
 
 def _plan_events(cols, have):
     return _Plan(
-        "observation_events e", "e.created_at", "e.rowid",
+        "observation_events e",
+        "e.created_at",
+        "e.rowid",
         "e.kind AS kind, e.node_key AS node_key, e.execution_id AS execution_id, e.request_id AS request_id, "
-        "e.payload AS payload", "e.project_id = :p", "text", _b_event)
+        "e.payload AS payload",
+        "e.project_id = :p",
+        "text",
+        _b_event,
+    )
 
 
 def _b_event(r):
     kind = str(r.get("kind") or "")
     low = kind.lower()
-    sev = "error" if any(k in low for k in ("fail", "error", "reject")) else (
-        "warn" if any(k in low for k in ("retry", "timeout", "stall", "degrad", "uncertain")) else "info")
+    sev = (
+        "error"
+        if any(k in low for k in ("fail", "error", "reject"))
+        else (
+            "warn" if any(k in low for k in ("retry", "timeout", "stall", "degrad", "uncertain")) else "info"
+        )
+    )
     node = f" (шаг «{r['node_key']}»)" if r.get("node_key") else ""
-    return dict(kind=kind, severity=sev, title_ru=f"Событие наблюдения{node}",
-                detail_ru=_payload_text(r.get("payload")), run_id=r.get("execution_id"),
-                request_id=r.get("request_id"), ref=r.get("node_key"))
+    return dict(
+        kind=kind,
+        severity=sev,
+        title_ru=f"Событие наблюдения{node}",
+        detail_ru=_payload_text(r.get("payload")),
+        run_id=r.get("execution_id"),
+        request_id=r.get("request_id"),
+        ref=r.get("node_key"),
+    )
 
 
 def _plan_incidents(cols, have):
     return _Plan(
-        "observation_incidents i", "i.detected_at", "i.rowid",
+        "observation_incidents i",
+        "i.detected_at",
+        "i.rowid",
         "i.incident_id AS incident_id, i.execution_id AS execution_id, i.node_key AS node_key, "
         "i.type AS type, i.severity AS severity, i.status AS status, i.details AS details",
-        "i.project_id = :p", "text", _b_incident)
+        "i.project_id = :p",
+        "text",
+        _b_incident,
+    )
 
 
 def _b_incident(r):
@@ -241,77 +311,125 @@ def _b_incident(r):
         TITLES = {}
     typ = str(r.get("type") or "")
     title = TITLES.get(typ) or f"Инцидент «{typ}»"
-    detail = " · ".join(x for x in (f"статус: {r.get('status')}" if r.get("status") else "",
-                                    _payload_text(r.get("details"))) if x)
-    return dict(kind="incident", severity=_sev(r.get("severity"), err=("error", "critical", "high"),
-                                               warn=("warning", "warn", "medium")),
-                title_ru=title, detail_ru=detail, run_id=r.get("execution_id"), ref=r.get("incident_id"))
+    detail = " · ".join(
+        x
+        for x in (f"статус: {r.get('status')}" if r.get("status") else "", _payload_text(r.get("details")))
+        if x
+    )
+    return dict(
+        kind="incident",
+        severity=_sev(
+            r.get("severity"), err=("error", "critical", "high"), warn=("warning", "warn", "medium")
+        ),
+        title_ru=title,
+        detail_ru=detail,
+        run_id=r.get("execution_id"),
+        ref=r.get("incident_id"),
+    )
 
 
 def _plan_degradations(cols, have):
     if "project_id" not in cols:
         return None
     return _Plan(
-        "observation_degradations g", "g.recorded_at", "g.rowid",
+        "observation_degradations g",
+        "g.recorded_at",
+        "g.rowid",
         "g.execution_id AS execution_id, g.stage AS stage, g.error_type AS error_type, "
         "g.recoverable AS recoverable, g.cleared_at AS cleared_at, g.gap_id AS gap_id",
-        "g.project_id = :p", "text", _b_degradation)
+        "g.project_id = :p",
+        "text",
+        _b_degradation,
+    )
 
 
 def _b_degradation(r):
     closed = "закрыт" if r.get("cleared_at") else "открыт"
-    return dict(kind="gap", severity="warn" if r.get("cleared_at") else "error",
-                title_ru=f"Пробел журнала наблюдения на этапе «{r.get('stage')}» ({closed})",
-                detail_ru=_safe(r.get("error_type")), run_id=r.get("execution_id") or None,
-                ref=r.get("gap_id"))
+    return dict(
+        kind="gap",
+        severity="warn" if r.get("cleared_at") else "error",
+        title_ru=f"Пробел журнала наблюдения на этапе «{r.get('stage')}» ({closed})",
+        detail_ru=_safe(r.get("error_type")),
+        run_id=r.get("execution_id") or None,
+        ref=r.get("gap_id"),
+    )
 
 
 def _plan_uncertainty(cols, have):
     return _Plan(
-        "observation_commit_uncertainty u", "u.recorded_at", "u.rowid",
+        "observation_commit_uncertainty u",
+        "u.recorded_at",
+        "u.rowid",
         "u.execution_id AS execution_id, u.reason AS reason, u.cleared_at AS cleared_at",
-        "u.project_id = :p", "text", _b_uncertainty)
+        "u.project_id = :p",
+        "text",
+        _b_uncertainty,
+    )
 
 
 def _b_uncertainty(r):
     closed = "снята" if r.get("cleared_at") else "открыта"
-    return dict(kind="gap", severity="warn" if r.get("cleared_at") else "error",
-                title_ru=f"Неопределённость записи данных ({closed})",
-                detail_ru=_safe(r.get("reason")), run_id=r.get("execution_id"))
+    return dict(
+        kind="gap",
+        severity="warn" if r.get("cleared_at") else "error",
+        title_ru=f"Неопределённость записи данных ({closed})",
+        detail_ru=_safe(r.get("reason")),
+        run_id=r.get("execution_id"),
+    )
 
 
 def _plan_decisions(cols, have):
     return _Plan(
-        "decision_records d", "d.created_at", "d.rowid",
+        "decision_records d",
+        "d.created_at",
+        "d.rowid",
         "d.decision_id AS decision_id, d.execution_id AS execution_id, d.incident_id AS incident_id, "
         "d.node_key AS node_key, d.status AS status, d.proposal AS proposal",
-        "d.project_id = :p", "text", _b_decision)
+        "d.project_id = :p",
+        "text",
+        _b_decision,
+    )
 
 
 def _b_decision(r):
-    return dict(kind="decision", severity=_sev(r.get("status"), err=("failed", "rejected", "error"),
-                                               warn=("held", "needs_human")),
-                title_ru=f"Решение по инциденту (шаг «{r.get('node_key')}»): {r.get('status')}",
-                detail_ru=_payload_text(r.get("proposal")), run_id=r.get("execution_id"),
-                ref=r.get("decision_id"))
+    return dict(
+        kind="decision",
+        severity=_sev(r.get("status"), err=("failed", "rejected", "error"), warn=("held", "needs_human")),
+        title_ru=f"Решение по инциденту (шаг «{r.get('node_key')}»): {r.get('status')}",
+        detail_ru=_payload_text(r.get("proposal")),
+        run_id=r.get("execution_id"),
+        ref=r.get("decision_id"),
+    )
 
 
 def _plan_actions_v1(cols, have):
     return _Plan(
-        "action_v1_records a", "a.created_at", "a.rowid",
+        "action_v1_records a",
+        "a.created_at",
+        "a.rowid",
         "a.action_id AS action_id, a.execution_id AS execution_id, a.action_kind AS action_kind, "
         "a.node_key AS node_key, a.initiator AS initiator, a.rationale AS rationale, a.status AS status",
-        "a.project_id = :p", "text", _b_action_v1)
+        "a.project_id = :p",
+        "text",
+        _b_action_v1,
+    )
 
 
 def _b_action_v1(r):
     node = f" (шаг «{r['node_key']}»)" if r.get("node_key") else ""
-    detail = " · ".join(x for x in (f"инициатор: {r.get('initiator')}" if r.get("initiator") else "",
-                                    _safe(r.get("rationale"))) if x)
-    return dict(kind="action", severity=_sev(r.get("status"), err=("failed", "rejected"),
-                                             warn=("held", "needs_human")),
-                title_ru=f"Действие оператора «{r.get('action_kind')}»{node}: {r.get('status')}",
-                detail_ru=_clip(detail), run_id=r.get("execution_id"), ref=r.get("action_id"))
+    detail = " · ".join(
+        x
+        for x in (f"инициатор: {r.get('initiator')}" if r.get("initiator") else "", _safe(r.get("rationale")))
+        if x
+    )
+    return dict(
+        kind="action",
+        severity=_sev(r.get("status"), err=("failed", "rejected"), warn=("held", "needs_human")),
+        title_ru=f"Действие оператора «{r.get('action_kind')}»{node}: {r.get('status')}",
+        detail_ru=_clip(detail),
+        run_id=r.get("execution_id"),
+        ref=r.get("action_id"),
+    )
 
 
 def _plan_layer(cols, have):
@@ -319,17 +437,25 @@ def _plan_layer(cols, have):
     if "project_id" in cols:
         scoped.append("h.project_id = :p")
     if "action_layer_plan_context" in have:
-        scoped.append(("(h.plan_id IN (SELECT plan_id FROM action_layer_plan_context WHERE project_id = :p))"
-                       if "project_id" not in cols else
-                       "(h.project_id IS NULL AND h.plan_id IN "
-                       "(SELECT plan_id FROM action_layer_plan_context WHERE project_id = :p))"))
+        scoped.append(
+            "(h.plan_id IN (SELECT plan_id FROM action_layer_plan_context WHERE project_id = :p))"
+            if "project_id" not in cols
+            else "(h.project_id IS NULL AND h.plan_id IN "
+            "(SELECT plan_id FROM action_layer_plan_context WHERE project_id = :p))"
+        )
     if "action_layer_plans" in have:
-        scoped.append("(h.project_id IS NULL AND h.plan_id IN (SELECT id FROM action_layer_plans WHERE project_id = :p))")
+        scoped.append(
+            "(h.project_id IS NULL AND h.plan_id IN (SELECT id FROM action_layer_plans WHERE project_id = :p))"
+        )
     where = "(" + " OR ".join(scoped) + ")" if scoped else "0"
-    sel = ("h.plan_id AS plan_id, h.step_index AS step_index, h.event AS event, h.actor AS actor, "
-           "h.request_text AS request_text, h.action_id AS action_id, h.outcome AS outcome, h.error AS error, "
-           "h.cost_recorded AS cost_recorded, " + _o("h", cols, "execution_id") + ", "
-           + _o("h", cols, "request_id"))
+    sel = (
+        "h.plan_id AS plan_id, h.step_index AS step_index, h.event AS event, h.actor AS actor, "
+        "h.request_text AS request_text, h.action_id AS action_id, h.outcome AS outcome, h.error AS error, "
+        "h.cost_recorded AS cost_recorded, "
+        + _o("h", cols, "execution_id")
+        + ", "
+        + _o("h", cols, "request_id")
+    )
     return _Plan("action_layer_history h", "h.created_at", "h.rowid", sel, where, "text", _b_layer)
 
 
@@ -339,18 +465,34 @@ def _b_layer(r):
     title = f"Слой действий: {r.get('event')} (план {r.get('plan_id')}{step})"
     if r.get("action_id"):
         title += f" · {r['action_id']}"
-    detail = " · ".join(x for x in (f"исход: {out}" if out else "", _safe(r.get("error")),
-                                    _clip(_safe(r.get("request_text")), 200)) if x)
-    return dict(kind="action", severity=_sev(out, err=("error", "failed", "rejected"),
-                                             warn=("denied",)) if out else ("error" if r.get("error") else "info"),
-                title_ru=title, detail_ru=_clip(detail), run_id=r.get("execution_id") or None,
-                request_id=r.get("request_id") or None, ref=r.get("plan_id"),
-                amount_usd=r.get("cost_recorded"))
+    detail = " · ".join(
+        x
+        for x in (
+            f"исход: {out}" if out else "",
+            _safe(r.get("error")),
+            _clip(_safe(r.get("request_text")), 200),
+        )
+        if x
+    )
+    return dict(
+        kind="action",
+        severity=_sev(out, err=("error", "failed", "rejected"), warn=("denied",))
+        if out
+        else ("error" if r.get("error") else "info"),
+        title_ru=title,
+        detail_ru=_clip(detail),
+        run_id=r.get("execution_id") or None,
+        request_id=r.get("request_id") or None,
+        ref=r.get("plan_id"),
+        amount_usd=r.get("cost_recorded"),
+    )
 
 
 def _plan_spend(cols, have):
-    sel = ("s.kind AS kind, s.provider AS provider, s.source AS source, s.usd AS usd, s.credits AS credits, "
-           "s.note AS note, s.run_id AS run_id, " + _o("s", cols, "request_id") + ", " + _o("s", cols, "ref"))
+    sel = (
+        "s.kind AS kind, s.provider AS provider, s.source AS source, s.usd AS usd, s.credits AS credits, "
+        "s.note AS note, s.run_id AS run_id, " + _o("s", cols, "request_id") + ", " + _o("s", cols, "ref")
+    )
     return _Plan("spend_ledger s", "s.created_at", "s.rowid", sel, "s.project_id = :p", "text", _b_spend)
 
 
@@ -361,89 +503,177 @@ def _b_spend(r):
     note = _safe(r.get("note"))
     title = f"Деньги: {_SPEND_KIND_RU.get(k, k)}" + (f" · {who}" if who else "") + f" · {usd:+.4f} $"
     detail = " · ".join(x for x in (note, f"кредиты: {r['credits']}" if r.get("credits") else "") if x)
-    return dict(kind="spend", severity="warn" if "write_failed" in note else "info", title_ru=title,
-                detail_ru=detail, run_id=r.get("run_id") or None, request_id=r.get("request_id") or None,
-                ref=r.get("ref") or None, amount_usd=usd)
+    return dict(
+        kind="spend",
+        severity="warn" if "write_failed" in note else "info",
+        title_ru=title,
+        detail_ru=detail,
+        run_id=r.get("run_id") or None,
+        request_id=r.get("request_id") or None,
+        ref=r.get("ref") or None,
+        amount_usd=usd,
+    )
 
 
 def _plan_tasks(cols, have):
-    sel = ("t.task_id AS task_id, t.provider AS provider, t.api AS api, t.model AS model, t.event AS event, "
-           "t.status AS status, t.est_usd AS est_usd, t.note AS note, " + _o("t", cols, "run_id") + ", "
-           + _o("t", cols, "request_id"))
-    return _Plan("provider_task_ledger t", "t.created_at", "t.rowid", sel, "t.project_id = :p", "text", _b_task)
+    sel = (
+        "t.task_id AS task_id, t.provider AS provider, t.api AS api, t.model AS model, t.event AS event, "
+        "t.status AS status, t.est_usd AS est_usd, t.note AS note, "
+        + _o("t", cols, "run_id")
+        + ", "
+        + _o("t", cols, "request_id")
+    )
+    return _Plan(
+        "provider_task_ledger t", "t.created_at", "t.rowid", sel, "t.project_id = :p", "text", _b_task
+    )
 
 
 def _b_task(r):
     st = str(r.get("status") or "")
     title = f"Задача провайдера {r.get('provider')}: {r.get('event') or st}" + (
-        f" ({r['model']})" if r.get("model") else "")
+        f" ({r['model']})" if r.get("model") else ""
+    )
     detail = " · ".join(x for x in (f"статус: {st}" if st else "", _safe(r.get("note"))) if x)
-    return dict(kind="task", severity=_sev(st, err=("failed", "error", "fail"), warn=("timeout", "stalled")),
-                title_ru=title, detail_ru=detail, run_id=r.get("run_id") or None,
-                request_id=r.get("request_id") or None, ref=r.get("task_id"), amount_usd=r.get("est_usd"))
+    return dict(
+        kind="task",
+        severity=_sev(st, err=("failed", "error", "fail"), warn=("timeout", "stalled")),
+        title_ru=title,
+        detail_ru=detail,
+        run_id=r.get("run_id") or None,
+        request_id=r.get("request_id") or None,
+        ref=r.get("task_id"),
+        amount_usd=r.get("est_usd"),
+    )
 
 
 def _plan_operator(cols, have):
     return _Plan(
-        "operator_audit o", "o.ts", "o.rowid",
+        "operator_audit o",
+        "o.ts",
+        "o.rowid",
         "o.request_id AS request_id, o.method AS method, o.path AS path, o.route_template AS route_template, "
         "o.actor AS actor, o.status_code AS status_code, o.outcome AS outcome",
-        "o.project_id = :p", "text", _b_operator)
+        "o.project_id = :p",
+        "text",
+        _b_operator,
+    )
 
 
 def _b_operator(r):
     code = int(r.get("status_code") or 0)
     sev = "error" if code >= 500 else ("warn" if code >= 400 else "info")
     where = _safe(r.get("path") or r.get("route_template"))
-    return dict(kind="operator", severity=sev,
-                title_ru=f"Оператор: {r.get('method')} {where} → код ответа {code}",
-                detail_ru=" · ".join(x for x in (f"кто: {r.get('actor')}" if r.get("actor") else "",
-                                                 f"исход: {r.get('outcome')}" if r.get("outcome") else "") if x),
-                request_id=r.get("request_id"), ref=where or None)
+    return dict(
+        kind="operator",
+        severity=sev,
+        title_ru=f"Оператор: {r.get('method')} {where} → код ответа {code}",
+        detail_ru=" · ".join(
+            x
+            for x in (
+                f"кто: {r.get('actor')}" if r.get("actor") else "",
+                f"исход: {r.get('outcome')}" if r.get("outcome") else "",
+            )
+            if x
+        ),
+        request_id=r.get("request_id"),
+        ref=where or None,
+    )
 
 
 def _plan_publications(cols, have):
     return _Plan(
-        "publications p", "p.created_at", "p.rowid",
+        "publications p",
+        "p.created_at",
+        "p.rowid",
         "p.platform AS platform, p.status AS status, p.post_url AS post_url, p.error_code AS error_code, "
         "p.attempts AS attempts, p.sha256 AS sha256",
-        "p.project_id = :p", "epoch", _b_publication)
+        "p.project_id = :p",
+        "epoch",
+        _b_publication,
+    )
 
 
 def _b_publication(r):
     st = str(r.get("status") or "")
     code = str(r.get("error_code") or "")
     manual = code in ("manual_not_published", "manual_confirmed")
-    detail = " · ".join(x for x in (f"ошибка: {r['error_code']}" if code and not manual else "",
-                                    _safe(r.get("post_url")),
-                                    f"попыток: {r['attempts']}" if r.get("attempts") else "") if x)
-    sev = "info" if manual else _sev(st, err=("failed", "error", "needs_human"), warn=("skipped", "uncertain"))
-    title = ("Закрыто человеком: публикация помечена как «не опубликовано»" if code == "manual_not_published"
-             else f"Публикация на «{r.get('platform')}»: {st}")
-    return dict(kind="publication", severity=sev, title_ru=title, detail_ru=detail,
-                ref=(r.get("sha256") or "")[:12] or None)
+    detail = " · ".join(
+        x
+        for x in (
+            f"ошибка: {r['error_code']}" if code and not manual else "",
+            _safe(r.get("post_url")),
+            f"попыток: {r['attempts']}" if r.get("attempts") else "",
+        )
+        if x
+    )
+    sev = (
+        "info" if manual else _sev(st, err=("failed", "error", "needs_human"), warn=("skipped", "uncertain"))
+    )
+    title = (
+        "Закрыто человеком: публикация помечена как «не опубликовано»"
+        if code == "manual_not_published"
+        else f"Публикация на «{r.get('platform')}»: {st}"
+    )
+    return dict(
+        kind="publication",
+        severity=sev,
+        title_ru=title,
+        detail_ru=detail,
+        ref=(r.get("sha256") or "")[:12] or None,
+    )
 
 
 def _plan_notifications(cols, have):
     ts = next((c for c in ("ts", "created_at", "sent_at") if c in cols), None)
     if ts is None or "project_id" not in cols:
         return None
-    pick = [c for c in ("kind", "status", "title", "text", "text_ru", "message", "error", "request_id", "run_id",
-                        "ref", "channel", "ok", "text_redacted") if c in cols]
+    pick = [
+        c
+        for c in (
+            "kind",
+            "status",
+            "title",
+            "text",
+            "text_ru",
+            "message",
+            "error",
+            "request_id",
+            "run_id",
+            "ref",
+            "channel",
+            "ok",
+            "text_redacted",
+        )
+        if c in cols
+    ]
     sel = ", ".join(f"n.{c} AS {c}" for c in pick) or "NULL AS kind"
-    return _Plan("notification_log n", f"n.{ts}", "n.rowid", sel, "n.project_id = :p", "text", _b_notification)
+    return _Plan(
+        "notification_log n", f"n.{ts}", "n.rowid", sel, "n.project_id = :p", "text", _b_notification
+    )
 
 
 def _b_notification(r):
     st = str(r.get("status") or "")
-    body = (r.get("text_ru") or r.get("text") or r.get("text_redacted") or r.get("message")
-            or r.get("title") or "")
+    body = (
+        r.get("text_ru")
+        or r.get("text")
+        or r.get("text_redacted")
+        or r.get("message")
+        or r.get("title")
+        or ""
+    )
     bad = st in ("failed", "error") or bool(r.get("error")) or r.get("ok") in (0, False)
-    return dict(kind="notification", severity="error" if bad else "info",
-                title_ru=_clip(_safe(r.get("title") or body or f"Уведомление «{r.get('kind') or ''}»"), 160),
-                detail_ru=_clip(" · ".join(x for x in (_safe(body) if body != r.get("title") else "",
-                                                       _safe(r.get("error"))) if x)),
-                run_id=r.get("run_id"), request_id=r.get("request_id"), ref=r.get("ref"))
+    return dict(
+        kind="notification",
+        severity="error" if bad else "info",
+        title_ru=_clip(_safe(r.get("title") or body or f"Уведомление «{r.get('kind') or ''}»"), 160),
+        detail_ru=_clip(
+            " · ".join(x for x in (_safe(body) if body != r.get("title") else "", _safe(r.get("error"))) if x)
+        ),
+        run_id=r.get("run_id"),
+        request_id=r.get("request_id"),
+        ref=r.get("ref"),
+    )
 
 
 _SOURCES: tuple[tuple[str, str, Callable], ...] = (
@@ -464,14 +694,12 @@ _SOURCES: tuple[tuple[str, str, Callable], ...] = (
 SOURCE_NAMES = tuple(s[0] for s in _SOURCES)
 
 
-
 def _bound(dt: datetime, ts_type: str):
-    return dt.timestamp() if ts_type == "epoch" else dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+    return dt.timestamp() if ts_type == "epoch" else dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
 class _Reader:
-
-    def __init__(self, session, name: str, plan: _Plan, project_id: int, flt: "_Filter"):
+    def __init__(self, session, name: str, plan: _Plan, project_id: int, flt: _Filter):
         self.session, self.name, self.plan, self.project_id, self.flt = session, name, plan, project_id, flt
         self.buf: list[dict] = []
         self.done = False
@@ -494,8 +722,10 @@ class _Reader:
         if self._last is not None:
             where.append(f"({p.ts_expr} < :lt OR ({p.ts_expr} = :lt AND {p.rid_expr} < :lr))")
             params["lt"], params["lr"] = self._last
-        sql = (f"SELECT {p.rid_expr} AS _rid, {p.ts_expr} AS _ts, {p.select_sql} FROM {p.from_sql} "
-               f"WHERE {' AND '.join(where)} ORDER BY {p.ts_expr} DESC, {p.rid_expr} DESC LIMIT :n")
+        sql = (
+            f"SELECT {p.rid_expr} AS _rid, {p.ts_expr} AS _ts, {p.select_sql} FROM {p.from_sql} "
+            f"WHERE {' AND '.join(where)} ORDER BY {p.ts_expr} DESC, {p.rid_expr} DESC LIMIT :n"
+        )
         rows = (await self.session.execute(text(sql), params)).mappings().all()
         if len(rows) < _BATCH:
             self.done = True
@@ -517,16 +747,29 @@ class _Reader:
         try:
             fields = self.plan.build(row)
         except Exception:
-            fields = dict(kind=self.name, severity="info", title_ru=f"Запись источника «{self.name}»",
-                          detail_ru="")
-        title, detail, severity = _describe(self.name, fields["kind"], row, fields["title_ru"],
-                                            fields.get("detail_ru") or "", fields.get("severity", "info"))
+            fields = dict(
+                kind=self.name, severity="info", title_ru=f"Запись источника «{self.name}»", detail_ru=""
+            )
+        title, detail, severity = _describe(
+            self.name,
+            fields["kind"],
+            row,
+            fields["title_ru"],
+            fields.get("detail_ru") or "",
+            fields.get("severity", "info"),
+        )
         amount = fields.get("amount_usd")
         return {
-            "id": f"{self.name}:{rid}", "ts": iso(dt), "kind": fields["kind"], "source": self.name,
-            "severity": severity, "title_ru": _clip(_safe(title), 300),
-            "detail_ru": _clip(_safe(detail)), "project_id": self.project_id,
-            "run_id": fields.get("run_id") or None, "request_id": fields.get("request_id") or None,
+            "id": f"{self.name}:{rid}",
+            "ts": iso(dt),
+            "kind": fields["kind"],
+            "source": self.name,
+            "severity": severity,
+            "title_ru": _clip(_safe(title), 300),
+            "detail_ru": _clip(_safe(detail)),
+            "project_id": self.project_id,
+            "run_id": fields.get("run_id") or None,
+            "request_id": fields.get("request_id") or None,
             "ref": str(fields["ref"]) if fields.get("ref") not in (None, "") else None,
             "amount_usd": float(amount) if amount is not None else None,
             "_key": (dt, self.name, rid),
@@ -563,8 +806,10 @@ class _Filter:
         if self.kinds is not None and it["kind"] not in self.kinds and it["source"] not in self.kinds:
             return False
         if self.q:
-            hay = " ".join(str(it.get(k) or "") for k in
-                           ("title_ru", "detail_ru", "kind", "source", "ref", "run_id", "request_id")).lower()
+            hay = " ".join(
+                str(it.get(k) or "")
+                for k in ("title_ru", "detail_ru", "kind", "source", "ref", "run_id", "request_id")
+            ).lower()
             if self.q not in hay:
                 return False
         return True
@@ -578,13 +823,20 @@ def make_filter(*, since=None, until=None, kinds=None, q=None, severity=None, cu
     if severity not in (None, "") and severity not in SEVERITIES:
         raise TimelineError("Параметр severity: info, warn или error")
     ks = frozenset(k.strip() for k in str(kinds).split(",") if k.strip()) if kinds else None
-    return _Filter(since=parse_bound(since, "since"), until=parse_bound(until, "until"), kinds=ks or None,
-                   q=(q or "").strip().lower(), severity=severity or None,
-                   cursor=decode_cursor(cursor) if cursor else None)
+    return _Filter(
+        since=parse_bound(since, "since"),
+        until=parse_bound(until, "until"),
+        kinds=ks or None,
+        q=(q or "").strip().lower(),
+        severity=severity or None,
+        cursor=decode_cursor(cursor) if cursor else None,
+    )
 
 
 async def _schema(session) -> tuple[set[str], dict[str, set[str]]]:
-    rows = (await session.execute(text("SELECT name FROM sqlite_master WHERE type IN ('table','view')"))).all()
+    rows = (
+        await session.execute(text("SELECT name FROM sqlite_master WHERE type IN ('table','view')"))
+    ).all()
     have = {r[0] for r in rows}
     cols: dict[str, set[str]] = {}
     for _, table, _fn in _SOURCES:
@@ -631,8 +883,18 @@ async def collect(session, project_id: int, flt: _Filter, limit: int) -> dict:
     return {"items": out, "next_cursor": next_cursor, "total_hint": None, "sources_missing": missing}
 
 
-async def timeline(session, project_id: int, *, since=None, until=None, kinds=None, q=None, severity=None,
-                   limit: int = DEFAULT_LIMIT, cursor=None) -> dict:
+async def timeline(
+    session,
+    project_id: int,
+    *,
+    since=None,
+    until=None,
+    kinds=None,
+    q=None,
+    severity=None,
+    limit: int = DEFAULT_LIMIT,
+    cursor=None,
+) -> dict:
     if not 1 <= int(limit) <= MAX_LIMIT:
         raise TimelineError(f"Параметр limit: от 1 до {MAX_LIMIT}")
     flt = make_filter(since=since, until=until, kinds=kinds, q=q, severity=severity, cursor=cursor)
@@ -648,10 +910,11 @@ async def _count(session, project_id: int, **flt) -> dict:
 
 
 async def journal_counts(session, project_id: int) -> dict:
-    return {"errors": await _count(session, project_id, severity="error"),
-            "warnings": await _count(session, project_id, severity="warn"),
-            "gaps": await _count(session, project_id, kinds="gap")}
-
+    return {
+        "errors": await _count(session, project_id, severity="error"),
+        "warnings": await _count(session, project_id, severity="warn"),
+        "gaps": await _count(session, project_id, kinds="gap"),
+    }
 
 
 def _csv_cell(v):
@@ -675,8 +938,9 @@ def render_json(result: dict, truncated: bool) -> bytes:
     return json.dumps(body, ensure_ascii=False, indent=1).encode("utf-8")
 
 
-async def export(session, project_id: int, fmt: str, *, since=None, until=None, kinds=None, q=None,
-                 severity=None) -> tuple[bytes, str, str]:
+async def export(
+    session, project_id: int, fmt: str, *, since=None, until=None, kinds=None, q=None, severity=None
+) -> tuple[bytes, str, str]:
     if fmt not in ("csv", "json"):
         raise TimelineError("Параметр format: csv или json")
     flt = make_filter(since=since, until=until, kinds=kinds, q=q, severity=severity)

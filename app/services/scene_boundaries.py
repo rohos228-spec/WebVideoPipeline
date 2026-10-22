@@ -98,13 +98,11 @@ def check_seg(vo: str, frags: list[str], outside: str) -> dict[str, Any]:
         i = 0
         while i < min(len(a), len(b)) and a[i] == b[i]:
             i += 1
-        info["first_diff_vo"] = a[max(0, i - 40): i + 60]
-        info["first_diff_frag"] = b[max(0, i - 40): i + 60]
+        info["first_diff_vo"] = a[max(0, i - 40) : i + 60]
+        info["first_diff_frag"] = b[max(0, i - 40) : i + 60]
         sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
         info["diff_chars"] = sum(
-            max(i2 - i1, j2 - j1)
-            for t, i1, i2, j1, j2 in sm.get_opcodes()
-            if t != "equal"
+            max(i2 - i1, j2 - j1) for t, i1, i2, j1, j2 in sm.get_opcodes() if t != "equal"
         )
     return info
 
@@ -172,11 +170,15 @@ async def _stream_once(
                             if dl.get("type") == "text_delta":
                                 parts.append(dl.get("text") or "")
                         elif t == "message_delta":
-                            meta["finish_reason"] = (ev.get("delta") or {}).get("stop_reason") or meta["finish_reason"]
+                            meta["finish_reason"] = (ev.get("delta") or {}).get("stop_reason") or meta[
+                                "finish_reason"
+                            ]
                             if ev.get("usage"):
                                 meta["usage"] = {**(meta["usage"] or {}), **ev["usage"]}
                         elif t == "error":
-                            raise RuntimeError("stream error event: " + json.dumps(ev, ensure_ascii=False)[:500])
+                            raise RuntimeError(
+                                "stream error event: " + json.dumps(ev, ensure_ascii=False)[:500]
+                            )
     except spend_guard.PaidCallBlocked as blocked:
         if blocked.code in spend_guard.REFUSAL_CODES:
             raise spend_guard.BudgetExhausted(
@@ -230,11 +232,13 @@ async def _kie_once(user: str, system: str) -> tuple[str, dict[str, Any]]:
         )
         chat_model = route.api_model
     with use_override(ov):
-        res = await gpt_api.chat(
-            prompt=user, system=system, model=chat_model, auto_pack=False, max_retries=1
-        )
+        res = await gpt_api.chat(prompt=user, system=system, model=chat_model, auto_pack=False, max_retries=1)
     txt = getattr(res, "text", None) or getattr(res, "content", None) or str(res)
-    return txt, {"finish_reason": getattr(res, "finish_reason", None) or getattr(res, "status", None), "model": MODEL, "usage": getattr(res, "usage", None)}
+    return txt, {
+        "finish_reason": getattr(res, "finish_reason", None) or getattr(res, "status", None),
+        "model": MODEL,
+        "usage": getattr(res, "usage", None),
+    }
 
 
 async def call_opus(user: str, system: str, tag: str, trace_dir: Path, tries: int = 4) -> str:
@@ -243,7 +247,6 @@ async def call_opus(user: str, system: str, tag: str, trace_dir: Path, tries: in
         f"=== MODEL: {MODEL}\n=== URL: {URL}\n=== SYSTEM ===\n{system}\n=== USER ===\n{user}\n",
         encoding="utf-8",
     )
-    payload: dict[str, Any] = {}
     last: Exception | None = None
     for k in range(tries):
         t0 = time.time()
@@ -254,7 +257,12 @@ async def call_opus(user: str, system: str, tag: str, trace_dir: Path, tries: in
                 raise RuntimeError(f"empty output after {dt}s; finish={meta['finish_reason']}")
             logger.info(
                 "scene_boundaries {}: ok chars={} sec={} finish={} model={} usage={}",
-                tag, len(txt), dt, meta["finish_reason"], meta["model"], meta["usage"],
+                tag,
+                len(txt),
+                dt,
+                meta["finish_reason"],
+                meta["model"],
+                meta["usage"],
             )
             (trace_dir / f"{tag}.resp.txt").write_text(txt, encoding="utf-8")
             return txt

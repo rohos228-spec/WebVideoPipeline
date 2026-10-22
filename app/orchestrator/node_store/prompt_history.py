@@ -23,15 +23,11 @@ class PromptHistory:
             raise KeyError("промт не найден")
         return self.texts[key]
 
-    def save_master(
-        self, *, step_code: str, name: str, content: str, expected_version: int
-    ) -> dict:
+    def save_master(self, *, step_code: str, name: str, content: str, expected_version: int) -> dict:
         key = (step_code, name)
         current = self.versions.get(key, 0)
         if current != int(expected_version):
-            raise VersionConflict(
-                f"версия мастер-промта {expected_version} устарела, текущая {current}"
-            )
+            raise VersionConflict(f"версия мастер-промта {expected_version} устарела, текущая {current}")
         before = self.texts.get(key, "")
         self.texts[key] = content
         self.versions[key] = current + 1
@@ -50,9 +46,7 @@ class PromptHistory:
         target = row["target"]
         current = self.read(target["step_code"], target["name"])
         if current != row["after"]:
-            raise VersionConflict(
-                "текст мастер-промта изменился после снимка: откат отклонён"
-            )
+            raise VersionConflict("текст мастер-промта изменился после снимка: откат отклонён")
         key = (target["step_code"], target["name"])
         self.texts[key] = row["before"]
         self.versions[key] = self.versions.get(key, 0) + 1

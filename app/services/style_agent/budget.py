@@ -137,14 +137,20 @@ def plan_calls(
     sheets_per_video = max(0, int(sheets_per_video))
     max_calls = clamp_max_calls(max_calls)
     enabled = [a for a in PER_VIDEO_AGENTS if a in set(agents)]
-    global_agents = [a for a, on in (("synth", with_synth), ("blueprint", with_blueprint)) if on] if n_videos else []
+    global_agents = (
+        [a for a, on in (("synth", with_synth), ("blueprint", with_blueprint)) if on] if n_videos else []
+    )
     n_global = len(global_agents)
 
     per_video: dict[str, int] = {}
     for agent in enabled:
         if agent in VISION_AGENTS:
             # shots видит шот-листы + листы склеек (≈ +50 %), visual — 1 overview, patterns — шот-листы
-            n_sheets = sheets_per_video + (sheets_per_video // 2 + 1) if agent == "shots" else (1 if agent == "visual" else sheets_per_video)
+            n_sheets = (
+                sheets_per_video + (sheets_per_video // 2 + 1)
+                if agent == "shots"
+                else (1 if agent == "visual" else sheets_per_video)
+            )
             per_video[agent] = max(1, _vision_sheet_batches(n_sheets)) if n_videos else 0
         else:
             per_video[agent] = 1 if n_videos else 0
@@ -210,7 +216,9 @@ def plan_calls(
     }
 
 
-def estimate_cost(plan: dict[str, Any], *, model: dict[str, Any] | None, model_id: str | None) -> dict[str, Any]:
+def estimate_cost(
+    plan: dict[str, Any], *, model: dict[str, Any] | None, model_id: str | None
+) -> dict[str, Any]:
     """Грубая оценка $ по плану вызовов и ценам модели."""
     pin, pout = model_prices(model, model_id)
     per_video = plan.get("per_video") or {}

@@ -268,8 +268,7 @@ def _is_shot(item: Any) -> bool:
     if any(key in item for key in ("кадры", "cells", "ячейки", "shots")):
         return False
     has_shot_key = any(
-        key in item
-        for key in ("место", "действие", "сцена", "закадр", "активен", "план", "описание")
+        key in item for key in ("место", "действие", "сцена", "закадр", "активен", "план", "описание")
     )
     attrs = item.get("attrs")
     if isinstance(attrs, dict) and any(key in attrs for key in ("кадры", "shots", "cells", "ячейки")):
@@ -286,8 +285,7 @@ def _is_shot(item: Any) -> bool:
         return False
     # Строка сцены и служебные строки снимка — не шоты, даже с id.
     if any(
-        key in item
-        for key in ("номер", "number", "kind", "text", "текст", "from_frame_id", "to_frame_id")
+        key in item for key in ("номер", "number", "kind", "text", "текст", "from_frame_id", "to_frame_id")
     ):
         return False
     return True

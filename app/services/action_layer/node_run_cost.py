@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import cache
 from types import SimpleNamespace
 from typing import Any
 
@@ -45,7 +45,7 @@ def expected_prompt(node_key: str) -> str | None:
     return NODE_KINDS[kind][0] if kind else None
 
 
-@lru_cache(maxsize=None)
+@cache
 def _chunk_calls(m: int, level: int, under: int) -> int:
     from app.services.adaptive_llm_batches import next_split_level, split_in_half
 
@@ -88,9 +88,12 @@ class RunBasis:
     parts: dict = field(default_factory=dict)
 
     def declare(self) -> dict:
-        return {"min_llm_requests": self.min_requests, "max_llm_requests": self.max_requests,
-                "max_input_tokens": self.max_input_tokens,
-                "max_output_tokens": self.max_output_tokens}
+        return {
+            "min_llm_requests": self.min_requests,
+            "max_llm_requests": self.max_requests,
+            "max_input_tokens": self.max_input_tokens,
+            "max_output_tokens": self.max_output_tokens,
+        }
 
 
 def _frame_objects(frames: list[dict]) -> list[Any]:
@@ -98,20 +101,31 @@ def _frame_objects(frames: list[dict]) -> list[Any]:
     for fr in frames:
         if not isinstance(fr, dict):
             continue
-        out.append(SimpleNamespace(
-            uuid=fr.get("uuid"), number=fr.get("number"),
-            voiceover_text=fr.get("voiceover_text"), meaning=fr.get("meaning"),
-            image_prompt=fr.get("image_prompt"), animation_prompt=fr.get("animation_prompt"),
-            attrs=fr.get("attrs") if isinstance(fr.get("attrs"), dict) else {}))
+        out.append(
+            SimpleNamespace(
+                uuid=fr.get("uuid"),
+                number=fr.get("number"),
+                voiceover_text=fr.get("voiceover_text"),
+                meaning=fr.get("meaning"),
+                image_prompt=fr.get("image_prompt"),
+                animation_prompt=fr.get("animation_prompt"),
+                attrs=fr.get("attrs") if isinstance(fr.get("attrs"), dict) else {},
+            )
+        )
     return out
 
 
-def compute_run_basis(*, node_key: str, frames: list[dict], entities: list[dict],
-                      prompt_chars: int, user_text_chars: int,
-                      project_text_chars: int) -> RunBasis | None:
+def compute_run_basis(
+    *,
+    node_key: str,
+    frames: list[dict],
+    entities: list[dict],
+    prompt_chars: int,
+    user_text_chars: int,
+    project_text_chars: int,
+) -> RunBasis | None:
     from app.services.apply_ops_batches import select_frames_for_batches, split_vo_units
-    from app.services.db_frames_context import (
-        build_excel_gpt_db_context, collapse_script_writer_frames)
+    from app.services.db_frames_context import build_excel_gpt_db_context, collapse_script_writer_frames
     from app.services.vo_shot_expand import is_shot_child
 
     suffix = node_kind(node_key)
@@ -121,13 +135,13 @@ def compute_run_basis(*, node_key: str, frames: list[dict], entities: list[dict]
 
     objs = _frame_objects(frames)
     collapsed = collapse_script_writer_frames(objs)
-    parent_ids = {str(r.get("uuid") or "").strip() for r in collapsed
-                  if str(r.get("uuid") or "").strip()}
+    parent_ids = {str(r.get("uuid") or "").strip() for r in collapsed if str(r.get("uuid") or "").strip()}
     gpt_frames = [fr for fr in objs if str(fr.uuid or "") in parent_ids]
     if suffix == "_fw_qc":
         gpt_frames = [fr for fr in gpt_frames if not is_shot_child(fr)]
-    ctx = build_excel_gpt_db_context(project_id=0, slug="x", frames=gpt_frames,
-                                     characters=list(entities or []), full_vo=True)
+    ctx = build_excel_gpt_db_context(
+        project_id=0, slug="x", frames=gpt_frames, characters=list(entities or []), full_vo=True
+    )
     overlay = {str(r.get("uuid") or "").strip(): r for r in collapsed}
     for row in ctx["frames"]:
         src = overlay.get(str(row.get("uuid") or "").strip())
@@ -141,8 +155,7 @@ def compute_run_basis(*, node_key: str, frames: list[dict], entities: list[dict]
     head = {k: v for k, v in ctx.items() if k != "frames"}
 
     def pack_json_chars(chunk: list[dict]) -> int:
-        batch = {**head, "frames": chunk, "batch": {"index": 99, "split_level": 1,
-                                                   "frames": len(chunk)}}
+        batch = {**head, "frames": chunk, "batch": {"index": 99, "split_level": 1, "frames": len(chunk)}}
         return len(json.dumps(batch, ensure_ascii=False, indent=2))
 
     max_json = max(pack_json_chars(p) for p in packs)
@@ -150,27 +163,41 @@ def compute_run_basis(*, node_key: str, frames: list[dict], entities: list[dict]
     units = len({str(r.get("uuid") or "") for r in pending})
     uuid_frames = sum(1 for fr in objs if fr.uuid)
 
-    fixed_chars = (int(prompt_chars * PROMPT_MARGIN) + int(user_text_chars) + HINT_CHARS
-                   + MAPPING_LINE_CHARS * uuid_frames + NEIGHBOR_HINT_CHARS * units
-                   + FOOTER_CHARS + SYSTEM_CHARS + (int(project_text_chars) if needs_plan else 0))
+    fixed_chars = (
+        int(prompt_chars * PROMPT_MARGIN)
+        + int(user_text_chars)
+        + HINT_CHARS
+        + MAPPING_LINE_CHARS * uuid_frames
+        + NEIGHBOR_HINT_CHARS * units
+        + FOOTER_CHARS
+        + SYSTEM_CHARS
+        + (int(project_text_chars) if needs_plan else 0)
+    )
     in_tokens = math.ceil((fixed_chars + max_json) / CHARS_PER_TOKEN) + CONTINUE_INPUT_TOKENS
-    out_tokens = REASONING_ALLOWANCE_TOKENS + math.ceil(out_chars_per_cell * max_rows
-                                                        / CHARS_PER_TOKEN)
+    out_tokens = REASONING_ALLOWANCE_TOKENS + math.ceil(out_chars_per_cell * max_rows / CHARS_PER_TOKEN)
     requests = sum(worst_requests_for_pack(len(p)) for p in packs)
     return RunBasis(
-        node_kind=suffix, packs=len(packs), units=units, rows=len(pending),
-        min_requests=len(packs), max_requests=requests,
-        max_input_tokens=in_tokens, max_output_tokens=out_tokens,
-        parts={"prompt_chars": prompt_chars, "user_text_chars": user_text_chars,
-               "project_text_chars": project_text_chars if needs_plan else 0,
-               "max_pack_json_chars": max_json, "max_pack_rows": max_rows,
-               "worst_requests_per_full_pack": worst_requests_for_pack(max_rows)})
-
+        node_kind=suffix,
+        packs=len(packs),
+        units=units,
+        rows=len(pending),
+        min_requests=len(packs),
+        max_requests=requests,
+        max_input_tokens=in_tokens,
+        max_output_tokens=out_tokens,
+        parts={
+            "prompt_chars": prompt_chars,
+            "user_text_chars": user_text_chars,
+            "project_text_chars": project_text_chars if needs_plan else 0,
+            "max_pack_json_chars": max_json,
+            "max_pack_rows": max_rows,
+            "worst_requests_per_full_pack": worst_requests_for_pack(max_rows),
+        },
+    )
 
 
 def text_model_id() -> str:
-    from app.services.text_llm_catalog import (
-        catalog_api_model, catalog_item, resolve_active_model_id)
+    from app.services.text_llm_catalog import catalog_api_model, catalog_item, resolve_active_model_id
     from app.settings import settings
 
     active = resolve_active_model_id(settings)
@@ -191,7 +218,6 @@ def price_request_credits(in_tokens: int, out_tokens: int) -> tuple[float, str] 
         return None
     credits = usd * PRICE_MARKUP / CREDIT_USD
     return credits, f"{model}, прайс Vibecode x{PRICE_MARKUP:g} (наценка каталога, не откалибрована)"
-
 
 
 MEDIA_UNCALIBRATED = "оценка по каталогу тарифов, расход шага не сверялся с балансом провайдера"
@@ -220,23 +246,30 @@ def media_step_kind(step_code: str) -> str | None:
     return meta[0] if meta else None
 
 
-def media_code_estimate(step_code: str, *, units: int | None, image_generator: str | None = None,
-                        image_resolution: str | None = None, video_generator: str | None = None,
-                        video_resolution: str | None = None):
-    from app.services.action_layer.builtin_montage_more import (
-        _VIDEO_CLIP_SECONDS, _kie_unit)
+def media_code_estimate(
+    step_code: str,
+    *,
+    units: int | None,
+    image_generator: str | None = None,
+    image_resolution: str | None = None,
+    video_generator: str | None = None,
+    video_resolution: str | None = None,
+):
+    from app.services.action_layer.builtin_montage_more import _VIDEO_CLIP_SECONDS, _kie_unit
     from app.services.action_layer.spec import CostEstimate
 
     kind = media_step_kind(step_code)
     if kind is None:
         return CostEstimate.unknown(f"шаг {step_code!r} не входит в каталог запуска")
     if kind == "local":
-        return CostEstimate(0.0, 0.0, "сборка идёт локально (ffmpeg, локальный ASR), "
-                                      "платных вызовов провайдеров нет")
+        return CostEstimate(
+            0.0, 0.0, "сборка идёт локально (ffmpeg, локальный ASR), платных вызовов провайдеров нет"
+        )
     if kind in ("image", "video"):
         if not units or units < 1:
-            return CostEstimate.unknown("не заявлено число генераций (count): возьмите его у "
-                                        "step.get_run_cost_basis")
+            return CostEstimate.unknown(
+                "не заявлено число генераций (count): возьмите его у step.get_run_cost_basis"
+            )
         if kind == "image":
             unit, why = _kie_unit("image", image_generator, image_resolution)
             attempts = IMAGE_STEP_ATTEMPTS
@@ -245,13 +278,17 @@ def media_code_estimate(step_code: str, *, units: int | None, image_generator: s
             attempts = VIDEO_STEP_ATTEMPTS
         if unit is None:
             return CostEstimate.unknown(why)
-        note = (f"{MEDIA_UNCALIBRATED}: до {units} генераций x {attempts} платные попытки, {why}"
-                + (f"; клип допущен {_VIDEO_CLIP_SECONDS} с (шаг длительность не передаёт)"
-                   if kind == "video" else ""))
+        note = f"{MEDIA_UNCALIBRATED}: до {units} генераций x {attempts} платные попытки, {why}" + (
+            f"; клип допущен {_VIDEO_CLIP_SECONDS} с (шаг длительность не передаёт)"
+            if kind == "video"
+            else ""
+        )
         return CostEstimate(0.0, round(units * attempts * unit, 2), note)
-    why = {"llm": "число и размер LLM-вызовов шага из кода не определены",
-           "audio": "озвучка тарифицируется по символам, объём и провайдер из кода не определены",
-           "music": "трек Suno: провайдер (Kie или браузерный Outsee) выбирается на ходу"}[kind]
+    why = {
+        "llm": "число и размер LLM-вызовов шага из кода не определены",
+        "audio": "озвучка тарифицируется по символам, объём и провайдер из кода не определены",
+        "music": "трек Suno: провайдер (Kie или браузерный Outsee) выбирается на ходу",
+    }[kind]
     return CostEstimate.unknown(why)
 
 
@@ -261,12 +298,15 @@ def apply_ceiling(code_estimate, ceiling: float | None):
     if code_estimate.known:
         if ceiling is not None and ceiling < code_estimate.high:
             return CostEstimate.unknown(
-                f"потолок {ceiling:g} кр ниже расчёта {code_estimate.high:g} кр: запуск не подтвердить")
+                f"потолок {ceiling:g} кр ниже расчёта {code_estimate.high:g} кр: запуск не подтвердить"
+            )
         return code_estimate
     if ceiling is None:
         return code_estimate
     return CostEstimate(
-        0.0, round(float(ceiling), 2),
+        0.0,
+        round(float(ceiling), 2),
         f"потолок оператора {ceiling:g} кр (цену по коду определить нельзя: {code_estimate.basis}); "
         "потолок резервируется в бюджете слоя, воркер его сам не знает - жёсткий предел расхода "
-        "дают лимиты spend_guard и аварийный стоп")
+        "дают лимиты spend_guard и аварийный стоп",
+    )

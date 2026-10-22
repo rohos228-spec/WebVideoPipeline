@@ -547,7 +547,10 @@ async def generate_kie_video(
 
     kie_id = VIDEO_GENERATOR_TO_KIE_ID.get(model_slug) or model_slug.replace("_", "-")
     spec = kie_catalog.get_model(kie_id)
-    is_pay52 = bool((spec and spec.get("api") == "pay52") or ("seedance" in str(kie_id).lower() and pay52_video.pay52_video_configured(spec)))
+    is_pay52 = bool(
+        (spec and spec.get("api") == "pay52")
+        or ("seedance" in str(kie_id).lower() and pay52_video.pay52_video_configured(spec))
+    )
 
     if not kie_configured() and not is_pay52:
         raise KieHttpError(

@@ -199,11 +199,7 @@ def local_merge_trivial_shots(shots: list[Any]) -> list[str]:
     live = [shot for shot in original if shot_counts_as_active(shot)]
     notes = _merge_active_neighbors(live)
     survived = {id(shot) for shot in live}
-    shots[:] = [
-        shot
-        for shot in original
-        if (not shot_counts_as_active(shot)) or id(shot) in survived
-    ]
+    shots[:] = [shot for shot in original if (not shot_counts_as_active(shot)) or id(shot) in survived]
     return notes
 
 
@@ -235,9 +231,7 @@ def local_ensure_wide_before_dialogue(shots: list[Any]) -> list[str]:
             i += 1
             continue
         prev = _previous_active(shots, i)
-        if not (isinstance(s, dict) and _is_reply(s)) or (
-            isinstance(prev, dict) and _is_reply(prev)
-        ):
+        if not (isinstance(s, dict) and _is_reply(s)) or (isinstance(prev, dict) and _is_reply(prev)):
             i += 1
             continue
         j = i
@@ -252,9 +246,7 @@ def local_ensure_wide_before_dialogue(shots: list[Any]) -> list[str]:
                 j += 1
                 continue
             break
-        if len(speakers) >= 2 and not (
-            isinstance(prev, dict) and _shot_s(prev, "план").upper() == "ОБЩИЙ"
-        ):
+        if len(speakers) >= 2 and not (isinstance(prev, dict) and _shot_s(prev, "план").upper() == "ОБЩИЙ"):
             w = copy.deepcopy(s)
             who = _shot_s(s, "кто") or "участники разговора"
             w["действие"] = f"{who} друг напротив друга перед разговором, видно, кто где."

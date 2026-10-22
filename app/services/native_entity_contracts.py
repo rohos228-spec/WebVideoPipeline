@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import math
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
 from app.services.artifact_verifier import contained_path, verify_artifact
 from app.services.excel_characters import characters_from_entities
-
 
 _ENTITY_FIELDS = ("id", "project_id", "type", "code", "name", "sort_key", "attrs")
 _ARTIFACT_FIELDS = ("id", "project_id", "frame_id", "kind", "uuid", "path", "meta")
@@ -18,7 +17,8 @@ def hero_entity_contract():
     from app.services.node_capabilities import READ_ACTIONS
 
     return {
-        "node_type": "hero", "artifact_kind": "hero_reference",
+        "node_type": "hero",
+        "artifact_kind": "hero_reference",
         "executor": "app.orchestrator.steps.generate_hero.run",
         "entity_executor": "app.orchestrator.steps.generate_hero._run_excel",
         "generation_executor": "app.orchestrator.steps.generate_hero._generate_one_excel_character",
@@ -26,12 +26,22 @@ def hero_entity_contract():
         "input_sources": ["entity", "xlsx"],
         "verified_input_source": "entity",
         "input_fields": list(_ENTITY_FIELDS),
-        "phases": ["entity_extract", "model_prompt_if_base", "native_image_generation",
-                   "artifact_apply", "batch_complete", "legacy_variation_hitl"],
+        "phases": [
+            "entity_extract",
+            "model_prompt_if_base",
+            "native_image_generation",
+            "artifact_apply",
+            "batch_complete",
+            "legacy_variation_hitl",
+        ],
         "outbound_image_generation": True,
-        "entity_excel_hitl_required": False, "legacy_variation_hitl_required": True,
-        "actions": READ_ACTIONS, "managed": False, "managed_eligible": False,
-        "semantic_quality_verified": False, "business_commit_claim": False,
+        "entity_excel_hitl_required": False,
+        "legacy_variation_hitl_required": True,
+        "actions": READ_ACTIONS,
+        "managed": False,
+        "managed_eligible": False,
+        "semantic_quality_verified": False,
+        "business_commit_claim": False,
         "retry_policy": "original executor only",
         "verification": "native identity, supplied request/result bindings and actual local image",
         "provenance_authority": "caller must establish captured observation authenticity",
@@ -45,16 +55,22 @@ def items_entity_contract():
     from app.services.node_capabilities import READ_ACTIONS
 
     return {
-        "node_type": "items", "artifact_kind": "item_reference",
+        "node_type": "items",
+        "artifact_kind": "item_reference",
         "executor": "app.orchestrator.steps.generate_items.run",
         "input_sources": ["Project.item_descriptions"],
-        "outbound_image_generation": True, "optional_step": True,
+        "outbound_image_generation": True,
+        "optional_step": True,
         "hitl_required": False,
         "on_failure": "status rolls back to hero_ready; the operator edits the description and reruns",
-        "actions": READ_ACTIONS, "managed": False, "managed_eligible": False,
-        "semantic_quality_verified": False, "business_commit_claim": False,
+        "actions": READ_ACTIONS,
+        "managed": False,
+        "managed_eligible": False,
+        "semantic_quality_verified": False,
+        "business_commit_claim": False,
         "retry_policy": "original executor only; a rerun submits paid image generation again",
-        "write_authority": "existing worker only", "arbitrary_shell_code_paths": False,
+        "write_authority": "existing worker only",
+        "arbitrary_shell_code_paths": False,
     }
 
 
@@ -96,48 +112,63 @@ def _characters(rows):
     for row in rows:
         if _text(row["type"]) == "character":
             identity.setdefault(_text(row["code"]), row["id"])
-    return [{**ch.to_dict(), "entity_id": identity.get(ch.id),
-             "role": "reference_variation" if ch.ref_ids else "base"} for ch in parsed]
+    return [
+        {
+            **ch.to_dict(),
+            "entity_id": identity.get(ch.id),
+            "role": "reference_variation" if ch.ref_ids else "base",
+        }
+        for ch in parsed
+    ]
 
 
 def hero_entity_input_snapshot(entities, *, project_id):
-    rows = [deepcopy({field: _get(row, field) for field in _ENTITY_FIELDS})
-            for row in entities or []]
+    rows = [deepcopy({field: _get(row, field) for field in _ENTITY_FIELDS}) for row in entities or []]
     rows.sort(key=_entity_order)
-    return {"project_id": project_id, "source": "entity", "entities": rows,
-            "characters": _characters(rows)}
+    return {"project_id": project_id, "source": "entity", "entities": rows, "characters": _characters(rows)}
 
 
 def _proof(snapshot):
     return {
-        "node_type": "hero", "contract": "native_hero_entity_read",
-        "status": "unknown", "structural_status": "unknown", "provenance_status": "unknown",
+        "node_type": "hero",
+        "contract": "native_hero_entity_read",
+        "status": "unknown",
+        "structural_status": "unknown",
+        "provenance_status": "unknown",
         "input_sha256": _digest(snapshot) if isinstance(snapshot, dict) else None,
-        "output_sha256": None, "artifact_count": 0,
-        "semantic_quality_verified": False, "business_commit_claim": False,
-        "managed_eligible": False, "errors": [], "unknowns": [], "artifacts": [],
+        "output_sha256": None,
+        "artifact_count": 0,
+        "semantic_quality_verified": False,
+        "business_commit_claim": False,
+        "managed_eligible": False,
+        "errors": [],
+        "unknowns": [],
+        "artifacts": [],
         "source": "caller supplied native rows and provenance; commit/journal acceptance is external",
     }
 
 
 def _finish(proof, structural_errors, structural_unknowns, provenance_errors=(), provenance_unknowns=()):
-    proof["structural_status"] = ("failed" if structural_errors else
-                                  "unknown" if structural_unknowns else "passed")
-    proof["provenance_status"] = ("failed" if provenance_errors else
-                                  "unknown" if provenance_unknowns else "passed")
+    proof["structural_status"] = (
+        "failed" if structural_errors else "unknown" if structural_unknowns else "passed"
+    )
+    proof["provenance_status"] = (
+        "failed" if provenance_errors else "unknown" if provenance_unknowns else "passed"
+    )
     proof["errors"] = list(dict.fromkeys([*structural_errors, *provenance_errors]))
     proof["unknowns"] = list(dict.fromkeys([*structural_unknowns, *provenance_unknowns]))
-    proof["status"] = ("failed" if proof["errors"] else
-                       "unknown" if proof["unknowns"] else "passed")
+    proof["status"] = "failed" if proof["errors"] else "unknown" if proof["unknowns"] else "passed"
     proof["reason"] = next(iter(proof["errors"] or proof["unknowns"]), None)
     return proof
 
 
 def _input_characters(snapshot, project_id, errors, unknowns):
-    if (not isinstance(snapshot, dict) or
-            not {"project_id", "source", "entities", "characters"} <= snapshot.keys() or
-            not isinstance(snapshot["entities"], list) or
-            not isinstance(snapshot["characters"], list)):
+    if (
+        not isinstance(snapshot, dict)
+        or not {"project_id", "source", "entities", "characters"} <= snapshot.keys()
+        or not isinstance(snapshot["entities"], list)
+        or not isinstance(snapshot["characters"], list)
+    ):
         unknowns.append("captured_input_unavailable_or_incomplete")
         return []
     if snapshot["source"] != "entity":
@@ -147,8 +178,11 @@ def _input_characters(snapshot, project_id, errors, unknowns):
     if any(not isinstance(row, dict) or not set(_ENTITY_FIELDS) <= row.keys() for row in rows):
         unknowns.append("captured_entity_fields_incomplete")
         return []
-    if (not _positive_int(project_id) or type(snapshot["project_id"]) is not int or
-            snapshot["project_id"] != project_id):
+    if (
+        not _positive_int(project_id)
+        or type(snapshot["project_id"]) is not int
+        or snapshot["project_id"] != project_id
+    ):
         errors.append("input_project_outside_scope")
     ids = [row["id"] for row in rows]
     if any(not _positive_int(identity) for identity in ids):
@@ -272,10 +306,19 @@ def _result_provenance(entries, characters, latest, history, images, scope, inpu
             errors.append("provenance_character_outside_scope")
             continue
         ch = by_code[code]
-        _binding(entry, {**{key: scope[key] for key in _SCOPE_FIELDS},
-            "project_id": project_id,
-            "input_sha256": input_hash, "entity_id": ch["entity_id"],
-            "entity_code": code, "role": ch["role"]}, errors, unknowns)
+        _binding(
+            entry,
+            {
+                **{key: scope[key] for key in _SCOPE_FIELDS},
+                "project_id": project_id,
+                "input_sha256": input_hash,
+                "entity_id": ch["entity_id"],
+                "entity_code": code,
+                "role": ch["role"],
+            },
+            errors,
+            unknowns,
+        )
         uid = entry.get("artifact_uuid")
         if not _identifier(uid):
             unknowns.append("provenance_field_unavailable:artifact_uuid")
@@ -291,8 +334,14 @@ def _result_provenance(entries, characters, latest, history, images, scope, inpu
         matched.add(code)
         artifact = latest[code]
         generation = entry.get("generation")
-        _completion(generation, name="generation", identities=("request_id", "gen_id"),
-                    seen=request_seen, errors=errors, unknowns=unknowns)
+        _completion(
+            generation,
+            name="generation",
+            identities=("request_id", "gen_id"),
+            seen=request_seen,
+            errors=errors,
+            unknowns=unknowns,
+        )
         if isinstance(generation, dict):
             path = generation.get("file_path")
             if not isinstance(path, (str, Path)) or not str(path).strip():
@@ -303,27 +352,45 @@ def _result_provenance(entries, characters, latest, history, images, scope, inpu
                         errors.append("generation_file_path_conflict")
                 except (OSError, ValueError, TypeError):
                     errors.append("generation_file_path_conflict")
-            if _identifier(generation.get("sha256")) and generation["sha256"] != images.get(code, {}).get("sha256"):
+            if _identifier(generation.get("sha256")) and generation["sha256"] != images.get(code, {}).get(
+                "sha256"
+            ):
                 errors.append("generation_file_hash_conflict")
             refs = generation.get("reference_artifact_uuids")
             if refs is None:
                 unknowns.append("generation_reference_bindings_unavailable")
-            elif (not isinstance(refs, list) or len(refs) != len(ch["ref_ids"]) or
-                  any(not _identifier(uid) or uid not in history or
-                      history[uid]["meta"]["excel_id"] != reference_code
-                      for uid, reference_code in zip(refs, ch["ref_ids"]))):
+            elif (
+                not isinstance(refs, list)
+                or len(refs) != len(ch["ref_ids"])
+                or any(
+                    not _identifier(uid)
+                    or uid not in history
+                    or history[uid]["meta"]["excel_id"] != reference_code
+                    for uid, reference_code in zip(refs, ch["ref_ids"], strict=False)
+                )
+            ):
                 errors.append("generation_reference_bindings_conflict")
         model = entry.get("model")
         if ch["role"] == "reference_variation":
             if model is not None:
                 errors.append("reference_variation_borrowed_model_completion")
         else:
-            _completion(model, name="model", identities=("request_id", "response_id"),
-                        seen=request_seen, errors=errors, unknowns=unknowns)
+            _completion(
+                model,
+                name="model",
+                identities=("request_id", "response_id"),
+                seen=request_seen,
+                errors=errors,
+                unknowns=unknowns,
+            )
             prompt = artifact["meta"].get("hero_prompt")
             if not _identifier(prompt):
                 unknowns.append("native_base_prompt_unavailable")
-            elif isinstance(model, dict) and _identifier(model.get("sha256")) and model["sha256"] != _digest(prompt):
+            elif (
+                isinstance(model, dict)
+                and _identifier(model.get("sha256"))
+                and model["sha256"] != _digest(prompt)
+            ):
                 errors.append("model_prompt_hash_conflict")
     for code in latest:
         if code not in matched:
@@ -338,8 +405,9 @@ async def verify_hero_entity_results(artifacts, *, project_id, snapshot, root, s
     if errors or unknowns:
         return _finish(proof, errors, unknowns, provenance_unknowns=["output_not_verified"])
     if artifacts is None:
-        return _finish(proof, [], ["native_artifact_rows_unavailable"],
-                       provenance_unknowns=["output_not_verified"])
+        return _finish(
+            proof, [], ["native_artifact_rows_unavailable"], provenance_unknowns=["output_not_verified"]
+        )
     latest, history = _latest_artifacts(artifacts, characters, project_id, errors)
     proof["artifact_count"] = len(latest)
     if errors:
@@ -358,8 +426,7 @@ async def verify_hero_entity_results(artifacts, *, project_id, snapshot, root, s
         meta = artifact["meta"]
         if "excel_ref_ids" not in meta or "excel_used_refs" not in meta:
             unknowns.append("native_role_metadata_unavailable:" + code)
-        elif (meta["excel_ref_ids"] != ch["ref_ids"] or
-              meta["excel_used_refs"] is not bool(ch["ref_ids"])):
+        elif meta["excel_ref_ids"] != ch["ref_ids"] or meta["excel_used_refs"] is not bool(ch["ref_ids"]):
             errors.append("native_reference_role_or_ids_conflict:" + code)
         image = await _image(artifact["path"], root)
         images[code] = image
@@ -368,10 +435,19 @@ async def verify_hero_entity_results(artifacts, *, project_id, snapshot, root, s
         elif image["status"] != "passed":
             unknowns.append("native_image_verification_unavailable:" + code)
         output.append({**artifact, "verification": image})
-        proof["artifacts"].append({"entity_code": code, "artifact_uuid": artifact["uuid"],
-                                   "verification": image})
+        proof["artifacts"].append(
+            {"entity_code": code, "artifact_uuid": artifact["uuid"], "verification": image}
+        )
     proof["output_sha256"] = _digest(output)
     provenance_errors, provenance_unknowns = _result_provenance(
-        provenance, characters, latest, history, images, scope, proof["input_sha256"],
-        project_id=project_id, root=root)
+        provenance,
+        characters,
+        latest,
+        history,
+        images,
+        scope,
+        proof["input_sha256"],
+        project_id=project_id,
+        root=root,
+    )
     return _finish(proof, errors, unknowns, provenance_errors, provenance_unknowns)

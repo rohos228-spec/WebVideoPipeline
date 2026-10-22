@@ -39,9 +39,7 @@ class PreservationRejected(Exception):
     def __init__(self, violations: list[Violation]) -> None:
         self.violations = list(violations)
         text = ", ".join(
-            f"{item.code}:{item.id or item.path}"
-            for item in self.violations
-            if item.severity == "error"
+            f"{item.code}:{item.id or item.path}" for item in self.violations if item.severity == "error"
         )
         super().__init__(f"сохранность: {text}")
 
@@ -83,8 +81,7 @@ def run_preservation_validators(
                 if not (item.id in parked and item.code in absorbed)
             ]
             violations.extend(
-                Violation(code="kept_inactive", severity="warn", path=path, id=fid)
-                for path, fid in restored
+                Violation(code="kept_inactive", severity="warn", path=path, id=fid) for path, fid in restored
             )
             violations = sorted_violations(violations)
     if any(item.severity == "error" for item in violations):

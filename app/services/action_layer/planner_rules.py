@@ -9,10 +9,20 @@ from app.services.action_layer import planner_context as pc
 MAX_OPTIONS = 4
 MAX_OPTION_LEN = 60
 
-UPLOAD_ACTIONS = frozenset({
-    "montage.upload_image", "montage.upload_video", "montage.upload_voice",
-    "montage.upload_music", "montage.upload_ref", "node.upload_file", "node.upload_check_agent",
-    "project.upload_xlsx", "hero.replace_image", "storage.upload_file"})
+UPLOAD_ACTIONS = frozenset(
+    {
+        "montage.upload_image",
+        "montage.upload_video",
+        "montage.upload_voice",
+        "montage.upload_music",
+        "montage.upload_ref",
+        "node.upload_file",
+        "node.upload_check_agent",
+        "project.upload_xlsx",
+        "hero.replace_image",
+        "storage.upload_file",
+    }
+)
 FILE_PARAMS = ("source_path", "data_base64", "filename")
 
 _GEN_KEYS = ("image_generator", "image_resolution", "video_generator", "video_resolution")
@@ -29,7 +39,6 @@ def _words(text: str) -> list[str]:
 
 def _has_stem(words: list[str], stems: tuple[str, ...]) -> bool:
     return any(w.startswith(s) for w in words for s in stems)
-
 
 
 @dataclass
@@ -184,8 +193,10 @@ def shot_ambiguity(action_id: str, params: dict, facts: dict | None) -> tuple[st
             row = _row_by_number(facts, op.get("frame_number"))
             if row is not None and str(row[idx]) == "12":
                 what = "картинки" if idx == 4 else "видео"
-                return (f"У кадра {row[0]} {what} есть в обоих шотах. Для какого шота поставить в очередь?",
-                        ["шот 1", "шот 2", "оба шота"])
+                return (
+                    f"У кадра {row[0]} {what} есть в обоих шотах. Для какого шота поставить в очередь?",
+                    ["шот 1", "шот 2", "оба шота"],
+                )
     return None
 
 
@@ -229,7 +240,6 @@ def _normalize_values(action_id: str, out: dict, notes: list[str]) -> None:
                     break
 
 
-
 _PLATFORM_WORDS: dict[str, tuple[str, ...]] = {
     "tiktok": ("тикток", "тик-ток", "tiktok", "тиктоке", "тик"),
     "yt_shorts": ("ютуб", "ютьюб", "youtube", "шортс", "шортсы", "shorts", "ютубе"),
@@ -244,23 +254,53 @@ def named_platforms(text: str) -> list[str]:
     words = _words(text)
     if _has_stem(words, _PLATFORM_EXCLUDE):
         return []
-    return [pid for pid, names in _PLATFORM_WORDS.items()
-            if any(w == n or (len(n) > 3 and w.startswith(n)) for w in words for n in names)]
+    return [
+        pid
+        for pid, names in _PLATFORM_WORDS.items()
+        if any(w == n or (len(n) > 3 and w.startswith(n)) for w in words for n in names)
+    ]
 
 
-_NUM_WORDS = {"один": 1, "одну": 1, "одной": 1, "одного": 1, "два": 2, "две": 2, "двух": 2, "три": 3, "трех": 3,
-              "четыре": 4, "четырех": 4, "пять": 5, "пяти": 5, "шесть": 6, "шести": 6, "семь": 7, "семи": 7,
-              "восемь": 8, "восьми": 8, "девять": 9, "девяти": 9, "десять": 10, "десяти": 10}
+_NUM_WORDS = {
+    "один": 1,
+    "одну": 1,
+    "одной": 1,
+    "одного": 1,
+    "два": 2,
+    "две": 2,
+    "двух": 2,
+    "три": 3,
+    "трех": 3,
+    "четыре": 4,
+    "четырех": 4,
+    "пять": 5,
+    "пяти": 5,
+    "шесть": 6,
+    "шести": 6,
+    "семь": 7,
+    "семи": 7,
+    "восемь": 8,
+    "восьми": 8,
+    "девять": 9,
+    "девяти": 9,
+    "десять": 10,
+    "десяти": 10,
+}
 _OPS_LIMIT = re.compile(
     r"(?:не\s+(?:больше|более|свыше|выше)|максимум|макс\.?|лимит\w*|до|только)\s+(\d{1,3}|[а-я]+)\s+"
-    r"(?:[а-я]+\s+)?(картин\w*|изображен\w*|фото\w*|видео\w*|клип\w*|ролик\w*)")
+    r"(?:[а-я]+\s+)?(картин\w*|изображен\w*|фото\w*|видео\w*|клип\w*|ролик\w*)"
+)
 
 
 _LIMIT_CUE = r"(?:не\s+(?:больше|более|свыше|выше)|максимум|макс\.?|лимит\w*|до|только)"
 _OPS_NOUN = r"(?:операц\w*|действ\w*|правок|штук\w*|генерац\w*|обработ\w*)"
 _MEDIA = r"(картин\w*|изображен\w*|фото\w*|видео\w*|клип\w*|ролик\w*)"
-_OPS_LIMIT_AFTER = re.compile(_MEDIA + r"\s+(?:[а-я]+\s+){0,2}?" + _LIMIT_CUE + r"\s+(\d{1,3}|[а-я]+)\s+" + _OPS_NOUN)
-_OPS_LIMIT_BEFORE = re.compile(_LIMIT_CUE + r"\s+(\d{1,3}|[а-я]+)\s+" + _OPS_NOUN + r"\s+(?:на|для|по|с)\s+" + _MEDIA)
+_OPS_LIMIT_AFTER = re.compile(
+    _MEDIA + r"\s+(?:[а-я]+\s+){0,2}?" + _LIMIT_CUE + r"\s+(\d{1,3}|[а-я]+)\s+" + _OPS_NOUN
+)
+_OPS_LIMIT_BEFORE = re.compile(
+    _LIMIT_CUE + r"\s+(\d{1,3}|[а-я]+)\s+" + _OPS_NOUN + r"\s+(?:на|для|по|с)\s+" + _MEDIA
+)
 
 
 def named_ops_limits(text: str) -> dict[str, int]:
@@ -281,17 +321,44 @@ def named_ops_limits(text: str) -> dict[str, int]:
 def _small_numbers() -> dict[str, int]:
     out: dict[str, int] = {}
     forms = {
-        0: "ноль", 1: "один одна одну одного одной одному", 2: "два две двух", 3: "три трех трем",
-        4: "четыре четырех", 5: "пять пяти", 6: "шесть шести", 7: "семь семи", 8: "восемь восьми",
-        9: "девять девяти", 10: "десять десяти", 11: "одиннадцать одиннадцати", 12: "двенадцать двенадцати",
-        13: "тринадцать тринадцати", 14: "четырнадцать четырнадцати", 15: "пятнадцать пятнадцати",
-        16: "шестнадцать шестнадцати", 17: "семнадцать семнадцати", 18: "восемнадцать восемнадцати",
-        19: "девятнадцать девятнадцати", 20: "двадцать двадцати", 30: "тридцать тридцати",
-        40: "сорок сорока", 50: "пятьдесят пятидесяти", 60: "шестьдесят шестидесяти",
-        70: "семьдесят семидесяти", 80: "восемьдесят восьмидесяти", 90: "девяносто девяноста",
-        100: "сто ста", 200: "двести двухсот", 300: "триста трехсот", 400: "четыреста четырехсот",
-        500: "пятьсот пятисот", 600: "шестьсот шестисот", 700: "семьсот семисот",
-        800: "восемьсот восьмисот", 900: "девятьсот девятисот"}
+        0: "ноль",
+        1: "один одна одну одного одной одному",
+        2: "два две двух",
+        3: "три трех трем",
+        4: "четыре четырех",
+        5: "пять пяти",
+        6: "шесть шести",
+        7: "семь семи",
+        8: "восемь восьми",
+        9: "девять девяти",
+        10: "десять десяти",
+        11: "одиннадцать одиннадцати",
+        12: "двенадцать двенадцати",
+        13: "тринадцать тринадцати",
+        14: "четырнадцать четырнадцати",
+        15: "пятнадцать пятнадцати",
+        16: "шестнадцать шестнадцати",
+        17: "семнадцать семнадцати",
+        18: "восемнадцать восемнадцати",
+        19: "девятнадцать девятнадцати",
+        20: "двадцать двадцати",
+        30: "тридцать тридцати",
+        40: "сорок сорока",
+        50: "пятьдесят пятидесяти",
+        60: "шестьдесят шестидесяти",
+        70: "семьдесят семидесяти",
+        80: "восемьдесят восьмидесяти",
+        90: "девяносто девяноста",
+        100: "сто ста",
+        200: "двести двухсот",
+        300: "триста трехсот",
+        400: "четыреста четырехсот",
+        500: "пятьсот пятисот",
+        600: "шестьсот шестисот",
+        700: "семьсот семисот",
+        800: "восемьсот восьмисот",
+        900: "девятьсот девятисот",
+    }
     for value, names in forms.items():
         for name in names.split():
             out[name] = value
@@ -340,15 +407,18 @@ def named_token_limits(text: str) -> dict[str, int]:
         if not w.startswith("токен"):
             continue
         start = i
-        while start > 0 and (words[start - 1].isdigit() or words[start - 1] in _SMALL_NUMBERS
-                             or words[start - 1].startswith(("тысяч", "миллион"))
-                             or words[start - 1] in ("тыс", "млн")
-                             or re.fullmatch(r"\d+[кk]", words[start - 1])):
+        while start > 0 and (
+            words[start - 1].isdigit()
+            or words[start - 1] in _SMALL_NUMBERS
+            or words[start - 1].startswith(("тысяч", "миллион"))
+            or words[start - 1] in ("тыс", "млн")
+            or re.fullmatch(r"\d+[кk]", words[start - 1])
+        ):
             start -= 1
         num = ru_number(words[start:i]) if start < i else None
         if not num:
             continue
-        window = words[max(0, start - 6):start] + words[i + 1:i + 3]
+        window = words[max(0, start - 6) : start] + words[i + 1 : i + 3]
         if not _has_stem(window, _LIMIT_CUES):
             continue
         inp, outp = _has_stem(window, _INPUT_WORDS), _has_stem(window, _OUTPUT_WORDS)
@@ -367,7 +437,7 @@ def named_llm_limit(text: str) -> dict[str, int]:
     words = _words(text)
     out: dict[str, int] = {}
     for i, w in enumerate(words):
-        if not w.startswith(_CALL_WORDS) or not _has_stem(words[max(0, i - 4):i + 6], _MODEL_WORDS):
+        if not w.startswith(_CALL_WORDS) or not _has_stem(words[max(0, i - 4) : i + 6], _MODEL_WORDS):
             continue
         for j in range(max(0, i - 4), min(len(words), i + 9)):
             if not words[j].startswith(_CAP_CUES):
@@ -375,15 +445,17 @@ def named_llm_limit(text: str) -> dict[str, int]:
             k = j + 1
             while k < len(words) and (words[k].isdigit() or words[k] in _SMALL_NUMBERS):
                 k += 1
-            num = ru_number(words[j + 1:k]) if k > j + 1 else None
+            num = ru_number(words[j + 1 : k]) if k > j + 1 else None
             if num:
                 out.setdefault("max_llm_requests", num)
                 break
     return out
 
 
-_HERO_RE = ((re.compile(r"\bбез\s+(?:главн\w+\s+)?геро\w*|\bбез\s+персонаж\w*"), "no_hero"),
-            (re.compile(r"\bс\s+(?:главн\w+\s+)?геро\w*|\bгеро\w*\s+(?:нужен|включ|есть)"), "hero"))
+_HERO_RE = (
+    (re.compile(r"\bбез\s+(?:главн\w+\s+)?геро\w*|\bбез\s+персонаж\w*"), "no_hero"),
+    (re.compile(r"\bс\s+(?:главн\w+\s+)?геро\w*|\bгеро\w*\s+(?:нужен|включ|есть)"), "hero"),
+)
 
 
 def named_hero_mode(text: str) -> str:
@@ -403,8 +475,7 @@ def named_aspect(text: str) -> str:
     from app.generation_options import ASPECT_RATIOS_BY_ID
 
     low = _norm(text)
-    found = {f"{a}:{b}" for a, b in _ASPECT_NUM_RE.findall(low)
-             if f"{a}_{b}" in ASPECT_RATIOS_BY_ID}
+    found = {f"{a}:{b}" for a, b in _ASPECT_NUM_RE.findall(low) if f"{a}_{b}" in ASPECT_RATIOS_BY_ID}
     if len(found) == 1:
         return found.pop()
     if found:
@@ -413,8 +484,16 @@ def named_aspect(text: str) -> str:
     return words.pop() if len(words) == 1 else ""
 
 
-_CEILING_ACTIONS =frozenset({"step.run_step", "project.resume", "project.continue_pipeline", "hitl.regenerate",
-                              "massfactory.start", "node.run_step"})
+_CEILING_ACTIONS = frozenset(
+    {
+        "step.run_step",
+        "project.resume",
+        "project.continue_pipeline",
+        "hitl.regenerate",
+        "massfactory.start",
+        "node.run_step",
+    }
+)
 _CREDITS_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*(?:кредит|кр(?![а-я]))")
 _AFTER_NODE_RE = re.compile(r"(?:после|сразу\s+за|вслед\s+за|следом\s+за)\s+(n_[a-z0-9_]+)")
 
@@ -462,11 +541,35 @@ def apply_request_values(action_id: str, params: dict, text: str) -> dict:
     return out
 
 
-
 _SETTING_KEYS = ("image_generator", "video_generator", "image_resolution", "video_resolution")
-_LATIN = {"a": "а", "b": "б", "c": "к", "d": "д", "e": "е", "f": "ф", "g": "г", "h": "х", "i": "и", "j": "дж",
-          "k": "к", "l": "л", "m": "м", "n": "н", "o": "о", "p": "п", "q": "кв", "r": "р", "s": "с", "t": "т",
-          "u": "у", "v": "в", "w": "в", "x": "кс", "y": "и", "z": "з"}
+_LATIN = {
+    "a": "а",
+    "b": "б",
+    "c": "к",
+    "d": "д",
+    "e": "е",
+    "f": "ф",
+    "g": "г",
+    "h": "х",
+    "i": "и",
+    "j": "дж",
+    "k": "к",
+    "l": "л",
+    "m": "м",
+    "n": "н",
+    "o": "о",
+    "p": "п",
+    "q": "кв",
+    "r": "р",
+    "s": "с",
+    "t": "т",
+    "u": "у",
+    "v": "в",
+    "w": "в",
+    "x": "кс",
+    "y": "и",
+    "z": "з",
+}
 
 
 _GENERIC_PARTS = frozenset({"image", "video", "lite", "fast", "pro", "vip", "ultra", "max", "plus"})
@@ -491,8 +594,11 @@ def _resolution_named(value: str, low: str) -> bool:
 
 
 def _generator_named(value: str, text: str) -> bool:
-    parts = [t for t in re.split(r"[_\-]", str(value).lower())
-             if t and not t.isdigit() and len(t) >= 3 and t not in _GENERIC_PARTS]
+    parts = [
+        t
+        for t in re.split(r"[_\-]", str(value).lower())
+        if t and not t.isdigit() and len(t) >= 3 and t not in _GENERIC_PARTS
+    ]
     if not parts:
         return True
     words = _words(text)
@@ -512,8 +618,11 @@ def drop_unnamed_settings(params: dict, text: str) -> tuple[dict, list[str]]:
     for key in _SETTING_KEYS:
         if key not in out:
             continue
-        named = (_resolution_named(out[key], low) if key.endswith("resolution")
-                 else _generator_named(out[key], text))
+        named = (
+            _resolution_named(out[key], low)
+            if key.endswith("resolution")
+            else _generator_named(out[key], text)
+        )
         if not named:
             out.pop(key)
             dropped.append(key)
@@ -524,18 +633,36 @@ def settings_question(dropped: list[str]) -> tuple[str, list[str]]:
     gen = any(k.endswith("generator") for k in dropped)
     res = any(k.endswith("resolution") for k in dropped)
     if gen and res:
-        return ("Что изменить в настройках проекта: генератор или разрешение, для картинок или видео, "
-                "и на какое значение?",
-                ["Генератор картинок", "Генератор видео", "Разрешение картинок", "Разрешение видео"])
+        return (
+            "Что изменить в настройках проекта: генератор или разрешение, для картинок или видео, "
+            "и на какое значение?",
+            ["Генератор картинок", "Генератор видео", "Разрешение картинок", "Разрешение видео"],
+        )
     if gen:
-        return ("Какой генератор поставить: для картинок или для видео, и какой именно?",
-                ["Генератор картинок", "Генератор видео"])
-    return ("На какое разрешение поменять: картинок (1k..4k) или видео (720p, 1080p)?",
-            ["Разрешение картинок", "Разрешение видео"])
+        return (
+            "Какой генератор поставить: для картинок или для видео, и какой именно?",
+            ["Генератор картинок", "Генератор видео"],
+        )
+    return (
+        "На какое разрешение поменять: картинок (1k..4k) или видео (720p, 1080p)?",
+        ["Разрешение картинок", "Разрешение видео"],
+    )
 
 
-_CLEAR_ALL_WORDS = ("все", "всю", "всё", "всей", "вся", "целиком", "полност", "очист", "сброс", "обнул",
-                    "подчистую", "насовсем")
+_CLEAR_ALL_WORDS = (
+    "все",
+    "всю",
+    "всё",
+    "всей",
+    "вся",
+    "целиком",
+    "полност",
+    "очист",
+    "сброс",
+    "обнул",
+    "подчистую",
+    "насовсем",
+)
 
 
 def queue_clear_question(action_id: str, params: dict, text: str) -> tuple[str, list[str]] | None:
@@ -543,9 +670,10 @@ def queue_clear_question(action_id: str, params: dict, text: str) -> tuple[str, 
         return None
     if _has_stem(_words(text), _CLEAR_ALL_WORDS):
         return None
-    return ("Что убрать из очереди правок: всю очередь или правки конкретного кадра?",
-            ["Всю очередь", "Правки кадра", "Не убирать"])
-
+    return (
+        "Что убрать из очереди правок: всю очередь или правки конкретного кадра?",
+        ["Всю очередь", "Правки кадра", "Не убирать"],
+    )
 
 
 _CAPTION_RE = re.compile(r"(?:подпис\w*|caption|описани\w*)\s*[:=\-–—]?\s*[«\"“'](.{1,300}?)[»\"”']")
@@ -563,16 +691,49 @@ def caption_override_note(action_id: str, params: dict, text: str) -> str:
     actual = str(params.get("caption") or "")
     if not named or _norm(named) == _norm(actual):
         return ""
-    return (f"Подпись «{named}» из запроса не применена: подпись публикации задаёт сервер "
-            f"(тема проекта: «{actual}»), её видно в превью дословно.")
+    return (
+        f"Подпись «{named}» из запроса не применена: подпись публикации задаёт сервер "
+        f"(тема проекта: «{actual}»), её видно в превью дословно."
+    )
 
 
-_PUBLISH_VERBS = ("опублик", "выложи", "выкла", "запост", "постни", "залей", "залить", "разошли", "размест",
-                  "выгруз", "выпуст", "публик", "отправ")
-_FILLER_WORDS = frozenset({"пожалуйста", "плиз", "уже", "давай", "ну", "сейчас", "скорее", "же", "теперь",
-                           "быстро", "тогда", "ладно", "все", "всё"})
-_PLATFORM_ASK = ("Что и куда опубликовать? Назовите площадку (TikTok, YouTube Shorts, Instagram Reels, "
-                 "VK Клипы, Likee) или «на все площадки».")
+_PUBLISH_VERBS = (
+    "опублик",
+    "выложи",
+    "выкла",
+    "запост",
+    "постни",
+    "залей",
+    "залить",
+    "разошли",
+    "размест",
+    "выгруз",
+    "выпуст",
+    "публик",
+    "отправ",
+)
+_FILLER_WORDS = frozenset(
+    {
+        "пожалуйста",
+        "плиз",
+        "уже",
+        "давай",
+        "ну",
+        "сейчас",
+        "скорее",
+        "же",
+        "теперь",
+        "быстро",
+        "тогда",
+        "ладно",
+        "все",
+        "всё",
+    }
+)
+_PLATFORM_ASK = (
+    "Что и куда опубликовать? Назовите площадку (TikTok, YouTube Shorts, Instagram Reels, "
+    "VK Клипы, Likee) или «на все площадки»."
+)
 
 
 def bare_publish_question(steps: list[dict], text: str) -> tuple[str, list[str]] | None:
@@ -586,35 +747,63 @@ def bare_publish_question(steps: list[dict], text: str) -> tuple[str, list[str]]
 
 _MASS_SCOPE = re.compile(
     r"(?<![а-я])(?:вс(?:е|ех|ей|ю)|кажд\w*)\s+(?:\w+\s+)?(?:нод|хранилищ|проект|групп|ветк)\w*"
-    r"|(?<![а-я])(?:в|во|на)\s+(?:вс(?:ех|ей)|кажд\w*)\s+(?:нод|хранилищ|проект|групп)\w*")
+    r"|(?<![а-я])(?:в|во|на)\s+(?:вс(?:ех|ей)|кажд\w*)\s+(?:нод|хранилищ|проект|групп)\w*"
+)
 _MASS_MIN_STEPS = 2
 
 
 def mass_destructive_question(steps: list[dict], text: str, registry: Any) -> tuple[str, list[str]] | None:
     if not _MASS_SCOPE.search(_norm(text)):
         return None
-    destructive = [st for st in steps
-                   if (spec := registry.find(st["action_id"])) is not None and spec.destructive]
+    destructive = [
+        st for st in steps if (spec := registry.find(st["action_id"])) is not None and spec.destructive
+    ]
     if len(destructive) < _MASS_MIN_STEPS or len({st["action_id"] for st in destructive}) != 1:
         return None
-    targets = [str(v) for st in destructive for k, v in st["params"].items()
-               if k in ("node_key", "frame_number", "group_id") and v is not None]
+    targets = [
+        str(v)
+        for st in destructive
+        for k, v in st["params"].items()
+        if k in ("node_key", "frame_number", "group_id") and v is not None
+    ]
     where = f" ({', '.join(dict.fromkeys(targets))})" if targets else ""
-    return (f"Это {len(destructive)} необратимых действий сразу{where}. Назовите конкретные ноды или "
-            "объекты, которые нужно затронуть, и они будут в плане по одному на подтверждение.",
-            ["Назову конкретные", "Отмена"])
-
+    return (
+        f"Это {len(destructive)} необратимых действий сразу{where}. Назовите конкретные ноды или "
+        "объекты, которые нужно затронуть, и они будут в плане по одному на подтверждение.",
+        ["Назову конкретные", "Отмена"],
+    )
 
 
 _UNDO_RE = re.compile(
     r"(?<![а-я])(?:отмен|откат|откач|отмот|верн|убер|сними)\w*\s+(?:(?:мо[еёюй]\w*|послед\w+|предыдущ\w+|прошл\w+|"
     r"только\s+что\w*)\s+){1,2}(?:действи|изменени|операци|команд|шаг|правк)\w*[\s.!?]*$"
     r"|(?<![а-я])(?:отмен|откат|откач|отмот)\w*(?:\s+(?:это|все|всё|его|назад))?[\s.!?]*$"
-    r"|\bundo\b|ctrl\s*\+\s*z")
-_UNDO_TARGET = ("очеред", "кадр", "шот", "снимок", "снимк", "версии", "версия", "предложен", "журнал", "hitl",
-                "проект", "публикац")
-_UNDO_ACTIONS = frozenset({"montage.cancel_queue_ops", "history.rollback", "change.rollback",
-                           "montage.swap_slots", "montage.swap_shots", "node.reset_from_step"})
+    r"|\bundo\b|ctrl\s*\+\s*z"
+)
+_UNDO_TARGET = (
+    "очеред",
+    "кадр",
+    "шот",
+    "снимок",
+    "снимк",
+    "версии",
+    "версия",
+    "предложен",
+    "журнал",
+    "hitl",
+    "проект",
+    "публикац",
+)
+_UNDO_ACTIONS = frozenset(
+    {
+        "montage.cancel_queue_ops",
+        "history.rollback",
+        "change.rollback",
+        "montage.swap_slots",
+        "montage.swap_shots",
+        "node.reset_from_step",
+    }
+)
 
 
 def undo_question(steps: list[dict], text: str) -> tuple[str, list[str]] | None:
@@ -623,16 +812,21 @@ def undo_question(steps: list[dict], text: str) -> tuple[str, list[str]] | None:
     low = _norm(text)
     if not _UNDO_RE.search(low) or re.search(r"\d", low) or _has_stem(_words(low), _UNDO_TARGET):
         return None
-    return ("Что именно отменить? Назовите цель: правку в очереди доски, откат по журналу правок или "
-            "предложение изменения.",
-            ["Правки в очереди", "Откат по журналу", "Предложение изменения", "Ничего не отменять"])
+    return (
+        "Что именно отменить? Назовите цель: правку в очереди доски, откат по журналу правок или "
+        "предложение изменения.",
+        ["Правки в очереди", "Откат по журналу", "Предложение изменения", "Ничего не отменять"],
+    )
 
 
 _VAGUE_DEST = re.compile(
     r"(?<![а-я])(?:в|во|на|по)\s+(?:соцсет\w*|социальн\w*\s+сет\w*|сет[иь]\w*|интернет\w*|паблик\w*|"
-    r"мессенджер\w*|медиа)|(?<![а-я])(?:куда[\s-]?(?:нибудь|то)|где[\s-]?(?:нибудь|то))")
-_ALL_PLATFORMS = re.compile(r"(?<![а-я])(?:все|всех|всем|всюду|везде|каждую|каждой)\s*(?:\w+\s+)?"
-                            r"(?:площадк\w*|платформ\w*|соцсет\w*|сет\w*)|(?<![а-я])(?:всюду|везде)(?![а-я])")
+    r"мессенджер\w*|медиа)|(?<![а-я])(?:куда[\s-]?(?:нибудь|то)|где[\s-]?(?:нибудь|то))"
+)
+_ALL_PLATFORMS = re.compile(
+    r"(?<![а-я])(?:все|всех|всем|всюду|везде|каждую|каждой)\s*(?:\w+\s+)?"
+    r"(?:площадк\w*|платформ\w*|соцсет\w*|сет\w*)|(?<![а-я])(?:всюду|везде)(?![а-я])"
+)
 
 
 def vague_publish_question(steps: list[dict], text: str) -> tuple[str, list[str]] | None:
@@ -647,8 +841,9 @@ def vague_publish_question(steps: list[dict], text: str) -> tuple[str, list[str]
 _CREATE_WORDS = ("созда", "нов", "завед", "сдела", "начн", "начат", "запуст", "заряд")
 
 
-def create_instead_of_settings(action_id: str, params: dict, text: str, facts: dict | None,
-                               offered: Any, registry: Any) -> tuple[str, dict, str] | None:
+def create_instead_of_settings(
+    action_id: str, params: dict, text: str, facts: dict | None, offered: Any, registry: Any
+) -> tuple[str, dict, str] | None:
     if action_id != "project.create" or not facts or facts.get("project_id") is None:
         return None
     if _has_stem(_words(text), _CREATE_WORDS):
@@ -663,7 +858,6 @@ def create_instead_of_settings(action_id: str, params: dict, text: str, facts: d
     if registry.validate_params(target, out):
         return None
     return target, out, "настройки открытого проекта вместо нового проекта (слов о создании в запросе нет)"
-
 
 
 CONFIRM_YES = "Да, подготовить"
@@ -681,34 +875,122 @@ def guard_declined(text: str) -> bool:
 
 
 _PARAM_LABELS = {
-    "frame_number": "кадр", "frame_id": "кадр", "frame_numbers": "кадры", "from_frame": "из кадра",
-    "to_frame": "в кадр", "a_frame": "кадр", "b_frame": "кадр", "parent_number": "родитель",
-    "shot": "шот", "from_shot": "шот", "to_shot": "шот", "node_key": "нода", "step_code": "шаг",
-    "name": "вариант", "hitl_id": "запрос", "group_id": "группа", "ceiling_credits": "лимит, кредитов",
-    "title": "название", "topic": "тема", "content": "текст", "prompt": "заказ", "platforms": "площадки",
-    "image_resolution": "разрешение картинок", "video_resolution": "разрешение видео", "enabled": "включить",
-    "disabled": "отключить", "clear_all": "вся очередь", "method": "метод", "kind": "вид", "type": "тип",
-    "value": "значение", "field": "поле", "key": "ключ", "provider": "провайдер", "reason": "причина",
-    "left_frame_id": "кадр", "right_frame_id": "кадр", "after_frame_id": "после кадра", "model_id": "модель",
-    "topics": "темы", "titles": "названия", "title_prefix": "начало названия", "hero_mode": "герой",
-    "project_ids": "проекты", "workers": "проектов параллельно", "mode": "режим", "append": "дописать",
-    "text": "новый текст", "template_project_id": "образец, проект", "aspect_ratio": "формат кадра",
-    "enable_auto_mode": "включить автопродвижение", "target_node_key": "до ноды", "count": "генераций",
-    "preempt_running": "прервать идущий шаг", "allow_auto_chain": "разрешить цепочку шагов",
-    "target": "цель", "expected_version": "версия", "status": "статус", "limit": "не больше"}
-_SKIP_PARAMS = frozenset({"project_id", "source_path", "data_base64", "filename", "image_generator",
-                          "video_generator", "max_image_ops", "max_video_ops", "min_llm_requests",
-                          "max_llm_requests", "max_input_tokens", "max_output_tokens", "caption",
-                          "expected_digest", "rationale", "tier", "id", "proposal_id", "plan_id",
-                          "change_id", "candidate", "edits", "target_node_type", "estimated_cost"})
+    "frame_number": "кадр",
+    "frame_id": "кадр",
+    "frame_numbers": "кадры",
+    "from_frame": "из кадра",
+    "to_frame": "в кадр",
+    "a_frame": "кадр",
+    "b_frame": "кадр",
+    "parent_number": "родитель",
+    "shot": "шот",
+    "from_shot": "шот",
+    "to_shot": "шот",
+    "node_key": "нода",
+    "step_code": "шаг",
+    "name": "вариант",
+    "hitl_id": "запрос",
+    "group_id": "группа",
+    "ceiling_credits": "лимит, кредитов",
+    "title": "название",
+    "topic": "тема",
+    "content": "текст",
+    "prompt": "заказ",
+    "platforms": "площадки",
+    "image_resolution": "разрешение картинок",
+    "video_resolution": "разрешение видео",
+    "enabled": "включить",
+    "disabled": "отключить",
+    "clear_all": "вся очередь",
+    "method": "метод",
+    "kind": "вид",
+    "type": "тип",
+    "value": "значение",
+    "field": "поле",
+    "key": "ключ",
+    "provider": "провайдер",
+    "reason": "причина",
+    "left_frame_id": "кадр",
+    "right_frame_id": "кадр",
+    "after_frame_id": "после кадра",
+    "model_id": "модель",
+    "topics": "темы",
+    "titles": "названия",
+    "title_prefix": "начало названия",
+    "hero_mode": "герой",
+    "project_ids": "проекты",
+    "workers": "проектов параллельно",
+    "mode": "режим",
+    "append": "дописать",
+    "text": "новый текст",
+    "template_project_id": "образец, проект",
+    "aspect_ratio": "формат кадра",
+    "enable_auto_mode": "включить автопродвижение",
+    "target_node_key": "до ноды",
+    "count": "генераций",
+    "preempt_running": "прервать идущий шаг",
+    "allow_auto_chain": "разрешить цепочку шагов",
+    "target": "цель",
+    "expected_version": "версия",
+    "status": "статус",
+    "limit": "не больше",
+}
+_SKIP_PARAMS = frozenset(
+    {
+        "project_id",
+        "source_path",
+        "data_base64",
+        "filename",
+        "image_generator",
+        "video_generator",
+        "max_image_ops",
+        "max_video_ops",
+        "min_llm_requests",
+        "max_llm_requests",
+        "max_input_tokens",
+        "max_output_tokens",
+        "caption",
+        "expected_digest",
+        "rationale",
+        "tier",
+        "id",
+        "proposal_id",
+        "plan_id",
+        "change_id",
+        "candidate",
+        "edits",
+        "target_node_type",
+        "estimated_cost",
+    }
+)
 _VALUE_RU = {
-    "prompt_text": "текст промта", "prompt_variant": "вариант промта", "node_options": "настройки ноды",
-    "step_params": "параметры шага", "suggestion": "совет", "developer_review": "задача разработчику",
-    "auto": "автоматически", "hero": "с героем", "no_hero": "без героя", "full": "весь конвейер",
-    "until_node": "до ноды", "chat": "в чат", "md": "текст", "json": "данные", "xlsx": "файл Excel",
-    "character": "персонаж", "item": "предмет", "manual": "ручной", "parent": "новая сцена",
-    "child": "шот в сцене", "image": "картинки", "video": "видео", "errors": "только ошибки",
-    "warnings": "ошибки и предупреждения", "all": "все", "open": "открытые"}
+    "prompt_text": "текст промта",
+    "prompt_variant": "вариант промта",
+    "node_options": "настройки ноды",
+    "step_params": "параметры шага",
+    "suggestion": "совет",
+    "developer_review": "задача разработчику",
+    "auto": "автоматически",
+    "hero": "с героем",
+    "no_hero": "без героя",
+    "full": "весь конвейер",
+    "until_node": "до ноды",
+    "chat": "в чат",
+    "md": "текст",
+    "json": "данные",
+    "xlsx": "файл Excel",
+    "character": "персонаж",
+    "item": "предмет",
+    "manual": "ручной",
+    "parent": "новая сцена",
+    "child": "шот в сцене",
+    "image": "картинки",
+    "video": "видео",
+    "errors": "только ошибки",
+    "warnings": "ошибки и предупреждения",
+    "all": "все",
+    "open": "открытые",
+}
 _ENUM_KEYS = frozenset({"kind", "type", "mode", "hero_mode", "status"})
 _TECH_VALUE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
 _MAX_PARAMS_SHOWN = 4
@@ -718,7 +1000,7 @@ _QUOTED_PARAMS = ("title", "topic", "content", "prompt", "name", "topics", "titl
 
 def _short(text: str) -> str:
     text = " ".join(text.split())
-    return text if len(text) <= _VALUE_LIMIT else text[:_VALUE_LIMIT - 3] + "..."
+    return text if len(text) <= _VALUE_LIMIT else text[: _VALUE_LIMIT - 3] + "..."
 
 
 def _param_text(key: str, value: Any, facts: dict | None) -> str:
@@ -742,7 +1024,7 @@ def _param_text(key: str, value: Any, facts: dict | None) -> str:
         value = ", ".join(str(v) for v in items)
     text = " ".join(str(value).split())
     if len(text) > _VALUE_LIMIT:
-        text = text[:_VALUE_LIMIT - 3] + "..."
+        text = text[: _VALUE_LIMIT - 3] + "..."
     if not text:
         return ""
     return f"{label} «{text}»" if key in _QUOTED_PARAMS else f"{label} {text}"
@@ -750,6 +1032,7 @@ def _param_text(key: str, value: Any, facts: dict | None) -> str:
 
 def param_parts_ru(params: dict | None, facts: dict | None = None) -> list[str]:
     from app.services.action_layer.planner_guard import sanitize_text
+
     parts: list[str] = []
     for key, value in (params or {}).items():
         if key in _SKIP_PARAMS or value is None or str(key).startswith("_"):
@@ -781,18 +1064,21 @@ def guard_confirm_question(steps: list[dict], registry: Any, facts: dict | None)
     if len(steps) > 3:
         said += f" и ещё {len(steps) - 3}"
     what = "шаги" if len(steps) > 1 else "шаг"
-    question = (f"Вы хотите: {said}? В запросе нет слов об этом действии, поэтому я не готовлю его сам. "
-                f"Подтвердите, я подготовлю {what}; выполнение будет отдельным подтверждением.")
+    question = (
+        f"Вы хотите: {said}? В запросе нет слов об этом действии, поэтому я не готовлю его сам. "
+        f"Подтвердите, я подготовлю {what}; выполнение будет отдельным подтверждением."
+    )
     return question[:500], [CONFIRM_YES, CONFIRM_NO]
 
 
-
-PROMPT_ACTIONS = frozenset({"prompt.get_master", "prompt.save_master", "prompt.delete_master",
-                            "prompt.create_master"})
+PROMPT_ACTIONS = frozenset(
+    {"prompt.get_master", "prompt.save_master", "prompt.delete_master", "prompt.create_master"}
+)
 
 
 def _variant_names(step: str) -> list[str]:
     from app.services import prompt_library as pl
+
     try:
         return list(pl.list_prompts(step))
     except Exception:
@@ -803,11 +1089,13 @@ def _real_steps(pl) -> list[str]:
     return [s for s in pl.STEP_FOLDERS if s not in pl.ENRICH_STEP_CODES or s == pl.EXCEL_GPT_UNIFIED_STEP]
 
 
-def resolve_prompt_target(action_id: str, params: dict, facts: dict | None,
-                          text: str) -> tuple[dict, list[str], tuple[str, list[str]] | None]:
+def resolve_prompt_target(
+    action_id: str, params: dict, facts: dict | None, text: str
+) -> tuple[dict, list[str], tuple[str, list[str]] | None]:
     if not facts or action_id not in PROMPT_ACTIONS:
         return params, [], None
     from app.services import prompt_library as pl
+
     out, notes = dict(params), []
     overrides = facts.get("prompt_overrides") or {}
     words = set(_words(text))
@@ -832,18 +1120,24 @@ def resolve_prompt_target(action_id: str, params: dict, facts: dict | None,
         return out, notes, ("Для какого шага мастер-промт?", list(overrides)[:4])
     out["step_code"] = step
     if action_id in ("prompt.get_master", "prompt.save_master") and not out.get("name"):
-        out["name"] = overrides.get(step) or (facts.get("defaults") or {}).get("prompt_variant") \
-            or pl.DEFAULT_NAME
+        out["name"] = (
+            overrides.get(step) or (facts.get("defaults") or {}).get("prompt_variant") or pl.DEFAULT_NAME
+        )
         notes.append(f"name={out['name']}")
     if action_id == "prompt.delete_master":
         name = out.get("name")
         if name == pl.DEFAULT_NAME or (name and name == overrides.get(step)):
             others = [n for n in _variant_names(step) if n not in (pl.DEFAULT_NAME, overrides.get(step))]
-            return out, notes, (
-                f"Вариант «{name}» нужен шагу {step} (выбран в проекте или default), удалять его нельзя. "
-                "Выберите другой вариант или сначала смените выбранный.", others[:4])
+            return (
+                out,
+                notes,
+                (
+                    f"Вариант «{name}» нужен шагу {step} (выбран в проекте или default), удалять его нельзя. "
+                    "Выберите другой вариант или сначала смените выбранный.",
+                    others[:4],
+                ),
+            )
     return out, notes, None
-
 
 
 _UPLOAD_NOTE = "Шаг без source_path, data_base64, filename: файл прикрепит человек, сервер спросит сам."
@@ -852,25 +1146,25 @@ ACTION_NOTES: dict[str, str] = {
     "montage.swap_slots": "Только обмен двух слотов местами («поменяй местами»); перенос одной картинки в другой слот - montage.move_image. Шот не назван: шот 1 у обоих; у обоих по 2 шота с такими файлами - два шага (1-1, 2-2).",
     "montage.swap_shots": "kind не пиши, если не сказано (по умолчанию картинки и видео).",
     "montage.queue_ops": "Постановка в очередь; apply_queue добавь вторым шагом ТОЛЬКО если в запросе сказано "
-                         "выполнить/применить/запустить очередь. shot не пиши, если у кадра один шот; "
-                         "файлы в обоих шотах и шот не назван - вопрос (шот 1/шот 2/оба шота).",
+    "выполнить/применить/запустить очередь. shot не пиши, если у кадра один шот; "
+    "файлы в обоих шотах и шот не назван - вопрос (шот 1/шот 2/оба шота).",
     "montage.cancel_queue_ops": "ops: операции кадра из queue.ops [кадр,тип,шот]; их нет - вопрос. Вся очередь - clear_all, только при словах «всю/все/целиком/очисти/сбрось/обнули», иначе вопрос. Только убрать: «отработай/выполни/примени очередь» - apply_queue. Отмена без названной цели (ни очереди, ни кадра) - вопрос.",
     "montage.apply_queue": "«Выполни/примени/запусти/отработай очередь» = это действие; «только для кадра N» = frame_numbers. max_*_ops опусти (сервер возьмёт по очереди), кроме названного предела «не больше N».",
     "montage.improve_scene": "max_image_ops опусти. frame_id головы сцены. Только «улучши/прокачай/оживи»; «пересобери/перепиши сцену под запрос X» - generate_scene.",
     "montage.generate_scene": "Пишет текст сцены по заказу: prompt = заказ из запроса. frame_id головы сцены. «Пересобери/перепиши сцену под запрос X» - это действие (картинок нет, improve_scene не нужен).",
     "montage.generate_scene_images": "Рисует картинки уже существующих кадров, сцену не переписывает; "
-                                     "scene_prompt опусти.",
+    "scene_prompt опусти.",
     "montage.delete_frame": "Любой кадр («удали кадр N»); delete_child_frame только если сказано "
-                            "«дочерний»/«шот сцены».",
+    "«дочерний»/«шот сцены».",
     "montage.delete_image": "Файлы в обоих шотах и шот не назван - вопрос.",
     "montage.delete_video": "Файлы в обоих шотах и шот не назван - вопрос.",
     "montage.merge_scenes": "left/right = frame_id голов соседних сцен.",
     "montage.explode_scene": "frame_id головы сцены.",
     "montage.split_scene": "frame_id отделяемого кадра (не головы сцены).",
     "montage.set_coverage": "Крупность/ракурс/движение/свет/стык кадра БЕЗ слов «меню съёмки» - это действие "
-                            "(крупность = type coverage_plan); с «меню съёмки» - shot.edit_field. plan ОБЩИЙ|ДАЛЬНИЙ|СРЕДНИЙ|КРУПНЫЙ|ДЕТАЛЬ; angle фронт|3/4|с плеча|сверху|снизу|макро; "
-                            "move статика|наезд|отъезд|панорама|следование|ручная; light дневной|ночной|закат|"
-                            "рассвет|контровой|холодный верхний|туман. parent_number только для coverage_kind.",
+    "(крупность = type coverage_plan); с «меню съёмки» - shot.edit_field. plan ОБЩИЙ|ДАЛЬНИЙ|СРЕДНИЙ|КРУПНЫЙ|ДЕТАЛЬ; angle фронт|3/4|с плеча|сверху|снизу|макро; "
+    "move статика|наезд|отъезд|панорама|следование|ручная; light дневной|ночной|закат|"
+    "рассвет|контровой|холодный верхний|туман. parent_number только для coverage_kind.",
     "project.resume": "ceiling_credits только если человек назвал сумму; иначе опусти, не спрашивай.",
     "project.continue_pipeline": "ceiling_credits только если человек назвал сумму; иначе опусти, не спрашивай. «Пусть дальше идёт само/автоматически» без «продолжи/запусти» - project.set_auto_mode.",
     "publish.send": "caption сервер подставит. platforms только названные (yt_shorts = ютуб/шортс; ig_reels = инстаграм/рилс; vk_clips = вк/клипы); не названы - опусти.",
@@ -887,31 +1181,31 @@ ACTION_NOTES: dict[str, str] = {
     "node.run_step": "Лимиты опусти: сервер подставит из расчёта по проекту (названный «не больше N» - тоже оставь, сервер возьмёт из слов).",
     "node.reset_from_step": "step_code: названный шаг; «текущий» = defaults.step_code.",
     "media.release_unknown": "key (clip_005, frame_012, predmet3, music) и provider (kie|outsee) назови из запроса; "
-                             "reason = слова человека о сверке кабинета провайдера, не выдумывай; нет причины, "
-                             "провайдера или ключа - вопрос.",
+    "reason = слова человека о сверке кабинета провайдера, не выдумывай; нет причины, "
+    "провайдера или ключа - вопрос.",
     "change.apply": "«предложение N» = proposals n=N: его id и digest.",
     "change.rollback": "target и v из versions (свежая цель нужного вида); нет данных - вопрос.",
     "change.get": "target из versions (свежая цель нужного вида) или proposal_id.",
     "change.propose": "Нужно содержимое (candidate); без него - вопрос.",
     "prompt.get_master": "step_code: из слов запроса («шага script»), иначе где есть названный вариант; "
-                         "неясно - вопрос. name: выбранный в проекте (prompts.<шаг>.sel) или default.",
+    "неясно - вопрос. name: выбранный в проекте (prompts.<шаг>.sel) или default.",
     "prompt.save_master": "step_code как у get_master; content = новый текст из запроса. «Замени/поменяй главный (мастер) промт шага X»; имя варианта не названо - name опусти.",
     "prompt.create_master": "step_code из слов запроса; name и content из запроса, иначе вопрос.",
     "prompt.delete_master": "step_code из слов запроса или где есть вариант; выбранный в проекте и default "
-                            "не удаляются. «Вариант W из библиотеки шага X выкинь/удали» - это действие, не group.delete.",
+    "не удаляются. «Вариант W из библиотеки шага X выкинь/удали» - это действие, не group.delete.",
     "shot.edit_cell_voiceover": "parent_uuid из frame_uuids.",
     "shot.edit_field": "frame_uuid из frame_uuids. Только если в запросе есть «меню съёмки»/«ячейка»: тогда "
-                       "движение/крупность/стык = field move/size/stitch. Без этих слов - montage.set_coverage. "
-                       "Убрать одного персонажа/предмет по id - montage.unlink_ref.",
+    "движение/крупность/стык = field move/size/stitch. Без этих слов - montage.set_coverage. "
+    "Убрать одного персонажа/предмет по id - montage.unlink_ref.",
     "shot.add_cell": "Позицию не спрашивай: без before_index ячейка идёт в конец.",
     "group.get": "«Открой описание/состав группы X» = group_id X (group.list не нужен).",
     "kill_switch.engage": "Только аварийный стоп всех платных вызовов (слова «аварийный», «рубильник», "
-                          "«экстренно», причина инцидента). Просто «останови/стоп/хватит» = project.stop.",
+    "«экстренно», причина инцидента). Просто «останови/стоп/хватит» = project.stop.",
     "media.get_recovery_assessment": "Состояние задач провайдера медиа-ноды (node_type: videos|music|hero|...). "
-                                     "Про Outsee и галерею - montage.recover_status / recover_outsee.",
+    "Про Outsee и галерею - montage.recover_status / recover_outsee.",
     "montage.recover_status": "Статус забора из галереи Outsee: без параметров. «Забери/вытащи» из галереи - recover_outsee.",
     "hitl.regenerate": "hitl_id = номер запроса из просьбы; ceiling_credits = названная сумма, иначе опусти. "
-                       "Ничего больше не спрашивай.",
+    "Ничего больше не спрашивай.",
     "project.create": "Только при «создай/новый проект»; title из просьбы (в кавычках или после «проект»); hero_mode: «с героем» = hero, «без героя» = no_hero, иначе опусти. aspect_ratio: «вертикальный»/9:16 = 9:16, «горизонтальный»/16:9 = 16:9; модели и разрешения - только названные, иначе опусти (дефолты Studio). Название и тема открытого проекта без этих слов - patch_settings.",
     "montage.get_cost_basis": "Модель оплаты и очередь правок одним вызовом. Просили и доску, и цену очереди - два шага; только цену - get_board не нужен. «Идёт ли очередь» - apply_status.",
     "node.get_run_cost_basis": "Только цена запуска одной ноды (node_key); цена очереди или проекта - montage.get_cost_basis.",
@@ -951,97 +1245,529 @@ def with_defaults_note(explanation: str, notes: list[str]) -> str:
     return (explanation.strip() + " " + tail).strip()[:1000]
 
 
-
-_DELETE = ("удал", "убер", "убра", "сотр", "снес", "снос", "выкин", "очист", "delete", "remove",
-           "стер", "стир", "выбрас", "выброс", "вычист", "затр",
-           "нафиг", "нахер", "нахрен", "долой", "корзин", "почист", "подчист",
-           "дроп", "избав", "выпил", "ликвидир", "прибер", "прибр", "уничтож", "вымар",
-           "вычерк", "вырез", "выреж", "утиль", "утилиз", "оставляй", "зачист")
+_DELETE = (
+    "удал",
+    "убер",
+    "убра",
+    "сотр",
+    "снес",
+    "снос",
+    "выкин",
+    "очист",
+    "delete",
+    "remove",
+    "стер",
+    "стир",
+    "выбрас",
+    "выброс",
+    "вычист",
+    "затр",
+    "нафиг",
+    "нахер",
+    "нахрен",
+    "долой",
+    "корзин",
+    "почист",
+    "подчист",
+    "дроп",
+    "избав",
+    "выпил",
+    "ликвидир",
+    "прибер",
+    "прибр",
+    "уничтож",
+    "вымар",
+    "вычерк",
+    "вырез",
+    "выреж",
+    "утиль",
+    "утилиз",
+    "оставляй",
+    "зачист",
+)
 
 GUARD_HINTS: dict[str, tuple[str, ...]] = {
-    "montage.run_montage": ("смонтир", "монтир", "монтаж", "собер", "собери", "собра", "сборк",
-                            "рендер", "финальн", "собират", "пересобер", "пересобр"),
-    "montage.align_audio": ("разбер", "разбор", "таймкод", "выровн", "синхрон", "asr", "nemo",
-                            "align", "разметь", "подгон", "подстро", "привяз", "пауз"),
-    "montage.apply_queue": ("примен", "apply", "запуст", "сгенер", "генерир", "генерац", "выполн", "прогон",
-                            "прогна", "отработ", "обработ", "пусти", "стартуй", "жми", "нажм", "гони", "погон"),
-    "montage.generate_scene_images": ("сгенер", "генерир", "нарису", "созда", "сдела", "отрис", "дорис",
-                                      "изобрази", "накид", "намал", "набросай", "нарис", "перегенер",
-                                      "перерис", "пересозд"),
-    "montage.generate_scene": ("сгенер", "генерир", "придум", "пересобер", "сочин", "созда",
-                               "напиш", "пересоздай", "перепиш", "перепис", "сочини", "заказ"),
-    "montage.improve_scene": ("улучш", "лучше", "живее", "динамик", "динамич", "доработ", "усиль", "прокач",
-                              "оживи", "оживл", "детализ", "обогат", "отполир"),
-    "montage.suggest_scene_variants": ("вариант", "подбер", "предлож", "иде", "подскаж", "накид", "наброс",
-                                       "формат", "шаблон"),
-    "montage.recover_outsee": ("outsee", "аутси", "галере", "забер", "восстанов", "достань", "достан", "вытащ"),
+    "montage.run_montage": (
+        "смонтир",
+        "монтир",
+        "монтаж",
+        "собер",
+        "собери",
+        "собра",
+        "сборк",
+        "рендер",
+        "финальн",
+        "собират",
+        "пересобер",
+        "пересобр",
+    ),
+    "montage.align_audio": (
+        "разбер",
+        "разбор",
+        "таймкод",
+        "выровн",
+        "синхрон",
+        "asr",
+        "nemo",
+        "align",
+        "разметь",
+        "подгон",
+        "подстро",
+        "привяз",
+        "пауз",
+    ),
+    "montage.apply_queue": (
+        "примен",
+        "apply",
+        "запуст",
+        "сгенер",
+        "генерир",
+        "генерац",
+        "выполн",
+        "прогон",
+        "прогна",
+        "отработ",
+        "обработ",
+        "пусти",
+        "стартуй",
+        "жми",
+        "нажм",
+        "гони",
+        "погон",
+    ),
+    "montage.generate_scene_images": (
+        "сгенер",
+        "генерир",
+        "нарису",
+        "созда",
+        "сдела",
+        "отрис",
+        "дорис",
+        "изобрази",
+        "накид",
+        "намал",
+        "набросай",
+        "нарис",
+        "перегенер",
+        "перерис",
+        "пересозд",
+    ),
+    "montage.generate_scene": (
+        "сгенер",
+        "генерир",
+        "придум",
+        "пересобер",
+        "сочин",
+        "созда",
+        "напиш",
+        "пересоздай",
+        "перепиш",
+        "перепис",
+        "сочини",
+        "заказ",
+    ),
+    "montage.improve_scene": (
+        "улучш",
+        "лучше",
+        "живее",
+        "динамик",
+        "динамич",
+        "доработ",
+        "усиль",
+        "прокач",
+        "оживи",
+        "оживл",
+        "детализ",
+        "обогат",
+        "отполир",
+    ),
+    "montage.suggest_scene_variants": (
+        "вариант",
+        "подбер",
+        "предлож",
+        "иде",
+        "подскаж",
+        "накид",
+        "наброс",
+        "формат",
+        "шаблон",
+    ),
+    "montage.recover_outsee": (
+        "outsee",
+        "аутси",
+        "галере",
+        "забер",
+        "восстанов",
+        "достань",
+        "достан",
+        "вытащ",
+    ),
     "montage.merge_scenes": ("объедин", "склей", "слей", "слить", "соедин", "склеи", "слит", "сплав"),
-    "montage.split_scene": ("раздел", "отдел", "раздро", "разбей", "разбить", "раздр", "ножниц",
-                            "отреж", "разреж", "режь", "оторв", "вынес", "вынь", "выдел", "отсоедин",
-                            "отдельн", "правее", "правей", "начат", "начин", "начн"),
-    "montage.explode_scene": ("раздел", "разбей", "разбить", "кажд", "отдельн", "раздро", "разнес",
-                              "разлож", "одиночн", "дроби"),
-    "montage.delete_frame": _DELETE, "montage.delete_child_frame": _DELETE,
-    "montage.delete_image": _DELETE, "montage.delete_video": _DELETE,
-    "montage.delete_manual_ref": _DELETE, "group.delete": _DELETE,
-    "prompt.delete_master": _DELETE, "node.clear_check_agent": _DELETE + ("сброс", "сбрас"),
+    "montage.split_scene": (
+        "раздел",
+        "отдел",
+        "раздро",
+        "разбей",
+        "разбить",
+        "раздр",
+        "ножниц",
+        "отреж",
+        "разреж",
+        "режь",
+        "оторв",
+        "вынес",
+        "вынь",
+        "выдел",
+        "отсоедин",
+        "отдельн",
+        "правее",
+        "правей",
+        "начат",
+        "начин",
+        "начн",
+    ),
+    "montage.explode_scene": (
+        "раздел",
+        "разбей",
+        "разбить",
+        "кажд",
+        "отдельн",
+        "раздро",
+        "разнес",
+        "разлож",
+        "одиночн",
+        "дроби",
+    ),
+    "montage.delete_frame": _DELETE,
+    "montage.delete_child_frame": _DELETE,
+    "montage.delete_image": _DELETE,
+    "montage.delete_video": _DELETE,
+    "montage.delete_manual_ref": _DELETE,
+    "group.delete": _DELETE,
+    "prompt.delete_master": _DELETE,
+    "node.clear_check_agent": _DELETE + ("сброс", "сбрас"),
     "prompt.create_master": ("созда", "добав", "завед", "вариант"),
     "frame.restore": ("восстанов", "верн", "снимк", "архив"),
     "group.restore": ("восстанов", "верн", "снимк", "архив"),
     "prompt.restore_master": ("восстанов", "верн", "снимк", "архив"),
-    "node.run_step": ("запуст", "прогон", "прогна", "старт", "run", "выполн", "гони", "пуск", "жми", "нажм",
-                      "погон"),
-    "node.reset_from_step": ("сброс", "сбрас", "обнул", "заново", "перезапуст", "reset", "откат", "откач",
-                             "отмот", "вернись", "верни", "пересчит", "нуля", "сотр", "стер", "очист", "удал",
-                             "зачист", "вычист", "обнул"),
+    "node.run_step": (
+        "запуст",
+        "прогон",
+        "прогна",
+        "старт",
+        "run",
+        "выполн",
+        "гони",
+        "пуск",
+        "жми",
+        "нажм",
+        "погон",
+    ),
+    "node.reset_from_step": (
+        "сброс",
+        "сбрас",
+        "обнул",
+        "заново",
+        "перезапуст",
+        "reset",
+        "откат",
+        "откач",
+        "отмот",
+        "вернись",
+        "верни",
+        "пересчит",
+        "нуля",
+        "сотр",
+        "стер",
+        "очист",
+        "удал",
+        "зачист",
+        "вычист",
+        "обнул",
+    ),
     "project.continue_pipeline": ("продолж", "дальш", "далее", "конвейер", "пайплайн", "запуст"),
     "project.resume": ("возобнов", "продолж", "сними", "снять", "resume", "разблок", "выход", "выйд", "снят"),
     "project.reload_xlsx": ("xlsx", "эксел", "excel", "таблиц", "перечит", "перезагруз", "обнов"),
-    "prompt.save_master": ("сохран", "перепиш", "измен", "правк", "обнов", "замен", "запиш",
-                           "поправ", "исправ", "отредакт", "помен", "смен", "переде", "напиш", "перезапис", "перезапиш"),
-    "media.resume_poll": ("докач", "возобнов", "дожд", "скач", "подтян", "доведи", "забер", "достан",
-                          "продолж", "опрос", "дотян", "заверш"),
-    "media.get_recovery_assessment": ("провер", "задач", "kie", "киэ", "кие", "состоян", "статус", "восстанов",
-                                      "зависл", "завис", "докач", "возобнов", "узна", "посмотр", "покаж", "оцен", "стряс", "случил",
-                                      "вытян", "вытащ", "реальн", "возможн"),
-    "media.release_unknown": ("блок", "разблок", "неизвестн", "исход", "release", "unknown", "отпуст",
-                              "освобод", "ключ", "списан"),
-    "media.list_unknown_outcomes": ("блок", "заблок", "неизвестн", "неясн", "неопредел", "исход", "потерян",
-                                    "застр", "unknown"),
+    "prompt.save_master": (
+        "сохран",
+        "перепиш",
+        "измен",
+        "правк",
+        "обнов",
+        "замен",
+        "запиш",
+        "поправ",
+        "исправ",
+        "отредакт",
+        "помен",
+        "смен",
+        "переде",
+        "напиш",
+        "перезапис",
+        "перезапиш",
+    ),
+    "media.resume_poll": (
+        "докач",
+        "возобнов",
+        "дожд",
+        "скач",
+        "подтян",
+        "доведи",
+        "забер",
+        "достан",
+        "продолж",
+        "опрос",
+        "дотян",
+        "заверш",
+    ),
+    "media.get_recovery_assessment": (
+        "провер",
+        "задач",
+        "kie",
+        "киэ",
+        "кие",
+        "состоян",
+        "статус",
+        "восстанов",
+        "зависл",
+        "завис",
+        "докач",
+        "возобнов",
+        "узна",
+        "посмотр",
+        "покаж",
+        "оцен",
+        "стряс",
+        "случил",
+        "вытян",
+        "вытащ",
+        "реальн",
+        "возможн",
+    ),
+    "media.release_unknown": (
+        "блок",
+        "разблок",
+        "неизвестн",
+        "исход",
+        "release",
+        "unknown",
+        "отпуст",
+        "освобод",
+        "ключ",
+        "списан",
+    ),
+    "media.list_unknown_outcomes": (
+        "блок",
+        "заблок",
+        "неизвестн",
+        "неясн",
+        "неопредел",
+        "исход",
+        "потерян",
+        "застр",
+        "unknown",
+    ),
     "change.apply": ("примен", "apply", "внес", "внеси", "примени", "прмен", "накат", "активир"),
     "change.rollback": ("откат", "откач", "верни", "вернуть", "назад", "отмен", "прежн"),
-    "project.set_auto_mode": ("автопродвиж", "автореж", "автомат", "auto", "само", "самост", "автопил",
-                              "автоход", "автозапуск", "автопрогон"),
-    "step.run_step": ("запуст", "прогон", "прогна", "старт", "run", "выполн", "гони", "пуск", "сгенер",
-                      "генерир", "запусти", "погон"),
-    "hitl.approve": ("одобр", "подтверд", "принят", "принять", "утверд", "согласу", "approve", "аппрув", "апрув",
-                    "приним", "прими", "принял", "устраив", "годит", "положит", "позитив"),
-    "hitl.reject": ("отклон", "забрак", "отказ", "reject", "завал", "зареж", "отшей", "бракуй", "подход",
-                    "нрав", "негодн", "отрицат", "негатив"),
-    "hitl.regenerate": ("перегенер", "заново", "переделай", "переделат", "повтор", "regenerate", "пересозд",
-                        "пересдел", "созда", "сгенер"),
-    "history.rollback": ("откат", "откач", "верни", "вернуть", "назад", "отмен", "прежн", "rollback",
-                         "отмот", "возвр", "снимк"),
+    "project.set_auto_mode": (
+        "автопродвиж",
+        "автореж",
+        "автомат",
+        "auto",
+        "само",
+        "самост",
+        "автопил",
+        "автоход",
+        "автозапуск",
+        "автопрогон",
+    ),
+    "step.run_step": (
+        "запуст",
+        "прогон",
+        "прогна",
+        "старт",
+        "run",
+        "выполн",
+        "гони",
+        "пуск",
+        "сгенер",
+        "генерир",
+        "запусти",
+        "погон",
+    ),
+    "hitl.approve": (
+        "одобр",
+        "подтверд",
+        "принят",
+        "принять",
+        "утверд",
+        "согласу",
+        "approve",
+        "аппрув",
+        "апрув",
+        "приним",
+        "прими",
+        "принял",
+        "устраив",
+        "годит",
+        "положит",
+        "позитив",
+    ),
+    "hitl.reject": (
+        "отклон",
+        "забрак",
+        "отказ",
+        "reject",
+        "завал",
+        "зареж",
+        "отшей",
+        "бракуй",
+        "подход",
+        "нрав",
+        "негодн",
+        "отрицат",
+        "негатив",
+    ),
+    "hitl.regenerate": (
+        "перегенер",
+        "заново",
+        "переделай",
+        "переделат",
+        "повтор",
+        "regenerate",
+        "пересозд",
+        "пересдел",
+        "созда",
+        "сгенер",
+    ),
+    "history.rollback": (
+        "откат",
+        "откач",
+        "верни",
+        "вернуть",
+        "назад",
+        "отмен",
+        "прежн",
+        "rollback",
+        "отмот",
+        "возвр",
+        "снимк",
+    ),
     "massfactory.start": ("фабрик", "массов", "серию", "серия", "партию", "партия", "запуст", "старт"),
-    "queue.enqueue_many": ("очеред", "постав", "запуст", "старт", "параллел", "пачк", "пакет", "все проект",
-                           "queue", "enqueue"),
-    "project.upload_xlsx": ("xlsx", "эксел", "excel", "таблиц", "загруз", "залей", "залить", "upload",
-                            "замен", "подмен", "использ", "приложен"),
-    "hero.replace_image": ("загруз", "залей", "залить", "upload", "замен", "подмен", "положи", "прикреп",
-                           "использ", "приложен", "постав", "закин", "помен", "подстав", "смен", "обнов", "аттач"),
+    "queue.enqueue_many": (
+        "очеред",
+        "постав",
+        "запуст",
+        "старт",
+        "параллел",
+        "пачк",
+        "пакет",
+        "все проект",
+        "queue",
+        "enqueue",
+    ),
+    "project.upload_xlsx": (
+        "xlsx",
+        "эксел",
+        "excel",
+        "таблиц",
+        "загруз",
+        "залей",
+        "залить",
+        "upload",
+        "замен",
+        "подмен",
+        "использ",
+        "приложен",
+    ),
+    "hero.replace_image": (
+        "загруз",
+        "залей",
+        "залить",
+        "upload",
+        "замен",
+        "подмен",
+        "положи",
+        "прикреп",
+        "использ",
+        "приложен",
+        "постав",
+        "закин",
+        "помен",
+        "подстав",
+        "смен",
+        "обнов",
+        "аттач",
+    ),
     "storage.clear_files": _DELETE + ("сброс", "сбрас"),
-    "publish.send": ("опублик", "публикац", "публик", "выложи", "выкла", "запост", "постни", "publish",
-                     "разошли", "отправ", "залей", "размест", "выгруз", "выпуст", "релиз"),
+    "publish.send": (
+        "опублик",
+        "публикац",
+        "публик",
+        "выложи",
+        "выкла",
+        "запост",
+        "постни",
+        "publish",
+        "разошли",
+        "отправ",
+        "залей",
+        "размест",
+        "выгруз",
+        "выпуст",
+        "релиз",
+    ),
     "montage.set_anchors": ("якор", "anchor", "заякор"),
     "montage.set_scene_chain": ("цепоч", "последовательн", "разбер", "действи"),
-    "node.set_model_costly": ("модел", "нейросет", "агент", "llm", "gpt", "claude", "gemini", "grok",
-                              "смен", "помен", "постав"),
+    "node.set_model_costly": (
+        "модел",
+        "нейросет",
+        "агент",
+        "llm",
+        "gpt",
+        "claude",
+        "gemini",
+        "grok",
+        "смен",
+        "помен",
+        "постав",
+    ),
     "node.set_params_costly": ("включ", "провер", "ветк", "повтор", "чин", "safe"),
 }
-_UPLOAD_HINT = ("загруз", "загруж", "upload", "залей", "залить", "залив", "прикреп", "подмен", "замен", "положи",
-                "добав", "постав", "закин", "кинь", "брос", "помест", "встав", "использ", "прилож",
-                "вложен", "вложи", "возьм", "подгруз", "закач", "держи", "скин", "засун", "помен", "подстав", "смен",
-                "аттач", "прикрепл")
+_UPLOAD_HINT = (
+    "загруз",
+    "загруж",
+    "upload",
+    "залей",
+    "залить",
+    "залив",
+    "прикреп",
+    "подмен",
+    "замен",
+    "положи",
+    "добав",
+    "постав",
+    "закин",
+    "кинь",
+    "брос",
+    "помест",
+    "встав",
+    "использ",
+    "прилож",
+    "вложен",
+    "вложи",
+    "возьм",
+    "подгруз",
+    "закач",
+    "держи",
+    "скин",
+    "засун",
+    "помен",
+    "подстав",
+    "смен",
+    "аттач",
+    "прикрепл",
+)
 for _aid in UPLOAD_ACTIONS:
     GUARD_HINTS.setdefault(_aid, _UPLOAD_HINT)
 
@@ -1051,8 +1777,11 @@ def is_guarded(spec: Any) -> bool:
 
 
 def unguarded_risky(registry: Any) -> list[str]:
-    return [s.id for s in registry.list()
-            if (s.risk in ("paid", "destructive") or s.is_job) and s.id not in GUARD_HINTS]
+    return [
+        s.id
+        for s in registry.list()
+        if (s.risk in ("paid", "destructive") or s.is_job) and s.id not in GUARD_HINTS
+    ]
 
 
 _TYPO_EQUAL_MIN = 5
@@ -1063,25 +1792,57 @@ def _typo_stem(word: str, stem: str) -> bool:
     if n < 4 or len(word) < n or (len(word) == n and n < _TYPO_EQUAL_MIN) or word[0] != stem[0]:
         return False
     head = word[:n]
-    return sum(1 for a, b in zip(head, stem) if a != b) == 1
+    return sum(1 for a, b in zip(head, stem, strict=False) if a != b) == 1
 
 
 def _has_stem_or_typo(words: list[str], stems: tuple[str, ...]) -> bool:
     return _has_stem(words, stems) or any(_typo_stem(w, s) for w in words for s in stems)
 
 
-_READ_WORDS = ("покаж", "посмотр", "открой", "прочит", "выведи", "скаж", "какой", "какая", "какие",
-               "есть", "сколько", "статус", "провер", "найди", "список")
+_READ_WORDS = (
+    "покаж",
+    "посмотр",
+    "открой",
+    "прочит",
+    "выведи",
+    "скаж",
+    "какой",
+    "какая",
+    "какие",
+    "есть",
+    "сколько",
+    "статус",
+    "провер",
+    "найди",
+    "список",
+)
 
 
 _NOT_WORDS = frozenset({"не", "нет", "ни"})
-_AGREE_STEMS = ("приним", "принят", "принял", "прими", "одобр", "утверд", "подтверд", "согласу", "согласен",
-                "согласн", "устраив", "годит", "годен", "подходит", "подойд")
-_FILE_SOURCE = re.compile(r"(?<![а-я])(?:из|с|от)\s+(?:файл|компьютер|диск|пк|флешк)\w*|(?<![а-я])файл(?:ом|а|у)(?![а-я])")
+_AGREE_STEMS = (
+    "приним",
+    "принят",
+    "принял",
+    "прими",
+    "одобр",
+    "утверд",
+    "подтверд",
+    "согласу",
+    "согласен",
+    "согласн",
+    "устраив",
+    "годит",
+    "годен",
+    "подходит",
+    "подойд",
+)
+_FILE_SOURCE = re.compile(
+    r"(?<![а-я])(?:из|с|от)\s+(?:файл|компьютер|диск|пк|флешк)\w*|(?<![а-я])файл(?:ом|а|у)(?![а-я])"
+)
 
 
 def _negated_words(words: list[str]) -> list[str]:
-    return [w for prev, w in zip(words, words[1:]) if prev in _NOT_WORDS]
+    return [w for prev, w in zip(words, words[1:], strict=False) if prev in _NOT_WORDS]
 
 
 def request_hints_action(text: str, spec: Any) -> bool:
@@ -1099,38 +1860,57 @@ def request_hints_action(text: str, spec: Any) -> bool:
         return True
     if _has_stem(words, _DEICTIC_OBJECT):
         return bool(_PLACE_TARGET.search(_norm(text))) or _has_stem(words, nouns)
-    return (_has_stem(words, nouns) and bool(_PLACE_TARGET.search(_norm(text)))
-            and not _has_stem(words, _READ_WORDS))
+    return (
+        _has_stem(words, nouns)
+        and bool(_PLACE_TARGET.search(_norm(text)))
+        and not _has_stem(words, _READ_WORDS)
+    )
 
 
-
-_EMERGENCY = re.compile(r"аварийн|рубильник|\bkill\b|экстренн|авари|стоп-?кран|утечк|взлом|компромет"
-                        r"|все\s+платн|платн\w+\s+(?:вызов|запрос|трат|генерац)|сжига|двойн\w+\s+списан"
-                        r"|красн\w*\s+кнопк|(?:бюджет|деньг\w*)\s+теч|теч\w+\s+(?:бюджет|деньг\w*)")
+_EMERGENCY = re.compile(
+    r"аварийн|рубильник|\bkill\b|экстренн|авари|стоп-?кран|утечк|взлом|компромет"
+    r"|все\s+платн|платн\w+\s+(?:вызов|запрос|трат|генерац)|сжига|двойн\w+\s+списан"
+    r"|красн\w*\s+кнопк|(?:бюджет|деньг\w*)\s+теч|теч\w+\s+(?:бюджет|деньг\w*)"
+)
 _MENU_WORDS = re.compile(r"меню|съем|ячейк")
 _EDIT_FIELD_TO_COVERAGE = {"size": "coverage_plan", "move": "coverage_move", "stitch": "coverage_stitch"}
-_RUN_WORDS = re.compile(r"запуст|стартуй|старт|прогон|прогна|гони|пуск|выполн|сгенер|рендер|погнал|жми|нажм|сейчас")
+_RUN_WORDS = re.compile(
+    r"запуст|стартуй|старт|прогон|прогна|гони|пуск|выполн|сгенер|рендер|погнал|жми|нажм|сейчас"
+)
 _IMG_RES_TIGHT = re.compile(r"(?<![\d.])([1-4])[kк](?![a-zа-я0-9])")
 _IMG_RES = re.compile(r"(?<![\d.])([1-4])\s*[kк](?![a-zа-я])")
 _VID_RES = re.compile(r"(?<!\d)(720|1080)\s*[pр]?(?!\d)")
-_RUN_KEYS = frozenset({"project_id", "step_code", "image_resolution", "video_resolution",
-                       "image_generator", "video_generator"})
+_RUN_KEYS = frozenset(
+    {"project_id", "step_code", "image_resolution", "video_resolution", "image_generator", "video_generator"}
+)
 
 
-def pick_similar_action(action_id: str, params: dict, text: str, facts: dict | None,
-                        offered: Any, registry: Any) -> tuple[str, dict, str] | None:
+def pick_similar_action(
+    action_id: str, params: dict, text: str, facts: dict | None, offered: Any, registry: Any
+) -> tuple[str, dict, str] | None:
     low = _norm(text)
-    if action_id == "step.run_step" and params.get("step_code") in ("img", "video")             and set(params) <= _RUN_KEYS and not _RUN_WORDS.search(low):
+    if (
+        action_id == "step.run_step"
+        and params.get("step_code") in ("img", "video")
+        and set(params) <= _RUN_KEYS
+        and not _RUN_WORDS.search(low)
+    ):
         image = params["step_code"] == "img"
         m = (_IMG_RES if image else _VID_RES).search(low)
         target = "project.patch_settings"
         if m and registry.find(target) is not None and (offered is None or target in offered):
-            key, val = ("image_resolution", f"{m.group(1)}k") if image else ("video_resolution", f"{m.group(1)}p")
+            key, val = (
+                ("image_resolution", f"{m.group(1)}k") if image else ("video_resolution", f"{m.group(1)}p")
+            )
             out = {key: val}
             if "project_id" in params:
                 out["project_id"] = params["project_id"]
             if not registry.validate_params(target, {"project_id": 1, **out}):
-                return target, out, f"настройка проекта ({key}={val}) вместо запуска шага (слов о запуске нет)"
+                return (
+                    target,
+                    out,
+                    f"настройка проекта ({key}={val}) вместо запуска шага (слов о запуске нет)",
+                )
     if action_id == "kill_switch.engage" and not _EMERGENCY.search(low):
         stop = "project.stop"
         if registry.find(stop) is not None and (offered is None or stop in offered):
@@ -1139,10 +1919,16 @@ def pick_similar_action(action_id: str, params: dict, text: str, facts: dict | N
     if action_id == "shot.edit_field" and not _MENU_WORDS.search(low) and facts:
         ctype = _EDIT_FIELD_TO_COVERAGE.get(str(params.get("field")))
         target = "montage.set_coverage"
-        number = next((int(n) for n, u in (facts.get("frame_uuids") or {}).items()
-                       if u == params.get("frame_uuid")), None)
-        if (ctype and number is not None and registry.find(target) is not None
-                and (offered is None or target in offered)):
+        number = next(
+            (int(n) for n, u in (facts.get("frame_uuids") or {}).items() if u == params.get("frame_uuid")),
+            None,
+        )
+        if (
+            ctype
+            and number is not None
+            and registry.find(target) is not None
+            and (offered is None or target in offered)
+        ):
             out = {"frame_number": number, "type": ctype, "value": params.get("value", "")}
             if "project_id" in params:
                 out["project_id"] = params["project_id"]
@@ -1150,11 +1936,28 @@ def pick_similar_action(action_id: str, params: dict, text: str, facts: dict | N
     return create_instead_of_settings(action_id, params, text, facts, offered, registry)
 
 
-_SHOW_WORDS = ("покаж", "посмотр", "открой", "открыт", "выведи", "вывед", "прочит", "глян", "взгляни", "загляни",
-               "какие", "какой", "список", "дай")
+_SHOW_WORDS = (
+    "покаж",
+    "посмотр",
+    "открой",
+    "открыт",
+    "выведи",
+    "вывед",
+    "прочит",
+    "глян",
+    "взгляни",
+    "загляни",
+    "какие",
+    "какой",
+    "список",
+    "дай",
+)
 _COMPANIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("project.continue_pipeline", "project.set_auto_mode",
-     ("продолж", "запуст", "конвейер", "пайплайн", "возобнов", "стартуй", "поехали", "жми", "нажм")),
+    (
+        "project.continue_pipeline",
+        "project.set_auto_mode",
+        ("продолж", "запуст", "конвейер", "пайплайн", "возобнов", "стартуй", "поехали", "жми", "нажм"),
+    ),
     ("montage.list_ref_assets", "montage.link_ref", _SHOW_WORDS),
     ("montage.get_board", "step.get_run_cost_basis", _SHOW_WORDS),
     ("montage.get_board", "node.get_run_cost_basis", _SHOW_WORDS),
@@ -1180,8 +1983,9 @@ def unhinted_titles(steps: list[dict], text: str, registry: Any) -> list[str]:
     return out
 
 
-def drop_unrequested(steps: list[dict], text: str, registry: Any,
-                     confirmed: bool = False) -> tuple[list[dict], list[str]]:
+def drop_unrequested(
+    steps: list[dict], text: str, registry: Any, confirmed: bool = False
+) -> tuple[list[dict], list[str]]:
     dropped: set[int] = set()
     for i, st in enumerate(steps):
         spec = registry.find(st["action_id"])
@@ -1211,13 +2015,18 @@ def drop_unrequested(steps: list[dict], text: str, registry: Any,
     return kept, names
 
 
-
 _FORMATS = {
-    "montage.upload_image": "PNG", "montage.upload_video": "MP4", "montage.upload_voice": "аудио",
-    "montage.upload_music": "аудио", "montage.upload_ref": "картинка",
-    "node.upload_file": "xlsx, txt или md", "node.upload_check_agent": "txt или md",
-    "project.upload_xlsx": "xlsx", "hero.replace_image": "картинка (png, jpg, webp)",
-    "storage.upload_file": "xlsx, txt, md или json"}
+    "montage.upload_image": "PNG",
+    "montage.upload_video": "MP4",
+    "montage.upload_voice": "аудио",
+    "montage.upload_music": "аудио",
+    "montage.upload_ref": "картинка",
+    "node.upload_file": "xlsx, txt или md",
+    "node.upload_check_agent": "txt или md",
+    "project.upload_xlsx": "xlsx",
+    "hero.replace_image": "картинка (png, jpg, webp)",
+    "storage.upload_file": "xlsx, txt, md или json",
+}
 
 
 def _target_text(action_id: str, p: dict) -> str:
@@ -1241,15 +2050,30 @@ def _target_text(action_id: str, p: dict) -> str:
 
 def upload_clarification(action_id: str, params: dict, title: str) -> dict:
     clean = {k: v for k, v in params.items() if k not in FILE_PARAMS and k != "project_id"}
-    question = (f"Прикрепите файл кнопкой загрузки. Он нужен для действия «{title}» "
-                f"({_target_text(action_id, clean)}; формат: {_FORMATS.get(action_id, 'файл')}).")
-    return {"question": question[:500], "options": ["Прикрепить файл"],
-            "attachment": {"action_id": action_id, "params": clean,
-                           "formats": _FORMATS.get(action_id, "файл")}}
+    question = (
+        f"Прикрепите файл кнопкой загрузки. Он нужен для действия «{title}» "
+        f"({_target_text(action_id, clean)}; формат: {_FORMATS.get(action_id, 'файл')})."
+    )
+    return {
+        "question": question[:500],
+        "options": ["Прикрепить файл"],
+        "attachment": {"action_id": action_id, "params": clean, "formats": _FORMATS.get(action_id, "файл")},
+    }
 
 
-_UPLOAD_INTENT = ("загруз", "загруж", "залей", "залить", "залив", "upload", "прикреп", "подгруз", "положи",
-                  "подмен", "закач")
+_UPLOAD_INTENT = (
+    "загруз",
+    "загруж",
+    "залей",
+    "залить",
+    "залив",
+    "upload",
+    "прикреп",
+    "подгруз",
+    "положи",
+    "подмен",
+    "закач",
+)
 _NODE_WORDS = ("нод", "n_", "хранилищ")
 _UPLOAD_NOUNS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("montage.upload_ref", ("реф", "референс"), ()),
@@ -1283,15 +2107,18 @@ _PLACE_TARGET = re.compile(r"\b(?:в|во|на|для)\s+(?:кадр|слот|ш
 def deictic_file_request(text: str) -> str:
     norm = _norm(text)
     words = _words(norm)
-    if not (_has_stem(words, _DEICTIC_OBJECT) and _has_stem(words, _PLACE_VERBS)
-            and _PLACE_TARGET.search(norm)):
+    if not (
+        _has_stem(words, _DEICTIC_OBJECT) and _has_stem(words, _PLACE_VERBS) and _PLACE_TARGET.search(norm)
+    ):
         return ""
     if any(_has_stem(words, nouns) for aid, nouns, _ex in _UPLOAD_NOUNS if aid != "node.upload_file"):
         return ""
     m = re.search(r"(?:кадр\w*|слот\w*|шот\w*)\s*(?:№|#|номер\s*)?(\d+)", norm)
     target = f" в кадр {m.group(1)}" if m else ""
-    return (f"Какой файл поставить{target}? Прикрепите файл кнопкой загрузки (картинка, видео или аудио) "
-            "и повторите запрос.")
+    return (
+        f"Какой файл поставить{target}? Прикрепите файл кнопкой загрузки (картинка, видео или аудио) "
+        "и повторите запрос."
+    )
 
 
 def upload_params_from_text(action_id: str, text: str) -> dict:
@@ -1319,12 +2146,48 @@ def clean_options(raw: Any) -> list[str]:
     return out
 
 
-
-_SAFETY_STEMS = ("удал", "убер", "убра", "сотр", "снес", "снос", "выкин", "очист", "сброс", "сбрас",
-                 "обнул", "перезапис", "причин", "подтверд", "согласи", "увер", "точно", "сумм",
-                 "сколько", "кредит", "бюджет", "лимит", "стоим", "цен", "оплат", "плат", "баланс",
-                 "потрат", "блокир", "разблок", "откат", "откач", "delete", "remove", "reason",
-                 "approve", "confirm", "destroy", "budget", "cost")
+_SAFETY_STEMS = (
+    "удал",
+    "убер",
+    "убра",
+    "сотр",
+    "снес",
+    "снос",
+    "выкин",
+    "очист",
+    "сброс",
+    "сбрас",
+    "обнул",
+    "перезапис",
+    "причин",
+    "подтверд",
+    "согласи",
+    "увер",
+    "точно",
+    "сумм",
+    "сколько",
+    "кредит",
+    "бюджет",
+    "лимит",
+    "стоим",
+    "цен",
+    "оплат",
+    "плат",
+    "баланс",
+    "потрат",
+    "блокир",
+    "разблок",
+    "откат",
+    "откач",
+    "delete",
+    "remove",
+    "reason",
+    "approve",
+    "confirm",
+    "destroy",
+    "budget",
+    "cost",
+)
 _DEICTIC = ("этот", "эт", "текущ", "выбран", "выделен", "данн", "нынешн")
 
 
@@ -1357,8 +2220,10 @@ def resolve_clarification(question: str, request_text: str, facts: dict | None) 
         img = _has_stem(qw, ("картин", "изображ", "фото", "image", "кадр"))
         return ["video"] if vid and not img else ["image"] if img and not vid else ["image", "video"]
 
-    for key, stems in (("generator", ("генератор", "модел", "generator")),
-                       ("resolution", ("разрешен", "качеств", "resolution"))):
+    for key, stems in (
+        ("generator", ("генератор", "модел", "generator")),
+        ("resolution", ("разрешен", "качеств", "resolution")),
+    ):
         if _has_stem(qw, stems):
             for kind in kinds():
                 name = f"{kind}_{key}"
@@ -1366,9 +2231,13 @@ def resolve_clarification(question: str, request_text: str, facts: dict | None) 
                     found.append({"param": name, "value": defaults[name], "source": "default"})
     if _has_stem(qw, ("проект", "project")) and _has_stem(qw, ("как", "котор", "which", "what")):
         found.append({"param": "project_id", "value": facts["project_id"], "source": "context"})
-    if _has_stem(qw, ("геро", "hero")) and _has_stem(qw, ("режим", "mode")) and not _has_stem(rw, ("геро", "hero")):
+    if (
+        _has_stem(qw, ("геро", "hero"))
+        and _has_stem(qw, ("режим", "mode"))
+        and not _has_stem(rw, ("геро", "hero"))
+    ):
         found.append({"param": "hero_mode", "value": "auto", "source": "default"})
-    if (_has_stem(qw, ("метод", "method")) and _has_stem(qw, ("аудио", "разбор", "выравн", "таймкод"))):
+    if _has_stem(qw, ("метод", "method")) and _has_stem(qw, ("аудио", "разбор", "выравн", "таймкод")):
         found.append({"param": "method", "value": "nemo_auto", "source": "default"})
     selected = facts.get("selected") or {}
     if selected and _has_stem(rw, _DEICTIC) and _has_stem(qw, ("кадр", "сцен", "frame", "scene")):

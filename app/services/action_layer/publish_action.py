@@ -4,18 +4,29 @@ import hashlib
 
 from app.services.action_layer.context import ActionCallError, ActionContext
 from app.services.action_layer.spec import (
-    RISK_DESTRUCTIVE, ActionRegistry, ActionSpec, JobState, Precondition)
+    RISK_DESTRUCTIVE,
+    ActionRegistry,
+    ActionSpec,
+    JobState,
+    Precondition,
+)
 
 PUBLISH_STEP = "publish"
 MAX_CAPTION = 2200
 
-PLATFORM_TITLES = {"tiktok": "TikTok", "yt_shorts": "YouTube Shorts", "ig_reels": "Instagram Reels",
-                   "vk_clips": "VK Клипы", "likee": "Likee"}
+PLATFORM_TITLES = {
+    "tiktok": "TikTok",
+    "yt_shorts": "YouTube Shorts",
+    "ig_reels": "Instagram Reels",
+    "vk_clips": "VK Клипы",
+    "likee": "Likee",
+}
 _PID = {"type": "integer", "minimum": 1}
 
 
 def registry_platforms() -> list[str]:
     from app.bots.publishers import ALL_PUBLISHERS
+
     return [cls.platform for cls in ALL_PUBLISHERS]
 
 
@@ -29,7 +40,11 @@ _FACTS: dict[int, dict] = {}
 def _remember_facts(project_id: int, facts: object) -> None:
     got = {}
     if isinstance(facts, dict):
-        got = {k: facts.get(k) for k in ("sha256", "caption_sha256") if isinstance(facts.get(k), str) and facts.get(k)}
+        got = {
+            k: facts.get(k)
+            for k in ("sha256", "caption_sha256")
+            if isinstance(facts.get(k), str) and facts.get(k)
+        }
     if got:
         if len(_FACTS) > 64:
             _FACTS.clear()
@@ -41,6 +56,7 @@ def _remember_facts(project_id: int, facts: object) -> None:
 def account_text(platforms: list[str] | None = None) -> str:
     from app.services import publish_accounts as pa
     from app.settings import settings
+
     try:
         cfg = pa.load_accounts()
     except pa.AccountsConfigError as exc:
@@ -69,14 +85,15 @@ def effects_text(params: dict) -> str:
     caption = params.get("caption", "")
     csha = facts.get("caption_sha256") or hashlib.sha256(str(caption).encode("utf-8")).hexdigest()
     sha = facts.get("sha256") or "не определён (финальный файл не найден)"
-    return (f"Готовый ролик проекта {params.get('project_id')} будет ОПУБЛИКОВАН на площадки: {names}. "
-            f"Аккаунт: {account_text(list(params.get('platforms') or []))}. Подпись дословно: «{caption}». "
-            f"Файл (sha256): {sha}. Подпись (sha256): {csha}. "
-            "Опубликованное нельзя отозвать из студии; если сбой случится после нажатия «Опубликовать», "
-            "автоповтора не будет и итог нужно проверить на площадке вручную. "
-            "Клик возможен только после отдельного подтверждения человека на каждую площадку в панели "
-            "«Публикации» для этого файла и этой подписи.")
-
+    return (
+        f"Готовый ролик проекта {params.get('project_id')} будет ОПУБЛИКОВАН на площадки: {names}. "
+        f"Аккаунт: {account_text(list(params.get('platforms') or []))}. Подпись дословно: «{caption}». "
+        f"Файл (sha256): {sha}. Подпись (sha256): {csha}. "
+        "Опубликованное нельзя отозвать из студии; если сбой случится после нажатия «Опубликовать», "
+        "автоповтора не будет и итог нужно проверить на площадке вручную. "
+        "Клик возможен только после отдельного подтверждения человека на каждую площадку в панели "
+        "«Публикации» для этого файла и этой подписи."
+    )
 
 
 async def _project(ctx: ActionContext, params: dict) -> dict:
@@ -86,7 +103,9 @@ async def _project(ctx: ActionContext, params: dict) -> dict:
 async def _pre_project(ctx: ActionContext, params: dict) -> str | None:
     await _project(ctx, params)
     try:
-        _remember_facts(params["project_id"], await ctx.call("GET", f"/projects/{params['project_id']}/publications"))
+        _remember_facts(
+            params["project_id"], await ctx.call("GET", f"/projects/{params['project_id']}/publications")
+        )
     except Exception:
         _remember_facts(params["project_id"], None)
     return None
@@ -95,20 +114,26 @@ async def _pre_project(ctx: ActionContext, params: dict) -> str | None:
 async def _not_managed(ctx: ActionContext, params: dict) -> str | None:
     try:
         from app.services.actions_v1 import managed_project_enabled
+
         managed = await managed_project_enabled(params["project_id"])
     except Exception as exc:
         return f"не удалось проверить управляемый режим ({type(exc).__name__})"
     if managed:
-        return ("проект под управляемым (агентским) режимом Actions-v1: публикацию запускает только "
-                "человек, управляемый запуск публикации отключён")
+        return (
+            "проект под управляемым (агентским) режимом Actions-v1: публикацию запускает только "
+            "человек, управляемый запуск публикации отключён"
+        )
     return None
 
 
 async def _publish_enabled(ctx: ActionContext, params: dict) -> str | None:
     from app.settings import settings
+
     if not settings.social_publish_enabled:
-        return ("автопубликация выключена (SOCIAL_PUBLISH_ENABLED=false): шаг ничего не отправит "
-                "и проект не станет опубликованным")
+        return (
+            "автопубликация выключена (SOCIAL_PUBLISH_ENABLED=false): шаг ничего не отправит "
+            "и проект не станет опубликованным"
+        )
     return None
 
 
@@ -124,8 +149,10 @@ async def _caption_matches(ctx: ActionContext, params: dict) -> str | None:
     if not actual.strip():
         return "подпись проекта пуста: публикация не начнётся"
     if params.get("caption") != actual:
-        return ("подпись в плане не совпадает с темой проекта (шаг публикует тему проекта); "
-                "составьте план заново, чтобы увидеть актуальную подпись")
+        return (
+            "подпись в плане не совпадает с темой проекта (шаг публикует тему проекта); "
+            "составьте план заново, чтобы увидеть актуальную подпись"
+        )
     return None
 
 
@@ -139,8 +166,10 @@ async def _platforms_expected(ctx: ActionContext, params: dict) -> str | None:
     want = _pending_platforms(await _project(ctx, params))
     got = list(params.get("platforms") or [])
     if sorted(got) != sorted(want):
-        return ("шаг публикации обходит все площадки, где публикации ещё нет: "
-                f"{', '.join(want) or 'таких нет'}; в плане указано {', '.join(got) or 'пусто'}")
+        return (
+            "шаг публикации обходит все площадки, где публикации ещё нет: "
+            f"{', '.join(want) or 'таких нет'}; в плане указано {', '.join(got) or 'пусто'}"
+        )
     return None
 
 
@@ -154,14 +183,14 @@ PRECONDITIONS = (
 )
 
 
-
 async def _publish_send(ctx: ActionContext, params: dict) -> dict:
     for pre in PRECONDITIONS[1:]:
         reason = await pre.check(ctx, params)
         if reason:
             raise ActionCallError(409, f"{pre.id}: {reason}")
-    await ctx.call("POST", f"/projects/{params['project_id']}/steps/{PUBLISH_STEP}/run",
-                   params={"mode": "resume"})
+    await ctx.call(
+        "POST", f"/projects/{params['project_id']}/steps/{PUBLISH_STEP}/run", params={"mode": "resume"}
+    )
     return {"started": True, "platforms": list(params["platforms"])}
 
 
@@ -176,30 +205,57 @@ async def _publish_poll(ctx: ActionContext, params: dict, started: dict) -> JobS
     result = {"final_status": status, "published": sorted(published), "unconfirmed": sorted(unconfirmed)}
     if status == "published":
         return JobState(done=True, ok=True, note="все площадки подтвердили публикацию", result=result)
-    return JobState(done=True, ok=False, result=result,
-                    error="публикация подтверждена не везде: проверьте журнал публикаций и площадки вручную")
+    return JobState(
+        done=True,
+        ok=False,
+        result=result,
+        error="публикация подтверждена не везде: проверьте журнал публикаций и площадки вручную",
+    )
 
 
 def _specs() -> list[ActionSpec]:
     platforms = registry_platforms()
-    schema = {"type": "object", "additionalProperties": False,
-              "required": ["project_id", "platforms", "caption"],
-              "properties": {
-                  "project_id": _PID,
-                  "platforms": {"type": "array", "minItems": 1, "maxItems": len(platforms),
-                                "items": {"type": "string", "enum": platforms},
-                                "description": "площадки публикации"},
-                  "caption": {"type": "string", "minLength": 1, "maxLength": MAX_CAPTION,
-                              "description": "подпись: тема проекта"}}}
-    return [ActionSpec(
-        id="publish.send", title_ru="Опубликовать ролик на площадки",
-        description_ru="Публикует готовый ролик проекта на площадки через профиль MoreLogin с подписью "
-                       "из темы проекта. Нельзя отозвать из студии; после сбоя автоповтора нет. "
-                       "Только по подтверждению человека.",
-        params_schema=schema, executor=_publish_send, poll=_publish_poll, poll_interval_s=5.0,
-        risk=RISK_DESTRUCTIVE, destructive=True, reversible=False, idempotent=False,
-        destructive_effects=effects_text, preconditions=PRECONDITIONS,
-        tags=("publish", "social"))]
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["project_id", "platforms", "caption"],
+        "properties": {
+            "project_id": _PID,
+            "platforms": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": len(platforms),
+                "items": {"type": "string", "enum": platforms},
+                "description": "площадки публикации",
+            },
+            "caption": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MAX_CAPTION,
+                "description": "подпись: тема проекта",
+            },
+        },
+    }
+    return [
+        ActionSpec(
+            id="publish.send",
+            title_ru="Опубликовать ролик на площадки",
+            description_ru="Публикует готовый ролик проекта на площадки через профиль MoreLogin с подписью "
+            "из темы проекта. Нельзя отозвать из студии; после сбоя автоповтора нет. "
+            "Только по подтверждению человека.",
+            params_schema=schema,
+            executor=_publish_send,
+            poll=_publish_poll,
+            poll_interval_s=5.0,
+            risk=RISK_DESTRUCTIVE,
+            destructive=True,
+            reversible=False,
+            idempotent=False,
+            destructive_effects=effects_text,
+            preconditions=PRECONDITIONS,
+            tags=("publish", "social"),
+        )
+    ]
 
 
 def register_publish_actions(registry: ActionRegistry) -> None:

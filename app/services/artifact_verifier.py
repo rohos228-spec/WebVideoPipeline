@@ -47,6 +47,7 @@ def _subtitle_info(path, expected):
     text = path.read_text(encoding="utf-8-sig")
     if "[Events]" not in text or "ScriptType: v4.00+" not in text:
         raise ValueError("invalid ASS structure")
+
     def timestamp(raw):
         if not re.fullmatch(r"\d+:\d{2}:\d{2}\.\d{2}", raw):
             raise ValueError("invalid ASS timestamp")
@@ -54,6 +55,7 @@ def _subtitle_info(path, expected):
         if int(m) >= 60 or float(s) >= 60:
             raise ValueError("invalid timestamp range")
         return int(h) * 3600 + int(m) * 60 + float(s)
+
     intervals = []
     for line in text.splitlines():
         if not line.startswith("Dialogue:"):
@@ -82,6 +84,7 @@ async def verify_artifact(path: Path, *, root: Path, kind: str, expected=None) -
     try:
         if kind == "image":
             from PIL import Image
+
             with Image.open(target) as picture:
                 if picture.format not in {"PNG", "JPEG", "WEBP", "GIF"}:
                     raise ValueError("unsupported image format")
@@ -97,12 +100,22 @@ async def verify_artifact(path: Path, *, root: Path, kind: str, expected=None) -
             if not shutil.which("ffprobe"):
                 return {**result, "reason": "ffprobe_unavailable"}
             process = await asyncio.create_subprocess_exec(
-                "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe",
-                "-show_streams", "-show_format", "-of", "json", str(target),
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                "ffprobe",
+                "-v",
+                "error",
+                "-protocol_whitelist",
+                "file,pipe",
+                "-show_streams",
+                "-show_format",
+                "-of",
+                "json",
+                str(target),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
             try:
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=20)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except (TimeoutError, asyncio.CancelledError):
                 process.kill()
                 await process.communicate()
                 raise
@@ -111,14 +124,19 @@ async def verify_artifact(path: Path, *, root: Path, kind: str, expected=None) -
             data = json.loads(stdout)
             streams = data.get("streams", [])
             types = {s.get("codec_type") for s in streams}
-            required = {"audio"} if kind == "audio" else {"video", "audio"} if kind == "assembly" else {"video"}
+            required = (
+                {"audio"} if kind == "audio" else {"video", "audio"} if kind == "assembly" else {"video"}
+            )
             if not required <= types:
                 raise ValueError("required media stream missing")
             duration = float(data.get("format", {}).get("duration", 0))
             if not math.isfinite(duration) or duration <= 0:
                 raise ValueError("invalid duration")
-            info = {"format": data.get("format", {}).get("format_name"), "duration": duration,
-                    "streams": sorted(t for t in types if t)}
+            info = {
+                "format": data.get("format", {}).get("format_name"),
+                "duration": duration,
+                "streams": sorted(t for t in types if t),
+            }
             if not info["format"]:
                 raise ValueError("container format unknown")
             if "video" in types:
@@ -131,8 +149,10 @@ async def verify_artifact(path: Path, *, root: Path, kind: str, expected=None) -
         for key in ("width", "height"):
             if key in expected and expected[key] != info.get(key):
                 raise ValueError("dimensions differ from contract")
-        if "duration" in info and not expected.get("min_duration", 0) <= info["duration"] <= expected.get("max_duration", float("inf")):
+        if "duration" in info and not expected.get("min_duration", 0) <= info["duration"] <= expected.get(
+            "max_duration", float("inf")
+        ):
             raise ValueError("duration differs from contract")
         return {**result, **info, "status": "passed"}
-    except (ValueError, OSError, SyntaxError, asyncio.TimeoutError) as exc:
+    except (TimeoutError, ValueError, OSError, SyntaxError) as exc:
         return {**result, "status": "failed", "reason": type(exc).__name__}

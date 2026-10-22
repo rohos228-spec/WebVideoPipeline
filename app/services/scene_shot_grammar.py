@@ -145,7 +145,6 @@ def visible_len(text: str) -> int:
     return len("".join(c for c in (text or "") if unicodedata.category(c) != "Mn"))
 
 
-
 _CUTAWAY_ROLES = frozenset({"перебивка", "реакция", "cutaway"})
 _CUTAWAY_OBJS = frozenset({"лицо", "взгляд"})
 _CUTAWAY_STEP_RE = re.compile(
@@ -294,11 +293,7 @@ def merge_same_place_scenes(action: str) -> str:
     merged: list[dict[str, Any]] = []
     for scene in chain:
         place = str(scene.get("place") or "").strip().casefold()
-        if (
-            merged
-            and place
-            and place == str(merged[-1].get("place") or "").strip().casefold()
-        ):
+        if merged and place and place == str(merged[-1].get("place") or "").strip().casefold():
             prev = merged[-1]
             steps = split_scene_action(str(prev.get("action") or ""))
             steps.extend(split_scene_action(str(scene.get("action") or "")))
@@ -446,9 +441,7 @@ def choose_plan_for_situation(
     if position == "вход" and _SIT_ENTER_RE.search(blob):
         return "ОБЩИЙ"
     if obj == "предмет" or (_SIT_PROP_RE.search(blob) and obj in {"", "тело", "предмет"}):
-        if _SIT_PROP_RE.search(blob) and not re.search(
-            r"тянет|тянется|подход", blob, re.IGNORECASE
-        ):
+        if _SIT_PROP_RE.search(blob) and not re.search(r"тянет|тянется|подход", blob, re.IGNORECASE):
             return "ДЕТАЛЬ"
         return "СРЕДНИЙ"
     if obj == "лицо" or _SIT_REACT_RE.search(blob):
@@ -478,9 +471,7 @@ def camera_pack(
 ) -> dict[str, Any]:
     key = obj if obj in _PACKS else "тело"
     pack = dict(_PACKS[key])
-    plan = choose_plan_for_situation(
-        obj=obj, place_new=place_new, position=position, step=step
-    )
+    plan = choose_plan_for_situation(obj=obj, place_new=place_new, position=position, step=step)
     pack["план"] = plan
     if plan in {"ДАЛЬНИЙ", "ОБЩИЙ"}:
         pack["линза_мм"] = 24
@@ -677,8 +668,6 @@ def count_action_steps(action: str) -> int:
     return n
 
 
-
-
 def _prefer_full_action_text(*candidates: str) -> str:
     """Выбрать полную цепь ОДНОЙ сцены, не stub и не dump всех сцен."""
     best = ""
@@ -716,11 +705,7 @@ def merge_gpt_shots_with_action(
     if not dict_shots:
         return None, "GPT не вернул кадры — нужен добор или повтор ноды"
     # убрать наследие авто-«общий вид …»
-    cleaned = [
-        s
-        for s in dict_shots
-        if not str(s.get("действие") or "").casefold().startswith("общий вид")
-    ]
+    cleaned = [s for s in dict_shots if not str(s.get("действие") or "").casefold().startswith("общий вид")]
     if not cleaned:
         cleaned = dict_shots
     steps_raw = count_action_steps(action)
@@ -746,9 +731,7 @@ def merge_gpt_shots_with_action(
             "repair VO, без дописывания шагов действия"
         )
         return cleaned, soft
-    canonical = expand_action_to_shots(
-        action, cell_number=cell_number, prev_place=prev_place
-    )
+    canonical = expand_action_to_shots(action, cell_number=cell_number, prev_place=prev_place)
     if not canonical:
         _mark_over_shot_limit(cleaned, expected if expected > 0 else cap)
         return cleaned, None
@@ -802,12 +785,7 @@ def merge_gpt_shots_with_action(
         n_can = max(1, len(canonical))
         covered = n_can - len(missing)
         ratio = covered / float(n_can)
-        mild = (
-            len(cleaned) >= 1
-            and len(missing) <= 2
-            and ratio >= 0.7
-            and covered >= 1
-        )
+        mild = len(cleaned) >= 1 and len(missing) <= 2 and ratio >= 0.7 and covered >= 1
         if mild:
             soft = (
                 f"WARN underproduction: GPT не покрыл {len(missing)} шагов действия "
@@ -816,11 +794,7 @@ def merge_gpt_shots_with_action(
             )
             keep = out if out else cleaned
             return keep, soft
-        return None, (
-            "GPT не покрыл шаги действия: "
-            + "; ".join(missing[:5])
-            + " — нужен добор GPT"
-        )
+        return None, ("GPT не покрыл шаги действия: " + "; ".join(missing[:5]) + " — нужен добор GPT")
     # если GPT дал больше кадров (осознанные вставки) — дописать хвост GPT
     if len(cleaned) > len(out):
         seen_ids = {str(r.get("id") or "") for r in out}
@@ -866,9 +840,7 @@ def apply_grammar_to_ops(ops: list[Any], frames: list[dict[str, Any]]) -> None:
             vo = str(fr.get("voiceover_text") or fr.get("закадр") or "").strip()
             attrs = fr.get("attrs") if isinstance(fr.get("attrs"), dict) else {}
             if not vo and isinstance(attrs, dict):
-                vo = str(
-                    attrs.get("закадр") or attrs.get("voiceover_text") or ""
-                ).strip()
+                vo = str(attrs.get("закадр") or attrs.get("voiceover_text") or "").strip()
         if action and isinstance(shots, list) and shots:
             num = int(fr.get("number") or 1)
             merged, err = merge_gpt_shots_with_action(
@@ -890,17 +862,13 @@ def apply_grammar_to_ops(ops: list[Any], frames: list[dict[str, Any]]) -> None:
                 shots = merged
         elif action and (not isinstance(shots, list) or len(shots) < 1):
             fields["_shots_incomplete"] = (
-                "GPT не вернул кадры — нужен добор или повтор ноды "
-                "(код не разворачивает шаги действие молча)"
+                "GPT не вернул кадры — нужен добор или повтор ноды (код не разворачивает шаги действие молча)"
             )
         if isinstance(shots, list) and shots:
             # Пустой закадр у части кадров — норма (пауза/перебивка, промт §4).
             # Раскладываем VO по кадрам, только если GPT не дал закадр ни одному
             # кадру; иначе куски ложились поверх уже разложенных — дубли.
-            missing_vo = not any(
-                isinstance(s, dict) and str(s.get("закадр") or "").strip()
-                for s in shots
-            )
+            missing_vo = not any(isinstance(s, dict) and str(s.get("закадр") or "").strip() for s in shots)
             if vo and missing_vo:
                 pieces = _split_vo_for_steps(vo, len(shots))
                 for shot, piece in zip(shots, pieces, strict=False):
@@ -934,8 +902,10 @@ def _fill_missing_camera(shots: list[Any], *, prev_place: str = "") -> None:
         place_new = bool(place) and place.casefold() != last_place
         if i == 0 and not place:
             place_new = not last_place
-        if place_new and prev is not None and is_threshold_step(
-            str(prev.get("действие") or prev.get("action") or "")
+        if (
+            place_new
+            and prev is not None
+            and is_threshold_step(str(prev.get("действие") or prev.get("action") or ""))
         ):
             place_new = False
         pos = str(shot.get("позиция") or "") or _position(i, n, obj, place_new)
@@ -1026,9 +996,7 @@ def _frame_action(op: dict[str, Any], frame: dict[str, Any]) -> str:
     )
 
 
-def align_shots_to_action_chain(
-    ops: list[Any], frames: list[dict[str, Any]]
-) -> int:
+def align_shots_to_action_chain(ops: list[Any], frames: list[dict[str, Any]]) -> int:
     """Убрать кадры чужой комнаты. Кадры того же места, даже вне цепи, остаются."""
     by_uid = {
         str(fr.get("uuid") or "").strip(): fr
@@ -1101,7 +1069,6 @@ def scene_script_text(place: str, action: str) -> str:
     return " ".join(bits)
 
 
-
 def repair_shot_vo_lengths(shots: list[Any], vo: str) -> list[str]:
     """Перерезать закадр НА МЕСТЕ (тот же список кадров ячейки), без дублей.
 
@@ -1163,9 +1130,12 @@ def repair_shot_vo_lengths(shots: list[Any], vo: str) -> list[str]:
             continue
         if not empties:
             # Нет пустого слота: хвост — в начало следующего куска, если влезет.
-            if nxt_i is not None and len(parts) == 2 and visible_len(
-                _join(parts[1], _vo(shots[nxt_i]))
-            ) <= SHOT_VO_MAX and visible_len(parts[0]) >= SHOT_VO_MIN:
+            if (
+                nxt_i is not None
+                and len(parts) == 2
+                and visible_len(_join(parts[1], _vo(shots[nxt_i]))) <= SHOT_VO_MAX
+                and visible_len(parts[0]) >= SHOT_VO_MIN
+            ):
                 shot["закадр"] = parts[0]
                 shots[nxt_i]["закадр"] = _join(parts[1], _vo(shots[nxt_i]))
                 warnings.append(f"кадр[{idx}] закадр {n}: хвост перенесён в следующий кусок")
@@ -1258,13 +1228,8 @@ def shots_grammar_reason(shots: list[Any], vo: str, uid: str = "") -> str | None
     prefix = f"uuid {uid[:8]}: " if uid else ""
     if not shots:
         return f"{prefix}пустые кадры"
-    if not any(
-        isinstance(s, dict) and str(s.get("закадр") or "").strip() for s in shots
-    ):
-        return (
-            f"{prefix}кадр пустой закадр "
-            "— у каждого кадра свой кусок"
-        )
+    if not any(isinstance(s, dict) and str(s.get("закадр") or "").strip() for s in shots):
+        return f"{prefix}кадр пустой закадр — у каждого кадра свой кусок"
     stems: set[str] = set()
     prev: dict[str, Any] | None = None
     for shot in shots:
@@ -1282,9 +1247,7 @@ def shots_grammar_reason(shots: list[Any], vo: str, uid: str = "") -> str | None
         plan = str(shot.get("план") or "")
         if obj == "лицо" and mm in (18, 24):
             return f"{prefix}лицо нельзя на {mm}mm"
-        if obj == "предмет" and "из-за плеча" in str(
-            shot.get("ракурс") or shot.get("точка") or ""
-        ):
+        if obj == "предмет" and "из-за плеча" in str(shot.get("ракурс") or shot.get("точка") or ""):
             return f"{prefix}предмет нельзя OTS"
         if obj == "место" and mm in (85, 135) and "КРУПН" in plan.upper():
             return f"{prefix}место нельзя крупным {mm}mm"
@@ -1301,24 +1264,14 @@ def shots_grammar_reason(shots: list[Any], vo: str, uid: str = "") -> str | None
                     f"(разрежь, не вали весь VO; норма {SHOT_VO_MIN}–{SHOT_VO_MAX})"
                 )
             if n < SHOT_VO_CUTAWAY_MIN and not (cutaway or cell_short):
-                return (
-                    f"{prefix}кадр закадр {n} симв. "
-                    f"(<{SHOT_VO_CUTAWAY_MIN} только у перебивки/реакции)"
-                )
-            if (
-                n < SHOT_VO_MIN
-                and not cutaway
-                and not cell_short
-            ):
+                return f"{prefix}кадр закадр {n} симв. (<{SHOT_VO_CUTAWAY_MIN} только у перебивки/реакции)"
+            if n < SHOT_VO_MIN and not cutaway and not cell_short:
                 return (
                     f"{prefix}кадр закадр {n} симв. "
                     f"(норма {SHOT_VO_MIN}–{SHOT_VO_MAX}; "
                     f"перебивка {SHOT_VO_CUTAWAY_MIN}–{SHOT_VO_CUTAWAY_MAX})"
                 )
-            if (
-                cutaway
-                and SHOT_VO_CUTAWAY_MIN <= n <= SHOT_VO_CUTAWAY_MAX
-            ):
+            if cutaway and SHOT_VO_CUTAWAY_MIN <= n <= SHOT_VO_CUTAWAY_MAX:
                 pass  # ок: перебивка 10–30
             elif cutaway and n < SHOT_VO_CUTAWAY_MIN:
                 pass  # ок: короткий эмо/реакция кадр
@@ -1349,6 +1302,7 @@ def shots_grammar_reason(shots: list[Any], vo: str, uid: str = "") -> str | None
 
 # ---- R-VO-SENTENCE (c61): закадр режется ТОЛЬКО по концу предложения ----
 import re as _re
+
 _SENT_END = _re.compile(r'(?<=[.!?…])["»)]*\s+(?=["«(]?[A-ZА-ЯЁ0-9—–-])')
 _END_OK = _re.compile(r'[.!?…]["»)]*\s*$')
 
@@ -1360,7 +1314,7 @@ def split_vo_sentences(vo):
         return []
     out, pos = [], 0
     for m in _SENT_END.finditer(t):
-        out.append(t[pos:m.start()].strip())
+        out.append(t[pos : m.start()].strip())
         pos = m.end()
     out.append(t[pos:].strip())
     return [s for s in out if s]
@@ -1458,8 +1412,11 @@ def _char_patterns(cards, scene_ids=None):
     если в сцене есть вариант родителя, а самого родителя нет — имя родителя → id варианта."""
     by = {str(c.get("id") or c.get("code") or "").strip(): c for c in cards or []}
     scene = [str(x).strip() for x in (scene_ids or []) if str(x).strip()]
-    parent = {cid: str(c.get("правила") or "").strip() for cid, c in by.items()
-              if str(c.get("правила") or "").strip() in by and str(c.get("правила") or "").strip() != cid}
+    parent = {
+        cid: str(c.get("правила") or "").strip()
+        for cid, c in by.items()
+        if str(c.get("правила") or "").strip() in by and str(c.get("правила") or "").strip() != cid
+    }
     out = []
     for cid, c in by.items():
         if cid in parent:
@@ -1486,7 +1443,7 @@ def _norm_scene_ids(scene_ids):
     if scene_ids is None:
         return None
     if isinstance(scene_ids, str):
-        return [x for x in re.findall(r'c\d+', scene_ids)]
+        return [x for x in re.findall(r"c\d+", scene_ids)]
     return [str(x).strip() for x in scene_ids if str(x).strip()]
 
 
@@ -1504,7 +1461,7 @@ def ensure_character_ids(shots, cards, scene_ids=None):
             if not isinstance(txt, str) or not txt:
                 continue
             new = txt
-            for cid, nm, rx, fam in pats:
+            for cid, _nm, rx, fam in pats:
                 for f in fam:
                     if f != cid:
                         new = _re.sub(r"\(\s*(?:id\s*)?" + f + r"\s*\)", f"({cid})", new)
@@ -1515,26 +1472,26 @@ def ensure_character_ids(shots, cards, scene_ids=None):
                     continue
                 m = rx.search(new)
                 if m:
-                    new = new[:m.end()] + f" ({cid})" + new[m.end():]
+                    new = new[: m.end()] + f" ({cid})" + new[m.end() :]
             if new != txt:
                 s[key] = new
                 notes.append(f"{s.get('id')}: id в {key}")
         who = _strip_acc(str(s.get("говорит") or "")).strip()
-        for cid, nm, rx, fam in pats:
+        for cid, _nm, rx, fam in pats:
             if who and who != cid and (rx.fullmatch(who) or who in fam):
                 s["говорит"] = cid
                 notes.append(f"{s.get('id')}: говорит → {cid}")
         for p in s.get("люди") or []:
             if isinstance(p, dict) and isinstance(p.get("кто"), str):
                 t = p["кто"]
-                for cid, nm, rx, fam in pats:
+                for cid, _nm, _rx, fam in pats:
                     for f in fam:
                         if f != cid:
                             t = _re.sub(r"\(\s*" + f + r"\s*\)", f"({cid})", t)
                     t = _re.sub(r"(\(" + cid + r"\))(\s*\(" + cid + r"\))+", r"\1", t)
                 p["кто"] = t
                 w = _strip_acc(str(p.get("кто") or ""))
-                for cid, nm, rx, fam in pats:
+                for cid, _nm, rx, fam in pats:
                     if w and not any(f in w for f in fam) and rx.search(w):
                         p["кто"] = f"{p['кто']} ({cid})"
     return notes
@@ -1546,19 +1503,35 @@ def character_id_problems(shots, cards, scene_ids=None):
     pats = _char_patterns(cards, scene_ids)
     if scene_ids is not None:
         allowed = set()
-        for cid, nm, rx, fam in pats:
+        for cid, _nm, _rx, fam in pats:
             if cid in [str(x) for x in scene_ids]:
                 allowed |= set(fam)
         allowed |= {str(x) for x in scene_ids}
-        blob = _strip_acc(" ".join(" ".join(str(v) for k, v in s.items() if str(k).startswith("промт") or k in ("кто", "говорит", "действие")) for s in shots or [] if isinstance(s, dict)))
+        blob = _strip_acc(
+            " ".join(
+                " ".join(
+                    str(v)
+                    for k, v in s.items()
+                    if str(k).startswith("промт") or k in ("кто", "говорит", "действие")
+                )
+                for s in shots or []
+                if isinstance(s, dict)
+            )
+        )
         known = {str(c.get("id")) for c in cards or []}
         extra = sorted({m for m in _re.findall(r"\bc\d\d\b", blob) if m in known and m not in allowed})
         if extra:
-            out.append(f"в ячейке нет персонажей {', '.join(extra)} (персонажи = {list(scene_ids)}): роли без карточки не подменяй персонажами базы")
+            out.append(
+                f"в ячейке нет персонажей {', '.join(extra)} (персонажи = {list(scene_ids)}): роли без карточки не подменяй персонажами базы"
+            )
     for s in shots or []:
         if not isinstance(s, dict):
             continue
-        txt = _strip_acc(" ".join(str(v) for k, v in s.items() if str(k).startswith("промт")) + " " + str(s.get("кто") or ""))
+        txt = _strip_acc(
+            " ".join(str(v) for k, v in s.items() if str(k).startswith("промт"))
+            + " "
+            + str(s.get("кто") or "")
+        )
         for cid, nm, rx, fam in pats:
             if rx.search(txt) and cid not in txt:
                 out.append(f"{s.get('id')}: «{nm}» без id {cid}")
@@ -1567,8 +1540,6 @@ def character_id_problems(shots, cards, scene_ids=None):
                     out.append(f"{s.get('id')}: id {f}, а в этой ячейке образ {cid}")
                     break
     return out
-
-
 
 
 # ---- R-REPLY-CAM (c62): камера кадров реплик по §3, после всех правок плана/30° ----
@@ -1613,10 +1584,25 @@ def normalize_reply_cameras(shots):
         if legal and not (in_pair and (ang != "с плеча" or plan != "СРЕДНЕ-КРУПНЫЙ")):
             continue
         if not others and not in_pair:
-            new_plan, new_ang, sent = "КРУПНЫЙ", "фронт", f"Ракурс фронт — камера спереди на говорящего {who}."
+            new_plan, new_ang, sent = (
+                "КРУПНЫЙ",
+                "фронт",
+                f"Ракурс фронт — камера спереди на говорящего {who}.",
+            )
         else:
-            lst = next((str(n.get("говорит") or "") for n in neighbours if str(n.get("говорит") or "").strip().casefold() != who.casefold()), "") or (sorted(others)[0] if others else "собеседника")
-            new_plan, new_ang, sent = "СРЕДНЕ-КРУПНЫЙ", "с плеча", f"Ракурс с плеча — через плечо {lst} на говорящего {who}."
+            lst = next(
+                (
+                    str(n.get("говорит") or "")
+                    for n in neighbours
+                    if str(n.get("говорит") or "").strip().casefold() != who.casefold()
+                ),
+                "",
+            ) or (sorted(others)[0] if others else "собеседника")
+            new_plan, new_ang, sent = (
+                "СРЕДНЕ-КРУПНЫЙ",
+                "с плеча",
+                f"Ракурс с плеча — через плечо {lst} на говорящего {who}.",
+            )
         before = (s.get("план"), s.get("ракурс"))
         s["план"], s["ракурс"], s["высота"] = new_plan, new_ang, "уровень глаз"
         if "точка" in s:
@@ -1634,7 +1620,11 @@ def carry_pose(shots):
     notes = []
     for i in range(1, len(rows)):
         p, s = rows[i - 1], rows[i]
-        if p.get("место") != s.get("место") or str(s.get("кто") or "").strip().casefold() in ("", "никого", "нет"):
+        if p.get("место") != s.get("место") or str(s.get("кто") or "").strip().casefold() in (
+            "",
+            "никого",
+            "нет",
+        ):
             continue
         act = str(s.get("действие") or "")
         if _UP.search(act):
@@ -1653,7 +1643,9 @@ def carry_pose(shots):
             continue
         add = f"Поза из прошлого кадра сохраняется: {clause}."
         if not _SIT.search(str(s.get("позы") or "")):
-            s["позы"] = (str(s.get("позы") or "").rstrip(" .") + ("; " if s.get("позы") else "") + clause).strip()
+            s["позы"] = (
+                str(s.get("позы") or "").rstrip(" .") + ("; " if s.get("позы") else "") + clause
+            ).strip()
         for k in ("промт_старт", "промт_картинки"):
             if isinstance(s.get(k), str) and s[k].strip():
                 s[k] = s[k].rstrip() + " " + add
@@ -1662,13 +1654,26 @@ def carry_pose(shots):
     return notes
 
 
-
 # ---- R-CONTINUITY (c61): заметил → кадр объекта; поза; внутри/снаружи ----
-_NOTICE = _re.compile(r"\b(замеча\w*|заметил\w*|видит|увидел\w*|смотрит на|смотрит в|разглядыва\w*|обнаружива\w*|обнаружил\w*|находит|нашёл|нашел|рассматрива\w*)\b", _re.I)
-_SIT = _re.compile(r"\b(сел|села|сидит|сидя|садится|усажива\w*|присел\w*|приседа\w*|на корточках|лёг|лег|легла|лежит|лёжа|лежа)\b", _re.I)
-_UP = _re.compile(r"\b(вста\w*|поднима\w*ся|поднял\w*ся|выпрямл\w*|идёт|идет|шагает|выходит|уходит|входит|уводит)\b", _re.I)
-_EXIT = _re.compile(r"\b(выходит|вышел|выйдя|покидает|покинул)\w*\s+(из|на)\s+(здани|подъезд|дом|отдел|улиц|двор|крыльц)", _re.I)
-_INSIDE = _re.compile(r"(дверь комнаты|дверь кабинета|в коридоре|в комнате|в кабинете|внутри здания|открывает дверь|«комната)", _re.I)
+_NOTICE = _re.compile(
+    r"\b(замеча\w*|заметил\w*|видит|увидел\w*|смотрит на|смотрит в|разглядыва\w*|обнаружива\w*|обнаружил\w*|находит|нашёл|нашел|рассматрива\w*)\b",
+    _re.I,
+)
+_SIT = _re.compile(
+    r"\b(сел|села|сидит|сидя|садится|усажива\w*|присел\w*|приседа\w*|на корточках|лёг|лег|легла|лежит|лёжа|лежа)\b",
+    _re.I,
+)
+_UP = _re.compile(
+    r"\b(вста\w*|поднима\w*ся|поднял\w*ся|выпрямл\w*|идёт|идет|шагает|выходит|уходит|входит|уводит)\b", _re.I
+)
+_EXIT = _re.compile(
+    r"\b(выходит|вышел|выйдя|покидает|покинул)\w*\s+(из|на)\s+(здани|подъезд|дом|отдел|улиц|двор|крыльц)",
+    _re.I,
+)
+_INSIDE = _re.compile(
+    r"(дверь комнаты|дверь кабинета|в коридоре|в комнате|в кабинете|внутри здания|открывает дверь|«комната)",
+    _re.I,
+)
 _STANDS = _re.compile(r"\b(стоит|стоя|стоят|встал\w*|встаёт|поднят\w*|выпрям\w*)\b", _re.I)
 _ENTER = _re.compile(r"\b(входит|вошёл|вошел|заходит|возвращается|заводят|вводят)\b", _re.I)
 
@@ -1685,17 +1690,32 @@ def shots_continuity_problems(shots):
         act = str(s.get("действие") or "")
         sid = s.get("id") or f"кадр {i + 1}"
         _mn = _NOTICE.search(act)
-        if _mn and not _re.search(r"\bне\s+$", act[:_mn.start()]):
+        if _mn and not _re.search(r"\bне\s+$", act[: _mn.start()]):
             n = rows[i + 1] if i + 1 < len(rows) else None
             nobody = n is not None and str(n.get("кто") or "").strip().casefold() in ("", "никого", "нет")
-            ok = (n is not None and (str(n.get("план") or "").upper() in ("ДЕТАЛЬ", "КРУПНЫЙ") or nobody)
-                  and n.get("объект") in ("предмет", "взгляд", "место") and not _NOTICE.search(str(n.get("действие") or "")))
+            ok = (
+                n is not None
+                and (str(n.get("план") or "").upper() in ("ДЕТАЛЬ", "КРУПНЫЙ") or nobody)
+                and n.get("объект") in ("предмет", "взгляд", "место")
+                and not _NOTICE.search(str(n.get("действие") or ""))
+            )
             if not ok:
-                out.append(f"{sid}: «{_mn.group(0)}» — следующим кадром нужна вставка ДЕТАЛЬ/КРУПНЫЙ того, что он видит (POV)")
-        if i and rows[i - 1].get("место") == s.get("место") and str(s.get("кто") or "").strip().casefold() not in ("", "никого", "нет"):
+                out.append(
+                    f"{sid}: «{_mn.group(0)}» — следующим кадром нужна вставка ДЕТАЛЬ/КРУПНЫЙ того, что он видит (POV)"
+                )
+        if (
+            i
+            and rows[i - 1].get("место") == s.get("место")
+            and str(s.get("кто") or "").strip().casefold() not in ("", "никого", "нет")
+        ):
             p = rows[i - 1]
             ptxt = " ".join(str(p.get(k) or "") for k in ("действие", "конец", "позы"))
-            if _SIT.search(ptxt) and not _UP.search(act) and not _STANDS.search(str(s.get("позы") or "")) and not _SIT.search(_prompts_text(s)):
+            if (
+                _SIT.search(ptxt)
+                and not _UP.search(act)
+                and not _STANDS.search(str(s.get("позы") or ""))
+                and not _SIT.search(_prompts_text(s))
+            ):
                 out.append(f"{sid}: в прошлом кадре сидит/присел/лежит — поза не перенесена в промт")
         if exited and _INSIDE.search(act + " " + str(s.get("где") or "")) and not _ENTER.search(act):
             out.append(f"{sid}: вышел из здания, а теперь снова внутри без кадра входа")
@@ -1709,9 +1729,13 @@ def shots_continuity_problems(shots):
 
 # ---- R-MERGE-TRIVIAL / R-VO-SPREAD (2026-10-15) ----
 _POV_OBJ = {"взгляд"}
-_NOTICE_RE = _re.compile(r"замеча|замети|видит|увидел|смотрит на|разгляд|обнаруж|наход|нашёл|нашел|читает", _re.I)
+_NOTICE_RE = _re.compile(
+    r"замеча|замети|видит|увидел|смотрит на|разгляд|обнаруж|наход|нашёл|нашел|читает", _re.I
+)
 MERGE_MAX_ACTION_CHARS = 240
-_CONT_RE = _re.compile(r"оставаясь|продолжа|не вставая|не отпуская|всё ещё|все еще|затем|сидя |стоя |держа ", _re.I)
+_CONT_RE = _re.compile(
+    r"оставаясь|продолжа|не вставая|не отпуская|всё ещё|все еще|затем|сидя |стоя |держа ", _re.I
+)
 
 
 def _shot_s(s, k):
@@ -1869,7 +1893,9 @@ def ensure_wide_before_dialogue(shots):
     i = 0
     while i < len(shots):
         s = shots[i]
-        if not (isinstance(s, dict) and _is_reply(s)) or (i > 0 and isinstance(shots[i - 1], dict) and _is_reply(shots[i - 1])):
+        if not (isinstance(s, dict) and _is_reply(s)) or (
+            i > 0 and isinstance(shots[i - 1], dict) and _is_reply(shots[i - 1])
+        ):
             i += 1
             continue
         j = i

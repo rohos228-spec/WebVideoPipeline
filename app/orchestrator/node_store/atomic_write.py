@@ -99,9 +99,9 @@ def _stored_version(target: Path) -> int:
     raw = _read_legacy_text(target)
     try:
         payload = json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         if _looks_like_version_wrapper(raw):
-            raise VersionConflict("обрезанная обёртка версии")
+            raise VersionConflict("обрезанная обёртка версии") from exc
         return 0
     wrapped = _versioned_payload(payload)
     if wrapped is None:
@@ -288,9 +288,9 @@ def _acquire_lock(fd: int, timeout: float = 30.0) -> None:
             try:
                 msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
                 return
-            except OSError:
+            except OSError as exc:
                 if time.monotonic() >= deadline:
-                    raise TimeoutError("lock timeout")
+                    raise TimeoutError("lock timeout") from exc
                 time.sleep(0.01)
     import fcntl
 
@@ -298,9 +298,9 @@ def _acquire_lock(fd: int, timeout: float = 30.0) -> None:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return
-        except BlockingIOError:
+        except BlockingIOError as exc:
             if time.monotonic() >= deadline:
-                raise TimeoutError("lock timeout")
+                raise TimeoutError("lock timeout") from exc
             time.sleep(0.01)
 
 
@@ -420,9 +420,7 @@ def _write_at(
         _recheck(root, parts, parent_fd)
         current = _stored_version(target)
         if current != int(expected_version):
-            raise VersionConflict(
-                f"версия {expected_version} не совпала с текущей {current}"
-            )
+            raise VersionConflict(f"версия {expected_version} не совпала с текущей {current}")
         if _lexists(name, parent_fd):
             old_fd = _open_old(parent_fd)
             backup = _backup_name(old_fd, name, current)
@@ -547,9 +545,7 @@ def _write_exclusive(path: Path, payload: bytes) -> None:
 
 
 @_private
-def _write_without_dir_fd(
-    target: Path, text: str, expected_version: int, lock_timeout: float
-) -> None:
+def _write_without_dir_fd(target: Path, text: str, expected_version: int, lock_timeout: float) -> None:
     """Windows: блокировка msvcrt, без O_NOFOLLOW, dir_fd и fsync каталога."""
     target.parent.mkdir(parents=True, exist_ok=True)
     lock_path = target.with_name(target.name + ".lock")
@@ -566,9 +562,7 @@ def _write_without_dir_fd(
         _reject_reparse(target)
         current = _stored_version(target)
         if current != int(expected_version):
-            raise VersionConflict(
-                f"версия {expected_version} не совпала с текущей {current}"
-            )
+            raise VersionConflict(f"версия {expected_version} не совпала с текущей {current}")
         if target.is_file():
             backup_dir = target.parent / "old"
             if _is_reparse_point(backup_dir):
@@ -607,9 +601,7 @@ def _write_without_dir_fd(
             raise errors[0]
 
 
-def atomic_write_text(
-    dest: Path, text: str, *, expected_version: int, lock_timeout: float = 30.0
-) -> None:
+def atomic_write_text(dest: Path, text: str, *, expected_version: int, lock_timeout: float = 30.0) -> None:
     """Публикует text, если expected_version совпала с текущей версией файла."""
     root, parts = _classify(Path(dest))
     target = root.joinpath(*parts)

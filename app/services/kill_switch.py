@@ -52,10 +52,12 @@ def reset_cache() -> None:
 
 async def ensure_table(master) -> None:
     async with master() as session:
+
         def create(sync_session):
             connection = sync_session.connection()
             KillSwitchState.__table__.create(connection, checkfirst=True)
             KillSwitchHistory.__table__.create(connection, checkfirst=True)
+
         await session.run_sync(create)
         await session.commit()
 
@@ -67,8 +69,7 @@ def _is_missing_table(exc: BaseException) -> bool:
 
 async def is_active(session) -> bool:
     try:
-        value = await session.scalar(select(KillSwitchState.active).where(
-            KillSwitchState.key == GLOBAL_KEY))
+        value = await session.scalar(select(KillSwitchState.active).where(KillSwitchState.key == GLOBAL_KEY))
     except (OperationalError, ProgrammingError) as exc:
         await session.rollback()
         if not _is_missing_table(exc):
@@ -94,7 +95,8 @@ async def guard_native(sessions) -> None:
             active = await is_active(session)
     except Exception as exc:
         raise KillSwitchCheckFailed(
-            f"kill switch state unreadable ({type(exc).__name__}): paid call refused") from exc
+            f"kill switch state unreadable ({type(exc).__name__}): paid call refused"
+        ) from exc
     if active:
         raise KillSwitchActive("kill switch active: operator emergency stop blocks paid calls")
 
@@ -106,12 +108,14 @@ async def load(master) -> bool:
 
 
 def _json(row, history=None) -> dict:
-    data = {"active": bool(row and row.active),
-            "changed_by": row.changed_by if row else None,
-            "rationale": row.rationale if row else None,
-            "source": row.source if row else None,
-            "revision": row.revision if row else 0,
-            "changed_at": row.changed_at if row else None}
+    data = {
+        "active": bool(row and row.active),
+        "changed_by": row.changed_by if row else None,
+        "rationale": row.rationale if row else None,
+        "source": row.source if row else None,
+        "revision": row.revision if row else 0,
+        "changed_at": row.changed_at if row else None,
+    }
     if history is not None:
         data["history"] = history
     return data
@@ -122,17 +126,30 @@ async def status(master, *, history_limit: int = 20) -> dict:
     async with master() as session:
         row = await session.scalar(select(KillSwitchState).where(KillSwitchState.key == GLOBAL_KEY))
         _cache["active"] = bool(row and row.active)
-        rows = (await session.scalars(select(KillSwitchHistory).order_by(
-            KillSwitchHistory.id.desc()).limit(history_limit))).all()
-        history = [{"revision": h.revision, "active": h.active, "actor": h.actor,
-                    "rationale": h.rationale, "source": h.source, "created_at": h.created_at}
-                   for h in rows]
+        rows = (
+            await session.scalars(
+                select(KillSwitchHistory).order_by(KillSwitchHistory.id.desc()).limit(history_limit)
+            )
+        ).all()
+        history = [
+            {
+                "revision": h.revision,
+                "active": h.active,
+                "actor": h.actor,
+                "rationale": h.rationale,
+                "source": h.source,
+                "created_at": h.created_at,
+            }
+            for h in rows
+        ]
         return _json(row, history)
 
 
-async def set_state(master, *, active: bool, actor: str, rationale: str,
-                    source: str = "operator_api") -> dict:
+async def set_state(
+    master, *, active: bool, actor: str, rationale: str, source: str = "operator_api"
+) -> dict:
     from app.services.actions_v1 import ActionExecutionControl, ActionRecord
+
     if not str(actor or "").strip() or len((rationale or "").strip()) < 3:
         raise ValueError("explicit operator identity and rationale required")
     await ensure_table(master)
@@ -150,19 +167,36 @@ async def set_state(master, *, active: bool, actor: str, rationale: str,
         row.source = source[:24]
         row.revision = int(row.revision or 0) + 1
         row.changed_at = datetime.utcnow()
-        session.add(KillSwitchHistory(revision=row.revision, active=row.active, actor=row.changed_by,
-                                      rationale=row.rationale, source=row.source))
-        controls = (await session.scalars(select(ActionExecutionControl).where(
-            ActionExecutionControl.enabled.is_(True)))).all()
+        session.add(
+            KillSwitchHistory(
+                revision=row.revision,
+                active=row.active,
+                actor=row.changed_by,
+                rationale=row.rationale,
+                source=row.source,
+            )
+        )
+        controls = (
+            await session.scalars(
+                select(ActionExecutionControl).where(ActionExecutionControl.enabled.is_(True))
+            )
+        ).all()
         for control in controls:
-            session.add(ActionRecord(
-                action_id=str(uuid.uuid4()), execution_id=control.execution_id,
-                project_id=control.project_id,
-                action_kind="kill_switch_on" if row.active else "kill_switch_off",
-                initiator=row.changed_by, rationale=row.rationale, evidence_ids=[],
-                preconditions={"global": True, "revision": row.revision, "source": row.source},
-                idempotency_key=f"kill-switch:{row.revision}", status="accepted",
-                verification={"business_action": False}))
+            session.add(
+                ActionRecord(
+                    action_id=str(uuid.uuid4()),
+                    execution_id=control.execution_id,
+                    project_id=control.project_id,
+                    action_kind="kill_switch_on" if row.active else "kill_switch_off",
+                    initiator=row.changed_by,
+                    rationale=row.rationale,
+                    evidence_ids=[],
+                    preconditions={"global": True, "revision": row.revision, "source": row.source},
+                    idempotency_key=f"kill-switch:{row.revision}",
+                    status="accepted",
+                    verification={"business_action": False},
+                )
+            )
         await session.commit()
         _cache["active"] = bool(row.active)
         return {**_json(row), "changed": True}

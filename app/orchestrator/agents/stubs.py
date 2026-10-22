@@ -119,7 +119,9 @@ class UnlinkedValidators:
 
     def run(self, name: str, project_id: int, context: dict[str, Any]) -> ValidatorResult:
         del project_id, context
-        return ValidatorResult(name=name, passed=True, details="validators.run не подключён (ждёт WS1)", blocking=False)
+        return ValidatorResult(
+            name=name, passed=True, details="validators.run не подключён (ждёт WS1)", blocking=False
+        )
 
 
 class FallbackRouter:

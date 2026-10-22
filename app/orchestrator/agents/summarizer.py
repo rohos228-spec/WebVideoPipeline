@@ -66,7 +66,10 @@ _REASON_RU: dict[str, tuple[str, str]] = {
         "план изменился после подтверждения и не выполнялся",
         "Повторите просьбу: я составлю план заново и покажу его.",
     ),
-    "drive_failed": ("внутренняя ошибка при составлении или выполнении плана", "Повторите просьбу чуть позже."),
+    "drive_failed": (
+        "внутренняя ошибка при составлении или выполнении плана",
+        "Повторите просьбу чуть позже.",
+    ),
     "step_failed": ("шаг упал с ошибкой", "Посмотрите ошибку ниже и повторите после исправления."),
     "action_rejected": ("действие отказалось выполняться", "Посмотрите причину ниже."),
     "missing_run_id": ("внутренняя ошибка учёта запуска", "Повторите просьбу."),
@@ -154,7 +157,9 @@ def note_from_result(action: str, result: Any, *, readonly: bool) -> StepNote:
         body = _field(result, "data")
     if hasattr(body, "model_dump"):
         body = body.model_dump(mode="json")
-    error = str(_field(result, "error") or (body.get("error") if isinstance(body, dict) else "") or "").strip()
+    error = str(
+        _field(result, "error") or (body.get("error") if isinstance(body, dict) else "") or ""
+    ).strip()
     undo = body.get("undo") if isinstance(body, dict) and isinstance(body.get("undo"), dict) else None
     known = known_text(action, body) if isinstance(body, dict) and status == "ok" else ""
     text = known or (fact_text(action, body) if isinstance(body, dict) else "")
@@ -163,9 +168,17 @@ def note_from_result(action: str, result: Any, *, readonly: bool) -> StepNote:
     from app.services.plain_ru import plain_ru
 
     text, error = plain_ru(text), plain_ru(error)
-    return StepNote(action, title, ok=status == "ok", text=text[:_FACT_LIMIT], error=error[:400],
-                    readonly=readonly, undo=undo, known=bool(known),
-                    links=download_links(body) if isinstance(body, dict) else [])
+    return StepNote(
+        action,
+        title,
+        ok=status == "ok",
+        text=text[:_FACT_LIMIT],
+        error=error[:400],
+        readonly=readonly,
+        undo=undo,
+        known=bool(known),
+        links=download_links(body) if isinstance(body, dict) else [],
+    )
 
 
 def _plural(n: int, one: str, few: str, many: str) -> str:
@@ -195,14 +208,20 @@ def _batch_text(body: dict[str, Any]) -> str:
 
 
 def _queue_text(body: dict[str, Any]) -> str:
-    ids = [f"#{item.get('project_id')}" for item in body.get("enqueued") or []
-           if isinstance(item, dict) and item.get("project_id")]
+    ids = [
+        f"#{item.get('project_id')}"
+        for item in body.get("enqueued") or []
+        if isinstance(item, dict) and item.get("project_id")
+    ]
     if not ids:
         return ""
     n = len(ids)
     mode = " до выбранной ноды" if body.get("mode") == "until_node" else ""
-    return (f"Поставил в очередь генерации {n} {_plural(n, 'проект', 'проекта', 'проектов')}{mode}: "
-            + ", ".join(ids) + ".")
+    return (
+        f"Поставил в очередь генерации {n} {_plural(n, 'проект', 'проекта', 'проектов')}{mode}: "
+        + ", ".join(ids)
+        + "."
+    )
 
 
 def _dequeue_text(body: dict[str, Any]) -> str:
@@ -210,8 +229,11 @@ def _dequeue_text(body: dict[str, Any]) -> str:
     if not ids:
         return "В очереди генерации этих проектов не было, ничего не менял."
     n = len(ids)
-    return (f"Снял с очереди генерации {n} {_plural(n, 'проект', 'проекта', 'проектов')}: "
-            + ", ".join(ids) + ". Сами проекты и их результаты не трогал.")
+    return (
+        f"Снял с очереди генерации {n} {_plural(n, 'проект', 'проекта', 'проектов')}: "
+        + ", ".join(ids)
+        + ". Сами проекты и их результаты не трогал."
+    )
 
 
 def _parallel_text(body: dict[str, Any]) -> str:
@@ -319,20 +341,65 @@ def _plain(body: dict[str, Any]) -> str:
 
 
 _FIELD_RU = {
-    "status": "статус", "state": "состояние", "ok": "успешно", "found": "найдено",
-    "started": "запущено", "done": "готово", "count": "количество", "total": "всего",
-    "items": "элементы", "rows": "строки", "nodes": "ноды", "frames": "кадры", "scenes": "сцены",
-    "project_id": "проект", "node_key": "нода", "step_code": "шаг", "label": "название",
-    "title": "название", "name": "название", "model": "модель", "model_id": "модель",
-    "model_label": "модель", "price_ru": "цена", "cost_usd": "стоимость, $",
-    "spent_usd": "потрачено, $", "estimate_usd": "оценка, $", "credits": "кредиты",
-    "error": "ошибка", "reason": "причина", "path": "файл", "file": "файл", "url": "ссылка",
-    "enabled": "включено", "disabled": "выключено", "progress": "прогресс", "updated_at": "обновлено",
-    "created_at": "создано", "duration_s": "длительность, с", "kind": "вид", "mode": "режим",
-    "current": "сейчас", "options": "варианты", "applies": "действует",
+    "status": "статус",
+    "state": "состояние",
+    "ok": "успешно",
+    "found": "найдено",
+    "started": "запущено",
+    "done": "готово",
+    "count": "количество",
+    "total": "всего",
+    "items": "элементы",
+    "rows": "строки",
+    "nodes": "ноды",
+    "frames": "кадры",
+    "scenes": "сцены",
+    "project_id": "проект",
+    "node_key": "нода",
+    "step_code": "шаг",
+    "label": "название",
+    "title": "название",
+    "name": "название",
+    "model": "модель",
+    "model_id": "модель",
+    "model_label": "модель",
+    "price_ru": "цена",
+    "cost_usd": "стоимость, $",
+    "spent_usd": "потрачено, $",
+    "estimate_usd": "оценка, $",
+    "credits": "кредиты",
+    "error": "ошибка",
+    "reason": "причина",
+    "path": "файл",
+    "file": "файл",
+    "url": "ссылка",
+    "enabled": "включено",
+    "disabled": "выключено",
+    "progress": "прогресс",
+    "updated_at": "обновлено",
+    "created_at": "создано",
+    "duration_s": "длительность, с",
+    "kind": "вид",
+    "mode": "режим",
+    "current": "сейчас",
+    "options": "варианты",
+    "applies": "действует",
 }
-_SKIP_FIELDS = frozenset({"undo", "text_ru", "summary_ru", "message", "summary", "apply_step",
-                          "diff", "markdown", "raw", "payload", "headers"})
+_SKIP_FIELDS = frozenset(
+    {
+        "undo",
+        "text_ru",
+        "summary_ru",
+        "message",
+        "summary",
+        "apply_step",
+        "diff",
+        "markdown",
+        "raw",
+        "payload",
+        "headers",
+    }
+)
 _SECRET_PARTS = ("sha", "digest", "hash", "token", "secret", "password", "api_key", "fingerprint")
 _KEEP_IDS = frozenset({"project_id", "model_id"})
 _HEXISH = re.compile(r"^[0-9a-f-]{16,}$", re.IGNORECASE)
@@ -407,8 +474,9 @@ def _undo_line(note: StepNote) -> str:
     ids = (note.undo or {}).get("snapshot_ids") or []
     numbers = ", ".join(str(i) for i in ids[:5])
     tail = f" (снимки {numbers})" if numbers else ""
-    return (f"Откатить «{note.title}»: напишите «откати последнюю правку» или откатите в истории "
-            f"изменений{tail}.")
+    return (
+        f"Откатить «{note.title}»: напишите «откати последнюю правку» или откатите в истории изменений{tail}."
+    )
 
 
 def deterministic_text(facts: TaskFacts) -> str:
@@ -427,8 +495,10 @@ def deterministic_text(facts: TaskFacts) -> str:
             undo = [note for note in changes if note.undo]
             lines.extend(_undo_line(note) for note in undo)
             if not undo and not all(note.known for note in changes):
-                lines.append("Снимка для автоматического отката у этих шагов нет: вернуть можно только "
-                             "повторной правкой.")
+                lines.append(
+                    "Снимка для автоматического отката у этих шагов нет: вернуть можно только "
+                    "повторной правкой."
+                )
         else:
             found = [note for note in done if note.text]
             if found:
@@ -442,8 +512,10 @@ def deterministic_text(facts: TaskFacts) -> str:
     if facts.error == APPROVAL_EXPIRED:
         if not facts.detail:
             return APPROVAL_EXPIRED_TEXT
-        return ("Подтверждение не дали вовремя — задача отменена, шаг, который ждал "
-                "подтверждения, не выполнялся. " + facts.detail)
+        return (
+            "Подтверждение не дали вовремя — задача отменена, шаг, который ждал "
+            "подтверждения, не выполнялся. " + facts.detail
+        )
     if facts.error == APPROVAL_STALE:
         return APPROVAL_STALE_TEXT
     if facts.status == "cancelled":
@@ -455,9 +527,14 @@ def deterministic_text(facts: TaskFacts) -> str:
         changed = [note for note in done if not note.readonly]
         if not changed:
             return "Отменено по вашему решению. Ничего не изменено."
-        return ("Отменено по вашему решению. До отмены успели выполнить: "
-                + ", ".join(f"«{note.title}»" for note in changed) + ".")
-    what, todo = _REASON_RU.get(str(facts.error or ""), ("задача не выполнена", "Повторите просьбу или уточните её."))
+        return (
+            "Отменено по вашему решению. До отмены успели выполнить: "
+            + ", ".join(f"«{note.title}»" for note in changed)
+            + "."
+        )
+    what, todo = _REASON_RU.get(
+        str(facts.error or ""), ("задача не выполнена", "Повторите просьбу или уточните её.")
+    )
     if "потолок трат" in (facts.detail or ""):
         # Повтор «чуть позже» не поможет: лимит считается за сутки.
         what = "упёрлись в лимит трат"
@@ -479,7 +556,11 @@ def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
     used = 0
     lines = ["Факты, прочитанные шагами задачи:"]
     for note in facts.steps[:_STEP_LIMIT]:
-        body = note.text if note.ok and note.text else ("прочитать не удалось: " + note.error if note.error else "пусто")
+        body = (
+            note.text
+            if note.ok and note.text
+            else ("прочитать не удалось: " + note.error if note.error else "пусто")
+        )
         chunk = f"[{note.title}] {body}"
         if used + len(chunk) > _TOTAL_LIMIT:
             break
@@ -537,8 +618,12 @@ class TaskSummarizer:
         if not text:
             return fallback
         # Модель могла уже вставить ссылку со своей подписью: сравниваем по адресу, не по строке.
-        links = [link for note in facts.steps for link in note.links
-                 if link.rsplit("](", 1)[-1].rstrip(")") not in text]
+        links = [
+            link
+            for note in facts.steps
+            for link in note.links
+            if link.rsplit("](", 1)[-1].rstrip(")") not in text
+        ]
         return "\n".join([text, *dict.fromkeys(links)])
 
 

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -34,8 +33,6 @@ LEVEL_UNKNOWN = "unknown"
 _io_lock = threading.Lock()
 
 
-
-
 def _env_float(name: str, default: float) -> float:
     raw = (os.environ.get(name) or "").strip().replace(",", ".")
     if not raw:
@@ -60,8 +57,6 @@ def _log(level: str, message: str, *args: object) -> None:
         pass
 
 
-
-
 @dataclass(frozen=True)
 class DiskCheck:
     allowed: bool
@@ -81,11 +76,13 @@ class DiskCheck:
 def thresholds_bytes(
     low_free_gb: float | None = None, critical_free_gb: float | None = None
 ) -> tuple[int, int]:
-    low = low_free_gb if low_free_gb is not None else _env_float(
-        "DISK_GUARD_LOW_FREE_GB", DEFAULT_LOW_FREE_GB
+    low = (
+        low_free_gb if low_free_gb is not None else _env_float("DISK_GUARD_LOW_FREE_GB", DEFAULT_LOW_FREE_GB)
     )
-    crit = critical_free_gb if critical_free_gb is not None else _env_float(
-        "DISK_GUARD_CRITICAL_FREE_GB", DEFAULT_CRITICAL_FREE_GB
+    crit = (
+        critical_free_gb
+        if critical_free_gb is not None
+        else _env_float("DISK_GUARD_CRITICAL_FREE_GB", DEFAULT_CRITICAL_FREE_GB)
     )
     crit = min(crit, low)
     return int(low * GB), int(crit * GB)
@@ -125,18 +122,27 @@ def check(
         usage = shutil.disk_usage(str(_existing_parent(target)))
     except OSError as exc:
         return DiskCheck(
-            not paid, LEVEL_UNKNOWN,
+            not paid,
+            LEVEL_UNKNOWN,
             f"Свободное место на диске не удалось измерить ({exc}); платный запуск не разрешён без проверки.",
-            None, None, str(target), low_b, crit_b,
+            None,
+            None,
+            str(target),
+            low_b,
+            crit_b,
         )
     free, total = int(usage.free), int(usage.total)
     common = {
-        "free_bytes": free, "total_bytes": total, "path": str(target),
-        "low_free_bytes": low_b, "critical_free_bytes": crit_b,
+        "free_bytes": free,
+        "total_bytes": total,
+        "path": str(target),
+        "low_free_bytes": low_b,
+        "critical_free_bytes": crit_b,
     }
     if free < crit_b:
         return DiskCheck(
-            False, LEVEL_CRITICAL,
+            False,
+            LEVEL_CRITICAL,
             f"Диск почти заполнен: свободно {_fmt_gb(free)} (критичный порог "
             f"{_fmt_gb(crit_b)}). Новые запуски остановлены, освободите место.",
             **common,
@@ -144,14 +150,16 @@ def check(
     if free < low_b:
         if paid:
             return DiskCheck(
-                False, LEVEL_LOW,
+                False,
+                LEVEL_LOW,
                 f"Мало места на диске: свободно {_fmt_gb(free)} (порог "
                 f"{_fmt_gb(low_b)}). Новые платные запуски заблокированы, "
                 "освободите место.",
                 **common,
             )
         return DiskCheck(
-            True, LEVEL_LOW,
+            True,
+            LEVEL_LOW,
             f"Мало места на диске: свободно {_fmt_gb(free)} (порог {_fmt_gb(low_b)}). "
             "Бесплатные запуски разрешены, платные заблокированы.",
             **common,
@@ -161,8 +169,6 @@ def check(
 
 def debug_allowed(path: str | os.PathLike[str] | None = None) -> bool:
     return check(path, paid=True).level in (LEVEL_OK, LEVEL_UNKNOWN)
-
-
 
 
 def pid_alive(pid: int) -> bool:
@@ -224,8 +230,11 @@ def cleanup_stale_pid_temp(
     result = CleanupResult()
     if not temp_root.is_dir():
         return result
-    age_s = (max_age_h if max_age_h is not None else _env_float(
-        "DISK_GUARD_TEMP_MAX_AGE_H", DEFAULT_TEMP_MAX_AGE_H)) * 3600.0
+    age_s = (
+        max_age_h
+        if max_age_h is not None
+        else _env_float("DISK_GUARD_TEMP_MAX_AGE_H", DEFAULT_TEMP_MAX_AGE_H)
+    ) * 3600.0
     me = own_pid if own_pid is not None else os.getpid()
     t_now = now if now is not None else time.time()
     try:
@@ -257,8 +266,12 @@ def cleanup_stale_pid_temp(
             result.freed_bytes += size
             result.removed_names.append(name)
     if result.removed:
-        _log("warning", "disk_guard: удалено {} устаревших pid-temp папок, освобождено {} МБ",
-             result.removed, result.freed_bytes // MB)
+        _log(
+            "warning",
+            "disk_guard: удалено {} устаревших pid-temp папок, освобождено {} МБ",
+            result.removed,
+            result.freed_bytes // MB,
+        )
     return result
 
 
@@ -280,8 +293,11 @@ def cleanup_pytest_temp(
     result = CleanupResult()
     if not temp_root.is_dir():
         return result
-    age_s = (max_age_h if max_age_h is not None else _env_float(
-        "DISK_GUARD_TEMP_MAX_AGE_H", DEFAULT_TEMP_MAX_AGE_H)) * 3600.0
+    age_s = (
+        max_age_h
+        if max_age_h is not None
+        else _env_float("DISK_GUARD_TEMP_MAX_AGE_H", DEFAULT_TEMP_MAX_AGE_H)
+    ) * 3600.0
     t_now = now if now is not None else time.time()
     guards = [Path(p) for p in protect]
     try:
@@ -317,11 +333,13 @@ def cleanup_pytest_temp(
         except OSError:
             pass
     if result.removed:
-        _log("warning", "disk_guard: удалено {} устаревших запусков pytest, освобождено {} МБ",
-             result.removed, result.freed_bytes // MB)
+        _log(
+            "warning",
+            "disk_guard: удалено {} устаревших запусков pytest, освобождено {} МБ",
+            result.removed,
+            result.freed_bytes // MB,
+        )
     return result
-
-
 
 
 def rotate_file(path: Path, *, max_bytes: int, backups: int) -> bool:
@@ -426,8 +444,6 @@ def enforce_total_cap(
     return result
 
 
-
-
 def vacuum_sqlite(db_path: Path, *, busy_timeout_s: float = 5.0) -> tuple[bool, str]:
     if not db_path.is_file():
         return False, f"База не найдена: {db_path}"
@@ -447,8 +463,6 @@ def vacuum_sqlite(db_path: Path, *, busy_timeout_s: float = 5.0) -> tuple[bool, 
         return False, f"VACUUM не выполнен: {exc}"
     after = db_path.stat().st_size
     return True, f"VACUUM выполнен: {size} -> {after} байт"
-
-
 
 
 def _stamp_due(stamp: Path, interval_s: float, now: float) -> bool:
@@ -532,7 +546,11 @@ def housekeeping(
     db = tracker_db
     if db is None:
         env_db = (os.environ.get("TRACKER_DB_PATH") or "").strip()
-        db = Path(env_db) if env_db else Path(__file__).resolve().parent.parent.parent / "api-tracker" / "tracker.db"
+        db = (
+            Path(env_db)
+            if env_db
+            else Path(__file__).resolve().parent.parent.parent / "api-tracker" / "tracker.db"
+        )
     vstamp = cache / _VACUUM_STAMP
     if db.is_file() and _stamp_due(vstamp, 86400.0, t_now):
         ok, msg = vacuum_sqlite(db)
@@ -563,7 +581,9 @@ def start_housekeeping_timer(
     global _timer_thread
     if _timer_thread is not None and _timer_thread.is_alive():
         return False
-    period = interval_s if interval_s is not None else _env_float("DISK_GUARD_HOUSEKEEPING_INTERVAL_S", 3600.0)
+    period = (
+        interval_s if interval_s is not None else _env_float("DISK_GUARD_HOUSEKEEPING_INTERVAL_S", 3600.0)
+    )
     period = max(1.0, period)
     _timer_stop.clear()
 

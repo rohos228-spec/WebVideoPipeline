@@ -17,8 +17,7 @@ def load_markers() -> dict[str, list[str]]:
         raw = json.loads(_MARKERS_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise RuntimeError("contract_markers.json is unreadable") from None
-    return {k: [str(x) for x in v] for k, v in raw.items()
-            if not k.startswith("_") and isinstance(v, list)}
+    return {k: [str(x) for x in v] for k, v in raw.items() if not k.startswith("_") and isinstance(v, list)}
 
 
 def placeholders(text: str) -> set[str]:
@@ -36,6 +35,7 @@ def required_markers(step: str, name: str, base_text: str) -> set[str]:
 
 def new_secret_hits(candidate: str, base: str) -> list[str]:
     from app.services.observation import _CREDENTIAL_TEXT
+
     cand = {m.group(0) for m in _CREDENTIAL_TEXT.finditer(candidate)}
     old = {m.group(0) for m in _CREDENTIAL_TEXT.finditer(base)}
     return sorted(cand - old)

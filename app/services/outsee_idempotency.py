@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import DateTime, Integer, String, select
@@ -58,22 +58,29 @@ async def ensure_schema(session) -> None:
     await session.run_sync(lambda s: OutseeIdempotency.__table__.create(s.connection(), checkfirst=True))
     if session.get_bind().dialect.name == "sqlite":
         from sqlalchemy import text
+
         for ddl in _TRIGGERS:
             await session.execute(text(ddl))
     _ensured.add(marker)
 
 
 class OutseeIdempotencyUncertainError(OutseeSubmitUnknownError):
-
     def __init__(self, reason: str, *, context: dict[str, Any] | None = None) -> None:
         super().__init__(reason, context={**(context or {}), "code": CODE_UNCERTAIN, "human_decision": True})
 
 
 class OutseeResumeOnlyError(OutseeImageError):
-
     def __init__(self, reason: str, *, context: dict[str, Any] | None = None) -> None:
-        super().__init__(reason, context={**(context or {}), "code": CODE_RESUME_ONLY, "no_resubmit": True,
-                                          "resume_only": True, "request_sent": False})
+        super().__init__(
+            reason,
+            context={
+                **(context or {}),
+                "code": CODE_RESUME_ONLY,
+                "no_resubmit": True,
+                "resume_only": True,
+                "request_sent": False,
+            },
+        )
 
 
 def uncertain_error(message: str, context: dict[str, Any]) -> Exception:
@@ -82,7 +89,6 @@ def uncertain_error(message: str, context: dict[str, Any]) -> Exception:
 
 def is_uncertain(exc: BaseException) -> bool:
     return isinstance(getattr(exc, "context", None), dict) and exc.context.get("code") == CODE_UNCERTAIN
-
 
 
 def request_sha(project_id: int | None, key: str, model: str, prompt: str) -> str:
@@ -108,8 +114,13 @@ class Ctx:
 
     @property
     def usable(self) -> bool:
-        return (isinstance(self.project_id, int) and bool(self.key) and media_resume.window_s() > 0
-                and not media_spend._managed() and media_spend.disabled_reason("browser") is None)
+        return (
+            isinstance(self.project_id, int)
+            and bool(self.key)
+            and media_resume.window_s() > 0
+            and not media_spend._managed()
+            and media_spend.disabled_reason("browser") is None
+        )
 
 
 def make_ctx(project_id: Any, out_path: Any, model: Any, prompt: Any, media: str = "image") -> Ctx:
@@ -120,58 +131,108 @@ def make_ctx(project_id: Any, out_path: Any, model: Any, prompt: Any, media: str
     return Ctx(pid, key, str(model or ""), request_sha(pid, key, str(model or ""), str(prompt or "")), media)
 
 
-
-async def _append(session, ctx: Ctx, attempt_id: str, event: str, *, sha: str | None = None, note: str = "",
-                  file_path: str = "", file_size: int | None = None, fsha: str = "", raw_url: str = "") -> None:
+async def _append(
+    session,
+    ctx: Ctx,
+    attempt_id: str,
+    event: str,
+    *,
+    sha: str | None = None,
+    note: str = "",
+    file_path: str = "",
+    file_size: int | None = None,
+    fsha: str = "",
+    raw_url: str = "",
+) -> None:
     await ensure_schema(session)
-    session.add(OutseeIdempotency(
-        project_id=ctx.project_id, key=ctx.key[:120], request_sha=sha or ctx.sha, attempt_id=attempt_id,
-        event=event[:16], model=ctx.model[:64], media=ctx.media[:8], file_path=file_path[:500],
-        file_size=file_size, file_sha256=fsha, raw_url=(raw_url or "")[:500], note=(note or "")[:200]))
+    session.add(
+        OutseeIdempotency(
+            project_id=ctx.project_id,
+            key=ctx.key[:120],
+            request_sha=sha or ctx.sha,
+            attempt_id=attempt_id,
+            event=event[:16],
+            model=ctx.model[:64],
+            media=ctx.media[:8],
+            file_path=file_path[:500],
+            file_size=file_size,
+            file_sha256=fsha,
+            raw_url=(raw_url or "")[:500],
+            note=(note or "")[:200],
+        )
+    )
 
 
 async def _write(ctx: Ctx, attempt_id: str, event: str, **kw) -> bool:
     try:
         from app.db import SessionLocal
+
         async with SessionLocal() as s:
             await _append(s, ctx, attempt_id, event, **kw)
             await s.commit()
         return True
     except Exception as e:
-        await media_spend.gap_async("outsee", "idempotency_row", project_id=ctx.project_id, error=e,
-                                    detail=f"{event} key={ctx.key}")
+        await media_spend.gap_async(
+            "outsee", "idempotency_row", project_id=ctx.project_id, error=e, detail=f"{event} key={ctx.key}"
+        )
         return False
 
 
 async def _attempts(session, project_id: int | None, key: str) -> list[dict]:
     await ensure_schema(session)
-    rows = (await session.scalars(select(OutseeIdempotency).where(
-        OutseeIdempotency.project_id == project_id, OutseeIdempotency.key == key[:120])
-        .order_by(OutseeIdempotency.id))).all()
+    rows = (
+        await session.scalars(
+            select(OutseeIdempotency)
+            .where(OutseeIdempotency.project_id == project_id, OutseeIdempotency.key == key[:120])
+            .order_by(OutseeIdempotency.id)
+        )
+    ).all()
     out: dict[str, dict] = {}
     for r in rows:
-        a = out.setdefault(r.attempt_id, {"attempt_id": r.attempt_id, "request_sha": r.request_sha,
-                                          "first_at": r.created_at, "model": r.model, "events": [],
-                                          "file_path": "", "file_size": None, "file_sha256": "", "raw_url": ""})
+        a = out.setdefault(
+            r.attempt_id,
+            {
+                "attempt_id": r.attempt_id,
+                "request_sha": r.request_sha,
+                "first_at": r.created_at,
+                "model": r.model,
+                "events": [],
+                "file_path": "",
+                "file_size": None,
+                "file_sha256": "",
+                "raw_url": "",
+            },
+        )
         a["events"].append(r.event)
         a["state"], a["last_at"], a["note"] = r.event, r.created_at, r.note
         if r.event == "result":
-            a.update(file_path=r.file_path, file_size=r.file_size, file_sha256=r.file_sha256, raw_url=r.raw_url,
-                     result_at=r.created_at)
+            a.update(
+                file_path=r.file_path,
+                file_size=r.file_size,
+                file_sha256=r.file_sha256,
+                raw_url=r.raw_url,
+                result_at=r.created_at,
+            )
     return list(out.values())
 
 
 async def _human_released_since(session, project_id: int | None, key: str, since: datetime) -> bool:
     try:
         from app.services import spend_guard
+
         await spend_guard.ensure_task_schema(session)
-        row = await session.scalar(select(spend_guard.ProviderTaskLedger.id).where(
-            spend_guard.ProviderTaskLedger.project_id == project_id,
-            spend_guard.ProviderTaskLedger.key == key[:120],
-            spend_guard.ProviderTaskLedger.api == "outsee",
-            spend_guard.ProviderTaskLedger.event == "intent_done",
-            spend_guard.ProviderTaskLedger.note == "released",
-            spend_guard.ProviderTaskLedger.created_at >= since).limit(1))
+        row = await session.scalar(
+            select(spend_guard.ProviderTaskLedger.id)
+            .where(
+                spend_guard.ProviderTaskLedger.project_id == project_id,
+                spend_guard.ProviderTaskLedger.key == key[:120],
+                spend_guard.ProviderTaskLedger.api == "outsee",
+                spend_guard.ProviderTaskLedger.event == "intent_done",
+                spend_guard.ProviderTaskLedger.note == "released",
+                spend_guard.ProviderTaskLedger.created_at >= since,
+            )
+            .limit(1)
+        )
         return row is not None
     except Exception:
         return False
@@ -198,6 +259,7 @@ async def assess(project_id: int | None, key: str, sha: str | None = None) -> di
     await media_spend.drain()
     try:
         from app.db import SessionLocal
+
         async with SessionLocal() as s:
             atts = await _attempts(s, project_id, key)
             unresolved = []
@@ -210,18 +272,40 @@ async def assess(project_id: int | None, key: str, sha: str | None = None) -> di
         logger.warning("outsee_idempotency: read failed: {}", type(e).__name__)
         return {"mode": "unavailable", "code": "ledger_unreadable"}
     if unresolved:
-        return {"mode": "uncertain", "code": CODE_UNCERTAIN,
-                "attempts": [{"attempt_id": a["attempt_id"], "request_sha": a["request_sha"], "state": a["state"],
-                              "interrupted": a["state"] == "intent"} for a in unresolved]}
+        return {
+            "mode": "uncertain",
+            "code": CODE_UNCERTAIN,
+            "attempts": [
+                {
+                    "attempt_id": a["attempt_id"],
+                    "request_sha": a["request_sha"],
+                    "state": a["state"],
+                    "interrupted": a["state"] == "intent",
+                }
+                for a in unresolved
+            ],
+        }
     cutoff = datetime.utcnow() - timedelta(seconds=window)
-    fresh = [a for a in atts if a["state"] == "result" and a.get("result_at") and a["result_at"] >= cutoff
-             and (sha is None or a["request_sha"] == sha)]
+    fresh = [
+        a
+        for a in atts
+        if a["state"] == "result"
+        and a.get("result_at")
+        and a["result_at"] >= cutoff
+        and (sha is None or a["request_sha"] == sha)
+    ]
     for a in reversed(fresh):
         path = _file_intact(a)
         if path is not None:
-            return {"mode": "adopt", "code": "result_on_record", "attempt_id": a["attempt_id"],
-                    "request_sha": a["request_sha"], "file_path": str(path), "raw_url": a["raw_url"],
-                    "model": a["model"]}
+            return {
+                "mode": "adopt",
+                "code": "result_on_record",
+                "attempt_id": a["attempt_id"],
+                "request_sha": a["request_sha"],
+                "file_path": str(path),
+                "raw_url": a["raw_url"],
+                "model": a["model"],
+            }
     return {"mode": "free", "code": "nothing_recorded"}
 
 
@@ -234,7 +318,8 @@ async def check(ctx: Ctx) -> dict[str, Any] | None:
             f"{ctx.key}: прошлый платный запрос в Outsee без известного исхода (мог быть принят и оплачен). "
             f"Повторную отправку не делаю: проверьте историю генераций и баланс Outsee и решите "
             f"(снять блокировку или подставить найденный файл)",
-            {"frame_key": ctx.key, "attempts": verdict["attempts"], "request_sent": False})
+            {"frame_key": ctx.key, "attempts": verdict["attempts"], "request_sent": False},
+        )
     if verdict["mode"] == "adopt":
         return verdict
     if media_spend.in_resume_only():
@@ -243,13 +328,18 @@ async def check(ctx: Ctx) -> dict[str, Any] | None:
         except media_spend.ResumeOnlyBlocked as blocked:
             raise OutseeResumeOnlyError(
                 f"{ctx.key}: режим только возобновления, записанного результата этого запроса нет; "
-                f"новый платный запрос в Outsee не отправлялся", context={"frame_key": ctx.key}) from blocked
+                f"новый платный запрос в Outsee не отправлялся",
+                context={"frame_key": ctx.key},
+            ) from blocked
     return None
 
 
 def adopted_result(verdict: dict[str, Any]):
-    return GenerationResult(file_path=Path(verdict["file_path"]), raw_url=verdict.get("raw_url") or None,
-                            gen_id=f"idem:{verdict['attempt_id']}")
+    return GenerationResult(
+        file_path=Path(verdict["file_path"]),
+        raw_url=verdict.get("raw_url") or None,
+        gen_id=f"idem:{verdict['attempt_id']}",
+    )
 
 
 async def run(ctx: Ctx, call: Callable[[], Awaitable[Any]], *, sent_prompt: str = "") -> Any:
@@ -260,15 +350,20 @@ async def run(ctx: Ctx, call: Callable[[], Awaitable[Any]], *, sent_prompt: str 
     if verdict["mode"] == "uncertain":
         await check(ctx)
     attempt = uuid.uuid4().hex[:32]
-    sent_note = ("sent=" + hashlib.sha256((sent_prompt or "").encode("utf-8", "replace")).hexdigest()[:16]) if sent_prompt else ""
+    sent_note = (
+        ("sent=" + hashlib.sha256((sent_prompt or "").encode("utf-8", "replace")).hexdigest()[:16])
+        if sent_prompt
+        else ""
+    )
     if not await _write(ctx, attempt, "intent", note=sent_note):
         raise uncertain_error(
             f"{ctx.key}: не удалось записать намерение отправки в Outsee; платный запрос не отправлен",
-            {"frame_key": ctx.key, "request_sent": False, "intent_row_missing": True})
-    import asyncio
+            {"frame_key": ctx.key, "request_sent": False, "intent_row_missing": True},
+        )
     from app.bots.outsee import OutseeDownloadError
-    from app.services.step_cancel import StepCancelledError
     from app.services import spend_guard
+    from app.services.step_cancel import StepCancelledError
+
     spend_guard.mark_live_attempt(attempt)
     try:
         return await _run_attempt(ctx, call, attempt, OutseeDownloadError, StepCancelledError)
@@ -278,6 +373,7 @@ async def run(ctx: Ctx, call: Callable[[], Awaitable[Any]], *, sent_prompt: str 
 
 async def _run_attempt(ctx: Ctx, call, attempt: str, OutseeDownloadError, StepCancelledError) -> Any:
     import asyncio
+
     try:
         result = await call()
     except (asyncio.CancelledError, StepCancelledError):
@@ -312,6 +408,7 @@ async def record_download(ctx: Ctx | None, exc: BaseException, result: Any) -> b
 async def _provider_intent_open(ctx: Ctx) -> bool:
     try:
         from app.services import outsee_guard
+
         guard = outsee_guard.Ctx(ctx.project_id, ctx.key, ctx.model, ctx.media, ctx.sha[:16], False)
         return bool(await outsee_guard._unresolved(guard))
     except Exception:
@@ -326,8 +423,15 @@ async def record_result(ctx: Ctx, attempt: str, result: Any) -> bool:
     except OSError:
         await _write(ctx, attempt, "uncertain", note="result without file")
         return False
-    return await _write(ctx, attempt, "result", file_path=str(path), file_size=size, fsha=digest,
-                        raw_url=getattr(result, "raw_url", "") or "")
+    return await _write(
+        ctx,
+        attempt,
+        "result",
+        file_path=str(path),
+        file_size=size,
+        fsha=digest,
+        raw_url=getattr(result, "raw_url", "") or "",
+    )
 
 
 async def mark_consumed(project_id: int | None, key: str) -> int:
@@ -337,26 +441,37 @@ async def mark_consumed(project_id: int | None, key: str) -> int:
         return 0
     try:
         from app.db import SessionLocal
+
         async with SessionLocal() as s:
             atts = await _attempts(s, project_id, key)
             todo = [a for a in atts if a["state"] == "result"]
             for a in todo:
-                await _append(s, Ctx(project_id, key, a["model"], a["request_sha"]), a["attempt_id"], "consumed",
-                              note="taken by the step")
+                await _append(
+                    s,
+                    Ctx(project_id, key, a["model"], a["request_sha"]),
+                    a["attempt_id"],
+                    "consumed",
+                    note="taken by the step",
+                )
             await s.commit()
         return len(todo)
     except Exception as e:
-        await media_spend.gap_async("outsee", "idempotency_consume", project_id=project_id, error=e, detail=key)
+        await media_spend.gap_async(
+            "outsee", "idempotency_consume", project_id=project_id, error=e, detail=key
+        )
         return 0
 
 
 async def release(project_id: int, key: str, *, note: str = "released by human") -> int:
     from app.db import SessionLocal
     from app.services import outsee_guard
+
     async with SessionLocal() as s:
         atts = [a for a in await _attempts(s, project_id, key) if a["state"] in OPEN_EVENTS]
         for a in atts:
-            await _append(s, Ctx(project_id, key, a["model"], a["request_sha"]), a["attempt_id"], "released", note=note)
+            await _append(
+                s, Ctx(project_id, key, a["model"], a["request_sha"]), a["attempt_id"], "released", note=note
+            )
         await s.commit()
     await outsee_guard.release_unknown(project_id, key)
     return len(atts)
@@ -364,6 +479,7 @@ async def release(project_id: int, key: str, *, note: str = "released by human")
 
 async def adopt_file(project_id: int, key: str, path: Path, *, note: str = "file named by human") -> bool:
     from app.db import SessionLocal
+
     path = Path(path)
     if not path.is_file() or path.stat().st_size < _MIN_IMAGE_BYTES:
         return False
@@ -373,9 +489,18 @@ async def adopt_file(project_id: int, key: str, path: Path, *, note: str = "file
         if not atts:
             return False
         for a in atts:
-            await _append(s, Ctx(project_id, key, a["model"], a["request_sha"]), a["attempt_id"], "result",
-                          note=note, file_path=str(path), file_size=path.stat().st_size, fsha=digest)
+            await _append(
+                s,
+                Ctx(project_id, key, a["model"], a["request_sha"]),
+                a["attempt_id"],
+                "result",
+                note=note,
+                file_path=str(path),
+                file_size=path.stat().st_size,
+                fsha=digest,
+            )
         await s.commit()
     from app.services import outsee_guard
+
     await outsee_guard.release_unknown(project_id, key)
     return True

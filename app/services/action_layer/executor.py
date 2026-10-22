@@ -15,7 +15,8 @@ from app.services import kill_switch
 from app.services.action_layer import budget, store
 from app.services.action_layer.context import ActionContext
 from app.services.action_layer.messages_ru import validation_list_ru
-from app.services.action_layer.spec import ActionRegistry, ActionSpec, registry as default_registry
+from app.services.action_layer.spec import ActionRegistry, ActionSpec
+from app.services.action_layer.spec import registry as default_registry
 
 _TASKS: dict[str, asyncio.Task] = {}
 _CURRENT: dict[str, dict] = {}
@@ -75,23 +76,31 @@ async def orphan_busy_db(session, project_id: int | None, plan_id: str = "") -> 
     if project_id is None:
         return None
     since = _now() - timedelta(seconds=orphan_max_s())
-    rows = (await session.execute(
-        select(store.ActionHistory.plan_id, store.ActionHistory.action_id,
-               store.ActionHistory.created_at)
-        .join(store.ActionPlan, store.ActionPlan.id == store.ActionHistory.plan_id)
-        .where(store.ActionPlan.project_id == int(project_id),
-               store.ActionHistory.event.in_(("job_stop_after_failure", "job_stalled")),
-               store.ActionHistory.outcome == "unconfirmed",
-               store.ActionHistory.created_at >= since)
-        .order_by(store.ActionHistory.created_at.desc()))).all()
+    rows = (
+        await session.execute(
+            select(store.ActionHistory.plan_id, store.ActionHistory.action_id, store.ActionHistory.created_at)
+            .join(store.ActionPlan, store.ActionPlan.id == store.ActionHistory.plan_id)
+            .where(
+                store.ActionPlan.project_id == int(project_id),
+                store.ActionHistory.event.in_(("job_stop_after_failure", "job_stalled")),
+                store.ActionHistory.outcome == "unconfirmed",
+                store.ActionHistory.created_at >= since,
+            )
+            .order_by(store.ActionHistory.created_at.desc())
+        )
+    ).all()
     for pid_, action_id, created in rows:
         if pid_ == plan_id:
             continue
         released = await session.scalar(
-            select(store.ActionHistory.id).where(
+            select(store.ActionHistory.id)
+            .where(
                 store.ActionHistory.plan_id == pid_,
                 store.ActionHistory.event == "job_orphan_released",
-                store.ActionHistory.created_at >= created).limit(1))
+                store.ActionHistory.created_at >= created,
+            )
+            .limit(1)
+        )
         if released is None:
             return {"plan_id": pid_, "action_id": action_id, "from_journal": True}
     return None
@@ -100,8 +109,14 @@ async def orphan_busy_db(session, project_id: int | None, plan_id: str = "") -> 
 async def _journal_orphan_released(plan_id: str, action_id: str) -> None:
     try:
         async with store.sessions()() as s:
-            store.append_history(s, event="job_orphan_released", plan_id=plan_id, action_id=action_id,
-                                 outcome="released", actor="system")
+            store.append_history(
+                s,
+                event="job_orphan_released",
+                plan_id=plan_id,
+                action_id=action_id,
+                outcome="released",
+                actor="system",
+            )
             await s.commit()
     except Exception:
         logger.exception("action layer orphan release journal failed plan={}", plan_id)
@@ -123,11 +138,13 @@ class _Stalled(Exception):
 
 def no_progress_timeout_s() -> float:
     from app.settings import settings
+
     return float(settings.action_layer_no_progress_timeout_s)
 
 
 def progress_probe_s() -> float:
     from app.settings import settings
+
     return float(settings.action_layer_progress_probe_s)
 
 
@@ -144,17 +161,29 @@ async def project_activity(ctx: ActionContext, project_id: int | None) -> str | 
     proj = proj if isinstance(proj, dict) else {}
     run = run if isinstance(run, dict) else {}
     rows = sorted(
-        (str(r.get("node_key")), str(r.get("status")), str(r.get("progress")),
-         str(r.get("progress_text")), str(r.get("updated_at")), str(r.get("finished_at")))
-        for r in ((run or {}).get("node_runs") or []) if isinstance(r, dict))
-    raw = json.dumps({"status": (proj or {}).get("status"), "updated": (proj or {}).get("updated_at"),
-                      "nodes": rows}, ensure_ascii=False, default=str)
+        (
+            str(r.get("node_key")),
+            str(r.get("status")),
+            str(r.get("progress")),
+            str(r.get("progress_text")),
+            str(r.get("updated_at")),
+            str(r.get("finished_at")),
+        )
+        for r in ((run or {}).get("node_runs") or [])
+        if isinstance(r, dict)
+    )
+    raw = json.dumps(
+        {"status": (proj or {}).get("status"), "updated": (proj or {}).get("updated_at"), "nodes": rows},
+        ensure_ascii=False,
+        default=str,
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 class ProgressWatch:
-    def __init__(self, project_id: int | None, *, timeout_s: float | None = None,
-                 probe_s: float | None = None) -> None:
+    def __init__(
+        self, project_id: int | None, *, timeout_s: float | None = None, probe_s: float | None = None
+    ) -> None:
         self.project_id = project_id
         self.timeout_s = no_progress_timeout_s() if timeout_s is None else float(timeout_s)
         self.probe_s = progress_probe_s() if probe_s is None else float(probe_s)
@@ -176,8 +205,14 @@ class ProgressWatch:
             got = await project_activity(ctx, self.project_id)
             if got is not None:
                 self.activity = got
-        self._touch((getattr(state, "progress", None), getattr(state, "note", ""),
-                     getattr(state, "activity", None), self.activity))
+        self._touch(
+            (
+                getattr(state, "progress", None),
+                getattr(state, "note", ""),
+                getattr(state, "activity", None),
+                self.activity,
+            )
+        )
 
     def idle_s(self) -> float:
         return time.monotonic() - self.last_change
@@ -209,13 +244,12 @@ def _now() -> datetime:
     return datetime.utcnow()
 
 
-def launch(app: Any, plan_id: str, operator: str, *,
-           registry: ActionRegistry | None = None) -> asyncio.Task:
+def launch(app: Any, plan_id: str, operator: str, *, registry: ActionRegistry | None = None) -> asyncio.Task:
     if is_live(plan_id):
         return _TASKS[plan_id]
     task = asyncio.create_task(
-        _run_plan(app, plan_id, operator, registry or default_registry),
-        name=f"action-layer-{plan_id}")
+        _run_plan(app, plan_id, operator, registry or default_registry), name=f"action-layer-{plan_id}"
+    )
     _TASKS[plan_id] = task
     for info in _CLAIMS.values():
         if info["plan_id"] == plan_id:
@@ -262,12 +296,22 @@ async def _finish(plan_id: str, status: str, *, error: str = "", reason: str = "
         plan.stop_reason = reason
         plan.updated_at = plan.finished_at = _now()
         if status in (store.PLAN_FAILED, store.PLAN_STOPPED):
-            await s.execute(update(store.ActionPlanStep).where(
-                store.ActionPlanStep.plan_id == plan_id,
-                store.ActionPlanStep.status == store.STEP_PENDING,
-            ).values(status=store.STEP_SKIPPED))
-        store.append_history(s, event="plan_finished", plan_id=plan_id, actor=plan.operator,
-                             outcome=status, error=error or reason)
+            await s.execute(
+                update(store.ActionPlanStep)
+                .where(
+                    store.ActionPlanStep.plan_id == plan_id,
+                    store.ActionPlanStep.status == store.STEP_PENDING,
+                )
+                .values(status=store.STEP_SKIPPED)
+            )
+        store.append_history(
+            s,
+            event="plan_finished",
+            plan_id=plan_id,
+            actor=plan.operator,
+            outcome=status,
+            error=error or reason,
+        )
         await s.commit()
 
 
@@ -283,20 +327,32 @@ async def close_interrupted(plan_id: str, operator: str, error: str) -> bool:
         plan = await s.get(store.ActionPlan, plan_id)
         if plan is None or plan.status != store.PLAN_RUNNING:
             return False
-        running = (await s.scalars(select(store.ActionPlanStep).where(
-            store.ActionPlanStep.plan_id == plan_id,
-            store.ActionPlanStep.status == store.STEP_RUNNING))).all()
+        running = (
+            await s.scalars(
+                select(store.ActionPlanStep).where(
+                    store.ActionPlanStep.plan_id == plan_id, store.ActionPlanStep.status == store.STEP_RUNNING
+                )
+            )
+        ).all()
     for step in running:
-        await _close_step(plan_id, step, store.STEP_UNKNOWN, error, "step_unknown", operator,
-                          (step.cost_low, step.cost_high))
+        await _close_step(
+            plan_id,
+            step,
+            store.STEP_UNKNOWN,
+            error,
+            "step_unknown",
+            operator,
+            (step.cost_low, step.cost_high),
+        )
     await _finish(plan_id, store.PLAN_FAILED, error=error, reason="interrupted_by_restart")
     return True
 
 
 async def _stop_requested(plan_id: str) -> bool:
     async with store.sessions()() as s:
-        return bool(await s.scalar(select(store.ActionPlan.stop_requested).where(
-            store.ActionPlan.id == plan_id)))
+        return bool(
+            await s.scalar(select(store.ActionPlan.stop_requested).where(store.ActionPlan.id == plan_id))
+        )
 
 
 async def _kill_switch_on() -> bool:
@@ -307,14 +363,24 @@ async def _kill_switch_on() -> bool:
 async def _run_plan(app: Any, plan_id: str, operator: str, registry: ActionRegistry) -> None:
     try:
         async with store.sessions()() as s:
-            steps = (await s.scalars(select(store.ActionPlanStep).where(
-                store.ActionPlanStep.plan_id == plan_id).order_by(
-                store.ActionPlanStep.idx))).all()
+            steps = (
+                await s.scalars(
+                    select(store.ActionPlanStep)
+                    .where(store.ActionPlanStep.plan_id == plan_id)
+                    .order_by(store.ActionPlanStep.idx)
+                )
+            ).all()
             plan = await s.get(store.ActionPlan, plan_id)
             if plan is None:
                 return
-            store.append_history(s, event="plan_started", plan_id=plan_id, actor=operator,
-                                 request_text=plan.request_text, outcome="running")
+            store.append_history(
+                s,
+                event="plan_started",
+                plan_id=plan_id,
+                actor=operator,
+                request_text=plan.request_text,
+                outcome="running",
+            )
             await s.commit()
         for step in steps:
             if await _stop_requested(plan_id):
@@ -324,8 +390,12 @@ async def _run_plan(app: Any, plan_id: str, operator: str, registry: ActionRegis
             if outcome == "ok":
                 continue
             if outcome == "blocked":
-                await _finish(plan_id, store.PLAN_STOPPED, reason=budget.KILL_SWITCH_REASON,
-                              error="аварийный стоп включён оператором")
+                await _finish(
+                    plan_id,
+                    store.PLAN_STOPPED,
+                    reason=budget.KILL_SWITCH_REASON,
+                    error="аварийный стоп включён оператором",
+                )
             elif outcome == "stopped":
                 await _finish(plan_id, store.PLAN_STOPPED, reason="operator_stop")
             else:
@@ -348,8 +418,9 @@ async def _step_update(step_id: int, **values: Any) -> None:
     for attempt in range(5):
         try:
             async with store.sessions()() as s:
-                await s.execute(update(store.ActionPlanStep).where(
-                    store.ActionPlanStep.id == step_id).values(**values))
+                await s.execute(
+                    update(store.ActionPlanStep).where(store.ActionPlanStep.id == step_id).values(**values)
+                )
                 await s.commit()
             return
         except Exception as exc:  # noqa: BLE001
@@ -358,25 +429,42 @@ async def _step_update(step_id: int, **values: Any) -> None:
             await asyncio.sleep(0.2 * (attempt + 1))
 
 
-async def _close_step(plan_id: str, step: "store.ActionPlanStep", status: str, error: str,
-                      event: str, operator: str,
-                      estimate: tuple[float | None, float | None] = (None, None),
-                      actual: float | None = None) -> None:
+async def _close_step(
+    plan_id: str,
+    step: store.ActionPlanStep,
+    status: str,
+    error: str,
+    event: str,
+    operator: str,
+    estimate: tuple[float | None, float | None] = (None, None),
+    actual: float | None = None,
+) -> None:
     values: dict[str, Any] = {"status": status, "error": error[:2000], "finished_at": _now()}
     if actual is not None:
         values["cost_actual"] = actual
     async with store.sessions()() as s:
-        await s.execute(update(store.ActionPlanStep).where(
-            store.ActionPlanStep.id == step.id).values(**values))
-        store.append_history(s, event=event, plan_id=plan_id, step_index=step.idx,
-                             actor=operator, action_id=step.action_id, params=step.params,
-                             outcome=status, error=error, cost_estimate=estimate,
-                             cost_recorded=actual)
+        await s.execute(
+            update(store.ActionPlanStep).where(store.ActionPlanStep.id == step.id).values(**values)
+        )
+        store.append_history(
+            s,
+            event=event,
+            plan_id=plan_id,
+            step_index=step.idx,
+            actor=operator,
+            action_id=step.action_id,
+            params=step.params,
+            outcome=status,
+            error=error,
+            cost_estimate=estimate,
+            cost_recorded=actual,
+        )
         await s.commit()
 
 
 async def verify_attachments(params: dict) -> str | None:
     from app.services.action_layer import attachments as att
+
     path = params.get("source_path")
     if not isinstance(path, str) or not path.replace("\\", "/").startswith(att.ATTACH_DIR + "/"):
         return None
@@ -408,13 +496,23 @@ async def verify_attachments(params: dict) -> str | None:
     return None
 
 
-async def _settle_step(plan_id: str, step: "store.ActionPlanStep", spec: ActionSpec,
-                       reserved: float, t0: datetime, reported: float | None) -> float | None:
+async def _settle_step(
+    plan_id: str,
+    step: store.ActionPlanStep,
+    spec: ActionSpec,
+    reserved: float,
+    t0: datetime,
+    reported: float | None,
+) -> float | None:
     if not spec.spends_money and reported is None:
         return None
     if spec.deferred_spend:
-        logger.info("action layer: reserve of plan={} step={} ({}) is held, spend happens in the worker",
-                    plan_id, step.idx, spec.id)
+        logger.info(
+            "action layer: reserve of plan={} step={} ({}) is held, spend happens in the worker",
+            plan_id,
+            step.idx,
+            spec.id,
+        )
         return None
     try:
         async with store.sessions()() as s:
@@ -426,14 +524,26 @@ async def _settle_step(plan_id: str, step: "store.ActionPlanStep", spec: ActionS
                 if actual is None and reserved:
                     unknown, gap = await budget.native_unknown_cost_rows(s, project_id=pid, since=t0)
                     if unknown and not gap:
-                        await budget.settle(s, key=budget.session_key(plan_id), plan_id=plan_id,
-                                            step_index=step.idx, reserved=reserved, actual=0.0,
-                                            native_counted=True)
+                        await budget.settle(
+                            s,
+                            key=budget.session_key(plan_id),
+                            plan_id=plan_id,
+                            step_index=step.idx,
+                            reserved=reserved,
+                            actual=0.0,
+                            native_counted=True,
+                        )
                         await s.commit()
                         return None
-            await budget.settle(s, key=budget.session_key(plan_id), plan_id=plan_id,
-                                step_index=step.idx, reserved=reserved, actual=actual,
-                                native_counted=native)
+            await budget.settle(
+                s,
+                key=budget.session_key(plan_id),
+                plan_id=plan_id,
+                step_index=step.idx,
+                reserved=reserved,
+                actual=actual,
+                native_counted=native,
+            )
             await s.commit()
         return actual
     except Exception:
@@ -458,14 +568,16 @@ async def _abort_job(plan_id: str, spec: ActionSpec, cur: dict) -> bool:
         await asyncio.sleep(min(float(spec.poll_interval_s), 1.0))
 
 
-def _hold_project(project_id: int | None, plan_id: str, spec: ActionSpec, cur: dict,
-                  on_done) -> None:
+def _hold_project(project_id: int | None, plan_id: str, spec: ActionSpec, cur: dict, on_done) -> None:
     if project_id is None:
         return
     pid = int(project_id)
-    info = {"plan_id": plan_id, "action_id": spec.id,
-            "until": time.monotonic() + (orphan_max_s() if cur.get("start") is not None
-                                         else min(120.0, orphan_max_s()))}
+    info = {
+        "plan_id": plan_id,
+        "action_id": spec.id,
+        "until": time.monotonic()
+        + (orphan_max_s() if cur.get("start") is not None else min(120.0, orphan_max_s())),
+    }
     _ORPHANS[pid] = info
 
     async def _watch() -> None:
@@ -491,53 +603,81 @@ def _hold_project(project_id: int | None, plan_id: str, spec: ActionSpec, cur: d
     info["task"] = task
 
 
-async def _run_step(app: Any, plan_id: str, step_id: int, operator: str,
-                    registry: ActionRegistry) -> str:
+async def _run_step(app: Any, plan_id: str, step_id: int, operator: str, registry: ActionRegistry) -> str:
     async with store.sessions()() as s:
         step = await s.get(store.ActionPlanStep, step_id)
         plan = await s.get(store.ActionPlan, plan_id)
-        statuses = {r.idx: r.status for r in (await s.scalars(select(store.ActionPlanStep).where(
-            store.ActionPlanStep.plan_id == plan_id))).all()}
+        statuses = {
+            r.idx: r.status
+            for r in (
+                await s.scalars(select(store.ActionPlanStep).where(store.ActionPlanStep.plan_id == plan_id))
+            ).all()
+        }
         request_text = plan.request_text if plan else ""
     if step.status == store.STEP_SUCCEEDED:
         return "ok"
     spec = registry.find(step.action_id)
     if spec is None:
-        await _close_step(plan_id, step, store.STEP_FAILED, "неизвестное действие",
-                          "step_failed", operator)
+        await _close_step(plan_id, step, store.STEP_FAILED, "неизвестное действие", "step_failed", operator)
         return "неизвестное действие"
 
     if step.status == store.STEP_RUNNING:
         if spec.idempotent or spec.risk == "read":
             await _step_update(step.id, status=store.STEP_PENDING)
         else:
-            await _close_step(plan_id, step, store.STEP_UNKNOWN,
-                              "результат неизвестен после прерывания, нужен ручной разбор",
-                              "step_unknown", operator)
+            await _close_step(
+                plan_id,
+                step,
+                store.STEP_UNKNOWN,
+                "результат неизвестен после прерывания, нужен ручной разбор",
+                "step_unknown",
+                operator,
+            )
             return "результат неизвестен после прерывания, нужен ручной разбор"
 
     if spec.id not in KILL_EXEMPT_ACTIONS and await _kill_switch_on():
         async with store.sessions()() as s:
-            store.append_history(s, event="kill_switch_block", plan_id=plan_id,
-                                 step_index=step.idx, actor=operator, action_id=step.action_id,
-                                 outcome="blocked", error=budget.KILL_SWITCH_REASON)
+            store.append_history(
+                s,
+                event="kill_switch_block",
+                plan_id=plan_id,
+                step_index=step.idx,
+                actor=operator,
+                action_id=step.action_id,
+                outcome="blocked",
+                error=budget.KILL_SWITCH_REASON,
+            )
             await s.commit()
         return "blocked"
 
     for dep in step.depends_on or []:
         if statuses.get(dep) != store.STEP_SUCCEEDED:
-            await _close_step(plan_id, step, store.STEP_SKIPPED,
-                              f"шаг {dep + 1}, от которого зависит этот, не выполнен", "step_skipped", operator)
+            await _close_step(
+                plan_id,
+                step,
+                store.STEP_SKIPPED,
+                f"шаг {dep + 1}, от которого зависит этот, не выполнен",
+                "step_skipped",
+                operator,
+            )
             return f"не выполнен шаг {dep + 1}, от которого зависит этот"
 
     errors = registry.validate_params(spec.id, step.params)
     est = spec.estimate(step.params)
     est_pair = (est.low, est.high)
-    ctx = ActionContext(app=app, operator=operator, plan_id=plan_id, step_index=step.idx,
-                        idempotency_key=step.idempotency_key)
+    ctx = ActionContext(
+        app=app, operator=operator, plan_id=plan_id, step_index=step.idx, idempotency_key=step.idempotency_key
+    )
     if errors:
-        await _close_step(plan_id, step, store.STEP_FAILED, "; ".join(validation_list_ru(errors)),
-                          "step_failed", operator, est_pair)
+        await _close_step(
+            plan_id,
+            step,
+            store.STEP_FAILED,
+            "; ".join(validation_list_ru(errors)),
+            "step_failed",
+            operator,
+            est_pair,
+        )
         return "неверные параметры"
     for pre in spec.preconditions:
         try:
@@ -545,15 +685,20 @@ async def _run_step(app: Any, plan_id: str, step_id: int, operator: str,
         except Exception as exc:
             reason = f"проверка не выполнена: {type(exc).__name__}: {exc}"
         if reason:
-            await _close_step(plan_id, step, store.STEP_FAILED,
-                              f"условие {pre.id}: {reason}", "step_failed", operator,
-                              est_pair)
+            await _close_step(
+                plan_id,
+                step,
+                store.STEP_FAILED,
+                f"условие {pre.id}: {reason}",
+                "step_failed",
+                operator,
+                est_pair,
+            )
             return f"не выполнено условие ({pre.id})"
 
     bad_file = await verify_attachments(step.params or {})
     if bad_file:
-        await _close_step(plan_id, step, store.STEP_FAILED, bad_file, "step_failed",
-                          operator, est_pair)
+        await _close_step(plan_id, step, store.STEP_FAILED, bad_file, "step_failed", operator, est_pair)
         return "вложение изменено или не найдено"
 
     reserved = 0.0
@@ -563,29 +708,56 @@ async def _run_step(app: Any, plan_id: str, step_id: int, operator: str,
     async with store.sessions()() as s:
         try:
             if spec.spends_money:
-                reserved = await budget.reserve(s, key=key, plan_id=plan_id,
-                                                step_index=step.idx, estimate=est)
+                reserved = await budget.reserve(
+                    s, key=key, plan_id=plan_id, step_index=step.idx, estimate=est
+                )
         except budget.BudgetError as exc:
             await s.rollback()
-            store.append_history(s, event="budget_block", plan_id=plan_id, step_index=step.idx,
-                                 actor=operator, action_id=step.action_id, params=step.params,
-                                 outcome="blocked", error=str(exc), cost_estimate=est_pair)
-            await s.execute(update(store.ActionPlanStep).where(
-                store.ActionPlanStep.id == step.id).values(
-                status=store.STEP_FAILED, error=str(exc)[:2000], finished_at=_now()))
+            store.append_history(
+                s,
+                event="budget_block",
+                plan_id=plan_id,
+                step_index=step.idx,
+                actor=operator,
+                action_id=step.action_id,
+                params=step.params,
+                outcome="blocked",
+                error=str(exc),
+                cost_estimate=est_pair,
+            )
+            await s.execute(
+                update(store.ActionPlanStep)
+                .where(store.ActionPlanStep.id == step.id)
+                .values(status=store.STEP_FAILED, error=str(exc)[:2000], finished_at=_now())
+            )
             await s.commit()
             return f"ограничение бюджета ({exc.code})"
-        claimed = await s.execute(update(store.ActionPlanStep).where(
-            store.ActionPlanStep.id == step.id,
-            store.ActionPlanStep.status == store.STEP_PENDING).values(
-            status=store.STEP_RUNNING, attempts=store.ActionPlanStep.attempts + 1,
-            started_at=_now(), cost_low=est.low, cost_high=est.high))
+        claimed = await s.execute(
+            update(store.ActionPlanStep)
+            .where(store.ActionPlanStep.id == step.id, store.ActionPlanStep.status == store.STEP_PENDING)
+            .values(
+                status=store.STEP_RUNNING,
+                attempts=store.ActionPlanStep.attempts + 1,
+                started_at=_now(),
+                cost_low=est.low,
+                cost_high=est.high,
+            )
+        )
         if claimed.rowcount != 1:
             await s.rollback()
             return "шаг уже взят в работу в другом месте"
-        store.append_history(s, event="step_started", plan_id=plan_id, step_index=step.idx,
-                             actor=operator, request_text=request_text, action_id=step.action_id,
-                             params=step.params, outcome="running", cost_estimate=est_pair)
+        store.append_history(
+            s,
+            event="step_started",
+            plan_id=plan_id,
+            step_index=step.idx,
+            actor=operator,
+            request_text=request_text,
+            action_id=step.action_id,
+            params=step.params,
+            outcome="running",
+            cost_estimate=est_pair,
+        )
         await s.commit()
 
     async def sink(fraction: float | None, note: str) -> None:
@@ -600,88 +772,162 @@ async def _run_step(app: Any, plan_id: str, step_id: int, operator: str,
     ctx.progress_sink = sink
     t0 = _now()
     project_id = (await _plan_project(plan_id)) if spec.is_job else None
-    cur = {"ctx": ctx, "spec": spec, "params": step.params, "stop_sent": False,
-           "start": None, "job_finished": False, "project_id": project_id}
+    cur = {
+        "ctx": ctx,
+        "spec": spec,
+        "params": step.params,
+        "stop_sent": False,
+        "start": None,
+        "job_finished": False,
+        "project_id": project_id,
+    }
     _CURRENT[plan_id] = cur
     try:
         result, credits = await _execute(plan_id, spec, ctx, step.params, cur)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         force = not spec.spends_money
-        confirmed = await _abort_after_failure(plan_id, step, spec, cur, project_id,
-                                               reserved, t0, operator, est_pair, force=force)
+        confirmed = await _abort_after_failure(
+            plan_id, step, spec, cur, project_id, reserved, t0, operator, est_pair, force=force
+        )
         actual = await _settle_if_done(plan_id, step, spec, reserved, t0, confirmed)
         tail = "" if confirmed else "; остановка серверной задачи не подтверждена, проект занят до её конца"
-        await _close_step(plan_id, step, store.STEP_UNKNOWN,
-                          "шаг не уложился во время, результат неизвестен" + tail,
-                          "step_unknown", operator, est_pair, actual)
+        await _close_step(
+            plan_id,
+            step,
+            store.STEP_UNKNOWN,
+            "шаг не уложился во время, результат неизвестен" + tail,
+            "step_unknown",
+            operator,
+            est_pair,
+            actual,
+        )
         return "время вышло, результат неизвестен"
     except _Stalled as stall:
         minutes = max(1, round(stall.idle_s / 60))
         if not spec.spends_money:
-            confirmed = await _abort_after_failure(plan_id, step, spec, cur, project_id,
-                                                   reserved, t0, operator, est_pair, force=True)
+            confirmed = await _abort_after_failure(
+                plan_id, step, spec, cur, project_id, reserved, t0, operator, est_pair, force=True
+            )
             actual = await _settle_if_done(plan_id, step, spec, reserved, t0, confirmed)
             tail = "" if confirmed else "; остановка задачи не подтверждена, проект занят до её конца"
-            await _close_step(plan_id, step, store.STEP_UNKNOWN,
-                              f"нет признаков хода {minutes} мин: задача остановлена, результат "
-                              "неизвестен" + tail, "step_unknown", operator, est_pair, actual)
+            await _close_step(
+                plan_id,
+                step,
+                store.STEP_UNKNOWN,
+                f"нет признаков хода {minutes} мин: задача остановлена, результат неизвестен" + tail,
+                "step_unknown",
+                operator,
+                est_pair,
+                actual,
+            )
             return "нет признаков хода, результат неизвестен"
-        await _hold_after_stall(plan_id, step, spec, cur, project_id, reserved, t0, operator,
-                                est_pair, stall.idle_s)
-        await _close_step(plan_id, step, store.STEP_UNKNOWN,
-                          f"нет признаков хода {minutes} мин: платную задачу не останавливали, "
-                          "результат неизвестен; проект занят, пока задача не закончится "
-                          "(остановить её можно только вручную)", "step_unknown", operator,
-                          est_pair)
+        await _hold_after_stall(
+            plan_id, step, spec, cur, project_id, reserved, t0, operator, est_pair, stall.idle_s
+        )
+        await _close_step(
+            plan_id,
+            step,
+            store.STEP_UNKNOWN,
+            f"нет признаков хода {minutes} мин: платную задачу не останавливали, "
+            "результат неизвестен; проект занят, пока задача не закончится "
+            "(остановить её можно только вручную)",
+            "step_unknown",
+            operator,
+            est_pair,
+        )
         return "нет признаков хода, платная задача не остановлена, результат неизвестен"
     except _Stopped:
         actual = await _settle_step(plan_id, step, spec, reserved, t0, None)
-        await _close_step(plan_id, step, store.STEP_CANCELLED, "остановлено оператором",
-                          "step_cancelled", operator, est_pair, actual)
+        await _close_step(
+            plan_id,
+            step,
+            store.STEP_CANCELLED,
+            "остановлено оператором",
+            "step_cancelled",
+            operator,
+            est_pair,
+            actual,
+        )
         return "stopped"
     except _KillSwitchStopped:
-        confirmed = await _abort_after_failure(plan_id, step, spec, cur, project_id,
-                                               reserved, t0, operator, est_pair, force=False)
+        confirmed = await _abort_after_failure(
+            plan_id, step, spec, cur, project_id, reserved, t0, operator, est_pair, force=False
+        )
         actual = await _settle_if_done(plan_id, step, spec, reserved, t0, confirmed)
-        await _close_step(plan_id, step, store.STEP_CANCELLED,
-                          "остановлено аварийным стопом", "step_cancelled", operator, est_pair,
-                          actual)
+        await _close_step(
+            plan_id,
+            step,
+            store.STEP_CANCELLED,
+            "остановлено аварийным стопом",
+            "step_cancelled",
+            operator,
+            est_pair,
+            actual,
+        )
         return "blocked"
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         confirmed = True
         if spec.is_job and cur.get("start") is not None and not cur.get("job_finished"):
-            confirmed = await _abort_after_failure(plan_id, step, spec, cur, project_id,
-                                                   reserved, t0, operator, est_pair, force=False)
+            confirmed = await _abort_after_failure(
+                plan_id, step, spec, cur, project_id, reserved, t0, operator, est_pair, force=False
+            )
         actual = await _settle_if_done(plan_id, step, spec, reserved, t0, confirmed)
-        await _close_step(plan_id, step, store.STEP_FAILED,
-                          f"{type(exc).__name__}: {exc}", "step_failed", operator, est_pair,
-                          actual)
+        await _close_step(
+            plan_id,
+            step,
+            store.STEP_FAILED,
+            f"{type(exc).__name__}: {exc}",
+            "step_failed",
+            operator,
+            est_pair,
+            actual,
+        )
         return f"{type(exc).__name__}: {exc}"[:300]
     finally:
         _CURRENT.pop(plan_id, None)
 
     actual = await _settle_step(plan_id, step, spec, reserved, t0, credits)
     async with store.sessions()() as s:
-        await s.execute(update(store.ActionPlanStep).where(
-            store.ActionPlanStep.id == step.id).values(
-            status=store.STEP_SUCCEEDED, result=safe_json(result), progress=1.0,
-            cost_actual=actual, finished_at=_now(), error=""))
-        store.append_history(s, event="step_succeeded", plan_id=plan_id, step_index=step.idx,
-                             actor=operator, action_id=step.action_id, params=step.params,
-                             outcome="succeeded", cost_estimate=est_pair, cost_recorded=actual)
+        await s.execute(
+            update(store.ActionPlanStep)
+            .where(store.ActionPlanStep.id == step.id)
+            .values(
+                status=store.STEP_SUCCEEDED,
+                result=safe_json(result),
+                progress=1.0,
+                cost_actual=actual,
+                finished_at=_now(),
+                error="",
+            )
+        )
+        store.append_history(
+            s,
+            event="step_succeeded",
+            plan_id=plan_id,
+            step_index=step.idx,
+            actor=operator,
+            action_id=step.action_id,
+            params=step.params,
+            outcome="succeeded",
+            cost_estimate=est_pair,
+            cost_recorded=actual,
+        )
         await s.commit()
     return "ok"
 
 
 async def mark_stale_reserves() -> list[dict]:
     from app.settings import settings
+
     try:
         async with store.sessions()() as s:
             rows = await budget.unresolved_reserves(
-                s, older_than_s=float(settings.action_layer_reserve_stale_s),
-                skip_plans={info["plan_id"] for info in _ORPHANS.values()})
+                s,
+                older_than_s=float(settings.action_layer_reserve_stale_s),
+                skip_plans={info["plan_id"] for info in _ORPHANS.values()},
+            )
             fresh = await budget.mark_unresolved_reserves(s, rows)
             await s.commit()
         return fresh
@@ -701,8 +947,9 @@ async def _settle_if_done(plan_id, step, spec, reserved, t0, confirmed: bool) ->
     return await _settle_step(plan_id, step, spec, reserved, t0, None)
 
 
-async def _abort_after_failure(plan_id, step, spec, cur, project_id, reserved, t0, operator,
-                               est_pair, *, force: bool) -> bool:
+async def _abort_after_failure(
+    plan_id, step, spec, cur, project_id, reserved, t0, operator, est_pair, *, force: bool
+) -> bool:
     if not spec.is_job:
         return True
     if not (force or cur.get("start") is not None):
@@ -713,31 +960,49 @@ async def _abort_after_failure(plan_id, step, spec, cur, project_id, reserved, t
         logger.exception("action layer abort failed plan={}", plan_id)
         confirmed = False
     async with store.sessions()() as s:
-        store.append_history(s, event="job_stop_after_failure", plan_id=plan_id,
-                             step_index=step.idx, actor=operator, action_id=spec.id,
-                             outcome="confirmed" if confirmed else "unconfirmed",
-                             error="" if confirmed else "серверная задача могла продолжиться",
-                             cost_estimate=est_pair)
+        store.append_history(
+            s,
+            event="job_stop_after_failure",
+            plan_id=plan_id,
+            step_index=step.idx,
+            actor=operator,
+            action_id=spec.id,
+            outcome="confirmed" if confirmed else "unconfirmed",
+            error="" if confirmed else "серверная задача могла продолжиться",
+            cost_estimate=est_pair,
+        )
         await s.commit()
     if not confirmed:
+
         async def _late_settle(_state) -> None:
             await _settle_step(plan_id, step, spec, reserved, t0, None)
+
         _hold_project(project_id, plan_id, spec, cur, _late_settle)
     return confirmed
 
 
-async def _hold_after_stall(plan_id, step, spec, cur, project_id, reserved, t0, operator,
-                            est_pair, idle_s: float) -> None:
+async def _hold_after_stall(
+    plan_id, step, spec, cur, project_id, reserved, t0, operator, est_pair, idle_s: float
+) -> None:
     async with store.sessions()() as s:
-        store.append_history(s, event="job_stalled", plan_id=plan_id, step_index=step.idx,
-                             actor=operator, action_id=spec.id, outcome="unconfirmed",
-                             error=(f"нет признаков хода {idle_s:.0f} с; платная задача не "
-                                    "останавливалась и могла продолжиться"),
-                             cost_estimate=est_pair)
+        store.append_history(
+            s,
+            event="job_stalled",
+            plan_id=plan_id,
+            step_index=step.idx,
+            actor=operator,
+            action_id=spec.id,
+            outcome="unconfirmed",
+            error=(
+                f"нет признаков хода {idle_s:.0f} с; платная задача не останавливалась и могла продолжиться"
+            ),
+            cost_estimate=est_pair,
+        )
         await s.commit()
 
     async def _late_settle(_state) -> None:
         await _settle_step(plan_id, step, spec, reserved, t0, None)
+
     _hold_project(project_id, plan_id, spec, cur, _late_settle)
 
 
@@ -757,11 +1022,14 @@ async def _call_stop(plan_id: str, cur: dict) -> None:
         logger.warning("action layer stop call failed plan={}: {}", plan_id, exc)
 
 
-async def _execute(plan_id: str, spec: ActionSpec, ctx: ActionContext, params: dict,
-                   cur: dict) -> tuple[dict, float | None]:
+async def _execute(
+    plan_id: str, spec: ActionSpec, ctx: ActionContext, params: dict, cur: dict
+) -> tuple[dict, float | None]:
     from app.settings import settings
-    start = await asyncio.wait_for(spec.executor(ctx, params),
-                                   timeout=float(settings.action_layer_step_timeout_s))
+
+    start = await asyncio.wait_for(
+        spec.executor(ctx, params), timeout=float(settings.action_layer_step_timeout_s)
+    )
     start = start if isinstance(start, dict) else {"value": start}
     cur["start"] = start
     if not spec.is_job:
@@ -783,10 +1051,16 @@ async def _execute(plan_id: str, spec: ActionSpec, ctx: ActionContext, params: d
         if await _kill_switch_on():
             await _call_stop(plan_id, cur)
             async with store.sessions()() as s:
-                store.append_history(s, event="kill_switch_block", plan_id=plan_id,
-                                     step_index=ctx.step_index, actor=ctx.operator,
-                                     action_id=spec.id, outcome="blocked",
-                                     error=budget.KILL_SWITCH_REASON)
+                store.append_history(
+                    s,
+                    event="kill_switch_block",
+                    plan_id=plan_id,
+                    step_index=ctx.step_index,
+                    actor=ctx.operator,
+                    action_id=spec.id,
+                    outcome="blocked",
+                    error=budget.KILL_SWITCH_REASON,
+                )
                 await s.commit()
             raise _KillSwitchStopped()
         await watch.observe(ctx, state)
@@ -804,8 +1078,7 @@ async def request_stop(plan_id: str, operator: str) -> dict:
             return {"status": plan.status, "stop_requested": plan.stop_requested}
         plan.stop_requested = True
         plan.updated_at = _now()
-        store.append_history(s, event="stop_requested", plan_id=plan_id, actor=operator,
-                             outcome="requested")
+        store.append_history(s, event="stop_requested", plan_id=plan_id, actor=operator, outcome="requested")
         await s.commit()
     cur = _CURRENT.get(plan_id)
     if cur is not None:

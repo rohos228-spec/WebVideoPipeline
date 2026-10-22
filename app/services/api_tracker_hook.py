@@ -16,7 +16,7 @@ import os
 import secrets
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,8 +24,11 @@ from loguru import logger
 
 from app.services.tracker_schema import ensure_tracker_schema
 
-_TRACKER_DB = (Path(os.environ["API_TRACKER_DB"]) if os.environ.get("API_TRACKER_DB", "").strip()
-               else Path(__file__).resolve().parent.parent.parent / "api-tracker" / "tracker.db")
+_TRACKER_DB = (
+    Path(os.environ["API_TRACKER_DB"])
+    if os.environ.get("API_TRACKER_DB", "").strip()
+    else Path(__file__).resolve().parent.parent.parent / "api-tracker" / "tracker.db"
+)
 
 _RATES: dict[str, tuple[float, float]] = {
     "gemini-3.7-flash": (0.147622, 0.738108),
@@ -66,6 +69,7 @@ def _is_vibecode(provider: str | None) -> bool:
 def _vibecode_pricing(model: str | None) -> dict[str, Any] | None:
     try:
         from app.services.vibecode_catalog import load_snapshot
+
         wanted = str(model or "").strip().lower()
         for entry in load_snapshot():
             if str(entry.get("id") or "").lower() == wanted and isinstance(entry.get("pricing"), dict):
@@ -81,16 +85,23 @@ def vibecode_cost(model: str | None, p_tok: int, c_tok: int, cached_tok: int = 0
         return None
     in_r = float(pricing["input_usd_per_m"])
     out_r = float(pricing["output_usd_per_m"])
-    cache_r = float(pricing.get("cache_read_usd_per_m") if pricing.get("cache_read_usd_per_m") is not None else in_r)
+    cache_r = float(
+        pricing.get("cache_read_usd_per_m") if pricing.get("cache_read_usd_per_m") is not None else in_r
+    )
     cached = min(max(cached_tok, 0), p_tok)
     return round(((p_tok - cached) / 1e6) * in_r + (cached / 1e6) * cache_r + (c_tok / 1e6) * out_r, 6)
 
 
 def vibecode_cost_metadata(model: str | None, *, usage_known: bool) -> dict[str, Any]:
-    meta: dict[str, Any] = {"provider": "vibecode", "pricing_basis": VIBECODE_PRICING_BASIS,
-        "calibrated": False, "price_source": VIBECODE_PRICE_SOURCE}
+    meta: dict[str, Any] = {
+        "provider": "vibecode",
+        "pricing_basis": VIBECODE_PRICING_BASIS,
+        "calibrated": False,
+        "price_source": VIBECODE_PRICE_SOURCE,
+    }
     try:
         from app.services.vibecode_catalog import PRICE_MARKUP
+
         meta["ui_markup"] = PRICE_MARKUP
     except Exception:
         pass
@@ -139,7 +150,9 @@ def _calc_cost(
     for k, (in_r, out_r, cached_r) in _MEASURED_RATES.items():
         if k.replace(".", "-") in m:
             cached = min(max(cached_tok, 0), p_tok)
-            return round(((p_tok - cached) / 1e6) * in_r + (cached / 1e6) * cached_r + (c_tok / 1e6) * out_r, 6)
+            return round(
+                ((p_tok - cached) / 1e6) * in_r + (cached / 1e6) * cached_r + (c_tok / 1e6) * out_r, 6
+            )
     for k, (in_r, out_r) in _RATES.items():
         if k.replace(".", "-") in m:
             return round((p_tok / 1e6) * in_r + (c_tok / 1e6) * out_r, 6)
@@ -159,6 +172,7 @@ def _get_identity() -> tuple[str, str]:
     import getpass
     import os
     import socket
+
     try:
         app_data = os.environ.get("APPDATA")
         candidates = []
@@ -180,6 +194,7 @@ def _get_identity() -> tuple[str, str]:
 def _redact_value(value: Any) -> Any:
     try:
         from app.services.observation import redact
+
         return redact(value)
     except Exception:
         return "[redacted]" if isinstance(value, str) and value else value
@@ -188,18 +203,24 @@ def _redact_value(value: Any) -> Any:
 def _cloud_enabled() -> bool:
     try:
         from app.settings import settings
+
         # Нет настройки в новой линии -> облачный трекер выключен (данные
         # арендаторов наружу без явного решения не уходят).
         return bool(getattr(settings, "api_tracker_cloud_enabled", False))
     except Exception:
-        logger.opt(exception=True).error("api_tracker: не удалось прочитать настройку облака, облако считаю выключенным")
+        logger.opt(exception=True).error(
+            "api_tracker: не удалось прочитать настройку облака, облако считаю выключенным"
+        )
         return False
 
 
 def _cloud_credentials() -> tuple[str, str]:
     from app.settings import settings
-    return (str(getattr(settings, "api_tracker_supabase_url", "") or "").strip(),
-            str(getattr(settings, "api_tracker_supabase_key", "") or "").strip())
+
+    return (
+        str(getattr(settings, "api_tracker_supabase_url", "") or "").strip(),
+        str(getattr(settings, "api_tracker_supabase_key", "") or "").strip(),
+    )
 
 
 def _cloud_salt() -> str:
@@ -214,7 +235,9 @@ def _cloud_salt() -> str:
         path.write_text(value, encoding="utf-8")
         return value
     except Exception:
-        logger.opt(exception=True).error("api_tracker: нет локальной соли для хэша имени, имя в облако не отправляю")
+        logger.opt(exception=True).error(
+            "api_tracker: нет локальной соли для хэша имени, имя в облако не отправляю"
+        )
         return ""
 
 
@@ -229,10 +252,13 @@ def _hash_identity(value: str, prefix: str) -> str:
 def _cloud_identity(user_name: str, device_name: str) -> tuple[str, str]:
     try:
         from app.settings import settings
+
         if getattr(settings, "api_tracker_cloud_send_identity", False):
             return user_name, device_name
     except Exception:
-        logger.opt(exception=True).error("api_tracker: не удалось прочитать настройку имени, отправляю только хэш")
+        logger.opt(exception=True).error(
+            "api_tracker: не удалось прочитать настройку имени, отправляю только хэш"
+        )
     return _hash_identity(user_name, "u-"), _hash_identity(device_name, "d-")
 
 
@@ -243,11 +269,14 @@ def _push_to_supabase(payload: dict[str, Any]) -> bool:
     if not _cloud_enabled():
         return False
     import httpx
+
     url, key = _cloud_credentials()
     if not url or not key:
         if "no_credentials" not in _cloud_warned:
             _cloud_warned.add("no_credentials")
-            logger.warning("api_tracker: облако включено, но не заданы SUPABASE_URL и SUPABASE_KEY; строки не уходят")
+            logger.warning(
+                "api_tracker: облако включено, но не заданы SUPABASE_URL и SUPABASE_KEY; строки не уходят"
+            )
         return False
     endpoint = f"{url.rstrip('/')}/rest/v1/api_calls"
     headers = {
@@ -264,9 +293,10 @@ def _push_to_supabase(payload: dict[str, Any]) -> bool:
             return False
         return True
     except Exception as exc:
-        logger.warning("api_tracker: облачная отправка не удалась ({}), строка останется synced=0", type(exc).__name__)
+        logger.warning(
+            "api_tracker: облачная отправка не удалась ({}), строка останется synced=0", type(exc).__name__
+        )
         return False
-
 
 
 _inflight = 0
@@ -285,6 +315,7 @@ def pending_writes() -> int:
 
 def flush(timeout: float = 15.0) -> bool:
     import time
+
     deadline = time.monotonic() + max(0.0, timeout)
     with _inflight_cv:
         while _inflight > 0:
@@ -308,7 +339,9 @@ def _spill_row(inputs: dict[str, Any]) -> bool:
                 f.write(json.dumps(inputs, ensure_ascii=False, default=str) + "\n")
         return True
     except Exception:
-        logger.opt(exception=True).error("api_tracker: spill-файл недоступен, строка осталась только в логе: {}", inputs)
+        logger.opt(exception=True).error(
+            "api_tracker: spill-файл недоступен, строка осталась только в логе: {}", inputs
+        )
         return False
 
 
@@ -375,19 +408,36 @@ _INSERT_SQL = """
 
 def _insert_local(common: dict[str, Any], user_name: str, device_name: str, synced: bool) -> None:
     from contextlib import closing
+
     _TRACKER_DB.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(str(_TRACKER_DB), timeout=5.0)) as conn:
         with conn:
             conn.execute("PRAGMA journal_mode=WAL;")
             ensure_tracker_schema(conn, _TRACKER_DB)
-            conn.execute(_INSERT_SQL, (
-                common["timestamp"], user_name, device_name, common["provider"], "", common["model"],
-                common["call_type"], common["prompt_tokens"], common["completion_tokens"],
-                common["cached_tokens"], common["total_tokens"], common["media_count"],
-                common["duration_sec"], common["cost_usd"], common["status_code"],
-                common["error_message"], common["project_source"],
-                json.dumps(common["metadata_json"], ensure_ascii=False), 1 if synced else 0,
-            ))
+            conn.execute(
+                _INSERT_SQL,
+                (
+                    common["timestamp"],
+                    user_name,
+                    device_name,
+                    common["provider"],
+                    "",
+                    common["model"],
+                    common["call_type"],
+                    common["prompt_tokens"],
+                    common["completion_tokens"],
+                    common["cached_tokens"],
+                    common["total_tokens"],
+                    common["media_count"],
+                    common["duration_sec"],
+                    common["cost_usd"],
+                    common["status_code"],
+                    common["error_message"],
+                    common["project_source"],
+                    json.dumps(common["metadata_json"], ensure_ascii=False),
+                    1 if synced else 0,
+                ),
+            )
 
 
 def replay_spill() -> int:
@@ -418,7 +468,9 @@ def replay_spill() -> int:
             else:
                 path.unlink()
         except Exception:
-            logger.opt(exception=True).error("api_tracker: spill-файл не обновлён, повторная вставка возможна")
+            logger.opt(exception=True).error(
+                "api_tracker: spill-файл не обновлён, повторная вставка возможна"
+            )
     return done
 
 
@@ -426,35 +478,56 @@ def _on_write_failed(inputs: dict[str, Any], exc: BaseException) -> None:
     global _write_failures
     _write_failures += 1
     logger.opt(exception=exc).error(
-        "api_tracker: строка вызова НЕ записана ({} {}): {}", inputs.get("provider"), inputs.get("model"),
-        type(exc).__name__)
+        "api_tracker: строка вызова НЕ записана ({} {}): {}",
+        inputs.get("provider"),
+        inputs.get("model"),
+        type(exc).__name__,
+    )
     spilled = _spill_row(inputs)
     est = 0.0
     try:
-        est = float(_calc_cost(inputs["model"], inputs["prompt_tokens"], inputs["completion_tokens"],
-                               inputs["call_type"], inputs["duration_sec"], media_count=inputs["media_count"] or 1,
-                               cost_usd=inputs["cost_usd"], cached_tok=inputs["cached_tokens"],
-                               provider=inputs["provider"]))
+        est = float(
+            _calc_cost(
+                inputs["model"],
+                inputs["prompt_tokens"],
+                inputs["completion_tokens"],
+                inputs["call_type"],
+                inputs["duration_sec"],
+                media_count=inputs["media_count"] or 1,
+                cost_usd=inputs["cost_usd"],
+                cached_tok=inputs["cached_tokens"],
+                provider=inputs["provider"],
+            )
+        )
     except Exception:
         pass
     try:
         from app.services import media_spend
-        media_spend.note_gap("tracker", "api_calls_row", usd=est, error=exc,
-                             detail=f"{inputs.get('provider')}/{inputs.get('model')} spill={'yes' if spilled else 'no'}")
+
+        media_spend.note_gap(
+            "tracker",
+            "api_calls_row",
+            usd=est,
+            error=exc,
+            detail=f"{inputs.get('provider')}/{inputs.get('model')} spill={'yes' if spilled else 'no'}",
+        )
     except Exception:
         logger.opt(exception=True).error("api_tracker: пробел не записан в журнал трат")
 
 
-def _with_correlation(metadata: dict[str, Any] | None, project_source: str) -> tuple[dict[str, Any] | None, str]:
+def _with_correlation(
+    metadata: dict[str, Any] | None, project_source: str
+) -> tuple[dict[str, Any] | None, str]:
     try:
         from app.services import request_context
+
         corr = request_context.correlation()
         meta = dict(metadata or {})
         run_id, request_id = corr["run_id"], corr["request_id"]
         if run_id:
             meta.setdefault("run_id", run_id)
             if run_id.startswith("plan:"):
-                meta.setdefault("plan_id", run_id[len("plan:"):])
+                meta.setdefault("plan_id", run_id[len("plan:") :])
         if request_id:
             meta.setdefault("request_id", request_id)
         if corr["project_id"] is not None:
@@ -463,7 +536,9 @@ def _with_correlation(metadata: dict[str, Any] | None, project_source: str) -> t
                 project_source = str(corr["project_id"])
         return (meta or metadata), project_source
     except Exception:
-        logger.opt(exception=True).warning("api_tracker: correlation ids unavailable, the row is written without them")
+        logger.opt(exception=True).warning(
+            "api_tracker: correlation ids unavailable, the row is written without them"
+        )
         return metadata, project_source
 
 
@@ -490,11 +565,20 @@ def record_api_call(
     metadata = _redact_value(metadata) if metadata else metadata
     metadata, project_source = _with_correlation(metadata, project_source)
     inputs: dict[str, Any] = {
-        "provider": provider, "model": model, "call_type": call_type, "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens, "cached_tokens": cached_tokens, "media_count": media_count,
-        "duration_sec": duration_sec, "cost_usd": cost_usd, "status_code": status_code,
-        "error_message": error_message, "project_source": project_source, "metadata": metadata or {},
-        "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+        "provider": provider,
+        "model": model,
+        "call_type": call_type,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "cached_tokens": cached_tokens,
+        "media_count": media_count,
+        "duration_sec": duration_sec,
+        "cost_usd": cost_usd,
+        "status_code": status_code,
+        "error_message": error_message,
+        "project_source": project_source,
+        "metadata": metadata or {},
+        "timestamp": timestamp or datetime.now(UTC).isoformat(),
     }
 
     def _write():
@@ -569,6 +653,7 @@ def _fetch_cloud_killswitch() -> tuple[bool, dict[str, Any]]:
         return False, {}
     try:
         import httpx
+
         endpoint = f"{url.rstrip('/')}/rest/v1/api_calls?call_type=eq.system&provider=eq.SYSTEM&order=timestamp.desc&limit=1"
         headers = {"apikey": key, "Authorization": f"Bearer {key}"}
         with httpx.Client(timeout=4.0) as client:
@@ -590,6 +675,7 @@ def _fetch_cloud_killswitch() -> tuple[bool, dict[str, Any]]:
 
 def is_killswitch_active(force_refresh: bool = False) -> tuple[bool, dict[str, Any]]:
     import time
+
     global _KILLSWITCH_CACHE
     now = time.time()
     if not force_refresh and now < _KILLSWITCH_CACHE.get("expires_at", 0):
@@ -627,7 +713,7 @@ def is_killswitch_active(force_refresh: bool = False) -> tuple[bool, dict[str, A
 
 def check_api_allowed(provider: str = "", model: str = "") -> None:
     """Проверяет, разрешены ли сейчас вызовы API.
-    
+
     Если включён аварийный рубильник, фиксирует отклоненный вызов (статус 403)
     и выбрасывает ApiEmergencyBlockedError.
     """
@@ -659,14 +745,17 @@ def toggle_killswitch(
 ) -> dict[str, Any]:
     """Переключить аварийный рубильник (заблокировать или возобновить)."""
     import time
+
     global _KILLSWITCH_CACHE
 
-    is_block = (action.lower() == "block")
+    is_block = action.lower() == "block"
     model_action = "KILLSWITCH_ACTIVATED" if is_block else "KILLSWITCH_DEACTIVATED"
     u_name = user_name.strip() if user_name else _get_identity()[0]
     d_name = _get_identity()[1]
-    ts = datetime.now(timezone.utc).isoformat()
-    desc = "Аварийный рубильник: API заморожены" if is_block else "Аварийный рубильник: работа API возобновлена"
+    ts = datetime.now(UTC).isoformat()
+    desc = (
+        "Аварийный рубильник: API заморожены" if is_block else "Аварийный рубильник: работа API возобновлена"
+    )
     if reason:
         desc += f" ({reason})"
 
@@ -710,16 +799,36 @@ def toggle_killswitch(
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        ts, u_name, d_name, "SYSTEM", "", model_action, "system",
-                        0, 0, 0, 0, 0, 0.0, 0.0, 200, desc, "killswitch", "{}", 1 if is_synced else 0,
+                        ts,
+                        u_name,
+                        d_name,
+                        "SYSTEM",
+                        "",
+                        model_action,
+                        "system",
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0.0,
+                        0.0,
+                        200,
+                        desc,
+                        "killswitch",
+                        "{}",
+                        1 if is_synced else 0,
                     ),
                 )
         else:
-            logger.warning("api_tracker: базы трекера нет, переключение рубильника записано только в кэш процесса")
+            logger.warning(
+                "api_tracker: базы трекера нет, переключение рубильника записано только в кэш процесса"
+            )
     except Exception as exc:
         logger.opt(exception=exc).error("api_tracker: переключение рубильника не записано в локальную базу")
         try:
             from app.services import media_spend
+
             media_spend.note_gap("tracker", "killswitch_row", error=exc, detail=model_action)
         except Exception:
             logger.opt(exception=True).error("api_tracker: пробел рубильника не записан в журнал трат")
@@ -741,4 +850,3 @@ def toggle_killswitch(
         "reason": desc,
         "synced": is_synced,
     }
-

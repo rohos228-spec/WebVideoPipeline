@@ -28,7 +28,9 @@ def _pick(value: Any, allowed: frozenset[str], default: str) -> str:
 def _project_of(conn: Any, task_id: str | None) -> int | None:
     if task_id is None or not str(task_id).strip().isdigit():
         return None
-    row = conn.execute(text("SELECT project_id FROM orch_tasks WHERE id = :id"), {"id": int(task_id)}).fetchone()
+    row = conn.execute(
+        text("SELECT project_id FROM orch_tasks WHERE id = :id"), {"id": int(task_id)}
+    ).fetchone()
     if row is None or row[0] is None:
         return None
     try:

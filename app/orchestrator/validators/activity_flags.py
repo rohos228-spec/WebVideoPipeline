@@ -25,7 +25,7 @@ _NUMERIC_TEXT = re.compile(r"^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)$")
 def _is_nan(value: object) -> bool:
     """NaN pandas/numpy: сравнение с собой ложно. Не-числа сюда не попадают."""
 
-    if isinstance(value, bool) or isinstance(value, (str, bytes, dict, list, tuple)):
+    if isinstance(value, (bool, str, bytes, dict, list, tuple)):
         return False
     try:
         return bool(value != value)

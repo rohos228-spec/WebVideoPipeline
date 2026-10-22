@@ -5,9 +5,20 @@ from typing import Any
 
 _ANNOTATIONS = {"title", "description", "default", "examples", "$comment"}
 _KEYWORDS = _ANNOTATIONS | {
-    "type", "properties", "required", "additionalProperties", "enum", "const",
-    "minimum", "maximum", "minLength", "maxLength", "pattern", "items",
-    "minItems", "maxItems",
+    "type",
+    "properties",
+    "required",
+    "additionalProperties",
+    "enum",
+    "const",
+    "minimum",
+    "maximum",
+    "minLength",
+    "maxLength",
+    "pattern",
+    "items",
+    "minItems",
+    "maxItems",
 }
 _TYPES = {"string", "integer", "number", "boolean", "object", "array", "null"}
 
@@ -21,7 +32,7 @@ def check_schema(schema: Any, path: str = "$") -> list[str]:
             errors.append(f"{path}: unsupported keyword {key!r}")
     types = schema.get("type")
     if types is not None:
-        for t in (types if isinstance(types, list) else [types]):
+        for t in types if isinstance(types, list) else [types]:
             if t not in _TYPES:
                 errors.append(f"{path}: unknown type {t!r}")
     for name, sub in (schema.get("properties") or {}).items():

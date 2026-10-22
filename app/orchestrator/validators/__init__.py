@@ -19,10 +19,12 @@ from . import (
     no_deletions,
     plan_sanity,
     preservation,
-    shot_activity,
     shot_merge,
     spend_guard,
     wide_before_dialogue,
+)
+from . import (
+    shot_activity as shot_activity,
 )
 from .preservation import PreservationRejected, run_preservation_validators
 from .result import (

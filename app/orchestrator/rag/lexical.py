@@ -251,7 +251,9 @@ def fts_or_query(text: str, *, limit: int = 48) -> str:
     prefixes = [stem for stem in _prefix_stems(text) if stem not in {_fold(token) for token in exact}]
     partners = _synonym_terms(text, registry_synonyms())
     parts = [f'"{token}"' for token in exact]
-    parts.extend(f'"{partner}"' for partner in partners if _fold(partner) not in {_fold(token) for token in exact})
+    parts.extend(
+        f'"{partner}"' for partner in partners if _fold(partner) not in {_fold(token) for token in exact}
+    )
     parts.extend(f"{stem}*" for stem in prefixes[:limit])
     if not parts:
         return ""

@@ -11,7 +11,6 @@ from typing import Any
 
 from app.orchestrator.node_store.errors import VersionConflict
 
-
 _ASSEMBLE_KEYS = (
     "post_voiceover_tail_seconds",
     "bgm_level",
@@ -138,18 +137,14 @@ class MetaBook:
         row = self._get(snapshot_id)
         current = self._current(row)
         if current != row["after"]:
-            raise VersionConflict(
-                "значение изменилось после правки: откат затёр бы более позднюю запись"
-            )
+            raise VersionConflict("значение изменилось после правки: откат затёр бы более позднюю запись")
         self._restore(row)
         self.version += 1
         return {"restored_snapshot_id": row["id"], "version": self.version}
 
     def _check(self, version: int) -> None:
         if version != self.version:
-            raise VersionConflict(
-                f"версия meta {version} устарела, текущая {self.version}"
-            )
+            raise VersionConflict(f"версия meta {version} устарела, текущая {self.version}")
 
     def _record(self, action: str, target: Any, before: Any, after: Any) -> None:
         self.snapshots.append(
@@ -246,4 +241,3 @@ def expected_version(params: dict, book: MetaBook) -> int:
         return int(params["expected_meta_version"])
     except (TypeError, ValueError) as exc:
         raise VersionConflict("версия meta не число") from exc
-

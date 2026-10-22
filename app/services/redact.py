@@ -4,22 +4,53 @@ import re
 
 PLACEHOLDER = "[redacted]"
 
-CREDENTIAL_FIELDS = frozenset({
-    "authorization", "proxy_authorization", "cookie", "set_cookie",
-    "api_key", "apikey", "access_token", "refresh_token", "id_token",
-    "password", "secret", "client_secret", "token",
-    "xi_api_key", "x_api_key", "x_auth_token", "signature", "x_amz_signature",
-    "x_amz_credential", "x_amz_security_token", "bot_token", "telegram_bot_token",
-    "service_role_key", "anon_key", "private_key", "session_token",
-})
-_CREDENTIAL_SUFFIXES = ("_api_key", "_access_token", "_refresh_token", "_secret",
-                        "_password", "_signature", "_bot_token")
+CREDENTIAL_FIELDS = frozenset(
+    {
+        "authorization",
+        "proxy_authorization",
+        "cookie",
+        "set_cookie",
+        "api_key",
+        "apikey",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "password",
+        "secret",
+        "client_secret",
+        "token",
+        "xi_api_key",
+        "x_api_key",
+        "x_auth_token",
+        "signature",
+        "x_amz_signature",
+        "x_amz_credential",
+        "x_amz_security_token",
+        "bot_token",
+        "telegram_bot_token",
+        "service_role_key",
+        "anon_key",
+        "private_key",
+        "session_token",
+    }
+)
+_CREDENTIAL_SUFFIXES = (
+    "_api_key",
+    "_access_token",
+    "_refresh_token",
+    "_secret",
+    "_password",
+    "_signature",
+    "_bot_token",
+)
 
 _VALUE = r"[^\s\"'<>;,}\]&]+"
-_FIELD_NAMES = (r"api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|"
-                r"password|passwd|secret|client[_-]?secret|cookie|token|signature|"
-                r"xi-api-key|x-api-key|x-auth-token|x-amz-signature|x-amz-credential|"
-                r"x-amz-security-token|service[_-]?role[_-]?key|private[_-]?key")
+_FIELD_NAMES = (
+    r"api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|"
+    r"password|passwd|secret|client[_-]?secret|cookie|token|signature|"
+    r"xi-api-key|x-api-key|x-auth-token|x-amz-signature|x-amz-credential|"
+    r"x-amz-security-token|service[_-]?role[_-]?key|private[_-]?key"
+)
 
 _CREDENTIAL_TEXT = re.compile(
     r"(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]+|"
@@ -53,8 +84,7 @@ def _is_credential_key(key) -> bool:
 
 def redact(value):
     if isinstance(value, dict):
-        return {str(k): PLACEHOLDER if _is_credential_key(k) else redact(v)
-                for k, v in value.items()}
+        return {str(k): PLACEHOLDER if _is_credential_key(k) else redact(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [redact(v) for v in value]
     if isinstance(value, str):
@@ -89,4 +119,5 @@ def _loguru_patcher(record) -> None:
 
 def install_log_redaction() -> None:
     from loguru import logger
+
     logger.configure(patcher=_loguru_patcher)

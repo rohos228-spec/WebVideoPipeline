@@ -17,9 +17,7 @@ def check_frame_links(before: Any, after: Any, ops: Any = None) -> list[Violatio
     del ops
     if before is None or after is None:
         return []
-    return sorted_violations(
-        _missing_texts(before, after) + _missing_edges(before, after)
-    )
+    return sorted_violations(_missing_texts(before, after) + _missing_edges(before, after))
 
 
 def _missing_texts(before: Any, after: Any) -> list[Violation]:
@@ -111,8 +109,12 @@ def _voiceover_archived(row: dict[str, Any], after_rows: list[dict[str, Any]]) -
 
 def _same_text(row: dict[str, Any], after_rows: list[dict[str, Any]]) -> bool:
     token = _text_token(row)
-    archived = _text_token({**row, "kind": "vo_archived"}) if str(row.get("kind") or "") == "voiceover" else ""
-    return any(_text_token(item) == token or (archived and _text_token(item) == archived) for item in after_rows)
+    archived = (
+        _text_token({**row, "kind": "vo_archived"}) if str(row.get("kind") or "") == "voiceover" else ""
+    )
+    return any(
+        _text_token(item) == token or (archived and _text_token(item) == archived) for item in after_rows
+    )
 
 
 def _text_token(row: dict[str, Any]) -> str:

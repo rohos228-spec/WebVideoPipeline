@@ -102,10 +102,7 @@ def _role_phrase(node: ResolvedNode) -> str:
     if not role:
         return ""
     duty = str(role["group_role"] or "").strip()
-    place = (
-        f"Роль в группе «{role['group_title']}», "
-        f"позиция {role['group_order']} из {role['group_size']}"
-    )
+    place = f"Роль в группе «{role['group_title']}», позиция {role['group_order']} из {role['group_size']}"
     if not duty:
         return f"{place}. Отдельного описания роли в группе нет."
     return f"{place}: {duty}."

@@ -6,10 +6,11 @@ import json
 import re
 import socket
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import httpx
 from loguru import logger
@@ -17,7 +18,13 @@ from loguru import logger
 from app.services import media_spend, spend_guard
 
 _RESUMABLE_KEY = re.compile(r"^(?:(?:frame|clip|hero)_|predmet\d|music$)")
-_NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout, ConnectionRefusedError, socket.gaierror)
+_NOT_SENT = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.PoolTimeout,
+    ConnectionRefusedError,
+    socket.gaierror,
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +43,7 @@ class Ctx:
 def window_s() -> int:
     try:
         from app.settings import settings
+
         return int(getattr(settings, "media_resume_window_s", 3600))
     except Exception:
         return 3600
@@ -68,6 +76,7 @@ def make_ctx(project_id: int | None, out_path: Any, model: str, api: str, payloa
 async def _append(fn, **kw) -> bool:
     try:
         from app.db import SessionLocal
+
         async with SessionLocal() as s:
             await fn(s, **kw)
             await s.commit()
@@ -83,10 +92,12 @@ def _scope(ctx: Ctx) -> dict:
 
 async def _states(ctx: Ctx) -> list[dict]:
     from app.db import SessionLocal
+
     since = datetime.utcnow() - timedelta(seconds=window_s())
     async with SessionLocal() as s:
-        found = await spend_guard.find_task_states(s, project_id=ctx.project_id, key=ctx.key,
-                                                   model=ctx.model, since=since)
+        found = await spend_guard.find_task_states(
+            s, project_id=ctx.project_id, key=ctx.key, model=ctx.model, since=since
+        )
     return [t for t in found if t["ph"] == ctx.ph]
 
 
@@ -105,19 +116,24 @@ async def begin(ctx: Ctx) -> str | None:
     unresolved = [t for t in states if t["intent"] and t["status"] == "submit_unknown"]
     if unresolved:
         from app.bots.kie_http import KieSubmitUnknownError
-        until = (max(t["first_at"] for t in unresolved) + timedelta(seconds=window_s())).strftime("%H:%M:%S UTC")
+
+        until = (max(t["first_at"] for t in unresolved) + timedelta(seconds=window_s())).strftime(
+            "%H:%M:%S UTC"
+        )
         _chat_unknown(ctx)
         raise KieSubmitUnknownError(
             f"{ctx.key}: прошлый submit в Kie без известного исхода (задача могла быть принята и оплачена). "
             f"Повторный запуск запрещён до {until}. Проверьте задачи и баланс Kie; если списания не было, "
             f"снимите блокировку (media_resume.release_unknown)",
-            context={"intent_ids": [t["task_id"] for t in unresolved], "frame_key": ctx.key})
+            context={"intent_ids": [t["task_id"] for t in unresolved], "frame_key": ctx.key},
+        )
     return None
 
 
 def _chat_unknown(ctx: Ctx) -> None:
     try:
         from app.services import chat_notice
+
         chat_notice.unknown_outcome_soon("kie", ctx.project_id, ctx.key)
     except Exception:
         logger.debug("media_resume: chat notice skipped", exc_info=True)
@@ -139,6 +155,7 @@ def classify_submit_error(exc: BaseException) -> str:
 
 async def submit(ctx: Ctx, create: Callable[[], Awaitable[str]]) -> str:
     from app.bots.kie_http import KieSubmitUnknownError
+
     media_spend.assert_submit_allowed("kie", "createTask")
     usable = ctx.usable
     intent = uuid.uuid4().hex[:16]
@@ -152,19 +169,31 @@ async def submit(ctx: Ctx, create: Callable[[], Awaitable[str]]) -> str:
         kind = classify_submit_error(exc)
         if kind != "unknown":
             if usable:
-                await _append(spend_guard.resolve_intent, **_scope(ctx), intent_id=intent, status="rejected",
-                              note=kind)
+                await _append(
+                    spend_guard.resolve_intent, **_scope(ctx), intent_id=intent, status="rejected", note=kind
+                )
             raise
         _chat_unknown(ctx)
         if isinstance(exc, KieSubmitUnknownError):
             raise
         raise KieSubmitUnknownError(
             f"{ctx.key}: createTask без ответа ({type(exc).__name__}); задача могла быть принята и оплачена, "
-            f"повторный submit не делаю", context={"frame_key": ctx.key, "exc_type": type(exc).__name__}) from exc
+            f"повторный submit не делаю",
+            context={"frame_key": ctx.key, "exc_type": type(exc).__name__},
+        ) from exc
     if usable:
-        await _append(spend_guard.append_task_event, project_id=ctx.project_id, key=ctx.key, task_id=task_id,
-                      provider="kie", api=ctx.api, model=ctx.model, event="bound", status="submitted",
-                      note=f"ph={ctx.ph} intent={intent}")
+        await _append(
+            spend_guard.append_task_event,
+            project_id=ctx.project_id,
+            key=ctx.key,
+            task_id=task_id,
+            provider="kie",
+            api=ctx.api,
+            model=ctx.model,
+            event="bound",
+            status="submitted",
+            note=f"ph={ctx.ph} intent={intent}",
+        )
         await _append(spend_guard.resolve_intent, **_scope(ctx), intent_id=intent, status="bound")
     return task_id
 
@@ -173,8 +202,18 @@ async def mark(ctx: Ctx, task_id: str, status: str, note: str = "") -> None:
     if not ctx.usable:
         return
     await media_spend.drain()
-    await _append(spend_guard.append_task_event, project_id=ctx.project_id, key=ctx.key, task_id=task_id,
-                  provider="kie", api=ctx.api, model=ctx.model, event=status[:16], status=status, note=note)
+    await _append(
+        spend_guard.append_task_event,
+        project_id=ctx.project_id,
+        key=ctx.key,
+        task_id=task_id,
+        provider="kie",
+        api=ctx.api,
+        model=ctx.model,
+        event=status[:16],
+        status=status,
+        note=note,
+    )
 
 
 async def mark_downloaded(ctx: Ctx, task_id: str) -> None:
@@ -183,14 +222,22 @@ async def mark_downloaded(ctx: Ctx, task_id: str) -> None:
 
 async def release_unknown(project_id: int, key: str) -> int:
     from app.db import SessionLocal
+
     since = datetime.utcnow() - timedelta(seconds=window_s())
     async with SessionLocal() as s:
         found = await spend_guard.find_task_states(s, project_id=project_id, key=key, model=None, since=since)
         todo = [t for t in found if t["intent"] and t["status"] == "submit_unknown"]
         for t in todo:
             await spend_guard.resolve_intent(
-                s, project_id=project_id, key=key, model=t["model"], api=t["api"],
-                intent_id=t["task_id"][len(spend_guard.INTENT_PREFIX):], status="rejected", note="released")
+                s,
+                project_id=project_id,
+                key=key,
+                model=t["model"],
+                api=t["api"],
+                intent_id=t["task_id"][len(spend_guard.INTENT_PREFIX) :],
+                status="rejected",
+                note="released",
+            )
         await s.commit()
     return len(todo)
 
@@ -218,17 +265,24 @@ async def pending_for_key(project_id: int | None, key: str) -> bool:
         return False
     try:
         from app.db import SessionLocal
+
         since = datetime.utcnow() - timedelta(seconds=window_s())
         async with SessionLocal() as s:
-            found = await spend_guard.find_task_states(s, project_id=project_id, key=key, model=None, since=since)
+            found = await spend_guard.find_task_states(
+                s, project_id=project_id, key=key, model=None, since=since
+            )
     except Exception:
         return False
-    return any((not t["intent"] and t["status"] in spend_guard.OPEN_TASK_STATUSES)
-               or (t["intent"] and t["status"] == "submit_unknown") for t in found)
+    return any(
+        (not t["intent"] and t["status"] in spend_guard.OPEN_TASK_STATUSES)
+        or (t["intent"] and t["status"] == "submit_unknown")
+        for t in found
+    )
 
 
 def _have_result_file(directory: Path, key: str) -> bool:
     from app.services.scan_frames import is_valid_scene_image
+
     pat = re.compile(rf"^{re.escape(key)}_[0-9a-f]{{8}}\.\w+$")
     try:
         for p in directory.iterdir():
@@ -245,6 +299,7 @@ def _have_result_file(directory: Path, key: str) -> bool:
 
 async def _reattach_one(project, t: dict, key: str, stats: dict) -> str:
     from app.bots import kie_http
+
     api, task_id = t["api"] or "jobs", t["task_id"]
     ctx = Ctx(project.id, key, t["model"], api, t["ph"])
     stats["checked"] += 1
@@ -268,6 +323,7 @@ async def _reattach_one(project, t: dict, key: str, stats: dict) -> str:
     await kie_http.download(urls[0], out)
     if key.startswith("frame_"):
         from app.services.scan_frames import is_valid_scene_image
+
         if not is_valid_scene_image(out):
             out.unlink(missing_ok=True)
             return "invalid_file"
@@ -279,8 +335,13 @@ async def _reattach_one(project, t: dict, key: str, stats: dict) -> str:
     return "downloaded"
 
 
-_GENERATING_STATUSES = ("generating_images", "generating_videos", "generating_hero", "generating_items",
-                        "generating_music")
+_GENERATING_STATUSES = (
+    "generating_images",
+    "generating_videos",
+    "generating_hero",
+    "generating_items",
+    "generating_music",
+)
 
 
 async def outsee_startup_report(stats: dict) -> None:
@@ -289,25 +350,45 @@ async def outsee_startup_report(stats: dict) -> None:
     if window_s() <= 0 or media_spend._managed() or media_spend.disabled_reason("browser") is not None:
         return
     from sqlalchemy import select
+
     from app.db import SessionLocal
     from app.models import Project, ProjectStatus
     from app.services import outsee_idempotency as idem
+
     running = [ProjectStatus(v) for v in _GENERATING_STATUSES if v in ProjectStatus.__members__]
     async with SessionLocal() as s:
         await idem.ensure_schema(s)
         ids = (await s.scalars(select(Project.id).where(Project.status.in_(running)))).all()
-        keys = [(pid, k) for pid in ids for k in (await s.scalars(select(idem.OutseeIdempotency.key).where(
-            idem.OutseeIdempotency.project_id == pid).distinct())).all() if k]
+        keys = [
+            (pid, k)
+            for pid in ids
+            for k in (
+                await s.scalars(
+                    select(idem.OutseeIdempotency.key)
+                    .where(idem.OutseeIdempotency.project_id == pid)
+                    .distinct()
+                )
+            ).all()
+            if k
+        ]
     for pid, key in keys:
         verdict = await idem.assess(pid, key)
         if verdict["mode"] == "uncertain":
             stats["outsee_uncertain"] += 1
-            logger.warning("media_resume startup: project {} key {}: Outsee request without a known outcome, "
-                           "a second paid request is refused until a human decides", pid, key)
+            logger.warning(
+                "media_resume startup: project {} key {}: Outsee request without a known outcome, "
+                "a second paid request is refused until a human decides",
+                pid,
+                key,
+            )
         elif verdict["mode"] == "adopt":
             stats["outsee_result_on_record"] += 1
-            logger.warning("media_resume startup: project {} key {}: a paid Outsee picture is on record, the step "
-                           "takes it without a request", pid, key)
+            logger.warning(
+                "media_resume startup: project {} key {}: a paid Outsee picture is on record, the step "
+                "takes it without a request",
+                pid,
+                key,
+            )
 
 
 async def reconcile_on_startup(budget_s: float = 90.0) -> dict:
@@ -321,23 +402,46 @@ async def reconcile_on_startup(budget_s: float = 90.0) -> dict:
 
     async def _run() -> None:
         from sqlalchemy import select
+
         from app.db import SessionLocal
         from app.models import Project, ProjectStatus
+
         since = datetime.utcnow() - timedelta(seconds=window_s())
         async with SessionLocal() as s:
-            projects = (await s.scalars(select(Project).where(Project.status.in_(
-                [ProjectStatus.generating_images, ProjectStatus.generating_videos, ProjectStatus.generating_hero,
-                 ProjectStatus.generating_items, ProjectStatus.generating_music])))).all()
+            projects = (
+                await s.scalars(
+                    select(Project).where(
+                        Project.status.in_(
+                            [
+                                ProjectStatus.generating_images,
+                                ProjectStatus.generating_videos,
+                                ProjectStatus.generating_hero,
+                                ProjectStatus.generating_items,
+                                ProjectStatus.generating_music,
+                            ]
+                        )
+                    )
+                )
+            ).all()
             work: list[tuple[Any, dict, str]] = []
             for pr in projects:
                 await spend_guard.ensure_task_schema(s)
-                keys = (await s.scalars(select(spend_guard.ProviderTaskLedger.key).where(
-                    spend_guard.ProviderTaskLedger.project_id == pr.id,
-                    spend_guard.ProviderTaskLedger.created_at >= since).distinct())).all()
+                keys = (
+                    await s.scalars(
+                        select(spend_guard.ProviderTaskLedger.key)
+                        .where(
+                            spend_guard.ProviderTaskLedger.project_id == pr.id,
+                            spend_guard.ProviderTaskLedger.created_at >= since,
+                        )
+                        .distinct()
+                    )
+                ).all()
                 for key in keys:
                     if not _RESUMABLE_KEY.match(key or ""):
                         continue
-                    for t in await spend_guard.find_task_states(s, project_id=pr.id, key=key, model=None, since=since):
+                    for t in await spend_guard.find_task_states(
+                        s, project_id=pr.id, key=key, model=None, since=since
+                    ):
                         if not t["intent"] and t["status"] in spend_guard.OPEN_TASK_STATUSES:
                             work.append((pr, t, key))
         for pr, t, key in work:

@@ -225,7 +225,7 @@ def parse_plan(text: str) -> list[PlanStep]:
 
 def _system_prompt(rules: list[Chunk], block: str = "", catalog: str = "", nodes: str = "") -> str:
     lines = [
-        "Составь план как JSON {\"steps\": [...]} .",
+        'Составь план как JSON {"steps": [...]} .',
         "Каждый шаг: action, params, expected, paid, mutating, risk, parallel_group, estimated_cost.",
     ]
     if catalog:
@@ -263,7 +263,7 @@ _CATALOG_RULES = (
     "«озвучка» — audio. Бери step_code с тем же названием из списка шагов, не похожий по смыслу.",
     "Запуск шага сразу в нескольких проектах («у проектов 5..9», «во всех этих проектах») — сначала "
     "project.status каждого проекта, затем все step.run_step подряд с одной общей parallel_group "
-    "(например \"launch\"), у каждого свой project_id, один проект в группе один раз: такие запуски "
+    '(например "launch"), у каждого свой project_id, один проект в группе один раз: такие запуски '
     "идут одновременно. Без общей parallel_group они идут по очереди.",
     "Запуск ноды «Работа с GPT» (n_excel_gpt_…) — step.run_step со step_code=excel_gpt и node_key этой "
     "ноды, не node.run_step: у node.run_step оценка цены есть только для особых нод.",
@@ -285,5 +285,3 @@ _CATALOG_RULES = (
     "В params только конкретные значения: ссылки на результаты других шагов (вида $steps[1].id) "
     "план не поддерживает.",
 )
-
-

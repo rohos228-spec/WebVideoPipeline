@@ -23,8 +23,12 @@ class PlanStep:
     depends_on: list[int] = field(default_factory=list)
 
     def to_json(self) -> dict:
-        return {"index": self.index, "action_id": self.action_id,
-                "params": self.params, "depends_on": list(self.depends_on)}
+        return {
+            "index": self.index,
+            "action_id": self.action_id,
+            "params": self.params,
+            "depends_on": list(self.depends_on),
+        }
 
 
 @dataclass
@@ -33,7 +37,7 @@ class Plan:
     request_text: str = ""
 
     @classmethod
-    def from_json(cls, data: Any, *, max_steps: int, request_text: str = "") -> "Plan":
+    def from_json(cls, data: Any, *, max_steps: int, request_text: str = "") -> Plan:
         if not isinstance(data, list) or not data:
             raise PlanFormatError("Список шагов должен быть непустым.")
         if len(data) > max_steps:
@@ -52,15 +56,15 @@ class Plan:
                 raise PlanFormatError(f"Шаг {i + 1}: не указан action_id.")
             if not isinstance(params, dict):
                 raise PlanFormatError(f"Шаг {i + 1}: params должен быть объектом.")
-            if (not isinstance(deps, list)
-                    or any(not isinstance(d, int) or isinstance(d, bool) for d in deps)):
+            if not isinstance(deps, list) or any(not isinstance(d, int) or isinstance(d, bool) for d in deps):
                 raise PlanFormatError(f"Шаг {i + 1}: depends_on должен быть списком целых чисел.")
             steps.append(PlanStep(i, action_id, params, sorted(set(deps))))
         return cls(steps, request_text)
 
     def steps_json(self) -> list[dict]:
-        return [{"action_id": s.action_id, "params": s.params, "depends_on": s.depends_on}
-                for s in self.steps]
+        return [
+            {"action_id": s.action_id, "params": s.params, "depends_on": s.depends_on} for s in self.steps
+        ]
 
     def project_id(self) -> int | None:
         ids = {s.params.get("project_id") for s in self.steps}
@@ -75,9 +79,13 @@ def plan_hash(plan: Plan, registry: ActionRegistry) -> str:
     body = {
         "v": PLAN_HASH_VERSION,
         "steps": [
-            {"i": s.index, "a": s.action_id, "p": s.params, "d": s.depends_on,
-             "f": (registry.find(s.action_id).fingerprint()
-                   if registry.find(s.action_id) else "unknown")}
+            {
+                "i": s.index,
+                "a": s.action_id,
+                "p": s.params,
+                "d": s.depends_on,
+                "f": (registry.find(s.action_id).fingerprint() if registry.find(s.action_id) else "unknown"),
+            }
             for s in plan.steps
         ],
     }
@@ -95,18 +103,32 @@ async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
     destructive_effects: list[dict] = []
     future_spend: list[dict] = []
     warnings: list[dict] = []
-    pids =sorted({s.params.get("project_id") for s in plan.steps
-                   if isinstance(s.params.get("project_id"), int)
-                   and not isinstance(s.params.get("project_id"), bool)})
+    pids = sorted(
+        {
+            s.params.get("project_id")
+            for s in plan.steps
+            if isinstance(s.params.get("project_id"), int)
+            and not isinstance(s.params.get("project_id"), bool)
+        }
+    )
     if len(pids) > 1:
-        errors.append("в плане шаги разных проектов (" + ", ".join(f"#{p}" for p in pids)
-                      + "): замок, потолок и учёт расходов работают по одному проекту, "
-                        "составьте отдельный план на каждый проект")
+        errors.append(
+            "в плане шаги разных проектов ("
+            + ", ".join(f"#{p}" for p in pids)
+            + "): замок, потолок и учёт расходов работают по одному проекту, "
+            "составьте отдельный план на каждый проект"
+        )
     for step in plan.steps:
         spec = registry.find(step.action_id)
-        item: dict = {"index": step.index, "action_id": step.action_id,
-                      "params": step.params, "depends_on": step.depends_on,
-                      "valid": True, "errors": [], "precondition_failures": []}
+        item: dict = {
+            "index": step.index,
+            "action_id": step.action_id,
+            "params": step.params,
+            "depends_on": step.depends_on,
+            "valid": True,
+            "errors": [],
+            "precondition_failures": [],
+        }
         for dep in step.depends_on:
             if dep >= step.index or dep < 0:
                 item["errors"].append(f"зависимость от шага {dep + 1} должна указывать на более ранний шаг")
@@ -116,13 +138,18 @@ async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
             steps_out.append(item)
             errors.append(f"шаг {step.index + 1}: неизвестное действие {step.action_id!r}")
             continue
-        item.update({"title_ru": spec.title_ru, "risk": spec.risk,
-                     "spends_money": spec.spends_money, "destructive": spec.destructive,
-                     "reversible": spec.reversible})
+        item.update(
+            {
+                "title_ru": spec.title_ru,
+                "risk": spec.risk,
+                "spends_money": spec.spends_money,
+                "destructive": spec.destructive,
+                "reversible": spec.reversible,
+            }
+        )
         if spec.future_spend_note:
             item["future_spend_note"] = spec.future_spend_note
-            future_spend.append({"index": step.index, "action_id": spec.id,
-                                 "text": spec.future_spend_note})
+            future_spend.append({"index": step.index, "action_id": spec.id, "text": spec.future_spend_note})
         risks.append(spec.risk)
         item["errors"].extend(validation_list_ru(registry.validate_params(spec.id, step.params)))
         if not item["errors"]:
@@ -132,8 +159,7 @@ async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
                 except Exception as exc:
                     reason = f"проверка не выполнена: {type(exc).__name__}: {exc}"
                 if reason:
-                    item["precondition_failures"].append(
-                        {"id": pre.id, "reason": str(reason)})
+                    item["precondition_failures"].append({"id": pre.id, "reason": str(reason)})
         est: CostEstimate = spec.estimate(step.params) if not item["errors"] else CostEstimate.unknown()
         item["cost"] = est.to_json()
         if spec.spends_money:
@@ -143,21 +169,22 @@ async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
             else:
                 unknown += 1
         if spec.destructive and not item["errors"]:
-            text = (spec.destructive_effects(step.params) if spec.destructive_effects
-                    else spec.description_ru)
-            destructive_effects.append(
-                {"index": step.index, "action_id": spec.id, "text": text})
+            text = spec.destructive_effects(step.params) if spec.destructive_effects else spec.description_ru
+            destructive_effects.append({"index": step.index, "action_id": spec.id, "text": text})
         if spec.warnings is not None and not item["errors"]:
             try:
                 found = [str(w) for w in (await spec.warnings(ro_ctx, step.params) or []) if w]
             except Exception as exc:
-                found = [f"не удалось проверить опасные случаи ({type(exc).__name__}): "
-                         "запуск без проверки состояния проекта"]
+                found = [
+                    f"не удалось проверить опасные случаи ({type(exc).__name__}): "
+                    "запуск без проверки состояния проекта"
+                ]
             item["warnings"] = found
             for text in found:
                 warnings.append({"index": step.index, "action_id": spec.id, "text": text})
                 destructive_effects.append(
-                    {"index": step.index, "action_id": spec.id, "text": "Внимание: " + text})
+                    {"index": step.index, "action_id": spec.id, "text": "Внимание: " + text}
+                )
         if item["errors"] or item["precondition_failures"]:
             item["valid"] = False
             for e in item["errors"]:
@@ -166,8 +193,8 @@ async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
                 errors.append(f"шаг {step.index + 1}: условие {f['id']}: {f['reason']}")
         steps_out.append(item)
     needs_approval = any(
-        registry.find(s.action_id) is None or registry.find(s.action_id).needs_approval
-        for s in plan.steps)
+        registry.find(s.action_id) is None or registry.find(s.action_id).needs_approval for s in plan.steps
+    )
     return {
         "ok": not errors,
         "errors": errors,
@@ -175,8 +202,7 @@ async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
         "risk_max": max_risk(risks),
         "needs_approval": needs_approval,
         "steps": steps_out,
-        "cost": {"low": low, "high": high, "unknown_steps": unknown,
-                 "known": unknown == 0},
+        "cost": {"low": low, "high": high, "unknown_steps": unknown, "known": unknown == 0},
         "destructive_effects": destructive_effects,
         "future_spend_effects": future_spend,
         "warnings": warnings,

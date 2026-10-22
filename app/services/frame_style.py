@@ -64,13 +64,7 @@ def max_style_chars(limit: int | None = None) -> int:
 def styles_dir() -> Path:
     from app.project_root import find_project_root
 
-    return (
-        find_project_root()
-        / "templates"
-        / "node_groups"
-        / STYLE_GROUP_ID
-        / STYLE_DIR_NAME
-    )
+    return find_project_root() / "templates" / "node_groups" / STYLE_GROUP_ID / STYLE_DIR_NAME
 
 
 def clean_style_name(name: str | None) -> str:
@@ -89,9 +83,7 @@ def list_style_names() -> list[str]:
     d = styles_dir()
     if not d.is_dir():
         return []
-    return sorted(
-        p.stem for p in d.glob(f"{STYLE_PREFIX}*.md") if p.is_file()
-    )
+    return sorted(p.stem for p in d.glob(f"{STYLE_PREFIX}*.md") if p.is_file())
 
 
 def style_path(name: str | None) -> Path | None:
@@ -156,9 +148,7 @@ def trim_scene(scene: str, budget: int) -> tuple[str, bool]:
     return cut[:budget], True
 
 
-def compose_styled_prompt(
-    scene: str, style: str, *, limit: int | None = None
-) -> tuple[str, str, bool]:
+def compose_styled_prompt(scene: str, style: str, *, limit: int | None = None) -> tuple[str, str, bool]:
     """(итоговый промт, сцена после обрезки, обрезано?)."""
     lim = body_limit() if limit is None else int(limit)
     style_text = (style or "").strip()
@@ -166,9 +156,7 @@ def compose_styled_prompt(
         raise StyleError("пустой стиль")
     budget = lim - len(style_text) - len(SEPARATOR)
     if budget < MIN_SCENE_BUDGET:
-        raise StyleError(
-            f"стиль {len(style_text)} симв: на сцену остаётся {budget} < {MIN_SCENE_BUDGET}"
-        )
+        raise StyleError(f"стиль {len(style_text)} симв: на сцену остаётся {budget} < {MIN_SCENE_BUDGET}")
     scene_cut, trimmed = trim_scene(scene, budget)
     if not scene_cut:
         return style_text, "", trimmed
@@ -298,14 +286,10 @@ def apply_style_to_frames(
         scene, src, field = scene_source(entry)
         if not scene:
             counts["no_prompt"] += 1
-            report["no_prompt"].append(
-                {"number": num, "uuid": uid, "k1": entry.get("id")}
-            )
+            report["no_prompt"].append({"number": num, "uuid": uid, "k1": entry.get("id")})
             continue
         counts[f"source_{src}"] += 1
-        final, scene_cut, trimmed = compose_styled_prompt(
-            scene, style_clean, limit=lim
-        )
+        final, scene_cut, trimmed = compose_styled_prompt(scene, style_clean, limit=lim)
         before_field = str(entry.get(field) or "")
         before_ip = str(getattr(fr, "image_prompt", None) or "")
         entry[field] = final

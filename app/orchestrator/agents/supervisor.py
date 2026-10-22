@@ -154,16 +154,16 @@ _SCHEMA_FEEDBACK = (
     '{{"steps": [{{"action": "...", "params": {{...}}}}]}}: parallel_group строкой или null, '
     "paid и mutating true/false, params объектом."
 )
-_SCHEMA_FAILED = "Я трижды просил переделать ответ, но он снова не прошёл проверку, поэтому ничего не выполнялось."
+_SCHEMA_FAILED = (
+    "Я трижды просил переделать ответ, но он снова не прошёл проверку, поэтому ничего не выполнялось."
+)
 _WAITING_TWIN = "Такая задача уже ждёт вашего подтверждения — нажмите «Подтвердить» на карточке выше."
 _WAITING_OTHER = "В этом чате ждёт подтверждения другая задача: «{goal}» — карточка выше."
 _PLAN_LEVEL_CARDS = frozenset(
     {"critic_escalation", "critic_reject", "plan_sanity", "unknown_cost", "steer_not_approved"}
 )
 _PLAN_BOUND_CARDS = frozenset({*approval_steps.PLAN_CARD_REASONS, "destructive"})
-_CRITIC_NO_REASON = (
-    "Критик не объяснил причину, поэтому план не отклонён: проверьте шаги и решите сами."
-)
+_CRITIC_NO_REASON = "Критик не объяснил причину, поэтому план не отклонён: проверьте шаги и решите сами."
 _CRITIC_REJECTED = "Проверяющая модель против этого плана: {why}"
 _CRITIC_REVISED = "Проверяющая модель трижды просила переделать план, последнее замечание: {why}"
 _HUMAN_PLAN_BLOCKED = (
@@ -267,7 +267,9 @@ def _coerce_decision(decision: ApprovalDecision | str | None) -> ApprovalDecisio
 
 
 _LLM_TASK: contextvars.ContextVar[int | None] = contextvars.ContextVar("orch_llm_task", default=None)
-_LLM_SLOT: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("orch_llm_slot", default=None)
+_LLM_SLOT: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "orch_llm_slot", default=None
+)
 
 
 class Supervisor:
@@ -382,10 +384,14 @@ class Supervisor:
         self._change_ids[task_id] = []
         self._context[task_id] = ""
         self._paid_done[task_id] = set()
-        self._runs[task_id] = self._watch_run(task_id, session_id, asyncio.create_task(
-            self._drive(task_id, session_id, goal),
-            name=f"orch-task-{task_id}",
-        ))
+        self._runs[task_id] = self._watch_run(
+            task_id,
+            session_id,
+            asyncio.create_task(
+                self._drive(task_id, session_id, goal),
+                name=f"orch-task-{task_id}",
+            ),
+        )
         return task_id
 
     async def wait(self, task_id: int, timeout: float | None = None) -> None:
@@ -409,24 +415,27 @@ class Supervisor:
                 await self._set_status(task_id, TaskStatus.executing, session_id=session_id)
             await self._apply_block(task_id, session_id, "empty_plan")
             return
-        if (
-            self._block_reason.get(task_id) == ApprovalReason.budget_exhausted.value
-            and int(data.position) >= len(data.plan)
-        ):
+        if self._block_reason.get(task_id) == ApprovalReason.budget_exhausted.value and int(
+            data.position
+        ) >= len(data.plan):
             self._budget_stop.discard(task_id)
             self._block_reason.pop(task_id, None)
         if self._status(task_id) is not TaskStatus.executing:
             await self._set_status(task_id, TaskStatus.executing, session_id=session_id)
-        self._runs[task_id] = self._watch_run(task_id, session_id, asyncio.create_task(
-            self._execute_plan(
-                task_id,
-                session_id,
-                list(data.plan),
-                int(data.position),
-                str(row.get("goal") or ""),
+        self._runs[task_id] = self._watch_run(
+            task_id,
+            session_id,
+            asyncio.create_task(
+                self._execute_plan(
+                    task_id,
+                    session_id,
+                    list(data.plan),
+                    int(data.position),
+                    str(row.get("goal") or ""),
+                ),
+                name=f"orch-resume-{task_id}",
             ),
-            name=f"orch-resume-{task_id}",
-        ))
+        )
 
     def _resolve_project_task(self, session_id: str, task_id: int | None) -> int | None:
         if task_id is None:
@@ -550,10 +559,14 @@ class Supervisor:
             )
             return
         goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
-        self._runs[task_id] = self._watch_run(task_id, session_id, asyncio.create_task(
-            self._execute_plan(task_id, session_id, plan, position, goal),
-            name=f"orch-bind-{task_id}",
-        ))
+        self._runs[task_id] = self._watch_run(
+            task_id,
+            session_id,
+            asyncio.create_task(
+                self._execute_plan(task_id, session_id, plan, position, goal),
+                name=f"orch-bind-{task_id}",
+            ),
+        )
 
     async def grant_approval(
         self,
@@ -753,10 +766,14 @@ class Supervisor:
         if escalated and not paid_outcome:
             self._grant_shown_steps(task_id, plan, position)
         goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
-        self._runs[task_id] = self._watch_run(task_id, session_id, asyncio.create_task(
-            self._execute_plan(task_id, session_id, plan, position, goal),
-            name=f"orch-approve-{task_id}",
-        ))
+        self._runs[task_id] = self._watch_run(
+            task_id,
+            session_id,
+            asyncio.create_task(
+                self._execute_plan(task_id, session_id, plan, position, goal),
+                name=f"orch-approve-{task_id}",
+            ),
+        )
 
     async def _grant_without_project(
         self,
@@ -790,10 +807,14 @@ class Supervisor:
         if await self._screen_plan(task_id, session_id, plan):
             return True
         goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
-        self._runs[task_id] = self._watch_run(task_id, session_id, asyncio.create_task(
-            self._execute_plan(task_id, session_id, plan, int(data.position), goal),
-            name=f"orch-approve-{task_id}",
-        ))
+        self._runs[task_id] = self._watch_run(
+            task_id,
+            session_id,
+            asyncio.create_task(
+                self._execute_plan(task_id, session_id, plan, int(data.position), goal),
+                name=f"orch-approve-{task_id}",
+            ),
+        )
         return True
 
     async def adopt_after_restart(
@@ -988,10 +1009,14 @@ class Supervisor:
         self._approval.pop(session_id, None)
         self._session_task[session_id] = task_id
         goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
-        self._runs[task_id] = self._watch_run(task_id, session_id, asyncio.create_task(
-            self._drive(task_id, session_id, goal),
-            name=f"orch-replan-{task_id}",
-        ))
+        self._runs[task_id] = self._watch_run(
+            task_id,
+            session_id,
+            asyncio.create_task(
+                self._drive(task_id, session_id, goal),
+                name=f"orch-replan-{task_id}",
+            ),
+        )
 
     def _plan_was_approved(self, task_id: int, plan: list[PlanStep]) -> bool:
         mark = self._approved.get(task_id)
@@ -1345,7 +1370,9 @@ class Supervisor:
             unknown = [step for step in steps if str(step.get("status") or "") == "running"]
             detail = _RESTART_DETAIL
             if unknown:
-                titles = ", ".join(f"«{task_summary.step_title(str(step['action_name']))}»" for step in unknown)
+                titles = ", ".join(
+                    f"«{task_summary.step_title(str(step['action_name']))}»" for step in unknown
+                )
                 detail += " " + _RESTART_UNKNOWN.format(titles=titles)
             self._fail_detail[task_id] = detail
             try:
@@ -1513,10 +1540,14 @@ class Supervisor:
             return False
         session_id = str(row["session_id"])
         self._arm_resume(session_id, task_id, data)
-        self._runs[task_id] = self._watch_run(task_id, session_id, asyncio.create_task(
-            self._continue_after_restart(task_id, session_id, data, str(row.get("goal") or "")),
-            name=f"orch-recover-{task_id}",
-        ))
+        self._runs[task_id] = self._watch_run(
+            task_id,
+            session_id,
+            asyncio.create_task(
+                self._continue_after_restart(task_id, session_id, data, str(row.get("goal") or "")),
+                name=f"orch-recover-{task_id}",
+            ),
+        )
         return True
 
     async def _continue_after_restart(
@@ -1597,7 +1628,9 @@ class Supervisor:
             return
         await self._checkpoint(task_id, session_id, plan, 0)
         note = self._critic_note(_CRITIC_REJECTED)
-        await self._apply_block(task_id, session_id, "critic_reject", extra={"warnings": [note]} if note else None)
+        await self._apply_block(
+            task_id, session_id, "critic_reject", extra={"warnings": [note]} if note else None
+        )
 
     def _spawn_drive(self, task_id: int, session_id: str, goal: str) -> None:
         self._cancel.discard(session_id)
@@ -1609,10 +1642,14 @@ class Supervisor:
         self._change_ids.setdefault(task_id, [])
         self._context.setdefault(task_id, "")
         self._paid_done.setdefault(task_id, set())
-        self._runs[task_id] = self._watch_run(task_id, session_id, asyncio.create_task(
-            self._drive(task_id, session_id, goal),
-            name=f"orch-recover-{task_id}",
-        ))
+        self._runs[task_id] = self._watch_run(
+            task_id,
+            session_id,
+            asyncio.create_task(
+                self._drive(task_id, session_id, goal),
+                name=f"orch-recover-{task_id}",
+            ),
+        )
 
     def _checkpoint_from_row(self, row: dict[str, Any]) -> CheckpointData | None:
         raw = row.get("plan_json")
@@ -1769,10 +1806,14 @@ class Supervisor:
         self._arm_resume(session_id, task_id, data)
         await self._set_status(task_id, TaskStatus.executing, session_id=session_id)
         goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
-        self._runs[task_id] = self._watch_run(task_id, session_id, asyncio.create_task(
-            self._execute_plan(task_id, session_id, list(data.plan), int(data.position), goal),
-            name=f"orch-paid-unknown-{task_id}",
-        ))
+        self._runs[task_id] = self._watch_run(
+            task_id,
+            session_id,
+            asyncio.create_task(
+                self._execute_plan(task_id, session_id, list(data.plan), int(data.position), goal),
+                name=f"orch-paid-unknown-{task_id}",
+            ),
+        )
 
     def _count_unknown_attempt(
         self,
@@ -1910,7 +1951,9 @@ class Supervisor:
             self._count_unknown_attempt(task_id, step, row, "failed")
         await self._stamp_estimate(task_id, session_id, data)
         self._block_reason.pop(task_id, None)
-        await self._set_status(task_id, TaskStatus.failed, session_id=session_id, error="paid_outcome_unknown")
+        await self._set_status(
+            task_id, TaskStatus.failed, session_id=session_id, error="paid_outcome_unknown"
+        )
         await self.bus.publish(
             session_id,
             "task_failed",
@@ -1959,7 +2002,9 @@ class Supervisor:
 
         Пока задача в ``_budget_stop``, ключ не сгорает и шаг не стартует.
         """
-        if self._retry_armed.get(task_id) is None and any(stored == task_id for stored, _key in self._retry_spent):
+        if self._retry_armed.get(task_id) is None and any(
+            stored == task_id for stored, _key in self._retry_spent
+        ):
             return {
                 "executed": False,
                 "reason": "retry_grant_spent",
@@ -2236,8 +2281,9 @@ class Supervisor:
             if verdict == "approve":
                 self._approved[task_id] = _plan_fingerprint(plan)
                 return plan
-            self._trace_plan(task_id, f"critic_{verdict}", plan,
-                             str(getattr(self.critic, "last_reason", "") or ""))
+            self._trace_plan(
+                task_id, f"critic_{verdict}", plan, str(getattr(self.critic, "last_reason", "") or "")
+            )
             if verdict in {"reject", "escalate"}:
                 await self._critic_block(task_id, session_id, plan, verdict)
                 return None
@@ -2270,10 +2316,11 @@ class Supervisor:
             _LLM_TASK.reset(token)
         if drafted is None:
             return None
-        resolved = _chain_from_queue([await self._resolved(self._with_defaults(step)) for step in drafted], goal)
+        resolved = _chain_from_queue(
+            [await self._resolved(self._with_defaults(step)) for step in drafted], goal
+        )
         plan = [
-            tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions))
-            for step in resolved
+            tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions)) for step in resolved
         ]
         await write_on_loop(self._save_plan, task_id, plan)
         logger.info("orch task {} planner: {} steps", task_id, len(plan))
@@ -2342,7 +2389,9 @@ class Supervisor:
             except PlanSchemaError as exc:
                 why = str(exc)
                 self._trace_plan(task_id, "schema_rejected", [], why)
-                if await self._absorb_budget(task_id, session_id, getattr(self.planner, "last_response", None)):
+                if await self._absorb_budget(
+                    task_id, session_id, getattr(self.planner, "last_response", None)
+                ):
                     return None
                 used = self._schema_redo.get(task_id, 0)
                 if used >= _SCHEMA_REDO_LIMIT:
@@ -2359,8 +2408,15 @@ class Supervisor:
         raw = " ".join(redact_text(str(getattr(response, "text", "") or "")).split())
         why = " ".join(redact_text(str(reason or "")).split())
         actions = ",".join(step.action for step in plan[:10])
-        logger.info("orch task {} plan trace {}: steps={} actions=[{}] reason={} raw={}",
-                    task_id, stage, len(plan), actions, why[:_TRACE_REASON], raw[:_TRACE_RAW])
+        logger.info(
+            "orch task {} plan trace {}: steps={} actions=[{}] reason={} raw={}",
+            task_id,
+            stage,
+            len(plan),
+            actions,
+            why[:_TRACE_REASON],
+            raw[:_TRACE_RAW],
+        )
 
     async def _review_plan(
         self,
@@ -2858,7 +2914,9 @@ class Supervisor:
                         )
                     ]
                 elif concurrent:
-                    results = await self._run_concurrent(session_id, started, ctx, task_id=task_id, plan=plan, index=index)
+                    results = await self._run_concurrent(
+                        session_id, started, ctx, task_id=task_id, plan=plan, index=index
+                    )
                 else:
                     results = await self._run_parallel(session_id, batch, ctx)
             except asyncio.CancelledError:
@@ -2902,7 +2960,9 @@ class Supervisor:
                 # Сосед мог уже перевести задачу в failed своей записью: второй раз не пишем.
                 current = self._status(task_id)
                 if current not in TERMINAL_STATUSES and current is not TaskStatus.waiting_approval:
-                    await self._set_status(task_id, TaskStatus.failed, session_id=session_id, error="step_failed")
+                    await self._set_status(
+                        task_id, TaskStatus.failed, session_id=session_id, error="step_failed"
+                    )
                     await self.bus.publish(
                         session_id,
                         "task_failed",
@@ -2923,7 +2983,9 @@ class Supervisor:
                 (done_step, step_id), offset, result = held
                 if concurrent:
                     # Соседи по группе уже отработали: их результат и деньги пишутся до карточки.
-                    for at, ((other, other_id), other_result) in enumerate(zip(started, results, strict=True)):
+                    for at, ((other, other_id), other_result) in enumerate(
+                        zip(started, results, strict=True)
+                    ):
                         if at != offset:
                             await self._record(task_id, session_id, other, other_id, other_result, index + at)
                 await self._hold_executor_approval(
@@ -3233,8 +3295,9 @@ class Supervisor:
         if verdict != "approve":
             await self._checkpoint(task_id, session_id, revised, 0)
             note = _CRITIC_NO_REASON if verdict == "escalate" else self._critic_note(_CRITIC_REJECTED)
-            await self._apply_block(task_id, session_id, "steer_not_approved",
-                                    extra={"warnings": [note]} if note else None)
+            await self._apply_block(
+                task_id, session_id, "steer_not_approved", extra={"warnings": [note]} if note else None
+            )
             return None
         self._approved[task_id] = _plan_fingerprint(revised)
         await self._set_status(task_id, TaskStatus.executing, session_id=session_id)
@@ -3391,7 +3454,9 @@ class Supervisor:
             job.add_done_callback(self._shield_jobs.discard)
             return
         job = loop.create_task(
-            self._pause_after_shield(task_id, session_id, plan, index + 1 if resume_at is None else resume_at),
+            self._pause_after_shield(
+                task_id, session_id, plan, index + 1 if resume_at is None else resume_at
+            ),
             name=f"orch-shield-{task_id}",
         )
         self._shield_jobs.add(job)
@@ -3428,9 +3493,7 @@ class Supervisor:
         resolved = change_id or self._stored_change_id(task_id, step_id)
         if not resolved:
             return
-        self._spawn(
-            self._announce_partial_once(task_id, session_id, step_id, index, resolved)
-        )
+        self._spawn(self._announce_partial_once(task_id, session_id, step_id, index, resolved))
 
     async def _pause_after_shield(
         self,
@@ -3516,7 +3579,9 @@ class Supervisor:
         key = (int(task_id), int(step_id))
         if key in self._partial_announced:
             return
-        resolved = change_id or self._mutating_result.get(int(step_id)) or self._stored_change_id(task_id, step_id)
+        resolved = (
+            change_id or self._mutating_result.get(int(step_id)) or self._stored_change_id(task_id, step_id)
+        )
         if not resolved:
             return
         self._partial_announced.add(key)
@@ -3562,7 +3627,11 @@ class Supervisor:
             return
         await self._checkpoint(task_id, session_id, plan, position)
         goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
-        extra: dict[str, Any] = {**await self._card_extra(task_id, step, goal), "action": step.action, "source": "executor"}
+        extra: dict[str, Any] = {
+            **await self._card_extra(task_id, step, goal),
+            "action": step.action,
+            "source": "executor",
+        }
         warnings = envelope_warnings(result)
         if warnings:
             extra["warnings"] = [*extra.get("warnings", []), *warnings]
@@ -3650,7 +3719,11 @@ class Supervisor:
                 await self._apply_block(task_id, session_id, ApprovalReason.missing_project_id.value)
                 return "project", None
             return "ok", None
-        names = ("no_deletions", "plan_sanity", "spend_guard") if phase == "after" else ("plan_sanity", "no_deletions")
+        names = (
+            ("no_deletions", "plan_sanity", "spend_guard")
+            if phase == "after"
+            else ("plan_sanity", "no_deletions")
+        )
         payload: dict[str, Any] = {"action": step.action, "phase": phase, "project_id": project_id}
         if index is not None:
             granted = self._executor_approval(task_id, index, step)
@@ -3690,8 +3763,9 @@ class Supervisor:
             return "ok"
         return await self._dry_run_project(task_id, session_id, plan, project_id)
 
-    async def _dry_run_project(self, task_id: int, session_id: str, plan: list[PlanStep],
-                               project_id: int) -> str:
+    async def _dry_run_project(
+        self, task_id: int, session_id: str, plan: list[PlanStep], project_id: int
+    ) -> str:
         payload = {
             VALIDATOR_CONTEXT_DRY_RUN: True,
             "project_id": project_id,
@@ -3804,7 +3878,9 @@ class Supervisor:
         status = self._status(task_id)
         if status is None or status in TERMINAL_STATUSES or status is TaskStatus.waiting_approval:
             return
-        if task_id in self._budget_stop and can_transition(status, block_status(ApprovalReason.budget_exhausted.value)):
+        if task_id in self._budget_stop and can_transition(
+            status, block_status(ApprovalReason.budget_exhausted.value)
+        ):
             await self._apply_block(task_id, session_id, ApprovalReason.budget_exhausted.value)
             return
         if can_transition(status, TaskStatus.failed):
@@ -3836,7 +3912,8 @@ class Supervisor:
             return True
         note = self._note_step(task_id, step, result)
         problem, change_id = await write_on_loop(
-            self._write_step_done, task_id, step, step_id, result, position, what=f"task {task_id} step done")
+            self._write_step_done, task_id, step, step_id, result, position, what=f"task {task_id} step done"
+        )
         if problem:
             await self.bus.publish(
                 session_id,
@@ -3906,7 +3983,9 @@ class Supervisor:
         )
         token = _LLM_TASK.set(int(task_id))
         try:
-            text = await self.summarizer.summarize(facts, run_id=orch_run_id(task_id=task_id), task_id=task_id)
+            text = await self.summarizer.summarize(
+                facts, run_id=orch_run_id(task_id=task_id), task_id=task_id
+            )
         except Exception:
             logger.exception("orch summary failed for task {}", task_id)
             text = task_summary.deterministic_text(facts)
@@ -4545,7 +4624,9 @@ class Supervisor:
             change_id = _server_change_id(key, raw)
             if change_id is None:
                 continue
-            owner_session = sessions.get(change_id) if isinstance(sessions.get(change_id), str) else session_id
+            owner_session = (
+                sessions.get(change_id) if isinstance(sessions.get(change_id), str) else session_id
+            )
             self._appr_owner.setdefault(change_id, (key, str(owner_session)))
             self._note_appr_seq(key, change_id)
         decided = packed.get("decided") if isinstance(packed.get("decided"), dict) else {}
@@ -4855,10 +4936,14 @@ class Supervisor:
         self._change_ids[task_id] = []
         self._context[task_id] = ""
         self._paid_done[task_id] = set()
-        self._runs[task_id] = self._watch_run(task_id, session_id, asyncio.create_task(
-            self._drive(task_id, session_id, goal),
-            name=f"orch-task-{task_id}",
-        ))
+        self._runs[task_id] = self._watch_run(
+            task_id,
+            session_id,
+            asyncio.create_task(
+                self._drive(task_id, session_id, goal),
+                name=f"orch-task-{task_id}",
+            ),
+        )
 
     def _status(self, task_id: int) -> TaskStatus | None:
         row = self.tasks.get(task_id)
@@ -4888,7 +4973,9 @@ def _sanity_feedback(plan: list[PlanStep], result: ValidatorResult) -> tuple[str
         action = str(item.get("action") or "")
         reason = str(item.get("reason") or "")
         message = str(item.get("message") or "")
-        machine.append(f"шаг {int(index) + 1 if isinstance(index, int) else '?'} {action}: {message or reason}")
+        machine.append(
+            f"шаг {int(index) + 1 if isinstance(index, int) else '?'} {action}: {message or reason}"
+        )
         title = task_summary.step_title(action)
         field = str(item.get("field") or "")
         found = _SCHEMA_FIELD.match(message)
@@ -5073,7 +5160,8 @@ def _chain_from_queue(plan: list[PlanStep], goal: str = "") -> list[PlanStep]:
         return plan
     return [
         step.model_copy(update={"params": {**step.params, "allow_auto_chain": True}})
-        if step.action in _CHAIN_ACTIONS and (said or _step_project(step) in chained) else step
+        if step.action in _CHAIN_ACTIONS and (said or _step_project(step) in chained)
+        else step
         for step in plan
     ]
 
@@ -5155,7 +5243,11 @@ def _free_read_step(step: PlanStep, actions: Any) -> bool:
     kind, meta = lookup_action_metadata(step.action, actions)
     if kind != "value" or meta is None:
         return False
-    if _meta_flag(meta, "read_only") is not True or _meta_flag(meta, "paid") or _meta_flag(meta, "destructive"):
+    if (
+        _meta_flag(meta, "read_only") is not True
+        or _meta_flag(meta, "paid")
+        or _meta_flag(meta, "destructive")
+    ):
         return False
     if coerce_risk(_meta_flag(meta, "risk") or "high") is not Risk.none:
         return False

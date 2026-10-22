@@ -217,7 +217,6 @@ class SqliteNodeStore:
         return None
 
 
-
 class NodeStoreError(Exception):
     """Контракт resolve_node нарушен: битый указатель или шаблон."""
 
@@ -490,7 +489,15 @@ def _identity_rows(conn: Any) -> list[dict[str, Any]]:
         return []
     wanted = [
         name
-        for name in ("node_key", "group_key", "title", "status", "description", "updated_change_id", "updated_at")
+        for name in (
+            "node_key",
+            "group_key",
+            "title",
+            "status",
+            "description",
+            "updated_change_id",
+            "updated_at",
+        )
         if name in cols
     ]
     return _rows(conn, f"SELECT {', '.join(wanted)} FROM node_defs")

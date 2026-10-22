@@ -366,7 +366,9 @@ async def prompt_restore_master(ctx: ActionContext, params: dict) -> dict:
         target={"step_code": step, "name": name},
         before=live,
     )
-    await ctx.call("PUT", _prompt_path({"step_code": step, "name": name}), json={"content": before["content"]})
+    await ctx.call(
+        "PUT", _prompt_path({"step_code": step, "name": name}), json={"content": before["content"]}
+    )
     return _edit_result(
         action="prompt.restore_master",
         project_id=int(params.get("project_id") or 1),

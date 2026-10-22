@@ -506,9 +506,7 @@ def _expanded_prompt_passage(chunk: Chunk, by_id: dict[str, Chunk]) -> str:
     if chunk.corpus != "prompts":
         return _rerank_passage(chunk)
     parts = [
-        other
-        for other in by_id.values()
-        if other.corpus == "prompts" and other.source_id == chunk.source_id
+        other for other in by_id.values() if other.corpus == "prompts" and other.source_id == chunk.source_id
     ]
     parts.sort(key=lambda other: (str(other.metadata.get("part_key") or ""), other.chunk_id))
     title = (chunk.title or "").strip()

@@ -7,7 +7,15 @@ from typing import Any
 from loguru import logger
 from sqlalchemy import func, select
 
-from app.services import media_admission, media_recovery, media_resume, media_spend, outsee_idempotency as idem
+from app.services import (
+    media_admission,
+    media_recovery,
+    media_resume,
+    media_spend,
+)
+from app.services import (
+    outsee_idempotency as idem,
+)
 from app.services.media_admission import MediaAdmissionDenied
 
 OUTSEE_NODES = frozenset({"images", "hero", "items"})
@@ -21,8 +29,11 @@ def admitted(node_type: str | None) -> bool:
 
 
 def _request_keys_usable() -> bool:
-    return (media_resume.window_s() > 0 and not media_spend._managed()
-            and media_spend.disabled_reason("browser") is None)
+    return (
+        media_resume.window_s() > 0
+        and not media_spend._managed()
+        and media_spend.disabled_reason("browser") is None
+    )
 
 
 def _item(key: str, mode: str, code: str, **extra: Any) -> dict[str, Any]:
@@ -31,11 +42,17 @@ def _item(key: str, mode: str, code: str, **extra: Any) -> dict[str, Any]:
 
 async def _idem_keys(project_id: int, node_type: str) -> list[str]:
     from app.db import SessionLocal
+
     family = media_recovery.KEY_FAMILY[node_type]
     async with SessionLocal() as session:
         await idem.ensure_schema(session)
-        rows = (await session.scalars(select(idem.OutseeIdempotency.key).where(
-            idem.OutseeIdempotency.project_id == project_id).distinct())).all()
+        rows = (
+            await session.scalars(
+                select(idem.OutseeIdempotency.key)
+                .where(idem.OutseeIdempotency.project_id == project_id)
+                .distinct()
+            )
+        ).all()
     return sorted(k for k in rows if k and family.match(k))
 
 
@@ -44,28 +61,59 @@ async def _outsee_items(project, node_type: str) -> list[dict[str, Any]]:
     for key in await _idem_keys(project.id, node_type):
         verdict = await idem.assess(project.id, key)
         if verdict["mode"] == "uncertain":
-            items.append(_item(key, "denied", "unknown_outcome_outsee", provider="outsee", source="request_key",
-                               attempts=verdict["attempts"]))
+            items.append(
+                _item(
+                    key,
+                    "denied",
+                    "unknown_outcome_outsee",
+                    provider="outsee",
+                    source="request_key",
+                    attempts=verdict["attempts"],
+                )
+            )
         elif verdict["mode"] == "adopt":
-            items.append(_item(key, "resume_local", "outsee_result_on_record", provider="outsee", source="request_key",
-                               file_path=verdict["file_path"], request_sha=verdict["request_sha"]))
+            items.append(
+                _item(
+                    key,
+                    "resume_local",
+                    "outsee_result_on_record",
+                    provider="outsee",
+                    source="request_key",
+                    file_path=verdict["file_path"],
+                    request_sha=verdict["request_sha"],
+                )
+            )
     return items
 
 
 def _sfx_items(project) -> list[dict[str, Any]]:
     from app.services.ai_result_io import ai_job_checkpoint
+
     cp = ai_job_checkpoint(project, "sfx_files")
     files = cp.get("files") if isinstance(cp, dict) and isinstance(cp.get("files"), list) else []
     prog = ai_job_checkpoint(project, "sfx_progress")
-    inflight = prog.get("inflight") if isinstance(prog, dict) and isinstance(prog.get("inflight"), dict) else {}
+    inflight = (
+        prog.get("inflight") if isinstance(prog, dict) and isinstance(prog.get("inflight"), dict) else {}
+    )
     items = []
     for rec in files:
-        if not isinstance(rec, dict) or rec.get("provider") != "elevenlabs" or str(rec.get("idx")) in inflight:
+        if (
+            not isinstance(rec, dict)
+            or rec.get("provider") != "elevenlabs"
+            or str(rec.get("idx")) in inflight
+        ):
             continue
         path = Path(str(rec.get("path") or ""))
         if path.is_file():
-            items.append(_item(f"sfx_{rec['idx']}", "resume_local", "sfx_event_file_on_record",
-                               provider="elevenlabs", file_path=str(path)))
+            items.append(
+                _item(
+                    f"sfx_{rec['idx']}",
+                    "resume_local",
+                    "sfx_event_file_on_record",
+                    provider="elevenlabs",
+                    file_path=str(path),
+                )
+            )
     return items
 
 
@@ -107,20 +155,31 @@ async def admit(project, node_type: str) -> dict[str, Any]:
 
 async def request_key_fingerprint(project_id: int) -> int:
     from app.db import SessionLocal
+
     await media_spend.drain()
     async with SessionLocal() as session:
         await idem.ensure_schema(session)
-        return int(await session.scalar(select(func.count()).select_from(idem.OutseeIdempotency).where(
-            idem.OutseeIdempotency.project_id == project_id)) or 0)
+        return int(
+            await session.scalar(
+                select(func.count())
+                .select_from(idem.OutseeIdempotency)
+                .where(idem.OutseeIdempotency.project_id == project_id)
+            )
+            or 0
+        )
 
 
 def _audio_paths(project) -> list[Path]:
     from app.services.elevenlabs_api import _SIDECAR_SUFFIX
     from app.services.frame_audio import find_voice_full_on_disk
+
     root = Path(project.data_dir)
     out: list[Path] = []
     try:
-        out += [p.with_name(p.name[: -len(_SIDECAR_SUFFIX)]) for p in sorted((root / "audio").glob("*" + _SIDECAR_SUFFIX))]
+        out += [
+            p.with_name(p.name[: -len(_SIDECAR_SUFFIX)])
+            for p in sorted((root / "audio").glob("*" + _SIDECAR_SUFFIX))
+        ]
         voice = find_voice_full_on_disk(root, meta=project.meta if isinstance(project.meta, dict) else None)
     except Exception:
         voice = None
@@ -142,6 +201,7 @@ async def run_and_verify(project, node_type: str, admission: dict[str, Any]) -> 
     if operation == "resume_poll":
         return await media_admission.run_and_verify(project, node_type, admission)
     from app.services.media_verification import _probe
+
     ledger_before = await media_admission.task_fingerprint(project.id)
     keys_before = await request_key_fingerprint(project.id)
     root = Path(project.data_dir)
@@ -150,8 +210,13 @@ async def run_and_verify(project, node_type: str, admission: dict[str, Any]) -> 
     with media_spend.resume_only():
         for key, path in _files_to_verify(project, node_type, items):
             probe = await _probe(path, root=root, kind=PROBE_KIND[node_type])
-            files.append({"key": key, "path": str(path.relative_to(root)) if path.is_relative_to(root) else path.name,
-                          **probe})
+            files.append(
+                {
+                    "key": key,
+                    "path": str(path.relative_to(root)) if path.is_relative_to(root) else path.name,
+                    **probe,
+                }
+            )
     ledger_after = await media_admission.task_fingerprint(project.id)
     keys_after = await request_key_fingerprint(project.id)
     new_ids = sorted(ledger_after - ledger_before)
@@ -159,14 +224,25 @@ async def run_and_verify(project, node_type: str, admission: dict[str, Any]) -> 
     problems = []
     if not files:
         problems.append("no_file_to_verify")
-    problems += [f"{f['key']}:file_{f.get('reason') or f['status']}" for f in files if f["status"] != "passed"]
+    problems += [
+        f"{f['key']}:file_{f.get('reason') or f['status']}" for f in files if f["status"] != "passed"
+    ]
     if new_ids:
         problems.append("new_provider_task_in_ledger")
     if keys_after != keys_before:
         problems.append("request_key_log_changed")
-    return {"operation": operation, "verified": not problems, "problems": problems, "error": None,
-            "resumed": [], "stats": {}, "files": files, "new_provider_task_ids": new_ids,
-            "new_paid_requests": len(new_ids) + abs(keys_after - keys_before),
-            "assessment_after": {"mode": reassessed["verdict"]["mode"], "code": reassessed["verdict"]["code"]},
-            "semantic_quality_verified": False, "node_started": False,
-            "verified_at": datetime.utcnow().isoformat()}
+    return {
+        "operation": operation,
+        "verified": not problems,
+        "problems": problems,
+        "error": None,
+        "resumed": [],
+        "stats": {},
+        "files": files,
+        "new_provider_task_ids": new_ids,
+        "new_paid_requests": len(new_ids) + abs(keys_after - keys_before),
+        "assessment_after": {"mode": reassessed["verdict"]["mode"], "code": reassessed["verdict"]["code"]},
+        "semantic_quality_verified": False,
+        "node_started": False,
+        "verified_at": datetime.utcnow().isoformat(),
+    }

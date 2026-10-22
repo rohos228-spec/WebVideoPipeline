@@ -83,9 +83,7 @@ def check_frames_cleared(before: Any, after: Any, ops: Any = None) -> list[Viola
             if token is None:
                 continue
             path = f"scenes/{scene}/кадры/{token}" if scene else f"кадры/{token}"
-            violations.append(
-                Violation(code="frames_cleared", severity="error", path=path, id=token)
-            )
+            violations.append(Violation(code="frames_cleared", severity="error", path=path, id=token))
     return sorted_violations(violations)
 
 

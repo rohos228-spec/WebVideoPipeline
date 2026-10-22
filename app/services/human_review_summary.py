@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from app.services.diagnosis import TITLES
@@ -72,11 +72,23 @@ def build_human_review_summary(
     recommended_next_step = recommendation.get("title") or recommendation.get("reason")
     circuit_breaker_tripped = model_steps_used >= max_model_steps
     rule = incident_details.get("rule") if isinstance(incident_details.get("rule"), str) else None
-    rule_diary = incident_details.get("rule_diary") if isinstance(incident_details.get("rule_diary"), dict) else None
-    hold = incident_details.get("hold_explanation") if isinstance(incident_details.get("hold_explanation"), dict) else None
+    rule_diary = (
+        incident_details.get("rule_diary") if isinstance(incident_details.get("rule_diary"), dict) else None
+    )
+    hold = (
+        incident_details.get("hold_explanation")
+        if isinstance(incident_details.get("hold_explanation"), dict)
+        else None
+    )
     hold_reason = hold.get("summary") if hold else None
-    hold_frames = tuple(f for f in (hold.get("failing_frames") or []) if isinstance(f, dict))[:20] if hold else ()
-    frames_source = incident_details.get("frames_source") if isinstance(incident_details.get("frames_source"), str) else None
+    hold_frames = (
+        tuple(f for f in (hold.get("failing_frames") or []) if isinstance(f, dict))[:20] if hold else ()
+    )
+    frames_source = (
+        incident_details.get("frames_source")
+        if isinstance(incident_details.get("frames_source"), str)
+        else None
+    )
 
     parts = [
         f"Нода '{node_key}' требует решения человека.",
@@ -91,6 +103,7 @@ def build_human_review_summary(
         )
     if rule:
         from app.services.node_rules import rule_title
+
         rule_line = f"Правило, остановившее результат: {rule} ({rule_title(rule)})."
         if rule_diary and rule_diary.get("rules"):
             fired = ", ".join(f"{k} x{v}" for k, v in rule_diary["rules"].items())

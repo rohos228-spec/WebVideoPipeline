@@ -163,9 +163,7 @@ def estimate_usage(
     токенов пишется в reasoning, потому что у strong high рассуждение
     часто длиннее видимого текста.
     """
-    prompt = "".join(
-        str((item or {}).get("content") or "") for item in (messages or [])
-    )
+    prompt = "".join(str((item or {}).get("content") or "") for item in (messages or []))
     try:
         ceiling = max(0, int(max_tokens)) if max_tokens is not None else 0
     except (TypeError, ValueError):
@@ -215,11 +213,7 @@ def _usage_from_partial(partial: CompletionResult | None) -> LLMUsage:
 
 
 def _usage_missing(usage: LLMUsage) -> bool:
-    return (
-        usage.prompt_tokens == 0
-        and usage.completion_tokens == 0
-        and usage.reasoning_tokens == 0
-    )
+    return usage.prompt_tokens == 0 and usage.completion_tokens == 0 and usage.reasoning_tokens == 0
 
 
 class ModelRouter:
@@ -471,9 +465,7 @@ class ModelRouter:
             return self._waiting_approval(ctx, hops[0], 0)
         last_error = "chain exhausted"
         for fallback_index, hop in enumerate(hops):
-            timeout_s = (
-                self.config.fast_timeout_s if hop.tier == "fast" else self.config.strong_timeout_s
-            )
+            timeout_s = self.config.fast_timeout_s if hop.tier == "fast" else self.config.strong_timeout_s
             for attempt in range(1, self.config.retries + 2):
                 if self._blocked(ctx):
                     return self._waiting_approval(ctx, hop, fallback_index)
@@ -714,11 +706,7 @@ class ModelRouter:
         result = self.ledger.charge(ctx.run_id, cost, scope=ctx.budget_scope)
         if not result.over_budget:
             return None
-        budget = (
-            result.budget_usd
-            if result.budget_usd is not None
-            else self._scope_budget(ctx.budget_scope)
-        )
+        budget = result.budget_usd if result.budget_usd is not None else self._scope_budget(ctx.budget_scope)
         return self._approval(ctx, result.spent_usd, budget)
 
     def _scope_budget(self, scope: str) -> float:
@@ -760,9 +748,7 @@ class ModelRouter:
         return budget_approval(
             task_id=task_id,
             spent_usd=spent,
-            budget_usd=(
-                self.ledger.internal_budget_usd if budget_usd is None else budget_usd
-            ),
+            budget_usd=(self.ledger.internal_budget_usd if budget_usd is None else budget_usd),
             run_id=run_id,
             task_ref=task_ref,
         )

@@ -33,14 +33,14 @@ MAX_STEP_PARAM_FACTOR = 2.0
 NODE_OPTION_FIELDS = ("outputMode", "emitKinds", "checkFix", "useSnapshot")
 
 ALLOW_LIST: dict[str, dict[str, object]] = {
-    "plan": {K_PROMPT_VARIANT: True, K_PROMPT_TEXT: True,
-             K_STEP_PARAMS: tuple(STEP_PARAM_LIMITS["plan"])},
-    "script": {K_PROMPT_VARIANT: True, K_PROMPT_TEXT: True,
-              K_STEP_PARAMS: tuple(STEP_PARAM_LIMITS["script"])},
-    "split": {K_PROMPT_VARIANT: True, K_PROMPT_TEXT: True,
-             K_STEP_PARAMS: tuple(STEP_PARAM_LIMITS["split"])},
-    "excel_gpt": {K_PROMPT_VARIANT: True, K_PROMPT_TEXT: True,
-                  K_NODE_OPTIONS: NODE_OPTION_FIELDS},
+    "plan": {K_PROMPT_VARIANT: True, K_PROMPT_TEXT: True, K_STEP_PARAMS: tuple(STEP_PARAM_LIMITS["plan"])},
+    "script": {
+        K_PROMPT_VARIANT: True,
+        K_PROMPT_TEXT: True,
+        K_STEP_PARAMS: tuple(STEP_PARAM_LIMITS["script"]),
+    },
+    "split": {K_PROMPT_VARIANT: True, K_PROMPT_TEXT: True, K_STEP_PARAMS: tuple(STEP_PARAM_LIMITS["split"])},
+    "excel_gpt": {K_PROMPT_VARIANT: True, K_PROMPT_TEXT: True, K_NODE_OPTIONS: NODE_OPTION_FIELDS},
     "image_prompts": {K_PROMPT_VARIANT: True, K_PROMPT_TEXT: True},
     "animation_prompts": {K_PROMPT_VARIANT: True, K_PROMPT_TEXT: True},
     "items": {K_PROMPT_VARIANT: True, K_PROMPT_TEXT: True},
@@ -48,9 +48,9 @@ ALLOW_LIST: dict[str, dict[str, object]] = {
 
 NOT_ALLOWED_PROMPT_REASONS = {
     "hero": "промт персонажей проверяется особым договором и при несовпадении молча заменяется "
-            "запасным, а стиль лежит во втором слоте: правка могла бы не дойти до запроса",
+    "запасным, а стиль лежит во втором слоте: правка могла бы не дойти до запроса",
     "sd_agent": "агенты дизайна сцен читают промт по имени агента и подключают общие файлы, "
-                "выбор варианта в слоте ноды не гарантирует, что новый текст будет прочитан",
+    "выбор варианта в слоте ноды не гарантирует, что новый текст будет прочитан",
     "sd_assemble": "сборщик дизайна сцен читает промт по имени агента, а не по слоту ноды",
     "scene_design": "старая нода дизайна сцен читает промты по именам агентов",
     "images": "у ноды картинок нет текстового промта шага, промты кадров лежат в данных",
@@ -76,20 +76,38 @@ def allowed_kinds(node_type: str) -> dict[str, object]:
 def describe_allow_list() -> dict:
     return {
         "tiers": {
-            T0: {"title_ru": "Только совет (не применяется)", "applicable": False,
-                 "kinds": sorted(KINDS_BY_TIER[T0])},
-            T1: {"title_ru": "Параметры из явного списка", "applicable": True,
-                 "kinds": sorted(KINDS_BY_TIER[T1])},
-            T2: {"title_ru": "Текст промпта проекта (новый вариант)", "applicable": True,
-                 "kinds": sorted(KINDS_BY_TIER[T2])},
-            T3: {"title_ru": "Код, логика, общие файлы: только запись для разработчика",
-                 "applicable": False, "kinds": sorted(KINDS_BY_TIER[T3])},
+            T0: {
+                "title_ru": "Только совет (не применяется)",
+                "applicable": False,
+                "kinds": sorted(KINDS_BY_TIER[T0]),
+            },
+            T1: {
+                "title_ru": "Параметры из явного списка",
+                "applicable": True,
+                "kinds": sorted(KINDS_BY_TIER[T1]),
+            },
+            T2: {
+                "title_ru": "Текст промпта проекта (новый вариант)",
+                "applicable": True,
+                "kinds": sorted(KINDS_BY_TIER[T2]),
+            },
+            T3: {
+                "title_ru": "Код, логика, общие файлы: только запись для разработчика",
+                "applicable": False,
+                "kinds": sorted(KINDS_BY_TIER[T3]),
+            },
         },
-        "node_types": {nt: {k: (list(v) if isinstance(v, tuple) else v) for k, v in kinds.items()}
-                       for nt, kinds in ALLOW_LIST.items()},
+        "node_types": {
+            nt: {k: (list(v) if isinstance(v, tuple) else v) for k, v in kinds.items()}
+            for nt, kinds in ALLOW_LIST.items()
+        },
         "not_allowed_prompt_reasons": dict(NOT_ALLOWED_PROMPT_REASONS),
         "step_param_limits": STEP_PARAM_LIMITS,
         "max_step_param_factor": MAX_STEP_PARAM_FACTOR,
-        "prompt_limits": {"min_chars": PROMPT_MIN_CHARS, "max_chars": PROMPT_MAX_CHARS,
-                          "min_ratio": PROMPT_MIN_RATIO, "max_ratio": PROMPT_MAX_RATIO},
+        "prompt_limits": {
+            "min_chars": PROMPT_MIN_CHARS,
+            "max_chars": PROMPT_MAX_CHARS,
+            "min_ratio": PROMPT_MIN_RATIO,
+            "max_ratio": PROMPT_MAX_RATIO,
+        },
     }

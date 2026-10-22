@@ -549,7 +549,9 @@ def _read_ledger_totals(ledger: Any, run_id: str | None) -> dict[str, Any] | Non
         limit = _require_cap(raw.get("internal_limit_usd"), field="internal_limit_usd")
     else:
         limit_raw = getattr(ledger, "internal_budget_usd", CAP_INTERNAL_USD)
-        limit = CAP_INTERNAL_USD if limit_raw is None else _require_cap(limit_raw, field="internal_budget_usd")
+        limit = (
+            CAP_INTERNAL_USD if limit_raw is None else _require_cap(limit_raw, field="internal_budget_usd")
+        )
     out: dict[str, Any] = {
         "spent_usd": _field_amount(raw, "internal_spent_usd", default=0.0),
         "budget_usd": limit,

@@ -106,7 +106,7 @@ class PlanCritic:
 def _critic_system(rules: list[Chunk], block: str = "") -> str:
     lines = [
         "Ответ — одна строка JSON без текста вокруг: "
-        "{\"verdict\": \"approve\" | \"revise\" | \"reject\", \"reason\": \"причина\"}.",
+        '{"verdict": "approve" | "revise" | "reject", "reason": "причина"}.',
         "Для revise и reject поле reason обязательно: одно короткое предложение по-русски простыми "
         "словами, какое правило нарушено или чего не хватает в плане. Ответ без причины не принимается.",
         "reject — удаление кадров или сцен, либо нарушение правила пользователя, либо запуск "
@@ -157,7 +157,7 @@ def _json_verdict(raw: str) -> tuple[str, str] | None:
     if start < 0 or end <= start:
         return None
     try:
-        data = json.loads(body[start:end + 1])
+        data = json.loads(body[start : end + 1])
     except ValueError:
         return None
     if not isinstance(data, dict):
@@ -179,8 +179,10 @@ def read_verdict(text: str) -> tuple[str, str]:
         return found
     from app.services.redact import redact_text
 
-    logger.warning("critic: нераспознанный вердикт или нет причины, сырой текст: {}",
-                   " ".join(redact_text(raw).split())[:300])
+    logger.warning(
+        "critic: нераспознанный вердикт или нет причины, сырой текст: {}",
+        " ".join(redact_text(raw).split())[:300],
+    )
     return "escalate", ""
 
 

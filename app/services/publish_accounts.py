@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -43,16 +42,22 @@ REFUSALS: dict[str, str] = {
 }
 
 HUMAN_STOP_CODES = frozenset({"not_logged_in", "captcha", "two_factor"})
-NO_AUTO_RETRY_CODES = HUMAN_STOP_CODES | {"rate_limited", "rejected", "profile_missing", "accounts_config_invalid"}
+NO_AUTO_RETRY_CODES = HUMAN_STOP_CODES | {
+    "rate_limited",
+    "rejected",
+    "profile_missing",
+    "accounts_config_invalid",
+}
 
 
 def refusal_text(code: str | None) -> str:
     return REFUSALS.get(code or "", f"Отказ: {code}" if code else "")
 
 
-
 _SECRET_KEYS = re.compile(
-    r"(pass(word|wd)?|pwd|token|secret|cookie|api[_-]?key|authorization|session|credential|otp|2fa_?code)", re.I)
+    r"(pass(word|wd)?|pwd|token|secret|cookie|api[_-]?key|authorization|session|credential|otp|2fa_?code)",
+    re.I,
+)
 
 
 class AccountsConfigError(ValueError):
@@ -64,18 +69,40 @@ def mask_profile(profile_id: str | None) -> str:
     return f"…{pid[-4:]}" if pid else "не задан"
 
 
-
 _LIST_FIELDS = (
-    "hashtags", "success_selectors", "success_url_markers", "processing_busy_selectors",
-    "processing_done_selectors", "captcha_selectors", "two_factor_selectors", "login_selectors",
-    "login_url_markers", "logged_in_selectors", "verify_ok_selectors", "verify_gone_selectors",
+    "hashtags",
+    "success_selectors",
+    "success_url_markers",
+    "processing_busy_selectors",
+    "processing_done_selectors",
+    "captcha_selectors",
+    "two_factor_selectors",
+    "login_selectors",
+    "login_url_markers",
+    "logged_in_selectors",
+    "verify_ok_selectors",
+    "verify_gone_selectors",
     "title_selectors",
 )
-_STR_FIELDS = ("account_label", "region", "upload_url", "post_url_regex", "post_link_selector", "caption_suffix",
-               "feed_url", "feed_item_selector", "on_overflow", "hashtag_separator")
+_STR_FIELDS = (
+    "account_label",
+    "region",
+    "upload_url",
+    "post_url_regex",
+    "post_link_selector",
+    "caption_suffix",
+    "feed_url",
+    "feed_item_selector",
+    "on_overflow",
+    "hashtag_separator",
+)
 _NUM_FIELDS = ("max_per_day", "caption_limit", "title_limit", "processing_timeout_s", "confirm_timeout_s")
-_ALLOWED = (set(_LIST_FIELDS) | set(_STR_FIELDS) | set(_NUM_FIELDS)
-            | {"profile_id", "error_selectors", "window_hours", "enabled"})
+_ALLOWED = (
+    set(_LIST_FIELDS)
+    | set(_STR_FIELDS)
+    | set(_NUM_FIELDS)
+    | {"profile_id", "error_selectors", "window_hours", "enabled"}
+)
 _DEFAULT_KEYS = {"pause_s", "jitter_s"}
 
 
@@ -140,7 +167,8 @@ def _check_secret_keys(obj: Any, path: str) -> None:
             if _SECRET_KEYS.search(str(k)):
                 raise AccountsConfigError(
                     f"В конфиге аккаунтов найден ключ «{path}{k}», похожий на секрет. "
-                    "Пароли, токены и куки здесь не хранятся: войдите в аккаунт вручную в профиле MoreLogin.")
+                    "Пароли, токены и куки здесь не хранятся: войдите в аккаунт вручную в профиле MoreLogin."
+                )
             _check_secret_keys(v, f"{path}{k}.")
     elif isinstance(obj, list):
         for i, v in enumerate(obj):
@@ -169,7 +197,9 @@ def _num(v: Any, name: str, *, integer: bool, minimum: float) -> Any:
 
 def _parse_platform(platform: str, raw: Any) -> PlatformAccount:
     if platform not in KNOWN_PLATFORMS:
-        raise AccountsConfigError(f"Неизвестная площадка «{platform}». Допустимо: {', '.join(KNOWN_PLATFORMS)}.")
+        raise AccountsConfigError(
+            f"Неизвестная площадка «{platform}». Допустимо: {', '.join(KNOWN_PLATFORMS)}."
+        )
     if not isinstance(raw, dict):
         raise AccountsConfigError(f"Настройки площадки «{platform}» должны быть объектом.")
     unknown = sorted(set(raw) - _ALLOWED)
@@ -184,30 +214,44 @@ def _parse_platform(platform: str, raw: Any) -> PlatformAccount:
         if name in raw and raw[name] is not None:
             if not isinstance(raw[name], str):
                 raise AccountsConfigError(f"Площадка «{platform}»: поле «{name}» должно быть строкой.")
-            setattr(acct, name, raw[name] if name in ("caption_suffix", "hashtag_separator") else raw[name].strip())
+            setattr(
+                acct,
+                name,
+                raw[name] if name in ("caption_suffix", "hashtag_separator") else raw[name].strip(),
+            )
     for name in _LIST_FIELDS:
         if name in raw:
             setattr(acct, name, _str_list(raw[name], f"{platform}.{name}"))
     acct.max_per_day = _num(raw.get("max_per_day"), f"{platform}.max_per_day", integer=True, minimum=1)
     acct.caption_limit = _num(raw.get("caption_limit"), f"{platform}.caption_limit", integer=True, minimum=1)
     acct.title_limit = _num(raw.get("title_limit"), f"{platform}.title_limit", integer=True, minimum=1)
-    acct.processing_timeout_s = _num(raw.get("processing_timeout_s"), f"{platform}.processing_timeout_s",
-                                     integer=False, minimum=0)
-    acct.confirm_timeout_s = _num(raw.get("confirm_timeout_s"), f"{platform}.confirm_timeout_s",
-                                  integer=False, minimum=0)
+    acct.processing_timeout_s = _num(
+        raw.get("processing_timeout_s"), f"{platform}.processing_timeout_s", integer=False, minimum=0
+    )
+    acct.confirm_timeout_s = _num(
+        raw.get("confirm_timeout_s"), f"{platform}.confirm_timeout_s", integer=False, minimum=0
+    )
     if acct.on_overflow not in ("reject", "truncate"):
         raise AccountsConfigError(f"Площадка «{platform}»: on_overflow должен быть reject или truncate.")
     if "enabled" in raw:
         acct.enabled = bool(raw["enabled"])
     wh = raw.get("window_hours")
     if wh is not None:
-        if (not isinstance(wh, list) or len(wh) != 2 or not all(isinstance(x, int) and not isinstance(x, bool)
-                                                                 and 0 <= x <= 24 for x in wh) or wh[0] == wh[1]):
-            raise AccountsConfigError(f"Площадка «{platform}»: window_hours - два часа от 0 до 24, например [10, 22].")
+        if (
+            not isinstance(wh, list)
+            or len(wh) != 2
+            or not all(isinstance(x, int) and not isinstance(x, bool) and 0 <= x <= 24 for x in wh)
+            or wh[0] == wh[1]
+        ):
+            raise AccountsConfigError(
+                f"Площадка «{platform}»: window_hours - два часа от 0 до 24, например [10, 22]."
+            )
         acct.window_hours = (wh[0], wh[1])
     es = raw.get("error_selectors") or {}
     if not isinstance(es, dict):
-        raise AccountsConfigError(f"Площадка «{platform}»: error_selectors должен быть объектом код -> список.")
+        raise AccountsConfigError(
+            f"Площадка «{platform}»: error_selectors должен быть объектом код -> список."
+        )
     for code, sels in es.items():
         if code not in REFUSALS:
             raise AccountsConfigError(f"Площадка «{platform}»: error_selectors, неизвестный код «{code}».")
@@ -224,8 +268,11 @@ def parse_config(data: Any, *, source: str = "dict") -> AccountsConfig:
     if not isinstance(data, dict):
         raise AccountsConfigError("Конфиг аккаунтов должен быть JSON-объектом.")
     _check_secret_keys(data, "")
-    platforms_raw = data["platforms"] if "platforms" in data else {k: v for k, v in data.items()
-                                                                    if k not in ("defaults", "version")}
+    platforms_raw = (
+        data["platforms"]
+        if "platforms" in data
+        else {k: v for k, v in data.items() if k not in ("defaults", "version")}
+    )
     if not isinstance(platforms_raw, dict):
         raise AccountsConfigError("Поле «platforms» должно быть объектом.")
     cfg = AccountsConfig(source=source)
@@ -270,8 +317,9 @@ def _normalize(data: Any) -> Any:
     return data
 
 
-def load_accounts(*, env: dict[str, str] | None = None, path: str | Path | None = None,
-                  data_dir: str | Path | None = None) -> AccountsConfig:
+def load_accounts(
+    *, env: dict[str, str] | None = None, path: str | Path | None = None, data_dir: str | Path | None = None
+) -> AccountsConfig:
     env = os.environ if env is None else env
     p = Path(path) if path else default_config_path(data_dir or env.get("DATA_DIR"))
     merged: dict = {}
@@ -300,16 +348,14 @@ def load_accounts(*, env: dict[str, str] | None = None, path: str | Path | None 
     return parse_config(merged, source="+".join(sources))
 
 
-
-
 def select_profile(platform: str, cfg: AccountsConfig, *, legacy_profile_id: str | None = None) -> str | None:
     if cfg.configured:
         acct = cfg.platforms.get(platform)
         return (acct.profile_id or None) if acct else None
-    pid = (legacy_profile_id if legacy_profile_id is not None else os.environ.get("MORELOGIN_PROFILE_ID") or "").strip()
+    pid = (
+        legacy_profile_id if legacy_profile_id is not None else os.environ.get("MORELOGIN_PROFILE_ID") or ""
+    ).strip()
     return pid or None
-
-
 
 
 @dataclass
@@ -347,12 +393,16 @@ def compose_caption(caption: str, acct: PlatformAccount) -> CaptionResult:
     if lim is None or len(full) <= lim:
         return CaptionResult(text=full)
     if acct.on_overflow != "truncate":
-        return CaptionResult(error_code="platform_limit",
-                             error=f"Подпись {len(full)} символов, лимит площадки {lim}. {refusal_text('platform_limit')}")
+        return CaptionResult(
+            error_code="platform_limit",
+            error=f"Подпись {len(full)} символов, лимит площадки {lim}. {refusal_text('platform_limit')}",
+        )
     room = lim - len(sep) - len(tail) - 1
     if room < 1:
-        return CaptionResult(error_code="platform_limit",
-                             error=f"Хэштеги и суффикс ({len(tail)} символов) не помещаются в лимит {lim}.")
+        return CaptionResult(
+            error_code="platform_limit",
+            error=f"Хэштеги и суффикс ({len(tail)} символов) не помещаются в лимит {lim}.",
+        )
     cut = body[:room].rstrip()
     sp = cut.rfind(" ")
     if sp > room * 0.6:
@@ -368,7 +418,6 @@ def make_title(caption: str, acct: PlatformAccount) -> str:
     return first
 
 
-
 DAY_S = 86400.0
 
 
@@ -382,8 +431,9 @@ class LimitDecision:
     text: str = ""
 
 
-def daily_limit_decision(click_times: list[float] | None, max_per_day: int | None,
-                         now: float | None = None) -> LimitDecision:
+def daily_limit_decision(
+    click_times: list[float] | None, max_per_day: int | None, now: float | None = None
+) -> LimitDecision:
     if not max_per_day or click_times is None:
         return LimitDecision(True, limit=max_per_day)
     now = time.time() if now is None else now
@@ -391,8 +441,14 @@ def daily_limit_decision(click_times: list[float] | None, max_per_day: int | Non
     if len(recent) < max_per_day:
         return LimitDecision(True, used=len(recent), limit=max_per_day)
     retry_after = recent[len(recent) - max_per_day] + DAY_S
-    return LimitDecision(False, "daily_limit", len(recent), max_per_day, retry_after,
-                         f"Сегодня уже {len(recent)} из {max_per_day} публикаций. {refusal_text('daily_limit')}")
+    return LimitDecision(
+        False,
+        "daily_limit",
+        len(recent),
+        max_per_day,
+        retry_after,
+        f"Сегодня уже {len(recent)} из {max_per_day} публикаций. {refusal_text('daily_limit')}",
+    )
 
 
 def window_decision(window: tuple[int, int] | None, now: float | None = None) -> LimitDecision:
@@ -407,22 +463,31 @@ def window_decision(window: tuple[int, int] | None, now: float | None = None) ->
         return LimitDecision(True)
     start_today = now - (lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec) + s * 3600
     retry = start_today if start_today > now else start_today + DAY_S
-    return LimitDecision(False, "outside_window", retry_after=retry,
-                         text=f"Окно публикации {s}:00-{e}:00. {refusal_text('outside_window')}")
+    return LimitDecision(
+        False,
+        "outside_window",
+        retry_after=retry,
+        text=f"Окно публикации {s}:00-{e}:00. {refusal_text('outside_window')}",
+    )
 
 
 async def recent_click_times(session, platform: str, *, now: float | None = None) -> list[float]:
     from sqlalchemy import text as _t
 
     from app.services import publications_store as pstore
+
     await pstore.ensure_schema(session)
     now = time.time() if now is None else now
-    rows = (await session.execute(
-        _t("SELECT clicked_at FROM publications WHERE platform=:p AND clicked_at IS NOT NULL AND clicked_at>=:s"),
-        {"p": platform, "s": now - DAY_S})).all()
+    rows = (
+        await session.execute(
+            _t(
+                "SELECT clicked_at FROM publications WHERE platform=:p AND clicked_at IS NOT NULL AND clicked_at>=:s"
+            ),
+            {"p": platform, "s": now - DAY_S},
+        )
+    ).all()
     await session.commit()
     return [float(r[0]) for r in rows]
-
 
 
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")

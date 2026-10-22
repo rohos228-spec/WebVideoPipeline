@@ -122,8 +122,7 @@ def seed_end_still_prompt(frame: Any) -> bool:
         _flag(frame)
         return False
     attrs[SHOT2_PROMPT_ATTR] = (
-        f"Вертикальный кадр 9:16. Конечный стоп-кадр сцены. {end} "
-        "Без читаемого текста на картинке."
+        f"Вертикальный кадр 9:16. Конечный стоп-кадр сцены. {end} Без читаемого текста на картинке."
     )
     if not str(attrs.get(SHOT2_STATUS_ATTR) or "").strip():
         attrs[SHOT2_STATUS_ATTR] = "image_prompt_ready"
@@ -136,9 +135,7 @@ def frame_is_freeze(frame: Any) -> bool:
     return layout_is_freeze(layout_text(frame))
 
 
-def video_end_still(
-    scenes_dir: Path, frame_number: int, shot: int, *, frame: Any = None
-) -> Path | None:
+def video_end_still(scenes_dir: Path, frame_number: int, shot: int, *, frame: Any = None) -> Path | None:
     """PNG конечного кадра для видео shot1. Shot2 сам уже конец — не дублируем.
 
     С ``frame`` — только для раскладки СТАРТ/КОНЕЦ: у legacy shot2 картинка —

@@ -118,11 +118,7 @@ def build_production_runtime() -> Runtime:
     rag, missing_rag = load_rag()
     validators, missing_validators = load_validators()
     actions, missing_actions = load_actions()
-    degraded = [
-        name
-        for name in (missing_router, missing_rag, missing_validators, missing_actions)
-        if name
-    ]
+    degraded = [name for name in (missing_router, missing_rag, missing_validators, missing_actions) if name]
     runtime = build_runtime(
         actions=actions,
         validators=validators,

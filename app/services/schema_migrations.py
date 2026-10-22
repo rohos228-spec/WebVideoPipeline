@@ -35,16 +35,34 @@ BACKUP_SUFFIX = ".bak.db"
 KEEP_PRE_MIGRATION = 10
 KEEP_SCHEDULED = 14
 JOURNAL_TABLES: tuple[str, ...] = (
-    "spend_ledger", "provider_task_ledger",
-    "observation_executions", "observation_outbox", "observation_events", "observation_degradations",
+    "spend_ledger",
+    "provider_task_ledger",
+    "observation_executions",
+    "observation_outbox",
+    "observation_events",
+    "observation_degradations",
     "observation_commit_uncertainty",
-    "action_layer_plans", "action_layer_steps", "action_layer_approvals", "action_layer_spend",
-    "action_layer_history", "action_layer_plan_context",
-    "change_proposals", "config_versions", "config_pointers",
-    "notification_log", "journal_archive_log", "operator_audit", "publications",
-    "outsee_idempotency", "action_layer_calls", "action_layer_snapshots",
-    "publish_approvals", "publication_manual_actions",
-    "credit_entries", "llm_calls", "media_calls",
+    "action_layer_plans",
+    "action_layer_steps",
+    "action_layer_approvals",
+    "action_layer_spend",
+    "action_layer_history",
+    "action_layer_plan_context",
+    "change_proposals",
+    "config_versions",
+    "config_pointers",
+    "notification_log",
+    "journal_archive_log",
+    "operator_audit",
+    "publications",
+    "outsee_idempotency",
+    "action_layer_calls",
+    "action_layer_snapshots",
+    "publish_approvals",
+    "publication_manual_actions",
+    "credit_entries",
+    "llm_calls",
+    "media_calls",
 )
 
 
@@ -94,8 +112,12 @@ def _quote(name: str) -> str:
 
 
 def _user_tables(db: sqlite3.Connection) -> list[str]:
-    return [r[0] for r in db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+    return [
+        r[0]
+        for r in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        )
+    ]
 
 
 def _table_counts(db: sqlite3.Connection) -> dict[str, int]:
@@ -116,8 +138,13 @@ def backup_files(dest_dir: Path | str, stem: str, tag: str | None = None) -> lis
     if not d.is_dir():
         return []
     prefix = f"{stem}." + (f"{_safe_tag(tag)}." if tag else "")
-    return sorted(p for p in d.iterdir() if p.name.startswith(prefix) and p.name.endswith(BACKUP_SUFFIX)
-                  and not p.name.startswith(f"{stem}.journal."))
+    return sorted(
+        p
+        for p in d.iterdir()
+        if p.name.startswith(prefix)
+        and p.name.endswith(BACKUP_SUFFIX)
+        and not p.name.startswith(f"{stem}.journal.")
+    )
 
 
 def latest_backup(dest_dir: Path | str, stem: str, tag: str | None = None) -> Path | None:
@@ -146,11 +173,19 @@ def _check_space(dest_dir: Path, src: Path) -> None:
         need += wal.stat().st_size
     free = shutil.disk_usage(dest_dir).free
     if free < int(need * 1.25) + (16 << 20):
-        raise BackupError(f"мало места для копии базы {src.name}: нужно около {need >> 20} МБ, свободно {free >> 20} МБ")
+        raise BackupError(
+            f"мало места для копии базы {src.name}: нужно около {need >> 20} МБ, свободно {free >> 20} МБ"
+        )
 
 
-def backup_sqlite(src: Path | str, dest_dir: Path | str | None = None, *, tag: str = "manual",
-                  keep: int | None = None, journal: bool = True) -> BackupResult:
+def backup_sqlite(
+    src: Path | str,
+    dest_dir: Path | str | None = None,
+    *,
+    tag: str = "manual",
+    keep: int | None = None,
+    journal: bool = True,
+) -> BackupResult:
     src = Path(src).resolve()
     if not src.is_file():
         raise BackupError(f"нет файла базы: {src}")
@@ -163,8 +198,10 @@ def backup_sqlite(src: Path | str, dest_dir: Path | str | None = None, *, tag: s
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
         _check_space(dest_dir, src)
-        with contextlib.closing(sqlite3.connect(str(src), timeout=60)) as source, \
-                contextlib.closing(sqlite3.connect(str(part))) as target:
+        with (
+            contextlib.closing(sqlite3.connect(str(src), timeout=60)) as source,
+            contextlib.closing(sqlite3.connect(str(part))) as target,
+        ):
             source.backup(target)
         with contextlib.closing(sqlite3.connect(str(part))) as copy:
             verdict = _integrity(copy)
@@ -174,10 +211,22 @@ def backup_sqlite(src: Path | str, dest_dir: Path | str | None = None, *, tag: s
         os.replace(part, final)
         digest = _sha256_file(final)
         manifest = final.with_name(final.name + ".json")
-        manifest.write_text(json.dumps({
-            "source": str(src), "created_at": datetime.now(UTC).isoformat(), "tag": tag,
-            "sha256": digest, "size": final.stat().st_size, "tables": tables, "integrity": "ok"},
-            ensure_ascii=False, indent=2), encoding="utf-8")
+        manifest.write_text(
+            json.dumps(
+                {
+                    "source": str(src),
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "tag": tag,
+                    "sha256": digest,
+                    "size": final.stat().st_size,
+                    "tables": tables,
+                    "integrity": "ok",
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     except BackupError:
         with contextlib.suppress(OSError):
             part.unlink()
@@ -204,12 +253,17 @@ def extract_journal(backup: Path | str, dest: Path | str) -> Path | None:
     with contextlib.suppress(OSError):
         part.unlink()
     copied = 0
-    with contextlib.closing(sqlite3.connect(str(backup))) as src, contextlib.closing(sqlite3.connect(str(part))) as out:
+    with (
+        contextlib.closing(sqlite3.connect(str(backup))) as src,
+        contextlib.closing(sqlite3.connect(str(part))) as out,
+    ):
         have = set(_user_tables(src))
         for name in JOURNAL_TABLES:
             if name not in have:
                 continue
-            ddl = src.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()[0]
+            ddl = src.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)
+            ).fetchone()[0]
             out.execute(ddl)
             rows = src.execute(f"SELECT * FROM {_quote(name)}").fetchall()
             if rows:
@@ -258,7 +312,9 @@ def verify_backup(path: Path | str) -> dict:
             problems.append(f"integrity_check: {out['integrity']}")
         for name, count in (manifest.get("tables") or {}).items():
             if out["tables"].get(name) != count:
-                problems.append(f"таблица {name}: в манифесте {count} строк, в копии {out['tables'].get(name)}")
+                problems.append(
+                    f"таблица {name}: в манифесте {count} строк, в копии {out['tables'].get(name)}"
+                )
     except sqlite3.Error as exc:
         problems.append(f"копия не открывается как база: {exc}"[:300])
     finally:
@@ -275,7 +331,9 @@ def restore_backup(backup: Path | str, target: Path | str) -> dict:
     backup, target = Path(backup), Path(target)
     check = verify_backup(backup)
     if not check["ok"]:
-        raise RestoreError("копия не прошла проверку, восстановление отменено: " + "; ".join(check["problems"]))
+        raise RestoreError(
+            "копия не прошла проверку, восстановление отменено: " + "; ".join(check["problems"])
+        )
     target.parent.mkdir(parents=True, exist_ok=True)
     staged = target.with_name(target.name + ".restore-part")
     stamp = _stamp()
@@ -308,9 +366,15 @@ def restore_backup(backup: Path | str, target: Path | str) -> dict:
             staged.unlink()
         if isinstance(exc, RestoreError):
             raise
-        raise RestoreError(f"восстановление не удалось, файл возвращён на место: {type(exc).__name__}: {exc}"[:400]) from exc
-    return {"restored": str(target), "from": str(backup), "tables": check["tables"],
-            "moved_aside": [str(a) for _, a in moved]}
+        raise RestoreError(
+            f"восстановление не удалось, файл возвращён на место: {type(exc).__name__}: {exc}"[:400]
+        ) from exc
+    return {
+        "restored": str(target),
+        "from": str(backup),
+        "tables": check["tables"],
+        "moved_aside": [str(a) for _, a in moved],
+    }
 
 
 def backup_due(dest_dir: Path | str, stem: str, interval_h: float, tag: str = "scheduled") -> bool:
@@ -320,8 +384,14 @@ def backup_due(dest_dir: Path | str, stem: str, interval_h: float, tag: str = "s
     return (time.time() - last.stat().st_mtime) >= interval_h * 3600
 
 
-def run_scheduled_backups(db_paths, *, interval_h: float = 6.0, keep: int = KEEP_SCHEDULED, force: bool = False,
-                          dest_dir: Path | str | None = None) -> list[dict]:
+def run_scheduled_backups(
+    db_paths,
+    *,
+    interval_h: float = 6.0,
+    keep: int = KEEP_SCHEDULED,
+    force: bool = False,
+    dest_dir: Path | str | None = None,
+) -> list[dict]:
     out: list[dict] = []
     for raw in db_paths:
         db = Path(raw)
@@ -336,18 +406,31 @@ def run_scheduled_backups(db_paths, *, interval_h: float = 6.0, keep: int = KEEP
                 continue
             res = backup_sqlite(db, target_dir, tag="scheduled", keep=keep)
             check = verify_backup(res.path)
-            item.update(status="backed_up" if check["ok"] else "backed_up_unverified", path=str(res.path),
-                        journal=_str_or_none(res.journal_path), verified=check["ok"], problems=check["problems"])
+            item.update(
+                status="backed_up" if check["ok"] else "backed_up_unverified",
+                path=str(res.path),
+                journal=_str_or_none(res.journal_path),
+                verified=check["ok"],
+                problems=check["problems"],
+            )
             if not check["ok"]:
-                logger.error("scheduled backup of {} failed its restore check: {}", db.name, check["problems"])
+                logger.error(
+                    "scheduled backup of {} failed its restore check: {}", db.name, check["problems"]
+                )
         except Exception as exc:
             item.update(status="failed", error=f"{type(exc).__name__}: {exc}"[:300])
             logger.exception("scheduled backup of {} failed", db)
     return out
 
 
-async def scheduled_backup_loop(db_paths, *, interval_h: float = 6.0, check_every_s: float = 600.0,
-                                keep: int = KEEP_SCHEDULED, stop: asyncio.Event | None = None) -> None:
+async def scheduled_backup_loop(
+    db_paths,
+    *,
+    interval_h: float = 6.0,
+    check_every_s: float = 600.0,
+    keep: int = KEEP_SCHEDULED,
+    stop: asyncio.Event | None = None,
+) -> None:
     while stop is None or not stop.is_set():
         paths = db_paths() if callable(db_paths) else db_paths
         await asyncio.to_thread(run_scheduled_backups, paths, interval_h=interval_h, keep=keep)

@@ -19,8 +19,18 @@ __all__ = [
     "whitelist",
 ]
 
-_LAZY = frozenset({"execute", "metadata_of", "whitelist", "prepare_card", "plan_required",
-                   "project_required", "plan_defaults", "plan_resolve"})
+_LAZY = frozenset(
+    {
+        "execute",
+        "metadata_of",
+        "whitelist",
+        "prepare_card",
+        "plan_required",
+        "project_required",
+        "plan_defaults",
+        "plan_resolve",
+    }
+)
 
 
 def __getattr__(name: str):

@@ -8,8 +8,11 @@ DECL_KEYS = ("min_llm_requests", "max_llm_requests", "max_input_tokens", "max_ou
 
 
 async def fill_node_run_limits(app: Any, operator: str, steps: list[dict]) -> list[str]:
-    wanted = [s for s in steps if s.get("action_id") == "node.run_step"
-              and not all(k in (s.get("params") or {}) for k in DECL_KEYS)]
+    wanted = [
+        s
+        for s in steps
+        if s.get("action_id") == "node.run_step" and not all(k in (s.get("params") or {}) for k in DECL_KEYS)
+    ]
     if not wanted:
         return []
     from app.services.action_layer import builtin_wave3 as w3
@@ -31,6 +34,8 @@ async def fill_node_run_limits(app: Any, operator: str, steps: list[dict]) -> li
         if isinstance(basis, str):
             continue
         params.update({k: v for k, v in basis.declare().items() if k not in params})
-        notes.append(f"лимиты запуска {key} из расчёта по данным проекта "
-                     f"(запросов {basis.min_requests}..{basis.max_requests})")
+        notes.append(
+            f"лимиты запуска {key} из расчёта по данным проекта "
+            f"(запросов {basis.min_requests}..{basis.max_requests})"
+        )
     return notes

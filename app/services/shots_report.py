@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import base64
-import re
-
 import html
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -140,10 +139,8 @@ def _prompts(fr: Any | None) -> dict[str, str]:
     attrs = _attrs(fr)
     top = _top(fr)
     return {
-        "картинка": _get(top, "image_prompt")
-        or _get(attrs, "промт_картинки", "image_prompt"),
-        "видео": _get(top, "animation_prompt")
-        or _get(attrs, "промт_видео", "animation_prompt"),
+        "картинка": _get(top, "image_prompt") or _get(attrs, "промт_картинки", "image_prompt"),
+        "видео": _get(top, "animation_prompt") or _get(attrs, "промт_видео", "animation_prompt"),
     }
 
 
@@ -204,9 +201,7 @@ def _collect_shots(frames: list[Any]) -> list[dict[str, Any]]:
         if is_shot_child(fr):
             continue
         kadry = _kadry_list(fr)
-        if len(kadry) > 1:
-            sources = kadry
-        elif kadry:
+        if len(kadry) > 1 or kadry:
             sources = kadry
         else:
             sources = [_synth_shot(fr)]
@@ -219,9 +214,7 @@ def _collect_shots(frames: list[Any]) -> list[dict[str, Any]]:
                 item["ячейка"] = number
             if not item.get("закадр"):
                 item["закадр"] = _plain(
-                    _top(item["_frame"]).get("voiceover_text")
-                    or item.get("voiceover_text")
-                    or ""
+                    _top(item["_frame"]).get("voiceover_text") or item.get("voiceover_text") or ""
                 )
             sid = _shot_id(item)
             key = sid or f"{number}:{item.get('действие')}:{item.get('закадр')}"
@@ -297,9 +290,7 @@ def _build_row(
     n = _scene_n(shot, overlay)
     meta = scene_meta.get(n) or {}
     cell = _int(
-        shot.get("ячейка")
-        or _top(overlay).get("number")
-        or getattr(overlay, "number", 0),
+        shot.get("ячейка") or _top(overlay).get("number") or getattr(overlay, "number", 0),
         0,
     )
     sid = _shot_id(shot) or (f"S{n}-K{order}" if n else f"K{order}")
@@ -312,8 +303,7 @@ def _build_row(
     return {
         "id": sid,
         "order": _int(shot.get("порядок"), order) or order,
-        "plan": _get(shot, "план")
-        or _get(_cs(overlay) if overlay is not None else {}, "план"),
+        "plan": _get(shot, "план") or _get(_cs(overlay) if overlay is not None else {}, "план"),
         "object": _get(shot, "объект"),
         "place": place,
         "action": _get(shot, "действие", "action", "shot01_action"),
@@ -369,11 +359,7 @@ def _plans(frames: list[Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]
         if len(kadry) > 1:
             shots = [_plan_shot(s) for s in kadry]
         else:
-            shots = [
-                _plan_shot(r)
-                for r in rows
-                if _int(r.get("ячейка"), 0) == number
-            ]
+            shots = [_plan_shot(r) for r in rows if _int(r.get("ячейка"), 0) == number]
         zones = []
         for z in plan.get("зоны") or []:
             if not isinstance(z, dict):
@@ -429,11 +415,7 @@ def _attach_diary(
         sc.setdefault("diary", [])
         for sh in sc.get("shots") or []:
             scene_of_cell.setdefault(_int(sh.get("cell"), 0), sc)
-    rows_by_id = {
-        str(row.get("id") or ""): row
-        for row in rows
-        if str(row.get("id") or "")
-    }
+    rows_by_id = {str(row.get("id") or ""): row for row in rows if str(row.get("id") or "")}
     orphans: list[dict[str, Any]] = []
     for item in diary:
         cell = number_of.get(str(item.get("frame_uuid") or ""), 0)
@@ -466,8 +448,7 @@ def build_shots_report_model(
     ids = {_shot_id(s) for s in collected if _shot_id(s)}
     scene_meta = _scene_meta(frames)
     built = [
-        _build_row(shot, order=i, ids=ids, scene_meta=scene_meta)
-        for i, shot in enumerate(collected, start=1)
+        _build_row(shot, order=i, ids=ids, scene_meta=scene_meta) for i, shot in enumerate(collected, start=1)
     ]
     by_scene: dict[int, list[dict[str, Any]]] = {}
     for row in built:
@@ -479,9 +460,7 @@ def build_shots_report_model(
         place = str(meta.get("place") or shots[0].get("place") or "")
         action = str(meta.get("action") or "").strip()
         if not action:
-            action = " → ".join(
-                s["action"] for s in shots if s.get("action")
-            )
+            action = " → ".join(s["action"] for s in shots if s.get("action"))
         chain = str(meta.get("chain") or "").strip()
         if not chain:
             chain = _scene_chain_line({"n": n, "place": place, "action": action})
@@ -526,12 +505,8 @@ def _safe_svg(raw: Any) -> str:
 def _plan_block(pl: dict[str, Any]) -> str:
     items = "".join(f"<li>{_esc(z)}</li>" for z in pl.get("zones") or [])
     items += "".join(f"<li>проход: {_esc(p)}</li>" for p in pl.get("passages") or [])
-    extra = "".join(
-        f"<li class=fix>код починил: {_esc(t)}</li>" for t in pl.get("fixed") or []
-    )
-    extra += "".join(
-        f"<li class=der>код вывел: {_esc(t)}</li>" for t in pl.get("derived") or []
-    )
+    extra = "".join(f"<li class=fix>код починил: {_esc(t)}</li>" for t in pl.get("fixed") or [])
+    extra += "".join(f"<li class=der>код вывел: {_esc(t)}</li>" for t in pl.get("derived") or [])
     return (
         f"<details class=plan><summary>Площадка · Ячейка {_esc(pl.get('cell'))}</summary>"
         f"{_safe_svg(pl.get('svg'))}<ul>{items}{extra}</ul></details>"
@@ -572,18 +547,11 @@ def _diary_block(items: list[dict[str, Any]], *, title: str, with_cell: bool = F
     if not items:
         return ""
     lis = "".join(_diary_li(it, with_cell=with_cell) for it in items)
-    return (
-        f"<details class=diary><summary>{_esc(title)} ({len(items)})</summary>"
-        f"<ul>{lis}</ul></details>"
-    )
+    return f"<details class=diary><summary>{_esc(title)} ({len(items)})</summary><ul>{lis}</ul></details>"
 
 
 def _counts_line(counts: dict[str, Any]) -> str:
-    parts = [
-        f"{_DIARY_KIND.get(k, k)} {int(v)}"
-        for k, v in sorted((counts or {}).items())
-        if int(v or 0)
-    ]
+    parts = [f"{_DIARY_KIND.get(k, k)} {int(v)}" for k, v in sorted((counts or {}).items()) if int(v or 0)]
     return ", ".join(parts) or "правок нет"
 
 
@@ -629,18 +597,12 @@ def _runs_block(runs: list[dict[str, Any]], check: dict[str, Any]) -> str:
         )
         check_html = (
             f"<p><b>Проверка сценария (последняя):</b> {_esc(word)}."
-            f" {_esc(check.get('summary') or '')}</p>"
-            + (f"<ul>{bad}</ul>" if bad else "")
+            f" {_esc(check.get('summary') or '')}</p>" + (f"<ul>{bad}</ul>" if bad else "")
         )
     if script_ok or script_fail:
         extra = f", сбоев до ответа GPT {script_fail}" if script_fail else ""
-        check_html += (
-            f"<p><b>Сценарий:</b> удачных прогонов {script_ok}{extra}.</p>"
-        )
-    return (
-        "<section class=runs-box><h2>Дневник группы нод</h2>"
-        f"{check_html}{table}</section>"
-    )
+        check_html += f"<p><b>Сценарий:</b> удачных прогонов {script_ok}{extra}.</p>"
+    return f"<section class=runs-box><h2>Дневник группы нод</h2>{check_html}{table}</section>"
 
 
 def _rules_block() -> str:
@@ -659,8 +621,7 @@ def _rules_block() -> str:
         for f in NODE_FLOW
     )
     writers = "".join(
-        f"<tr><td>{_esc(fld)}</td><td>{_esc(' → '.join(who))}</td></tr>"
-        for fld, who in FIELD_WRITERS
+        f"<tr><td>{_esc(fld)}</td><td>{_esc(' → '.join(who))}</td></tr>" for fld, who in FIELD_WRITERS
     )
     return (
         "<section class=runs-box>"
@@ -681,10 +642,7 @@ def _shot_tr(i: int, sh: dict[str, Any]) -> str:
     qc = sh.get("qc") or {}
     img = _esc(prompts.get("картинка") or "—")
     vid = _esc(prompts.get("видео") or "—")
-    qc_line = " · ".join(
-        f"{lab} {_esc(qc.get(lab) or '—')}"
-        for lab in ("крупность", "движение", "набор")
-    )
+    qc_line = " · ".join(f"{lab} {_esc(qc.get(lab) or '—')}" for lab in ("крупность", "движение", "набор"))
     return (
         "<tr>"
         f"<td>{i}</td>"
@@ -701,9 +659,7 @@ def _shot_tr(i: int, sh: dict[str, Any]) -> str:
     )
 
 
-def _take_plan(
-    sc: dict[str, Any], plans_by_cell: dict[int, dict[str, Any]]
-) -> dict[str, Any] | None:
+def _take_plan(sc: dict[str, Any], plans_by_cell: dict[int, dict[str, Any]]) -> dict[str, Any] | None:
     seen: list[int] = []
     for sh in sc.get("shots") or []:
         cell = _int(sh.get("cell"), 0)
@@ -731,9 +687,7 @@ def render_shots_report_html(
     stamp = datetime.now().strftime("%d.%m.%Y %H:%M")
     pid = f"#{project_id} " if project_id else ""
     plans_by_cell = {
-        _int(pl.get("cell"), 0): pl
-        for pl in (model.get("plans") or [])
-        if _int(pl.get("cell"), 0)
+        _int(pl.get("cell"), 0): pl for pl in (model.get("plans") or []) if _int(pl.get("cell"), 0)
     }
     toc = "".join(
         f'<a href="#scene-{_esc(sc.get("n") or "x")}">'
@@ -754,11 +708,12 @@ def render_shots_report_html(
         script = str(sc.get("script") or "").strip()
         if not script:
             from app.services.scene_shot_grammar import scene_script_text
+
             script = scene_script_text(str(place or ""), action)
         vo = str(sc.get("vo") or "").strip()
         chain_note = ""
         if chain and chain != action and not chain.endswith(action):
-            chain_note = f'<div class=scene-action-chain>{_esc(chain)}</div>'
+            chain_note = f"<div class=scene-action-chain>{_esc(chain)}</div>"
         pl = _take_plan(sc, plans_by_cell)
         plan_html = _plan_block(pl) if pl else ""
         rows = "".join(_shot_tr(i, sh) for i, sh in enumerate(beats, start=1))
@@ -766,10 +721,10 @@ def render_shots_report_html(
         articles.append(
             f'<article class=scene id="scene-{_esc(n)}">'
             f"<h2>{title}</h2>"
-            f'<div class=scene-action>'
-            f'<div class=scene-action-label>Сценарий сцены</div>'
+            f"<div class=scene-action>"
+            f"<div class=scene-action-label>Сценарий сцены</div>"
             f"<p>{_esc(script or '—')}</p>"
-            f'<div class=scene-action-label>Шаги в кадрах</div>'
+            f"<div class=scene-action-label>Шаги в кадрах</div>"
             f"<p>{_esc(action or chain or '—')}</p>"
             f"{chain_note}"
             f"</div>"
@@ -784,9 +739,7 @@ def render_shots_report_html(
             "</article>"
         )
     leftover = "".join(_plan_block(pl) for pl in plans_by_cell.values())
-    leftover_html = (
-        f"<h2>Площадка без сцены</h2>{leftover}" if leftover else ""
-    )
+    leftover_html = f"<h2>Площадка без сцены</h2>{leftover}" if leftover else ""
     body_scenes = "".join(articles) or "<p class=meta>сцен с номером нет</p>"
     orphans = _diary_block(
         list(model.get("diary_orphans") or []),
@@ -796,7 +749,7 @@ def render_shots_report_html(
     runs_html = _runs_block(list(model.get("runs") or []), dict(model.get("check") or {}))
     runs_html += (f"<section class=runs-box>{orphans}</section>" if orphans else "") + _rules_block()
     return f"""<!doctype html><html lang=ru><head><meta charset=utf-8>
-<title>Отчёт кадров · {html.escape(slug or 'проект')}</title>
+<title>Отчёт кадров · {html.escape(slug or "проект")}</title>
 <style>
 html,body{{background:#000;margin:0;color-scheme:light}}
 body{{font:14px/1.45 system-ui,Segoe UI,sans-serif;padding:20px;color:#111}}
@@ -836,7 +789,7 @@ th:first-child,td:first-child{{width:44px;text-align:center;color:#666;font-weig
 .d-warn{{color:#8a4b00}} .d-stop{{color:#b00020}} .d-info{{color:#555}}
 </style></head><body>
 <h1>Сцены</h1>
-<p class=meta>проект {html.escape(pid)}{html.escape(slug or '—')} · {html.escape(stamp)} · сцен {scene_n} · кадров {shot_n}. Жёлтый блок — Действие. Шаблонов T нет.</p>
+<p class=meta>проект {html.escape(pid)}{html.escape(slug or "—")} · {html.escape(stamp)} · сцен {scene_n} · кадров {shot_n}. Жёлтый блок — Действие. Шаблонов T нет.</p>
 <nav class=toc>{toc}</nav>
 {runs_html}
 <p class=plan-legend>Площадка внутри сцены (свёрнута). Север сверху. К — камера кадра, стрелка — куда смотрит объектив, не куда идёт герой.</p>
@@ -848,7 +801,7 @@ th:first-child,td:first-child{{width:44px;text-align:center;color:#666;font-weig
 
 def report_paths(project: Any, *, node_key: str = "n_excel_gpt_fw_report") -> list[Path]:
     slug = str(getattr(project, "slug", None) or "project")
-    data_dir = Path(getattr(project, "data_dir"))
+    data_dir = Path(project.data_dir)
     exports = find_project_root() / "exports"
     return [
         data_dir / "reports" / "shots-report.html",
@@ -857,9 +810,7 @@ def report_paths(project: Any, *, node_key: str = "n_excel_gpt_fw_report") -> li
     ]
 
 
-def existing_shots_report_path(
-    project: Any, *, node_key: str = "n_excel_gpt_fw_report"
-) -> Path | None:
+def existing_shots_report_path(project: Any, *, node_key: str = "n_excel_gpt_fw_report") -> Path | None:
     """Файл, который уже записала нода fw_report. GET его не пересобирает."""
     return next((p for p in report_paths(project, node_key=node_key) if p.is_file()), None)
 

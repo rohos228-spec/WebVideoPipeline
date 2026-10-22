@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
-from sqlalchemy import (JSON, Boolean, DateTime, Float, Index, Integer, String, Text,
-                        UniqueConstraint, event)
+from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
@@ -55,8 +55,10 @@ class ActionPlan(Base):
 
 class ActionPlanStep(Base):
     __tablename__ = "action_layer_steps"
-    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_action_layer_step_key"),
-                      Index("ix_action_layer_steps_plan", "plan_id", "idx"))
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_action_layer_step_key"),
+        Index("ix_action_layer_steps_plan", "plan_id", "idx"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     plan_id: Mapped[str] = mapped_column(String(32))
     idx: Mapped[int] = mapped_column(Integer)
@@ -187,10 +189,17 @@ class ActionSnapshot(Base):
     restored_by: Mapped[str] = mapped_column(String(120), default="")
 
 
-_TABLES = [ActionPlan.__table__, ActionPlanStep.__table__, ActionApproval.__table__,
-           ActionSpend.__table__, ActionHistory.__table__,
-           ActionPlanContext.__table__, ActionMacro.__table__,
-           ActionCallRecord.__table__, ActionSnapshot.__table__]
+_TABLES = [
+    ActionPlan.__table__,
+    ActionPlanStep.__table__,
+    ActionApproval.__table__,
+    ActionSpend.__table__,
+    ActionHistory.__table__,
+    ActionPlanContext.__table__,
+    ActionMacro.__table__,
+    ActionCallRecord.__table__,
+    ActionSnapshot.__table__,
+]
 
 _TRIGGERS = (
     "CREATE TRIGGER IF NOT EXISTS action_layer_history_no_update BEFORE UPDATE ON "
@@ -209,6 +218,7 @@ _HISTORY_EXTRA_COLUMNS = (("project_id", "INTEGER"), ("execution_id", "TEXT"), (
 
 def _ensure_history_columns(sync_conn) -> None:
     from sqlalchemy import inspect, text
+
     insp = inspect(sync_conn)
     if "action_layer_history" not in insp.get_table_names():
         return
@@ -219,13 +229,13 @@ def _ensure_history_columns(sync_conn) -> None:
 
 
 async def ensure_action_layer_schema(conn) -> None:
-    await conn.run_sync(lambda sync_conn: Base.metadata.create_all(
-        sync_conn, tables=_TABLES, checkfirst=True))
+    await conn.run_sync(
+        lambda sync_conn: Base.metadata.create_all(sync_conn, tables=_TABLES, checkfirst=True)
+    )
     await conn.run_sync(_ensure_history_columns)
     if conn.dialect.name == "sqlite":
         for ddl in _TRIGGERS:
             await conn.exec_driver_sql(ddl)
-
 
 
 _sessions: Callable[[], Any] | None = None
@@ -240,26 +250,47 @@ def sessions() -> Callable[[], Any]:
     if _sessions is not None:
         return _sessions
     from app.db import SessionLocal
+
     return SessionLocal
 
 
-def append_history(session, *, event: str, plan_id: str = "", step_index: int | None = None,
-                   actor: str = "", request_text: str = "", action_id: str = "",
-                   params: dict | None = None, outcome: str = "", error: str = "",
-                   cost_estimate: tuple[float | None, float | None] = (None, None),
-                   cost_recorded: float | None = None, project_id: int | None = None,
-                   execution_id: str | None = None,
-                   request_id: str | None = None) -> ActionHistory:
+def append_history(
+    session,
+    *,
+    event: str,
+    plan_id: str = "",
+    step_index: int | None = None,
+    actor: str = "",
+    request_text: str = "",
+    action_id: str = "",
+    params: dict | None = None,
+    outcome: str = "",
+    error: str = "",
+    cost_estimate: tuple[float | None, float | None] = (None, None),
+    cost_recorded: float | None = None,
+    project_id: int | None = None,
+    execution_id: str | None = None,
+    request_id: str | None = None,
+) -> ActionHistory:
     row = ActionHistory(
-        event=event, plan_id=plan_id, step_index=step_index, actor=actor[:120],
-        request_text=redact_text(request_text)[:2000], action_id=action_id,
+        event=event,
+        plan_id=plan_id,
+        step_index=step_index,
+        actor=actor[:120],
+        request_text=redact_text(request_text)[:2000],
+        action_id=action_id,
         params=redact(params) if params is not None else None,
-        outcome=outcome, error=redact_text(error)[:2000], cost_estimate_low=cost_estimate[0],
-        cost_estimate_high=cost_estimate[1], cost_recorded=cost_recorded,
-        project_id=project_id, execution_id=execution_id, request_id=request_id)
+        outcome=outcome,
+        error=redact_text(error)[:2000],
+        cost_estimate_low=cost_estimate[0],
+        cost_estimate_high=cost_estimate[1],
+        cost_recorded=cost_recorded,
+        project_id=project_id,
+        execution_id=execution_id,
+        request_id=request_id,
+    )
     session.add(row)
     return row
-
 
 
 _REDACTED_FIELDS: dict[type, tuple[str, ...]] = {
@@ -288,46 +319,61 @@ for _model in _REDACTED_FIELDS:
         event.listen(_model, "before_update", _redact_target)
 
 
-
 _MAX_STORED_RESPONSE = 256 * 1024
 
 
-def call_fingerprint(method: str, path: str, *, params: Any = None, body: Any = None,
-                     files: Any = None) -> str:
+def call_fingerprint(
+    method: str, path: str, *, params: Any = None, body: Any = None, files: Any = None
+) -> str:
     import hashlib
     import json
 
-    raw = json.dumps({"m": method.upper(), "p": path, "q": params, "b": body, "f": files},
-                     sort_keys=True, ensure_ascii=False, default=str)
+    raw = json.dumps(
+        {"m": method.upper(), "p": path, "q": params, "b": body, "f": files},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-async def claim_call(key: str, fingerprint: str, *, method: str, path: str, operator: str,
-                     plan_id: str = "") -> tuple[str, "ActionCallRecord | None"]:
+async def claim_call(
+    key: str, fingerprint: str, *, method: str, path: str, operator: str, plan_id: str = ""
+) -> tuple[str, ActionCallRecord | None]:
     from sqlalchemy import select, update
     from sqlalchemy.exc import IntegrityError
 
     async with sessions()() as s:
-        row = ActionCallRecord(idem_key=key[:80], fingerprint=fingerprint, method=method.upper(),
-                               path=path[:300], operator=operator[:120], plan_id=plan_id or "",
-                               status=CALL_STARTED)
+        row = ActionCallRecord(
+            idem_key=key[:80],
+            fingerprint=fingerprint,
+            method=method.upper(),
+            path=path[:300],
+            operator=operator[:120],
+            plan_id=plan_id or "",
+            status=CALL_STARTED,
+        )
         s.add(row)
         try:
             await s.commit()
             return "new", None
         except IntegrityError:
             await s.rollback()
-        existing = await s.scalar(select(ActionCallRecord).where(
-            ActionCallRecord.idem_key == key[:80], ActionCallRecord.fingerprint == fingerprint))
+        existing = await s.scalar(
+            select(ActionCallRecord).where(
+                ActionCallRecord.idem_key == key[:80], ActionCallRecord.fingerprint == fingerprint
+            )
+        )
         if existing is None:
             return "unknown", None
         if existing.status == CALL_DONE:
             return "done", existing
         if existing.status == CALL_FAILED:
-            res = await s.execute(update(ActionCallRecord).where(
-                ActionCallRecord.id == existing.id,
-                ActionCallRecord.status == CALL_FAILED).values(
-                status=CALL_STARTED, finished_at=None, http_status=None))
+            res = await s.execute(
+                update(ActionCallRecord)
+                .where(ActionCallRecord.id == existing.id, ActionCallRecord.status == CALL_FAILED)
+                .values(status=CALL_STARTED, finished_at=None, http_status=None)
+            )
             await s.commit()
             if res.rowcount == 1:
                 return "new", None
@@ -338,15 +384,18 @@ async def reclaim_call(call_id: int) -> bool:
     from sqlalchemy import update
 
     async with sessions()() as s:
-        res = await s.execute(update(ActionCallRecord).where(
-            ActionCallRecord.id == call_id,
-            ActionCallRecord.status == CALL_STARTED).values(created_at=datetime.utcnow()))
+        res = await s.execute(
+            update(ActionCallRecord)
+            .where(ActionCallRecord.id == call_id, ActionCallRecord.status == CALL_STARTED)
+            .values(created_at=datetime.utcnow())
+        )
         await s.commit()
         return res.rowcount == 1
 
 
-async def finish_call(key: str, fingerprint: str, *, ok: bool, http_status: int | None,
-                      response: Any = None) -> None:
+async def finish_call(
+    key: str, fingerprint: str, *, ok: bool, http_status: int | None, response: Any = None
+) -> None:
     import json
 
     from sqlalchemy import update
@@ -360,44 +409,76 @@ async def finish_call(key: str, fingerprint: str, *, ok: bool, http_status: int 
         except (TypeError, ValueError):
             stored, omitted = None, True
     async with sessions()() as s:
-        await s.execute(update(ActionCallRecord).where(
-            ActionCallRecord.idem_key == key[:80],
-            ActionCallRecord.fingerprint == fingerprint).values(
-            status=CALL_DONE if ok else CALL_FAILED, http_status=http_status,
-            response=stored, response_omitted=omitted, finished_at=datetime.utcnow()))
+        await s.execute(
+            update(ActionCallRecord)
+            .where(ActionCallRecord.idem_key == key[:80], ActionCallRecord.fingerprint == fingerprint)
+            .values(
+                status=CALL_DONE if ok else CALL_FAILED,
+                http_status=http_status,
+                response=stored,
+                response_omitted=omitted,
+                finished_at=datetime.utcnow(),
+            )
+        )
         await s.commit()
 
 
-
-async def save_snapshot(*, plan_id: str, step_index: int | None, action_id: str,
-                        project_id: int | None, kind: str, target: dict, before: Any,
-                        after: Any, restorable: bool, note: str = "", actor: str = "") -> int:
+async def save_snapshot(
+    *,
+    plan_id: str,
+    step_index: int | None,
+    action_id: str,
+    project_id: int | None,
+    kind: str,
+    target: dict,
+    before: Any,
+    after: Any,
+    restorable: bool,
+    note: str = "",
+    actor: str = "",
+) -> int:
     if restorable and (redact(before) != before or redact(after) != after):
         restorable = False
         note = (note + " " if note else "") + (
-            "значение содержало похожее на секрет и сохранено со скрытием: автоматический "
-            "откат отключён")
+            "значение содержало похожее на секрет и сохранено со скрытием: автоматический откат отключён"
+        )
     async with sessions()() as s:
-        row = ActionSnapshot(plan_id=plan_id or "", step_index=step_index, action_id=action_id,
-                             project_id=project_id, kind=kind, target=target, before=before,
-                             after=after, restorable=restorable, note=note[:1000],
-                             actor=actor[:120])
+        row = ActionSnapshot(
+            plan_id=plan_id or "",
+            step_index=step_index,
+            action_id=action_id,
+            project_id=project_id,
+            kind=kind,
+            target=target,
+            before=before,
+            after=after,
+            restorable=restorable,
+            note=note[:1000],
+            actor=actor[:120],
+        )
         s.add(row)
         await s.flush()
-        append_history(s, event="snapshot_saved", plan_id=plan_id or "", step_index=step_index,
-                       actor=actor, action_id=action_id, project_id=project_id,
-                       params={"snapshot_id": row.id, "kind": kind, "restorable": restorable},
-                       outcome="saved")
+        append_history(
+            s,
+            event="snapshot_saved",
+            plan_id=plan_id or "",
+            step_index=step_index,
+            actor=actor,
+            action_id=action_id,
+            project_id=project_id,
+            params={"snapshot_id": row.id, "kind": kind, "restorable": restorable},
+            outcome="saved",
+        )
         await s.commit()
         return int(row.id)
 
 
-async def get_snapshot(snapshot_id: int) -> "ActionSnapshot | None":
+async def get_snapshot(snapshot_id: int) -> ActionSnapshot | None:
     async with sessions()() as s:
         return await s.get(ActionSnapshot, snapshot_id)
 
 
-async def list_snapshots(project_id: int | None = None, *, limit: int = 50) -> list["ActionSnapshot"]:
+async def list_snapshots(project_id: int | None = None, *, limit: int = 50) -> list[ActionSnapshot]:
     from sqlalchemy import select
 
     q = select(ActionSnapshot).order_by(ActionSnapshot.id.desc()).limit(max(1, min(limit, 200)))
@@ -411,11 +492,19 @@ async def mark_snapshot_restored(snapshot_id: int, actor: str, *, plan_id: str =
     from sqlalchemy import update
 
     async with sessions()() as s:
-        res = await s.execute(update(ActionSnapshot).where(
-            ActionSnapshot.id == snapshot_id, ActionSnapshot.restored_at.is_(None)).values(
-            restored_at=datetime.utcnow(), restored_by=actor[:120]))
+        res = await s.execute(
+            update(ActionSnapshot)
+            .where(ActionSnapshot.id == snapshot_id, ActionSnapshot.restored_at.is_(None))
+            .values(restored_at=datetime.utcnow(), restored_by=actor[:120])
+        )
         if res.rowcount == 1:
-            append_history(s, event="snapshot_restored", plan_id=plan_id, actor=actor,
-                           params={"snapshot_id": snapshot_id}, outcome="restored")
+            append_history(
+                s,
+                event="snapshot_restored",
+                plan_id=plan_id,
+                actor=actor,
+                params={"snapshot_id": snapshot_id},
+                outcome="restored",
+            )
         await s.commit()
         return res.rowcount == 1

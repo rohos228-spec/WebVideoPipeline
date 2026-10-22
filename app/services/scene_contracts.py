@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import copy
@@ -9,21 +8,47 @@ from functools import wraps
 from types import SimpleNamespace
 from typing import Any
 
-
 _SCHEMA = "scene_native_input_v1"
 _ACTIONS = ("read_events", "read_contract", "wait", "human_review")
 _FRAME_FIELDS = (
-    "id", "project_id", "uuid", "number", "sort_key", "scene_id",
-    "voiceover_text", "meaning", "transition_from", "transition_to",
-    "duration_seconds", "start_ts", "end_ts", "image_prompt",
-    "animation_prompt", "status", "attrs",
+    "id",
+    "project_id",
+    "uuid",
+    "number",
+    "sort_key",
+    "scene_id",
+    "voiceover_text",
+    "meaning",
+    "transition_from",
+    "transition_to",
+    "duration_seconds",
+    "start_ts",
+    "end_ts",
+    "image_prompt",
+    "animation_prompt",
+    "status",
+    "attrs",
 )
 _IDENTITY_FIELDS = (
-    "id", "project_id", "uuid", "number", "sort_key", "scene_id", "voiceover_text",
+    "id",
+    "project_id",
+    "uuid",
+    "number",
+    "sort_key",
+    "scene_id",
+    "voiceover_text",
 )
 _CELL_FIELDS = (
-    "project_id", "agent", "kind", "target_key", "field", "value",
-    "seq", "vo_offset", "status", "error",
+    "project_id",
+    "agent",
+    "kind",
+    "target_key",
+    "field",
+    "value",
+    "seq",
+    "vo_offset",
+    "status",
+    "error",
 )
 _REFERENCES = (
     "app/services/excel_gpt_node.py:effective_node_type/sd_agent_marker",
@@ -39,38 +64,75 @@ LEGACY_AGENT = "legacy"
 INVALID_JSON, MISSING_PAYLOAD, CONTRACT_REJECTED = "invalid_json", "missing_payload", "contract_rejected"
 
 SLICE_SHAPES = {
-    "skeleton": {"list_key": "scenes", "empty_allowed": False, "id_field": "id_scene", "id_pattern": None,
-                 "item_required": ("id_scene", "кадры"),
-                 "seed_lists": ("items_seed", "characters_seed", "locations_seed")},
-    "characters": {"list_key": "characters", "empty_allowed": False, "id_field": "id",
-                   "id_pattern": r"^c\d{2,}$", "item_required": ("id",), "seed_lists": ()},
-    "world": {"list_key": "locations", "empty_allowed": True, "id_field": "id",
-              "id_pattern": r"^loc\d{2,}$", "item_required": ("id",), "seed_lists": ()},
-    "camera": {"list_key": "shot_plan", "empty_allowed": False, "id_field": None, "id_pattern": None,
-               "item_required": ("цитата",), "seed_lists": ()},
-    "action": {"list_key": "scenes", "empty_allowed": False, "id_field": "id_scene",
-               "id_pattern": r"^scene_\d{2,}$", "item_required": ("id_scene",), "seed_lists": ()},
+    "skeleton": {
+        "list_key": "scenes",
+        "empty_allowed": False,
+        "id_field": "id_scene",
+        "id_pattern": None,
+        "item_required": ("id_scene", "кадры"),
+        "seed_lists": ("items_seed", "characters_seed", "locations_seed"),
+    },
+    "characters": {
+        "list_key": "characters",
+        "empty_allowed": False,
+        "id_field": "id",
+        "id_pattern": r"^c\d{2,}$",
+        "item_required": ("id",),
+        "seed_lists": (),
+    },
+    "world": {
+        "list_key": "locations",
+        "empty_allowed": True,
+        "id_field": "id",
+        "id_pattern": r"^loc\d{2,}$",
+        "item_required": ("id",),
+        "seed_lists": (),
+    },
+    "camera": {
+        "list_key": "shot_plan",
+        "empty_allowed": False,
+        "id_field": None,
+        "id_pattern": None,
+        "item_required": ("цитата",),
+        "seed_lists": (),
+    },
+    "action": {
+        "list_key": "scenes",
+        "empty_allowed": False,
+        "id_field": "id_scene",
+        "id_pattern": r"^scene_\d{2,}$",
+        "item_required": ("id_scene",),
+        "seed_lists": (),
+    },
 }
 
 
 RETRY_ADMITTED_AGENTS = ("characters", "world")
 RETRY_REFUSED_AGENTS = {
-    "skeleton": ("two_stage_state",
-                 "skeleton is a draft request plus up to EDITOR_MAX_ROUNDS editor requests with the draft carried "
-                 "between them, and its cells (one per scene field) are committed in chunks: a failed editor round "
-                 "leaves a draft a repeat would not reproduce, and a failure after some chunks is a partial commit"),
-    "camera": ("chunked_requests",
-               "camera is split into parallel chunk requests (agent_chunks) whose chunk checkpoints are dropped on "
-               "failure (invalidate_agent), it depends on the action slice, and its cells are committed in chunks: "
-               "the first request of a repeat is not the first request of the failed attempt"),
-    "action": ("chunked_requests",
-               "action is split into parallel chunk requests (agent_chunks) with chunk checkpoints that are dropped "
-               "on failure (invalidate_agent), its skeleton-coverage check can reject an already merged slice, and "
-               "its cells are committed in chunks: a repeat is not the failed attempt's request and a partial "
-               "commit is possible"),
-    "legacy": ("legacy_union",
-               "the legacy scene_design node stands for every agent of the phase at once: which agents ran and "
-               "what each committed cannot be told per node"),
+    "skeleton": (
+        "two_stage_state",
+        "skeleton is a draft request plus up to EDITOR_MAX_ROUNDS editor requests with the draft carried "
+        "between them, and its cells (one per scene field) are committed in chunks: a failed editor round "
+        "leaves a draft a repeat would not reproduce, and a failure after some chunks is a partial commit",
+    ),
+    "camera": (
+        "chunked_requests",
+        "camera is split into parallel chunk requests (agent_chunks) whose chunk checkpoints are dropped on "
+        "failure (invalidate_agent), it depends on the action slice, and its cells are committed in chunks: "
+        "the first request of a repeat is not the first request of the failed attempt",
+    ),
+    "action": (
+        "chunked_requests",
+        "action is split into parallel chunk requests (agent_chunks) with chunk checkpoints that are dropped "
+        "on failure (invalidate_agent), its skeleton-coverage check can reject an already merged slice, and "
+        "its cells are committed in chunks: a repeat is not the failed attempt's request and a partial "
+        "commit is possible",
+    ),
+    "legacy": (
+        "legacy_union",
+        "the legacy scene_design node stands for every agent of the phase at once: which agents ran and "
+        "what each committed cannot be told per node",
+    ),
 }
 
 
@@ -96,14 +158,19 @@ def slice_contract(agent: str) -> dict | None:
     shape = SLICE_SHAPES.get(agent)
     if shape is None:
         return None
-    return {**shape, "item_required": list(shape["item_required"]), "seed_lists": list(shape["seed_lists"]),
-            "failure_classes": {
-                INVALID_JSON: "the reply holds no JSON object at all",
-                MISSING_PAYLOAD: "a JSON object without the required list (or an empty one where it is "
-                                 "required, or an agent-declared error)",
-                CONTRACT_REJECTED: "the list is there but an item breaks the shape, or the stored cells "
-                                   "differ from what the native converter derives from the slice"},
-            "source": "agents.parse_agent_slice + cells.slice_to_cells"}
+    return {
+        **shape,
+        "item_required": list(shape["item_required"]),
+        "seed_lists": list(shape["seed_lists"]),
+        "failure_classes": {
+            INVALID_JSON: "the reply holds no JSON object at all",
+            MISSING_PAYLOAD: "a JSON object without the required list (or an empty one where it is "
+            "required, or an agent-declared error)",
+            CONTRACT_REJECTED: "the list is there but an item breaks the shape, or the stored cells "
+            "differ from what the native converter derives from the slice",
+        },
+        "source": "agents.parse_agent_slice + cells.slice_to_cells",
+    }
 
 
 def slice_shape_failure(agent: str, data: Any) -> tuple[str | None, list[str]]:
@@ -156,8 +223,11 @@ def classify_slice_failure(agent: str, reply: Any, error: BaseException | None =
     shape = SLICE_SHAPES.get(agent)
     if shape is None:
         return CONTRACT_REJECTED
-    markers = (("cells", shape["list_key"], "сцены", "error") if agent == "skeleton"
-               else (shape["list_key"], "error"))
+    markers = (
+        ("cells", shape["list_key"], "сцены", "error")
+        if agent == "skeleton"
+        else (shape["list_key"], "error")
+    )
     try:
         data = ag.extract_json_object(reply if isinstance(reply, str) else "", marker_keys=markers)
     except Exception:
@@ -181,12 +251,18 @@ def _loose_object(reply: Any) -> dict | None:
 
 
 def _assembly_payload_present(data: Any) -> bool:
-    return (isinstance(data, dict) and isinstance(data.get("scenes"), list) and bool(data["scenes"])
-            and isinstance(data.get("ops"), list) and bool(data["ops"]))
+    return (
+        isinstance(data, dict)
+        and isinstance(data.get("scenes"), list)
+        and bool(data["scenes"])
+        and isinstance(data.get("ops"), list)
+        and bool(data["ops"])
+    )
 
 
-def classify_assembly_failure(reply: Any, parsed: Any, error: BaseException | None = None,
-                              problems: Any = ()) -> str | None:
+def classify_assembly_failure(
+    reply: Any, parsed: Any, error: BaseException | None = None, problems: Any = ()
+) -> str | None:
     if _assembly_payload_present(parsed):
         return CONTRACT_REJECTED if (error is not None or problems) else None
     if isinstance(parsed, dict):
@@ -196,8 +272,9 @@ def classify_assembly_failure(reply: Any, parsed: Any, error: BaseException | No
     from app.services.scene_design import agents as ag
 
     try:
-        data = ag.extract_json_object(reply if isinstance(reply, str) else "",
-                                      marker_keys=("scenes", "ops", "characters", "error"))
+        data = ag.extract_json_object(
+            reply if isinstance(reply, str) else "", marker_keys=("scenes", "ops", "characters", "error")
+        )
     except Exception:
         data = None
     if data is None:
@@ -208,8 +285,7 @@ def classify_assembly_failure(reply: Any, parsed: Any, error: BaseException | No
 
 
 def _json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True,
-                      separators=(",", ":"), allow_nan=False)
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 def _hash(value: Any) -> str | None:
@@ -236,15 +312,21 @@ def _cell_state(cell: Any) -> dict:
 
 def legacy_scene_design_contract() -> dict:
     return {
-        "node_type": "scene_design", "legacy": True, "supported": False,
+        "node_type": "scene_design",
+        "legacy": True,
+        "supported": False,
         "executor": "app.orchestrator.steps.scene_design.run",
         "shares_step": "scene_d / scene_asm with sd_agent and sd_assemble",
-        "actions": list(_ACTIONS), "managed": False, "managed_executor_accepted": False,
+        "actions": list(_ACTIONS),
+        "managed": False,
+        "managed_executor_accepted": False,
         "reason": "legacy node type; the supported route is the sd_agent fan-out and sd_assemble",
         "observed_as": "union of agent slices (slice_contract per agent) and the assembly payload",
         "slice_contracts": {name: slice_contract(name) for name in SLICE_AGENTS},
-        "human_approval_preserved": True, "semantic_quality_verified": False,
-        "business_commit_claim": False, "write_authority": "existing worker only",
+        "human_approval_preserved": True,
+        "semantic_quality_verified": False,
+        "business_commit_claim": False,
+        "write_authority": "existing worker only",
     }
 
 
@@ -256,16 +338,26 @@ def scene_contract(node: dict) -> dict:
     node_type = effective_node_type(node)
     marker = sd_agent_marker(node)
     common = {
-        "node_type": node_type, "agent": marker, "supported": False,
-        "status": "unknown", "step_code": None, "executor": "",
-        "result_kind": "unsupported", "output_fields": [],
-        "source_references": list(_REFERENCES), "actions": list(_ACTIONS),
-        "human_approval_preserved": True, "human_approval_verified": False,
-        "semantic_quality_verified": False, "managed_execution_verified": False,
-        "business_commit_claim": False, "write_authority": "existing worker only",
+        "node_type": node_type,
+        "agent": marker,
+        "supported": False,
+        "status": "unknown",
+        "step_code": None,
+        "executor": "",
+        "result_kind": "unsupported",
+        "output_fields": [],
+        "source_references": list(_REFERENCES),
+        "actions": list(_ACTIONS),
+        "human_approval_preserved": True,
+        "human_approval_verified": False,
+        "semantic_quality_verified": False,
+        "managed_execution_verified": False,
+        "business_commit_claim": False,
+        "write_authority": "existing worker only",
     }
-    slice_agent = (node_type == "sd_agent" and marker in SLICE_AGENTS
-                   and marker in SD_AGENT_STEP_CODES.values())
+    slice_agent = (
+        node_type == "sd_agent" and marker in SLICE_AGENTS and marker in SD_AGENT_STEP_CODES.values()
+    )
     assembler = node_type == "sd_assemble" and marker == "assemble"
     legacy = node_type == "scene_design"
     if not (slice_agent or assembler or legacy):
@@ -276,52 +368,77 @@ def scene_contract(node: dict) -> dict:
         return {**common, "reason": "native registry route unavailable"}
     if legacy:
         return {
-            **common, "agent": LEGACY_AGENT, "legacy": True, "supported": True, "status": "known",
+            **common,
+            "agent": LEGACY_AGENT,
+            "legacy": True,
+            "supported": True,
+            "status": "known",
             "step_code": "scene_d / scene_asm",
             "executor": "scene_design.run -> runner.run_category_agents -> cells.store_cells; "
-                        "scene_design.run_assemble -> apply.apply_scene_design",
+            "scene_design.run_assemble -> apply.apply_scene_design",
             "result_kind": "scene_design_phase",
             "output_fields": ["SceneDesignCell." + key for key in _CELL_FIELDS]
-                             + ["Project.meta.scene_registry", "Frame.attrs.shot01_id_scene"],
+            + ["Project.meta.scene_registry", "Frame.attrs.shot01_id_scene"],
             "gates": ["cells.slice_to_cells per agent slice", "assembler.validate_payload"],
             "slice_contracts": {name: slice_contract(name) for name in SLICE_AGENTS},
             "snapshot_boundary": "agents: after native DB-v2 backfill, before staging; "
-                                 "assembly: after native camera_expand, before validation/apply",
+            "assembly: after native camera_expand, before validation/apply",
             "recovery": "forbidden (legacy_node_type): the node cannot be told apart from its agents",
-            "source_references": [*_REFERENCES,
-                "app/services/scene_design/runner.py:run_category_agents"],
+            "source_references": [*_REFERENCES, "app/services/scene_design/runner.py:run_category_agents"],
         }
     if slice_agent:
         return {
-            **common, "supported": True, "status": "known", "step_code": step_code,
-            "executor": ("scene_design.run -> skeleton.run_skeleton (draft, editor) -> cells.store_cells"
-                         if marker == "skeleton" else
-                         "scene_design.run -> runner.run_category_agents -> cells.store_cells"),
+            **common,
+            "supported": True,
+            "status": "known",
+            "step_code": step_code,
+            "executor": (
+                "scene_design.run -> skeleton.run_skeleton (draft, editor) -> cells.store_cells"
+                if marker == "skeleton"
+                else "scene_design.run -> runner.run_category_agents -> cells.store_cells"
+            ),
             "result_kind": "scene_design_cells",
             "output_fields": ["SceneDesignCell." + key for key in _CELL_FIELDS],
-            "gates": ["agents.parse_agent_slice", "cells.slice_to_cells",
-                      "preserved frame rows and other agents' cells"],
+            "gates": [
+                "agents.parse_agent_slice",
+                "cells.slice_to_cells",
+                "preserved frame rows and other agents' cells",
+            ],
             "slice_contract": slice_contract(marker),
             "snapshot_boundary": "after native DB-v2 backfill, before " + marker + " staging",
-            "source_references": [*_REFERENCES,
+            "source_references": [
+                *_REFERENCES,
                 "app/services/scene_design/agents.py:CATEGORY_AGENTS/LIST_KEY/parse_agent_slice",
-                "app/services/scene_design/cells.py:slice_to_cells/store_cells"],
+                "app/services/scene_design/cells.py:slice_to_cells/store_cells",
+            ],
         }
     return {
-        **common, "supported": True, "status": "known", "step_code": step_code,
+        **common,
+        "supported": True,
+        "status": "known",
+        "step_code": step_code,
         "executor": "scene_design.run_assemble -> apply.apply_scene_design -> db_apply.apply_ops",
         "result_kind": "scene_assembly",
-        "output_fields": ["Project.meta.scene_registry", "Frame.attrs.shot01_id_scene",
-                          "Frame.attrs.shot01_action", "Frame.attrs.place"],
-        "gates": ["assembler.validate_payload", "native scene card normalization",
-                  "payload fields match actual Frame.attrs"],
+        "output_fields": [
+            "Project.meta.scene_registry",
+            "Frame.attrs.shot01_id_scene",
+            "Frame.attrs.shot01_action",
+            "Frame.attrs.place",
+        ],
+        "gates": [
+            "assembler.validate_payload",
+            "native scene card normalization",
+            "payload fields match actual Frame.attrs",
+        ],
         "snapshot_boundary": "after native camera_expand, before assembly validation/apply",
         "unchecked_effects": ["Entity", "scene_space", "files", "transaction provenance"],
         "registry_ids_are_scene_primary_keys": False,
-        "source_references": [*_REFERENCES,
+        "source_references": [
+            *_REFERENCES,
             "app/services/scene_design/assembler.py:validate_payload",
             "app/services/scene_design/apply.py:apply_scene_design",
-            "app/services/db_apply.py:FIELD_ALIASES/_normalize_scene_card/expand_scene_registry_onto_frames"],
+            "app/services/db_apply.py:FIELD_ALIASES/_normalize_scene_card/expand_scene_registry_onto_frames",
+        ],
     }
 
 
@@ -329,7 +446,8 @@ def scene_input_snapshot(project: Any, frames: Any, *, cells: Any = ()) -> dict:
     from app.services.scene_design.runner import scene_design_enabled
 
     return {
-        "schema": _SCHEMA, "project_id": getattr(project, "id", None),
+        "schema": _SCHEMA,
+        "project_id": getattr(project, "id", None),
         "enabled": scene_design_enabled(project),
         "script_text": getattr(project, "script_text", None),
         "general_plan": getattr(project, "general_plan", None),
@@ -341,26 +459,29 @@ def scene_input_snapshot(project: Any, frames: Any, *, cells: Any = ()) -> dict:
 
 def _snapshot_available(snapshot: Any) -> bool:
     return (
-        isinstance(snapshot, dict) and snapshot.get("schema") == _SCHEMA
+        isinstance(snapshot, dict)
+        and snapshot.get("schema") == _SCHEMA
         and snapshot.get("project_id") is not None
         and {"enabled", "script_text", "general_plan", "scene_registry", "cells"} <= snapshot.keys()
-        and isinstance(snapshot.get("frames"), list) and bool(snapshot["frames"])
-        and all(isinstance(row, dict) and set(_FRAME_FIELDS) <= row.keys()
-                for row in snapshot["frames"])
+        and isinstance(snapshot.get("frames"), list)
+        and bool(snapshot["frames"])
+        and all(isinstance(row, dict) and set(_FRAME_FIELDS) <= row.keys() for row in snapshot["frames"])
         and isinstance(snapshot["cells"], list)
-        and all(isinstance(row, dict) and set(_CELL_FIELDS) <= row.keys()
-                for row in snapshot["cells"])
+        and all(isinstance(row, dict) and set(_CELL_FIELDS) <= row.keys() for row in snapshot["cells"])
         and _hash(snapshot) is not None
     )
 
 
 def _proof(node_type: str, rows: list, snapshot: Any, *, cells: Any = (), registry: Any = None) -> dict:
     return {
-        "node_type": node_type, "frame_count": len(rows),
+        "node_type": node_type,
+        "frame_count": len(rows),
         "sha256": _hash({"frames": rows, "cells": cells, "scene_registry": registry}),
         "input_sha256": _hash(snapshot) if isinstance(snapshot, dict) else None,
-        "semantic_quality_verified": False, "business_commit_claim": False,
-        "managed_execution_verified": False, "human_approval_preserved": True,
+        "semantic_quality_verified": False,
+        "business_commit_claim": False,
+        "managed_execution_verified": False,
+        "human_approval_preserved": True,
         "human_approval_verified": False,
         "verification_scope": "provided native row/payload structural integrity only",
     }
@@ -369,8 +490,10 @@ def _proof(node_type: str, rows: list, snapshot: Any, *, cells: Any = (), regist
 def _result(proof: dict, errors: Any = (), *, unknown: str | None = None) -> dict:
     errors = list(dict.fromkeys(errors))
     return {
-        **proof, "status": "failed" if errors else "unknown" if unknown else "passed",
-        "reason": errors[0] if errors else unknown, "errors": errors,
+        **proof,
+        "status": "failed" if errors else "unknown" if unknown else "passed",
+        "reason": errors[0] if errors else unknown,
+        "errors": errors,
         "failure_class": (proof.get("failure_class") or CONTRACT_REJECTED) if errors else None,
     }
 
@@ -404,13 +527,26 @@ def _frame_errors(project_id: Any, rows: list, snapshot: dict, *, camera: bool) 
     return errors
 
 
-def _verify_agent_slice(project: Any, agent: str, agent_slice: Any, facts: list, snapshot: dict,
-                        full_vo: str, errors: list, *, prefix: str = "") -> str | None:
+def _verify_agent_slice(
+    project: Any,
+    agent: str,
+    agent_slice: Any,
+    facts: list,
+    snapshot: dict,
+    full_vo: str,
+    errors: list,
+    *,
+    prefix: str = "",
+) -> str | None:
     from app.services.scene_design import cells as native_cells
 
     if agent == "camera":
-        if (not isinstance(agent_slice, dict) or not isinstance(agent_slice.get("shot_plan"), list)
-                or not agent_slice["shot_plan"] or any(not isinstance(r, dict) for r in agent_slice["shot_plan"])):
+        if (
+            not isinstance(agent_slice, dict)
+            or not isinstance(agent_slice.get("shot_plan"), list)
+            or not agent_slice["shot_plan"]
+            or any(not isinstance(r, dict) for r in agent_slice["shot_plan"])
+        ):
             errors.append(prefix + "invalid_camera_slice")
             return MISSING_PAYLOAD if isinstance(agent_slice, dict) else INVALID_JSON
     else:
@@ -419,7 +555,9 @@ def _verify_agent_slice(project: Any, agent: str, agent_slice: Any, facts: list,
             errors.extend(prefix + "invalid_" + agent + "_slice:" + code for code in shape_errors)
             return shape_failure
     failure = None
-    expected_rows = [_cell_state(cell) for cell in native_cells.slice_to_cells(project, agent, agent_slice, full_vo)]
+    expected_rows = [
+        _cell_state(cell) for cell in native_cells.slice_to_cells(project, agent, agent_slice, full_vo)
+    ]
     empty_ok = not expected_rows and SLICE_SHAPES[agent]["empty_allowed"]
     target = [row for row in facts if row["agent"] == agent]
     if not target and not empty_ok:
@@ -435,7 +573,9 @@ def _verify_agent_slice(project: Any, agent: str, agent_slice: Any, facts: list,
     if (not expected_rows and not empty_ok) or any(row["status"] != "ok" for row in expected_rows):
         errors.append(prefix + "native_" + agent + "_cell_validation_failed")
         failure = failure or CONTRACT_REJECTED
-    if agent == "camera" and any(not str(shot.get("цитата") or "").strip() for shot in agent_slice["shot_plan"]):
+    if agent == "camera" and any(
+        not str(shot.get("цитата") or "").strip() for shot in agent_slice["shot_plan"]
+    ):
         errors.append(prefix + "missing_camera_quote")
         failure = failure or CONTRACT_REJECTED
     if Counter(_json(r) for r in target) != Counter(_json(r) for r in expected_rows):
@@ -444,8 +584,9 @@ def _verify_agent_slice(project: Any, agent: str, agent_slice: Any, facts: list,
     return failure
 
 
-def verify_scene_agent(project: Any, node: dict, cells: Any, *, frames: Any,
-                       snapshot: Any, agent_slice: Any) -> dict:
+def verify_scene_agent(
+    project: Any, node: dict, cells: Any, *, frames: Any, snapshot: Any, agent_slice: Any
+) -> dict:
     from app.services.scene_design import context_builder
     from app.services.scene_design.runner import scene_design_enabled
 
@@ -457,15 +598,25 @@ def verify_scene_agent(project: Any, node: dict, cells: Any, *, frames: Any,
     contract = scene_contract(node)
     agent = contract["agent"]
     legacy = agent == LEGACY_AGENT
-    names = ([n for n in SLICE_AGENTS if isinstance(agent_slice, dict) and n in agent_slice]
-             if legacy else [agent])
-    proof = {**_proof("sd_agent", rows, snapshot, cells=facts, registry=registry),
-             "agent": agent, "cell_count": sum(r["agent"] in names for r in facts),
-             "agents_checked": names, "failure_class": None}
+    names = (
+        [n for n in SLICE_AGENTS if isinstance(agent_slice, dict) and n in agent_slice] if legacy else [agent]
+    )
+    proof = {
+        **_proof("sd_agent", rows, snapshot, cells=facts, registry=registry),
+        "agent": agent,
+        "cell_count": sum(r["agent"] in names for r in facts),
+        "agents_checked": names,
+        "failure_class": None,
+    }
     if not contract["supported"] or agent not in (*SLICE_AGENTS, LEGACY_AGENT):
         return _result(proof, unknown="agent route unavailable or outside bounded contract")
-    if (not _snapshot_available(snapshot) or agent_slice is None or frames is None or cells is None
-            or not names):
+    if (
+        not _snapshot_available(snapshot)
+        or agent_slice is None
+        or frames is None
+        or cells is None
+        or not names
+    ):
         return _result(proof, unknown="captured " + agent + " input, slice or output unavailable")
     if snapshot["enabled"] is not True or not scene_design_enabled(project):
         return _result(proof, unknown="scene design disabled; pass-through is not output proof")
@@ -486,8 +637,16 @@ def verify_scene_agent(project: Any, node: dict, cells: Any, *, frames: Any,
     failure = None
     full_vo = context_builder.full_voiceover(project, frames)
     for name in names:
-        one = _verify_agent_slice(project, name, agent_slice[name] if legacy else agent_slice, facts,
-                                  snapshot, full_vo, errors, prefix=(name + ":") if legacy else "")
+        one = _verify_agent_slice(
+            project,
+            name,
+            agent_slice[name] if legacy else agent_slice,
+            facts,
+            snapshot,
+            full_vo,
+            errors,
+            prefix=(name + ":") if legacy else "",
+        )
         failure = failure or one
     if errors and failure is None:
         failure = CONTRACT_REJECTED
@@ -506,9 +665,12 @@ def verify_scene_assembly(project: Any, frames: Any, *, snapshot: Any, payload: 
     frames = list(frames) if frames is not None else None
     rows = [_frame_state(frame) for frame in frames or ()]
     registry = _meta(project).get("scene_registry")
-    proof = {**_proof("sd_assemble", rows, snapshot, registry=registry),
-             "entities_verified": False, "scene_space_verified": False,
-             "checked_fields": {}}
+    proof = {
+        **_proof("sd_assemble", rows, snapshot, registry=registry),
+        "entities_verified": False,
+        "scene_space_verified": False,
+        "checked_fields": {},
+    }
     if not _snapshot_available(snapshot) or payload is None or frames is None:
         return _result(proof, unknown="captured assembly input, payload or output unavailable")
     if snapshot["enabled"] is not True or not scene_design_enabled(project):
@@ -516,17 +678,22 @@ def verify_scene_assembly(project: Any, frames: Any, *, snapshot: Any, payload: 
     if proof["sha256"] is None:
         return _result(proof, unknown="assembly output cannot be structurally represented")
     errors = _frame_errors(project.id, rows, snapshot, camera=False)
-    if (not isinstance(payload, dict) or not isinstance(payload.get("scenes"), list)
-            or not payload["scenes"] or not isinstance(payload.get("ops"), list)
-            or not payload["ops"] or _hash(payload) is None
-            or any(not isinstance(sc, dict) for sc in payload["scenes"])
-            or any(not isinstance(op, dict) or not isinstance(op.get("fields"), dict)
-                   for op in payload["ops"])):
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(payload.get("scenes"), list)
+        or not payload["scenes"]
+        or not isinstance(payload.get("ops"), list)
+        or not payload["ops"]
+        or _hash(payload) is None
+        or any(not isinstance(sc, dict) for sc in payload["scenes"])
+        or any(not isinstance(op, dict) or not isinstance(op.get("fields"), dict) for op in payload["ops"])
+    ):
         proof["failure_class"] = MISSING_PAYLOAD if isinstance(payload, dict) else INVALID_JSON
         return _result(proof, [*errors, "invalid_assembly_payload"])
     try:
-        problems = assembler.validate_payload(project, frames, payload,
-            context_builder.full_voiceover(project, frames))
+        problems = assembler.validate_payload(
+            project, frames, payload, context_builder.full_voiceover(project, frames)
+        )
     except (TypeError, ValueError, KeyError, AttributeError):
         return _result(proof, errors, unknown="native assembly validation unavailable")
     errors.extend("native_validation:" + problem for problem in problems)
@@ -573,7 +740,8 @@ def verify_scene_assembly(project: Any, frames: Any, *, snapshot: Any, payload: 
                     unsupported.add(field)
             expected_by_uuid[uid].attrs = attrs
         db_apply.expand_scene_registry_onto_frames(
-            sorted(expected, key=lambda frame: frame.number), expected_registry, overwrite=True)
+            sorted(expected, key=lambda frame: frame.number), expected_registry, overwrite=True
+        )
         actual = {frame.uuid: frame for frame in frames}
         for uid, fields in wanted.items():
             attrs = actual[uid].attrs
@@ -588,8 +756,13 @@ def verify_scene_assembly(project: Any, frames: Any, *, snapshot: Any, payload: 
     except (TypeError, ValueError, KeyError, AttributeError):
         return _result(proof, errors, unknown="native assembly field check unavailable")
     proof["checked_fields"] = {uid: sorted(fields) for uid, fields in wanted.items()}
-    return _result(proof, errors, unknown=("unsupported assembly field checks: " + ", ".join(sorted(unsupported)))
-                   if unsupported else None)
+    return _result(
+        proof,
+        errors,
+        unknown=("unsupported assembly field checks: " + ", ".join(sorted(unsupported)))
+        if unsupported
+        else None,
+    )
 
 
 def _scene_gap(ctx, error):
@@ -612,6 +785,7 @@ def _scene_callback(function):
         except Exception as error:
             _scene_gap(ctx, error)
             return None
+
     return callback
 
 
@@ -628,14 +802,17 @@ def _loaded_project_id(project):
 
 async def _scene_context(node, *, project=None):
     from app.models import WorkflowRun
-    from app.services.observation import ExecutionControl, _attempt, digest
     from app.services import revisions
+    from app.services.observation import ExecutionControl, _attempt
 
     ctx = _attempt.get()
-    if (ctx is None or ctx.scope.observer_state not in {"active", "degraded"}
-            or getattr(ctx, "native_attempt_closed", False)
-            or ctx.node_key not in ctx.scope.node_keys
-            or not ctx.attempt_id):
+    if (
+        ctx is None
+        or ctx.scope.observer_state not in {"active", "degraded"}
+        or getattr(ctx, "native_attempt_closed", False)
+        or ctx.node_key not in ctx.scope.node_keys
+        or not ctx.attempt_id
+    ):
         return None
     if project is not None and _loaded_project_id(project) != ctx.scope.project_id:
         return None
@@ -645,20 +822,25 @@ async def _scene_context(node, *, project=None):
         with reader.no_autoflush:
             control = await reader.get(ExecutionControl, ctx.scope.execution_id)
             run = await reader.get(WorkflowRun, ctx.scope.workflow_run_id)
-    if (control is None or run is None or run.project_id != ctx.scope.project_id
-            or control.project_id != ctx.scope.project_id
-            or control.workflow_run_id != run.id
-            or control.observer_state not in {"active", "degraded"}
-            or control.mode not in {"observe", "managed"}
-            or control.mode != ctx.scope.mode
-            or ctx.node_key not in control.node_keys):
+    if (
+        control is None
+        or run is None
+        or run.project_id != ctx.scope.project_id
+        or control.project_id != ctx.scope.project_id
+        or control.workflow_run_id != run.id
+        or control.observer_state not in {"active", "degraded"}
+        or control.mode not in {"observe", "managed"}
+        or control.mode != ctx.scope.mode
+        or ctx.node_key not in control.node_keys
+    ):
         return None
     revision = revisions.graph_version(run.nodes_snapshot, run.edges_snapshot)
     if revision != ctx.scope.graph_version or revision != control.graph_version:
         _scene_gap(ctx, ValueError("native scene workflow snapshot changed"))
         return None
-    matches = [item for item in run.nodes_snapshot or ()
-               if isinstance(item, dict) and item.get("id") == ctx.node_key]
+    matches = [
+        item for item in run.nodes_snapshot or () if isinstance(item, dict) and item.get("id") == ctx.node_key
+    ]
     if len(matches) != 1:
         return None
     native_node = copy.deepcopy(matches[0])
@@ -667,11 +849,13 @@ async def _scene_context(node, *, project=None):
         return None
     if node is not None:
         supplied = scene_contract(node)
-        if (not supplied["supported"] or supplied["agent"] != contract["agent"]
-                or supplied["node_type"] != contract["node_type"]):
+        if (
+            not supplied["supported"]
+            or supplied["agent"] != contract["agent"]
+            or supplied["node_type"] != contract["node_type"]
+        ):
             return None
-    key = (ctx.scope.execution_id, run.id, ctx.scope.project_id,
-           ctx.node_key, ctx.attempt_id, revision)
+    key = (ctx.scope.execution_id, run.id, ctx.scope.project_id, ctx.node_key, ctx.attempt_id, revision)
     return ctx, native_node, contract, key
 
 
@@ -719,8 +903,12 @@ def _scene_input_evidence(ctx, entry):
 
     snapshot = entry.get("snapshot")
     reference = entry.get("body")
-    if (not entry.get("recorded") or not _snapshot_available(snapshot)
-            or not isinstance(reference, dict) or reference.get("gap")):
+    if (
+        not entry.get("recorded")
+        or not _snapshot_available(snapshot)
+        or not isinstance(reference, dict)
+        or reference.get("gap")
+    ):
         return None
     try:
         root = ctx.observer.body_root.resolve()
@@ -746,9 +934,11 @@ async def record_scene_input(project, node, frames, *, cells=()):
     if project is None or frames is None or cells is None:
         return
     frames, cells = list(frames), list(cells)
-    if (any(_loaded_project_id(frame) is None for frame in frames)
-            or any(getattr(frame, "project_id", None) != ctx.scope.project_id for frame in frames)
-            or any(getattr(cell, "project_id", None) != ctx.scope.project_id for cell in cells)):
+    if (
+        any(_loaded_project_id(frame) is None for frame in frames)
+        or any(getattr(frame, "project_id", None) != ctx.scope.project_id for frame in frames)
+        or any(getattr(cell, "project_id", None) != ctx.scope.project_id for cell in cells)
+    ):
         return
     entry = _scene_entry(ctx, key)
     if "snapshot" in entry:
@@ -758,20 +948,30 @@ async def record_scene_input(project, node, frames, *, cells=()):
     entry["recorded"] = False
     from app.services.observation import digest
 
-    entry["body"] = await _scene_fact(ctx, "node_input", {
-        "contract": _scene_contract_name(contract),
-        "snapshot_boundary": contract["snapshot_boundary"],
-        "frame_count": len(snapshot["frames"]), "input_sha256": digest(snapshot),
-    }, body=snapshot)
+    entry["body"] = await _scene_fact(
+        ctx,
+        "node_input",
+        {
+            "contract": _scene_contract_name(contract),
+            "snapshot_boundary": contract["snapshot_boundary"],
+            "frame_count": len(snapshot["frames"]),
+            "input_sha256": digest(snapshot),
+        },
+        body=snapshot,
+    )
     reference = entry["body"]
-    entry["recorded"] = bool(isinstance(reference, dict) and not reference.get("gap")
+    entry["recorded"] = bool(
+        isinstance(reference, dict)
+        and not reference.get("gap")
         and ctx.scope.execution_id not in ctx.observer.failures
-        and ctx.scope.execution_id not in ctx.observer.commit_uncertainty)
+        and ctx.scope.execution_id not in ctx.observer.commit_uncertainty
+    )
 
 
 @_scene_callback
-async def record_scene_parse(reply, parsed, *, node, validation_performed,
-                             problems=(), error=None, origin="model", agent=None):
+async def record_scene_parse(
+    reply, parsed, *, node, validation_performed, problems=(), error=None, origin="model", agent=None
+):
     resolved = await _scene_context(node)
     if resolved is None:
         return
@@ -811,30 +1011,56 @@ async def record_scene_parse(reply, parsed, *, node, validation_performed,
             syntax_valid = True
         elif raw_model_reply and failure == INVALID_JSON:
             syntax_valid = False
-    schema_valid = (False if error is not None else
-                    bool(extracted and not problems) if performed else None)
+    schema_valid = False if error is not None else bool(extracted and not problems) if performed else None
     status = "unknown" if schema_valid is None else "passed" if schema_valid else "failed"
     name = _scene_contract_name(contract, effective)
-    typing = ({"payload_required": True, "payload_present": payload_present, "failure_class": failure}
-              if typed and effective in {*SLICE_AGENTS, "assemble"} else {})
-    await _scene_fact(ctx, "parse_result", {
-        "contract": name, "origin": origin, "agent": effective,
-        "parser": ("scene_design.agents.parse_agent_slice" if effective in SLICE_AGENTS
-                   else "scene_design.assembler local payload" if origin == "local"
-                   else "scene_design.agents.parse_assembler_payload"),
-        "syntax_valid": syntax_valid, "parsed": extracted or failure == CONTRACT_REJECTED,
-        "schema_valid": schema_valid, "validation_performed": performed,
-        "validation_problems": problems,
-        "error_type": type(error).__name__ if error is not None else None,
-        "sha256": digest(parsed), "semantic_quality_verified": False, **typing,
-    }, body={"text": reply, "parsed": copy.deepcopy(parsed)}, request_id=request_id)
-    await _scene_fact(ctx, "runtime_check", {
-        "check": name + "_parse", "status": status, "performed": performed,
-        "validation_problems": problems,
-        "error_type": type(error).__name__ if error is not None else None,
-        "initiator": "worker", "business_commit_claim": False,
-        **({"failure_class": failure} if failure else {}),
-    }, request_id=request_id)
+    typing = (
+        {"payload_required": True, "payload_present": payload_present, "failure_class": failure}
+        if typed and effective in {*SLICE_AGENTS, "assemble"}
+        else {}
+    )
+    await _scene_fact(
+        ctx,
+        "parse_result",
+        {
+            "contract": name,
+            "origin": origin,
+            "agent": effective,
+            "parser": (
+                "scene_design.agents.parse_agent_slice"
+                if effective in SLICE_AGENTS
+                else "scene_design.assembler local payload"
+                if origin == "local"
+                else "scene_design.agents.parse_assembler_payload"
+            ),
+            "syntax_valid": syntax_valid,
+            "parsed": extracted or failure == CONTRACT_REJECTED,
+            "schema_valid": schema_valid,
+            "validation_performed": performed,
+            "validation_problems": problems,
+            "error_type": type(error).__name__ if error is not None else None,
+            "sha256": digest(parsed),
+            "semantic_quality_verified": False,
+            **typing,
+        },
+        body={"text": reply, "parsed": copy.deepcopy(parsed)},
+        request_id=request_id,
+    )
+    await _scene_fact(
+        ctx,
+        "runtime_check",
+        {
+            "check": name + "_parse",
+            "status": status,
+            "performed": performed,
+            "validation_problems": problems,
+            "error_type": type(error).__name__ if error is not None else None,
+            "initiator": "worker",
+            "business_commit_claim": False,
+            **({"failure_class": failure} if failure else {}),
+        },
+        request_id=request_id,
+    )
 
 
 @_scene_callback
@@ -854,54 +1080,97 @@ async def observe_scene_result(session, project, node, *, agent_slice=None, payl
     effective = contract["agent"]
     if effective == LEGACY_AGENT:
         effective = "assemble" if payload is not None else LEGACY_AGENT
-    output = {"project_id": project_id, "node_type": contract["node_type"],
-              "frames": None, "cells": None, "scene_registry": None}
+    output = {
+        "project_id": project_id,
+        "node_type": contract["node_type"],
+        "frames": None,
+        "cells": None,
+        "scene_registry": None,
+    }
     read_error = None
     try:
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         from app.models import Frame, Project, SceneDesignCell
 
         async with async_sessionmaker(session.bind, expire_on_commit=False, autoflush=False)() as reader:
             native_project = await reader.get(Project, project_id)
             if native_project is None:
                 raise LookupError("native scene project unavailable")
-            frames = list((await reader.scalars(select(Frame).where(Frame.project_id == project_id)
-                          .order_by(Frame.sort_key, Frame.number))).all())
-            cells = list((await reader.scalars(select(SceneDesignCell).where(SceneDesignCell.project_id == project_id)
-                         .order_by(SceneDesignCell.id))).all())
-            output.update(frames=[_frame_state(frame) for frame in frames],
-                          cells=[_cell_state(cell) for cell in cells],
-                          scene_registry=copy.deepcopy(_meta(native_project).get("scene_registry")))
+            frames = list(
+                (
+                    await reader.scalars(
+                        select(Frame)
+                        .where(Frame.project_id == project_id)
+                        .order_by(Frame.sort_key, Frame.number)
+                    )
+                ).all()
+            )
+            cells = list(
+                (
+                    await reader.scalars(
+                        select(SceneDesignCell)
+                        .where(SceneDesignCell.project_id == project_id)
+                        .order_by(SceneDesignCell.id)
+                    )
+                ).all()
+            )
+            output.update(
+                frames=[_frame_state(frame) for frame in frames],
+                cells=[_cell_state(cell) for cell in cells],
+                scene_registry=copy.deepcopy(_meta(native_project).get("scene_registry")),
+            )
             if effective != "assemble":
-                proof = verify_scene_agent(native_project, native_node, cells,
-                    frames=frames, snapshot=snapshot, agent_slice=copy.deepcopy(agent_slice))
+                proof = verify_scene_agent(
+                    native_project,
+                    native_node,
+                    cells,
+                    frames=frames,
+                    snapshot=snapshot,
+                    agent_slice=copy.deepcopy(agent_slice),
+                )
             else:
-                proof = verify_scene_assembly(native_project, frames,
-                    snapshot=snapshot, payload=copy.deepcopy(payload))
+                proof = verify_scene_assembly(
+                    native_project, frames, snapshot=snapshot, payload=copy.deepcopy(payload)
+                )
     except Exception as error:
         read_error = error
-        proof = _result(_proof(contract["node_type"], [], snapshot),
-                        unknown="committed native scene result unavailable")
+        proof = _result(
+            _proof(contract["node_type"], [], snapshot), unknown="committed native scene result unavailable"
+        )
         proof["error_type"] = type(error).__name__
         if effective == "assemble":
             proof.update(entities_verified=False, scene_space_verified=False)
     if snapshot is None:
-        proof.update(status="unknown", reason="captured native scene input/body unavailable", errors=[],
-                     failure_class=None)
+        proof.update(
+            status="unknown",
+            reason="captured native scene input/body unavailable",
+            errors=[],
+            failure_class=None,
+        )
     name = _scene_contract_name(contract, effective)
     proof.update(contract=name, agent=effective)
-    output_reference = await _scene_fact(ctx, "node_output", {
-        "contract": name,
-        "frame_count": None if output["frames"] is None else len(output["frames"]),
-        "sha256": proof["sha256"],
-        "source": "committed original executor rows; independent read session",
-    }, body=output)
-    if (not isinstance(output_reference, dict) or output_reference.get("gap")
-            or ctx.scope.execution_id in ctx.observer.failures
-            or ctx.scope.execution_id in ctx.observer.commit_uncertainty):
-        proof.update(status="unknown", reason="native scene journal/body unavailable", errors=[],
-                     failure_class=None)
+    output_reference = await _scene_fact(
+        ctx,
+        "node_output",
+        {
+            "contract": name,
+            "frame_count": None if output["frames"] is None else len(output["frames"]),
+            "sha256": proof["sha256"],
+            "source": "committed original executor rows; independent read session",
+        },
+        body=output,
+    )
+    if (
+        not isinstance(output_reference, dict)
+        or output_reference.get("gap")
+        or ctx.scope.execution_id in ctx.observer.failures
+        or ctx.scope.execution_id in ctx.observer.commit_uncertainty
+    ):
+        proof.update(
+            status="unknown", reason="native scene journal/body unavailable", errors=[], failure_class=None
+        )
     ctx.scene_result_proof = copy.deepcopy(proof)
     await _scene_fact(ctx, "node_result_verification", proof, body=proof)
     if read_error is not None:
@@ -912,15 +1181,32 @@ def record_scene_applied(session: Any, agent: str, stats: dict) -> bool:
     from app.services.observation import _attempt, emit
 
     ctx = _attempt.get()
-    if (ctx is None or ctx.session is not session or getattr(ctx, "native_attempt_closed", False)
-            or ctx.scope.observer_state not in {"active", "degraded"} or ctx.node_key not in ctx.scope.node_keys
-            or not ctx.attempt_id or agent not in RETRY_ADMITTED_AGENTS):
+    if (
+        ctx is None
+        or ctx.session is not session
+        or getattr(ctx, "native_attempt_closed", False)
+        or ctx.scope.observer_state not in {"active", "degraded"}
+        or ctx.node_key not in ctx.scope.node_keys
+        or not ctx.attempt_id
+        or agent not in RETRY_ADMITTED_AGENTS
+    ):
         return False
     stored, rejected = int(stats.get("stored") or 0), int(stats.get("rejected") or 0)
-    emit("data_applied", {"result": {"ok": rejected == 0, "node_kind": "sd_agent", "agent": agent,
-                                     "cells_stored": stored, "cells_rejected": rejected,
-                                     "table": "scene_design_cells"},
-                          "transactional": True}, request_id=getattr(ctx, "last_request_id", None))
+    emit(
+        "data_applied",
+        {
+            "result": {
+                "ok": rejected == 0,
+                "node_kind": "sd_agent",
+                "agent": agent,
+                "cells_stored": stored,
+                "cells_rejected": rejected,
+                "table": "scene_design_cells",
+            },
+            "transactional": True,
+        },
+        request_id=getattr(ctx, "last_request_id", None),
+    )
     return True
 
 
@@ -928,8 +1214,12 @@ def managed_scene_attempt() -> bool:
     from app.services.observation import _attempt
 
     ctx = _attempt.get()
-    return bool(ctx is not None and ctx.attempt_id and ctx.scope.observer_state in {"active", "degraded"}
-                and ctx.node_key in ctx.scope.node_keys)
+    return bool(
+        ctx is not None
+        and ctx.attempt_id
+        and ctx.scope.observer_state in {"active", "degraded"}
+        and ctx.node_key in ctx.scope.node_keys
+    )
 
 
 async def observe_scene_agent_gate(session, project, node_type="sd_agent"):
@@ -941,20 +1231,33 @@ async def observe_scene_agent_gate(session, project, node_type="sd_agent"):
     node = getattr(ctx, "scene_native_node", None)
     proof = None
     if node is not None:
-        await observe_scene_result(session, project, node, agent_slice=getattr(ctx, "scene_agent_slice", None),
-                                   payload=getattr(ctx, "scene_assembly_payload", None))
+        await observe_scene_result(
+            session,
+            project,
+            node,
+            agent_slice=getattr(ctx, "scene_agent_slice", None),
+            payload=getattr(ctx, "scene_assembly_payload", None),
+        )
         ctx.scene_result_observed = True
         proof = getattr(ctx, "scene_result_proof", None)
     if isinstance(proof, dict) and proof.get("status") == "passed":
         return
-    reason = ("no captured scene input (pass-through or journal unavailable)" if node is None
-              else str((proof or {}).get("reason") or (proof or {}).get("status") or "no result proof"))
+    reason = (
+        "no captured scene input (pass-through or journal unavailable)"
+        if node is None
+        else str((proof or {}).get("reason") or (proof or {}).get("status") or "no result proof")
+    )
     from app.services.actions_v1 import ActionSupervisor
 
     await ActionSupervisor(ctx.observer.master).set_held(
-        project_id=ctx.scope.project_id, execution_id=ctx.scope.execution_id, held=True,
-        initiator="native_scene_agent_verifier", rationale=reason,
-        idempotency_key="scene-agent-verify:" + ctx.attempt_id, operator_request=False)
+        project_id=ctx.scope.project_id,
+        execution_id=ctx.scope.execution_id,
+        held=True,
+        initiator="native_scene_agent_verifier",
+        rationale=reason,
+        idempotency_key="scene-agent-verify:" + ctx.attempt_id,
+        operator_request=False,
+    )
     raise RuntimeError("native scene agent verification not confirmed: " + reason)
 
 
@@ -963,11 +1266,21 @@ async def scene_agent_contract(c) -> dict:
 
     native = scene_contract(c.node)
     capability, scope, context, row = c.capability, c.scope, c.context, c.row
-    return panel_safe({**capability.contract(), "node_key": row.node_key, "graph_version": scope.graph_version,
-        "context_version": context["context_version"],
-        "source": "native scene agent executor/converter; authoritative project DB",
-        "contract": {**native, "retry_admitted_agents": list(RETRY_ADMITTED_AGENTS),
-                     "refused_agents": {name: item[0] for name, item in RETRY_REFUSED_AGENTS.items()},
-                     "apply_fact": "data_applied (transactional) staged with the cell commit"},
-        "verification_status": "not_checked; requires captured input and committed verification evidence",
-        "compatible_profiles": [], "cost_status": "unknown_tariff"})
+    return panel_safe(
+        {
+            **capability.contract(),
+            "node_key": row.node_key,
+            "graph_version": scope.graph_version,
+            "context_version": context["context_version"],
+            "source": "native scene agent executor/converter; authoritative project DB",
+            "contract": {
+                **native,
+                "retry_admitted_agents": list(RETRY_ADMITTED_AGENTS),
+                "refused_agents": {name: item[0] for name, item in RETRY_REFUSED_AGENTS.items()},
+                "apply_fact": "data_applied (transactional) staged with the cell commit",
+            },
+            "verification_status": "not_checked; requires captured input and committed verification evidence",
+            "compatible_profiles": [],
+            "cost_status": "unknown_tariff",
+        }
+    )

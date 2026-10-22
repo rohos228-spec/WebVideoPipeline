@@ -45,7 +45,11 @@ def _allow_remote_without_auth() -> bool:
     val = getattr(settings, "orchestrator_allow_remote_without_auth", None)
     if val is None:
         val = (os.environ.get("ORCHESTRATOR_ALLOW_REMOTE_WITHOUT_AUTH") or "").strip().lower() in {
-            "1", "true", "yes", "on"}
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
     return bool(val)
 
 
@@ -53,9 +57,11 @@ def _scope_identity_is_admin(scope) -> bool:
     """Личность, которую положил `IdentityMiddleware`, и она админ студии."""
     ident = scope.get("studio_identity") if isinstance(scope, dict) else None
     return bool(ident is not None and getattr(ident, "is_admin", False))
-operator_token_verified: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "vp_operator_token_verified", default=False)
 
+
+operator_token_verified: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "vp_operator_token_verified", default=False
+)
 
 
 def is_loopback_host(host: str | None) -> bool:
@@ -87,12 +93,18 @@ def _local_only_check(request: Request) -> None:
     peer_local = is_loopback_host(client.host if client else None)
     proxied = _has_forward_headers(request.headers)
     if not peer_local or proxied:
-        raise HTTPException(status_code=403, detail={
-            "code": "local_only",
-            "message": ("Вход выключен (режим владельца): изменяющие запросы принимаются только "
-                        "с localhost напрямую (не через обратный прокси). Задайте "
-                        "STUDIO_SESSION_SECRET (учётные записи) или "
-                        "ORCHESTRATOR_ALLOW_REMOTE_WITHOUT_AUTH=true.")})
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "local_only",
+                "message": (
+                    "Вход выключен (режим владельца): изменяющие запросы принимаются только "
+                    "с localhost напрямую (не через обратный прокси). Задайте "
+                    "STUDIO_SESSION_SECRET (учётные записи) или "
+                    "ORCHESTRATOR_ALLOW_REMOTE_WITHOUT_AUTH=true."
+                ),
+            },
+        )
 
 
 async def local_only_when_no_auth(request: Request) -> None:
@@ -110,7 +122,6 @@ LocalOnly = Annotated[None, Depends(local_only_when_no_auth)]
 MutationLocalOnlyDep = Depends(local_only_for_mutations)
 
 
-
 def _env_list(name: str) -> list[str]:
     raw = os.environ.get(name) or ""
     return [p.strip() for p in raw.split(",") if p.strip()]
@@ -118,7 +129,11 @@ def _env_list(name: str) -> list[str]:
 
 def operator_token_enforced() -> bool:
     return (os.environ.get("VP_OPERATOR_TOKEN_ENFORCE") or "1").strip().lower() not in {
-        "0", "false", "no", "off"}
+        "0",
+        "false",
+        "no",
+        "off",
+    }
 
 
 def _norm_origin(origin: str) -> str | None:
@@ -169,7 +184,7 @@ def _split_host_header(value: str) -> tuple[str, str]:
         end = v.find("]")
         if end == -1:
             return "", ""
-        rest = v[end + 1:]
+        rest = v[end + 1 :]
         return v[1:end], rest[1:] if rest.startswith(":") else ""
     if v.count(":") == 1:
         h, _, p = v.partition(":")
@@ -208,7 +223,6 @@ def origin_allowed(origin: str | None, host_header: str | None) -> bool:
     return origin_host == host_name and origin_port == (host_port or origin_port)
 
 
-
 def get_operator_token() -> str:
     global _OPERATOR_TOKEN
     if _OPERATOR_TOKEN is None:
@@ -228,33 +242,36 @@ def check_operator_token(candidate: str | None) -> bool:
     return hmac.compare_digest(candidate.encode("utf-8"), get_operator_token().encode("utf-8"))
 
 
-_TOKEN_PATHS = [re.compile(p) for p in (
-    r"^/action-layer/",
-    r"^/change-control/",
-    r"^/projects/[^/]+/observations/kill-switch",
-    r"^/projects/[^/]+/media-recovery/",
-    r"^/projects/[^/]+/stop$",
-    r"^/projects/[^/]+/steps/[^/]+/run$",
-    r"^/projects/[^/]+/spend-approval$",
-    r"^/projects/[^/]+/(resume|continue)$",
-    r"^/hitl/[^/]+/decision$",
-    r"^/projects/[^/]+/mass-lanes/start$",
-    r"^/runs/[^/]+/cancel$",
-    r"^/projects/[^/]+/publications/",
-    r".*publish.*",
-    r"^/projects/[^/]+/finish/",
-    r"^/projects/[^/]+/montage-board/(queue|montage|recover-outsee)$",
-    r"^/projects/[^/]+/montage-board/frames/[^/]+/scene-(action-generate|generate-with-images|variants|improve)$",
-    r"^/projects/[^/]+/observations/(launch|auto)?$",
-    r"^/projects/[^/]+/observations/[^/]+/actions/(start|retry)$",
-    r"^/outsee/generate$",
-    r"^/kie-create/generate$",
-    r"^/sidebar-layout/gen-queue/(enqueue|bulk-enqueue)$",
-    r"^/runs/from-workflow/",
-    r"^/prompt-studio/projects/[^/]+/gpt-verdict/[^/]+/run$",
-    r"^/fleet/(local|nodes/[^/]+)/powershell",
-    r"^/db/projects/[^/]+/orchestrator/",
-)]
+_TOKEN_PATHS = [
+    re.compile(p)
+    for p in (
+        r"^/action-layer/",
+        r"^/change-control/",
+        r"^/projects/[^/]+/observations/kill-switch",
+        r"^/projects/[^/]+/media-recovery/",
+        r"^/projects/[^/]+/stop$",
+        r"^/projects/[^/]+/steps/[^/]+/run$",
+        r"^/projects/[^/]+/spend-approval$",
+        r"^/projects/[^/]+/(resume|continue)$",
+        r"^/hitl/[^/]+/decision$",
+        r"^/projects/[^/]+/mass-lanes/start$",
+        r"^/runs/[^/]+/cancel$",
+        r"^/projects/[^/]+/publications/",
+        r".*publish.*",
+        r"^/projects/[^/]+/finish/",
+        r"^/projects/[^/]+/montage-board/(queue|montage|recover-outsee)$",
+        r"^/projects/[^/]+/montage-board/frames/[^/]+/scene-(action-generate|generate-with-images|variants|improve)$",
+        r"^/projects/[^/]+/observations/(launch|auto)?$",
+        r"^/projects/[^/]+/observations/[^/]+/actions/(start|retry)$",
+        r"^/outsee/generate$",
+        r"^/kie-create/generate$",
+        r"^/sidebar-layout/gen-queue/(enqueue|bulk-enqueue)$",
+        r"^/runs/from-workflow/",
+        r"^/prompt-studio/projects/[^/]+/gpt-verdict/[^/]+/run$",
+        r"^/fleet/(local|nodes/[^/]+)/powershell",
+        r"^/db/projects/[^/]+/orchestrator/",
+    )
+]
 
 
 def path_needs_operator_token(path: str, method: str) -> bool:
@@ -262,7 +279,6 @@ def path_needs_operator_token(path: str, method: str) -> bool:
         return False
     p = path[4:] if path.startswith("/api/") else path
     return any(rx.match(p) for rx in _TOKEN_PATHS)
-
 
 
 def _hdr(scope, name: bytes) -> str | None:
@@ -273,7 +289,6 @@ def _hdr(scope, name: bytes) -> str | None:
 
 
 class SecurityGuardMiddleware:
-
     def __init__(self, app):
         self.app = app
 
@@ -289,7 +304,8 @@ class SecurityGuardMiddleware:
             return
         marker = operator_token_verified.set(
             check_operator_token(_hdr(scope, b"x-vp-operator"))
-            or (_auth_enabled() and _scope_identity_is_admin(scope)))
+            or (_auth_enabled() and _scope_identity_is_admin(scope))
+        )
         try:
             await self.app(scope, receive, send)
         finally:
@@ -300,22 +316,32 @@ class SecurityGuardMiddleware:
         method = (scope.get("method") or "GET").upper()
         host = _hdr(scope, b"host")
         if not host_allowed(host):
-            return ("bad_host", "Запрос с чужим именем хоста отклонён (защита от DNS-rebinding). "
-                    "Откройте Studio по адресу http://localhost:8765 или добавьте имя в VP_ALLOWED_HOSTS.")
+            return (
+                "bad_host",
+                "Запрос с чужим именем хоста отклонён (защита от DNS-rebinding). "
+                "Откройте Studio по адресу http://localhost:8765 или добавьте имя в VP_ALLOWED_HOSTS.",
+            )
         origin = _hdr(scope, b"origin")
         mutating = scope.get("type") == "websocket" or method not in SAFE_METHODS
         if origin is not None and mutating and not origin_allowed(origin, host):
-            return ("bad_origin", "Запрос со страницы с чужим адресом (Origin) отклонён: "
-                    "изменять данные можно только из своего Studio.")
-        if (origin is None and mutating
-                and (_hdr(scope, b"sec-fetch-site") or "").lower() == "cross-site"):
+            return (
+                "bad_origin",
+                "Запрос со страницы с чужим адресом (Origin) отклонён: "
+                "изменять данные можно только из своего Studio.",
+            )
+        if origin is None and mutating and (_hdr(scope, b"sec-fetch-site") or "").lower() == "cross-site":
             return ("bad_origin", "Межсайтовый запрос без Origin отклонён.")
-        if (scope.get("type") == "http" and operator_token_enforced()
-                and path_needs_operator_token(path, method)
-                and not check_operator_token(_hdr(scope, b"x-vp-operator"))
-                and not (_auth_enabled() and _scope_identity_is_admin(scope))):
-            return ("operator_token_required",
-                    "Нужен токен оператора: обновите страницу Studio и повторите действие.")
+        if (
+            scope.get("type") == "http"
+            and operator_token_enforced()
+            and path_needs_operator_token(path, method)
+            and not check_operator_token(_hdr(scope, b"x-vp-operator"))
+            and not (_auth_enabled() and _scope_identity_is_admin(scope))
+        ):
+            return (
+                "operator_token_required",
+                "Нужен токен оператора: обновите страницу Studio и повторите действие.",
+            )
         return None
 
     @staticmethod
@@ -323,13 +349,18 @@ class SecurityGuardMiddleware:
         if scope["type"] == "websocket":
             await send({"type": "websocket.close", "code": 1008})
             return
-        body = json.dumps({"detail": {"code": code, "message": message}},
-                          ensure_ascii=False).encode("utf-8")
-        await send({"type": "http.response.start", "status": 403, "headers": [
-            (b"content-type", b"application/json; charset=utf-8"),
-            (b"content-length", str(len(body)).encode())]})
+        body = json.dumps({"detail": {"code": code, "message": message}}, ensure_ascii=False).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 403,
+                "headers": [
+                    (b"content-type", b"application/json; charset=utf-8"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
         await send({"type": "http.response.body", "body": body})
-
 
 
 def warn_if_exposed_without_auth() -> bool:
@@ -339,7 +370,8 @@ def warn_if_exposed_without_auth() -> bool:
         "SECURITY: accounts mode is OFF and WEB_HOST={} is not loopback (allowed only because "
         "ORCHESTRATOR_ALLOW_REMOTE_WITHOUT_AUTH is set). "
         "Set STUDIO_SESSION_SECRET or bind to 127.0.0.1.",
-        settings.web_host)
+        settings.web_host,
+    )
     return True
 
 
@@ -356,4 +388,5 @@ def assert_safe_bind() -> None:
     raise UnsafeBindError(
         f"Отказ старта: WEB_HOST={settings.web_host!r} слушает не только этот компьютер, а вход "
         "выключен. Задайте STUDIO_SESSION_SECRET (учётные записи), либо верните WEB_HOST=127.0.0.1. "
-        "Осознанное исключение: ORCHESTRATOR_ALLOW_REMOTE_WITHOUT_AUTH=true.")
+        "Осознанное исключение: ORCHESTRATOR_ALLOW_REMOTE_WITHOUT_AUTH=true."
+    )

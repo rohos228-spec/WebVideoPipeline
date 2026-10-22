@@ -45,15 +45,33 @@ _VEC = {
 }
 _OPPOSITE = {"север": "юг", "юг": "север", "запад": "восток", "восток": "запад"}
 _DIR_ALIASES = {
-    "север": "север", "северн": "север", "n": "север", "north": "север",
-    "верх": "север", "дальн": "север", "глубин": "север",
-    "юг": "юг", "южн": "юг", "s": "юг", "south": "юг", "низ": "юг",
+    "север": "север",
+    "северн": "север",
+    "n": "север",
+    "north": "север",
+    "верх": "север",
+    "дальн": "север",
+    "глубин": "север",
+    "юг": "юг",
+    "южн": "юг",
+    "s": "юг",
+    "south": "юг",
+    "низ": "юг",
     "ближн": "юг",
-    "запад": "запад", "западн": "запад", "w": "запад", "west": "запад",
+    "запад": "запад",
+    "западн": "запад",
+    "w": "запад",
+    "west": "запад",
     "лев": "запад",
-    "восток": "восток", "восточн": "восток", "e": "восток", "east": "восток",
+    "восток": "восток",
+    "восточн": "восток",
+    "e": "восток",
+    "east": "восток",
     "прав": "восток",
-    "центр": CENTER, "середин": CENTER, "center": CENTER, "c": CENTER,
+    "центр": CENTER,
+    "середин": CENTER,
+    "center": CENTER,
+    "c": CENTER,
 }
 _FROM = {"север": "с севера", "юг": "с юга", "запад": "с запада", "восток": "с востока"}
 _AT = {
@@ -110,9 +128,7 @@ _DOOR_OPEN_STATE_RE = re.compile(
     r"(двер\w*|калитк\w*|ворот\w*)\s+(уже\s+)?(открыт\w*|распахнут\w*|настежь)",
     re.IGNORECASE,
 )
-_OUTDOOR_RE = re.compile(
-    r"улиц|двор|крыльц|подъезд|сад|площад|дорог|переул|снаружи", re.IGNORECASE
-)
+_OUTDOOR_RE = re.compile(r"улиц|двор|крыльц|подъезд|сад|площад|дорог|переул|снаружи", re.IGNORECASE)
 _SOFT_CUTS = ("dissolve", "fade", "затемн", "наплыв")
 _ID_RE = re.compile(r"^(.*-S\d+)-K(\d+)$")
 
@@ -189,9 +205,7 @@ def _facing_on_screen(look: str, face: str) -> str:
         return "спиной к камере"
     if face == _OPPOSITE[look]:
         return "лицом к камере"
-    return "в профиль, смотрит вправо" if lateral(look, face) > 0 else (
-        "в профиль, смотрит влево"
-    )
+    return "в профиль, смотрит вправо" if lateral(look, face) > 0 else ("в профиль, смотрит влево")
 
 
 def _step_toward(where: str, move: str) -> str:
@@ -226,8 +240,7 @@ def _as_list(raw: Any) -> list[Any]:
     if isinstance(raw, list):
         return raw
     if isinstance(raw, dict):
-        return [dict(v, id=k) if isinstance(v, dict) else {"id": k, "что": v}
-                for k, v in raw.items()]
+        return [dict(v, id=k) if isinstance(v, dict) else {"id": k, "что": v} for k, v in raw.items()]
     return []
 
 
@@ -366,8 +379,11 @@ class ScenePlan:
                 if p["из"] in self.zones and p["в"] in self.zones
             ],
             "люди": [
-                {"кто": name, "зона": self.zones.get(v["зона"], {}).get("id", v["зона"]),
-                 "где": v.get("где") or CENTER}
+                {
+                    "кто": name,
+                    "зона": self.zones.get(v["зона"], {}).get("id", v["зона"]),
+                    "где": v.get("где") or CENTER,
+                }
                 for name, v in self.people.items()
             ],
         }
@@ -428,19 +444,17 @@ def parse_plan(raw: Any) -> ScenePlan:
     return plan
 
 
-def _add_passage(
-    plan: ScenePlan, a: str, b: str, door_name: str, *, state: str = ""
-) -> dict[str, str]:
+def _add_passage(plan: ScenePlan, a: str, b: str, door_name: str, *, state: str = "") -> dict[str, str]:
     existing = plan.passage(a, b)
     if existing:
         return existing
     if not door_name:
-        outdoor = _OUTDOOR_RE.search(plan.zones[a]["id"]) or _OUTDOOR_RE.search(
-            plan.zones[b]["id"]
+        outdoor = _OUTDOOR_RE.search(plan.zones[a]["id"]) or _OUTDOOR_RE.search(plan.zones[b]["id"])
+        door_name = (
+            "входная дверь"
+            if outdoor and not plan.find_prop(None, "входная дверь")
+            else f"дверь «{plan.zones[b]['id']}»"
         )
-        door_name = "входная дверь" if outdoor and not plan.find_prop(
-            None, "входная дверь"
-        ) else f"дверь «{plan.zones[b]['id']}»"
     dk = plan.find_prop(None, door_name) or _key(door_name)
     name = plan._prop_name(dk) if dk != _key(door_name) else door_name
     for zk, side in ((a, "север"), (b, "юг")):
@@ -750,9 +764,29 @@ def angles_under_30(prev: Any, cur: Any) -> bool:
 
 
 _SHOULDER_RE = re.compile(r"через\s+(?:(?:левое|правое)\s+)?плечо\s+([\w-]+)", re.I)
-_NOT_SUBJ = {"и", "а", "но", "не", "снова", "тихо", "громко", "резко", "сразу", "уже", "ещё", "еще", "он", "она", "тот", "та"}
-_VERB_AT = re.compile(r"([\w-]+)\s+(?:(?:не|снова|тихо|резко|сразу|уже|громко)\s+)?(?:говор|спрашива|спросил|отвеча|произнос|требу|крич|шепч|"
-                      r"возража|бросает|повторя|объясня|сообща|приказ|проси|заявля|отрица|диктует|обращается|подтвержда|объявля)", re.I)
+_NOT_SUBJ = {
+    "и",
+    "а",
+    "но",
+    "не",
+    "снова",
+    "тихо",
+    "громко",
+    "резко",
+    "сразу",
+    "уже",
+    "ещё",
+    "еще",
+    "он",
+    "она",
+    "тот",
+    "та",
+}
+_VERB_AT = re.compile(
+    r"([\w-]+)\s+(?:(?:не|снова|тихо|резко|сразу|уже|громко)\s+)?(?:говор|спрашива|спросил|отвеча|произнос|требу|крич|шепч|"
+    r"возража|бросает|повторя|объясня|сообща|приказ|проси|заявля|отрица|диктует|обращается|подтвержда|объявля)",
+    re.I,
+)
 
 
 def _speaker_key(shot: dict[str, Any]) -> str:
@@ -786,7 +820,10 @@ def _shoulder_key(shot: dict[str, Any]) -> str:
 def is_reverse_shot_pair(prev: dict[str, Any], cur: dict[str, Any]) -> bool:
     """Встречные планы диалога: оба `с плеча`, но говорят разные люди или
     камера через плечо разных людей — это другая точка, не повтор (§3 промта Кадров)."""
-    if named_angle_token(prev.get("ракурс")) != "с плеча" or named_angle_token(cur.get("ракурс")) != "с плеча":
+    if (
+        named_angle_token(prev.get("ракурс")) != "с плеча"
+        or named_angle_token(cur.get("ракурс")) != "с плеча"
+    ):
         return False
     a, b = _speaker_key(prev), _speaker_key(cur)
     if a and b and a != b:
@@ -832,9 +869,7 @@ def _actor_name(shot: dict[str, Any]) -> str:
 
 
 def _is_arrival(shot: dict[str, Any], state: str) -> bool:
-    return bool(_PLACE_VERB_RE.search(_core_action(shot))) and bool(
-        _ARRIVE_STATE_RE.search(state or "")
-    )
+    return bool(_PLACE_VERB_RE.search(_core_action(shot))) and bool(_ARRIVE_STATE_RE.search(state or ""))
 
 
 def _freeze_copies_action(text: str, act: str) -> bool:
@@ -879,10 +914,7 @@ _CONTENT_PATTERNS: tuple[tuple[str, str], ...] = (
 
 
 def _named_contents(shot: dict[str, Any]) -> str:
-    blob = " ".join(
-        str(shot.get(k) or "")
-        for k in ("действие", "закадр", "конец", "старт", "объект")
-    )
+    blob = " ".join(str(shot.get(k) or "") for k in ("действие", "закадр", "конец", "старт", "объект"))
     hits: list[str] = []
     for rx, label in _CONTENT_PATTERNS:
         if re.search(rx, blob, re.IGNORECASE) and label not in hits:
@@ -942,8 +974,7 @@ def freeze_decision(shot: dict[str, Any]) -> tuple[bool, str]:
             and str(c.get("состояние") or "").strip()
         ):
             return True, (
-                f"в кадре меняется предмет «{str(c['предмет']).strip()}» → "
-                f"{str(c['состояние']).strip()}"
+                f"в кадре меняется предмет «{str(c['предмет']).strip()}» → {str(c['состояние']).strip()}"
             )
     if flag is True:
         return True, "GPT пометил «точность: да»"
@@ -997,18 +1028,12 @@ def _freeze_from_changes(shot: dict[str, Any]) -> tuple[str, str]:
         if not prop or not st:
             continue
         if _is_arrival(shot, st):
-            start_bits.append(
-                f"стола без «{prop}», {who} ещё держит её в руках"
-            )
+            start_bits.append(f"стола без «{prop}», {who} ещё держит её в руках")
             end_bits.append(f"«{prop}» уже {st}, руки на ней")
         elif st == OPEN or st in {"раскрыта", "раскрыт"}:
-            start_bits.append(
-                f"«{prop}» ещё закрыта, руки ещё не трогают"
-            )
+            start_bits.append(f"«{prop}» ещё закрыта, руки ещё не трогают")
             if contents:
-                end_bits.append(
-                    f"«{prop}» {st}, на развороте видно: {contents}"
-                )
+                end_bits.append(f"«{prop}» {st}, на развороте видно: {contents}")
             else:
                 end_bits.append(
                     f"«{prop}» {st}, на развороте заполненные листы дела "
@@ -1093,9 +1118,7 @@ def _focal_prop_keys(shot: dict[str, Any], props: dict[str, dict[str, Any]]) -> 
             [
                 str(shot.get("действие") or ""),
                 " ".join(
-                    str(c.get("предмет") or "")
-                    for c in (shot.get("меняет") or [])
-                    if isinstance(c, dict)
+                    str(c.get("предмет") or "") for c in (shot.get("меняет") or []) if isinstance(c, dict)
                 ),
             ]
         )
@@ -1165,9 +1188,7 @@ class _Sim:
             text_cur = _shot_text(cur)
             text_prev = _shot_text(prev)
             if not _ENTER_RE.search(text_cur) and not _DOOR_RE.search(text_cur):
-                if not (
-                    _DOOR_RE.search(text_prev) and _ALREADY_IN_RE.search(text_cur)
-                ):
+                if not (_DOOR_RE.search(text_prev) and _ALREADY_IN_RE.search(text_cur)):
                     continue
             text = f"{text_prev} {text_cur}"
             door = ""
@@ -1179,9 +1200,7 @@ class _Sim:
                 if door:
                     break
             _add_passage(self.plan, a, b, door)
-            self.plan.derived.append(
-                f"проход «{self.plan.zones[a]['id']}» → «{self.plan.zones[b]['id']}»"
-            )
+            self.plan.derived.append(f"проход «{self.plan.zones[a]['id']}» → «{self.plan.zones[b]['id']}»")
 
     # 2. камера и люди
     def entry_door(self, i: int) -> tuple[str, str] | None:
@@ -1238,9 +1257,9 @@ class _Sim:
             text = _shot_text(shot)
             people = _norm_people(shot.get("люди") or shot.get("кто_где"))
             if not people:
-                names = _names_from_shot(shot) or [
-                    n for n in known if self.plan.people[n].get("зона") == zk
-                ][:2]
+                names = (
+                    _names_from_shot(shot) or [n for n in known if self.plan.people[n].get("зона") == zk][:2]
+                )
                 if not names and _MOVE_RE.search(text):
                     names = ["герой"]
                 people = [{"кто": n} for n in names]
@@ -1265,8 +1284,8 @@ class _Sim:
                     move = row.get("движется", "")
                     if same_zone:
                         pm = prev.get("движется", "")
-                        row["где"] = _step_toward(prev.get("где", CENTER), pm) if pm else (
-                            prev.get("где", CENTER)
+                        row["где"] = (
+                            _step_toward(prev.get("где", CENTER), pm) if pm else (prev.get("где", CENTER))
                         )
                     elif entry:
                         row["где"] = entry[1]
@@ -1292,9 +1311,7 @@ class _Sim:
                     continue
                 door = self._door_for_text(i, text)
                 if door and door not in touched:
-                    changes.append(
-                        {"предмет": self.plan._prop_name(door), "состояние": state}
-                    )
+                    changes.append({"предмет": self.plan._prop_name(door), "состояние": state})
                     touched.add(door)
             shot["меняет"] = changes
 
@@ -1335,43 +1352,49 @@ class _Sim:
                 door = self._door_for_text(i, text)
                 if door and states.get(door) == CLOSED and door not in opens_here:
                     shot["действие"] = _replace_open_adj(text)
-                    self.issues.append(_issue(
-                        shot, "дверь",
-                        f"«{text[:60]}»: дверь ещё закрыта — в тексте «закрытой»",
-                        fixed=True,
-                    ))
+                    self.issues.append(
+                        _issue(
+                            shot,
+                            "дверь",
+                            f"«{text[:60]}»: дверь ещё закрыта — в тексте «закрытой»",
+                            fixed=True,
+                        )
+                    )
             entry = self.entry_door(i)
             if entry and states.get(entry[0]) == CLOSED:
                 door_name = self.plan._prop_name(entry[0])
                 prev = self.shots[i - 1]
                 if not self.owned(prev):
-                    self.issues.append(_issue(
-                        shot, "порог",
-                        f"вход через закрытую «{door_name}»: дверь не открыта "
-                        "в кадре соседней ячейки",
-                        fixed=False,
-                    ))
+                    self.issues.append(
+                        _issue(
+                            shot,
+                            "порог",
+                            f"вход через закрытую «{door_name}»: дверь не открыта в кадре соседней ячейки",
+                            fixed=False,
+                        )
+                    )
                 elif self._insert_threshold(i, entry[0]):
-                    self.issues.append(_issue(
-                        self.shots[i], "порог",
-                        f"проход через закрытую «{door_name}» — вставлен кадр "
-                        "«открывает дверь» снаружи",
-                        fixed=True,
-                    ))
+                    self.issues.append(
+                        _issue(
+                            self.shots[i],
+                            "порог",
+                            f"проход через закрытую «{door_name}» — вставлен кадр «открывает дверь» снаружи",
+                            fixed=True,
+                        )
+                    )
                     continue
                 else:
-                    prev.setdefault("меняет", []).append(
-                        {"предмет": door_name, "состояние": OPEN}
-                    )
+                    prev.setdefault("меняет", []).append({"предмет": door_name, "состояние": OPEN})
                     if not _OPEN_VERB_RE.search(_shot_text(prev)):
-                        prev["действие"] = (
-                            f"{_shot_text(prev)} и открывает {accusative(door_name)}"
-                        ).strip()
-                    self.issues.append(_issue(
-                        prev, "порог",
-                        f"проход через закрытую «{door_name}» — открывает в прошлом кадре",
-                        fixed=True,
-                    ))
+                        prev["действие"] = (f"{_shot_text(prev)} и открывает {accusative(door_name)}").strip()
+                    self.issues.append(
+                        _issue(
+                            prev,
+                            "порог",
+                            f"проход через закрытую «{door_name}» — открывает в прошлом кадре",
+                            fixed=True,
+                        )
+                    )
                     i -= 1
                     states = dict(prev["_start"])
                     continue
@@ -1414,9 +1437,9 @@ class _Sim:
                 (p["кто"] for p in shot.get("люди") or [] if p.get("кто") != "герой"),
                 "",
             )
-            rest = (text[: m.start()] + text[m.end():]).strip(" ,;")
+            rest = (text[: m.start()] + text[m.end() :]).strip(" ,;")
             if who and rest.casefold().startswith(who.casefold()):
-                rest = rest[len(who):].strip(" ,;")
+                rest = rest[len(who) :].strip(" ,;")
             door = accusative(self.plan._prop_name(entry[0]))
             head = f"{who} входит через {door}" if who else f"входит через {door}"
             shot["действие"] = f"{head}, {rest}" if rest else head
@@ -1425,12 +1448,14 @@ class _Sim:
                 if row.get("кто") == who and move and not row.get("движется"):
                     row["движется"] = move
                     row.setdefault("лицом", move)
-            self.issues.append(_issue(
-                shot, "уже_внутри",
-                f"«{text[:60]}»: герой не может быть «уже» внутри — "
-                "показан вход через дверь",
-                fixed=True,
-            ))
+            self.issues.append(
+                _issue(
+                    shot,
+                    "уже_внутри",
+                    f"«{text[:60]}»: герой не может быть «уже» внутри — показан вход через дверь",
+                    fixed=True,
+                )
+            )
 
     def _insert_threshold(self, i: int, door: str) -> bool:
         prev = self.shots[i - 1]
@@ -1450,22 +1475,21 @@ class _Sim:
         new = copy.deepcopy(prev)
         for k in ("_start", "раскладка", "_cam_given"):
             new.pop(k, None)
-        new.update({
-            "действие": step,
-            "объект": classify_object(step),
-            "закадр": halves[1],
-            "план": "СРЕДНИЙ",
-            "линза_мм": 50,
-            "ракурс": "3/4",
-            "движение": "статика",
-            "стык": "cut",
-            "вставлен": "порог",
-            "меняет": [{"предмет": door_name, "состояние": OPEN}],
-            "люди": [
-                {"кто": p["кто"], "где": side, "лицом": side}
-                for p in prev.get("люди") or []
-            ][:1],
-        })
+        new.update(
+            {
+                "действие": step,
+                "объект": classify_object(step),
+                "закадр": halves[1],
+                "план": "СРЕДНИЙ",
+                "линза_мм": 50,
+                "ракурс": "3/4",
+                "движение": "статика",
+                "стык": "cut",
+                "вставлен": "порог",
+                "меняет": [{"предмет": door_name, "состояние": OPEN}],
+                "люди": [{"кто": p["кто"], "где": side, "лицом": side} for p in prev.get("люди") or []][:1],
+            }
+        )
         sid = str(prev.get("id") or "")
         m = _ID_RE.match(sid)
         if sid and not m:
@@ -1489,22 +1513,19 @@ class _Sim:
                 if prev and prev[0] == zk and self.owned(shot):
                     prow = prev[1]
                     move = prow.get("движется", "")
-                    if (
-                        move in DIRS
-                        and row.get("где") == prow.get("где")
-                        and prow.get("где") != move
-                    ):
+                    if move in DIRS and row.get("где") == prow.get("где") and prow.get("где") != move:
                         row["где"] = _step_toward(prow.get("где", CENTER), move)
-                        self.issues.append(_issue(
-                            shot, "на_месте",
-                            f"{row['кто']} шёл, а стоит там же — дальше по пути "
-                            f"({_AT[row['где']]})",
-                            fixed=True,
-                        ))
+                        self.issues.append(
+                            _issue(
+                                shot,
+                                "на_месте",
+                                f"{row['кто']} шёл, а стоит там же — дальше по пути ({_AT[row['где']]})",
+                                fixed=True,
+                            )
+                        )
                 last[row["кто"]] = (zk, row)
 
-    def _lateral_ok(self, shot: dict[str, Any], cam: dict[str, str],
-                    sides: dict[str, int]) -> bool:
+    def _lateral_ok(self, shot: dict[str, Any], cam: dict[str, str], sides: dict[str, int]) -> bool:
         for row in shot.get("люди") or []:
             if row.get("движется") or row.get("где") not in DIRS:
                 continue
@@ -1588,11 +1609,14 @@ class _Sim:
                         )
                     )
                     shot["план"] = nxt
-                    self.issues.append(_issue(
-                        shot, "план",
-                        f"{why} — {nxt}",
-                        fixed=True,
-                    ))
+                    self.issues.append(
+                        _issue(
+                            shot,
+                            "план",
+                            f"{why} — {nxt}",
+                            fixed=True,
+                        )
+                    )
             prev = shot
 
     def vary_repeated_camera(self) -> None:
@@ -1614,21 +1638,21 @@ class _Sim:
                 where = cur["камера"]["где"]
                 for side in (d for d in DIRS if d not in (where, _OPPOSITE[where])):
                     cam = _turn(cur["камера"], side)
-                    if (
-                        self._angle_keeps_sides(cur, cam, sides)
-                        and self._movers_ok(prev, cur, cam)
-                    ):
+                    if self._angle_keeps_sides(cur, cam, sides) and self._movers_ok(prev, cur, cam):
                         cur["камера"] = cam
                         why = (
                             "смена плана без смены угла — камера "
                             if plan_changed
                             else "тот же угол, что у прошлого кадра — камера "
                         )
-                        self.issues.append(_issue(
-                            cur, "ракурс",
-                            f"{why}{_FROM[side]} (≥30°)",
-                            fixed=True,
-                        ))
+                        self.issues.append(
+                            _issue(
+                                cur,
+                                "ракурс",
+                                f"{why}{_FROM[side]} (≥30°)",
+                                fixed=True,
+                            )
+                        )
                         break
             prev_ang = prev.get("ракурс")
             cur_ang = cur.get("ракурс")
@@ -1636,17 +1660,18 @@ class _Sim:
                 continue  # встречные: другая точка (через плечо другого), компас выше держит стороны
             if not angles_under_30(prev_ang, cur_ang):
                 continue
-            nxt = next_named_angle_30(
-                cur_ang or prev_ang or "фронт", cur.get("объект")
-            )
+            nxt = next_named_angle_30(cur_ang or prev_ang or "фронт", cur.get("объект"))
             if named_angle_token(nxt) == named_angle_token(cur_ang):
                 nxt = next_named_angle_30(nxt, cur.get("объект"))
             cur["ракурс"] = _with_angle_token(cur_ang, nxt)
-            self.issues.append(_issue(
-                cur, "ракурс",
-                f"правило 30°: ракурс {named_angle_token(cur_ang) or 'не задан'} → {nxt}",
-                fixed=True,
-            ))
+            self.issues.append(
+                _issue(
+                    cur,
+                    "ракурс",
+                    f"правило 30°: ракурс {named_angle_token(cur_ang) or 'не задан'} → {nxt}",
+                    fixed=True,
+                )
+            )
 
     def _angle_keeps_sides(
         self,
@@ -1667,8 +1692,7 @@ class _Sim:
                 return False
         return True
 
-    def _movers_ok(self, prev: dict[str, Any], cur: dict[str, Any],
-                   cam: dict[str, str]) -> bool:
+    def _movers_ok(self, prev: dict[str, Any], cur: dict[str, Any], cam: dict[str, str]) -> bool:
         pm = {p["кто"]: p.get("движется") for p in prev.get("люди") or []}
         for row in cur.get("люди") or []:
             move = row.get("движется")
@@ -1704,9 +1728,7 @@ class _Sim:
             if _cut_is_soft(cur) or not self.owned(cur):
                 continue
             if not self._movers_ok(prev, cur, cur["камера"]):
-                mover = next(
-                    (r for r in cur.get("люди") or [] if r.get("движется")), {}
-                )
+                mover = next((r for r in cur.get("люди") or [] if r.get("движется")), {})
                 move = mover.get("движется", "")
                 if prev["_zk"] == cur["_zk"]:
                     cur["камера"] = dict(prev["камера"])
@@ -1716,13 +1738,16 @@ class _Sim:
                         "где": _OPPOSITE[cam["где"]],
                         "смотрит": _OPPOSITE[cam["смотрит"]],
                     }
-                self.issues.append(_issue(
-                    cur, "направление",
-                    f"{mover.get('кто', 'герой')} бежал "
-                    f"{motion_on_screen(prev['камера']['смотрит'], move)}, "
-                    "в этом кадре экран перевернулся — камера с той же стороны",
-                    fixed=True,
-                ))
+                self.issues.append(
+                    _issue(
+                        cur,
+                        "направление",
+                        f"{mover.get('кто', 'герой')} бежал "
+                        f"{motion_on_screen(prev['камера']['смотрит'], move)}, "
+                        "в этом кадре экран перевернулся — камера с той же стороны",
+                        fixed=True,
+                    )
+                )
 
     def check_axis(self) -> None:
         """Ось 180°: стоящий человек не меняет сторону экрана внутри зоны."""
@@ -1738,20 +1763,19 @@ class _Sim:
             if not self._lateral_ok(cur, flipped, sides):
                 continue
             cur["камера"] = flipped
-            names = ", ".join(
-                r["кто"] for r in cur.get("люди") or [] if r["кто"] in sides
+            names = ", ".join(r["кто"] for r in cur.get("люди") or [] if r["кто"] in sides)
+            self.issues.append(
+                _issue(
+                    cur,
+                    "ось_180",
+                    f"{names}: сторона экрана перевернулась — камера перешла ось, "
+                    f"вернул {_FROM[flipped['где']]}",
+                    fixed=True,
+                )
             )
-            self.issues.append(_issue(
-                cur, "ось_180",
-                f"{names}: сторона экрана перевернулась — камера перешла ось, "
-                f"вернул {_FROM[flipped['где']]}",
-                fixed=True,
-            ))
 
     # 5. раскладка
-    def _hide_arrivals_at_start(
-        self, shot: dict[str, Any], start_states: dict[str, str]
-    ) -> None:
+    def _hide_arrivals_at_start(self, shot: dict[str, Any], start_states: dict[str, str]) -> None:
         """Кладёт/ставит: на старте предмета ещё нет на столе."""
         for c in shot.get("меняет") or []:
             if not isinstance(c, dict):
@@ -1782,9 +1806,7 @@ class _Sim:
                     freeze_s, freeze_e = _freeze_pair(shot)
                     shot["старт"] = freeze_s
                     shot["конец"] = freeze_e
-                shot["раскладка"] = self._layout(
-                    shot, prev_owned, freeze=freeze
-                )
+                shot["раскладка"] = self._layout(shot, prev_owned, freeze=freeze)
                 prev_owned = shot
 
     def _prop_buckets(
@@ -1808,9 +1830,7 @@ class _Sim:
             if close and focals and pk not in focals:
                 continue
             shown.add(pk)
-            buckets.setdefault(spot, []).append(
-                _prop_label(prop, states, pk, zone_what=zone_what)
-            )
+            buckets.setdefault(spot, []).append(_prop_label(prop, states, pk, zone_what=zone_what))
         return buckets, shown
 
     @staticmethod
@@ -1843,9 +1863,7 @@ class _Sim:
                 continue
             move = row.get("движется")
             if move:
-                bits.append(
-                    f"движется на {move}, на экране {motion_on_screen(look, move)}"
-                )
+                bits.append(f"движется на {move}, на экране {motion_on_screen(look, move)}")
             elif row.get("лицом"):
                 face = _facing_on_screen(look, row["лицом"])
                 if face == "спиной к камере" and _is_close(shot):
@@ -1884,10 +1902,7 @@ class _Sim:
         zwhat = str(zone.get("что") or "").strip()
         focals = _focal_prop_keys(shot, props)
         if detail and not focals:
-            focals = {
-                pk for pk, prop in props.items()
-                if str(prop.get("где") or "") == CENTER
-            }
+            focals = {pk for pk, prop in props.items() if str(prop.get("где") or "") == CENTER}
         start_buckets, shown = self._prop_buckets(
             look=look,
             states=start,
@@ -1922,9 +1937,7 @@ class _Sim:
             extra = f": {zwhat}" if zwhat and not arrival else ""
             parts.append(f"Зона «{zone['id']}»" + extra + ".")
         else:
-            parts.append(
-                f"Зона «{zone['id']}», {plan_name} — не общий вид помещения."
-            )
+            parts.append(f"Зона «{zone['id']}», {plan_name} — не общий вид помещения.")
         parts.append(f"Камера {_FROM.get(cam['где'], '')}, смотрит на {look}.")
         ang = str(shot.get("ракурс") or "").strip()
         if ang:
@@ -1936,16 +1949,10 @@ class _Sim:
         else:
             parts.append("Предметов площадки в кадре нет.")
         if show_people:
-            parts.extend(
-                self._people_lines(shot, list(shot.get("люди") or []), look, at_end=False)
-            )
+            parts.extend(self._people_lines(shot, list(shot.get("люди") or []), look, at_end=False))
         elif any(shot.get("люди") or []):
             parts.append("В кадре руки и жест, фигура целиком не читается.")
-        hidden = [
-            str(prop.get("id") or pk)
-            for pk, prop in props.items()
-            if pk not in shown
-        ]
+        hidden = [str(prop.get("id") or pk) for pk, prop in props.items() if pk not in shown]
         if close and hidden:
             parts.append(f"Не видно при этой крупности: {', '.join(hidden)}.")
         if freeze:
@@ -1956,9 +1963,7 @@ class _Sim:
                 parts.extend(self._bucket_lines(end_buckets))
             if end_people:
                 parts.extend(self._people_lines(shot, end_people, look, at_end=True))
-        changes = [
-            f"{c['предмет']} → {c['состояние']}" for c in shot.get("меняет") or []
-        ]
+        changes = [f"{c['предмет']} → {c['состояние']}" for c in shot.get("меняет") or []]
         if changes:
             parts.append(f"В кадре меняется: {'; '.join(changes)}.")
         if prev is None:
@@ -1970,10 +1975,7 @@ class _Sim:
             )
         else:
             parts.append(f"В референсе: {_cam_brief(prev)}.")
-            parts.append(
-                f"Смена: {_cam_brief(shot)}. "
-                "Угол камеры относительно референса ≥30°."
-            )
+            parts.append(f"Смена: {_cam_brief(shot)}. Угол камеры относительно референса ≥30°.")
         return " ".join(parts)
 
 
@@ -2006,9 +2008,7 @@ def _merge_plans(raws: list[Any]) -> dict[str, Any]:
                 zones[k] = {"id": z["id"], "что": z.get("что") or "", "предметы": []}
                 merged["зоны"].append(zones[k])
             have = {_key(p["id"]) for p in zones[k]["предметы"]}
-            zones[k]["предметы"].extend(
-                p for p in z["предметы"] if _key(p["id"]) not in have
-            )
+            zones[k]["предметы"].extend(p for p in z["предметы"] if _key(p["id"]) not in have)
             if not zones[k]["что"] and z.get("что"):
                 zones[k]["что"] = z["что"]
         for p in plan["проходы"]:
@@ -2081,11 +2081,7 @@ def apply_scene_plan_cells(
                     s["порядок"] = n
             seen = {id(s) for s in mine}
             for shot in list(c.get("shots") or []):
-                if (
-                    isinstance(shot, dict)
-                    and id(shot) not in seen
-                    and shot.get("_cell") == c["key"]
-                ):
+                if isinstance(shot, dict) and id(shot) not in seen and shot.get("_cell") == c["key"]:
                     if shot_is_active(shot):
                         shot["активен"] = False
                         shot["карантин"] = True
@@ -2106,9 +2102,7 @@ def apply_scene_plan_cells(
                 (c["shots"] for c in cells if str(c["key"]) == key and c.get("owned")),
                 [],
             )
-            it["кадр"] = next(
-                (n for n, s in enumerate(cell_shots, start=1) if s is shot), 0
-            )
+            it["кадр"] = next((n for n, s in enumerate(cell_shots, start=1) if s is shot), 0)
             if shot.get("id"):
                 it["id"] = str(shot["id"])
             issues_by.setdefault(key, []).append(it)
@@ -2119,13 +2113,15 @@ def apply_scene_plan_cells(
                     continue
                 for n, s in enumerate(c["shots"], start=1):
                     if "_почему_точность" in s:
-                        decisions.append({
-                            "cell": str(c["key"]),
-                            "кадр": n,
-                            "id": str(s.get("id") or ""),
-                            "точность": bool(s.get("точность")),
-                            "почему": s["_почему_точность"],
-                        })
+                        decisions.append(
+                            {
+                                "cell": str(c["key"]),
+                                "кадр": n,
+                                "id": str(s.get("id") or ""),
+                                "точность": bool(s.get("точность")),
+                                "почему": s["_почему_точность"],
+                            }
+                        )
         stray = list(flat)
         seen_ids = {id(s) for s in stray}
         for c in cells:
@@ -2142,9 +2138,7 @@ def apply_scene_plan_cells(
     return out, issues_by
 
 
-def apply_scene_plan(
-    shots: list[Any], plan_raw: Any
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def apply_scene_plan(shots: list[Any], plan_raw: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Нормализовать площадку и кадры одной ячейки, починить физику, раскладка.
 
     Мутирует ``shots`` (может вставить кадр на пороге). Возвращает
@@ -2169,11 +2163,7 @@ def with_plan_notes(
     derived = [*(old.get("выведено_кодом") or []), *(base.get("выведено_кодом") or [])]
     if derived:
         out["выведено_кодом"] = list(dict.fromkeys(str(x) for x in derived))
-    ids = (
-        {str(s.get("id")) for s in shots if isinstance(s, dict) and s.get("id")}
-        if shots
-        else None
-    )
+    ids = {str(s.get("id")) for s in shots if isinstance(s, dict) and s.get("id")} if shots else None
     kept = notes_for_shots(list(old.get("исправлено_кодом") or []), ids)
     notes = [*kept, *plan_fix_notes(issues)]
     if notes:
@@ -2212,7 +2202,10 @@ def notes_for_shots(notes: list[Any], shot_ids: set[str] | None) -> list[str]:
 
 
 _SVG_POS = {
-    "север": (60, 14), "юг": (60, 106), "запад": (14, 60), "восток": (106, 60),
+    "север": (60, 14),
+    "юг": (60, 106),
+    "запад": (14, 60),
+    "восток": (106, 60),
     CENTER: (60, 60),
 }
 _SVG_COLS = 5
@@ -2274,8 +2267,7 @@ def plan_svg(plan: dict[str, Any], shots: list[dict[str, Any]] | None = None) ->
         ox, oy = col * _SVG_CELL, row * _SVG_ROW
         zid = str(zone.get("id") or "")
         cells.append(
-            f'<rect x="{ox + 5}" y="{oy + 5}" width="110" height="110" rx="6" '
-            'fill="#f7f7f5" stroke="#999"/>'
+            f'<rect x="{ox + 5}" y="{oy + 5}" width="110" height="110" rx="6" fill="#f7f7f5" stroke="#999"/>'
         )
         z_full = html.escape(zid)
         z_short = html.escape(zid[:22])
@@ -2319,8 +2311,7 @@ def plan_svg(plan: dict[str, Any], shots: list[dict[str, Any]] | None = None) ->
     total_w = _SVG_CELL * cols
     total_h = _SVG_ROW * rows + 16
     cells.append(
-        f'<text x="8" y="{total_h - 4}" font-size="9" fill="#666">'
-        "север ↑ · юг ↓ · запад ← · восток →</text>"
+        f'<text x="8" y="{total_h - 4}" font-size="9" fill="#666">север ↑ · юг ↓ · запад ← · восток →</text>'
     )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_w}" height="{total_h}" '

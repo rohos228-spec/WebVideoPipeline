@@ -420,10 +420,7 @@ def _shot_path(entity: str, fid: str) -> str:
 
 
 def _marked_qc(shot: dict[str, Any]) -> bool:
-    for key in ("qc", "QC", "render", "рендер"):
-        if shot.get(key):
-            return True
-    return False
+    return any(shot.get(key) for key in ("qc", "QC", "render", "рендер"))
 
 
 def _verb(op: dict[str, Any]) -> str:
@@ -491,10 +488,7 @@ def _targeted(op: dict[str, Any], active: bool) -> str:
 def _ops_target(ops: list[dict[str, Any]], fid: str) -> bool:
     if not fid:
         return False
-    for op in ops:
-        if _verb(op) in _QC_VERBS and _op_id(op) == fid:
-            return True
-    return False
+    return any(_verb(op) in _QC_VERBS and _op_id(op) == fid for op in ops)
 
 
 def _add_warn(

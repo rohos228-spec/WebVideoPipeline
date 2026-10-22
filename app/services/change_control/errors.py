@@ -16,6 +16,5 @@ class StaleBase(ChangeRefused):
 
 
 class ChangeFailed(ChangeRefused):
-
     def __init__(self, code: str, message: str = "", *, errors: list | None = None):
         super().__init__(code, message, http=409, errors=errors)

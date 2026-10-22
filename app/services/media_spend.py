@@ -9,7 +9,6 @@ import re
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
@@ -25,21 +24,21 @@ _polls: contextvars.ContextVar[list | None] = contextvars.ContextVar("media_spen
 _DEFINITE_REJECT = {400, 401, 402, 403, 404, 405, 409, 413, 422, 429, 433, 451}
 
 
-
 _resume_only: contextvars.ContextVar[bool] = contextvars.ContextVar("media_resume_only", default=False)
 
 
 class ResumeOnlyBlocked(RuntimeError):
-
     def __init__(self, provider: str, what: str = "submit"):
         super().__init__(
             f"{provider}: resume-only scope: a new paid request ({what}) is refused; "
-            f"only an already known task may be polled or downloaded")
-        self.context = {"no_resubmit": True, "resume_only": True, "provider": provider,
-                        "request_sent": False}
+            f"only an already known task may be polled or downloaded"
+        )
+        self.context = {"no_resubmit": True, "resume_only": True, "provider": provider, "request_sent": False}
 
 
-_resume_hits: contextvars.ContextVar[list | None] = contextvars.ContextVar("media_resume_only_hits", default=None)
+_resume_hits: contextvars.ContextVar[list | None] = contextvars.ContextVar(
+    "media_resume_only_hits", default=None
+)
 
 
 @contextmanager
@@ -75,7 +74,6 @@ def _refuse_coro(coro, provider: str, what: str) -> None:
         raise
 
 
-
 _lock_for: tuple = (None, None)
 
 
@@ -86,7 +84,6 @@ async def _serialized(coro) -> None:
         _lock_for = (loop, asyncio.Lock())
     async with _lock_for[1]:
         await coro
-
 
 
 _gap_lock = threading.Lock()
@@ -121,6 +118,7 @@ def reset_gap_state() -> None:
 
 def _gap_file() -> Path:
     from app.settings import settings
+
     return Path(settings.data_dir) / "spend_gaps.jsonl"
 
 
@@ -132,7 +130,9 @@ def _spill_gap(entry: dict) -> bool:
             f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
         return True
     except Exception:
-        logger.exception("media_spend: gap file is not writable, the lost record is only in the log: {}", entry)
+        logger.exception(
+            "media_spend: gap file is not writable, the lost record is only in the log: {}", entry
+        )
         return False
 
 
@@ -142,12 +142,19 @@ async def _write_gap_row(entry: dict) -> bool:
     try:
         from app.db import SessionLocal
         from app.services import spend_guard
-        note = (f"write_failed {entry.get('what', '')} usd={float(entry.get('usd') or 0.0):.6f} "
-                f"{entry.get('error_type', '')} {entry.get('detail', '')}")
+
+        note = (
+            f"write_failed {entry.get('what', '')} usd={float(entry.get('usd') or 0.0):.6f} "
+            f"{entry.get('error_type', '')} {entry.get('detail', '')}"
+        )
         async with SessionLocal() as s:
-            await spend_guard.record_event(s, project_id=entry.get("project_id"),
-                                           provider=str(entry.get("provider") or ""),
-                                           source="write_failed", note=note)
+            await spend_guard.record_event(
+                s,
+                project_id=entry.get("project_id"),
+                provider=str(entry.get("provider") or ""),
+                source="write_failed",
+                note=note,
+            )
             await s.commit()
         return True
     except Exception:
@@ -155,14 +162,32 @@ async def _write_gap_row(entry: dict) -> bool:
         return False
 
 
-def _register_gap(provider: str, what: str, *, project_id=None, usd: float = 0.0,
-                  error: BaseException | None = None, detail: str = "") -> dict:
+def _register_gap(
+    provider: str,
+    what: str,
+    *,
+    project_id=None,
+    usd: float = 0.0,
+    error: BaseException | None = None,
+    detail: str = "",
+) -> dict:
     global _gap_count
-    entry = {"provider": provider, "what": what, "project_id": project_id, "usd": float(usd or 0.0),
-             "error_type": type(error).__name__ if error is not None else "", "detail": str(detail)[:80]}
+    entry = {
+        "provider": provider,
+        "what": what,
+        "project_id": project_id,
+        "usd": float(usd or 0.0),
+        "error_type": type(error).__name__ if error is not None else "",
+        "detail": str(detail)[:80],
+    }
     logger.opt(exception=error).error(
         "media_spend: record LOST ({} {} usd={} project={}): {}",
-        provider, what, entry["usd"], project_id, entry["error_type"] or detail)
+        provider,
+        what,
+        entry["usd"],
+        project_id,
+        entry["error_type"] or detail,
+    )
     with _gap_lock:
         _gap_count += 1
         _gap_recent.append(entry)
@@ -170,8 +195,15 @@ def _register_gap(provider: str, what: str, *, project_id=None, usd: float = 0.0
     return entry
 
 
-async def gap_async(provider: str, what: str, *, project_id=None, usd: float = 0.0,
-                    error: BaseException | None = None, detail: str = "") -> None:
+async def gap_async(
+    provider: str,
+    what: str,
+    *,
+    project_id=None,
+    usd: float = 0.0,
+    error: BaseException | None = None,
+    detail: str = "",
+) -> None:
     try:
         entry = _register_gap(provider, what, project_id=project_id, usd=usd, error=error, detail=detail)
         if not await _write_gap_row(entry):
@@ -185,8 +217,15 @@ async def _gap_row_or_spill(entry: dict) -> None:
         _spill_gap(entry)
 
 
-def note_gap(provider: str, what: str, *, project_id=None, usd: float = 0.0,
-             error: BaseException | None = None, detail: str = "") -> None:
+def note_gap(
+    provider: str,
+    what: str,
+    *,
+    project_id=None,
+    usd: float = 0.0,
+    error: BaseException | None = None,
+    detail: str = "",
+) -> None:
     try:
         entry = _register_gap(provider, what, project_id=project_id, usd=usd, error=error, detail=detail)
         try:
@@ -242,21 +281,27 @@ async def drain() -> None:
 def _project_id() -> int | None:
     try:
         from app.services.request_context import get_project_id
+
         return get_project_id()
     except Exception:
-        logger.opt(exception=True).warning("media_spend: project id unavailable, the row is written without it")
+        logger.opt(exception=True).warning(
+            "media_spend: project id unavailable, the row is written without it"
+        )
         return None
 
 
 def _provider_key(provider: str) -> str:
     if provider == "kie":
         from app.bots.kie_kling import kie_api_key
+
         key = kie_api_key()
     elif provider == "outsee":
         from app.bots.outsee_http import outsee_api_key
+
         key = outsee_api_key()
     else:
         from app.settings import settings
+
         key = settings.elevenlabs_api_key
     return str(key or "").strip()
 
@@ -272,6 +317,7 @@ def ledger_target_ok() -> bool:
     try:
         from app.db import engine
         from app.settings import settings
+
         db = engine.url.database
         if not db:
             return True
@@ -284,6 +330,7 @@ def ledger_target_ok() -> bool:
 def disabled_reason(provider: str) -> str | None:
     try:
         from app.settings import settings
+
         if not getattr(settings, "media_spend_recording", True):
             return "setting_off"
         if provider != "browser" and not _provider_key(provider):
@@ -337,29 +384,60 @@ def _kind_for(usd: float, unknown: bool) -> str:
 
 def _corr(ref: str = "") -> dict:
     from app.services import request_context
-    return {"run_id": request_context.get_run_id(), "request_id": request_context.get_request_id(), "ref": ref}
+
+    return {
+        "run_id": request_context.get_run_id(),
+        "request_id": request_context.get_request_id(),
+        "ref": ref,
+    }
 
 
-async def _write(project_id, provider, usd, note, credits=0.0, settle_from=None, kind="actual", corr=None,
-                 basis="") -> None:
+async def _write(
+    project_id, provider, usd, note, credits=0.0, settle_from=None, kind="actual", corr=None, basis=""
+) -> None:
     corr = corr or _corr()
     try:
         from app.db import SessionLocal
         from app.services import spend_guard
+
         async with SessionLocal() as s:
             if settle_from is not None:
-                await spend_guard.settle(s, project_id=project_id, run_id=corr["run_id"], reserved_usd=settle_from,
-                                         actual_usd=usd, source="media_native", provider=provider,
-                                         basis=basis, request_id=corr["request_id"], ref=corr["ref"])
+                await spend_guard.settle(
+                    s,
+                    project_id=project_id,
+                    run_id=corr["run_id"],
+                    reserved_usd=settle_from,
+                    actual_usd=usd,
+                    source="media_native",
+                    provider=provider,
+                    basis=basis,
+                    request_id=corr["request_id"],
+                    ref=corr["ref"],
+                )
             else:
-                await spend_guard.record_actual(s, project_id=project_id, usd=usd, provider=provider,
-                                                source="media_native", note=note, credits=credits, kind=kind,
-                                                run_id=corr["run_id"], request_id=corr["request_id"],
-                                                ref=corr["ref"])
+                await spend_guard.record_actual(
+                    s,
+                    project_id=project_id,
+                    usd=usd,
+                    provider=provider,
+                    source="media_native",
+                    note=note,
+                    credits=credits,
+                    kind=kind,
+                    run_id=corr["run_id"],
+                    request_id=corr["request_id"],
+                    ref=corr["ref"],
+                )
             await s.commit()
     except Exception as exc:
-        await gap_async(provider, "settle" if settle_from is not None else "spend_row", project_id=project_id,
-                        usd=usd, error=exc, detail=note)
+        await gap_async(
+            provider,
+            "settle" if settle_from is not None else "spend_row",
+            project_id=project_id,
+            usd=usd,
+            error=exc,
+            detail=note,
+        )
 
 
 async def _credit_stop(project_id, provider, note, corr=None) -> None:
@@ -367,11 +445,19 @@ async def _credit_stop(project_id, provider, note, corr=None) -> None:
     try:
         from app.db import SessionLocal
         from app.services import spend_guard
+
         await spend_guard.engage_on_credit_error(_CreditShim(provider), provider=provider)
         async with SessionLocal() as s:
-            await spend_guard.record_event(s, project_id=project_id, provider=provider,
-                                           source="media_402", note=note, run_id=corr["run_id"],
-                                           request_id=corr["request_id"], ref=corr["ref"])
+            await spend_guard.record_event(
+                s,
+                project_id=project_id,
+                provider=provider,
+                source="media_402",
+                note=note,
+                run_id=corr["run_id"],
+                request_id=corr["request_id"],
+                ref=corr["ref"],
+            )
             await s.commit()
     except Exception as exc:
         await gap_async(provider, "credit_stop_402", project_id=project_id, error=exc, detail=note)
@@ -381,13 +467,19 @@ async def _write_task(**kw) -> None:
     try:
         from app.db import SessionLocal
         from app.services import spend_guard
+
         async with SessionLocal() as s:
             await spend_guard.append_task_event(s, **kw)
             await s.commit()
     except Exception as exc:
-        await gap_async(str(kw.get("provider") or ""), "provider_task", project_id=kw.get("project_id"),
-                        usd=float(kw.get("est_usd") or 0.0), error=exc,
-                        detail=f"task={kw.get('task_id', '')} event={kw.get('event', '')}")
+        await gap_async(
+            str(kw.get("provider") or ""),
+            "provider_task",
+            project_id=kw.get("project_id"),
+            usd=float(kw.get("est_usd") or 0.0),
+            error=exc,
+            detail=f"task={kw.get('task_id', '')} event={kw.get('event', '')}",
+        )
 
 
 _uncorrelated: dict[str, int] = {}
@@ -405,13 +497,26 @@ def _check_correlation(provider: str, pid, corr: dict) -> None:
         first = provider not in _uncorrelated
         _uncorrelated[provider] = _uncorrelated.get(provider, 0) + 1
     if first:
-        logger.warning("media_spend: {} spend row has no project/run/request id (project={}, run={!r}, request={!r}): "
-                       "a paid entry point is not wrapped in request_context.project_scope",
-                       provider, pid, corr.get("run_id"), corr.get("request_id"))
+        logger.warning(
+            "media_spend: {} spend row has no project/run/request id (project={}, run={!r}, request={!r}): "
+            "a paid entry point is not wrapped in request_context.project_scope",
+            provider,
+            pid,
+            corr.get("run_id"),
+            corr.get("request_id"),
+        )
 
 
-def record(provider: str, *, usd: float, note: str, credits: float = 0.0, unknown: bool = False,
-           exc: BaseException | None = None, ref: str = "") -> None:
+def record(
+    provider: str,
+    *,
+    usd: float,
+    note: str,
+    credits: float = 0.0,
+    unknown: bool = False,
+    exc: BaseException | None = None,
+    ref: str = "",
+) -> None:
     try:
         if not _enabled(provider):
             return
@@ -430,11 +535,11 @@ def record(provider: str, *, usd: float, note: str, credits: float = 0.0, unknow
         note_gap(provider, "record", error=err, detail=str(note))
 
 
-
 def price_kie(spec: dict | None, payload: dict | None) -> dict:
     out = {"model": str((spec or {}).get("id") or ""), "credits": 0.0, "usd": 0.0, "unknown": True}
     try:
         from app.services import kie_catalog
+
         if not spec or not spec.get("pricing"):
             return out
         values = payload.get("input") if isinstance((payload or {}).get("input"), dict) else (payload or {})
@@ -442,7 +547,9 @@ def price_kie(spec: dict | None, payload: dict | None) -> dict:
         if float(est["credits"]) > 0:
             out.update(credits=float(est["credits"]), usd=float(est["usd"]), unknown=False)
     except Exception:
-        logger.opt(exception=True).warning("media_spend: Kie price estimate failed, the row is written as cost_unknown")
+        logger.opt(exception=True).warning(
+            "media_spend: Kie price estimate failed, the row is written as cost_unknown"
+        )
     return out
 
 
@@ -457,7 +564,11 @@ def _task_key(out_path) -> str:
 @contextmanager
 def kie_scope(spec: dict | None, payload: dict | None, out_path=None):
     try:
-        ctx = {**price_kie(spec, payload), "key": _task_key(out_path), "api": str((spec or {}).get("api") or "")}
+        ctx = {
+            **price_kie(spec, payload),
+            "key": _task_key(out_path),
+            "api": str((spec or {}).get("api") or ""),
+        }
     except Exception:
         ctx = None
     token = _kie_ctx.set(ctx)
@@ -470,6 +581,7 @@ def kie_scope(spec: dict | None, payload: dict | None, out_path=None):
 def _managed() -> bool:
     try:
         from app.services.media_transport import current_job
+
         return current_job.get() is not None
     except Exception:
         return False
@@ -489,6 +601,7 @@ def tracked_kie_create(fn):
             raise
         _after_create_ok(api, task_id)
         return task_id
+
     return wrapper
 
 
@@ -496,14 +609,29 @@ def _after_create_ok(api: str, task_id: str) -> None:
     try:
         ctx = _kie_ctx.get() or {}
         model = ctx.get("model", "")
-        record("kie", usd=ctx.get("usd", 0.0), credits=ctx.get("credits", 0.0),
-               unknown=bool(ctx.get("unknown", True)), note=f"create {api} {model} task={task_id}",
-               ref=str(task_id))
+        record(
+            "kie",
+            usd=ctx.get("usd", 0.0),
+            credits=ctx.get("credits", 0.0),
+            unknown=bool(ctx.get("unknown", True)),
+            note=f"create {api} {model} task={task_id}",
+            ref=str(task_id),
+        )
         if _enabled("kie"):
-            _spawn(_write_task(project_id=_project_id(), key=ctx.get("key", ""), task_id=task_id,
-                               provider="kie", api=api, model=model, event="submitted", status="submitted",
-                               est_credits=None if ctx.get("unknown", True) else ctx.get("credits"),
-                               est_usd=None if ctx.get("unknown", True) else ctx.get("usd")))
+            _spawn(
+                _write_task(
+                    project_id=_project_id(),
+                    key=ctx.get("key", ""),
+                    task_id=task_id,
+                    provider="kie",
+                    api=api,
+                    model=model,
+                    event="submitted",
+                    status="submitted",
+                    est_credits=None if ctx.get("unknown", True) else ctx.get("credits"),
+                    est_usd=None if ctx.get("unknown", True) else ctx.get("usd"),
+                )
+            )
     except Exception as exc:
         note_gap("kie", "after_create_ok", error=exc, detail=f"api={api} task={task_id}")
 
@@ -517,9 +645,14 @@ def _after_create_failed(api: str, exc: BaseException) -> None:
         if definite:
             record("kie", usd=0.0, note=f"create {api} {model} rejected http={status}", exc=exc)
         else:
-            record("kie", usd=ctx.get("usd", 0.0), credits=ctx.get("credits", 0.0),
-                   unknown=bool(ctx.get("unknown", True)),
-                   note=f"create {api} {model} uncertain {type(exc).__name__}", exc=exc)
+            record(
+                "kie",
+                usd=ctx.get("usd", 0.0),
+                credits=ctx.get("credits", 0.0),
+                unknown=bool(ctx.get("unknown", True)),
+                note=f"create {api} {model} uncertain {type(exc).__name__}",
+                exc=exc,
+            )
     except Exception as err:
         note_gap("kie", "after_create_failed", error=err, detail=f"api={api}")
 
@@ -547,25 +680,47 @@ def tracked_kie_poll(fn):
         except BaseException as exc:
             ectx = getattr(exc, "context", None)
             kind = ectx.get("kind") if isinstance(ectx, dict) else None
-            _after_poll(api, task_id, counter[0],
-                        "failed" if kind == "generation" else "pending", f"poll {type(exc).__name__} {kind or ''}", exc)
+            _after_poll(
+                api,
+                task_id,
+                counter[0],
+                "failed" if kind == "generation" else "pending",
+                f"poll {type(exc).__name__} {kind or ''}",
+                exc,
+            )
             raise
         finally:
             _polls.reset(token)
         _after_poll(api, task_id, counter[0], "succeeded", "poll success", None)
         return result
+
     return wrapper
 
 
 def _after_poll(api, task_id, polls, status, note, exc) -> None:
     try:
         ctx = _kie_ctx.get() or {}
-        record("kie", usd=0.0, note=f"poll {api} {ctx.get('model', '')} task={task_id} polls={polls}", exc=exc,
-               ref=str(task_id))
+        record(
+            "kie",
+            usd=0.0,
+            note=f"poll {api} {ctx.get('model', '')} task={task_id} polls={polls}",
+            exc=exc,
+            ref=str(task_id),
+        )
         if _enabled("kie"):
-            _spawn(_write_task(project_id=_project_id(), key=ctx.get("key", ""), task_id=task_id,
-                               provider="kie", api=api, model=ctx.get("model", ""), event="poll",
-                               status=status, note=f"{note} polls={polls}"))
+            _spawn(
+                _write_task(
+                    project_id=_project_id(),
+                    key=ctx.get("key", ""),
+                    task_id=task_id,
+                    provider="kie",
+                    api=api,
+                    model=ctx.get("model", ""),
+                    event="poll",
+                    status=status,
+                    note=f"{note} polls={polls}",
+                )
+            )
     except Exception as err:
         note_gap("kie", "after_poll", error=err, detail=f"api={api} task={task_id}")
 
@@ -575,9 +730,12 @@ async def track_kling(coro, *, kie_id: str, duration, has_frame: bool):
     spec = None
     try:
         from app.services import kie_catalog
+
         spec = kie_catalog.get_model(f"{kie_id}-{'i2v' if has_frame else 't2v'}")
     except Exception:
-        logger.opt(exception=True).warning("media_spend: Kling catalog lookup failed, the row is written as cost_unknown")
+        logger.opt(exception=True).warning(
+            "media_spend: Kling catalog lookup failed, the row is written as cost_unknown"
+        )
     price = price_kie(spec, {"duration": duration or 5})
     try:
         result = await coro
@@ -585,13 +743,24 @@ async def track_kling(coro, *, kie_id: str, duration, has_frame: bool):
         if _status_of(exc) in _DEFINITE_REJECT:
             record("kie", usd=0.0, note=f"kling {kie_id} rejected http={_status_of(exc)}", exc=exc)
         else:
-            record("kie", usd=price["usd"], credits=price["credits"], unknown=price["unknown"],
-                   note=f"kling {kie_id} uncertain {type(exc).__name__}", exc=exc)
+            record(
+                "kie",
+                usd=price["usd"],
+                credits=price["credits"],
+                unknown=price["unknown"],
+                note=f"kling {kie_id} uncertain {type(exc).__name__}",
+                exc=exc,
+            )
         raise
-    record("kie", usd=price["usd"], credits=price["credits"], unknown=price["unknown"],
-           note=f"kling {kie_id} task={getattr(result, 'gen_id', '')}", ref=str(getattr(result, "gen_id", "") or ""))
+    record(
+        "kie",
+        usd=price["usd"],
+        credits=price["credits"],
+        unknown=price["unknown"],
+        note=f"kling {kie_id} task={getattr(result, 'gen_id', '')}",
+        ref=str(getattr(result, "gen_id", "") or ""),
+    )
     return result
-
 
 
 def outsee_tracked(fn, media: str):
@@ -601,6 +770,7 @@ def outsee_tracked(fn, media: str):
         model = str(kwargs.get("model_slug") or "")
         try:
             from app.services import outsee_guard
+
             guard = outsee_guard.make_ctx(args, kwargs, media)
         except Exception:
             guard = None
@@ -610,13 +780,14 @@ def outsee_tracked(fn, media: str):
             else:
                 result = await fn(*args, **kwargs)
         except BaseException as exc:
-            record("outsee", usd=0.0, unknown=True, exc=exc,
-                   note=f"{media} {model} failed {type(exc).__name__}")
+            record(
+                "outsee", usd=0.0, unknown=True, exc=exc, note=f"{media} {model} failed {type(exc).__name__}"
+            )
             raise
         record("outsee", usd=0.0, unknown=True, note=f"{media} {model} ok")
         return result
-    return wrapper
 
+    return wrapper
 
 
 async def track_eleven_post(coro, *, chars: int, model: str = ""):
@@ -626,20 +797,38 @@ async def track_eleven_post(coro, *, chars: int, model: str = ""):
         resp = await coro
     except BaseException as exc:
         import httpx
+
         sent = not isinstance(exc, httpx.ConnectError)
-        record("elevenlabs", usd=est if sent else 0.0, exc=exc,
-               note=f"tts {model} chars={chars} {'uncertain ' if sent else ''}{type(exc).__name__}")
+        record(
+            "elevenlabs",
+            usd=est if sent else 0.0,
+            exc=exc,
+            note=f"tts {model} chars={chars} {'uncertain ' if sent else ''}{type(exc).__name__}",
+        )
         raise
     try:
         if resp.status_code == 200:
             record("elevenlabs", usd=est, note=f"tts {model} chars={chars} uncalibrated")
             billed = resp.headers.get("character-cost")
             if billed and _enabled("elevenlabs") and str(billed).isdigit() and int(billed) != chars:
-                _spawn(_write(_project_id(), "elevenlabs", int(billed) * ELEVENLABS_USD_PER_CHAR, "",
-                              settle_from=est, corr=_corr(), basis="reported"))
+                _spawn(
+                    _write(
+                        _project_id(),
+                        "elevenlabs",
+                        int(billed) * ELEVENLABS_USD_PER_CHAR,
+                        "",
+                        settle_from=est,
+                        corr=_corr(),
+                        basis="reported",
+                    )
+                )
         else:
-            record("elevenlabs", usd=0.0, exc=_CreditShim("elevenlabs") if resp.status_code == 402 else None,
-                   note=f"tts {model} http={resp.status_code} not billed")
+            record(
+                "elevenlabs",
+                usd=0.0,
+                exc=_CreditShim("elevenlabs") if resp.status_code == 402 else None,
+                note=f"tts {model} http={resp.status_code} not billed",
+            )
     except Exception as err:
         note_gap("elevenlabs", "tts_record", usd=est, error=err, detail=f"chars={chars}")
     return resp
@@ -660,4 +849,5 @@ def track_eleven_sfx(fn):
             raise
         record("elevenlabs", usd=est, note=f"sfx dur={duration} uncalibrated")
         return result
+
     return wrapper

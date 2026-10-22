@@ -25,8 +25,7 @@ class ProposalIn(BaseModel):
 
 
 def _http(exc: ChangeRefused) -> HTTPException:
-    return HTTPException(exc.http, detail={"code": exc.code, "message": exc.message,
-                                           "errors": exc.errors})
+    return HTTPException(exc.http, detail={"code": exc.code, "message": exc.message, "errors": exc.errors})
 
 
 @router.get("/allow-list")
@@ -35,13 +34,17 @@ async def allow_list(operator: AuthDep) -> dict:
 
 
 @router.get("/proposals")
-async def list_proposals(operator: AuthDep, project_id: int | None = Query(None, ge=1),
-                         status: str | None = Query(None, max_length=16),
-                         tier: str | None = Query(None, pattern=r"^T[0-3]$"),
-                         node_key: str | None = Query(None, max_length=120),
-                         limit: int = Query(50, ge=1, le=200)) -> dict:
-    return await service.list_proposals(project_id=project_id, status=status, tier=tier,
-                                        node_key=node_key, limit=limit)
+async def list_proposals(
+    operator: AuthDep,
+    project_id: int | None = Query(None, ge=1),
+    status: str | None = Query(None, max_length=16),
+    tier: str | None = Query(None, pattern=r"^T[0-3]$"),
+    node_key: str | None = Query(None, max_length=120),
+    limit: int = Query(50, ge=1, le=200),
+) -> dict:
+    return await service.list_proposals(
+        project_id=project_id, status=status, tier=tier, node_key=node_key, limit=limit
+    )
 
 
 @router.get("/proposals/{proposal_id}")
@@ -58,9 +61,15 @@ async def create_proposal(request: Request, body: ProposalIn, operator: AuthDep)
     gateway = CtxGateway(ActionContext(app=request.app, operator=who, read_only=True))
     try:
         return await service.propose(
-            gateway, tier=body.tier, kind=body.kind, rationale=body.rationale,
-            candidate=body.candidate, proposer=who, project_id=body.project_id,
-            node_key=body.node_key)
+            gateway,
+            tier=body.tier,
+            kind=body.kind,
+            rationale=body.rationale,
+            candidate=body.candidate,
+            proposer=who,
+            project_id=body.project_id,
+            node_key=body.node_key,
+        )
     except ChangeRefused as exc:
         raise _http(exc) from exc
 
@@ -80,9 +89,12 @@ async def reject_proposal(proposal_id: str, body: RejectIn, operator: AuthDep) -
 
 
 @router.get("/prompt-base")
-async def prompt_base(request: Request, operator: AuthDep,
-                      project_id: int = Query(..., ge=1),
-                      node_key: str = Query(..., min_length=1, max_length=120)) -> dict:
+async def prompt_base(
+    request: Request,
+    operator: AuthDep,
+    project_id: int = Query(..., ge=1),
+    node_key: str = Query(..., min_length=1, max_length=120),
+) -> dict:
     who = approval.OperatorIdentity.from_token(operator).id
     gateway = CtxGateway(ActionContext(app=request.app, operator=who, read_only=True))
     try:
@@ -92,8 +104,9 @@ async def prompt_base(request: Request, operator: AuthDep,
 
 
 @router.get("/versions")
-async def list_versions(operator: AuthDep, target: str = Query(..., max_length=300),
-                        limit: int = Query(100, ge=1, le=500)) -> dict:
+async def list_versions(
+    operator: AuthDep, target: str = Query(..., max_length=300), limit: int = Query(100, ge=1, le=500)
+) -> dict:
     try:
         return await service.list_versions(target, limit=limit)
     except ChangeRefused as exc:

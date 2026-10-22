@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from app.services.action_layer.messages_ru import HISTORY_EVENT_RU
 
@@ -91,16 +92,34 @@ EVENT_LABELS_RU: dict[str, str] = {
 }
 
 _EVENT_SEVERITY: dict[str, str] = {
-    "node_error": SEV_ERROR, "model_error": SEV_ERROR, "apply_error": SEV_ERROR, "media_failure": SEV_ERROR,
-    "decision_model_error": SEV_ERROR, "decision_gateway_ack_error": SEV_ERROR,
-    "action_blocked": SEV_WARN, "managed_successor_denied": SEV_WARN, "media_policy_denied": SEV_WARN,
-    "media_auxiliary_denied": SEV_WARN, "body_quota_blocked": SEV_WARN, "provider_fallback": SEV_WARN,
-    "animation_degraded": SEV_WARN, "assemble_retry": SEV_WARN, "json_retry": SEV_WARN,
-    "recovery_continuation_deferred": SEV_WARN, "decision_retrieve_denied": SEV_WARN,
-    "decision_request_blocked": SEV_WARN, "decision_continuation_denied": SEV_WARN,
-    "human_approval_pending": SEV_WARN, "local_recovery_guard": SEV_WARN, "observer_stop": SEV_WARN,
-    "sfx_skipped": SEV_WARN, "sfx_node_degraded": SEV_WARN, "audio_step_failure": SEV_ERROR,
-    "scene_design_skipped": SEV_WARN, "operator_check_not_checked": SEV_WARN, "operator_stub_output": SEV_WARN,
+    "node_error": SEV_ERROR,
+    "model_error": SEV_ERROR,
+    "apply_error": SEV_ERROR,
+    "media_failure": SEV_ERROR,
+    "decision_model_error": SEV_ERROR,
+    "decision_gateway_ack_error": SEV_ERROR,
+    "action_blocked": SEV_WARN,
+    "managed_successor_denied": SEV_WARN,
+    "media_policy_denied": SEV_WARN,
+    "media_auxiliary_denied": SEV_WARN,
+    "body_quota_blocked": SEV_WARN,
+    "provider_fallback": SEV_WARN,
+    "animation_degraded": SEV_WARN,
+    "assemble_retry": SEV_WARN,
+    "json_retry": SEV_WARN,
+    "recovery_continuation_deferred": SEV_WARN,
+    "decision_retrieve_denied": SEV_WARN,
+    "decision_request_blocked": SEV_WARN,
+    "decision_continuation_denied": SEV_WARN,
+    "human_approval_pending": SEV_WARN,
+    "local_recovery_guard": SEV_WARN,
+    "observer_stop": SEV_WARN,
+    "sfx_skipped": SEV_WARN,
+    "sfx_node_degraded": SEV_WARN,
+    "audio_step_failure": SEV_ERROR,
+    "scene_design_skipped": SEV_WARN,
+    "operator_check_not_checked": SEV_WARN,
+    "operator_stub_output": SEV_WARN,
 }
 
 CHECK_NAMES_RU: dict[str, str] = {
@@ -131,9 +150,16 @@ WAIT_REASONS_RU: dict[str, str] = {
     "recovery_verification_pending": "ждёт проверки результата восстановления",
 }
 STATUS_WORDS_RU: dict[str, str] = {
-    "passed": "пройдена", "failed": "не пройдена", "unknown": "результат неизвестен",
-    "ok": "успешно", "error": "ошибка", "denied": "отказано", "rejected": "отклонено",
-    "unchecked": "не проверено", "performed": "выполнено", "filtered": "отфильтровано",
+    "passed": "пройдена",
+    "failed": "не пройдена",
+    "unknown": "результат неизвестен",
+    "ok": "успешно",
+    "error": "ошибка",
+    "denied": "отказано",
+    "rejected": "отклонено",
+    "unchecked": "не проверено",
+    "performed": "выполнено",
+    "filtered": "отфильтровано",
 }
 
 INCIDENT_TITLES_RU: dict[str, str] = {
@@ -156,8 +182,14 @@ INCIDENT_TITLES_RU: dict[str, str] = {
     "spend_mismatch": "Расхождение в учёте денег: журнал трат не сходится со сверкой",
     "spend_reconcile": "Расхождение в учёте денег: журнал трат не сходится со сверкой",
 }
-INCIDENT_STATUS_RU = {"open": "открыт", "resolved": "закрыт", "closed": "закрыт", "acknowledged": "принят в работу",
-                      "suppressed": "скрыт", "stale": "потерял актуальность"}
+INCIDENT_STATUS_RU = {
+    "open": "открыт",
+    "resolved": "закрыт",
+    "closed": "закрыт",
+    "acknowledged": "принят в работу",
+    "suppressed": "скрыт",
+    "stale": "потерял актуальность",
+}
 
 DECISION_STATUS_RU = {
     "ready": "Решение по инциденту готово к обработке",
@@ -201,13 +233,28 @@ INCIDENT_NOTIFY_STATUS_RU = {
     "notified": "Человек уведомлён об инциденте",
     "notify_failed": "Уведомление об инциденте не доставлено",
 }
-_ACTION_V1_SEVERITY = {"incident_notify": SEV_INFO, "incident_notify_off": SEV_WARN, "recovery_denied": SEV_WARN, "kill_switch_on": SEV_WARN, "watchdog_stalled": SEV_WARN,
-                       "human_review": SEV_WARN, "hold": SEV_WARN}
+_ACTION_V1_SEVERITY = {
+    "incident_notify": SEV_INFO,
+    "incident_notify_off": SEV_WARN,
+    "recovery_denied": SEV_WARN,
+    "kill_switch_on": SEV_WARN,
+    "watchdog_stalled": SEV_WARN,
+    "human_review": SEV_WARN,
+    "hold": SEV_WARN,
+}
 
 ACTION_LAYER_RU = HISTORY_EVENT_RU
-_ACTION_LAYER_SEVERITY = {"step_failed": SEV_ERROR, "step_unknown": SEV_WARN, "budget_block": SEV_WARN,
-                          "kill_switch_block": SEV_WARN, "resume_refused": SEV_WARN, "job_stop_after_failure": SEV_ERROR,
-                          "step_cancelled": SEV_WARN, "step_skipped": SEV_WARN, "reserve_unresolved": SEV_WARN}
+_ACTION_LAYER_SEVERITY = {
+    "step_failed": SEV_ERROR,
+    "step_unknown": SEV_WARN,
+    "budget_block": SEV_WARN,
+    "kill_switch_block": SEV_WARN,
+    "resume_refused": SEV_WARN,
+    "job_stop_after_failure": SEV_ERROR,
+    "step_cancelled": SEV_WARN,
+    "step_skipped": SEV_WARN,
+    "reserve_unresolved": SEV_WARN,
+}
 
 SPEND_KIND_RU = {
     "reserve": "Зарезервирован бюджет под платный вызов",
@@ -233,8 +280,13 @@ SPEND_SOURCE_RU = {
     "write_failed": "ошибка записи в журнал расходов",
     "reply_text_fallback": "запасной разбор ответа",
 }
-_SPEND_EVENT_SEVERITY = {"credit_error": SEV_ERROR, "media_402": SEV_ERROR, "paid_gate_block": SEV_WARN,
-                         "killswitch_guard": SEV_WARN, "write_failed": SEV_ERROR}
+_SPEND_EVENT_SEVERITY = {
+    "credit_error": SEV_ERROR,
+    "media_402": SEV_ERROR,
+    "paid_gate_block": SEV_WARN,
+    "killswitch_guard": SEV_WARN,
+    "write_failed": SEV_ERROR,
+}
 
 TASK_EVENT_RU = {
     "intent": "Намерение отправить задачу провайдеру записано",
@@ -278,7 +330,12 @@ PUBLICATION_STATUS_RU = {
     "rejected": "Платформа отклонила публикацию",
     "skipped": "Публикация пропущена",
 }
-_PUBLICATION_SEVERITY = {"unconfirmed": SEV_WARN, "failed": SEV_ERROR, "rejected": SEV_ERROR, "clicked": SEV_WARN}
+_PUBLICATION_SEVERITY = {
+    "unconfirmed": SEV_WARN,
+    "failed": SEV_ERROR,
+    "rejected": SEV_ERROR,
+    "clicked": SEV_WARN,
+}
 
 MANUAL_CONFIRMED_CODE = "manual_confirmed"
 MANUAL_NOT_PUBLISHED_CODE = "manual_not_published"
@@ -303,66 +360,121 @@ def publication_code_text(code: Any) -> str:
         c = "publish_disabled"
     return PUBLICATION_CODE_RU.get(c) or "Причина записана в журнале (код не расшифрован)."
 
+
 NOTIFICATION_STATUS_RU = {
-    "sent": "доставлено", "delivered": "доставлено", "ok": "доставлено",
-    "failed": "не доставлено", "error": "не доставлено", "skipped": "пропущено", "disabled": "отключено",
-    "queued": "в очереди", "pending": "в очереди",
+    "sent": "доставлено",
+    "delivered": "доставлено",
+    "ok": "доставлено",
+    "failed": "не доставлено",
+    "error": "не доставлено",
+    "skipped": "пропущено",
+    "disabled": "отключено",
+    "queued": "в очереди",
+    "pending": "в очереди",
 }
 NOTIFICATION_KIND_RU = {
-    "telegram": "Сообщение в Telegram", "hitl": "Запрос подтверждения оператору",
-    "incident": "Оповещение об инциденте", "spend": "Оповещение о расходах",
-    "run_finished": "Оповещение о завершении запуска", "run_failed": "Оповещение о сбое запуска",
+    "telegram": "Сообщение в Telegram",
+    "hitl": "Запрос подтверждения оператору",
+    "incident": "Оповещение об инциденте",
+    "spend": "Оповещение о расходах",
+    "run_finished": "Оповещение о завершении запуска",
+    "run_failed": "Оповещение о сбое запуска",
     "test": "Тестовое сообщение",
-    "hitl_request": "Запрос подтверждения оператору", "hitl_photo": "Фото на подтверждение оператору",
-    "hitl_video": "Видео на подтверждение оператору", "hitl_photo_tail": "Продолжение фото на подтверждение",
-    "hitl_edit_prompt": "Просьба отредактировать промпт", "hitl_original": "Оригинал на подтверждение оператору",
-    "step_done": "Шаг выполнен", "step_done_xlsx": "Шаг выполнен, таблица отправлена",
-    "publish_summary": "Итог публикации", "worker_advance_error": "Ошибка продвижения запуска",
+    "hitl_request": "Запрос подтверждения оператору",
+    "hitl_photo": "Фото на подтверждение оператору",
+    "hitl_video": "Видео на подтверждение оператору",
+    "hitl_photo_tail": "Продолжение фото на подтверждение",
+    "hitl_edit_prompt": "Просьба отредактировать промпт",
+    "hitl_original": "Оригинал на подтверждение оператору",
+    "step_done": "Шаг выполнен",
+    "step_done_xlsx": "Шаг выполнен, таблица отправлена",
+    "publish_summary": "Итог публикации",
+    "worker_advance_error": "Ошибка продвижения запуска",
     "hero_failed": "Не удалось создать главное изображение",
     "image_capture_failed": "Не удалось получить изображение",
 }
 NOTIFICATION_KIND_PREFIX_RU = {
-    "step_failure": "Сбой шага", "excel_hero": "Главное изображение из таблицы",
+    "step_failure": "Сбой шага",
+    "excel_hero": "Главное изображение из таблицы",
     "test_prompt": "Проверка промпта",
 }
 
 JOB_STATUS_RU = {
-    "queued": "Задача создания поставлена в очередь", "running": "Задача создания выполняется",
-    "done": "Задача создания завершена", "failed": "Задача создания завершилась ошибкой",
-    "error": "Задача создания завершилась ошибкой", "cancelled": "Задача создания отменена",
+    "queued": "Задача создания поставлена в очередь",
+    "running": "Задача создания выполняется",
+    "done": "Задача создания завершена",
+    "failed": "Задача создания завершилась ошибкой",
+    "error": "Задача создания завершилась ошибкой",
+    "cancelled": "Задача создания отменена",
     "interrupted": "Задача создания прервана перезапуском",
 }
 _JOB_SEVERITY = {"failed": SEV_ERROR, "error": SEV_ERROR, "interrupted": SEV_WARN, "cancelled": SEV_WARN}
 
 
 NODE_STATUS_RU = {
-    "pending": "ожидает", "queued": "в очереди", "running": "выполняется", "waiting_hitl": "ждёт решения человека",
-    "done": "готово", "failed": "ошибка", "skipped": "пропущено", "cancelled": "отменено",
+    "pending": "ожидает",
+    "queued": "в очереди",
+    "running": "выполняется",
+    "waiting_hitl": "ждёт решения человека",
+    "done": "готово",
+    "failed": "ошибка",
+    "skipped": "пропущено",
+    "cancelled": "отменено",
 }
 INITIATOR_RU = {
-    "worker": "воркер", "api": "кнопка в Studio", "ui_restart": "перезапуск из Studio", "auto_unstick": "авто-расклинивание",
-    "api_reset": "сброс из Studio", "api_stop": "стоп из Studio", "decision_supervisor": "решение надзора",
-    "only_agent_scope": "режим наблюдения", "observation_api": "наблюдение", "diagnosis": "диагностика",
-    "watchdog": "сторож", "sync": "синхронизация баз", "supervisor_recovery": "восстановление надзором",
-    "supervisor": "надзор", "startup_reconcile": "сверка при старте", "sidecar": "боковой процесс",
-    "only_agent_reconcile": "сверка режима наблюдения", "observation_auto_off": "автоотключение наблюдения",
-    "native_split_verifier": "проверка разбивки", "native_sfx_plan_verifier": "проверка плана звуков",
+    "worker": "воркер",
+    "api": "кнопка в Studio",
+    "ui_restart": "перезапуск из Studio",
+    "auto_unstick": "авто-расклинивание",
+    "api_reset": "сброс из Studio",
+    "api_stop": "стоп из Studio",
+    "decision_supervisor": "решение надзора",
+    "only_agent_scope": "режим наблюдения",
+    "observation_api": "наблюдение",
+    "diagnosis": "диагностика",
+    "watchdog": "сторож",
+    "sync": "синхронизация баз",
+    "supervisor_recovery": "восстановление надзором",
+    "supervisor": "надзор",
+    "startup_reconcile": "сверка при старте",
+    "sidecar": "боковой процесс",
+    "only_agent_reconcile": "сверка режима наблюдения",
+    "observation_auto_off": "автоотключение наблюдения",
+    "native_split_verifier": "проверка разбивки",
+    "native_sfx_plan_verifier": "проверка плана звуков",
 }
 
-_METHOD_RU = {"POST": "Оператор выполнил действие", "PUT": "Оператор изменил данные",
-              "PATCH": "Оператор изменил данные", "DELETE": "Оператор удалил данные"}
-_OUTCOME_RU = {"ok": "выполнено", "denied": "отказано в доступе", "rejected": "запрос отклонён",
-               "error": "ошибка сервера"}
+_METHOD_RU = {
+    "POST": "Оператор выполнил действие",
+    "PUT": "Оператор изменил данные",
+    "PATCH": "Оператор изменил данные",
+    "DELETE": "Оператор удалил данные",
+}
+_OUTCOME_RU = {
+    "ok": "выполнено",
+    "denied": "отказано в доступе",
+    "rejected": "запрос отклонён",
+    "error": "ошибка сервера",
+}
 
 SOURCE_ALIASES = {
-    "observe": "observation_events", "event": "observation_events", "observation": "observation_events",
-    "incident": "observation_incidents", "decision": "decision_records",
-    "action": "action_v1_records", "action_v1": "action_v1_records",
-    "plan": "action_layer_history", "action_layer": "action_layer_history",
-    "spend": "spend_ledger", "task": "provider_task_ledger",
-    "operator": "operator_audit", "publication": "publications",
-    "notify": "notification_log", "notification": "notification_log",
-    "node_run": "node_runs", "job": "jobs",
+    "observe": "observation_events",
+    "event": "observation_events",
+    "observation": "observation_events",
+    "incident": "observation_incidents",
+    "decision": "decision_records",
+    "action": "action_v1_records",
+    "action_v1": "action_v1_records",
+    "plan": "action_layer_history",
+    "action_layer": "action_layer_history",
+    "spend": "spend_ledger",
+    "task": "provider_task_ledger",
+    "operator": "operator_audit",
+    "publication": "publications",
+    "notify": "notification_log",
+    "notification": "notification_log",
+    "node_run": "node_runs",
+    "job": "jobs",
 }
 
 
@@ -391,6 +503,7 @@ def _clip(value: Any, limit: int = _DETAIL_LIMIT) -> str:
     text = " ".join(str(value).split())
     try:
         from app.services.redact import redact_text
+
         text = redact_text(text)
     except Exception:
         pass
@@ -436,21 +549,38 @@ def event_title_ru(kind: str, payload: Mapping[str, Any] | None = None) -> str:
         tail = " (тире не покрывает закадр)" if p.get("dash_rejected") is True else ""
         return f"Разбивка: ответ модели непригоден{tail}; кадры получены локальной разбивкой закадра"
     if kind == "parse_result":
-        parsed = "извлечён" if p.get("parsed") is True else "не извлечён" if p.get("parsed") is False else unknown
-        schema = "не проверялась" if p.get("schema_valid") is None else "верна" if p.get("schema_valid") else "нарушена"
+        parsed = (
+            "извлечён" if p.get("parsed") is True else "не извлечён" if p.get("parsed") is False else unknown
+        )
+        schema = (
+            "не проверялась"
+            if p.get("schema_valid") is None
+            else "верна"
+            if p.get("schema_valid")
+            else "нарушена"
+        )
         return f"Разбор: {parsed}; схема {schema}"
     if kind == "rule_diary":
-        stop = f"; остановило правило {p['stop_rule']}" if isinstance(p.get("stop_rule"), str) and p.get("stop_rule") else ""
+        stop = (
+            f"; остановило правило {p['stop_rule']}"
+            if isinstance(p.get("stop_rule"), str) and p.get("stop_rule")
+            else ""
+        )
         rules = len(p["rules"]) if isinstance(p.get("rules"), dict) else 0
         return f"Дневник правил кода: правил сработало {rules}{stop}"
     if kind == "node_result_verification":
         status = p.get("status")
         held = "" if p.get("observe_only") is True else "; запуск удержан"
         tail = "; режим наблюдения, запуск не остановлен" if p.get("observe_only") is True else ""
-        text = ("подтвердила результат" if status == "passed"
-                else f"не подтвердила результат{held}{tail}" if status == "failed"
-                else f"не смогла сравнить результат со входом{held}{tail}" if status == "unknown"
-                else f"статус {status or 'неизвестен'}")
+        text = (
+            "подтвердила результат"
+            if status == "passed"
+            else f"не подтвердила результат{held}{tail}"
+            if status == "failed"
+            else f"не смогла сравнить результат со входом{held}{tail}"
+            if status == "unknown"
+            else f"статус {status or 'неизвестен'}"
+        )
         return f"Нативная проверка {text}"
     if kind == "node_error" and isinstance(p.get("rule"), str) and p.get("rule"):
         return f"Ошибка исполнителя: результат остановило правило {p['rule']}"
@@ -459,22 +589,30 @@ def event_title_ru(kind: str, payload: Mapping[str, Any] | None = None) -> str:
     if kind == "node_change":
         transitions = p.get("transitions")
         if isinstance(transitions, list) and transitions:
-            return "; ".join(f"{NODE_STATUS_RU.get(str(t.get('from')), t.get('from'))} → "
-                             f"{NODE_STATUS_RU.get(str(t.get('to')), t.get('to'))} "
-                             f"({INITIATOR_RU.get(str(t.get('initiator')), t.get('initiator')) or 'инициатор неизвестен'})"
-                             for t in transitions if isinstance(t, Mapping))
+            return "; ".join(
+                f"{NODE_STATUS_RU.get(str(t.get('from')), t.get('from'))} → "
+                f"{NODE_STATUS_RU.get(str(t.get('to')), t.get('to'))} "
+                f"({INITIATOR_RU.get(str(t.get('initiator')), t.get('initiator')) or 'инициатор неизвестен'})"
+                for t in transitions
+                if isinstance(t, Mapping)
+            )
         return "Изменение состояния БД; инициатор неизвестен"
     if kind == "model_end":
         usage = p.get("usage")
-        known = [f"{k}: {usage[k]}" for k in ("input_tokens", "output_tokens", "total_tokens", "credits_consumed")
-                 if isinstance(usage, Mapping) and isinstance(usage.get(k), (int, float))]
+        known = [
+            f"{k}: {usage[k]}"
+            for k in ("input_tokens", "output_tokens", "total_tokens", "credits_consumed")
+            if isinstance(usage, Mapping) and isinstance(usage.get(k), (int, float))
+        ]
         return f"Ответ модели · {' · '.join(known) if known else 'расход токенов неизвестен'}"
     if kind == "runtime_wait":
         reason = str(p.get("reason") or unknown)
         return f"Ожидание: {WAIT_REASONS_RU.get(reason, reason)} ({p.get('initiator') or unknown})"
     if kind == "project_control":
         stop = p.get("user_stop")
-        return "Ограничение проекта: остановка пользователем " + ("включена" if stop is True else "снята" if stop is False else unknown)
+        return "Ограничение проекта: остановка пользователем " + (
+            "включена" if stop is True else "снята" if stop is False else unknown
+        )
     if kind == "media_phase" and p.get("phase"):
         return f"Медиа-задача перешла в фазу «{p['phase']}»"
     if kind == "media_failure" and p.get("phase"):
@@ -503,7 +641,11 @@ def _event_severity(kind: str, p: Mapping[str, Any]) -> str:
             return SEV_WARN
         return SEV_INFO
     if kind == "domain_check":
-        return SEV_WARN if str(p.get("verdict") or "").lower() in {"fail", "failed", "reject", "rejected", "blocked"} else SEV_INFO
+        return (
+            SEV_WARN
+            if str(p.get("verdict") or "").lower() in {"fail", "failed", "reject", "rejected", "blocked"}
+            else SEV_INFO
+        )
     if kind == "model_end" and isinstance(p.get("status_code"), int) and p["status_code"] >= 400:
         return SEV_ERROR
     return _EVENT_SEVERITY.get(kind, SEV_INFO)
@@ -556,7 +698,13 @@ def _describe(row: Mapping[str, Any]) -> tuple[str, str, str]:
         title = INCIDENT_TITLES_RU.get(kind) or _get(row, "title") or _fallback(source, kind, "Инцидент")
         status = str(_get(row, "status") or "")
         sev_raw = str(_get(row, "severity") or "").lower()
-        severity = SEV_ERROR if sev_raw in ("error", "critical", "high") else SEV_WARN if sev_raw in ("warn", "warning", "medium") else SEV_INFO
+        severity = (
+            SEV_ERROR
+            if sev_raw in ("error", "critical", "high")
+            else SEV_WARN
+            if sev_raw in ("warn", "warning", "medium")
+            else SEV_INFO
+        )
         detail = [f"статус: {INCIDENT_STATUS_RU.get(status, status)}"] if status else []
         fact = _get(row, "fact") or p.get("fact")
         if fact:
@@ -574,7 +722,13 @@ def _describe(row: Mapping[str, Any]) -> tuple[str, str, str]:
             detail.append(f"предложено: {ACTION_V1_RU.get(str(proposal['action']), proposal['action'])}")
         if _get(row, "node_key"):
             detail.append(f"нода {row['node_key']}")
-        severity = SEV_ERROR if status == "failed" else SEV_WARN if status in ("denied", "rejected", "human_review", "expired") else SEV_INFO
+        severity = (
+            SEV_ERROR
+            if status == "failed"
+            else SEV_WARN
+            if status in ("denied", "rejected", "human_review", "expired")
+            else SEV_INFO
+        )
         return title, _clip("; ".join(detail)), severity
 
     if source == "action_v1_records":
@@ -590,7 +744,11 @@ def _describe(row: Mapping[str, Any]) -> tuple[str, str, str]:
             detail.append(f"нода {row['node_key']}")
         if _get(row, "rationale"):
             detail.append(_clip(row["rationale"], 250))
-        severity = SEV_WARN if kind == "incident_notify" and notify_status == "notify_failed" else _ACTION_V1_SEVERITY.get(kind, SEV_INFO)
+        severity = (
+            SEV_WARN
+            if kind == "incident_notify" and notify_status == "notify_failed"
+            else _ACTION_V1_SEVERITY.get(kind, SEV_INFO)
+        )
         return title, _clip("; ".join(detail)), severity
 
     if source == "action_layer_history":
@@ -612,7 +770,9 @@ def _describe(row: Mapping[str, Any]) -> tuple[str, str, str]:
 
     if source == "spend_ledger":
         kind = str(_get(row, "kind") or "")
-        src = str(_get(row, "spend_source") or (_get(row, "source") if _get(row, "source_table") else "") or "")
+        src = str(
+            _get(row, "spend_source") or (_get(row, "source") if _get(row, "source_table") else "") or ""
+        )
         src_ru = SPEND_SOURCE_RU.get(src, src)
         title = SPEND_KIND_RU.get(kind) or _fallback(source, kind, "Запись расходов")
         sev = _SPEND_EVENT_SEVERITY.get(src, SEV_INFO) if kind == "event" else SEV_INFO
@@ -641,14 +801,25 @@ def _describe(row: Mapping[str, Any]) -> tuple[str, str, str]:
         for key, label in (("provider", "провайдер"), ("model", "модель"), ("task_id", "задача")):
             if _get(row, key):
                 detail.append(f"{label} {row[key]}")
-        sev = SEV_ERROR if status in ("failed",) else SEV_WARN if status in ("submit_unknown", "rejected") else SEV_INFO
+        sev = (
+            SEV_ERROR
+            if status in ("failed",)
+            else SEV_WARN
+            if status in ("submit_unknown", "rejected")
+            else SEV_INFO
+        )
         return title, _clip("; ".join(detail)), sev
 
     if source == "operator_audit":
         method = str(_get(row, "method") or "").upper()
         from app.services.operator_phrases import operator_phrase
-        title = (_get(row, "summary_ru") or operator_phrase(method, str(_get(row, "route_template", "path") or ""))
-                 or _METHOD_RU.get(method) or _fallback(source, method, "Действие оператора"))
+
+        title = (
+            _get(row, "summary_ru")
+            or operator_phrase(method, str(_get(row, "route_template", "path") or ""))
+            or _METHOD_RU.get(method)
+            or _fallback(source, method, "Действие оператора")
+        )
         outcome = str(_get(row, "outcome") or "")
         detail = [f"{method} {_get(row, 'path', 'route_template') or ''}".strip()]
         code = _get(row, "status_code")

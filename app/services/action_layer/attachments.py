@@ -29,11 +29,9 @@ _CLEANUP_EVERY_S = 3600
 
 
 class AttachmentError(Exception):
-
     def __init__(self, code: str, message: str, status: int = 422):
         self.code, self.status = code, status
         super().__init__(message)
-
 
 
 @dataclass(frozen=True)
@@ -45,44 +43,103 @@ class KindRule:
     title_ru: str
 
 
-KINDS: dict[str, KindRule] = {r.kind: r for r in (
-    KindRule("image", (".png", ".jpg", ".jpeg", ".webp"), 30 * MIB,
-             frozenset({"image/png", "image/jpeg", "image/pjpeg", "image/webp"}), "картинка"),
-    KindRule("video", (".mp4", ".mov", ".webm"), 300 * MIB,
-             frozenset({"video/mp4", "video/quicktime", "video/webm"}), "видео"),
-    KindRule("audio", (".mp3", ".wav", ".m4a", ".ogg"), 100 * MIB,
-             frozenset({"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave",
-                        "audio/vnd.wave", "audio/mp4", "audio/x-m4a", "audio/m4a", "audio/ogg",
-                        "application/ogg", "video/ogg"}), "аудио"),
-    KindRule("excel", (".xlsx", ".xls"), 25 * MIB,
-             frozenset({"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        "application/vnd.ms-excel"}), "таблица Excel"),
-    KindRule("json", (".json",), 5 * MIB, frozenset({"application/json", "text/json"}), "JSON"),
-    KindRule("text", (".txt", ".md"), 1 * MIB,
-             frozenset({"text/plain", "text/markdown", "text/x-markdown"}), "текст (txt, md)"),
-)}
+KINDS: dict[str, KindRule] = {
+    r.kind: r
+    for r in (
+        KindRule(
+            "image",
+            (".png", ".jpg", ".jpeg", ".webp"),
+            30 * MIB,
+            frozenset({"image/png", "image/jpeg", "image/pjpeg", "image/webp"}),
+            "картинка",
+        ),
+        KindRule(
+            "video",
+            (".mp4", ".mov", ".webm"),
+            300 * MIB,
+            frozenset({"video/mp4", "video/quicktime", "video/webm"}),
+            "видео",
+        ),
+        KindRule(
+            "audio",
+            (".mp3", ".wav", ".m4a", ".ogg"),
+            100 * MIB,
+            frozenset(
+                {
+                    "audio/mpeg",
+                    "audio/mp3",
+                    "audio/wav",
+                    "audio/x-wav",
+                    "audio/wave",
+                    "audio/vnd.wave",
+                    "audio/mp4",
+                    "audio/x-m4a",
+                    "audio/m4a",
+                    "audio/ogg",
+                    "application/ogg",
+                    "video/ogg",
+                }
+            ),
+            "аудио",
+        ),
+        KindRule(
+            "excel",
+            (".xlsx", ".xls"),
+            25 * MIB,
+            frozenset(
+                {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "application/vnd.ms-excel",
+                }
+            ),
+            "таблица Excel",
+        ),
+        KindRule("json", (".json",), 5 * MIB, frozenset({"application/json", "text/json"}), "JSON"),
+        KindRule(
+            "text",
+            (".txt", ".md"),
+            1 * MIB,
+            frozenset({"text/plain", "text/markdown", "text/x-markdown"}),
+            "текст (txt, md)",
+        ),
+    )
+}
 EXT_KIND: dict[str, str] = {e: r.kind for r in KINDS.values() for e in r.extensions}
 _GENERIC_MIMES = frozenset({"", "application/octet-stream", "binary/octet-stream"})
 
 _SAFE_NAME = re.compile(r"[^0-9A-Za-zА-Яа-яЁё._ -]")
-_RESERVED = frozenset({"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
-                       *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))})
+_RESERVED = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "CONIN$",
+        "CONOUT$",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
+)
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 def max_bytes_for(kind: str) -> int:
     from app.settings import settings
+
     return min(KINDS[kind].max_bytes, int(settings.action_layer_attachment_max_mb) * MIB)
 
 
 def rules_view() -> dict:
-    return {"kinds": {k: {"title_ru": r.title_ru, "extensions": list(r.extensions),
-                          "max_bytes": max_bytes_for(k)} for k, r in KINDS.items()}}
+    return {
+        "kinds": {
+            k: {"title_ru": r.title_ru, "extensions": list(r.extensions), "max_bytes": max_bytes_for(k)}
+            for k, r in KINDS.items()
+        }
+    }
 
 
 def max_request_bytes() -> int:
     return max(max_bytes_for(k) for k in KINDS) + HEADROOM
-
 
 
 class ActionAttachment(Base):
@@ -107,8 +164,9 @@ _TABLES = [ActionAttachment.__table__]
 
 
 async def ensure_attachments_schema(conn) -> None:
-    await conn.run_sync(lambda sync_conn: Base.metadata.create_all(
-        sync_conn, tables=_TABLES, checkfirst=True))
+    await conn.run_sync(
+        lambda sync_conn: Base.metadata.create_all(sync_conn, tables=_TABLES, checkfirst=True)
+    )
 
 
 @dataclass(frozen=True)
@@ -127,18 +185,20 @@ class AttachmentRef:
 
 
 def _ref(row: ActionAttachment) -> AttachmentRef:
-    return AttachmentRef(row.id, row.project_id, row.name, row.kind, row.ext, int(row.size),
-                         row.sha256, row.rel_path)
+    return AttachmentRef(
+        row.id, row.project_id, row.name, row.kind, row.ext, int(row.size), row.sha256, row.rel_path
+    )
 
 
-def synthetic_ref(project_id: int, kind: str, name: str, size: int = 1024, *,
-                  att_id: str | None = None) -> AttachmentRef:
+def synthetic_ref(
+    project_id: int, kind: str, name: str, size: int = 1024, *, att_id: str | None = None
+) -> AttachmentRef:
     clean = sanitize_name(name)
     ext = Path(clean).suffix.lower()
     aid = att_id or uuid.uuid4().hex
-    return AttachmentRef(aid, project_id, clean, kind, ext, int(size), "0" * 64,
-                         f"{ATTACH_DIR}/{project_id}/{aid}_{clean}")
-
+    return AttachmentRef(
+        aid, project_id, clean, kind, ext, int(size), "0" * 64, f"{ATTACH_DIR}/{project_id}/{aid}_{clean}"
+    )
 
 
 def sanitize_name(raw: Any) -> str:
@@ -162,11 +222,13 @@ def sanitize_name(raw: Any) -> str:
 
 def attachments_root() -> Path:
     from app.settings import settings
+
     return Path(settings.data_dir).resolve() / ATTACH_DIR
 
 
 def abs_path(rel_path: str) -> Path:
     from app.settings import settings
+
     root = attachments_root()
     real = (Path(settings.data_dir).resolve() / rel_path).resolve()
     if root not in real.parents:
@@ -199,19 +261,20 @@ def _content_ok(ext: str, head: bytes, path: Path) -> bool:
     return _magic_ok(ext, head, b"")
 
 
-
 async def save_upload(upload, *, project_id: int, operator: str) -> dict:
     name = sanitize_name(getattr(upload, "filename", ""))
     ext = Path(name).suffix.lower()
     kind = EXT_KIND.get(ext)
     if kind is None:
         allowed = ", ".join(sorted(EXT_KIND))
-        raise AttachmentError("type_not_allowed",
-                              f"Тип файла «{ext or 'без расширения'}» не разрешён. Можно: {allowed}.", 415)
+        raise AttachmentError(
+            "type_not_allowed", f"Тип файла «{ext or 'без расширения'}» не разрешён. Можно: {allowed}.", 415
+        )
     content_type = (getattr(upload, "content_type", "") or "")[:80]
     if not _mime_ok(kind, content_type):
-        raise AttachmentError("mime_not_allowed",
-                              f"Тип содержимого «{content_type}» не подходит для файла {ext}.", 415)
+        raise AttachmentError(
+            "mime_not_allowed", f"Тип содержимого «{content_type}» не подходит для файла {ext}.", 415
+        )
     limit = max_bytes_for(kind)
     att_id = uuid.uuid4().hex
     folder = attachments_root() / str(int(project_id))
@@ -228,7 +291,10 @@ async def save_upload(upload, *, project_id: int, operator: str) -> dict:
                 size += len(chunk)
                 if size > limit:
                     raise AttachmentError(
-                        "too_large", f"Файл больше лимита {limit // MIB} МБ для вида «{KINDS[kind].title_ru}».", 413)
+                        "too_large",
+                        f"Файл больше лимита {limit // MIB} МБ для вида «{KINDS[kind].title_ru}».",
+                        413,
+                    )
                 if len(head) < 16:
                     head = (head + chunk)[:16]
                 digest.update(chunk)
@@ -241,18 +307,27 @@ async def save_upload(upload, *, project_id: int, operator: str) -> dict:
         tmp.replace(final)
         rel = f"{ATTACH_DIR}/{int(project_id)}/{final.name}"
         async with store.sessions()() as s:
-            s.add(ActionAttachment(
-                id=att_id, project_id=int(project_id), operator=operator[:120], name=name, kind=kind,
-                ext=ext, content_type=content_type, size=size, sha256=digest.hexdigest(), rel_path=rel))
+            s.add(
+                ActionAttachment(
+                    id=att_id,
+                    project_id=int(project_id),
+                    operator=operator[:120],
+                    name=name,
+                    kind=kind,
+                    ext=ext,
+                    content_type=content_type,
+                    size=size,
+                    sha256=digest.hexdigest(),
+                    rel_path=rel,
+                )
+            )
             await s.commit()
     except BaseException:
         for p in (tmp, final):
             if p is not None:
                 p.unlink(missing_ok=True)
         raise
-    return {"attachment_id": att_id, "name": name, "size": size, "kind": kind,
-            "sha256": digest.hexdigest()}
-
+    return {"attachment_id": att_id, "name": name, "size": size, "kind": kind, "sha256": digest.hexdigest()}
 
 
 async def resolve(ids: list[str] | None, project_id: int | None) -> list[AttachmentRef]:
@@ -264,26 +339,43 @@ async def resolve(ids: list[str] | None, project_id: int | None) -> list[Attachm
     if project_id is None:
         raise AttachmentError("attachments_need_project", "Файлы прикрепляются к открытому проекту.")
     async with store.sessions()() as s:
-        rows = {r.id: r for r in (await s.scalars(
-            select(ActionAttachment).where(ActionAttachment.id.in_([i for i in ids if _ID_RE.match(i)])))).all()}
+        rows = {
+            r.id: r
+            for r in (
+                await s.scalars(
+                    select(ActionAttachment).where(
+                        ActionAttachment.id.in_([i for i in ids if _ID_RE.match(i)])
+                    )
+                )
+            ).all()
+        }
     out: list[AttachmentRef] = []
     for aid in ids:
         row = rows.get(aid)
         if row is None:
-            raise AttachmentError("attachment_not_found", "Прикреплённый файл не найден. Прикрепите его заново.", 404)
+            raise AttachmentError(
+                "attachment_not_found", "Прикреплённый файл не найден. Прикрепите его заново.", 404
+            )
         if row.project_id != project_id:
-            raise AttachmentError("attachment_wrong_project",
-                                  "Файл прикреплён к другому проекту. Прикрепите его в этом проекте.", 403)
+            raise AttachmentError(
+                "attachment_wrong_project",
+                "Файл прикреплён к другому проекту. Прикрепите его в этом проекте.",
+                403,
+            )
         if row.consumed_at is not None:
-            raise AttachmentError("attachment_consumed",
-                                  f"Файл «{row.name}» уже использован в другом плане. Прикрепите его заново.", 409)
+            raise AttachmentError(
+                "attachment_consumed",
+                f"Файл «{row.name}» уже использован в другом плане. Прикрепите его заново.",
+                409,
+            )
         try:
             exists = abs_path(row.rel_path).is_file()
         except AttachmentError:
             exists = False
         if not exists:
-            raise AttachmentError("attachment_missing",
-                                  f"Файл «{row.name}» удалён с диска. Прикрепите его заново.", 410)
+            raise AttachmentError(
+                "attachment_missing", f"Файл «{row.name}» удалён с диска. Прикрепите его заново.", 410
+            )
         out.append(_ref(row))
     return out
 
@@ -292,13 +384,20 @@ async def claim(ids: list[str], project_id: int) -> None:
     if not ids:
         return
     async with store.sessions()() as s:
-        res = await s.execute(update(ActionAttachment).where(
-            ActionAttachment.id.in_(ids), ActionAttachment.project_id == project_id,
-            ActionAttachment.consumed_at.is_(None)).values(consumed_at=datetime.utcnow()))
+        res = await s.execute(
+            update(ActionAttachment)
+            .where(
+                ActionAttachment.id.in_(ids),
+                ActionAttachment.project_id == project_id,
+                ActionAttachment.consumed_at.is_(None),
+            )
+            .values(consumed_at=datetime.utcnow())
+        )
         if res.rowcount != len(ids):
             await s.rollback()
-            raise AttachmentError("attachment_consumed",
-                                  "Файл уже использован в другом плане. Прикрепите его заново.", 409)
+            raise AttachmentError(
+                "attachment_consumed", "Файл уже использован в другом плане. Прикрепите его заново.", 409
+            )
         await s.commit()
 
 
@@ -306,8 +405,11 @@ async def release(ids: list[str]) -> None:
     if not ids:
         return
     async with store.sessions()() as s:
-        await s.execute(update(ActionAttachment).where(
-            ActionAttachment.id.in_(ids), ActionAttachment.consumed_plan_id == "").values(consumed_at=None))
+        await s.execute(
+            update(ActionAttachment)
+            .where(ActionAttachment.id.in_(ids), ActionAttachment.consumed_plan_id == "")
+            .values(consumed_at=None)
+        )
         await s.commit()
 
 
@@ -315,8 +417,9 @@ async def bind_plan(ids: list[str], plan_id: str) -> None:
     if not ids:
         return
     async with store.sessions()() as s:
-        await s.execute(update(ActionAttachment).where(ActionAttachment.id.in_(ids)).values(
-            consumed_plan_id=plan_id))
+        await s.execute(
+            update(ActionAttachment).where(ActionAttachment.id.in_(ids)).values(consumed_plan_id=plan_id)
+        )
         await s.commit()
 
 
@@ -326,7 +429,9 @@ async def delete_unused(att_id: str, project_id: int | None = None) -> bool:
         if row is None or (project_id is not None and row.project_id != project_id):
             return False
         if row.consumed_at is not None:
-            raise AttachmentError("attachment_consumed", "Файл уже использован в плане, удалить его нельзя.", 409)
+            raise AttachmentError(
+                "attachment_consumed", "Файл уже использован в плане, удалить его нельзя.", 409
+            )
         path = row.rel_path
         await s.delete(row)
         await s.commit()
@@ -337,12 +442,12 @@ async def delete_unused(att_id: str, project_id: int | None = None) -> bool:
     return True
 
 
-
 _last_cleanup = 0.0
 
 
 async def cleanup_unused(*, max_age_days: float | None = None, now: datetime | None = None) -> dict:
     from app.settings import settings
+
     days = float(settings.action_layer_attachment_retention_days if max_age_days is None else max_age_days)
     out = {"removed": 0, "bytes": 0, "orphans": 0}
     if days <= 0 and max_age_days is None:
@@ -350,8 +455,13 @@ async def cleanup_unused(*, max_age_days: float | None = None, now: datetime | N
     now = now or datetime.utcnow()
     cutoff = now - timedelta(days=days)
     async with store.sessions()() as s:
-        rows = (await s.scalars(select(ActionAttachment).where(
-            ActionAttachment.consumed_at.is_(None), ActionAttachment.created_at < cutoff))).all()
+        rows = (
+            await s.scalars(
+                select(ActionAttachment).where(
+                    ActionAttachment.consumed_at.is_(None), ActionAttachment.created_at < cutoff
+                )
+            )
+        ).all()
         for row in rows:
             try:
                 path = abs_path(row.rel_path)

@@ -31,9 +31,7 @@ def check_shot_dropped(before: Any, after: Any, ops: Any = None) -> list[Violati
         scene = shot.get("сцена") if isinstance(shot, dict) else None
         scene_key = "" if scene in (None, "") else str(scene)
         path = f"scenes/{scene_key}/кадры/{fid}" if scene_key else f"кадры/{fid}"
-        violations.append(
-            Violation(code="shot_dropped", severity="error", path=path, id=fid)
-        )
+        violations.append(Violation(code="shot_dropped", severity="error", path=path, id=fid))
     return sorted_violations(violations)
 
 
@@ -76,9 +74,7 @@ def check_marked_shot_removed(before: Any, after: Any, ops: Any = None) -> list[
         # в кадре не стало меньше: иначе сдвиг прячет удаление.
         slot_ok = _marked_idless_count(after_list) >= _marked_idless_count(shots)
         cell_texts = {
-            _anon_text(other)
-            for other in shots
-            if isinstance(other, dict) and frame_id(other) is None
+            _anon_text(other) for other in shots if isinstance(other, dict) and frame_id(other) is None
         }
         for shot_index, shot in enumerate(shots):
             if not isinstance(shot, dict) or shot_is_active(shot):
@@ -90,9 +86,7 @@ def check_marked_shot_removed(before: Any, after: Any, ops: Any = None) -> list[
                 seen.add(fid)
                 token = fid
             else:
-                if slot_ok and _same_slot_still_marked(
-                    after_list, shot_index, _anon_text(shot), cell_texts
-                ):
+                if slot_ok and _same_slot_still_marked(after_list, shot_index, _anon_text(shot), cell_texts):
                     continue
                 token = _anon_text(shot)
                 if not token or token in after_anon or token in seen:
@@ -146,9 +140,7 @@ def _cell_key(cell: dict[str, Any], index: int) -> tuple[str, str | int]:
 
 def _marked_idless_count(shots: list[Any]) -> int:
     return sum(
-        1
-        for shot in shots
-        if isinstance(shot, dict) and frame_id(shot) is None and not shot_is_active(shot)
+        1 for shot in shots if isinstance(shot, dict) and frame_id(shot) is None and not shot_is_active(shot)
     )
 
 

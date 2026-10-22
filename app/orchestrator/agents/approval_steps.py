@@ -6,10 +6,18 @@ from typing import Any
 
 from app.orchestrator.contracts import PlanStep
 
-PLAN_CARD_REASONS = frozenset({
-    "plan_sanity", "critic_reject", "critic_escalation", "unknown_cost", "steer_not_approved",
-    "risk", "paid", "approval_required",
-})
+PLAN_CARD_REASONS = frozenset(
+    {
+        "plan_sanity",
+        "critic_reject",
+        "critic_escalation",
+        "unknown_cost",
+        "steer_not_approved",
+        "risk",
+        "paid",
+        "approval_required",
+    }
+)
 _RISK_ORDER = ("none", "low", "medium", "high")
 _UNKNOWN_TITLE = "Действие вне каталога студии"
 _ACTION_ID = re.compile(r"(?<![\w.])[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*(?![\w.])")
@@ -156,8 +164,12 @@ def _paid(actions: Any, step: PlanStep, spec: Any) -> bool:
 def step_view(step: PlanStep, actions: Any, labels: dict[str, str] | None = None) -> dict[str, Any]:
     spec = _spec(step.action)
     named = node_title(step.action, dict(step.params), labels) if spec is not None else ""
-    title = (named or _SOFT_TITLES.get(step.action) or str(getattr(spec, "title_ru", "") or "").strip()
-             or _UNKNOWN_TITLE)
+    title = (
+        named
+        or _SOFT_TITLES.get(step.action)
+        or str(getattr(spec, "title_ru", "") or "").strip()
+        or _UNKNOWN_TITLE
+    )
     params_text = _params_text(dict(step.params), labels, bool(named))
     paid = _paid(actions, step, spec)
     risk = _risk(actions, step)
@@ -173,7 +185,9 @@ def step_view(step: PlanStep, actions: Any, labels: dict[str, str] | None = None
     }
 
 
-def plan_steps(plan: list[PlanStep], actions: Any, labels: dict[str, str] | None = None) -> list[dict[str, Any]]:
+def plan_steps(
+    plan: list[PlanStep], actions: Any, labels: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
     return [step_view(step, actions, labels) for step in plan]
 
 
@@ -232,7 +246,7 @@ def _step_usd(step: PlanStep, spec: Any) -> float | None:
 def plan_cost(plan: list[PlanStep], views: list[dict[str, Any]]) -> tuple[float | None, str]:
     total = 0.0
     paid_any = False
-    for step, view in zip(plan, views):
+    for step, view in zip(plan, views, strict=False):
         if not view.get("paid"):
             continue
         paid_any = True

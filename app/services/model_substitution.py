@@ -66,9 +66,7 @@ def note_model_substitution(
             model=substituted or original or "unknown",
             call_type="model_substitution",
             status_code=200,
-            project_source=(
-                f"pipeline_project_{project_id}" if project_id else "pipeline"
-            ),
+            project_source=(f"pipeline_project_{project_id}" if project_id else "pipeline"),
             metadata={
                 "event": "model_substitution",
                 "original_model": original,

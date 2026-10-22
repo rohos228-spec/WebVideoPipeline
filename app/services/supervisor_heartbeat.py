@@ -17,7 +17,6 @@ DEFAULT_BEAT_S = 5.0
 _last_beat = 0.0
 
 
-
 def _float_env(name: str, default: float, minimum: float) -> float:
     try:
         return max(minimum, float(os.environ.get(name) or default))
@@ -38,7 +37,12 @@ def check_interval_s() -> float:
 
 
 def enabled() -> bool:
-    return (os.environ.get("VP_SUPERVISOR_HEARTBEAT") or "1").strip().lower() not in {"0", "false", "no", "off"}
+    return (os.environ.get("VP_SUPERVISOR_HEARTBEAT") or "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
 
 
 def store_dir() -> Path:
@@ -48,10 +52,10 @@ def store_dir() -> Path:
     sq = os.environ.get("SQLITE_PATH")
     if not sq:
         from app.settings import settings
+
         sq = str(settings.sqlite_path)
     p = Path(sq)
     return (p if p.is_absolute() else Path.cwd() / p).parent
-
 
 
 def _atomic_write(path: Path, payload: dict) -> bool:
@@ -74,14 +78,17 @@ def beat(*, force: bool = False, now: float | None = None, directory: Path | Non
     if not force and time.monotonic() - _last_beat < beat_interval_s():
         return False
     _last_beat = time.monotonic()
-    return _atomic_write((directory or store_dir()) / HEARTBEAT_FILE,
-                         {"ts": t, "pid": os.getpid(), "stopped": False})
+    return _atomic_write(
+        (directory or store_dir()) / HEARTBEAT_FILE, {"ts": t, "pid": os.getpid(), "stopped": False}
+    )
 
 
 def mark_stopped(directory: Path | None = None) -> None:
     if enabled():
-        _atomic_write((directory or store_dir()) / HEARTBEAT_FILE,
-                      {"ts": time.time(), "pid": os.getpid(), "stopped": True})
+        _atomic_write(
+            (directory or store_dir()) / HEARTBEAT_FILE,
+            {"ts": time.time(), "pid": os.getpid(), "stopped": True},
+        )
 
 
 def read_heartbeat(directory: Path | None = None) -> dict | None:
@@ -92,7 +99,6 @@ def read_heartbeat(directory: Path | None = None) -> dict | None:
         return None
 
 
-
 def evaluate(heartbeat: dict | None, alarm_open: bool, now: float, window: float) -> str:
     if not heartbeat:
         return "no_heartbeat"
@@ -101,7 +107,6 @@ def evaluate(heartbeat: dict | None, alarm_open: bool, now: float, window: float
     if (now - float(heartbeat["ts"])) <= window:
         return "resolve" if alarm_open else "ok"
     return "silent_known" if alarm_open else "silent_new"
-
 
 
 def _claim_alarm(directory: Path, info: dict) -> bool:
@@ -127,14 +132,16 @@ async def _send(text: str, kind: str, project_id: int | None = None) -> None:
 
     await _to_chat(kind, text, project_id)
     try:
-        log_notification(project_id=project_id, channel=CHANNEL_OFF, kind=kind, text=text, ok=False,
-                         error=NOOP_ERROR_RU)
+        log_notification(
+            project_id=project_id, channel=CHANNEL_OFF, kind=kind, text=text, ok=False, error=NOOP_ERROR_RU
+        )
     except Exception as exc:
         logger.error("watchdog notice not logged: {}: {}", type(exc).__name__, exc)
 
 
-async def check_once(*, directory: Path | None = None, now: float | None = None,
-                     window: float | None = None) -> dict:
+async def check_once(
+    *, directory: Path | None = None, now: float | None = None, window: float | None = None
+) -> dict:
     d = directory or store_dir()
     t = time.time() if now is None else now
     w = window if window is not None else window_s()
@@ -145,8 +152,10 @@ async def check_once(*, directory: Path | None = None, now: float | None = None,
     sent = False
     if decision == "silent_new":
         if _claim_alarm(d, {"since": t, "last_heartbeat": hb["ts"], "pid": hb.get("pid")}):
-            text = (f"Сторож: цикл надзора молчит {int(age)} с (окно {int(w)} с). Процесс мог упасть или зависнуть. "
-                    "Проверьте приложение и перезапустите его.")
+            text = (
+                f"Сторож: цикл надзора молчит {int(age)} с (окно {int(w)} с). Процесс мог упасть или зависнуть. "
+                "Проверьте приложение и перезапустите его."
+            )
             _audit("/watchdog/observer_silent", "alarm", 503)
             try:
                 await _send(text, KIND_ALARM)

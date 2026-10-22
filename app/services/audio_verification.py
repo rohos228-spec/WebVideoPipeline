@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -44,7 +43,6 @@ class AudioVerdict:
 
 
 class AudioStepError(RuntimeError):
-
     def __init__(self, failure_class: str, message: str, *, verdict: AudioVerdict | None = None):
         super().__init__(message)
         self.failure_class = failure_class
@@ -56,7 +54,10 @@ def _ffprobe(path: Path) -> dict[str, Any] | None:
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         data = json.loads(out.stdout or "{}")
         return data if isinstance(data, dict) and data.get("format") else None
     except Exception:
@@ -65,8 +66,12 @@ def _ffprobe(path: Path) -> dict[str, Any] | None:
 
 def _levels_ffmpeg(path: Path) -> tuple[float | None, float | None]:
     try:
-        out = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(path), "-af", "astats", "-f", "null", "-"],
-                             capture_output=True, text=True, timeout=120)
+        out = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-i", str(path), "-af", "astats", "-f", "null", "-"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
     except Exception:
         return None, None
     peak = rms = None
@@ -86,6 +91,7 @@ def _levels_ffmpeg(path: Path) -> tuple[float | None, float | None]:
 def _levels_wav(path: Path) -> tuple[float | None, float | None]:
     import array
     import math
+
     try:
         with wave.open(str(path), "rb") as w:
             if w.getsampwidth() != 2:
@@ -99,13 +105,21 @@ def _levels_wav(path: Path) -> tuple[float | None, float | None]:
         return None, None
     peak = max(abs(x) for x in a)
     rms = math.sqrt(sum(x * x for x in a) / len(a))
-    db = lambda v: -120.0 if v <= 0 else 20 * math.log10(v / 32768.0)
+
+    def db(v):
+        return -120.0 if v <= 0 else 20 * math.log10(v / 32768.0)
+
     return db(peak), db(rms)
 
 
-def verify_audio(path: Path | str, *, expect_duration: float | None = None, duration_tol: float = 0.5,
-                 allowed_formats: tuple[str, ...] = ALLOWED_FORMATS,
-                 min_duration: float = 0.05) -> AudioVerdict:
+def verify_audio(
+    path: Path | str,
+    *,
+    expect_duration: float | None = None,
+    duration_tol: float = 0.5,
+    allowed_formats: tuple[str, ...] = ALLOWED_FORMATS,
+    min_duration: float = 0.05,
+) -> AudioVerdict:
     p = Path(path)
     v = AudioVerdict(path=str(p))
 
@@ -141,8 +155,10 @@ def verify_audio(path: Path | str, *, expect_duration: float | None = None, dura
         bad("zero_duration", f"нулевая или нечитаемая длительность: {p.name}")
         return v
     if expect_duration is not None and abs(v.duration - expect_duration) > duration_tol:
-        bad("duration_mismatch",
-            f"длительность {v.duration:.2f} с вне допуска (ожидалась {expect_duration:.2f} с): {p.name}")
+        bad(
+            "duration_mismatch",
+            f"длительность {v.duration:.2f} с вне допуска (ожидалась {expect_duration:.2f} с): {p.name}",
+        )
     peak, rms = _levels_wav(p) if p.suffix.lower() == ".wav" else (None, None)
     if peak is None and rms is None:
         peak, rms = _levels_ffmpeg(p)
@@ -150,8 +166,10 @@ def verify_audio(path: Path | str, *, expect_duration: float | None = None, dura
     if peak is None and rms is None:
         bad("level_unknown", f"не удалось измерить уровень сигнала: {p.name}")
     else:
-        v.silent = bool((peak is not None and peak <= SILENT_PEAK_DB)
-                        or (rms is not None and rms <= SILENT_RMS_DB and (peak is None or peak <= -40.0)))
+        v.silent = bool(
+            (peak is not None and peak <= SILENT_PEAK_DB)
+            or (rms is not None and rms <= SILENT_RMS_DB and (peak is None or peak <= -40.0))
+        )
         if v.silent:
             bad("silent", f"тишина: нулевая амплитуда (пик {peak} dB, RMS {rms} dB): {p.name}")
     v.ok = not v.codes
@@ -174,7 +192,10 @@ def classify_audio_failure(exc: BaseException) -> tuple[str, str]:
         kind = "no_voice_source"
     elif any(w in msg for w in ("whisper", "asr", "распозна")):
         kind = "asr_failed"
-    elif any(w in msg for w in ("elevenlabs", "11labs", "tts", "synthesize", "голос")) or "httpx" in type(exc).__module__:
+    elif (
+        any(w in msg for w in ("elevenlabs", "11labs", "tts", "synthesize", "голос"))
+        or "httpx" in type(exc).__module__
+    ):
         kind = "tts_failed"
     else:
         kind = "unknown"

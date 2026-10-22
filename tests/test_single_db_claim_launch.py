@@ -18,7 +18,6 @@ from __future__ import annotations
 import inspect
 import time
 import uuid
-from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
@@ -37,6 +36,7 @@ from app.models import (
 )
 from app.services import (  # noqa: F401  (модули движка регистрируют свои таблицы)
     actions_recovery,
+    actions_v1,
     decision_config,
     decision_state,
     diagnosis,
@@ -46,7 +46,6 @@ from app.services import (  # noqa: F401  (модули движка регис�
     profiles_state,
     revisions,
 )
-from app.services import actions_v1
 from app.services.actions_recovery import RecoveryAction
 from app.services.actions_v1 import (
     ACTIVE_NODE_STATUSES,
@@ -92,9 +91,9 @@ async def _seed_run(*, node_status=NodeRunStatus.pending, node_key="n_plan", pro
 
 def test_busy_status_sets_hold_only_model_members():
     members = set(NodeRunStatus)
-    assert ACTIVE_NODE_STATUSES <= members and BUSY_NODE_STATUSES <= members
-    assert ACTIVE_NODE_STATUSES == {NodeRunStatus.running, NodeRunStatus.queued, NodeRunStatus.waiting_hitl}
-    assert BUSY_NODE_STATUSES == {NodeRunStatus.running, NodeRunStatus.queued}
+    assert members >= ACTIVE_NODE_STATUSES and members >= BUSY_NODE_STATUSES
+    assert {NodeRunStatus.running, NodeRunStatus.queued, NodeRunStatus.waiting_hitl} == ACTIVE_NODE_STATUSES
+    assert {NodeRunStatus.running, NodeRunStatus.queued} == BUSY_NODE_STATUSES
     # Старое имя из actions_recovery остаётся тем же множеством.
     assert actions_recovery.ACTIVE_NODE_STATUSES is ACTIVE_NODE_STATUSES
 

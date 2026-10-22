@@ -1,19 +1,29 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Awaitable, Callable
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services.access_guard import LocalOnlyDep
 from app.services.action_layer import (
-    approval, attachments, executor, macros, planner, planner_autofill, planner_rules, service, store)
+    approval,
+    attachments,
+    executor,
+    macros,
+    planner,
+    planner_autofill,
+    planner_rules,
+    service,
+    store,
+)
 from app.services.action_layer.plan import PlanFormatError
 from app.services.action_layer.spec import ensure_builtin_actions
 from app.services.action_layer.spec import registry as default_registry
-from app.services.access_guard import LocalOnlyDep
 from app.web.engine_access import EngineAuthDep as AuthDep
 
 router = APIRouter(prefix="/action-layer", tags=["action-layer"])
@@ -68,13 +78,12 @@ def _stale(exc: Exception) -> HTTPException:
     return HTTPException(409, detail={"code": "stale_context", "message": str(exc)})
 
 
-def _attachment_http(exc: "attachments.AttachmentError") -> HTTPException:
+def _attachment_http(exc: attachments.AttachmentError) -> HTTPException:
     return HTTPException(exc.status, detail={"code": exc.code, "message": str(exc)})
 
 
 def _operator(token: str | None) -> approval.OperatorIdentity:
     return approval.OperatorIdentity.from_token(token)
-
 
 
 _IDEM_KEY_RE = re.compile(r"^[A-Za-z0-9_.:\-]{1,80}$")
@@ -94,27 +103,39 @@ def _idem_headers(
 
     key = (idempotency_key or "").strip() or None
     if key is not None and not _IDEM_KEY_RE.match(key):
-        raise HTTPException(422, detail={
-            "code": "bad_idempotency_key",
-            "message": "Idempotency-Key: 1-80 символов из A-Z a-z 0-9 _ . : -"})
+        raise HTTPException(
+            422,
+            detail={
+                "code": "bad_idempotency_key",
+                "message": "Idempotency-Key: 1-80 символов из A-Z a-z 0-9 _ . : -",
+            },
+        )
     return IdemHeaders(key=key, operator=normalize_operator(operator_header) if operator_header else "")
 
 
 IdemDep = Annotated[IdemHeaders, Depends(_idem_headers)]
 
 
-async def _once(request: Request, idem: IdemHeaders, who: approval.OperatorIdentity,
-                call: Callable[[], Awaitable[Any]], *, body: Any = None) -> Any:
+async def _once(
+    request: Request,
+    idem: IdemHeaders,
+    who: approval.OperatorIdentity,
+    call: Callable[[], Awaitable[Any]],
+    *,
+    body: Any = None,
+) -> Any:
     if not idem.key:
         return await call()
     from sqlalchemy.exc import SQLAlchemyError
 
-    fp = store.call_fingerprint(request.method, request.url.path,
-                                params=sorted(request.query_params.multi_items()), body=body)
+    fp = store.call_fingerprint(
+        request.method, request.url.path, params=sorted(request.query_params.multi_items()), body=body
+    )
     actor = idem.operator or who.id
     try:
-        state, row = await store.claim_call(idem.key, fp, method=request.method, path=request.url.path,
-                                            operator=actor)
+        state, row = await store.claim_call(
+            idem.key, fp, method=request.method, path=request.url.path, operator=actor
+        )
     except SQLAlchemyError:
         return await call()
     if state == "done":
@@ -122,10 +143,14 @@ async def _once(request: Request, idem: IdemHeaders, who: approval.OperatorIdent
             return {"idempotent_replay": True, "response_omitted": True}
         return row.response if row is not None else {"idempotent_replay": True}
     if state == "unknown":
-        raise HTTPException(409, detail={
-            "code": "idempotency_unknown",
-            "message": "Предыдущая попытка с этим Idempotency-Key началась и не завершилась записью исхода: "
-                       "результат неизвестен, повтор запрещён. Проверьте состояние вручную."})
+        raise HTTPException(
+            409,
+            detail={
+                "code": "idempotency_unknown",
+                "message": "Предыдущая попытка с этим Idempotency-Key началась и не завершилась записью исхода: "
+                "результат неизвестен, повтор запрещён. Проверьте состояние вручную.",
+            },
+        )
     try:
         result = await call()
     except HTTPException as exc:
@@ -136,8 +161,9 @@ async def _once(request: Request, idem: IdemHeaders, who: approval.OperatorIdent
 
 
 @router.get("/catalog")
-async def catalog(operator: AuthDep, risk: str | None = Query(None),
-                  prefix: str | None = Query(None)) -> dict:
+async def catalog(
+    operator: AuthDep, risk: str | None = Query(None), prefix: str | None = Query(None)
+) -> dict:
     ensure_builtin_actions()
     items = default_registry.list(risk=risk, prefix=prefix)
     return {"count": len(items), "actions": [s.to_json() for s in items]}
@@ -150,8 +176,11 @@ async def preview_plan(request: Request, body: PlanIn, operator: AuthDep, idem: 
     async def call() -> dict:
         try:
             plan_id, preview = await service.create_plan(
-                request.app, [s.model_dump() for s in body.steps], operator=who,
-                request_text=body.request_text)
+                request.app,
+                [s.model_dump() for s in body.steps],
+                operator=who,
+                request_text=body.request_text,
+            )
         except PlanFormatError as exc:
             raise HTTPException(422, detail={"code": "bad_plan", "message": str(exc)}) from exc
         if plan_id is None:
@@ -164,7 +193,9 @@ async def preview_plan(request: Request, body: PlanIn, operator: AuthDep, idem: 
 @router.post("/plans/from-text", dependencies=[LocalOnlyDep])
 async def plan_from_text(request: Request, body: FromTextIn, operator: AuthDep, idem: IdemDep) -> dict:
     who = _operator(operator)
-    return await _once(request, idem, who, lambda: _plan_from_text(request, body, operator), body=body.model_dump())
+    return await _once(
+        request, idem, who, lambda: _plan_from_text(request, body, operator), body=body.model_dump()
+    )
 
 
 async def _plan_from_text(request: Request, body: FromTextIn, operator: str | None) -> dict:
@@ -175,9 +206,13 @@ async def _plan_from_text(request: Request, body: FromTextIn, operator: str | No
         raise _attachment_http(exc) from exc
     try:
         outcome = await planner.plan_from_text(
-            body.text, operator=who.id, project_id=body.project_id,
-            selected_scene=body.selected_scene, selected_frame=body.selected_frame,
-            attachments=refs)
+            body.text,
+            operator=who.id,
+            project_id=body.project_id,
+            selected_scene=body.selected_scene,
+            selected_frame=body.selected_frame,
+            attachments=refs,
+        )
     except planner.PlannerRateLimited as exc:
         raise HTTPException(429, detail={"code": exc.code, "message": str(exc)}) from exc
     except planner.PlannerRefused as exc:
@@ -185,18 +220,23 @@ async def _plan_from_text(request: Request, body: FromTextIn, operator: str | No
         raise HTTPException(status, detail={"code": exc.code, "message": str(exc)}) from exc
     except planner.PlannerRejected as exc:
         status = 404 if exc.code == "project_not_found" else 422
-        raise HTTPException(status, detail={
-            "code": "planner_rejected", "reason": exc.code, "message": str(exc)}) from exc
+        raise HTTPException(
+            status, detail={"code": "planner_rejected", "reason": exc.code, "message": str(exc)}
+        ) from exc
     except planner.PlannerFailed as exc:
-        raise HTTPException(502, detail={"code": exc.code, "message": str(exc),
-                                         "retryable": exc.retryable}) from exc
+        raise HTTPException(
+            502, detail={"code": exc.code, "message": str(exc), "retryable": exc.retryable}
+        ) from exc
     reply = outcome.reply
     notes = await planner_autofill.fill_node_run_limits(request.app, who.id, reply.steps)
-    extra = {"explanation_ru": planner_rules.with_defaults_note(reply.explanation_ru, notes),
-             "needs_clarification": reply.needs_clarification,
-             "clarification_options": list(reply.clarification_options),
-             "attachment_request": reply.attachment,
-             "context_version": outcome.context["version"], "planner": outcome.meta}
+    extra = {
+        "explanation_ru": planner_rules.with_defaults_note(reply.explanation_ru, notes),
+        "needs_clarification": reply.needs_clarification,
+        "clarification_options": list(reply.clarification_options),
+        "attachment_request": reply.attachment,
+        "context_version": outcome.context["version"],
+        "planner": outcome.meta,
+    }
     if reply.needs_clarification:
         return {"plan_id": None, "preview": None, "attachments_used": [], **extra}
     used = list(reply.attachments_used)
@@ -206,7 +246,8 @@ async def _plan_from_text(request: Request, body: FromTextIn, operator: str | No
         raise _attachment_http(exc) from exc
     try:
         plan_id, preview = await service.create_plan(
-            request.app, reply.steps, operator=who, request_text=body.text)
+            request.app, reply.steps, operator=who, request_text=body.text
+        )
     except BaseException as exc:
         await attachments.release(used)
         if isinstance(exc, PlanFormatError):
@@ -225,8 +266,7 @@ async def list_macros(operator: AuthDep) -> dict:
     who = _operator(operator)
     ensure_builtin_actions()
     items = await macros.list_macros(who.id)
-    return {"count": len(items),
-            "macros": [m.to_json(default_registry, who.id) for m in items]}
+    return {"count": len(items), "macros": [m.to_json(default_registry, who.id) for m in items]}
 
 
 @router.post("/macros", dependencies=[LocalOnlyDep])
@@ -234,9 +274,14 @@ async def save_macro(body: MacroIn, operator: AuthDep) -> dict:
     who = _operator(operator)
     try:
         macro = await macros.save_macro(
-            who.id, title_ru=body.title_ru, description_ru=body.description_ru,
-            steps=[s.model_dump() for s in body.steps], params_schema=body.params_schema,
-            shared=body.shared, macro_id=body.id)
+            who.id,
+            title_ru=body.title_ru,
+            description_ru=body.description_ru,
+            steps=[s.model_dump() for s in body.steps],
+            params_schema=body.params_schema,
+            shared=body.shared,
+            macro_id=body.id,
+        )
     except macros.MacroError as exc:
         raise HTTPException(422, detail={"code": "macro_invalid", "errors": exc.errors}) from exc
     except macros.MacroForbidden as exc:
@@ -259,7 +304,9 @@ async def delete_macro(macro_id: str, operator: AuthDep) -> dict:
 @router.post("/plans/from-macro", dependencies=[LocalOnlyDep])
 async def plan_from_macro(request: Request, body: FromMacroIn, operator: AuthDep, idem: IdemDep) -> dict:
     who = _operator(operator)
-    return await _once(request, idem, who, lambda: _plan_from_macro(request, body, operator), body=body.model_dump())
+    return await _once(
+        request, idem, who, lambda: _plan_from_macro(request, body, operator), body=body.model_dump()
+    )
 
 
 async def _plan_from_macro(request: Request, body: FromMacroIn, operator: str | None) -> dict:
@@ -271,12 +318,11 @@ async def _plan_from_macro(request: Request, body: FromMacroIn, operator: str | 
     except LookupError as exc:
         raise HTTPException(404, detail="Макрос не найден.") from exc
     except macros.MacroUnavailable as exc:
-        raise HTTPException(409, detail={
-            "code": "macro_unavailable", "missing_action_ids": exc.missing,
-            "message": str(exc)}) from exc
+        raise HTTPException(
+            409, detail={"code": "macro_unavailable", "missing_action_ids": exc.missing, "message": str(exc)}
+        ) from exc
     except macros.MacroError as exc:
-        raise HTTPException(422, detail={"code": "macro_params_invalid",
-                                         "errors": exc.errors}) from exc
+        raise HTTPException(422, detail={"code": "macro_params_invalid", "errors": exc.errors}) from exc
     pid = body.params.get("project_id")
     pid = pid if isinstance(pid, int) and not isinstance(pid, bool) else None
     try:
@@ -285,20 +331,23 @@ async def _plan_from_macro(request: Request, body: FromMacroIn, operator: str | 
         raise HTTPException(404, detail={"code": exc.code, "message": str(exc)}) from exc
     try:
         plan_id, preview = await service.create_plan(
-            request.app, steps, operator=who,
-            request_text=body.request_text or f"[макрос {macro.id}] {macro.title_ru}")
+            request.app,
+            steps,
+            operator=who,
+            request_text=body.request_text or f"[макрос {macro.id}] {macro.title_ru}",
+        )
     except PlanFormatError as exc:
         raise HTTPException(422, detail={"code": "bad_plan", "message": str(exc)}) from exc
     if plan_id is None:
         raise HTTPException(422, detail={"code": "plan_invalid", "preview": preview})
     await planner.save_plan_context(plan_id, source="macro", ctx=ctx, macro_id=macro.id)
-    return {"plan_id": plan_id, "preview": preview, "macro_id": macro.id,
-            "context_version": ctx["version"]}
+    return {"plan_id": plan_id, "preview": preview, "macro_id": macro.id, "context_version": ctx["version"]}
 
 
 @router.post("/plans/{plan_id}/approve", dependencies=[LocalOnlyDep])
-async def approve(request: Request, plan_id: str, operator: AuthDep, idem: IdemDep,
-                  body: EmptyBody | None = None) -> dict:
+async def approve(
+    request: Request, plan_id: str, operator: AuthDep, idem: IdemDep, body: EmptyBody | None = None
+) -> dict:
     who = _operator(operator)
 
     async def call() -> dict:
@@ -315,8 +364,9 @@ async def approve(request: Request, plan_id: str, operator: AuthDep, idem: IdemD
 
 
 @router.post("/plans/{plan_id}/run", dependencies=[LocalOnlyDep])
-async def run(request: Request, plan_id: str, operator: AuthDep, idem: IdemDep,
-              body: EmptyBody | None = None) -> dict:
+async def run(
+    request: Request, plan_id: str, operator: AuthDep, idem: IdemDep, body: EmptyBody | None = None
+) -> dict:
     who = _operator(operator)
 
     async def call() -> dict:
@@ -337,9 +387,12 @@ async def run(request: Request, plan_id: str, operator: AuthDep, idem: IdemDep,
 
 
 @router.get("/plans")
-async def list_plans(operator: AuthDep, status: str | None = Query(None, max_length=20),
-                     project_id: int | None = Query(None, ge=1),
-                     limit: int = Query(20, ge=1, le=100)) -> dict:
+async def list_plans(
+    operator: AuthDep,
+    status: str | None = Query(None, max_length=20),
+    project_id: int | None = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+) -> dict:
     return await service.list_plans(status=status, project_id=project_id, limit=limit)
 
 
@@ -352,8 +405,9 @@ async def get_plan(plan_id: str, operator: AuthDep) -> dict:
 
 
 @router.post("/plans/{plan_id}/stop", dependencies=[LocalOnlyDep])
-async def stop(request: Request, plan_id: str, operator: AuthDep, idem: IdemDep,
-               body: EmptyBody | None = None) -> dict:
+async def stop(
+    request: Request, plan_id: str, operator: AuthDep, idem: IdemDep, body: EmptyBody | None = None
+) -> dict:
     who = _operator(operator)
 
     async def call() -> dict:
@@ -376,6 +430,7 @@ class ReleaseReserveIn(BaseModel):
 async def list_unresolved_reserves(operator: AuthDep, older_than_s: float = Query(0.0, ge=0)) -> dict:
     from app.services.action_layer import budget
     from app.services.kie_catalog import CREDIT_USD
+
     async with store.sessions()() as s:
         rows = await budget.unresolved_reserves(s, older_than_s=older_than_s)
     ensure_builtin_actions()
@@ -396,16 +451,19 @@ _RESERVE_STATUS_RU = {
 
 
 @router.post("/reserves/release", dependencies=[LocalOnlyDep])
-async def release_unresolved_reserve(request: Request, body: ReleaseReserveIn, operator: AuthDep,
-                                     idem: IdemDep) -> dict:
+async def release_unresolved_reserve(
+    request: Request, body: ReleaseReserveIn, operator: AuthDep, idem: IdemDep
+) -> dict:
     who = _operator(operator)
 
     async def call() -> dict:
         from app.services.action_layer import budget
+
         async with store.sessions()() as s:
             try:
-                out = await budget.release_reserve(s, plan_id=body.plan_id, step_index=body.step_index,
-                                                   operator=who.id, reason=body.reason)
+                out = await budget.release_reserve(
+                    s, plan_id=body.plan_id, step_index=body.step_index, operator=who.id, reason=body.reason
+                )
             except budget.BudgetError as exc:
                 raise HTTPException(409, detail={"code": exc.code, "message": str(exc)}) from exc
             await s.commit()
@@ -415,15 +473,16 @@ async def release_unresolved_reserve(request: Request, body: ReleaseReserveIn, o
 
 
 @router.get("/history")
-async def get_history(operator: AuthDep, plan_id: str | None = Query(None),
-                      limit: int = Query(100, ge=1, le=500),
-                      before_id: int | None = Query(None, ge=1)) -> dict:
+async def get_history(
+    operator: AuthDep,
+    plan_id: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    before_id: int | None = Query(None, ge=1),
+) -> dict:
     return await service.history(plan_id=plan_id, limit=limit, before_id=before_id)
 
 
-
 class _UploadRoute(APIRoute):
-
     def get_route_handler(self):
         original = super().get_route_handler()
 
@@ -431,11 +490,13 @@ class _UploadRoute(APIRoute):
             if request.method == "POST":
                 raw = request.headers.get("content-length", "")
                 if not raw.isdigit():
-                    raise HTTPException(411, detail={
-                        "code": "length_required", "message": "Нужен заголовок Content-Length."})
+                    raise HTTPException(
+                        411, detail={"code": "length_required", "message": "Нужен заголовок Content-Length."}
+                    )
                 if int(raw) > attachments.max_request_bytes():
-                    raise HTTPException(413, detail={
-                        "code": "too_large", "message": "Файл больше допустимого размера."})
+                    raise HTTPException(
+                        413, detail={"code": "too_large", "message": "Файл больше допустимого размера."}
+                    )
             return await original(request)
 
         return guarded
@@ -450,10 +511,12 @@ async def attachment_rules(operator: AuthDep) -> dict:
 
 
 @attachments_router.post("/attachments", dependencies=[LocalOnlyDep])
-async def upload_attachment(operator: AuthDep, file: UploadFile = File(...),
-                            project_id: int = Form(..., ge=1)) -> dict:
+async def upload_attachment(
+    operator: AuthDep, file: UploadFile = File(...), project_id: int = Form(..., ge=1)
+) -> dict:
     who = _operator(operator)
     from app.models import Project
+
     async with store.sessions()() as s:
         if await s.get(Project, project_id) is None:
             raise HTTPException(404, detail={"code": "project_not_found", "message": "Проект не найден."})
@@ -468,8 +531,9 @@ async def upload_attachment(operator: AuthDep, file: UploadFile = File(...),
 
 
 @attachments_router.delete("/attachments/{attachment_id}", dependencies=[LocalOnlyDep])
-async def remove_attachment(attachment_id: str, operator: AuthDep,
-                            project_id: int | None = Query(None, ge=1)) -> dict:
+async def remove_attachment(
+    attachment_id: str, operator: AuthDep, project_id: int | None = Query(None, ge=1)
+) -> dict:
     try:
         removed = await attachments.delete_unused(attachment_id, project_id)
     except attachments.AttachmentError as exc:

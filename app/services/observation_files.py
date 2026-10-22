@@ -12,7 +12,12 @@ def secure_directory(path: Path):
     security = ctypes.WinDLL("advapi32", use_last_error=True)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     convert = security.ConvertStringSecurityDescriptorToSecurityDescriptorW
-    convert.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.DWORD)]
+    convert.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(wintypes.DWORD),
+    ]
     convert.restype = wintypes.BOOL
     apply = security.SetFileSecurityW
     apply.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p]

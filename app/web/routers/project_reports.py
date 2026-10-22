@@ -13,9 +13,7 @@ from app.web.engine_access import require_engine_operator
 
 # /api/projects/** открыт участникам (TENANT_ALLOWED_PREFIXES), поэтому отчёты
 # движка закрыты явной зависимостью: пока только админ.
-router = APIRouter(
-    prefix="/projects", tags=["reports"], dependencies=[Depends(require_engine_operator)]
-)
+router = APIRouter(prefix="/projects", tags=["reports"], dependencies=[Depends(require_engine_operator)])
 
 REPORTS_DIR = "reports"
 SHARED_PREFIX = "projects_report_"
@@ -55,8 +53,12 @@ async def download_shared_report(name: str) -> FileResponse:
     if not str(name or "").startswith(SHARED_PREFIX):
         raise HTTPException(status_code=404, detail="Отчёт не найден")
     path = report_file(settings.data_dir, name)
-    return FileResponse(path, media_type=_MEDIA[path.suffix.lstrip(".").lower()], filename=path.name,
-                        headers={"Cache-Control": "private, no-store"})
+    return FileResponse(
+        path,
+        media_type=_MEDIA[path.suffix.lstrip(".").lower()],
+        filename=path.name,
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.get("/{project_id}/reports/{name}")
@@ -67,5 +69,9 @@ async def download_report(
     if project is None:
         raise HTTPException(status_code=404, detail="Проект не найден")
     path = report_file(project.data_dir, name)
-    return FileResponse(path, media_type=_MEDIA[path.suffix.lstrip(".").lower()], filename=path.name,
-                        headers={"Cache-Control": "private, no-store"})
+    return FileResponse(
+        path,
+        media_type=_MEDIA[path.suffix.lstrip(".").lower()],
+        filename=path.name,
+        headers={"Cache-Control": "private, no-store"},
+    )

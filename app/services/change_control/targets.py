@@ -30,6 +30,7 @@ class NodeCtx:
     @property
     def is_excel(self) -> bool:
         from app.services import prompt_library as pl
+
         return pl.is_excel_gpt_prompt_step(self.step)
 
 
@@ -41,8 +42,9 @@ def resolve_node(state: dict, project_id: int, node_key: str) -> NodeCtx:
     from app.services.excel_gpt_node import effective_node_type
 
     canvas = canvas_graph_from_meta(state.get("meta")) or {}
-    node = next((n for n in canvas.get("nodes") or []
-                 if isinstance(n, dict) and str(n.get("id")) == node_key), None)
+    node = next(
+        (n for n in canvas.get("nodes") or [] if isinstance(n, dict) and str(n.get("id")) == node_key), None
+    )
     if node is None:
         raise ChangeRefused("node_not_found", f"node {node_key!r} is not on the project canvas")
     node_type = effective_node_type(node)
@@ -50,9 +52,10 @@ def resolve_node(state: dict, project_id: int, node_key: str) -> NodeCtx:
         node_type = "excel_gpt"
     if node_type not in tiers.ALLOW_LIST:
         reason = tiers.NOT_ALLOWED_PROMPT_REASONS.get(node_type)
-        raise ChangeRefused("node_type_not_allowed",
-                            f"node type {node_type!r} has no allowed changes"
-                            + (f": {reason}" if reason else ""))
+        raise ChangeRefused(
+            "node_type_not_allowed",
+            f"node type {node_type!r} has no allowed changes" + (f": {reason}" if reason else ""),
+        )
     step = NODE_TYPE_TO_STEP_CODE.get(node_type)
     if not step:
         raise ChangeRefused("node_type_not_allowed", f"node type {node_type!r} has no step")
@@ -66,10 +69,11 @@ def with_state(nctx: NodeCtx, **changes: Any) -> NodeCtx:
 
 
 def _text_diff(old: str, new: str) -> str:
-    out = "\n".join(difflib.unified_diff(old.splitlines(), new.splitlines(),
-                                         "current", "proposed", lineterm=""))
+    out = "\n".join(
+        difflib.unified_diff(old.splitlines(), new.splitlines(), "current", "proposed", lineterm="")
+    )
     if len(out) > tiers.MAX_DIFF_CHARS:
-        out = out[:tiers.MAX_DIFF_CHARS] + "\n... [diff truncated]"
+        out = out[: tiers.MAX_DIFF_CHARS] + "\n... [diff truncated]"
     return out
 
 
@@ -89,7 +93,6 @@ def _norm_num(n: float, kind: str) -> int | float:
     return n
 
 
-
 class PromptHandler:
     group = "prompt"
 
@@ -98,15 +101,23 @@ class PromptHandler:
 
     def _resolve(self, nctx: NodeCtx) -> tuple[str, str, Path]:
         from app.services import prompt_library as pl
+
         ns = nctx.ns
         excel = nctx.is_excel
         name, source = pl.resolve_project_prompt_with_source(
-            ns.prompt_overrides or {}, nctx.step, meta=ns.meta,
-            node_key=nctx.node_key if excel else None, slot_id="main" if excel else None)
+            ns.prompt_overrides or {},
+            nctx.step,
+            meta=ns.meta,
+            node_key=nctx.node_key if excel else None,
+            slot_id="main" if excel else None,
+        )
         if excel:
             path = pl.resolve_excel_gpt_prompt_path(
-                name, group_id=pl._group_id_from_canvas_node(ns, nctx.node_key),
-                project=ns, node_key=nctx.node_key)
+                name,
+                group_id=pl._group_id_from_canvas_node(ns, nctx.node_key),
+                project=ns,
+                node_key=nctx.node_key,
+            )
         else:
             path = pl.prompt_path(nctx.step, name)
         return name, source, path
@@ -119,24 +130,38 @@ class PromptHandler:
             text = ""
         return name, path, text
 
-    _SOURCE_NAMES = {"slot": "slot", "preferred": "slot", "override": "project_override",
-                     "global": "global_active", "default": "default"}
+    _SOURCE_NAMES = {
+        "slot": "slot",
+        "preferred": "slot",
+        "override": "project_override",
+        "global": "global_active",
+        "default": "default",
+    }
 
     def describe(self, nctx: NodeCtx) -> dict:
         name, source, path = self._resolve(nctx)
-        out = {"variant": name, "source": self._SOURCE_NAMES.get(source, source),
-               "text": "", "text_chars": 0, "truncated": False, "base_text_sha256": ""}
+        out = {
+            "variant": name,
+            "source": self._SOURCE_NAMES.get(source, source),
+            "text": "",
+            "text_chars": 0,
+            "truncated": False,
+            "base_text_sha256": "",
+        }
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as exc:
-            reason = ("файл варианта не найден" if isinstance(exc, FileNotFoundError)
-                      else "файл варианта не читается")
+            reason = (
+                "файл варианта не найден"
+                if isinstance(exc, FileNotFoundError)
+                else "файл варианта не читается"
+            )
             out.update(source="missing", missing_reason=f"{reason}: вариант «{name}»")
             return out
         out["base_text_sha256"] = sha(text)
         out["text_chars"] = len(text)
         if len(text) > tiers.PROMPT_MAX_CHARS:
-            out.update(text=text[:tiers.PROMPT_MAX_CHARS], truncated=True)
+            out.update(text=text[: tiers.PROMPT_MAX_CHARS], truncated=True)
         else:
             out["text"] = text
         return out
@@ -147,6 +172,7 @@ class PromptHandler:
 
     def _shadowed_by_override(self, nctx: NodeCtx) -> str | None:
         from app.services import prompt_library as pl
+
         if nctx.is_excel:
             return None
         chosen = (nctx.ns.prompt_overrides or {}).get(nctx.step)
@@ -157,19 +183,18 @@ class PromptHandler:
 
     def _slot_wins(self, nctx: NodeCtx, variant: str) -> bool:
         from app.services import prompt_library as pl
+
         if not pl._node_key_belongs_to_step(nctx.node_key, nctx.step):
             return False
         raw = (nctx.state.get("meta") or {}).get("prompt_slot_variants")
         slots = copy.deepcopy(raw) if isinstance(raw, dict) else {}
-        own = dict(slots.get(nctx.node_key) or {}) if isinstance(
-            slots.get(nctx.node_key), dict) else {}
+        own = dict(slots.get(nctx.node_key) or {}) if isinstance(slots.get(nctx.node_key), dict) else {}
         own["main"] = variant
         slots[nctx.node_key] = own
         preferred = pl._STEP_PREFERRED_SLOT.get(nctx.step, "main")
         found_pref = found_main = found_other = None
         for key, node_slots in slots.items():
-            if not isinstance(node_slots, dict) or not pl._node_key_belongs_to_step(
-                    str(key), nctx.step):
+            if not isinstance(node_slots, dict) or not pl._node_key_belongs_to_step(str(key), nctx.step):
                 continue
             for slot_id, raw_name in node_slots.items():
                 clean = pl._clean_variant_name(str(raw_name or ""))
@@ -191,12 +216,16 @@ class PromptHandler:
 
     def _variant_text(self, nctx: NodeCtx, variant: str) -> str | None:
         from app.services import prompt_library as pl
+
         if nctx.is_excel:
             if not pl.excel_gpt_prompt_exists(variant):
                 return None
             path = pl.resolve_excel_gpt_prompt_path(
-                variant, group_id=pl._group_id_from_canvas_node(nctx.ns, nctx.node_key),
-                project=nctx.ns, node_key=nctx.node_key)
+                variant,
+                group_id=pl._group_id_from_canvas_node(nctx.ns, nctx.node_key),
+                project=nctx.ns,
+                node_key=nctx.node_key,
+            )
         else:
             path = pl.prompt_path(nctx.step, variant)
         try:
@@ -216,15 +245,19 @@ class PromptHandler:
             variant = raw["variant"].strip()
             text = self._variant_text(nctx, variant) if variant else None
             if text is None:
-                raise ChangeRefused("variant_not_found",
-                                    f"prompt variant {variant!r} does not exist for this step")
+                raise ChangeRefused(
+                    "variant_not_found", f"prompt variant {variant!r} does not exist for this step"
+                )
             cand = {"variant": variant, "variant_sha256": sha(text)}
         else:
             if set(raw) != {"text"} or not isinstance(raw.get("text"), str):
                 raise ChangeRefused("bad_candidate", "candidate must be {text: string}")
             text = raw["text"]
-            cand = {"text": text, "variant": self.variant_name_for(nctx.node_key, text),
-                    "base_text_sha256": sha(self.base_text(nctx))}
+            cand = {
+                "text": text,
+                "variant": self.variant_name_for(nctx.node_key, text),
+                "base_text_sha256": sha(self.base_text(nctx)),
+            }
         errors = self.validate(nctx, cand, self.live(nctx))
         if errors:
             raise ChangeRefused("lint_failed", "; ".join(errors), errors=errors)
@@ -233,27 +266,40 @@ class PromptHandler:
     def validate(self, nctx: NodeCtx, cand: dict, live: dict) -> list[str]:
         from app.services import prompt_library as pl
         from app.services.prompt_composer import project_uses_blocks_v2
+
         errors: list[str] = []
         variant = cand.get("variant")
-        if (not isinstance(variant, str) or not pl.is_valid_prompt_name(variant)
-                or variant.startswith(".") or pl._clean_variant_name(variant) != variant):
+        if (
+            not isinstance(variant, str)
+            or not pl.is_valid_prompt_name(variant)
+            or variant.startswith(".")
+            or pl._clean_variant_name(variant) != variant
+        ):
             return ["variant name is not valid"]
         if not nctx.is_excel and project_uses_blocks_v2(nctx.ns.prompt_overrides or {}):
-            errors.append("project composes prompts from blocks: a variant/text change "
-                          "would not change the request")
+            errors.append(
+                "project composes prompts from blocks: a variant/text change would not change the request"
+            )
         shadow = self._shadowed_by_override(nctx)
         if shadow:
-            errors.append(f"project override prompt_overrides[{nctx.step!r}]={shadow!r} has "
-                          "precedence over the node slot; the change would not take effect")
+            errors.append(
+                f"project override prompt_overrides[{nctx.step!r}]={shadow!r} has "
+                "precedence over the node slot; the change would not take effect"
+            )
         elif not nctx.is_excel and not self._slot_wins(nctx, variant):
-            errors.append("the step reads its prompt from another node slot or the node key is "
-                          "not linked to the step; the change would not take effect")
+            errors.append(
+                "the step reads its prompt from another node slot or the node key is "
+                "not linked to the step; the change would not take effect"
+            )
         if "text" in cand:
             base = self.base_text(nctx)
             if sha(base) != cand.get("base_text_sha256"):
                 errors.append("current prompt text differs from the one the proposal was based on")
-            errors.extend(lints.lint_prompt_text(
-                cand["text"], base, step=nctx.step, base_name=live.get("variant") or ""))
+            errors.extend(
+                lints.lint_prompt_text(
+                    cand["text"], base, step=nctx.step, base_name=live.get("variant") or ""
+                )
+            )
             if self.variant_name_for(nctx.node_key, cand["text"]) != variant:
                 errors.append("variant name does not match the text")
             existing = self._variant_text(nctx, variant)
@@ -287,6 +333,7 @@ class PromptHandler:
 
     async def write(self, gateway: ProjectGateway, nctx: NodeCtx, content: dict) -> None:
         from app.services import prompt_library as pl
+
         variant = content["variant"]
         text = content.get("text")
         if text is not None:
@@ -294,14 +341,15 @@ class PromptHandler:
             if existing is None:
                 pl.write_prompt(nctx.step, variant, text)
             elif existing != text:
-                raise ChangeFailed("variant_file_conflict",
-                                   "a prompt file with this name has different content")
+                raise ChangeFailed(
+                    "variant_file_conflict", "a prompt file with this name has different content"
+                )
         live = self.live(nctx)
         if live["variant"] == variant and live["text_sha256"] == content.get("text_sha256"):
             return
-        await gateway.patch(nctx.project_id, {
-            "meta": {"prompt_slot_variants": {nctx.node_key: {"main": variant}}}})
-
+        await gateway.patch(
+            nctx.project_id, {"meta": {"prompt_slot_variants": {nctx.node_key: {"main": variant}}}}
+        )
 
 
 class OptionsHandler:
@@ -312,6 +360,7 @@ class OptionsHandler:
 
     def live(self, nctx: NodeCtx) -> dict:
         from app.services.gpt_operator import operator_config
+
         cfg = operator_config(nctx.ns, nctx.node_key)
         return {"values": {f: copy.deepcopy(cfg.get(f)) for f in tiers.NODE_OPTION_FIELDS}}
 
@@ -322,19 +371,26 @@ class OptionsHandler:
         allowed = set(tiers.allowed_kinds(nctx.node_type).get(tiers.K_NODE_OPTIONS, ()))
         bad = sorted(set(values) - allowed)
         if bad:
-            raise ChangeRefused("field_not_allowed",
-                                f"fields outside the allow-list: {bad}; allowed: {sorted(allowed)}")
+            raise ChangeRefused(
+                "field_not_allowed", f"fields outside the allow-list: {bad}; allowed: {sorted(allowed)}"
+            )
         from app.services.gpt_operator import VALID_EMIT_KINDS, VALID_OUTPUTS
+
         errors: list[str] = []
         for f, v in values.items():
             if f == "outputMode":
                 if v not in VALID_OUTPUTS:
                     errors.append(f"outputMode must be one of {sorted(VALID_OUTPUTS)}")
             elif f == "emitKinds":
-                if (not isinstance(v, list) or not v or len(set(map(str, v))) != len(v)
-                        or any(x not in VALID_EMIT_KINDS for x in v)):
-                    errors.append("emitKinds must be a unique non-empty subset of "
-                                  f"{sorted(VALID_EMIT_KINDS)}")
+                if (
+                    not isinstance(v, list)
+                    or not v
+                    or len(set(map(str, v))) != len(v)
+                    or any(x not in VALID_EMIT_KINDS for x in v)
+                ):
+                    errors.append(
+                        f"emitKinds must be a unique non-empty subset of {sorted(VALID_EMIT_KINDS)}"
+                    )
             elif not isinstance(v, bool):
                 errors.append(f"{f} must be a boolean")
         if errors:
@@ -347,6 +403,7 @@ class OptionsHandler:
 
     def validate(self, nctx: NodeCtx, cand: dict, live: dict) -> list[str]:
         from app.services.gpt_operator import operator_config
+
         values = cand.get("values") or {}
         if all(live["values"].get(f) == v for f, v in values.items()):
             return ["values are already set"]
@@ -357,8 +414,11 @@ class OptionsHandler:
         nodes[nctx.node_key] = cur
         meta["excel_gpt_nodes"] = nodes
         eff = operator_config(with_state(nctx, meta=meta).ns, nctx.node_key)
-        return [f"{f} would be coerced to {eff.get(f)!r} by the node config"
-                for f, v in values.items() if eff.get(f) != v]
+        return [
+            f"{f} would be coerced to {eff.get(f)!r} by the node config"
+            for f, v in values.items()
+            if eff.get(f) != v
+        ]
 
     def after(self, nctx: NodeCtx, cand: dict) -> dict:
         values = self.live(nctx)["values"]
@@ -366,8 +426,7 @@ class OptionsHandler:
         return {"values": values}
 
     def diff(self, nctx: NodeCtx, cand: dict, live: dict) -> str:
-        return "\n".join(f"{f}: {live['values'].get(f)!r} -> {v!r}"
-                         for f, v in cand["values"].items())
+        return "\n".join(f"{f}: {live['values'].get(f)!r} -> {v!r}" for f, v in cand["values"].items())
 
     def comparable(self, content: dict) -> dict:
         return {"values": content.get("values")}
@@ -376,9 +435,7 @@ class OptionsHandler:
         live = self.live(nctx)["values"]
         changed = {f: v for f, v in content["values"].items() if live.get(f) != v}
         if changed:
-            await gateway.patch(nctx.project_id,
-                                {"meta": {"excel_gpt_nodes": {nctx.node_key: changed}}})
-
+            await gateway.patch(nctx.project_id, {"meta": {"excel_gpt_nodes": {nctx.node_key: changed}}})
 
 
 class StepParamsHandler:
@@ -399,16 +456,16 @@ class StepParamsHandler:
         return {"step": nctx.step, "values": values}
 
     def prepare(self, nctx: NodeCtx, kind: str, raw: dict) -> dict:
-        if set(raw) != {"step", "values"} or not isinstance(raw.get("values"), dict) \
-                or not raw["values"]:
+        if set(raw) != {"step", "values"} or not isinstance(raw.get("values"), dict) or not raw["values"]:
             raise ChangeRefused("bad_candidate", "candidate must be {step, values: {...}}")
         if raw["step"] != nctx.step:
             raise ChangeRefused("field_not_allowed", f"step must be {nctx.step!r} for this node")
         allowed = set(tiers.allowed_kinds(nctx.node_type).get(tiers.K_STEP_PARAMS, ()))
         bad = sorted(set(raw["values"]) - allowed)
         if bad:
-            raise ChangeRefused("field_not_allowed",
-                                f"fields outside the allow-list: {bad}; allowed: {sorted(allowed)}")
+            raise ChangeRefused(
+                "field_not_allowed", f"fields outside the allow-list: {bad}; allowed: {sorted(allowed)}"
+            )
         limits = tiers.STEP_PARAM_LIMITS[nctx.step]
         norm: dict[str, Any] = {}
         errors: list[str] = []
@@ -446,11 +503,14 @@ class StepParamsHandler:
             elif cur == v:
                 errors.append(f"{f} already equals {v}")
             elif not cur / tiers.MAX_STEP_PARAM_FACTOR <= v <= cur * tiers.MAX_STEP_PARAM_FACTOR:
-                errors.append(f"{f}: change from {cur} to {v} exceeds "
-                              f"x{tiers.MAX_STEP_PARAM_FACTOR}")
+                errors.append(f"{f}: change from {cur} to {v} exceeds x{tiers.MAX_STEP_PARAM_FACTOR}")
         merged = {**live["values"], **(cand.get("values") or {})}
-        for lo, hi in (("cell_min_chars", "cell_max_chars"), ("cell_avg_min", "cell_avg_max"),
-                       ("cell_min_chars", "cell_avg_min"), ("cell_avg_max", "cell_max_chars")):
+        for lo, hi in (
+            ("cell_min_chars", "cell_max_chars"),
+            ("cell_avg_min", "cell_avg_max"),
+            ("cell_min_chars", "cell_avg_min"),
+            ("cell_avg_max", "cell_max_chars"),
+        ):
             if merged.get(lo) is not None and merged.get(hi) is not None and merged[lo] > merged[hi]:
                 errors.append(f"{lo} must not exceed {hi}")
         return errors
@@ -461,24 +521,27 @@ class StepParamsHandler:
         return live
 
     def diff(self, nctx: NodeCtx, cand: dict, live: dict) -> str:
-        return "\n".join(f"{nctx.step}.{f}: {live['values'].get(f)} -> {v}"
-                         for f, v in cand["values"].items())
+        return "\n".join(
+            f"{nctx.step}.{f}: {live['values'].get(f)} -> {v}" for f, v in cand["values"].items()
+        )
 
     def comparable(self, content: dict) -> dict:
         return {"step": content.get("step"), "values": content.get("values")}
 
     async def write(self, gateway: ProjectGateway, nctx: NodeCtx, content: dict) -> None:
         live = self.live(nctx)["values"]
-        changed = {f: v for f, v in content["values"].items()
-                   if v is not None and live.get(f) != v}
+        changed = {f: v for f, v in content["values"].items() if v is not None and live.get(f) != v}
         if changed:
-            await gateway.patch(nctx.project_id,
-                                {"meta": {"node_step_params": {nctx.step: changed}}})
+            await gateway.patch(nctx.project_id, {"meta": {"node_step_params": {nctx.step: changed}}})
 
 
 _PROMPT, _OPTIONS, _STEP = PromptHandler(), OptionsHandler(), StepParamsHandler()
-_BY_KIND = {tiers.K_PROMPT_VARIANT: _PROMPT, tiers.K_PROMPT_TEXT: _PROMPT,
-            tiers.K_NODE_OPTIONS: _OPTIONS, tiers.K_STEP_PARAMS: _STEP}
+_BY_KIND = {
+    tiers.K_PROMPT_VARIANT: _PROMPT,
+    tiers.K_PROMPT_TEXT: _PROMPT,
+    tiers.K_NODE_OPTIONS: _OPTIONS,
+    tiers.K_STEP_PARAMS: _STEP,
+}
 _BY_SUFFIX = {"prompt": _PROMPT, "options": _OPTIONS, "step_params": _STEP}
 
 
@@ -500,6 +563,7 @@ _TARGET_RE = re.compile(r"^project:(\d+):([A-Za-z0-9_.\-]+):(prompt|options|step
 
 def node_title(node_key: str) -> str:
     from app.services import prompt_library as pl
+
     key = str(node_key or "")
     for step in ("plan", "script", "split", "img_pr", "anim_pr", "items"):
         if pl._node_key_belongs_to_step(key, step):

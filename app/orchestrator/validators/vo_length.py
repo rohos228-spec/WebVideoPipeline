@@ -22,14 +22,8 @@ class Violation:
     @property
     def message(self) -> str:
         if self.kind == "too_short":
-            return (
-                f"фрагмент {self.index}: {self.length} симв. "
-                f"< {MIN_VO_CHARS}"
-            )
-        return (
-            f"фрагмент {self.index}: {self.length} симв. "
-            f"> {MAX_VO_CHARS}"
-        )
+            return f"фрагмент {self.index}: {self.length} симв. < {MIN_VO_CHARS}"
+        return f"фрагмент {self.index}: {self.length} симв. > {MAX_VO_CHARS}"
 
 
 def check_vo_lengths(fragments: list[str]) -> list[Violation]:

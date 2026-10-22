@@ -31,6 +31,7 @@ def parse_aspect(value: Any) -> float | None:
 def explicit_aspect(project: Any) -> float | None:
     try:
         from app.services.vibecode_catalog import find_canvas_node, read_node_media_fields
+
         meta = getattr(project, "meta", None)
         for node_type in ("videos", "images"):
             node = find_canvas_node(meta, node_key=None, node_type=node_type)
@@ -57,12 +58,25 @@ async def black_share(path: Path, duration: float, *, timeout: float = 30.0) -> 
         return None
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-hide_banner", "-nostats", "-protocol_whitelist", "file,pipe", "-i", str(path), "-an",
-            "-vf", "blackdetect=d=0.1:pic_th=0.98:pix_th=0.05", "-f", "null", "-",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            "ffmpeg",
+            "-hide_banner",
+            "-nostats",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-i",
+            str(path),
+            "-an",
+            "-vf",
+            "blackdetect=d=0.1:pic_th=0.98:pix_th=0.05",
+            "-f",
+            "null",
+            "-",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
         try:
             _, err = await asyncio.wait_for(proc.communicate(), timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.communicate()
             return None
@@ -78,6 +92,7 @@ async def black_share(path: Path, duration: float, *, timeout: float = 30.0) -> 
 
 async def music_soft_issues(path: Path) -> list[str]:
     from app.services.audio_verification import verify_audio
+
     try:
         verdict = await asyncio.wait_for(asyncio.to_thread(verify_audio, path), 150)
     except Exception:
@@ -107,7 +122,9 @@ async def clip_soft_issues(path: Path, probe: dict, expected_aspect: float | Non
     return out
 
 
-def final_soft_issues_from(probe: dict, expected_aspect: float | None, scene_seconds: list[float | None]) -> list[str]:
+def final_soft_issues_from(
+    probe: dict, expected_aspect: float | None, scene_seconds: list[float | None]
+) -> list[str]:
     out = []
     if aspect_mismatch(probe.get("width"), probe.get("height"), expected_aspect):
         out.append("final_aspect_mismatch")
@@ -128,7 +145,9 @@ def final_soft_issues_from(probe: dict, expected_aspect: float | None, scene_sec
 
 async def project_scene_seconds(reader, project_id: int) -> list[float | None]:
     from sqlalchemy import select
+
     from app.models import Frame
+
     rows = (await reader.scalars(select(Frame.duration_seconds).where(Frame.project_id == project_id))).all()
     return list(rows)
 
@@ -139,13 +158,29 @@ async def final_soft_issues(reader, project: Any, path: Path, probe: dict | None
             if not shutil.which("ffprobe"):
                 return []
             proc = await asyncio.create_subprocess_exec(
-                "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-show_streams", "-show_format",
-                "-of", "json", str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                "ffprobe",
+                "-v",
+                "error",
+                "-protocol_whitelist",
+                "file,pipe",
+                "-show_streams",
+                "-show_format",
+                "-of",
+                "json",
+                str(path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
             out, _ = await asyncio.wait_for(proc.communicate(), 30)
             data = json.loads(out)
             video = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
-            probe = {"width": video.get("width"), "height": video.get("height"),
-                     "duration": (data.get("format") or {}).get("duration")}
-        return final_soft_issues_from(probe, explicit_aspect(project), await project_scene_seconds(reader, project.id))
+            probe = {
+                "width": video.get("width"),
+                "height": video.get("height"),
+                "duration": (data.get("format") or {}).get("duration"),
+            }
+        return final_soft_issues_from(
+            probe, explicit_aspect(project), await project_scene_seconds(reader, project.id)
+        )
     except Exception:
         return []

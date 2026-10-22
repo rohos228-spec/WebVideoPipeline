@@ -108,5 +108,7 @@ def apply_style_vars(text: str, prompt_path: Path | None, meta: Any, step_code: 
 
     out = STYLE_RE.sub(sub, text)
     if unknown:
-        logger.warning("style vars: unknown placeholders {} in {} ({})", sorted(unknown), prompt_name, step_code)
+        logger.warning(
+            "style vars: unknown placeholders {} in {} ({})", sorted(unknown), prompt_name, step_code
+        )
     return out

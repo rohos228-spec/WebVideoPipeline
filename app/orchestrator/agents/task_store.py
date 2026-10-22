@@ -200,7 +200,12 @@ class TaskStore:
                         RETURNING spend_internal, spend_actions
                         """
                     ),
-                    {"internal": float(internal), "actions": float(actions), "stamp": utc_now(), "id": _id(task_id)},
+                    {
+                        "internal": float(internal),
+                        "actions": float(actions),
+                        "stamp": utc_now(),
+                        "id": _id(task_id),
+                    },
                 )
                 .mappings()
                 .fetchone()
@@ -280,7 +285,13 @@ class TaskStore:
                     WHERE id = :id
                     """
                 ),
-                {"status": status, "change_id": change_id, "cost": float(cost), "stamp": utc_now(), "id": _id(step_id)},
+                {
+                    "status": status,
+                    "change_id": change_id,
+                    "cost": float(cost),
+                    "stamp": utc_now(),
+                    "id": _id(step_id),
+                },
             )
             conn.commit()
         finally:

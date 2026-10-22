@@ -7,16 +7,92 @@ from typing import Any
 from loguru import logger
 
 _MAX_NODES = 60
-_ENDINGS = tuple(sorted((
-    "иями", "ями", "ами", "ого", "его", "ому", "ему", "ыми", "ими", "иях", "ях", "ах", "ов", "ев",
-    "ей", "ой", "ий", "ый", "ая", "яя", "ое", "ее", "ые", "ие", "ия", "ья", "ью", "ом", "ем", "ам",
-    "ям", "ок", "ек", "а", "я", "о", "е", "ы", "и", "у", "ю", "ь", "й",
-), key=len, reverse=True))
-_STOP = frozenset({
-    "нод", "шаг", "модел", "на", "в", "во", "с", "со", "и", "по", "для", "как", "какая", "какой",
-    "стоит", "постав", "туд", "там", "проект", "эт", "эту", "этой", "мне", "что", "сейчас", "подешевл",
-    "дешевл", "дорож", "смен", "покаж", "работ",
-})
+_ENDINGS = tuple(
+    sorted(
+        (
+            "иями",
+            "ями",
+            "ами",
+            "ого",
+            "его",
+            "ому",
+            "ему",
+            "ыми",
+            "ими",
+            "иях",
+            "ях",
+            "ах",
+            "ов",
+            "ев",
+            "ей",
+            "ой",
+            "ий",
+            "ый",
+            "ая",
+            "яя",
+            "ое",
+            "ее",
+            "ые",
+            "ие",
+            "ия",
+            "ья",
+            "ью",
+            "ом",
+            "ем",
+            "ам",
+            "ям",
+            "ок",
+            "ек",
+            "а",
+            "я",
+            "о",
+            "е",
+            "ы",
+            "и",
+            "у",
+            "ю",
+            "ь",
+            "й",
+        ),
+        key=len,
+        reverse=True,
+    )
+)
+_STOP = frozenset(
+    {
+        "нод",
+        "шаг",
+        "модел",
+        "на",
+        "в",
+        "во",
+        "с",
+        "со",
+        "и",
+        "по",
+        "для",
+        "как",
+        "какая",
+        "какой",
+        "стоит",
+        "постав",
+        "туд",
+        "там",
+        "проект",
+        "эт",
+        "эту",
+        "этой",
+        "мне",
+        "что",
+        "сейчас",
+        "подешевл",
+        "дешевл",
+        "дорож",
+        "смен",
+        "покаж",
+        "работ",
+    }
+)
 _WORD = re.compile(r"[a-zа-я0-9_]+")
 NO_FRAMES_RULE = (
     "Кадров в проекте: 0. Картинки, видео и промты к ним делать не из чего: такой запуск не "
@@ -42,8 +118,10 @@ FramesLoader = Callable[[int], Awaitable[Any]]
 ProposalsLoader = Callable[[int], Awaitable[Any]]
 _APPLY_WORDS = ("примен", "предлож", "правк", "внес", "накат")
 _MAX_PROPOSALS = 5
-PROPOSALS_HEAD = ("Ожидающие предложения изменений проекта, самое свежее первым (для change.apply бери "
-                  "proposal_id и expected_digest только отсюда):")
+PROPOSALS_HEAD = (
+    "Ожидающие предложения изменений проекта, самое свежее первым (для change.apply бери "
+    "proposal_id и expected_digest только отсюда):"
+)
 
 
 def _norm(text: str) -> str:
@@ -90,14 +168,16 @@ def roster(meta: Any) -> list[dict[str, Any]]:
             model = bi._model_for(meta, key, node, raw, eff)
         except Exception:
             model = ""
-        rows.append({
-            "key": key,
-            "type": typ,
-            "type_ru": ne.TYPE_RU.get(typ) or bi._type_ru(typ),
-            "label": label,
-            "model": model,
-            "step_code": NODE_TYPE_TO_STEP_CODE.get(typ, ""),
-        })
+        rows.append(
+            {
+                "key": key,
+                "type": typ,
+                "type_ru": ne.TYPE_RU.get(typ) or bi._type_ru(typ),
+                "label": label,
+                "model": model,
+                "step_code": NODE_TYPE_TO_STEP_CODE.get(typ, ""),
+            }
+        )
     return rows
 
 
@@ -140,9 +220,11 @@ _PROMPT_WORDS = ("промт", "промпт", "prompt")
 _VARIANT_OK = re.compile(r"^[A-Za-z0-9_.\-]+$")
 _MAX_VARIANTS = 30
 _MAX_PROMPT_NODES = 4
-PROMPT_RULE = ("Чтобы поставить ноде другой промт, используй node.set_prompt_variant: variant бери "
-               "только из списка вариантов этой ноды ниже (до двоеточия), человек называет промт по названию. "
-               "slot_id не указывай: нода читает промт из слота main.")
+PROMPT_RULE = (
+    "Чтобы поставить ноде другой промт, используй node.set_prompt_variant: variant бери "
+    "только из списка вариантов этой ноды ниже (до двоеточия), человек называет промт по названию. "
+    "slot_id не указывай: нода читает промт из слота main."
+)
 
 
 def prompt_variants_text(row: dict[str, Any]) -> str:
@@ -174,9 +256,12 @@ def _cheapest(options: list[dict[str, Any]]) -> set[str]:
     priced = [(str(o["id"]), _price(str(o["id"]))) for o in options]
     priced = [(key, pts) for key, pts in priced if pts]
     return {
-        key for key, pts in priced
-        if all(len(other) == len(pts) and all(a <= b for a, b in zip(pts, other, strict=True))
-               for _other_key, other in priced)
+        key
+        for key, pts in priced
+        if all(
+            len(other) == len(pts) and all(a <= b for a, b in zip(pts, other, strict=True))
+            for _other_key, other in priced
+        )
     }
 
 
@@ -196,8 +281,10 @@ def model_options_text(meta: Any, key: str) -> str:
     options = [o for o in data.get("options") or [] if isinstance(o, dict) and o.get("id")]
     if not current.get("kind") or not options:
         return ""
-    head = (f"Модели для ноды {key} («{current.get('label') or key}»), сейчас "
-            f"{current.get('model_label') or current.get('model_id')} (id {current.get('model_id')})")
+    head = (
+        f"Модели для ноды {key} («{current.get('label') or key}»), сейчас "
+        f"{current.get('model_label') or current.get('model_id')} (id {current.get('model_id')})"
+    )
     if current.get("forced_vibecode") or not current.get("applies", True):
         return head + ": смена модели на этой ноде ни на что не повлияет, такой шаг не планируй."
     cheapest = _cheapest(options)
@@ -234,7 +321,8 @@ async def load_meta(project_id: int) -> Any:
     app = app_ref.current()
     if app is not None:
         detail = await _effective_project(
-            ActionContext(app=app, operator="system", read_only=True), int(project_id))
+            ActionContext(app=app, operator="system", read_only=True), int(project_id)
+        )
         meta = (detail or {}).get("meta") if isinstance(detail, dict) else None
         if isinstance(meta, dict):
             return meta
@@ -259,14 +347,18 @@ def proposals_text(items: list[dict[str, Any]]) -> str:
         what = "промт ноды" if item.get("kind") == "prompt_text" else "настройка ноды"
         node = item.get("node_key") or ""
         when = str(item.get("created_at") or "")[:16].replace("T", " ")
-        lines.append(f"- proposal_id={item.get('id')}, expected_digest={item.get('digest')}: {what} {node}"
-                     + (f", создано {when}" if when else ""))
+        lines.append(
+            f"- proposal_id={item.get('id')}, expected_digest={item.get('digest')}: {what} {node}"
+            + (f", создано {when}" if when else "")
+        )
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
 _BLOCK_WORDS = ("блокир", "неизвестн", "исход")
-BLOCKED_HEAD = ("Блокировки неизвестного исхода в проекте (для media.release_unknown бери key и provider "
-                "только отсюда, reason — слова человека):")
+BLOCKED_HEAD = (
+    "Блокировки неизвестного исхода в проекте (для media.release_unknown бери key и provider "
+    "только отсюда, reason — слова человека):"
+)
 
 
 async def load_blocked(project_id: int) -> Any:
@@ -283,16 +375,21 @@ def blocked_text(items: list[dict[str, Any]]) -> str:
 
 _UNDO_WORDS = ("откат", "откати", "верни прежн", "верни как было", "верни старый", "отмени правк")
 _MAX_SNAPSHOTS = 10
-SNAPSHOTS_HEAD = ("Снимки правок проекта, самый свежий первым (для history.rollback бери snapshot_id только "
-                  "отсюда; промт ноды — вид prompt_slot, модель ноды возвращает node.revert_model):")
+SNAPSHOTS_HEAD = (
+    "Снимки правок проекта, самый свежий первым (для history.rollback бери snapshot_id только "
+    "отсюда; промт ноды — вид prompt_slot, модель ноды возвращает node.revert_model):"
+)
 
 
 async def load_snapshots(project_id: int) -> Any:
     from app.services.action_layer import store
 
     rows = await store.list_snapshots(int(project_id), limit=_MAX_SNAPSHOTS * 2)
-    return [{"snapshot_id": r.id, "kind": r.kind, "target": r.target, "before": r.before, "after": r.after}
-            for r in rows if r.restored_at is None and r.restorable]
+    return [
+        {"snapshot_id": r.id, "kind": r.kind, "target": r.target, "before": r.before, "after": r.after}
+        for r in rows
+        if r.restored_at is None and r.restorable
+    ]
 
 
 def snapshots_text(items: list[dict[str, Any]]) -> str:
@@ -301,8 +398,10 @@ def snapshots_text(items: list[dict[str, Any]]) -> str:
         target = item.get("target") if isinstance(item.get("target"), dict) else {}
         where = target.get("node_key") or target.get("step_code") or ""
         before = "по умолчанию" if item.get("before") is None else str(item.get("before"))[:60]
-        lines.append(f"- snapshot_id={item.get('snapshot_id')}: {item.get('kind')} {where}, "
-                     f"было «{before}», стало «{str(item.get('after'))[:60]}»")
+        lines.append(
+            f"- snapshot_id={item.get('snapshot_id')}: {item.get('kind')} {where}, "
+            f"было «{before}», стало «{str(item.get('after'))[:60]}»"
+        )
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
@@ -313,8 +412,10 @@ async def load_frames(project_id: int) -> Any:
 
 
 _MAX_PROJECTS = 30
-PROJECTS_HEAD = ("Проекты фабрики (project_id: название, статус). project_id бери только отсюда; "
-                 "цифры в названии проекта — это не его номер:")
+PROJECTS_HEAD = (
+    "Проекты фабрики (project_id: название, статус). project_id бери только отсюда; "
+    "цифры в названии проекта — это не его номер:"
+)
 ProjectsLoader = Callable[[], Awaitable[Any]]
 
 
@@ -348,17 +449,28 @@ async def load_projects() -> Any:
     from app.services.action_layer.builtin_insight import _sessions
 
     async with _sessions()() as session:
-        rows = (await session.execute(
-            select(Project.id, Project.title, Project.topic, Project.status)
-            .order_by(Project.id.desc()).limit(_MAX_PROJECTS))).all()
-    return [{"id": int(pid), "title": str(title or topic or "").strip(),
-             "status": getattr(status, "value", str(status))} for pid, title, topic, status in rows]
+        rows = (
+            await session.execute(
+                select(Project.id, Project.title, Project.topic, Project.status)
+                .order_by(Project.id.desc())
+                .limit(_MAX_PROJECTS)
+            )
+        ).all()
+    return [
+        {
+            "id": int(pid),
+            "title": str(title or topic or "").strip(),
+            "status": getattr(status, "value", str(status)),
+        }
+        for pid, title, topic, status in rows
+    ]
 
 
 def named_projects(items: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
     norm = _norm(text)
-    found = [item for item in items if len(_norm(item.get("title") or "")) >= 4
-             and _norm(item["title"]) in norm]
+    found = [
+        item for item in items if len(_norm(item.get("title") or "")) >= 4 and _norm(item["title"]) in norm
+    ]
     longest = max((len(item["title"]) for item in found), default=0)
     return [item for item in found if len(item["title"]) == longest]
 
@@ -446,8 +558,12 @@ class ProjectNodes:
             if not ids:
                 return head
             nodes = await self.project_block(ids[0], text)
-            note = (f"Ноды и варианты промтов ниже — проекта {ids[0]}; у проектов {', '.join(map(str, ids))} "
-                    "граф одинаковый, ключи нод и variant те же." if len(ids) > 1 else "")
+            note = (
+                f"Ноды и варианты промтов ниже — проекта {ids[0]}; у проектов {', '.join(map(str, ids))} "
+                "граф одинаковый, ключи нод и variant те же."
+                if len(ids) > 1
+                else ""
+            )
             status_of = {int(item["id"]): str(item.get("status") or "") for item in items}
             nexts = [await self.next_step(pid, status_of.get(pid, "")) for pid in ids]
             return "\n".join(part for part in (head, note, nodes, *nexts) if part)
@@ -467,8 +583,10 @@ class ProjectNodes:
             return ""
         if not nxt:
             return ""
-        return (f"Проект {project_id} ({status}): следующий шаг по графу — «{nxt['title']}», "
-                f"step_code={nxt['step']}.")
+        return (
+            f"Проект {project_id} ({status}): следующий шаг по графу — «{nxt['title']}», "
+            f"step_code={nxt['step']}."
+        )
 
     async def project_block(self, project_id: int, text: str) -> str:
         lines: list[str] = []

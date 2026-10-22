@@ -4,8 +4,9 @@ import hashlib
 import inspect
 import json
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from app.services.action_layer import schema as schema_mod
 
@@ -34,11 +35,11 @@ class CostEstimate:
         return self.low is not None and self.high is not None
 
     @classmethod
-    def free(cls, basis: str = "no paid calls") -> "CostEstimate":
+    def free(cls, basis: str = "no paid calls") -> CostEstimate:
         return cls(0.0, 0.0, basis)
 
     @classmethod
-    def unknown(cls, basis: str = "no estimate available") -> "CostEstimate":
+    def unknown(cls, basis: str = "no estimate available") -> CostEstimate:
         return cls(None, None, basis)
 
     def to_json(self) -> dict:
@@ -104,9 +105,16 @@ class ActionSpec:
 
     def fingerprint(self) -> str:
         raw = json.dumps(
-            {"id": self.id, "risk": self.risk, "spends": self.spends_money,
-             "destructive": self.destructive, "schema": self.params_schema},
-            sort_keys=True, ensure_ascii=False)
+            {
+                "id": self.id,
+                "risk": self.risk,
+                "spends": self.spends_money,
+                "destructive": self.destructive,
+                "schema": self.params_schema,
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
     def estimate(self, params: dict) -> CostEstimate:
@@ -120,16 +128,22 @@ class ActionSpec:
 
     def to_json(self) -> dict:
         return {
-            "id": self.id, "title_ru": self.title_ru, "description_ru": self.description_ru,
-            "params_schema": self.params_schema, "risk": self.risk,
-            "spends_money": self.spends_money, "destructive": self.destructive,
-            "reversible": self.reversible, "idempotent": self.idempotent,
-            "needs_approval": self.needs_approval, "async_job": self.is_job,
-            "supports_stop": self.stop is not None, "scope": self.scope,
+            "id": self.id,
+            "title_ru": self.title_ru,
+            "description_ru": self.description_ru,
+            "params_schema": self.params_schema,
+            "risk": self.risk,
+            "spends_money": self.spends_money,
+            "destructive": self.destructive,
+            "reversible": self.reversible,
+            "idempotent": self.idempotent,
+            "needs_approval": self.needs_approval,
+            "async_job": self.is_job,
+            "supports_stop": self.stop is not None,
+            "scope": self.scope,
             "tags": list(self.tags),
             **({"future_spend_note": self.future_spend_note} if self.future_spend_note else {}),
-            "preconditions": [{"id": p.id, "description_ru": p.description_ru}
-                              for p in self.preconditions],
+            "preconditions": [{"id": p.id, "description_ru": p.description_ru} for p in self.preconditions],
         }
 
 
@@ -206,9 +220,11 @@ class ActionRegistry:
         return self._actions.get(action_id)
 
     def list(self, *, risk: str | None = None, prefix: str | None = None) -> list[ActionSpec]:
-        out = [s for s in self._actions.values()
-               if (risk is None or s.risk == risk)
-               and (prefix is None or s.id.startswith(prefix))]
+        out = [
+            s
+            for s in self._actions.values()
+            if (risk is None or s.risk == risk) and (prefix is None or s.id.startswith(prefix))
+        ]
         return sorted(out, key=lambda s: s.id)
 
     def validate_params(self, action_id: str, params: Any) -> list[str]:

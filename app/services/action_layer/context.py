@@ -6,9 +6,10 @@ import codecs
 import hashlib
 import re
 import sqlite3
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import httpx
 
@@ -17,7 +18,6 @@ _BASE_URL = "http://action-layer.invalid"
 
 
 class ActionCallError(RuntimeError):
-
     def __init__(self, status: int, detail: Any):
         self.status = status
         self.detail = detail
@@ -26,7 +26,6 @@ class ActionCallError(RuntimeError):
 
 class WriteNotAllowed(RuntimeError):
     pass
-
 
 
 MIB = 1024 * 1024
@@ -42,26 +41,39 @@ class UploadPolicy:
     content_types: dict
 
 
-_AUDIO_TYPES = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
-                ".ogg": "audio/ogg", ".flac": "audio/flac", ".aac": "audio/aac"}
-_IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                ".webp": "image/webp"}
-_NODE_TYPES = {**_IMAGE_TYPES, ".xlsx": "application/vnd.openxmlformats-officedocument."
-               "spreadsheetml.sheet", ".txt": "text/plain", ".md": "text/markdown",
-               ".json": "application/json", ".csv": "text/csv"}
+_AUDIO_TYPES = {
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".m4a": "audio/mp4",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+    ".aac": "audio/aac",
+}
+_IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+_NODE_TYPES = {
+    **_IMAGE_TYPES,
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".json": "application/json",
+    ".csv": "text/csv",
+}
 
 UPLOAD_POLICIES: dict[str, UploadPolicy] = {
     "voice": UploadPolicy("voice", frozenset(_AUDIO_TYPES), 100 * MIB, _AUDIO_TYPES),
-    "music": UploadPolicy("music", frozenset(set(_AUDIO_TYPES) - {".aac"}), 100 * MIB,
-                          {k: v for k, v in _AUDIO_TYPES.items() if k != ".aac"}),
-    "scene_image": UploadPolicy("scene_image", frozenset({".png"}), 30 * MIB,
-                                {".png": "image/png"}),
-    "scene_video": UploadPolicy("scene_video", frozenset({".mp4"}), 300 * MIB,
-                                {".mp4": "video/mp4"}),
+    "music": UploadPolicy(
+        "music",
+        frozenset(set(_AUDIO_TYPES) - {".aac"}),
+        100 * MIB,
+        {k: v for k, v in _AUDIO_TYPES.items() if k != ".aac"},
+    ),
+    "scene_image": UploadPolicy("scene_image", frozenset({".png"}), 30 * MIB, {".png": "image/png"}),
+    "scene_video": UploadPolicy("scene_video", frozenset({".mp4"}), 300 * MIB, {".mp4": "video/mp4"}),
     "ref_image": UploadPolicy("ref_image", frozenset(_IMAGE_TYPES), 30 * MIB, _IMAGE_TYPES),
     "node_file": UploadPolicy("node_file", frozenset(_NODE_TYPES), 25 * MIB, _NODE_TYPES),
-    "check_agent": UploadPolicy("check_agent", frozenset({".txt", ".md"}), 1 * MIB,
-                                {".txt": "text/plain", ".md": "text/markdown"}),
+    "check_agent": UploadPolicy(
+        "check_agent", frozenset({".txt", ".md"}), 1 * MIB, {".txt": "text/plain", ".md": "text/markdown"}
+    ),
     "xlsx": UploadPolicy("xlsx", frozenset({".xlsx"}), 25 * MIB, {".xlsx": _NODE_TYPES[".xlsx"]}),
 }
 
@@ -83,8 +95,7 @@ def _magic_ok(ext: str, head: bytes, content: bytes) -> bool:
     if ext == ".wav":
         return head[:4] == b"RIFF" and head[8:12] == b"WAVE"
     if ext == ".mp3":
-        return head.startswith(b"ID3") or (len(head) > 1 and head[0] == 0xFF
-                                           and head[1] & 0xE0 == 0xE0)
+        return head.startswith(b"ID3") or (len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0)
     if ext == ".ogg":
         return head.startswith(b"OggS")
     if ext == ".flac":
@@ -121,8 +132,15 @@ def _attachment_row(real: Path) -> tuple[bool, str, int]:
     # База приложения на чтение: файл SQLite (mode=ro) или Postgres по DATABASE_URL.
     try:
         with studio_read(None) as con:
-            rows = [] if con is None else read_rows(
-                con, "SELECT sha256, size FROM action_layer_attachments WHERE rel_path = :rel", {"rel": rel})
+            rows = (
+                []
+                if con is None
+                else read_rows(
+                    con,
+                    "SELECT sha256, size FROM action_layer_attachments WHERE rel_path = :rel",
+                    {"rel": rel},
+                )
+            )
     except (sqlite3.Error, SQLAlchemyError, OSError):
         rows = []
     row = rows[0] if rows else None
@@ -158,16 +176,15 @@ class FileUpload:
             raise UploadRejected(f"неизвестная политика загрузки {kind!r}") from None
 
     @classmethod
-    def build(cls, kind: str, filename: str, content: bytes, *,
-              field_name: str = "file") -> "FileUpload":
+    def build(cls, kind: str, filename: str, content: bytes, *, field_name: str = "file") -> FileUpload:
         policy = cls._policy(kind)
         base = Path(str(filename or "").replace("\\", "/")).name
         base = _SAFE_NAME.sub("_", base).strip(" .")[:100]
         ext = Path(base).suffix.lower()
         if not base or ext not in policy.extensions:
             raise UploadRejected(
-                f"тип файла {ext or '(нет)'} не разрешён для {kind}: "
-                f"{sorted(policy.extensions)}")
+                f"тип файла {ext or '(нет)'} не разрешён для {kind}: {sorted(policy.extensions)}"
+            )
         if not isinstance(content, (bytes, bytearray)) or not content:
             raise UploadRejected("пустой файл")
         if len(content) > policy.max_bytes:
@@ -177,7 +194,7 @@ class FileUpload:
         return cls(field_name, base, bytes(content), policy.content_types[ext], kind)
 
     @classmethod
-    def from_base64(cls, kind: str, filename: str, data_b64: str) -> "FileUpload":
+    def from_base64(cls, kind: str, filename: str, data_b64: str) -> FileUpload:
         if not isinstance(data_b64, str) or len(data_b64) > MAX_BASE64_BYTES * 4 // 3 + 8:
             raise UploadRejected(f"base64 больше {MAX_BASE64_BYTES} байт после декодирования")
         try:
@@ -189,7 +206,7 @@ class FileUpload:
         return cls.build(kind, filename, raw)
 
     @classmethod
-    def _resolve_data_path(cls, kind: str, path: str) -> tuple["UploadPolicy", Path, int]:
+    def _resolve_data_path(cls, kind: str, path: str) -> tuple[UploadPolicy, Path, int]:
         from app.settings import settings
 
         policy = cls._policy(kind)
@@ -213,15 +230,17 @@ class FileUpload:
         if any(part.startswith(".") for part in real.relative_to(root).parts):
             raise UploadRejected("скрытые файлы и папки не загружаются")
         if real.suffix.lower() not in policy.extensions:
-            raise UploadRejected(f"тип файла {real.suffix.lower() or '(нет)'} не разрешён "
-                                 f"для {kind}: {sorted(policy.extensions)}")
+            raise UploadRejected(
+                f"тип файла {real.suffix.lower() or '(нет)'} не разрешён "
+                f"для {kind}: {sorted(policy.extensions)}"
+            )
         size = real.stat().st_size
         if size > policy.max_bytes:
             raise UploadRejected(f"файл {size} байт больше лимита {policy.max_bytes}")
         return policy, real, size
 
     @classmethod
-    def from_data_path(cls, kind: str, path: str) -> "FileUpload":
+    def from_data_path(cls, kind: str, path: str) -> FileUpload:
         policy, real, _size = cls._resolve_data_path(kind, path)
         with real.open("rb") as fh:
             content = fh.read(policy.max_bytes + 1)
@@ -303,11 +322,15 @@ async def _studio_bearer(operator: str) -> str | None:
         return None
     ident = current_identity()
     if ident is None and operator.startswith(_STUDIO_USER_PREFIX):
-        ident = await _live_admin(operator[len(_STUDIO_USER_PREFIX):])
+        ident = await _live_admin(operator[len(_STUDIO_USER_PREFIX) :])
     if ident is None:
-        raise ActionCallError(401, (
-            "внутренний вызов без личности: план запущен не от имени админа студии "
-            "или его учётка отключена, запустите план заново из интерфейса"))
+        raise ActionCallError(
+            401,
+            (
+                "внутренний вызов без личности: план запущен не от имени админа студии "
+                "или его учётка отключена, запустите план заново из интерфейса"
+            ),
+        )
     return issue_token(ident, ttl_hours=1)
 
 
@@ -351,9 +374,16 @@ class ActionContext:
     progress_sink: ProgressSink | None = None
     _client: httpx.AsyncClient | None = field(default=None, repr=False)
 
-    async def call(self, method: str, path: str, *, params: dict | None = None,
-                   json: Any = None, files: dict | None = None,
-                   timeout: float = 120.0) -> Any:
+    async def call(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict | None = None,
+        json: Any = None,
+        files: dict | None = None,
+        timeout: float = 120.0,
+    ) -> Any:
         method = method.upper()
         if self.read_only and method != "GET":
             raise WriteNotAllowed(f"{method} {path} is not allowed in read-only context")
@@ -363,15 +393,22 @@ class ActionContext:
                 raise UploadRejected("files допустимы только для POST/PUT/PATCH без json")
             if not files or not all(isinstance(f, FileUpload) for f in files.values()):
                 raise UploadRejected("files принимает только FileUpload")
-            checked = [FileUpload.build(f.policy, f.filename, f.content, field_name=f.form_field)
-                       for f in files.values()]
+            checked = [
+                FileUpload.build(f.policy, f.filename, f.content, field_name=f.form_field)
+                for f in files.values()
+            ]
             if sum(len(f.content) for f in checked) > MAX_TOTAL_UPLOAD_BYTES:
                 raise UploadRejected("суммарный размер файлов больше лимита")
-            multipart = {name: (f.filename, f.content, f.content_type)
-                         for name, f in zip(files.keys(), checked)}
+            multipart = {
+                name: (f.filename, f.content, f.content_type)
+                for name, f in zip(files.keys(), checked, strict=False)
+            }
         from app.services import access_guard
-        headers = {"X-Action-Layer-Operator": normalize_operator(self.operator),
-                   access_guard.OPERATOR_HEADER: access_guard.get_operator_token()}
+
+        headers = {
+            "X-Action-Layer-Operator": normalize_operator(self.operator),
+            access_guard.OPERATOR_HEADER: access_guard.get_operator_token(),
+        }
         if self.idempotency_key:
             headers["Idempotency-Key"] = self.idempotency_key
         # До захвата ключа: отказ в личности не должен оставить начатый и не
@@ -392,10 +429,10 @@ class ActionContext:
         prev_identity, prev_tenant = current_identity(), current_tenant()
         transport = httpx.ASGITransport(app=self.app)
         try:
-            async with httpx.AsyncClient(transport=transport, base_url=_BASE_URL,
-                                         timeout=timeout) as client:
-                resp = await client.request(method, API_PREFIX + path, params=params,
-                                            json=json, files=multipart, headers=headers)
+            async with httpx.AsyncClient(transport=transport, base_url=_BASE_URL, timeout=timeout) as client:
+                resp = await client.request(
+                    method, API_PREFIX + path, params=params, json=json, files=multipart, headers=headers
+                )
         finally:
             set_identity(prev_identity)
             set_tenant(prev_tenant)
@@ -422,8 +459,13 @@ class ActionContext:
         fp = store.call_fingerprint(method, path, params=params, body=json, files=files_fp)
         try:
             state, row = await store.claim_call(
-                self.idempotency_key, fp, method=method, path=path,
-                operator=normalize_operator(self.operator), plan_id=self.plan_id or "")
+                self.idempotency_key,
+                fp,
+                method=method,
+                path=path,
+                operator=normalize_operator(self.operator),
+                plan_id=self.plan_id or "",
+            )
         except SQLAlchemyError:
             return None
         if state == "done":
@@ -434,10 +476,14 @@ class ActionContext:
             if await store.reclaim_call(row.id):
                 return fp
         if state == "unknown":
-            raise ActionCallError(409, (
-                "предыдущая попытка этого шага с тем же запросом началась и не завершилась "
-                "записью исхода: результат неизвестен, повтор запрещён (проверьте состояние "
-                "проекта вручную)"))
+            raise ActionCallError(
+                409,
+                (
+                    "предыдущая попытка этого шага с тем же запросом началась и не завершилась "
+                    "записью исхода: результат неизвестен, повтор запрещён (проверьте состояние "
+                    "проекта вручную)"
+                ),
+            )
         return fp
 
     async def _step_is_idempotent(self) -> bool:
@@ -448,11 +494,15 @@ class ActionContext:
 
         from app.services.action_layer import store
         from app.services.action_layer.spec import registry
+
         try:
             async with store.sessions()() as s:
-                action_id = await s.scalar(select(store.ActionPlanStep.action_id).where(
-                    store.ActionPlanStep.plan_id == self.plan_id,
-                    store.ActionPlanStep.idx == self.step_index))
+                action_id = await s.scalar(
+                    select(store.ActionPlanStep.action_id).where(
+                        store.ActionPlanStep.plan_id == self.plan_id,
+                        store.ActionPlanStep.idx == self.step_index,
+                    )
+                )
         except SQLAlchemyError:
             return False
         spec = registry.find(action_id) if action_id else None
@@ -464,9 +514,11 @@ class ActionContext:
         from sqlalchemy.exc import SQLAlchemyError
 
         from app.services.action_layer import store
+
         try:
-            await store.finish_call(self.idempotency_key, fingerprint, ok=ok,
-                                    http_status=status, response=body)
+            await store.finish_call(
+                self.idempotency_key, fingerprint, ok=ok, http_status=status, response=body
+            )
         except SQLAlchemyError:
             return
 
@@ -474,6 +526,11 @@ class ActionContext:
         if self.progress_sink is not None:
             await self.progress_sink(fraction, note)
 
-    def readonly_copy(self) -> "ActionContext":
-        return ActionContext(app=self.app, operator=self.operator, plan_id=self.plan_id,
-                             step_index=self.step_index, read_only=True)
+    def readonly_copy(self) -> ActionContext:
+        return ActionContext(
+            app=self.app,
+            operator=self.operator,
+            plan_id=self.plan_id,
+            step_index=self.step_index,
+            read_only=True,
+        )

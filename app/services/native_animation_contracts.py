@@ -1,13 +1,18 @@
-
 from __future__ import annotations
 
 from copy import deepcopy
 from types import SimpleNamespace
 
-
 _INPUT_FIELDS = (
-    "id", "project_id", "uuid", "number", "sort_key", "scene_id",
-    "voiceover_text", "image_prompt", "attrs",
+    "id",
+    "project_id",
+    "uuid",
+    "number",
+    "sort_key",
+    "scene_id",
+    "voiceover_text",
+    "image_prompt",
+    "attrs",
 )
 _SNAPSHOT_SOURCE = "original animation executor Frame inputs"
 _UNCLAIMED = {
@@ -23,9 +28,11 @@ ANIMATION_DEGRADATION_POLICY = {
     "visible_as": "incident animation_degraded (warning, human_review)",
     "step_status_unchanged": True,
     "paid_retry": "human decision only; no automatic retry",
-    "operator_text_ru": ("Промты анимации получены запасным путём (сбой провайдера). Шаг принят как "
-                         "«успех с деградацией»: качество не проверялось. Повторный платный запрос "
-                         "выполняется только по вашему решению."),
+    "operator_text_ru": (
+        "Промты анимации получены запасным путём (сбой провайдера). Шаг принят как "
+        "«успех с деградацией»: качество не проверялось. Повторный платный запрос "
+        "выполняется только по вашему решению."
+    ),
 }
 
 
@@ -64,17 +71,20 @@ def animation_prompts_contract():
         "actions": capability.actions,
         "payload_required": True,
         "retry_policy": "ONE supervisor retry_same per node and execution, only for invalid_json / "
-                        "missing_payload of a batch reply while NO batch has been applied "
-                        "(any apply_input/data_applied/apply_error of the failed attempt forbids it); "
-                        "no profile retry (vision input cannot be rebuilt by a profile)",
+        "missing_payload of a batch reply while NO batch has been applied "
+        "(any apply_input/data_applied/apply_error of the failed attempt forbids it); "
+        "no profile retry (vision input cannot be rebuilt by a profile)",
         "degradation_facts": {
             "fact_kind": "animation_degraded",
-            "reasons": ["local_fallback (provider outage: rest of shot_01 filled by the local composer, no model, no images)",
-                        "shot2_skipped (provider outage: remaining shot_02 prompts not made, step continues)"],
+            "reasons": [
+                "local_fallback (provider outage: rest of shot_01 filled by the local composer, no model, no images)",
+                "shot2_skipped (provider outage: remaining shot_02 prompts not made, step continues)",
+            ],
             "incident": "animation_degraded (non-blocking warning, human_review, never a recovery incident)",
             "retry": "none: a degradation is not a failure of the attempt",
             "policy": ANIMATION_DEGRADATION_POLICY,
-            "failed_result_check": "incident verification_hold (blocking when status=failed, warning when unknown)"},
+            "failed_result_check": "incident verification_hold (blocking when status=failed, warning when unknown)",
+        },
         **_UNCLAIMED,
     }
 
@@ -108,18 +118,28 @@ def animation_prompt_input_snapshot(frames, *, project_id, project, finalize_sta
 def _complete_snapshot(snapshot):
     if not isinstance(snapshot, dict):
         return False
-    if (snapshot.get("schema_version") != 1 or snapshot.get("source") != _SNAPSHOT_SOURCE
-            or "project_id" not in snapshot or type(snapshot.get("finalize_status")) is not bool):
+    if (
+        snapshot.get("schema_version") != 1
+        or snapshot.get("source") != _SNAPSHOT_SOURCE
+        or "project_id" not in snapshot
+        or type(snapshot.get("finalize_status")) is not bool
+    ):
         return False
     rows = snapshot.get("frames")
     required = set(_INPUT_FIELDS) | {"required_prompt", "required_shot2"}
-    return bool(isinstance(rows, list) and rows and all(
-        isinstance(row, dict) and required <= row.keys()
-        and type(row["required_prompt"]) is bool and type(row["required_shot2"]) is bool
-        and (row["attrs"] is None or isinstance(row["attrs"], dict))
-        and (row["image_prompt"] is None or isinstance(row["image_prompt"], str))
-        for row in rows
-    ))
+    return bool(
+        isinstance(rows, list)
+        and rows
+        and all(
+            isinstance(row, dict)
+            and required <= row.keys()
+            and type(row["required_prompt"]) is bool
+            and type(row["required_shot2"]) is bool
+            and (row["attrs"] is None or isinstance(row["attrs"], dict))
+            and (row["image_prompt"] is None or isinstance(row["image_prompt"], str))
+            for row in rows
+        )
+    )
 
 
 def _identity_errors(rows, *, source, project_id):
@@ -165,8 +185,10 @@ def verify_animation_prompts(frames, *, project_id, project, snapshot):
     }
     if not _complete_snapshot(snapshot):
         return {
-            **proof, "status": "unknown",
-            "reason": "captured input unavailable or incomplete", "errors": [],
+            **proof,
+            "status": "unknown",
+            "reason": "captured input unavailable or incomplete",
+            "errors": [],
         }
 
     try:
@@ -178,8 +200,11 @@ def verify_animation_prompts(frames, *, project_id, project, snapshot):
         rows.sort(key=lambda row: row["number"])
     except Exception as exc:
         return {
-            **proof, "status": "unknown", "reason": "actual result rows unavailable",
-            "error_type": type(exc).__name__, "errors": [],
+            **proof,
+            "status": "unknown",
+            "reason": "actual result rows unavailable",
+            "error_type": type(exc).__name__,
+            "errors": [],
         }
     proof.update(frame_count=len(rows), frame_set_sha256=digest(rows))
     before = snapshot["frames"]
@@ -273,15 +298,15 @@ async def _animation_context():
     from app.services.observation import _attempt
 
     ctx = _attempt.get()
-    if (ctx is None or ctx.scope.observer_state == "stopped"
-            or getattr(ctx, "native_attempt_closed", False)):
+    if ctx is None or ctx.scope.observer_state == "stopped" or getattr(ctx, "native_attempt_closed", False):
         return None
     node_type = getattr(ctx, "native_node_type", None)
     if node_type is None:
         async with ctx.observer.master() as master:
             run = await master.get(WorkflowRun, ctx.scope.workflow_run_id)
-            node = next((node for node in (run.nodes_snapshot if run else [])
-                         if node.get("id") == ctx.node_key), None)
+            node = next(
+                (node for node in (run.nodes_snapshot if run else []) if node.get("id") == ctx.node_key), None
+            )
         node_type = effective_node_type(node) if node is not None else None
         ctx.native_node_type = node_type
     return ctx if node_type == "animation_prompts" else None
@@ -294,21 +319,31 @@ async def record_animation_input(project, frames, finalize_status=True):
     if ctx is None:
         return
     snapshot = animation_prompt_input_snapshot(
-        frames, project_id=ctx.scope.project_id, project=project,
+        frames,
+        project_id=ctx.scope.project_id,
+        project=project,
         finalize_status=finalize_status,
     )
     ctx.animation_prompt_input = snapshot
-    await record_fact("node_input", {
-        "contract": "native_animation_prompts", "frame_count": len(snapshot["frames"]),
-        "input_sha256": digest(snapshot),
-    }, body=snapshot)
+    await record_fact(
+        "node_input",
+        {
+            "contract": "native_animation_prompts",
+            "frame_count": len(snapshot["frames"]),
+            "input_sha256": digest(snapshot),
+        },
+        body=snapshot,
+    )
 
 
 async def record_animation_parse(reply, pairs, ops, *, shot, target_uuids):
     import json
     from dataclasses import asdict
+
     from app.services.observation import (
-        completed_model_request_id, digest, record_fact,
+        completed_model_request_id,
+        digest,
+        record_fact,
     )
 
     ctx = await _animation_context()
@@ -323,69 +358,110 @@ async def record_animation_parse(reply, pairs, ops, *, shot, target_uuids):
     scoped = bool(ids) and all(isinstance(uid, str) and uid for uid in ids)
     scoped = scoped and len(set(ids)) == len(ids) and set(ids) <= set(target_uuids)
     request_id = completed_model_request_id()
-    await record_fact("parse_result", {
-        "contract": "native_animation_prompts", "shot": shot,
-        "syntax_valid": syntax_valid, "parsed": bool(pairs and ops),
-        "payload_required": True, "payload_present": bool(pairs),
-        "nonempty_payload_required": True,
-        "payload_format": "animation_pairs_or_apply_ops",
-        "schema_valid": bool(scoped), "ops_count": len(ops),
-        "batch_coverage_complete": bool(scoped and set(ids) == set(target_uuids)),
-        "parser": "original animation_prompt_gpt.parse_animation_reply and filtered native ops",
-        "native_partial_extraction_preserved": True,
-        "semantic_quality_verified": False, "sha256": digest(ops),
-    }, body={"text": reply, "pairs": [asdict(pair) for pair in pairs],
-             "extracted_ops": ops}, request_id=request_id)
-    await record_fact("runtime_check", {
-        "check": "native_animation_prompt_batch", "shot": shot,
-        "status": "passed" if scoped else "failed", "performed": True,
-        "business_commit_claim": False,
-    }, request_id=request_id)
+    await record_fact(
+        "parse_result",
+        {
+            "contract": "native_animation_prompts",
+            "shot": shot,
+            "syntax_valid": syntax_valid,
+            "parsed": bool(pairs and ops),
+            "payload_required": True,
+            "payload_present": bool(pairs),
+            "nonempty_payload_required": True,
+            "payload_format": "animation_pairs_or_apply_ops",
+            "schema_valid": bool(scoped),
+            "ops_count": len(ops),
+            "batch_coverage_complete": bool(scoped and set(ids) == set(target_uuids)),
+            "parser": "original animation_prompt_gpt.parse_animation_reply and filtered native ops",
+            "native_partial_extraction_preserved": True,
+            "semantic_quality_verified": False,
+            "sha256": digest(ops),
+        },
+        body={"text": reply, "pairs": [asdict(pair) for pair in pairs], "extracted_ops": ops},
+        request_id=request_id,
+    )
+    await record_fact(
+        "runtime_check",
+        {
+            "check": "native_animation_prompt_batch",
+            "shot": shot,
+            "status": "passed" if scoped else "failed",
+            "performed": True,
+            "business_commit_claim": False,
+        },
+        request_id=request_id,
+    )
 
 
 async def observe_animation_result(session, project, node_type="animation_prompts"):
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from app.models import Frame, Project
     from app.services.observation import record_fact
 
     ctx = await _animation_context()
-    if (ctx is None or node_type != "animation_prompts"
-            or getattr(ctx, "animation_verification_recorded", False)):
+    if (
+        ctx is None
+        or node_type != "animation_prompts"
+        or getattr(ctx, "animation_verification_recorded", False)
+    ):
         return
     project_id = ctx.scope.project_id
     frames = None
     read_error = None
     try:
         async with async_sessionmaker(
-            session.bind, expire_on_commit=False, autoflush=False,
+            session.bind,
+            expire_on_commit=False,
+            autoflush=False,
         )() as reader:
             native_project = await reader.get(Project, project_id)
             if native_project is None:
                 raise LookupError("native animation project unavailable")
-            frames = list((await reader.scalars(select(Frame).where(
-                Frame.project_id == project_id).order_by(Frame.number))).all())
+            frames = list(
+                (
+                    await reader.scalars(
+                        select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)
+                    )
+                ).all()
+            )
             proof = verify_animation_prompts(
-                frames, project_id=project_id, project=native_project,
+                frames,
+                project_id=project_id,
+                project=native_project,
                 snapshot=getattr(ctx, "animation_prompt_input", None),
             )
     except Exception as exc:
         read_error = exc
         frames = None
-        proof = {"node_type": node_type, "status": "unknown",
-                 "reason": "committed native result unavailable",
-                 "error_type": type(exc).__name__, "frame_set_sha256": None,
-                 "input_sha256": None, **_UNCLAIMED}
-    output = {"project_id": project_id, "frames": None if frames is None else [
-        {**_input_row(frame), "animation_prompt": deepcopy(frame.animation_prompt)}
-        for frame in frames
-    ]}
-    await record_fact("node_output", {
-        "contract": "native_animation_prompts",
-        "frame_count": None if frames is None else len(frames),
-        "frame_set_sha256": proof["frame_set_sha256"],
-        "source": "committed original executor rows; independent read session",
-    }, body=output)
+        proof = {
+            "node_type": node_type,
+            "status": "unknown",
+            "reason": "committed native result unavailable",
+            "error_type": type(exc).__name__,
+            "frame_set_sha256": None,
+            "input_sha256": None,
+            **_UNCLAIMED,
+        }
+    output = {
+        "project_id": project_id,
+        "frames": None
+        if frames is None
+        else [
+            {**_input_row(frame), "animation_prompt": deepcopy(frame.animation_prompt)} for frame in frames
+        ],
+    }
+    await record_fact(
+        "node_output",
+        {
+            "contract": "native_animation_prompts",
+            "frame_count": None if frames is None else len(frames),
+            "frame_set_sha256": proof["frame_set_sha256"],
+            "source": "committed original executor rows; independent read session",
+        },
+        body=output,
+    )
     await record_fact("node_result_verification", proof, body=proof)
     ctx.animation_verification_recorded = True
     if read_error is not None:

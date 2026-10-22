@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import contextvars
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
-_request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("correlation_request_id", default=None)
+_request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "correlation_request_id", default=None
+)
 _run_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("correlation_run_id", default=None)
-_project_id: contextvars.ContextVar[int | None] = contextvars.ContextVar("correlation_project_id", default=None)
+_project_id: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "correlation_project_id", default=None
+)
 
 REQUEST_ID_MAX = 64
 RUN_ID_MAX = 80
@@ -29,6 +33,7 @@ def get_run_id() -> str:
 def get_project_id() -> int | None:
     try:
         from app.services.observation import _cost_project
+
         value = _cost_project.get()
         if value is not None:
             return int(value)
@@ -54,8 +59,9 @@ def correlation() -> dict:
 
 
 @contextmanager
-def request_scope(request_id: str | None = None, *, run_id: str | None = None,
-                  project_id: int | None = None) -> Iterator[dict]:
+def request_scope(
+    request_id: str | None = None, *, run_id: str | None = None, project_id: int | None = None
+) -> Iterator[dict]:
     tokens: list[tuple[contextvars.ContextVar, contextvars.Token]] = []
     cost_token = None
     cost_var = None
@@ -67,6 +73,7 @@ def request_scope(request_id: str | None = None, *, run_id: str | None = None,
         tokens.append((_project_id, _project_id.set(int(project_id))))
         try:
             from app.services.observation import _cost_project as cost_var
+
             cost_token = cost_var.set(int(project_id))
         except Exception:
             cost_var = None
@@ -86,8 +93,9 @@ def request_scope(request_id: str | None = None, *, run_id: str | None = None,
 
 
 @contextmanager
-def ensure_request_scope(prefix: str = "op-", *, run_id: str | None = None,
-                         project_id: int | None = None) -> Iterator[dict]:
+def ensure_request_scope(
+    prefix: str = "op-", *, run_id: str | None = None, project_id: int | None = None
+) -> Iterator[dict]:
     rid = get_request_id() or new_request_id(prefix)
     with request_scope(rid, run_id=run_id, project_id=project_id) as snap:
         yield snap
@@ -130,13 +138,16 @@ def scoped_async(kind: str, project_of):
             run = get_run_id() or new_run_id(kind, pid)
             with ensure_request_scope(f"{kind}-", run_id=run, project_id=pid):
                 return await fn(*args, **kwargs)
+
         wrapper.__scoped_kind__ = kind
         return wrapper
+
     return deco
 
 
-
-_auto_request: contextvars.ContextVar[str | None] = contextvars.ContextVar("correlation_auto_request", default=None)
+_auto_request: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "correlation_auto_request", default=None
+)
 
 
 def bind_run(run_id: str, project_id: int | None = None, request_prefix: str = "run-") -> None:

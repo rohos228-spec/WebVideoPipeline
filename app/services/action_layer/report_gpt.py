@@ -4,6 +4,7 @@
 Что нода записала, берём из её сохранённого ответа (excel_gpt_uploads/<нода>/gpt_reply.txt):
 тот же разбор apply-ops, что применяет ответ к базе, но без записи.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -21,6 +22,7 @@ _CHAT_LINE_MAX = 220
 
 
 # ── Общие помощники рендера ──
+
 
 def clip(value: Any, n: int = 200) -> str:
     text = " ".join(str(value if value is not None else "").split())
@@ -48,8 +50,13 @@ def xlsx_value(value: Any) -> Any:
     return value
 
 
-def write_workbook(path: Path, sheets: list[tuple[str, tuple[tuple[str, str], ...], list[dict]]],
-                   summary: list[tuple[str, Any]], *, widths: dict[str, dict[str, int]] | None = None) -> None:
+def write_workbook(
+    path: Path,
+    sheets: list[tuple[str, tuple[tuple[str, str], ...], list[dict]]],
+    summary: list[tuple[str, Any]],
+    *,
+    widths: dict[str, dict[str, int]] | None = None,
+) -> None:
     """Один xlsx: лист «Итог» последним, на каждом листе шапка жирным и закреплена."""
     from openpyxl import Workbook
     from openpyxl.styles import Font
@@ -70,8 +77,9 @@ def write_workbook(path: Path, sheets: list[tuple[str, tuple[tuple[str, str], ..
         for i, (key, label) in enumerate(columns, start=1):
             letter = get_column_letter(i)
             longest = max([len(str(label))] + [len(str(xlsx_value(r.get(key)) or "")) for r in rows[:200]])
-            ws.column_dimensions[letter].width = fixed.get(letter) or min(max(10, longest + 2),
-                                                                          tpl.COLUMN_WIDTH_MAX)
+            ws.column_dimensions[letter].width = fixed.get(letter) or min(
+                max(10, longest + 2), tpl.COLUMN_WIDTH_MAX
+            )
         ws.freeze_panes = "A2"
     total = wb.active if first else wb.create_sheet(tpl.SUMMARY_SHEET)
     total.title = tpl.SUMMARY_SHEET
@@ -88,6 +96,7 @@ def _stamp() -> str:
 
 
 # ── Что записала нода «Работа с GPT» ──
+
 
 def read_reply(data_dir: str | Path, node_key: str) -> str | None:
     """Сохранённый ответ ноды; только внутри папки проекта, без обхода путей."""
@@ -106,6 +115,7 @@ def read_reply(data_dir: str | Path, node_key: str) -> str | None:
 
 def _canon_field(raw: Any) -> str:
     from app.services.db_apply import FIELD_ALIASES
+
     key = str(raw).strip()
     return FIELD_ALIASES.get(key.lower().replace(" ", "_")) or key
 
@@ -128,11 +138,19 @@ def _card_name(card: Any, *keys: str) -> str:
 
 def writes_from_reply(text: str | None, num_by_uuid: dict[str, int]) -> dict:
     """Разбор ответа: кадр → поля, поля проекта, персонажи, сцены. Ничего не пишет."""
-    out: dict[str, Any] = {"parsed": False, "frames": {}, "project_fields": [], "replace_frames": None,
-                           "characters": [], "scenes": [], "partial": False}
+    out: dict[str, Any] = {
+        "parsed": False,
+        "frames": {},
+        "project_fields": [],
+        "replace_frames": None,
+        "characters": [],
+        "scenes": [],
+        "partial": False,
+    }
     if not text:
         return out
     from app.services.db_apply import extract_apply_ops_json
+
     try:
         data = extract_apply_ops_json(text)
     except Exception:  # noqa: BLE001 - кривой ответ не роняет отчёт
@@ -151,8 +169,7 @@ def writes_from_reply(text: str | None, num_by_uuid: dict[str, int]) -> dict:
         fields = op.get("fields") if isinstance(op.get("fields"), dict) else {}
         names = [_canon_field(k) for k in fields]
         if target == "frame":
-            num = _frame_number(op.get("frame_uuid") or op.get("frame_number") or op.get("кадр"),
-                                num_by_uuid)
+            num = _frame_number(op.get("frame_uuid") or op.get("frame_number") or op.get("кадр"), num_by_uuid)
             known = frames.setdefault(num, [])
             known.extend(n for n in names if n not in known)
             slot = values.setdefault(num, {})
@@ -180,6 +197,7 @@ def prompt_title(variant: str | None) -> str:
     if not variant:
         return ""
     from app.services import prompt_library as pl
+
     try:
         titles = pl.load_file_meta(pl.EXCEL_GPT_UNIFIED_STEP)
     except Exception:  # noqa: BLE001
@@ -196,6 +214,7 @@ async def frame_numbers(pid: int) -> dict[str, int]:
 
     from app.models import Frame
     from app.services.action_layer import builtin_insight as bi
+
     try:
         async with bi._sessions()() as s:
             rows = (await s.execute(select(Frame.uuid, Frame.number).where(Frame.project_id == pid))).all()
@@ -206,6 +225,7 @@ async def frame_numbers(pid: int) -> dict[str, int]:
 
 def is_gpt_node(node: dict | None, node_type: str = "") -> bool:
     from app.services.excel_gpt_node import is_excel_gpt_node_type
+
     raw = str((node or {}).get("type") or node_type or "")
     return is_excel_gpt_node_type(raw)
 
@@ -214,6 +234,7 @@ def gpt_nodes(project: Any, detail: dict, cards: dict[str, dict], num_by_uuid: d
     """Строки по нодам «Работа с GPT» в порядке канваса."""
     from app.services.action_layer import builtin_insight as bi
     from app.services.action_layer.builtin_group import node_label_ru
+
     meta = bi._meta(detail)
     out: list[dict] = []
     for node in bi._canvas_nodes(meta):
@@ -238,17 +259,27 @@ def gpt_nodes(project: Any, detail: dict, cards: dict[str, dict], num_by_uuid: d
             note = "; ".join(x for x in (note, "проект: " + _labels_ru(writes["project_fields"])) if x)
         if writes["replace_frames"] is not None:
             note = "; ".join(x for x in (note, f"пересобрала кадры: {writes['replace_frames']}") if x)
-        out.append({
-            "node_key": key, "label": node_label_ru(meta, key),
-            "prompt_variant": variant or "", "prompt_title": prompt_title(variant),
-            "model": card.get("model") or "", "status_ru": card.get("status_ru") or "не запускалась",
-            "frames_written": len(writes["frames"]), "fields": fields, "fields_ru": _labels_ru(fields),
-            "frames": {str(k): v for k, v in writes["frames"].items()},
-            "values": {str(k): v for k, v in (writes.get("values") or {}).items()},
-            "characters": writes["characters"], "characters_count": len(writes["characters"]),
-            "scenes": writes["scenes"], "scenes_count": len(writes["scenes"]),
-            "project_fields": writes["project_fields"], "note": note,
-        })
+        out.append(
+            {
+                "node_key": key,
+                "label": node_label_ru(meta, key),
+                "prompt_variant": variant or "",
+                "prompt_title": prompt_title(variant),
+                "model": card.get("model") or "",
+                "status_ru": card.get("status_ru") or "не запускалась",
+                "frames_written": len(writes["frames"]),
+                "fields": fields,
+                "fields_ru": _labels_ru(fields),
+                "frames": {str(k): v for k, v in writes["frames"].items()},
+                "values": {str(k): v for k, v in (writes.get("values") or {}).items()},
+                "characters": writes["characters"],
+                "characters_count": len(writes["characters"]),
+                "scenes": writes["scenes"],
+                "scenes_count": len(writes["scenes"]),
+                "project_fields": writes["project_fields"],
+                "note": note,
+            }
+        )
     return out
 
 
@@ -262,14 +293,22 @@ def gpt_frame_rows(nodes: list[dict]) -> list[dict]:
             vals = (n.get("values") or {}).get(str(frame)) or {}
             for name in names:
                 key = (str(frame), name)
-                rows.append({"label": n["label"], "frame": frame, "field": name,
-                             "field_ru": tpl.field_label(name), "value": vals.get(name, ""),
-                             "overwritten": f"да, потом «{later[key]}»" if key in later else ""})
+                rows.append(
+                    {
+                        "label": n["label"],
+                        "frame": frame,
+                        "field": name,
+                        "field_ru": tpl.field_label(name),
+                        "value": vals.get(name, ""),
+                        "overwritten": f"да, потом «{later[key]}»" if key in later else "",
+                    }
+                )
             for name in names:
                 later.setdefault((str(frame), name), n["label"])
     order = {n["label"]: i for i, n in enumerate(nodes)}
-    return sorted(rows, key=lambda r: (order.get(r["label"], 0), (isinstance(r["frame"], str), r["frame"]),
-                                      r["field"]))
+    return sorted(
+        rows, key=lambda r: (order.get(r["label"], 0), (isinstance(r["frame"], str), r["frame"]), r["field"])
+    )
 
 
 def gpt_list_rows(nodes: list[dict]) -> list[dict]:
@@ -285,12 +324,13 @@ def gpt_text(nodes: list[dict]) -> str:
     done = sum(1 for n in nodes if n["status_ru"] == "готово")
     lines = [f"{tpl.GPT_SECTION_TITLE}: нод {len(nodes)}, готово {done}."]
     for n in nodes:
-        parts = [f"промт «{n['prompt_title']}»" if n["prompt_title"] else "",
-                 n["model"], n["status_ru"]]
+        parts = [f"промт «{n['prompt_title']}»" if n["prompt_title"] else "", n["model"], n["status_ru"]]
         what = []
         if n["frames_written"]:
-            what.append(f"заполнила кадров {n['frames_written']}"
-                        + (f" ({clip(n['fields_ru'], 80)})" if n["fields_ru"] else ""))
+            what.append(
+                f"заполнила кадров {n['frames_written']}"
+                + (f" ({clip(n['fields_ru'], 80)})" if n["fields_ru"] else "")
+            )
         if n["characters_count"]:
             what.append(f"персонажей {n['characters_count']}")
         if n["scenes_count"]:
@@ -307,23 +347,33 @@ async def project_counts(pid: int, meta: dict) -> dict:
 
     from app.models import Entity
     from app.services.action_layer import builtin_insight as bi
+
     chars = None
     try:
         async with bi._sessions()() as s:
-            chars = int(await s.scalar(select(func.count(Entity.id)).where(
-                Entity.project_id == pid, Entity.type == "character")) or 0)
+            chars = int(
+                await s.scalar(
+                    select(func.count(Entity.id)).where(Entity.project_id == pid, Entity.type == "character")
+                )
+                or 0
+            )
     except SQLAlchemyError:
         chars = None
     reg = meta.get("scene_registry")
-    scenes = sum(1 for r in reg if not (isinstance(r, dict) and r.get("активен") is False)) \
-        if isinstance(reg, list) else 0
+    scenes = (
+        sum(1 for r in reg if not (isinstance(r, dict) and r.get("активен") is False))
+        if isinstance(reg, list)
+        else 0
+    )
     return {"characters_in_project": chars, "scenes_in_registry": scenes}
 
 
 # ── Отчёт по нескольким проектам ──
 
+
 def shared_reports_dir() -> Path:
     from app.settings import settings
+
     return Path(settings.data_dir) / "reports"
 
 
@@ -332,6 +382,7 @@ async def _project_ids(params: dict) -> tuple[list[int], int]:
 
     from app.models import Project
     from app.services.action_layer import builtin_insight as bi
+
     ids = [int(x) for x in params.get("project_ids") or []]
     if ids:
         return list(dict.fromkeys(ids))[: tpl.MAX_PROJECTS], len(set(ids))
@@ -346,6 +397,7 @@ async def _grouped(pids: list[int]) -> dict[str, dict[int, float]]:
 
     from app.models import Artifact, ArtifactKind, Frame
     from app.services.action_layer import builtin_insight as bi
+
     out: dict[str, dict[int, float]] = {"frames": {}, "images": {}, "videos": {}, "spent": {}}
     if not pids:
         return out
@@ -353,14 +405,24 @@ async def _grouped(pids: list[int]) -> dict[str, dict[int, float]]:
 
     async def count(s, ids: list[int]) -> None:
         # Счёт по проектам из единой базы; max — на случай повторного прохода по тем же id.
-        for pid, n in (await s.execute(select(Frame.project_id, func.count(Frame.id)).where(
-                Frame.project_id.in_(ids)).group_by(Frame.project_id))).all():
+        for pid, n in (
+            await s.execute(
+                select(Frame.project_id, func.count(Frame.id))
+                .where(Frame.project_id.in_(ids))
+                .group_by(Frame.project_id)
+            )
+        ).all():
             out["frames"][int(pid)] = max(out["frames"].get(int(pid), 0), int(n))
-        for pid, kind, n in (await s.execute(
-                select(Artifact.project_id, Artifact.kind, func.count(Artifact.id)).where(
+        for pid, kind, n in (
+            await s.execute(
+                select(Artifact.project_id, Artifact.kind, func.count(Artifact.id))
+                .where(
                     Artifact.project_id.in_(ids),
-                    Artifact.kind.in_([ArtifactKind.scene_image, ArtifactKind.scene_video])).group_by(
-                    Artifact.project_id, Artifact.kind))).all():
+                    Artifact.kind.in_([ArtifactKind.scene_image, ArtifactKind.scene_video]),
+                )
+                .group_by(Artifact.project_id, Artifact.kind)
+            )
+        ).all():
             kind_v = kind.value if hasattr(kind, "value") else str(kind)
             bucket = "images" if kind_v == ArtifactKind.scene_image.value else "videos"
             out[bucket][int(pid)] = max(out[bucket].get(int(pid), 0), int(n))
@@ -375,9 +437,15 @@ async def _grouped(pids: list[int]) -> dict[str, dict[int, float]]:
         async with bi._sessions()() as s:
             await count(s, pids)
             marks = ", ".join(f":p{i}" for i in range(len(pids)))
-            rows = (await s.execute(text(
-                f"SELECT project_id, SUM(usd) FROM spend_ledger WHERE project_id IN ({marks}) "
-                "GROUP BY project_id"), {f"p{i}": p for i, p in enumerate(pids)})).all()
+            rows = (
+                await s.execute(
+                    text(
+                        f"SELECT project_id, SUM(usd) FROM spend_ledger WHERE project_id IN ({marks}) "
+                        "GROUP BY project_id"
+                    ),
+                    {f"p{i}": p for i, p in enumerate(pids)},
+                )
+            ).all()
             for pid, usd in rows:
                 out["spent"][int(pid)] = float(usd or 0.0)
     except SQLAlchemyError:
@@ -387,21 +455,33 @@ async def _grouped(pids: list[int]) -> dict[str, dict[int, float]]:
 
 async def _project_detail(ctx: ActionContext, pid: int, row: Any) -> dict:
     from app.services.action_layer.builtin_group import _effective_project
+
     try:
         detail = await _effective_project(ctx, pid)
         if isinstance(detail, dict):
             return detail
     except ActionCallError:
         pass
-    return {"id": pid, "title": row.title, "topic": row.topic, "meta": dict(row.meta or {}),
-            "prompt_overrides": dict(row.prompt_overrides or {})}
+    return {
+        "id": pid,
+        "title": row.title,
+        "topic": row.topic,
+        "meta": dict(row.meta or {}),
+        "prompt_overrides": dict(row.prompt_overrides or {}),
+    }
 
 
 async def _project_row_report(ctx: ActionContext, pid: int, row: Any, counts: dict) -> dict:
     from app.services.action_layer import builtin_insight as bi
+
     if row is None:
-        return {"project_id": pid, "title": "проект не найден", "status_ru": "—", "found": False,
-                "gpt_nodes": []}
+        return {
+            "project_id": pid,
+            "title": "проект не найден",
+            "status_ru": "—",
+            "found": False,
+            "gpt_nodes": [],
+        }
     detail = await _project_detail(ctx, pid, row)
     meta = bi._meta(detail)
     status = bi._row_status(row) or str(detail.get("status") or "")
@@ -413,21 +493,42 @@ async def _project_row_report(ctx: ActionContext, pid: int, row: Any, counts: di
     cards: dict[str, dict] = {}
     for key, node in by_key.items():
         if is_gpt_node(node):
-            cards[key] = bi._node_card(project, detail, key, node, runs.get(key), checks=[], cost=None,
-                                       detailed=False)
+            cards[key] = bi._node_card(
+                project, detail, key, node, runs.get(key), checks=[], cost=None, detailed=False
+            )
     nodes = gpt_nodes(project, detail, cards, await frame_numbers(pid))
-    gpt = "; ".join(f"{n['label']}: {n['prompt_title'] or 'промт по умолчанию'} ({n['status_ru']})"
-                    for n in nodes)
+    gpt = "; ".join(
+        f"{n['label']}: {n['prompt_title'] or 'промт по умолчанию'} ({n['status_ru']})" for n in nodes
+    )
     spent = counts["spent"].get(pid)
     return {
-        "project_id": pid, "found": True,
+        "project_id": pid,
+        "found": True,
         "title": clip(detail.get("title") or row.title or row.topic, 80),
-        "status": status, "status_ru": bi._status_ru(status), "steps": f"{done} из {len(steps)}",
-        "steps_done": done, "steps_total": len(steps), "gpt": gpt or "нет",
-        "gpt_nodes": [{k: n[k] for k in ("node_key", "label", "prompt_variant", "prompt_title", "status_ru",
-                                          "frames_written", "characters_count", "scenes_count")}
-                      for n in nodes],
-        "frames": int(counts["frames"].get(pid, 0)), "images": int(counts["images"].get(pid, 0)),
+        "status": status,
+        "status_ru": bi._status_ru(status),
+        "steps": f"{done} из {len(steps)}",
+        "steps_done": done,
+        "steps_total": len(steps),
+        "gpt": gpt or "нет",
+        "gpt_nodes": [
+            {
+                k: n[k]
+                for k in (
+                    "node_key",
+                    "label",
+                    "prompt_variant",
+                    "prompt_title",
+                    "status_ru",
+                    "frames_written",
+                    "characters_count",
+                    "scenes_count",
+                )
+            }
+            for n in nodes
+        ],
+        "frames": int(counts["frames"].get(pid, 0)),
+        "images": int(counts["images"].get(pid, 0)),
         "videos": int(counts["videos"].get(pid, 0)),
         "spent_usd": None if spent is None else round(spent, 4),
         "updated_at": bi._iso(getattr(row, "updated_at", None)),
@@ -437,6 +538,7 @@ async def _project_row_report(ctx: ActionContext, pid: int, row: Any, counts: di
 async def report_projects(ctx: ActionContext, params: dict) -> dict:
     from app.models import Project
     from app.services.action_layer import builtin_insight as bi
+
     fmt = params.get("kind", "chat")
     pids, total = await _project_ids(params)
     counts = await _grouped(pids)
@@ -451,26 +553,43 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
     found = [r for r in rows if r.get("found")]
     spent = sum(r["spent_usd"] or 0.0 for r in found)
     missing = [r["project_id"] for r in rows if not r.get("found")]
-    head = (f"{tpl.PROJECTS_TITLE}: {len(found)}"
-            + (f" (последние {len(pids)} из {total})" if not params.get("project_ids") and total > len(pids)
-               else "")
-            + f". Кадров {sum(r['frames'] for r in found)}, картинок {sum(r['images'] for r in found)}, "
-              f"видео {sum(r['videos'] for r in found)}, траты ${round(spent, 4)} (оценка).")
+    head = (
+        f"{tpl.PROJECTS_TITLE}: {len(found)}"
+        + (
+            f" (последние {len(pids)} из {total})"
+            if not params.get("project_ids") and total > len(pids)
+            else ""
+        )
+        + f". Кадров {sum(r['frames'] for r in found)}, картинок {sum(r['images'] for r in found)}, "
+        f"видео {sum(r['videos'] for r in found)}, траты ${round(spent, 4)} (оценка)."
+    )
     if missing:
         head += " Не найдены: " + ", ".join(f"#{p}" for p in missing) + "."
-    summary = {"projects": len(found), "missing": missing, "frames": sum(r["frames"] for r in found),
-               "images": sum(r["images"] for r in found), "videos": sum(r["videos"] for r in found),
-               "spent_usd_estimate": round(spent, 4)}
+    summary = {
+        "projects": len(found),
+        "missing": missing,
+        "frames": sum(r["frames"] for r in found),
+        "images": sum(r["images"] for r in found),
+        "videos": sum(r["videos"] for r in found),
+        "spent_usd_estimate": round(spent, 4),
+    }
     out: dict[str, Any] = {"format": fmt, "project_ids": pids, "summary": summary}
     if fmt == "json":
         out.update(rows=rows, text_ru=head)
         return bi._safe(out)
-    pairs = [("Отчёт", tpl.PROJECTS_TITLE), ("Сформирован", datetime.now().isoformat(timespec="seconds")),
-             ("Проектов", len(found)), ("Кадров", summary["frames"]), ("Картинок", summary["images"]),
-             ("Видео", summary["videos"]), ("Траты, $ (оценка)", summary["spent_usd_estimate"])]
+    pairs = [
+        ("Отчёт", tpl.PROJECTS_TITLE),
+        ("Сформирован", datetime.now().isoformat(timespec="seconds")),
+        ("Проектов", len(found)),
+        ("Кадров", summary["frames"]),
+        ("Картинок", summary["images"]),
+        ("Видео", summary["videos"]),
+        ("Траты, $ (оценка)", summary["spent_usd_estimate"]),
+    ]
     if missing:
         pairs.append(("Не найдены", ", ".join(f"#{p}" for p in missing)))
     from app.web.routers.project_reports import SHARED_PREFIX, shared_report_url
+
     path = shared_reports_dir() / f"{SHARED_PREFIX}{_stamp()}.xlsx"
     write_workbook(path, [(tpl.PROJECTS_SHEET, tpl.PROJECTS_COLUMNS, rows)], pairs)
     url = shared_report_url(path)
@@ -478,7 +597,9 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
     shown = rows[: tpl.CHAT_ROWS]
     table = markdown_table(shown, tpl.PROJECTS_CHAT_COLUMNS)
     tail = f"\n\nЕщё проектов: {len(rows) - len(shown)} (все в файле)." if len(rows) > len(shown) else ""
-    gpt_lines = [f"- #{r['project_id']}: {clip(r['gpt'], 160)}" for r in shown if r.get("gpt") not in (None, "", "нет")]
+    gpt_lines = [
+        f"- #{r['project_id']}: {clip(r['gpt'], 160)}" for r in shown if r.get("gpt") not in (None, "", "нет")
+    ]
     gpt_text_md = ("\n\n" + tpl.GPT_SECTION_TITLE + ":\n" + "\n".join(gpt_lines)) if gpt_lines else ""
     out["markdown"] = f"## {tpl.PROJECTS_TITLE}\n\n{head}\n\n{table}{tail}{gpt_text_md}"
     out["text_ru"] = head + f" Файл отчёта готов: [Скачать отчёт (xlsx)]({url})"

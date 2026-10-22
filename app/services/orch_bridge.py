@@ -25,10 +25,15 @@ NOTICE_SWEEP_S = 15.0
 PROGRESS_S = 1.0
 
 _CHANGE_ID = re.compile(r"^orch-appr-(\d+)-(\d+)$")
-_OWN_EXECUTORS = frozenset({
-    "montage.delete_frame", "montage.delete_child_frame", "frame.restore",
-    "group.delete", "prompt.delete_master",
-})
+_OWN_EXECUTORS = frozenset(
+    {
+        "montage.delete_frame",
+        "montage.delete_child_frame",
+        "frame.restore",
+        "group.delete",
+        "prompt.delete_master",
+    }
+)
 _NO_RUN_REASONS = frozenset({"paid_outcome_unknown", "paid_unknown_outcome", "partial_write"})
 _BOUND: dict[str, str] = {}
 _RELAYS: dict[tuple[int, str, int], dict] = {}
@@ -45,6 +50,7 @@ class DecisionError(Exception):
 
 def credit_usd() -> float:
     from app.services.kie_catalog import CREDIT_USD
+
     return float(CREDIT_USD)
 
 
@@ -101,14 +107,23 @@ def card_from_preview(preview: dict) -> dict:
     low, high = cost.get("low"), cost.get("high")
     card: dict[str, Any] = {
         "cost_estimate": to_usd(high) if known else None,
-        "cost": {"known": known, "low_usd": to_usd(low) if known else None,
-                 "high_usd": to_usd(high) if known else None,
-                 "credits_low": low if known else None, "credits_high": high if known else None,
-                 "unknown_steps": int(cost.get("unknown_steps") or 0)},
-        "warnings": [plain_ru(w.get("text") or "") for w in preview.get("warnings") or [] if isinstance(w, dict)],
+        "cost": {
+            "known": known,
+            "low_usd": to_usd(low) if known else None,
+            "high_usd": to_usd(high) if known else None,
+            "credits_low": low if known else None,
+            "credits_high": high if known else None,
+            "unknown_steps": int(cost.get("unknown_steps") or 0),
+        },
+        "warnings": [
+            plain_ru(w.get("text") or "") for w in preview.get("warnings") or [] if isinstance(w, dict)
+        ],
         "destructive_effects": _effect_texts(preview),
-        "future_spend": [plain_ru(f.get("text") or "") for f in preview.get("future_spend_effects") or []
-                         if isinstance(f, dict)],
+        "future_spend": [
+            plain_ru(f.get("text") or "")
+            for f in preview.get("future_spend_effects") or []
+            if isinstance(f, dict)
+        ],
     }
     if not preview.get("ok"):
         card["preview_errors"] = [plain_ru(e) for e in (preview.get("errors") or [])][:10]
@@ -129,8 +144,11 @@ async def prepare_card(name: str, params: dict | None, ctx: dict | None) -> dict
         return card
     try:
         plan_id, preview = await service.create_plan(
-            ctx.get("app"), _steps(spec.id, params or {}), operator=_creator(ctx.get("task_id")),
-            request_text=_request_text(spec, ctx.get("goal")))
+            ctx.get("app"),
+            _steps(spec.id, params or {}),
+            operator=_creator(ctx.get("task_id")),
+            request_text=_request_text(spec, ctx.get("goal")),
+        )
     except Exception as exc:
         logger.warning("orch bridge: card preview failed for {}: {}", spec.id, type(exc).__name__)
         card["preview_errors"] = ["не удалось посчитать оценку и проверить условия шага"]
@@ -145,8 +163,15 @@ async def prepare_card(name: str, params: dict | None, ctx: dict | None) -> dict
 async def _plan_steps(plan_id: str) -> tuple[Any, list]:
     async with store.sessions()() as s:
         row = await s.get(store.ActionPlan, plan_id)
-        steps = list((await s.scalars(select(store.ActionPlanStep).where(
-            store.ActionPlanStep.plan_id == plan_id).order_by(store.ActionPlanStep.idx))).all())
+        steps = list(
+            (
+                await s.scalars(
+                    select(store.ActionPlanStep)
+                    .where(store.ActionPlanStep.plan_id == plan_id)
+                    .order_by(store.ActionPlanStep.idx)
+                )
+            ).all()
+        )
     return row, steps
 
 
@@ -161,15 +186,21 @@ async def _reusable(plan_id: str | None, name: str, params: dict) -> bool:
     if not plan_id:
         return False
     row, _steps_rows = await _plan_steps(plan_id)
-    return (row is not None and row.status == store.PLAN_PROPOSED
-            and await plan_matches(plan_id, name, params))
+    return row is not None and row.status == store.PLAN_PROPOSED and await plan_matches(plan_id, name, params)
 
 
 async def bind_approved(change_id: str, plan_id: str, *, action: str, task_id: Any, actor: str) -> None:
     _BOUND[change_id] = plan_id
     async with store.sessions()() as s:
-        store.append_history(s, event=CARD_EVENT, plan_id=plan_id, actor=actor, action_id=action,
-                             params={"change_id": change_id, "task_id": task_id}, outcome="approved")
+        store.append_history(
+            s,
+            event=CARD_EVENT,
+            plan_id=plan_id,
+            actor=actor,
+            action_id=action,
+            params={"change_id": change_id, "task_id": task_id},
+            outcome="approved",
+        )
         await s.commit()
 
 
@@ -179,10 +210,14 @@ async def bound_plan(change_id: str | None, action: str) -> str | None:
     if change_id in _BOUND:
         return _BOUND[change_id]
     async with store.sessions()() as s:
-        rows = (await s.scalars(select(store.ActionHistory).where(
-            store.ActionHistory.event == CARD_EVENT,
-            store.ActionHistory.action_id == action).order_by(
-            store.ActionHistory.id.desc()).limit(200))).all()
+        rows = (
+            await s.scalars(
+                select(store.ActionHistory)
+                .where(store.ActionHistory.event == CARD_EVENT, store.ActionHistory.action_id == action)
+                .order_by(store.ActionHistory.id.desc())
+                .limit(200)
+            )
+        ).all()
     for row in rows:
         if isinstance(row.params, dict) and row.params.get("change_id") == change_id:
             return row.plan_id
@@ -194,20 +229,47 @@ async def revoke(plan_id: str, change_id: str | None, actor: str) -> None:
         _BOUND.pop(change_id, None)
     now = datetime.utcnow()
     async with store.sessions()() as s:
-        await s.execute(update(store.ActionApproval).where(
-            store.ActionApproval.plan_id == plan_id,
-            store.ActionApproval.used_at.is_(None),
-            store.ActionApproval.expires_at > now).values(expires_at=now))
-        store.append_history(s, event=REVOKE_EVENT, plan_id=plan_id, actor=actor,
-                             params={"change_id": change_id}, outcome="revoked")
+        await s.execute(
+            update(store.ActionApproval)
+            .where(
+                store.ActionApproval.plan_id == plan_id,
+                store.ActionApproval.used_at.is_(None),
+                store.ActionApproval.expires_at > now,
+            )
+            .values(expires_at=now)
+        )
+        store.append_history(
+            s,
+            event=REVOKE_EVENT,
+            plan_id=plan_id,
+            actor=actor,
+            params={"change_id": change_id},
+            outcome="revoked",
+        )
         await s.commit()
 
 
-async def approve_for_card(app: Any, *, change_id: str, task_id: Any, action: str, params: dict,
-                           card_plan_id: str | None, operator: approval.OperatorIdentity,
-                           goal: str = "") -> str:
-    plan_id, _fresh = await _approve_card(app, change_id=change_id, task_id=task_id, action=action,
-                                          params=params, card_plan_id=card_plan_id, operator=operator, goal=goal)
+async def approve_for_card(
+    app: Any,
+    *,
+    change_id: str,
+    task_id: Any,
+    action: str,
+    params: dict,
+    card_plan_id: str | None,
+    operator: approval.OperatorIdentity,
+    goal: str = "",
+) -> str:
+    plan_id, _fresh = await _approve_card(
+        app,
+        change_id=change_id,
+        task_id=task_id,
+        action=action,
+        params=params,
+        card_plan_id=card_plan_id,
+        operator=operator,
+        goal=goal,
+    )
     return plan_id
 
 
@@ -215,16 +277,29 @@ async def _live_approval(plan_id: str) -> bool:
     """У плана есть неиспользованное и не истёкшее подтверждение."""
     now = datetime.utcnow()
     async with store.sessions()() as s:
-        found = await s.scalar(select(store.ActionApproval.id).where(
-            store.ActionApproval.plan_id == plan_id,
-            store.ActionApproval.used_at.is_(None),
-            store.ActionApproval.expires_at > now).limit(1))
+        found = await s.scalar(
+            select(store.ActionApproval.id)
+            .where(
+                store.ActionApproval.plan_id == plan_id,
+                store.ActionApproval.used_at.is_(None),
+                store.ActionApproval.expires_at > now,
+            )
+            .limit(1)
+        )
     return found is not None
 
 
-async def _approve_card(app: Any, *, change_id: str, task_id: Any, action: str, params: dict,
-                        card_plan_id: str | None, operator: approval.OperatorIdentity,
-                        goal: str = "") -> tuple[str, bool]:
+async def _approve_card(
+    app: Any,
+    *,
+    change_id: str,
+    task_id: Any,
+    action: str,
+    params: dict,
+    card_plan_id: str | None,
+    operator: approval.OperatorIdentity,
+    goal: str = "",
+) -> tuple[str, bool]:
     """(plan_id, fresh). Повтор по уже одобренной карточке нового подтверждения не выпускает:
     create_approval гасит прежнее, и шаг, который его ждёт, падал бы без подтверждения."""
     spec = _spec(action)
@@ -234,10 +309,13 @@ async def _approve_card(app: Any, *, change_id: str, task_id: Any, action: str, 
     plan_id = card_plan_id if await _reusable(card_plan_id, action, params) else None
     if plan_id is None:
         plan_id, preview = await service.create_plan(
-            app, _steps(action, params), operator=_creator(task_id), request_text=_request_text(spec, goal))
+            app, _steps(action, params), operator=_creator(task_id), request_text=_request_text(spec, goal)
+        )
         if plan_id is None:
             errors = "; ".join(str(e) for e in (preview.get("errors") or [])[:5])
-            raise approval.ApprovalError("plan_invalid", "Шаг не прошёл проверку: " + (errors or "условия не выполнены"))
+            raise approval.ApprovalError(
+                "plan_invalid", "Шаг не прошёл проверку: " + (errors or "условия не выполнены")
+            )
     await service.approve_plan(app, plan_id, operator)
     await bind_approved(change_id, plan_id, action=action, task_id=task_id, actor=operator.id)
     return plan_id, True
@@ -245,8 +323,11 @@ async def _approve_card(app: Any, *, change_id: str, task_id: Any, action: str, 
 
 async def _approver(plan_id: str) -> str | None:
     async with store.sessions()() as s:
-        return await s.scalar(select(store.ActionApproval.operator).where(
-            store.ActionApproval.plan_id == plan_id).order_by(store.ActionApproval.created_at.desc()))
+        return await s.scalar(
+            select(store.ActionApproval.operator)
+            .where(store.ActionApproval.plan_id == plan_id)
+            .order_by(store.ActionApproval.created_at.desc())
+        )
 
 
 async def _publish(ctx: dict, event_type: str, payload: dict) -> None:
@@ -277,9 +358,18 @@ async def _follow(task: asyncio.Task, plan_id: str, spec, ctx: dict, operator: s
             if snap is None or snap == last or snap[0] != store.STEP_RUNNING:
                 continue
             last = snap
-            await _publish(ctx, PROGRESS_EVENT, {
-                "action": spec.id, "title": spec.title_ru, "plan_id": plan_id, "status": "running",
-                "progress": snap[1], "note": snap[2]})
+            await _publish(
+                ctx,
+                PROGRESS_EVENT,
+                {
+                    "action": spec.id,
+                    "title": spec.title_ru,
+                    "plan_id": plan_id,
+                    "status": "running",
+                    "progress": snap[1],
+                    "note": snap[2],
+                },
+            )
     except asyncio.CancelledError:
         with contextlib.suppress(Exception):
             await executor.request_stop(plan_id, operator)
@@ -288,10 +378,15 @@ async def _follow(task: asyncio.Task, plan_id: str, spec, ctx: dict, operator: s
 
 async def _undo(plan_id: str) -> dict | None:
     async with store.sessions()() as s:
-        ids = (await s.scalars(select(store.ActionSnapshot.id).where(
-            store.ActionSnapshot.plan_id == plan_id,
-            store.ActionSnapshot.restorable.is_(True),
-            store.ActionSnapshot.restored_at.is_(None)))).all()
+        ids = (
+            await s.scalars(
+                select(store.ActionSnapshot.id).where(
+                    store.ActionSnapshot.plan_id == plan_id,
+                    store.ActionSnapshot.restorable.is_(True),
+                    store.ActionSnapshot.restored_at.is_(None),
+                )
+            )
+        ).all()
     if not ids:
         return None
     return {"action": "history.rollback", "snapshot_ids": [int(i) for i in ids]}
@@ -317,13 +412,24 @@ async def _outcome(plan_id: str, spec) -> dict:
             spent, source = to_usd(high), "estimate"
         else:
             spent, source = 0.0, "free"
-        return {"status": "ok", "plan_id": plan_id, "result": step.get("result"),
-                "cost": spent or 0.0, "cost_source": source, "undo": await _undo(plan_id)}
+        return {
+            "status": "ok",
+            "plan_id": plan_id,
+            "result": step.get("result"),
+            "cost": spent or 0.0,
+            "cost_source": source,
+            "undo": await _undo(plan_id),
+        }
     error = str(step.get("error") or view.get("error") or "").strip()
     head = _FAIL_RU.get(status, "шаг не выполнен")
-    return {"status": "failed", "plan_id": plan_id, "outcome": status or "failed",
-            "error": f"{head}: {error}" if error else head,
-            "cost": to_usd(actual) or 0.0, "cost_source": "actual" if actual is not None else "none"}
+    return {
+        "status": "failed",
+        "plan_id": plan_id,
+        "outcome": status or "failed",
+        "error": f"{head}: {error}" if error else head,
+        "cost": to_usd(actual) or 0.0,
+        "cost_source": "actual" if actual is not None else "none",
+    }
 
 
 def _summary(spec, outcome: dict) -> str:
@@ -339,13 +445,24 @@ def _summary(spec, outcome: dict) -> str:
 
 
 async def _announce(ctx: dict, spec, outcome: dict) -> None:
-    await _publish(ctx, PROGRESS_EVENT, {
-        "action": spec.id, "title": spec.title_ru, "plan_id": outcome.get("plan_id"),
-        "status": "succeeded" if outcome.get("status") == "ok" else "failed",
-        "cost_usd": outcome.get("cost"), "cost_source": outcome.get("cost_source"),
-        "error": outcome.get("error")})
-    await _publish(ctx, RESULT_EVENT, {"role": "assistant", "kind": "action_result",
-                                       "action": spec.id, "text": _summary(spec, outcome)})
+    await _publish(
+        ctx,
+        PROGRESS_EVENT,
+        {
+            "action": spec.id,
+            "title": spec.title_ru,
+            "plan_id": outcome.get("plan_id"),
+            "status": "succeeded" if outcome.get("status") == "ok" else "failed",
+            "cost_usd": outcome.get("cost"),
+            "cost_source": outcome.get("cost_source"),
+            "error": outcome.get("error"),
+        },
+    )
+    await _publish(
+        ctx,
+        RESULT_EVENT,
+        {"role": "assistant", "kind": "action_result", "action": spec.id, "text": _summary(spec, outcome)},
+    )
 
 
 def _failed(text: str) -> dict:
@@ -365,12 +482,17 @@ async def run_bridged(spec, params: dict, ctx: dict, core_approval: dict | None)
     else:
         try:
             plan_id, preview = await service.create_plan(
-                app, _steps(spec.id, params), operator=_creator(task_id),
-                request_text=_request_text(spec, ctx.get("goal")))
+                app,
+                _steps(spec.id, params),
+                operator=_creator(task_id),
+                request_text=_request_text(spec, ctx.get("goal")),
+            )
         except Exception as exc:
             return _failed(f"шаг не подготовлен: {type(exc).__name__}: {exc}")
         if plan_id is None:
-            return _failed("; ".join(str(e) for e in (preview.get("errors") or [])[:5]) or "шаг не прошёл проверку")
+            return _failed(
+                "; ".join(str(e) for e in (preview.get("errors") or [])[:5]) or "шаг не прошёл проверку"
+            )
         operator = _creator(task_id).id
     try:
         await service.prepare_run(plan_id, approval.OperatorIdentity(operator))
@@ -385,15 +507,21 @@ async def run_bridged(spec, params: dict, ctx: dict, core_approval: dict | None)
     return outcome
 
 
-RESTART_STEP_ERROR = ("сервер перезапустился во время шага: итог и траты неизвестны, "
-                      "сверьте их и снимите резерв в Регистраторе")
+RESTART_STEP_ERROR = (
+    "сервер перезапустился во время шага: итог и траты неизвестны, сверьте их и снимите резерв в Регистраторе"
+)
 
 
 async def close_interrupted_plans() -> list[str]:
     async with store.sessions()() as s:
-        ids = (await s.scalars(select(store.ActionPlan.id).where(
-            store.ActionPlan.status == store.PLAN_RUNNING,
-            store.ActionPlan.operator.like("orchestrator%")))).all()
+        ids = (
+            await s.scalars(
+                select(store.ActionPlan.id).where(
+                    store.ActionPlan.status == store.PLAN_RUNNING,
+                    store.ActionPlan.operator.like("orchestrator%"),
+                )
+            )
+        ).all()
     closed = []
     for plan_id in ids:
         if await executor.close_interrupted(plan_id, "orchestrator", RESTART_STEP_ERROR):
@@ -451,9 +579,14 @@ async def bound_plan_any(change_id: str | None) -> str | None:
     if change_id in _BOUND:
         return _BOUND[change_id]
     async with store.sessions()() as s:
-        rows = (await s.scalars(select(store.ActionHistory).where(
-            store.ActionHistory.event == CARD_EVENT).order_by(
-            store.ActionHistory.id.desc()).limit(500))).all()
+        rows = (
+            await s.scalars(
+                select(store.ActionHistory)
+                .where(store.ActionHistory.event == CARD_EVENT)
+                .order_by(store.ActionHistory.id.desc())
+                .limit(500)
+            )
+        ).all()
     for row in rows:
         if isinstance(row.params, dict) and row.params.get("change_id") == change_id:
             return row.plan_id
@@ -474,6 +607,7 @@ def session_project(runtime: Any, session_id: str) -> int | None:
 
 async def stop_session_project(app: Any, project_id: int, task_id: Any) -> dict:
     from app.orchestrator import actions as orch_actions
+
     ctx = {"app": app, "task_id": task_id}
     try:
         done = await orch_actions.execute("project.stop", {"project_id": int(project_id)}, ctx)
@@ -484,8 +618,11 @@ async def stop_session_project(app: Any, project_id: int, task_id: Any) -> dict:
     result = result if isinstance(result, dict) else {}
     inner = result.get("result") if isinstance(result.get("result"), dict) else result
     ok = isinstance(done, dict) and done.get("status") == "ok"
-    return {"ok": ok, "stopped": bool(inner.get("stopped")) if ok else False,
-            "message": str(inner.get("message") or done.get("error") or "") if isinstance(done, dict) else ""}
+    return {
+        "ok": ok,
+        "stopped": bool(inner.get("stopped")) if ok else False,
+        "message": str(inner.get("message") or done.get("error") or "") if isinstance(done, dict) else "",
+    }
 
 
 def session_for(runtime: Any, change_id: str) -> tuple[str, int | None]:
@@ -528,20 +665,41 @@ async def _pending_step(runtime: Any, task_id: int | None, action: str | None, c
 _APPROVE_LOCKS: dict[str, asyncio.Lock] = {}
 
 
-async def approve(runtime: Any, app: Any, *, session_id: str, change_id: str | None,
-                  decision: str | None, retry_grant: bool,
-                  operator: approval.OperatorIdentity) -> tuple[Any, str | None]:
+async def approve(
+    runtime: Any,
+    app: Any,
+    *,
+    session_id: str,
+    change_id: str | None,
+    decision: str | None,
+    retry_grant: bool,
+    operator: approval.OperatorIdentity,
+) -> tuple[Any, str | None]:
     """Решения одной сессии идут по очереди. Двойной клик раньше выпускал второе подтверждение,
     оно гасило первое, а отказанный второй grant отзывал и его: шаг падал без подтверждения."""
     lock = _APPROVE_LOCKS.setdefault(session_id, asyncio.Lock())
     async with lock:
-        return await _approve_locked(runtime, app, session_id=session_id, change_id=change_id,
-                                     decision=decision, retry_grant=retry_grant, operator=operator)
+        return await _approve_locked(
+            runtime,
+            app,
+            session_id=session_id,
+            change_id=change_id,
+            decision=decision,
+            retry_grant=retry_grant,
+            operator=operator,
+        )
 
 
-async def _approve_locked(runtime: Any, app: Any, *, session_id: str, change_id: str | None,
-                          decision: str | None, retry_grant: bool,
-                          operator: approval.OperatorIdentity) -> tuple[Any, str | None]:
+async def _approve_locked(
+    runtime: Any,
+    app: Any,
+    *,
+    session_id: str,
+    change_id: str | None,
+    decision: str | None,
+    retry_grant: bool,
+    operator: approval.OperatorIdentity,
+) -> tuple[Any, str | None]:
     supervisor = runtime.supervisor
     adopt = getattr(supervisor, "adopt_after_restart", None)
     if callable(adopt):
@@ -551,7 +709,9 @@ async def _approve_locked(runtime: Any, app: Any, *, session_id: str, change_id:
         await supervisor._load_appr_state(session_id, task_id)
         change_id = change_id or supervisor._appr_open.get(int(task_id))
     card = await card_payload(runtime, session_id, change_id)
-    runs = retry_grant or (decision in (None, "approve") and str((card or {}).get("reason") or "") not in _NO_RUN_REASONS)
+    runs = retry_grant or (
+        decision in (None, "approve") and str((card or {}).get("reason") or "") not in _NO_RUN_REASONS
+    )
     plan_id = None
     fresh = False
     bridge_on = callable(getattr(supervisor.actions, "prepare_card", None))
@@ -562,12 +722,20 @@ async def _approve_locked(runtime: Any, app: Any, *, session_id: str, change_id:
                 raise DecisionError(409, "change_id is not current")
             goal = str((runtime.tasks.get(int(task_id)) or {}).get("goal") or "")
             with human_verified():
-                plan_id, fresh = await _approve_card(app, change_id=change_id, task_id=task_id,
-                                                     action=step.action, params=dict(step.params),
-                                                     card_plan_id=card.get("plan_id"),
-                                                     operator=operator, goal=goal)
+                plan_id, fresh = await _approve_card(
+                    app,
+                    change_id=change_id,
+                    task_id=task_id,
+                    action=step.action,
+                    params=dict(step.params),
+                    card_plan_id=card.get("plan_id"),
+                    operator=operator,
+                    goal=goal,
+                )
     try:
-        result = await supervisor.grant_approval(session_id, decision, retry_grant=retry_grant, change_id=change_id)
+        result = await supervisor.grant_approval(
+            session_id, decision, retry_grant=retry_grant, change_id=change_id
+        )
     except BaseException:
         # Отзывается только подтверждение этого вызова: прежнее живое ждёт свой шаг.
         if plan_id and fresh:
@@ -582,20 +750,30 @@ async def _approve_locked(runtime: Any, app: Any, *, session_id: str, change_id:
 def _notice_payload(notice: dict) -> dict:
     title = str(notice.get("title") or "")
     text = str(notice.get("text") or "")
-    return {**notice, "notice_id": notice.get("id"), "role": "system",
-            "message": f"{title}. {text}".strip(". ") if text else title}
+    return {
+        **notice,
+        "notice_id": notice.get("id"),
+        "role": "system",
+        "message": f"{title}. {text}".strip(". ") if text else title,
+    }
 
 
 def _seen_sync(session_id: str) -> set[int]:
     from sqlalchemy import text
 
     from app.orchestrator.db.migrations import connect
+
     conn = connect()
     try:
-        rows: list[Any] = list(conn.execute(
-            text("SELECT payload_json FROM orch_events WHERE session_id = :sid AND type = :type"
-                 " ORDER BY seq DESC LIMIT 2000"),
-            {"sid": session_id, "type": NOTICE_EVENT}).scalars())
+        rows: list[Any] = list(
+            conn.execute(
+                text(
+                    "SELECT payload_json FROM orch_events WHERE session_id = :sid AND type = :type"
+                    " ORDER BY seq DESC LIMIT 2000"
+                ),
+                {"sid": session_id, "type": NOTICE_EVENT},
+            ).scalars()
+        )
     finally:
         conn.close()
     found: set[int] = set()
@@ -641,6 +819,7 @@ async def forward_notice(bus: Any, session_id: str, notice: dict) -> bool:
 
 async def _catch_up(bus: Any, session_id: str, project_id: int) -> None:
     from app.services import chat_notice
+
     seen = await _seen(session_id)
     cursor = max(seen, default=0)
     if cursor:
@@ -655,6 +834,7 @@ async def _catch_up(bus: Any, session_id: str, project_id: int) -> None:
 async def _relay(bus: Any, session_id: str, project_id: int) -> None:
     from app.services import chat_notice
     from app.services.event_bus import get_bus
+
     async with get_bus().subscribe("global") as queue:
         await _catch_up(bus, session_id, project_id)
         while True:
@@ -687,8 +867,12 @@ async def notice_relay(bus: Any, session_id: str, project_id: int | None):
     key = (id(bus), session_id, int(project_id))
     entry = _RELAYS.get(key)
     if entry is None or entry["task"].done():
-        entry = {"refs": 0, "task": asyncio.create_task(
-            _guarded_relay(bus, session_id, int(project_id)), name=f"orch-notice-relay-{session_id}")}
+        entry = {
+            "refs": 0,
+            "task": asyncio.create_task(
+                _guarded_relay(bus, session_id, int(project_id)), name=f"orch-notice-relay-{session_id}"
+            ),
+        }
         _RELAYS[key] = entry
     entry["refs"] += 1
     try:

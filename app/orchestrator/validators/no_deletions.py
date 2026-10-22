@@ -132,9 +132,7 @@ def check_characters(before: Any, after: Any, ops: Any = None) -> list[Violation
     violations: list[Violation] = []
     seen: set[tuple[str, str, str]] = set()
     if before is not None and after is not None:
-        after_ids = {
-            cid for item in collect_characters(after) if (cid := character_id(item))
-        }
+        after_ids = {cid for item in collect_characters(after) if (cid := character_id(item))}
         for character in collect_characters(before):
             cid = character_id(character)
             if not cid or cid in after_ids:
@@ -271,9 +269,7 @@ def check_scenes(before: Any, after: Any, ops: Any = None) -> list[Violation]:
         if not lost or (path, entity) in seen:
             continue
         seen.add((path, entity))
-        violations.append(
-            Violation(code="scene_deleted", severity="error", path=path, id=entity)
-        )
+        violations.append(Violation(code="scene_deleted", severity="error", path=path, id=entity))
     return sorted_violations(violations)
 
 

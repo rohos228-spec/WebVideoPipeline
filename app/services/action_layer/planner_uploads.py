@@ -20,17 +20,26 @@ ACTION_KINDS: dict[str, tuple[str, ...]] = {
     "storage.upload_file": ("excel", "json", "text"),
 }
 ACTION_POLICY: dict[str, str] = {
-    "montage.upload_image": "scene_image", "montage.upload_ref": "ref_image",
-    "montage.upload_video": "scene_video", "montage.upload_voice": "voice",
-    "montage.upload_music": "music", "node.upload_file": "node_file",
-    "node.upload_check_agent": "check_agent", "project.upload_xlsx": "xlsx",
-    "hero.replace_image": "ref_image", "storage.upload_file": "node_file",
+    "montage.upload_image": "scene_image",
+    "montage.upload_ref": "ref_image",
+    "montage.upload_video": "scene_video",
+    "montage.upload_voice": "voice",
+    "montage.upload_music": "music",
+    "node.upload_file": "node_file",
+    "node.upload_check_agent": "check_agent",
+    "project.upload_xlsx": "xlsx",
+    "hero.replace_image": "ref_image",
+    "storage.upload_file": "node_file",
 }
 _WANT_RU = {
-    "montage.upload_image": "картинка PNG", "montage.upload_ref": "картинка (png, jpg, webp)",
-    "montage.upload_video": "видео MP4", "montage.upload_voice": "аудио (mp3, wav, m4a, ogg)",
-    "montage.upload_music": "аудио (mp3, wav, m4a, ogg)", "node.upload_file": "таблица xlsx, txt, md или json",
-    "node.upload_check_agent": "текстовый файл txt или md", "project.upload_xlsx": "таблица xlsx",
+    "montage.upload_image": "картинка PNG",
+    "montage.upload_ref": "картинка (png, jpg, webp)",
+    "montage.upload_video": "видео MP4",
+    "montage.upload_voice": "аудио (mp3, wav, m4a, ogg)",
+    "montage.upload_music": "аудио (mp3, wav, m4a, ogg)",
+    "node.upload_file": "таблица xlsx, txt, md или json",
+    "node.upload_check_agent": "текстовый файл txt или md",
+    "project.upload_xlsx": "таблица xlsx",
     "hero.replace_image": "картинка героя (png, jpg, webp)",
     "storage.upload_file": "таблица xlsx, txt, md или json",
 }
@@ -59,6 +68,7 @@ def misfit(action_id: str, att: AttachmentRef) -> str:
     if att.kind not in ACTION_KINDS.get(action_id, ()):
         return f"это {_kind_ru(att.kind)}, а нужен файл: {want}"
     from app.services.action_layer.context import UPLOAD_POLICIES
+
     policy = UPLOAD_POLICIES[ACTION_POLICY[action_id]]
     if att.ext not in policy.extensions:
         return f"формат {att.ext} не принимается, нужен файл: {want}"
@@ -71,15 +81,20 @@ def misfit(action_id: str, att: AttachmentRef) -> str:
 def _wrong(action_id: str, title: str, atts: list[AttachmentRef], used: set[str]) -> str:
     free = [a for a in atts if a.id not in used]
     if not free:
-        return (f"Для действия «{title}» нужен ещё один файл: прикреплённые уже использованы "
-                "другими шагами. Прикрепите файл и повторите запрос.")
+        return (
+            f"Для действия «{title}» нужен ещё один файл: прикреплённые уже использованы "
+            "другими шагами. Прикрепите файл и повторите запрос."
+        )
     first = free[0]
-    return (f"Файл «{first.name}» не подходит для действия «{title}»: {misfit(action_id, first)}. "
-            "Прикрепите другой файл.")
+    return (
+        f"Файл «{first.name}» не подходит для действия «{title}»: {misfit(action_id, first)}. "
+        "Прикрепите другой файл."
+    )
 
 
-def pick(action_id: str, title: str, atts: list[AttachmentRef], used: set[str],
-         request_text: str) -> tuple[AttachmentRef | None, str, list[str]]:
+def pick(
+    action_id: str, title: str, atts: list[AttachmentRef], used: set[str], request_text: str
+) -> tuple[AttachmentRef | None, str, list[str]]:
     fit = [a for a in atts if a.id not in used and not misfit(action_id, a)]
     if len(fit) == 1:
         return fit[0], "", []
@@ -89,7 +104,7 @@ def pick(action_id: str, title: str, atts: list[AttachmentRef], used: set[str],
     named = [a for a in fit if a.name.lower() in low]
     if len(named) == 1:
         return named[0], "", []
-    names = [a.name for a in fit][:rules.MAX_OPTIONS]
+    names = [a.name for a in fit][: rules.MAX_OPTIONS]
     return None, f"Какой из прикреплённых файлов загрузить для действия «{title}»?", names
 
 
@@ -103,8 +118,9 @@ def request_for(action_id: str, params: dict) -> dict:
     return {"action_id": action_id, "params": clean, "formats": rules._FORMATS.get(action_id, "файл")}
 
 
-def fill_steps(steps: list[dict], atts: list[AttachmentRef], titles: dict[str, str],
-               request_text: str = "") -> UploadFill:
+def fill_steps(
+    steps: list[dict], atts: list[AttachmentRef], titles: dict[str, str], request_text: str = ""
+) -> UploadFill:
     used: set[str] = set()
     out: list[dict] = []
     for st in steps:

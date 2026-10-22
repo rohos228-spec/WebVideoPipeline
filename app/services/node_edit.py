@@ -13,55 +13,96 @@ HISTORY_LIMIT = 20
 MODEL_FIELD = "modelId"
 KIND_TEXT, KIND_IMAGE, KIND_VIDEO = "text", "image", "video"
 
-TEXT_MODEL_NODE_TYPES = frozenset({
-    "plan", "script", "split", "scene_design", "sd_agent", "sd_assemble", "excel_gpt",
-    "enrich_1", "enrich_2", "enrich_3", "enrich_4", "enrich_5",
-    "image_prompts", "animation_prompts",
-})
+TEXT_MODEL_NODE_TYPES = frozenset(
+    {
+        "plan",
+        "script",
+        "split",
+        "scene_design",
+        "sd_agent",
+        "sd_assemble",
+        "excel_gpt",
+        "enrich_1",
+        "enrich_2",
+        "enrich_3",
+        "enrich_4",
+        "enrich_5",
+        "image_prompts",
+        "animation_prompts",
+    }
+)
 IMAGE_MODEL_NODE_TYPES = frozenset({"images", "hero", "items"})
 VIDEO_MODEL_NODE_TYPES = frozenset({"videos"})
-PER_NODE_TEXT_TYPES = frozenset({"excel_gpt", "enrich_1", "enrich_2", "enrich_3", "enrich_4",
-                                 "enrich_5"})
-FREE_NODE_TYPES = frozenset({"topic", "storage", "assemble", "shot_menu", "excel_feed",
-                             "hitl_gate", "hitl_hero", "hitl_images", "hitl_videos",
-                             "hitl_final"})
+PER_NODE_TEXT_TYPES = frozenset({"excel_gpt", "enrich_1", "enrich_2", "enrich_3", "enrich_4", "enrich_5"})
+FREE_NODE_TYPES = frozenset(
+    {
+        "topic",
+        "storage",
+        "assemble",
+        "shot_menu",
+        "excel_feed",
+        "hitl_gate",
+        "hitl_hero",
+        "hitl_images",
+        "hitl_videos",
+        "hitl_final",
+    }
+)
 NO_PROMPT_VARIANT_TYPES = frozenset({"scene_design", "sd_agent", "sd_assemble", "hero"})
 
 CHECK_CFG_KEYS = ("checkMode", "checkFix", "emitKinds", "outputMode", "checkPromptSource")
 RETRY_PROFILES = ("safe", "fast")
 EDGE_KINDS = ("after", "pass", "fail", "gate")
-SAFE_EDGE_SWITCHES = frozenset({("after", "pass"), ("after", "gate"), ("pass", "gate"),
-                                ("gate", "pass")})
-PARAM_NAMES = ("disabled", "check_mode", "check_fix", "prompt_variant", "retry_profile",
-               "branches")
+SAFE_EDGE_SWITCHES = frozenset({("after", "pass"), ("after", "gate"), ("pass", "gate"), ("gate", "pass")})
+PARAM_NAMES = ("disabled", "check_mode", "check_fix", "prompt_variant", "retry_profile", "branches")
 
-KIND_RU = {KIND_TEXT: "текстовая модель", KIND_IMAGE: "модель картинок",
-           KIND_VIDEO: "модель видео"}
+KIND_RU = {KIND_TEXT: "текстовая модель", KIND_IMAGE: "модель картинок", KIND_VIDEO: "модель видео"}
 TYPE_RU = {
-    "plan": "Сценарий", "script": "Закадровый текст", "split": "Разбивка на блоки",
-    "excel_gpt": "Работа с GPT", "image_prompts": "Промты картинок",
-    "animation_prompts": "Промты анимации", "images": "Картинки", "videos": "Видео",
-    "hero": "Персонажи", "items": "Предметы", "audio": "Озвучка", "music": "Музыка",
-    "assemble": "Монтаж", "publish": "Публикация", "storage": "Хранилище", "topic": "Тема",
-    "sd_agent": "Агент дизайна сцен", "sd_assemble": "Сборка дизайна сцен",
-    "scene_design": "Дизайн сцен", "sfx_plan": "План звуков", "sfx_gen": "Звуки",
+    "plan": "Сценарий",
+    "script": "Закадровый текст",
+    "split": "Разбивка на блоки",
+    "excel_gpt": "Работа с GPT",
+    "image_prompts": "Промты картинок",
+    "animation_prompts": "Промты анимации",
+    "images": "Картинки",
+    "videos": "Видео",
+    "hero": "Персонажи",
+    "items": "Предметы",
+    "audio": "Озвучка",
+    "music": "Музыка",
+    "assemble": "Монтаж",
+    "publish": "Публикация",
+    "storage": "Хранилище",
+    "topic": "Тема",
+    "sd_agent": "Агент дизайна сцен",
+    "sd_assemble": "Сборка дизайна сцен",
+    "scene_design": "Дизайн сцен",
+    "sfx_plan": "План звуков",
+    "sfx_gen": "Звуки",
     "hitl_gate": "Проверка человеком",
 }
-EDGE_KIND_RU = {"after": "обычная связь", "pass": "ветка «ок»", "fail": "ветка «не ок»",
-                "gate": "ветка «если ок»"}
-PARAM_TITLE_RU = {
-    "disabled": "отключение ноды", "check_mode": "проверка (агент проверки)",
-    "check_fix": "режим проверки «чинить»", "prompt_variant": "вариант промта",
-    "retry_profile": "повторы при сбое (для всего проекта)", "branches": "ветки ок / не ок",
+EDGE_KIND_RU = {
+    "after": "обычная связь",
+    "pass": "ветка «ок»",
+    "fail": "ветка «не ок»",
+    "gate": "ветка «если ок»",
 }
-RETRY_RU = {"safe": "обычные: 3 цикла по 3 попытки, пауза 30 минут",
-            "fast": "короткие: 2 цикла по 2 попытки, пауза 3 минуты"}
+PARAM_TITLE_RU = {
+    "disabled": "отключение ноды",
+    "check_mode": "проверка (агент проверки)",
+    "check_fix": "режим проверки «чинить»",
+    "prompt_variant": "вариант промта",
+    "retry_profile": "повторы при сбое (для всего проекта)",
+    "branches": "ветки ок / не ок",
+}
+RETRY_RU = {
+    "safe": "обычные: 3 цикла по 3 попытки, пауза 30 минут",
+    "fast": "короткие: 2 цикла по 2 попытки, пауза 3 минуты",
+}
 
 
 class NodeEditError(ValueError):
-
-    def __init__(self, code: str, message: str, *, http: int = 422,
-                 details: dict | None = None) -> None:
+    def __init__(self, code: str, message: str, *, http: int = 422, details: dict | None = None) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
@@ -96,13 +137,13 @@ def find_node(meta: dict | None, node_key: str) -> dict | None:
 def require_node(meta: dict | None, node_key: str) -> dict:
     node = find_node(meta, node_key)
     if node is None:
-        raise NodeEditError("node_not_found", f"Ноды «{node_key}» нет на холсте проекта.",
-                            http=404)
+        raise NodeEditError("node_not_found", f"Ноды «{node_key}» нет на холсте проекта.", http=404)
     return node
 
 
 def node_type(node: dict) -> str:
     from app.services.excel_gpt_node import effective_node_type
+
     return effective_node_type(node)
 
 
@@ -125,16 +166,19 @@ def model_kind_for_type(typ: str) -> str | None:
 
 def is_forced_vibecode(meta: dict | None, node_key: str) -> bool:
     from app.services.node_groups import is_script_frames_qc_gpt_node
+
     return bool(is_script_frames_qc_gpt_node(meta or {}, node_key=node_key))
 
 
 def explicit_model_id(node: dict | None) -> str | None:
     from app.services.vibecode_catalog import read_node_model_fields
+
     return read_node_model_fields(node)[0]
 
 
 def canonical_model_id(model_id: str | None) -> str | None:
     from app.services.vibecode_catalog import find_model
+
     if not model_id:
         return None
     found = find_model(model_id)
@@ -143,11 +187,13 @@ def canonical_model_id(model_id: str | None) -> str | None:
 
 def find_catalog_model(model_id: str | None) -> dict | None:
     from app.services.vibecode_catalog import find_model
+
     return find_model(model_id) if model_id else None
 
 
 def effective_model(node: dict) -> tuple[dict | None, bool]:
     from app.services.vibecode_catalog import default_model_id_for_node_type
+
     explicit = explicit_model_id(node)
     mid = explicit or default_model_id_for_node_type(str(node.get("type") or node_type(node)))
     return find_catalog_model(mid), explicit is None
@@ -155,6 +201,7 @@ def effective_model(node: dict) -> tuple[dict | None, bool]:
 
 def allowed_models(kind: str) -> list[dict]:
     from app.services.vibecode_catalog import models_for_channel
+
     out = []
     for m in models_for_channel():
         if m.get("kind") != kind:
@@ -180,8 +227,11 @@ def resolve_model_ref(kind: str, ref: str | None) -> dict | None:
     return None
 
 
-_PRICE_KEYS = {KIND_TEXT: ("input_usd_per_m", "output_usd_per_m"),
-               KIND_IMAGE: ("usd_per_image",), KIND_VIDEO: ("usd_per_video",)}
+_PRICE_KEYS = {
+    KIND_TEXT: ("input_usd_per_m", "output_usd_per_m"),
+    KIND_IMAGE: ("usd_per_image",),
+    KIND_VIDEO: ("usd_per_video",),
+}
 
 
 def price_points(model: dict | None) -> tuple[float, ...] | None:
@@ -231,6 +281,7 @@ def model_title(model: dict | None, model_id: str | None = None) -> str:
 
 def _first_of_type(meta: dict | None, typ: str) -> str | None:
     from app.services.vibecode_catalog import find_canvas_node
+
     node = find_canvas_node(meta or {}, node_type=typ)
     return str(node.get("id")) if isinstance(node, dict) else None
 
@@ -242,20 +293,22 @@ def model_applies(meta: dict | None, node: dict) -> tuple[bool, str]:
     if kind is None:
         return False, "у этой ноды нет выбора модели"
     if kind == KIND_TEXT and is_forced_vibecode(meta, key):
-        return False, ("нода из группы «Кадры» всегда идёт через GPT 5.6 Sol (Vibecode), "
-                       "модель на ноде не учитывается")
+        return False, (
+            "нода из группы «Кадры» всегда идёт через GPT 5.6 Sol (Vibecode), модель на ноде не учитывается"
+        )
     if typ in PER_NODE_TEXT_TYPES:
         return True, "модель берётся с этой ноды при её запуске"
     first = _first_of_type(meta, typ)
     if first == key:
         return True, "модель берётся с этой ноды"
     if typ in ("sd_agent", "sd_assemble"):
-        return False, ("при общем запуске дизайна сцен модель берётся с первой ноды этого "
-                       "типа; с этой ноды только при точечном запуске агента")
+        return False, (
+            "при общем запуске дизайна сцен модель берётся с первой ноды этого "
+            "типа; с этой ноды только при точечном запуске агента"
+        )
     first_node = find_node(meta, first) if first else None
     name = node_label(first_node) if first_node else str(first)
-    return False, (f"шаг берёт модель с первой ноды этого типа («{name}»), "
-                   "эта нода модель шага не меняет")
+    return False, (f"шаг берёт модель с первой ноды этого типа («{name}»), эта нода модель шага не меняет")
 
 
 def model_state(meta: dict | None, node_key: str) -> dict:
@@ -264,12 +317,20 @@ def model_state(meta: dict | None, node_key: str) -> dict:
     kind = model_kind_for_type(typ)
     model, is_default = effective_model(node) if kind else (None, True)
     applies, note = model_applies(meta, node)
-    return {"node_key": node_key, "node_type": typ, "label": node_label(node), "kind": kind,
-            "explicit_model_id": explicit_model_id(node),
-            "model_id": (model or {}).get("id"), "model_label": model_title(model),
-            "is_default": is_default, "price_ru": price_ru(model) if model else "",
-            "forced_vibecode": kind == KIND_TEXT and is_forced_vibecode(meta, node_key),
-            "applies": applies, "applies_note": note}
+    return {
+        "node_key": node_key,
+        "node_type": typ,
+        "label": node_label(node),
+        "kind": kind,
+        "explicit_model_id": explicit_model_id(node),
+        "model_id": (model or {}).get("id"),
+        "model_label": model_title(model),
+        "is_default": is_default,
+        "price_ru": price_ru(model) if model else "",
+        "forced_vibecode": kind == KIND_TEXT and is_forced_vibecode(meta, node_key),
+        "applies": applies,
+        "applies_note": note,
+    }
 
 
 def model_options(meta: dict | None, node_key: str) -> dict:
@@ -278,9 +339,15 @@ def model_options(meta: dict | None, node_key: str) -> dict:
     options = []
     for m in allowed_models(state["kind"]) if state["kind"] else []:
         cost = compare_cost(current, m)
-        options.append({"id": m["id"], "label": m["label"], "price_ru": price_ru(m),
-                        "cost_vs_current": cost,
-                        "needs_confirmation": cost not in ("cheaper", "same")})
+        options.append(
+            {
+                "id": m["id"],
+                "label": m["label"],
+                "price_ru": price_ru(m),
+                "cost_vs_current": cost,
+                "needs_confirmation": cost not in ("cheaper", "same"),
+            }
+        )
     return {"current": state, "options": options}
 
 
@@ -292,44 +359,65 @@ def plan_model_change(meta: dict | None, node_key: str, model_id: str | None) ->
     if kind is None:
         raise NodeEditError("no_model", f"У ноды «{label}» нет выбора модели.")
     if kind == KIND_TEXT and is_forced_vibecode(meta, node_key):
-        raise NodeEditError("forced_model", (
-            f"Нода «{label}» из группы «Кадры» всегда работает на GPT 5.6 Sol через Vibecode: "
-            "смена модели на ней ни на что не повлияет."))
+        raise NodeEditError(
+            "forced_model",
+            (
+                f"Нода «{label}» из группы «Кадры» всегда работает на GPT 5.6 Sol через Vibecode: "
+                "смена модели на ней ни на что не повлияет."
+            ),
+        )
     current, _ = effective_model(node)
     before_explicit = explicit_model_id(node)
     if model_id is None:
         from app.services.vibecode_catalog import default_model_id_for_node_type
+
         new = find_catalog_model(default_model_id_for_node_type(str(node.get("type") or typ)))
         after_explicit = None
     else:
         new = resolve_model_ref(kind, model_id)
-        if new is None or new.get("kind") != kind or new["id"] not in {
-                m["id"] for m in allowed_models(kind)}:
+        if new is None or new.get("kind") != kind or new["id"] not in {m["id"] for m in allowed_models(kind)}:
             names = ", ".join(m["label"] for m in allowed_models(kind)[:40])
-            raise NodeEditError("model_not_allowed", (
-                f"Модели «{model_id}» нет в списке для этой ноды ({KIND_RU[kind]}). "
-                f"Можно: {names}."), details={"allowed": [m["id"] for m in allowed_models(kind)]})
+            raise NodeEditError(
+                "model_not_allowed",
+                (f"Модели «{model_id}» нет в списке для этой ноды ({KIND_RU[kind]}). Можно: {names}."),
+                details={"allowed": [m["id"] for m in allowed_models(kind)]},
+            )
         after_explicit = new["id"]
     if canonical_model_id(before_explicit) == after_explicit:
         raise NodeEditError("same_model", f"На ноде «{label}» уже стоит «{model_title(new)}».")
     cost = compare_cost(current, new)
     applies, note = model_applies(meta, node)
-    return {"node_key": node_key, "node_label": label, "node_type": typ, "kind": kind,
-            "before_model_id": before_explicit, "after_model_id": after_explicit,
-            "before_label": model_title(current), "after_label": model_title(new),
-            "before_price_ru": price_ru(current), "after_price_ru": price_ru(new),
-            "cost": cost, "needs_confirmation": cost not in ("cheaper", "same"),
-            "applies": applies, "applies_note": note}
+    return {
+        "node_key": node_key,
+        "node_label": label,
+        "node_type": typ,
+        "kind": kind,
+        "before_model_id": before_explicit,
+        "after_model_id": after_explicit,
+        "before_label": model_title(current),
+        "after_label": model_title(new),
+        "before_price_ru": price_ru(current),
+        "after_price_ru": price_ru(new),
+        "cost": cost,
+        "needs_confirmation": cost not in ("cheaper", "same"),
+        "applies": applies,
+        "applies_note": note,
+    }
 
 
 def model_change_text(plan: dict) -> str:
-    cost_ru = {"cheaper": "дешевле", "same": "по той же цене",
-               "costlier": "дороже", "unknown": "цена неизвестна"}[plan["cost"]]
-    head = (f"Нода «{plan['node_label']}»: модель «{plan['before_label']}» → "
-            f"«{plan['after_label']}» ({cost_ru}; было {plan['before_price_ru']}, "
-            f"станет {plan['after_price_ru']}).")
-    tail = ("" if plan["applies"] else
-            f" Внимание: {plan['applies_note']}.")
+    cost_ru = {
+        "cheaper": "дешевле",
+        "same": "по той же цене",
+        "costlier": "дороже",
+        "unknown": "цена неизвестна",
+    }[plan["cost"]]
+    head = (
+        f"Нода «{plan['node_label']}»: модель «{plan['before_label']}» → "
+        f"«{plan['after_label']}» ({cost_ru}; было {plan['before_price_ru']}, "
+        f"станет {plan['after_price_ru']})."
+    )
+    tail = "" if plan["applies"] else f" Внимание: {plan['applies_note']}."
     return head + tail
 
 
@@ -389,16 +477,22 @@ def last_history(meta: dict | None, node_key: str, kind: str) -> dict | None:
     return None
 
 
-def apply_model_change(meta: dict, node_key: str, model_id: str | None, *,
-                       actor: str = "", revert_of: str | None = None) -> tuple[dict, dict]:
+def apply_model_change(
+    meta: dict, node_key: str, model_id: str | None, *, actor: str = "", revert_of: str | None = None
+) -> tuple[dict, dict]:
     plan = plan_model_change(meta, node_key, model_id)
     new_meta = copy.deepcopy(meta)
     before = plan["before_model_id"]
     after = plan["after_model_id"]
     _set_node_model(new_meta, node_key, after)
     _pin(new_meta, "nodes", node_key, MODEL_FIELD, after, canonical_model_id(before))
-    entry = {"kind": "model", "before": {"model_id": before}, "after": {"model_id": after},
-             "at": _now(), "by": actor[:120]}
+    entry = {
+        "kind": "model",
+        "before": {"model_id": before},
+        "after": {"model_id": after},
+        "at": _now(),
+        "by": actor[:120],
+    }
     if revert_of:
         entry["revert_of"] = revert_of
     _push_history(new_meta, node_key, entry)
@@ -409,13 +503,19 @@ def plan_model_revert(meta: dict | None, node_key: str) -> dict:
     node = require_node(meta, node_key)
     entry = last_history(meta, node_key, "model")
     if entry is None:
-        raise NodeEditError("nothing_to_revert",
-                            f"У ноды «{node_label(node)}» нет сохранённой прежней модели.")
+        raise NodeEditError(
+            "nothing_to_revert", f"У ноды «{node_label(node)}» нет сохранённой прежней модели."
+        )
     current = canonical_model_id(explicit_model_id(node))
     if current != canonical_model_id((entry.get("after") or {}).get("model_id")):
-        raise NodeEditError("changed_since", (
-            f"Модель ноды «{node_label(node)}» уже поменяли после последней правки: "
-            "возврат перезаписал бы чужое изменение."), http=409)
+        raise NodeEditError(
+            "changed_since",
+            (
+                f"Модель ноды «{node_label(node)}» уже поменяли после последней правки: "
+                "возврат перезаписал бы чужое изменение."
+            ),
+            http=409,
+        )
     return {"entry": entry, "target_model_id": (entry.get("before") or {}).get("model_id")}
 
 
@@ -485,6 +585,7 @@ def reconcile_canvas_pins(base: dict | None, merged: dict) -> dict:
 
 def _edge_kind(edge: dict) -> str:
     from app.services.gpt_operator import edge_kind_of
+
     return edge_kind_of(edge)
 
 
@@ -496,18 +597,20 @@ def _excel_cfg(meta: dict | None, node_key: str) -> dict:
 
 def _operator_cfg(meta: dict | None, node_key: str) -> dict:
     from app.services.gpt_operator import operator_config
+
     return operator_config(SimpleNamespace(meta=meta or {}), node_key)
 
 
 def _effective_retry_profile(meta: dict | None) -> str:
     from app.services.step_failure_policy import wait_profile
+
     return wait_profile(SimpleNamespace(meta=meta or {})).name
 
 
 def skipped_keys(meta: dict | None, disabled: list[str] | None = None) -> set[str]:
     from app.services.disabled_nodes import node_type_from_key
-    keys = [str(x) for x in (disabled if disabled is not None
-                             else (meta or {}).get("disabled_nodes") or [])]
+
+    keys = [str(x) for x in (disabled if disabled is not None else (meta or {}).get("disabled_nodes") or [])]
     types = {t for t in (node_type_from_key(k) for k in keys) if t}
     out = set(keys)
     for n in (_graph(meta) or {}).get("nodes") or []:
@@ -519,6 +622,7 @@ def skipped_keys(meta: dict | None, disabled: list[str] | None = None) -> set[st
 def _prompt_step(typ: str) -> str | None:
     from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
     from app.services.prompt_library import STEP_FOLDERS
+
     if typ in NO_PROMPT_VARIANT_TYPES:
         return None
     step = NODE_TYPE_TO_STEP_CODE.get(typ)
@@ -527,6 +631,7 @@ def _prompt_step(typ: str) -> str | None:
 
 def resolve_prompt(state: dict, node: dict) -> dict | None:
     from app.services import prompt_library as pl
+
     typ = node_type(node)
     step = _prompt_step(typ)
     if step is None:
@@ -535,8 +640,12 @@ def resolve_prompt(state: dict, node: dict) -> dict | None:
     excel = pl.is_excel_gpt_prompt_step(step)
     try:
         name, source = pl.resolve_project_prompt_with_source(
-            state.get("prompt_overrides") or {}, step, meta=state.get("meta") or {},
-            node_key=key if excel else None, slot_id="main" if excel else None)
+            state.get("prompt_overrides") or {},
+            step,
+            meta=state.get("meta") or {},
+            node_key=key if excel else None,
+            slot_id="main" if excel else None,
+        )
     except Exception:
         return {"step": step, "variant": None, "source": "error"}
     return {"step": step, "variant": name, "source": source}
@@ -544,6 +653,7 @@ def resolve_prompt(state: dict, node: dict) -> dict | None:
 
 def _variant_exists(step: str, variant: str) -> bool:
     from app.services import prompt_library as pl
+
     if not variant or not pl.is_valid_prompt_name(variant):
         return False
     if pl.is_excel_gpt_prompt_step(step):
@@ -561,16 +671,18 @@ def read_params(state: dict, node_key: str) -> dict:
     }
     if typ == "excel_gpt":
         cfg = _operator_cfg(meta, node_key)
-        out.update(check_mode=bool(cfg.get("checkMode")), check_fix=bool(cfg.get("checkFix")),
-                   role=cfg.get("role"))
+        out.update(
+            check_mode=bool(cfg.get("checkMode")), check_fix=bool(cfg.get("checkFix")), role=cfg.get("role")
+        )
     prompt = resolve_prompt(state, node)
     if prompt is not None:
         out["prompt_variant"] = prompt.get("variant")
         out["prompt_source"] = prompt.get("source")
-    out["branches"] = {str(e.get("id")): _edge_kind(e)
-                       for e in (_graph(meta) or {}).get("edges") or []
-                       if isinstance(e, dict) and str(e.get("source") or "") == node_key
-                       and e.get("id")}
+    out["branches"] = {
+        str(e.get("id")): _edge_kind(e)
+        for e in (_graph(meta) or {}).get("edges") or []
+        if isinstance(e, dict) and str(e.get("source") or "") == node_key and e.get("id")
+    }
     return out
 
 
@@ -581,16 +693,18 @@ def _raw(meta: dict, node_key: str, param: str, branches: list[str] | None = Non
         cfg = _excel_cfg(meta, node_key)
         return {k: copy.deepcopy(cfg.get(k)) for k in CHECK_CFG_KEYS}
     if param == "prompt_variant":
-        slots = meta.get("prompt_slot_variants") if isinstance(meta.get("prompt_slot_variants"),
-                                                               dict) else {}
+        slots = meta.get("prompt_slot_variants") if isinstance(meta.get("prompt_slot_variants"), dict) else {}
         node_slots = slots.get(node_key) if isinstance(slots.get(node_key), dict) else {}
         return node_slots.get("main")
     if param == "retry_profile":
         return meta.get("step_failure_profile")
     if param == "branches":
         want = set(branches or [])
-        return {str(e.get("id")): _edge_kind(e) for e in (_graph(meta) or {}).get("edges") or []
-                if isinstance(e, dict) and str(e.get("id") or "") in want}
+        return {
+            str(e.get("id")): _edge_kind(e)
+            for e in (_graph(meta) or {}).get("edges") or []
+            if isinstance(e, dict) and str(e.get("id") or "") in want
+        }
     raise KeyError(param)
 
 
@@ -598,8 +712,11 @@ def _write_raw(meta: dict, node_key: str, param: str, value: Any) -> None:
     if param == "disabled":
         meta["disabled_nodes"] = list(value or [])
     elif param in ("check_mode", "check_fix"):
-        cfgs = copy.deepcopy(meta.get("excel_gpt_nodes")) if isinstance(
-            meta.get("excel_gpt_nodes"), dict) else {}
+        cfgs = (
+            copy.deepcopy(meta.get("excel_gpt_nodes"))
+            if isinstance(meta.get("excel_gpt_nodes"), dict)
+            else {}
+        )
         cfg = dict(cfgs.get(node_key) or {})
         for k in CHECK_CFG_KEYS:
             v = (value or {}).get(k)
@@ -610,8 +727,11 @@ def _write_raw(meta: dict, node_key: str, param: str, value: Any) -> None:
         cfgs[node_key] = cfg
         meta["excel_gpt_nodes"] = cfgs
     elif param == "prompt_variant":
-        slots = copy.deepcopy(meta.get("prompt_slot_variants")) if isinstance(
-            meta.get("prompt_slot_variants"), dict) else {}
+        slots = (
+            copy.deepcopy(meta.get("prompt_slot_variants"))
+            if isinstance(meta.get("prompt_slot_variants"), dict)
+            else {}
+        )
         node_slots = dict(slots.get(node_key) or {})
         if value is None:
             node_slots.pop("main", None)
@@ -643,8 +763,7 @@ def _write_raw(meta: dict, node_key: str, param: str, value: Any) -> None:
         meta["canvas_graph"] = {**cg, "edges": edges}
 
 
-def _check_cfg_after(meta: dict, node_key: str, check_mode: bool | None,
-                     check_fix: bool | None) -> dict:
+def _check_cfg_after(meta: dict, node_key: str, check_mode: bool | None, check_fix: bool | None) -> dict:
     cfg = _excel_cfg(meta, node_key)
     if check_mode is not None:
         cfg["checkMode"] = bool(check_mode)
@@ -681,8 +800,16 @@ def plan_params_change(state: dict, node_key: str, changes: dict) -> dict:
     raw_after: dict[str, Any] = {}
 
     def add(param: str, before: str, after: str, costlier: bool, note: str = "") -> None:
-        items.append({"param": param, "title_ru": PARAM_TITLE_RU[param], "before_ru": before,
-                      "after_ru": after, "needs_confirmation": costlier, "note_ru": note})
+        items.append(
+            {
+                "param": param,
+                "title_ru": PARAM_TITLE_RU[param],
+                "before_ru": before,
+                "after_ru": after,
+                "needs_confirmation": costlier,
+                "note_ru": note,
+            }
+        )
 
     if changes.get("disabled") is not None:
         want = bool(changes["disabled"])
@@ -691,12 +818,15 @@ def plan_params_change(state: dict, node_key: str, changes: dict) -> dict:
         before_skip = skipped_keys(meta, keys)
         after_skip = skipped_keys(meta, after_keys)
         if (node_key in before_skip) == want:
-            raise NodeEditError("same_value", f"Нода «{label}» уже "
-                                              f"{'отключена' if want else 'включена'}.")
+            raise NodeEditError("same_value", f"Нода «{label}» уже {'отключена' if want else 'включена'}.")
         if (node_key in after_skip) != want:
-            raise NodeEditError("no_effect", (
-                f"Нода «{label}» останется отключённой: отключение записано по типу ноды "
-                "другой записью, снимите его сначала там."))
+            raise NodeEditError(
+                "no_effect",
+                (
+                    f"Нода «{label}» останется отключённой: отключение записано по типу ноды "
+                    "другой записью, снимите его сначала там."
+                ),
+            )
         extra = sorted((after_skip - before_skip) - {node_key}) if want else []
         note = ""
         costly = False
@@ -707,33 +837,47 @@ def plan_params_change(state: dict, node_key: str, changes: dict) -> dict:
         if not want and typ not in FREE_NODE_TYPES:
             costly = True
             note = "нода снова будет запускаться, это платные вызовы"
-        add("disabled", "отключена" if not want else "работает",
-            "отключена" if want else "работает", costly, note)
+        add(
+            "disabled",
+            "отключена" if not want else "работает",
+            "отключена" if want else "работает",
+            costly,
+            note,
+        )
         raw_before["disabled"] = keys
         raw_after["disabled"] = after_keys
         _write_raw(new_meta, node_key, "disabled", after_keys)
 
     if changes.get("check_mode") is not None or changes.get("check_fix") is not None:
         if typ != "excel_gpt":
-            raise NodeEditError("not_applicable", (
-                f"Проверка (агент проверки) настраивается только у нод «Работа с GPT»; "
-                f"«{label}» — другая нода."))
+            raise NodeEditError(
+                "not_applicable",
+                (
+                    f"Проверка (агент проверки) настраивается только у нод «Работа с GPT»; "
+                    f"«{label}» — другая нода."
+                ),
+            )
         before_raw = _raw(meta, node_key, "check_mode")
-        after_raw = _check_cfg_after(meta, node_key, changes.get("check_mode"),
-                                     changes.get("check_fix"))
+        after_raw = _check_cfg_after(meta, node_key, changes.get("check_mode"), changes.get("check_fix"))
         n_items = len(items)
-        if changes.get("check_mode") is not None and bool(changes["check_mode"]) != cur.get(
-                "check_mode"):
+        if changes.get("check_mode") is not None and bool(changes["check_mode"]) != cur.get("check_mode"):
             on = bool(changes["check_mode"])
-            add("check_mode", _onoff(cur.get("check_mode")), _onoff(on), on,
-                "проверка добавляет платные вызовы модели при каждом запуске" if on else "")
-        if changes.get("check_fix") is not None and bool(changes["check_fix"]) != cur.get(
-                "check_fix"):
+            add(
+                "check_mode",
+                _onoff(cur.get("check_mode")),
+                _onoff(on),
+                on,
+                "проверка добавляет платные вызовы модели при каждом запуске" if on else "",
+            )
+        if changes.get("check_fix") is not None and bool(changes["check_fix"]) != cur.get("check_fix"):
             on = bool(changes["check_fix"])
-            add("check_fix", "чинить" if cur.get("check_fix") else "только отчёт",
-                "чинить" if on else "только отчёт", on,
-                "в режиме «чинить» проверка правит данные и может вызывать модель повторно"
-                if on else "")
+            add(
+                "check_fix",
+                "чинить" if cur.get("check_fix") else "только отчёт",
+                "чинить" if on else "только отчёт",
+                on,
+                "в режиме «чинить» проверка правит данные и может вызывать модель повторно" if on else "",
+            )
         if len(items) > n_items:
             raw_before["check_mode"] = before_raw
             raw_after["check_mode"] = after_raw
@@ -742,22 +886,25 @@ def plan_params_change(state: dict, node_key: str, changes: dict) -> dict:
     if changes.get("prompt_variant") is not None:
         variant = str(changes["prompt_variant"]).strip()
         from app.services import prompt_library as pl
+
         step = _prompt_step(typ)
         if step is None:
-            raise NodeEditError("not_applicable",
-                                f"У ноды «{label}» нет выбора варианта промта по слоту.")
+            raise NodeEditError("not_applicable", f"У ноды «{label}» нет выбора варианта промта по слоту.")
         variant = pl._clean_variant_name(variant)
         if not _variant_exists(step, variant):
-            raise NodeEditError("variant_not_found",
-                                f"Варианта промта «{variant}» нет для шага этой ноды.")
+            raise NodeEditError("variant_not_found", f"Варианта промта «{variant}» нет для шага этой ноды.")
         trial = copy.deepcopy(new_meta)
         _write_raw(trial, node_key, "prompt_variant", variant)
         got = resolve_prompt({**state, "meta": trial}, node) or {}
         if got.get("variant") != variant:
-            raise NodeEditError("no_effect", (
-                f"Вариант «{variant}» не будет использован: у шага выбран другой источник "
-                f"промта ({got.get('source') or 'неизвестно'}). Выбор в слоте ноды ничего "
-                "не изменит."))
+            raise NodeEditError(
+                "no_effect",
+                (
+                    f"Вариант «{variant}» не будет использован: у шага выбран другой источник "
+                    f"промта ({got.get('source') or 'неизвестно'}). Выбор в слоте ноды ничего "
+                    "не изменит."
+                ),
+            )
         if cur.get("prompt_variant") == variant:
             raise NodeEditError("same_value", f"У ноды «{label}» уже выбран «{variant}».")
         add("prompt_variant", str(cur.get("prompt_variant") or "по умолчанию"), variant, False)
@@ -773,9 +920,15 @@ def plan_params_change(state: dict, node_key: str, changes: dict) -> dict:
         if cur_prof == prof and meta.get("step_failure_profile") == prof:
             raise NodeEditError("same_value", "Такой профиль повторов уже стоит.")
         more = prof == "safe" and cur_prof != "safe"
-        add("retry_profile", RETRY_RU.get(str(cur_prof), str(cur_prof)), RETRY_RU[prof], more,
-            "больше повторов: упавший платный шаг будет повторяться дольше" if more else
-            "настройка общая для всех шагов проекта")
+        add(
+            "retry_profile",
+            RETRY_RU.get(str(cur_prof), str(cur_prof)),
+            RETRY_RU[prof],
+            more,
+            "больше повторов: упавший платный шаг будет повторяться дольше"
+            if more
+            else "настройка общая для всех шагов проекта",
+        )
         raw_before["retry_profile"] = _raw(meta, node_key, "retry_profile")
         raw_after["retry_profile"] = prof
         _write_raw(new_meta, node_key, "retry_profile", prof)
@@ -785,21 +938,33 @@ def plan_params_change(state: dict, node_key: str, changes: dict) -> dict:
 
     if not items:
         raise NodeEditError("same_value", f"У ноды «{label}» уже такие настройки.")
-    return {"node_key": node_key, "node_label": label, "node_type": typ, "items": items,
-            "needs_confirmation": any(i["needs_confirmation"] for i in items),
-            "raw_before": raw_before, "raw_after": raw_after, "meta_after": new_meta}
+    return {
+        "node_key": node_key,
+        "node_label": label,
+        "node_type": typ,
+        "items": items,
+        "needs_confirmation": any(i["needs_confirmation"] for i in items),
+        "raw_before": raw_before,
+        "raw_after": raw_after,
+        "meta_after": new_meta,
+    }
 
 
-def _plan_branches(meta: dict, node: dict, branches: Any, add, raw_before: dict,
-                   raw_after: dict, new_meta: dict) -> None:
+def _plan_branches(
+    meta: dict, node: dict, branches: Any, add, raw_before: dict, raw_after: dict, new_meta: dict
+) -> None:
     from app.orchestrator.graph.validate import validate_workflow_graph
     from app.services.gpt_operator import BRANCHING_ROLES
+
     key = str(node.get("id") or "")
     label = node_label(node)
     if not isinstance(branches, list):
         raise NodeEditError("bad_value", "Ветки задаются списком: какая связь и какой вид.")
-    out_edges = {str(e.get("id") or ""): e for e in (_graph(meta) or {}).get("edges") or []
-                 if isinstance(e, dict) and str(e.get("source") or "") == key}
+    out_edges = {
+        str(e.get("id") or ""): e
+        for e in (_graph(meta) or {}).get("edges") or []
+        if isinstance(e, dict) and str(e.get("source") or "") == key
+    }
     role = _operator_cfg(meta, key).get("role") if node_type(node) == "excel_gpt" else None
     want: dict[str, str] = {}
     for b in branches:
@@ -810,12 +975,15 @@ def _plan_branches(meta: dict, node: dict, branches: Any, add, raw_before: dict,
         if kind not in EDGE_KINDS:
             raise NodeEditError("bad_value", "Вид связи: after, pass, fail или gate.")
         if eid not in out_edges:
-            raise NodeEditError("edge_not_found",
-                                f"У ноды «{label}» нет исходящей связи «{eid}».")
+            raise NodeEditError("edge_not_found", f"У ноды «{label}» нет исходящей связи «{eid}».")
         if kind != "after" and role not in BRANCHING_ROLES:
-            raise NodeEditError("not_applicable", (
-                f"Ветки «ок / не ок» бывают только у нод «Работа с GPT» с ролью проверки, "
-                f"сравнения или шлагбаума; у «{label}» такой роли нет."))
+            raise NodeEditError(
+                "not_applicable",
+                (
+                    f"Ветки «ок / не ок» бывают только у нод «Работа с GPT» с ролью проверки, "
+                    f"сравнения или шлагбаума; у «{label}» такой роли нет."
+                ),
+            )
         want[eid] = kind
     before = {eid: _edge_kind(out_edges[eid]) for eid in want}
     changed = {eid: k for eid, k in want.items() if before[eid] != k}
@@ -826,33 +994,49 @@ def _plan_branches(meta: dict, node: dict, branches: Any, add, raw_before: dict,
     cg = trial["canvas_graph"]
     check = validate_workflow_graph(list(cg.get("nodes") or []), list(cg.get("edges") or []))
     if not check.get("valid"):
-        raise NodeEditError("graph_invalid", "Граф после смены веток неверный: "
-                            + "; ".join(str(x) for x in check.get("errors") or [])[:500])
+        raise NodeEditError(
+            "graph_invalid",
+            "Граф после смены веток неверный: " + "; ".join(str(x) for x in check.get("errors") or [])[:500],
+        )
     for eid, kind in changed.items():
         target = find_node(meta, str(out_edges[eid].get("target") or ""))
         tname = node_label(target) if target else str(out_edges[eid].get("target"))
         costly = (before[eid], kind) not in SAFE_EDGE_SWITCHES
-        add("branches", f"связь к «{tname}»: {EDGE_KIND_RU[before[eid]]}",
-            f"связь к «{tname}»: {EDGE_KIND_RU[kind]}", costly,
+        add(
+            "branches",
+            f"связь к «{tname}»: {EDGE_KIND_RU[before[eid]]}",
+            f"связь к «{tname}»: {EDGE_KIND_RU[kind]}",
+            costly,
             "нода по этой связи может запускаться чаще (повторы по «не ок» или без условия)"
-            if costly else "нода по этой связи будет запускаться только по вердикту")
+            if costly
+            else "нода по этой связи будет запускаться только по вердикту",
+        )
     raw_before["branches"] = {eid: before[eid] for eid in changed}
     raw_after["branches"] = dict(changed)
     _write_raw(new_meta, key, "branches", changed)
 
 
 def params_change_text(plan: dict) -> str:
-    parts = [f"{i['title_ru']}: {i['before_ru']} → {i['after_ru']}"
-             + (f" ({i['note_ru']})" if i.get("note_ru") else "") for i in plan["items"]]
+    parts = [
+        f"{i['title_ru']}: {i['before_ru']} → {i['after_ru']}"
+        + (f" ({i['note_ru']})" if i.get("note_ru") else "")
+        for i in plan["items"]
+    ]
     return f"Нода «{plan['node_label']}»: " + "; ".join(parts) + "."
 
 
-def apply_params_change(state: dict, node_key: str, changes: dict, *,
-                        actor: str = "", revert_of: str | None = None) -> tuple[dict, dict]:
+def apply_params_change(
+    state: dict, node_key: str, changes: dict, *, actor: str = "", revert_of: str | None = None
+) -> tuple[dict, dict]:
     plan = plan_params_change(state, node_key, changes)
     new_meta = plan.pop("meta_after")
-    entry = {"kind": "params", "before": plan["raw_before"], "after": plan["raw_after"],
-             "at": _now(), "by": actor[:120]}
+    entry = {
+        "kind": "params",
+        "before": plan["raw_before"],
+        "after": plan["raw_after"],
+        "at": _now(),
+        "by": actor[:120],
+    }
     if revert_of:
         entry["revert_of"] = revert_of
     _push_history(new_meta, node_key, entry)
@@ -864,18 +1048,22 @@ def revert_params(state: dict, node_key: str, *, actor: str = "") -> tuple[dict,
     node = require_node(meta, node_key)
     entry = last_history(meta, node_key, "params")
     if entry is None:
-        raise NodeEditError("nothing_to_revert",
-                            f"У ноды «{node_label(node)}» нет сохранённых прежних настроек.")
+        raise NodeEditError(
+            "nothing_to_revert", f"У ноды «{node_label(node)}» нет сохранённых прежних настроек."
+        )
     after = entry.get("after") or {}
     before = entry.get("before") or {}
     for param, value in after.items():
-        cur = _raw(meta, node_key, param, list((value or {}).keys())
-                   if param == "branches" else None)
+        cur = _raw(meta, node_key, param, list((value or {}).keys()) if param == "branches" else None)
         if cur != value:
-            raise NodeEditError("changed_since", (
-                f"Настройку «{PARAM_TITLE_RU.get(param, param)}» ноды «{node_label(node)}» "
-                "уже поменяли после последней правки: возврат перезаписал бы чужое изменение."),
-                http=409)
+            raise NodeEditError(
+                "changed_since",
+                (
+                    f"Настройку «{PARAM_TITLE_RU.get(param, param)}» ноды «{node_label(node)}» "
+                    "уже поменяли после последней правки: возврат перезаписал бы чужое изменение."
+                ),
+                http=409,
+            )
     new_meta = copy.deepcopy(meta)
     items = []
     for param, value in before.items():
@@ -884,9 +1072,18 @@ def revert_params(state: dict, node_key: str, *, actor: str = "") -> tuple[dict,
         else:
             _write_raw(new_meta, node_key, param, value)
         items.append({"param": param, "title_ru": PARAM_TITLE_RU.get(param, param)})
-    _push_history(new_meta, node_key, {"kind": "params", "before": after, "after": before,
-                                       "at": _now(), "by": actor[:120],
-                                       "revert_of": entry.get("at")})
+    _push_history(
+        new_meta,
+        node_key,
+        {
+            "kind": "params",
+            "before": after,
+            "after": before,
+            "at": _now(),
+            "by": actor[:120],
+            "revert_of": entry.get("at"),
+        },
+    )
     return new_meta, {"node_key": node_key, "node_label": node_label(node), "items": items}
 
 
@@ -899,65 +1096,100 @@ def describe_node(state: dict, node_key: str) -> dict:
     ms = model_state(meta, node_key)
     if ms["kind"]:
         if ms["forced_vibecode"]:
-            lines.append("Модель: всегда GPT 5.6 Sol через Vibecode (группа «Кадры»), "
-                         "выбор на ноде не учитывается.")
+            lines.append(
+                "Модель: всегда GPT 5.6 Sol через Vibecode (группа «Кадры»), выбор на ноде не учитывается."
+            )
         else:
-            lines.append(f"Модель: {ms['model_label']}"
-                         + (" (по умолчанию)" if ms["is_default"] else "")
-                         + f", {ms['price_ru']}.")
+            lines.append(
+                f"Модель: {ms['model_label']}"
+                + (" (по умолчанию)" if ms["is_default"] else "")
+                + f", {ms['price_ru']}."
+            )
             if not ms["applies"]:
                 lines.append(f"Важно: {ms['applies_note']}.")
     else:
         lines.append("Модели у этой ноды нет.")
     params = read_params(state, node_key)
-    lines.append("Состояние: " + ("отключена, шаг пропускается." if params["disabled"]
-                                  else "включена."))
+    lines.append("Состояние: " + ("отключена, шаг пропускается." if params["disabled"] else "включена."))
     if "role" in params:
-        lines.append(f"Роль: {params['role']}. Проверка: {_onoff(params['check_mode'])}"
-                     + (f", режим {'«чинить»' if params['check_fix'] else '«только отчёт»'}."
-                        if params["check_mode"] else "."))
+        lines.append(
+            f"Роль: {params['role']}. Проверка: {_onoff(params['check_mode'])}"
+            + (
+                f", режим {'«чинить»' if params['check_fix'] else '«только отчёт»'}."
+                if params["check_mode"]
+                else "."
+            )
+        )
     if params.get("prompt_variant"):
-        src = {"slot": "выбран на ноде", "preferred": "выбран на ноде",
-               "override": "выбран для шага проекта", "global": "общий для всех проектов",
-               "default": "по умолчанию", "fallback": "первый найденный"}.get(
-            str(params.get("prompt_source")), str(params.get("prompt_source")))
+        src = {
+            "slot": "выбран на ноде",
+            "preferred": "выбран на ноде",
+            "override": "выбран для шага проекта",
+            "global": "общий для всех проектов",
+            "default": "по умолчанию",
+            "fallback": "первый найденный",
+        }.get(str(params.get("prompt_source")), str(params.get("prompt_source")))
         lines.append(f"Промт: «{params['prompt_variant']}» ({src}).")
     for eid, kind in params["branches"].items():
-        edge = next((e for e in (_graph(meta) or {}).get("edges") or []
-                     if isinstance(e, dict) and str(e.get("id") or "") == eid), {})
+        edge = next(
+            (
+                e
+                for e in (_graph(meta) or {}).get("edges") or []
+                if isinstance(e, dict) and str(e.get("id") or "") == eid
+            ),
+            {},
+        )
         target = find_node(meta, str(edge.get("target") or ""))
-        lines.append(f"Связь к «{node_label(target) if target else edge.get('target')}»: "
-                     f"{EDGE_KIND_RU.get(kind, kind)}.")
-    lines.append(f"Повторы при сбое (общие для проекта): "
-                 f"{RETRY_RU.get(params['retry_profile'], params['retry_profile'])}.")
+        lines.append(
+            f"Связь к «{node_label(target) if target else edge.get('target')}»: "
+            f"{EDGE_KIND_RU.get(kind, kind)}."
+        )
+    lines.append(
+        f"Повторы при сбое (общие для проекта): "
+        f"{RETRY_RU.get(params['retry_profile'], params['retry_profile'])}."
+    )
     last = last_history(meta, node_key, "model")
     if last:
-        b = model_title(find_catalog_model((last.get("before") or {}).get("model_id")),
-                        "по умолчанию")
-        a = model_title(find_catalog_model((last.get("after") or {}).get("model_id")),
-                        "по умолчанию")
+        b = model_title(find_catalog_model((last.get("before") or {}).get("model_id")), "по умолчанию")
+        a = model_title(find_catalog_model((last.get("after") or {}).get("model_id")), "по умолчанию")
         lines.append(f"Последняя смена модели: «{b}» → «{a}», можно вернуть.")
     if last_history(meta, node_key, "params"):
         lines.append("Последнюю правку настроек можно вернуть.")
-    return {"node_key": node_key, "node_type": typ, "label": label, "model": ms,
-            "params": params, "text_ru": "\n".join(lines)}
+    return {
+        "node_key": node_key,
+        "node_type": typ,
+        "label": label,
+        "model": ms,
+        "params": params,
+        "text_ru": "\n".join(lines),
+    }
 
 
-async def set_model_on_project(project: Any, node_key: str, model_id: str | None, *,
-                               allow_costlier: bool, actor: str) -> dict:
+async def set_model_on_project(
+    project: Any, node_key: str, model_id: str | None, *, allow_costlier: bool, actor: str
+) -> dict:
     meta = project.meta if isinstance(project.meta, dict) else {}
     plan = plan_model_change(meta, node_key, model_id)
     if plan["needs_confirmation"] and not allow_costlier:
-        raise NodeEditError("needs_confirmation", (
-            model_change_text(plan) + " Новая модель дороже или её цена неизвестна: "
-            "нужно подтверждение человека."), http=409, details={"plan": plan})
+        raise NodeEditError(
+            "needs_confirmation",
+            (
+                model_change_text(plan) + " Новая модель дороже или её цена неизвестна: "
+                "нужно подтверждение человека."
+            ),
+            http=409,
+            details={"plan": plan},
+        )
     new_meta, plan = apply_model_change(meta, node_key, model_id, actor=actor)
     project.meta = new_meta
     return {**plan, "text_ru": model_change_text(plan)}
 
 
 def project_state_of(project: Any) -> dict:
-    return {"id": getattr(project, "id", None),
-            "meta": project.meta if isinstance(project.meta, dict) else {},
-            "prompt_overrides": project.prompt_overrides
-            if isinstance(getattr(project, "prompt_overrides", None), dict) else {}}
+    return {
+        "id": getattr(project, "id", None),
+        "meta": project.meta if isinstance(project.meta, dict) else {},
+        "prompt_overrides": project.prompt_overrides
+        if isinstance(getattr(project, "prompt_overrides", None), dict)
+        else {},
+    }

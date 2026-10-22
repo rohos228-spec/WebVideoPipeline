@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from app.models import ProjectStatus
 
 
 @dataclass(frozen=True)
 class NodeSpec:
-
     node_id: str
     version: str
     step_code: str
@@ -45,7 +45,10 @@ def register_node(spec: NodeSpec) -> None:
         raise ValueError(f"node type already registered: {spec.node_id!r}")
 
     node_registry.WORK_NODES[spec.node_id] = node_registry.WorkNodeSpec(
-        spec.node_id, spec.step_code, spec.running_status, spec.ready_status,
+        spec.node_id,
+        spec.step_code,
+        spec.running_status,
+        spec.ready_status,
     )
     node_registry.STEP_CODE_TO_NODE_TYPE[spec.step_code] = spec.node_id
     node_registry.NODE_TYPE_TO_STEP_CODE[spec.node_id] = spec.step_code
@@ -57,23 +60,31 @@ def register_node(spec: NodeSpec) -> None:
         node_registry.LINEAR_NODE_TYPES.append(spec.node_id)
         node_registry.LINEAR_RUNNING_PIPELINE.append((spec.running_status, spec.node_id))
 
-    node_capabilities.register_capability_spec(CapabilitySpec(
-        node_type=spec.node_id, result_kind=spec.result_kind, executor=spec.executor,
-        phases=spec.phases, effects=spec.effects, actions=spec.allowed_actions,
-        managed=spec.managed, approval=spec.approval,
-        profile_compatible=spec.profile_compatible,
-        volatile_attachment_names=spec.volatile_attachment_names,
-        native_json_retry=spec.native_json_retry,
-        recovery_continuation=spec.recovery_continuation,
-        acceptance=spec.acceptance, verifier=spec.verifier_name,
-        contract=spec.contract_name, successor=spec.successor,
-    ))
+    node_capabilities.register_capability_spec(
+        CapabilitySpec(
+            node_type=spec.node_id,
+            result_kind=spec.result_kind,
+            executor=spec.executor,
+            phases=spec.phases,
+            effects=spec.effects,
+            actions=spec.allowed_actions,
+            managed=spec.managed,
+            approval=spec.approval,
+            profile_compatible=spec.profile_compatible,
+            volatile_attachment_names=spec.volatile_attachment_names,
+            native_json_retry=spec.native_json_retry,
+            recovery_continuation=spec.recovery_continuation,
+            acceptance=spec.acceptance,
+            verifier=spec.verifier_name,
+            contract=spec.contract_name,
+            successor=spec.successor,
+        )
+    )
 
     if spec.verifier is not None:
         _VERIFIERS[spec.node_id] = spec.verifier
         if spec.verifier_name is None:
-            register_verifier(VerifierSpec(name="node:" + spec.node_id, observe=spec.verifier),
-                              replace=True)
+            register_verifier(VerifierSpec(name="node:" + spec.node_id, observe=spec.verifier), replace=True)
             bind_verifier(spec.node_id, "node:" + spec.node_id)
 
 
@@ -82,7 +93,6 @@ _VERIFIERS: dict[str, Callable[..., Any]] = {}
 
 def verifier_for(node_id: str) -> Callable[..., Any] | None:
     return _VERIFIERS.get(node_id)
-
 
 
 _RETRY_ACTIONS = ("retry_same", "retry_profile")
@@ -94,13 +104,22 @@ KNOWN_FORBIDDEN_CODES = {
     "legacy_node_type": "устаревший тип ноды: управляемый путь только после миграции графа",
 }
 COVERAGE_LEVELS = ("managed", "observed", "human_only")
-COVERAGE_FIELDS = frozenset({"verifies", "limits", "observation_hook", "forbidden_code",
-                             "forbidden_reason", "recovery_cap", "recovery_only", "local_recovery"})
+COVERAGE_FIELDS = frozenset(
+    {
+        "verifies",
+        "limits",
+        "observation_hook",
+        "forbidden_code",
+        "forbidden_reason",
+        "recovery_cap",
+        "recovery_only",
+        "local_recovery",
+    }
+)
 
 
 @dataclass(frozen=True)
 class CapabilitySpec:
-
     node_type: str
     result_kind: str
     executor: str
@@ -136,12 +155,21 @@ class CapabilitySpec:
 
     def to_capability(self):
         from app.services.node_capabilities import NodeCapability
+
         return NodeCapability(
-            self.node_type, self.result_kind, self.executor, tuple(self.phases),
-            tuple(self.effects), tuple(self.actions), self.effective_managed,
-            tuple(self.approval), self.profile_compatible,
-            self.volatile_attachment_names, self.native_json_retry,
-            self.recovery_continuation)
+            self.node_type,
+            self.result_kind,
+            self.executor,
+            tuple(self.phases),
+            tuple(self.effects),
+            tuple(self.actions),
+            self.effective_managed,
+            tuple(self.approval),
+            self.profile_compatible,
+            self.volatile_attachment_names,
+            self.native_json_retry,
+            self.recovery_continuation,
+        )
 
 
 _CAPABILITY_SPECS: dict[str, CapabilitySpec] = {}
@@ -172,10 +200,8 @@ def coverage_level(spec: CapabilitySpec) -> str:
     return "observed" if coverage_evidence(spec) else "human_only"
 
 
-
 @dataclass(frozen=True)
 class VerifierSpec:
-
     name: str
     observe: Callable[..., Any] | str
     managed_only: bool = False
@@ -241,7 +267,9 @@ def register_contract_builder(name: str, builder: Callable[..., Any], *, replace
     _CONTRACT_BUILDERS[name] = builder
 
 
-def register_descriptive_contract(node_type: str, builder: Callable[..., Any], *, replace: bool = False) -> None:
+def register_descriptive_contract(
+    node_type: str, builder: Callable[..., Any], *, replace: bool = False
+) -> None:
     if node_type in _DESCRIPTIVE_CONTRACTS and not replace:
         raise ValueError(f"descriptive contract already registered: {node_type!r}")
     _DESCRIPTIVE_CONTRACTS[node_type] = builder
@@ -254,7 +282,9 @@ def descriptive_contract_for(node_type: str) -> Callable[..., Any] | None:
 _NODE_ADMISSIONS: dict[str, Callable[[dict], str | None]] = {}
 
 
-def register_node_admission(node_type: str, check: Callable[[dict], str | None], *, replace: bool = False) -> None:
+def register_node_admission(
+    node_type: str, check: Callable[[dict], str | None], *, replace: bool = False
+) -> None:
     if node_type in _NODE_ADMISSIONS and not replace:
         raise ValueError(f"node admission already registered: {node_type!r}")
     _NODE_ADMISSIONS[node_type] = check
@@ -291,13 +321,28 @@ def contract_builder_for(capability) -> Callable[..., Any]:
         raise ValueError(f"unknown contract builder: {name!r}") from None
 
 
-
 _MANIFEST_KEYS = {
-    "result_kind", "executor", "phases", "effects", "actions", "managed",
-    "approval", "profile_compatible", "volatile_attachment_names",
-    "native_json_retry", "recovery_continuation", "acceptance", "verifier",
-    "contract", "successor", "verifies", "limits", "observation_hook",
-    "forbidden_code", "forbidden_reason", "recovery_cap",
+    "result_kind",
+    "executor",
+    "phases",
+    "effects",
+    "actions",
+    "managed",
+    "approval",
+    "profile_compatible",
+    "volatile_attachment_names",
+    "native_json_retry",
+    "recovery_continuation",
+    "acceptance",
+    "verifier",
+    "contract",
+    "successor",
+    "verifies",
+    "limits",
+    "observation_hook",
+    "forbidden_code",
+    "forbidden_reason",
+    "recovery_cap",
 }
 
 
@@ -307,8 +352,12 @@ def capability_from_manifest(manifest: dict) -> CapabilitySpec:
     if manifest.get("nodeapi") != 1:
         raise ValueError("unsupported nodeapi version")
     node_type = manifest.get("type", manifest.get("node_type"))
-    if (not isinstance(node_type, str) or not node_type
-            or not node_type.replace("_", "").isalnum() or node_type != node_type.lower()):
+    if (
+        not isinstance(node_type, str)
+        or not node_type
+        or not node_type.replace("_", "").isalnum()
+        or node_type != node_type.lower()
+    ):
         raise ValueError("manifest type must be a lowercase identifier")
     block = manifest.get("orchestrator")
     if not isinstance(block, dict):
@@ -339,6 +388,7 @@ def capability_from_manifest(manifest: dict) -> CapabilitySpec:
         return value
 
     from app.services.node_capabilities import READ_ACTIONS
+
     actions = names("actions", READ_ACTIONS)
     unknown_actions = set(actions) - (set(READ_ACTIONS) | set(_RETRY_ACTIONS) | {"finish"})
     if unknown_actions:
@@ -348,16 +398,23 @@ def capability_from_manifest(manifest: dict) -> CapabilitySpec:
         raise ValueError("unknown recovery_continuation")
     acceptance = optional_name("acceptance")
     kwargs = dict(
-        node_type=node_type, result_kind=block["result_kind"], executor=block["executor"],
-        phases=names("phases", ("unknown",)), effects=names("effects"), actions=actions,
+        node_type=node_type,
+        result_kind=block["result_kind"],
+        executor=block["executor"],
+        phases=names("phases", ("unknown",)),
+        effects=names("effects"),
+        actions=actions,
         managed=flag("managed", False) and bool(acceptance),
         profile_compatible=flag("profile_compatible", False),
         volatile_attachment_names=flag("volatile_attachment_names", False),
         native_json_retry=flag("native_json_retry", False),
-        recovery_continuation=continuation, acceptance=acceptance,
-        verifier=optional_name("verifier"), contract=optional_name("contract"),
+        recovery_continuation=continuation,
+        acceptance=acceptance,
+        verifier=optional_name("verifier"),
+        contract=optional_name("contract"),
         successor=optional_name("successor"),
-        verifies=names("verifies"), limits=names("limits"),
+        verifies=names("verifies"),
+        limits=names("limits"),
         observation_hook=optional_name("observation_hook"),
         forbidden_code=optional_name("forbidden_code"),
         forbidden_reason=optional_name("forbidden_reason"),
@@ -371,7 +428,6 @@ def capability_from_manifest(manifest: dict) -> CapabilitySpec:
     if "approval" in block:
         kwargs["approval"] = names("approval")
     return CapabilitySpec(**kwargs)
-
 
 
 async def run_verifier_after_success(ctx, session, project, node_type: str) -> None:

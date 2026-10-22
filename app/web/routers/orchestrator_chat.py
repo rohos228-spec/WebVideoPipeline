@@ -162,8 +162,10 @@ async def post_project(session: str, body: ProjectIn) -> dict[str, object]:
 
 def operator_required_response() -> JSONResponse:
     message = "Подтвердить может только человек из Studio: обновите страницу и повторите."
-    return JSONResponse(status_code=403, content={
-        "detail": {"code": "operator_token_required", "message": message}, "message": message})
+    return JSONResponse(
+        status_code=403,
+        content={"detail": {"code": "operator_token_required", "message": message}, "message": message},
+    )
 
 
 async def human_decision(
@@ -311,8 +313,9 @@ async def stream_session(
     async def _gen():
         runtime = get_runtime()
         cursor = last_seq
-        async with runtime.bus.subscription(session) as queue, orch_bridge.notice_relay(
-            runtime.bus, session, project_id
+        async with (
+            runtime.bus.subscription(session) as queue,
+            orch_bridge.notice_relay(runtime.bus, session, project_id),
         ):
             for event in await runtime.bus.replay_from(session, last_seq):
                 cursor, fresh = remember_seq(cursor, event.seq)

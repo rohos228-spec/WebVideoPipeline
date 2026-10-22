@@ -12,17 +12,18 @@ import re
 from typing import Any
 
 from pydantic import ConfigDict
-
 from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models import Frame, Project
-from app.orchestrator.action_contracts.contracts import SOFT_DELETE_RESTORE
-from app.orchestrator.action_contracts.contracts import ActionMetadata
-from app.orchestrator.action_contracts.contracts import ActionResult
-from app.orchestrator.action_contracts.contracts import ApprovalPreview
-from app.orchestrator.action_contracts.contracts import ApprovalRequired
-from app.orchestrator.action_contracts.contracts import SoftDeleteResult
+from app.orchestrator.action_contracts.contracts import (
+    SOFT_DELETE_RESTORE,
+    ActionMetadata,
+    ActionResult,
+    ApprovalPreview,
+    ApprovalRequired,
+    SoftDeleteResult,
+)
 from app.orchestrator.action_contracts.contracts import escalated_metadata as contract_escalated
 from app.services.action_layer import store
 from app.services.action_layer.context import ActionContext
@@ -142,11 +143,7 @@ def whitelist() -> list[str]:
     names = {spec.id for spec in registry.list()}
     names.difference_update(_HELD_UNTIL_R2)
     names.difference_update(set(SOFT_DELETE_RESTORE.values()) - _IMPLEMENTED_RESTORES)
-    names.update(
-        restore
-        for restore in SOFT_DELETE_RESTORE.values()
-        if restore in _IMPLEMENTED_RESTORES
-    )
+    names.update(restore for restore in SOFT_DELETE_RESTORE.values() if restore in _IMPLEMENTED_RESTORES)
     return sorted(names)
 
 
@@ -179,8 +176,10 @@ def metadata_of(name: str, *, group_is_new: bool = False) -> ActionMetadata:
     ensure_builtin_actions()
     published = contract_escalated(str(name), group_is_new=group_is_new)
     spec = registry.find(published.name)
-    base = published if spec is None else _raise_to_floor(
-        published, map_nikita_risk(spec.risk, name=published.name)
+    base = (
+        published
+        if spec is None
+        else _raise_to_floor(published, map_nikita_risk(spec.risk, name=published.name))
     )
     restore = SOFT_DELETE_RESTORE.get(base.name)
     if restore is None:
@@ -382,7 +381,9 @@ async def _soft_delete_frame(spec: Any, params: dict, ctx: Any, approval: dict |
             )
             if frame is None:
                 return _failed("кадр не найден")
-        before = [dict(shot) if isinstance(shot, dict) else shot for shot in (frame.attrs or {}).get("кадры") or []]
+        before = [
+            dict(shot) if isinstance(shot, dict) else shot for shot in (frame.attrs or {}).get("кадры") or []
+        ]
         merged = merge_kadry_keep_missing(before, _marked_shot(before, frame.number))
         attrs = dict(frame.attrs or {})
         attrs["кадры"] = merged
@@ -427,7 +428,9 @@ def _restore_lookup(params: dict) -> tuple[str | None, str | None, str | None]:
     return snapshot_text or None, change_text or None, None
 
 
-async def _find_soft_delete_snapshot(project_id: int, snapshot_id: str | None, change_id: str | None) -> dict | str:
+async def _find_soft_delete_snapshot(
+    project_id: int, snapshot_id: str | None, change_id: str | None
+) -> dict | str:
     """Снимок кадра или текст отказа. Поля скопированы до закрытия сессии."""
 
     from sqlalchemy import select
@@ -442,16 +445,17 @@ async def _find_soft_delete_snapshot(project_id: int, snapshot_id: str | None, c
                 return "снимок не найден"
             row = await session.get(store.ActionSnapshot, sid)
         else:
-            rows = list((await session.scalars(
-                select(store.ActionSnapshot).where(
-                    store.ActionSnapshot.project_id == project_id,
-                    store.ActionSnapshot.kind == "soft_delete",
-                )
-            )).all())
-            matches = [
-                item for item in rows
-                if str((item.target or {}).get("change_id") or "") == change_id
-            ]
+            rows = list(
+                (
+                    await session.scalars(
+                        select(store.ActionSnapshot).where(
+                            store.ActionSnapshot.project_id == project_id,
+                            store.ActionSnapshot.kind == "soft_delete",
+                        )
+                    )
+                ).all()
+            )
+            matches = [item for item in rows if str((item.target or {}).get("change_id") or "") == change_id]
             if len(matches) != 1:
                 return "снимок не найден"
             row = matches[0]
@@ -618,7 +622,9 @@ def _bridge_ctx(ctx: Any) -> dict:
     return {"app": getattr(ctx, "app", None), "operator": getattr(ctx, "operator", "system")}
 
 
-async def _bridged(spec: Any, params: dict, ctx: Any, approval: dict | None, meta: ActionMetadata) -> ActionResult:
+async def _bridged(
+    spec: Any, params: dict, ctx: Any, approval: dict | None, meta: ActionMetadata
+) -> ActionResult:
     from app.services import orch_bridge
 
     if spec.needs_approval and approval is None:

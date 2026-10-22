@@ -1,4 +1,3 @@
-
 """Журнал публикаций: идемпотентность, намерение до клика, аренда площадки.
 
 Одна строка `publications` на (проект, площадка, sha256 файла). Строка пишется
@@ -51,7 +50,8 @@ NEEDS_HUMAN = "needs_human"
 metadata = sa.MetaData()
 
 publications = sa.Table(
-    "publications", metadata,
+    "publications",
+    metadata,
     sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
     sa.Column("project_id", sa.Integer, nullable=False),
     sa.Column("platform", sa.Text, nullable=False),
@@ -75,7 +75,8 @@ publications = sa.Table(
 )
 
 publish_approvals = sa.Table(
-    "publish_approvals", metadata,
+    "publish_approvals",
+    metadata,
     sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
     sa.Column("project_id", sa.Integer, nullable=False),
     sa.Column("platform", sa.Text, nullable=False),
@@ -89,7 +90,8 @@ publish_approvals = sa.Table(
 )
 
 publication_manual_actions = sa.Table(
-    "publication_manual_actions", metadata,
+    "publication_manual_actions",
+    metadata,
     sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
     sa.Column("publication_id", sa.Integer, nullable=False),
     sa.Column("project_id", sa.Integer, nullable=False),
@@ -117,8 +119,10 @@ SQLITE_TRIGGERS = (
     "BEGIN SELECT RAISE(ABORT, 'publication manual actions are append-only'); END",
 )
 
-_COLS = ("id, project_id, platform, artifact_uuid, sha256, account_id, status, post_url, post_id, "
-         "attempts, screenshot, error_code, lease_owner, lease_until, clicked_at, updated_at")
+_COLS = (
+    "id, project_id, platform, artifact_uuid, sha256, account_id, status, post_url, post_id, "
+    "attempts, screenshot, error_code, lease_owner, lease_until, clicked_at, updated_at"
+)
 
 MANUAL_FAILED_CODE = "manual_not_published"
 MANUAL_CONFIRMED_ID = "manual-confirmed"
@@ -213,25 +217,45 @@ def _insert(session: AsyncSession, table: sa.Table):
 
 
 async def _insert_if_absent(session: AsyncSession, values: dict):
-    stmt = _insert(session, publications).values(**values).on_conflict_do_nothing(
-        index_elements=["project_id", "platform", "sha256"])
+    stmt = (
+        _insert(session, publications)
+        .values(**values)
+        .on_conflict_do_nothing(index_elements=["project_id", "platform", "sha256"])
+    )
     return await session.execute(stmt)
 
 
 async def _commit(session: AsyncSession) -> None:
     from app.db import commit_with_retry
+
     await commit_with_retry(session)
 
 
 async def _get(session: AsyncSession, project_id: int, platform: str, sha256: str) -> dict | None:
-    row = (await session.execute(
-        text(f"SELECT {_COLS} FROM publications WHERE project_id=:p AND platform=:pl AND sha256=:s"),
-        {"p": project_id, "pl": platform, "s": sha256})).mappings().first()
+    row = (
+        (
+            await session.execute(
+                text(f"SELECT {_COLS} FROM publications WHERE project_id=:p AND platform=:pl AND sha256=:s"),
+                {"p": project_id, "pl": platform, "s": sha256},
+            )
+        )
+        .mappings()
+        .first()
+    )
     return dict(row) if row else None
 
 
-HUMAN_HOLD_CODES = frozenset({"not_logged_in", "captcha", "two_factor", "rate_limited", "rejected",
-                              "profile_missing", "accounts_config_invalid"})
+HUMAN_HOLD_CODES = frozenset(
+    {
+        "not_logged_in",
+        "captcha",
+        "two_factor",
+        "rate_limited",
+        "rejected",
+        "profile_missing",
+        "accounts_config_invalid",
+    }
+)
 
 
 def is_auto_retryable(row: dict, now: float) -> bool:
@@ -249,15 +273,36 @@ def is_auto_retryable(row: dict, now: float) -> bool:
     return False
 
 
-async def claim(session: AsyncSession, *, project_id: int, platform: str, sha256: str,
-                artifact_uuid: str | None, owner: str, account_id: str | None = None,
-                lease_s: float = LEASE_SECONDS, now: float | None = None) -> Claim:
+async def claim(
+    session: AsyncSession,
+    *,
+    project_id: int,
+    platform: str,
+    sha256: str,
+    artifact_uuid: str | None,
+    owner: str,
+    account_id: str | None = None,
+    lease_s: float = LEASE_SECONDS,
+    now: float | None = None,
+) -> Claim:
     await ensure_schema(session)
     now = time.time() if now is None else now
-    ins = await _insert_if_absent(session, {
-        "project_id": project_id, "platform": platform, "artifact_uuid": artifact_uuid, "sha256": sha256,
-        "account_id": account_id, "status": S_PLANNED, "attempts": 1, "lease_owner": owner,
-        "lease_until": now + lease_s, "created_at": now, "updated_at": now})
+    ins = await _insert_if_absent(
+        session,
+        {
+            "project_id": project_id,
+            "platform": platform,
+            "artifact_uuid": artifact_uuid,
+            "sha256": sha256,
+            "account_id": account_id,
+            "status": S_PLANNED,
+            "attempts": 1,
+            "lease_owner": owner,
+            "lease_until": now + lease_s,
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
     if ins.rowcount == 1:
         await _commit(session)
         row = await _get(session, project_id, platform, sha256)
@@ -274,12 +319,15 @@ async def claim(session: AsyncSession, *, project_id: int, platform: str, sha256
             return Claim(BUSY, row["id"], status=row["status"], attempts=row["attempts"])
         return Claim(NEEDS_HUMAN, row["id"], status=row["status"], attempts=row["attempts"])
 
-    upd = await session.execute(text(
-        "UPDATE publications SET status='planned', attempts=attempts+1, lease_owner=:o, lease_until=:lu, "
-        "error_code=NULL, updated_at=:now "
-        "WHERE id=:id AND clicked_at IS NULL AND ("
-        "  status='skipped' OR (status='failed' AND attempts<:mx) OR (status='planned' AND lease_until<:now))"),
-        {"o": owner, "lu": now + lease_s, "now": now, "id": row["id"], "mx": MAX_PRE_CLICK_ATTEMPTS})
+    upd = await session.execute(
+        text(
+            "UPDATE publications SET status='planned', attempts=attempts+1, lease_owner=:o, lease_until=:lu, "
+            "error_code=NULL, updated_at=:now "
+            "WHERE id=:id AND clicked_at IS NULL AND ("
+            "  status='skipped' OR (status='failed' AND attempts<:mx) OR (status='planned' AND lease_until<:now))"
+        ),
+        {"o": owner, "lu": now + lease_s, "now": now, "id": row["id"], "mx": MAX_PRE_CLICK_ATTEMPTS},
+    )
     await _commit(session)
     if upd.rowcount == 1:
         return Claim(ACQUIRED, row["id"], owner, S_PLANNED, int(row["attempts"]) + 1)
@@ -288,76 +336,157 @@ async def claim(session: AsyncSession, *, project_id: int, platform: str, sha256
 
 async def mark_clicked(session: AsyncSession, pub_id: int, owner: str, *, now: float | None = None) -> bool:
     now = time.time() if now is None else now
-    upd = await session.execute(text(
-        "UPDATE publications SET status='clicked', clicked_at=:now, updated_at=:now "
-        "WHERE id=:id AND lease_owner=:o AND status='planned'"),
-        {"now": now, "id": pub_id, "o": owner})
+    upd = await session.execute(
+        text(
+            "UPDATE publications SET status='clicked', clicked_at=:now, updated_at=:now "
+            "WHERE id=:id AND lease_owner=:o AND status='planned'"
+        ),
+        {"now": now, "id": pub_id, "o": owner},
+    )
     await _commit(session)
     return upd.rowcount == 1
 
 
-async def record_result(session: AsyncSession, pub_id: int, owner: str, *, status: str,
-                        post_url: str | None = None, post_id: str | None = None,
-                        error_code: str | None = None, screenshot: str | None = None,
-                        account_id: str | None = None, now: float | None = None) -> str:
+async def record_result(
+    session: AsyncSession,
+    pub_id: int,
+    owner: str,
+    *,
+    status: str,
+    post_url: str | None = None,
+    post_id: str | None = None,
+    error_code: str | None = None,
+    screenshot: str | None = None,
+    account_id: str | None = None,
+    now: float | None = None,
+) -> str:
     if status not in ALL_STATUSES:
         raise ValueError(f"unknown publication status {status!r}")
     now = time.time() if now is None else now
     if status == S_CONFIRMED and not (post_url or post_id):
         status, error_code = S_UNCONFIRMED, error_code or "confirmed_without_url"
-    await session.execute(text(
-        "UPDATE publications SET status=:st, post_url=:u, post_id=:pid, error_code=:e, screenshot=:sc, "
-        "account_id=COALESCE(:acc, account_id), "
-        "lease_owner=NULL, lease_until=NULL, updated_at=:now WHERE id=:id AND lease_owner=:o"),
-        {"st": status, "u": post_url, "pid": post_id, "e": error_code, "sc": screenshot, "acc": account_id,
-         "now": now, "id": pub_id, "o": owner})
+    await session.execute(
+        text(
+            "UPDATE publications SET status=:st, post_url=:u, post_id=:pid, error_code=:e, screenshot=:sc, "
+            "account_id=COALESCE(:acc, account_id), "
+            "lease_owner=NULL, lease_until=NULL, updated_at=:now WHERE id=:id AND lease_owner=:o"
+        ),
+        {
+            "st": status,
+            "u": post_url,
+            "pid": post_id,
+            "e": error_code,
+            "sc": screenshot,
+            "acc": account_id,
+            "now": now,
+            "id": pub_id,
+            "o": owner,
+        },
+    )
     await _commit(session)
-    row = (await session.execute(text("SELECT status FROM publications WHERE id=:id"),
-                                 {"id": pub_id})).first()
+    row = (
+        await session.execute(text("SELECT status FROM publications WHERE id=:id"), {"id": pub_id})
+    ).first()
     await _commit(session)
     return row[0] if row else status
 
 
-async def record_unclaimed(session: AsyncSession, *, project_id: int, platform: str, sha256: str,
-                           artifact_uuid: str | None, status: str, clicked: bool,
-                           post_url: str | None = None, post_id: str | None = None,
-                           error_code: str | None = None, screenshot: str | None = None,
-                           account_id: str | None = None, now: float | None = None) -> str:
+async def record_unclaimed(
+    session: AsyncSession,
+    *,
+    project_id: int,
+    platform: str,
+    sha256: str,
+    artifact_uuid: str | None,
+    status: str,
+    clicked: bool,
+    post_url: str | None = None,
+    post_id: str | None = None,
+    error_code: str | None = None,
+    screenshot: str | None = None,
+    account_id: str | None = None,
+    now: float | None = None,
+) -> str:
     await ensure_schema(session)
     now = time.time() if now is None else now
     if status == S_CONFIRMED and not (post_url or post_id):
         status, error_code = S_UNCONFIRMED, error_code or "confirmed_without_url"
-    await _insert_if_absent(session, {
-        "project_id": project_id, "platform": platform, "artifact_uuid": artifact_uuid, "sha256": sha256,
-        "status": S_PLANNED, "attempts": 1, "clicked_at": now if clicked else None,
-        "created_at": now, "updated_at": now})
-    await session.execute(text(
-        "UPDATE publications SET status=:st, post_url=:u, post_id=:pid, error_code=:e, "
-        "screenshot=COALESCE(:sc, screenshot), account_id=COALESCE(:acc, account_id), "
-        "clicked_at=CASE WHEN CAST(:cl AS INTEGER)=1 AND clicked_at IS NULL THEN :now ELSE clicked_at END, "
-        "lease_owner=NULL, lease_until=NULL, updated_at=:now "
-        "WHERE project_id=:p AND platform=:pl AND sha256=:s AND status<>'confirmed'"),
-        {"st": status, "u": post_url, "pid": post_id, "e": error_code, "sc": screenshot, "acc": account_id,
-         "cl": 1 if clicked else 0,
-         "now": now, "p": project_id, "pl": platform, "s": sha256})
+    await _insert_if_absent(
+        session,
+        {
+            "project_id": project_id,
+            "platform": platform,
+            "artifact_uuid": artifact_uuid,
+            "sha256": sha256,
+            "status": S_PLANNED,
+            "attempts": 1,
+            "clicked_at": now if clicked else None,
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
+    await session.execute(
+        text(
+            "UPDATE publications SET status=:st, post_url=:u, post_id=:pid, error_code=:e, "
+            "screenshot=COALESCE(:sc, screenshot), account_id=COALESCE(:acc, account_id), "
+            "clicked_at=CASE WHEN CAST(:cl AS INTEGER)=1 AND clicked_at IS NULL THEN :now ELSE clicked_at END, "
+            "lease_owner=NULL, lease_until=NULL, updated_at=:now "
+            "WHERE project_id=:p AND platform=:pl AND sha256=:s AND status<>'confirmed'"
+        ),
+        {
+            "st": status,
+            "u": post_url,
+            "pid": post_id,
+            "e": error_code,
+            "sc": screenshot,
+            "acc": account_id,
+            "cl": 1 if clicked else 0,
+            "now": now,
+            "p": project_id,
+            "pl": platform,
+            "s": sha256,
+        },
+    )
     await _commit(session)
     row = await _get(session, project_id, platform, sha256)
     await _commit(session)
     return row["status"] if row else status
 
 
-async def mark_skipped(session: AsyncSession, *, project_id: int, platform: str, sha256: str,
-                       artifact_uuid: str | None, reason: str, now: float | None = None) -> None:
+async def mark_skipped(
+    session: AsyncSession,
+    *,
+    project_id: int,
+    platform: str,
+    sha256: str,
+    artifact_uuid: str | None,
+    reason: str,
+    now: float | None = None,
+) -> None:
     await ensure_schema(session)
     now = time.time() if now is None else now
-    await _insert_if_absent(session, {
-        "project_id": project_id, "platform": platform, "artifact_uuid": artifact_uuid, "sha256": sha256,
-        "status": S_SKIPPED, "attempts": 0, "error_code": reason, "created_at": now, "updated_at": now})
-    await session.execute(text(
-        "UPDATE publications SET status='skipped', error_code=:e, updated_at=:now "
-        "WHERE project_id=:p AND platform=:pl AND sha256=:s AND status='planned' AND clicked_at IS NULL "
-        "AND (lease_until IS NULL OR lease_until<:now)"),
-        {"e": reason, "now": now, "p": project_id, "pl": platform, "s": sha256})
+    await _insert_if_absent(
+        session,
+        {
+            "project_id": project_id,
+            "platform": platform,
+            "artifact_uuid": artifact_uuid,
+            "sha256": sha256,
+            "status": S_SKIPPED,
+            "attempts": 0,
+            "error_code": reason,
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
+    await session.execute(
+        text(
+            "UPDATE publications SET status='skipped', error_code=:e, updated_at=:now "
+            "WHERE project_id=:p AND platform=:pl AND sha256=:s AND status='planned' AND clicked_at IS NULL "
+            "AND (lease_until IS NULL OR lease_until<:now)"
+        ),
+        {"e": reason, "now": now, "p": project_id, "pl": platform, "s": sha256},
+    )
     await _commit(session)
 
 
@@ -376,8 +505,11 @@ async def list_for(session: AsyncSession, project_id: int, sha256: str | None = 
 def summarize(rows: list[dict], platforms: list[str], now: float | None = None) -> dict:
     now = time.time() if now is None else now
     by = {r["platform"]: r for r in rows}
-    confirmed = [p for p in platforms
-                 if p in by and by[p]["status"] == S_CONFIRMED and (by[p]["post_url"] or by[p]["post_id"])]
+    confirmed = [
+        p
+        for p in platforms
+        if p in by and by[p]["status"] == S_CONFIRMED and (by[p]["post_url"] or by[p]["post_id"])
+    ]
     retryable, busy, human, skipped, manual_failed = [], [], [], [], []
     for p in platforms:
         r = by.get(p)
@@ -395,11 +527,15 @@ def summarize(rows: list[dict], platforms: list[str], now: float | None = None) 
             manual_failed.append(p)
         else:
             human.append(p)
-    return {"all_confirmed": len(confirmed) == len(platforms), "confirmed": confirmed,
-            "retryable": retryable, "busy": busy, "needs_human": human, "skipped": skipped,
-            "manual_failed": manual_failed}
-
-
+    return {
+        "all_confirmed": len(confirmed) == len(platforms),
+        "confirmed": confirmed,
+        "retryable": retryable,
+        "busy": busy,
+        "needs_human": human,
+        "skipped": skipped,
+        "manual_failed": manual_failed,
+    }
 
 
 def display_state(row: dict) -> str:
@@ -417,7 +553,6 @@ def display_state(row: dict) -> str:
 
 
 class PublicationRefused(Exception):
-
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code, self.message = code, message
@@ -436,154 +571,292 @@ def _clean_url(url: str | None) -> str | None:
     return u
 
 
-async def grant_approval(session: AsyncSession, *, project_id: int, platform: str, sha256: str,
-                         caption_sha256: str, approved_by: str, now: float | None = None) -> None:
+async def grant_approval(
+    session: AsyncSession,
+    *,
+    project_id: int,
+    platform: str,
+    sha256: str,
+    caption_sha256: str,
+    approved_by: str,
+    now: float | None = None,
+) -> None:
     await ensure_schema(session)
     now = time.time() if now is None else now
     row = await _get(session, project_id, platform, sha256)
     await _commit(session)
     if row is not None and row["status"] == S_CONFIRMED:
-        raise PublicationRefused("already_confirmed", "Эта площадка уже подтверждена: повторная публикация не нужна.")
-    if row is not None and not is_auto_retryable(row, now) and not (
-            row["status"] == S_PLANNED and not row.get("clicked_at")):
+        raise PublicationRefused(
+            "already_confirmed", "Эта площадка уже подтверждена: повторная публикация не нужна."
+        )
+    if (
+        row is not None
+        and not is_auto_retryable(row, now)
+        and not (row["status"] == S_PLANNED and not row.get("clicked_at"))
+    ):
         raise PublicationRefused(
             "needs_human_first",
             "По этой площадке клик мог состояться или попытки исчерпаны: сначала подтвердите вручную "
-            "или пометьте «не опубликовано».")
+            "или пометьте «не опубликовано».",
+        )
     stmt = _insert(session, publish_approvals).values(
-        project_id=project_id, platform=platform, sha256=sha256, caption_sha256=caption_sha256,
-        approved_by=approved_by[:120], approved_at=now)
-    await session.execute(stmt.on_conflict_do_update(
-        index_elements=["project_id", "platform", "sha256"],
-        set_={"caption_sha256": caption_sha256, "approved_by": approved_by[:120], "approved_at": now,
-              "consumed_at": None}))
+        project_id=project_id,
+        platform=platform,
+        sha256=sha256,
+        caption_sha256=caption_sha256,
+        approved_by=approved_by[:120],
+        approved_at=now,
+    )
+    await session.execute(
+        stmt.on_conflict_do_update(
+            index_elements=["project_id", "platform", "sha256"],
+            set_={
+                "caption_sha256": caption_sha256,
+                "approved_by": approved_by[:120],
+                "approved_at": now,
+                "consumed_at": None,
+            },
+        )
+    )
     await _commit(session)
 
 
-async def list_approvals(session: AsyncSession, project_id: int, sha256: str,
-                         caption_sha256: str | None = None) -> dict[str, dict]:
+async def list_approvals(
+    session: AsyncSession, project_id: int, sha256: str, caption_sha256: str | None = None
+) -> dict[str, dict]:
     await ensure_schema(session)
-    rows = (await session.execute(text(
-        "SELECT platform, caption_sha256, approved_by, approved_at, consumed_at FROM publish_approvals "
-        "WHERE project_id=:p AND sha256=:s"), {"p": project_id, "s": sha256})).mappings().all()
+    rows = (
+        (
+            await session.execute(
+                text(
+                    "SELECT platform, caption_sha256, approved_by, approved_at, consumed_at FROM publish_approvals "
+                    "WHERE project_id=:p AND sha256=:s"
+                ),
+                {"p": project_id, "s": sha256},
+            )
+        )
+        .mappings()
+        .all()
+    )
     await _commit(session)
     out: dict[str, dict] = {}
     for r in rows:
         d = dict(r)
-        d["valid"] = d["consumed_at"] is None and (caption_sha256 is None or d["caption_sha256"] == caption_sha256)
+        d["valid"] = d["consumed_at"] is None and (
+            caption_sha256 is None or d["caption_sha256"] == caption_sha256
+        )
         out[d["platform"]] = d
     return out
 
 
-async def consume_approval(session: AsyncSession, *, project_id: int, platform: str, sha256: str,
-                           caption_sha256: str, now: float | None = None) -> bool:
+async def consume_approval(
+    session: AsyncSession,
+    *,
+    project_id: int,
+    platform: str,
+    sha256: str,
+    caption_sha256: str,
+    now: float | None = None,
+) -> bool:
     await ensure_schema(session)
     now = time.time() if now is None else now
-    upd = await session.execute(text(
-        "UPDATE publish_approvals SET consumed_at=:now WHERE project_id=:p AND platform=:pl AND sha256=:s "
-        "AND caption_sha256=:c AND consumed_at IS NULL"),
-        {"now": now, "p": project_id, "pl": platform, "s": sha256, "c": caption_sha256})
+    upd = await session.execute(
+        text(
+            "UPDATE publish_approvals SET consumed_at=:now WHERE project_id=:p AND platform=:pl AND sha256=:s "
+            "AND caption_sha256=:c AND consumed_at IS NULL"
+        ),
+        {"now": now, "p": project_id, "pl": platform, "s": sha256, "c": caption_sha256},
+    )
     await _commit(session)
     return upd.rowcount == 1
 
 
-async def revoke_approval(session: AsyncSession, *, project_id: int, platform: str, sha256: str,
-                          now: float | None = None) -> dict:
+async def revoke_approval(
+    session: AsyncSession, *, project_id: int, platform: str, sha256: str, now: float | None = None
+) -> dict:
     await ensure_schema(session)
     now = time.time() if now is None else now
-    upd = await session.execute(text(
-        "UPDATE publish_approvals SET consumed_at=:now WHERE project_id=:p AND platform=:pl AND sha256=:s "
-        "AND consumed_at IS NULL"), {"now": now, "p": project_id, "pl": platform, "s": sha256})
+    upd = await session.execute(
+        text(
+            "UPDATE publish_approvals SET consumed_at=:now WHERE project_id=:p AND platform=:pl AND sha256=:s "
+            "AND consumed_at IS NULL"
+        ),
+        {"now": now, "p": project_id, "pl": platform, "s": sha256},
+    )
     await _commit(session)
     if upd.rowcount != 1:
         raise PublicationRefused(
             "no_active_approval",
-            "Действующего разрешения на эту площадку нет: оно не выдавалось, уже отозвано или уже использовано.")
+            "Действующего разрешения на эту площадку нет: оно не выдавалось, уже отозвано или уже использовано.",
+        )
     return {"platform": platform, "sha256": sha256, "revoked_at": now}
 
 
-async def _manual_target(session: AsyncSession, project_id: int, platform: str, sha256: str, now: float) -> dict:
+async def _manual_target(
+    session: AsyncSession, project_id: int, platform: str, sha256: str, now: float
+) -> dict:
     await ensure_schema(session)
     row = await _get(session, project_id, platform, sha256)
     await _commit(session)
     if row is None:
-        raise PublicationRefused("no_publication_record",
-                                 "Для этого файла и площадки нет записи журнала: нечего подтверждать.")
+        raise PublicationRefused(
+            "no_publication_record", "Для этого файла и площадки нет записи журнала: нечего подтверждать."
+        )
     if row["status"] == S_PLANNED and not row.get("clicked_at") and (row.get("lease_until") or 0) >= now:
         raise PublicationRefused("busy", "Площадку сейчас обрабатывает воркер: подождите окончания шага.")
     return row
 
 
-async def _log_manual(session: AsyncSession, row: dict, *, action: str, post_url: str | None, reason: str,
-                      actor: str, now: float) -> None:
-    await session.execute(text(
-        "INSERT INTO publication_manual_actions (publication_id, project_id, platform, sha256, action, "
-        "prev_status, prev_post_url, post_url, reason, actor, created_at) "
-        "VALUES (:i, :p, :pl, :s, :a, :ps, :pu, :u, :r, :by, :now)"),
-        {"i": row["id"], "p": row["project_id"], "pl": row["platform"], "s": row["sha256"], "a": action,
-         "ps": row["status"], "pu": row.get("post_url"), "u": post_url, "r": reason, "by": actor[:120], "now": now})
+async def _log_manual(
+    session: AsyncSession,
+    row: dict,
+    *,
+    action: str,
+    post_url: str | None,
+    reason: str,
+    actor: str,
+    now: float,
+) -> None:
+    await session.execute(
+        text(
+            "INSERT INTO publication_manual_actions (publication_id, project_id, platform, sha256, action, "
+            "prev_status, prev_post_url, post_url, reason, actor, created_at) "
+            "VALUES (:i, :p, :pl, :s, :a, :ps, :pu, :u, :r, :by, :now)"
+        ),
+        {
+            "i": row["id"],
+            "p": row["project_id"],
+            "pl": row["platform"],
+            "s": row["sha256"],
+            "a": action,
+            "ps": row["status"],
+            "pu": row.get("post_url"),
+            "u": post_url,
+            "r": reason,
+            "by": actor[:120],
+            "now": now,
+        },
+    )
 
 
-async def confirm_manual(session: AsyncSession, *, project_id: int, platform: str, sha256: str, actor: str,
-                         post_url: str | None = None, reason: str | None = None,
-                         now: float | None = None) -> dict:
+async def confirm_manual(
+    session: AsyncSession,
+    *,
+    project_id: int,
+    platform: str,
+    sha256: str,
+    actor: str,
+    post_url: str | None = None,
+    reason: str | None = None,
+    now: float | None = None,
+) -> dict:
     now = time.time() if now is None else now
     url, why = _clean_url(post_url), _clean_reason(reason)
     if url is None and len(why) < MIN_REASON_CHARS:
-        raise PublicationRefused("evidence_required",
-                                 f"Нужна ссылка на пост или причина не короче {MIN_REASON_CHARS} символов.")
+        raise PublicationRefused(
+            "evidence_required", f"Нужна ссылка на пост или причина не короче {MIN_REASON_CHARS} символов."
+        )
     row = await _manual_target(session, project_id, platform, sha256, now)
     if row["status"] == S_CONFIRMED:
         return {"changed": False, "status": S_CONFIRMED, "state": display_state(row), "pub_id": row["id"]}
     post_id = None if url else MANUAL_CONFIRMED_ID
-    upd = await session.execute(text(
-        "UPDATE publications SET status='confirmed', post_url=:u, post_id=:pid, error_code='manual_confirmed', "
-        "clicked_at=COALESCE(clicked_at, :now), lease_owner=NULL, lease_until=NULL, updated_at=:now "
-        "WHERE id=:id AND status=:prev"),
-        {"u": url, "pid": post_id, "now": now, "id": row["id"], "prev": row["status"]})
+    upd = await session.execute(
+        text(
+            "UPDATE publications SET status='confirmed', post_url=:u, post_id=:pid, error_code='manual_confirmed', "
+            "clicked_at=COALESCE(clicked_at, :now), lease_owner=NULL, lease_until=NULL, updated_at=:now "
+            "WHERE id=:id AND status=:prev"
+        ),
+        {"u": url, "pid": post_id, "now": now, "id": row["id"], "prev": row["status"]},
+    )
     if upd.rowcount != 1:
         await session.rollback()
-        raise PublicationRefused("state_changed", "Запись изменилась во время действия: обновите список и повторите.")
+        raise PublicationRefused(
+            "state_changed", "Запись изменилась во время действия: обновите список и повторите."
+        )
     await _log_manual(session, row, action="confirm", post_url=url, reason=why, actor=actor, now=now)
     await _commit(session)
-    return {"changed": True, "status": S_CONFIRMED, "state": D_CONFIRMED, "pub_id": row["id"],
-            "prev_status": row["status"]}
+    return {
+        "changed": True,
+        "status": S_CONFIRMED,
+        "state": D_CONFIRMED,
+        "pub_id": row["id"],
+        "prev_status": row["status"],
+    }
 
 
-async def mark_failed_manual(session: AsyncSession, *, project_id: int, platform: str, sha256: str, actor: str,
-                             reason: str | None, allow_republish: bool = False, now: float | None = None) -> dict:
+async def mark_failed_manual(
+    session: AsyncSession,
+    *,
+    project_id: int,
+    platform: str,
+    sha256: str,
+    actor: str,
+    reason: str | None,
+    allow_republish: bool = False,
+    now: float | None = None,
+) -> dict:
     now = time.time() if now is None else now
     why = _clean_reason(reason)
     if len(why) < MIN_REASON_CHARS:
         raise PublicationRefused("reason_required", f"Нужна причина не короче {MIN_REASON_CHARS} символов.")
     row = await _manual_target(session, project_id, platform, sha256, now)
     if row["status"] == S_CONFIRMED:
-        raise PublicationRefused("already_confirmed", "Площадка подтверждена: пометить её «не опубликовано» нельзя.")
+        raise PublicationRefused(
+            "already_confirmed", "Площадка подтверждена: пометить её «не опубликовано» нельзя."
+        )
     params = {"code": MANUAL_FAILED_CODE, "now": now, "id": row["id"], "prev": row["status"]}
     if allow_republish:
-        sql = ("UPDATE publications SET status='failed', error_code=:code, clicked_at=NULL, attempts=0, "
-               "lease_owner=NULL, lease_until=NULL, updated_at=:now WHERE id=:id AND status=:prev")
+        sql = (
+            "UPDATE publications SET status='failed', error_code=:code, clicked_at=NULL, attempts=0, "
+            "lease_owner=NULL, lease_until=NULL, updated_at=:now WHERE id=:id AND status=:prev"
+        )
     else:
-        sql = ("UPDATE publications SET status='failed', error_code=:code, "
-               "attempts=CASE WHEN attempts < :mx THEN :mx ELSE attempts END, "
-               "lease_owner=NULL, lease_until=NULL, updated_at=:now WHERE id=:id AND status=:prev")
+        sql = (
+            "UPDATE publications SET status='failed', error_code=:code, "
+            "attempts=CASE WHEN attempts < :mx THEN :mx ELSE attempts END, "
+            "lease_owner=NULL, lease_until=NULL, updated_at=:now WHERE id=:id AND status=:prev"
+        )
         params["mx"] = MAX_PRE_CLICK_ATTEMPTS
     upd = await session.execute(text(sql), params)
     if upd.rowcount != 1:
         await session.rollback()
-        raise PublicationRefused("state_changed", "Запись изменилась во время действия: обновите список и повторите.")
-    await _log_manual(session, row, action="mark_failed_republish" if allow_republish else "mark_failed",
-                      post_url=None, reason=why, actor=actor, now=now)
+        raise PublicationRefused(
+            "state_changed", "Запись изменилась во время действия: обновите список и повторите."
+        )
+    await _log_manual(
+        session,
+        row,
+        action="mark_failed_republish" if allow_republish else "mark_failed",
+        post_url=None,
+        reason=why,
+        actor=actor,
+        now=now,
+    )
     await _commit(session)
-    return {"changed": True, "status": S_FAILED, "pub_id": row["id"], "allow_republish": bool(allow_republish),
-            "prev_status": row["status"]}
+    return {
+        "changed": True,
+        "status": S_FAILED,
+        "pub_id": row["id"],
+        "allow_republish": bool(allow_republish),
+        "prev_status": row["status"],
+    }
 
 
 async def list_manual_actions(session: AsyncSession, project_id: int) -> list[dict]:
     await ensure_schema(session)
-    rows = (await session.execute(text(
-        "SELECT id, publication_id, platform, sha256, action, prev_status, post_url, reason, actor, created_at "
-        "FROM publication_manual_actions WHERE project_id=:p ORDER BY id"), {"p": project_id})).mappings().all()
+    rows = (
+        (
+            await session.execute(
+                text(
+                    "SELECT id, publication_id, platform, sha256, action, prev_status, post_url, reason, actor, created_at "
+                    "FROM publication_manual_actions WHERE project_id=:p ORDER BY id"
+                ),
+                {"p": project_id},
+            )
+        )
+        .mappings()
+        .all()
+    )
     await _commit(session)
     return [dict(r) for r in rows]
 
@@ -595,9 +868,15 @@ PS_AWAITING_APPROVAL = "awaiting_approval"
 PS_CLOSED = "resolved_unpublished"
 
 
-def derive_project_state(rows: list[dict], platforms: list[str], approved: set[str], *,
-                         legacy: dict[str, bool] | None = None, now: float | None = None,
-                         publish_enabled: bool | None = None) -> dict:
+def derive_project_state(
+    rows: list[dict],
+    platforms: list[str],
+    approved: set[str],
+    *,
+    legacy: dict[str, bool] | None = None,
+    now: float | None = None,
+    publish_enabled: bool | None = None,
+) -> dict:
     summ = summarize(rows, platforms, now)
     confirmed = list(summ["confirmed"])
     human = list(summ["needs_human"])
@@ -620,7 +899,13 @@ def derive_project_state(rows: list[dict], platforms: list[str], approved: set[s
         state = PS_AWAITING_APPROVAL
     else:
         state = PS_CLOSED
-    return {"state": state, "confirmed": confirmed, "needs_human": human,
-            "awaiting_approval": [p for p in awaiting if p not in approved_off],
-            "approved_publish_off": approved_off, "retry_approved": working_retry, "busy": list(summ["busy"]),
-            "manual_failed": list(summ["manual_failed"])}
+    return {
+        "state": state,
+        "confirmed": confirmed,
+        "needs_human": human,
+        "awaiting_approval": [p for p in awaiting if p not in approved_off],
+        "approved_publish_off": approved_off,
+        "retry_approved": working_retry,
+        "busy": list(summ["busy"]),
+        "manual_failed": list(summ["manual_failed"]),
+    }

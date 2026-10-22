@@ -21,21 +21,28 @@ _FILE_KIND = {"clip_": "video", "music": "audio", "predmet": "image", "hero_": "
 DENIAL_TEXT = {
     "node_not_admitted": "Для этой медиа-ноды надзор возобновление не допускает: решает человек.",
     "incident_not_media": "Инцидент не относится к медиа-сбою с известной задачей провайдера.",
-    "retry_same_not_admitted": ("Все прежние платные задачи достоверно упали, но повторную платную отправку надзор "
-                                "не допускает: её делает нативный слой или человек."),
+    "retry_same_not_admitted": (
+        "Все прежние платные задачи достоверно упали, но повторную платную отправку надзор "
+        "не допускает: её делает нативный слой или человек."
+    ),
     "nothing_to_do": "Возобновлять нечего: открытых задач и готовых файлов для возобновления нет.",
     "verdict_denied": "Исход прошлой платной отправки неизвестен или повтор исчерпан: решает человек.",
-    "source_proof_missing": ("Нет записи проверки упавшей попытки, которая называла бы её собственный сбой: "
-                             "повторять локальную ноду без неё нельзя."),
-    "failure_not_retryable": ("Нода сама не считает этот сбой повторяемым (ошибка входа: нет клипов, озвучки): "
-                              "повтор ничего не изменит, решает человек."),
-    "ledger_unavailable": ("Журнал платных задач выключен или не читается: неизменность журнала после повтора "
-                           "не доказать, поэтому повтор не допускается."),
+    "source_proof_missing": (
+        "Нет записи проверки упавшей попытки, которая называла бы её собственный сбой: "
+        "повторять локальную ноду без неё нельзя."
+    ),
+    "failure_not_retryable": (
+        "Нода сама не считает этот сбой повторяемым (ошибка входа: нет клипов, озвучки): "
+        "повтор ничего не изменит, решает человек."
+    ),
+    "ledger_unavailable": (
+        "Журнал платных задач выключен или не читается: неизменность журнала после повтора "
+        "не доказать, поэтому повтор не допускается."
+    ),
 }
 
 
 class MediaAdmissionDenied(ValueError):
-
     def __init__(self, code: str, detail: str = ""):
         self.code = code
         text = DENIAL_TEXT.get(code, code)
@@ -44,7 +51,9 @@ class MediaAdmissionDenied(ValueError):
 
 def is_media_incident(incident) -> bool:
     details = getattr(incident, "details", None) or {}
-    return incident.type == "media_failure" or (incident.type == "uncertain_request" and details.get("media") is True)
+    return incident.type == "media_failure" or (
+        incident.type == "uncertain_request" and details.get("media") is True
+    )
 
 
 def resumable(node_type: str | None) -> bool:
@@ -53,6 +62,7 @@ def resumable(node_type: str | None) -> bool:
 
 def local_worker(node_type: str | None) -> bool:
     from app.services import local_node_recovery
+
     return node_type in LOCAL_NODES and local_node_recovery.spec_ok(node_type)
 
 
@@ -63,6 +73,7 @@ def admitted(node_type: str | None) -> bool:
 async def admit(project, node_type: str, *, source_facts=None) -> dict[str, Any]:
     if local_worker(node_type):
         from app.services import local_node_recovery
+
         return await local_node_recovery.admit(project, node_type, source_facts=source_facts)
     if not admitted(node_type):
         raise MediaAdmissionDenied("node_not_admitted", str(node_type))
@@ -80,13 +91,20 @@ async def admit(project, node_type: str, *, source_facts=None) -> dict[str, Any]
 
 async def task_fingerprint(project_id: int) -> frozenset[str]:
     from sqlalchemy import select
+
     from app.db import SessionLocal
     from app.services import spend_guard
+
     await media_spend.drain()
     async with SessionLocal() as session:
         await spend_guard.ensure_task_schema(session)
-        rows = (await session.scalars(select(spend_guard.ProviderTaskLedger.task_id).where(
-            spend_guard.ProviderTaskLedger.project_id == project_id).distinct())).all()
+        rows = (
+            await session.scalars(
+                select(spend_guard.ProviderTaskLedger.task_id)
+                .where(spend_guard.ProviderTaskLedger.project_id == project_id)
+                .distinct()
+            )
+        ).all()
     return frozenset(rows)
 
 
@@ -98,14 +116,18 @@ def _result_files(project, key: str) -> list[Path]:
     directory = media_resume.result_dir(Path(project.data_dir), key)
     pattern = re.compile(rf"^{re.escape(key)}_[0-9a-f]{{8}}\.\w+$")
     try:
-        return sorted((p for p in directory.iterdir() if pattern.match(p.name) and p.is_file()),
-                      key=lambda p: p.stat().st_mtime, reverse=True)
+        return sorted(
+            (p for p in directory.iterdir() if pattern.match(p.name) and p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
     except OSError:
         return []
 
 
 async def verify_files(project, keys: list[str]) -> list[dict[str, Any]]:
     from app.services.media_verification import _probe
+
     out = []
     root = Path(project.data_dir)
     for key in keys:
@@ -114,8 +136,13 @@ async def verify_files(project, keys: list[str]) -> list[dict[str, Any]]:
             out.append({"key": key, "status": "failed", "reason": "missing_file", "path": None})
             continue
         probe = await _probe(files[0], root=root, kind=_file_kind(key))
-        out.append({"key": key, "path": str(files[0].relative_to(root)) if files[0].is_relative_to(root)
-                    else files[0].name, **probe})
+        out.append(
+            {
+                "key": key,
+                "path": str(files[0].relative_to(root)) if files[0].is_relative_to(root) else files[0].name,
+                **probe,
+            }
+        )
     return out
 
 
@@ -124,7 +151,7 @@ async def _run_operation(project, node_type: str, operation: str) -> tuple[dict[
         return {"resumed": [], "stats": {}, "new_paid_requests": 0}, None
     try:
         return await asyncio.wait_for(media_recovery.resume_poll(project, node_type), RESUME_BUDGET_S), None
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {"resumed": [], "stats": {}, "new_paid_requests": 0}, "resume_budget_exceeded"
     except Exception as exc:
         logger.warning("media_admission: resume failed: {}", type(exc).__name__)
@@ -140,8 +167,11 @@ async def run_and_verify(project, node_type: str, admission: dict[str, Any]) -> 
     after = await task_fingerprint(project.id)
     new_ids = sorted(after - before)
     reassessed = await media_recovery.assess(project, node_type)
-    ledger_keys = [i["key"] for i in admission["report"]["keys"] if i["mode"] == "resume_poll"] \
-        if operation == "resume_poll" else [i["key"] for i in admission["report"]["keys"]]
+    ledger_keys = (
+        [i["key"] for i in admission["report"]["keys"] if i["mode"] == "resume_poll"]
+        if operation == "resume_poll"
+        else [i["key"] for i in admission["report"]["keys"]]
+    )
     done_outcomes = {"downloaded", "file_present"}
     resumed = {r["key"]: r for r in report.get("resumed", [])}
     checked = [k for k in ledger_keys if (resumed.get(k) or {}).get("outcome") in done_outcomes]
@@ -155,26 +185,40 @@ async def run_and_verify(project, node_type: str, admission: dict[str, Any]) -> 
         outcome = (resumed.get(key) or {}).get("outcome")
         if outcome not in done_outcomes:
             problems.append(f"{key}:{outcome or 'not_resumed'}")
-    problems += [f"{f['key']}:file_{f.get('reason') or f['status']}" for f in files if f["status"] != "passed"]
+    problems += [
+        f"{f['key']}:file_{f.get('reason') or f['status']}" for f in files if f["status"] != "passed"
+    ]
     verified = not problems and (operation == "resume_local" or bool(checked))
-    return {"operation": operation, "verified": verified, "problems": problems, "error": error,
-            "resumed": report.get("resumed", []), "stats": report.get("stats", {}),
-            "files": files, "new_provider_task_ids": new_ids,
-            "new_paid_requests": len(new_ids),
-            "assessment_after": {"mode": reassessed["verdict"]["mode"], "code": reassessed["verdict"]["code"]},
-            "semantic_quality_verified": False, "node_started": False,
-            "verified_at": datetime.utcnow().isoformat()}
+    return {
+        "operation": operation,
+        "verified": verified,
+        "problems": problems,
+        "error": error,
+        "resumed": report.get("resumed", []),
+        "stats": report.get("stats", {}),
+        "files": files,
+        "new_provider_task_ids": new_ids,
+        "new_paid_requests": len(new_ids),
+        "assessment_after": {"mode": reassessed["verdict"]["mode"], "code": reassessed["verdict"]["code"]},
+        "semantic_quality_verified": False,
+        "node_started": False,
+        "verified_at": datetime.utcnow().isoformat(),
+    }
 
 
 async def settle_interrupted(master, row, control, observer, update_permission) -> bool:
     from app.services.actions_v1 import ActionRecord
+
     if row.status not in {"reserved", "queued", "claimed", "await_verify"}:
         return False
     if (datetime.utcnow() - row.created_at).total_seconds() < 180:
         return False
     row.status = "human_review"
-    row.verification_result = {**(row.verification_result or {}), "verified": False,
-                               "reason": "media resume interrupted; not repeated automatically"}
+    row.verification_result = {
+        **(row.verification_result or {}),
+        "verified": False,
+        "reason": "media resume interrupted; not repeated automatically",
+    }
     record = await master.get(ActionRecord, row.action_id)
     if record is not None:
         record.status = "human_review"

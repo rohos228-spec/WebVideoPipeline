@@ -115,10 +115,7 @@ def build_body(request: ProviderRequest, api: str) -> dict[str, Any]:
     if api == "openai-responses":
         body: dict[str, Any] = {
             "model": request.model,
-            "input": [
-                {"role": item["role"], "content": item["content"]}
-                for item in request.messages
-            ],
+            "input": [{"role": item["role"], "content": item["content"]} for item in request.messages],
             "stream": bool(request.stream),
             "store": False,
         }
@@ -199,9 +196,7 @@ def parse_chat_payload(payload: dict[str, Any]) -> CompletionResult:
     message = choice.get("message") or {}
     content = message.get("content")
     if isinstance(content, list):
-        text = "".join(
-            part.get("text", "") for part in content if isinstance(part, dict)
-        )
+        text = "".join(part.get("text", "") for part in content if isinstance(part, dict))
     else:
         text = str(content or "")
     usage = payload.get("usage") or {}
@@ -483,9 +478,7 @@ class HttpxTransport:
             if not key and cfg.alt_api_key_env:
                 key = (self.env.get(cfg.alt_api_key_env) or "").strip()
         if not key:
-            raise ProviderError(
-                f"missing api key ({cfg.api_key_env})", retryable=False
-            )
+            raise ProviderError(f"missing api key ({cfg.api_key_env})", retryable=False)
         if request.url:
             return request.url, key
         base = (self.env.get(cfg.base_url_env) or "").strip()
@@ -494,9 +487,7 @@ class HttpxTransport:
         if not base:
             base = (cfg.default_base_url or "").strip()
         if not base:
-            raise ProviderError(
-                f"missing base url ({cfg.base_url_env})", retryable=False
-            )
+            raise ProviderError(f"missing base url ({cfg.base_url_env})", retryable=False)
         return join_url(base, cfg.chat_path), key
 
     async def complete(self, request: ProviderRequest) -> CompletionResult:
@@ -504,9 +495,7 @@ class HttpxTransport:
 
         cfg = self.providers.get(request.provider)
         if cfg is None:
-            raise ProviderError(
-                f"unknown provider {request.provider}", retryable=False
-            )
+            raise ProviderError(f"unknown provider {request.provider}", retryable=False)
         url, key = self._endpoint(request, cfg)
         ticket = await spend_guard.paid_gate(
             provider=request.provider,

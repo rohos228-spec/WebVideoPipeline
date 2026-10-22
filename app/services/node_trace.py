@@ -104,12 +104,7 @@ def _shot_pairs(
     """Пары кадров до/после: по id, если он уникален в обоих списках, иначе по номеру."""
     ids_b = [str(s.get("id") or "") for s in before]
     ids_a = [str(s.get("id") or "") for s in after]
-    unique = (
-        all(ids_b)
-        and all(ids_a)
-        and len(set(ids_b)) == len(ids_b)
-        and len(set(ids_a)) == len(ids_a)
-    )
+    unique = all(ids_b) and all(ids_a) and len(set(ids_b)) == len(ids_b) and len(set(ids_a)) == len(ids_a)
     pairs: list[tuple[int | None, dict[str, Any] | None, int | None, dict[str, Any] | None]] = []
     if unique:
         pos_b = {sid: i for i, sid in enumerate(ids_b)}
@@ -160,22 +155,29 @@ def diff_ops(before: list[Any], after: list[Any]) -> list[Change]:
     return changes
 
 
-def _diff_shots(
-    uid: str, before: list[dict[str, Any]], after: list[dict[str, Any]]
-) -> list[Change]:
+def _diff_shots(uid: str, before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[Change]:
     out: list[Change] = []
     for i, b, j, a in _shot_pairs(before, after):
         if a is None and b is not None:
-            out.append(Change(uid, "кадр", b.get("действие") or "кадр", "удалён",
-                              shot=(i or 0) + 1, shot_id=str(b.get("id") or "")))
+            out.append(
+                Change(
+                    uid,
+                    "кадр",
+                    b.get("действие") or "кадр",
+                    "удалён",
+                    shot=(i or 0) + 1,
+                    shot_id=str(b.get("id") or ""),
+                )
+            )
             continue
         if a is None:
             continue
         n = (j or 0) + 1
         sid = str(a.get("id") or "")
         if b is None:
-            out.append(Change(uid, "кадр", None, f"добавлен: {a.get('действие') or ''}".strip(),
-                              shot=n, shot_id=sid))
+            out.append(
+                Change(uid, "кадр", None, f"добавлен: {a.get('действие') or ''}".strip(), shot=n, shot_id=sid)
+            )
             continue
         for key in sorted(set(b) | set(a)):
             if b.get(key) != a.get(key):
@@ -183,9 +185,7 @@ def _diff_shots(
     return out
 
 
-def changes_to_entries(
-    changes: list[Change], *, rule: str, pass_name: str
-) -> list[dict[str, Any]]:
+def changes_to_entries(changes: list[Change], *, rule: str, pass_name: str) -> list[dict[str, Any]]:
     return [
         entry(
             rule=rule,
@@ -275,11 +275,7 @@ class NodeRunRecorder:
                 "node_key": self.node_key,
                 "kind": self.kind,
                 "started": self.started,
-                "finished": (
-                    datetime.now().isoformat(timespec="seconds")
-                    if status != "running"
-                    else None
-                ),
+                "finished": (datetime.now().isoformat(timespec="seconds") if status != "running" else None),
                 "status": status,
                 "error": error,
                 "calls": self.calls,
@@ -378,11 +374,7 @@ def list_runs(data_dir: Path | str) -> list[dict[str, Any]]:
     runs: list[tuple[str, Path]] = []
     for node_dir in root.iterdir():
         if node_dir.is_dir():
-            runs.extend(
-                (p.name, p)
-                for p in node_dir.iterdir()
-                if p.is_dir() and not p.name.endswith(".del")
-            )
+            runs.extend((p.name, p) for p in node_dir.iterdir() if p.is_dir() and not p.name.endswith(".del"))
     return [read_run(p) for _stamp, p in sorted(runs)]
 
 
@@ -416,9 +408,7 @@ def read_diary(run_dir: Path) -> list[dict[str, Any]]:
 def latest_diary(data_dir: Path | str) -> list[dict[str, Any]]:
     """Дневник последнего прогона каждой ноды, в порядке нод по времени."""
     out: list[dict[str, Any]] = []
-    for node_key, run_dir in sorted(
-        latest_run_dirs(data_dir).items(), key=lambda kv: kv[1].name
-    ):
+    for node_key, run_dir in sorted(latest_run_dirs(data_dir).items(), key=lambda kv: kv[1].name):
         for item in read_diary(run_dir):
             item["node_key"] = node_key
             item["run"] = run_dir.name

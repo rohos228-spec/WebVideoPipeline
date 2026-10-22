@@ -31,6 +31,7 @@ class RagSyncError(RuntimeError):
         super().__init__(message)
         self.source_ids = source_ids
 
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS chunks (
     chunk_id TEXT PRIMARY KEY,

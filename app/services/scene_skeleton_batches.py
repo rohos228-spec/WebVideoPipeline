@@ -101,8 +101,16 @@ def b_user(frags: list[str], lo: int, hi: int, prev_scenes: list, chars: list, i
         "(старые — без изменений, новые — полностью).\n\n"
     )
     u += "===ФРАГМЕНТЫ_ДЛЯ_СЦЕН===\n" + json.dumps(batch, ensure_ascii=False, indent=1) + "\n\n"
-    u += "===КОНТЕКСТ_ДО (сцены не писать)===\n" + ("\n\n".join(before) if before else "(начало фильма)") + "\n\n"
-    u += "===КОНТЕКСТ_ПОСЛЕ (сцены не писать)===\n" + ("\n\n".join(after) if after else "(конец фильма)") + "\n\n"
+    u += (
+        "===КОНТЕКСТ_ДО (сцены не писать)===\n"
+        + ("\n\n".join(before) if before else "(начало фильма)")
+        + "\n\n"
+    )
+    u += (
+        "===КОНТЕКСТ_ПОСЛЕ (сцены не писать)===\n"
+        + ("\n\n".join(after) if after else "(конец фильма)")
+        + "\n\n"
+    )
     if prev_scenes:
         u += (
             "===ПРЕДЫДУЩИЕ_СЦЕНЫ (для преемственности)===\n"
@@ -119,9 +127,14 @@ def b_user(frags: list[str], lo: int, hi: int, prev_scenes: list, chars: list, i
             + "\n\n"
         )
     # 2026-10-11 fix1: full voiceover as chronology context, exactly as c60 (before ===УЖЕ_ЕСТЬ===)
-    u += "===ВЕСЬ_ЗАКАДР (только для понимания хронологии, сцены не писать)===" + "\n" + "\n\n".join(frags) + "\n\n"
+    u += (
+        "===ВЕСЬ_ЗАКАДР (только для понимания хронологии, сцены не писать)==="
+        + "\n"
+        + "\n\n".join(frags)
+        + "\n\n"
+    )
     u += "===УЖЕ_ЕСТЬ===\n" + base_block(chars, items) + "\n\n"
-    u += "Верни один JSON-объект формы {\"сцены\": [...], \"база_персонажей\": [...], \"предметы\": [...]}."
+    u += 'Верни один JSON-объект формы {"сцены": [...], "база_персонажей": [...], "предметы": [...]}.'
     return u
 
 
@@ -186,7 +199,11 @@ async def _call(user: str, system: str, tag: str, trace_dir: Path) -> str:
     (trace_dir / f"{tag}.resp.txt").write_text(txt, encoding="utf-8")
     logger.info(
         "scene_skeleton {}: model={} chars={} sec={} finish={}",
-        tag, res.model, len(txt), round(time.time() - t0, 1), res.finish_reason,
+        tag,
+        res.model,
+        len(txt),
+        round(time.time() - t0, 1),
+        res.finish_reason,
     )
     return txt
 
@@ -324,7 +341,8 @@ def _remap_ids(base: list, cards: list, prefix_guess: str) -> dict[str, str]:
             pname = _split_var(by_id[parent].get("имя"))[0]
             hit = next(
                 (
-                    str(x["id"]) for x in base
+                    str(x["id"])
+                    for x in base
                     if str(x.get("правила") or "").strip() == parent
                     and _norm(_split_var(x.get("имя"))[1]) == _norm(diff)
                 ),
@@ -349,7 +367,9 @@ def _apply_map(obj: Any, mp: dict[str, str]) -> Any:
 
     if not mp:
         return obj
-    rx = _re.compile(r"(?<![\w])(" + "|".join(_re.escape(k) for k in sorted(mp, key=len, reverse=True)) + r")(?![\w])")
+    rx = _re.compile(
+        r"(?<![\w])(" + "|".join(_re.escape(k) for k in sorted(mp, key=len, reverse=True)) + r")(?![\w])"
+    )
     return json.loads(rx.sub(lambda m: mp[m.group(1)], json.dumps(obj, ensure_ascii=False)))
 
 
@@ -376,7 +396,11 @@ async def _run_one_batch(bname, lo, hi, frags, system, trace_dir, chars0, items0
         if len(sc) != hi - lo or empty:
             logger.warning(
                 "scene_skeleton {} a{}: сцен {} != фрагментов {} или пустых «сцена» {}",
-                bname, att, len(sc), hi - lo, empty,
+                bname,
+                att,
+                len(sc),
+                hi - lo,
+                empty,
             )
             got = got or (d, sc, att)
             continue
@@ -415,8 +439,7 @@ def _registry_user(frags: list[str], lo: int, hi: int) -> str:
         f"Номера фрагментов: {lo + 1}–{hi}. "
         "Базу персонажей и предметов составь по всем этим фрагментам. "
         "В поле «фрагменты» пиши эти номера.\n\n"
-        "===ФРАГМЕНТЫ===\n"
-        + json.dumps(batch, ensure_ascii=False, indent=1)
+        "===ФРАГМЕНТЫ===\n" + json.dumps(batch, ensure_ascii=False, indent=1)
     )
 
 
@@ -454,8 +477,7 @@ async def run_registry_prepass(frags: list[str], master: str, trace_dir: Path) -
     if not queue:
         raise RuntimeError("Каркас: пре-проход базы персонажей: нет фрагментов")
     groups = await _await_each(
-        _run_registry_batch(bn, lo, hi, frags, system, trace_dir)
-        for bn, lo, hi in queue
+        _run_registry_batch(bn, lo, hi, frags, system, trace_dir) for bn, lo, hi in queue
     )
     results = [r for g in groups for r in g]
     results.sort(key=lambda r: r[1])
@@ -466,13 +488,19 @@ async def run_registry_prepass(frags: list[str], master: str, trace_dir: Path) -
         _remap_ids(items, bitems, "p")
         logger.info(
             "scene_skeleton registry {}: frags {}-{} chars_in {} items_in {}",
-            bname, lo + 1, hi, len(bchars), len(bitems),
+            bname,
+            lo + 1,
+            hi,
+            len(bchars),
+            len(bitems),
         )
     if not chars:
         raise RuntimeError("Каркас: пре-проход базы персонажей не удался: пустая база персонажей")
     logger.info(
         "scene_skeleton registry: batches={} chars={} items={}",
-        len(results), len(chars), len(items),
+        len(results),
+        len(chars),
+        len(items),
     )
     return chars, items
 
@@ -525,9 +553,16 @@ async def run_skeleton_batches(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     trace_dir.mkdir(parents=True, exist_ok=True)
     system = SYSTEM_PREFIX + (master or "")
-    rep: dict[str, Any] = {"batches": [], "zakadr_overwritten": 0, "conflicts": [], "split_after_fail": [],
-                           "id_remaps": [], "mode": "registry 1 batch, scenes 3 by boundary fragments",
-                           "speaker_rounds": [], "speaker_fail": []}
+    rep: dict[str, Any] = {
+        "batches": [],
+        "zakadr_overwritten": 0,
+        "conflicts": [],
+        "split_after_fail": [],
+        "id_remaps": [],
+        "mode": "registry 1 batch, scenes 3 by boundary fragments",
+        "speaker_rounds": [],
+        "speaker_fail": [],
+    }
     chars, items = await run_registry_prepass(frags, master, trace_dir)
     chars0 = json.loads(json.dumps(chars, ensure_ascii=False))
     items0 = json.loads(json.dumps(items, ensure_ascii=False))
@@ -542,8 +577,7 @@ async def run_skeleton_batches(
         for bi, (lo, hi) in enumerate(fragment_ranges(len(frags), SCENE_BATCH_COUNT), 1)
     ]
     groups = await _await_each(
-        _run_one_batch(bn, lo, hi, frags, system, trace_dir, chars0, items0, rep)
-        for bn, lo, hi in queue
+        _run_one_batch(bn, lo, hi, frags, system, trace_dir, chars0, items0, rep) for bn, lo, hi in queue
     )
     results = [r for g in groups for r in g]
     results.sort(key=lambda r: r[1])
@@ -552,8 +586,13 @@ async def run_skeleton_batches(
         sc, bad = _merge_batch(bname, lo, hi, d, sc, frags, chars, items, rep, by_num)
         rep["zakadr_overwritten"] += bad
         rep["batches"].append(
-            {"batch": bname, "fragments": f"{lo + 1}-{hi}", "scenes_returned": len(sc),
-             "attempt": att, "zakadr_not_verbatim": bad}
+            {
+                "batch": bname,
+                "fragments": f"{lo + 1}-{hi}",
+                "scenes_returned": len(sc),
+                "attempt": att,
+                "zakadr_not_verbatim": bad,
+            }
         )
     # Безымянный говорящий в «речь» id не получает. Повтор сцены из-за этого выключен.
     scenes = [by_num[i + 1] for i in range(len(frags)) if (i + 1) in by_num]
@@ -577,7 +616,9 @@ def _merge_batch(bname, lo, hi, d, sc, frags, chars, items, rep, by_num) -> tupl
         except Exception:  # noqa: BLE001
             pass
     for i in range(lo, hi):
-        s = bynum.get(i + 1) or (sc[i - lo] if i - lo < len(sc) else {"сцена": "", "место": "", "_missing": True})
+        s = bynum.get(i + 1) or (
+            sc[i - lo] if i - lo < len(sc) else {"сцена": "", "место": "", "_missing": True}
+        )
         s = dict(s)
         if nws(s.get("закадр") or "") != nws(frags[i]):
             bad += 1
@@ -589,7 +630,13 @@ def _merge_batch(bname, lo, hi, d, sc, frags, chars, items, rep, by_num) -> tupl
         by_num[i + 1] = s
     logger.info(
         "scene_skeleton batch {} frags {}-{} returned {} not_verbatim {} chars {} items {}",
-        bname, lo + 1, hi, len(sc), bad, len(chars), len(items),
+        bname,
+        lo + 1,
+        hi,
+        len(sc),
+        bad,
+        len(chars),
+        len(items),
     )
     return sc, bad
 

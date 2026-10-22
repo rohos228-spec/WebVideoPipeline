@@ -447,7 +447,11 @@ def _map_r23(payload: Any) -> dict[str, Any]:
     _core_id, cc_change_id = _split_change_id(raw_id)
     # cc_change_id — отдельный ключ одобрения. Id ядра из тела его не заменяет.
     cc_attr = _envelope_field(payload, "cc_change_id", None)
-    if isinstance(cc_attr, str) and cc_attr.strip() and _APPROVAL_CHANGE_ID.fullmatch(cc_attr.strip()) is None:
+    if (
+        isinstance(cc_attr, str)
+        and cc_attr.strip()
+        and _APPROVAL_CHANGE_ID.fullmatch(cc_attr.strip()) is None
+    ):
         cc_change_id = cc_attr.strip()
     if status == "ok" and data.get("partial") is True:
         status = "partial"

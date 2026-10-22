@@ -9,8 +9,14 @@ from typing import Any
 from app.services.action_layer.spec import ActionRegistry
 
 ESSENTIAL_IDS = ("montage.get_board", "project.stop")
-FALLBACK_IDS = ("montage.get_board", "montage.apply_status", "montage.montage_status",
-                "shot.get_menu", "montage.get_cost_basis", "project.stop")
+FALLBACK_IDS = (
+    "montage.get_board",
+    "montage.apply_status",
+    "montage.montage_status",
+    "shot.get_menu",
+    "montage.get_cost_basis",
+    "project.stop",
+)
 _RELATIVE_CUTOFF = 0.22
 _MIN_KEEP = 8
 _SHORT_TOKENS = 2
@@ -149,28 +155,117 @@ SYNONYMS: dict[str, str] = {
     "queue.enqueue_many": "очеред постав запуст нескольк пачк проект сразу генерац конвейер целиком",
 }
 
-_STOP = frozenset("""для что как это или при над под про без чем так тоже нужно надо хочу пожалуйста
-мне нам его ее них там тут быть было будет есть все всё еще уже тоже можно можешь сделай
-сделать нужен нужна нужны этот эта эти эту того туда также чтобы если когда потом затем
-после перед между себя свой своя свои мой моя мои наш наша наши там изменения изменение покажи покажите выведи
-выполни выполните команду расскажи скажи""".split())
+_STOP = frozenset(
+    [
+        "для",
+        "что",
+        "как",
+        "это",
+        "или",
+        "при",
+        "над",
+        "под",
+        "про",
+        "без",
+        "чем",
+        "так",
+        "тоже",
+        "нужно",
+        "надо",
+        "хочу",
+        "пожалуйста",
+        "мне",
+        "нам",
+        "его",
+        "ее",
+        "них",
+        "там",
+        "тут",
+        "быть",
+        "было",
+        "будет",
+        "есть",
+        "все",
+        "всё",
+        "еще",
+        "уже",
+        "тоже",
+        "можно",
+        "можешь",
+        "сделай",
+        "сделать",
+        "нужен",
+        "нужна",
+        "нужны",
+        "этот",
+        "эта",
+        "эти",
+        "эту",
+        "того",
+        "туда",
+        "также",
+        "чтобы",
+        "если",
+        "когда",
+        "потом",
+        "затем",
+        "после",
+        "перед",
+        "между",
+        "себя",
+        "свой",
+        "своя",
+        "свои",
+        "мой",
+        "моя",
+        "мои",
+        "наш",
+        "наша",
+        "наши",
+        "там",
+        "изменения",
+        "изменение",
+        "покажи",
+        "покажите",
+        "выведи",
+        "выполни",
+        "выполните",
+        "команду",
+        "расскажи",
+        "скажи",
+    ]
+)
 
 _OUT_OF_SCOPE = (
-    re.compile(r"\b(?:удал\w*|сотр\w*|снес\w*|убер\w*|стер\w*)\s+(?:весь\s+|все\s+|всех\s+|этот\s+|мой\s+|"
-               r"мои\s+|целиком\s+|полностью\s+)?проект\w*"),
-    re.compile(r"\b(?:удал\w*|сотр\w*|снес\w*|убер\w*|стер\w*|очист\w*)\s+(?:\w+\s+)?"
-               r"(?:баз\w*\s+данн\w*|репозитор\w*|сервер\w*|систем\w*)"),
+    re.compile(
+        r"\b(?:удал\w*|сотр\w*|снес\w*|убер\w*|стер\w*)\s+(?:весь\s+|все\s+|всех\s+|этот\s+|мой\s+|"
+        r"мои\s+|целиком\s+|полностью\s+)?проект\w*"
+    ),
+    re.compile(
+        r"\b(?:удал\w*|сотр\w*|снес\w*|убер\w*|стер\w*|очист\w*)\s+(?:\w+\s+)?"
+        r"(?:баз\w*\s+данн\w*|репозитор\w*|сервер\w*|систем\w*)"
+    ),
     re.compile(r"\b(?:выключ\w*|перезагруз\w*)\s+(?:\w+\s+)?(?:компьютер\w*|пк\b|сервер\w*|windows)"),
-    re.compile(r"\b(?:отправ\w*|пошл\w*|скин\w*)\s+(?:\w+\s+){0,2}(?:почт\w*|email|e-mail|мейл\w*|"
-               r"телеграм\w*|telegram)"),
-    re.compile(r"\b(?:git\w*|гит\w*|github|пуш\w*|запуш\w*|закоммит\w*|коммит\w*|пулл?-?реквест\w*|"
-               r"pull\s+request)\b"),
-    re.compile(r"\b(?:измени\w*|поменяй\w*|поправ\w*|исправ\w*|перепиши\w*|отредактируй\w*|напиши\w*|добав\w*|"
-               r"отрефактор\w*)\s+(?:\w+\s+){0,2}(?:код\w*|исходник\w*|скрипт\w*|программ\w*|функци\w*)\b"),
-    re.compile(r"\b(?:сотр\w*|удал\w*|стер\w*|очист\w*)\s+(?:все\s+|всё\s+|вс[её]х\s+)"
-               r"(?:файл\w*|папк\w*|данны\w*|диск\w*)"),
-    re.compile(r"\b(?:sql\w*|drop|терминал\w*|bash|powershell|shell|консол\w*|rm\s+-rf|sudo|"
-               r"пароль|пароли|api[- ]?ключ\w*|токен\w*)\b"),
+    re.compile(
+        r"\b(?:отправ\w*|пошл\w*|скин\w*)\s+(?:\w+\s+){0,2}(?:почт\w*|email|e-mail|мейл\w*|"
+        r"телеграм\w*|telegram)"
+    ),
+    re.compile(
+        r"\b(?:git\w*|гит\w*|github|пуш\w*|запуш\w*|закоммит\w*|коммит\w*|пулл?-?реквест\w*|"
+        r"pull\s+request)\b"
+    ),
+    re.compile(
+        r"\b(?:измени\w*|поменяй\w*|поправ\w*|исправ\w*|перепиши\w*|отредактируй\w*|напиши\w*|добав\w*|"
+        r"отрефактор\w*)\s+(?:\w+\s+){0,2}(?:код\w*|исходник\w*|скрипт\w*|программ\w*|функци\w*)\b"
+    ),
+    re.compile(
+        r"\b(?:сотр\w*|удал\w*|стер\w*|очист\w*)\s+(?:все\s+|всё\s+|вс[её]х\s+)"
+        r"(?:файл\w*|папк\w*|данны\w*|диск\w*)"
+    ),
+    re.compile(
+        r"\b(?:sql\w*|drop|терминал\w*|bash|powershell|shell|консол\w*|rm\s+-rf|sudo|"
+        r"пароль|пароли|api[- ]?ключ\w*|токен\w*)\b"
+    ),
     re.compile(r"\b(?:установи\w*|скачай\w*)\s+(?:\w+\s+){0,2}(?:пакет\w*|библиотек\w*|программ\w*)\b"),
 )
 
@@ -240,7 +335,7 @@ def _typo_matches(token: str, keys: set[str]) -> bool:
         n = len(k)
         if n < _TYPO_MIN_KEY or not n <= len(token) <= n + _TYPO_MAX_TAIL or token[0] != k[0]:
             continue
-        if sum(1 for a, b in zip(token[:n], k) if a != b) == 1:
+        if sum(1 for a, b in zip(token[:n], k, strict=False) if a != b) == 1:
             return True
     return False
 
@@ -248,8 +343,9 @@ def _typo_matches(token: str, keys: set[str]) -> bool:
 _BASE_ACTIONS = 56
 
 
-def _score_docs(tokens: list[str], docs: dict[str, list[tuple[float, set[str]]]],
-                base_n: int | None = None) -> dict[str, float]:
+def _score_docs(
+    tokens: list[str], docs: dict[str, list[tuple[float, set[str]]]], base_n: int | None = None
+) -> dict[str, float]:
     n = max(1, base_n if base_n is not None else len(docs))
     per_token: list[dict[str, float]] = []
     for tok in tokens:
@@ -276,12 +372,15 @@ def _score_docs(tokens: list[str], docs: dict[str, list[tuple[float, set[str]]]]
 def _macro_bonus(tokens: list[str], registry: ActionRegistry, macros: Any) -> dict[str, float]:
     if macros is None:
         from app.services.action_layer import macros as macros_mod
+
         macros = macros_mod.BUILTIN_MACROS
     docs: dict[str, list[tuple[float, set[str]]]] = {}
     steps: dict[str, list[str]] = {}
     for m in macros:
-        docs[m.id] = [(_W_TITLE, {_stem(w) for w in _words(m.title_ru)}),
-                      (_W_DESC, {_stem(w) for w in _words(m.description_ru)})]
+        docs[m.id] = [
+            (_W_TITLE, {_stem(w) for w in _words(m.title_ru)}),
+            (_W_DESC, {_stem(w) for w in _words(m.description_ru)}),
+        ]
         steps[m.id] = [st.get("action_id") for st in m.steps if isinstance(st, dict)]
     ranked = sorted(_score_docs(tokens, docs).items(), key=lambda kv: (-kv[1], kv[0]))
     bonus: dict[str, float] = {}
@@ -311,8 +410,9 @@ def _context_tokens(facts: dict | None, norm_text: str) -> list[str]:
     return extra
 
 
-def select_catalog(text: str, facts: dict | None, registry: ActionRegistry, max_catalog: int,
-                   macros: Any = None) -> CatalogSelection:
+def select_catalog(
+    text: str, facts: dict | None, registry: ActionRegistry, max_catalog: int, macros: Any = None
+) -> CatalogSelection:
     all_ids = [s.id for s in registry.list()]
     total = len(all_ids)
     if max_catalog >= total:
@@ -324,8 +424,9 @@ def select_catalog(text: str, facts: dict | None, registry: ActionRegistry, max_
     for aid, b in _macro_bonus(tokens, registry, macros).items():
         scores[aid] = scores.get(aid, 0.0) + b
     essentials = [a for a in ESSENTIAL_IDS if a in docs]
-    ranked = sorted(((a, v) for a, v in scores.items() if v > 0 and a not in essentials),
-                    key=lambda kv: (-kv[1], kv[0]))
+    ranked = sorted(
+        ((a, v) for a, v in scores.items() if v > 0 and a not in essentials), key=lambda kv: (-kv[1], kv[0])
+    )
     if not ranked or (cut and ranked[0][1] < _CUT_MIN_SCORE):
         fb = [a for a in FALLBACK_IDS if a in docs][:max_catalog]
         return CatalogSelection(sorted(fb), total, no_match=True, out_of_scope=cut)
@@ -335,15 +436,13 @@ def select_catalog(text: str, facts: dict | None, registry: ActionRegistry, max_
     keep = [(a, v) for a, v in ranked if v >= top * (0.05 if vague else _RELATIVE_CUTOFF)]
     floor = _SHORT_KEEP if vague else _MIN_KEEP
     if len(keep) < min(floor, len(ranked), room):
-        keep = ranked[:min(floor, room)]
+        keep = ranked[: min(floor, room)]
     keep = keep[:room]
     ids = sorted({*essentials, *(a for a, _ in keep)})
     return CatalogSelection(ids, total, out_of_scope=cut, scores=dict(keep))
 
 
-
-_T = {"integer": "int", "string": "str", "boolean": "bool", "number": "num", "array": "list",
-      "object": "obj"}
+_T = {"integer": "int", "string": "str", "boolean": "bool", "number": "num", "array": "list", "object": "obj"}
 
 
 def _type_str(sch: Any, depth: int = 0) -> str:
@@ -361,8 +460,13 @@ def _type_str(sch: Any, depth: int = 0) -> str:
             base = "obj"
         else:
             req = set(sch.get("required") or [])
-            base = "{" + ",".join(f"{k}{'*' if k in req else ''}:{_type_str(v, depth + 1)}"
-                                  for k, v in props.items()) + "}"
+            base = (
+                "{"
+                + ",".join(
+                    f"{k}{'*' if k in req else ''}:{_type_str(v, depth + 1)}" for k, v in props.items()
+                )
+                + "}"
+            )
     else:
         base = _T.get(str(typ), "any")
         lo, hi = sch.get("minimum"), sch.get("maximum")
@@ -390,8 +494,17 @@ def catalog_entries(registry: ActionRegistry, ids: list[str] | None = None) -> l
 
 def full_entries(registry: ActionRegistry) -> list[dict]:
     from app.services.action_layer.planner import _compact_schema
-    return [{"id": s.id, "title": s.title_ru, "what": s.description_ru[:160], "risk": s.risk,
-             "params_schema": _compact_schema(s.params_schema)} for s in registry.list()]
+
+    return [
+        {
+            "id": s.id,
+            "title": s.title_ru,
+            "what": s.description_ru[:160],
+            "risk": s.risk,
+            "params_schema": _compact_schema(s.params_schema),
+        }
+        for s in registry.list()
+    ]
 
 
 def payload_chars(payload: Any) -> int:

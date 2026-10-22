@@ -5,15 +5,22 @@ import hashlib
 import json
 import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 from urllib.parse import urlsplit
 
 from loguru import logger
 from sqlalchemy import func, select
 
 from app.services.action_layer import (
-    planner_catalog, planner_context, planner_guard, planner_rules, planner_uploads, store)
+    planner_catalog,
+    planner_context,
+    planner_guard,
+    planner_rules,
+    planner_uploads,
+    store,
+)
 from app.services.action_layer.messages_ru import spend_cap_ru, validation_list_ru
 from app.services.action_layer.spec import ActionRegistry, ensure_builtin_actions
 from app.services.action_layer.spec import registry as default_registry
@@ -30,12 +37,33 @@ TIMEOUT_S = 60
 _OUTPUT_TOKENS = 4096
 _DESC_LIMIT = 160
 
-FORBIDDEN_KEYS = frozenset({
-    "approval", "approval_id", "approvals", "approved", "approve", "approved_by",
-    "operator", "plan_hash", "confirm", "confirmed", "confirmation", "run",
-    "auto_run", "autorun", "execute", "skip_approval", "bypass", "override",
-    "tools", "tool_calls", "function_call", "budget", "cap",
-})
+FORBIDDEN_KEYS = frozenset(
+    {
+        "approval",
+        "approval_id",
+        "approvals",
+        "approved",
+        "approve",
+        "approved_by",
+        "operator",
+        "plan_hash",
+        "confirm",
+        "confirmed",
+        "confirmation",
+        "run",
+        "auto_run",
+        "autorun",
+        "execute",
+        "skip_approval",
+        "bypass",
+        "override",
+        "tools",
+        "tool_calls",
+        "function_call",
+        "budget",
+        "cap",
+    }
+)
 _REPLY_KEYS = {"steps", "needs_clarification", "explanation_ru"}
 _OPTIONAL_REPLY_KEYS = {"clarification_options"}
 REPAIRABLE_CODES = frozenset({"bad_params", "bad_step", "bad_depends_on"})
@@ -61,7 +89,6 @@ class PlannerRateLimited(PlannerRefused):
 
 
 class PlannerFailed(PlannerError):
-
     def __init__(self, code: str, message: str = "", *, retryable: bool = False, detail: str = ""):
         super().__init__(code, message)
         self.retryable = retryable
@@ -82,6 +109,7 @@ _CONTEXT_KEYS = ("status_code", "status", "retryable", "finish_reason", "provide
 
 def describe_exception(exc: BaseException) -> str:
     from app.services.redact import redact_text
+
     parts: list[str] = []
     seen: set[int] = set()
     cur: BaseException | None = exc
@@ -92,8 +120,9 @@ def describe_exception(exc: BaseException) -> str:
             msg = "timeout"
         extra = getattr(cur, "context", None)
         if isinstance(extra, dict):
-            ctx = ",".join(f"{k}={extra[k]}" for k in _CONTEXT_KEYS
-                           if isinstance(extra.get(k), (str, int, float, bool)))
+            ctx = ",".join(
+                f"{k}={extra[k]}" for k in _CONTEXT_KEYS if isinstance(extra.get(k), (str, int, float, bool))
+            )
             if ctx:
                 msg = (msg + " [" + ctx + "]").strip()
         parts.append(type(cur).__name__ + (": " + msg if msg else ""))
@@ -103,7 +132,6 @@ def describe_exception(exc: BaseException) -> str:
 
 def _is_timeout(exc: BaseException) -> bool:
     return isinstance(exc, (asyncio.TimeoutError, TimeoutError)) or "timeout" in type(exc).__name__.lower()
-
 
 
 Transport = Callable[..., Awaitable[Any]]
@@ -119,33 +147,34 @@ def _resolve_transport() -> Transport:
     if _transport is not None:
         return _transport
     from app.services.decision_v1 import vibecode_post
-    return vibecode_post
 
+    return vibecode_post
 
 
 def _route() -> dict:
     from app.services import decision_config
+
     return decision_config.APPROVED_DECISION_ROUTES[PLANNER_CATALOG_ID]
 
 
 def check_url(url: str) -> None:
     from app.services import decision_config
+
     route = _route()
     parts = urlsplit(url or "")
     host = parts.hostname
-    if (parts.username or parts.password or parts.query or parts.fragment
-            or parts.path != route["path"]):
+    if parts.username or parts.password or parts.query or parts.fragment or parts.path != route["path"]:
         raise PlannerRefused("route_not_approved", "Маршрут планировщика не утверждён (путь).")
     if host not in decision_config.approved_vibecode_hosts():
         raise PlannerRefused("route_not_approved", "Маршрут планировщика не утверждён (хост).")
-    if parts.scheme != "https" and not (parts.scheme == "http"
-                                        and host in decision_config.LOOPBACK):
+    if parts.scheme != "https" and not (parts.scheme == "http" and host in decision_config.LOOPBACK):
         raise PlannerRefused("route_not_approved", "Маршрут планировщика требует HTTPS.")
 
 
 def _model_id() -> str:
     from app.services.text_llm_catalog import catalog_api_model
     from app.services.vibecode_catalog import find_model
+
     mid = catalog_api_model(PLANNER_CATALOG_ID, default="")
     known = find_model(mid) if mid else None
     if not known or known.get("kind") != "text":
@@ -157,6 +186,7 @@ def preflight() -> tuple[str, dict, str]:
     from app.services import gpt_api
     from app.services.llm_override import NodeLlmOverride, use_override
     from app.settings import settings
+
     if not (settings.vibecode_api_key or "").strip():
         raise PlannerRefused("key_missing", "Не задан ключ Vibecode для планировщика.")
     model = _model_id()
@@ -165,10 +195,11 @@ def preflight() -> tuple[str, dict, str]:
             url = gpt_api._chat_url(model)
             headers = gpt_api._headers()
     except Exception as exc:
-        raise PlannerRefused("route_unavailable", f"Маршрут планировщика недоступен ({type(exc).__name__}).") from exc
+        raise PlannerRefused(
+            "route_unavailable", f"Маршрут планировщика недоступен ({type(exc).__name__})."
+        ) from exc
     check_url(url)
     return url, headers, model
-
 
 
 _pending: dict[str, int] = {}
@@ -176,24 +207,37 @@ _pending: dict[str, int] = {}
 
 async def _check_rate(operator: str) -> None:
     from datetime import datetime, timedelta
+
     from app.settings import settings
+
     limit = int(settings.action_layer_planner_calls_per_hour)
     if limit <= 0:
         return
     since = datetime.utcnow() - timedelta(hours=1)
     async with store.sessions()() as s:
-        used = await s.scalar(select(func.count(store.ActionHistory.id)).where(
-            store.ActionHistory.event == "planner_call",
-            store.ActionHistory.actor == operator[:120],
-            store.ActionHistory.created_at >= since))
+        used = await s.scalar(
+            select(func.count(store.ActionHistory.id)).where(
+                store.ActionHistory.event == "planner_call",
+                store.ActionHistory.actor == operator[:120],
+                store.ActionHistory.created_at >= since,
+            )
+        )
     if int(used or 0) + _pending.get(operator, 0) >= limit:
         raise PlannerRateLimited(
-            "rate_limited", f"Лимит обращений к планировщику исчерпан ({limit} в час на оператора). Подождите немного.")
+            "rate_limited",
+            f"Лимит обращений к планировщику исчерпан ({limit} в час на оператора). Подождите немного.",
+        )
 
 
-
-_VOLATILE_FACTS = ("queue", "proposals", "versions", "frame_uuids", "prompt_overrides", "frames_note",
-                   "publish_server")
+_VOLATILE_FACTS = (
+    "queue",
+    "proposals",
+    "versions",
+    "frame_uuids",
+    "prompt_overrides",
+    "frames_note",
+    "publish_server",
+)
 
 
 def _version_basis(facts: dict) -> dict:
@@ -208,12 +252,17 @@ def _version(facts: dict) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
-async def load_context(project_id: int | None, selected_scene: int | None = None,
-                       selected_frame: int | None = None) -> dict:
-    facts: dict = {"project_id": project_id, "selected_scene": selected_scene,
-                   "selected_frame": selected_frame}
+async def load_context(
+    project_id: int | None, selected_scene: int | None = None, selected_frame: int | None = None
+) -> dict:
+    facts: dict = {
+        "project_id": project_id,
+        "selected_scene": selected_scene,
+        "selected_frame": selected_frame,
+    }
     if project_id is not None:
         from app.models import Project
+
         async with store.sessions()() as s:
             project = await s.get(Project, project_id)
             if project is None:
@@ -225,10 +274,17 @@ async def load_context(project_id: int | None, selected_scene: int | None = None
 async def save_plan_context(plan_id: str, *, source: str, ctx: dict, macro_id: str = "") -> None:
     f = ctx["facts"]
     async with store.sessions()() as s:
-        s.add(store.ActionPlanContext(
-            plan_id=plan_id, source=source, macro_id=macro_id, project_id=f["project_id"],
-            selected_scene=f["selected_scene"], selected_frame=f["selected_frame"],
-            context_version=ctx["version"]))
+        s.add(
+            store.ActionPlanContext(
+                plan_id=plan_id,
+                source=source,
+                macro_id=macro_id,
+                project_id=f["project_id"],
+                selected_scene=f["selected_scene"],
+                selected_frame=f["selected_frame"],
+                context_version=ctx["version"],
+            )
+        )
         await s.commit()
 
 
@@ -244,7 +300,6 @@ async def check_plan_fresh(plan_id: str) -> None:
         raise StalePlan("Состояние проекта больше недоступно: составьте план заново.") from exc
     if now["version"] != row.context_version:
         raise StalePlan("Проект изменился после составления плана: составьте план заново.")
-
 
 
 SYSTEM = """Ты планировщик действий видеостудии. Верни ТОЛЬКО один JSON-объект:
@@ -293,47 +348,62 @@ def catalog_for_prompt(registry: ActionRegistry, ids: list[str] | None = None) -
     return planner_catalog.catalog_entries(registry, ids)
 
 
-def build_prompt(text: str, ctx: dict, registry: ActionRegistry, max_steps: int,
-                 max_catalog: int | None = None, macros: Any = None,
-                 attachments: list | None = None) -> tuple[list[dict], dict]:
+def build_prompt(
+    text: str,
+    ctx: dict,
+    registry: ActionRegistry,
+    max_steps: int,
+    max_catalog: int | None = None,
+    macros: Any = None,
+    attachments: list | None = None,
+) -> tuple[list[dict], dict]:
     if max_catalog is None:
         from app.settings import settings
+
         max_catalog = int(settings.action_layer_planner_max_catalog)
     sel = planner_catalog.select_catalog(text, ctx["facts"], registry, max_catalog, macros)
     if attachments and sel.filtered:
         sel.ids = sorted({*sel.ids, *planner_uploads.actions_for_attachments(attachments, registry)})
-    payload: dict = {"data_policy": planner_guard.DATA_POLICY,
-                     "catalog": catalog_for_prompt(registry, sel.ids),
-                     "project_context": planner_context.prompt_context(
-                         ctx["facts"], sel.ids, registry, text),
-                     "limits": {"max_steps": max_steps}, "user_request": text}
+    payload: dict = {
+        "data_policy": planner_guard.DATA_POLICY,
+        "catalog": catalog_for_prompt(registry, sel.ids),
+        "project_context": planner_context.prompt_context(ctx["facts"], sel.ids, registry, text),
+        "limits": {"max_steps": max_steps},
+        "user_request": text,
+    }
     notes = planner_rules.notes_for(sel.ids)
     if notes:
         payload["notes"] = notes
     if attachments:
         payload["attachments"] = [planner_guard.sanitize_view(a.prompt_view()) for a in attachments]
     if sel.no_match or sel.out_of_scope:
-        payload["hint"] = ("Подходящих действий в catalog нет или часть запроса вне каталога: "
-                           "если запрос не покрыт, верни steps=[] и вопрос в needs_clarification.")
+        payload["hint"] = (
+            "Подходящих действий в catalog нет или часть запроса вне каталога: "
+            "если запрос не покрыт, верни steps=[] и вопрос в needs_clarification."
+        )
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": body}]
-    info = {"offered": list(sel.ids), "total": sel.total, "filtered": sel.filtered,
-            "no_match": sel.no_match, "chars": len(SYSTEM) + len(body)}
+    info = {
+        "offered": list(sel.ids),
+        "total": sel.total,
+        "filtered": sel.filtered,
+        "no_match": sel.no_match,
+        "chars": len(SYSTEM) + len(body),
+    }
     return messages, info
 
 
-def build_messages(text: str, ctx: dict, registry: ActionRegistry, max_steps: int,
-                   max_catalog: int | None = None) -> list[dict]:
+def build_messages(
+    text: str, ctx: dict, registry: ActionRegistry, max_steps: int, max_catalog: int | None = None
+) -> list[dict]:
     return build_prompt(text, ctx, registry, max_steps, max_catalog)[0]
-
 
 
 def _scan_forbidden(node: Any, path: str = "$") -> None:
     if isinstance(node, dict):
         for key, value in node.items():
             if str(key).lower() in FORBIDDEN_KEYS:
-                raise PlannerRejected(
-                    "forbidden_field", f"{path}.{key}: такое поле в плане недопустимо")
+                raise PlannerRejected("forbidden_field", f"{path}.{key}: такое поле в плане недопустимо")
             _scan_forbidden(value, f"{path}.{key}")
     elif isinstance(node, list):
         for i, item in enumerate(node):
@@ -355,8 +425,9 @@ class PlannerReply:
     guard_question: bool = False
 
 
-def _upload_with_attachments(act: str, expl: str, *, text: str, registry: ActionRegistry,
-                             attachments: list, facts: dict | None) -> PlannerReply:
+def _upload_with_attachments(
+    act: str, expl: str, *, text: str, registry: ActionRegistry, attachments: list, facts: dict | None
+) -> PlannerReply:
     spec = registry.get(act)
     params = planner_rules.upload_params_from_text(act, text)
     filled = planner_rules.fill_defaults(act, params, facts, spec.params_schema)
@@ -372,22 +443,37 @@ def _upload_with_attachments(act: str, expl: str, *, text: str, registry: Action
     if registry.validate_params(act, step["params"]):
         up = planner_rules.upload_clarification(act, params, spec.title_ru)
         return PlannerReply([], up["question"], expl.strip()[:1000], up["options"], up["attachment"])
-    return PlannerReply([step], None, planner_rules.with_defaults_note(expl.strip(), filled.notes)[:1000],
-                        applied_defaults=list(dict.fromkeys(filled.notes)), attachments_used=[att.id])
+    return PlannerReply(
+        [step],
+        None,
+        planner_rules.with_defaults_note(expl.strip(), filled.notes)[:1000],
+        applied_defaults=list(dict.fromkeys(filled.notes)),
+        attachments_used=[att.id],
+    )
 
 
-def _clarification(question: str, expl: str, options: list[str], *, text: str,
-                   registry: ActionRegistry, offered: frozenset[str] | None,
-                   attachments: list | None = None, facts: dict | None = None) -> PlannerReply:
+def _clarification(
+    question: str,
+    expl: str,
+    options: list[str],
+    *,
+    text: str,
+    registry: ActionRegistry,
+    offered: frozenset[str] | None,
+    attachments: list | None = None,
+    facts: dict | None = None,
+) -> PlannerReply:
     ids = offered if offered is not None else frozenset(s.id for s in registry.list())
     act = planner_rules.upload_intent_action(text, ids)
     if act and attachments:
-        return _upload_with_attachments(act, expl, text=text, registry=registry,
-                                        attachments=attachments, facts=facts)
+        return _upload_with_attachments(
+            act, expl, text=text, registry=registry, attachments=attachments, facts=facts
+        )
     if act:
         spec = registry.get(act)
         up = planner_rules.upload_clarification(
-            act, planner_rules.upload_params_from_text(act, text), spec.title_ru)
+            act, planner_rules.upload_params_from_text(act, text), spec.title_ru
+        )
         return PlannerReply([], up["question"], expl.strip()[:1000], up["options"], up["attachment"])
     if not attachments:
         ask = planner_rules.deictic_file_request(text)
@@ -396,10 +482,17 @@ def _clarification(question: str, expl: str, options: list[str], *, text: str,
     return PlannerReply([], question.strip()[:500], expl.strip()[:1000], options, model_question=True)
 
 
-def validate_reply(text: str, registry: ActionRegistry, *, max_steps: int,
-                   project_id: int | None, offered: frozenset[str] | None = None,
-                   facts: dict | None = None, request_text: str = "",
-                   attachments: list | None = None) -> PlannerReply:
+def validate_reply(
+    text: str,
+    registry: ActionRegistry,
+    *,
+    max_steps: int,
+    project_id: int | None,
+    offered: frozenset[str] | None = None,
+    facts: dict | None = None,
+    request_text: str = "",
+    attachments: list | None = None,
+) -> PlannerReply:
     try:
         data = json.loads(text)
     except (TypeError, ValueError) as exc:
@@ -407,9 +500,10 @@ def validate_reply(text: str, registry: ActionRegistry, *, max_steps: int,
     if not isinstance(data, dict):
         raise _FormatError("reply must be a JSON object")
     _scan_forbidden(data)
-    if not _REPLY_KEYS <= set(data) or set(data) - _REPLY_KEYS - _OPTIONAL_REPLY_KEYS:
-        raise _FormatError(f"reply keys must be exactly {sorted(_REPLY_KEYS)} "
-                           f"(optional: {sorted(_OPTIONAL_REPLY_KEYS)})")
+    if not set(data) >= _REPLY_KEYS or set(data) - _REPLY_KEYS - _OPTIONAL_REPLY_KEYS:
+        raise _FormatError(
+            f"reply keys must be exactly {sorted(_REPLY_KEYS)} (optional: {sorted(_OPTIONAL_REPLY_KEYS)})"
+        )
     steps, clar, expl = data["steps"], data["needs_clarification"], data["explanation_ru"]
     options = planner_rules.clean_options(data.get("clarification_options"))
     if not isinstance(steps, list):
@@ -421,12 +515,25 @@ def validate_reply(text: str, registry: ActionRegistry, *, max_steps: int,
     if clar is not None:
         if steps:
             raise _FormatError("steps must be empty when needs_clarification is set")
-        return _clarification(clar, expl, options, text=request_text, registry=registry,
-                              offered=offered, attachments=attachments, facts=facts)
+        return _clarification(
+            clar,
+            expl,
+            options,
+            text=request_text,
+            registry=registry,
+            offered=offered,
+            attachments=attachments,
+            facts=facts,
+        )
     if not steps:
-        raise PlannerRejected("empty_plan", "Модель не вернула ни шагов, ни вопроса. Переформулируйте просьбу.")
+        raise PlannerRejected(
+            "empty_plan", "Модель не вернула ни шагов, ни вопроса. Переформулируйте просьбу."
+        )
     if len(steps) > max_steps:
-        raise PlannerRejected("too_many_steps", f"Модель предложила {len(steps)} шагов, допустимо не больше {max_steps}. Разбейте просьбу на части.")
+        raise PlannerRejected(
+            "too_many_steps",
+            f"Модель предложила {len(steps)} шагов, допустимо не больше {max_steps}. Разбейте просьбу на части.",
+        )
     clean: list[dict] = []
     notes: list[str] = []
     swaps: list[str] = []
@@ -444,23 +551,30 @@ def validate_reply(text: str, registry: ActionRegistry, *, max_steps: int,
             raise PlannerRejected("unknown_action", f"шаг {i + 1}: действия {action_id!r} нет в каталоге")
         if offered is not None and action_id not in offered:
             raise PlannerRejected(
-                "action_not_offered", f"шаг {i + 1}: действие {action_id!r} не предлагалось модели для этого запроса")
+                "action_not_offered",
+                f"шаг {i + 1}: действие {action_id!r} не предлагалось модели для этого запроса",
+            )
         if not isinstance(params, dict):
             raise PlannerRejected("bad_params", f"шаг {i + 1}: params должен быть объектом")
         if request_text:
-            swap = planner_rules.pick_similar_action(action_id, params, request_text, facts, offered, registry)
+            swap = planner_rules.pick_similar_action(
+                action_id, params, request_text, facts, offered, registry
+            )
             if swap:
                 action_id, params, swap_note = swap
                 swaps.append(swap_note)
         if facts is not None:
             filled = planner_rules.fill_defaults(
-                action_id, params, facts, registry.get(action_id).params_schema)
+                action_id, params, facts, registry.get(action_id).params_schema
+            )
             notes += filled.notes
             params = filled.params
             params, pnotes, ask = planner_rules.resolve_prompt_target(action_id, params, facts, request_text)
             notes += pnotes
             if ask:
-                return PlannerReply([], ask[0][:500], expl.strip()[:1000], planner_rules.clean_options(ask[1]))
+                return PlannerReply(
+                    [], ask[0][:500], expl.strip()[:1000], planner_rules.clean_options(ask[1])
+                )
         if request_text:
             before = dict(params)
             params = planner_rules.apply_request_values(action_id, params, request_text)
@@ -483,17 +597,24 @@ def validate_reply(text: str, registry: ActionRegistry, *, max_steps: int,
             req = list(registry.get(action_id).params_schema.get("required") or [])
             ask = planner_uploads.ask_missing(action_id, params, attachments[0], req)
             if ask:
-                return PlannerReply([], ask[:500], expl.strip()[:1000], [],
-                                    planner_uploads.request_for(action_id, params))
+                return PlannerReply(
+                    [], ask[:500], expl.strip()[:1000], [], planner_uploads.request_for(action_id, params)
+                )
         errors = registry.validate_params(action_id, params)
         if errors:
-            raise PlannerRejected("bad_params", f"шаг {i + 1} ({action_id}): " + "; ".join(validation_list_ru(errors[:5])))
+            raise PlannerRejected(
+                "bad_params", f"шаг {i + 1} ({action_id}): " + "; ".join(validation_list_ru(errors[:5]))
+            )
         if project_id is not None and "project_id" in params and params["project_id"] != project_id:
-            raise PlannerRejected("foreign_project", f"шаг {i + 1}: project_id отличается от открытого проекта")
-        if (not isinstance(deps, list)
-                or any(not isinstance(d, int) or isinstance(d, bool) or not 0 <= d < i
-                       for d in deps)):
-            raise PlannerRejected("bad_depends_on", f"шаг {i + 1}: depends_on должен указывать на более ранние шаги")
+            raise PlannerRejected(
+                "foreign_project", f"шаг {i + 1}: project_id отличается от открытого проекта"
+            )
+        if not isinstance(deps, list) or any(
+            not isinstance(d, int) or isinstance(d, bool) or not 0 <= d < i for d in deps
+        ):
+            raise PlannerRejected(
+                "bad_depends_on", f"шаг {i + 1}: depends_on должен указывать на более ранние шаги"
+            )
         if facts is not None:
             notes += planner_rules.defaults_used(action_id, params, facts, request_text)
         clean.append({"action_id": action_id, "params": params, "depends_on": sorted(set(deps))})
@@ -508,28 +629,42 @@ def validate_reply(text: str, registry: ActionRegistry, *, max_steps: int,
         confirmed = planner_rules.guard_confirmed(request_text)
         clean, dropped = planner_rules.drop_unrequested(clean, request_text, registry, confirmed=confirmed)
         if not clean:
-            asked = (planner_rules.bare_publish_question(proposed, request_text)
-                     or planner_rules.mass_destructive_question(proposed, request_text, registry))
+            asked = planner_rules.bare_publish_question(
+                proposed, request_text
+            ) or planner_rules.mass_destructive_question(proposed, request_text, registry)
             if asked:
                 return PlannerReply([], asked[0][:500], expl[:1000], asked[1], dropped_steps=dropped)
             q, opts = planner_rules.guard_confirm_question(proposed, registry, facts)
             return PlannerReply(
-                [], q, "Модель предложила действие, о котором нет слов в запросе: " + ", ".join(dropped)
-                + ". План не составлен, пока вы не подтвердите.", opts, dropped_steps=dropped,
-                guard_question=True)
+                [],
+                q,
+                "Модель предложила действие, о котором нет слов в запросе: "
+                + ", ".join(dropped)
+                + ". План не составлен, пока вы не подтвердите.",
+                opts,
+                dropped_steps=dropped,
+                guard_question=True,
+            )
         if dropped:
             expl = (expl + " Убрано как не запрошенное: " + ", ".join(dropped) + ".").strip()
         if confirmed:
             lifted = planner_rules.unhinted_titles(clean, request_text, registry)
             if lifted:
-                expl = (expl + " Подготовлено по вашему ответу «" + planner_rules.CONFIRM_YES
-                        + "»: в исходной просьбе не было слов о действии (" + ", ".join(lifted)
-                        + "), проверьте превью.").strip()
+                expl = (
+                    expl
+                    + " Подготовлено по вашему ответу «"
+                    + planner_rules.CONFIRM_YES
+                    + "»: в исходной просьбе не было слов о действии ("
+                    + ", ".join(lifted)
+                    + "), проверьте превью."
+                ).strip()
     if request_text:
-        asked = (planner_rules.bare_publish_question(clean, request_text)
-                 or planner_rules.vague_publish_question(clean, request_text)
-                 or planner_rules.undo_question(clean, request_text)
-                 or planner_rules.mass_destructive_question(clean, request_text, registry))
+        asked = (
+            planner_rules.bare_publish_question(clean, request_text)
+            or planner_rules.vague_publish_question(clean, request_text)
+            or planner_rules.undo_question(clean, request_text)
+            or planner_rules.mass_destructive_question(clean, request_text, registry)
+        )
         if asked:
             return PlannerReply([], asked[0][:500], expl[:1000], asked[1], dropped_steps=dropped)
     if caption_notes:
@@ -538,34 +673,48 @@ def validate_reply(text: str, registry: ActionRegistry, *, max_steps: int,
     used: list[str] = []
     if uploads and attachments:
         fill = planner_uploads.fill_steps(
-            clean, attachments, {st["action_id"]: registry.get(st["action_id"]).title_ru for st in uploads},
-            request_text)
+            clean,
+            attachments,
+            {st["action_id"]: registry.get(st["action_id"]).title_ru for st in uploads},
+            request_text,
+        )
         if fill.question:
-            return PlannerReply([], fill.question[:500], expl[:1000], fill.options, fill.attachment,
-                                dropped_steps=dropped)
+            return PlannerReply(
+                [], fill.question[:500], expl[:1000], fill.options, fill.attachment, dropped_steps=dropped
+            )
         clean, used = fill.steps, fill.used
         names = [x.name for x in attachments if x.id in used]
         expl = (expl + " Загружается прикреплённый файл: " + ", ".join(f"«{n}»" for n in names) + ".").strip()
         for i, st in enumerate(clean):
             errors = registry.validate_params(st["action_id"], st["params"])
             if errors:
-                raise PlannerRejected("bad_params", f"шаг {i + 1} ({st['action_id']}): " + "; ".join(validation_list_ru(errors[:5])))
+                raise PlannerRejected(
+                    "bad_params",
+                    f"шаг {i + 1} ({st['action_id']}): " + "; ".join(validation_list_ru(errors[:5])),
+                )
     elif uploads:
         first = uploads[0]
         up = planner_rules.upload_clarification(
-            first["action_id"], first["params"], registry.get(first["action_id"]).title_ru)
+            first["action_id"], first["params"], registry.get(first["action_id"]).title_ru
+        )
         if len(clean) > 1:
             expl = (expl + " Остальное запросите после загрузки файла.").strip()
-        return PlannerReply([], up["question"], expl[:1000], up["options"], up["attachment"],
-                            dropped_steps=dropped)
+        return PlannerReply(
+            [], up["question"], expl[:1000], up["options"], up["attachment"], dropped_steps=dropped
+        )
     for st in clean:
         asked = planner_rules.shot_ambiguity(st["action_id"], st["params"], facts)
         if asked:
             return PlannerReply([], asked[0], expl[:1000], asked[1], dropped_steps=dropped)
-    return PlannerReply(clean, None, planner_rules.with_defaults_note(expl, notes)[:1000],
-                        applied_defaults=list(dict.fromkeys(notes)), dropped_steps=dropped,
-                        attachments_used=used, catalog_steps=planner_guard.verbatim_steps(clean, registry))
-
+    return PlannerReply(
+        clean,
+        None,
+        planner_rules.with_defaults_note(expl, notes)[:1000],
+        applied_defaults=list(dict.fromkeys(notes)),
+        dropped_steps=dropped,
+        attachments_used=used,
+        catalog_steps=planner_guard.verbatim_steps(clean, registry),
+    )
 
 
 @dataclass
@@ -577,34 +726,60 @@ class PlannerOutcome:
 
 def _usage(result: Any) -> tuple[int, int, int]:
     from app.services.observation import _usage_tokens
+
     return _usage_tokens(getattr(result, "usage", None) or {})[:3]
 
 
 def _est_cost(model: str, p: int, c: int, cached: int) -> float | None:
     try:
         from app.services import api_tracker_hook
+
         return api_tracker_hook.vibecode_cost(model, p, c, cached)
     except Exception:
         return None
 
 
-async def _record(operator: str, text: str, *, model: str, attempt: int, outcome: str,
-                  usage: tuple[int, int, int], cost: float | None, error: str,
-                  finish_reason: str, context_version: str, info: dict | None = None) -> None:
+async def _record(
+    operator: str,
+    text: str,
+    *,
+    model: str,
+    attempt: int,
+    outcome: str,
+    usage: tuple[int, int, int],
+    cost: float | None,
+    error: str,
+    finish_reason: str,
+    context_version: str,
+    info: dict | None = None,
+) -> None:
     info = info or {}
     try:
         async with store.sessions()() as s:
             store.append_history(
-                s, event="planner_call", actor=operator, request_text=text, outcome=outcome,
-                error=error, params={
-                    "model": model, "attempt": attempt, "prompt_tokens": usage[0],
-                    "completion_tokens": usage[1], "cached_tokens": usage[2],
-                    "est_cost_usd": cost, "cost_calibrated": False,
-                    "finish_reason": finish_reason, "context_version": context_version,
+                s,
+                event="planner_call",
+                actor=operator,
+                request_text=text,
+                outcome=outcome,
+                error=error,
+                params={
+                    "model": model,
+                    "attempt": attempt,
+                    "prompt_tokens": usage[0],
+                    "completion_tokens": usage[1],
+                    "cached_tokens": usage[2],
+                    "est_cost_usd": cost,
+                    "cost_calibrated": False,
+                    "finish_reason": finish_reason,
+                    "context_version": context_version,
                     "catalog_offered": len(info.get("offered", ())),
-                    "catalog_total": info.get("total"), "catalog_filtered": info.get("filtered"),
+                    "catalog_total": info.get("total"),
+                    "catalog_filtered": info.get("filtered"),
                     "catalog_no_match": info.get("no_match"),
-                    "prompt_chars": info.get("chars")})
+                    "prompt_chars": info.get("chars"),
+                },
+            )
             await s.commit()
     except Exception as exc:
         logger.warning("planner history write failed: {}", type(exc).__name__)
@@ -612,10 +787,17 @@ async def _record(operator: str, text: str, *, model: str, attempt: int, outcome
 
 async def _spend_gate(project_id: int | None) -> None:
     from app.services import spend_guard
+
     try:
         async with store.sessions()() as s:
-            await spend_guard.reserve(s, project_id=project_id, run_id="", source="planner",
-                                      estimate_usd=spend_guard.PLANNER_ESTIMATE_USD, provider="vibecode")
+            await spend_guard.reserve(
+                s,
+                project_id=project_id,
+                run_id="",
+                source="planner",
+                estimate_usd=spend_guard.PLANNER_ESTIMATE_USD,
+                provider="vibecode",
+            )
             await s.commit()
     except spend_guard.SpendCapExceeded as exc:
         raise PlannerRefused(exc.code, spend_cap_ru(exc)) from exc
@@ -626,8 +808,10 @@ _NOT_BILLED_STATUS = frozenset({400, 401, 403, 404, 405, 413, 415, 422})
 
 def definitely_not_billed(exc: BaseException) -> bool:
     import socket
+
     try:
         import httpx
+
         pre_send = (httpx.ConnectError, httpx.ConnectTimeout, httpx.UnsupportedProtocol)
     except Exception:
         pre_send = ()
@@ -648,14 +832,22 @@ def definitely_not_billed(exc: BaseException) -> bool:
 
 async def _close_failed_reserve(project_id: int | None, exc: BaseException) -> bool:
     from app.services import spend_guard
+
     pending = spend_guard.take_pending()
     if pending is None or not definitely_not_billed(exc):
         return False
     try:
         async with store.sessions()() as s:
-            await spend_guard.settle(s, project_id=pending.project_id, run_id=pending.run_id,
-                                     reserved_usd=pending.usd, actual_usd=0.0, source=pending.source,
-                                     provider=pending.provider, basis="estimate")
+            await spend_guard.settle(
+                s,
+                project_id=pending.project_id,
+                run_id=pending.run_id,
+                reserved_usd=pending.usd,
+                actual_usd=0.0,
+                source=pending.source,
+                provider=pending.provider,
+                basis="estimate",
+            )
             await s.commit()
         return True
     except Exception as err:
@@ -674,14 +866,17 @@ _BYPASS_RE = re.compile(
     r"(?:подтвержден|одобрен|согласи|разрешен|аппрув|апрув)"
     r"|без\s+кнопк\w*\s+[«\"“']?\s*(?:подтверд|одобр|согласова|аппрув|апрув)"
     r"|(?:в\s+обход|минуя|мимо)\s+(?:(?:всех|любых|обычн\w+|нашей|вашей|ручной)\s+)?"
-    r"(?:подтвержден|одобрен|защит|лимит|ограничен|согласован|проверк|модерац|ревью|контрол)")
+    r"(?:подтвержден|одобрен|защит|лимит|ограничен|согласован|проверк|модерац|ревью|контрол)"
+)
 _UNCHECKED_RE = re.compile(
     r"без\s+(?:(?:мо[ейя]\w*|нашей|вашей|твоей|любой|какой[\s-]?либо|лишней|ручной|человеческой|"
     r"предварительного|предварительной|дополнительной|всякой)\s+)?"
-    r"(?:проверк|ревью|модерац|верификац|контрол|просмотр|предпросмотр|превью|согласован)\w*")
+    r"(?:проверк|ревью|модерац|верификац|контрол|просмотр|предпросмотр|превью|согласован)\w*"
+)
 _DOING_RE = re.compile(
     r"(?<![а-я])(?:опублик|публик|выложи|выкла|залей|залить|запост|постни|разошли|отправ|размест|выгруз|выпуст|"
-    r"запуст|запуск|сгенер|смонтир|собери|удали|примени|пусти|гони|выполни|включи|релиз)")
+    r"запуст|запуск|сгенер|смонтир|собери|удали|примени|пусти|гони|выполни|включи|релиз)"
+)
 _NODE_CHECK_RE = re.compile(r"агент|checkmode|checkfix|автоисправ|\bqc\b|нод[аыуе]")
 
 
@@ -693,46 +888,92 @@ def approval_bypass_intent(text: str) -> bool:
 
 
 _ADJ = r"(?:[а-я]+(?:ого|его|ому|ему|ой|ей|ую|юю|ых|их|ым|им|ый|ий)\s+){0,2}"
-_FOREIGN_ROLE = (r"(?:" + _ADJ + r"(?:супер|мега|гипер|топ|вице)?(?:заказчик\w*|подрядчик\w*|админ\w*|администратор\w*|"
-                 r"редактор\w*|менеджер\w*|владельц\w*|хозяин\w*|хозяйк\w*|директор\w*|руководител\w*|"
-                 r"начальник\w*|партнер\w*|сотрудник\w*|исполнител\w*|фрилансер\w*|модератор\w*|куратор\w*|"
-                 r"основател\w*|root|superuser|суперпользовател\w*))")
-_KINSHIP = (r"(?:(?:мо(?:его|ей|ю|их|им|ему)|наш(?:его|ей|у|их)|сво(?:его|ей|ю|их)|ее|его|их)\s+)?" + _ADJ +
-            r"(?:отц\w*|отец|мать|матер(?:и|ью)|мам\w*|пап(?:а|ы|е|у|ой|ин\w*)|жен(?:а|ы|е|у|ой)|"
-            r"муж(?:а|у|ем|е)?|сестр\w*|брат(?:а|у|ом|е|ья|ьев|ьям|ьями)?|дед(?:а|у|ом|е|ушк\w*)?|бабушк\w*|"
-            r"сын(?:а|у|ом|е)?|дочер\w*|дочк\w*|родител\w*|тещ\w*|тест(?:я|ю|ем)|свекр\w*|невест\w*|"
-            r"девушк\w*)(?![а-я])")
-_FOREIGN_OWNER = (r"(?:чуж\w*|друг\w*|коллег\w*|знаком\w*|приятел\w*|подруг\w*|сосед\w*|клиент\w*|не\s+наш\w*|"
-                  r"не\s+мо\w*|" + _FOREIGN_ROLE + r"|" + _KINSHIP + r")")
+_FOREIGN_ROLE = (
+    r"(?:" + _ADJ + r"(?:супер|мега|гипер|топ|вице)?(?:заказчик\w*|подрядчик\w*|админ\w*|администратор\w*|"
+    r"редактор\w*|менеджер\w*|владельц\w*|хозяин\w*|хозяйк\w*|директор\w*|руководител\w*|"
+    r"начальник\w*|партнер\w*|сотрудник\w*|исполнител\w*|фрилансер\w*|модератор\w*|куратор\w*|"
+    r"основател\w*|root|superuser|суперпользовател\w*))"
+)
+_KINSHIP = (
+    r"(?:(?:мо(?:его|ей|ю|их|им|ему)|наш(?:его|ей|у|их)|сво(?:его|ей|ю|их)|ее|его|их)\s+)?"
+    + _ADJ
+    + r"(?:отц\w*|отец|мать|матер(?:и|ью)|мам\w*|пап(?:а|ы|е|у|ой|ин\w*)|жен(?:а|ы|е|у|ой)|"
+    r"муж(?:а|у|ем|е)?|сестр\w*|брат(?:а|у|ом|е|ья|ьев|ьям|ьями)?|дед(?:а|у|ом|е|ушк\w*)?|бабушк\w*|"
+    r"сын(?:а|у|ом|е)?|дочер\w*|дочк\w*|родител\w*|тещ\w*|тест(?:я|ю|ем)|свекр\w*|невест\w*|"
+    r"девушк\w*)(?![а-я])"
+)
+_FOREIGN_OWNER = (
+    r"(?:чуж\w*|друг\w*|коллег\w*|знаком\w*|приятел\w*|подруг\w*|сосед\w*|клиент\w*|не\s+наш\w*|"
+    r"не\s+мо\w*|" + _FOREIGN_ROLE + r"|" + _KINSHIP + r")"
+)
 _COMMUNITY = r"(?:страниц\w*|страничк\w*|сообществ\w*|паблик\w*|стен(?:а|е|у|ы)(?![а-я]))"
-_NOT_OURS = r"(?:чуж\w*|не\s+наш\w*|не\s+мо(?:й|я|е|и|его|ей|их)(?![а-я])|" + _FOREIGN_ROLE + r"|" + _KINSHIP + r")"
+_NOT_OURS = (
+    r"(?:чуж\w*|не\s+наш\w*|не\s+мо(?:й|я|е|и|его|ей|их)(?![а-я])|" + _FOREIGN_ROLE + r"|" + _KINSHIP + r")"
+)
 _FOREIGN_ACCOUNT_RE = re.compile(
     r"(?:от\s+имени|под\s+именем|с\s+аккаунта|через\s+аккаунт|на\s+аккаунт|в\s+аккаунт)\s+"
     r"(?:чуж|друг\w+\s+(?:человек|пользовател|аккаунт)|не\s+наш|не\s+мо)"
-    r"|(?:аккаунт|канал|профил|логин|учетн|соцсет)\w*\s+" + _FOREIGN_OWNER +
-    r"|" + _FOREIGN_OWNER + r"\s+(?:аккаунт|канал|профил|логин|учетн|соцсет)\w*"
-    r"|" + _COMMUNITY + r"\s+" + _NOT_OURS + r"|" + _NOT_OURS + r"\s+" + _COMMUNITY +
-    r"|(?:на|в|через|с|от)\s+(?:его|ее|их)\s+(?:аккаунт|профил|страниц|стен|сообществ|паблик|логин|соцсет|канал)\w*"
+    r"|(?:аккаунт|канал|профил|логин|учетн|соцсет)\w*\s+"
+    + _FOREIGN_OWNER
+    + r"|"
+    + _FOREIGN_OWNER
+    + r"\s+(?:аккаунт|канал|профил|логин|учетн|соцсет)\w*"
+    r"|"
+    + _COMMUNITY
+    + r"\s+"
+    + _NOT_OURS
+    + r"|"
+    + _NOT_OURS
+    + r"\s+"
+    + _COMMUNITY
+    + r"|(?:на|в|через|с|от)\s+(?:его|ее|их)\s+(?:аккаунт|профил|страниц|стен|сообществ|паблик|логин|соцсет|канал)\w*"
     r"|под\s+(?:его|ее|их|чуж\w*|друг\w*)\s+(?:логин|парол|аккаунт|имен)\w*"
-    r"|(?:зайд|войд|залогин)\w*\s+(?:в|под)\s+(?:аккаунт|профил|учетн)\w*\s+" + _FOREIGN_OWNER +
-    r"|от\s+(?:его|ее|их)\s+(?:имен|лиц)\w*"
+    r"|(?:зайд|войд|залогин)\w*\s+(?:в|под)\s+(?:аккаунт|профил|учетн)\w*\s+"
+    + _FOREIGN_OWNER
+    + r"|от\s+(?:его|ее|их)\s+(?:имен|лиц)\w*"
     r"|от\s+имени\s+(?:" + _FOREIGN_ROLE + r"|" + _KINSHIP + r")"
     r"|от\s+лица\s+(?!(?:мен[яи]|себя|нас)(?![а-я])|(?:(?:мо|наш)\w*\s+)?(?:студи|компани|команд|бренд|проект|канал)\w*)"
     r"|под\s+роль\w*\s+(?:" + _FOREIGN_ROLE + r"|чуж\w*|друг\w*|его|ее|их|пользовател\w*|" + _KINSHIP + r")"
     r"|в\s+роли\s+(?:" + _FOREIGN_ROLE + r"|чуж\w*)"
-    r"|(?:авториз|аутентиф|залогин|зайд|войд|логин)\w*\s+(?:\w+\s+){0,2}?под\s+(?:" + _FOREIGN_ROLE + r"|чуж\w*|друг\w*|его|ее|их)"
+    r"|(?:авториз|аутентиф|залогин|зайд|войд|логин)\w*\s+(?:\w+\s+){0,2}?под\s+(?:"
+    + _FOREIGN_ROLE
+    + r"|чуж\w*|друг\w*|его|ее|их)"
     r"|под\s+(?:супер|мега|гипер)?(?:админ|администратор|заказчик|подрядчик|владельц)\w*"
     r"|(?:притворись|прикинься|представь,?\s+что\s+ты|будто\s+ты|ты\s+теперь|веди\s+себя\s+как|играй\s+роль|"
     r"действуй\s+как)\s+(?:" + _FOREIGN_ROLE + r")"
-    r"|(?:его|ее|их|чуж\w*|друг\w*)\s+парол\w*")
+    r"|(?:его|ее|их|чуж\w*|друг\w*)\s+парол\w*"
+)
 
 
 _NAMED_PERSON_RE = re.compile(
     r"(?:аккаунт|канал|профил|страниц|логин|учетн|учётн|соцсет)\w*\s+(?P<n1>[А-ЯЁ][а-яё]{2,}(?:а|ы|и|ой|ом|ем|ю|у|я|е))(?![а-яё])"
-    r"|(?:от\s+имени|от\s+лица|под\s+именем)\s+(?P<n2>[А-ЯЁ][а-яё]{2,}(?:а|ы|и|ой|ом|ем|ю|у|я|е))(?![а-яё])")
-_NOT_A_PERSON = ("инстаграм", "ютуб", "тикток", "телеграм", "вконтакт", "фейсбук", "лайк", "студи", "компани",
-                 "команд", "бренд", "проект", "заказчик", "платформ", "сети", "сайт", "канала", "яндекс", "дзен",
-                 "рилс", "шортс", "клипс", "вк")
+    r"|(?:от\s+имени|от\s+лица|под\s+именем)\s+(?P<n2>[А-ЯЁ][а-яё]{2,}(?:а|ы|и|ой|ом|ем|ю|у|я|е))(?![а-яё])"
+)
+_NOT_A_PERSON = (
+    "инстаграм",
+    "ютуб",
+    "тикток",
+    "телеграм",
+    "вконтакт",
+    "фейсбук",
+    "лайк",
+    "студи",
+    "компани",
+    "команд",
+    "бренд",
+    "проект",
+    "заказчик",
+    "платформ",
+    "сети",
+    "сайт",
+    "канала",
+    "яндекс",
+    "дзен",
+    "рилс",
+    "шортс",
+    "клипс",
+    "вк",
+)
 
 
 def named_person_intent(text: str) -> bool:
@@ -744,15 +985,24 @@ def named_person_intent(text: str) -> bool:
 
 
 def foreign_account_intent(text: str) -> bool:
-    return bool(_FOREIGN_ACCOUNT_RE.search((text or "").lower().replace("ё", "е"))) or named_person_intent(text)
+    return bool(_FOREIGN_ACCOUNT_RE.search((text or "").lower().replace("ё", "е"))) or named_person_intent(
+        text
+    )
 
 
-async def plan_from_text(text: str, *, operator: str, project_id: int | None = None,
-                         selected_scene: int | None = None, selected_frame: int | None = None,
-                         registry: ActionRegistry | None = None,
-                         attachments: list | None = None) -> PlannerOutcome:
+async def plan_from_text(
+    text: str,
+    *,
+    operator: str,
+    project_id: int | None = None,
+    selected_scene: int | None = None,
+    selected_frame: int | None = None,
+    registry: ActionRegistry | None = None,
+    attachments: list | None = None,
+) -> PlannerOutcome:
     from app.services import decision_v1
     from app.settings import settings
+
     registry = registry or default_registry
     ensure_builtin_actions()
     text = (text or "").strip()
@@ -763,28 +1013,53 @@ async def plan_from_text(text: str, *, operator: str, project_id: int | None = N
             "approval_bypass_refused",
             "Отключать или обходить подтверждения, лимиты расходов, защиту и аварийный стоп из командной "
             "строки нельзя: это решает человек в настройках. Опишите, какое действие нужно выполнить, и "
-            "я составлю план с обычным подтверждением.")
+            "я составлю план с обычным подтверждением.",
+        )
     if foreign_account_intent(text):
         raise PlannerRefused(
             "foreign_account_refused",
             "Действовать от имени чужого аккаунта нельзя. Публикация возможна только в настроенные "
-            "площадки владельца и только после подтверждения человека.")
+            "площадки владельца и только после подтверждения человека.",
+        )
     max_steps = int(settings.action_layer_max_steps)
     url, headers, model = preflight()
     from app.services.action_layer import executor
+
     if await executor._kill_switch_on():
-        raise PlannerRefused("kill_switch_active", "Аварийная остановка включена оператором: планы не составляются.")
+        raise PlannerRefused(
+            "kill_switch_active", "Аварийная остановка включена оператором: планы не составляются."
+        )
     ctx = await load_context(project_id, selected_scene, selected_frame)
     if planner_rules.guard_declined(text):
         return PlannerOutcome(
-            PlannerReply([], "Опишите, какое действие нужно вместо этого: что сделать и с чем (кадр, нода, шаг).",
-                         "Предложенное действие отклонено вами; ничего не планируется.", []),
-            ctx, {"model": model, "attempts": 0, "prompt_tokens": 0, "completion_tokens": 0,
-                  "est_cost_usd": 0.0, "cost_calibrated": False, "context_version": ctx["version"],
-                  "catalog_offered": 0, "catalog_total": 0, "applied_defaults": [], "dropped_steps": [],
-                  "attachments_used": [], "catalog_steps": [], "guard_question": False,
-                  "explanation_source": planner_guard.EXPLANATION_SOURCE, "transport_retries": 0,
-                  "clarify_repairs": 0, "declined": True})
+            PlannerReply(
+                [],
+                "Опишите, какое действие нужно вместо этого: что сделать и с чем (кадр, нода, шаг).",
+                "Предложенное действие отклонено вами; ничего не планируется.",
+                [],
+            ),
+            ctx,
+            {
+                "model": model,
+                "attempts": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "est_cost_usd": 0.0,
+                "cost_calibrated": False,
+                "context_version": ctx["version"],
+                "catalog_offered": 0,
+                "catalog_total": 0,
+                "applied_defaults": [],
+                "dropped_steps": [],
+                "attachments_used": [],
+                "catalog_steps": [],
+                "guard_question": False,
+                "explanation_source": planner_guard.EXPLANATION_SOURCE,
+                "transport_retries": 0,
+                "clarify_repairs": 0,
+                "declined": True,
+            },
+        )
     messages, info = build_prompt(text, ctx, registry, max_steps, attachments=attachments)
     offered = frozenset(info["offered"])
     send = _resolve_transport()
@@ -795,9 +1070,13 @@ async def plan_from_text(text: str, *, operator: str, project_id: int | None = N
     repairs = transport_retries = clarify_repairs = 0
     call_timeout = TIMEOUT_S
     for attempt in range(1, MAX_ATTEMPTS + MAX_TRANSPORT_RETRIES + MAX_CLARIFY_REPAIRS + 1):
-        body = {"model": model, "stream": False, "messages": messages,
-                decision_v1.CHAT_TOKEN_PARAM: _OUTPUT_TOKENS,
-                "response_format": {"type": "json_object"}}
+        body = {
+            "model": model,
+            "stream": False,
+            "messages": messages,
+            decision_v1.CHAT_TOKEN_PARAM: _OUTPUT_TOKENS,
+            "response_format": {"type": "json_object"},
+        }
         await _check_rate(operator)
         await _spend_gate(project_id)
         started = time.monotonic()
@@ -806,18 +1085,28 @@ async def plan_from_text(text: str, *, operator: str, project_id: int | None = N
             try:
                 result = await asyncio.wait_for(
                     send(url=url, headers=headers, body=body, timeout=call_timeout, use_model=model),
-                    call_timeout + 15)
+                    call_timeout + 15,
+                )
             finally:
                 _pending[operator] = max(0, _pending.get(operator, 1) - 1)
         except Exception as exc:
             if real:
                 _track(model, None, started, exc)
                 await _close_failed_reserve(project_id, exc)
-            await _record(operator, text, model=model, attempt=attempt, outcome="transport_error",
-                          usage=(0, 0, 0), cost=None,
-                          error=f"{describe_exception(exc)} (timeout_s={call_timeout}, "
-                                f"{time.monotonic() - started:.1f}s)",
-                          finish_reason="", context_version=ctx["version"], info=info)
+            await _record(
+                operator,
+                text,
+                model=model,
+                attempt=attempt,
+                outcome="transport_error",
+                usage=(0, 0, 0),
+                cost=None,
+                error=f"{describe_exception(exc)} (timeout_s={call_timeout}, "
+                f"{time.monotonic() - started:.1f}s)",
+                finish_reason="",
+                context_version=ctx["version"],
+                info=info,
+            )
             transient = _is_transient(exc)
             if transient and transport_retries < MAX_TRANSPORT_RETRIES:
                 transport_retries += 1
@@ -827,9 +1116,12 @@ async def plan_from_text(text: str, *, operator: str, project_id: int | None = N
                 continue
             raise PlannerFailed(
                 "transport_error",
-                NETWORK_RETRY_MESSAGE if transient else
-                "модель отклонила запрос, повтор не поможет: проверьте ключ и настройки провайдера",
-                retryable=transient, detail=describe_exception(exc)) from exc
+                NETWORK_RETRY_MESSAGE
+                if transient
+                else "модель отклонила запрос, повтор не поможет: проверьте ключ и настройки провайдера",
+                retryable=transient,
+                detail=describe_exception(exc),
+            ) from exc
         if real:
             _track(model, getattr(result, "usage", None), started, None)
         usage = _usage(result)
@@ -838,79 +1130,160 @@ async def plan_from_text(text: str, *, operator: str, project_id: int | None = N
             totals[i] += usage[i]
         total_cost = None if (cost is None or total_cost is None) else total_cost + cost
         complete, truncated = decision_v1.completion_state(
-            "vibecode_chat_completions", result, _OUTPUT_TOKENS)
+            "vibecode_chat_completions", result, _OUTPUT_TOKENS
+        )
         finish = str(getattr(result, "finish_reason", "") or "")
         try:
             if truncated:
                 raise _FormatError("reply was truncated; answer shorter")
             if not complete:
                 raise _FormatError("reply is incomplete")
-            reply = validate_reply(getattr(result, "text", ""), registry,
-                                   max_steps=max_steps, project_id=project_id, offered=offered,
-                                   facts=ctx["facts"], request_text=text, attachments=attachments)
+            reply = validate_reply(
+                getattr(result, "text", ""),
+                registry,
+                max_steps=max_steps,
+                project_id=project_id,
+                offered=offered,
+                facts=ctx["facts"],
+                request_text=text,
+                attachments=attachments,
+            )
         except _FormatError as exc:
             last_error = str(exc)
-            await _record(operator, text, model=model, attempt=attempt, outcome="invalid_format",
-                          usage=usage, cost=cost, error=last_error, finish_reason=finish,
-                          context_version=ctx["version"], info=info)
+            await _record(
+                operator,
+                text,
+                model=model,
+                attempt=attempt,
+                outcome="invalid_format",
+                usage=usage,
+                cost=cost,
+                error=last_error,
+                finish_reason=finish,
+                context_version=ctx["version"],
+                info=info,
+            )
             if repairs < MAX_ATTEMPTS - 1:
                 repairs += 1
-                messages = messages + [{"role": "user", "content": json.dumps(
-                    {"validation_error": last_error,
-                     "instruction": "Return the corrected JSON object only."},
-                    ensure_ascii=False)}]
+                messages = messages + [
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "validation_error": last_error,
+                                "instruction": "Return the corrected JSON object only.",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                ]
                 continue
-            raise PlannerRejected("planner_bad_output", "Модель ответила в неверном формате. Повторите запрос. (" + last_error + ")") from exc
+            raise PlannerRejected(
+                "planner_bad_output",
+                "Модель ответила в неверном формате. Повторите запрос. (" + last_error + ")",
+            ) from exc
         except PlannerRejected as exc:
             repair = exc.code in REPAIRABLE_CODES and repairs < MAX_ATTEMPTS - 1
-            await _record(operator, text, model=model, attempt=attempt,
-                          outcome="invalid_params" if repair else "rejected",
-                          usage=usage, cost=cost, error=f"{exc.code}: {exc}"[:500],
-                          finish_reason=finish, context_version=ctx["version"], info=info)
+            await _record(
+                operator,
+                text,
+                model=model,
+                attempt=attempt,
+                outcome="invalid_params" if repair else "rejected",
+                usage=usage,
+                cost=cost,
+                error=f"{exc.code}: {exc}"[:500],
+                finish_reason=finish,
+                context_version=ctx["version"],
+                info=info,
+            )
             if not repair:
                 raise
             repairs += 1
             last_error = f"{exc.code}: {exc}"[:500]
             messages = messages + [
                 {"role": "assistant", "content": str(getattr(result, "text", ""))[:4000]},
-                {"role": "user", "content": json.dumps(
-                    {"validation_error": last_error,
-                     "instruction": "Fix the params using only the catalog schema and "
-                                    "project_context; return the corrected JSON object only."},
-                    ensure_ascii=False)}]
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "validation_error": last_error,
+                            "instruction": "Fix the params using only the catalog schema and "
+                            "project_context; return the corrected JSON object only.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ]
             continue
-        resolved = (planner_rules.resolve_clarification(reply.needs_clarification, text, ctx["facts"])
-                    if reply.needs_clarification and reply.model_question
-                    and clarify_repairs < MAX_CLARIFY_REPAIRS else [])
+        resolved = (
+            planner_rules.resolve_clarification(reply.needs_clarification, text, ctx["facts"])
+            if reply.needs_clarification and reply.model_question and clarify_repairs < MAX_CLARIFY_REPAIRS
+            else []
+        )
         if resolved:
-            await _record(operator, text, model=model, attempt=attempt, outcome="clarify_autorepair",
-                          usage=usage, cost=cost,
-                          error=("known: " + ", ".join(r["param"] for r in resolved))[:500],
-                          finish_reason=finish, context_version=ctx["version"], info=info)
+            await _record(
+                operator,
+                text,
+                model=model,
+                attempt=attempt,
+                outcome="clarify_autorepair",
+                usage=usage,
+                cost=cost,
+                error=("known: " + ", ".join(r["param"] for r in resolved))[:500],
+                finish_reason=finish,
+                context_version=ctx["version"],
+                info=info,
+            )
             clarify_repairs += 1
             messages = messages + [
                 {"role": "assistant", "content": str(getattr(result, "text", ""))[:4000]},
-                {"role": "user", "content": json.dumps(
-                    {"clarification_resolved": resolved,
-                     "instruction": "These values are already known to the server; do not ask about "
-                                    "them. Return the plan JSON object now, or ask only about something "
-                                    "else that is still missing."}, ensure_ascii=False)}]
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "clarification_resolved": resolved,
+                            "instruction": "These values are already known to the server; do not ask about "
+                            "them. Return the plan JSON object now, or ask only about something "
+                            "else that is still missing.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ]
             continue
-        await _record(operator, text, model=model, attempt=attempt,
-                      outcome="clarify" if reply.needs_clarification else "ok", usage=usage,
-                      cost=cost, error="unrequested_action" if reply.guard_question else "",
-                      finish_reason=finish, context_version=ctx["version"], info=info)
-        meta = {"model": model, "attempts": attempt, "prompt_tokens": totals[0],
-                "completion_tokens": totals[1], "est_cost_usd": total_cost,
-                "cost_calibrated": False, "context_version": ctx["version"],
-                "catalog_offered": len(info["offered"]), "catalog_total": info["total"],
-                "applied_defaults": list(reply.applied_defaults),
-                "dropped_steps": list(reply.dropped_steps),
-                "attachments_used": list(reply.attachments_used),
-                "catalog_steps": list(reply.catalog_steps),
-                "guard_question": reply.guard_question,
-                "explanation_source": planner_guard.EXPLANATION_SOURCE,
-                "transport_retries": transport_retries, "clarify_repairs": clarify_repairs}
+        await _record(
+            operator,
+            text,
+            model=model,
+            attempt=attempt,
+            outcome="clarify" if reply.needs_clarification else "ok",
+            usage=usage,
+            cost=cost,
+            error="unrequested_action" if reply.guard_question else "",
+            finish_reason=finish,
+            context_version=ctx["version"],
+            info=info,
+        )
+        meta = {
+            "model": model,
+            "attempts": attempt,
+            "prompt_tokens": totals[0],
+            "completion_tokens": totals[1],
+            "est_cost_usd": total_cost,
+            "cost_calibrated": False,
+            "context_version": ctx["version"],
+            "catalog_offered": len(info["offered"]),
+            "catalog_total": info["total"],
+            "applied_defaults": list(reply.applied_defaults),
+            "dropped_steps": list(reply.dropped_steps),
+            "attachments_used": list(reply.attachments_used),
+            "catalog_steps": list(reply.catalog_steps),
+            "guard_question": reply.guard_question,
+            "explanation_source": planner_guard.EXPLANATION_SOURCE,
+            "transport_retries": transport_retries,
+            "clarify_repairs": clarify_repairs,
+        }
         return PlannerOutcome(reply, ctx, meta)
     raise PlannerRejected("planner_bad_output", last_error)
 
@@ -920,6 +1293,7 @@ _PROGRAMMING_ERRORS = (TypeError, AttributeError, KeyError, AssertionError, Name
 
 def _is_transient(exc: BaseException) -> bool:
     from app.services.gpt_api import GptApiError
+
     if isinstance(exc, GptApiError):
         return exc.retryable
     return not isinstance(exc, _PROGRAMMING_ERRORS)
@@ -928,9 +1302,15 @@ def _is_transient(exc: BaseException) -> bool:
 def _track(model: str, usage: Any, started: float, exc: Exception | None) -> None:
     try:
         from app.services.observation import _track_api_cost
-        _track_api_cost(model=model, usage=usage, duration_sec=time.monotonic() - started,
-                        provider="vibecode", status_code=0 if exc else 200,
-                        error_message=describe_exception(exc) if exc else "")
+
+        _track_api_cost(
+            model=model,
+            usage=usage,
+            duration_sec=time.monotonic() - started,
+            provider="vibecode",
+            status_code=0 if exc else 200,
+            error_message=describe_exception(exc) if exc else "",
+        )
     except Exception:
         pass
 
@@ -938,6 +1318,12 @@ def _track(model: str, usage: Any, started: float, exc: Exception | None) -> Non
 async def link_plan(plan_id: str, operator: str, outcome: PlannerOutcome) -> None:
     await save_plan_context(plan_id, source="planner", ctx=outcome.context)
     async with store.sessions()() as s:
-        store.append_history(s, event="planner_plan_linked", plan_id=plan_id, actor=operator,
-                             outcome="proposed", params=outcome.meta)
+        store.append_history(
+            s,
+            event="planner_plan_linked",
+            plan_id=plan_id,
+            actor=operator,
+            outcome="proposed",
+            params=outcome.meta,
+        )
         await s.commit()

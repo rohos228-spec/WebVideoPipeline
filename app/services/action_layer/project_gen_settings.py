@@ -11,13 +11,21 @@ from __future__ import annotations
 
 from typing import Any
 
-FIELDS: tuple[str, ...] = ("image_generator", "aspect_ratio", "image_resolution",
-                           "video_generator", "video_resolution")
+FIELDS: tuple[str, ...] = (
+    "image_generator",
+    "aspect_ratio",
+    "image_resolution",
+    "video_generator",
+    "video_resolution",
+)
 ASPECT_VAR = "ASPECT_RATIO_VIDEO"
 _FALLBACK_VIDEO = "veo_3_1_lite"
 
-ASPECT_SCHEMA = {"type": "string", "pattern": r"^\s*\d{1,2}\s*[:_xх]\s*\d{1,2}\s*$",
-                 "description": "Формат кадра, например 9:16 (вертикальный) или 16:9"}
+ASPECT_SCHEMA = {
+    "type": "string",
+    "pattern": r"^\s*\d{1,2}\s*[:_xх]\s*\d{1,2}\s*$",
+    "description": "Формат кадра, например 9:16 (вертикальный) или 16:9",
+}
 
 
 def _video_default() -> str:
@@ -66,8 +74,14 @@ def aspect_slug(aid: str) -> str:
 def validation_error(params: dict) -> str | None:
     """Русское сообщение, если названное значение не из списков Studio."""
     from app.generation_options import (
-        ASPECT_RATIOS, IMAGE_GENERATORS, IMAGE_GENERATORS_BY_ID, VIDEO_GENERATORS,
-        VIDEO_GENERATORS_BY_ID, VIDEO_RESOLUTIONS_BY_ID, allowed_image_resolution_ids)
+        ASPECT_RATIOS,
+        IMAGE_GENERATORS,
+        IMAGE_GENERATORS_BY_ID,
+        VIDEO_GENERATORS,
+        VIDEO_GENERATORS_BY_ID,
+        VIDEO_RESOLUTIONS_BY_ID,
+        allowed_image_resolution_ids,
+    )
 
     if params.get("aspect_ratio") is not None and aspect_id(params["aspect_ratio"]) is None:
         allowed = ", ".join(c.outsee_slug for c in ASPECT_RATIOS)
@@ -85,12 +99,13 @@ def validation_error(params: dict) -> str | None:
         gen = img or default_settings()["image_generator"]
         allowed_res = allowed_image_resolution_ids(gen)
         if str(res).lower() not in allowed_res:
-            return (f"разрешение картинок «{res}» недоступно для {gen}, доступно: "
-                    f"{', '.join(r.upper() for r in allowed_res)}")
+            return (
+                f"разрешение картинок «{res}» недоступно для {gen}, доступно: "
+                f"{', '.join(r.upper() for r in allowed_res)}"
+            )
     vres = params.get("video_resolution")
     if vres is not None and str(vres).lower() not in VIDEO_RESOLUTIONS_BY_ID:
-        return (f"разрешение видео «{vres}» не поддерживается, доступно: "
-                f"{', '.join(VIDEO_RESOLUTIONS_BY_ID)}")
+        return f"разрешение видео «{vres}» не поддерживается, доступно: {', '.join(VIDEO_RESOLUTIONS_BY_ID)}"
     return None
 
 
@@ -107,12 +122,14 @@ def explicit_settings(params: dict) -> dict[str, str]:
         if params.get(key) is None:
             continue
         val = str(params[key]).strip()
-        out[key] = aspect_id(val) if key == "aspect_ratio" else (
-            val.lower() if key.endswith("_resolution") else val)
+        out[key] = (
+            aspect_id(val) if key == "aspect_ratio" else (val.lower() if key.endswith("_resolution") else val)
+        )
     if "image_generator" in out and "image_resolution" not in out:
         # Смена модели без названного разрешения: сервер клампит только в PATCH.
         out["image_resolution"] = clamp_image_resolution_id(
-            out["image_generator"], default_settings()["image_resolution"])
+            out["image_generator"], default_settings()["image_resolution"]
+        )
     return out
 
 
@@ -135,5 +152,8 @@ def prompt_overrides_with_aspect(current: Any, aid: str) -> dict:
 
 
 async def sync_prompt_aspect(ctx, pid: Any, current_overrides: Any, aid: str) -> None:
-    await ctx.call("PATCH", f"/projects/{pid}",
-                   json={"prompt_overrides": prompt_overrides_with_aspect(current_overrides, aid)})
+    await ctx.call(
+        "PATCH",
+        f"/projects/{pid}",
+        json={"prompt_overrides": prompt_overrides_with_aspect(current_overrides, aid)},
+    )

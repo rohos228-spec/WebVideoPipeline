@@ -199,7 +199,11 @@ class ActionResult(BaseModel):
             return self
         if self.error is not None or self.result is None:
             raise ValueError("ok и approval_required: нужен result и пустой error")
-        if self.status == "ok" and isinstance(self.result, SoftDeleteResult) and self.result.marked is not True:
+        if (
+            self.status == "ok"
+            and isinstance(self.result, SoftDeleteResult)
+            and self.result.marked is not True
+        ):
             raise ValueError("ok требует marked=true")
         return self
 
@@ -212,7 +216,11 @@ def _restore_metadata() -> dict[str, ActionMetadata]:
     )
     return {
         name: ActionMetadata(
-            name=name, risk=risk, read_only=read_only, destructive=destructive, paid=paid,
+            name=name,
+            risk=risk,
+            read_only=read_only,
+            destructive=destructive,
+            paid=paid,
         )
         for name, risk, read_only, destructive, paid in rows
     }

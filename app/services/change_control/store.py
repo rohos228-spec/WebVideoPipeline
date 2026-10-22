@@ -18,8 +18,7 @@ ST_REJECTED = "rejected"
 ST_ROLLED_BACK = "rolled_back"
 ST_FAILED = "failed"
 ST_DEVELOPER_REVIEW = "developer_review"
-STATUSES = (ST_PROPOSED, ST_APPROVED, ST_APPLIED, ST_REJECTED, ST_ROLLED_BACK, ST_FAILED,
-            ST_DEVELOPER_REVIEW)
+STATUSES = (ST_PROPOSED, ST_APPROVED, ST_APPLIED, ST_REJECTED, ST_ROLLED_BACK, ST_FAILED, ST_DEVELOPER_REVIEW)
 
 VK_BASELINE = "baseline"
 VK_APPLY = "apply"
@@ -71,8 +70,10 @@ class ChangeProposal(Base):
 
 class ConfigVersion(Base):
     __tablename__ = "config_versions"
-    __table_args__ = (UniqueConstraint("target", "version", name="uq_config_version"),
-                      Index("ix_config_versions_proposal", "source_proposal_id"))
+    __table_args__ = (
+        UniqueConstraint("target", "version", name="uq_config_version"),
+        Index("ix_config_versions_proposal", "source_proposal_id"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     target: Mapped[str] = mapped_column(String(240))
     version: Mapped[int] = mapped_column(Integer)
@@ -96,9 +97,11 @@ class ConfigPointer(Base):
 
 _TABLES = [ChangeProposal.__table__, ConfigVersion.__table__, ConfigPointer.__table__]
 
-_ADDED_COLUMNS = (("rejected_by", "rejected_by VARCHAR(120) DEFAULT ''"),
-                  ("reject_reason", "reject_reason TEXT DEFAULT ''"),
-                  ("rejected_at", "rejected_at DATETIME"))
+_ADDED_COLUMNS = (
+    ("rejected_by", "rejected_by VARCHAR(120) DEFAULT ''"),
+    ("reject_reason", "reject_reason TEXT DEFAULT ''"),
+    ("rejected_at", "rejected_at DATETIME"),
+)
 
 _TRIGGERS = (
     "CREATE TRIGGER IF NOT EXISTS config_versions_no_update BEFORE UPDATE ON "
@@ -109,8 +112,9 @@ _TRIGGERS = (
 
 
 async def ensure_change_control_schema(conn) -> None:
-    await conn.run_sync(lambda sync_conn: Base.metadata.create_all(
-        sync_conn, tables=_TABLES, checkfirst=True))
+    await conn.run_sync(
+        lambda sync_conn: Base.metadata.create_all(sync_conn, tables=_TABLES, checkfirst=True)
+    )
     if conn.dialect.name == "sqlite":
         for ddl in _TRIGGERS:
             await conn.exec_driver_sql(ddl)
@@ -118,4 +122,5 @@ async def ensure_change_control_schema(conn) -> None:
 
 def sessions():
     from app.services.action_layer import store as al_store
+
     return al_store.sessions()

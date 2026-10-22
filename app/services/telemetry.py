@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Sequence
+from typing import Any
 
 
 def incident_summary(incidents: Sequence[Any]) -> dict[str, Any]:
@@ -12,8 +12,9 @@ def incident_summary(incidents: Sequence[Any]) -> dict[str, Any]:
     by_status = Counter(i.status for i in incidents)
     by_severity = Counter(i.severity for i in incidents)
     resolved = sum(1 for i in incidents if i.status == "resolved_confirmed")
-    blocking_open = sum(1 for i in incidents
-        if i.status != "resolved_confirmed" and i.details.get("blocking", True))
+    blocking_open = sum(
+        1 for i in incidents if i.status != "resolved_confirmed" and i.details.get("blocking", True)
+    )
     return {
         "total": len(incidents),
         "by_type": dict(by_type),
@@ -70,7 +71,7 @@ def node_request_latency(events: Sequence[Any]) -> dict[str, Any]:
 COST_SOURCES = {
     "kie": "rates calibrated against Kie credit balance (2026-10-01)",
     "vibecode": "catalog list price from vibecode_models_snapshot.json (snapshot date unknown); "
-                "NOT calibrated against the vibecode.moe balance",
+    "NOT calibrated against the vibecode.moe balance",
 }
 
 
@@ -78,8 +79,10 @@ COST_SOURCE_PRICED_AT_WRITE = "api_tracker_hook (pre-priced at write time)"
 COST_SOURCE_LABELS_RU = {
     COST_SOURCE_PRICED_AT_WRITE: "сумма из журнала запросов: цена посчитана при записи каждого вызова",
     COST_SOURCES["kie"]: "тарифы откалиброваны по списанию кредитов Kie (2026-10-01)",
-    COST_SOURCES["vibecode"]: ("цена из снимка каталога vibecode_models_snapshot.json (дата снимка неизвестна); "
-                               "не откалибрована по балансу vibecode.moe"),
+    COST_SOURCES["vibecode"]: (
+        "цена из снимка каталога vibecode_models_snapshot.json (дата снимка неизвестна); "
+        "не откалибрована по балансу vibecode.moe"
+    ),
 }
 SPEND_SOURCE_LABELS_RU = {
     "planner": "планировщик команд",
@@ -147,15 +150,17 @@ def cost_summary(rows: Sequence[Any]) -> dict[str, Any]:
         failed = status >= 400 or status == 0
         if failed:
             failed_calls += 1
-        provider = by_provider.setdefault(_provider_key(row),
-            {"calls": 0, "cost_usd": 0.0, "unknown_cost_calls": 0})
+        provider = by_provider.setdefault(
+            _provider_key(row), {"calls": 0, "cost_usd": 0.0, "unknown_cost_calls": 0}
+        )
         provider["calls"] += 1
         provider["cost_usd"] += cost
         if not failed and _cost_unknown(row):
             provider["unknown_cost_calls"] += 1
             unknown_cost_calls += 1
-        slot = by_model.setdefault(model, {"calls": 0, "cost_usd": 0.0,
-            "prompt_tokens": 0, "completion_tokens": 0})
+        slot = by_model.setdefault(
+            model, {"calls": 0, "cost_usd": 0.0, "prompt_tokens": 0, "completion_tokens": 0}
+        )
         slot["calls"] += 1
         slot["cost_usd"] += cost
         slot["prompt_tokens"] += prompt
@@ -204,14 +209,21 @@ def _query_cost_rows_sync(project_id: int, since: datetime | None) -> list[dict[
 
 async def project_cost_summary(project_id: int, *, since: datetime | None = None) -> dict[str, Any]:
     import asyncio
+
     rows = await asyncio.to_thread(_query_cost_rows_sync, project_id, since)
     return cost_summary(rows)
 
 
 def budget_summary(control: Any) -> dict[str, Any]:
     if control is None:
-        return {"request_limit": None, "requests_used": None, "remaining": None,
-            "utilization": None, "held": None, "enabled": None}
+        return {
+            "request_limit": None,
+            "requests_used": None,
+            "remaining": None,
+            "utilization": None,
+            "held": None,
+            "enabled": None,
+        }
     remaining = control.request_limit - control.requests_used
     utilization = (control.requests_used / control.request_limit) if control.request_limit else None
     return {
@@ -236,9 +248,11 @@ def reconcile_summary(report: dict[str, Any] | None) -> dict[str, Any]:
         + (" (выше допуска)." if report["ledger_vs_tracker_flag"] else "."),
     ]
     if report["balance_reconciled"]:
-        lines.append(f"Сверок с балансом провайдера: {report['reconciliations_total']}, "
-                     f"с расхождением: {report['reconciliations_gap']}; "
-                     f"открытых инцидентов расхождения: {report['open_mismatch_incidents']}.")
+        lines.append(
+            f"Сверок с балансом провайдера: {report['reconciliations_total']}, "
+            f"с расхождением: {report['reconciliations_gap']}; "
+            f"открытых инцидентов расхождения: {report['open_mismatch_incidents']}."
+        )
     else:
         lines.append("Сверка с балансом провайдера не выполнялась: отклонение неизвестно.")
     return {"available": True, "lines_ru": lines, **report}
@@ -263,17 +277,21 @@ async def project_telemetry(session, project_id: int, *, since: datetime | None 
     decisions = (await session.scalars(decision_query)).all()
 
     event_query = select(ObservationEvent).where(
-        ObservationEvent.project_id == project_id,
-        ObservationEvent.kind.in_(("model_start", "model_end")))
+        ObservationEvent.project_id == project_id, ObservationEvent.kind.in_(("model_start", "model_end"))
+    )
     if since is not None:
         event_query = event_query.where(ObservationEvent.created_at >= since)
     events = (await session.scalars(event_query)).all()
 
-    controls = (await session.scalars(select(ActionExecutionControl).where(
-        ActionExecutionControl.project_id == project_id))).all()
+    controls = (
+        await session.scalars(
+            select(ActionExecutionControl).where(ActionExecutionControl.project_id == project_id)
+        )
+    ).all()
 
     try:
         from app.services import spend_reconcile
+
         reconcile = reconcile_summary(await spend_reconcile.project_report(session, project_id, since=since))
     except Exception:
         reconcile = reconcile_summary(None)

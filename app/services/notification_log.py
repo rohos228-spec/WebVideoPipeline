@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +17,17 @@ NOOP_ERROR_RU = "Telegram отключён (режим без бота): соо�
 TEXT_LIMIT = 2000
 ERROR_LIMIT = 500
 
-SEND_METHODS = frozenset({"send_message", "send_photo", "send_document", "send_video",
-                          "send_audio", "send_voice", "send_animation"})
+SEND_METHODS = frozenset(
+    {
+        "send_message",
+        "send_photo",
+        "send_document",
+        "send_video",
+        "send_audio",
+        "send_voice",
+        "send_animation",
+    }
+)
 
 NOTIFICATION_LOG_DDL = """
 CREATE TABLE IF NOT EXISTS notification_log (
@@ -65,18 +74,21 @@ def enabled() -> bool:
 
 def _db_path() -> Path:
     from app.settings import settings
+
     p = Path(settings.sqlite_path)
     return p if p.is_absolute() else Path.cwd() / p
 
 
 def on_postgres() -> bool:
     from app.settings import settings
+
     return settings.is_postgres
 
 
 def scope_key() -> str:
     """Ключ базы для кэшей «один раз на базу»: файл SQLite или URL Postgres."""
     from app.orchestrator.db.engine import target_key
+
     return target_key() if on_postgres() else str(_db_path())
 
 
@@ -87,6 +99,7 @@ def engine() -> Engine:
     создаёт первый писатель — ``ensure_sqlite_schema``.
     """
     from app.orchestrator.db.engine import get_engine
+
     return get_engine() if on_postgres() else get_engine(_db_path())
 
 
@@ -103,8 +116,10 @@ def ensure_sqlite_schema(eng: Engine, ddl: str, key: str, ensured: set[str]) -> 
     ensured.add(key)
 
 
-_INSERT_SQL = text(f"INSERT INTO notification_log ({', '.join(COLUMNS)}) "
-                   f"VALUES ({', '.join(':' + c for c in COLUMNS)}) RETURNING id")
+_INSERT_SQL = text(
+    f"INSERT INTO notification_log ({', '.join(COLUMNS)}) "
+    f"VALUES ({', '.join(':' + c for c in COLUMNS)}) RETURNING id"
+)
 
 
 def insert_row(con: Any, row: tuple) -> int:
@@ -114,25 +129,39 @@ def insert_row(con: Any, row: tuple) -> int:
 
 def _clip(value: Any, limit: int) -> str:
     from app.services.redact import redact_text
+
     s = "" if value is None else str(value)
     s = redact_text(s)
     return s if len(s) <= limit else s[: limit - 1] + "…"
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
+    return datetime.now(UTC).replace(tzinfo=None).isoformat(sep=" ")
 
 
-def log_notification(*, project_id: int | None = None, run_id: str | None = None,
-                     channel: str = CHANNEL_TELEGRAM, kind: str = "message", text: str | None = "",
-                     ok: bool = True, error: str | None = None) -> bool:
+def log_notification(
+    *,
+    project_id: int | None = None,
+    run_id: str | None = None,
+    channel: str = CHANNEL_TELEGRAM,
+    kind: str = "message",
+    text: str | None = "",
+    ok: bool = True,
+    error: str | None = None,
+) -> bool:
     if not enabled():
         return False
     try:
-        row = (_now(), int(project_id) if project_id is not None else None,
-               str(run_id) if run_id else None, str(channel)[:40] or CHANNEL_TELEGRAM,
-               str(kind)[:80] or "message", _clip(text, TEXT_LIMIT), 1 if ok else 0,
-               _clip(error, ERROR_LIMIT) if error else None)
+        row = (
+            _now(),
+            int(project_id) if project_id is not None else None,
+            str(run_id) if run_id else None,
+            str(channel)[:40] or CHANNEL_TELEGRAM,
+            str(kind)[:80] or "message",
+            _clip(text, TEXT_LIMIT),
+            1 if ok else 0,
+            _clip(error, ERROR_LIMIT) if error else None,
+        )
         eng = engine()
         ensure_sqlite_schema(eng, NOTIFICATION_LOG_DDL, scope_key(), _ensured)
         with eng.connect() as con:
@@ -178,15 +207,24 @@ def _text_of(method: str, args: tuple, kwargs: dict) -> str:
 async def _to_chat(kind: str, text: str, project_id: int | None) -> None:
     try:
         from app.services import chat_notice
+
         if kind in chat_notice.TELEGRAM_KINDS:
             await chat_notice.from_notify(kind, text, project_id)
     except Exception:
         logger.debug("notification_log: chat copy skipped ({})", kind)
 
 
-async def notify(bot: Any, method: str, chat_id: Any, *args: Any, kind: str | None = None,
-                 project_id: int | None = None, run_id: str | None = None,
-                 channel: str = CHANNEL_TELEGRAM, **kwargs: Any) -> Any:
+async def notify(
+    bot: Any,
+    method: str,
+    chat_id: Any,
+    *args: Any,
+    kind: str | None = None,
+    project_id: int | None = None,
+    run_id: str | None = None,
+    channel: str = CHANNEL_TELEGRAM,
+    **kwargs: Any,
+) -> Any:
     if method not in SEND_METHODS:
         raise ValueError(f"notify: неизвестный метод отправки {method!r}")
     text = _text_of(method, (chat_id, *args), kwargs)
@@ -194,18 +232,40 @@ async def notify(bot: Any, method: str, chat_id: Any, *args: Any, kind: str | No
     await _to_chat(k, text, project_id)
     if type(bot).__name__ == "NoopBot":
         result = await getattr(bot, method)(chat_id, *args, **kwargs)
-        await asyncio.to_thread(log_notification, project_id=project_id, run_id=run_id, channel=CHANNEL_OFF,
-                                kind=k, text=text, ok=False, error=NOOP_ERROR_RU)
+        await asyncio.to_thread(
+            log_notification,
+            project_id=project_id,
+            run_id=run_id,
+            channel=CHANNEL_OFF,
+            kind=k,
+            text=text,
+            ok=False,
+            error=NOOP_ERROR_RU,
+        )
         return result
     try:
         result = await getattr(bot, method)(chat_id, *args, **kwargs)
     except BaseException as exc:
-        log_notification(project_id=project_id, run_id=run_id, channel=channel, kind=k, text=text,
-                         ok=False, error=f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__)
+        log_notification(
+            project_id=project_id,
+            run_id=run_id,
+            channel=channel,
+            kind=k,
+            text=text,
+            ok=False,
+            error=f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__,
+        )
         raise
     try:
-        await asyncio.to_thread(log_notification, project_id=project_id, run_id=run_id, channel=channel,
-                                kind=k, text=text, ok=True)
+        await asyncio.to_thread(
+            log_notification,
+            project_id=project_id,
+            run_id=run_id,
+            channel=channel,
+            kind=k,
+            text=text,
+            ok=True,
+        )
     except Exception:
         logger.exception("notification_log: сбой записи после отправки ({})", k)
     return result

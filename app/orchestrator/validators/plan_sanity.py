@@ -281,12 +281,7 @@ def _core_approved_high_destructive(context: dict[str, Any], action: str) -> boo
         approved_action = getattr(approval, "action", None)
     else:
         return False
-    return (
-        risk == "high"
-        and destructive is True
-        and granted is True
-        and approved_action == action
-    )
+    return risk == "high" and destructive is True and granted is True and approved_action == action
 
 
 def _action_deletes(action: str) -> bool:
@@ -303,10 +298,7 @@ def _params_delete(params: Any) -> bool:
         if _action_deletes(str(key)):
             return True
     op = str(params.get("op") or params.get("operation") or "").lower()
-    target = " ".join(
-        str(params.get(key) or "")
-        for key in ("target", "entity", "kind", "what")
-    ).lower()
+    target = " ".join(str(params.get(key) or "") for key in ("target", "entity", "kind", "what")).lower()
     if op in {"delete", "remove", "drop"} and any(
         word in target for word in ("scene", "shot", "frame", "сцен", "кадр")
     ):
@@ -348,9 +340,7 @@ def _schema_errors(
 ) -> list[dict[str, Any]]:
     from_registry = _registry_validate(registry, action, params)
     if from_registry is not None:
-        return [
-            _err(index, action, "schema", field="", message=message) for message in from_registry
-        ]
+        return [_err(index, action, "schema", field="", message=message) for message in from_registry]
     schemas = context.get("schemas") if isinstance(context.get("schemas"), dict) else None
     spec = None if schemas is None else schemas.get(action)
     if spec is None:
@@ -368,7 +358,11 @@ def _schema_errors(
         if not _type_ok(params[field], rule):
             errors.append(_err(index, action, "bad_type", field=field, expected=rule.get("type")))
     mode = params.get("patch_mode")
-    if action == "edit_node_prompt" and mode in _SECTION_MODES and not str(params.get("section_anchor") or "").strip():
+    if (
+        action == "edit_node_prompt"
+        and mode in _SECTION_MODES
+        and not str(params.get("section_anchor") or "").strip()
+    ):
         errors.append(_err(index, action, "missing_param", field="section_anchor"))
     return errors
 
@@ -407,7 +401,9 @@ def _type_ok(value: Any, rule: dict[str, Any]) -> bool:
     return True
 
 
-def _field(type_name: str, *, required: bool = False, pattern: str | None = None, enum: set[str] | None = None) -> dict[str, Any]:
+def _field(
+    type_name: str, *, required: bool = False, pattern: str | None = None, enum: set[str] | None = None
+) -> dict[str, Any]:
     rule: dict[str, Any] = {"type": type_name, "required": required}
     if pattern:
         rule["pattern"] = pattern
