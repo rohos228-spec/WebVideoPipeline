@@ -17,6 +17,7 @@ from decimal import Decimal
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from app.models import CreditEntry, LlmCall, MediaCall, Project
 from app.web.api import create_app
@@ -295,7 +296,8 @@ async def test_llm_unknown_price_is_stored_as_null(env) -> None:
     assert body["totals"]["legacy_zero_calls"] == 1
 
 
-async def test_overview_by_kind(env) -> None:    body = (
+async def test_overview_by_kind(env) -> None:
+    body = (
         await env["client"].get(
             "/api/admin/costs/overview", params=_period(), headers=env["admin"].auth
         )
