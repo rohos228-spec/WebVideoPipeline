@@ -1,0 +1,64 @@
+name: VPS: защита SSH (разово)
+
+# Разовая операция: на сервер постоянно ломятся перебором пароля, из-за этого
+# sshd перестаёт отдавать баннер и «зависает» вход (TCP открыт, ответа нет).
+# Скрипт ставит лимиты sshd и fail2ban. Запускается вручную.
+on:
+  workflow_dispatch:
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ключ SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Лимиты sshd и fail2ban
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- '
+            set -e
+            echo "=== было ==="
+            ssh -V
+            grep -hE "^(LoginGraceTime|MaxAuthTries|MaxStartups)" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null || echo "лимитов не задано"
+
+            cat > /etc/ssh/sshd_config.d/99-limits.conf <<EOF
+            # Защита от перебора: не держать полуоткрытые сессии и не давать
+            # одному адресу забить очередь неаутентифицированных подключений.
+            LoginGraceTime 10
+            MaxAuthTries 3
+            MaxStartups 10:30:60
+            EOF
+            chmod 644 /etc/ssh/sshd_config.d/99-limits.conf
+            sshd -t
+            systemctl reload ssh 2>/dev/null || systemctl reload sshd
+            echo "=== лимиты применены ==="
+            grep -hE "^(LoginGraceTime|MaxAuthTries|MaxStartups)" /etc/ssh/sshd_config.d/99-limits.conf
+
+            if ! command -v fail2ban-client >/dev/null 2>&1; then
+              echo "=== ставлю fail2ban ==="
+              DEBIAN_FRONTEND=noninteractive apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fail2ban
+            fi
+            cat > /etc/fail2ban/jail.d/sshd.local <<EOF
+            [sshd]
+            enabled = true
+            maxretry = 5
+            findtime = 10m
+            bantime = 1h
+            ignoreip = 127.0.0.1/8 ::1
+            EOF
+            systemctl enable fail2ban >/dev/null 2>&1 || true
+            systemctl restart fail2ban
+            sleep 3
+            echo "=== fail2ban ==="
+            fail2ban-client status || true
+            fail2ban-client status sshd 2>/dev/null | sed -n "1,12p" || true
+          '
