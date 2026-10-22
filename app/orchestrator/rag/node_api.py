@@ -11,7 +11,6 @@ reindex: нода пропускается, пишется warning, ключ з�
 from __future__ import annotations
 
 import logging
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +40,7 @@ def skipped_node_keys() -> tuple[str, ...]:
 
 def resolve_node(
     node_key: str,
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     templates_root: Path | None = None,
 ) -> Any | None:
@@ -65,7 +64,7 @@ def _is_missing_node(exc: BaseException, missing: type[BaseException]) -> bool:
 
 def get_node(
     node_key: str,
-    conn: sqlite3.Connection,
+    conn: Any,
     *,
     templates_root: Path | None = None,
 ) -> Any:

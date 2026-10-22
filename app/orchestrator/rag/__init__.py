@@ -27,10 +27,12 @@ def _rerank_disabled() -> bool:
 
 def _runtime_sources() -> dict[str, object]:
     """Ноды и история читаются из проектной базы, а не из пустого MemoryNodeStore."""
+    from app.orchestrator.db.engine import APP_DATABASE
     from app.orchestrator.rag.node_store import SqliteNodeStore
     from app.settings import settings
 
-    project_db = Path(settings.sqlite_path)
+    # На Postgres файла нет: история и ноды читаются из самой базы приложения.
+    project_db: object = APP_DATABASE if settings.is_postgres else Path(settings.sqlite_path)
     return {"project_db": project_db, "node_store": SqliteNodeStore(project_db)}
 
 

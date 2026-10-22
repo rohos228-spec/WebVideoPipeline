@@ -107,6 +107,9 @@ def _magic_ok(ext: str, head: bytes, content: bytes) -> bool:
 
 
 def _attachment_row(real: Path) -> tuple[bool, str, int]:
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.orchestrator.db.engine import read_rows, studio_read
     from app.services.action_layer.attachments import ATTACH_DIR
     from app.settings import settings
 
@@ -115,19 +118,17 @@ def _attachment_row(real: Path) -> tuple[bool, str, int]:
     if att_root not in real.parents:
         return False, "", 0
     rel = real.relative_to(root).as_posix()
+    # База приложения на чтение: файл SQLite (mode=ro) или Postgres по DATABASE_URL.
     try:
-        uri = Path(settings.sqlite_path).resolve().as_uri() + "?mode=ro"
-        con = sqlite3.connect(uri, uri=True, timeout=5)
-        try:
-            row = con.execute("SELECT sha256, size FROM action_layer_attachments WHERE rel_path = ?",
-                              (rel,)).fetchone()
-        finally:
-            con.close()
-    except (sqlite3.Error, OSError):
-        row = None
+        with studio_read(None) as con:
+            rows = [] if con is None else read_rows(
+                con, "SELECT sha256, size FROM action_layer_attachments WHERE rel_path = :rel", {"rel": rel})
+    except (sqlite3.Error, SQLAlchemyError, OSError):
+        rows = []
+    row = rows[0] if rows else None
     if not row:
         raise UploadRejected("вложение не найдено в реестре: загрузите файл заново через вложения")
-    return True, str(row[0] or ""), int(row[1] or 0)
+    return True, str(row["sha256"] or ""), int(row["size"] or 0)
 
 
 def verify_attachment_binding(real: Path, *, content: bytes | None = None, size: int | None = None) -> None:

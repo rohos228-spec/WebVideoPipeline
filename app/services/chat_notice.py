@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from loguru import logger
+from sqlalchemy import text as sa_text
+from sqlalchemy.engine import Connection
 
 from app.services import notification_log
 
@@ -128,17 +129,25 @@ def tidy_text(text: Any) -> str:
     return "\n".join(lines)
 
 
-def _connect() -> sqlite3.Connection:
-    path = notification_log._db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(path), timeout=5)
-    con.execute("PRAGMA busy_timeout=5000")
-    key = str(path)
-    if key not in _ensured:
-        con.executescript(CHAT_NOTICES_DDL)
-        con.executescript(notification_log.NOTIFICATION_LOG_DDL)
-        _ensured.add(key)
-    return con
+# Ключ advisory-блокировки Postgres для записи уведомлений: проверка дубля и
+# вставка должны идти одной критической секцией и между процессами тоже.
+_PG_WRITE_LOCK_KEY = 0x63686174  # "chat"
+
+
+def _connect() -> Connection:
+    """Соединение SQLAlchemy к базе приложения (SQLite-файл или Postgres)."""
+    eng = notification_log.engine()
+    notification_log.ensure_sqlite_schema(
+        eng, CHAT_NOTICES_DDL + notification_log.NOTIFICATION_LOG_DDL, notification_log.scope_key(), _ensured)
+    return eng.connect()
+
+
+def _begin_exclusive(con: Connection) -> None:
+    """Писатель один на базу: ``BEGIN IMMEDIATE`` на SQLite, advisory lock на Postgres."""
+    if con.dialect.name == "sqlite":
+        con.exec_driver_sql("BEGIN IMMEDIATE")
+    else:
+        con.execute(sa_text("SELECT pg_advisory_xact_lock(:key)"), {"key": _PG_WRITE_LOCK_KEY})
 
 
 def clean_actions(actions: Any) -> list[dict]:
@@ -177,7 +186,7 @@ def clean_actions(actions: Any) -> list[dict]:
     return out
 
 
-def _row_to_notice(r: sqlite3.Row | dict) -> dict:
+def _row_to_notice(r: Any) -> dict:
     from app.services.plain_ru import plain_ru
     d = dict(r)
     try:
@@ -191,13 +200,18 @@ def _row_to_notice(r: sqlite3.Row | dict) -> dict:
             "read": bool(d.get("read_at")), "read_at": _iso(d.get("read_at"))}
 
 
-def _dedup_hit(con: sqlite3.Connection, dedup_key: str, window_s: int, now: datetime) -> bool:
+def _dedup_hit(con: Connection, dedup_key: str, window_s: int, now: datetime) -> bool:
     if window_s and window_s > 0:
-        row = con.execute("SELECT 1 FROM chat_notices WHERE dedup_key = ? AND ts >= ? LIMIT 1",
-                          (dedup_key, _ts(now - timedelta(seconds=window_s)))).fetchone()
+        row = con.execute(sa_text("SELECT 1 FROM chat_notices WHERE dedup_key = :key AND ts >= :since LIMIT 1"),
+                          {"key": dedup_key, "since": _ts(now - timedelta(seconds=window_s))}).fetchone()
     else:
-        row = con.execute("SELECT 1 FROM chat_notices WHERE dedup_key = ? LIMIT 1", (dedup_key,)).fetchone()
+        row = con.execute(sa_text("SELECT 1 FROM chat_notices WHERE dedup_key = :key LIMIT 1"),
+                          {"key": dedup_key}).fetchone()
     return row is not None
+
+
+def _notice_row(con: Connection, notice_id: int) -> Any:
+    return con.execute(sa_text("SELECT * FROM chat_notices WHERE id = :id"), {"id": int(notice_id)}).mappings().fetchone()
 
 
 def _write(*, project_id, level, kind, title, text, dedup_key, window_s, actions, run_id) -> tuple[str, dict | None]:
@@ -206,8 +220,7 @@ def _write(*, project_id, level, kind, title, text, dedup_key, window_s, actions
     with _WRITE_LOCK:
         con = _connect()
         try:
-            con.row_factory = sqlite3.Row
-            con.execute("BEGIN IMMEDIATE")
+            _begin_exclusive(con)
             if dedup_key and _dedup_hit(con, dedup_key, window_s, now):
                 con.rollback()
                 return "deduped", None
@@ -217,20 +230,18 @@ def _write(*, project_id, level, kind, title, text, dedup_key, window_s, actions
             log_id = None
             if notification_log.enabled():
                 body = text if text.startswith(title.rstrip(".")) else (f"{title}. {text}" if text else title)
-                cur = con.execute(
-                    f"INSERT INTO notification_log ({', '.join(notification_log.COLUMNS)}) "
-                    f"VALUES ({', '.join('?' * len(notification_log.COLUMNS))})",
-                    (ts, project_id, str(run_id) if run_id else None, CHANNEL_CHAT, kind,
-                     body[: notification_log.TEXT_LIMIT], 1, None))
-                log_id = cur.lastrowid
-            cur = con.execute(
-                "INSERT INTO chat_notices (ts, project_id, log_id, level, kind, title, text, dedup_key, actions) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (ts, project_id, log_id, level, kind, title, text, dedup_key,
-                 json.dumps(actions, ensure_ascii=False)))
-            notice_id = cur.lastrowid
+                log_id = notification_log.insert_row(
+                    con, (ts, project_id, str(run_id) if run_id else None, CHANNEL_CHAT, kind,
+                          body[: notification_log.TEXT_LIMIT], 1, None))
+            notice_id = int(con.execute(
+                sa_text("INSERT INTO chat_notices (ts, project_id, log_id, level, kind, title, text, dedup_key, actions) "
+                     "VALUES (:ts, :project_id, :log_id, :level, :kind, :title, :text, :dedup_key, :actions) "
+                     "RETURNING id"),
+                {"ts": ts, "project_id": project_id, "log_id": log_id, "level": level, "kind": kind,
+                 "title": title, "text": text, "dedup_key": dedup_key,
+                 "actions": json.dumps(actions, ensure_ascii=False)}).scalar_one())
             con.commit()
-            row = con.execute("SELECT * FROM chat_notices WHERE id = ?", (notice_id,)).fetchone()
+            row = _notice_row(con, notice_id)
             return "written", _row_to_notice(row)
         except Exception:
             con.rollback()
@@ -240,7 +251,7 @@ def _write(*, project_id, level, kind, title, text, dedup_key, window_s, actions
 
 
 def _scope() -> str:
-    return str(notification_log._db_path())
+    return notification_log.scope_key()
 
 
 def _seen_recently(dedup_key: str, window_s: int) -> bool:
@@ -334,28 +345,26 @@ def notice_soon(*args: Any, **kwargs: Any) -> asyncio.Task | None:
 
 def _list_sync(project_id: int | None, since_id: int, limit: int, include_global: bool,
                unread_only: bool) -> list[dict]:
-    path = notification_log._db_path()
-    if not path.exists():
+    if not notification_log.on_postgres() and not notification_log._db_path().exists():
         return []
     con = _connect()
     try:
-        con.row_factory = sqlite3.Row
-        where = ["id > ?"]
-        args: list = [int(since_id)]
+        where = ["id > :since_id"]
+        args: dict[str, Any] = {"since_id": int(since_id), "limit": int(limit)}
         if project_id is not None:
             if include_global:
-                where.append("(project_id = ? OR project_id IS NULL)")
+                where.append("(project_id = :project_id OR project_id IS NULL)")
             else:
-                where.append("project_id = ?")
-            args.append(int(project_id))
+                where.append("project_id = :project_id")
+            args["project_id"] = int(project_id)
         if unread_only:
             where.append("read_at IS NULL")
         if since_id > 0:
-            sql = f"SELECT * FROM chat_notices WHERE {' AND '.join(where)} ORDER BY id ASC LIMIT ?"
-            rows = list(con.execute(sql, [*args, int(limit)]))
+            sql = f"SELECT * FROM chat_notices WHERE {' AND '.join(where)} ORDER BY id ASC LIMIT :limit"
+            rows = list(con.execute(sa_text(sql), args).mappings())
         else:
-            sql = f"SELECT * FROM chat_notices WHERE {' AND '.join(where)} ORDER BY id DESC LIMIT ?"
-            rows = list(reversed(list(con.execute(sql, [*args, int(limit)]))))
+            sql = f"SELECT * FROM chat_notices WHERE {' AND '.join(where)} ORDER BY id DESC LIMIT :limit"
+            rows = list(reversed(list(con.execute(sa_text(sql), args).mappings())))
         return [_row_to_notice(r) for r in rows]
     finally:
         con.close()
@@ -371,11 +380,10 @@ def _mark_sync(notice_id: int) -> dict | None:
     with _WRITE_LOCK:
         con = _connect()
         try:
-            con.row_factory = sqlite3.Row
-            con.execute("UPDATE chat_notices SET read_at = ? WHERE id = ? AND read_at IS NULL",
-                        (_ts(_now()), int(notice_id)))
+            con.execute(sa_text("UPDATE chat_notices SET read_at = :at WHERE id = :id AND read_at IS NULL"),
+                        {"at": _ts(_now()), "id": int(notice_id)})
             con.commit()
-            row = con.execute("SELECT * FROM chat_notices WHERE id = ?", (int(notice_id),)).fetchone()
+            row = _notice_row(con, notice_id)
             return _row_to_notice(row) if row is not None else None
         finally:
             con.close()

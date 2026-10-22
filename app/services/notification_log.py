@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from sqlalchemy import Engine, text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 CHANNEL_TELEGRAM = "telegram"
 CHANNEL_OFF = "telegram_off"
@@ -68,6 +69,49 @@ def _db_path() -> Path:
     return p if p.is_absolute() else Path.cwd() / p
 
 
+def on_postgres() -> bool:
+    from app.settings import settings
+    return settings.is_postgres
+
+
+def scope_key() -> str:
+    """Ключ базы для кэшей «один раз на базу»: файл SQLite или URL Postgres."""
+    from app.orchestrator.db.engine import target_key
+    return target_key() if on_postgres() else str(_db_path())
+
+
+def engine() -> Engine:
+    """База приложения: Postgres по ``DATABASE_URL`` или файл ``_db_path()``.
+
+    На Postgres таблицы создаёт alembic (ревизия 0018); на SQLite их по-прежнему
+    создаёт первый писатель — ``ensure_sqlite_schema``.
+    """
+    from app.orchestrator.db.engine import get_engine
+    return get_engine() if on_postgres() else get_engine(_db_path())
+
+
+def ensure_sqlite_schema(eng: Engine, ddl: str, key: str, ensured: set[str]) -> None:
+    """``executescript`` с DDL один раз на файл. На Postgres — ничего."""
+    if on_postgres() or key in ensured:
+        return
+    raw = eng.raw_connection()
+    try:
+        dbapi: Any = raw.driver_connection
+        dbapi.executescript(ddl)
+    finally:
+        raw.close()
+    ensured.add(key)
+
+
+_INSERT_SQL = text(f"INSERT INTO notification_log ({', '.join(COLUMNS)}) "
+                   f"VALUES ({', '.join(':' + c for c in COLUMNS)}) RETURNING id")
+
+
+def insert_row(con: Any, row: tuple) -> int:
+    """Строка журнала в открытой транзакции. Возвращает id (``RETURNING``)."""
+    return int(con.execute(_INSERT_SQL, dict(zip(COLUMNS, row, strict=True))).scalar())
+
+
 def _clip(value: Any, limit: int) -> str:
     from app.services.redact import redact_text
     s = "" if value is None else str(value)
@@ -89,20 +133,11 @@ def log_notification(*, project_id: int | None = None, run_id: str | None = None
                str(run_id) if run_id else None, str(channel)[:40] or CHANNEL_TELEGRAM,
                str(kind)[:80] or "message", _clip(text, TEXT_LIMIT), 1 if ok else 0,
                _clip(error, ERROR_LIMIT) if error else None)
-        path = _db_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        con = sqlite3.connect(str(path), timeout=5)
-        try:
-            con.execute("PRAGMA busy_timeout=5000")
-            key = str(path)
-            if key not in _ensured:
-                con.executescript(NOTIFICATION_LOG_DDL)
-                _ensured.add(key)
-            con.execute(f"INSERT INTO notification_log ({', '.join(COLUMNS)}) "
-                        f"VALUES ({', '.join('?' * len(COLUMNS))})", row)
+        eng = engine()
+        ensure_sqlite_schema(eng, NOTIFICATION_LOG_DDL, scope_key(), _ensured)
+        with eng.connect() as con:
+            insert_row(con, row)
             con.commit()
-        finally:
-            con.close()
     except Exception as exc:
         with _LOCK:
             _STATS["skipped"] += 1
@@ -115,25 +150,20 @@ def log_notification(*, project_id: int | None = None, run_id: str | None = None
 
 
 def list_rows(limit: int = 100, project_id: int | None = None) -> list[dict]:
-    path = _db_path()
-    if not path.exists():
+    if not on_postgres() and not _db_path().exists():
         return []
-    con = sqlite3.connect(str(path), timeout=5)
-    try:
-        con.row_factory = sqlite3.Row
-        sql = "SELECT id, " + ", ".join(COLUMNS) + " FROM notification_log"
-        args: list = []
-        if project_id is not None:
-            sql += " WHERE project_id = ?"
-            args.append(project_id)
-        sql += " ORDER BY id DESC LIMIT ?"
-        args.append(int(limit))
+    sql = "SELECT id, " + ", ".join(COLUMNS) + " FROM notification_log"
+    args: dict[str, Any] = {"limit": int(limit)}
+    if project_id is not None:
+        sql += " WHERE project_id = :project_id"
+        args["project_id"] = int(project_id)
+    sql += " ORDER BY id DESC LIMIT :limit"
+    with engine().connect() as con:
         try:
-            return [dict(r) for r in con.execute(sql, args)]
-        except sqlite3.OperationalError:
+            return [dict(r) for r in con.execute(text(sql), args).mappings()]
+        except (OperationalError, ProgrammingError):
+            # Таблицы ещё нет: на SQLite её создаёт первый писатель.
             return []
-    finally:
-        con.close()
 
 
 def _text_of(method: str, args: tuple, kwargs: dict) -> str:
