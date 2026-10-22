@@ -103,6 +103,15 @@ export function ProjectSidebar({
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const lastExpandedForProject = useRef<number | null>(null);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+
+  // Мастер нового проекта открывают не только кнопкой «+»: с лендинга приходит
+  // «Начать проект» событием studio-open-new-project.
+  useEffect(() => {
+    const openWizard = () => setWizardOpen(true);
+    window.addEventListener("studio-open-new-project", openWizard);
+    return () => window.removeEventListener("studio-open-new-project", openWizard);
+  }, []);
   const [newFolderName, setNewFolderName] = useState("");
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [queueDialogProject, setQueueDialogProject] = useState<ProjectSummary | null>(null);
@@ -115,8 +124,7 @@ export function ProjectSidebar({
     // Не чаще 10с; не стакуем poll, пока предыдущий ещё в полёте.
     refetchInterval: (q) => (q.state.fetchStatus === "fetching" ? false : 10_000),
     staleTime: 5_000,
-  });
-  const layout = useQuery({
+  });  const layout = useQuery({
     queryKey: ["sidebar-layout"],
     queryFn: api.getSidebarLayout,
     refetchInterval: (q) => (q.state.fetchStatus === "fetching" ? false : 10_000),
@@ -531,6 +539,8 @@ export function ProjectSidebar({
         <div className="flex items-center gap-1">
           <NewProjectWizard
             folderId={activeFolderId}
+            open={wizardOpen}
+            onOpenChange={setWizardOpen}
             onCreated={(p) => onSelect(p.id)}
             trigger={
               <Button

@@ -72,6 +72,18 @@ function HomePageInner() {
     return () => window.removeEventListener("studio-select-project", onSelectProject);
   }, [setSelectedProjectId]);
 
+  // «Начать проект» с лендинга приходит сюда как /?new=1 — открываем окно нового
+  // проекта и убираем параметр из адреса, чтобы F5 не открывал окно снова.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("new") !== "1") return;
+    window.history.replaceState(null, "", "/");
+    const t = window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("studio-open-new-project"));
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, []);
+
   const onSelectNode = (key: string | null) => {
     setSelectedNodeKey(key);
   };

@@ -46,12 +46,19 @@ export function NewProjectWizard({
   trigger,
   onCreated,
   folderId = null,
+  open: openProp,
+  onOpenChange,
 }: {
   trigger: React.ReactNode;
   onCreated: (p: ProjectSummary) => void;
   folderId?: string | null;
+  /** Внешнее управление: нужно, когда окно открывают не кнопкой «+», а событием. */
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = openProp ?? innerOpen;
+  const setOpen = onOpenChange ?? setInnerOpen;
   const [projectTitle, setProjectTitle] = useState("");
   const [topic, setTopic] = useState("");
   const [selectedTone, setSelectedTone] = useState<string | null>(null);

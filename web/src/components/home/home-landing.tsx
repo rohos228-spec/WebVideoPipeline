@@ -103,6 +103,41 @@ const Btn = ({ href, children, solid }: { href: string; children: ReactNode; sol
   </a>
 );
 
+/** «Начать проект»: ведёт в студию с открытым окном нового проекта.
+ *  Если вход требуется и сессии нет — сначала на страницу входа, с возвратом
+ *  в ту же студию. Раньше это была простая ссылка на «/», и у анонима она
+ *  выглядела мёртвой: студия отправляла его обратно на лендинг. */
+function StartProjectBtn() {
+  const [busy, setBusy] = useState(false);
+  async function go(ev: React.MouseEvent<HTMLAnchorElement>) {
+    ev.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    try {
+      const st = await fetch("/api/auth/status", { credentials: "same-origin" })
+        .then((r) => r.json())
+        .catch(() => null);
+      const required = Boolean(st?.auth_required || st?.site_auth_required);
+      if (required) {
+        const probe = await fetch("/api/projects", { credentials: "same-origin" });
+        if (probe.status === 401 || probe.status === 403) {
+          window.location.href = "/login?next=%2F%3Fnew%3D1";
+          return;
+        }
+      }
+      window.location.href = "/?new=1";
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <a href="/?new=1" onClick={go} data-testid="start-project"
+      className="inline-flex h-14 items-center rounded-2xl bg-[#2bb8a0]/25 px-8 text-lg font-medium text-[#bff3e8] ring-1 ring-[#2bb8a0]/40 transition duration-300 hover:bg-[#2bb8a0]/35">
+      Начать проект
+    </a>
+  );
+}
+
 const PlanCard = ({ p, i }: { p: Plan; i: number }) => (
   <Reveal delay={i * 70} className="h-full">
     <div className={`group flex h-full flex-col rounded-[1.6rem] p-6 ring-1 transition duration-300 hover:-translate-y-1 hover:bg-[#2bb8a0]/[0.06] hover:ring-[#2bb8a0]/35 ${p.hot ? "bg-[#2bb8a0]/[0.06] ring-[#2bb8a0]/30" : "bg-white/[0.03] ring-white/[0.07]"}`}>
@@ -228,7 +263,7 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
           <div className="mb-6 inline-flex rounded-full bg-[#2bb8a0]/10 px-4 py-2 text-sm text-[#7fe3cf] ring-1 ring-[#2bb8a0]/25">Контент-завод для видео</div>
           <h1 className="text-5xl font-bold leading-[1.05] md:text-7xl">Любые мультфильмы, сериалы и ролики — <span className="text-[#5fd6bf]">потоком</span></h1>
           <p className="mt-7 max-w-xl text-xl leading-relaxed text-white/60">VIA превращает тему в готовое видео: план, сценарий, озвучка, персонажи, кадры, анимация, музыка, звуки, сборка и публикация — в одном пайплайне на нодовом холсте.</p>
-          <div className="mt-10 flex flex-wrap gap-4"><Btn href="/" solid>Начать проект</Btn><Btn href="#pipeline">Как это работает</Btn></div>
+          <div className="mt-10 flex flex-wrap gap-4"><StartProjectBtn /><Btn href="#pipeline">Как это работает</Btn></div>
         </Reveal>
         <Reveal delay={150} className="relative h-[420px]">
           {[[1, "left-0 top-6 w-[62%] rotate-[-3deg]", 0], [3, "right-0 top-0 w-[52%] rotate-[4deg]", 1.2], [5, "left-[18%] bottom-0 w-[60%] rotate-[1deg]", 2.4]].map(([i, cls, d]) => (
