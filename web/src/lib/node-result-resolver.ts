@@ -25,7 +25,7 @@ export interface NodeResultItem {
   previewUrl?: string | null;
   downloadUrl?: string | null;
   content?: string | null;
-  /** Путь на диске — для замены hero-файла. */
+  /** РџСѓС‚СЊ РЅР° РґРёСЃРєРµ вЂ” РґР»СЏ Р·Р°РјРµРЅС‹ hero-С„Р°Р№Р»Р°. */
   filePath?: string | null;
   frameNumber?: number;
 }
@@ -52,7 +52,7 @@ export interface NodeResultSnapshot {
   items: NodeResultItem[];
   replaceMode: NodeResultReplaceMode;
   viewMode: NodeResultViewMode;
-  /** Поле проекта для текстовой замены (plan / script). */
+  /** РџРѕР»Рµ РїСЂРѕРµРєС‚Р° РґР»СЏ С‚РµРєСЃС‚РѕРІРѕР№ Р·Р°РјРµРЅС‹ (plan / script). */
   textField?: "general_plan" | "script_text";
 }
 
@@ -126,7 +126,7 @@ function mediaKind(path: string, kindHint: string): NodeResultItemKind {
   return "file";
 }
 
-/** Уникальные файлы по basename (assets+artifacts часто дублируют один path). */
+/** РЈРЅРёРєР°Р»СЊРЅС‹Рµ С„Р°Р№Р»С‹ РїРѕ basename (assets+artifacts С‡Р°СЃС‚Рѕ РґСѓР±Р»РёСЂСѓСЋС‚ РѕРґРёРЅ path). */
 function dedupeResultItems(items: NodeResultItem[]): NodeResultItem[] {
   const seen = new Set<string>();
   const out: NodeResultItem[] = [];
@@ -155,10 +155,10 @@ function artifactItems(arts: ArtifactDTO[]): NodeResultItem[] {
 
     return {
       id: a.uuid,
-      label: metaIdx ? `№${metaIdx}` : a.kind,
+      label: metaIdx ? `в„–${metaIdx}` : a.kind,
       kind: mediaKind(path, a.kind || ""),
-      previewUrl: api.artifactFileUrl(a.uuid, a.project_id),
-      downloadUrl: api.artifactFileUrl(a.uuid, a.project_id),
+      previewUrl: api.artifactFileUrl(a.uuid),
+      downloadUrl: api.artifactFileUrl(a.uuid),
       filePath: path || null,
       content: metaDesc,
       frameNumber: typeof metaIdx === "number" ? metaIdx : undefined,
@@ -193,7 +193,7 @@ function textAsset(assets: ProjectAsset[], name: string): ProjectAsset | undefin
   return assets.find((a) => a.id === name || a.label === name);
 }
 
-/** Зелёный кубик — только когда шаг реально завершён (не из общего xlsx). */
+/** Р—РµР»С‘РЅС‹Р№ РєСѓР±РёРє вЂ” С‚РѕР»СЊРєРѕ РєРѕРіРґР° С€Р°Рі СЂРµР°Р»СЊРЅРѕ Р·Р°РІРµСЂС€С‘РЅ (РЅРµ РёР· РѕР±С‰РµРіРѕ xlsx). */
 export function gateNodeResultVisibility(
   snapshot: NodeResultSnapshot,
   nodeType: string,
@@ -204,7 +204,7 @@ export function gateNodeResultVisibility(
       return {
         ...snapshot,
         hasResult: true,
-        summary: snapshot.summary || "Шаг завершён",
+        summary: snapshot.summary || "РЁР°Рі Р·Р°РІРµСЂС€С‘РЅ",
       };
     }
     return snapshot;
@@ -212,8 +212,8 @@ export function gateNodeResultVisibility(
   if (nodeType === "topic") {
     return snapshot;
   }
-  // Реальные артефакты (final mp4 и т.п.) не прячем из‑за unknown/stale NodeRun:
-  // иначе assemble при assembled показывает «ещё не готов» при готовом файле.
+  // Р РµР°Р»СЊРЅС‹Рµ Р°СЂС‚РµС„Р°РєС‚С‹ (final mp4 Рё С‚.Рї.) РЅРµ РїСЂСЏС‡РµРј РёР·вЂ‘Р·Р° unknown/stale NodeRun:
+  // РёРЅР°С‡Рµ assemble РїСЂРё assembled РїРѕРєР°Р·С‹РІР°РµС‚ В«РµС‰С‘ РЅРµ РіРѕС‚РѕРІВ» РїСЂРё РіРѕС‚РѕРІРѕРј С„Р°Р№Р»Рµ.
   if (snapshot.hasResult && snapshot.itemCount > 0) {
     return snapshot;
   }
@@ -225,7 +225,7 @@ export function gateNodeResultVisibility(
   ) {
     return { ...snapshot, hasResult: false, itemCount: 0 };
   }
-  // nodeStatus undefined — доверяем computeNodeResult (не гасим hasResult).
+  // nodeStatus undefined вЂ” РґРѕРІРµСЂСЏРµРј computeNodeResult (РЅРµ РіР°СЃРёРј hasResult).
   return snapshot;
 }
 
@@ -282,11 +282,11 @@ function computeNodeResult(
       return {
         hasResult: Boolean(text),
         itemCount: 1,
-        summary: text ? "Тема ролика задана" : "Укажите тему ролика",
+        summary: text ? "РўРµРјР° СЂРѕР»РёРєР° Р·Р°РґР°РЅР°" : "РЈРєР°Р¶РёС‚Рµ С‚РµРјСѓ СЂРѕР»РёРєР°",
         items: [
           {
             id: "topic",
-            label: "Тема ролика",
+            label: "РўРµРјР° СЂРѕР»РёРєР°",
             kind: "text",
             content: text,
           },
@@ -301,30 +301,30 @@ function computeNodeResult(
       const planText = meaningfulGeneralPlan(project);
       if (planText) {
         const items: NodeResultItem[] = [
-          { id: "general_plan", label: "Сценарий (текст)", kind: "text", content: planText },
+          { id: "general_plan", label: "РЎС†РµРЅР°СЂРёР№ (С‚РµРєСЃС‚)", kind: "text", content: planText },
         ];
         if (projectHasXlsx(ctx.assets)) {
-          items.push({ id: "xlsx_general", label: "Сценарий (Excel)", kind: "xlsx" });
+          items.push({ id: "xlsx_general", label: "РЎС†РµРЅР°СЂРёР№ (Excel)", kind: "xlsx" });
         }
         return {
           hasResult: true,
           itemCount: items.length,
-          summary: `Сценарий готов (${planText.length} симв.)`,
+          summary: `РЎС†РµРЅР°СЂРёР№ РіРѕС‚РѕРІ (${planText.length} СЃРёРјРІ.)`,
           items,
           replaceMode: "text",
           viewMode: "xlsx_general_plan",
           textField: "general_plan",
         };
       }
-      return empty("Сценарий ещё не сгенерирован", "text", "xlsx_general_plan");
+      return empty("РЎС†РµРЅР°СЂРёР№ РµС‰С‘ РЅРµ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅ", "text", "xlsx_general_plan");
     }
 
     case "script": {
       const text = project?.script_text?.trim();
       if (text) {
         return ready(
-          [{ id: "script_text", label: "Закадровый текст", kind: "text", content: text }],
-          "Закадровый текст готов",
+          [{ id: "script_text", label: "Р—Р°РєР°РґСЂРѕРІС‹Р№ С‚РµРєСЃС‚", kind: "text", content: text }],
+          "Р—Р°РєР°РґСЂРѕРІС‹Р№ С‚РµРєСЃС‚ РіРѕС‚РѕРІ",
           "text",
           "voiceover_wide",
           "script_text",
@@ -349,7 +349,7 @@ function computeNodeResult(
           textField: "script_text",
         };
       }
-      return empty("Закадровый текст ещё не готов", "text", "voiceover_wide");
+      return empty("Р—Р°РєР°РґСЂРѕРІС‹Р№ С‚РµРєСЃС‚ РµС‰С‘ РЅРµ РіРѕС‚РѕРІ", "text", "voiceover_wide");
     }
 
     case "split": {
@@ -357,13 +357,13 @@ function computeNodeResult(
         return {
           hasResult: true,
           itemCount: ctx.frames.length,
-          summary: `Раскадровка готова (${ctx.frames.length} кадров)`,
-          items: [{ id: "split_row", label: "Разбивка", kind: "frames" }],
+          summary: `Р Р°СЃРєР°РґСЂРѕРІРєР° РіРѕС‚РѕРІР° (${ctx.frames.length} РєР°РґСЂРѕРІ)`,
+          items: [{ id: "split_row", label: "Р Р°Р·Р±РёРІРєР°", kind: "frames" }],
           replaceMode: "studio",
           viewMode: "xlsx_split_row",
         };
       }
-      return empty("Раскадровка ещё не создана", "studio", "xlsx_split_row");
+      return empty("Р Р°СЃРєР°РґСЂРѕРІРєР° РµС‰С‘ РЅРµ СЃРѕР·РґР°РЅР°", "studio", "xlsx_split_row");
     }
 
     case "scene_design":
@@ -372,13 +372,13 @@ function computeNodeResult(
         return {
           hasResult: true,
           itemCount: ctx.frames.length,
-          summary: "Сцены и атрибуты кадров (лист «план»)",
-          items: [{ id: "scene_design_row", label: "Сцены", kind: "frames" }],
+          summary: "РЎС†РµРЅС‹ Рё Р°С‚СЂРёР±СѓС‚С‹ РєР°РґСЂРѕРІ (Р»РёСЃС‚ В«РїР»Р°РЅВ»)",
+          items: [{ id: "scene_design_row", label: "РЎС†РµРЅС‹", kind: "frames" }],
           replaceMode: "studio",
           viewMode: "xlsx_split_row",
         };
       }
-      return empty("Сцены ещё не собраны", "studio", "xlsx_split_row");
+      return empty("РЎС†РµРЅС‹ РµС‰С‘ РЅРµ СЃРѕР±СЂР°РЅС‹", "studio", "xlsx_split_row");
     }
 
     case "sd_agent": {
@@ -386,13 +386,13 @@ function computeNodeResult(
         return {
           hasResult: true,
           itemCount: ctx.frames.length,
-          summary: "Срез агента лёг в staging-ячейки; кадры — после сборки",
-          items: [{ id: "sd_agent_row", label: "Агент сцен", kind: "frames" }],
+          summary: "РЎСЂРµР· Р°РіРµРЅС‚Р° Р»С‘Рі РІ staging-СЏС‡РµР№РєРё; РєР°РґСЂС‹ вЂ” РїРѕСЃР»Рµ СЃР±РѕСЂРєРё",
+          items: [{ id: "sd_agent_row", label: "РђРіРµРЅС‚ СЃС†РµРЅ", kind: "frames" }],
           replaceMode: "studio",
           viewMode: "xlsx_split_row",
         };
       }
-      return empty("Агент ещё не отработал", "studio", "xlsx_split_row");
+      return empty("РђРіРµРЅС‚ РµС‰С‘ РЅРµ РѕС‚СЂР°Р±РѕС‚Р°Р»", "studio", "xlsx_split_row");
     }
 
     case "hero":
@@ -410,21 +410,21 @@ function computeNodeResult(
           ...item,
           content: item.content?.trim() || descriptions[i] || descriptions[0] || item.label,
         }));
-        return ready(enriched, `${items.length} reference персонажей`, "assets", "frame_images");
+        return ready(enriched, `${items.length} reference РїРµСЂСЃРѕРЅР°Р¶РµР№`, "assets", "frame_images");
       }
       if ((project?.hero_descriptions?.length ?? 0) > 0) {
         return ready(
           (project?.hero_descriptions ?? []).map((d, i) => ({
             id: `hero_desc_${i}`,
-            label: `Персонаж ${i + 1}`,
+            label: `РџРµСЂСЃРѕРЅР°Р¶ ${i + 1}`,
             kind: "text" as const,
             content: d,
           })),
-          "Описания персонажей без картинок",
+          "РћРїРёСЃР°РЅРёСЏ РїРµСЂСЃРѕРЅР°Р¶РµР№ Р±РµР· РєР°СЂС‚РёРЅРѕРє",
           "assets",
         );
       }
-      return empty("Персонажи ещё не сгенерированы", "assets");
+      return empty("РџРµСЂСЃРѕРЅР°Р¶Рё РµС‰С‘ РЅРµ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅС‹", "assets");
     }
 
     case "items": {
@@ -434,8 +434,8 @@ function computeNodeResult(
         ...assetItems(itemAssets),
       ]);
       if (rawItems.length) {
-        // Сортируем строго по возрастанию индекса предмета (predmet1, predmet2, ...),
-        // чтобы порядок картинок не зависел от order_by id desc в БД.
+        // РЎРѕСЂС‚РёСЂСѓРµРј СЃС‚СЂРѕРіРѕ РїРѕ РІРѕР·СЂР°СЃС‚Р°РЅРёСЋ РёРЅРґРµРєСЃР° РїСЂРµРґРјРµС‚Р° (predmet1, predmet2, ...),
+        // С‡С‚РѕР±С‹ РїРѕСЂСЏРґРѕРє РєР°СЂС‚РёРЅРѕРє РЅРµ Р·Р°РІРёСЃРµР» РѕС‚ order_by id desc РІ Р‘Р”.
         const items = [...rawItems].sort((a, b) => {
           const getIdx = (it: NodeResultItem) => {
             if (typeof it.frameNumber === "number") return it.frameNumber;
@@ -456,24 +456,24 @@ function computeNodeResult(
           return {
             ...item,
             content: text,
-            label: `Предмет ${itemIdx}: ${text}`,
+            label: `РџСЂРµРґРјРµС‚ ${itemIdx}: ${text}`,
           };
         });
-        return ready(enriched, `${items.length} reference предметов`, "assets", "frame_images");
+        return ready(enriched, `${items.length} reference РїСЂРµРґРјРµС‚РѕРІ`, "assets", "frame_images");
       }
       if ((project?.item_descriptions?.length ?? 0) > 0) {
         return ready(
           (project?.item_descriptions ?? []).map((d, i) => ({
             id: `item_desc_${i}`,
-            label: `Предмет ${i + 1}`,
+            label: `РџСЂРµРґРјРµС‚ ${i + 1}`,
             kind: "text" as const,
             content: d,
           })),
-          "Описания предметов без картинок",
+          "РћРїРёСЃР°РЅРёСЏ РїСЂРµРґРјРµС‚РѕРІ Р±РµР· РєР°СЂС‚РёРЅРѕРє",
           "assets",
         );
       }
-      return empty("Предметы ещё не сгенерированы", "assets");
+      return empty("РџСЂРµРґРјРµС‚С‹ РµС‰С‘ РЅРµ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅС‹", "assets");
     }
 
     case "excel_gpt":
@@ -489,13 +489,13 @@ function computeNodeResult(
           [
             {
               id: "shots_report",
-              label: "Отчёт кадров",
+              label: "РћС‚С‡С‘С‚ РєР°РґСЂРѕРІ",
               kind: "file",
               downloadUrl: url,
               previewUrl: url,
             },
           ],
-          "HTML-отчёт кадров + промты/QC",
+          "HTML-РѕС‚С‡С‘С‚ РєР°РґСЂРѕРІ + РїСЂРѕРјС‚С‹/QC",
           "none",
           "html_report",
         );
@@ -543,7 +543,7 @@ function computeNodeResult(
         if (replyPreview) {
           items.push({
             id: "gpt_reply",
-            label: "Ответ GPT",
+            label: "РћС‚РІРµС‚ GPT",
             kind: "text",
             content: replyPreview,
           });
@@ -551,10 +551,10 @@ function computeNodeResult(
         return ready(
           items,
           snapName
-            ? `Снимок Excel: ${snapName}`
+            ? `РЎРЅРёРјРѕРє Excel: ${snapName}`
             : hasReplyMeta
-              ? "Excel + ответ GPT"
-              : "Таблица Excel",
+              ? "Excel + РѕС‚РІРµС‚ GPT"
+              : "РўР°Р±Р»РёС†Р° Excel",
           "xlsx",
           "default",
         );
@@ -564,25 +564,25 @@ function computeNodeResult(
           [
             {
               id: "gpt_reply",
-              label: "Ответ GPT",
+              label: "РћС‚РІРµС‚ GPT",
               kind: "text",
               content: replyPreview,
             },
           ],
-          "Ответ GPT готов",
+          "РћС‚РІРµС‚ GPT РіРѕС‚РѕРІ",
           "text",
         );
       }
       if (hasReplyMeta) {
-        // Путь есть, текст подтянет панель через /gpt-operator/.../resolve
+        // РџСѓС‚СЊ РµСЃС‚СЊ, С‚РµРєСЃС‚ РїРѕРґС‚СЏРЅРµС‚ РїР°РЅРµР»СЊ С‡РµСЂРµР· /gpt-operator/.../resolve
         return {
           hasResult: true,
           itemCount: 1,
-          summary: "Ответ GPT на диске",
+          summary: "РћС‚РІРµС‚ GPT РЅР° РґРёСЃРєРµ",
           items: [
             {
               id: "gpt_reply_path",
-              label: "Ответ GPT",
+              label: "РћС‚РІРµС‚ GPT",
               kind: "text",
               content: "",
             },
@@ -591,7 +591,7 @@ function computeNodeResult(
           viewMode: "default",
         };
       }
-      return empty("Оператор GPT ещё не запускался", "xlsx", "default");
+      return empty("РћРїРµСЂР°С‚РѕСЂ GPT РµС‰С‘ РЅРµ Р·Р°РїСѓСЃРєР°Р»СЃСЏ", "xlsx", "default");
     }
 
     case "image_prompts": {
@@ -600,17 +600,17 @@ function computeNodeResult(
         return ready(
           withPrompt.map((f) => ({
             id: `frame_${f.id}`,
-            label: `Кадр ${f.number}`,
+            label: `РљР°РґСЂ ${f.number}`,
             kind: "text" as const,
             content: f.image_prompt,
             frameNumber: f.number,
           })),
-          `Промты картинок: ${withPrompt.length} кадров`,
+          `РџСЂРѕРјС‚С‹ РєР°СЂС‚РёРЅРѕРє: ${withPrompt.length} РєР°РґСЂРѕРІ`,
           "studio",
           "frame_prompts",
         );
       }
-      return empty("Промты картинок ещё не готовы", "studio", "frame_prompts");
+      return empty("РџСЂРѕРјС‚С‹ РєР°СЂС‚РёРЅРѕРє РµС‰С‘ РЅРµ РіРѕС‚РѕРІС‹", "studio", "frame_prompts");
     }
 
     case "images":
@@ -627,9 +627,9 @@ function computeNodeResult(
       const fromArts = artifactItems(arts);
       const items = (fromMedia.length ? fromMedia : fromArts).filter((i) => i.previewUrl);
       if (items.length) {
-        return ready(items, `${items.length} картинок`, "assets", "frame_images");
+        return ready(items, `${items.length} РєР°СЂС‚РёРЅРѕРє`, "assets", "frame_images");
       }
-      return empty("Картинки ещё не сгенерированы", "assets", "frame_images");
+      return empty("РљР°СЂС‚РёРЅРєРё РµС‰С‘ РЅРµ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅС‹", "assets", "frame_images");
     }
 
     case "animation_prompts": {
@@ -645,18 +645,18 @@ function computeNodeResult(
         return ready(
           withPrompt.map((f) => ({
             id: `frame_${f.id}`,
-            label: `Кадр ${f.number}`,
+            label: `РљР°РґСЂ ${f.number}`,
             kind: "text" as const,
             previewUrl: imgByFrameId.get(f.id) ?? null,
             content: f.animation_prompt,
             frameNumber: f.number,
           })),
-          `Промты анимации: ${withPrompt.length} кадров`,
+          `РџСЂРѕРјС‚С‹ Р°РЅРёРјР°С†РёРё: ${withPrompt.length} РєР°РґСЂРѕРІ`,
           "studio",
           "frame_prompts",
         );
       }
-      return empty("Промты анимации ещё не готовы", "studio", "frame_prompts");
+      return empty("РџСЂРѕРјС‚С‹ Р°РЅРёРјР°С†РёРё РµС‰С‘ РЅРµ РіРѕС‚РѕРІС‹", "studio", "frame_prompts");
     }
 
     case "videos":
@@ -665,9 +665,9 @@ function computeNodeResult(
       const fromArts = artifactItems(arts);
       const items = fromMedia.length ? fromMedia : fromArts;
       if (items.length) {
-        return ready(items, `${items.length} видео`, "assets", "frame_videos");
+        return ready(items, `${items.length} РІРёРґРµРѕ`, "assets", "frame_videos");
       }
-      return empty("Видео ещё не сгенерированы", "assets", "frame_videos");
+      return empty("Р’РёРґРµРѕ РµС‰С‘ РЅРµ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅС‹", "assets", "frame_videos");
     }
 
     case "audio": {
@@ -678,8 +678,8 @@ function computeNodeResult(
         ...artifactItems(arts),
         ...assetItems(audioAssets),
       ]);
-      if (items.length) return ready(items, `${items.length} аудио-файлов`, "assets");
-      return empty("Аудио ещё не сгенерировано", "assets");
+      if (items.length) return ready(items, `${items.length} Р°СѓРґРёРѕ-С„Р°Р№Р»РѕРІ`, "assets");
+      return empty("РђСѓРґРёРѕ РµС‰С‘ РЅРµ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅРѕ", "assets");
     }
 
     case "music": {
@@ -691,9 +691,9 @@ function computeNodeResult(
         ...assetItems(musicAssets),
       ]);
       if (items.length) {
-        return ready(items, `Музыка: ${items.length} файл(ов)`, "assets");
+        return ready(items, `РњСѓР·С‹РєР°: ${items.length} С„Р°Р№Р»(РѕРІ)`, "assets");
       }
-      return empty("Музыка ещё не сгенерирована", "assets");
+      return empty("РњСѓР·С‹РєР° РµС‰С‘ РЅРµ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅР°", "assets");
     }
 
     case "sfx_plan": {
@@ -709,11 +709,11 @@ function computeNodeResult(
         return {
           hasResult: true,
           itemCount: count || 1,
-          summary: count ? `План звуков: ${count} событий` : "План звуков готов",
+          summary: count ? `РџР»Р°РЅ Р·РІСѓРєРѕРІ: ${count} СЃРѕР±С‹С‚РёР№` : "РџР»Р°РЅ Р·РІСѓРєРѕРІ РіРѕС‚РѕРІ",
           items: [
             {
               id: "sfx_plan",
-              label: "План звуков (sfx_plan.json)",
+              label: "РџР»Р°РЅ Р·РІСѓРєРѕРІ (sfx_plan.json)",
               kind: "file",
               downloadUrl: sfxPlanAsset?.preview_url,
             },
@@ -722,7 +722,7 @@ function computeNodeResult(
           viewMode: "sfx_plan",
         };
       }
-      return empty("План звуков ещё не составлен", "studio");
+      return empty("РџР»Р°РЅ Р·РІСѓРєРѕРІ РµС‰С‘ РЅРµ СЃРѕСЃС‚Р°РІР»РµРЅ", "studio");
     }
 
     case "sfx":
@@ -742,7 +742,7 @@ function computeNodeResult(
         return {
           hasResult: true,
           itemCount: items.length,
-          summary: `Звуки: ${items.length} файл(ов)`,
+          summary: `Р—РІСѓРєРё: ${items.length} С„Р°Р№Р»(РѕРІ)`,
           items,
           replaceMode: "assets",
           viewMode: "sfx_gen",
@@ -751,7 +751,7 @@ function computeNodeResult(
       return {
         hasResult: sfxGenerated,
         itemCount: 0,
-        summary: sfxGenerated ? "Звуки сгенерированы" : "Звуки ещё не сгенерированы",
+        summary: sfxGenerated ? "Р—РІСѓРєРё СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅС‹" : "Р—РІСѓРєРё РµС‰С‘ РЅРµ СЃРіРµРЅРµСЂРёСЂРѕРІР°РЅС‹",
         items: [],
         replaceMode: "assets",
         viewMode: "sfx_gen",
@@ -763,18 +763,18 @@ function computeNodeResult(
       const finalArts = artifactItems(arts);
       const finalAssets = ctx.assets.filter((a) => a.kind.includes("final"));
       const items = dedupeResultItems([...finalArts, ...assetItems(finalAssets)]);
-      if (items.length) return ready(items, "Финальный ролик готов", "assets");
+      if (items.length) return ready(items, "Р¤РёРЅР°Р»СЊРЅС‹Р№ СЂРѕР»РёРє РіРѕС‚РѕРІ", "assets");
       if (project?.status === "assembled") {
         return {
           hasResult: true,
           itemCount: 0,
-          summary: "Сборка завершена",
+          summary: "РЎР±РѕСЂРєР° Р·Р°РІРµСЂС€РµРЅР°",
           items: [],
           replaceMode: "assets",
           viewMode: "default",
         };
       }
-      return empty("Финальный ролик ещё не собран", "assets");
+      return empty("Р¤РёРЅР°Р»СЊРЅС‹Р№ СЂРѕР»РёРє РµС‰С‘ РЅРµ СЃРѕР±СЂР°РЅ", "assets");
     }
 
     case "publish": {
@@ -782,15 +782,15 @@ function computeNodeResult(
         return {
           hasResult: true,
           itemCount: 0,
-          summary: "Опубликовано",
+          summary: "РћРїСѓР±Р»РёРєРѕРІР°РЅРѕ",
           items: [],
           replaceMode: "none",
           viewMode: "default",
         };
       }
       const final = ctx.assets.filter((a) => a.kind.includes("final"));
-      if (final.length) return ready(assetItems(final), "Готово к публикации", "assets");
-      return empty("Публикация ещё не выполнена", "none");
+      if (final.length) return ready(assetItems(final), "Р“РѕС‚РѕРІРѕ Рє РїСѓР±Р»РёРєР°С†РёРё", "assets");
+      return empty("РџСѓР±Р»РёРєР°С†РёСЏ РµС‰С‘ РЅРµ РІС‹РїРѕР»РЅРµРЅР°", "none");
     }
 
     default: {
@@ -798,8 +798,8 @@ function computeNodeResult(
         return computeNodeResult("enrich_1", ctx, nodeKey);
       }
       const generic = artifactItems(filterArtifacts(ctx.artifacts, nodeType)).slice(0, 8);
-      if (generic.length) return ready(generic, `${generic.length} артефактов`, "studio");
-      return empty("Результата пока нет", "none");
+      if (generic.length) return ready(generic, `${generic.length} Р°СЂС‚РµС„Р°РєС‚РѕРІ`, "studio");
+      return empty("Р РµР·СѓР»СЊС‚Р°С‚Р° РїРѕРєР° РЅРµС‚", "none");
     }
   }
 }

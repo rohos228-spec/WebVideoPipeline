@@ -1,7 +1,7 @@
 /**
- * РўРѕРЅРєРёР№ fetch-РѕР±С‘СЂС‚РєР° РґР»СЏ Р±СЌРєРµРЅРґ-API. Р’СЃРµ Р·Р°РїСЂРѕСЃС‹ РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅС‹Рµ
- * (`/api/...`) вЂ” РІ dev next.config.ts РїСЂРѕРєСЃРёСЂСѓРµС‚ РЅР° :8765, РІ РїСЂРѕРґРµ FastAPI
- * СЃР°Рј РѕС‚РґР°С‘С‚ С„СЂРѕРЅС‚ + API РёР· РѕРґРЅРѕРіРѕ origin.
+ * Тонкий fetch-обёртка для бэкенд-API. Все запросы относительные
+ * (`/api/...`) — в dev next.config.ts проксирует на :8765, в проде FastAPI
+ * сам отдаёт фронт + API из одного origin.
  */
 
 import type { Nii67Card } from "./nii67";
@@ -40,7 +40,7 @@ export interface StepTemplateBlock {
   body: string;
 }
 
-// ---- KIE Create С‚РёРїС‹ (РєР°С‚Р°Р»РѕРі РјРѕРґРµР»РµР№ kie.ai) ----
+// ---- KIE Create типы (каталог моделей kie.ai) ----
 export interface KieField {
   name: string;
   label: string;
@@ -74,10 +74,10 @@ export interface KieModelSpec {
   id: string;
   label: string;
   category: string;
-  /** Р’ РєР°РєРѕР№ С‚РёРї Create-РїРёРєРµСЂР° РїРѕРїР°РґР°РµС‚: image | video | audio */
+  /** В какой тип Create-пикера попадает: image | video | audio */
   media?: string;
   desc: string;
-  /** РџРѕРЅСЏС‚РЅРѕРµ РѕР±СЉСЏСЃРЅРµРЅРёРµ В«РєР°Рє СЂР°Р±РѕС‚Р°РµС‚В» (РґР»СЏ СѓС‚РёР»РёС‚/Р·РІСѓРєРѕРІ) */
+  /** Понятное объяснение «как работает» (для утилит/звуков) */
   hint?: string;
   is_top?: boolean;
   isTop?: boolean;
@@ -367,7 +367,7 @@ export async function http<T>(
     else external.addEventListener("abort", onExtAbort);
   }
   try {
-    // FormData: РЅРµ СЃС‚Р°РІРёС‚СЊ Content-Type РІСЂСѓС‡РЅСѓСЋ вЂ” Р±СЂР°СѓР·РµСЂ СЃР°Рј РґРѕР±Р°РІРёС‚
+    // FormData: не ставить Content-Type вручную — браузер сам добавит
     // multipart boundary. РРЅР°С‡Рµ FastAPI РЅРµ РІРёРґРёС‚ UploadFile.
     const isFormData =
       typeof FormData !== "undefined" && options.body instanceof FormData;
@@ -385,7 +385,7 @@ export async function http<T>(
       try {
         detail = JSON.parse(detail as string);
       } catch {
-        // РѕСЃС‚Р°РІР»СЏРµРј РєР°Рє text
+        // оставляем как text
       }
       throw new ApiError(res.status, detail);
     }
@@ -394,7 +394,7 @@ export async function http<T>(
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
       if (external?.aborted) {
-        throw new ApiError(0, "РћС‚РјРµРЅРµРЅРѕ");
+        throw new ApiError(0, "Отменено");
       }
       const sec = Math.max(1, Math.round(timeoutMs / 1000));
       const isGptLong = timeoutMs >= 120_000;
@@ -404,10 +404,10 @@ export async function http<T>(
       throw new ApiError(
         0,
         isGptLong
-          ? `GPT РЅРµ РѕС‚РІРµС‚РёР» Р·Р° ${sec} СЃ (vision/РґР»РёРЅРЅС‹Р№ РѕС‚РІРµС‚). РЎРјРѕС‚СЂРё РѕРєРЅРѕ BACKEND / Р»РѕРі; РјРѕР¶РЅРѕ РїРѕРІС‚РѕСЂРёС‚СЊ.`
+          ? `GPT не ответил за ${sec} с (vision/длинный ответ). Смотри окно BACKEND / лог; можно повторить.`
           : looksOperator
-            ? `РџСѓР»СЊС‚ РЅРµ СЃРѕС…СЂР°РЅРёР»СЃСЏ Р·Р° ${sec} СЃ: Р‘Р” Р·Р°РЅСЏС‚Р° РІРѕСЂРєРµСЂРѕРј (hero/img/GPT). РџРѕРґРѕР¶РґРёС‚Рµ РєРѕРЅРµС† С€Р°РіР° РёР»Рё РїРѕРІС‚РѕСЂРёС‚Рµ вЂ” Р±СЌРєРµРЅРґ РЅР° :8765 РѕР±С‹С‡РЅРѕ Р¶РёРІ.`
-            : `РЎРµСЂРІРµСЂ РЅРµ РѕС‚РІРµС‚РёР» Р·Р° ${sec} СЃ вЂ” РїСЂРѕРІРµСЂСЊС‚Рµ РѕРєРЅРѕ BACKEND (Uvicorn РЅР° :8765)`,
+            ? `Пульт не сохранился за ${sec} с: БД занята воркером (hero/img/GPT). Подождите конец шага или повторите — бэкенд на :8765 обычно жив.`
+            : `Сервер не ответил за ${sec} с — проверьте окно BACKEND (Uvicorn на :8765)`,
       );
     }
     throw e;
@@ -449,7 +449,7 @@ export interface MontagePendingOp {
     | "coverage_scene_action";
   frame_number: number;
   shot: 1 | 2;
-  /** РћР±С‰РёР№ РїР»Р°РЅ: РѕС‚РґРµР»СЊРЅС‹Р№ still, РЅРµ shot1. */
+  /** Общий план: отдельный still, не shot1. */
   slot?: "parent";
   prompt?: string;
   correction?: string;
@@ -472,11 +472,11 @@ export interface MontagePendingOp {
   feature?: string;
   kind?: "parent" | "child";
   parent_number?: number;
-  /** Р¤РѕСЂРјР°С‚ СЃС†РµРЅС‹: С€Р°Р±Р»РѕРЅ T0вЂ¦T10 / X1 / X2 РёР· РєР°С‚Р°Р»РѕРіР°. */
+  /** Формат сцены: шаблон T0…T10 / X1 / X2 из каталога. */
   template?: string;
-  /** РЇРєРѕСЂСЏ Р·Р°РєР°РґСЂР° СЏС‡РµР№РєРё вЂ” С‚РѕС‡РєРё РЅР°СЂРµР·РєРё VO РїРѕ РєР°РґСЂР°Рј. */
+  /** Якоря закадра ячейки — точки нарезки VO по кадрам. */
   anchors?: SceneAnchorRow[];
-  /** Р’С‹РґРµР»РµРЅРёРµ Р·Р°РєР°РґСЂР°: start/end РІ РїРѕР»РЅРѕРј С‚РµРєСЃС‚Рµ СЏС‡РµР№РєРё. */
+  /** Выделение закадра: start/end в полном тексте ячейки. */
   start?: number;
   end?: number;
   text?: string;
@@ -487,10 +487,10 @@ export interface MontagePendingOp {
 }
 
 export interface SceneAnchorRow {
-  "РїРѕСЂСЏРґРѕРє"?: number;
-  "СЏРєРѕСЂСЊ": string;
-  "РёР·РјРµРЅРµРЅРёРµ"?: string;
-  "РіР»Р°РІРЅС‹Р№"?: boolean;
+  "порядок"?: number;
+  "якорь": string;
+  "изменение"?: string;
+  "главный"?: boolean;
   offset?: number;
   found?: boolean;
   cell_index?: number;
@@ -523,20 +523,20 @@ export interface SceneTemplateLadderRow {
 
 export interface SceneShotRow {
   id: string;
-  "РїРѕСЂСЏРґРѕРє": number;
+  "порядок": number;
   parent_id: string;
-  "С€Р°Р±Р»РѕРЅ": string;
-  "РїР»Р°РЅ": string;
-  "СЂР°РєСѓСЂСЃ": string;
-  "РґРІРёР¶РµРЅРёРµ"?: string;
-  "РјРµСЃС‚Рѕ": string;
-  "РґРµР№СЃС‚РІРёРµ": string;
-  "Р·Р°РєР°РґСЂ": string;
-  "СЏРєРѕСЂСЊ"?: string;
+  "шаблон": string;
+  "план": string;
+  "ракурс": string;
+  "движение"?: string;
+  "место": string;
+  "действие": string;
+  "закадр": string;
+  "якорь"?: string;
   frame_number: number | null;
 }
 
-/** РЎРѕСЃС‚РѕСЏРЅРёРµ СЂРµРґР°РєС‚РѕСЂР° РєР°РґСЂР° РЅР° РґРѕСЃРєРµ РјРѕРЅС‚Р°Р¶Р° (GET .../scene-editor). */
+/** Состояние редактора кадра на доске монтажа (GET .../scene-editor). */
 export interface SceneEditorState {
   frame: {
     frame_id: number;
@@ -615,14 +615,14 @@ export interface SceneEditorState {
 export type SceneVariantKind = "action" | "template" | "anchors";
 
 export interface SceneVariant {
-  "РґРµР№СЃС‚РІРёРµ"?: string;
-  "РїР»Р°РЅ"?: string;
-  "С€Р°Р±Р»РѕРЅ"?: string;
-  "Р»РµСЃС‚РЅРёС†Р°"?: string;
-  "Р±РёС‚С‹"?: SceneAnchorRow[];
+  "действие"?: string;
+  "план"?: string;
+  "шаблон"?: string;
+  "лестница"?: string;
+  "биты"?: SceneAnchorRow[];
   preview?: string[];
   dropped?: number;
-  "РїРѕС‡РµРјСѓ"?: string;
+  "почему"?: string;
 }
 
 export interface XlsxPreview {
@@ -669,7 +669,7 @@ export function formatApiError(
   status?: number,
 ): string {
   if (status === 405) {
-    return "API СѓСЃС‚Р°СЂРµР» (Method not allowed) вЂ” Р·Р°РєСЂРѕР№С‚Рµ Studio Рё Р·Р°РїСѓСЃС‚РёС‚Рµ RUN-STUDIO.ps1 РїРѕСЃР»Рµ git pull / UPDATE";
+    return "API устарел (Method not allowed) — закройте Studio и запустите RUN-STUDIO.ps1 после git pull / UPDATE";
   }
   if (typeof detail === "string") {
     try {
@@ -700,10 +700,10 @@ export function formatApiError(
       }
     }
   }
-  return "РћС€РёР±РєР° РѕРїРµСЂР°С†РёРё";
+  return "Ошибка операции";
 }
 
-// в”Ђв”Ђ Р‘Р°Р·Р° (DB v2) С‚РёРїС‹ в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// ── База (DB v2) типы ─────────────────────────────────────────────
 export interface DbProjectOverview {
   id: number;
   slug: string;
@@ -753,7 +753,7 @@ export interface DbFrame {
   meaning: string | null;
   image_prompt?: string | null;
   animation_prompt?: string | null;
-  /** РџСЂРµРІСЊСЋ РєР°СЂС‚РёРЅРєРё РєР°РґСЂР° (scenes/frame_NNN_*.png) вЂ” РґР»СЏ С„РёР»СЊРј-СЃС‚СЂРёРїР°. */
+  /** Превью картинки кадра (scenes/frame_NNN_*.png) — для фильм-стрипа. */
   image_url?: string | null;
   attrs: Record<string, unknown>;
   texts: DbFrameText[];
@@ -817,13 +817,13 @@ export interface DbGraph {
   frames: DbFrame[];
   entities: DbEntity[];
   excel_rows?: Record<string, DbExcelRow>;
-  /** РЎС†РµРЅС‹ РїРѕ СЃР»РѕРІР°Рј (meta.scene_registry) вЂ” SoT РґР»СЏ scene grammar. */
+  /** Сцены по словам (meta.scene_registry) — SoT для scene grammar. */
   scene_registry?: DbSceneRegistryEntry[];
   harness?: DbHarnessSummary;
 }
 
 export const api = {
-  // в”Ђв”Ђ Р‘Р°Р·Р° (DB v2 browser) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── База (DB v2 browser) ─────────────────────────────────────────
   dbOverview: () => http<DbOverview>(`/api/db/overview`),
   dbGraph: (projectId: number) => http<DbGraph>(`/api/db/projects/${projectId}/graph`),
   shotMenu: (projectId: number) =>
@@ -965,7 +965,7 @@ export const api = {
         }),
         signal: opts?.signal,
       },
-      // GPT-РІС‹Р·РѕРІ РґР»РёРЅРЅС‹Р№ (РєРѕРЅС‚РµРєСЃС‚ РіСЂР°С„Р° + РѕС‚РІРµС‚): 10 РјРёРЅСѓС‚, РєР°Рє ask_fresh.
+      // GPT-вызов длинный (контекст графа + ответ): 10 минут, как ask_fresh.
       600_000,
     ),
   dbOrchestratorConfirmRemove: (projectId: number, body: { node_key?: string | null; node_type?: string | null; only?: string | null }) =>
@@ -1005,7 +1005,7 @@ export const api = {
       valid: boolean;
       errors: string[];
       warnings: string[];
-      /** РўРѕР»СЊРєРѕ СЂРµР°Р»СЊРЅРѕ РёР·РјРµРЅС‘РЅРЅС‹Рµ kind (РЎРІСЏР·СЊв†’РќРµ РѕРє). РќРµ Р·Р°С‚РёСЂР°РµС‚ РѕСЃС‚Р°Р»СЊРЅС‹Рµ. */
+      /** Только реально изменённые kind (Связь→Не ок). Не затирает остальные. */
       edge_patches?: { id: string; kind: string }[];
       edges?: WorkflowEdge[];
     }>(`/api/workflows/validate`, {
@@ -1021,7 +1021,7 @@ export const api = {
   resetDefaultWorkflow: () =>
     http<WorkflowDetail>(`/api/workflows/default/reset`, { method: "POST" }),
 
-  // в”Ђв”Ђ Р“СЂСѓРїРїС‹ РЅРѕРґ (РїСЂРµСЃРµС‚С‹ РєР°РЅРІР°СЃР°) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Группы нод (пресеты канваса) ──────────────────────────────────
   listNodeGroups: () => http<NodeGroupSummary[]>(`/api/node-groups`),
   getNodeGroup: (groupId: string) =>
     http<NodeGroupDetail>(`/api/node-groups/${encodeURIComponent(groupId)}`),
@@ -1210,7 +1210,7 @@ export const api = {
     const params = new URLSearchParams();
     if (opts?.dryRun) params.set("dry_run", "true");
     if (opts?.nodeKey) params.set("node_key", opts.nodeKey);
-    // РЇРІРЅС‹Р№ resume: РїРѕРІС‚РѕСЂ С€Р°РіР° РЅРµ РґРµР»Р°РµС‚ wipe. РЎРµСЂРІРµСЂРЅС‹Р№ РґРµС„РѕР»С‚ СЃСЋРґР° РЅРµ РїРѕРґСЃС‚Р°РІР»СЏРµС‚СЃСЏ.
+    // Явный resume: повтор шага не делает wipe. Серверный дефолт сюда не подставляется.
     params.set("mode", opts?.mode ?? "resume");
     if (opts?.forceWipe != null) params.set("force_wipe", String(opts.forceWipe));
     const q = params.toString() ? `?${params.toString()}` : "";
@@ -1368,7 +1368,7 @@ export const api = {
       clipboardPrompt: string;
     }>(`/api/bug-reports`, { method: "POST", body: JSON.stringify(body) }),
 
-  // в”Ђв”Ђ Excel-Hero (С‡РёС‚Р°РµС‚ Р»РёСЃС‚ В«РџРµСЂСЃРѕРЅР°Р¶РёВ» РёР· project.xlsx) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Excel-Hero (читает лист «Персонажи» из project.xlsx) ─────────
   getExcelHero: (projectId: number) =>
     http<{ loaded: boolean; characters: ExcelHeroCharacter[] }>(
       `/api/projects/${projectId}/excel-hero`
@@ -1381,7 +1381,7 @@ export const api = {
   clearExcelHero: (projectId: number) =>
     http<void>(`/api/projects/${projectId}/excel-hero`, { method: "DELETE" }),
 
-  // в”Ђв”Ђ Storage node (С…СЂР°РЅРёР»РёС‰Рµ С„Р°Р№Р»РѕРІ РїРѕ node_key) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Storage node (хранилище файлов по node_key) ─────────────────
   resolveStorage: (projectId: number, nodeKey: string) =>
     http<{
       nodeKey: string;
@@ -1442,7 +1442,7 @@ export const api = {
       { method: "DELETE" },
     ),
 
-  // в”Ђв”Ђ Style agent (РЅРѕРґС‹ В«Р Р°Р·Р±РѕСЂ СЃС‚РёР»СЏВ» / В«РџСЂРѕРІРµСЂРєР° СЃС‚РёР»СЏВ») в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Style agent (ноды «Разбор стиля» / «Проверка стиля») ─────────
   getStyleAgent: (projectId: number, nodeKey?: string | null) =>
     http<StyleAgentSnapshot>(
       `/api/projects/${projectId}/style-agent${nodeKey ? `?node_key=${encodeURIComponent(nodeKey)}` : ""}`,
@@ -1687,8 +1687,8 @@ export const api = {
       prompt?: string;
       passport?: Record<string, string>;
       frame_ids?: number[];
-      /** РЇРєРѕСЂСЏ СЃ РґРѕСЃРєРё. Р’ 3-РЅРѕРґРЅС‹Р№ РїСЂРѕРіРѕРЅ РЅРµ РІС…РѕРґСЏС‚. */
-      anchors?: { "СЏРєРѕСЂСЊ": string; "РёР·РјРµРЅРµРЅРёРµ"?: string; "РіР»Р°РІРЅС‹Р№"?: boolean }[];
+      /** Якоря с доски. В 3-нодный прогон не входят. */
+      anchors?: { "якорь": string; "изменение"?: string; "главный"?: boolean }[];
     },
   ) =>
     http<{
@@ -1715,7 +1715,7 @@ export const api = {
       900_000,
     ),
 
-  /** РўРѕР»СЊРєРѕ СЂСѓС‡РЅРѕРµ СѓРґР°Р»РµРЅРёРµ РїРѕСЃР»Рµ confirm. РђРІС‚РѕРјР°С‚РёРєР° СЌС‚РѕС‚ РјРµС‚РѕРґ РЅРµ РІС‹Р·С‹РІР°РµС‚. */
+  /** Только ручное удаление после confirm. Автоматика этот метод не вызывает. */
   deleteMontageFrame: (projectId: number, frameId: number) =>
     http<{ ok: boolean; frame_id: number; number: number; deleted: number }>(
       `/api/projects/${projectId}/montage-board/frames/${frameId}`,
@@ -1740,7 +1740,7 @@ export const api = {
     body: {
       pending_ops: MontagePendingOp[];
       video_trims?: Record<string, { start: number; end: number }>;
-      /** РџСѓСЃС‚Р°СЏ РѕС‡РµСЂРµРґСЊ РёРЅР°С‡Рµ РЅРµ Р·Р°С‚РёСЂР°РµС‚ СЃРµСЂРІРµСЂРЅСѓСЋ (should_accept_queue_save). */
+      /** Пустая очередь иначе не затирает серверную (should_accept_queue_save). */
       force_clear?: boolean;
     },
   ) =>
@@ -1758,7 +1758,7 @@ export const api = {
     body: {
       video_trims: Record<string, { start: number; end: number }>;
       pending_ops: MontagePendingOp[];
-      /** РўРѕР»СЊРєРѕ СЌС‚Рё РєР°РґСЂС‹; РѕСЃС‚Р°Р»СЊРЅС‹Рµ РїСЂР°РІРєРё РѕСЃС‚Р°СЋС‚СЃСЏ РІ РѕС‡РµСЂРµРґРё. */
+      /** Только эти кадры; остальные правки остаются в очереди. */
       frame_numbers?: number[];
     },
   ) =>
@@ -1905,7 +1905,7 @@ export const api = {
       { method: "POST" },
     ),
 
-  /** РћР±РјРµРЅ РґРІСѓС… СЃР»РѕС‚РѕРІ (РєР°СЂС‚РёРЅРєР°в†”РєР°СЂС‚РёРЅРєР° РёР»Рё РІРёРґРµРѕв†”РІРёРґРµРѕ) РёР· Р»СЋР±С‹С… РєР°РґСЂРѕРІ. */
+  /** Обмен двух слотов (картинка↔картинка или видео↔видео) из любых кадров. */
   swapMontageSlots: (
     projectId: number,
     kind: "image" | "video",
@@ -2192,7 +2192,7 @@ export const api = {
       `/api/prompt-studio/projects/${projectId}/prompt-config`,
       { method: "PATCH", body: JSON.stringify(body) }
     ),
-  // Р‘Р»РѕС‡РЅС‹Р№ СЂРµРґР°РєС‚РѕСЂ С€Р°Р±Р»РѕРЅР° С€Р°РіР° (steps/<id>/template.md, РєР°СЂС‚РѕС‡РєРё 1..N).
+  // Блочный редактор шаблона шага (steps/<id>/template.md, карточки 1..N).
   getStepTemplate: (stepId: string) =>
     http<{ step_id: string; blocks: StepTemplateBlock[] }>(
       `/api/prompt-studio/step-template/${stepId}`
@@ -2626,7 +2626,7 @@ export const api = {
       }[];
     }>(`/api/create/queue`),
 
-  // ---- KIE Create (РІРєР»Р°РґРєР° В«Р“РµРЅРµСЂР°С†РёСЏВ», РїСЂРѕРІР°Р№РґРµСЂ kie.ai) ----
+  // ---- KIE Create (вкладка «Генерация», провайдер kie.ai) ----
   kieCatalog: () =>
     http<KieCatalog>(`/api/kie-create/catalog`),
   kieCredits: () =>
@@ -2787,7 +2787,7 @@ export const api = {
       }[]
     >(`/api/projects/${projectId}/media-review?kind=${kind}`),
 
-  // в”Ђв”Ђ Prompt files (prompts/<step>/*.md РЅР° РґРёСЃРєРµ) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Prompt files (prompts/<step>/*.md на диске) ────────────────────
   getGlobalActivePrompts: () =>
     http<Record<string, string>>("/api/prompt-files/global-active"),
   listPromptFiles: (stepCode: string) =>
@@ -2915,7 +2915,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  // в”Ђв”Ђ GPT Workspace (СЃРІРѕР±РѕРґРЅС‹Р№ С‡Р°С‚) в”Ђв”Ђ
+  // ── GPT Workspace (свободный чат) ──
   gptListSessions: () =>
     http<{ sessions: GptWorkspaceSessionSummary[] }>(`/api/gpt-workspace/sessions`),
   gptCreateSession: (title?: string) =>
@@ -2966,7 +2966,7 @@ export const api = {
       { method: "POST" },
     ),
   gptAsk: (sessionId: string, message: string, withAttachments = true) =>
-    // РЎРѕРІРїР°РґР°РµС‚ СЃ Р±СЌРєРµРЅРґРѕРј gpt_workspace ask_timeout=1800СЃ (30 РјРёРЅ).
+    // Совпадает с бэкендом gpt_workspace ask_timeout=1800с (30 мин).
     http<GptWorkspaceSession>(
       `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/ask`,
       {
@@ -3050,7 +3050,7 @@ export const api = {
       throw err;
     }
     if (!doneReceived && !signal?.aborted) {
-      callbacks?.onError?.("РЎС‚СЂРёРј РѕР±РѕСЂРІР°Р»СЃСЏ Р±РµР· РѕС‚РІРµС‚Р° РѕС‚ РјРѕРґРµР»Рё");
+      callbacks?.onError?.("Стрим оборвался без ответа от модели");
     }
   },
   gptSaveToProject: (
@@ -3213,11 +3213,11 @@ export interface PromptVersionContent {
 }
 
 /**
- * WebSocket РїРѕРґРїРёСЃРєР° РЅР° РєР°РЅР°Р». Р’РѕР·РІСЂР°С‰Р°РµС‚ С„СѓРЅРєС†РёСЋ РѕС‚РїРёСЃРєРё.
+ * WebSocket подписка на канал. Возвращает функцию отписки.
  * channel: "global" | "runs.<id>" | "projects.<id>" | "hitl.<id>" | "logs.<id>"
  *
- * РћРґРёРЅ СЃРѕРєРµС‚ РЅР° channel (hub): РёРЅР°С‡Рµ React remount / РЅРµСЃРєРѕР»СЊРєРѕ РїР°РЅРµР»РµР№ /
- * CONNECTING Р±РµР· close() РєРѕРїСЏС‚ 100+ WS Рё РґСѓС€Р°С‚ backend (anim_pr / GPT).
+ * Один сокет на channel (hub): иначе React remount / несколько панелей /
+ * CONNECTING без close() копят 100+ WS и душат backend (anim_pr / GPT).
  */
 type WsHandler = (event: unknown) => void;
 
@@ -3237,7 +3237,7 @@ const WS_BACKOFF_MAX_MS = 15000;
 function _wsCloseQuiet(ws: WebSocket | null): void {
   if (!ws) return;
   try {
-    // Р’Р°Р¶РЅРѕ: CLOSE Рё CONNECTING вЂ” РёРЅР°С‡Рµ orphan-СЃРѕРєРµС‚С‹ РєРѕРїСЏС‚СЃСЏ.
+    // Важно: CLOSE и CONNECTING — иначе orphan-сокеты копятся.
     if (
       ws.readyState === WebSocket.CONNECTING ||
       ws.readyState === WebSocket.OPEN
@@ -3293,7 +3293,7 @@ function _wsConnectHub(hub: WsHub): void {
     }, delay);
   });
   ws.addEventListener("error", () => {
-    // close handler СЃРґРµР»Р°РµС‚ reconnect
+    // close handler сделает reconnect
   });
 }
 
