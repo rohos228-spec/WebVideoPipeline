@@ -201,15 +201,22 @@ def _render_messages(messages: list[dict[str, Any]]) -> str:
 
 
 def _history_from_db(source: Path | Any) -> list[SourceDoc]:
-    """Только чтение: SQLite в ``mode=ro`` или база приложения через SQLAlchemy.
+    """Только чтение: файл SQLite одной студии в ``mode=ro``.
 
-    На Postgres ``projects`` под RLS: без арендатора в контексте строк не видно,
-    и индекс истории проектов честно пуст, а не собран из чужих проектов.
+    Общая база нескольких арендаторов (Postgres) историю не отдаёт: у
+    ``orch_tasks`` и ``orch_messages`` нет ``tenant_id`` и RLS, а индекс RAG
+    один на процесс, — задачи и чаты всех арендаторов попали бы в общий
+    корпус. Проекты под RLS тоже не выход: с арендатором в контексте в общий
+    индекс легли бы его проекты, видимые остальным. Пока строки и индекс не
+    разделены по арендаторам, история из такой базы пуста.
     """
     from app.orchestrator.db.engine import open_read, table_names
 
     with open_read(source) as conn:
         if conn is None:
+            return []
+        if not _single_tenant(conn):
+            logger.info("rag history: shared multi-tenant database, history corpus skipped")
             return []
         tables = table_names(conn)
         docs: list[SourceDoc] = []
@@ -220,6 +227,12 @@ def _history_from_db(source: Path | Any) -> list[SourceDoc]:
         if "orch_messages" in tables:
             docs.extend(_chats(conn))
         return docs
+
+
+def _single_tenant(conn: Any) -> bool:
+    """Файл SQLite — база одной студии; сырое ``sqlite3`` (инструменты, тесты) тоже."""
+    dialect = getattr(conn, "dialect", None)
+    return dialect is None or dialect.name == "sqlite"
 
 
 def _cell(row: dict[str, Any], cols: set[str], name: str, default: Any = "") -> Any:

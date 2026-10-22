@@ -301,7 +301,24 @@ def test_node_tables_guard_history_and_feed_rag(orch_db: str, tmp_path: Path) ->
     _insert_message("s-rag", "user", "сделай ролик про море", task_id=None, mode=None)
     docs = load_history(project_db=APP_DATABASE)
     ids = {doc.source_id for doc in docs}
-    assert any(i.startswith("task:") for i in ids) and "chat:s-rag" in ids
+    if orch_db == "sqlite":
+        assert any(i.startswith("task:") for i in ids) and "chat:s-rag" in ids
+    else:
+        # Общая база арендаторов: orch_* без tenant_id, индекс один на процесс —
+        # задачи и чаты не должны попасть в общий корпус истории.
+        assert ids == set()
+
+
+def test_rag_runtime_sources_skip_shared_history(orch_db: str) -> None:
+    from app.orchestrator.db.engine import APP_DATABASE
+    from app.orchestrator.rag import _runtime_sources
+
+    sources = _runtime_sources()
+    if orch_db == "sqlite":
+        assert sources["project_db"] == Path(settings.sqlite_path)
+    else:
+        assert sources["project_db"] is None
+        assert sources["node_store"].db_path is APP_DATABASE
 
 
 # --- только SQLite: та же схема двумя путями ---------------------------------
@@ -515,3 +532,58 @@ def test_attachment_binding_reads_registry(tmp_path: Path, monkeypatch: pytest.M
     with pytest.raises(UploadRejected, match="размер"):
         verify_attachment_binding(real, size=4)
     verify_attachment_binding(tmp_path / "other" / "b.txt", content=b"zzz")  # не вложение — не проверяется
+
+
+def test_history_skips_shared_database_even_with_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Без живого Postgres: те же строки orch_* через соединение «не sqlite»
+    в корпус истории не попадают, а через файл SQLite — попадают."""
+    from contextlib import contextmanager
+
+    from sqlalchemy import create_engine
+
+    from app.db_migrations import upgrade_to_head_sync
+    from app.orchestrator.db import engine as db_engine
+    from app.orchestrator.rag import loaders
+
+    db = tmp_path / "shared.db"
+    upgrade_to_head_sync(db)
+    con = sqlite3.connect(db)
+    try:
+        con.execute(
+            "INSERT INTO orch_tasks (id, session_id, goal, status, created_at, updated_at) "
+            "VALUES (77, 's-other', 'чужая цель', 'done', 't', 't')"
+        )
+        con.execute(
+            "INSERT INTO orch_messages (session_id, role, content, created_at) "
+            "VALUES ('s-other', 'user', 'чужой чат', 't')"
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    own = {doc.source_id for doc in loaders.load_history(project_db=db)}
+    assert "task:77" in own and "chat:s-other" in own
+
+    sa_engine = create_engine(f"sqlite+pysqlite:///{db}", future=True)
+
+    @contextmanager
+    def shared_read(_source):
+        with sa_engine.connect() as conn:
+            monkeypatch.setattr(conn.dialect, "name", "postgresql")
+            yield conn
+
+    monkeypatch.setattr(db_engine, "open_read", shared_read)
+    try:
+        assert loaders.load_history(project_db=db_engine.APP_DATABASE) == []
+    finally:
+        sa_engine.dispose()
+
+
+def test_runtime_sources_on_postgres_settings_skip_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.orchestrator.db.engine import APP_DATABASE
+    from app.orchestrator.rag import _runtime_sources
+
+    monkeypatch.setattr(settings, "database_url", "postgresql+asyncpg://app:app@127.0.0.1:5432/vp")
+    sources = _runtime_sources()
+    assert sources["project_db"] is None
+    assert sources["node_store"].db_path is APP_DATABASE
