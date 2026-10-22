@@ -420,7 +420,7 @@ export function PromptFilesPanel({
       </header>
 
       <div className="grid gap-3 md:grid-cols-[180px,1fr]">
-        <ul className="flex max-h-[260px] flex-col gap-0.5 overflow-y-auto rounded-lg border border-white/5 bg-black/20 p-1 overscroll-contain">
+        <ul className="flex max-h-[260px] flex-col gap-0.5 overflow-y-auto rounded-lg border border-white/5 bg-black/20 p-1">
           {files.isError && (
             <li className="px-2 py-2 text-[10px] text-destructive">
               Ошибка загрузки списка промтов.
@@ -679,7 +679,7 @@ export function PromptFilesPanel({
                 setPreviewVersion(null);
               }}
               rows={12}
-              className="font-mono text-[10px] leading-relaxed overscroll-contain"
+              className="font-mono text-[10px] leading-relaxed"
               placeholder={
                 !selectedName
                   ? "Выберите файл слева или загрузите новый."
