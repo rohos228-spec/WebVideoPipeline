@@ -370,8 +370,10 @@ def _upgrade_sqlite(bind: sa.engine.Connection) -> None:
     applied = {row[0] for row in bind.exec_driver_sql("SELECT name FROM orch_schema_migrations")}
 
     def has_column(table: str, column: str) -> bool:
-        rows = bind.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
-        return any(row[1] == column for row in rows)
+        inspector = sa.inspect(bind)
+        if not inspector.has_table(table):
+            return False
+        return any(col["name"] == column for col in inspector.get_columns(table))
 
     for name in SQL_FILES:
         if name in applied:
@@ -401,8 +403,7 @@ def downgrade() -> None:
         op.execute(sa.text(f"DROP TABLE IF EXISTS {table}"))
     if bind.dialect.name == "sqlite":
         names = ", ".join(f"'{name}'" for name in SQL_FILES)
-        tables = {row[0] for row in bind.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'")}
-        if "orch_schema_migrations" in tables:
+        if sa.inspect(bind).has_table("orch_schema_migrations"):
             bind.exec_driver_sql(f"DELETE FROM orch_schema_migrations WHERE name IN ({names})")
         return
     op.execute(sa.text("DROP FUNCTION IF EXISTS node_prompt_versions_immutable()"))
