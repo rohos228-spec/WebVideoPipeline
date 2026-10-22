@@ -1,7 +1,7 @@
 """журнал публикаций: publications, publish_approvals, publication_manual_actions.
 
-Revision ID: 0018
-Revises: 0017
+Revision ID: 0019
+Revises: 0018
 Create Date: 2026-10-22
 
 Таблицы перенесены из движка (int/chat-v1, его миграции 0012 и 0017), где
@@ -31,8 +31,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0018"
-down_revision: str | None = "0017"
+revision: str = "0019"
+down_revision: str | None = "0018"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

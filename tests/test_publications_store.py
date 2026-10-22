@@ -1,7 +1,7 @@
-"""Журнал публикаций (`publications_store`), ревизия 0018 и дневной лимит.
+"""Журнал публикаций (`publications_store`), ревизия 0019 и дневной лимит.
 
 Перенос из движка (int/chat-v1): там таблицы создавал сырой DDL SQLite, здесь
-их создаёт alembic 0018, а `ensure_schema` страхует базы без ревизии. Тесты
+их создаёт alembic 0019, а `ensure_schema` страхует базы без ревизии. Тесты
 проверяют обе дороги и сам журнал: намерение до клика, аренду, идемпотентность
 по sha256, одноразовые разрешения, ручные действия только дописываются, и путь
 `publish_accounts.recent_click_times`, который лениво импортирует модуль.
@@ -284,7 +284,7 @@ async def test_recent_click_times_on_empty_database_creates_schema(db, tmp_path)
     assert _tables(tmp_path / "pub.db") >= _TABLES
 
 
-# --- alembic 0018 -----------------------------------------------------------------
+# --- alembic 0019 -----------------------------------------------------------------
 
 
 def test_fresh_database_gets_publication_tables_from_alembic(tmp_path):
@@ -312,7 +312,7 @@ def test_database_at_0017_is_caught_up_and_upgrade_is_idempotent(tmp_path):
     assert _tables(db) >= _TABLES
     upgrade_to_head_sync(db)
     with sqlite3.connect(db) as con:
-        assert con.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0018"
+        assert con.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0019"
 
 
 async def test_store_works_on_alembic_database_and_matches_its_shape(tmp_path):
