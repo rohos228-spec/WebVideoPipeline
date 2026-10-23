@@ -817,8 +817,62 @@ def drop_echo(text: str, goal: str) -> str:
     return body if meaningful else ""
 
 
+# «Текст промта «X» (системный):\n…\n(показаны первые 1500 из 5647 знаков)» из node.describe.
+_PROMPT_HEAD = re.compile(r"^(Текст промта[^\n]*):[ \t]*\n", re.MULTILINE)
+_PROMPT_TAIL = re.compile(r"\n\(показаны первые \d+ из \d+ знаков\)\s*$")
+_PROMPT_PROBE = 60
+PROMPT_QUOTE_RULE = (
+    "В фактах есть текст промта ноды («Текст промта …»). Покажи его цитатой дословно, каждую строку "
+    "с «> », не пересказывай и не сокращай показанный текст. Если показана только часть, скажи, "
+    "сколько знаков показано из скольких."
+)
+
+
+@dataclass(frozen=True)
+class PromptExcerpt:
+    head: str
+    body: str
+    tail: str
+
+
+def prompt_excerpts(facts: TaskFacts) -> list[PromptExcerpt]:
+    """Тексты промтов, которые прочитал node.describe: их ответ показывает, а не пересказывает."""
+    out: list[PromptExcerpt] = []
+    for note in facts.steps:
+        if note.action != "node.describe" or not note.ok or not note.text:
+            continue
+        found = _PROMPT_HEAD.search(note.text)
+        if found is None:
+            continue
+        rest = note.text[found.end() :]
+        tail = _PROMPT_TAIL.search(rest)
+        body = (rest[: tail.start()] if tail else rest).strip()
+        if body:
+            out.append(PromptExcerpt(found.group(1), body, tail.group(0).strip() if tail else ""))
+    return out
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"[\s>*_`#«»\"]+", "", text).lower()
+
+
+def ensure_prompt_quoted(text: str, facts: TaskFacts) -> str:
+    """Модель пересказала промт вместо цитаты: дописываем показанный текст цитатой сами."""
+    flat = _squash(text)
+    extra: list[str] = []
+    for item in prompt_excerpts(facts):
+        probe = _squash(item.body)[:_PROMPT_PROBE]
+        if probe and probe in flat:
+            continue
+        quoted = "\n".join("> " + line if line.strip() else ">" for line in item.body.splitlines())
+        extra.append("\n".join(part for part in (f"{item.head}:", quoted, item.tail) if part))
+    return "\n\n".join([text, *extra]) if extra else text
+
+
 def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
     rules = list(ANSWER_RULES)
+    if prompt_excerpts(facts):
+        rules.append(PROMPT_QUOTE_RULE)
     rules.append("Это итог задачи из чата: перескажи найденное по фактам и ответь на просьбу пользователя.")
     rules.append(
         "Пиши итог тем, что сделано и что получилось, в прошедшем времени и с числами, например "
@@ -894,6 +948,7 @@ class TaskSummarizer:
         text = cleaned
         if not text:
             return fallback
+        text = ensure_prompt_quoted(text, facts)
         # Модель могла уже вставить ссылку со своей подписью: сравниваем по адресу, не по строке.
         links = [
             link

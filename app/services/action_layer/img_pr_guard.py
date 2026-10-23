@@ -21,6 +21,8 @@ from collections.abc import Iterable
 from types import SimpleNamespace
 from typing import Any
 
+from loguru import logger
+
 STEP_CODE = "img_pr"
 IMG_PR_NODE_TYPE = "image_prompts"
 # Ноды, которые пишут поля сцены кадра (кроме «Работы с GPT»): веер scene_design.
@@ -91,7 +93,71 @@ async def load_live_frames(pid: int) -> list[SimpleNamespace] | None:
             frames = [_snapshot(fr) for fr in rows if not frame_is_archived(fr)]
     except Exception:  # noqa: BLE001 - база не читается: проверку не делаем
         return None
+    if not frames:
+        # Кадров в базе нет, а project.xlsx есть: так выглядит проект, перенесённый с линии,
+        # где кадры жили в project.db. Доска монтажа и шаги заведут их из xlsx при первом
+        # обращении, и промты картинок пойдут по ним же. Решаем по тем же кадрам.
+        frames = await xlsx_frames_preview(pid) or []
     return sorted(frames, key=lambda f: int(f.number or 0))
+
+
+async def xlsx_frames_preview(pid: int) -> list[SimpleNamespace] | None:
+    """Кадры, которые появятся в базе после импорта project.xlsx (как у доски монтажа).
+
+    Импорт идёт в отдельной сессии и всегда откатывается: в базу ничего не пишется,
+    событий не шлётся. None - xlsx нет, он не читается или импорт не удался.
+    """
+    from sqlalchemy import select
+
+    from app.models import Frame, Project
+    from app.services.action_layer import builtin_insight as bi
+    from app.services.db_v2 import frame_is_archived
+
+    try:
+        async with bi._sessions()() as s:
+            try:
+                project = await s.get(Project, pid)
+                if project is None:
+                    return None
+                xlsx = project.data_dir / "project.xlsx"
+                if not xlsx.is_file():
+                    return None
+                if not await _import_xlsx_rolled_back(s, project, xlsx):
+                    return None
+                rows = (await s.scalars(select(Frame).where(Frame.project_id == pid))).all()
+                return [_snapshot(fr) for fr in rows if not frame_is_archived(fr)]
+            finally:
+                await s.rollback()
+    except Exception:  # noqa: BLE001 - xlsx или база не читаются: проверку не делаем
+        logger.opt(exception=True).debug("img_pr guard: xlsx frames preview failed for #{}", pid)
+        return None
+
+
+async def _import_xlsx_rolled_back(session: Any, project: Any, xlsx: Any) -> bool:
+    """Ядро ``chatgpt_xlsx.sync_project_xlsx`` без пометки ноды упавшей при сбое импорта."""
+    from openpyxl import load_workbook
+
+    from app.services.xlsx_sync import reload_from_xlsx
+    from app.services.xlsx_v8_import import has_v8_plan_sheet, import_v8_xlsx
+    from app.services.xlsx_versioning import validate_xlsx
+
+    if validate_xlsx(xlsx) is not None:
+        return False
+    wb = load_workbook(filename=str(xlsx), data_only=True, read_only=True)
+    try:
+        is_v8 = has_v8_plan_sheet(wb)
+    finally:
+        wb.close()
+    ok = False
+    if is_v8:
+        info = await import_v8_xlsx(session, project, xlsx, keep_fields=True, update_frames_voiceover=True)
+        ok = not (isinstance(info, dict) and info.get("error"))
+    try:
+        await reload_from_xlsx(session, project, xlsx)
+        ok = True
+    except Exception:  # noqa: BLE001 - v7-лист не обязателен для v8-файла
+        pass
+    return ok
 
 
 # --- выход: пустой ли промт ---------------------------------------------------------------

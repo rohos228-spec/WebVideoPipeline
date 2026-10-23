@@ -63,7 +63,36 @@ def _generator_label(kind: str, gen_id: str) -> str:
             return found.label.lstrip("+ ").strip()
     except Exception:
         pass
-    return gen_id
+    return unknown_model_ru(gen_id)
+
+
+_ID_WORDS = {"gpt": "GPT", "vip": "VIP", "hd": "HD", "ai": "AI", "sd": "SD", "xl": "XL", "pro": "Pro"}
+
+
+def unknown_model_ru(gen_id: str) -> str:
+    """Модели нет в каталоге этой Студии: id в карточку сырым не идёт.
+
+    ``gpt_image_2_vip`` → «GPT Image 2 VIP (нет в каталоге)». Человек видит, что модель
+    у проекта стоит старая или чужая, и правка её заменит.
+    """
+    raw = " ".join(str(gen_id or "").split())
+    if not raw:
+        return "не задано"
+    words = [w for w in raw.replace("-", "_").replace(" ", "_").split("_") if w]
+    if not words:
+        return "не задано"
+    nice = []
+    for word in words:
+        low = word.lower()
+        if low in _ID_WORDS:
+            nice.append(_ID_WORDS[low])
+        elif low[:-1].isdigit() and low.endswith("k"):
+            nice.append(low.upper())
+        elif word.islower():
+            nice.append(word.capitalize())
+        else:
+            nice.append(word)
+    return f"{' '.join(nice)} (нет в каталоге)"
 
 
 def value_ru(key: str, value: Any) -> str:
