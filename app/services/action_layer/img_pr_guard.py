@@ -115,6 +115,14 @@ _PLACEHOLDER_RES = tuple(
         r"\b(?:данн\w*|информаци\w*|описани\w*|сведени\w*)\b.{0,90}?"
         r"(?:отсутству|не\s+задан|не\s+указан|не\s+предоставлен|\bнет\b)",
         r"\b(?:нет|без)\s+(?:\S+\s+){0,2}(?:данн|информаци|описани|сведени)",
+        # «Недостаточно исходных данных для заполнения» — тот же отказ другими словами.
+        r"\bнедостаточно\s+(?:\S+\s+){0,2}(?:данн|информаци|сведени)",
+        # Английские формы: «No source data available…», «Insufficient input data».
+        r"\b(?:no|insufficient|missing|not\s+enough)\s+(?:\S+\s+){0,2}"
+        r"(?:source|input|scene)\s+(?:data|information|details)\b",
+        r"\b(?:source|input)\s+(?:data|information)\b.{0,60}?"
+        r"\b(?:missing|unavailable|absent|not\s+(?:available|provided|specified|given))",
+        r"\bno\s+(?:data|information)\s+(?:is\s+)?(?:available|provided|given)\b",
         # «Свет: источник, направление и характер света не указаны[; не добавлять …]»: параметры
         # раздела не заданы и дальше нет описания. «источник не указан, мягкий рассеянный» —
         # за «не указан» идёт описание, это содержание. («отсутствует» здесь не берём:
@@ -124,6 +132,15 @@ _PLACEHOLDER_RES = tuple(
         # Раздел из одного слова-отсутствия: «Свет: не задан.», «Фон: отсутствует.»
         r"^\s*(?:не\s+задан\w*|не\s+указан\w*|не\s+предоставлен\w*|отсутству\w*|нет)\s*$",
     )
+)
+# Значение раздела вместо сцены: прочерк, «н/д», «неизвестно» («Фон: —. Действие: н/д.»).
+# Только всё значение раздела с меткой: «неизвестный путник идёт» — содержание.
+_EMPTY_VALUE_RE = re.compile(r"^\s*(?:[-—–…]+|н/д|n/?a|неизвестн\w*|unknown|none|tbd|\?+)\s*$", re.IGNORECASE)
+# Разделы сцены, которые бывают и после STYLE: тогда промт без текста до STYLE не пуст.
+_SCENE_LABEL_RE = re.compile(
+    r"(?:^|[.!?\n]\s*)(?:фон|действие|сцена|место|персонаж\w*|композиц\w*|"
+    r"background|scene|action|setting|characters?|composition|subject)\s*:",
+    re.IGNORECASE,
 )
 # Разделы не про сцену: референс героя, запреты, стиль.
 _NOT_SCENE_LABEL_RE = re.compile(
@@ -140,11 +157,14 @@ def _is_placeholder(text: str) -> bool:
 
 # «нет исходных данных о фоне, но лиса бежит по снегу»: после «но/однако/зато» идёт сцена.
 # С запятой и без: «…данных о фоне но лиса бежит» — то же самое.
-_CONTRAST_RE = re.compile(r"(?:,\s*|\s+)(?:но|однако|зато)\s+", re.IGNORECASE)
+_CONTRAST_RE = re.compile(r"(?:,\s*|\s+)(?:но|однако|зато|but|however)\s+", re.IGNORECASE)
 # После «но» указание про стиль / «сохранить нейтральный фон» / «оставить пустым» —
 # не сцена: «нет исходных данных, но сохранить нейтральный фон» остаётся заглушкой.
+# «но STYLE LOCK обязательный», «но кадр должен быть атмосферным» — указание модели, не сцена.
 _NOT_SCENE_REST_RE = re.compile(
-    r"\bстил|^(?:сохран|остав|держ|следова|соблюд|использ|придерж)|нейтральн|\bпуст",
+    r"\bстил|\bstyle\b|^(?:сохран|остав|держ|следова|соблюд|использ|придерж)|нейтральн|\bпуст|"
+    r"^(?:кадр\w*|изображени\w*|картинк\w*|иллюстраци\w*|промт\w*|сцен\w*|атмосфер\w*|frame|image|"
+    r"illustration|prompt|scene)\s+(?:\S+\s+)?(?:долж|нуж|обязан|следует|must|should|needs?\b)",
     re.IGNORECASE,
 )
 
@@ -190,7 +210,10 @@ def prompt_is_hollow(prompt: str | None) -> bool:
         return True
     if is_scene_prompt_hollow(text):
         return True
-    body = _STYLE_RE.split(text, maxsplit=1)[0]
+    body, *after_style = _STYLE_RE.split(text, maxsplit=1)
+    if not re.search(r"\w", body):
+        # До STYLE ни слова: промт — один стилевой замок, если и после него нет раздела сцены.
+        return not _SCENE_LABEL_RE.search(after_style[0] if after_style else "")
     placeholders = content = 0
     for label, part in _sections(body):
         if _is_placeholder(label):
@@ -198,8 +221,12 @@ def prompt_is_hollow(prompt: str | None) -> bool:
             continue
         if _NOT_SCENE_LABEL_RE.search(label):
             continue
-        first = _CLAUSE_END_RE.split(part, maxsplit=1)[0]
-        if _is_placeholder(first) and _content_after_contrast(first):
+        clauses = [c for c in _CLAUSE_END_RE.split(part) if c.strip()]
+        first = clauses[0] if clauses else ""
+        if label and (not first.strip() or _EMPTY_VALUE_RE.match(first)):
+            # «Фон: .», «Фон: —», «Фон: н/д», «Фон: неизвестно» — раздел без сцены.
+            placeholders += 1
+        elif _is_placeholder(first) and _content_after_contrast(first):
             content += 1
         elif _is_placeholder(first):
             placeholders += 1

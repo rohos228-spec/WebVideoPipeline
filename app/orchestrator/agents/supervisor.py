@@ -2369,7 +2369,38 @@ class Supervisor:
         for value in self._step_projects(task_id, running_only=True):
             if value not in found:
                 found.append(value)
-        return found
+        return self._visible_to_task(task_id, found, keep=own)
+
+    def _visible_to_task(self, task_id: int, project_ids: list[int], *, keep: int | None) -> list[int]:
+        """Только проекты, которые видит арендатор задачи (RLS), — до ключа стопа.
+
+        Ключ стопа — файл и отмена задач процесса, RLS его не закрывает: номер
+        проекта в параметрах шага мог указывать на чужой проект. Владелец
+        (арендатора нет) — прежнее поведение. Сбой чтения — проект самой
+        задачи остаётся, номера из шагов отбрасываются.
+        """
+        if not project_ids:
+            return project_ids
+        row = self.tasks.get(task_id) or {}
+        tenant = row.get("tenant_id")
+        if tenant is None or str(tenant).strip() == "":
+            return project_ids
+        from sqlalchemy import bindparam, text
+
+        from app.orchestrator.db.engine import get_engine
+        from app.services.tenant import tenant_scope
+
+        query = text("SELECT id FROM projects WHERE id IN :ids").bindparams(bindparam("ids", expanding=True))
+        try:
+            with tenant_scope(str(tenant)), get_engine().connect() as conn:
+                visible = {int(r[0]) for r in conn.execute(query, {"ids": [int(p) for p in project_ids]})}
+        except Exception:
+            logger.exception("orch kill: projects of task {} not checked", task_id)
+            visible = {keep} if keep is not None else set()
+        skipped = [p for p in project_ids if p not in visible]
+        if skipped:
+            logger.warning("orch kill: task {} — чужие проекты {} пропущены", task_id, skipped)
+        return [p for p in project_ids if p in visible]
 
     def _step_projects(self, task_id: int, *, running_only: bool) -> list[int]:
         """Проекты платных или изменяющих шагов задачи (только идущих, если ``running_only``)."""

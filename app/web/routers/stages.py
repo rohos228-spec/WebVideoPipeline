@@ -181,8 +181,9 @@ async def stop_stage(project_id: int, session: AsyncSession = Depends(get_sessio
     from app.services.project_control import stop_project_running
     from app.services.step_cancel import request_stop
 
-    request_stop(project_id)
+    # Проект под RLS — до ключа стопа: чужой id получает 404 без побочных эффектов.
     p = await _project_or_404(session, project_id)
+    request_stop(project_id)
     clear_stage_run(p)
     info = await stop_project_running(session, p)
     await session.commit()

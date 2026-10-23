@@ -1445,7 +1445,7 @@ async def run_img_pr_xlsx(
         no_source_uuids = {(fr.uuid or "").strip() for fr in frames if fr.number in no_source_frames}
         expected_now = {(fr.uuid or "").strip() for fr in frames if (fr.uuid or "").strip()}
         if not failed_notes and not (expected_now - done_set - no_source_uuids):
-            raise ipb.ImgPrNoSourceData(sorted(no_source_frames))
+            raise ipb.ImgPrNoSourceData(sorted(no_source_frames), apply_ops=all_ops)
         failed_notes.append(ipb.no_scene_data_text(sorted(no_source_frames)))
 
     if not all_ops:

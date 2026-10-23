@@ -134,6 +134,41 @@ async def _finish_success(session: AsyncSession, project: Project, frames: list[
     )
 
 
+async def _apply_img_pr_ops_once(project_id: int, ops: list[dict]) -> None:
+    """apply-ops img_pr в DB одной короткой сессией; повтор при занятой базе."""
+    import asyncio
+
+    from app.db import SessionLocal
+    from app.services import db_apply
+
+    for apply_try in range(1, 6):
+        try:
+            async with SessionLocal() as apply_session:
+                proj = await apply_session.get(Project, project_id)
+                if proj is None:
+                    raise RuntimeError("project gone during img_pr apply")
+                await db_apply.apply_ops(
+                    apply_session,
+                    proj,
+                    ops,
+                    export_xlsx=False,
+                    node_kind="img_pr",
+                )
+                await apply_session.commit()
+            return
+        except Exception as apply_err:  # noqa: BLE001
+            if not is_db_busy(apply_err) or apply_try >= 5:
+                raise
+            wait_s = min(2 * apply_try, 10)
+            logger.warning(
+                "[#{}] img_pr final apply locked try {}/5 — sleep {}s",
+                project_id,
+                apply_try,
+                wait_s,
+            )
+            await asyncio.sleep(wait_s)
+
+
 async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.generating_image_prompts:
         return
@@ -198,8 +233,6 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             cancelled = True
             break
         try:
-            from app.db import SessionLocal
-            from app.services import db_apply
             from app.services import xlsx_step_runners as xsr
 
             result = await xsr.run_img_pr_xlsx(
@@ -217,40 +250,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                 raise RuntimeError("пустой apply-ops после GPT")
             # Один apply в конце (не по батчам) — отдельная короткая сессия.
             if ops and not result.ops_applied_inline:
-                import asyncio
-
-                last_apply_err: Exception | None = None
-                for apply_try in range(1, 6):
-                    try:
-                        async with SessionLocal() as apply_session:
-                            proj = await apply_session.get(Project, project.id)
-                            if proj is None:
-                                raise RuntimeError("project gone during img_pr apply")
-                            await db_apply.apply_ops(
-                                apply_session,
-                                proj,
-                                ops,
-                                export_xlsx=False,
-                                node_kind="img_pr",
-                            )
-                            await apply_session.commit()
-                        last_apply_err = None
-                        break
-                    except Exception as apply_err:  # noqa: BLE001
-                        last_apply_err = apply_err
-                        locked = is_db_busy(apply_err)
-                        if not locked or apply_try >= 5:
-                            raise
-                        wait_s = min(2 * apply_try, 10)
-                        logger.warning(
-                            "[#{}] img_pr final apply locked try {}/5 — sleep {}s",
-                            project.id,
-                            apply_try,
-                            wait_s,
-                        )
-                        await asyncio.sleep(wait_s)
-                if last_apply_err is not None:
-                    raise last_apply_err
+                await _apply_img_pr_ops_once(project.id, ops)
                 logger.info(
                     "[#{}] generate_image_prompts: single apply ops={}",
                     project.id,
@@ -299,6 +299,20 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
 
             no_source = isinstance(e, ImgPrNoSourceData)
             only_no_source = False
+            if no_source and e.apply_ops:
+                # Готовые промты остальных кадров (прогон + чекпоинт) — в базу до
+                # решения о повторе: иначе 2-я попытка видит их пустыми и снова
+                # платно спрашивает кадры «нет данных».
+                from app.services.node_write_contract import filter_ops_for_node
+
+                good_ops = filter_ops_for_node(list(e.apply_ops), node_kind="img_pr")
+                if good_ops:
+                    await _apply_img_pr_ops_once(project.id, good_ops)
+                    logger.info(
+                        "[#{}] generate_image_prompts: no-source, applied ready ops={}",
+                        project.id,
+                        len(good_ops),
+                    )
             if no_source:
                 # 2-ю попытку пропускаем, только если ВСЕ недостающие кадры — «нет
                 # данных сцены»; пропущенные моделью кадры переспрашиваются как раньше.

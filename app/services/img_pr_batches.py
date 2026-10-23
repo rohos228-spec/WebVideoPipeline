@@ -591,8 +591,11 @@ class ImgPrNoSourceData(RuntimeError):
     # Код в app/services/error_catalog.py (ERROR_CATALOG / describe_error).
     ERROR_CODE = "img_pr_no_scene_data"
 
-    def __init__(self, frame_numbers: Sequence[int]) -> None:
+    def __init__(self, frame_numbers: Sequence[int], *, apply_ops: Sequence[dict] | None = None) -> None:
         self.frame_numbers = sorted({int(n) for n in frame_numbers})
+        # Готовые промты остальных кадров (этот прогон + чекпоинт): шаг пишет их
+        # в базу до того, как сообщить об ошибке, иначе они живут только в чекпоинте.
+        self.apply_ops = [op for op in (apply_ops or []) if isinstance(op, dict)]
         self.context = {"error_kind": self.ERROR_CODE, "frame_numbers": list(self.frame_numbers)}
         super().__init__(no_scene_data_text(self.frame_numbers))
 

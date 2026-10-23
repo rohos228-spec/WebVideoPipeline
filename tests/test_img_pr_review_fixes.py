@@ -189,7 +189,6 @@ def _real(fr):
     return [{"frame_uuid": fr.uuid, "fields": {"промт_картинки": REAL[0]}}]
 
 
-@pytest.mark.xfail(strict=True, reason='merge line: img_pr applies all ops once after the runner (coverage gate), not per batch; re-ask and no-source code are checked, the per-batch apply list is not')
 @pytest.mark.asyncio
 @pytest.mark.parametrize("numbers,no_source", [((5, 6, 7), {5, 6}), ((1, 2), {1})])
 async def test_mixed_batch_reasks_omitted_frame(monkeypatch, tmp_path, numbers, no_source) -> None:
@@ -208,7 +207,9 @@ async def test_mixed_batch_reasks_omitted_frame(monkeypatch, tmp_path, numbers, 
     assert err.value.frame_numbers == sorted(no_source)
     assert len(calls) >= 2, f"пропущенный кадр не переспрошен: {calls}"
     assert all(set(c) <= set(omitted) for c in calls[1:]), calls  # no-source не переспрашиваем
-    assert {f"{n:024x}" for n in omitted} <= set(applied)
+    # Эта линия пишет в базу один раз, в шаге: готовые промты едут в ошибке.
+    assert applied == []
+    assert {f"{n:024x}" for n in omitted} <= {ipb.uuid_of_op(op) for op in err.value.apply_ops}
 
 
 @pytest.mark.asyncio
@@ -243,21 +244,83 @@ def test_error_code_and_plain_text() -> None:
 # --- шаг: 2-я попытка только если есть пропущенные кадры --------------------------------------
 
 
-async def _run_step(remaining_after_first: set[int]):
+async def _run_step(monkeypatch, answer, *, prerun_runner: bool = False):
+    """Настоящий раннер img_pr + настоящий шаг; GPT подменён, база — SQLite.
+
+    ``answer(frame_number, call_no)`` → текст промта или None (кадр пропущен).
+    ``prerun_runner`` — сначала отдельный прогон раннера (чекпоинт есть, база
+    пуста): так шаг видит рестарт из чекпоинта.
+    """
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+    import app.db as app_db
     from app.models import Base, Frame, Project, ProjectStatus
     from app.orchestrator.steps import generate_image_prompts
-    from app.services import xlsx_step_runners
+    from app.services import chatgpt_xlsx as cx
+    from app.services import db_v2
+    from app.services import xlsx_gpt_flow as xgf
+    from app.services import xlsx_step_runners as xsr
 
-    tmp = tempfile.mkdtemp()
-    data = Path(tmp)
-    engine = create_async_engine("sqlite+aiosqlite:///" + str(data / "project.db"))
+    data = Path(tempfile.mkdtemp())
+    engine = create_async_engine("sqlite+aiosqlite:///" + str(data / "t.db"))
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    calls: list[int] = []
+    monkeypatch.setattr(app_db, "SessionLocal", sessions)
+    calls: list[list[int]] = []
+    prompt_file = data / "prompt_img_pr.txt"
+    prompt_file.write_text("master", encoding="utf-8")
+
+    async def _ctx(project, **_kw):
+        async with sessions() as s:
+            frs = (await s.scalars(select(Frame).where(Frame.project_id == project.id))).all()
+        frs = [fr for fr in frs if not (fr.image_prompt or "").strip()]
+        return list(frs), [], "", list(frs)
+
+    class FakeGpt:
+        async def new_conversation(self):
+            return None
+
+        async def ask_with_files(self, msg, attach, **_kw):
+            # Адресация батча; справочная карта uuid всего шага — не батч.
+            head = msg.split("# uuid map")[0]
+            uuids = [ln.split(" = ")[1].strip() for ln in head.splitlines()
+                     if ln.startswith("кадр ") and " = " in ln]
+            calls.append([int(u, 16) for u in uuids])
+            ops = []
+            for u in uuids:
+                text = answer(int(u, 16), len(calls))
+                if text is not None:
+                    ops.append({"frame_uuid": u, "fields": {"промт_картинки": text}})
+            return json.dumps({"ops": ops}, ensure_ascii=False)
+
+    async def _under_lock(_pid, _name, fn):
+        return await fn()
+
+    def _db_frames(_p, tmp_dir, batch, *_a, batch_tag="", **_kw):
+        out = Path(tmp_dir) / f"db_{batch_tag}.json"
+        out.write_text("{}", encoding="utf-8")
+        return out
+
+    async def _noop(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(xsr, "_ensure_project_xlsx", lambda p: data / "project.xlsx")
+    monkeypatch.setattr(cx, "tmp_gpt_dir", lambda p: data)
+    monkeypatch.setattr(cx, "write_img_pr_prompt_file", lambda p, d, ts=None: prompt_file)
+    monkeypatch.setattr(cx, "ensure_current_voiceover", lambda p: None)
+    monkeypatch.setattr(cx, "chat_message", lambda *a, **k: "img_pr\n")
+    monkeypatch.setattr("app.services.img_pr_style.resolve_project_img_style", lambda *a, **k: None)
+    monkeypatch.setattr(xsr, "_load_img_pr_context", _ctx)
+    monkeypatch.setattr(xsr, "_write_img_pr_db_frames_for", _db_frames)
+    monkeypatch.setattr(xsr, "img_pr_live_streams", lambda p: 1)
+    monkeypatch.setattr(xsr, "_EMPTY_OPS_BACKOFF_S", (0.0,), raising=False)
+    monkeypatch.setattr("app.services.gpt_client.ApiGptClient", FakeGpt)
+    monkeypatch.setattr(xgf, "run_under_xlsx_lock", _under_lock)
+    monkeypatch.setattr(db_v2, "backfill_project_v2", _noop)
+    monkeypatch.setattr(generate_image_prompts, "_sheet_for_project",
+                        lambda p: SimpleNamespace(ensure_initialized=lambda **k: None))
     try:
         async with sessions() as session:
             project = Project(id=2, slug="s", title="s", topic="s",
@@ -268,38 +331,58 @@ async def _run_step(remaining_after_first: set[int]):
                                   # main: шаг не идёт к модели без постановки кадра (место/фон/…).
                                   voiceover_text=f"vo {n}", attrs={"place": "лес"}))
             await session.commit()
-
-            async def fake_runner(*_a, **_k):
-                calls.append(1)
-                async with sessions() as writer:
-                    for fr in (await writer.scalars(select(Frame))).all():
-                        if fr.number not in remaining_after_first and fr.number not in (5, 6):
-                            fr.image_prompt = REAL[0]
-                        if len(calls) > 1 and fr.number == 7:
-                            fr.image_prompt = REAL[0]
-                    await writer.commit()
-                raise ipb.ImgPrNoSourceData([5, 6])
-
-            with patch.object(Project, "data_dir", property(lambda _: data)), \
-                    patch.object(xlsx_step_runners, "run_img_pr_xlsx", side_effect=fake_runner):
+            with patch.object(Project, "data_dir", property(lambda _: data)):
+                if prerun_runner:
+                    with pytest.raises(ipb.ImgPrNoSourceData):
+                        await xsr.run_img_pr_xlsx(project, n_frames=3, project_id=2)
+                    assert sorted(ipb.load_checkpoint(data).get("done_uuids") or []) == [f"{7:024x}"]
                 with pytest.raises(Exception) as err:
                     await generate_image_prompts.run(session, project, SimpleNamespace())
-        return calls, err.value
+            async with sessions() as s:
+                filled = {fr.number: (fr.image_prompt or "").strip()
+                          for fr in (await s.scalars(select(Frame))).all()}
+        return calls, err.value, filled
     finally:
         await engine.dispose()
 
 
-@pytest.mark.asyncio
-async def test_step_retries_when_omitted_frames_remain() -> None:
-    calls, err = await _run_step(remaining_after_first={7})
-    assert len(calls) == 2
-    assert isinstance(err, ipb.ImgPrNoSourceData)
+def _mixed(n: int, _call_no: int) -> str | None:
+    return "Нет исходных данных для заполнения" if n in (5, 6) else REAL[0]
 
 
 @pytest.mark.asyncio
-async def test_step_stops_after_one_attempt_when_only_no_source_left() -> None:
-    calls, err = await _run_step(remaining_after_first=set())
-    assert len(calls) == 1
+async def test_step_mixed_batch_writes_ready_prompts_and_stops(monkeypatch) -> None:
+    """5, 6 — «нет данных», 7 — сцена: 7 попадает в базу, 5 и 6 не переспрашиваются."""
     from app.services.error_catalog import describe_error
 
+    calls, err, filled = await _run_step(monkeypatch, _mixed)
+    assert calls == [[5, 6, 7]], calls
+    assert isinstance(err, ipb.ImgPrNoSourceData) and err.frame_numbers == [5, 6]
     assert describe_error(err)[0] == "img_pr_no_scene_data"
+    assert filled[7] == REAL[0]
+    assert filled[5] == "" and filled[6] == ""
+
+
+@pytest.mark.asyncio
+async def test_step_restart_from_checkpoint_writes_checkpointed_prompts(monkeypatch) -> None:
+    """Рестарт: 7 только в чекпоинте — шаг кладёт его в базу, 5 и 6 спрашивает один раз."""
+    calls, err, filled = await _run_step(monkeypatch, _mixed, prerun_runner=True)
+    assert calls == [[5, 6, 7], [5, 6]], calls
+    assert isinstance(err, ipb.ImgPrNoSourceData) and err.frame_numbers == [5, 6]
+    assert filled[7] == REAL[0]
+
+
+@pytest.mark.asyncio
+async def test_step_reasks_only_omitted_frame(monkeypatch) -> None:
+    """7 модель сперва пропустила: переспрашивается только 7, кадры «нет данных» — нет."""
+
+    def answer(n: int, call_no: int) -> str | None:
+        if n in (5, 6):
+            return "Нет исходных данных для заполнения"
+        return None if call_no == 1 else REAL[0]
+
+    calls, err, filled = await _run_step(monkeypatch, answer)
+    assert calls[0] == [5, 6, 7] and len(calls) >= 2, calls
+    assert all(c == [7] for c in calls[1:]), calls
+    assert isinstance(err, ipb.ImgPrNoSourceData) and err.frame_numbers == [5, 6]
+    assert filled[7] == REAL[0]
