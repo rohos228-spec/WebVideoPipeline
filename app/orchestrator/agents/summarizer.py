@@ -146,6 +146,8 @@ class StepNote:
     skipped: bool = False
     known: bool = False
     links: list[str] = field(default_factory=list)
+    # Проект шага: в задаче на несколько проектов итог называет каждый.
+    project_id: int | None = None
 
 
 @dataclass
@@ -385,10 +387,10 @@ def download_links(body: dict[str, Any]) -> list[str]:
     return [link] if link else []
 
 
-def _change_line(note: StepNote) -> str:
+def _change_line(note: StepNote, many: bool = False) -> str:
     if note.known and note.text:
         return note.text
-    return f"{note.title}" + (f": {note.text}" if note.text else ".")
+    return f"{note.title}{_in_project(note, many)}" + (f": {note.text}" if note.text else ".")
 
 
 def step_summary(note: StepNote | None) -> str:
@@ -558,9 +560,54 @@ def _undo_line(note: StepNote) -> str:
     return "" if note.action in _REVERT_ACTIONS else undo_hint()
 
 
+def _counted(note: StepNote) -> bool:
+    return bool(note.project_id) and not note.skipped and not (note.ok and note.readonly)
+
+
+def _many_projects(facts: TaskFacts) -> bool:
+    """Задача правила или запускала два и больше проектов: итог нужен по каждому."""
+    return len({note.project_id for note in facts.steps if _counted(note)}) >= 2
+
+
+def _in_project(note: StepNote, many: bool) -> str:
+    pid = note.project_id
+    if not many or not pid or f"#{pid}" in f"{note.text} {note.error}":
+        return ""
+    return f" в проекте #{pid}"
+
+
+def _project_tally(facts: TaskFacts) -> list[str]:
+    """Итог по проектам: сколько готово, где не вышло, где исход неизвестен."""
+    outcome: dict[int, str] = {}
+    for note in facts.steps:
+        if not _counted(note):
+            continue
+        pid = int(note.project_id or 0)
+        if note.ok:
+            outcome.setdefault(pid, "ok")
+        elif "результат неизвестен" in note.error:
+            outcome[pid] = "unknown"
+        elif outcome.get(pid) != "unknown":
+            outcome[pid] = "failed"
+    if len(outcome) < 2:
+        return []
+
+    def ids(kind: str) -> str:
+        return ", ".join(f"#{pid}" for pid in sorted(outcome) if outcome[pid] == kind)
+
+    ok = sum(1 for kind in outcome.values() if kind == "ok")
+    line = f"Итог по проектам: готово {ok} из {len(outcome)}"
+    if ids("failed"):
+        line += f"; не получилось: {ids('failed')}"
+    if ids("unknown"):
+        line += f"; результат неизвестен: {ids('unknown')}"
+    return [line + "."]
+
+
 def deterministic_text(facts: TaskFacts) -> str:
     done = [note for note in facts.steps if note.ok and not note.skipped]
     failed = [note for note in facts.steps if not note.ok and not note.skipped]
+    many = _many_projects(facts)
     lines: list[str] = []
     if facts.status == "done":
         changes = [note for note in done if not note.readonly]
@@ -570,7 +617,7 @@ def deterministic_text(facts: TaskFacts) -> str:
                 lines.append(changes[0].text)
             else:
                 lines.append("Готово. Что сделано:")
-                lines.extend(f"• {_change_line(note)}" for note in changes)
+                lines.extend(f"• {_change_line(note, many)}" for note in changes)
             undo = [note for note in changes if note.undo]
             lines.extend(dict.fromkeys(line for line in map(_undo_line, undo) if line))
             if not undo and not all(note.known for note in changes):
@@ -586,7 +633,10 @@ def deterministic_text(facts: TaskFacts) -> str:
             else:
                 lines.append("Готово, но данных для ответа шаги не вернули.")
         for note in failed:
-            lines.append(f"Не получилось «{note.title}»: {note.error or 'без пояснения'}.")
+            lines.append(
+                f"Не получилось «{note.title}»{_in_project(note, many)}: {note.error or 'без пояснения'}."
+            )
+        lines.extend(_project_tally(facts))
         return "\n".join(lines)
     if facts.error == APPROVAL_EXPIRED:
         if not facts.detail:
@@ -631,11 +681,16 @@ def deterministic_text(facts: TaskFacts) -> str:
     if facts.detail:
         lines.append(facts.detail)
     for note in failed:
-        lines.append(f"Шаг «{note.title}»: {note.error or 'ошибка без пояснения'}.")
+        lines.append(f"Шаг «{note.title}»{_in_project(note, many)}: {note.error or 'ошибка без пояснения'}.")
     # Чтения состояния перед шагом ничего не меняли: в «успели» только правки.
     changed = [note for note in done if not note.readonly]
     if changed:
-        lines.append("Успели выполнить: " + ", ".join(f"«{note.title}»" for note in changed) + ".")
+        lines.append(
+            "Успели выполнить: "
+            + ", ".join(f"«{note.title}»{_in_project(note, many)}" for note in changed)
+            + "."
+        )
+    lines.extend(_project_tally(facts))
     lines.append("Что можно сделать: " + todo)
     return "\n".join(lines)
 

@@ -210,6 +210,28 @@ def _running_status_requires(
     return step.requires if step is not None else None
 
 
+async def _note_rest_worker_waits(session, rest_projects) -> None:
+    """Места кончились: остальным running-проектам тика пишем ту же причину, что дал бы им
+    полный проход (стоп, уже идёт, предшественник в очереди генерации, пауза после ошибок),
+    и только иначе - «места заняты»."""
+    from app.services.gen_queue import gen_queue_blocks_project
+    from app.services.gen_queue_run import is_user_stopped
+    from app.services.step_cancel import clear_worker_wait, is_generation_active, note_worker_wait
+    from app.services.step_failure_policy import is_sleeping
+
+    for rest in rest_projects:
+        if is_user_stopped(rest):
+            note_worker_wait(rest.id, "user_stop")
+        elif is_generation_active(rest.id):
+            clear_worker_wait(rest.id)
+        elif await gen_queue_blocks_project(session, rest.id) is not None:
+            note_worker_wait(rest.id, "queue_predecessor")
+        elif is_sleeping(rest):
+            note_worker_wait(rest.id, "failure_sleep")
+        else:
+            note_worker_wait(rest.id, "parallel_slots_full")
+
+
 async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
     """Фоновая петля воркера: сканирует БД и продвигает проекты.
 
@@ -228,7 +250,10 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
     from app.services.advance_runner import advance_project_job
     from app.services.step_cancel import (
         StepCancelledError,
+        clear_worker_wait,
         is_generation_active,
+        keep_worker_waits,
+        note_worker_wait,
         register_advance_task,
         unregister_advance_task,
     )
@@ -452,9 +477,12 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                 max_parallel = worker_max_parallel()
                 slots_free = max(0, max_parallel - active_advance_count())
                 to_start: list[tuple[int, str]] = []
+                # Чат-оркестратор читает, почему проект не взят (очередь, а не простой).
+                keep_worker_waits(p.id for p in projects)
 
-                for p in projects:
+                for idx, p in enumerate(projects):
                     if is_user_stopped(p):
+                        note_worker_wait(p.id, "user_stop")
                         logger.debug(
                             "worker: #{} {} — user_stop, пропуск тика",
                             p.id,
@@ -508,6 +536,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                             )
                         continue
                     if is_generation_active(p.id):
+                        clear_worker_wait(p.id)
                         logger.debug(
                             "worker: #{} {} — шаг уже выполняется, пропуск тика",
                             p.id,
@@ -516,6 +545,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         continue
                     queue_blocker = await gen_queue_blocks_project(s, p.id)
                     if queue_blocker is not None:
+                        note_worker_wait(p.id, "queue_predecessor")
                         logger.debug(
                             "worker: #{} {} — ждём очередь, блокирует #{}",
                             p.id,
@@ -524,6 +554,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         )
                         continue
                     if is_sleeping(p):
+                        note_worker_wait(p.id, "failure_sleep")
                         logger.info(
                             "worker: #{} {} — пауза после ошибок до {}, пропуск тика",
                             p.id,
@@ -540,7 +571,10 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                             p.status.value,
                             max_parallel,
                         )
+                        note_worker_wait(p.id, "parallel_slots_full")
+                        await _note_rest_worker_waits(s, projects[idx + 1 :])
                         break
+                    clear_worker_wait(p.id)
                     to_start.append((p.id, p.status.value))
                     slots_free -= 1
 

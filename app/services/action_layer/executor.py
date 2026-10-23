@@ -184,6 +184,155 @@ async def project_activity(ctx: ActionContext, project_id: int | None) -> str | 
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def slot_wait_max_s() -> float:
+    """Сколько проект может ждать свободного места в очереди воркера, пока шаг ещё жив."""
+    return _env_float("ACTION_LAYER_SLOT_WAIT_MAX_S", 12 * 3600.0)
+
+
+class _SlotWaitTooLong(Exception):
+    def __init__(self, wait_s: float):
+        self.wait_s = wait_s
+        super().__init__(f"waited for a worker slot {wait_s:.0f}s")
+
+
+def worker_slots() -> tuple[int, int]:
+    """(занято, всего) мест воркера в этом процессе: сколько проектов идут одновременно."""
+    from app.services.gen_queue import worker_max_parallel
+    from app.services.step_cancel import active_advance_count
+
+    return active_advance_count(), max(1, int(worker_max_parallel()))
+
+
+# Шаги, которые проект делает руками воркера: только их воркер может держать в очереди.
+WORKER_QUEUED_ACTIONS: frozenset[str] = frozenset(
+    {"step.run_step", "node.run_step", "project.resume", "project.continue_pipeline"}
+)
+# Причины, которые воркер пишет в runtime_wait; очередь - только первые две.
+QUEUE_REASONS: frozenset[str] = frozenset({"parallel_slots_full", "queue_predecessor"})
+
+
+def goes_through_worker(spec: ActionSpec) -> bool:
+    return spec.id in WORKER_QUEUED_ACTIONS or "worker_queue" in (spec.tags or ())
+
+
+def _worker_would_take(project: dict | None) -> bool:
+    """Проект в running-статусе, без ручного стопа и без паузы после ошибок."""
+    if not isinstance(project, dict):
+        return False
+    from types import SimpleNamespace
+
+    from app.models import ProjectStatus
+    from app.services.gen_queue_run import is_user_stopped
+    from app.services.project_state import is_running_status
+    from app.services.step_failure_policy import is_sleeping
+
+    try:
+        if not is_running_status(ProjectStatus(str(project.get("status")))):
+            return False
+        meta = project.get("meta") if isinstance(project.get("meta"), dict) else {}
+        shell = SimpleNamespace(meta=meta)
+        return not (is_user_stopped(shell) or is_sleeping(shell))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def project_waits_for_slot(
+    project_id: int | None, project: dict | None = None
+) -> tuple[int, int, str] | None:
+    """Проект запущен, но воркер его ещё не взял, потому что он в очереди.
+
+    Возвращает (занято, всего, причина) или None, если проект идёт или ждёт не очереди.
+    Причину берём у воркера (то, что он пишет в runtime_wait): места заняты или впереди
+    в очереди генерации есть проекты. Пауза после ошибок и ручной стоп - не очередь.
+    Пока воркер этот проект ещё не смотрел, очередью считаем только running-проект
+    (``project``), когда все места заняты.
+    Ожидание места - не простой: сторож хода и сроки шага его не считают.
+    """
+    if project_id is None:
+        return None
+    from app.services.step_cancel import is_generation_active, worker_wait_reason
+
+    try:
+        if is_generation_active(int(project_id)):
+            return None
+        reason = worker_wait_reason(int(project_id))
+        busy, total = worker_slots()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("action layer slot probe failed project={}: {}", project_id, exc)
+        return None
+    if reason in QUEUE_REASONS:
+        return busy, total, reason
+    if reason is not None or busy < total:
+        return None
+    return (busy, total, "parallel_slots_full") if _worker_would_take(project) else None
+
+
+async def _slot_wait(ctx: ActionContext, spec: ActionSpec, cur: dict) -> tuple[int, int, str] | None:
+    """Ждёт ли проект шага очереди воркера. Проект читаем не чаще раза в probe_s."""
+    pid = cur.get("project_id")
+    if pid is None or not goes_through_worker(spec):
+        return None
+    from app.services.step_cancel import is_generation_active, worker_wait_reason
+
+    project = None
+    try:
+        need = (
+            not is_generation_active(int(pid))
+            and worker_wait_reason(int(pid)) is None
+            and worker_slots()[0] >= worker_slots()[1]
+        )
+    except Exception:  # noqa: BLE001
+        need = False
+    if need:
+        now = time.monotonic()
+        seen = cur.get("queue_probe")
+        if seen is None or now - seen[0] >= progress_probe_s():
+            try:
+                got = await ctx.call("GET", f"/projects/{int(pid)}")
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("action layer queue probe failed project={}: {}", pid, exc)
+                got = None
+            seen = (now, got if isinstance(got, dict) else None)
+            cur["queue_probe"] = seen
+        project = seen[1]
+    return project_waits_for_slot(pid, project)
+
+
+def _probed(cur: dict) -> dict | None:
+    seen = cur.get("queue_probe")
+    return seen[1] if seen else None
+
+
+def _generation_active(project_id: int | None) -> bool:
+    if project_id is None:
+        return False
+    from app.services.step_cancel import is_generation_active
+
+    try:
+        return bool(is_generation_active(int(project_id)))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+# План -> когда его проект встал ждать места (по порядку прихода, для «N из M»).
+_SLOT_WAITERS: dict[str, float] = {}
+
+
+def slot_wait_text(plan_id: str, total: int, reason: str = "parallel_slots_full") -> str:
+    order = sorted(_SLOT_WAITERS, key=lambda pid: _SLOT_WAITERS[pid])
+    place = order.index(plan_id) + 1 if plan_id in order else len(order) + 1
+    waiting = max(len(order), place)
+    why = (
+        "впереди в очереди генерации есть проекты"
+        if reason == "queue_predecessor"
+        else f"одновременно идут не больше {total}"
+    )
+    return (
+        f"в очереди, ждет свободного места ({place} из {waiting}); {why}, "
+        "время в очереди не считается простоем"
+    )
+
+
 class ProgressWatch:
     def __init__(
         self, project_id: int | None, *, timeout_s: float | None = None, probe_s: float | None = None
@@ -217,6 +366,12 @@ class ProgressWatch:
                 self.activity,
             )
         )
+
+    def hold(self) -> None:
+        """Проект ждёт места в очереди: отсчёт простоя начинается заново, когда он пойдёт."""
+        self.last_change = time.monotonic()
+        self.mark = None
+        self.last_probe = float("-inf")
 
     def idle_s(self) -> float:
         return time.monotonic() - self.last_change
@@ -847,6 +1002,55 @@ async def _run_step(app: Any, plan_id: str, step_id: int, operator: str, registr
             est_pair,
         )
         return "нет признаков хода, платная задача не остановлена, результат неизвестен"
+    except _SlotWaitTooLong as waited:
+        # Проект так и не взял воркер: ход не начинался, снимаем запуск. Если воркер брал
+        # его раньше в этом шаге или успел взять, пока снимали, «не начинался» уже
+        # неправда: исход неизвестен.
+        taken = bool(cur.get("ever_taken")) or _generation_active(project_id)
+        confirmed = await _abort_after_failure(
+            plan_id, step, spec, cur, project_id, reserved, t0, operator, est_pair, force=True
+        )
+        taken = taken or _generation_active(project_id)
+        actual = await _settle_if_done(plan_id, step, spec, reserved, t0, confirmed)
+        hours = max(1, round(waited.wait_s / 3600))
+        if taken:
+            tail = "остановлен" if confirmed else "остановка не подтверждена, проект занят до конца шага"
+            await _close_step(
+                plan_id,
+                step,
+                store.STEP_UNKNOWN,
+                f"не дождался свободного места в очереди за {hours} ч, но воркер "
+                f"уже брал проект в этом шаге: шаг {tail}, результат неизвестен",
+                "step_unknown",
+                operator,
+                est_pair,
+                actual,
+            )
+            return "не дождался свободного места, результат неизвестен"
+        if confirmed:
+            await _close_step(
+                plan_id,
+                step,
+                store.STEP_FAILED,
+                f"не дождался свободного места в очереди за {hours} ч: запуск снят, шаг не начинался",
+                "step_failed",
+                operator,
+                est_pair,
+                actual,
+            )
+            return f"не дождался свободного места за {hours} ч"
+        await _close_step(
+            plan_id,
+            step,
+            store.STEP_UNKNOWN,
+            f"не дождался свободного места в очереди за {hours} ч; снятие запуска "
+            "не подтверждено, результат неизвестен",
+            "step_unknown",
+            operator,
+            est_pair,
+            actual,
+        )
+        return "не дождался свободного места, результат неизвестен"
     except _Stopped:
         actual = await _settle_step(plan_id, step, spec, reserved, t0, None)
         await _close_step(
@@ -1039,38 +1243,81 @@ async def _execute(
     if not spec.is_job:
         return start, _credits(start.get("credits_spent"))
     watch = ProgressWatch(cur.get("project_id"))
-    while True:
-        state = await spec.poll(ctx, params, start)
-        if state.progress is not None or state.note:
-            await ctx.progress(state.progress, state.note)
-        if state.done:
-            cur["job_finished"] = True
-            if state.ok:
-                return {**start, **(state.result or {})}, _credits(state.credits_spent)
-            if await _stop_requested(plan_id):
-                raise _Stopped()
-            raise JobFailed(state.error or "фоновая задача завершилась ошибкой")
-        if await _stop_requested(plan_id):
-            await _call_stop(plan_id, cur)
-        if await _kill_switch_on():
-            await _call_stop(plan_id, cur)
-            async with store.sessions()() as s:
-                store.append_history(
-                    s,
-                    event="kill_switch_block",
-                    plan_id=plan_id,
-                    step_index=ctx.step_index,
-                    actor=ctx.operator,
-                    action_id=spec.id,
-                    outcome="blocked",
-                    error=budget.KILL_SWITCH_REASON,
-                )
-                await s.commit()
-            raise _KillSwitchStopped()
-        await watch.observe(ctx, state)
-        if watch.stalled():
-            raise _Stalled(watch.idle_s())
-        await asyncio.sleep(spec.poll_interval_s)
+    queued_s = 0.0
+    queued_since: float | None = None
+    try:
+        while True:
+            state = await spec.poll(ctx, params, start)
+            slot = None if state.done else await _slot_wait(ctx, spec, cur)
+            now = time.monotonic()
+            # Воркер уже брал проект в этом шаге (идёт сейчас или вышел из очереди после
+            # запуска): потом проект мог снова встать в очередь (повтор после ошибки,
+            # автоцепочка), но «шаг не начинался» про него уже неправда.
+            if _generation_active(cur.get("project_id")) or (
+                queued_since is not None and slot is None and not state.done
+            ):
+                cur["ever_taken"] = True
+            if slot is not None:
+                if queued_since is None:
+                    queued_since = now
+                    _SLOT_WAITERS.setdefault(plan_id, now)
+                cur["slot_wait"] = {"busy": slot[0], "max_parallel": slot[1], "reason": slot[2]}
+                await ctx.progress(state.progress, slot_wait_text(plan_id, slot[1], slot[2]))
+            else:
+                if queued_since is not None:
+                    queued_s += now - queued_since
+                    queued_since = None
+                    _SLOT_WAITERS.pop(plan_id, None)
+                    cur.pop("slot_wait", None)
+                if state.progress is not None or state.note:
+                    await ctx.progress(state.progress, state.note)
+            if state.done:
+                cur["job_finished"] = True
+                if state.ok:
+                    result = {**start, **(state.result or {})}
+                    if queued_s >= 1:
+                        result["queue_wait_s"] = round(queued_s)
+                    return result, _credits(state.credits_spent)
+                if await _stop_requested(plan_id):
+                    raise _Stopped()
+                raise JobFailed(state.error or "фоновая задача завершилась ошибкой")
+            await _job_guards(plan_id, spec, ctx, cur)
+            if queued_since is not None:
+                watch.hold()
+                # Срок вышел - перепроверяем сейчас, без await до raise: воркер мог взять
+                # проект после чтения очереди в начале круга.
+                if (
+                    now - queued_since > slot_wait_max_s()
+                    and project_waits_for_slot(cur.get("project_id"), _probed(cur)) is not None
+                ):
+                    raise _SlotWaitTooLong(now - queued_since)
+            else:
+                await watch.observe(ctx, state)
+                if watch.stalled():
+                    raise _Stalled(watch.idle_s())
+            await asyncio.sleep(spec.poll_interval_s)
+    finally:
+        _SLOT_WAITERS.pop(plan_id, None)
+
+
+async def _job_guards(plan_id: str, spec: ActionSpec, ctx: ActionContext, cur: dict) -> None:
+    if await _stop_requested(plan_id):
+        await _call_stop(plan_id, cur)
+    if await _kill_switch_on():
+        await _call_stop(plan_id, cur)
+        async with store.sessions()() as s:
+            store.append_history(
+                s,
+                event="kill_switch_block",
+                plan_id=plan_id,
+                step_index=ctx.step_index,
+                actor=ctx.operator,
+                action_id=spec.id,
+                outcome="blocked",
+                error=budget.KILL_SWITCH_REASON,
+            )
+            await s.commit()
+        raise _KillSwitchStopped()
 
 
 async def request_stop(plan_id: str, operator: str) -> dict:

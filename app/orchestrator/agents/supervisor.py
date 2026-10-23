@@ -3562,7 +3562,7 @@ class Supervisor:
         views = [approval_steps.step_view(step, self.actions, labels) for step in steps]
         previews = [await self._card_extra(task_id, step, goal) for step in steps]
         mark = group_fingerprint(plan, positions)
-        card = approval_steps.group_card(steps, positions, views, previews, mark)
+        card = approval_steps.group_card(steps, positions, views, previews, mark, concurrent=concurrent)
         card["risk"] = max_risk(risk, card["risk"]).value
         extra = {**card, "action": steps[0].action, "plan_risk": steps[0].risk}
         if reason != "risk":
@@ -4408,6 +4408,7 @@ class Supervisor:
             note = task_summary.note_from_result(
                 step.action, result, readonly=step_is_readonly(step, self.actions)
             )
+            note.project_id = _step_project(step)
         except Exception:
             logger.exception("orch step note failed for {}", step.action)
             return None

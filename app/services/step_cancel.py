@@ -90,6 +90,40 @@ def active_advance_count() -> int:
     return sum(1 for task in _advance_tasks.values() if not task.done())
 
 
+# Почему воркер не взял running-проект на последнем тике (то же, что он пишет в runtime_wait):
+# parallel_slots_full | queue_predecessor | failure_sleep | user_stop.
+# Проход воркера идёт от имени одного арендатора и видит только его проекты:
+# запись помнит арендатора, чистка тика трогает только его записи.
+_worker_waits: dict[int, tuple[str | None, str]] = {}
+
+
+def _tenant_now() -> str | None:
+    from app.services.tenant import current_tenant
+
+    return current_tenant()
+
+
+def note_worker_wait(project_id: int, reason: str) -> None:
+    _worker_waits[int(project_id)] = (_tenant_now(), str(reason))
+
+
+def clear_worker_wait(project_id: int) -> None:
+    _worker_waits.pop(int(project_id), None)
+
+
+def keep_worker_waits(project_ids) -> None:
+    """Тик воркера: проекты арендатора тика, которых больше нет среди running, ничего не ждут."""
+    keep = {int(pid) for pid in project_ids}
+    tenant = _tenant_now()
+    for pid in [pid for pid, (owner, _r) in _worker_waits.items() if owner == tenant and pid not in keep]:
+        _worker_waits.pop(pid, None)
+
+
+def worker_wait_reason(project_id: int) -> str | None:
+    got = _worker_waits.get(int(project_id))
+    return got[1] if got else None
+
+
 def is_generation_active(project_id: int) -> bool:
     from app.services.montage_board_montage_job import is_montage_job_live
     from app.services.xlsx_flow_locks import is_any_xlsx_flow_active

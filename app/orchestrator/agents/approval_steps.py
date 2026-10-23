@@ -373,12 +373,58 @@ def _group_cost(
     return round(total, 4), f"около {_usd(total)} за {projects_ru(len(steps))}"
 
 
+_PARALLEL_RUNS = frozenset({"step.run_step", "node.run_step"})
+
+
+def _worker_slots() -> tuple[int, int] | None:
+    try:
+        from app.services.action_layer.executor import worker_slots
+
+        return worker_slots()
+    except Exception:
+        return None
+
+
+def slots_plan(count: int, busy: int, total: int) -> dict[str, int]:
+    """Сколько запусков пойдут сразу и сколько встанут ждать места у воркера."""
+    total = max(1, int(total))
+    free = max(0, total - max(0, int(busy)))
+    now = min(int(count), free)
+    return {
+        "count": int(count),
+        "max_parallel": total,
+        "busy": max(0, int(busy)),
+        "start_now": now,
+        "waiting": int(count) - now,
+    }
+
+
+def slots_text(plan: dict[str, int]) -> str:
+    """Честная строка карточки: сколько проектов идут одновременно, сколько ждут."""
+    count, total, now, waiting = plan["count"], plan["max_parallel"], plan["start_now"], plan["waiting"]
+    word = "проекта" if total % 10 == 1 and total % 100 != 11 else "проектов"
+    head = f"Одновременно идут не больше {total} {word}"
+    if not waiting:
+        return f"{head}: все {count} начнут сразу."
+    busy = f", сейчас уже занято {plan['busy']} из {total}" if plan["busy"] else ""
+    if now:
+        start = f"{now} начнут сразу, {waiting} встанут в очередь"
+    else:
+        start = f"все {count} встанут в очередь"
+    return (
+        f"{head}{busy}: {start} и начнут по мере освобождения места. Время в очереди не "
+        "считается простоем, итог будет по каждому проекту."
+    )
+
+
 def group_card(
     steps: list[PlanStep],
     positions: list[int],
     views: list[dict[str, Any]],
     previews: list[dict[str, Any]],
     fingerprint: str,
+    *,
+    concurrent: bool = False,
 ) -> dict[str, Any]:
     """Одна карточка на однотипные шаги разных проектов: сумма, список проектов, общий отпечаток.
 
@@ -420,6 +466,11 @@ def group_card(
     }
     if cost is not None and cost > 0:
         card["cost_estimate"] = cost
+    slots = _worker_slots() if concurrent and steps[0].action in _PARALLEL_RUNS else None
+    if slots is not None:
+        card["slots"] = slots_plan(count, *slots)
+        card["slots_text"] = slots_text(card["slots"])
+        card["warnings"] = [card["slots_text"], *card["warnings"]]
     if errors:
         card["preview_errors"] = errors[:20]
     if any(preview.get("blocked") for preview in previews):
