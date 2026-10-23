@@ -81,11 +81,13 @@ async def continue_project(project_id: int, session: AsyncSession = Depends(get_
 
 @router.post("/{project_id}/stop")
 async def stop_project(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
-    # Сразу cancel advance/GPT — до любого ожидания SQLite (первый клик ⏹).
+    # Сначала проект под RLS арендатора: чужой id — 404 без ключа стопа и без
+    # отмены задач этого процесса. Затем сразу cancel advance/GPT — до ожиданий
+    # базы ниже (первый клик ⏹).
     from app.services.step_cancel import request_stop
 
-    request_stop(project_id)
     p = _project_or_404(await session.get(Project, project_id))
+    request_stop(project_id)
     info = await stop_project_running(session, p)
     if not info["ok"]:
         raise HTTPException(status_code=400, detail=info["message"])
