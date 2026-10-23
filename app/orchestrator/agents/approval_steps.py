@@ -407,12 +407,22 @@ def slots_text(plan: dict[str, int]) -> str:
     if not waiting:
         return f"{head}: все {count} начнут сразу."
     busy = f", сейчас уже занято {plan['busy']} из {total}" if plan["busy"] else ""
+
+    def _one(n: int) -> bool:
+        return n % 10 == 1 and n % 100 != 11
+
     if now:
-        start = f"{now} начнут сразу, {waiting} встанут в очередь"
+        start = (
+            f"{now} {'начнёт' if _one(now) else 'начнут'} сразу, "
+            f"{waiting} {'встанет' if _one(waiting) else 'встанут'} в очередь"
+        )
+    elif count == 1:
+        start = "проект встанет в очередь"
     else:
         start = f"все {count} встанут в очередь"
+    tail = "начнёт" if _one(waiting if now else count) else "начнут"
     return (
-        f"{head}{busy}: {start} и начнут по мере освобождения места. Время в очереди не "
+        f"{head}{busy}: {start} и {tail} по мере освобождения места. Время в очереди не "
         "считается простоем, итог будет по каждому проекту."
     )
 

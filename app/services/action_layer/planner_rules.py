@@ -937,6 +937,8 @@ _PARAM_LABELS = {
     "status": "статус",
     "limit": "не больше",
 }
+# Список из одного номера: «проект 11», а не «проекты 11».
+_PARAM_LABELS_ONE = {"project_ids": "проект", "frame_numbers": "кадр"}
 _SKIP_PARAMS = frozenset(
     {
         "project_id",
@@ -1027,6 +1029,8 @@ def _param_text(key: str, value: Any, facts: dict | None) -> str:
     ):
         # Номера проектов и кадров — все: карточка с «проекты 3, 4, 5, 6, 7, 8» при десяти
         # проектах в шаге выглядела так, будто остальные не встанут в очередь.
+        if len(value) == 1:
+            label = _PARAM_LABELS_ONE.get(key, label)
         return f"{label} {_ints_text(list(value))}"
     if isinstance(value, (list, tuple)):
         items = [v for v in value[:6] if isinstance(v, (str, int, float)) and not isinstance(v, bool)]

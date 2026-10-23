@@ -118,13 +118,13 @@ def _queue_step(rt: Any, task_id: int) -> dict[str, Any]:
 
 def test_blocked_text_names_project_reason_and_how_to_launch_later() -> None:
     text = sup._blocked_launch_text(
-        "Не поставлены в очередь",
+        ("Не поставлен в очередь", "Не поставлены в очередь"),
         [(10, _SCENE)],
-        9,
+        list(range(3, 10)) + [11, 12],
         ("ставится в очередь как обычно", "ставятся в очередь как обычно"),
     )
     assert text.startswith(
-        "Не поставлены в очередь: #10 — кадры без данных сцены, сначала запустите ноду «Работа с GPT 2»."
+        "Не поставлен в очередь: #10 — кадры без данных сцены, сначала запустите ноду «Работа с GPT 2»."
     ), text
     assert "Остальные 9 проектов ставятся в очередь как обычно." in text
     assert "«запусти проект 10»" in text
@@ -194,7 +194,7 @@ async def test_ten_projects_one_blocked_card_is_approvable_without_it(
         card = _cards(rt, "ph8-one")[-1]
         assert not card.get("blocked"), card
         warnings = card.get("warnings") or []
-        assert warnings and warnings[0].startswith(f"Не поставлены в очередь: #10 — {_SCENE}."), warnings
+        assert warnings and warnings[0].startswith(f"Не поставлен в очередь: #10 — {_SCENE}."), warnings
         assert "«запусти проект 10»" in warnings[0]
         assert actions.calls == []
     finally:
@@ -214,7 +214,7 @@ async def test_all_projects_blocked_card_stays_blocked(token: str, monkeypatch: 
         assert _queue_step(rt, task_id)["params"]["project_ids"] == [3, 4, 5]
         card = _cards(rt, "ph8-all")[-1]
         assert card.get("blocked") is True, card
-        assert not any("Не поставлены" in w for w in card.get("warnings") or [])
+        assert not any("Не поставлен" in w for w in card.get("warnings") or [])
         assert actions.calls == []
     finally:
         set_runtime(None)
@@ -232,7 +232,7 @@ async def test_single_blocked_project_keeps_blocking(token: str) -> None:
         assert _queue_step(rt, task_id)["params"]["project_ids"] == [10]
         card = _cards(rt, "ph8-single")[-1]
         assert card.get("blocked") is True, card
-        assert not any("Не поставлены" in w for w in card.get("warnings") or [])
+        assert not any("Не поставлен" in w for w in card.get("warnings") or [])
         assert actions.calls == []
     finally:
         set_runtime(None)
@@ -416,11 +416,11 @@ async def test_critic_sees_skipped_projects_on_run_step_split(token: str) -> Non
         saved = json.loads(rt.tasks.get(task_id)["plan_json"])
         assert [s["params"]["project_id"] for s in saved if s["action"] == "step.run_step"] == [9, 11]
         assert critic.contexts, "критик должен был проверить план шагов"
-        assert "Не запущены: #10" in critic.contexts[-1]
+        assert "Не запущен: #10" in critic.contexts[-1]
         assert rt.tasks.get(task_id)["status"] == TaskStatus.waiting_approval.value
         card = _cards(rt, "ph8b-critic")[-1]
         assert not card.get("blocked"), card
-        assert card["warnings"][0].startswith("Не запущены: #10 — ")
+        assert card["warnings"][0].startswith("Не запущен: #10 — ")
     finally:
         set_runtime(None)
 
@@ -464,16 +464,16 @@ async def test_probe_crash_keeps_all_projects_without_raw_text(
         assert _queue_step(rt, task_id)["params"]["project_ids"] == [3, 4, 5]
         card = _cards(rt, "ph8b-crash")[-1]
         assert "secret-xyz" not in json.dumps(card, ensure_ascii=False)
-        assert not any("Не поставлены" in w for w in card.get("warnings") or [])
+        assert not any("Не поставлен" in w for w in card.get("warnings") or [])
     finally:
         set_runtime(None)
 
 
 def test_note_dedupes_ids() -> None:
     text = sup._blocked_launch_text(
-        "Не поставлены в очередь",
+        ("Не поставлен в очередь", "Не поставлены в очередь"),
         [(10, _SCENE), (10, _SCENE), (12, "x")],
-        3,
+        [3, 4, 5],
         ("ставится в очередь как обычно", "ставятся в очередь как обычно"),
     )
     assert text.count("#10 —") == 1

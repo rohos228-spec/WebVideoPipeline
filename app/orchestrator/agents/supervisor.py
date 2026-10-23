@@ -2873,9 +2873,9 @@ class Supervisor:
                 self._launch_note.pop(task_id, None)
             notes.append(
                 _blocked_launch_text(
-                    "Не поставлены в очередь",
+                    ("Не поставлен в очередь", "Не поставлены в очередь"),
                     dropped,
-                    len(set(kept)),
+                    kept,
                     ("ставится в очередь как обычно", "ставятся в очередь как обычно"),
                 )
             )
@@ -2891,6 +2891,7 @@ class Supervisor:
         ):
             dropped_runs: list[tuple[int, str]] = []
             gone: set[int] = set()
+            left: list[int] = []
             for at, step in enumerate(out):
                 pid = _step_project(step)
                 if step.action != "step.run_step" or pid is None:
@@ -2899,13 +2900,15 @@ class Supervisor:
                 if reason:
                     dropped_runs.append((pid, reason))
                     gone.add(at)
+                else:
+                    left.append(pid)
             if dropped_runs and len(gone) < len(runs):
                 out = [step for at, step in enumerate(out) if at not in gone]
                 notes.append(
                     _blocked_launch_text(
-                        "Не запущены",
+                        ("Не запущен", "Не запущены"),
                         dropped_runs,
-                        len(runs) - len(gone),
+                        left,
                         ("запускается как обычно", "запускаются как обычно"),
                     )
                 )
@@ -6049,23 +6052,33 @@ _LAUNCH_SKIPPED_CRITIC = (
 )
 
 
-def _blocked_launch_text(head: str, dropped: list[tuple[int, str]], kept: int, goes: tuple[str, str]) -> str:
-    """«Не поставлены в очередь: #10 — кадры без данных сцены, …» и как запустить их потом."""
+def _blocked_launch_text(
+    head: tuple[str, str], dropped: list[tuple[int, str]], kept: list[int], goes: tuple[str, str]
+) -> str:
+    """«Не поставлены в очередь: #10, #12 — кадры без данных сцены, …» и как запустить их потом.
+
+    ``head`` и ``goes`` — формы (один проект, несколько). Проекты с одной причиной идут одной
+    группой; оставшийся один проект назван номером, а не «остальной проект».
+    """
     first: dict[int, str] = {}
     for pid, reason in dropped:
         first.setdefault(pid, reason)
-    dropped = list(first.items())
-    why = ". ".join(f"#{pid} — {reason.rstrip('.')}" for pid, reason in dropped)
-    one = len(dropped) == 1
-    ids = ", ".join(str(pid) for pid, _ in dropped)
-    rest = (
-        f"Остальные {kept} {_projects_word(kept)} {goes[1]}." if kept > 1 else f"Остальной проект {goes[0]}."
-    )
+    groups: dict[str, list[int]] = {}
+    for pid, reason in first.items():
+        groups.setdefault(reason.rstrip("."), []).append(pid)
+    why = ". ".join(f"{_ids_ru(pids)} — {reason}" for reason, pids in groups.items())
+    one = len(first) == 1
+    ids = ", ".join(str(pid) for pid in first)
+    kept = list(dict.fromkeys(kept))
+    if len(kept) == 1:
+        rest = f"Проект #{kept[0]} {goes[0]}."
+    else:
+        rest = f"Остальные {len(kept)} {_projects_word(len(kept))} {goes[1]}."
     later = (
         f"Когда причина будет устранена, {'проект' if one else 'эти проекты'} можно запустить "
         f"отдельно: «запусти {'проект' if one else 'проекты'} {ids}»."
     )
-    return f"{head}: {why}. {rest} {later}"
+    return f"{head[0] if one else head[1]}: {why}. {rest} {later}"
 
 
 def _skipped_text(skipped: list[tuple[int | None, str]]) -> str:
