@@ -135,10 +135,14 @@ async def test_queue_writes_keep_other_tenant_ids_and_responses_show_only_own(pg
     assert sl.get_gen_queue() == [a2, a1]
 
     # Постановка одного проекта и снятие: ответ без чужих номеров.
-    res = await client.post("/api/sidebar-layout/gen-queue/enqueue", json={"project_id": b1}, headers=pg["b"].auth)
+    res = await client.post(
+        "/api/sidebar-layout/gen-queue/enqueue", json={"project_id": b1}, headers=pg["b"].auth
+    )
     assert res.status_code == 200, res.text
     assert res.json()["gen_queue"] == [b1] and res.json()["position"] == 1
-    res = await client.post("/api/sidebar-layout/gen-queue/toggle", json={"project_id": b1}, headers=pg["b"].auth)
+    res = await client.post(
+        "/api/sidebar-layout/gen-queue/toggle", json={"project_id": b1}, headers=pg["b"].auth
+    )
     assert res.status_code == 200, res.text
     assert res.json()["gen_queue"] == [] and res.json()["position"] is None
     res = await client.get("/api/sidebar-layout", headers=pg["b"].auth)
@@ -180,7 +184,9 @@ async def test_prompt_base_shows_own_tenant_db_prompt(pg, monkeypatch) -> None: 
     # уже цепочка базы: проект → арендатор → системный → диск.
     monkeypatch.setattr(prompt_store, "_CACHE", {})
     res = await client.get(
-        "/api/change-control/prompt-base", params={"project_id": pid_a, "node_key": "plan_1"}, headers=pg["a"].auth
+        "/api/change-control/prompt-base",
+        params={"project_id": pid_a, "node_key": "plan_1"},
+        headers=pg["a"].auth,
     )
     assert res.status_code == 200, res.text
     name = res.json()["variant"]
@@ -193,18 +199,24 @@ async def test_prompt_base_shows_own_tenant_db_prompt(pg, monkeypatch) -> None: 
         },
     )
     res = await client.get(
-        "/api/change-control/prompt-base", params={"project_id": pid_a, "node_key": "plan_1"}, headers=pg["a"].auth
+        "/api/change-control/prompt-base",
+        params={"project_id": pid_a, "node_key": "plan_1"},
+        headers=pg["a"].auth,
     )
     assert res.status_code == 200, res.text
     assert res.json()["text"] == "ПЛАН КЛИЕНТА А" and res.json()["text_level"] == "tenant"
     res = await client.get(
-        "/api/change-control/prompt-base", params={"project_id": pid_b, "node_key": "plan_1"}, headers=pg["b"].auth
+        "/api/change-control/prompt-base",
+        params={"project_id": pid_b, "node_key": "plan_1"},
+        headers=pg["b"].auth,
     )
     assert res.status_code == 200, res.text
     assert res.json()["text"] == "СИСТЕМНЫЙ ПЛАН" and "КЛИЕНТА А" not in res.text
     # Чужой проект — не найден, текста нет.
     res = await client.get(
-        "/api/change-control/prompt-base", params={"project_id": pid_a, "node_key": "plan_1"}, headers=pg["b"].auth
+        "/api/change-control/prompt-base",
+        params={"project_id": pid_a, "node_key": "plan_1"},
+        headers=pg["b"].auth,
     )
     assert res.status_code == 404, res.text
     assert "КЛИЕНТА А" not in res.text
@@ -221,7 +233,9 @@ async def test_only_admin_changes_studio_parallel(pg) -> None:  # noqa: F811
     res = await client.patch("/api/runtime-streams", json={"worker_max_parallel": 4}, headers=pg["a"].auth)
     assert res.status_code == 403, res.text
     assert get_worker_max_parallel() == 2
-    res = await client.patch("/api/runtime-streams", json={"worker_max_parallel": 3}, headers=pg["admin"].auth)
+    res = await client.patch(
+        "/api/runtime-streams", json={"worker_max_parallel": 3}, headers=pg["admin"].auth
+    )
     assert res.status_code == 200, res.text
     assert get_worker_max_parallel() == 3
 
@@ -285,7 +299,9 @@ async def test_sidebar_folders_are_per_tenant(pg) -> None:  # noqa: F811
     assert res.json()["folders"] == [] and "Клиент А" not in res.text and "Папка владельца" not in res.text
 
     # Чужую папку не переименовать и не удалить.
-    res = await client.patch(f"/api/sidebar-layout/folders/{fa}", json={"name": "взлом"}, headers=pg["b"].auth)
+    res = await client.patch(
+        f"/api/sidebar-layout/folders/{fa}", json={"name": "взлом"}, headers=pg["b"].auth
+    )
     assert res.status_code == 404, res.text
     res = await client.delete(f"/api/sidebar-layout/folders/{fa}", headers=pg["b"].auth)
     assert res.status_code == 404, res.text
@@ -311,7 +327,9 @@ async def test_sidebar_folders_are_per_tenant(pg) -> None:  # noqa: F811
     assert row["sidebar_folder_id"] is None
 
     res = await client.put(
-        "/api/sidebar-layout", json={"project_layout": {str(a1): {"folder_id": fa, "order": 0}}}, headers=pg["a"].auth
+        "/api/sidebar-layout",
+        json={"project_layout": {str(a1): {"folder_id": fa, "order": 0}}},
+        headers=pg["a"].auth,
     )
     assert res.status_code == 200, res.text
     res = await client.get("/api/sidebar-layout", headers=pg["a"].auth)
@@ -323,32 +341,168 @@ async def test_sidebar_folders_are_per_tenant(pg) -> None:  # noqa: F811
     assert [f["id"] for f in data["tenant_folders"][str(a)]] == [fa]
 
 
-async def test_worker_serves_waiting_only_with_auto_mode_and_not_terminal(pg) -> None:  # noqa: F811
-    from sqlalchemy import update
-
-    from app.models import Project, ProjectStatus
+async def _serve(pg, ids=()):  # noqa: F811
     from app.orchestrator.node_registry import WORKER_ACTIVE_STATUSES
     from app.services.tenant import tenant_scope
-    from app.services.work_routing import tenants_to_serve, waiting_statuses
+    from app.services.work_routing import reset_serve_cache, tenants_to_serve, waiting_statuses
+
+    reset_serve_cache()
+    with tenant_scope(None):
+        async with pg["factory"]() as s:
+            return await tenants_to_serve(
+                s,
+                [st.value for st in WORKER_ACTIVE_STATUSES],
+                list(ids),
+                waiting=waiting_statuses(),
+                session_factory=pg["factory"],
+            )
+
+
+async def _set(pg, tenant, pid, **values) -> None:  # noqa: F811
+    from sqlalchemy import update
+
+    from app.models import Project
+    from app.services.tenant import tenant_scope
+
+    with tenant_scope(tenant):
+        async with pg["factory"]() as s:
+            await s.execute(update(Project).where(Project.id == pid).values(**values))
+            await s.commit()
+
+
+async def test_worker_serves_waiting_only_with_auto_mode_and_not_stopped(pg) -> None:  # noqa: F811
+    from app.models import ProjectStatus
+    from app.services.work_routing import waiting_statuses
 
     a, b = pg["a"].user_id, pg["b"].user_id
     pid_a = await _project_of(pg, a, title="A ждёт, auto выключен", status=ProjectStatus.plan_ready)
-    with tenant_scope(a):
-        async with pg["factory"]() as s:
-            await s.execute(update(Project).where(Project.id == pid_a).values(auto_mode=False))
-            await s.commit()
-    await _project_of(pg, a, title="A собран", status=ProjectStatus.assembled)  # auto_mode=True, финал
+    await _set(pg, a, pid_a, auto_mode=False)
+    await _project_of(pg, a, title="A ждёт, ⏹", status=ProjectStatus.script_ready, meta={"user_stop": True})
+    await _project_of(
+        pg,
+        a,
+        title="A ждёт ручной ▶",
+        status=ProjectStatus.images_ready,
+        meta={"auto_await_manual_start": True},
+    )
+    await _project_of(pg, a, title="A опубликован", status=ProjectStatus.published)
     pid_b = await _project_of(pg, b, title="B ждёт с auto", status=ProjectStatus.images_ready)
-    running = [s.value for s in WORKER_ACTIVE_STATUSES]
     waiting = waiting_statuses()
-    assert "assembled" not in waiting and "plan_ready" in waiting
+    assert "assembled" in waiting and "plan_ready" in waiting and "published" not in waiting
 
-    with tenant_scope(None):
-        async with pg["factory"]() as s:
-            served = await tenants_to_serve(s, running, [], waiting=waiting, session_factory=pg["factory"])
-            queued = await tenants_to_serve(s, running, [pid_a], waiting=waiting, session_factory=pg["factory"])
-    # А: ждущий без auto_mode и собранный — прохода нет; Б: ждущий с auto_mode — есть.
+    served = await _serve(pg)
+    # А: ждущий без auto_mode, с ⏹, ждущий ▶ и опубликованный — прохода нет; Б — есть.
     assert b in served and a not in served
     # Номер в очереди — проход есть всегда (очередь стартует его сама).
+    queued = await _serve(pg, [pid_a])
     assert a in queued and b in queued
     assert pid_b  # noqa: S101
+
+
+async def test_worker_serves_assembled_auto_project_with_publish_on_canvas(pg, monkeypatch) -> None:  # noqa: F811
+    from app.models import Project, ProjectStatus
+    from app.orchestrator import auto_advance
+    from app.services.tenant import tenant_scope
+
+    a, b = pg["a"].user_id, pg["b"].user_id
+    pid_a = await _project_of(pg, a, title="A собран, дальше публикация", status=ProjectStatus.assembled)
+    pid_b = await _project_of(pg, b, title="B собран, auto выключен", status=ProjectStatus.assembled)
+    await _set(pg, b, pid_b, auto_mode=False)
+    served = await _serve(pg)
+    # Канвас по умолчанию кончается публикацией: собранный с auto_mode двигать есть куда.
+    assert a in served and b not in served
+    with tenant_scope(a):
+        async with pg["factory"]() as s:
+            p = await s.get(Project, pid_a)
+            assert (
+                await auto_advance._graph_next_running(s, p, ProjectStatus.assembled)
+                is ProjectStatus.publishing
+            )
+
+    # Канвас без шага после сборки — покой, прохода нет.
+    async def _no_next(session, project, ready_status):
+        return None
+
+    monkeypatch.setattr(auto_advance, "_graph_next_running", _no_next)
+    assert a not in await _serve(pg)
+
+
+async def test_worker_serves_next_mass_lane_and_running_batch(pg) -> None:  # noqa: F811
+    from sqlalchemy import update
+
+    from app.models import BatchProject, BatchStatus, ProjectStatus
+    from app.services.project_control import MASS_FAMILY_HALTED_KEY
+    from app.services.tenant import tenant_scope
+
+    a, b = pg["a"].user_id, pg["b"].user_id
+    # А: первая полоса фабрики собрана (auto выключен у родителя), следующая — в `new`.
+    parent = await _project_of(pg, a, title="A родитель", status=ProjectStatus.assembled)
+    await _set(pg, a, parent, auto_mode=False)
+    lane1 = await _project_of(
+        pg, a, title="A полоса 1", status=ProjectStatus.assembled, meta={"mass_parent_id": parent}
+    )
+    await _set(pg, a, lane1, auto_mode=False)
+    await _project_of(pg, a, title="A полоса 2", meta={"mass_parent_id": parent, "mass_lane_position": 2})
+    # Б: просто новый проект — прохода нет.
+    await _project_of(pg, b, title="B новый")
+    served = await _serve(pg)
+    assert a in served and b not in served
+
+    # Семья остановлена ⏹ — полосы не стартуют, проход не нужен.
+    await _set(pg, a, parent, meta={MASS_FAMILY_HALTED_KEY: True})
+    assert a not in await _serve(pg)
+
+    # Б: массовый запущен, подпроект в `new` — проход есть; на паузе — нет.
+    with tenant_scope(b):
+        async with pg["factory"]() as s:
+            batch = BatchProject(name="Б масс", slug=f"bm-{uuid.uuid4().hex[:8]}", status=BatchStatus.running)
+            s.add(batch)
+            await s.commit()
+            batch_id = batch.id
+    sub = await _project_of(pg, b, title="B подпроект")
+    await _set(pg, b, sub, batch_id=batch_id)
+    assert b in await _serve(pg)
+    with tenant_scope(b):
+        async with pg["factory"]() as s:
+            await s.execute(
+                update(BatchProject).where(BatchProject.id == batch_id).values(status=BatchStatus.paused)
+            )
+            await s.commit()
+    assert b not in await _serve(pg)
+
+
+async def test_worker_serve_check_remembers_no_for_same_candidates(pg, monkeypatch) -> None:  # noqa: F811
+    from app.models import ProjectStatus
+    from app.orchestrator.node_registry import WORKER_ACTIVE_STATUSES
+    from app.services import work_routing as wr
+    from app.services.tenant import tenant_scope
+
+    a = pg["a"].user_id
+    pid = await _project_of(pg, a, title="A ждёт, auto выключен", status=ProjectStatus.plan_ready)
+    await _set(pg, a, pid, auto_mode=False)
+    calls: list = []
+    real = wr._tenant_needs_tick
+
+    async def _counted(factory, tenant, waiting_ids, new_ids):
+        calls.append(tenant)
+        return await real(factory, tenant, waiting_ids, new_ids)
+
+    monkeypatch.setattr(wr, "_tenant_needs_tick", _counted)
+    running = [st.value for st in WORKER_ACTIVE_STATUSES]
+
+    async def _tick():
+        with tenant_scope(None):
+            async with pg["factory"]() as s:
+                return await wr.tenants_to_serve(
+                    s, running, [], waiting=wr.waiting_statuses(), session_factory=pg["factory"]
+                )
+
+    wr.reset_serve_cache()
+    assert a not in await _tick()
+    assert a not in await _tick()
+    # Второй тик с теми же кандидатами — без запроса от имени А.
+    assert calls.count(a) == 1
+    # Статус кандидата сменился — проверка повторяется сразу.
+    await _set(pg, a, pid, status=ProjectStatus.script_ready, auto_mode=True)
+    assert a in await _tick()
+    assert calls.count(a) == 2

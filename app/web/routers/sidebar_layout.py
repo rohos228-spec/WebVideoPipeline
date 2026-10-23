@@ -121,7 +121,10 @@ async def rename_folder(folder_id: str, body: FolderRename) -> dict:
 
 @router.delete("/folders/{folder_id}")
 async def delete_folder(folder_id: str) -> dict:
-    if not layout_svc.delete_folder(folder_id):
+    # Под арендатором в корень уходят только его проекты (см. ``delete_folder``).
+    async with session_scope() as session:
+        own = await _own_ids(session)
+    if not layout_svc.delete_folder(folder_id, own_ids=own):
         raise HTTPException(status_code=404, detail="folder not found")
     return {"ok": True}
 

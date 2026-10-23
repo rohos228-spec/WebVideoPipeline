@@ -248,7 +248,9 @@ async def test_queue_warnings_read_limit_without_runtime_streams_call(as_identit
     save_runtime_streams({"worker_max_parallel": 2})
     as_identity(_member())
     member = await bl._queue_warnings(_Ctx(), {"project_ids": [1]})
-    assert member == ["Одновременно идут не больше 2 проектов очереди; это общая настройка студии, её меняет админ."]
+    assert member == [
+        "Одновременно идут не больше 2 проектов очереди; это общая настройка студии, её меняет админ."
+    ]
     as_identity(_admin())
     admin = await bl._queue_warnings(_Ctx(), {"project_ids": [1]})
     assert "просьбой в чате" in admin[0]
@@ -277,7 +279,10 @@ def test_prompt_base_shows_tenant_db_text_before_disk(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(
         prompt_store,
         "_CACHE",
-        {(A, "", None, "plan", "default"): "ТЕКСТ КЛИЕНТА А", (None, "", None, "plan", "default"): "СИСТЕМНЫЙ"},
+        {
+            (A, "", None, "plan", "default"): "ТЕКСТ КЛИЕНТА А",
+            (None, "", None, "plan", "default"): "СИСТЕМНЫЙ",
+        },
     )
     with tenant_scope(A):
         got = targets.describe_prompt_base(nctx)
@@ -324,7 +329,12 @@ async def test_node_describe_names_tenant_prompt_level() -> None:
         async def call(self, method, path, **kw):
             if path.endswith("/describe"):
                 return {"text_ru": "Нода «План»."}
-            return {"variant": "default", "text": "ТЕКСТ КЛИЕНТА", "text_level": "tenant", "text_level_ru": "мои"}
+            return {
+                "variant": "default",
+                "text": "ТЕКСТ КЛИЕНТА",
+                "text_level": "tenant",
+                "text_level_ru": "мои",
+            }
 
     out = await ne._describe(_Ctx(), {"project_id": 1, "node_key": "plan_1"})
     assert "Текст промта «default» (мои):\nТЕКСТ КЛИЕНТА" in out["text_ru"]
@@ -486,6 +496,77 @@ def test_folders_are_per_tenant_and_owner_keeps_legacy_list() -> None:
     data = sl.load_layout()
     assert data["tenant_folders"] == {A: [], B: [{"id": "fb", "name": "Папка Б", "order": 0}]}
     assert [f["id"] for f in data["folders"]] == ["own0"]
+
+
+def test_folder_delete_and_put_cannot_touch_foreign_placements() -> None:
+    sl.save_layout(
+        {
+            "folders": [{"id": "own0", "name": "Папка владельца", "order": 0}],
+            "project_layout": {
+                "1": {"folder_id": "own0", "order": 0},
+                "2": {"folder_id": None, "order": 0},
+                "3": {"folder_id": None, "order": 0},
+            },
+            "gen_queue": [],
+        }
+    )
+    with tenant_scope(A):
+        # Номер чужой папки в PUT заменяется свежим, раскладка той же правки — за ним.
+        out = sl.update_layout(
+            folders=[{"id": "own0", "name": "А", "order": 0}],
+            project_layout={"2": {"folder_id": "own0", "order": 0}},
+            own_ids={2},
+        )
+        fid = out["tenant_folders"][A][0]["id"]
+        assert fid != "own0"
+        assert out["project_layout"]["2"]["folder_id"] == fid
+        assert sl.delete_folder("own0", own_ids={2}) is False
+        assert sl.delete_folder(fid, own_ids={2}) is True
+        assert sl.load_layout()["project_layout"]["2"]["folder_id"] is None
+    with tenant_scope(B):
+        # Повтор своего номера в одном PUT тоже не делит папку надвое.
+        sl.update_layout(folders=[{"id": "x1", "name": "Б1"}, {"id": "x1", "name": "Б2"}], own_ids={3})
+        ids = [f["id"] for f in sl.load_layout()["tenant_folders"][B]]
+        assert ids[0] == "x1" and len(set(ids)) == 2
+    # Даже при совпавшем номере (старый файл) удаление арендатора чистит только его проекты.
+    data = sl.load_layout()
+    data["tenant_folders"][A] = [{"id": "own0", "name": "двойник", "order": 0}]
+    data["project_layout"]["2"] = {"folder_id": "own0", "order": 0}
+    sl.save_layout(data)
+    with tenant_scope(A):
+        assert sl.delete_folder("own0", own_ids={2}) is True
+    lay = sl.load_layout()["project_layout"]
+    assert lay["1"]["folder_id"] == "own0" and lay["2"]["folder_id"] is None
+    # Новая папка не получает занятый номер.
+    with tenant_scope(B):
+        assert sl.create_folder("Б3")["id"] not in {"own0", "x1"}
+
+
+def test_tenant_projects_in_legacy_shared_folder_get_a_copy() -> None:
+    sl.save_layout(
+        {
+            "folders": [{"id": "old1", "name": "Общая до разделения", "order": 2}],
+            "project_layout": {
+                "1": {"folder_id": "old1", "order": 0},
+                "2": {"folder_id": "old1", "order": 1},
+                "3": {"folder_id": "old1", "order": 0},
+            },
+            "gen_queue": [],
+        }
+    )
+    with tenant_scope(A):
+        view = sl.layout_for_api({2})
+        assert [f["name"] for f in view["folders"]] == ["Общая до разделения"]
+        fid = view["folders"][0]["id"]
+        assert fid != "old1" and view["project_layout"]["2"]["folder_id"] == fid
+        # Повторный показ не плодит копий; удалить копию — только своё.
+        assert [f["id"] for f in sl.layout_for_api({2})["folders"]] == [fid]
+        assert sl.delete_folder(fid, own_ids={2}) is True
+    # У владельца папка и его проекты на месте; проект другого арендатора — тоже.
+    owner = sl.layout_for_api({1})
+    assert [f["id"] for f in owner["folders"]] == ["old1"]
+    assert owner["project_layout"]["1"]["folder_id"] == "old1"
+    assert sl.load_layout()["project_layout"]["3"]["folder_id"] == "old1"
 
 
 async def _seed_tenant_projects(ids_tenants: dict[int, str | None]) -> None:

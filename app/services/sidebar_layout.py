@@ -81,6 +81,52 @@ def _folders_of(data: dict[str, Any], tenant: str | None) -> list[dict[str, Any]
     return list((data.get("tenant_folders") or {}).get(str(tenant)) or [])
 
 
+def _all_folder_ids(data: dict[str, Any]) -> set[str]:
+    """Номера всех папок файла: владельца и каждого арендатора."""
+    ids = {str(f.get("id")) for f in (data.get("folders") or []) if isinstance(f, dict) and f.get("id")}
+    for folders in (data.get("tenant_folders") or {}).values():
+        ids.update(str(f.get("id")) for f in folders or [] if isinstance(f, dict) and f.get("id"))
+    return ids
+
+
+def _new_folder_id(taken: set[str]) -> str:
+    while True:
+        fid = uuid.uuid4().hex[:12]
+        if fid not in taken:
+            return fid
+
+
+def _dedupe_incoming_folders(
+    data: dict[str, Any], tenant: str | None, folders: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Папки из ``PUT`` без чужих номеров.
+
+    Номер папки приходит от клиента. Новый номер, совпавший с номером папки
+    владельца или другого арендатора, заменяется свежим: иначе удаление «своей»
+    папки снимало бы с места чужие проекты, а место в ней показывалось бы у
+    обоих. Возвращает папки и замену номеров (старый → новый) для раскладки той
+    же правки.
+    """
+    mine = {str(f.get("id")) for f in _folders_of(data, tenant) if f.get("id")}
+    taken = _all_folder_ids(data)
+    foreign = taken - mine
+    remap: dict[str, str] = {}
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for f in folders:
+        rec = dict(f)
+        fid = str(rec.get("id") or "")
+        if not fid or fid in foreign or fid in seen:
+            new_id = _new_folder_id(taken | seen | set(remap.values()))
+            if fid:
+                remap.setdefault(fid, new_id)
+            rec["id"] = new_id
+            fid = new_id
+        seen.add(fid)
+        out.append(rec)
+    return out, remap
+
+
 def _set_folders(data: dict[str, Any], tenant: str | None, folders: list[dict[str, Any]]) -> None:
     if tenant is None:
         data["folders"] = folders
@@ -255,7 +301,7 @@ def create_folder(name: str) -> dict[str, Any]:
     data = load_layout()
     tenant = _tenant_now()
     folders: list[dict[str, Any]] = _folders_of(data, tenant)
-    folder_id = uuid.uuid4().hex[:12]
+    folder_id = _new_folder_id(_all_folder_ids(data))
     order = max((int(f.get("order") or 0) for f in folders), default=-1) + 1
     record = {
         "id": folder_id,
@@ -290,7 +336,12 @@ def rename_folder(folder_id: str, name: str) -> dict[str, Any]:
     return found
 
 
-def delete_folder(folder_id: str) -> bool:
+def delete_folder(folder_id: str, own_ids: set[int] | None = None) -> bool:
+    """Удалить свою папку; её проекты — в корень.
+
+    ``own_ids`` задан (арендатор) — в корень уходят только его проекты: чужие
+    места не трогаются, даже если номер папки где-то совпал.
+    """
     data = load_layout()
     tenant = _tenant_now()
     folders: list[dict[str, Any]] = _folders_of(data, tenant)
@@ -299,6 +350,8 @@ def delete_folder(folder_id: str) -> bool:
         return False
     layout: dict[str, Any] = dict(data.get("project_layout") or {})
     for key, val in list(layout.items()):
+        if own_ids is not None and not (str(key).lstrip("-").isdigit() and int(key) in own_ids):
+            continue
         if isinstance(val, dict) and str(val.get("folder_id") or "") == folder_id:
             val = dict(val)
             val["folder_id"] = None
@@ -369,7 +422,18 @@ def update_layout(
     ``folders`` — папки того, кто правит (арендатора или владельца), см. ``_folders_of``."""
     data = load_layout()
     if folders is not None:
-        _set_folders(data, _tenant_now(), [f for f in folders if isinstance(f, dict)])
+        tenant = _tenant_now()
+        clean, remap = _dedupe_incoming_folders(data, tenant, [f for f in folders if isinstance(f, dict)])
+        _set_folders(data, tenant, clean)
+        if remap and project_layout is not None:
+            project_layout = {
+                k: (
+                    {**v, "folder_id": remap[str(v["folder_id"])]}
+                    if isinstance(v, dict) and v.get("folder_id") and str(v["folder_id"]) in remap
+                    else v
+                )
+                for k, v in project_layout.items()
+            }
     if project_layout is not None:
         if own_ids is None:
             data["project_layout"] = project_layout
@@ -423,15 +487,65 @@ def sync_projects(
         save_layout(data)
 
 
+def _adopt_legacy_folders(data: dict[str, Any], tenant: str, project_ids: set[int] | None) -> bool:
+    """Папки арендатора, созданные до разделения папок, — ему копией.
+
+    Раньше папки были общими (список владельца ``folders``). Проекты арендатора,
+    разложенные по ним, после разделения оказались бы в корне. Папку из общего
+    списка, в которой лежит проект арендатора, копируем арендатору под новым
+    номером и перекладываем туда его проекты. У владельца папка остаётся как
+    была — ничего не удаляется и не переименовывается. Возвращает, было ли что
+    записать.
+    """
+    if not project_ids:
+        return False
+    legacy = {str(f.get("id")): f for f in (data.get("folders") or []) if isinstance(f, dict) and f.get("id")}
+    if not legacy:
+        return False
+    mine = _folders_of(data, tenant)
+    known = {str(f.get("id")) for f in mine}
+    layout: dict[str, Any] = dict(data.get("project_layout") or {})
+    remap: dict[str, str] = {}
+    taken = _all_folder_ids(data)
+    for key, val in layout.items():
+        if not (str(key).lstrip("-").isdigit() and int(key) in project_ids) or not isinstance(val, dict):
+            continue
+        fid = str(val.get("folder_id") or "")
+        if not fid or fid in known or fid not in legacy:
+            continue
+        if fid not in remap:
+            new_id = _new_folder_id(taken)
+            taken.add(new_id)
+            remap[fid] = new_id
+            src = legacy[fid]
+            mine.append(
+                {
+                    "id": new_id,
+                    "name": src.get("name"),
+                    "order": src.get("order") or 0,
+                    "created_at": src.get("created_at") or _now_iso(),
+                    "adopted_from": fid,
+                }
+            )
+        layout[key] = {**val, "folder_id": remap[fid]}
+    if not remap:
+        return False
+    _set_folders(data, tenant, mine)
+    data["project_layout"] = layout
+    return True
+
+
 def layout_for_api(project_ids: set[int] | None = None) -> dict[str, Any]:
     data = load_layout()
+    tenant = _tenant_now()
+    if tenant is not None and _adopt_legacy_folders(data, str(tenant), project_ids):
+        save_layout(data)
     layout: dict[str, Any] = dict(data.get("project_layout") or {})
     if project_ids is not None:
         layout = {k: v for k, v in layout.items() if int(k) in project_ids}
     gen_queue = _normalize_gen_queue(data.get("gen_queue") or [])
     if project_ids is not None:
         gen_queue = [p for p in gen_queue if p in project_ids]
-    tenant = _tenant_now()
     folders = sorted(
         _folders_of(data, tenant),
         key=lambda f: (int(f.get("order") or 0), str(f.get("name") or "").lower()),

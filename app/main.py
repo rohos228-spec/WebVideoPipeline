@@ -426,12 +426,12 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         from app.services.sidebar_layout import get_gen_queue
         from app.services.work_routing import tenants_to_serve, waiting_statuses
 
-        # Рабочие статусы — шаги, которые воркер ведёт сам; номера очереди и
-        # ждущие (`*_ready`, кроме финальных) проекты с `auto_mode` — то, что
-        # двигает `gen_queue_tick` и автопродвижение внутри прохода арендатора.
-        # Без них арендатор с одной очередью ждущих проектов прохода не получал,
-        # и очередь не стартовала никогда. Ждущим без `auto_mode` и финальным
-        # статусам (`assembled`) проход не нужен: двигать там нечего.
+        # Рабочие статусы — шаги, которые воркер ведёт сам; номера очереди,
+        # ждущие (`*_ready`, `assembled` с публикацией на канвасе) проекты с
+        # `auto_mode` и `new`-полосы массовой фабрики / подпроекты запущенного
+        # массового — то, что двигают `gen_queue_tick`, автопродвижение и
+        # сериализаторы внутри прохода арендатора. Ждущим без `auto_mode`, с ⏹,
+        # и `published` проход не нужен: двигать там нечего.
         async with session_scope() as s:
             return await tenants_to_serve(
                 s,
