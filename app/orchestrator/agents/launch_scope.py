@@ -263,29 +263,61 @@ def route_multi_launch(
     if not any(step.action in LAUNCH_STEPS | QUEUE_STEPS for step in plan):
         return fix_queue_target(plan)
     drafted = next((step for step in plan if step.action == "queue.enqueue_many"), None)
-    count = len(ask.project_ids)
     out: list[PlanStep] = []
-    if ask.sequential:
-        need_parallel, workers = False, 0
-    elif ask.workers is not None:
-        workers = ask.workers
-        need_parallel = limit is None or workers != limit
-    else:
-        workers = min(count, MAX_PARALLEL)
-        need_parallel = (limit is not None and count > limit) or (limit is None and ask.parallel)
+    need_parallel, workers = _parallel_need(ask, len(ask.project_ids), limit)
     if need_parallel and allowed is not None and not allowed("queue.set_parallel"):
         need_parallel = False
         if notes is not None:
             notes.append(parallel_refused_note(limit))
     if need_parallel:
-        out.append(
-            PlanStep(
-                action="queue.set_parallel",
-                params={"workers": workers},
-                mutating=True,
-                risk="medium",
-                expected=f"Одновременно идут до {workers} проектов очереди.",
-            )
-        )
+        out.append(_parallel_step(workers))
     out.append(_queue_step(ask, drafted))
+    return out
+
+
+def _parallel_need(ask: LaunchAsk, count: int, limit: int | None) -> tuple[bool, int]:
+    """Нужно ли трогать окно параллели очереди и до скольких: одно правило для маршрута и подрезки."""
+    if ask.sequential:
+        return False, 0
+    if ask.workers is not None:
+        return limit is None or ask.workers != limit, ask.workers
+    workers = min(count, MAX_PARALLEL)
+    return (limit is not None and count > limit) or (limit is None and ask.parallel), workers
+
+
+def _parallel_step(workers: int) -> PlanStep:
+    return PlanStep(
+        action="queue.set_parallel",
+        params={"workers": workers},
+        mutating=True,
+        risk="medium",
+        expected=f"Одновременно идут до {workers} проектов очереди.",
+    )
+
+
+def parallel_needed(goal: str, limit: int | None, count: int) -> bool:
+    """Нужна ли смена окна параллели для ``count`` проектов (то же правило, что у маршрута)."""
+    ask = launch_ask(goal)
+    return ask is not None and _parallel_need(ask, count, limit)[0]
+
+
+def refit_parallel(plan: list[PlanStep], goal: str, limit: int | None, count: int) -> list[PlanStep]:
+    """Очередь стала короче (часть проектов не прошла условие запуска): окно параллели — по
+    оставшимся ``count`` проектам тем же правилом, что в ``route_multi_launch``. Не нужно больше —
+    шаг ``queue.set_parallel`` уходит из плана; просьба «в N потоков» остаётся как есть."""
+    ask = launch_ask(goal)
+    if ask is None or not any(step.action == "queue.set_parallel" for step in plan):
+        return plan
+    need, workers = _parallel_need(ask, count, limit)
+    out: list[PlanStep] = []
+    for step in plan:
+        if step.action != "queue.set_parallel":
+            out.append(step)
+        elif need:
+            fresh = _parallel_step(workers)
+            out.append(
+                step.model_copy(
+                    update={"params": {**step.params, "workers": workers}, "expected": fresh.expected}
+                )
+            )
     return out

@@ -64,7 +64,7 @@ from app.orchestrator import app_ref
 from app.orchestrator.agents import approval_steps
 from app.orchestrator.agents import summarizer as task_summary
 from app.orchestrator.agents.executor import effective_risk, run_many, step_is_paid, tighten_paid_step
-from app.orchestrator.agents.launch_scope import route_multi_launch
+from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
 from app.orchestrator.agents.planner import PlanSchemaError
 from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
@@ -2700,7 +2700,7 @@ class Supervisor:
             tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions)) for step in resolved
         ]
         plan, nothing = await self._drop_unchanged_settings(task_id, plan, goal)
-        plan = await self._drop_blocked_launches(task_id, plan, session_id)
+        plan = await self._drop_blocked_launches(task_id, plan, goal, session_id)
         if nothing:
             # «В проекте #5 модель картинок уже GPT Image 2, менять нечего»: ответ без карточки.
             await write_on_loop(self._save_plan, task_id, [])
@@ -2828,11 +2828,12 @@ class Supervisor:
         for item in items if isinstance(items, list) else []:
             pid = item.get("project_id") if isinstance(item, dict) else None
             if isinstance(pid, int) and not isinstance(pid, bool):
-                out[pid] = str(item.get("reason_ru") or item.get("reason") or "условие запуска не выполнено")
+                # Только готовая человеческая причина: сырой текст проверки в карточку не идёт.
+                out[pid] = str(item.get("reason_ru") or "не выполнено условие запуска")
         return out
 
     async def _drop_blocked_launches(
-        self, task_id: int, plan: list[PlanStep], session_id: str | None = None
+        self, task_id: int, plan: list[PlanStep], goal: str = "", session_id: str | None = None
     ) -> list[PlanStep]:
         """Массовый запуск без проектов, которые упрутся в жёсткое условие запуска.
 
@@ -2859,16 +2860,22 @@ class Supervisor:
             if len(ids) < 2:
                 continue
             blocked = await self._launch_blocked(probe, task_id, step, session_id)
-            dropped = [(pid, blocked[pid]) for pid in ids if pid in blocked]
+            dropped = [(pid, blocked[pid]) for pid in dict.fromkeys(ids) if pid in blocked]
             kept = [pid for pid in ids if pid not in blocked]
             if not dropped or not kept:
                 continue
             out[at] = step.model_copy(update={"params": {**step.params, "project_ids": kept}})
+            # Окно параллели — по оставшимся проектам, тем же правилом, что при маршруте в очередь.
+            out = refit_parallel(out, goal, _queue_limit(), len(set(kept)))
+            # Участнику шага параллели нет вовсе (только админ): если оставшиеся проекты и так
+            # влезают в окно, строка «окно меняет только админ» карточке больше не нужна.
+            if task_id in self._launch_note and not parallel_needed(goal, _queue_limit(), len(set(kept))):
+                self._launch_note.pop(task_id, None)
             notes.append(
                 _blocked_launch_text(
                     "Не поставлены в очередь",
                     dropped,
-                    len(kept),
+                    len(set(kept)),
                     ("ставится в очередь как обычно", "ставятся в очередь как обычно"),
                 )
             )
@@ -3083,6 +3090,11 @@ class Supervisor:
             # План отката собран кодом из журнала, а не моделью: критику нечего проверять,
             # а подтверждение человека шаг с высоким риском всё равно получает карточкой.
             return "approve"
+        skipped = self._launch_skipped.get(int(task_id))
+        if skipped:
+            # Проекты, убранные кодом до карточки, — не ошибка плана: критик не должен просить
+            # вернуть их или эскалировать из-за «пропавшего» проекта из просьбы.
+            context = (context + "\n" + _LAUNCH_SKIPPED_CRITIC.format(note=skipped)).strip()
         token = _LLM_TASK.set(int(task_id))
         try:
             verdict = str(
@@ -6029,8 +6041,20 @@ def _same_of(skipped: list[tuple[int | None, str]]) -> str:
     return texts[0] if texts and texts[0] and all(text == texts[0] for text in texts) else ""
 
 
+_LAUNCH_SKIPPED_CRITIC = (
+    "Проверка кода до карточки (не ошибка плана): часть названных человеком проектов намеренно "
+    "убрана из плана, потому что не проходит жёсткое условие запуска. Человек увидит это первой "
+    "строкой карточки: «{note}». Не требуй вернуть эти проекты и не считай их отсутствие "
+    "причиной для revise или escalate; проверяй только оставшиеся шаги."
+)
+
+
 def _blocked_launch_text(head: str, dropped: list[tuple[int, str]], kept: int, goes: tuple[str, str]) -> str:
     """«Не поставлены в очередь: #10 — кадры без данных сцены, …» и как запустить их потом."""
+    first: dict[int, str] = {}
+    for pid, reason in dropped:
+        first.setdefault(pid, reason)
+    dropped = list(first.items())
     why = ". ".join(f"#{pid} — {reason.rstrip('.')}" for pid, reason in dropped)
     one = len(dropped) == 1
     ids = ", ".join(str(pid) for pid, _ in dropped)

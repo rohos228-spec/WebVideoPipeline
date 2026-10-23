@@ -319,3 +319,289 @@ def test_real_queue_spec_has_the_checks_split_relies_on() -> None:
 @pytest.mark.asyncio
 async def test_other_actions_are_not_probed() -> None:
     assert await ls.launch_blockers("project.status", {"project_id": 1}) is None
+
+
+# --- ревью: окно параллели, критик, сбой проверки, повторы, причины по-русски, проводка ---
+
+
+def _parallel(rt: Any, task_id: int) -> list[dict[str, Any]]:
+    saved = json.loads(rt.tasks.get(task_id)["plan_json"])
+    return [step for step in saved if step["action"] == "queue.set_parallel"]
+
+
+def test_refit_parallel_follows_route_rule() -> None:
+    from app.orchestrator.agents.launch_scope import refit_parallel, route_multi_launch
+
+    plan = route_multi_launch(_queue_plan(list(range(3, 13))), _GOAL, 2)
+    assert [s.params.get("workers") for s in plan if s.action == "queue.set_parallel"] == [10]
+    fitted = refit_parallel(plan, _GOAL, 2, 9)
+    assert [s.params["workers"] for s in fitted if s.action == "queue.set_parallel"] == [9]
+    assert "до 9 проектов" in next(s.expected for s in fitted if s.action == "queue.set_parallel")
+    # Оставшихся не больше текущего окна — шаг окна не нужен, как в route_multi_launch.
+    plan9 = route_multi_launch(_queue_plan(list(range(3, 13))), _GOAL, 9)
+    assert any(s.action == "queue.set_parallel" for s in plan9)
+    assert not any(s.action == "queue.set_parallel" for s in refit_parallel(plan9, _GOAL, 9, 9))
+    # «в 2 потока» — просьба человека, не пересчитывается.
+    goal2 = "запусти проекты 3,4,5,6 в 2 потока"
+    plan2 = route_multi_launch(_queue_plan([3, 4, 5, 6]), goal2, 4)
+    assert [
+        s.params["workers"] for s in refit_parallel(plan2, goal2, 4, 3) if s.action == "queue.set_parallel"
+    ] == [2]
+
+
+@pytest.mark.asyncio
+async def test_dropped_project_shrinks_parallel_window(token: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    del token
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 2)
+    actions = LaunchActions({10})
+    rt = _rt(actions, _queue_plan(list(range(3, 13))))
+    set_runtime(rt)
+    try:
+        task_id = await rt.supervisor.start_task("ph8b-par", _GOAL)
+        await rt.supervisor.wait(task_id, timeout=5)
+        assert _queue_step(rt, task_id)["params"]["project_ids"] == [3, 4, 5, 6, 7, 8, 9, 11, 12]
+        assert [s["params"]["workers"] for s in _parallel(rt, task_id)] == [9]
+    finally:
+        set_runtime(None)
+
+
+@pytest.mark.asyncio
+async def test_dropped_project_removes_unneeded_parallel_step(
+    token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del token
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 9)
+    actions = LaunchActions({10})
+    rt = _rt(actions, _queue_plan(list(range(3, 13))))
+    set_runtime(rt)
+    try:
+        task_id = await rt.supervisor.start_task("ph8b-par9", _GOAL)
+        await rt.supervisor.wait(task_id, timeout=5)
+        assert _queue_step(rt, task_id)["params"]["project_ids"] == [3, 4, 5, 6, 7, 8, 9, 11, 12]
+        assert _parallel(rt, task_id) == []
+        assert not _cards(rt, "ph8b-par9")[-1].get("blocked")
+    finally:
+        set_runtime(None)
+
+
+class _SkipAwareCritic:
+    """Заглушка критика как у модели: без пометки кода про убранный проект — эскалирует."""
+
+    def __init__(self) -> None:
+        self.contexts: list[str] = []
+
+    async def review(self, plan: list[PlanStep], context: str = "", **_: Any) -> str:
+        self.contexts.append(context)
+        return "approve" if "намеренно" in context and "#10" in context else "escalate"
+
+
+@pytest.mark.asyncio
+async def test_critic_sees_skipped_projects_on_run_step_split(token: str) -> None:
+    del token
+    actions = LaunchActions({10})
+    critic = _SkipAwareCritic()
+    rt = build_runtime(
+        actions=actions,
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner([_status(9), _status(10), _status(11), _run(9), _run(10), _run(11)]),
+        critic=critic,
+    )
+    set_runtime(rt)
+    try:
+        task_id = await rt.supervisor.start_task(
+            "ph8b-critic", "запусти промты картинок в проектах 9, 10 и 11 по шагу"
+        )
+        await rt.supervisor.wait(task_id, timeout=5)
+        saved = json.loads(rt.tasks.get(task_id)["plan_json"])
+        assert [s["params"]["project_id"] for s in saved if s["action"] == "step.run_step"] == [9, 11]
+        assert critic.contexts, "критик должен был проверить план шагов"
+        assert "Не запущены: #10" in critic.contexts[-1]
+        assert rt.tasks.get(task_id)["status"] == TaskStatus.waiting_approval.value
+        card = _cards(rt, "ph8b-critic")[-1]
+        assert not card.get("blocked"), card
+        assert card["warnings"][0].startswith("Не запущены: #10 — ")
+    finally:
+        set_runtime(None)
+
+
+@pytest.mark.asyncio
+async def test_failing_precondition_check_keeps_project() -> None:
+    async def flaky(ctx: Any, params: dict[str, Any]) -> str | None:
+        if params["project_ids"] == [10]:
+            raise RuntimeError("connection to db lost: password=hunter2")
+        return None
+
+    async def real(ctx: Any, params: dict[str, Any]) -> str | None:
+        return "у проекта #11 кадры без данных сцены" if params["project_ids"] == [11] else None
+
+    class Spec:
+        id = "queue.enqueue_many"
+        preconditions = (Precondition("queue_ready", "", flaky), Precondition("other", "", real))
+
+    found = await ls.project_blockers(None, Spec(), {"project_ids": [3, 10, 11]})
+    assert [item["project_id"] for item in found] == [11]
+    assert not any("hunter2" in str(item) or "RuntimeError" in str(item) for item in found)
+
+
+@pytest.mark.asyncio
+async def test_probe_crash_keeps_all_projects_without_raw_text(
+    token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del token
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 10)
+
+    class Crashing(LaunchActions):
+        async def launch_blockers(self, name: str, params: dict[str, Any]) -> dict[str, Any] | None:
+            raise RuntimeError("db down secret-xyz")
+
+    actions = Crashing(set())
+    rt = _rt(actions, _queue_plan([3, 4, 5]))
+    set_runtime(rt)
+    try:
+        task_id = await rt.supervisor.start_task("ph8b-crash", "запусти проекты 3,4,5 одновременно")
+        await rt.supervisor.wait(task_id, timeout=5)
+        assert _queue_step(rt, task_id)["params"]["project_ids"] == [3, 4, 5]
+        card = _cards(rt, "ph8b-crash")[-1]
+        assert "secret-xyz" not in json.dumps(card, ensure_ascii=False)
+        assert not any("Не поставлены" in w for w in card.get("warnings") or [])
+    finally:
+        set_runtime(None)
+
+
+def test_note_dedupes_ids() -> None:
+    text = sup._blocked_launch_text(
+        "Не поставлены в очередь",
+        [(10, _SCENE), (10, _SCENE), (12, "x")],
+        3,
+        ("ставится в очередь как обычно", "ставятся в очередь как обычно"),
+    )
+    assert text.count("#10 —") == 1
+    assert "«запусти проекты 10, 12»" in text
+
+
+@pytest.mark.asyncio
+async def test_duplicate_ids_in_plan_named_once(token: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    del token
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 10)
+    actions = LaunchActions({10})
+    rt = _rt(actions, _queue_plan([3, 10, 10, 11]))
+    set_runtime(rt)
+    try:
+        task_id = await rt.supervisor.start_task("ph8b-dup", "поставь в очередь проекты из списка")
+        await rt.supervisor.wait(task_id, timeout=5)
+        assert _queue_step(rt, task_id)["params"]["project_ids"] == [3, 11]
+        card = _cards(rt, "ph8b-dup")[-1]
+        note = (card.get("warnings") or [""])[0]
+        assert note.count("#10") == 1 and "«запусти проект 10»" in note, note
+    finally:
+        set_runtime(None)
+
+
+_TECH_WORDS = ("enable_auto_mode", "allow_auto_chain", "preempt_running", "node_key", "=true", "_")
+
+
+@pytest.mark.parametrize(
+    "raw, queue, expect",
+    [
+        (
+            "у проекта #7 выключено автопродвижение, а очередь работает только с ним: включите его или укажите "
+            "enable_auto_mode=true",
+            True,
+            "выключено автопродвижение",
+        ),
+        (
+            "у проекта #7 включено автопродвижение: после этого шага Студия сама запустит следующие, платные тоже, "
+            "а лимит рассчитан только на один шаг. Напишите «пусть дальше идёт сама» или выключите автопродвижение",
+            False,
+            "включено автопродвижение",
+        ),
+        (
+            "в проекте выполняется шаг (статус running): запуск прервёт его. Если это нужно, укажите preempt_running=true",
+            False,
+            "в проекте сейчас идёт шаг",
+        ),
+        (
+            "проект #4 под управляемым исполнением Actions-v1: очередь ему недоступна",
+            True,
+            "проект ведёт управляемое",
+        ),
+    ],
+)
+def test_human_reason_maps_technical_texts(raw: str, queue: bool, expect: str) -> None:
+    text = ls.human_reason(raw, queue=queue)
+    assert text.startswith(expect), text
+    assert not any(word in text for word in _TECH_WORDS), text
+
+
+def test_human_reason_generic_fallback_has_no_param_names() -> None:
+    text = ls.human_reason("у проекта #5 странное состояние; укажите force_flag=true", queue=True)
+    assert text == "проект сейчас нельзя поставить в очередь: странное состояние", text
+    bare = ls.human_reason("foo_bar=1", queue=False)
+    assert bare == "проект сейчас нельзя запустить: не выполнено условие запуска", bare
+
+
+@pytest.mark.asyncio
+async def test_project_blockers_reason_ru_is_human() -> None:
+    async def auto(ctx: Any, params: dict[str, Any]) -> str | None:
+        pid = params["project_ids"][0]
+        return (
+            (
+                f"у проекта #{pid} выключено автопродвижение, а очередь работает только с ним: "
+                "включите его или укажите enable_auto_mode=true"
+            )
+            if pid == 7
+            else None
+        )
+
+    class Spec:
+        id = "queue.enqueue_many"
+        preconditions = (Precondition("queue_ready", "", auto),)
+
+    found = await ls.project_blockers(None, Spec(), {"project_ids": [6, 7]})
+    assert found[0]["project_id"] == 7
+    assert "enable_auto_mode" not in found[0]["reason_ru"]
+    assert "enable_auto_mode" in found[0]["reason"]  # сырой текст остаётся только для журнала
+
+
+# --- живая проводка: app.orchestrator.actions экспортирует хуки, которые зовёт ModuleActions ---
+
+
+@pytest.mark.asyncio
+async def test_real_wiring_reaches_launch_split(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.orchestrator.actions as module
+    from app.orchestrator.agents.wiring import ActionsBridge, ModuleActions
+
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def stub(name: str, params: dict[str, Any]) -> dict[str, Any]:
+        calls.append((name, dict(params)))
+        return {"blocked": [{"project_id": 10, "reason_ru": _SCENE}]}
+
+    monkeypatch.setattr(ls, "launch_blockers", stub)
+    params = {"project_ids": [3, 10], "enable_auto_mode": True}
+    found = await ActionsBridge(ModuleActions(module)).launch_blockers("queue.enqueue_many", params)
+    assert calls == [("queue.enqueue_many", params)]
+    assert found == {"blocked": [{"project_id": 10, "reason_ru": _SCENE}]}
+
+
+@pytest.mark.parametrize(
+    "hook",
+    [
+        "metadata_of",
+        "plan_required",
+        "project_required",
+        "plan_defaults",
+        "plan_resolve",
+        "settings_diff",
+        "launch_blockers",
+        "prepare_card",
+        "execute",
+        "whitelist",
+    ],
+)
+def test_actions_module_exports_every_wiring_hook(hook: str) -> None:
+    import app.orchestrator.actions as module
+
+    assert hook in module.__all__
+    assert callable(getattr(module, hook, None)), hook

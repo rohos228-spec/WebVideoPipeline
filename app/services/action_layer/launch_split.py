@@ -38,6 +38,59 @@ def short_reason(reason: str) -> str:
     return (text or str(reason or "").strip()).rstrip(".")
 
 
+# Технические условия запуска → коротко по-человечески (без имён параметров).
+_KNOWN: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(pat, re.IGNORECASE), text)
+    for pat, text in (
+        (
+            r"enable_auto_mode|выключено автопродвижение",
+            "выключено автопродвижение, а очередь ведёт только проекты с ним",
+        ),
+        (
+            r"allow_auto_chain|включено автопродвижение",
+            "включено автопродвижение: после этого шага Студия сама запустит следующие, платные тоже",
+        ),
+        (
+            r"actions-v1|управляем\w* исполнени",
+            "проект ведёт управляемое исполнение, вручную его сейчас не запустить",
+        ),
+        (r"без данных сцены", "кадры без данных сцены"),
+        (r"дочерний проект фабрики", "дочерний проект фабрики, очередь его пропускает"),
+        (r"preempt_running|выполняется шаг", "в проекте сейчас идёт шаг, дождитесь его окончания"),
+        (r"нет ноды", "в схеме проекта нет нужной ноды"),
+        (r"until_node|target_node", "не указано, до какой ноды вести проект"),
+        (r"node_key", "не указано, какую ноду запускать"),
+        (r"ceiling_credits|потолок", "не хватает лимита кредитов на запуск"),
+    )
+)
+# Имя параметра или служебное слово латиницей: «enable_auto_mode=true», «status running».
+_TECH = re.compile(r"[A-Za-z]+_[A-Za-z0-9_]*|\w+=\S*|[a-z]{3,}")
+_PARENS = re.compile(r"\s*\([^)]*[A-Za-z_=][^)]*\)")
+GENERIC_REASON = "не выполнено условие запуска"
+
+
+def _plain(text: str) -> str:
+    """Убрать из причины всё техническое: скобки с латиницей и части фразы с именами параметров."""
+    text = _PARENS.sub("", text)
+    parts = [part.strip() for part in re.split(r"[:;.]\s+|,\s+(?:или|либо|а)\s+", text)]
+    keep: list[str] = []
+    for part in parts:
+        if not part or _TECH.search(part):
+            break
+        keep.append(part)
+    return ": ".join(keep).strip(" ,:;.")
+
+
+def human_reason(reason: str, *, queue: bool) -> str:
+    """Причина отказа для заметки «не поставлены в очередь / не запущены» — по-русски, без кода."""
+    short = short_reason(reason)
+    for pattern, text in _KNOWN:
+        if pattern.search(short):
+            return text
+    head = "проект сейчас нельзя поставить в очередь" if queue else "проект сейчас нельзя запустить"
+    return f"{head}: {_plain(short) or GENERIC_REASON}"
+
+
 async def _scene_short(ctx: Any, pid: int) -> str:
     from app.services.action_layer import builtin_launch as bl
     from app.services.action_layer import img_pr_guard as ipg
@@ -52,8 +105,11 @@ async def _first_failure(spec: Any, ctx: Any, params: dict[str, Any]) -> tuple[s
             continue
         try:
             reason = await pre.check(ctx, params)
-        except Exception as exc:  # noqa: BLE001 — как в превью плана: непроверенное = отказ
-            reason = f"не удалось проверить проект: {type(exc).__name__}: {exc}"
+        except Exception:  # noqa: BLE001
+            # Сбой проверки (например, база на миг недоступна) — не отказ: проект остаётся в
+            # шаге, карточка и executor проверят его сами и заблокируют, если нужно.
+            logger.exception("launch split: precondition {} not checked", pre.id)
+            continue
         if reason:
             return pre.id, str(reason)
     return None
@@ -81,8 +137,9 @@ async def project_blockers(
         if failed is None:
             continue
         check, reason = failed
-        short = short_reason(reason)
+        short = human_reason(reason, queue=spec.id == QUEUE_ACTION)
         if check == _SCENE_PRE:
+            short = short_reason(reason)
             try:
                 short = await _scene_short(ctx, pid)
             except Exception:  # noqa: BLE001
