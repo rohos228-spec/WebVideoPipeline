@@ -212,6 +212,17 @@ def _worst(*costs: str) -> str:
     return "same"
 
 
+def _media_label(kind: str, model: dict | None, gen_id: str) -> str:
+    """Название модели для карточки: без сырого id, если модели нет в каталоге нод."""
+    if isinstance(model, dict):
+        from app.services import node_edit as ne
+
+        return ne.model_title(model, gen_id)
+    from app.services.action_layer.settings_diff import value_ru
+
+    return value_ru("image_generator" if kind == "image" else "video_generator", gen_id)
+
+
 def media_changes(current: dict, params: dict) -> list[dict]:
     """Смена модели или разрешения картинок и видео проекта: было, станет и цена.
 
@@ -247,8 +258,8 @@ def media_changes(current: dict, params: dict) -> list[dict]:
                 "after_generator": after_gen,
                 "before_resolution": before_res,
                 "after_resolution": after_res,
-                "before_label": ne.model_title(old, before_gen),
-                "after_label": ne.model_title(new, after_gen),
+                "before_label": _media_label(kind, old, before_gen),
+                "after_label": _media_label(kind, new, after_gen),
                 "before_price_ru": ne.price_ru(old),
                 "after_price_ru": ne.price_ru(new),
                 "cost": cost,
@@ -301,7 +312,7 @@ def node_overrides(meta: Any, project: dict) -> list[str]:
                 continue
             if kind == "image":
                 got = vc.effective_image_generator_id(proj, node_type=typ)
-                want_real = "gpt_image_2_vip" if want == "gpt_image_2" else want
+                want_real = want
             else:
                 got, want_real = vc.effective_video_generator_id(proj, node_type=typ), want
             if got == want_real:

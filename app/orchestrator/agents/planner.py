@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.orchestrator.agents.launch_scope import MAX_PARALLEL
 from app.orchestrator.agents.llm_call import router_call
 from app.orchestrator.agents.retrieve import retrieve, rules_block
 from app.orchestrator.contracts import AgentRole, BudgetScope, Chunk, PlanStep
@@ -63,6 +64,16 @@ class RouterPlanner:
     ) -> list[PlanStep]:
         # Поля last_* общего планировщика выставляются все вместе после последнего await
         # своей ветки: иначе сосед, ответивший между ними, оставит свои значения в чужом вызове.
+        from app.orchestrator.agents.summarizer import gpt_model_clarify_text
+
+        ask = gpt_model_clarify_text(goal)
+        if ask:
+            # «Смени модель на gpt»: картинки или ноды GPT — вопрос кодом, модель не нужна.
+            self.last_from_code = True
+            self.last_response = None
+            self.last_reason = ask
+            self.last_parse_failed = False
+            return []
         undo = await self._undo_plan(goal, task_id)
         if undo is not None:
             # «Верни как было»: последняя правка чата известна из журнала, модель не нужна.
@@ -311,7 +322,14 @@ _CATALOG_RULES = (
     "того же проекта. Нода «Сценарий» и «шаг сценария» — step_code=plan, «закадровый текст» — script, "
     "«разбивка» — split, «объекты» — objects, «предметы» — items, «персонажи» и «герои» — hero, "
     "«озвучка» — audio. Бери step_code с тем же названием из списка шагов, не похожий по смыслу.",
-    "Запуск шага сразу в нескольких проектах («у проектов 5..9», «во всех этих проектах») — сначала "
+    "Запуск нескольких проектов целиком или до цели без названного шага («запусти 3 4 5», «запусти "
+    "проекты 3-12 одновременно», «прогони 5,6,7 до картинок параллельно») — очередь генерации: "
+    "queue.enqueue_many с project_ids всех названных проектов, enable_auto_mode=true, mode=full или "
+    "mode=until_node с target_node_type («до картинок» — images, «до видео» — videos); если проектов "
+    "больше, чем идут одновременно, или сказано «одновременно» / «параллельно» — перед ним "
+    f"queue.set_parallel с workers = числу проектов, но не больше {MAX_PARALLEL} (больше схема не "
+    f"примет); если окно уже {MAX_PARALLEL}, queue.set_parallel не ставь. step.run_step для этого не ставь.",
+    "Запуск названного шага сразу в нескольких проектах («запусти озвучку у проектов 5..9») — сначала "
     "project.status каждого проекта, затем все step.run_step подряд с одной общей parallel_group "
     '(например "launch"), у каждого свой project_id, один проект в группе один раз: такие запуски '
     "идут одновременно. Без общей parallel_group они идут по очереди.",

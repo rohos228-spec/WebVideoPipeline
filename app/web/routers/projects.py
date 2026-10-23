@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -154,7 +154,11 @@ async def list_projects(
     # Позиции очереди — по полной gen_queue (включая дочерние mass/manual).
     # layout_for_api(sidebar_project_ids) выкидывает children из queue_map,
     # из‑за этого круг в сайдбаре оставался без цифры при живом toast.
-    queue_pos = {pid: idx + 1 for idx, pid in enumerate(get_gen_queue())}
+    # Файл очереди общий для студии: место считается среди своих проектов
+    # арендатора (как в GET /sidebar-layout), иначе номер выдавал бы чужие.
+    from app.services.gen_queue import own_gen_queue
+
+    queue_pos = {pid: idx + 1 for idx, pid in enumerate(await own_gen_queue(session, get_gen_queue()))}
     out: list[ProjectSummary] = []
     for p in rows:
         qpos = queue_pos.get(p.id)
@@ -575,6 +579,18 @@ async def media_review(
     return out
 
 
+async def _from_action_layer(action_operator: str | None, action_plan: str | None = None) -> bool:
+    """▶ дала задача чата (слой действий), а не человек в Studio.
+
+    Заголовки ``X-Action-Layer-Operator``/``X-Action-Layer-Plan`` шлёт только
+    ActionContext.call, вместе с токеном оператора. Чат — когда оператор или создатель
+    плана ``orchestrator:task-N``; панель «Действия» и Studio — человек.
+    """
+    from app.services.action_layer.chat_caller import is_chat_caller
+
+    return await is_chat_caller(action_operator, action_plan)
+
+
 @router.post("/{project_id}/steps/{step_code}/run", response_model=ProjectDetail)
 async def run_project_step(
     project_id: int,
@@ -586,6 +602,8 @@ async def run_project_step(
     only_node: bool = False,
     run_cap_credits: Annotated[float | None, Query(gt=0, le=1_000_000)] = None,
     run_tag: Annotated[str | None, Query(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")] = None,
+    action_operator: Annotated[str | None, Header(alias="X-Action-Layer-Operator")] = None,
+    action_plan: Annotated[str | None, Header(alias="X-Action-Layer-Plan")] = None,
     session: AsyncSession = Depends(get_session),
 ) -> Project:
     """Запустить шаг: статус → running, воркер выполнит advance_project.
@@ -641,6 +659,7 @@ async def run_project_step(
             require_node_fsm=True,
             explicit_ui_start=True,
             force_wipe=resolved_force_wipe,
+            keep_chat_owner=await _from_action_layer(action_operator, action_plan),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

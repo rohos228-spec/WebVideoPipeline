@@ -586,6 +586,64 @@ _SETTINGS_KEYS = (
 )
 
 
+def _same_setting(key: str, current: Any, wanted: Any) -> bool:
+    if current is None or wanted is None:
+        return False
+    if key == "aspect_ratio":
+        aid = pgs.aspect_id(wanted)
+        return aid is not None and aid == pgs.aspect_id(current)
+    return " ".join(str(current).split()) == " ".join(str(wanted).split())
+
+
+def unchanged_settings(project: Any, params: dict) -> list[str]:
+    """Ключи правки настроек, у которых значение уже такое же, как в проекте."""
+    if not isinstance(project, dict):
+        return []
+    return [k for k in _SETTINGS_KEYS if k in params and _same_setting(k, project.get(k), params[k])]
+
+
+SETTINGS_NO_IDENTITY_TEXT = (
+    "Не могу прочитать настройки проекта: запрос пришёл без входа в студию. "
+    "Войдите и повторите просьбу."
+)
+
+
+async def changed_settings_only(params: dict) -> dict:
+    """План правки настроек: без ключей, которые и так совпадают с проектом.
+
+    Карточка «поменяются title, topic, …» перечисляла и то, что не менялось. Если совпадает
+    всё, шаг остаётся как есть: пустую правку проверка отклонит понятным текстом."""
+    out = dict(params)
+    if out.get("project_id") is None:
+        return out
+    from app.orchestrator import app_ref
+    from app.orchestrator.contracts import PlanResolveRefused
+    from app.services.studio_auth import current_identity
+    from app.settings import settings
+
+    # Режим учётных записей без личности задачи: проект прочитать нечем, а прежний
+    # запасной путь отдавал исходные параметры — на карточку шли ключи, которых
+    # человек не просил. Отказ, а не правка вслепую.
+    if settings.accounts_enabled and current_identity() is None:
+        raise PlanResolveRefused(SETTINGS_NO_IDENTITY_TEXT)
+    try:
+        ctx = ActionContext(app=app_ref.current(), operator="system", read_only=True)
+        project = await _get_project(ctx, out["project_id"])
+    except ActionCallError as exc:
+        if exc.status in (401, 403):
+            raise PlanResolveRefused(SETTINGS_NO_IDENTITY_TEXT) from exc
+        logger.warning("settings plan: project #{} not read: {}", out.get("project_id"), exc)
+        return out
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("settings plan: project #{} not read: {}", out.get("project_id"), exc)
+        return out
+    same = unchanged_settings(project, out)
+    present = [k for k in _SETTINGS_KEYS if k in out]
+    if not same or len(same) == len(present):
+        return out
+    return {k: v for k, v in out.items() if k not in same}
+
+
 async def _settings_given(ctx, params):
     if not any(k in params for k in _SETTINGS_KEYS):
         return f"укажите хотя бы одну настройку: {', '.join(_SETTINGS_KEYS)}"
@@ -728,9 +786,11 @@ async def _storage_clear(ctx, params):
 
 
 def _settings_effects(params: dict) -> str:
-    names = ", ".join(k for k in _SETTINGS_KEYS if k in params) or "настройки"
+    from app.services.action_layer.settings_diff import target_text
+
+    names = target_text(params) or "настройки"
     return (
-        f"В проекте #{params['project_id']} поменяются {names}. Новая модель или разрешение "
+        f"В проекте #{params['project_id']} поменяются: {names}. Новая модель или разрешение "
         "дороже текущих или их цена неизвестна: следующие генерации картинок и видео могут "
         "стоить больше. Прежние значения сохраняются снимком, вернуть их можно откатом "
         "(history.rollback)."

@@ -286,8 +286,50 @@ async def _revert_params(ctx: ActionContext, params: dict) -> dict:
     return {k: data.get(k) for k in ("ok", "node_key", "items", "text_ru")}
 
 
+PROMPT_SHOWN_CHARS = 1500
+
+
 async def _describe(ctx: ActionContext, params: dict) -> dict:
-    return await ctx.call("GET", _node_path(params, "describe"))
+    data = await ctx.call("GET", _node_path(params, "describe"))
+    if not isinstance(data, dict):
+        return data
+    text = await _prompt_excerpt(ctx, params)
+    if text:
+        data = {
+            **data,
+            "prompt_text": text,
+            "text_ru": (str(data.get("text_ru") or "").rstrip() + "\n" + text).strip(),
+        }
+    return data
+
+
+async def _prompt_excerpt(ctx: ActionContext, params: dict) -> str:
+    """«Какой промт стоит у ноды»: сам текст текущего промта, до PROMPT_SHOWN_CHARS знаков.
+
+    Без него ответ был «промт default, текста в данных нет». Нода без промта или файл не
+    прочитан — пусто, остальное описание ноды остаётся."""
+    try:
+        base = await ctx.call(
+            "GET",
+            "/change-control/prompt-base",
+            params={"project_id": params["project_id"], "node_key": params["node_key"]},
+        )
+    except Exception:  # noqa: BLE001 — у ноды может не быть промта (картинки, видео)
+        return ""
+    if not isinstance(base, dict) or base.get("source") == "missing":
+        return ""
+    body = str(base.get("text") or "").strip()
+    if not body:
+        return ""
+    total = int(base.get("text_chars") or len(body))
+    cut = body[:PROMPT_SHOWN_CHARS].rstrip()
+    name = str(base.get("variant") or "").strip()
+    head = f"Текст промта «{name}»" if name else "Текст промта"
+    # Правка клиента или проекта поверх системного текста: говорим, чей текст показан.
+    if base.get("text_level") in ("project", "tenant", "brand") and base.get("text_level_ru"):
+        head += f" ({base['text_level_ru']})"
+    tail = f"\n(показаны первые {len(cut)} из {total} знаков)" if len(cut) < total else ""
+    return f"{head}:\n{cut}{tail}"
 
 
 _COST_RU = {"cheaper": "дешевле", "same": "так же", "costlier": "дороже", "unknown": "цена неизвестна"}

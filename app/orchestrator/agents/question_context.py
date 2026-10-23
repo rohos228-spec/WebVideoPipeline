@@ -12,7 +12,7 @@ _TIMEOUT_S = 20.0
 _FACT_LIMIT = 2500
 # Обзор — это список: под общим пределом он резался посреди строки, и ответ
 # говорил «по остальным данных нет». До 30 строк по ~180 знаков влезают целиком.
-_FACT_LIMITS = {"projects.overview": 6000}
+_FACT_LIMITS = {"projects.overview": 6000, "node.describe": 4500, "report.projects": 6000}
 _TOTAL_LIMIT = 12000
 _LOG_LINES = 15
 _NODE_RE = re.compile(r"\bn_[a-z0-9_]{2,60}\b")
@@ -87,6 +87,9 @@ _SPEND = (
     "$",
 )
 _REPORT = ("отчет", "по нодам", "все ноды", "сводк")
+# «Какие поля перезаписала / что записала работа с GPT»: ответ — в отчёте по нодам (кто чьи поля перезаписал).
+_GPT_WRITES = ("перезапис", "затер", "какие поля", "что записал", "что заполнил", "какие кадры заполнил")
+_GPT = ("gpt", "гпт", "работа с gpt", "работа с гпт")
 _PROJECTS = ("проекты", "проектов", "все проект", "список проект")
 _NODES = ("нод", "модел", "агент", "script")
 _BLOCKED = ("блокир", "заблокир", "неизвестн", "исход")
@@ -152,6 +155,37 @@ _TITLES = {
 
 ReadRunner = Callable[[str, dict[str, Any], Any], Awaitable[Any]]
 
+# «Сколько проектов может идти одновременно»: ответ «в данных не указано», хотя число известно.
+_PARALLEL = ("одновремен", "параллел", "сразу несколько", "за раз", "очеред", "потоков", "поток")
+QUEUE_TITLE = "Очередь генерации"
+
+
+def queue_capacity_text() -> str:
+    """Сколько проектов очереди идут одновременно (настройка студии), сколько ждут, где предел."""
+    from app.services.action_layer.plan import member_view
+    from app.services.gen_queue import worker_max_parallel
+    from app.services.orch_tenancy import own_projects
+    from app.services.runtime_streams import WORKER_MAX, WORKER_MIN
+    from app.services.sidebar_layout import get_gen_queue
+    from app.services.tenant import current_tenant
+
+    limit = int(worker_max_parallel())
+    # Файл очереди общий для студии: номера и число — только своих проектов (чужие
+    # номера в ответе были бы утечкой).
+    queue = [pid for pid, _title in own_projects(current_tenant(), list(get_gen_queue()))]
+    # Число общее для студии: менять его может только админ, участнику это не предлагаем.
+    how = (
+        "Её меняет только админ студии."
+        if member_view()
+        else f"Её можно поменять от {WORKER_MIN} до {WORKER_MAX} просьбой в чате, например «поставь "
+        "одновременно 3 проекта»."
+    )
+    return (
+        f"Сколько проектов очереди генерации может идти одновременно (настройка студии): {limit}. "
+        f"{how} Ваших проектов в очереди сейчас: {len(queue)}"
+        + (f" ({', '.join(f'#{pid}' for pid in queue[:20])})." if queue else ".")
+    )
+
 
 @dataclass(frozen=True)
 class Fact:
@@ -212,6 +246,9 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
             reads.append(("spend.summary", {"project_id": pid}))
         if _has(norm, _REPORT):
             reads.append(("report.nodes", {"project_id": pid, "kind": "chat"}))
+        elif _has(norm, _GPT_WRITES) or (_has(norm, _GPT) and _has(norm, ("пол", "запис"))):
+            # Вопрос о перезаписи полей — ответ текстом, без html и xlsx на диске (kind md файлов не пишет).
+            reads.append(("report.nodes", {"project_id": pid, "kind": "md"}))
         if _has(norm, _PROJECTS):
             reads.append(("projects.overview", {"limit": 15}))
         if _has(norm, _BLOCKED):
@@ -237,6 +274,86 @@ def _allowed(reads: list[tuple[str, dict[str, Any]]]) -> list[tuple[str, dict[st
     from app.services.action_layer.plan import admin_only_refused
 
     return [(action, params) for action, params in reads if not admin_only_refused(action, params)]
+
+
+# «Что такое img_pr?»: коды шагов и типов нод — по-русски из каталога шагов и подписей типов нод.
+_CODE_RE = re.compile(
+    r"(?<![a-z0-9_])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![a-z0-9_])|(?<![a-z0-9_])[a-z]{3,12}(?![a-z0-9_])"
+)
+GLOSSARY_TITLE = "Что значат коды"
+GLOSSARY_RULE = (
+    f"Факт «{GLOSSARY_TITLE}» — это расшифровка внутренних кодов студии: объясни код простыми "
+    "словами по этому факту, сам код можно назвать."
+)
+
+
+def _code_titles() -> tuple[dict[str, str], dict[str, str]]:
+    """Шаги конвейера (step_code → название) и типы нод (тип → подпись)."""
+    from app.orchestrator.agents.action_catalog import step_titles
+
+    steps = dict(step_titles())
+    types: dict[str, str] = {}
+    try:
+        from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
+
+        for typ, code in NODE_TYPE_TO_STEP_CODE.items():
+            if code in steps:
+                types[typ] = steps[code]
+    except Exception:
+        logger.exception("orch glossary node types failed")
+    try:
+        from app.services import node_edit as ne
+
+        types.update({str(k): str(v) for k, v in (getattr(ne, "TYPE_RU", {}) or {}).items() if v})
+    except Exception:
+        logger.exception("orch glossary type titles failed")
+    return steps, types
+
+
+# Что делает шаг, одной фразой: только для частых кодов, остальное — по названию шага.
+_CODE_NOTES = {
+    "plan": "пишет сценарий ролика по теме",
+    "script": "пишет закадровый текст по сценарию",
+    "split": "делит текст на кадры",
+    "img_pr": "пишет текстовые промты для картинок каждого кадра",
+    "img": "рисует картинки кадров по промтам",
+    "anim_pr": "пишет промты анимации для видео кадров",
+    "video": "делает видео кадров из картинок",
+    "audio": "озвучивает закадровый текст",
+    "excel_gpt": "отправляет таблицу кадров в GPT по своему промту и записывает ответ в поля кадров",
+    "assemble": "собирает итоговый ролик",
+    "hero": "делает персонажей проекта",
+}
+
+
+def _node_code(code: str) -> tuple[str, str]:
+    """n_excel_gpt_2 → (excel_gpt, «2»); n_plan → (plan, «»)."""
+    base = code[2:] if code.startswith("n_") else code
+    m = re.fullmatch(r"(.+?)_(\d+)", base)
+    return (m.group(1), m.group(2)) if m else (base, "")
+
+
+def glossary_text(text: str) -> str:
+    """Строки «код — что это» для кодов из вопроса; пусто, если кодов нет."""
+    found = list(dict.fromkeys(_CODE_RE.findall((text or "").lower())))
+    if not found:
+        return ""
+    try:
+        steps, types = _code_titles()
+    except Exception:
+        logger.exception("orch glossary failed")
+        return ""
+    lines: list[str] = []
+    for code in found[:5]:
+        base, num = _node_code(code)
+        tail = f" номер {num}" if num else ""
+        node = " (ключ ноды на канвасе)" if code.startswith("n_") else ""
+        note = f": {_CODE_NOTES[base]}" if base in _CODE_NOTES else ""
+        if base in steps:
+            lines.append(f"{code}{node} — шаг конвейера «{steps[base]}»{tail}{note}.")
+        elif base in types:
+            lines.append(f"{code}{node} — нода «{types[base]}»{tail}{note}.")
+    return "\n".join(lines)
 
 
 def _clip(text: str, limit: int) -> str:
@@ -301,11 +418,13 @@ class QuestionContext:
         timeout_s: float = _TIMEOUT_S,
         nodes: Any | None = None,
         done_of: Callable[[int | None, str | None], Awaitable[list[str]]] | None = None,
+        queue_of: Callable[[], str] | None = None,
     ) -> None:
         self._runner = runner or run_read_action
         self.timeout_s = timeout_s
         self._nodes = nodes
         self._done_of = done_of or _today_changes
+        self._queue_of = queue_of or queue_capacity_text
 
     async def _one(self, action: str, params: dict[str, Any], app: Any) -> Fact:
         title = _TITLES.get(action, action)
@@ -343,6 +462,22 @@ class QuestionContext:
         reads = plan_reads(text, project_id)
         rows = await self._roster(text, project_id)
         head: list[Fact] = await self._done(text, project_id, session_id)
+        words = glossary_text(text)
+        if words:
+            head.append(Fact("glossary", GLOSSARY_TITLE, words))
+        if _has(_norm(text), _PARALLEL):
+            try:
+                from app.services.orch_tenancy import session_tenant
+                from app.services.tenant import current_tenant, tenant_scope
+
+                # Под арендатором сессии чата (внутреннее имя несёт арендатора).
+                tenant = (session_tenant(session_id) if session_id else None) or current_tenant()
+                with tenant_scope(tenant):
+                    capacity = str(self._queue_of() or "")
+                head.append(Fact("queue.capacity", QUEUE_TITLE, capacity))
+            except Exception as exc:
+                logger.warning("orch question queue capacity failed: {}", type(exc).__name__)
+                head.append(Fact("queue.capacity", QUEUE_TITLE, "", ok=False))
         if rows:
             head.append(Fact("nodes.roster", "Ноды проекта", _clip(roster_text(rows), _FACT_LIMIT)))
             known = {params.get("node_key") for action, params in reads if action == "node.output"}
@@ -411,6 +546,8 @@ def system_prompt(facts: list[Fact], project_id: int | None) -> str:
     done = next((fact for fact in facts if fact.action == "chat.changes" and fact.ok), None)
     if done is not None:
         lines.append(DONE_EMPTY_RULE if done.text == _DONE_EMPTY else DONE_RULE)
+    if any(fact.action == "glossary" and fact.ok for fact in facts):
+        lines.append(GLOSSARY_RULE)
     lines.append("Факты:" if project_id is None else f"Факты о проекте #{project_id}:")
     used = 0
     for fact in facts:

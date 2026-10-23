@@ -278,6 +278,26 @@ async def _continue(ctx, params):
     }
 
 
+async def _pre_continue_img_pr_scenes(ctx, params):
+    """«Продолжить» не ведём к промтам картинок мимо ноды сцены: модель вернёт заглушки за деньги."""
+    from app.services.action_layer import builtin_launch as bl
+    from app.services.action_layer import img_pr_guard as ipg
+
+    pid = params["project_id"]
+    proj = await _get_project(ctx, pid)
+    meta = proj.get("meta")
+    runs = await bl._node_runs(ctx, pid)
+    if not ipg.continue_skips_scene(
+        meta,
+        runs,
+        status=proj.get("status"),
+        auto_mode=bool(proj.get("auto_mode")),
+        enrich_slots=proj.get("enrich_slots_count"),
+    ):
+        return None
+    return await ipg.scene_gap(pid, meta, runs)
+
+
 async def _auto_mode_enable_safe(ctx, params):
     if not params.get("enabled"):
         return None
@@ -841,7 +861,9 @@ def _specs() -> list[ActionSpec]:
             id="project.resume",
             title_ru="Снять паузу проекта",
             description_ru="Возвращает статус, с которого проект ушёл в паузу. Если это был "
-            "выполняющийся шаг, воркер сам продолжит его и потратит деньги. "
+            "выполняющийся шаг, воркер сам продолжит его и потратит деньги. Шаг, "
+            "сдавшийся после повторов ошибок, сам не перезапускается: проект встаёт "
+            "на готовность перед ним. "
             "Стоимость запуска неизвестна, поэтому план нельзя подтвердить.",
             params_schema=pid_only,
             executor=_resume,
@@ -870,10 +892,13 @@ def _specs() -> list[ActionSpec]:
         S(
             id="project.continue_pipeline",
             title_ru="Продолжить конвейер проекта",
-            description_ru="Снимает ручной стоп и паузу и продвигает проект на следующий шаг "
-            "(*_ready -> running), если шаг готов к запуску. Следующий шаг может "
-            "быть платным. Стоимость запуска неизвестна, поэтому план нельзя "
-            "подтвердить.",
+            description_ru="Снимает ручной стоп и паузу. С паузы проект возвращается на место "
+            "до неё: выполнявшийся шаг воркер продолжит сам, а после шага, "
+            "сдавшегося на повторах ошибок, проект встаёт на готовность перед ним "
+            "и дальше идёт сам только при автопродвижении. Без паузы продвигает "
+            "проект на следующий шаг (*_ready -> running), если шаг готов к "
+            "запуску. Шаг может быть платным. Стоимость запуска неизвестна, "
+            "поэтому план нельзя подтвердить.",
             params_schema=pid_only,
             executor=_continue,
             poll=_poll_project_idle,
@@ -886,10 +911,21 @@ def _specs() -> list[ActionSpec]:
             idempotent=False,
             estimator=_unknown_start_cost,
             destructive_effects=lambda p: (
-                "Ручной стоп проекта снимается, следующий шаг "
-                "запускается воркером и может перезаписать результаты."
+                "Ручной стоп и пауза проекта снимаются; шаг, на "
+                "котором стоял проект, или следующий шаг запускается "
+                "воркером и может перезаписать результаты."
             ),
-            preconditions=(_PRE_PROJECT, _PRE_NOT_MANAGED, _PRE_IDLE, _PRE_NO_MONTAGE),
+            preconditions=(
+                _PRE_PROJECT,
+                _PRE_NOT_MANAGED,
+                _PRE_IDLE,
+                _PRE_NO_MONTAGE,
+                Precondition(
+                    "img_pr_scene_input",
+                    "Продолжение не дойдёт до промтов картинок по кадрам без данных сцены",
+                    _pre_continue_img_pr_scenes,
+                ),
+            ),
             tags=("project", "run"),
         ),
         S(

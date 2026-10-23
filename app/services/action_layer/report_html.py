@@ -215,6 +215,16 @@ def _cell_article(frame: dict, gpt: list[dict]) -> str:
         f'<article class=scene id="cell-{_esc(number)}">'
         f"<h2>Ячейка {_esc(number)}" + (f" · {_esc(place)}" if place else "") + "</h2>"
         f"<p class=vo-full><b>Закадр.</b> {_esc(frame.get('voiceover_text') or '—')}</p>"
+        + (
+            f"<p class=vo-full><b>Промт картинки.</b> {_esc(frame['image_prompt'])}</p>"
+            if frame.get("image_prompt")
+            else ""
+        )
+        + (
+            f"<p class=vo-full><b>Промт анимации.</b> {_esc(frame['animation_prompt'])}</p>"
+            if frame.get("animation_prompt")
+            else ""
+        )
         + _table(
             ["Поле", "Значение (последняя запись)", "Кто писал по очереди"],
             rows,

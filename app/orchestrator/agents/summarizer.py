@@ -59,6 +59,176 @@ def missing_action_text(reason: str, goal: str = "") -> str:
     return NOT_SUPPORTED
 
 
+# «Из файла / по файлу / в файле»: прикрепить файл к сообщению чата оркестратора нельзя.
+_FROM_FILE = re.compile(
+    r"(?:из|по|в|с)\s+(?:\w+\s+)?(?:файл|таблиц|excel|экселя?|xlsx|списка\s+в\s+файле)", re.IGNORECASE
+)
+_MANY_PROJECTS = re.compile(r"проект", re.IGNORECASE)
+FILE_CLARIFY = (
+    "Из какого файла взять темы? Прикрепить файл к сообщению в этом чате пока нельзя. "
+    "Напишите темы списком, например «создай проекты: лисы, совы, киты, пчёлы, волки и "
+    "запусти» — создам проекты и поставлю их в очередь."
+)
+
+
+# «Смени модель на gpt»: у студии GPT — и модель картинок проекта (GPT Image), и текстовая модель
+# нод «Работа с GPT». Без слов о картинках, видео или нодах не угадываем, а спрашиваем.
+_GPT_WORD = re.compile(r"(?<![a-zа-я])(?:gpt|гпт|джипити|чатгпт|chatgpt)", re.IGNORECASE)
+_MODEL_WORD = re.compile(r"модел|нейросет|генератор", re.IGNORECASE)
+_MODEL_TARGET = re.compile(
+    r"картин|изображ|image|img|кадр|фото|видео|ролик|анимац|video|нод|текст|сценар|работ|агент|"
+    r"промт|промпт|озвуч|голос|имидж|"
+    # Текстовые модели GPT названы явно: «gpt 5.6 sol», «gpt-5.6-luna».
+    r"(?<![a-zа-я])(?:sol|terra|luna|astra|сол|терра|луна|астра)(?![a-zа-я])|\d\.\d",
+    re.IGNORECASE,
+)
+_PROJECT_NUMBER = re.compile(r"проект\w*\s+(?:№\s*)?#?(\d{1,5})", re.IGNORECASE)
+
+
+def gpt_model_clarify_text(goal: str) -> str:
+    """«Смени модель на gpt в проекте 5»: что именно менять — картинки или ноды GPT; пусто — понятно."""
+    text = " ".join((goal or "").lower().replace("ё", "е").split())
+    if not _GPT_WORD.search(text) or not _MODEL_WORD.search(text) or _MODEL_TARGET.search(text):
+        return ""
+    number = _PROJECT_NUMBER.search(text)
+    where = f" в проекте {number.group(1)}" if number else ""
+    return (
+        "Какую модель поменять на GPT? Это может быть модель картинок проекта (GPT Image) или "
+        "текстовая модель нод «Работа с GPT». Напишите точнее, например "
+        f"«смени модель картинок на gpt{where}» или «какие модели можно поставить на работу с "
+        f"GPT{where}». Ничего не меняю и не запускаю, пока не уточните."
+    )
+
+
+# «Модели `gpt-5` нет в списке доступных для ноды …»: планировщик понял просьбу, но такой модели
+# у ноды нет. Не «Не понял», а вопрос с ближайшими моделями из каталога этой ноды.
+_UNKNOWN_MODEL = re.compile(
+    r"модел\w*[^.;]{0,80}?(?:нет\b|отсутству|недоступ|не\s+найден|не\s+существу|не\s+поддерж)",
+    re.IGNORECASE,
+)
+_QUOTED_MODEL = re.compile(r"[«`\"']\s*([A-Za-z][\w.\-]{1,40})\s*[»`\"']")
+_GOAL_MODEL = re.compile(r"(?:на|в|модель)\s+[«`\"']?([A-Za-z][\w.\-]{1,40})[»`\"']?\s*$", re.IGNORECASE)
+# Ключ ноды («n_12», «n_excel_gpt_1»), а не модель: у моделей каталога подчёркиваний нет.
+_NODE_KEY = re.compile(r"^n_|_")
+# Догадка о виде ноды по словам, только когда настоящий вид ноды прочитать не удалось.
+# «Работа с GPT» — текстовая нода, даже если описывает картинки: её проверяем первой.
+_KIND_WORDS = (
+    ("text", re.compile(r"работ\w*\s+с\s+(?:gpt|гпт)|excel_gpt|текст|сценари|нод\w*\s+«?работа", re.IGNORECASE)),
+    ("image", re.compile(r"картин|изображен|image|фото", re.IGNORECASE)),
+    ("video", re.compile(r"видео|ролик|анимац|video", re.IGNORECASE)),
+)
+MODEL_KINDS = ("text", "image", "video")
+UNKNOWN_MODEL_SHOWN = 5
+
+
+def _model_family(name: str) -> str:
+    return re.split(r"[\d\-_. ]", name.lower(), maxsplit=1)[0]
+
+
+def _model_score(want: str, model: dict) -> tuple:
+    import difflib
+    import os
+
+    ids = [str(model.get("id") or "").lower(), str(model.get("label") or "").lower()]
+    want = want.lower()
+    family = max(int(_model_family(want) == _model_family(x)) for x in ids)
+    prefix = max(len(os.path.commonprefix([want, x])) for x in ids)
+    ratio = max(difflib.SequenceMatcher(None, want, x).ratio() for x in ids)
+    return (family, prefix, ratio)
+
+
+def _model_like(name: str) -> bool:
+    return bool(name) and not _NODE_KEY.search(name)
+
+
+def unknown_model_name(reason: str, goal: str = "") -> str:
+    """Имя модели, которой нет у ноды; пусто — не о том.
+
+    Имя из причины планировщика берём, только если оно похоже на модель (не ключ ноды) и есть
+    в просьбе человека: иначе первое слово в кавычках («n_12») выдавалось за модель.
+    """
+    text = reason or ""
+    if not _UNKNOWN_MODEL.search(text):
+        return ""
+    said = " ".join((goal or "").split()).lower()
+    for found in _QUOTED_MODEL.finditer(text):
+        name = found.group(1).strip()
+        if _model_like(name) and (not said or name.lower() in said):
+            return name
+    tail = _GOAL_MODEL.search(" ".join((goal or "").split()))
+    name = tail.group(1).strip() if tail else ""
+    return name if _model_like(name) else ""
+
+
+def guess_model_kind(reason: str, goal: str = "") -> str:
+    both = f"{reason} {goal}"
+    return next((k for k, rx in _KIND_WORDS if rx.search(both)), "")
+
+
+def _catalog(models_of, kind: str) -> list[dict]:
+    return [m for m in models_of(kind) or [] if isinstance(m, dict) and m.get("id")]
+
+
+def _has_model(pool: list[dict], want: str) -> bool:
+    return any(want in {str(m.get("id") or "").lower(), str(m.get("label") or "").lower()} for m in pool)
+
+
+def unknown_model_text(reason: str, goal: str = "", *, kind: str | None = None, models_of=None) -> str:
+    """«Модели gpt-5 для этой ноды нет. Есть: gpt-5.6-sol, … Какую поставить?»; пусто — причина о другом.
+
+    ``kind`` — настоящий вид ноды из её состояния (text/image/video). Без него вид угадывается
+    по словам; не угадан — список не показываем (модели разных видов не смешиваем). При догадке
+    модель, которая есть в каталоге любого вида, не называем отсутствующей.
+    ``models_of(kind)`` — каталог моделей вида (по умолчанию ``node_edit.allowed_models``).
+    Причина и ответ проходят ``redact_text``.
+    """
+    from app.services.redact import redact_text
+
+    reason = redact_text(str(reason or ""))
+    name = unknown_model_name(reason, goal)
+    if not name or redact_text(name) != name:
+        return ""
+    if models_of is None:
+        from app.services.node_edit import allowed_models as models_of
+    real = kind in MODEL_KINDS
+    use = kind if real else guess_model_kind(reason, goal)
+    want = name.lower()
+    try:
+        pool = _catalog(models_of, use) if use else []
+        if not real and any(_has_model(_catalog(models_of, k), want) for k in MODEL_KINDS):
+            return ""  # модель в каталоге есть, вид ноды лишь угадан: не утверждаем, что её нет
+    except Exception:  # noqa: BLE001 — без каталога ответ остаётся обычным
+        return ""
+    if _has_model(pool, want):
+        return ""  # такая модель есть: причина о чём-то другом
+    if not pool:
+        if real or use:
+            return ""
+        return redact_text(f"Модели {name} для этой ноды нет. Какую модель поставить?")
+    ranked = sorted(pool, key=lambda m: _model_score(want, m), reverse=True)
+    shown = [str(m["id"]) for m in ranked[:UNKNOWN_MODEL_SHOWN]]
+    return redact_text(f"Модели {name} для этой ноды нет. Есть: {', '.join(shown)}. Какую поставить?")
+
+
+# «[Скачать отчёт]( /api/projects/…)»: модель ставит пробел после скобки, ссылка показывалась текстом.
+_LINK_SPACES = re.compile(r"\]\(\s*([^\s()]+)\s*\)")
+
+
+def normalize_links(text: str) -> str:
+    """Markdown-ссылки без пробелов вокруг адреса в круглых скобках."""
+    return _LINK_SPACES.sub(r"](\1)", text or "")
+
+
+def file_clarify_text(goal: str) -> str:
+    """Просьба создать проекты «из файла»: конкретный вопрос вместо «не понял»; пусто — не о том."""
+    text = goal or ""
+    if not _FROM_FILE.search(text) or not _MANY_PROJECTS.search(text):
+        return ""
+    if not re.search(r"созда|сдела|завед|нов", text, re.IGNORECASE):
+        return ""
+    return FILE_CLARIFY
+
+
 _REASON_RU: dict[str, tuple[str, str]] = {
     "validator_blocked": (
         "проверка плана отклонила шаги, план не исполнялся",
@@ -146,6 +316,8 @@ class StepNote:
     skipped: bool = False
     known: bool = False
     links: list[str] = field(default_factory=list)
+    # Проект шага: в задаче на несколько проектов итог называет каждый.
+    project_id: int | None = None
 
 
 @dataclass
@@ -286,7 +458,11 @@ def _parallel_text(body: dict[str, Any]) -> str:
     got = body.get("worker_max_parallel")
     if not isinstance(got, int) or isinstance(got, bool):
         return ""
-    return f"Теперь одновременно идут до {got} {_plural(got, 'проекта', 'проектов', 'проектов')}."
+    text = f"Теперь одновременно идут до {got} {_plural(got, 'проекта', 'проектов', 'проектов')}."
+    if body.get("lowered"):
+        # Уменьшение не прерывает идущие шаги: человек должен знать, что они доиграют.
+        text += " Уже идущие доиграют, новые будут ждать."
+    return text
 
 
 def _model_text(body: dict[str, Any]) -> str:
@@ -385,10 +561,10 @@ def download_links(body: dict[str, Any]) -> list[str]:
     return [link] if link else []
 
 
-def _change_line(note: StepNote) -> str:
+def _change_line(note: StepNote, many: bool = False) -> str:
     if note.known and note.text:
         return note.text
-    return f"{note.title}" + (f": {note.text}" if note.text else ".")
+    return f"{note.title}{_in_project(note, many)}" + (f": {note.text}" if note.text else ".")
 
 
 def step_summary(note: StepNote | None) -> str:
@@ -558,9 +734,54 @@ def _undo_line(note: StepNote) -> str:
     return "" if note.action in _REVERT_ACTIONS else undo_hint()
 
 
+def _counted(note: StepNote) -> bool:
+    return bool(note.project_id) and not note.skipped and not (note.ok and note.readonly)
+
+
+def _many_projects(facts: TaskFacts) -> bool:
+    """Задача правила или запускала два и больше проектов: итог нужен по каждому."""
+    return len({note.project_id for note in facts.steps if _counted(note)}) >= 2
+
+
+def _in_project(note: StepNote, many: bool) -> str:
+    pid = note.project_id
+    if not many or not pid or f"#{pid}" in f"{note.text} {note.error}":
+        return ""
+    return f" в проекте #{pid}"
+
+
+def _project_tally(facts: TaskFacts) -> list[str]:
+    """Итог по проектам: сколько готово, где не вышло, где исход неизвестен."""
+    outcome: dict[int, str] = {}
+    for note in facts.steps:
+        if not _counted(note):
+            continue
+        pid = int(note.project_id or 0)
+        if note.ok:
+            outcome.setdefault(pid, "ok")
+        elif "результат неизвестен" in note.error:
+            outcome[pid] = "unknown"
+        elif outcome.get(pid) != "unknown":
+            outcome[pid] = "failed"
+    if len(outcome) < 2:
+        return []
+
+    def ids(kind: str) -> str:
+        return ", ".join(f"#{pid}" for pid in sorted(outcome) if outcome[pid] == kind)
+
+    ok = sum(1 for kind in outcome.values() if kind == "ok")
+    line = f"Итог по проектам: готово {ok} из {len(outcome)}"
+    if ids("failed"):
+        line += f"; не получилось: {ids('failed')}"
+    if ids("unknown"):
+        line += f"; результат неизвестен: {ids('unknown')}"
+    return [line + "."]
+
+
 def deterministic_text(facts: TaskFacts) -> str:
     done = [note for note in facts.steps if note.ok and not note.skipped]
     failed = [note for note in facts.steps if not note.ok and not note.skipped]
+    many = _many_projects(facts)
     lines: list[str] = []
     if facts.status == "done":
         changes = [note for note in done if not note.readonly]
@@ -570,7 +791,7 @@ def deterministic_text(facts: TaskFacts) -> str:
                 lines.append(changes[0].text)
             else:
                 lines.append("Готово. Что сделано:")
-                lines.extend(f"• {_change_line(note)}" for note in changes)
+                lines.extend(f"• {_change_line(note, many)}" for note in changes)
             undo = [note for note in changes if note.undo]
             lines.extend(dict.fromkeys(line for line in map(_undo_line, undo) if line))
             if not undo and not all(note.known for note in changes):
@@ -580,13 +801,19 @@ def deterministic_text(facts: TaskFacts) -> str:
                 )
         else:
             found = [note for note in done if note.text]
-            if found:
+            if len(found) == 1 and found[0].known:
+                # Отчёт и подобные шаги сами пишут итог с числами и ссылками: его и показываем.
+                lines.append(found[0].text)
+            elif found:
                 lines.append("Вот что нашёл:")
                 lines.extend(f"• {note.title}: {note.text}" for note in found)
             else:
                 lines.append("Готово, но данных для ответа шаги не вернули.")
         for note in failed:
-            lines.append(f"Не получилось «{note.title}»: {note.error or 'без пояснения'}.")
+            lines.append(
+                f"Не получилось «{note.title}»{_in_project(note, many)}: {note.error or 'без пояснения'}."
+            )
+        lines.extend(_project_tally(facts))
         return "\n".join(lines)
     if facts.error == APPROVAL_EXPIRED:
         if not facts.detail:
@@ -631,23 +858,245 @@ def deterministic_text(facts: TaskFacts) -> str:
     if facts.detail:
         lines.append(facts.detail)
     for note in failed:
-        lines.append(f"Шаг «{note.title}»: {note.error or 'ошибка без пояснения'}.")
+        lines.append(f"Шаг «{note.title}»{_in_project(note, many)}: {note.error or 'ошибка без пояснения'}.")
     # Чтения состояния перед шагом ничего не меняли: в «успели» только правки.
     changed = [note for note in done if not note.readonly]
     if changed:
-        lines.append("Успели выполнить: " + ", ".join(f"«{note.title}»" for note in changed) + ".")
+        lines.append(
+            "Успели выполнить: "
+            + ", ".join(f"«{note.title}»{_in_project(note, many)}" for note in changed)
+            + "."
+        )
+    lines.extend(_project_tally(facts))
     lines.append("Что можно сделать: " + todo)
     return "\n".join(lines)
 
 
+# Повтор просьбы повелительным глаголом («Скачай Excel-отчёт…», «Откати промт в проекте 7.»)
+# вместо итога: такие предложения из ответа модели убираем.
+_IMPERATIVE = re.compile(
+    r"^[\s*_>#•\-–—]*(?:скачай|покажи|откати|сформируй|выгрузи|сделай|создай|запусти|сравни|верни|поменяй|смени"
+    r"|поставь|дай|пришли|выведи|собери|подготовь|проверь|найди|посчитай|составь|построй|отчитайся"
+    r"|расскажи|напиши|открой|экспортируй|выдай|скинь|отправь|обнови|останови|продолжи|откатись"
+    r"|сгенерируй|прогони|перезапусти)(?![а-яё])",
+    re.IGNORECASE,
+)
+_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=\S)")
+_LINK_LINE = re.compile(r"^\s*\[[^\]]+\]\([^)]+\)\s*$")
+
+
+def _first_word(text: str) -> str:
+    # Начало в кавычках («запусти …») — готовая команда для чата, а не пересказ просьбы.
+    match = re.match(r"[\s*_>#•\-–—]*([а-яёa-z-]+)", (text or "").lower().replace("ё", "е"))
+    return match.group(1) if match else ""
+
+
+# Совет о следующем шаге («Запусти его, когда будешь готов: напиши «запусти проект 15».»,
+# «Открой отчёт по ссылке выше.») — не пересказ просьбы, его оставляем.
+_ADVICE = re.compile(
+    r"«[^»]{3,}»|(?<![а-яё])(?:когда|если|чтобы|потом|затем|после\s+этого)(?![а-яё])"
+    r"|по\s+ссылк|ссылк\w*\s+(?:выше|ниже)|(?<![а-яё])(?:выше|ниже)(?![а-яё])",
+    re.IGNORECASE,
+)
+
+
+def _echo_sentence(sentence: str, goal: str) -> bool:
+    if _ADVICE.search(sentence):
+        return False
+    if _IMPERATIVE.match(sentence):
+        return True
+    word, asked = _first_word(sentence), _first_word(goal)
+    # «Выгрузи HTML-отчёт…» на просьбу «выгрузи в html…»: тот же повелительный глагол, что в просьбе.
+    return bool(word) and word == asked and asked.endswith(("й", "и", "ь"))
+
+
+def drop_echo(text: str, goal: str) -> str:
+    """Убирает предложения, которые пересказывают просьбу как приказ; пусто — итога не осталось."""
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        if _LINK_LINE.match(line) or line.lstrip().startswith("|") or "](" in line:
+            out.append(line)
+            continue
+        kept = [part for part in _SENTENCE.split(line) if not _echo_sentence(part, goal)]
+        if kept or not line.strip():
+            out.append(" ".join(kept))
+    body = "\n".join(out).strip()
+    body = re.sub(r"\n{3,}", "\n\n", body)
+    # Строка только со ссылками («Скачать отчёт: [HTML](…)») — не итог: без итога берём текст кода.
+    meaningful = [line for line in body.splitlines() if line.strip() and "](" not in line]
+    return body if meaningful else ""
+
+
+# «Текст промта «X» (системный):\n…\n(показаны первые 1500 из 5647 знаков)» из node.describe.
+_PROMPT_HEAD = re.compile(r"^(Текст промта[^\n]*):[ \t]*\n", re.MULTILINE)
+_PROMPT_TAIL = re.compile(r"\n\(показаны первые (\d+) из (\d+) знаков\)\s*$")
+_PROMPT_PROBE = 60
+# Сколько разных промтов ответ цитирует и сколько знаков каждого: остальные - «спросите отдельно».
+_PROMPT_QUOTES_MAX = 2
+_PROMPT_QUOTE_CHARS = 1500
+PROMPT_QUOTE_RULE = (
+    "Пользователь просил показать промт, и в фактах есть его текст («Текст промта …»). Покажи его "
+    "цитатой дословно, каждую строку с «> », не пересказывай и не сокращай показанный текст. "
+    f"Цитируй не больше {_PROMPT_QUOTES_MAX} разных промтов, не длиннее {_PROMPT_QUOTE_CHARS} знаков "
+    "каждый, одинаковый текст - один раз. Если показана только часть, скажи, сколько знаков показано "
+    "из скольких. Если промтов больше, про остальные напиши «ещё N промтов — спросите отдельно»."
+)
+# Просьба показать промт, а не поменять что-то в ноде.
+_PROMPT_WORD = re.compile(r"промп?т|prompt", re.IGNORECASE)
+_SHOW_WORDS = re.compile(
+    r"покаж|показа|выведи|вывест|прочитай|прочти|процитир|цитат|скинь|пришли|открой|посмотр|глян"
+    r"|каки[ей]|каков|что\s+(?:за|в|у|написан|стоит)|текст|\bshow\b",
+    re.IGNORECASE,
+)
+_CHANGE_WORDS = re.compile(
+    r"смени|поменя|замени|измени|постав|установ|переключ|исправ|перепиш|отредактир|правь|убери|удали"
+    r"|добав|запуст",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class PromptExcerpt:
+    head: str
+    body: str
+    tail: str
+
+
+def wants_prompt_text(facts: TaskFacts) -> bool:
+    """Ответ цитирует промт, только если просили его показать.
+
+    Смена модели или параметров ноды тоже читает ноду через node.describe, и текст промта
+    попадает в факты; задача, которая что-то меняла, промт не цитирует. Без слова «промт» в
+    просьбе - тоже нет. Просьба со словом «покажи/какой/текст» - да; без такого слова - только
+    если вся задача состояла из node.describe и в просьбе нет слов правки.
+    """
+    if any(note.ok and not note.readonly and not note.skipped for note in facts.steps):
+        return False
+    goal = str(facts.goal or "")
+    if not _PROMPT_WORD.search(goal):
+        return False
+    if _SHOW_WORDS.search(goal):
+        return True
+    if _CHANGE_WORDS.search(goal):
+        return False
+    done = [note for note in facts.steps if note.ok and not note.skipped]
+    return bool(done) and all(note.action == "node.describe" for note in done)
+
+
+def _parse_prompt(text: str) -> tuple[str, str, str, int] | None:
+    """(заголовок, текст, хвост «показаны первые …», всего знаков) из ответа node.describe."""
+    found = _PROMPT_HEAD.search(text or "")
+    if found is None:
+        return None
+    rest = text[found.end() :]
+    tail = _PROMPT_TAIL.search(rest)
+    body = (rest[: tail.start()] if tail else rest).strip()
+    if not body:
+        return None
+    total = int(tail.group(2)) if tail else len(body)
+    return found.group(1), body, tail.group(0).strip() if tail else "", total
+
+
+def _clip_excerpt(head: str, body: str, tail: str, total: int) -> PromptExcerpt:
+    if len(body) <= _PROMPT_QUOTE_CHARS:
+        return PromptExcerpt(head, body, tail)
+    cut = body[:_PROMPT_QUOTE_CHARS]
+    line_end = cut.rfind("\n")
+    if line_end >= _PROMPT_QUOTE_CHARS // 2:
+        cut = cut[:line_end]
+    cut = cut.rstrip()
+    return PromptExcerpt(head, cut, f"(показаны первые {len(cut)} из {max(total, len(body))} знаков)")
+
+
+def prompt_quotes(facts: TaskFacts) -> tuple[list[PromptExcerpt], int]:
+    """Промты, которые ответ покажет цитатой, и сколько разных промтов осталось за кадром.
+
+    Одинаковые тексты идут один раз, не больше ``_PROMPT_QUOTES_MAX`` промтов и не больше
+    ``_PROMPT_QUOTE_CHARS`` знаков каждого.
+    """
+    if not wants_prompt_text(facts):
+        return [], 0
+    distinct: list[tuple[str, str, str, int]] = []
+    seen: set[str] = set()
+    for note in facts.steps:
+        if note.action != "node.describe" or not note.ok or not note.text:
+            continue
+        parsed = _parse_prompt(note.text)
+        if parsed is None or parsed[1] in seen:
+            continue
+        seen.add(parsed[1])
+        distinct.append(parsed)
+    shown = [_clip_excerpt(*item) for item in distinct[:_PROMPT_QUOTES_MAX]]
+    return shown, max(0, len(distinct) - _PROMPT_QUOTES_MAX)
+
+
+def prompt_excerpts(facts: TaskFacts) -> list[PromptExcerpt]:
+    """Тексты промтов, которые ответ показывает цитатой, а не пересказывает (см. ``prompt_quotes``)."""
+    return prompt_quotes(facts)[0]
+
+
+def more_prompts_note(more: int) -> str:
+    return f"Ещё {more} {_plural(more, 'промт', 'промта', 'промтов')} — спросите отдельно."
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"[\s>*_`#«»\"]+", "", text).lower()
+
+
+def ensure_prompt_quoted(text: str, facts: TaskFacts) -> str:
+    """Модель пересказала промт вместо цитаты: дописываем показанный текст цитатой сами."""
+    items, more = prompt_quotes(facts)
+    flat = _squash(text)
+    extra: list[str] = []
+    for item in items:
+        probe = _squash(item.body)[:_PROMPT_PROBE]
+        if probe and probe in flat:
+            continue
+        quoted = "\n".join("> " + line if line.strip() else ">" for line in item.body.splitlines())
+        extra.append("\n".join(part for part in (f"{item.head}:", quoted, item.tail) if part))
+    if more and "спросите отдельно" not in text.lower():
+        extra.append(more_prompts_note(more))
+    return "\n\n".join([text, *extra]) if extra else text
+
+
+def _fact_text(note: StepNote, quotes: list[PromptExcerpt], shown: set[str]) -> str:
+    """Текст шага для модели: промт - только тот, что ответ цитирует, и один раз."""
+    if note.action != "node.describe" or not note.ok or not note.text:
+        return note.text
+    found = _PROMPT_HEAD.search(note.text)
+    parsed = _parse_prompt(note.text)
+    if found is None or parsed is None:
+        return note.text
+    head, body = parsed[0], parsed[1]
+    item = next((q for q in quotes if body.startswith(q.body)), None)
+    before = note.text[: found.start()]
+    if item is None:
+        return f"{before}{head}: текст не показан{'' if quotes else ' (о нём не спрашивали)'}"
+    if item.body in shown:
+        return f"{before}{head}: тот же текст, что выше"
+    shown.add(item.body)
+    return "\n".join(part for part in (f"{before}{head}:", item.body, item.tail) if part)
+
+
 def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
     rules = list(ANSWER_RULES)
+    quotes, more = prompt_quotes(facts)
+    if quotes:
+        rules.append(PROMPT_QUOTE_RULE)
+    if more:
+        rules.append(f"Не все промты вошли в цитату: в конце ответа напиши «{more_prompts_note(more)}».")
+    shown: set[str] = set()
     rules.append("Это итог задачи из чата: перескажи найденное по фактам и ответь на просьбу пользователя.")
+    rules.append(
+        "Пиши итог тем, что сделано и что получилось, в прошедшем времени и с числами, например "
+        "«Отчёт по проекту #5 готов: 18 нод, 3 готовы». Просьбу пользователя не повторяй и не "
+        "начинай с повелительного глагола («скачай», «покажи», «сформируй»)."
+    )
     used = 0
     lines = ["Факты, прочитанные шагами задачи:"]
     for note in facts.steps[:_STEP_LIMIT]:
         body = (
-            note.text
+            _fact_text(note, quotes, shown)
             if note.ok and note.text
             else ("прочитать не удалось: " + note.error if note.error else "пусто")
         )
@@ -705,8 +1154,14 @@ class TaskSummarizer:
         if getattr(response, "approval", None) is not None:
             return fallback
         text = str(getattr(response, "text", "") or "").strip()
+        text = normalize_links(text)
+        cleaned = drop_echo(text, facts.goal)
+        if cleaned != text:
+            logger.info("orch summary echoed the request, kept {} of {} chars", len(cleaned), len(text))
+        text = cleaned
         if not text:
             return fallback
+        text = ensure_prompt_quoted(text, facts)
         # Модель могла уже вставить ссылку со своей подписью: сравниваем по адресу, не по строке.
         links = [
             link

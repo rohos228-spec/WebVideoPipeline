@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from loguru import logger
+
 from app.services.action_layer.context import ActionCallError, ActionContext
 from app.services.action_layer.soft_restore import (
     group_restore,
@@ -334,6 +336,33 @@ async def _group_delete(ctx: ActionContext, params: dict) -> dict:
     return {"deleted": gid, "snapshot_id": snap}
 
 
+async def _shots_fallback(ctx: ActionContext, pid: int) -> dict:
+    """Готового отчёта группы «Кадры» нет: собираем отчёт по нодам с кадрами и промтами.
+
+    Раньше «отчёт по кадрам с промтами» отвечал «отчёта пока нет» без единой ссылки.
+    """
+    from app.services.action_layer.builtin_insight import _report_nodes
+
+    missing = (
+        f"Готового отчёта группы «Кадры» у проекта #{pid} нет: его пишет последняя нода группы "
+        "«Кадры» после прогона группы."
+    )
+    try:
+        out = await _report_nodes(ctx, {"project_id": pid, "kind": "html"})
+    except Exception as exc:  # noqa: BLE001 - отчёт по нодам не собрался: честно говорим, что отчёта нет
+        logger.warning("shots report fallback #{} failed: {}", pid, type(exc).__name__)
+        return {"exists": False, "text_ru": missing}
+    summary = out.get("summary") or {}
+    frames, prompts = int(summary.get("frames") or 0), int(summary.get("image_prompts") or 0)
+    lead = f"{missing} Поэтому собрал отчёт по кадрам и нодам: кадров {frames}, с промтом картинки {prompts}."
+    return {
+        **out,
+        "exists": False,
+        "fallback": "report.nodes",
+        "text_ru": f"{lead} {out.get('text_ru') or ''}".strip(),
+    }
+
+
 async def _group_shots_report(ctx: ActionContext, params: dict) -> dict:
     import html as html_lib
 
@@ -343,13 +372,7 @@ async def _group_shots_report(ctx: ActionContext, params: dict) -> dict:
         html = await ctx.call("GET", f"/projects/{pid}/shots-report")
     except ActionCallError as exc:
         if exc.status == 404:
-            return {
-                "exists": False,
-                "text_ru": (
-                    f"Отчёта «Кадры» у проекта #{pid} пока нет: его пишет последняя нода группы «Кадры» "
-                    "после прогона группы."
-                ),
-            }
+            return await _shots_fallback(ctx, pid)
         raise
     text = html if isinstance(html, str) else str(html)
     # Отчёт отдаём целиком файлом: в ячейках длинные поля, обрезка теряет данные.
@@ -888,7 +911,8 @@ def _specs() -> list[ActionSpec]:
             id="group.shots_report",
             title_ru="Отчёт «Кадры» (script_frames_qc)",
             description_ru="Готовый HTML-отчёт группы «Кадры» (нода fw_report): короткая сводка и "
-            "ссылка на полный отчёт без сокращений. Отчёт не пересчитывается.",
+            "ссылка на полный отчёт без сокращений. Отчёт не пересчитывается. Готового "
+            "отчёта нет — собирает отчёт по кадрам и нодам с промтами (html и xlsx).",
             params_schema=pid_only,
             executor=_group_shots_report,
             risk=RISK_READ,

@@ -54,6 +54,7 @@ import hashlib
 import inspect
 import json
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -63,7 +64,9 @@ from app.orchestrator import app_ref
 from app.orchestrator.agents import approval_steps
 from app.orchestrator.agents import summarizer as task_summary
 from app.orchestrator.agents.executor import effective_risk, run_many, step_is_paid, tighten_paid_step
+from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
 from app.orchestrator.agents.planner import PlanSchemaError
+from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
     ActionBackedExecutor,
     StubCritic,
@@ -85,6 +88,7 @@ from app.orchestrator.contracts import (
     ApprovalReason,
     BudgetScope,
     CheckpointData,
+    PlanResolveRefused,
     PlanStep,
     Risk,
     SpendSnapshot,
@@ -170,6 +174,18 @@ _PLAN_BOUND_CARDS = frozenset({*approval_steps.PLAN_CARD_REASONS, "destructive"}
 _CRITIC_NO_REASON = "Критик не объяснил причину, поэтому план не отклонён: проверьте шаги и решите сами."
 _CRITIC_REJECTED = "Проверяющая модель против этого плана: {why}"
 _CRITIC_REVISED = "Проверяющая модель трижды просила переделать план, последнее замечание: {why}"
+_CRITIC_REVISED_SLOW = (
+    "Проверяющая модель просила переделать план, последнее замечание: {why}. "
+    "Чтобы не ждать новых кругов, решение за вами"
+)
+# Круг «планировщик → критик» на живых моделях идёт ~40 с. После revise, когда с начала
+# планирования прошло больше этого, новый круг не начинаем: карточка с замечанием критика.
+# Задача 334: «продолжи проект 10» три круга подряд висела в планировании >150 с.
+REVISE_TIME_BUDGET_S = 40.0
+_OTHER_GATED_STEPS = (
+    "Это не весь план: в нём есть и другие шаги с оплатой или подтверждением (ещё {n}), "
+    "у каждого будет своя карточка."
+)
 # Планировщик иногда отдаёт пустой план «нужно отдельное подтверждение человека»: подтверждение
 # спрашивает карточка после плана, так что такой отказ - не причина ничего не делать.
 _ASKS_APPROVAL_RE = re.compile(
@@ -227,6 +243,36 @@ def _router_visible_cost(owner: Any) -> float:
         if inner is not None and inner is not item:
             pending.append(inner)
     return best
+
+
+async def _dequeue_chat_from_queue(project_ids: list[int], session_id: str) -> dict[str, list[int]]:
+    """Снять с очереди генерации проекты, которые туда ставил чат этой сессии (аварийный стоп)."""
+    from app.db import session_scope
+    from app.services.gen_queue import dequeue_chat_projects
+    from app.services.orch_tenancy import session_tenant
+    from app.services.tenant import tenant_scope
+
+    # Под арендатором сессии (RLS): чужой проект не загрузится и не будет снят,
+    # даже если его номер попал в параметры шага.
+    with tenant_scope(session_tenant(session_id)):
+        async with session_scope() as session:
+            return await dequeue_chat_projects(session, project_ids, session_id=session_id)
+
+
+async def _recheck_dequeued_in_db(project_ids: list[int], session_id: str, since: float) -> list[int]:
+    """Проекты, снятые стопом, которые тик очереди всё же успел стартовать (человек их не брал)."""
+    from app.db import session_scope
+    from app.services.gen_queue import recheck_dequeued
+    from app.services.orch_tenancy import session_tenant
+    from app.services.tenant import tenant_scope
+
+    with tenant_scope(session_tenant(session_id)):
+        async with session_scope() as session:
+            return await recheck_dequeued(session, project_ids, session_id=session_id, since=since)
+
+
+# Повторная проверка после стопа: тик очереди, начатый до стопа, мог стартовать проект позже.
+QUEUE_RECHECK_DELAY_SEC = 3.0
 
 
 def _holders_path(project_id: int) -> Any:
@@ -398,6 +444,13 @@ class Supervisor:
         self._code_plans: dict[int, str] = {}
         # Пустой план с готовым ответом («возвращать нечего», «этого чат пока не умеет»): не «не понял».
         self._code_answers: set[int] = set()
+        # Правка настроек: «было → станет» по шагу и сколько проектов пропущено (там уже так).
+        self._settings_text: dict[int, dict[str, str]] = {}
+        self._settings_skipped: dict[int, str] = {}
+        # Запуск нескольких проектов участником: окно параллели не меняем, строка на карточке.
+        self._launch_note: dict[int, str] = {}
+        # Массовый запуск: кого не поставили (жёсткое условие запуска) — первой строкой карточки.
+        self._launch_skipped: dict[int, str] = {}
         self._unknown_step: dict[int, dict[str, Any]] = {}
         self._appr_seq: dict[int, int] = {}
         self._appr_open: dict[int, str | None] = {}
@@ -1726,9 +1779,7 @@ class Supervisor:
                 return
             revises += 1
             if revises > 2:
-                await self._escalate_plan(
-                    task_id, session_id, plan, self._critic_note(task_id, _CRITIC_REVISED)
-                )
+                await self._critic_revised_out(task_id, session_id, plan)
                 return
             context = (context + "\n" + self._critic_feedback(task_id, verdict)).strip()
             self._context[task_id] = context
@@ -1749,13 +1800,81 @@ class Supervisor:
 
     async def _critic_block(self, task_id: int, session_id: str, plan: list[PlanStep], verdict: str) -> None:
         if verdict == "escalate":
+            if await self._blocked_step_card(task_id, session_id, plan, _CRITIC_NO_REASON):
+                return
             await self._escalate_plan(task_id, session_id, plan, _CRITIC_NO_REASON)
             return
-        await self._checkpoint(task_id, session_id, plan, 0)
         note = self._critic_note(task_id, _CRITIC_REJECTED)
+        if await self._blocked_step_card(task_id, session_id, plan, note):
+            return
+        await self._checkpoint(task_id, session_id, plan, 0)
         await self._apply_block(
             task_id, session_id, "critic_reject", extra={"warnings": [note]} if note else None
         )
+
+    async def _critic_revised_out(
+        self, task_id: int, session_id: str, plan: list[PlanStep], *, slow: bool = False
+    ) -> None:
+        note = self._critic_note(task_id, _CRITIC_REVISED_SLOW if slow else _CRITIC_REVISED)
+        if await self._blocked_step_card(task_id, session_id, plan, note):
+            return
+        await self._escalate_plan(task_id, session_id, plan, note)
+
+    async def _blocked_step_card(
+        self, task_id: int, session_id: str, plan: list[PlanStep], note: str | None
+    ) -> bool:
+        """Шаг плана, который условия запуска уже не пустят: его карточка вместо карточки критика.
+
+        Карточка «Проверяющая модель против этого плана» подтверждаема: человек одобряет план
+        поверх возражения, и только потом шаг спрашивает свою карточку с условиями запуска.
+        Если условие шага уже не выполнено (у кадров нет данных сцены и т.п.), подтверждать
+        нечего: сразу показываем карточку шага с причиной, кнопка «Подтвердить» на ней
+        недоступна. Замечание критика остаётся в предупреждениях. True — карточка открыта.
+
+        Карточку шага не удалось собрать (сбой оценки в мосте, ``preview_failed``) — это не
+        отказ условий: остаётся карточка критика. Если в плане есть и другие шаги со своим
+        подтверждением, карточка говорит, что они идут дальше, каждый со своей карточкой.
+        """
+        goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
+        gated = [step for step in plan if self._step_needs_separate_approval(step)]
+        for at, step in enumerate(plan):
+            if not self._step_needs_separate_approval(step):
+                continue
+            try:
+                card = await self._card_extra(task_id, step, goal)
+            except Exception:  # noqa: BLE001 - карточку шага не собрать: остаётся карточка критика
+                logger.opt(exception=True).warning("orch task {} blocked-step probe failed", task_id)
+                return False
+            if card.get("preview_failed"):
+                logger.info("orch task {} step {} card failed to build: critic card kept", task_id, step.action)
+                return False
+            if not card.get("blocked") or not card.get("preview_errors"):
+                continue
+            risk, gate = self._step_gate(step)
+            await self._checkpoint(task_id, session_id, plan, at)
+            self._grant_target.pop(task_id, None)
+            extra = {**card, "action": step.action, "risk": risk.value, "plan_risk": step.risk}
+            warnings = [*(card.get("warnings") or [])]
+            if note:
+                warnings.append(note)
+            if len(gated) > 1:
+                warnings.append(_OTHER_GATED_STEPS.format(n=len(gated) - 1))
+            if warnings:
+                extra["warnings"] = warnings
+            if risk in APPROVAL_RISKS:
+                reason = "risk"
+            else:
+                reason = "paid" if gate == "paid" else "destructive"
+                extra["gate"] = gate
+                self._block_reason[task_id] = reason
+            logger.info(
+                "orch task {} step {} blocked by its preconditions: card shown instead of critic's",
+                task_id,
+                step.action,
+            )
+            await self._escalate(task_id, session_id, reason, extra=extra)
+            return True
+        return False
 
     def _spawn_drive(self, task_id: int, session_id: str, goal: str) -> None:
         self._cancel.discard(session_id)
@@ -2332,7 +2451,7 @@ class Supervisor:
         for session_id, task_id in pending_paid:
             self._spawn(self._mark_paid_outcome_unknown(session_id, task_id))
 
-    async def _publish_kill(self, session_id: str, task_id: int | None) -> None:
+    async def _publish_kill(self, session_id: str, task_id: int | None) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "stop_key_set": False,
             "stop_key": "pending",
@@ -2353,7 +2472,99 @@ class Supervisor:
             payload["stop_key"] = stop_flag_path(projects[0]).name
             if len(projects) > 1:
                 payload["stop_keys"] = [stop_flag_path(project_id).name for project_id in projects]
+        queue = await self._dequeue_session_queue(session_id, task_id)
+        payload["queue_removed"] = queue["removed"]
+        payload["queue_stopped"] = queue["stopping"]
+        payload["queue_removed_count"] = len(queue["removed"])
         await self.bus.publish(session_id, "kill_switch", payload, task_id=task_id)
+        return payload
+
+    def _session_queue_projects(self, session_id: str) -> list[int]:
+        """Проекты, которые задачи этой сессии ставили в очередь (шаги ``queue.enqueue_many``).
+
+        Берутся все задачи сессии, и закрытые, и после рестарта: kill идёт после
+        другой задачи, а проекты первой всё ещё ждут в очереди. Это только кандидаты:
+        снимаются лишь номера с меткой этой сессии (см. ``dequeue_chat_projects``),
+        так что шаг, который не прошёл или упал на середине, лишнего не снимет.
+        """
+        from app.services.orch_tenancy import session_tenant
+        from app.services.tenant import tenant_scope
+
+        found: list[int] = []
+        try:
+            with tenant_scope(session_tenant(session_id)):
+                rows = self.tasks.session_steps(session_id, "queue.enqueue_many")
+        except Exception:
+            logger.exception("orch kill: queue steps of session {} not read", session_id)
+            rows = []
+        for row in rows:
+            try:
+                params = json.loads(row.get("params_json") or "{}")
+            except (TypeError, ValueError):
+                params = {}
+            raw = params.get("project_ids") if isinstance(params, dict) else None
+            for item in raw if isinstance(raw, list) else []:
+                try:
+                    value = int(item)
+                except (TypeError, ValueError):
+                    continue
+                if value > 0 and value not in found:
+                    found.append(value)
+        return found
+
+    async def _dequeue_session_queue(self, session_id: str, task_id: int | None) -> dict[str, list[int]]:
+        """Kill: проекты, которые чат этой сессии ставил в очередь генерации, оттуда убираются.
+
+        Иначе они стартовали бы позже, уже после «аварийного стопа». Ждущие получают
+        user_stop; у тех, где шаг уже идёт, ставится stop-ключ kill: воркер снимет шаг и
+        дальше проект не пойдёт. Номер, который поставил человек, ручной стоп человека,
+        чужие сессии и общий стоп очереди не трогаются.
+        """
+        empty: dict[str, list[int]] = {"removed": [], "stopping": []}
+        projects = self._session_queue_projects(session_id)
+        if not projects:
+            return empty
+        since = time.time()
+        try:
+            got = await _dequeue_chat_from_queue(projects, session_id)
+        except Exception:
+            logger.exception("orch kill: queue of session {} not cleared", session_id)
+            return empty
+        removed = [int(item) for item in (got or {}).get("removed") or []]
+        stopping = [int(item) for item in (got or {}).get("stopping") or [] if int(item) in removed]
+        for project_id in stopping:
+            self._hold_queue_stop(project_id, task_id)
+        waiting = [project_id for project_id in removed if project_id not in stopping]
+        if waiting:
+            stopping.extend(await self._recheck_queue_stop(waiting, task_id, 0.0, session_id, since))
+            self._spawn(
+                self._recheck_queue_stop(waiting, task_id, QUEUE_RECHECK_DELAY_SEC, session_id, since)
+            )
+        return {"removed": removed, "stopping": stopping}
+
+    def _hold_queue_stop(self, project_id: int, task_id: int | None) -> None:
+        self._note_kill_stop(project_id, task_id)
+        if task_id is not None:
+            self._kill_stopped.setdefault(int(task_id), set()).add(int(project_id))
+
+    async def _recheck_queue_stop(
+        self, project_ids: list[int], task_id: int | None, delay: float, session_id: str, since: float
+    ) -> list[int]:
+        """Снятый стопом проект всё же стартовал (тик очереди шёл в тот же момент): stop-ключ.
+
+        Проект, который человек после стопа снова поставил в очередь или запустил ▶, не трогаем.
+        """
+        if delay > 0:
+            await asyncio.sleep(delay)
+        try:
+            busy = [int(item) for item in await _recheck_dequeued_in_db(project_ids, session_id, since) or []]
+        except Exception:
+            logger.exception("orch kill: queue recheck of {} failed", project_ids)
+            return []
+        for project_id in busy:
+            logger.warning("orch kill: #{} стартовал во время стопа — ставим stop-ключ", project_id)
+            self._hold_queue_stop(project_id, task_id)
+        return busy
 
     def _kill_projects(self, task_id: int) -> list[int]:
         """Проект задачи и проекты её шагов, которые ещё идут (запуск сразу в нескольких проектах).
@@ -2468,6 +2679,7 @@ class Supervisor:
         goal: str,
         context: str,
     ) -> list[PlanStep] | None:
+        started = _monotonic()
         plan = await self._make_plan(task_id, session_id, goal, context)
         if plan is None:
             return None
@@ -2505,9 +2717,12 @@ class Supervisor:
                 return None
             revises += 1
             if revises > 2:
-                await self._escalate_plan(
-                    task_id, session_id, plan, self._critic_note(task_id, _CRITIC_REVISED)
-                )
+                await self._critic_revised_out(task_id, session_id, plan)
+                return None
+            if _monotonic() - started > REVISE_TIME_BUDGET_S:
+                logger.info("orch task {} critic revise after {:.0f}s: card instead of a new round",
+                            task_id, _monotonic() - started)
+                await self._critic_revised_out(task_id, session_id, plan, slow=True)
                 return None
             context = (context + "\n" + self._critic_feedback(task_id, verdict)).strip()
             self._context[task_id] = context
@@ -2539,12 +2754,42 @@ class Supervisor:
             _LLM_TASK.reset(token)
         if drafted is None:
             return None
-        resolved = _chain_from_queue(
-            [await self._resolved(self._with_defaults(step)) for step in drafted], goal
-        )
+        # Правка настроек проекта — только названные ключи, до сверки с текущими значениями.
+        drafted = scope_settings(list(drafted), goal)
+        # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
+        # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
+        launch_notes: list[str] = []
+        drafted = route_multi_launch(drafted, goal, _queue_limit(), self._launch_allowed, launch_notes)
+        if launch_notes:
+            self._launch_note[task_id] = " ".join(launch_notes)
+        else:
+            self._launch_note.pop(task_id, None)
+        try:
+            resolved = _chain_from_queue(
+                [await self._resolved(self._with_defaults(step)) for step in drafted], goal
+            )
+        except PlanResolveRefused as exc:
+            # Шаг нельзя достроить без чтения данных: плана нет, человеку — текст отказа.
+            logger.warning("orch task {} plan refused: {}", task_id, exc)
+            await write_on_loop(self._save_plan, task_id, [])
+            self._code_plans.pop(task_id, None)
+            self._from_code.pop(task_id, False)
+            self._trace_plan(task_id, "plan_refused", [], str(exc))
+            self._fail_detail[task_id] = str(exc)
+            self._code_answers.add(task_id)
+            return []
         plan = [
             tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions)) for step in resolved
         ]
+        plan, nothing = await self._drop_unchanged_settings(task_id, plan, goal)
+        plan = await self._drop_blocked_launches(task_id, plan, goal, session_id)
+        if nothing:
+            # «В проекте #5 модель картинок уже GPT Image 2, менять нечего»: ответ без карточки.
+            await write_on_loop(self._save_plan, task_id, [])
+            self._fail_detail[task_id] = nothing
+            self._code_answers.add(task_id)
+            self._trace_plan(task_id, "settings_unchanged", [], nothing)
+            return []
         await write_on_loop(self._save_plan, task_id, plan)
         from_code = self._from_code.pop(task_id, False)
         if from_code and plan:
@@ -2554,10 +2799,206 @@ class Supervisor:
         logger.info("orch task {} planner: {} steps", task_id, len(plan))
         if not plan:
             self._trace_plan(task_id, "empty_plan", plan, self._planner_reason(task_id))
-            self._note_empty_reason(task_id, from_code=from_code)
+            kind = await self._unknown_model_kind(task_id)
+            self._note_empty_reason(task_id, from_code=from_code, model_kind=kind)
         if await self._absorb_budget(task_id, session_id, self._planner_last(task_id, "last_response")):
             return None
         return plan
+
+    async def _drop_unchanged_settings(
+        self, task_id: int, plan: list[PlanStep], goal: str = ""
+    ) -> tuple[list[PlanStep], str]:
+        """Правки настроек, где всё уже так, как просят, из плана убираются.
+
+        «Поставь модель по умолчанию» сверяется с пустым полем проекта как с умолчанием и
+        пишет «→ по умолчанию (…)»; явная модель («смени на gpt») — строго, без «по умолчанию».
+
+        Возвращает план и ответ человеку, если менять нечего совсем. Пропущенные проекты
+        и «было → станет» остальных карточка покажет словами (``_settings_cards``).
+        """
+        probe = getattr(self.actions, "settings_diff", None)
+        self._settings_text.pop(task_id, None)
+        self._settings_skipped.pop(task_id, None)
+        if not callable(probe) or not any(step.action in _SETTINGS_ACTIONS for step in plan):
+            return plan, ""
+        kept: list[PlanStep] = []
+        texts: dict[str, str] = {}
+        skipped: list[tuple[int | None, str]] = []
+        tail = "_default" if _ASKS_DEFAULT.search(str(goal or "").lower()) else ""
+        for step in plan:
+            if step.action not in _SETTINGS_ACTIONS:
+                kept.append(step)
+                continue
+            try:
+                found = await probe(step.action, dict(step.params))
+            except Exception:
+                logger.exception("orch settings diff failed for task {}", task_id)
+                found = None
+            if isinstance(found, dict) and found.get(f"unchanged{tail}", found.get("unchanged")):
+                skipped.append(
+                    (_step_project(step), str(found.get(f"same{tail}_ru") or found.get("same_ru") or ""))
+                )
+                continue
+            change = (
+                found.get(f"change{tail}_ru") or found.get("change_ru") if isinstance(found, dict) else ""
+            )
+            if change:
+                texts[paid_step_identity(step.action, step.params)] = str(change)
+            kept.append(step)
+        if texts:
+            self._settings_text[task_id] = texts
+        if not skipped:
+            return plan, ""
+        if kept:
+            self._settings_skipped[task_id] = _skipped_text(skipped)
+            return kept, ""
+        return [], _nothing_text(skipped)
+
+    def _settings_cards(self, task_id: int, steps: list[PlanStep], views: list[dict[str, Any]]) -> None:
+        """Строка шага правки настроек: что именно поменяется, словами («модель картинок: A → B»)."""
+        texts = self._settings_text.get(int(task_id)) or {}
+        for step, view in zip(steps, views, strict=False):
+            if step.action not in _SETTINGS_ACTIONS or not isinstance(view, dict):
+                continue
+            change = texts.get(paid_step_identity(step.action, step.params))
+            if not change:
+                continue
+            pid = _step_project(step)
+            view["params_text"] = change + (f"; проект #{pid}" if pid else "")
+            view["text"] = f"{view.get('title') or ''} — {view['params_text']}"
+
+    def _launch_allowed(self, name: str) -> bool:
+        """Действие есть в каталоге чата и доступно личности задачи (участнику — без действий всей студии)."""
+        if not_in_whitelist(name, self.actions):
+            return False
+        from app.services.action_layer.plan import member_hidden_actions
+
+        return name not in member_hidden_actions()
+
+    def _settings_card_note(self, task_id: int, body: dict[str, Any]) -> None:
+        """«Не поставлены в очередь: #10 — …», «Окно параллели меняет только админ», «Пропущено
+        4 проекта, менять там нечего» — первыми строками предупреждений карточки."""
+        notes = [
+            note
+            for note in (
+                self._launch_skipped.get(int(task_id)),
+                self._launch_note.get(int(task_id)),
+                self._settings_skipped.get(int(task_id)),
+            )
+            if note
+        ]
+        if not notes:
+            return
+        warnings = [w for w in body.get("warnings") or [] if w not in notes]
+        body["warnings"] = [*notes, *warnings]
+
+    async def _launch_blocked(
+        self, probe: Any, task_id: int, step: PlanStep, session_id: str | None = None
+    ) -> dict[int, str]:
+        from app.services.orch_tenancy import session_tenant
+        from app.services.tenant import current_tenant, tenant_scope
+
+        # Проверка — под арендатором сессии чата: условия запуска видят только свои проекты.
+        tenant = session_tenant(session_id) if session_id else current_tenant()
+        try:
+            with tenant_scope(tenant):
+                found = await probe(step.action, dict(step.params))
+        except Exception:
+            logger.exception("orch launch blockers failed for task {}", task_id)
+            return {}
+        out: dict[int, str] = {}
+        items = found.get("blocked") if isinstance(found, dict) else None
+        for item in items if isinstance(items, list) else []:
+            pid = item.get("project_id") if isinstance(item, dict) else None
+            if isinstance(pid, int) and not isinstance(pid, bool):
+                # Только готовая человеческая причина: сырой текст проверки в карточку не идёт.
+                out[pid] = str(item.get("reason_ru") or "не выполнено условие запуска")
+        return out
+
+    async def _drop_blocked_launches(
+        self, task_id: int, plan: list[PlanStep], goal: str = "", session_id: str | None = None
+    ) -> list[PlanStep]:
+        """Массовый запуск без проектов, которые упрутся в жёсткое условие запуска.
+
+        «Запусти проекты 3..12»: проект без данных сцены не держит девять готовых — его номер
+        уходит из шага до карточки, карточка первой строкой говорит, кого и почему не
+        поставили и как запустить потом. Карточка и executor проверяют оставшихся как обычно,
+        подтверждение человека остаётся. Если не проходит ни один проект или проект один —
+        план не трогаем: карточка покажет отказ, как раньше.
+        """
+        self._launch_skipped.pop(task_id, None)
+        probe = getattr(self.actions, "launch_blockers", None)
+        if not callable(probe):
+            return plan
+        out = list(plan)
+        notes: list[str] = []
+        for at, step in enumerate(out):
+            if step.action != "queue.enqueue_many":
+                continue
+            ids = [
+                pid
+                for pid in step.params.get("project_ids") or []
+                if isinstance(pid, int) and not isinstance(pid, bool)
+            ]
+            if len(ids) < 2:
+                continue
+            blocked = await self._launch_blocked(probe, task_id, step, session_id)
+            dropped = [(pid, blocked[pid]) for pid in dict.fromkeys(ids) if pid in blocked]
+            kept = [pid for pid in ids if pid not in blocked]
+            if not dropped or not kept:
+                continue
+            out[at] = step.model_copy(update={"params": {**step.params, "project_ids": kept}})
+            # Окно параллели — по оставшимся проектам, тем же правилом, что при маршруте в очередь.
+            out = refit_parallel(out, goal, _queue_limit(), len(set(kept)))
+            # Участнику шага параллели нет вовсе (только админ): если оставшиеся проекты и так
+            # влезают в окно, строка «окно меняет только админ» карточке больше не нужна.
+            if task_id in self._launch_note and not parallel_needed(goal, _queue_limit(), len(set(kept))):
+                self._launch_note.pop(task_id, None)
+            notes.append(
+                _blocked_launch_text(
+                    ("Не поставлен в очередь", "Не поставлены в очередь"),
+                    dropped,
+                    kept,
+                    ("ставится в очередь как обычно", "ставятся в очередь как обычно"),
+                )
+            )
+        runs = [step for step in out if step.action == "step.run_step"]
+        others = [step for step in out if step.action != "step.run_step"]
+        projects = [_step_project(step) for step in runs]
+        # Шаг на проект: только когда кроме запусков в плане одни чтения (сверка состояния).
+        if (
+            len(runs) >= 2
+            and None not in projects
+            and len(set(projects)) == len(runs)
+            and all(not step.mutating and not step.paid for step in others)
+        ):
+            dropped_runs: list[tuple[int, str]] = []
+            gone: set[int] = set()
+            left: list[int] = []
+            for at, step in enumerate(out):
+                pid = _step_project(step)
+                if step.action != "step.run_step" or pid is None:
+                    continue
+                reason = (await self._launch_blocked(probe, task_id, step, session_id)).get(pid)
+                if reason:
+                    dropped_runs.append((pid, reason))
+                    gone.add(at)
+                else:
+                    left.append(pid)
+            if dropped_runs and len(gone) < len(runs):
+                out = [step for at, step in enumerate(out) if at not in gone]
+                notes.append(
+                    _blocked_launch_text(
+                        ("Не запущен", "Не запущены"),
+                        dropped_runs,
+                        left,
+                        ("запускается как обычно", "запускаются как обычно"),
+                    )
+                )
+        if notes:
+            self._launch_skipped[task_id] = " ".join(notes)
+            logger.info("orch task {} launch: dropped blocked projects: {}", task_id, notes)
+        return out
 
     def _with_defaults(self, step: PlanStep) -> PlanStep:
         fill = getattr(self.actions, "plan_defaults", None)
@@ -2578,6 +3019,8 @@ class Supervisor:
             return step
         try:
             params = await fill(step.action, dict(step.params))
+        except PlanResolveRefused:
+            raise
         except Exception:
             logger.exception("orch plan resolve failed for {}", step.action)
             return step
@@ -2623,7 +3066,34 @@ class Supervisor:
             return False
         return bool(_ASKS_APPROVAL_RE.search(self._planner_reason(task_id)))
 
-    def _note_empty_reason(self, task_id: int, *, from_code: bool = False) -> None:
+    async def _unknown_model_kind(self, task_id: int) -> str | None:
+        """Настоящий вид ноды (text/image/video) из её состояния, когда планировщик пишет «модели нет».
+
+        Ключ ноды берётся из причины планировщика, иначе — единственная нода, которую называет
+        просьба. Не прочитали — ``None``: ответ не смешивает модели разных видов.
+        """
+        from app.services.redact import redact_text
+
+        reason = redact_text(str(self._planner_last(task_id, "last_reason") or ""))
+        goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
+        if not task_summary.unknown_model_name(reason, goal):
+            return None
+        project_id = self._task_project_id(task_id)
+        if project_id is None:
+            found = _REASON_PROJECT.search(f"{reason} {goal}")
+            project_id = int(found.group(1)) if found else None
+        if project_id is None:
+            return None
+        try:
+            meta = await asyncio.wait_for(_load_node_meta(project_id), timeout=_NODE_META_TIMEOUT_S)
+        except Exception:  # noqa: BLE001 — без состояния ноды вид угадывается по словам
+            logger.exception("orch task {} node kind for unknown model not read", task_id)
+            return None
+        return _node_model_kind(meta, reason, goal)
+
+    def _note_empty_reason(
+        self, task_id: int, *, from_code: bool = False, model_kind: str | None = None
+    ) -> None:
         if from_code:
             from app.services.plain_ru import plain_ru
             from app.services.redact import redact_text
@@ -2636,11 +3106,28 @@ class Supervisor:
                 self._fail_detail[task_id] = why.rstrip(".") + "."
                 self._code_answers.add(task_id)
                 return
+        from app.services.redact import redact_text
+
         why = self._planner_reason(task_id)
-        # «В каталоге нет действия для удаления проекта»: просьбу поняли, но чат так не умеет.
-        missing = task_summary.missing_action_text(
-            why, str((self.tasks.get(task_id) or {}).get("goal") or "")
+        goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
+        # «Создай 5 проектов из файла»: файла в чате нет — спрашиваем темы, а не «не понял».
+        ask = task_summary.file_clarify_text(goal)
+        if ask:
+            self._fail_detail[task_id] = ask
+            self._code_answers.add(task_id)
+            return
+        # «Модели gpt-5 нет у ноды»: просьбу поняли — спрашиваем, какую из моделей ноды поставить.
+        unknown = task_summary.unknown_model_text(
+            " ".join(redact_text(str(self._planner_last(task_id, "last_reason") or "")).split()) or why,
+            goal,
+            kind=model_kind,
         )
+        if unknown:
+            self._fail_detail[task_id] = unknown
+            self._code_answers.add(task_id)
+            return
+        # «В каталоге нет действия для удаления проекта»: просьбу поняли, но чат так не умеет.
+        missing = task_summary.missing_action_text(why, goal)
         if missing:
             self._fail_detail[task_id] = missing
             self._code_answers.add(task_id)
@@ -2719,10 +3206,26 @@ class Supervisor:
             return None
         if _free_read_plan(plan, self.actions):
             return "approve"
+        if _resume_after_read_plan(plan, self.actions) and _critic_checks_clear(plan):
+            # «Продолжи проект 10»: [project.status, project.continue_pipeline]. Критик дважды
+            # просил «прочитать состояние», хотя чтение уже стоит первым шагом, и гонял планировщик
+            # по кругу >150 с. Продолжение само перепроверяет состояние условиями запуска в момент
+            # исполнения, а риск high всё равно идёт карточкой человеку.
+            return "approve"
+        if _queue_launch_plan(plan, self.actions) and _critic_checks_clear(plan):
+            # «Запусти проекты 5 6 7 параллельно»: очередь и число параллельных идут только через
+            # карточку человека. Критик просил «сначала прочитай статус» и гонял планировщик по
+            # кругу: карточка появлялась через 2+ минуты. Проверку делает человек кнопкой.
+            return "approve"
         if self._code_plans.get(task_id) == _plan_fingerprint(plan):
             # План отката собран кодом из журнала, а не моделью: критику нечего проверять,
             # а подтверждение человека шаг с высоким риском всё равно получает карточкой.
             return "approve"
+        skipped = self._launch_skipped.get(int(task_id))
+        if skipped:
+            # Проекты, убранные кодом до карточки, — не ошибка плана: критик не должен просить
+            # вернуть их или эскалировать из-за «пропавшего» проекта из просьбы.
+            context = (context + "\n" + _LAUNCH_SKIPPED_CRITIC.format(note=skipped)).strip()
         token = _LLM_TASK.set(int(task_id))
         try:
             verdict = str(
@@ -3560,9 +4063,11 @@ class Supervisor:
         self._grant_target.pop(task_id, None)
         labels = await self._card_labels(task_id)
         views = [approval_steps.step_view(step, self.actions, labels) for step in steps]
+        self._settings_cards(task_id, steps, views)
         previews = [await self._card_extra(task_id, step, goal) for step in steps]
         mark = group_fingerprint(plan, positions)
-        card = approval_steps.group_card(steps, positions, views, previews, mark)
+        card = approval_steps.group_card(steps, positions, views, previews, mark, concurrent=concurrent)
+        self._settings_card_note(task_id, card)
         card["risk"] = max_risk(risk, card["risk"]).value
         extra = {**card, "action": steps[0].action, "plan_risk": steps[0].risk}
         if reason != "risk":
@@ -4408,6 +4913,7 @@ class Supervisor:
             note = task_summary.note_from_result(
                 step.action, result, readonly=step_is_readonly(step, self.actions)
             )
+            note.project_id = _step_project(step)
         except Exception:
             logger.exception("orch step note failed for {}", step.action)
             return None
@@ -4835,7 +5341,12 @@ class Supervisor:
             if isinstance(cc, str) and task_id is not None:
                 self._cc_change_id[(int(task_id), action)] = cc
         if task_id is not None:
-            body = approval_steps.enrich(body, self._card_plan(int(task_id)), self.actions, labels)
+            card_plan = self._card_plan(int(task_id))
+            fresh = not isinstance(body.get("steps"), list)
+            body = approval_steps.enrich(body, card_plan, self.actions, labels)
+            if fresh and isinstance(body.get("steps"), list) and len(body["steps"]) == len(card_plan):
+                self._settings_cards(int(task_id), card_plan, body["steps"])
+            self._settings_card_note(int(task_id), body)
         reason = str(body.get("reason") or "")
         if task_id is not None and reason:
             self._card_reason[int(task_id)] = reason
@@ -5638,6 +6149,97 @@ def _chain_from_queue(plan: list[PlanStep], goal: str = "") -> list[PlanStep]:
     ]
 
 
+_SETTINGS_ACTIONS = frozenset({"project.patch_settings", "project.patch_settings_costly"})
+# «Поставь модель по умолчанию / дефолтную / стандартную», «сбрось модель».
+_ASKS_DEFAULT = re.compile(r"умолчан|дефолт|default|стандартн|сброс|сбрось")
+
+
+def _ids_ru(ids: list[int]) -> str:
+    return ", ".join(f"#{pid}" for pid in ids)
+
+
+def _projects_word(count: int) -> str:
+    if count % 10 == 1 and count % 100 != 11:
+        return "проект"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return "проекта"
+    return "проектов"
+
+
+def _same_of(skipped: list[tuple[int | None, str]]) -> str:
+    """Общая для всех пропущенных фраза «модель картинок уже GPT Image 2», иначе пусто."""
+    texts = [text for _, text in skipped]
+    return texts[0] if texts and texts[0] and all(text == texts[0] for text in texts) else ""
+
+
+_LAUNCH_SKIPPED_CRITIC = (
+    "Проверка кода до карточки (не ошибка плана): часть названных человеком проектов намеренно "
+    "убрана из плана, потому что не проходит жёсткое условие запуска. Человек увидит это первой "
+    "строкой карточки: «{note}». Не требуй вернуть эти проекты и не считай их отсутствие "
+    "причиной для revise или escalate; проверяй только оставшиеся шаги."
+)
+
+
+def _blocked_launch_text(
+    head: tuple[str, str], dropped: list[tuple[int, str]], kept: list[int], goes: tuple[str, str]
+) -> str:
+    """«Не поставлены в очередь: #10, #12 — кадры без данных сцены, …» и как запустить их потом.
+
+    ``head`` и ``goes`` — формы (один проект, несколько). Проекты с одной причиной идут одной
+    группой; оставшийся один проект назван номером, а не «остальной проект».
+    """
+    first: dict[int, str] = {}
+    for pid, reason in dropped:
+        first.setdefault(pid, reason)
+    groups: dict[str, list[int]] = {}
+    for pid, reason in first.items():
+        groups.setdefault(reason.rstrip("."), []).append(pid)
+    why = ". ".join(f"{_ids_ru(pids)} — {reason}" for reason, pids in groups.items())
+    one = len(first) == 1
+    ids = ", ".join(str(pid) for pid in first)
+    kept = list(dict.fromkeys(kept))
+    if len(kept) == 1:
+        rest = f"Проект #{kept[0]} {goes[0]}."
+    else:
+        rest = f"Остальные {len(kept)} {_projects_word(len(kept))} {goes[1]}."
+    later = (
+        f"Когда причина будет устранена, {'проект' if one else 'эти проекты'} можно запустить "
+        f"отдельно: «запусти {'проект' if one else 'проекты'} {ids}»."
+    )
+    return f"{head[0] if one else head[1]}: {why}. {rest} {later}"
+
+
+def _skipped_text(skipped: list[tuple[int | None, str]]) -> str:
+    ids = [pid for pid, _ in skipped if pid is not None]
+    same = _same_of(skipped)
+    tail = f": {same}" if same else ": там уже так, как просите"
+    return (
+        f"Пропущено {len(skipped)} {_projects_word(len(skipped))} ({_ids_ru(ids)}), менять там нечего{tail}."
+    )
+
+
+def _nothing_text(skipped: list[tuple[int | None, str]]) -> str:
+    ids = [pid for pid, _ in skipped if pid is not None]
+    same = _same_of(skipped)
+    if len(skipped) == 1:
+        where = f"В проекте #{ids[0]}" if ids else "В проекте"
+        return f"{where} {same or 'всё уже так, как просите'}, менять нечего."
+    if same:
+        return f"Во всех {len(skipped)} проектах ({_ids_ru(ids)}) {same}, менять нечего."
+    return f"В проектах {_ids_ru(ids)} всё уже так, как просите, менять нечего."
+
+
+def _queue_limit() -> int | None:
+    """Сколько проектов очереди сейчас идут одновременно; None — не прочитать."""
+    try:
+        from app.services.gen_queue import worker_max_parallel
+
+        value = int(worker_max_parallel())
+    except Exception:
+        return None
+    return value if value > 0 else None
+
+
 def _step_project(step: PlanStep) -> int | None:
     pid = step.params.get("project_id")
     return pid if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 else None
@@ -5763,3 +6365,112 @@ def _free_read_step(step: PlanStep, actions: Any) -> bool:
 
 def _free_read_plan(plan: list[PlanStep], actions: Any) -> bool:
     return bool(plan) and all(_free_read_step(step, actions) for step in plan)
+
+
+def _monotonic() -> float:
+    return time.monotonic()
+
+
+_REASON_PROJECT = re.compile(r"проект\w*\s*(?:№|#)?\s*(\d+)", re.IGNORECASE)
+_REASON_NODE_KEY = re.compile(r"(?<![\w.])(n_[A-Za-z0-9_]+)")
+_NODE_META_TIMEOUT_S = 5.0
+
+
+async def _load_node_meta(project_id: int) -> Any:
+    from app.orchestrator.agents.project_nodes import load_meta
+
+    return await load_meta(int(project_id))
+
+
+def _node_model_kind(meta: Any, reason: str, goal: str) -> str | None:
+    """Вид модели ноды по её типу на холсте: ключ из причины, иначе одна нода из просьбы."""
+    from app.orchestrator.agents.project_nodes import match_nodes, roster
+    from app.services import node_edit
+
+    if not isinstance(meta, dict):
+        return None
+    keys = list(dict.fromkeys(_REASON_NODE_KEY.findall(reason or "")))
+    if not keys:
+        keys = match_nodes(roster(meta), goal or "")
+    kinds = set()
+    for key in keys:
+        node = node_edit.find_node(meta, key)
+        if node is None:
+            continue
+        kind = node_edit.model_kind_for_type(node_edit.node_type(node))
+        if kind:
+            kinds.add(kind)
+    return kinds.pop() if len(kinds) == 1 else None
+
+
+# Продолжение проекта: условия запуска (проект есть, на паузе или шаг готов, монтаж не идёт)
+# перечитывают живое состояние в момент исполнения, карточка подтверждения обязательна.
+RESUME_ACTIONS: frozenset[str] = frozenset({"project.continue_pipeline", "project.resume"})
+
+
+def _step_project(step: PlanStep) -> Any:
+    return (step.params or {}).get("project_id")
+
+
+def _critic_checks_clear(plan: list[PlanStep]) -> bool:
+    """Проверки критика без модели (удаления, потолок, прогноз трат выше лимита) молчат.
+
+    Одобрение плана без круга критика их не пропускает: если хоть одна сработала, план идёт
+    к критику, и человек увидит «прогноз трат выше лимита», а не простую карточку.
+    """
+    from app.orchestrator.agents.critic import deterministic_verdict
+
+    try:
+        return deterministic_verdict(plan) is None
+    except Exception:  # noqa: BLE001 — неизвестный прогноз: судит критик
+        logger.exception("orch critic checks failed before pre-approval")
+        return False
+
+
+def _same_project(a: Any, b: Any) -> bool:
+    return a not in (None, "") and b not in (None, "") and str(a).strip() == str(b).strip()
+
+
+def _resume_after_read_plan(plan: list[PlanStep], actions: Any) -> bool:
+    """План «project.status → одно продолжение проекта» того же проекта: критику проверять нечего.
+
+    Чтение состояния этого проекта (project.status) уже стоит перед продолжением, а условия
+    запуска продолжения ещё раз проверяют живое состояние при исполнении. Без чтения, без
+    карточки (риск ниже порога), с лишними параметрами (другие проекты, тенант, «до отчёта»)
+    или с чтением чужого проекта под другим ключом — критик остаётся.
+    """
+    resumes = [step for step in plan if step.action in RESUME_ACTIONS]
+    if len(resumes) != 1 or plan[-1] is not resumes[0]:
+        return False
+    target = _step_project(resumes[0])
+    if set(resumes[0].params or {}) != {"project_id"} or target in (None, ""):
+        return False
+    if effective_risk(actions, resumes[0]) not in APPROVAL_RISKS:
+        return False
+    for step in plan[:-1]:
+        if step.action != "project.status" or not _free_read_step(step, actions):
+            return False
+        if set(step.params or {}) != {"project_id"} or not _same_project(_step_project(step), target):
+            return False
+    return len(plan) > 1
+
+
+# Шаги постановки в очередь: исполняются только после «Подтвердить» на карточке.
+QUEUE_LAUNCH_ACTIONS: frozenset[str] = frozenset({"queue.enqueue_many", "queue.set_parallel"})
+
+
+def _queue_launch_plan(plan: list[PlanStep], actions: Any) -> bool:
+    """План только из очереди генерации и бесплатных чтений; каждый шаг очереди идёт карточкой.
+
+    Такой план критику проверять нечего: проекты и режим человек видит на карточке и
+    подтверждает сам, а платные шаги потом запускает воркер по своей проверке.
+    """
+    if not any(step.action in QUEUE_LAUNCH_ACTIONS for step in plan):
+        return False
+    for step in plan:
+        if step.action in QUEUE_LAUNCH_ACTIONS:
+            if step.paid or effective_risk(actions, step) not in APPROVAL_RISKS:
+                return False
+        elif not _free_read_step(step, actions):
+            return False
+    return True

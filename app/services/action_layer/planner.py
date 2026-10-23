@@ -364,6 +364,11 @@ def build_prompt(
     sel = planner_catalog.select_catalog(text, ctx["facts"], registry, max_catalog, macros)
     if attachments and sel.filtered:
         sel.ids = sorted({*sel.ids, *planner_uploads.actions_for_attachments(attachments, registry)})
+    if sel.ids:
+        from app.services.action_layer.plan import member_hidden_actions
+
+        hidden = member_hidden_actions()
+        sel.ids = [a for a in sel.ids if a not in hidden]
     payload: dict = {
         "data_policy": planner_guard.DATA_POLICY,
         "catalog": catalog_for_prompt(registry, sel.ids),

@@ -37,6 +37,8 @@ async def _preempt_running_for_manual_start(
     session: AsyncSession,
     project: Project,
     target_running: ProjectStatus,
+    *,
+    keep_chat_owner: bool = False,
 ) -> None:
     """Остановить текущий running-шаг без user_stop — сразу стартуем другой."""
     if not is_running_status(project.status) or project.status is target_running:
@@ -51,7 +53,7 @@ async def _preempt_running_for_manual_start(
     clear_xlsx_flow_locks(project.id)
     await stop_active_running_node(session, project)
     clear_stop(project.id)
-    clear_user_stop_gate(project)
+    clear_user_stop_gate(project, by_human=not keep_chat_owner)
     step = step_by_running_status(prev)
     if step is not None and step.requires is not None:
         project.status = step.requires
@@ -75,8 +77,12 @@ async def start_step(
     require_node_fsm: bool = False,
     explicit_ui_start: bool = False,
     force_wipe: bool | None = None,
+    keep_chat_owner: bool = False,
 ) -> ProjectStatus:
     """Перевести проект в running-статус шага — воркер подхватит.
+
+    ``keep_chat_owner``: ▶ дал чат (слой действий), номер очереди чата остаётся за ним —
+    аварийный стоп чата его снимет. Только ▶ человека переводит номер к человеку.
 
     ``force_wipe`` — режим ▶ из студии (перенос форка 2026-09, 052db0b1):
     None — как раньше (полный wipe только для явного ▶ img_pr), True —
@@ -118,7 +124,7 @@ async def start_step(
         )
         from app.services.sidebar_layout import clear_gen_queue_halted
 
-        clear_user_stop_gate(project)
+        clear_user_stop_gate(project, by_human=not keep_chat_owner)
         clear_auto_await_manual_start(project)
         # auto_mode здесь НЕ включаем: тумблер «Автозапуск шагов» — только
         # ручной. Ручной ▶ запускает один шаг; цепочка — лишь при включённом
@@ -175,7 +181,12 @@ async def start_step(
 
             same_family = slot_from_running_status(project.status) is not None
         if explicit_ui_start and not same_family:
-            await _preempt_running_for_manual_start(session, project, step.running_status)
+            await _preempt_running_for_manual_start(
+                session,
+                project,
+                step.running_status,
+                keep_chat_owner=keep_chat_owner,
+            )
         elif not explicit_ui_start:
             other_title = cur_step.title if cur_step is not None else project.status.value
             raise ValueError(

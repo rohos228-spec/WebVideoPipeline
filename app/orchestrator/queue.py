@@ -28,7 +28,7 @@ from app.orchestrator.contracts import (
 from app.orchestrator.db.migrations import connect, utc_now
 from app.orchestrator.events import EventBus
 from app.orchestrator.safety_gate import Refusal, refusal_for
-from app.orchestrator.small_talk import CARD_WAITING_TEXT, OK_TEXT, small_talk_reply
+from app.orchestrator.small_talk import CARD_WAITING_TEXT, OK_TEXT, THANKS_TEXT, is_decline, small_talk_reply
 
 _TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
 _STOP_TOKENS = frozenset(
@@ -468,7 +468,10 @@ class MessageQueue:
             if not kill_switch and mode in (None, MessageMode.task):
                 # Явный append (API) остаётся вопросом к модели: готовый ответ только для реплик из чата.
                 reply = small_talk_reply(text)
-                if reply == OK_TEXT and self._card_waiting(session_id):
+                # «Спасибо, не надо» при открытой карточке — не отказ: кнопка «Отклонить» на карточке.
+                if (reply == OK_TEXT or (reply == THANKS_TEXT and is_decline(text))) and self._card_waiting(
+                    session_id
+                ):
                     reply = CARD_WAITING_TEXT
                 if reply is not None:
                     published = True
@@ -639,11 +642,18 @@ class MessageQueue:
         if decided.kill_switch:
             idle = self.supervisor.active_task(session_id) is None
             job = self.supervisor.request_kill(session_id)
-            if job is not None:
-                await job
+            payload = await job if job is not None else None
+            body = payload if isinstance(payload, dict) else {}
+            removed, stopped = body.get("queue_removed"), body.get("queue_stopped")
+            note = queue_removed_note(
+                removed if isinstance(removed, list) else [], stopped if isinstance(stopped, list) else []
+            )
             if idle:
                 # Без задачи итоговой сводки не будет: ответить сразу, иначе чат молчит.
-                await self._reply(session_id, stop_reply("", "", False), "stop")
+                text = note or stop_reply("", "", False)
+                await self._reply(session_id, text, "stop")
+            elif note:
+                await self._reply(session_id, note, "stop")
             return
         if decided.mode is MessageMode.interrupt:
             await self._interrupt(session_id)
@@ -793,12 +803,16 @@ class MessageQueue:
             logger.warning("orch answer failed for session {}: {}", session_id, type(exc).__name__)
             await self.explain_failure(session_id, exc, task_id)
             return
+        from app.orchestrator.agents.summarizer import normalize_links
+
         parts = deltas or _token_pieces(response.text)
+        # Сохранённый и итоговый текст — со ссылками без пробела после «(»: иначе они видны как текст.
+        answer = normalize_links(str(response.text or ""))
         message_id = await asyncio.to_thread(
             _insert_message,
             session_id,
             "assistant",
-            response.text,
+            answer,
             task_id=task_id,
             mode=MessageMode.append.value,
         )
@@ -832,7 +846,7 @@ class MessageQueue:
         await self.bus.publish(
             session_id,
             "message",
-            {"role": "assistant", "text": response.text},
+            {"role": "assistant", "text": answer},
             task_id=task_id,
         )
 
@@ -867,6 +881,27 @@ STEER_IDLE_TEXT = (
     "Сейчас нет задачи, к которой это относится, поэтому я ничего не менял. "
     "Напишите просьбу целиком, например «запусти картинки в проекте 6»."
 )
+
+
+def queue_removed_note(project_ids: list[Any], stopped_ids: list[Any] | None = None) -> str:
+    """Сколько проектов, поставленных чатом, аварийный стоп убрал из очереди генерации."""
+    from app.services.action_layer.card_text import projects_ru
+
+    def _ints(items: list[Any] | None) -> list[int]:
+        return [int(item) for item in items or [] if isinstance(item, int) and not isinstance(item, bool)]
+
+    ids = _ints(project_ids)
+    if not ids:
+        return ""
+    stopped = [pid for pid in _ints(stopped_ids) if pid in ids]
+    listed = ", ".join(f"#{pid}" for pid in ids)
+    text = f"Из очереди генерации убрал {projects_ru(len(ids))}, которые ставил чат: {listed}. "
+    if stopped:
+        text += (
+            f"У {', '.join(f'#{pid}' for pid in stopped)} шаг уже шёл - он останавливается, "
+            "дальше эти проекты не пойдут. "
+        )
+    return text + "Сами они не стартуют, запустить снова можно кнопкой ▶ или просьбой в чате."
 
 
 def stop_reply(goal: str, status: str, active: bool) -> str:

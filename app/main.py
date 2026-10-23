@@ -210,6 +210,28 @@ def _running_status_requires(
     return step.requires if step is not None else None
 
 
+async def _note_rest_worker_waits(session, rest_projects) -> None:
+    """Места кончились: остальным running-проектам тика пишем ту же причину, что дал бы им
+    полный проход (стоп, уже идёт, предшественник в очереди генерации, пауза после ошибок),
+    и только иначе - «места заняты»."""
+    from app.services.gen_queue import gen_queue_blocks_project
+    from app.services.gen_queue_run import is_user_stopped
+    from app.services.step_cancel import clear_worker_wait, is_generation_active, note_worker_wait
+    from app.services.step_failure_policy import is_sleeping
+
+    for rest in rest_projects:
+        if is_user_stopped(rest):
+            note_worker_wait(rest.id, "user_stop")
+        elif is_generation_active(rest.id):
+            clear_worker_wait(rest.id)
+        elif await gen_queue_blocks_project(session, rest.id) is not None:
+            note_worker_wait(rest.id, "queue_predecessor")
+        elif is_sleeping(rest):
+            note_worker_wait(rest.id, "failure_sleep")
+        else:
+            note_worker_wait(rest.id, "parallel_slots_full")
+
+
 async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
     """Фоновая петля воркера: сканирует БД и продвигает проекты.
 
@@ -228,7 +250,11 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
     from app.services.advance_runner import advance_project_job
     from app.services.step_cancel import (
         StepCancelledError,
+        clear_worker_wait,
         is_generation_active,
+        keep_worker_wait_tenants,
+        keep_worker_waits,
+        note_worker_wait,
         register_advance_task,
         unregister_advance_task,
     )
@@ -347,7 +373,6 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
             prev = fail_counts.get(key, 0)
             fail_counts[key] = prev + 1
             try:
-
                 async with session_scope() as s:
                     p = await s.get(Project, project_id)
                     if p is None:
@@ -398,10 +423,23 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         """
         if not _settings.is_postgres:
             return [None]
-        from app.services.work_routing import tenants_with_active_work
+        from app.services.sidebar_layout import get_gen_queue
+        from app.services.work_routing import tenants_to_serve, waiting_statuses
 
+        # Рабочие статусы — шаги, которые воркер ведёт сам; номера очереди,
+        # ждущие (`*_ready`, `assembled` с публикацией на канвасе) проекты с
+        # `auto_mode` и `new`-полосы массовой фабрики / подпроекты запущенного
+        # массового — то, что двигают `gen_queue_tick`, автопродвижение и
+        # сериализаторы внутри прохода арендатора. Ждущим без `auto_mode`, с ⏹,
+        # и `published` проход не нужен: двигать там нечего.
         async with session_scope() as s:
-            return await tenants_with_active_work(s, [st.value for st in statuses])
+            return await tenants_to_serve(
+                s,
+                [st.value for st in statuses],
+                get_gen_queue(),
+                waiting=waiting_statuses(),
+                session_factory=session_scope,
+            )
 
     async def _tick_for_current_tenant(mass_paused: bool) -> None:
         """Один проход воркера от имени текущего арендатора.
@@ -452,9 +490,12 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                 max_parallel = worker_max_parallel()
                 slots_free = max(0, max_parallel - active_advance_count())
                 to_start: list[tuple[int, str]] = []
+                # Чат-оркестратор читает, почему проект не взят (очередь, а не простой).
+                keep_worker_waits(p.id for p in projects)
 
-                for p in projects:
+                for idx, p in enumerate(projects):
                     if is_user_stopped(p):
+                        note_worker_wait(p.id, "user_stop")
                         logger.debug(
                             "worker: #{} {} — user_stop, пропуск тика",
                             p.id,
@@ -508,6 +549,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                             )
                         continue
                     if is_generation_active(p.id):
+                        clear_worker_wait(p.id)
                         logger.debug(
                             "worker: #{} {} — шаг уже выполняется, пропуск тика",
                             p.id,
@@ -516,6 +558,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         continue
                     queue_blocker = await gen_queue_blocks_project(s, p.id)
                     if queue_blocker is not None:
+                        note_worker_wait(p.id, "queue_predecessor")
                         logger.debug(
                             "worker: #{} {} — ждём очередь, блокирует #{}",
                             p.id,
@@ -524,6 +567,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         )
                         continue
                     if is_sleeping(p):
+                        note_worker_wait(p.id, "failure_sleep")
                         logger.info(
                             "worker: #{} {} — пауза после ошибок до {}, пропуск тика",
                             p.id,
@@ -540,7 +584,10 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                             p.status.value,
                             max_parallel,
                         )
+                        note_worker_wait(p.id, "parallel_slots_full")
+                        await _note_rest_worker_waits(s, projects[idx + 1 :])
                         break
+                    clear_worker_wait(p.id)
                     to_start.append((p.id, p.status.value))
                     slots_free -= 1
 
@@ -610,10 +657,11 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                             continue
                         from app.services.gen_queue import (
                             enrich_ready_bypasses_gen_queue,
-                            project_gated_by_gen_queue,
+                            project_gated_by_own_gen_queue,
                         )
 
-                        if project_gated_by_gen_queue(ap.id):
+                        # Очередь другого арендатора проект не держит.
+                        if await project_gated_by_own_gen_queue(s, ap):
                             if enrich_ready_bypasses_gen_queue(ap):
                                 logger.info(
                                     "auto_advance tick: #{} {} — gen_queue bypass (excel_gpt chain)",
@@ -699,8 +747,12 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         try:
             serve = await _tenants_to_serve(active)
         except Exception:  # noqa: BLE001
+            # Запасной проход только владельцу. Ожидания арендаторов не трогаем:
+            # список «кому служим» не получен, а не пуст — стирать их нечем оправдать.
             logger.exception("worker: не удалось получить список арендаторов")
             serve = [None]
+        else:
+            keep_worker_wait_tenants(serve)
         for _tenant in serve:
             with tenant_scope(_tenant):
                 await _tick_for_current_tenant(mass_paused)

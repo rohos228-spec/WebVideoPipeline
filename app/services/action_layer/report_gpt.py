@@ -401,6 +401,8 @@ def _frame_row(fr: Any) -> dict:
         "voiceover_text": fr.voiceover_text or "",
         "place": str(attrs.get("место") or attrs.get("place") or ""),
         "attrs": attrs,
+        "image_prompt": str(getattr(fr, "image_prompt", None) or ""),
+        "animation_prompt": str(getattr(fr, "animation_prompt", None) or ""),
     }
 
 
@@ -557,6 +559,49 @@ def gpt_frame_rows(nodes: list[dict]) -> list[dict]:
     return sorted(
         rows, key=lambda r: (order.get(r["label"], 0), (isinstance(r["frame"], str), r["frame"]), r["field"])
     )
+
+
+def overwrite_text(nodes: list[dict]) -> str:
+    """По-русски, кто чьи поля перезаписал: нода в порядке канваса, поле кадра, которое до неё
+    записала другая нода «Работа с GPT». Тот же расчёт, что колонка «Перезаписано» в html."""
+    if not nodes:
+        return ""
+    # Ноды сравниваем по ключу, а не по названию: две ноды «Работа с GPT» с одним названием
+    # тоже перезаписывают друг друга, как в колонке html.
+    last: dict[tuple[str, str], tuple[str, str]] = {}
+    lines = ["Кто чьи поля перезаписал (работа с GPT по порядку на канвасе):"]
+    for n in nodes:
+        me = str(n.get("node_key") or n["label"])
+        frames = n.get("frames") or {}
+        if not frames:
+            lines.append(f"- {n['label']}: пока ничего не записала в кадры, поэтому ничего не перезаписала.")
+            continue
+        over: dict[str, dict[str, set[str]]] = {}
+        for frame, names in frames.items():
+            for name in names:
+                prev = last.get((str(frame), name))
+                if prev and prev[0] != me:
+                    who = f"«{prev[1]}»" + (
+                        " (другая нода с тем же названием)" if prev[1] == n["label"] else ""
+                    )
+                    over.setdefault(who, {}).setdefault(name, set()).add(str(frame))
+        if not over:
+            lines.append(
+                f"- {n['label']}: записала {_labels_ru(list(n.get('fields') or []))} "
+                f"в кадрах {len(frames)}, чужих полей не перезаписала."
+            )
+        else:
+            parts = []
+            for prev, fields in over.items():
+                named = ", ".join(
+                    f"{tpl.field_label(name)} (кадров {len(fr)})" for name, fr in fields.items()
+                )
+                parts.append(f"записанные {prev}: {named}")
+            lines.append(f"- {n['label']} перезаписала поля, " + "; ".join(parts) + ".")
+        for frame, names in frames.items():
+            for name in names:
+                last[(str(frame), name)] = (me, n["label"])
+    return "\n".join(lines)
 
 
 def gpt_list_rows(nodes: list[dict]) -> list[dict]:
@@ -814,6 +859,21 @@ async def _project_row_report(ctx: ActionContext, pid: int, row: Any, counts: di
     }
 
 
+_SPENT_ROW_KEYS = ("spent_usd", "spent_by_source", "attributed_usd")
+_SPENT_NODE_KEYS = ("cost_usd", "cost_how")
+
+
+def _member_row(row: dict) -> dict:
+    """Строка проекта для участника: без сумм в $ (себестоимость из общей кассы)."""
+    out = {k: v for k, v in row.items() if k not in _SPENT_ROW_KEYS}
+    if isinstance(out.get("gpt_nodes"), list):
+        out["gpt_nodes"] = [
+            {k: v for k, v in n.items() if k not in _SPENT_NODE_KEYS} if isinstance(n, dict) else n
+            for n in out["gpt_nodes"]
+        ]
+    return out
+
+
 MEMBER_NO_FILE_TEXT = (
     "Файл отчёта по проектам здесь не создаётся: общие файлы отчётов студии скачивает админ. "
     "Вся таблица — ниже в чате."
@@ -822,6 +882,22 @@ MEMBER_NO_FILE_TEXT = (
 
 def _without_spent(columns: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
     return tuple(col for col in columns if col[0] not in ("spent_usd", "cost_usd"))
+
+
+def _project_line(r: dict, *, show_spent: bool = True) -> str:
+    """Строка проекта для чата. Участнику — без трат (суммы в $ видит только админ)."""
+    from app.services.action_layer import builtin_insight as bi
+
+    pid = r["project_id"]
+    if not r.get("found"):
+        return f"- #{pid}: проект не найден."
+    spent = r.get("spent_usd")
+    money = f"траты {bi._usd_text(spent)} (оценка)" if spent is not None else "траты: нет данных"
+    return (
+        f"- #{pid} «{r.get('title')}»: {r.get('status_ru') or 'статус неизвестен'}, шагов готово "
+        f"{r.get('steps')}, кадров {r.get('frames')}, картинок {r.get('images')}, видео {r.get('videos')}"
+        + (f", {money}." if show_spent else ".")
+    )
 
 
 def with_no_data(rows: list[dict], keys: tuple[str, ...]) -> list[dict]:
@@ -850,8 +926,12 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         except SQLAlchemyError:
             row = None
         rows.append(await _project_row_report(ctx, pid, row, counts))
+    if not show_spent:
+        # Участнику — без трат у самого источника: строки уходят и в kind="json"
+        # (ответ шага, журнал действий), а не только в отрисованную таблицу.
+        rows = [_member_row(r) for r in rows]
     found = [r for r in rows if r.get("found")]
-    spent = sum(r["spent_usd"] or 0.0 for r in found)
+    spent = sum(r.get("spent_usd") or 0.0 for r in found)
     missing = [r["project_id"] for r in rows if not r.get("found")]
     # Номера и названия в первой строке: без них ответ на «отчёт по проекту 6» говорил,
     # что не может подтвердить, что это проект #6.
@@ -878,6 +958,8 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         "videos": sum(r["videos"] for r in found),
         "spent_usd_estimate": round(spent, 4) if show_spent else None,
     }
+    if not show_spent:
+        summary.pop("spent_usd_estimate")
     out: dict[str, Any] = {"format": fmt, "project_ids": pids, "summary": summary}
     if fmt == "json":
         out.update(rows=rows, text_ru=head)
@@ -909,7 +991,12 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         gpt_text_md = ("\n\n" + tpl.GPT_SECTION_TITLE + ":\n" + "\n".join(gpt_lines)) if gpt_lines else ""
         out.update(rows=len(rows), file_format=None)
         out["markdown"] = f"## {tpl.PROJECTS_TITLE}\n\n{head}\n\n{table}{gpt_text_md}"
-        out["text_ru"] = head + " " + MEMBER_NO_FILE_TEXT
+        # Строка на каждый проект отчёта, как у админа: при 10 строках из 14 ответ говорил
+        # «подробности о 10 из 14». Файла у участника нет — остаток назван, вся таблица выше.
+        per = [_project_line(r, show_spent=False) for r in rows[: tpl.PROJECTS_CHAT_ROWS]]
+        rest = len(rows) - len(per)
+        more = f"\nЕщё проектов: {rest}, полный список в таблице отчёта." if rest > 0 else ""
+        out["text_ru"] = head + " " + MEMBER_NO_FILE_TEXT + ("\n" + "\n".join(per) if per else "") + more
         return bi._safe(out)
     from app.web.routers.project_reports import SHARED_PREFIX, shared_report_url
 
@@ -948,13 +1035,19 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         downloads=[{"url": html_url, "file_format": "html"}, {"url": xlsx_url, "file_format": "xlsx"}],
     )
     link = f"[Скачать отчёт (html)]({html_url}) · [Скачать отчёт (xlsx)]({xlsx_url})"
-    shown = with_no_data(rows[: tpl.CHAT_ROWS], ("spent_usd",))
+    shown = with_no_data(rows[: tpl.PROJECTS_CHAT_ROWS], ("spent_usd",))
     table = markdown_table(shown, chat_columns)
-    tail = f"\n\nЕщё проектов: {len(rows) - len(shown)} (все в файле)." if len(rows) > len(shown) else ""
+    rest = len(rows) - len(shown)
+    tail = f"\n\nЕщё проектов: {rest} (полный список в файле отчёта)." if rest > 0 else ""
     gpt_lines = [
         f"- #{r['project_id']}: {clip(r['gpt'], 160)}" for r in shown if r.get("gpt") not in (None, "", "нет")
     ]
     gpt_text_md = ("\n\n" + tpl.GPT_SECTION_TITLE + ":\n" + "\n".join(gpt_lines)) if gpt_lines else ""
     out["markdown"] = f"## {tpl.PROJECTS_TITLE}\n\n{head}\n\n{table}{tail}{gpt_text_md}"
-    out["text_ru"] = head + f" Файл отчёта готов: {link}"
+    # По строке на проект: без них «сравни проекты 5 и 7» видел только общие суммы.
+    # Строка на каждый проект отчёта: при 10 строках из 14 ответ говорил «подробности о 10 из 14».
+    # Участнику — без трат: суммы в $ видит только админ.
+    per = [_project_line(r, show_spent=show_spent) for r in rows[: tpl.PROJECTS_CHAT_ROWS]]
+    more = f"\nЕщё проектов: {rest}, полный список в файле отчёта." if rest > 0 else ""
+    out["text_ru"] = head + f" Файл отчёта готов: {link}" + ("\n" + "\n".join(per) if per else "") + more
     return bi._safe(out)

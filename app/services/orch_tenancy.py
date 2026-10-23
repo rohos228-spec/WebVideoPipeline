@@ -153,3 +153,33 @@ async def for_each_tenant_with_work(
         finally:
             set_identity(previous)
     return out
+
+
+def _norm_tenant(value: object) -> str | None:
+    """UUID арендатора в одном виде: Postgres отдаёт с дефисами, SQLite хранит 32 hex."""
+    text_value = str(value or "").strip().lower().replace("-", "")
+    return text_value or None
+
+
+def own_projects(tenant_id: str | None, ids: list[int] | None = None) -> list[tuple[int, str]]:
+    """Проекты арендатора (id и название), синхронно и только чтение.
+
+    Для фактов и подсказок движка, которые иначе прочли бы общую базу или общий
+    файл очереди. Чтение под арендатором (на Postgres — RLS) и ещё сверка
+    арендатора строки: на SQLite политик нет. Владелец (``None``) — только строки
+    владельца. ``ids`` — оставить только эти номера (порядок как в ``ids``).
+    """
+    from sqlalchemy import text as sql_text
+
+    from app.orchestrator.db.engine import get_engine
+
+    if ids is not None and not ids:
+        return []
+    want = _norm_tenant(tenant_id)
+    query = sql_text("SELECT id, COALESCE(title, topic, '') AS title, tenant_id FROM projects ORDER BY id")
+    with tenant_scope(tenant_id), get_engine().connect() as conn:
+        rows = conn.execute(query).fetchall()
+    found = {int(pid): str(title or "") for pid, title, owner in rows if _norm_tenant(owner) == want}
+    if ids is None:
+        return list(found.items())
+    return [(int(pid), found[int(pid)]) for pid in ids if int(pid) in found]

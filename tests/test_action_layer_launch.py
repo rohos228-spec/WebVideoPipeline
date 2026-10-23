@@ -315,10 +315,48 @@ async def test_enqueue_many_needs_auto_mode_or_the_flag_and_human_approval(env, 
     done = await _approve_run(env, plan)
     assert done["status"] == "succeeded", done
     assert [c[:2] for c in stub["calls"]] == [
-        ("POST", "/sidebar-layout/gen-queue/enqueue"), ("PATCH", f"/projects/{b}"),
-        ("POST", "/sidebar-layout/gen-queue/enqueue")]
-    assert stub["calls"][0][3] == {"project_id": a, "mode": "full"}
+        ("POST", "/sidebar-layout/gen-queue/enqueue"),
+        ("PATCH", f"/projects/{b}"),
+        ("POST", "/sidebar-layout/gen-queue/enqueue"),
+    ]
+    assert stub["calls"][0][3] == {"project_id": a, "mode": "full", "by_chat": True}
     assert done["steps"][0]["result"]["count"] == 2
+
+
+async def test_chat_enqueue_approved_by_human_marks_the_chat_session(env, not_managed, stub) -> None:
+    """Живой путь: шаг чата с подтверждением идёт через run_bridged, исполнитель — человек,
+    одобривший карточку. Номер в очереди всё равно помечается сессией чата (по создателю
+    плана ``orchestrator:task-N``), иначе аварийный стоп чата его не снимет."""
+    from app.orchestrator.agents.task_store import TaskStore
+    from app.services import orch_bridge
+
+    pid = await env.add_project(frames=1)
+    await _set(env, pid, auto_mode=True)
+    stub["writes"][r"/gen-queue/enqueue$"] = lambda path, kw: {"position": 1}
+    task_id = TaskStore().insert("chat-sess-q", "поставь в очередь", "running")
+    params = {"project_ids": [pid], "mode": "full"}
+    spec = registry.get("queue.enqueue_many")
+    assert spec.needs_approval
+    human = approval.OperatorIdentity("web_operator:owner")
+    change_id = f"orch-appr-{task_id}-1"
+    with orch_bridge.human_verified():
+        plan_id, fresh = await orch_bridge._approve_card(
+            env.app,
+            change_id=change_id,
+            task_id=task_id,
+            action=spec.id,
+            params=params,
+            card_plan_id=None,
+            operator=human,
+        )
+    assert fresh
+    assert await orch_bridge._approver(plan_id) == human.id
+    outcome = await orch_bridge.run_bridged(
+        spec, params, {"app": env.app, "task_id": task_id}, {"change_id": change_id}
+    )
+    assert outcome["status"] == "ok", outcome
+    enqueues = [c for c in stub["calls"] if c[1] == "/sidebar-layout/gen-queue/enqueue"]
+    assert [c[3] for c in enqueues] == [{"project_id": pid, "mode": "full", "by_chat": "chat-sess-q"}]
 
 
 async def test_enqueue_many_refuses_managed_projects(env, stub, monkeypatch) -> None:
@@ -364,6 +402,29 @@ async def test_set_parallel_accepts_ten_projects(env) -> None:
     assert got["worker_max_parallel"] == 10
     assert got["limits"]["worker_max_parallel"] == [1, 10]
     assert got["limits"]["default_outsee_streams"] == [0, 4]
+
+
+async def test_set_parallel_lower_says_running_finish(env) -> None:
+    """Уменьшение числа не прерывает идущие шаги, и ответ чата говорит об этом прямо."""
+    from app.orchestrator.agents.summarizer import known_text
+
+    assert (
+        await env.client.patch("/api/runtime-streams", json={"worker_max_parallel": 4})
+    ).status_code == 200
+    r = await _preview(env, [step("queue.set_parallel", workers=2)])
+    assert r.status_code == 200, r.text
+    plan = r.json()["plan_id"]
+    assert (await env.client.post(f"{BASE}/plans/{plan}/run")).status_code == 200
+    await executor.wait(plan)
+    view = (await env.client.get(f"{BASE}/plans/{plan}")).json()
+    assert view["status"] == "succeeded", view
+    result = view["steps"][0]["result"]
+    assert result["before"] == 4 and result["worker_max_parallel"] == 2 and result["lowered"] is True
+    text = known_text("queue.set_parallel", result)
+    assert "до 2 проектов" in text and "Уже идущие доиграют, новые будут ждать." in text
+    raised = known_text("queue.set_parallel", {"worker_max_parallel": 4, "before": 2})
+    assert "доиграют" not in raised
+    assert "не прерываются" in registry.get("queue.set_parallel").description_ru
 
 
 @_OLD_LINE

@@ -303,6 +303,14 @@ class ModuleActions:
         fn = getattr(self._module, "plan_resolve", None)
         return await fn(name, params) if callable(fn) else dict(params)
 
+    async def settings_diff(self, name: str, params: dict[str, Any]) -> dict[str, Any] | None:
+        fn = getattr(self._module, "settings_diff", None)
+        return await fn(name, params) if callable(fn) else None
+
+    async def launch_blockers(self, name: str, params: dict[str, Any]) -> dict[str, Any] | None:
+        fn = getattr(self._module, "launch_blockers", None)
+        return await fn(name, params) if callable(fn) else None
+
     async def prepare_card(self, name: str, params: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         fn = getattr(self._module, "prepare_card", None)
         if not callable(fn):
@@ -347,6 +355,14 @@ class ActionsBridge:
     async def plan_resolve(self, name: str, params: dict[str, Any]) -> dict[str, Any]:
         fn = getattr(self.inner, "plan_resolve", None)
         return await fn(name, params) if callable(fn) else dict(params)
+
+    async def settings_diff(self, name: str, params: dict[str, Any]) -> dict[str, Any] | None:
+        fn = getattr(self.inner, "settings_diff", None)
+        return await fn(name, params) if callable(fn) else None
+
+    async def launch_blockers(self, name: str, params: dict[str, Any]) -> dict[str, Any] | None:
+        fn = getattr(self.inner, "launch_blockers", None)
+        return await fn(name, params) if callable(fn) else None
 
     async def prepare_card(self, name: str, params: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         fn = getattr(self.inner, "prepare_card", None)

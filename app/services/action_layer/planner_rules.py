@@ -937,6 +937,8 @@ _PARAM_LABELS = {
     "status": "статус",
     "limit": "не больше",
 }
+# Список из одного номера: «проект 11», а не «проекты 11».
+_PARAM_LABELS_ONE = {"project_ids": "проект", "frame_numbers": "кадр"}
 _SKIP_PARAMS = frozenset(
     {
         "project_id",
@@ -1020,6 +1022,16 @@ def _param_text(key: str, value: Any, facts: dict | None) -> str:
         value = _VALUE_RU[value]
     elif isinstance(value, str) and key in _ENUM_KEYS and _TECH_VALUE.fullmatch(value):
         return ""
+    if (
+        isinstance(value, (list, tuple))
+        and value
+        and all(isinstance(v, int) and not isinstance(v, bool) for v in value)
+    ):
+        # Номера проектов и кадров — все: карточка с «проекты 3, 4, 5, 6, 7, 8» при десяти
+        # проектах в шаге выглядела так, будто остальные не встанут в очередь.
+        if len(value) == 1:
+            label = _PARAM_LABELS_ONE.get(key, label)
+        return f"{label} {_ints_text(list(value))}"
     if isinstance(value, (list, tuple)):
         items = [v for v in value[:6] if isinstance(v, (str, int, float)) and not isinstance(v, bool)]
         if key in _QUOTED_PARAMS:
@@ -1033,6 +1045,47 @@ def _param_text(key: str, value: Any, facts: dict | None) -> str:
     return f"{label} «{text}»" if key in _QUOTED_PARAMS else f"{label} {text}"
 
 
+_INTS_LIMIT = 70
+
+
+def _ints_text(values: list[int]) -> str:
+    """«3, 4, 5» до 12 номеров; длиннее — подряд идущие сжимаются: «3–12, 15»; хвост — «и ещё N»."""
+    seen = list(dict.fromkeys(values))
+    if len(seen) <= 12:
+        parts = [str(v) for v in seen]
+    else:
+        parts = []
+        start = prev = seen[0]
+        for v in seen[1:] + [None]:
+            if v is not None and v == prev + 1:
+                prev = v
+                continue
+            parts.append(
+                f"{start}–{prev}"
+                if prev - start >= 2
+                else (f"{start}, {prev}" if prev != start else str(start))
+            )
+            if v is not None:
+                start = prev = v
+    text = ", ".join(parts)
+    if len(text) <= _INTS_LIMIT:
+        return text
+    shown: list[str] = []
+    for part in ", ".join(parts).split(", "):
+        if len(", ".join(shown + [part])) > _INTS_LIMIT - 14:
+            break
+        shown.append(part)
+    left = len(seen) - sum(1 for part in shown for _ in _expand(part))
+    return ", ".join(shown) + f" и ещё {left}"
+
+
+def _expand(part: str) -> range:
+    if "–" in part:
+        a, b = part.split("–")
+        return range(int(a), int(b) + 1)
+    return range(1)
+
+
 def param_parts_ru(params: dict | None, facts: dict | None = None) -> list[str]:
     from app.services.action_layer.planner_guard import sanitize_text
 
@@ -1044,7 +1097,7 @@ def param_parts_ru(params: dict | None, facts: dict | None = None) -> list[str]:
             continue
         txt = _param_text(key, value, facts)
         if txt:
-            parts.append(sanitize_text(txt, 80))
+            parts.append(sanitize_text(txt, 90))
     return list(dict.fromkeys(parts))[:_MAX_PARAMS_SHOWN]
 
 

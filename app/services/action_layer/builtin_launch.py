@@ -754,15 +754,59 @@ async def _queue_warnings(ctx, params) -> list[str]:
             "У проектов включится автопродвижение (воркер сам пойдёт по платной цепочке): "
             f"{', '.join(auto_on)}."
         )
+    from app.services.action_layer.plan import member_view
+    from app.services.runtime_streams import get_worker_max_parallel
+
+    # Число — прямо из настройки (GET /runtime-streams по дороге сбрасывает слоты
+    # очереди). Менять его может только админ: участнику это не предлагаем.
     try:
-        streams = await ctx.call("GET", "/runtime-streams")
+        limit = int(get_worker_max_parallel())
+    except Exception:  # noqa: BLE001
+        limit = None
+    if limit is not None:
         out.append(
-            f"Одновременно идут не больше {streams.get('worker_max_parallel')} проектов "
-            "очереди; это число можно поменять просьбой в чате."
+            f"Одновременно идут не больше {limit} проектов очереди"
+            + (
+                "; это общая настройка студии, её меняет админ."
+                if member_view()
+                else "; это число можно поменять просьбой в чате."
+            )
         )
-    except ActionCallError:
-        pass
     return out
+
+
+from app.services.action_layer.chat_caller import TASK_OPERATOR_RE as _TASK_OPERATOR_RE  # noqa: E402
+
+
+async def _plan_creator(ctx) -> str:
+    """Кто создал план шага (``ActionPlan.operator``): у чата это ``orchestrator:task-N``.
+
+    Шаг с подтверждением человек одобряет сам, и исполнитель идёт от его имени, так что
+    ``ctx.operator`` — человек; задачу чата видно только по создателю плана.
+    """
+    from app.services.action_layer.chat_caller import plan_creator
+
+    return await plan_creator(getattr(ctx, "plan_id", None))
+
+
+async def _chat_session_of(ctx) -> str | bool:
+    """Сессия чата, чья задача ставит номер (оператор или создатель плана ``orchestrator:task-N``);
+    иначе ``True``."""
+    import re
+
+    for who in (str(getattr(ctx, "operator", "") or ""), await _plan_creator(ctx)):
+        found = re.fullmatch(_TASK_OPERATOR_RE, who)
+        if not found:
+            continue
+        try:
+            from app.orchestrator.agents.task_store import TaskStore
+
+            session_id = (TaskStore().get(int(found.group(1))) or {}).get("session_id")
+        except Exception:  # noqa: BLE001
+            session_id = None
+        if session_id:
+            return str(session_id)
+    return True
 
 
 async def _enqueue_many(ctx, params):
@@ -772,6 +816,7 @@ async def _enqueue_many(ctx, params):
         if params.get(key):
             body_base[key] = params[key]
     done: list[dict] = []
+    owner = await _chat_session_of(ctx)
     for pid in params["project_ids"]:
         body = dict(body_base)
         try:
@@ -784,8 +829,11 @@ async def _enqueue_many(ctx, params):
                     got = await ctx.call("PATCH", f"/projects/{pid}", json={"auto_mode": True})
                     if not bool((got or {}).get("auto_mode")):
                         raise ActionCallError(409, f"у проекта #{pid} автопродвижение не включилось")
+            # by_chat: аварийный стоп чата потом снимет с очереди только номера своей сессии
             data = await ctx.call(
-                "POST", "/sidebar-layout/gen-queue/enqueue", json={"project_id": pid, **body}
+                "POST",
+                "/sidebar-layout/gen-queue/enqueue",
+                json={"project_id": pid, **body, "by_chat": owner},
             )
         except ActionCallError as exc:
             ok = ", ".join(f"#{d['project_id']}" for d in done) or "ни один"
@@ -795,7 +843,13 @@ async def _enqueue_many(ctx, params):
                 f"{len(params['project_ids'])} ({ok}); на проекте "
                 f"#{pid} ошибка: {exc.detail}",
             ) from exc
-        done.append({"project_id": pid, "position": (data or {}).get("position")})
+        done.append(
+            {
+                "project_id": pid,
+                "position": (data or {}).get("position"),
+                "already_queued": bool((data or {}).get("already_queued")),
+            }
+        )
     return {"count": len(done), "enqueued": done, "mode": body_base["mode"]}
 
 
@@ -803,10 +857,15 @@ def _queue_effects(params: dict) -> str:
     from app.services.action_layer.card_text import projects_ru
 
     n = len(params.get("project_ids") or [])
+    one = n % 10 == 1 and n % 100 != 11
+    if n == 1:
+        where, whose = "в нём", "у этого проекта"
+    else:
+        where, whose = "в каждом", "у этих проектов"
     return (
-        f"{projects_ru(n)} встанут в очередь генерации: воркер сам пройдёт конвейер в каждом и "
-        "потратит деньги; стоп человека у этих проектов снимается. Убрать проект из очереди - "
-        "кнопкой очереди или кнопкой «Стоп задачи»."
+        f"{projects_ru(n)} {'встанет' if one else 'встанут'} в очередь генерации: воркер сам "
+        f"пройдёт конвейер {where} и потратит деньги; стоп человека {whose} снимается. "
+        "Убрать проект из очереди - кнопкой очереди или кнопкой «Стоп задачи»."
     )
 
 
@@ -827,12 +886,33 @@ async def _dequeue_many(ctx, params):
     return {"count": len(removed), "removed": removed}
 
 
+PARALLEL_LOWER_NOTE = "Уже идущие доиграют, новые будут ждать."
+
+
 async def _set_parallel(ctx, params):
+    # Уменьшение числа не прерывает уже идущие шаги: они доигрывают, лимит действует
+    # только на новые старты (см. gen_queue_reconcile / gen_queue_tick).
+    from app.services.action_layer.plan import refuse_admin_only
+    from app.services.runtime_streams import get_worker_max_parallel
+
+    # Настройка одна на всю студию: участнику — отказ, каким бы путём ни пришёл вызов.
+    refuse_admin_only("queue.set_parallel", params)
+    # Прежнее число — прямо из настройки. GET /runtime-streams считает занятых и
+    # по дороге сбрасывает слоты очереди (gen_queue_reconcile): чтению побочный
+    # эффект ни к чему.
+    try:
+        before = int(get_worker_max_parallel())
+    except Exception:  # noqa: BLE001
+        before = None
     data = await ctx.call("PATCH", "/runtime-streams", json={"worker_max_parallel": params["workers"]})
     got = (data or {}).get("worker_max_parallel")
     if got != params["workers"]:
         raise ActionCallError(409, f"параллель не изменилась (сейчас {got})")
-    return {"worker_max_parallel": got, "worker_busy": (data or {}).get("worker_busy")}
+    out = {"worker_max_parallel": got, "worker_busy": (data or {}).get("worker_busy"), "before": before}
+    if isinstance(before, int) and isinstance(got, int) and got < before:
+        out["lowered"] = True
+        out["text_ru"] = PARALLEL_LOWER_NOTE
+    return out
 
 
 def _specs() -> list[ActionSpec]:
@@ -1070,7 +1150,8 @@ def _specs() -> list[ActionSpec]:
             id="queue.set_parallel",
             title_ru="Сколько проектов очереди идут одновременно",
             description_ru=f"Окно параллели очереди генерации: от 1 до {MAX_PARALLEL} проектов "
-            "одновременно (общая настройка). Сама ничего не запускает.",
+            "одновременно (общая настройка). Сама ничего не запускает. Если число "
+            "уменьшить, уже идущие шаги не прерываются: доигрывают, а новые ждут.",
             params_schema=_obj(
                 {"workers": {"type": "integer", "minimum": 1, "maximum": MAX_PARALLEL}},
                 ["workers"],

@@ -979,8 +979,12 @@ async def run_img_pr_xlsx(
     project_id: int | None = None,
     uuid_map_text: str = "",
     n_batches: int | None = None,
+    skip_frame_numbers: set[int] | None = None,
 ) -> XlsxRoundtripResult:
-    """Шаг «Промты картинок»: GPT батчами → apply-ops (DB)."""
+    """Шаг «Промты картинок»: GPT батчами → apply-ops (DB).
+
+    ``skip_frame_numbers`` — кадры, уже признанные «нет данных сцены»: модели не шлём.
+    """
     from app.services import img_pr_batches as ipb
 
     proj_xlsx = _ensure_project_xlsx(project)
@@ -1069,6 +1073,25 @@ async def run_img_pr_xlsx(
     done_set = set(done_uuids)
 
     frames = [fr for fr in frames_full if (fr.uuid or "").strip() not in done_set]
+    if skip_frame_numbers and frames:
+        skip = {int(n) for n in skip_frame_numbers}
+        kept = [fr for fr in frames if int(fr.number) not in skip]
+        if len(kept) != len(frames):
+            logger.info(
+                "img_pr_db: skip no-source frames {} (не шлём модели повторно)",
+                sorted(skip & {int(fr.number) for fr in frames}),
+            )
+        if not kept:
+            # Готовые опы чекпоинта (если есть) шаг применит сам; без них — нечего.
+            return XlsxRoundtripResult(
+                reply_text="(only no-source frames left)",
+                downloaded_path=proj_xlsx,
+                project_xlsx=proj_xlsx,
+                backup_path=None,
+                apply_ops=all_ops,
+                ops_applied_inline=not all_ops,
+            )
+        frames = kept
     if not frames:
         if all_ops:
             logger.info(

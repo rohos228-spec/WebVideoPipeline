@@ -9,6 +9,7 @@ from app.services.action_layer.spec import ensure_builtin_actions, registry
 __all__ = [
     "ensure_builtin_actions",
     "execute",
+    "launch_blockers",
     "metadata_of",
     "plan_defaults",
     "plan_required",
@@ -16,6 +17,7 @@ __all__ = [
     "prepare_card",
     "project_required",
     "registry",
+    "settings_diff",
     "whitelist",
 ]
 
@@ -29,6 +31,8 @@ _LAZY = frozenset(
         "project_required",
         "plan_defaults",
         "plan_resolve",
+        "settings_diff",
+        "launch_blockers",
     }
 )
 

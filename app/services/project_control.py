@@ -37,16 +37,45 @@ def _set_user_stop_gate(project: Project) -> None:
     flag_modified(project, "meta")
 
 
-def clear_user_stop_gate(project: Project) -> list[str]:
-    """Снять user_stop (например при постановке в gen_queue / ручной ▶)."""
+# Когда человек последний раз снял стоп (▶ / постановка в очередь): повторная
+# проверка после аварийного стопа чата не возвращает стоп, снятый позже стопа.
+USER_STOP_CLEARED_AT_KEY = "user_stop_cleared_at"
+# Когда стоп последний раз снимал кто угодно (▶ / «Продолжить» / очередь — и человек, и
+# чат): повторная проверка после аварийного стопа не трогает проект, запущенный позже стопа.
+STOP_GATE_CLEARED_AT_KEY = "stop_gate_cleared_at"
+
+
+def clear_user_stop_gate(project: Project, *, by_human: bool = True) -> list[str]:
+    """Снять user_stop (например при постановке в gen_queue / ручной ▶).
+
+    Номер очереди, который ставил чат, переходит к человеку: аварийный стоп чата
+    его больше не снимает. ``by_human=False`` — стоп снимает сам чат (его ▶ через
+    слой действий): номер остаётся за чатом, метка «человек снял стоп» не ставится.
+    """
+    import time
+
+    from app.services.gen_queue_run import CHAT_OWNER_KEY
+
     meta = dict(project.meta or {})
     cleared: list[str] = []
     if meta.pop("user_stop", None) is not None:
         cleared.append("user_stop")
     if meta.pop("mass_lane_user_stop", None) is not None:
         cleared.append("mass_lane_user_stop")
+    run = meta.get("gen_queue_run")
+    if by_human and isinstance(run, dict) and CHAT_OWNER_KEY in run:
+        run = dict(run)
+        run.pop(CHAT_OWNER_KEY, None)
+        meta["gen_queue_run"] = run
+        cleared.append("chat_queue_owner")
+    now = time.time()
+    if cleared and by_human:
+        meta[USER_STOP_CLEARED_AT_KEY] = now
+    # Любой явный старт (даже без снятого стопа: шаг ещё шёл) — метка для повторной проверки.
+    meta[STOP_GATE_CLEARED_AT_KEY] = now
+    # Новый dict: изменение колонки видно и без flag_modified (метка времени новая всегда).
+    project.meta = meta
     if cleared:
-        project.meta = meta
         flag_modified(project, "meta")
         logger.info("[#{}] cleared {}", project.id, ", ".join(cleared))
     return cleared
@@ -365,9 +394,16 @@ async def resume_project(session: AsyncSession, project: Project) -> str:
     from_status = meta.pop("paused_from_status", None)
     project.meta = meta
     try:
-        project.status = ProjectStatus(from_status) if from_status else ProjectStatus.new
+        target = ProjectStatus(from_status) if from_status else None
     except ValueError:
-        project.status = ProjectStatus.new
+        target = None
+    if target is None or target is ProjectStatus.paused:
+        # Старые сдачи шага после ошибок ставили paused без paused_from_status:
+        # место берём из следа сбоя, а не откатываем проект в new.
+        from app.services.step_failure_policy import resume_place_without_origin
+
+        target = resume_place_without_origin(project) or ProjectStatus.new
+    project.status = target
     project.updated_at = datetime.utcnow()
     await session.flush()
     return project.status.value

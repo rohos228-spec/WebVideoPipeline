@@ -183,6 +183,8 @@ async def _prepare_card(name: str, params: dict | None, ctx: dict | None) -> dic
         logger.warning("orch bridge: card preview failed for {}: {}", spec.id, type(exc).__name__)
         card["preview_errors"] = ["не удалось посчитать оценку и проверить условия шага"]
         card["blocked"] = True
+        # Шаг не проверен, а не запрещён: супервизор не выдаёт такую карточку за отказ условий.
+        card["preview_failed"] = True
         return card
     card.update(card_from_preview(preview, labels))
     if plan_id:

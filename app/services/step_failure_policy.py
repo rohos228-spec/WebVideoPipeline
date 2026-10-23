@@ -186,6 +186,9 @@ def clear_failure_backoff_for_manual_start(project: Project, *, running_key: str
     changed = False
     if fs.pop("sleep_until", None) is not None:
         changed = True
+    # Явный ручной запуск шага — решение человека: снять стоп «нет исходных данных».
+    if running_key == ProjectStatus.generating_image_prompts.value and fs.pop("img_pr_no_source", None) is not None:
+        changed = True
     totals: dict[str, int] = dict(fs.get("total_fails") or {})
     if totals.pop(running_key, None) is not None:
         changed = True
@@ -285,6 +288,67 @@ async def _soft_retry_without_wipe(
             project.id,
             step_code,
         )
+
+
+def _no_source_error(error: BaseException | None) -> Any:
+    """ImgPrNoSourceData в самой ошибке или в цепочке ``raise … from`` (__cause__)."""
+    from app.services.img_pr_batches import ImgPrNoSourceData
+
+    seen: set[int] = set()
+    cur = error
+    while cur is not None and id(cur) not in seen:
+        if isinstance(cur, ImgPrNoSourceData):
+            return cur
+        seen.add(id(cur))
+        cur = cur.__cause__
+    return None
+
+
+async def _pause_img_pr_no_source(session: AsyncSession, project: Project, error: Exception, err_code: str) -> str:
+    """img_pr: модель ответила «нет исходных данных» — пауза, без soft retry.
+
+    Повтор того же входа даёт тот же ответ, каждый повтор — платный вызов.
+    Хорошие опы смешанного батча уже записаны шагом. Человек чинит данные сцен
+    (шаг «Работа с GPT») и продолжает проект; пока вход сцен тот же, шаг
+    модель не зовёт (generate_image_prompts._raise_if_no_source_unchanged).
+    """
+    from app.services import img_pr_batches as ipb
+    from app.services.project_control import pause_project as pause_project_svc
+    from app.services.run_sync import mark_running_node_failed
+
+    running = project.status
+    src = _no_source_error(error)
+    frames = list(getattr(src, "frame_numbers", None) or [])
+    ctx = getattr(src, "context", None)
+    fingerprint = ctx.get("scene_fingerprint") if isinstance(ctx, dict) else None
+    reason = ipb.no_scene_data_pause_text(frames, ipb.upstream_scene_step_ru(project.meta))
+
+    fs = _failure_state(project)
+    fs["last_error"] = reason
+    fs["last_error_code"] = err_code
+    fs["last_running"] = running.value
+    fs[ipb.NO_SOURCE_GUARD_KEY] = {
+        "frame_numbers": frames,
+        "fingerprint": fingerprint,
+        "at": datetime.now(UTC).isoformat(),
+    }
+    fs.pop("sleep_until", None)
+    _save_failure_state(project, fs)
+    await mark_running_node_failed(
+        session,
+        project,
+        error,
+        initiator="worker",
+        error_code=err_code,
+    )
+    await pause_project_svc(session, project)
+    await session.flush()
+    logger.warning(
+        "[#{}] img_pr: нет исходных данных у кадров {} — пауза, без повтора модели",
+        project.id,
+        frames[:20],
+    )
+    return "pause_infra"
 
 
 async def record_step_failure(
@@ -448,6 +512,10 @@ async def record_step_failure(
         )
         return "stopped"
 
+    # «Нет исходных данных» у img_pr: повтор платный и даст тот же ответ — пауза.
+    if err_code_early == "img_pr_no_scene_data" or _no_source_error(error) is not None:
+        return await _pause_img_pr_no_source(session, project, error, "img_pr_no_scene_data")
+
     running = project.status
     step = step_by_running_status(running)
     step_code = step.code if step else running.value
@@ -471,6 +539,7 @@ async def record_step_failure(
     if total >= MAX_TOTAL_FAILS:
         fs["abandoned_at"] = datetime.now(UTC).isoformat()
         fs["recovery_cycles"] = MAX_CYCLES
+        _remember_place_before_failed_step(project, running)
         project.status = ProjectStatus.paused
         _save_failure_state(project, fs)
         from app.services.run_sync import mark_running_node_failed
@@ -554,6 +623,85 @@ async def record_step_failure(
     return "retry"
 
 
+def ready_status_before(project: Project | None, running: ProjectStatus) -> ProjectStatus | None:
+    """Готовность перед running-шагом (с учётом числа enrich-слотов проекта).
+
+    ``new`` - у шага нет требования (сценарий). None - статус не running-шаг.
+    """
+    step = step_by_running_status(running)
+    if step is None:
+        return None
+    requires = step.requires
+    try:
+        from app.orchestrator.pipeline_steps import steps_for
+
+        for sd in steps_for(project):
+            if sd.code == step.code:
+                requires = sd.requires
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    return requires if requires is not None else ProjectStatus.new
+
+
+def _remember_place_before_failed_step(project: Project, running: ProjectStatus) -> None:
+    """Сдача после ошибок: «снять паузу» вернёт проект на готовность перед упавшим
+    шагом, а не на сам шаг (тот сразу запустился бы снова и тратил бы деньги) и не в new.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    place = ready_status_before(project, running)
+    if place is None:
+        return
+    meta = _meta(project)
+    meta["paused_from_status"] = place.value
+    project.meta = meta
+    flag_modified(project, "meta")
+
+
+_NOT_A_PLACE = frozenset({ProjectStatus.paused, ProjectStatus.failed, ProjectStatus.new})
+
+
+def resume_place_without_origin(project: Project) -> ProjectStatus | None:
+    """Куда снять паузу, если ``paused_from_status`` не записан (старые сдачи шага).
+
+    Порядок: готовность перед шагом, на котором остановили ошибки (есть след сбоя), затем
+    готовность, на которой проект ждал ▶ после перезапуска, затем готовность перед
+    последним упавшим шагом без следа сбоя. None - места не знаем.
+    """
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    fs = meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {}
+    totals = fs.get("total_fails") if isinstance(fs.get("total_fails"), dict) else {}
+
+    def _running(raw: Any) -> ProjectStatus | None:
+        try:
+            st = ProjectStatus(str(raw))
+        except ValueError:
+            return None
+        return None if st in _NOT_A_PLACE else st
+
+    last = _running(fs.get("last_running")) if fs.get("last_running") else None
+    if last is None:
+        last = _running_status_to_resume(fs)
+    evidence = bool(
+        fs.get("abandoned_at")
+        or fs.get("sleep_until")
+        or (last is not None and int(totals.get(last.value) or 0) > 0)
+    )
+    if last is not None and evidence:
+        place = ready_status_before(project, last)
+        if place is not None:
+            return place
+    blocked = meta.get("startup_blocked_ready_status")
+    if blocked:
+        st = _running(blocked)
+        if st is not None and step_by_running_status(st) is None:
+            return st
+    if last is not None:
+        return ready_status_before(project, last)
+    return None
+
+
 def clear_failure_on_success(project: Project, running: ProjectStatus) -> None:
     clear_chrome_recovery(project)
     fs = _failure_state(project)
@@ -563,6 +711,7 @@ def clear_failure_on_success(project: Project, running: ProjectStatus) -> None:
     fs.pop("sleep_until", None)
     fs.pop("recovery_cycles", None)
     fs.pop("last_error", None)
+    fs.pop("img_pr_no_source", None)
     _save_failure_state(project, fs)
 
 

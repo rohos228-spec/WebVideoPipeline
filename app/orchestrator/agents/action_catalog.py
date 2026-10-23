@@ -57,13 +57,87 @@ def _task_project(task_id: Any) -> int | None:
     return value if value > 0 else None
 
 
+# «Во всех проектах», «каждому проекту», «в нескольких проектах»: планировщику нужны настоящие id.
+_MASS_RE = re.compile(r"(?<![a-zа-я])(?:вс(?:е|ех|ем|еми)|кажд\w*|нескольк\w*)\s+(?:\w+\s+)?проект")
+_MASS_LIMIT = 60
+
+
+def wants_mass(text: str) -> bool:
+    return bool(_MASS_RE.search((text or "").lower().replace("ё", "е")))
+
+
+def _task_tenant(task_id: Any) -> str | None:
+    """Арендатор задачи (строка orch_tasks), без задачи — текущий арендатор."""
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    if task_id is None:
+        return tenant
+    try:
+        from app.orchestrator.agents.task_store import TaskStore
+
+        raw = (TaskStore().get(int(task_id)) or {}).get("tenant_id")
+    except Exception:
+        return tenant
+    return str(raw) if raw not in (None, "") else tenant
+
+
+def _studio_projects(task_id: Any = None) -> list[tuple[int, str]]:
+    """Id и названия проектов арендатора задачи, только чтение.
+
+    Список уходит планировщику для «во всех проектах»: чужие проекты в нём — утечка
+    номеров и названий и повод поставить шаг на чужой проект
+    (``orch_tenancy.own_projects``: RLS на Postgres и сверка арендатора строки).
+    """
+    from app.services.orch_tenancy import own_projects
+
+    return own_projects(_task_tenant(task_id))
+
+
+def _projects_line(projects: Callable[[], list[tuple[int, str]]]) -> str:
+    try:
+        items = list(projects())
+    except Exception:
+        logger.exception("orch planner projects list failed")
+        items = []
+    if not items:
+        return (
+            "Списка проектов нет: id проектов не придумывай, верни пустой план и в reason спроси, "
+            "в каких проектах сделать."
+        )
+    shown = items[:_MASS_LIMIT]
+    body = "; ".join(f"{pid} «{' '.join(title.split())[:40]}»" if title else str(pid) for pid, title in shown)
+    more = f" Показаны первые {len(shown)} из {len(items)}." if len(items) > len(shown) else ""
+    return (
+        f"Проекты Студии (project_id и название), других id нет: {body}.{more} Для «во всех проектах» "
+        "бери все id из этого списка, другие id не подставляй."
+    )
+
+
 def _allowed_specs() -> list[Any]:
     from app.orchestrator.actions import whitelist
     from app.services.action_layer.spec import ensure_builtin_actions, registry
 
     ensure_builtin_actions()
     allowed = set(whitelist())
+    allowed -= _hidden_for_identity()
     return [spec for spec in registry.list() if spec.id in allowed]
+
+
+def _hidden_for_identity() -> set[str]:
+    """Действия всей студии, которых участнику в каталоге планировщика нет.
+
+    Исполнитель такой шаг участнику всё равно отклонит
+    (`app/services/action_layer/plan.py::ADMIN_ONLY_ACTIONS`); каталог лишь не
+    даёт планировщику вставить его в план, где он сорвал бы остальные шаги.
+    """
+    from app.services.action_layer.plan import ADMIN_ONLY_HIDDEN_FROM_MEMBERS, member_view
+
+    try:
+        return set(ADMIN_ONLY_HIDDEN_FROM_MEMBERS) if member_view() else set()
+    except Exception:
+        logger.exception("orch planner catalog: identity check failed")
+        return set(ADMIN_ONLY_HIDDEN_FROM_MEMBERS)
 
 
 def _contract_flags(spec: Any) -> tuple[str, bool]:
@@ -123,7 +197,60 @@ def catalog_entry(spec: Any) -> dict[str, Any]:
     return row
 
 
+def _label(choice: Any) -> str:
+    text = str(getattr(choice, "label", "") or getattr(choice, "title", "") or choice.id)
+    return text.lstrip("+ ").strip() or str(choice.id)
+
+
+def media_hints() -> list[str]:
+    """Модели картинок и видео проекта: id из списков Studio, дефолт и слова людей.
+
+    Без них «смени модель на gpt» и «поставь дефолтную модель картинок» планировщик
+    возвращал пустой план: «не понятно, какая модель gpt / какая модель дефолтная».
+    """
+    try:
+        from app.generation_options import IMAGE_GENERATORS, VIDEO_GENERATORS
+        from app.services.action_layer.project_gen_settings import default_settings
+
+        defaults = default_settings()
+    except Exception:
+        logger.exception("orch planner media hints failed")
+        return []
+    img = "; ".join(f"{c.id} = {_label(c)}" for c in IMAGE_GENERATORS)
+    vid = "; ".join(f"{c.id} = {_label(c)}" for c in VIDEO_GENERATORS)
+    gpt = [c.id for c in IMAGE_GENERATORS if "gpt" in str(c.id).lower()]
+    lines = [
+        f"Модели картинок проекта (image_generator), только эти id: {img}. По умолчанию (дефолт Studio) — "
+        f"{defaults['image_generator']}.",
+        f"Модели видео проекта (video_generator), только эти id: {vid}. По умолчанию — "
+        f"{defaults['video_generator']}.",
+        "«Дефолтная», «по умолчанию», «стандартная» модель — id по умолчанию выше, уточнять не нужно.",
+    ]
+    if gpt:
+        lines.append(
+            f"«gpt», «гпт», «GPT Image» как модель картинок — image_generator={gpt[0]}. «Смени модель "
+            "картинок на gpt в проекте N» — модель картинок проекта (project.patch_settings), а не "
+            "ноды «Работа с GPT»."
+        )
+    lines.append(
+        "Смена модели проекта в нескольких или во всех проектах — по шагу project.patch_settings "
+        "(или project.patch_settings_costly) на каждый проект из списка «Проекты Студии», у каждого "
+        "свой project_id; id не из списка не подставляй. В params только то, что просили "
+        "поменять: для модели картинок — один image_generator, без названия, темы, формата, героя, "
+        "разрешения и модели видео. «И запусти» после смены модели — затем project.status и шаг запуска того же "
+        "проекта, как в обычной просьбе о запуске."
+    )
+    return lines
+
+
 def _hints(rows: list[dict[str, Any]]) -> list[str]:
+    out: list[str] = []
+    if any("image_generator" in str(row.get("p") or "") for row in rows):
+        out.extend(media_hints())
+    return out + _step_hints(rows)
+
+
+def _step_hints(rows: list[dict[str, Any]]) -> list[str]:
     if not any("step_code" in (row.get("v") or {}) for row in rows):
         return []
     titles = step_titles()
@@ -160,10 +287,12 @@ class ActionCatalog:
         max_catalog: int | None = None,
         specs: Callable[[], list[Any]] | None = None,
         project_of: Callable[[Any], int | None] | None = None,
+        projects: Callable[[], list[tuple[int, str]]] | None = None,
     ) -> None:
         self.max_catalog = max_catalog
         self._specs = specs or _allowed_specs
         self._project_of = project_of or _task_project
+        self._projects = projects
 
     def entries(self, text: str) -> list[dict[str, Any]]:
         specs = list(self._specs())
@@ -191,6 +320,10 @@ class ActionCatalog:
         if project_id is not None:
             lines.append(f"Проект задачи: project_id={project_id}. Подставляй его в params.project_id.")
         lines.extend(_hints(rows))
+        if wants_mass(text) and any(
+            str(row.get("id") or "").startswith("project.patch_settings") for row in rows
+        ):
+            lines.append(_projects_line(self._projects or (lambda: _studio_projects(task_id))))
         lines.extend(json.dumps(row, ensure_ascii=False, separators=(",", ":")) for row in rows)
         return "\n".join(lines)
 
