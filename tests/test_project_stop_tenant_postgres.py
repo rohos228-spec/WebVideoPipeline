@@ -104,3 +104,42 @@ async def test_chat_kill_skips_foreign_project_of_running_step(pg) -> None:  # n
     finally:
         for pid in (pid_a, pid_b):
             sc.clear_stop(pid)
+
+
+async def test_chat_kill_with_invisible_task_row_keeps_no_step_projects(pg) -> None:  # noqa: F811
+    """Строку задачи не видно (kill под другим арендатором): ключи по шагам не ставятся."""
+    from sqlalchemy import text
+
+    from app.orchestrator.contracts import PlanStep, TaskStatus
+    from app.orchestrator.db.migrations import connect
+    from app.services.orch_tenancy import scoped_session
+    from app.services.tenant import tenant_scope
+
+    a, b = pg["a"].user_id, pg["b"].user_id
+    pid_a = await _project_of(pg, a)
+    pid_b = await _project_of(pg, b)
+    sup = pg["runtime"].supervisor
+    with tenant_scope(b):
+        tid = await asyncio.to_thread(sup.tasks.insert, scoped_session("k2", b), "g", TaskStatus.executing.value)
+        for idx, pid in enumerate((pid_a, pid_b)):
+            step = PlanStep(action="step.run_step", params={"project_id": pid, "step_code": "img"},
+                            expected="x", paid=True, mutating=True)
+            sid = await asyncio.to_thread(sup.tasks.insert_step, tid, idx, step)
+            conn = connect()
+            try:
+                conn.execute(text("UPDATE orch_steps SET status='running' WHERE id=:i"), {"i": sid})
+                conn.commit()
+            finally:
+                conn.close()
+        rows = await asyncio.to_thread(sup.tasks.list_steps, tid)
+    # Шаги прочитаны от имени B, а строка задачи под A не видна: фильтр не должен
+    # считать это «режимом владельца» и пропускать все номера.
+    monkey_rows = rows
+    sup.tasks.list_steps = lambda _tid: monkey_rows  # type: ignore[method-assign]
+    try:
+        with tenant_scope(a):
+            projects = await asyncio.to_thread(sup._kill_projects, tid)
+        assert projects == [], projects
+    finally:
+        del sup.tasks.list_steps
+
