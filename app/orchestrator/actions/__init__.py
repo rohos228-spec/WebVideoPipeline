@@ -16,6 +16,7 @@ __all__ = [
     "prepare_card",
     "project_required",
     "registry",
+    "settings_diff",
     "whitelist",
 ]
 
@@ -29,6 +30,7 @@ _LAZY = frozenset(
         "project_required",
         "plan_defaults",
         "plan_resolve",
+        "settings_diff",
     }
 )
 

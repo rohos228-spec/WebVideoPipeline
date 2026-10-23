@@ -64,6 +64,7 @@ from app.orchestrator import app_ref
 from app.orchestrator.agents import approval_steps
 from app.orchestrator.agents import summarizer as task_summary
 from app.orchestrator.agents.executor import effective_risk, run_many, step_is_paid, tighten_paid_step
+from app.orchestrator.agents.launch_scope import route_multi_launch
 from app.orchestrator.agents.planner import PlanSchemaError
 from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
@@ -431,6 +432,11 @@ class Supervisor:
         self._code_plans: dict[int, str] = {}
         # Пустой план с готовым ответом («возвращать нечего», «этого чат пока не умеет»): не «не понял».
         self._code_answers: set[int] = set()
+        # Правка настроек: «было → станет» по шагу и сколько проектов пропущено (там уже так).
+        self._settings_text: dict[int, dict[str, str]] = {}
+        self._settings_skipped: dict[int, str] = {}
+        # Запуск нескольких проектов участником: окно параллели не меняем, строка на карточке.
+        self._launch_note: dict[int, str] = {}
         self._unknown_step: dict[int, dict[str, Any]] = {}
         self._appr_seq: dict[int, int] = {}
         self._appr_open: dict[int, str | None] = {}
@@ -2666,6 +2672,14 @@ class Supervisor:
             return None
         # Правка настроек проекта — только названные ключи, до сверки с текущими значениями.
         drafted = scope_settings(list(drafted), goal)
+        # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
+        # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
+        launch_notes: list[str] = []
+        drafted = route_multi_launch(drafted, goal, _queue_limit(), self._launch_allowed, launch_notes)
+        if launch_notes:
+            self._launch_note[task_id] = " ".join(launch_notes)
+        else:
+            self._launch_note.pop(task_id, None)
         try:
             resolved = _chain_from_queue(
                 [await self._resolved(self._with_defaults(step)) for step in drafted], goal
@@ -2683,6 +2697,14 @@ class Supervisor:
         plan = [
             tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions)) for step in resolved
         ]
+        plan, nothing = await self._drop_unchanged_settings(task_id, plan, goal)
+        if nothing:
+            # «В проекте #5 модель картинок уже GPT Image 2, менять нечего»: ответ без карточки.
+            await write_on_loop(self._save_plan, task_id, [])
+            self._fail_detail[task_id] = nothing
+            self._code_answers.add(task_id)
+            self._trace_plan(task_id, "settings_unchanged", [], nothing)
+            return []
         await write_on_loop(self._save_plan, task_id, plan)
         from_code = self._from_code.pop(task_id, False)
         if from_code and plan:
@@ -2696,6 +2718,89 @@ class Supervisor:
         if await self._absorb_budget(task_id, session_id, self._planner_last(task_id, "last_response")):
             return None
         return plan
+
+    async def _drop_unchanged_settings(
+        self, task_id: int, plan: list[PlanStep], goal: str = ""
+    ) -> tuple[list[PlanStep], str]:
+        """Правки настроек, где всё уже так, как просят, из плана убираются.
+
+        «Поставь модель по умолчанию» сверяется с пустым полем проекта как с умолчанием и
+        пишет «→ по умолчанию (…)»; явная модель («смени на gpt») — строго, без «по умолчанию».
+
+        Возвращает план и ответ человеку, если менять нечего совсем. Пропущенные проекты
+        и «было → станет» остальных карточка покажет словами (``_settings_cards``).
+        """
+        probe = getattr(self.actions, "settings_diff", None)
+        self._settings_text.pop(task_id, None)
+        self._settings_skipped.pop(task_id, None)
+        if not callable(probe) or not any(step.action in _SETTINGS_ACTIONS for step in plan):
+            return plan, ""
+        kept: list[PlanStep] = []
+        texts: dict[str, str] = {}
+        skipped: list[tuple[int | None, str]] = []
+        tail = "_default" if _ASKS_DEFAULT.search(str(goal or "").lower()) else ""
+        for step in plan:
+            if step.action not in _SETTINGS_ACTIONS:
+                kept.append(step)
+                continue
+            try:
+                found = await probe(step.action, dict(step.params))
+            except Exception:
+                logger.exception("orch settings diff failed for task {}", task_id)
+                found = None
+            if isinstance(found, dict) and found.get(f"unchanged{tail}", found.get("unchanged")):
+                skipped.append(
+                    (_step_project(step), str(found.get(f"same{tail}_ru") or found.get("same_ru") or ""))
+                )
+                continue
+            change = (
+                found.get(f"change{tail}_ru") or found.get("change_ru") if isinstance(found, dict) else ""
+            )
+            if change:
+                texts[paid_step_identity(step.action, step.params)] = str(change)
+            kept.append(step)
+        if texts:
+            self._settings_text[task_id] = texts
+        if not skipped:
+            return plan, ""
+        if kept:
+            self._settings_skipped[task_id] = _skipped_text(skipped)
+            return kept, ""
+        return [], _nothing_text(skipped)
+
+    def _settings_cards(self, task_id: int, steps: list[PlanStep], views: list[dict[str, Any]]) -> None:
+        """Строка шага правки настроек: что именно поменяется, словами («модель картинок: A → B»)."""
+        texts = self._settings_text.get(int(task_id)) or {}
+        for step, view in zip(steps, views, strict=False):
+            if step.action not in _SETTINGS_ACTIONS or not isinstance(view, dict):
+                continue
+            change = texts.get(paid_step_identity(step.action, step.params))
+            if not change:
+                continue
+            pid = _step_project(step)
+            view["params_text"] = change + (f"; проект #{pid}" if pid else "")
+            view["text"] = f"{view.get('title') or ''} — {view['params_text']}"
+
+    def _launch_allowed(self, name: str) -> bool:
+        """Действие есть в каталоге чата и доступно личности задачи (участнику — без действий всей студии)."""
+        if not_in_whitelist(name, self.actions):
+            return False
+        from app.services.action_layer.plan import member_hidden_actions
+
+        return name not in member_hidden_actions()
+
+    def _settings_card_note(self, task_id: int, body: dict[str, Any]) -> None:
+        """«Окно параллели меняет только админ», «Пропущено 4 проекта, менять там нечего» — первыми
+        строками предупреждений карточки."""
+        notes = [
+            note
+            for note in (self._launch_note.get(int(task_id)), self._settings_skipped.get(int(task_id)))
+            if note
+        ]
+        if not notes:
+            return
+        warnings = [w for w in body.get("warnings") or [] if w not in notes]
+        body["warnings"] = [*notes, *warnings]
 
     def _with_defaults(self, step: PlanStep) -> PlanStep:
         fill = getattr(self.actions, "plan_defaults", None)
@@ -3710,9 +3815,11 @@ class Supervisor:
         self._grant_target.pop(task_id, None)
         labels = await self._card_labels(task_id)
         views = [approval_steps.step_view(step, self.actions, labels) for step in steps]
+        self._settings_cards(task_id, steps, views)
         previews = [await self._card_extra(task_id, step, goal) for step in steps]
         mark = group_fingerprint(plan, positions)
         card = approval_steps.group_card(steps, positions, views, previews, mark, concurrent=concurrent)
+        self._settings_card_note(task_id, card)
         card["risk"] = max_risk(risk, card["risk"]).value
         extra = {**card, "action": steps[0].action, "plan_risk": steps[0].risk}
         if reason != "risk":
@@ -4986,7 +5093,12 @@ class Supervisor:
             if isinstance(cc, str) and task_id is not None:
                 self._cc_change_id[(int(task_id), action)] = cc
         if task_id is not None:
-            body = approval_steps.enrich(body, self._card_plan(int(task_id)), self.actions, labels)
+            card_plan = self._card_plan(int(task_id))
+            fresh = not isinstance(body.get("steps"), list)
+            body = approval_steps.enrich(body, card_plan, self.actions, labels)
+            if fresh and isinstance(body.get("steps"), list) and len(body["steps"]) == len(card_plan):
+                self._settings_cards(int(task_id), card_plan, body["steps"])
+            self._settings_card_note(int(task_id), body)
         reason = str(body.get("reason") or "")
         if task_id is not None and reason:
             self._card_reason[int(task_id)] = reason
@@ -5787,6 +5899,60 @@ def _chain_from_queue(plan: list[PlanStep], goal: str = "") -> list[PlanStep]:
         else step
         for step in plan
     ]
+
+
+_SETTINGS_ACTIONS = frozenset({"project.patch_settings", "project.patch_settings_costly"})
+# «Поставь модель по умолчанию / дефолтную / стандартную», «сбрось модель».
+_ASKS_DEFAULT = re.compile(r"умолчан|дефолт|default|стандартн|сброс|сбрось")
+
+
+def _ids_ru(ids: list[int]) -> str:
+    return ", ".join(f"#{pid}" for pid in ids)
+
+
+def _projects_word(count: int) -> str:
+    if count % 10 == 1 and count % 100 != 11:
+        return "проект"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return "проекта"
+    return "проектов"
+
+
+def _same_of(skipped: list[tuple[int | None, str]]) -> str:
+    """Общая для всех пропущенных фраза «модель картинок уже GPT Image 2», иначе пусто."""
+    texts = [text for _, text in skipped]
+    return texts[0] if texts and texts[0] and all(text == texts[0] for text in texts) else ""
+
+
+def _skipped_text(skipped: list[tuple[int | None, str]]) -> str:
+    ids = [pid for pid, _ in skipped if pid is not None]
+    same = _same_of(skipped)
+    tail = f": {same}" if same else ": там уже так, как просите"
+    return (
+        f"Пропущено {len(skipped)} {_projects_word(len(skipped))} ({_ids_ru(ids)}), менять там нечего{tail}."
+    )
+
+
+def _nothing_text(skipped: list[tuple[int | None, str]]) -> str:
+    ids = [pid for pid, _ in skipped if pid is not None]
+    same = _same_of(skipped)
+    if len(skipped) == 1:
+        where = f"В проекте #{ids[0]}" if ids else "В проекте"
+        return f"{where} {same or 'всё уже так, как просите'}, менять нечего."
+    if same:
+        return f"Во всех {len(skipped)} проектах ({_ids_ru(ids)}) {same}, менять нечего."
+    return f"В проектах {_ids_ru(ids)} всё уже так, как просите, менять нечего."
+
+
+def _queue_limit() -> int | None:
+    """Сколько проектов очереди сейчас идут одновременно; None — не прочитать."""
+    try:
+        from app.services.gen_queue import worker_max_parallel
+
+        value = int(worker_max_parallel())
+    except Exception:
+        return None
+    return value if value > 0 else None
 
 
 def _step_project(step: PlanStep) -> int | None:

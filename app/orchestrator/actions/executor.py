@@ -608,6 +608,15 @@ async def plan_resolve(name: str, params: dict | None) -> dict:
     return await declared_media_values(params)
 
 
+async def settings_diff(name: str, params: dict | None) -> dict | None:
+    """Правка настроек проекта против самого проекта: что поменяется словами и не пустая ли она."""
+    if str(name) not in ("project.patch_settings", "project.patch_settings_costly"):
+        return None
+    from app.services.action_layer.settings_diff import settings_diff as diff
+
+    return await diff(dict(params or {}))
+
+
 def plan_required(name: str) -> bool:
     from app.services import orch_bridge
 

@@ -128,6 +128,8 @@ HTML_PROJECTS_SUMMARY_TITLE = "Сводка по проектам"
 
 # Сколько строк показывать в чате (полная версия — в файле).
 CHAT_ROWS = 10
+# Отчёт по нескольким проектам: в чате все проекты отчёта (их не больше MAX_PROJECTS).
+PROJECTS_CHAT_ROWS = MAX_PROJECTS
 COLUMN_WIDTH_MAX = 60
 
 

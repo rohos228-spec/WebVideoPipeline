@@ -1031,15 +1031,19 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         downloads=[{"url": html_url, "file_format": "html"}, {"url": xlsx_url, "file_format": "xlsx"}],
     )
     link = f"[Скачать отчёт (html)]({html_url}) · [Скачать отчёт (xlsx)]({xlsx_url})"
-    shown = with_no_data(rows[: tpl.CHAT_ROWS], ("spent_usd",))
+    shown = with_no_data(rows[: tpl.PROJECTS_CHAT_ROWS], ("spent_usd",))
     table = markdown_table(shown, chat_columns)
-    tail = f"\n\nЕщё проектов: {len(rows) - len(shown)} (все в файле)." if len(rows) > len(shown) else ""
+    rest = len(rows) - len(shown)
+    tail = f"\n\nЕщё проектов: {rest} (полный список в файле отчёта)." if rest > 0 else ""
     gpt_lines = [
         f"- #{r['project_id']}: {clip(r['gpt'], 160)}" for r in shown if r.get("gpt") not in (None, "", "нет")
     ]
     gpt_text_md = ("\n\n" + tpl.GPT_SECTION_TITLE + ":\n" + "\n".join(gpt_lines)) if gpt_lines else ""
     out["markdown"] = f"## {tpl.PROJECTS_TITLE}\n\n{head}\n\n{table}{tail}{gpt_text_md}"
     # По строке на проект: без них «сравни проекты 5 и 7» видел только общие суммы.
-    per = [_project_line(r) for r in rows[: tpl.CHAT_ROWS]]
-    out["text_ru"] = head + f" Файл отчёта готов: {link}" + ("\n" + "\n".join(per) if per else "")
+    # Строка на каждый проект отчёта: при 10 строках из 14 ответ говорил «подробности о 10 из 14».
+    # Участнику — без трат: суммы в $ видит только админ.
+    per = [_project_line(r, show_spent=show_spent) for r in rows[: tpl.PROJECTS_CHAT_ROWS]]
+    more = f"\nЕщё проектов: {rest}, полный список в файле отчёта." if rest > 0 else ""
+    out["text_ru"] = head + f" Файл отчёта готов: {link}" + ("\n" + "\n".join(per) if per else "") + more
     return bi._safe(out)

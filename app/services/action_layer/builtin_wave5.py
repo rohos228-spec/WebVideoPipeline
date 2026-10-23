@@ -786,9 +786,11 @@ async def _storage_clear(ctx, params):
 
 
 def _settings_effects(params: dict) -> str:
-    names = ", ".join(k for k in _SETTINGS_KEYS if k in params) or "настройки"
+    from app.services.action_layer.settings_diff import target_text
+
+    names = target_text(params) or "настройки"
     return (
-        f"В проекте #{params['project_id']} поменяются {names}. Новая модель или разрешение "
+        f"В проекте #{params['project_id']} поменяются: {names}. Новая модель или разрешение "
         "дороже текущих или их цена неизвестна: следующие генерации картинок и видео могут "
         "стоить больше. Прежние значения сохраняются снимком, вернуть их можно откатом "
         "(history.rollback)."

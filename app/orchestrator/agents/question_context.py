@@ -12,7 +12,7 @@ _TIMEOUT_S = 20.0
 _FACT_LIMIT = 2500
 # Обзор — это список: под общим пределом он резался посреди строки, и ответ
 # говорил «по остальным данных нет». До 30 строк по ~180 знаков влезают целиком.
-_FACT_LIMITS = {"projects.overview": 6000, "node.describe": 4500}
+_FACT_LIMITS = {"projects.overview": 6000, "node.describe": 4500, "report.projects": 6000}
 _TOTAL_LIMIT = 12000
 _LOG_LINES = 15
 _NODE_RE = re.compile(r"\bn_[a-z0-9_]{2,60}\b")
