@@ -117,7 +117,14 @@ def write_workbook(
 
 
 def _stamp() -> str:
-    return datetime.now().strftime("%Y%m%d-%H%M%S")
+    """Метка имени файла отчёта: время и случайный хвост.
+
+    Только секунды не уникальны: два вызова в одну секунду (два клиента студии в общей
+    папке отчётов) писали бы в один файл и перетирали друг друга.
+    """
+    import uuid
+
+    return f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
 
 
 # ── Что записала нода «Работа с GPT» ──
@@ -807,6 +814,12 @@ async def _project_row_report(ctx: ActionContext, pid: int, row: Any, counts: di
     }
 
 
+MEMBER_NO_FILE_TEXT = (
+    "Файл отчёта по проектам здесь не создаётся: общие файлы отчётов студии скачивает админ. "
+    "Вся таблица — ниже в чате."
+)
+
+
 def _without_spent(columns: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
     return tuple(col for col in columns if col[0] not in ("spent_usd", "cost_usd"))
 
@@ -883,6 +896,21 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
     chat_columns = tpl.PROJECTS_CHAT_COLUMNS if show_spent else _without_spent(tpl.PROJECTS_CHAT_COLUMNS)
     if missing:
         pairs.append(("Не найдены", ", ".join(f"#{p}" for p in missing)))
+    if not show_spent:
+        # Участник: файлы общих отчётов студии (/api/projects/reports/...) отдаются только админу
+        # (project_reports.download_shared_report), ссылка вела бы на 403. Файл не пишем, вся
+        # таблица — в чате.
+        table = markdown_table(with_no_data(rows, ("spent_usd",)), chat_columns)
+        gpt_lines = [
+            f"- #{r['project_id']}: {clip(r['gpt'], 160)}"
+            for r in rows
+            if r.get("gpt") not in (None, "", "нет")
+        ]
+        gpt_text_md = ("\n\n" + tpl.GPT_SECTION_TITLE + ":\n" + "\n".join(gpt_lines)) if gpt_lines else ""
+        out.update(rows=len(rows), file_format=None)
+        out["markdown"] = f"## {tpl.PROJECTS_TITLE}\n\n{head}\n\n{table}{gpt_text_md}"
+        out["text_ru"] = head + " " + MEMBER_NO_FILE_TEXT
+        return bi._safe(out)
     from app.web.routers.project_reports import SHARED_PREFIX, shared_report_url
 
     base = shared_reports_dir() / f"{SHARED_PREFIX}{_stamp()}"

@@ -307,8 +307,8 @@ async def gpt_skipped(ctx, params: dict, started: dict | None) -> str | None:
         return None
     row = await bi._project_row(pid)
     project = bi._transient(pid, detail, row)
-    # Ответ ноды Студия пишет в project.db (его и отдаёт detail, по нему же NodeRun), в мастер
-    # копия доезжает позже и не вся: gpt_operator_results туда не копируется. Смотрим обе.
+    # Ответ ноды смотрим и в meta из detail (GET /projects/{id}), и в строке проекта: на этой
+    # линии база одна, но detail может нести эффективную meta холста, а строка — сохранённую.
     metas = [bi._meta(detail)]
     if row is not None and isinstance(row.meta, dict):
         metas.append(row.meta)
