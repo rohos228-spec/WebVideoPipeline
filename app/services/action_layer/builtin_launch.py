@@ -758,7 +758,7 @@ async def _queue_warnings(ctx, params) -> list[str]:
         streams = await ctx.call("GET", "/runtime-streams")
         out.append(
             f"Одновременно идут не больше {streams.get('worker_max_parallel')} проектов "
-            "очереди (параллель меняется действием queue.set_parallel)."
+            "очереди; это число можно поменять просьбой в чате."
         )
     except ActionCallError:
         pass
@@ -800,9 +800,11 @@ async def _enqueue_many(ctx, params):
 
 
 def _queue_effects(params: dict) -> str:
+    from app.services.action_layer.card_text import projects_ru
+
     n = len(params.get("project_ids") or [])
     return (
-        f"{n} проект(ов) встанут в очередь генерации: воркер сам пройдёт конвейер в каждом и "
+        f"{projects_ru(n)} встанут в очередь генерации: воркер сам пройдёт конвейер в каждом и "
         "потратит деньги; стоп человека у этих проектов снимается. Убрать проект из очереди - "
         "кнопкой очереди или кнопкой «Стоп задачи»."
     )

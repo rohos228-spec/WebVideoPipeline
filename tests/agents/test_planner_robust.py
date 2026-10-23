@@ -215,9 +215,9 @@ async def test_repeated_approval_refusal_gets_a_plain_reason(token: str) -> None
         task_id = await rt.supervisor.start_task("robust-asked-twice", NEXT_STEP, project_id=10)
         await rt.supervisor.wait(task_id, timeout=10)
         row = rt.tasks.get(task_id)
-        assert row["status"] == TaskStatus.failed.value and row["error"] == "empty_plan"
+        assert row["status"] == TaskStatus.cancelled.value and row["error"] == "empty_plan"
         last = _texts(rt, "robust-asked-twice")[-1]
-        assert "Подтверждение я спрашиваю сам, карточкой перед запуском" in last
+        assert "его я спрашиваю сам, карточкой перед запуском" in last and "Причина:" not in last
         assert "Требуется отдельное подтверждение" not in last
     finally:
         set_runtime(None)
@@ -294,3 +294,22 @@ async def test_status_question_during_a_task_is_answered_at_once() -> None:
 async def test_status_without_a_task_still_goes_to_the_classifier() -> None:
     sup, router, answered = await _classify(None, "статус проекта 6")
     assert router.classified == ["статус проекта 6"] and sup.tasks == ["статус проекта 6"]
+
+
+async def test_question_while_a_card_waits_is_answered_at_once() -> None:
+    # Живой прогон: вопрос стоял 2 минуты в очереди за задачей, ждущей карточку.
+    for text in ("какая модель стоит на сценарии в проекте 6", "сколько кадров в проекте 6?"):
+        sup, router, answered = await _classify(207, text)
+        assert answered == [text] and sup.tasks == [] and router.classified == [], text
+
+
+async def test_request_with_question_during_a_task_is_not_answered_as_question() -> None:
+    sup, router, answered = await _classify(207, "поставь модель подешевле, какая сейчас?")
+    assert answered == [] and sup.tasks == ["поставь модель подешевле, какая сейчас?"]
+
+
+def test_scenario_node_name_is_not_a_task_marker() -> None:
+    from app.orchestrator.queue import classify_deterministic
+
+    found = classify_deterministic("какая модель стоит на сценарии в проекте 6")
+    assert found is not None and found.mode is MessageMode.append

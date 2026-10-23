@@ -17,6 +17,7 @@ from app.services.action_layer.builtin_group import (
 )
 from app.services.action_layer.builtin_montage import _PID, _PRE_NO_APPLY, _PRE_PROJECT, _base
 from app.services.action_layer.builtin_montage_more import _FRAME_NO, _PRE_NO_ALIGN, _SHOT, _pre_frame_numbers
+from app.services.action_layer.chat_undo import AGENT_PHRASE
 from app.services.action_layer.context import (
     ActionCallError,
     ActionContext,
@@ -212,7 +213,7 @@ async def _node_label(ctx, params) -> str:
     return node_label_ru(meta, params["node_key"])
 
 
-_AGENT_UNDO_RU = "Прежний агент сохранён: вернуть можно фразой «верни прежнего агента проверки»."
+_AGENT_UNDO_RU = f"Прежний агент сохранён: вернуть можно фразой «{AGENT_PHRASE}»."
 
 
 async def _upload_check_agent(ctx, params):

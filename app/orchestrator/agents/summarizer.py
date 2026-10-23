@@ -18,6 +18,46 @@ APPROVAL_EXPIRED = "approval_expired"
 APPROVAL_EXPIRED_TEXT = "Подтверждение не дали вовремя — задача отменена, ничего не изменено."
 APPROVAL_STALE = "approval_stale"
 APPROVAL_STALE_TEXT = "Сервер перезапускался, карточка устарела — повторите просьбу. Ничего не изменено."
+NOT_UNDERSTOOD = "Не понял, что сделать."
+NOT_UNDERSTOOD_HINT = (
+    "Напишите номер проекта и что нужно, например «запусти картинки в проекте 6» "
+    "или «что с проектом 4». Если не знаете, с чего начать, напишите «помоги»."
+)
+# Заметка о чужой карточке дописывается к причине; фильтр сырых слов её не касается.
+WAITING_OTHER = "В этом чате ждёт подтверждения другая задача: «{goal}» — карточка выше."
+_WAITING_HEAD = WAITING_OTHER.split("«", 1)[0]
+# Сырой ответ планировщика: служебные имена (project_id, node.set_model), «каталог», «action».
+_RAW_REASON = re.compile(
+    r"[a-z0-9]+[._][a-z_]|каталог|(?<![a-zа-я])(?:action|project|node|step|snapshot|catalog|json|id)(?![a-zа-я])",
+    re.IGNORECASE,
+)
+
+
+def raw_reason(text: str) -> bool:
+    """True — причину планировщика показывать человеку нельзя: в ней внутренние слова."""
+    return bool(_RAW_REASON.search(text or ""))
+
+
+# Планировщик понял просьбу, но такого действия у чата нет: «в каталоге нет действия для удаления проекта».
+_MISSING_ACTION = re.compile(
+    r"в\s+каталоге\s+нет|нет\s+в\s+каталоге|нет\s+(?:такого\s+|подходящего\s+|нужного\s+|отдельного\s+)?действи"
+    r"|отсутству\w*[^.]{0,40}(?:действи|каталог)|действи\w*[^.]{0,30}отсутству",
+    re.IGNORECASE,
+)
+_DELETE_PROJECT = re.compile(r"удал\w*\s+(?:\w+\s+)?проект|проект\w*\s+(?:№?#?\d+\s+)?удал", re.IGNORECASE)
+NOT_SUPPORTED = "Этого чат пока не умеет."
+# В списке проектов слева у каждого проекта меню «Действия с проектом» → «Удалить».
+DELETE_PROJECT_HINT = "Удалить проект можно в списке проектов слева: меню у проекта → «Удалить»."
+
+
+def missing_action_text(reason: str, goal: str = "") -> str:
+    """Честный ответ, когда нужного действия у чата нет; пусто — причина о другом."""
+    if not _MISSING_ACTION.search(reason or ""):
+        return ""
+    if _DELETE_PROJECT.search(reason or "") or _DELETE_PROJECT.search(goal or ""):
+        return f"{NOT_SUPPORTED} {DELETE_PROJECT_HINT}"
+    return NOT_SUPPORTED
+
 
 _REASON_RU: dict[str, tuple[str, str]] = {
     "validator_blocked": (
@@ -75,6 +115,10 @@ _REASON_RU: dict[str, tuple[str, str]] = {
     "missing_run_id": ("внутренняя ошибка учёта запуска", "Повторите просьбу."),
     "parallel_risk": ("в параллельной группе оказался изменяющий шаг", "Повторите просьбу."),
     "plan_stopped": ("план остановлен", "Повторите просьбу, если нужно продолжить."),
+    "plan_unreadable": (
+        "планировщик не ответил или ответ оборвался, поэтому ничего не делалось",
+        "Повторите просьбу чуть позже.",
+    ),
     "plan_schema": (
         "планировщик несколько раз вернул план в неверном виде",
         "Повторите просьбу чуть проще или другими словами.",
@@ -111,6 +155,8 @@ class TaskFacts:
     error: str | None = None
     detail: str = ""
     steps: list[StepNote] = field(default_factory=list)
+    # Пустой план с готовым ответом кода («возвращать нечего»): просьбу поняли, «не понял» не пишем.
+    answered: bool = False
 
 
 def explain_failure(exc: BaseException) -> str:
@@ -494,13 +540,22 @@ def fields_ru(body: Any) -> str:
     return redact_text("; ".join(_pairs(body, 0, _FIELDS_LIMIT)))
 
 
+# Сам возврат тоже оставляет снимок, но «откатить откат» не предлагаем.
+_REVERT_ACTIONS = frozenset(
+    {
+        "history.rollback",
+        "node.revert_model",
+        "node.revert_model_many",
+        "node.revert_params",
+        "node.revert_check_agent",
+    }
+)
+
+
 def _undo_line(note: StepNote) -> str:
-    ids = (note.undo or {}).get("snapshot_ids") or []
-    numbers = ", ".join(str(i) for i in ids[:5])
-    tail = f" (снимки {numbers})" if numbers else ""
-    return (
-        f"Откатить «{note.title}»: напишите «откати последнюю правку» или откатите в истории изменений{tail}."
-    )
+    from app.services.action_layer.chat_undo import undo_hint
+
+    return "" if note.action in _REVERT_ACTIONS else undo_hint()
 
 
 def deterministic_text(facts: TaskFacts) -> str:
@@ -517,7 +572,7 @@ def deterministic_text(facts: TaskFacts) -> str:
                 lines.append("Готово. Что сделано:")
                 lines.extend(f"• {_change_line(note)}" for note in changes)
             undo = [note for note in changes if note.undo]
-            lines.extend(_undo_line(note) for note in undo)
+            lines.extend(dict.fromkeys(line for line in map(_undo_line, undo) if line))
             if not undo and not all(note.known for note in changes):
                 lines.append(
                     "Снимка для автоматического отката у этих шагов нет: вернуть можно только "
@@ -542,12 +597,7 @@ def deterministic_text(facts: TaskFacts) -> str:
         )
     if facts.error == APPROVAL_STALE:
         return APPROVAL_STALE_TEXT
-    if facts.status == "cancelled":
-        lines.append("Задача остановлена.")
-        if done:
-            lines.append("До остановки выполнено: " + ", ".join(f"«{note.title}»" for note in done) + ".")
-        return "\n".join(lines)
-    if facts.status == "failed" and facts.error == "rejected":
+    if facts.error == "rejected" and facts.status in {"failed", "cancelled"}:
         changed = [note for note in done if not note.readonly]
         if not changed:
             return "Отменено по вашему решению. Ничего не изменено."
@@ -556,6 +606,20 @@ def deterministic_text(facts: TaskFacts) -> str:
             + ", ".join(f"«{note.title}»" for note in changed)
             + "."
         )
+    if facts.error == "empty_plan" and facts.status == "cancelled":
+        reason, head, note = (facts.detail or "").partition(_WAITING_HEAD)
+        reason = reason.strip()
+        reason = reason if reason and not raw_reason(reason) else ""
+        if facts.answered and reason:
+            return "\n".join(line for line in (reason, (head + note).strip()) if line)
+        # Причина с готовым примером уже говорит, что написать: вторая подсказка лишняя.
+        hint = "" if "например" in reason else NOT_UNDERSTOOD_HINT
+        return "\n".join(line for line in (NOT_UNDERSTOOD, reason, hint, (head + note).strip()) if line)
+    if facts.status == "cancelled":
+        lines.append("Задача остановлена.")
+        if done:
+            lines.append("До остановки выполнено: " + ", ".join(f"«{note.title}»" for note in done) + ".")
+        return "\n".join(lines)
     what, todo = _REASON_RU.get(
         str(facts.error or ""), ("задача не выполнена", "Повторите просьбу или уточните её.")
     )

@@ -141,6 +141,10 @@ _FINISH_WORDS = (
     "опублик",
     "публикац",
 )
+# «Запусти следующий шаг» во вкладке проекта: без строки «следующий шаг по графу» план
+# сводился к чтению статуса, и карточки запуска не было (во «Всей фабрике» строка есть всегда).
+# Без «дальше»/«продолжи»: в «запусти ноду X и дальше до Y» строка спорила с правилом цепочки.
+_NEXT_WORDS = ("следующ", "очередн")
 _MAX_MODEL_NODES = 2
 _MAX_CHAIN_NODES = 2
 _MAX_OPTIONS = 20
@@ -360,6 +364,16 @@ def _order(option: dict[str, Any]) -> tuple[int, float]:
     return (0, sum(pts)) if pts else (1, 0.0)
 
 
+def _previous_model(meta: Any, key: str) -> str | None:
+    from app.services import node_edit as ne
+
+    try:
+        target = ne.plan_model_revert(meta, key).get("target_model_id")
+    except Exception:
+        return None
+    return ne.canonical_model_id(target) if target else None
+
+
 def model_options_text(meta: Any, key: str) -> str:
     from app.services import node_edit as ne
 
@@ -378,6 +392,7 @@ def model_options_text(meta: Any, key: str) -> str:
     if current.get("forced_vibecode") or not current.get("applies", True):
         return head + ": смена модели на этой ноде ни на что не повлияет, такой шаг не планируй."
     cheapest = _cheapest(options)
+    previous = _previous_model(meta, key)
     lines = [head + ":"]
     for option in sorted(options, key=_order)[:_MAX_OPTIONS]:
         cost = str(option.get("cost_vs_current") or "unknown")
@@ -386,6 +401,12 @@ def model_options_text(meta: Any, key: str) -> str:
             continue
         mark = _COST_RU.get(cost, cost) + (", самая дешёвая" if option["id"] in cheapest else "")
         action = _SET_ACTION.get(cost, "node.set_model_costly")
+        if previous is not None and ne.canonical_model_id(option["id"]) == previous:
+            # Вернуть то, что стояло до правки, — откат, но только если цена не растёт:
+            # node.revert_model идёт без карточки, а «дороже» человек подтверждает сам.
+            if action != "node.set_model_costly":
+                action = f"вернуть прежнюю по просьбе человека — node.revert_model, иначе {action}"
+            mark = "прежняя модель этой ноды, " + mark
         lines.append(f"- {option['id']} ({option['label']}): {mark}, {option['price_ru']}; {action}")
     return "\n".join(lines)
 
@@ -781,7 +802,7 @@ class ProjectNodes:
             if len(ids) > 1:
                 many = f"В запросе проекты {', '.join(map(str, ids))}, граф у них тот же. " + MANY_RULE
                 block = "\n".join(part for part in (block, many) if part)
-        if not finish_words(text):
+        if not finish_words(text) and not any(word in _norm(text) for word in _NEXT_WORDS):
             return block
         try:
             status = await self._status_of(int(project_id))

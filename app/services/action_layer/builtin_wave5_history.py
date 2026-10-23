@@ -899,9 +899,13 @@ async def _rollback_text(ctx: ActionContext, kind: str, target: dict, before: An
         meta = None
     label = node_label_ru(meta, str(target["node_key"]))
     if kind == "node_model":
-        now = ne.model_title(ne.find_catalog_model(before), str(before)) if before else "по умолчанию"
-        was = ne.model_title(ne.find_catalog_model(after), str(after)) if after else "по умолчанию"
-        return f"На ноде «{label}» вернул модель «{now}» (была «{was}»)."
+        key = str(target["node_key"])
+        now = ne.model_ru(before, meta, key)
+        was = ne.model_ru(after, meta, key)
+        if before and after:
+            return f"На ноде «{label}» вернул модель {now} (была {was})."
+        # Модель по умолчанию называем по имени: «по умолчанию (GPT 5.6 Sol)».
+        return f"На ноде «{label}» вернул модель {now}, до этого была модель {was}."
     if kind == "node_params":
         names = ", ".join(ne.PARAM_TITLE_RU.get(k, k) for k in target.get("params") or [])
         return f"На ноде «{label}» вернул прежние настройки ({names})."
@@ -1056,12 +1060,9 @@ def history_specs() -> list[ActionSpec]:
             idempotent=False,
             scope="global",
             destructive_effects=lambda p: (
-                f"Текущее значение по снимку {p['snapshot_id']} будет заменено прежним"
-                + (
-                    "; проверка «значение не менялось после правки» отключена (force)."
-                    if p.get("force")
-                    else "; текущее значение сохранится новым снимком."
-                )
+                "Вернётся значение, которое было до правки; текущее значение сохранится в журнале "
+                "правок."
+                + (" Проверка «значение не меняли после правки» отключена." if p.get("force") else "")
             ),
             preconditions=(
                 Precondition(

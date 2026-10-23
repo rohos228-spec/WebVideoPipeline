@@ -36,13 +36,19 @@ class RouterPlanner:
         rag: Any | None = None,
         catalog: Any | None = None,
         nodes: Any | None = None,
+        undo: Any | None = None,
     ) -> None:
         self.router = router
         self.rag = rag or NullRetriever()
         self.catalog = catalog
         self.nodes = nodes
+        self.undo = undo
         self.last_response: Any = None
         self.last_reason = ""
+        # Ответ пустой или не JSON: сбой планировщика, а не «просьба не понята».
+        self.last_parse_failed = False
+        # План собран кодом (откат по журналу), модель не спрашивали.
+        self.last_from_code = False
 
     async def make_plan(
         self,
@@ -55,6 +61,13 @@ class RouterPlanner:
         budget_scope: str | None = None,
         reasoning_effort: str | None = None,
     ) -> list[PlanStep]:
+        undo = await self._undo_plan(goal, task_id)
+        self.last_from_code = undo is not None
+        if undo is not None:
+            # «Верни как было»: последняя правка чата известна из журнала, модель не нужна.
+            self.last_response = None
+            self.last_reason = undo[1]
+            return undo[0]
         block = rules_block(self.rag)
         rules = await retrieve(self.rag, goal or context or "plan", ["rules"], 8)
         catalog = self._catalog_block(goal, context, task_id)
@@ -78,6 +91,7 @@ class RouterPlanner:
         self.last_response = response
         text = getattr(response, "text", "") or ""
         self.last_reason = plan_reason(text)
+        self.last_parse_failed = unreadable_plan(text)
         return parse_plan(text)
 
     def _catalog_block(self, goal: str, context: str, task_id: Any) -> str:
@@ -88,6 +102,19 @@ class RouterPlanner:
             return str(self.catalog(text, task_id) or "")
         except Exception:
             return ""
+
+    async def _undo_plan(self, goal: str, task_id: Any) -> tuple[list[PlanStep], str] | None:
+        if self.undo is None:
+            return None
+        try:
+            found = self.undo(goal, task_id)
+            if inspect.isawaitable(found):
+                found = await found
+        except Exception:
+            return None
+        if found is None:
+            return None
+        return [PlanStep.model_validate(step) for step in found.steps], str(found.reason or "")
 
     async def _nodes_block(self, goal: str, context: str, task_id: Any) -> str:
         if self.nodes is None:
@@ -198,6 +225,17 @@ def plan_reason(text: str) -> str:
         if isinstance(value, str) and value.strip():
             return " ".join(value.split())[:_REASON_LIMIT]
     return ""
+
+
+def unreadable_plan(text: str) -> bool:
+    raw = _unfenced(text)
+    if not raw:
+        return True
+    try:
+        json.loads(raw)
+    except json.JSONDecodeError:
+        return True
+    return False
 
 
 def parse_plan(text: str) -> list[PlanStep]:

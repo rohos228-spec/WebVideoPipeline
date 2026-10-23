@@ -613,7 +613,12 @@ def _skipped_ru(skipped: list[dict]) -> list[str]:
 
 
 async def _model_apply(ctx: ActionContext, one: dict) -> dict:
-    out = await _set_model(ctx, one, costly=True)
+    from app.services.action_layer.builtin_wave5_history import HANDLERS, _wrap_executor
+
+    # Как у одиночной смены модели: снимок прежней модели проекта, откат history.rollback.
+    # По нему «верни как было в проекте N» и «что ты сделал сегодня» видят правку.
+    run = _wrap_executor("node.set_model_costly", HANDLERS["node.set_model_costly"], _set_model_costly)
+    out = await run(ctx, one)
     return {
         k: out.get(k)
         for k in (
@@ -624,6 +629,8 @@ async def _model_apply(ctx: ActionContext, one: dict) -> dict:
             "cost",
             "applies",
             "applies_note",
+            "snapshot_id",
+            "rollback_possible",
         )
     }
 
@@ -652,11 +659,12 @@ async def _set_model_many(ctx: ActionContext, params: dict) -> dict:
             lines.append(
                 f"Внимание, {_ids_ru([c['project_id'] for c in idle])}: {idle[0].get('applies_note')}."
             )
-        ids = ", ".join(str(c["project_id"]) for c in changed)
-        lines.append(
-            f"Прежняя модель каждого проекта сохранена, вернуть все разом: «в проектах "
-            f"{ids} верни прежнюю модель на ноде {first.get('node_label') or params['node_key']}»."
+        from app.services.action_layer.chat_undo import many_model_phrase
+
+        phrase = many_model_phrase(
+            [c["project_id"] for c in changed], first.get("node_label") or params["node_key"]
         )
+        lines.append(f"Прежняя модель каждого проекта сохранена, вернуть все разом: «{phrase}».")
     else:
         lines.append("Модель ни в одном проекте не поменял.")
     lines += _skipped_ru(out["skipped"])
@@ -684,8 +692,11 @@ async def _set_prompt_variant_many(ctx: ActionContext, params: dict) -> dict:
     if changed:
         lines.append(f"Поменял промт ноды в {_projects_ru(len(changed))}:")
         lines += [f"- **#{c['project_id']}** — {c.get('text_ru') or 'промт поставлен.'}" for c in changed]
+        from app.services.action_layer.chat_undo import project_undo_phrase
+
         lines.append(
-            "Прежний промт каждого проекта сохранён снимком, вернуть: «откати правку промта в проекте N»."
+            "Прежний промт каждого проекта сохранён, вернуть в одном проекте: "
+            f"«{project_undo_phrase(changed[0]['project_id'], 'промт')}»."
         )
     else:
         lines.append("Промт ни в одном проекте не поменял.")

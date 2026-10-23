@@ -12,8 +12,8 @@ from loguru import logger
 from sqlalchemy import select, update
 
 from app.services.action_layer import approval, executor, service, store
+from app.services.action_layer.card_text import card_ru
 from app.services.action_layer.spec import ensure_builtin_actions, registry
-from app.services.plain_ru import plain_ru
 
 CARD_EVENT = "orch_card_approved"
 REVOKE_EVENT = "orch_card_revoked"
@@ -23,6 +23,10 @@ NOTICE_EVENT = "chat_notice"
 NOTICE_BACKLOG = 10
 NOTICE_SWEEP_S = 15.0
 PROGRESS_S = 1.0
+# Сам шаг бесплатный, но запускает платную работу дальше (очередь, автопродвижение).
+LATER_SPEND_TEXT = (
+    "неизвестна: сам шаг бесплатный, но дальше воркер запустит платные шаги, их сумму заранее не посчитать"
+)
 
 _CHANGE_ID = re.compile(r"^orch-appr-(\d+)-(\d+)$")
 _OWN_EXECUTORS = frozenset(
@@ -92,16 +96,16 @@ def _request_text(spec, goal: Any = "") -> str:
     return (f"{head}. Задача: {text}" if text else head)[:2000]
 
 
-def _effect_texts(preview: dict) -> list[str]:
+def _effect_texts(preview: dict, labels: dict[str, str] | None = None) -> list[str]:
     out = []
     for item in preview.get("destructive_effects") or []:
         text = str(item.get("text") or "") if isinstance(item, dict) else str(item)
         if text and not text.startswith("Внимание: "):
-            out.append(plain_ru(text))
+            out.append(card_ru(text, labels))
     return out
 
 
-def card_from_preview(preview: dict) -> dict:
+def card_from_preview(preview: dict, labels: dict[str, str] | None = None) -> dict:
     cost = preview.get("cost") or {}
     known = bool(cost.get("known"))
     low, high = cost.get("low"), cost.get("high")
@@ -116,30 +120,46 @@ def card_from_preview(preview: dict) -> dict:
             "unknown_steps": int(cost.get("unknown_steps") or 0),
         },
         "warnings": [
-            plain_ru(w.get("text") or "") for w in preview.get("warnings") or [] if isinstance(w, dict)
+            card_ru(w.get("text") or "", labels) for w in preview.get("warnings") or [] if isinstance(w, dict)
         ],
-        "destructive_effects": _effect_texts(preview),
+        "destructive_effects": _effect_texts(preview, labels),
         "future_spend": [
-            plain_ru(f.get("text") or "")
+            card_ru(f.get("text") or "", labels)
             for f in preview.get("future_spend_effects") or []
             if isinstance(f, dict)
         ],
     }
+    if known and not high and card["future_spend"]:
+        # «около $0» рядом с «воркер потратит деньги» сбивает: цены нет, траты будут.
+        card["cost_estimate"] = None
+        card["cost_text"] = LATER_SPEND_TEXT
     if not preview.get("ok"):
-        card["preview_errors"] = [plain_ru(e) for e in (preview.get("errors") or [])][:10]
+        card["preview_errors"] = [card_ru(e, labels) for e in (preview.get("errors") or [])][:10]
         card["blocked"] = True
     return card
 
 
 async def prepare_card(name: str, params: dict | None, ctx: dict | None) -> dict:
+    card = await _prepare_card(name, params, ctx)
+    if card and name == "history.rollback":
+        # Номер снимка человеку ничего не говорит: что именно вернётся и что откат обратим.
+        from app.services.action_layer.chat_undo import rollback_card
+
+        with contextlib.suppress(Exception):
+            card.update(await rollback_card(dict(params or {})))
+    return card
+
+
+async def _prepare_card(name: str, params: dict | None, ctx: dict | None) -> dict:
     spec = _spec(name)
     if spec is None:
         return {}
     ctx = ctx if isinstance(ctx, dict) else {}
+    labels = ctx.get("labels") if isinstance(ctx.get("labels"), dict) else None
     card: dict[str, Any] = {"title": spec.title_ru, "risk_tier": spec.risk}
     if spec.destructive_effects is not None:
         with contextlib.suppress(Exception):
-            card["destructive_effects"] = [plain_ru(spec.destructive_effects(dict(params or {})))]
+            card["destructive_effects"] = [card_ru(spec.destructive_effects(dict(params or {})), labels)]
     if not plan_required(spec.id):
         return card
     try:
@@ -154,7 +174,7 @@ async def prepare_card(name: str, params: dict | None, ctx: dict | None) -> dict
         card["preview_errors"] = ["не удалось посчитать оценку и проверить условия шага"]
         card["blocked"] = True
         return card
-    card.update(card_from_preview(preview))
+    card.update(card_from_preview(preview, labels))
     if plan_id:
         card["plan_id"] = plan_id
     return card

@@ -28,6 +28,7 @@ from app.orchestrator.contracts import (
 from app.orchestrator.db.migrations import connect, utc_now
 from app.orchestrator.events import EventBus
 from app.orchestrator.safety_gate import Refusal, refusal_for
+from app.orchestrator.small_talk import CARD_WAITING_TEXT, OK_TEXT, small_talk_reply
 
 _TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
 _STOP_TOKENS = frozenset(
@@ -44,6 +45,17 @@ _STOP_TOKENS = frozenset(
     }
 )
 _STOP_OBJECTS = ("проект", "генерац", "очеред", "шаг", "картин", "видео", "озвуч", "нод")
+# «отмени последнее действие», «отмена правки» — откат правки, а не стоп задачи чата.
+_UNDO_RE = re.compile(
+    r"(?<![а-яa-z])(?:отмени(?:те)?|отменить|отмена)\s+(?:[а-я]+\s+){0,2}?"
+    r"(?:последн|правк|изменени|действи|смен|настройк)[а-я]*"
+    r"|(?<![а-яa-z])undo(?![a-z])"
+)
+# "отмени последнюю задачу", "отмена последнего запуска" — это стоп задачи, а не откат правки.
+_CANCEL_TASK_RE = re.compile(
+    r"(?<![а-яa-z])(?:отмени(?:те)?|отменить|отмена)\s+(?:[а-я]+\s+){0,2}?(?:задач|задани|запуск)"
+)
+_UNDO_EXCLUDED = ("задач", "задани", "запуск", "генерац", "карточк")
 _KILL_PHRASES = (
     "аварийный стоп",
     "kill switch",
@@ -77,6 +89,8 @@ _QUESTION_STARTS = frozenset(
     }
 )
 _TASK_MARKERS = ("задач", "план", "шаг", "нод", "кадр", "сцен")
+# «Открой муравьев»: открыть вкладку чат не может, ответ подсказывает, где проект слева.
+_OPEN_STARTS = frozenset({"открой", "откройте", "открыть"})
 _ASK_STARTS = _QUESTION_STARTS - {"можно", "нужно"}
 _IMPERATIVE_WORDS = (
     "поставь",
@@ -172,6 +186,15 @@ def has_imperative(text: str) -> bool:
     )
 
 
+def is_plain_question(text: str) -> bool:
+    """«Какая модель стоит на сценарии?»: вопрос без просьбы. Пока ждёт карточка, отвечается сразу."""
+    norm = " ".join((text or "").lower().replace("ё", "е").split())
+    if not norm or has_imperative(norm) or _RUN_VERBS_RE.search(norm):
+        return False
+    tokens = _TOKEN_RE.findall(norm)
+    return norm.endswith("?") or (bool(tokens) and tokens[0] in _ASK_STARTS)
+
+
 def is_status_question(text: str) -> bool:
     """Вопрос о ходе дел без просьбы что-то сделать: отвечается сразу, задачей не ставится."""
     norm = " ".join((text or "").lower().replace("ё", "е").split()) + " "
@@ -179,6 +202,21 @@ def is_status_question(text: str) -> bool:
         # «прогони дальше, что с лимитом?» - просьба с вопросом, это задача.
         return False
     return any(phrase in norm for phrase in _STATUS_PHRASES)
+
+
+def _undo_request(text: str) -> bool:
+    from app.services.action_layer.chat_undo import undo_phrase
+
+    return undo_phrase(text)
+
+
+def cancel_or_undo(text: str) -> bool:
+    """«Отмени последнее» при живой задаче: остановить её или вернуть правку — решает классификатор."""
+    norm = " ".join((text or "").lower().split())
+    tokens = _TOKEN_RE.findall(norm)
+    if any(token in _STOP_TOKENS for token in tokens):
+        return False
+    return any(token.startswith("отмен") for token in tokens) and _undo_request(norm)
 
 
 def classify_deterministic(text: str) -> ClassifyResult | None:
@@ -193,8 +231,40 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
             confidence=1.0,
             kill_switch=True,
         )
+    plain = norm.replace("ё", "е")
+    # «стоп, отмени последнее»: явное стоп-слово важнее отката («отмена» само по себе не в счёт).
+    stop_word = any(token in _STOP_TOKENS and token != "отмена" for token in tokens)
+    if _CANCEL_TASK_RE.search(plain) and not any(obj in norm for obj in _STOP_OBJECTS):
+        return ClassifyResult(
+            tier="fast",
+            mode=MessageMode.interrupt,
+            deterministic=True,
+            confidence=1.0,
+        )
+    # Откат — только если и разбор отката согласен: вопрос "как отменить…?" и "отмени это действие" — нет.
+    if (
+        not stop_word
+        and not any(obj in plain for obj in _UNDO_EXCLUDED)
+        and _UNDO_RE.search(plain)
+        and _undo_request(plain)
+    ):
+        return ClassifyResult(
+            tier="strong",
+            mode=MessageMode.task,
+            deterministic=True,
+            confidence=1.0,
+        )
     if any(token in _STOP_TOKENS for token in tokens) and any(obj in norm for obj in _STOP_OBJECTS):
         # «Останови все проекты» — остановить генерацию в Студии, а не только задачу чата.
+        return ClassifyResult(
+            tier="strong",
+            mode=MessageMode.task,
+            deterministic=True,
+            confidence=1.0,
+        )
+    steer = any(phrase in norm for phrase in _STEER_PHRASES)
+    if not steer and not any(token in _STOP_TOKENS for token in tokens) and _undo_request(norm):
+        # «Отмени последнее» — вернуть свою правку, а не прервать задачу.
         return ClassifyResult(
             tier="strong",
             mode=MessageMode.task,
@@ -208,7 +278,7 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
             deterministic=True,
             confidence=1.0,
         )
-    if any(phrase in norm for phrase in _STEER_PHRASES):
+    if steer:
         return ClassifyResult(
             tier="strong",
             mode=MessageMode.steer,
@@ -222,10 +292,11 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
             deterministic=True,
             confidence=1.0,
         )
-    mentions_task = any(marker in norm for marker in _TASK_MARKERS)
+    # «Сценарий» — имя ноды, а не «сцена»: вопрос про модель на сценарии остаётся вопросом.
+    mentions_task = any(marker in norm.replace("сценари", "") for marker in _TASK_MARKERS)
     is_question = norm.endswith("?") or (bool(tokens) and tokens[0] in _QUESTION_STARTS)
     asks = norm.endswith("?") and bool(tokens) and tokens[0] in _ASK_STARTS
-    if asks or (is_question and not mentions_task):
+    if asks or (is_question and not mentions_task) or (bool(tokens) and tokens[0] in _OPEN_STARTS):
         return ClassifyResult(
             tier="fast",
             mode=MessageMode.append,
@@ -340,6 +411,15 @@ class MessageQueue:
                     published = True
                     await self._refuse(session_id, refusal, message_id)
                     return
+            if not kill_switch and mode in (None, MessageMode.task):
+                # Явный append (API) остаётся вопросом к модели: готовый ответ только для реплик из чата.
+                reply = small_talk_reply(text)
+                if reply == OK_TEXT and self._card_waiting(session_id):
+                    reply = CARD_WAITING_TEXT
+                if reply is not None:
+                    published = True
+                    await self._small_talk(session_id, reply, message_id)
+                    return
             forced = classify_deterministic(text)
             phrase = forced is not None and forced.kill_switch
             if kill_switch or phrase:
@@ -360,7 +440,14 @@ class MessageQueue:
             else:
                 decided = forced
                 task_id = self.supervisor.active_task(session_id)
-                if decided is None and task_id is not None and is_status_question(text):
+                if decided is not None and task_id is not None and cancel_or_undo(text):
+                    # Идёт генерация или ждёт карточка: просьба со словом «отмени» может значить «останови».
+                    decided = None
+                if (
+                    decided is None
+                    and task_id is not None
+                    and (is_status_question(text) or is_plain_question(text))
+                ):
                     # Пока идёт задача, вопрос «как там проект» иначе встал бы в очередь за ней.
                     decided = ClassifyResult(
                         tier="fast",
@@ -437,6 +524,57 @@ class MessageQueue:
             {"role": "assistant", "text": refusal.text, "kind": "refusal", "codes": list(refusal.codes)},
         )
 
+    async def _small_talk(self, session_id: str, text: str, message_id: int | None) -> None:
+        """«привет», «спасибо», «помоги»: ответ без задачи, планировщика и модели."""
+        await self.bus.publish(
+            session_id,
+            "classification",
+            {
+                "mode": MessageMode.append.value,
+                "tier": "fast",
+                "deterministic": True,
+                "confidence": 1.0,
+                "kill_switch": False,
+            },
+        )
+        if message_id is not None:
+            await asyncio.to_thread(_set_message_mode, message_id, MessageMode.append.value)
+        await self._reply(session_id, text, "small_talk")
+
+    def _card_waiting(self, session_id: str) -> bool:
+        row = self._active_row(session_id)[1]
+        return str(row.get("status") or "") == "waiting_approval"
+
+    def _active_row(self, session_id: str) -> tuple[int | None, dict[str, Any]]:
+        task_id = self.supervisor.active_task(session_id)
+        tasks = getattr(self.supervisor, "tasks", None)
+        row = (tasks.get(task_id) if tasks is not None and task_id is not None else None) or {}
+        return task_id, row
+
+    async def _reply(self, session_id: str, text: str, kind: str) -> None:
+        await asyncio.to_thread(
+            _insert_message,
+            session_id,
+            "assistant",
+            text,
+            task_id=None,
+            mode=MessageMode.append.value,
+        )
+        await self.bus.publish(session_id, "message", {"role": "assistant", "text": text, "kind": kind})
+
+    async def _interrupt(self, session_id: str) -> None:
+        """Стоп без объекта: отменить задачу чата и всегда сказать, что остановлено."""
+        task_id, row = self._active_row(session_id)
+        status = str(row.get("status") or "")
+        closes = getattr(self.supervisor, "stop_closes_card", None)
+        if task_id is not None and status == "waiting_approval" and callable(closes) and closes(task_id):
+            # Карточка после неизвестного исхода платного шага: стоп сам её закрывает, кнопки уже не будет.
+            status = "cancelling"
+        self.supervisor.request_cancel(session_id)
+        await self._reply(
+            session_id, stop_reply(str(row.get("goal") or ""), status, task_id is not None), "stop"
+        )
+
     async def _apply(
         self,
         session_id: str,
@@ -445,14 +583,21 @@ class MessageQueue:
         project_id: int | None = None,
     ) -> None:
         if decided.kill_switch:
+            idle = self.supervisor.active_task(session_id) is None
             job = self.supervisor.request_kill(session_id)
             if job is not None:
                 await job
+            if idle:
+                # Без задачи итоговой сводки не будет: ответить сразу, иначе чат молчит.
+                await self._reply(session_id, stop_reply("", "", False), "stop")
             return
         if decided.mode is MessageMode.interrupt:
-            self.supervisor.request_cancel(session_id)
+            await self._interrupt(session_id)
             return
         if decided.mode is MessageMode.steer:
+            if self.supervisor.active_task(session_id) is None:
+                await self._reply(session_id, STEER_IDLE_TEXT, "steer_idle")
+                return
             self.supervisor.request_steer(session_id, text)
             return
         if decided.mode is MessageMode.task:
@@ -474,7 +619,7 @@ class MessageQueue:
             if project_id is None:
                 project_id = await asyncio.to_thread(self._session_project, session_id)
             app = self.app if self.app is not None else getattr(self.supervisor, "app", None)
-            return await self.context.messages(text, project_id, app)
+            return await self.context.messages(text, project_id, app, session_id)
         except Exception:
             logger.exception("orch question context failed for session {}", session_id)
             return plain
@@ -588,6 +733,36 @@ class MessageQueue:
             {"role": "assistant", "text": text, "kind": "error"},
             task_id=task_id,
         )
+
+
+_PROJECT_STOP = "напишите «останови проект 5» с нужным номером"
+_STOP_HINT = (
+    "Генерацию в проектах это не останавливает: для неё нажмите кнопку «Стоп задачи» (в большом окне "
+    "чата она называется «Остановить задачу» и останавливает задачу вместе с её проектом) или "
+    + _PROJECT_STOP
+    + "."
+)
+STEER_IDLE_TEXT = (
+    "Сейчас нет задачи, к которой это относится, поэтому я ничего не менял. "
+    "Напишите просьбу целиком, например «запусти картинки в проекте 6»."
+)
+
+
+def stop_reply(goal: str, status: str, active: bool) -> str:
+    """Ответ на «стоп» / «останови все»: что остановлено, а что нет."""
+    name = " ".join(goal.split())
+    name = f" «{name[:80]}»" if name else ""
+    if not active:
+        return (
+            "Сейчас нечего останавливать: задач в чате нет. "
+            "Чтобы остановить генерацию проекта, " + _PROJECT_STOP + "."
+        )
+    if status == "waiting_approval":
+        return (
+            f"Задача{name} ждёт вашего решения на карточке и сама ничего не запустит. "
+            "Чтобы отказаться, нажмите «Отклонить». " + _STOP_HINT
+        )
+    return f"Останавливаю задачу чата{name}: новых шагов она не начнёт. " + _STOP_HINT
 
 
 def _token_pieces(text: str) -> list[str]:

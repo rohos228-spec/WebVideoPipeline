@@ -207,7 +207,7 @@ def test_group_card_sums_cost_and_tags_warnings_with_project() -> None:
     ]
     card = approval_steps.group_card(steps, [3, 4], views, previews, "mark")
     assert card["cost_estimate"] == pytest.approx(1.0)
-    assert card["cost_text"] == "около $1.0 за 2 проекта"
+    assert card["cost_text"] == "около $1.00 за 2 проекта"
     assert card["warnings"] == ["проект #1: мало кадров"]
     assert card["destructive_effects"] == ["проект #2: перезапишет картинки"]
     assert card["group"] == {"positions": [3, 4], "projects": [1, 2], "fingerprint": "mark", "plan_ids": {"3": "p1"}}

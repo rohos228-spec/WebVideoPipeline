@@ -141,6 +141,50 @@ async def test_numbered_projects_get_next_step_from_graph() -> None:
     assert "step_code=img_pr" in text and "enrich_3" not in text
 
 
+async def test_project_scope_next_step_request_gets_next_step_from_graph() -> None:
+    """Вкладка проекта: «запусти следующий шаг» получает step_code, как во «Всей фабрике»."""
+    meta = {"canvas_graph": {"nodes": [
+        {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"slotIndex": 1}},
+        {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"slotIndex": 2}},
+        {"id": "n_image_prompts", "type": "image_prompts"}]}}
+
+    async def meta_of(_pid):
+        return meta
+
+    async def frames_of(_pid):
+        return 15
+
+    async def status_of(_pid):
+        return "enrich_2_ready"
+
+    nodes = ProjectNodes(project_of=lambda _t: 6, meta_of=meta_of, frames_of=frames_of, status_of=status_of)
+    text = await nodes("запусти следующий шаг", 1)
+    assert "Проект 6" in text and "step_code=img_pr" in text
+    assert "step_code=" not in await nodes("какая модель на ноде промты картинок", 1)
+
+
+async def test_project_scope_chain_request_gets_no_next_step_line() -> None:
+    """«и дальше до …» - цепочка от ноды: строка «следующий шаг по графу» с ней спорила."""
+    meta = {"canvas_graph": {"nodes": [
+        {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"slotIndex": 1}},
+        {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"slotIndex": 2}},
+        {"id": "n_image_prompts", "type": "image_prompts"}]}}
+
+    async def meta_of(_pid):
+        return meta
+
+    async def frames_of(_pid):
+        return 15
+
+    async def status_of(_pid):
+        return "enrich_1_ready"
+
+    nodes = ProjectNodes(project_of=lambda _t: 6, meta_of=meta_of, frames_of=frames_of, status_of=status_of)
+    for text in ("запусти ноду работа с gpt 2 и дальше до промтов картинок",
+                 "продолжи с ноды работа с gpt 2 только эту ноду"):
+        assert "step_code=" not in await nodes(text, 1), text
+
+
 def test_group_request_gets_catalog_with_kadry_alias() -> None:
     from app.orchestrator.agents.project_nodes import groups_text
 

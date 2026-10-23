@@ -21,6 +21,7 @@ from app.services.action_layer.context import ActionCallError, ActionContext
 
 _REPLY_NAME = "gpt_reply.txt"
 _REPLY_MAX_BYTES = 4 * 1024 * 1024
+_NAMED_IN_HEAD = 3
 _CHAT_LINE_MAX = 220
 # Больше в одну ячейку xlsx Excel не пускает (32767); длинное значение идёт продолжением в следующих строках.
 XLSX_CELL_MAX = 32000
@@ -839,6 +840,9 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
     found = [r for r in rows if r.get("found")]
     spent = sum(r["spent_usd"] or 0.0 for r in found)
     missing = [r["project_id"] for r in rows if not r.get("found")]
+    # Номера и названия в первой строке: без них ответ на «отчёт по проекту 6» говорил,
+    # что не может подтвердить, что это проект #6.
+    named = ", ".join(f"#{r['project_id']} «{r['title']}»" for r in found[:_NAMED_IN_HEAD])
     head = (
         f"{tpl.PROJECTS_TITLE}: {len(found)}"
         + (
@@ -846,9 +850,10 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
             if not params.get("project_ids") and total > len(pids)
             else ""
         )
+        + (f" — {named}" if named and len(found) <= _NAMED_IN_HEAD else "")
         + f". Кадров {sum(r['frames'] for r in found)}, картинок {sum(r['images'] for r in found)}, "
         f"видео {sum(r['videos'] for r in found)}"
-        + (f", траты ${round(spent, 4)} (оценка)." if show_spent else ".")
+        + (f", траты {bi._usd_text(spent)} (оценка)." if show_spent else ".")
     )
     if missing:
         head += " Не найдены: " + ", ".join(f"#{p}" for p in missing) + "."

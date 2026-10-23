@@ -1263,6 +1263,7 @@ async def _project_brief(row, managed: set[int], queue: list[int]) -> dict:
         "pause_reason": _clip(pause["reason"], 160) or None,
         "user_stop": pause["user_stop"],
         "error": _clip((fs or {}).get("error"), 160) or None,
+        "error_status": (fs or {}).get("status"),
         "queue_position": queue.index(row.id) + 1 if row.id in queue else None,
         "auto_mode": bool(row.auto_mode),
         "managed": row.id in managed,
@@ -1270,8 +1271,36 @@ async def _project_brief(row, managed: set[int], queue: list[int]) -> dict:
     }
 
 
+def _error_is_current(item: dict) -> bool:
+    """Ошибка относится к шагу, на котором проект стоит сейчас (идёт или готов).
+
+    Ошибку стирает только успешный шаг; после ручного сброса или отката статуса старая
+    ошибка другого шага остаётся в данных и не должна держать проект во «внимании».
+    """
+    if not item.get("error"):
+        return False
+    failed_at = str(item.get("error_status") or "")
+    if not failed_at:
+        return True
+    from app.models import ProjectStatus
+    from app.orchestrator.node_registry import READY_TO_NODE_TYPE, RUNNING_TO_NODE_TYPE
+
+    def node_of(status: str) -> str | None:
+        try:
+            st = ProjectStatus(status)
+        except ValueError:
+            return None
+        return RUNNING_TO_NODE_TYPE.get(st) or READY_TO_NODE_TYPE.get(st)
+
+    return failed_at == item["status"] or (
+        node_of(failed_at) is not None and node_of(failed_at) == node_of(item["status"])
+    )
+
+
 def _needs_attention(item: dict) -> bool:
-    return item["status"] in ("paused", "failed") or bool(item["pause_reason"])
+    # Ошибка шага при статусе «готово» (пустые промты после повтора) — тоже внимание:
+    # в общем списке она видна, а в «требуют внимания» проекта не было.
+    return item["status"] in ("paused", "failed") or bool(item["pause_reason"] or _error_is_current(item))
 
 
 def _overview_keep(item: dict, want: str | None) -> bool:
@@ -1715,7 +1744,7 @@ def _specs() -> list[ActionSpec]:
         ),
         ActionSpec(
             id="logs.tail",
-            title_ru="Хвост логов сервера",
+            title_ru="Последние записи журнала сервера",
             description_ru="Последние строки логов сервера (backend и studio-live): по проекту, если "
             "указан, только ошибки или ошибки с предупреждениями. Секреты скрыты. "
             "Только чтение.",

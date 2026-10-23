@@ -162,7 +162,7 @@ _SCHEMA_FAILED = (
     "Я трижды просил переделать ответ, но он снова не прошёл проверку, поэтому ничего не выполнялось."
 )
 _WAITING_TWIN = "Такая задача уже ждёт вашего подтверждения — нажмите «Подтвердить» на карточке выше."
-_WAITING_OTHER = "В этом чате ждёт подтверждения другая задача: «{goal}» — карточка выше."
+_WAITING_OTHER = task_summary.WAITING_OTHER
 _PLAN_LEVEL_CARDS = frozenset(
     {"critic_escalation", "critic_reject", "plan_sanity", "unknown_cost", "steer_not_approved"}
 )
@@ -181,8 +181,8 @@ _APPROVAL_NOTE = (
     "Не отказывай из-за подтверждения: составь план из действий каталога."
 )
 _ASKED_APPROVAL = (
-    "Причина: план не составился - планировщик решил, что сначала нужно ваше подтверждение. "
-    "Подтверждение я спрашиваю сам, карточкой перед запуском. Напишите просьбу ещё раз и назовите "
+    "Планировщик решил, что сначала нужно ваше подтверждение, но его я спрашиваю сам, "
+    "карточкой перед запуском. Напишите просьбу ещё раз и назовите "
     "шаг или ноду прямо, например «в проекте 10 запусти шаг предметы»."
 )
 _HUMAN_PLAN_BLOCKED = (
@@ -346,6 +346,11 @@ class Supervisor:
         self._pending_kill_publish: list[tuple[str, int | None]] = []
         self._pending_queue_cancel: list[tuple[str, int]] = []
         self._approved: dict[int, str] = {}
+        # Планы, собранные кодом без модели (откат «верни как было»): отпечаток плана задачи.
+        self._from_code: dict[int, bool] = {}
+        self._code_plans: dict[int, str] = {}
+        # Пустой план с готовым ответом («возвращать нечего», «этого чат пока не умеет»): не «не понял».
+        self._code_answers: set[int] = set()
         self._unknown_step: dict[int, dict[str, Any]] = {}
         self._appr_seq: dict[int, int] = {}
         self._appr_open: dict[int, str | None] = {}
@@ -998,13 +1003,8 @@ class Supervisor:
             else:
                 self._budget_stop.discard(task_id)
                 self._block_reason.pop(task_id, None)
-                await self._set_status(task_id, TaskStatus.failed, session_id=session_id, error="rejected")
-                await self.bus.publish(
-                    session_id,
-                    "task_failed",
-                    {"error": "Отклонено человеком.", "reason": "rejected", "change_id": decided},
-                    task_id=task_id,
-                )
+                # Отказ — решение человека, а не сбой: задача отменена, без task_failed и красного значка.
+                await self._set_status(task_id, TaskStatus.cancelled, session_id=session_id, error="rejected")
             return {
                 "executed": False,
                 "decision": ApprovalDecision.deny.value,
@@ -1131,6 +1131,13 @@ class Supervisor:
             return False
         return int(data.position) < len(data.plan)
 
+    def stop_closes_card(self, task_id: int) -> bool:
+        """True — «стоп» сам закроет карточку: она ждёт решения после неизвестного исхода платного шага."""
+        return (
+            self._status(task_id) is TaskStatus.waiting_approval
+            and self._block_reason.get(task_id) in _PAID_OUTCOME_REASONS
+        )
+
     def request_cancel(self, session_id: str) -> None:
         """Взвести cancel-флаг и отменить текущий неплатный шаг, если он есть.
 
@@ -1141,11 +1148,7 @@ class Supervisor:
         task_id = self._session_task.get(session_id)
         if task_id is not None:
             self.tasks.set_flag(task_id, cancel_requested=1)
-        if (
-            task_id is not None
-            and self._status(task_id) is TaskStatus.waiting_approval
-            and self._block_reason.get(task_id) in _PAID_OUTCOME_REASONS
-        ):
+        if task_id is not None and self.stop_closes_card(task_id):
             try:
                 asyncio.get_running_loop()
             except RuntimeError:
@@ -2360,10 +2363,15 @@ class Supervisor:
             tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions)) for step in resolved
         ]
         await write_on_loop(self._save_plan, task_id, plan)
+        from_code = self._from_code.pop(task_id, False)
+        if from_code and plan:
+            self._code_plans[task_id] = _plan_fingerprint(plan)
+        else:
+            self._code_plans.pop(task_id, None)
         logger.info("orch task {} planner: {} steps", task_id, len(plan))
         if not plan:
             self._trace_plan(task_id, "empty_plan", plan, self._planner_reason())
-            self._note_empty_reason(task_id)
+            self._note_empty_reason(task_id, from_code=from_code)
         if await self._absorb_budget(task_id, session_id, getattr(self.planner, "last_response", None)):
             return None
         return plan
@@ -2406,12 +2414,30 @@ class Supervisor:
             return False
         return bool(_ASKS_APPROVAL_RE.search(self._planner_reason()))
 
-    def _note_empty_reason(self, task_id: int) -> None:
+    def _note_empty_reason(self, task_id: int, *, from_code: bool = False) -> None:
+        if from_code:
+            from app.services.plain_ru import plain_ru
+            from app.services.redact import redact_text
+
+            # «Возвращать нечего», «какую правку вернуть?»: текст собран кодом, целиком и без «не понял».
+            why = " ".join(plain_ru(redact_text(str(getattr(self.planner, "last_reason", "") or ""))).split())
+            if why and not task_summary.raw_reason(why):
+                self._fail_detail[task_id] = why.rstrip(".") + "."
+                self._code_answers.add(task_id)
+                return
         why = self._planner_reason()
+        # «В каталоге нет действия для удаления проекта»: просьбу поняли, но чат так не умеет.
+        missing = task_summary.missing_action_text(
+            why, str((self.tasks.get(task_id) or {}).get("goal") or "")
+        )
+        if missing:
+            self._fail_detail[task_id] = missing
+            self._code_answers.add(task_id)
+            return
         if why and _ASKS_APPROVAL_RE.search(why):
             self._fail_detail[task_id] = _ASKED_APPROVAL
-        elif why:
-            self._fail_detail[task_id] = "Причина: " + why.rstrip(".") + "."
+        elif why and not task_summary.raw_reason(why):
+            self._fail_detail[task_id] = why.rstrip(".") + "."
 
     async def _draft_plan(
         self,
@@ -2422,7 +2448,7 @@ class Supervisor:
     ) -> list[PlanStep] | None:
         while True:
             try:
-                return await self._cancellable(
+                drafted = await self._cancellable(
                     session_id,
                     self.planner.make_plan(
                         goal,
@@ -2430,6 +2456,9 @@ class Supervisor:
                         **self._llm_kwargs(task_id, AgentRole.planner.value),
                     ),
                 )
+                # Флаг читаем сразу после ответа, без await: планировщик общий для задач.
+                self._from_code[task_id] = bool(getattr(self.planner, "last_from_code", False))
+                return drafted
             except PlanSchemaError as exc:
                 why = str(exc)
                 self._trace_plan(task_id, "schema_rejected", [], why)
@@ -2473,6 +2502,10 @@ class Supervisor:
             await self._settle_stopped(task_id, session_id)
             return None
         if _free_read_plan(plan, self.actions):
+            return "approve"
+        if self._code_plans.get(task_id) == _plan_fingerprint(plan):
+            # План отката собран кодом из журнала, а не моделью: критику нечего проверять,
+            # а подтверждение человека шаг с высоким риском всё равно получает карточкой.
             return "approve"
         token = _LLM_TASK.set(int(task_id))
         try:
@@ -2589,11 +2622,16 @@ class Supervisor:
     ) -> bool | str:
         """Локальные запреты, project_id и dry-run. True — план отклонён.
 
-        Пустой план на этом пути — ``empty_plan`` (планёр ничего не вернул).
+        Пустой план на этом пути — просьба не понята: ``cancelled`` с причиной
+        ``empty_plan``, не сбой. Пустой чекпоинт на grant/resume остаётся ``failed``.
         """
         if not plan:
             await self._mention_waiting_card(task_id, session_id)
-            await self._apply_block(task_id, session_id, "empty_plan")
+            if getattr(self.planner, "last_parse_failed", False) is True:
+                # Пустой или обрезанный ответ модели — сбой, а не «не понял»: человек не виноват.
+                await self._apply_block(task_id, session_id, "plan_unreadable")
+                return True
+            await self._close_not_understood(task_id, session_id)
             return True
         unknown = [step.action for step in plan if not_in_whitelist(step.action, self.actions)]
         if unknown:
@@ -2652,6 +2690,13 @@ class Supervisor:
             return True
         return False
 
+    async def _close_not_understood(self, task_id: int, session_id: str) -> None:
+        self._block_reason[task_id] = "empty_plan"
+        current = self._status(task_id)
+        if current is None or current in TERMINAL_STATUSES or current is TaskStatus.waiting_approval:
+            return
+        await self._set_status(task_id, TaskStatus.cancelled, session_id=session_id, error="empty_plan")
+
     async def _launch_refusal(self, task_id: int, plan: list[PlanStep]) -> str | None:
         guard = self.launch_guard
         if guard is None:
@@ -2677,11 +2722,13 @@ class Supervisor:
         prepare = getattr(self.actions, "prepare_card", None)
         if not callable(prepare):
             return {}
+        # Подписи нод проекта: последствия шага называют ноду её именем, а не ключом.
+        labels = await self._card_labels(task_id, [step])
         try:
             card = prepare(
                 step.action,
                 dict(step.params),
-                {"task_id": task_id, "app": app_ref.current(), "goal": goal},
+                {"task_id": task_id, "app": app_ref.current(), "goal": goal, "labels": labels},
             )
             if inspect.isawaitable(card):
                 card = await card
@@ -4161,7 +4208,9 @@ class Supervisor:
             error=error or self._block_reason.get(task_id),
             detail=self._fail_detail.pop(task_id, ""),
             steps=self._notes.pop(task_id, []),
+            answered=task_id in self._code_answers,
         )
+        self._code_answers.discard(task_id)
         token = _LLM_TASK.set(int(task_id))
         try:
             text = await self.summarizer.summarize(
@@ -4527,11 +4576,11 @@ class Supervisor:
             await self._set_status(task_id, TaskStatus.executing, session_id=session_id)
         await self._fail_closed(task_id, session_id, reason)
 
-    async def _card_labels(self, task_id: int | None) -> dict[str, str]:
+    async def _card_labels(self, task_id: int | None, steps: list[PlanStep] | None = None) -> dict[str, str]:
         loader = self.card_meta
         if loader is None or task_id is None:
             return {}
-        plan = self._card_plan(int(task_id))
+        plan = steps if steps is not None else self._card_plan(int(task_id))
         keys = approval_steps.plan_node_keys(plan)
         project_id = approval_steps.plan_project_id(plan) or self._task_project_id(int(task_id))
         if not keys or project_id is None:
@@ -4977,17 +5026,19 @@ class Supervisor:
         self._unsettled.discard(task_id)
         self.history.append((task_id, status.value))
         try:
-            await self.bus.publish(
-                session_id,
-                "agent_status",
-                {
-                    "status": status.value,
-                    "agent": "supervisor",
-                    "task_id": task_id,
-                    "resume_allowed": self.resume_allowed(task_id),
-                },
-                task_id=task_id,
-            )
+            body: dict[str, Any] = {
+                "status": status.value,
+                "agent": "supervisor",
+                "task_id": task_id,
+                "resume_allowed": self.resume_allowed(task_id),
+            }
+            if error and status in TERMINAL_STATUSES:
+                # UI отличает «не понял» (empty_plan) и отказ человека (rejected) от прочей отмены.
+                body["reason"] = error
+                if error == "empty_plan" and task_id in self._code_answers:
+                    # «Возвращать нечего», «этого чат не умеет»: чат ответил, это не «нужно уточнение».
+                    body["reason"] = "answered"
+            await self.bus.publish(session_id, "agent_status", body, task_id=task_id)
         finally:
             if status in TERMINAL_STATUSES:
                 try:

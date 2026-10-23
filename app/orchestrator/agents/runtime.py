@@ -113,6 +113,7 @@ def build_production_runtime() -> Runtime:
     from app.orchestrator.agents.question_context import QuestionContext
     from app.orchestrator.agents.summarizer import TaskSummarizer
     from app.orchestrator.agents.wiring import load_actions, load_rag, load_router, load_validators
+    from app.services.action_layer.chat_undo import plan_for_task
 
     router, missing_router = load_router()
     rag, missing_rag = load_rag()
@@ -128,6 +129,7 @@ def build_production_runtime() -> Runtime:
             rag,
             None if missing_actions else ActionCatalog(),
             None if missing_actions else ProjectNodes(),
+            None if missing_actions else plan_for_task,
         ),
         critic=RouterCritic(router, rag),
         question_context=None if missing_actions else QuestionContext(nodes=ProjectNodes()),

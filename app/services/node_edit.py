@@ -221,6 +221,25 @@ def effective_model(node: dict) -> tuple[dict | None, bool]:
     return find_catalog_model(mid), explicit is None
 
 
+def default_model_title(meta: dict | None, node_key: str) -> str:
+    """Название модели, на которой нода идёт без своей модели; пусто, если ноды нет."""
+    from app.services.vibecode_catalog import default_model_id_for_node_type
+
+    node = find_node(meta, node_key)
+    if node is None:
+        return ""
+    mid = default_model_id_for_node_type(str(node.get("type") or node_type(node)))
+    return model_title(find_catalog_model(mid), mid)
+
+
+def model_ru(model_id: str | None, meta: dict | None, node_key: str) -> str:
+    """«GPT 5.5» для своей модели ноды; «по умолчанию (GPT 5.6 Sol)», если своей нет."""
+    if model_id:
+        return f"«{model_title(find_catalog_model(model_id), model_id)}»"
+    name = default_model_title(meta, node_key)
+    return f"по умолчанию ({name})" if name else "по умолчанию"
+
+
 def allowed_models(kind: str) -> list[dict]:
     from app.services.vibecode_catalog import models_for_channel
 

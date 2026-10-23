@@ -203,7 +203,10 @@ def _kie_unit(kind: str, gen_id: str | None, res_id: str | None) -> tuple[float 
                 f"{gen_id}: оплата через Outsee, тарифа нет; заложено {outsee:g} кр на отправку "
                 "(настройка ACTION_LAYER_OUTSEE_SUBMIT_CREDITS, консервативный потолок)"
             )
-        return None, f"{gen_id}: оплата через Outsee, тарифа в репозитории нет"
+        from app.services.action_layer.card_text import generator_ru
+
+        name = generator_ru(gen_id) or gen_id
+        return None, f"цену модели «{name}» студия не знает: оплата идёт через Outsee"
     from app.bots import kie_http
 
     table = kie_http.IMAGE_GENERATOR_TO_KIE_ID if kind == "image" else kie_http.VIDEO_GENERATOR_TO_KIE_ID

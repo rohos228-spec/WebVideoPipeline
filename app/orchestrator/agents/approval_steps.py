@@ -54,6 +54,8 @@ _NODE_TITLES = {
     "prompt.edit_text": "Предложить правку промта ноды «{node}» (этот проект)",
 }
 _ID_KEYS = ("node_key", "model_id", "variant")
+# Параметры, где значение - ключ ноды (n_images): в карточке вместо ключа название ноды.
+_NODE_PARAMS = ("node_key", "stop_after_node_key", "target_node_key")
 
 
 def _text_value(params: dict[str, Any], key: str) -> str:
@@ -109,13 +111,17 @@ def _params_text(params: dict[str, Any], labels: dict[str, str] | None = None, n
         for key in _ID_KEYS:
             shown.pop(key, None)
     else:
-        key = _text_value(shown, "node_key")
-        label = str((labels or {}).get(key) or "").strip()
-        if key and label:
-            shown["node_key"] = f"«{label}»"
         model_id = _text_value(shown, "model_id")
         if model_id:
             shown["model_id"] = model_title(model_id)
+    for name in _NODE_PARAMS:
+        key = _text_value(shown, name)
+        if not key:
+            continue
+        from app.services.action_layer.card_text import node_key_ru
+
+        # Незнакомый ключ остаётся кодом, но не пропадает: человек видит, какую ноду трогают.
+        shown[name] = f"«{node_key_ru(key, labels)}»"
     try:
         from app.services.action_layer.builtin_insight import _STEP_RU
         from app.services.action_layer.planner_rules import param_parts_ru
@@ -195,7 +201,7 @@ def plan_steps(
 
 
 def plan_node_keys(plan: list[PlanStep]) -> list[str]:
-    keys = [_text_value(dict(step.params), "node_key") for step in plan]
+    keys = [_text_value(dict(step.params), name) for step in plan for name in _NODE_PARAMS]
     return list(dict.fromkeys(key for key in keys if key))
 
 
@@ -259,7 +265,16 @@ def plan_cost(plan: list[PlanStep], views: list[dict[str, Any]]) -> tuple[float 
         total += usd
     if not paid_any:
         return 0.0, "бесплатно: платных шагов нет"
-    return round(total, 4), f"около ${round(total, 2)}"
+    if total <= 0:
+        # Платный шаг с оценкой $0: «около $0» обманывает, деньги всё равно уйдут.
+        return None, UNKNOWN_COST_TEXT
+    return round(total, 4), f"около {_usd(total)}"
+
+
+def _usd(value: float) -> str:
+    from app.services.action_layer.card_text import money_ru
+
+    return money_ru(value)
 
 
 def plan_risk(views: list[dict[str, Any]]) -> str:
@@ -273,6 +288,18 @@ def plan_risk(views: list[dict[str, Any]]) -> str:
     return best
 
 
+def _rollback_titles(views: list[dict[str, Any]], plan: list[PlanStep], payload: dict[str, Any]) -> None:
+    """Шаг отката в карточке называет, что вернётся, а не номер снимка."""
+    known = payload.get("rollback")
+    if not isinstance(known, dict) or not str(known.get("title") or "").strip():
+        return
+    for step, view in zip(plan, views, strict=True):
+        if step.action == "history.rollback" and step.params.get("snapshot_id") == known.get("snapshot_id"):
+            view["title"] = str(known["title"]).strip()
+            view["params_text"] = ""
+            view["text"] = view["title"]
+
+
 def enrich(
     payload: dict[str, Any],
     plan: list[PlanStep],
@@ -282,6 +309,7 @@ def enrich(
     if not plan or isinstance(payload.get("steps"), list):
         return payload
     views = plan_steps(plan, actions, labels)
+    _rollback_titles(views, plan, payload)
     body = dict(payload)
     body["steps"] = views
     cost, cost_text = plan_cost(plan, views)
@@ -340,7 +368,9 @@ def _group_cost(
         total += float(usd)
     if not paid_any:
         return 0.0, "бесплатно: платных шагов нет"
-    return round(total, 4), f"около ${round(total, 2)} за {projects_ru(len(steps))}"
+    if total <= 0:
+        return None, UNKNOWN_COST_TEXT
+    return round(total, 4), f"около {_usd(total)} за {projects_ru(len(steps))}"
 
 
 def group_card(

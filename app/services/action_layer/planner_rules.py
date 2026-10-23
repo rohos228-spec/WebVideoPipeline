@@ -963,6 +963,7 @@ _SKIP_PARAMS = frozenset(
         "edits",
         "target_node_type",
         "estimated_cost",
+        "snapshot_id",
     }
 )
 _VALUE_RU = {
