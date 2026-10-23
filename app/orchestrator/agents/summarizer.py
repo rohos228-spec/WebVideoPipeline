@@ -100,6 +100,79 @@ def gpt_model_clarify_text(goal: str) -> str:
     )
 
 
+# «Модели `gpt-5` нет в списке доступных для ноды …»: планировщик понял просьбу, но такой модели
+# у ноды нет. Не «Не понял», а вопрос с ближайшими моделями из каталога этой ноды.
+_UNKNOWN_MODEL = re.compile(
+    r"модел\w*[^.;]{0,80}?(?:нет\b|отсутству|недоступ|не\s+найден|не\s+существу|не\s+поддерж)",
+    re.IGNORECASE,
+)
+_QUOTED_MODEL = re.compile(r"[«`\"']\s*([A-Za-z][\w.\-]*\d[\w.\-]*|[A-Za-z][\w.\-]{1,40})\s*[»`\"']")
+_GOAL_MODEL = re.compile(r"(?:на|в|модель)\s+[«`\"']?([A-Za-z][\w.\-]{1,40})[»`\"']?\s*$", re.IGNORECASE)
+_KIND_WORDS = (
+    ("image", re.compile(r"картин|изображен|image|фото", re.IGNORECASE)),
+    ("video", re.compile(r"видео|ролик|анимац|video", re.IGNORECASE)),
+    ("text", re.compile(r"работ\w*\s+с\s+(?:gpt|гпт)|excel_gpt|текст|сценари|нод\w*\s+«?работа", re.IGNORECASE)),
+)
+UNKNOWN_MODEL_SHOWN = 5
+
+
+def _model_family(name: str) -> str:
+    return re.split(r"[\d\-_. ]", name.lower(), maxsplit=1)[0]
+
+
+def _model_score(want: str, model: dict) -> tuple:
+    import difflib
+    import os
+
+    ids = [str(model.get("id") or "").lower(), str(model.get("label") or "").lower()]
+    want = want.lower()
+    family = max(int(_model_family(want) == _model_family(x)) for x in ids)
+    prefix = max(len(os.path.commonprefix([want, x])) for x in ids)
+    ratio = max(difflib.SequenceMatcher(None, want, x).ratio() for x in ids)
+    return (family, prefix, ratio)
+
+
+def unknown_model_name(reason: str, goal: str = "") -> str:
+    """Имя модели, которой нет у ноды, из причины планировщика или из конца просьбы; пусто — не о том."""
+    text = reason or ""
+    if not _UNKNOWN_MODEL.search(text):
+        return ""
+    found = _QUOTED_MODEL.search(text)
+    if found:
+        return found.group(1).strip()
+    tail = _GOAL_MODEL.search(" ".join((goal or "").split()))
+    return tail.group(1).strip() if tail else ""
+
+
+def unknown_model_text(reason: str, goal: str = "", *, models_of=None) -> str:
+    """«Модели gpt-5 для этой ноды нет. Есть: gpt-5.6-sol, … Какую поставить?»; пусто — причина о другом.
+
+    ``models_of(kind)`` — каталог моделей ноды этого вида (по умолчанию ``node_edit.allowed_models``).
+    """
+    name = unknown_model_name(reason, goal)
+    if not name:
+        return ""
+    if models_of is None:
+        from app.services.node_edit import allowed_models as models_of
+    both = f"{reason} {goal}"
+    kind = next((k for k, rx in _KIND_WORDS if rx.search(both)), "")
+    kinds = [kind] if kind else ["text", "image", "video"]
+    pool: list[dict] = []
+    for item in kinds:
+        try:
+            pool.extend(m for m in models_of(item) or [] if isinstance(m, dict) and m.get("id"))
+        except Exception:  # noqa: BLE001 — без каталога ответ остаётся обычным
+            return ""
+    if not pool:
+        return ""
+    want = name.lower()
+    if any(want in {str(m.get("id") or "").lower(), str(m.get("label") or "").lower()} for m in pool):
+        return ""  # такая модель есть: причина о чём-то другом
+    ranked = sorted(pool, key=lambda m: _model_score(want, m), reverse=True)
+    shown = [str(m["id"]) for m in ranked[:UNKNOWN_MODEL_SHOWN]]
+    return f"Модели {name} для этой ноды нет. Есть: {', '.join(shown)}. Какую поставить?"
+
+
 # «[Скачать отчёт]( /api/projects/…)»: модель ставит пробел после скобки, ссылка показывалась текстом.
 _LINK_SPACES = re.compile(r"\]\(\s*([^\s()]+)\s*\)")
 

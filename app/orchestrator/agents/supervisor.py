@@ -174,6 +174,14 @@ _PLAN_BOUND_CARDS = frozenset({*approval_steps.PLAN_CARD_REASONS, "destructive"}
 _CRITIC_NO_REASON = "Критик не объяснил причину, поэтому план не отклонён: проверьте шаги и решите сами."
 _CRITIC_REJECTED = "Проверяющая модель против этого плана: {why}"
 _CRITIC_REVISED = "Проверяющая модель трижды просила переделать план, последнее замечание: {why}"
+_CRITIC_REVISED_SLOW = (
+    "Проверяющая модель просила переделать план, последнее замечание: {why}. "
+    "Чтобы не ждать новых кругов, решение за вами"
+)
+# Круг «планировщик → критик» на живых моделях идёт ~40 с. После revise, когда с начала
+# планирования прошло больше этого, новый круг не начинаем: карточка с замечанием критика.
+# Задача 334: «продолжи проект 10» три круга подряд висела в планировании >150 с.
+REVISE_TIME_BUDGET_S = 40.0
 _OTHER_GATED_STEPS = (
     "Это не весь план: в нём есть и другие шаги с оплатой или подтверждением (ещё {n}), "
     "у каждого будет своя карточка."
@@ -1804,8 +1812,10 @@ class Supervisor:
             task_id, session_id, "critic_reject", extra={"warnings": [note]} if note else None
         )
 
-    async def _critic_revised_out(self, task_id: int, session_id: str, plan: list[PlanStep]) -> None:
-        note = self._critic_note(task_id, _CRITIC_REVISED)
+    async def _critic_revised_out(
+        self, task_id: int, session_id: str, plan: list[PlanStep], *, slow: bool = False
+    ) -> None:
+        note = self._critic_note(task_id, _CRITIC_REVISED_SLOW if slow else _CRITIC_REVISED)
         if await self._blocked_step_card(task_id, session_id, plan, note):
             return
         await self._escalate_plan(task_id, session_id, plan, note)
@@ -2669,6 +2679,7 @@ class Supervisor:
         goal: str,
         context: str,
     ) -> list[PlanStep] | None:
+        started = _monotonic()
         plan = await self._make_plan(task_id, session_id, goal, context)
         if plan is None:
             return None
@@ -2707,6 +2718,11 @@ class Supervisor:
             revises += 1
             if revises > 2:
                 await self._critic_revised_out(task_id, session_id, plan)
+                return None
+            if _monotonic() - started > REVISE_TIME_BUDGET_S:
+                logger.info("orch task {} critic revise after {:.0f}s: card instead of a new round",
+                            task_id, _monotonic() - started)
+                await self._critic_revised_out(task_id, session_id, plan, slow=True)
                 return None
             context = (context + "\n" + self._critic_feedback(task_id, verdict)).strip()
             self._context[task_id] = context
@@ -3070,6 +3086,14 @@ class Supervisor:
             self._fail_detail[task_id] = ask
             self._code_answers.add(task_id)
             return
+        # «Модели gpt-5 нет у ноды»: просьбу поняли — спрашиваем, какую из моделей ноды поставить.
+        unknown = task_summary.unknown_model_text(
+            " ".join(str(self._planner_last(task_id, "last_reason") or "").split()) or why, goal
+        )
+        if unknown:
+            self._fail_detail[task_id] = unknown
+            self._code_answers.add(task_id)
+            return
         # «В каталоге нет действия для удаления проекта»: просьбу поняли, но чат так не умеет.
         missing = task_summary.missing_action_text(why, goal)
         if missing:
@@ -3149,6 +3173,12 @@ class Supervisor:
             await self._settle_stopped(task_id, session_id)
             return None
         if _free_read_plan(plan, self.actions):
+            return "approve"
+        if _resume_after_read_plan(plan, self.actions):
+            # «Продолжи проект 10»: [project.status, project.continue_pipeline]. Критик дважды
+            # просил «прочитать состояние», хотя чтение уже стоит первым шагом, и гонял планировщик
+            # по кругу >150 с. Продолжение само перепроверяет состояние условиями запуска в момент
+            # исполнения, а риск high всё равно идёт карточкой человеку.
             return "approve"
         if _queue_launch_plan(plan, self.actions):
             # «Запусти проекты 5 6 7 параллельно»: очередь и число параллельных идут только через
@@ -6303,6 +6333,40 @@ def _free_read_step(step: PlanStep, actions: Any) -> bool:
 
 def _free_read_plan(plan: list[PlanStep], actions: Any) -> bool:
     return bool(plan) and all(_free_read_step(step, actions) for step in plan)
+
+
+def _monotonic() -> float:
+    return time.monotonic()
+
+
+# Продолжение проекта: условия запуска (проект есть, на паузе или шаг готов, монтаж не идёт)
+# перечитывают живое состояние в момент исполнения, карточка подтверждения обязательна.
+RESUME_ACTIONS: frozenset[str] = frozenset({"project.continue_pipeline", "project.resume"})
+
+
+def _step_project(step: PlanStep) -> Any:
+    return (step.params or {}).get("project_id")
+
+
+def _resume_after_read_plan(plan: list[PlanStep], actions: Any) -> bool:
+    """План «бесплатные чтения → одно продолжение проекта» того же проекта: критику проверять нечего.
+
+    Чтение состояния этого проекта (project.status) уже стоит перед продолжением, а условия
+    запуска продолжения ещё раз проверяют живое состояние при исполнении. Без чтения или без
+    карточки (риск ниже порога) — критик остаётся.
+    """
+    resumes = [step for step in plan if step.action in RESUME_ACTIONS]
+    if len(resumes) != 1 or plan[-1] is not resumes[0]:
+        return False
+    target = _step_project(resumes[0])
+    if target in (None, "") or effective_risk(actions, resumes[0]) not in APPROVAL_RISKS:
+        return False
+    for step in plan[:-1]:
+        if not _free_read_step(step, actions):
+            return False
+        if _step_project(step) not in (None, target):
+            return False
+    return any(step.action == "project.status" and _step_project(step) == target for step in plan[:-1])
 
 
 # Шаги постановки в очередь: исполняются только после «Подтвердить» на карточке.

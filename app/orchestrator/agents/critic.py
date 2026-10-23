@@ -19,6 +19,8 @@ from app.orchestrator.agents.llm_call import router_call
 from app.orchestrator.agents.planner import NullRetriever
 from app.orchestrator.agents.retrieve import retrieve, rules_block
 from app.orchestrator.contracts import (
+    RUN_NODE_ACTIONS,
+    STATE_READ_ACTIONS,
     AgentRole,
     BudgetScope,
     Chunk,
@@ -92,6 +94,51 @@ def confirmation_only(reason: str) -> bool:
     return bool(confirm) and all(p in confirm or _WHY_PART.match(p) for p in parts)
 
 
+# «Нужно (повторно) прочитать актуальное состояние проекта перед запуском»: задача 334 гоняла
+# такой revise по кругу, хотя project.status уже стоял первым шагом плана.
+_READ_STATE = re.compile(r"прочит|чтени|статус|состояни", re.IGNORECASE)
+# Замечание о чём-то ещё (траты, удаление, модель, правило, другой проект) — оставляем revise.
+_OTHER_ISSUE = re.compile(
+    r"удал|лимит|трат|стоим|бюджет|модел|правил|кадр|сцен|подтвержд|согласи|параметр|промт|"
+    r"не\s+тот|друг\w*\s+проект|лишн|запрещ",
+    re.IGNORECASE,
+)
+
+
+def _changes_state(step: PlanStep) -> bool:
+    return bool(step.mutating or step.paid or step.action in RUN_NODE_ACTIONS)
+
+
+def _read_covers(read: PlanStep, step: PlanStep) -> bool:
+    if read.action not in STATE_READ_ACTIONS:
+        return False
+    params, wanted = read.params or {}, step.params or {}
+    pid = wanted.get("project_id")
+    if pid not in (None, "") and params.get("project_id") not in (None, pid):
+        return False
+    node = wanted.get("node_key")
+    if step.action.startswith("node.") and node:
+        # Смена модели или настроек ноды: правило — node.describe этой же ноды.
+        return read.action == "node.describe" and params.get("node_key") == node
+    return True
+
+
+def read_state_satisfied(plan: list[PlanStep], reason: str) -> bool:
+    """Revise «прочитай состояние» по плану, где чтение уже стоит перед каждым изменяющим шагом.
+
+    Шаги плана идут по порядку: чтение раньше изменения и есть «актуальное состояние перед
+    запуском». Условия запуска изменяющего шага ещё раз проверяют живое состояние в момент
+    исполнения, а подтверждение человека спрашивает карточка: риск шагов не снижается.
+    """
+    text = " ".join((reason or "").split())
+    if not text or not _READ_STATE.search(text) or _OTHER_ISSUE.search(text):
+        return False
+    changing = [i for i, step in enumerate(plan) if _changes_state(step)]
+    if not changing:
+        return False
+    return all(any(_read_covers(read, plan[i]) for read in plan[:i]) for i in changing)
+
+
 class PlanCritic:
     def __init__(self, router: Any, rag: Any | None = None) -> None:
         self.router = router
@@ -150,6 +197,9 @@ class PlanCritic:
             # Карточка подтверждения всё равно будет: риск шагов не снижается.
             logger.info("critic revise about confirmation ignored: {}", reason)
             verdict, reason = "approve", "подтверждение спросит карточка"
+        elif verdict == "revise" and read_state_satisfied(plan, reason):
+            logger.info("critic revise about reading state ignored: read precedes the step: {}", reason)
+            verdict, reason = "approve", "чтение состояния уже стоит перед шагом"
         if verdict == "approve":
             self.last_reason = reason
             return verdict
@@ -190,6 +240,11 @@ def _critic_system(rules: list[Chunk], block: str = "") -> str:
         "равен node_key — только эта нода, другой ключ — цепочка нод «Работа с GPT» по стрелкам до этой "
         "ноды включительно. Если человек сам попросил «дальше до отчёта / до ноды …», такая цепочка — "
         "его решение, а не нарушение правила.",
+        "Шаги плана выполняются строго по порядку: project.status или node.describe, стоящий в "
+        "плане раньше изменяющего шага, и есть чтение актуального состояния перед ним. Не проси "
+        "прочитать состояние ещё раз или «повторно непосредственно перед запуском».",
+        "project.continue_pipeline и project.resume сами перепроверяют живое состояние проекта "
+        "условиями запуска в момент исполнения и идут через карточку подтверждения.",
         "Правка промта prompt.edit_text: достаточно одного из полей append (дописать в конец), edits "
         "(замены) или text (весь текст); отсутствие остальных — не ошибка. Имена и значения "
         "параметров проверяет сервер по схеме действия: не отклоняй план из-за них.",
