@@ -609,6 +609,7 @@ function Header({ d }: { d: D }) {
             <Btn onClick={() => { setName(p?.name ?? ""); setHandle(p?.handle ?? ""); setEditing(true); }}><Pencil className="h-4 w-4" />Редактировать</Btn>
             <Btn onClick={() => fileRef.current?.click()}><Upload className="h-4 w-4" />Аватар</Btn>
             {p?.avatar_url ? <Btn danger onClick={() => delAv.mutate()} title="Удалить аватар"><Trash2 className="h-4 w-4" /></Btn> : null}
+            <Btn danger onClick={async () => { await authLogout(); location.href = "/login"; }} title="Выйти из аккаунта"><LogOut className="h-4 w-4" />Выйти</Btn>
           </div>
         ) : null}
       </div>
@@ -649,7 +650,15 @@ export function ProfilePage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/via-logo.png" alt="VIA" className="h-6 opacity-80" />
           <div className="flex-1" />
-          <span className="text-[13px] text-zinc-500">Профиль</span>
+          <button
+            type="button"
+            onClick={async () => { await authLogout(); location.href = "/login"; }}
+            className="inline-flex items-center gap-1.5 rounded-[10px] bg-white/[0.05] px-3 py-1.5 text-[13px] text-zinc-400 transition-colors hover:bg-rose-500/15 hover:text-rose-300"
+            title="Выйти из аккаунта"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Выйти
+          </button>
         </div>
         <Header d={d} />
         <div className="grid gap-4 lg:grid-cols-[250px_1fr]">
@@ -661,6 +670,16 @@ export function ProfilePage() {
                 {t.i}{t.t}
               </button>
             ))}
+            <div className="my-1.5 hidden border-t border-white/[0.06] lg:block" />
+            <button
+              type="button"
+              onClick={async () => { await authLogout(); location.href = "/login"; }}
+              className="flex shrink-0 items-center gap-2.5 rounded-[11px] px-3.5 py-2.5 text-left text-[15px] text-zinc-400 transition-all hover:bg-rose-500/10 hover:text-rose-300"
+              title="Выйти из текущей учётной записи"
+            >
+              <LogOut className="h-4 w-4" />
+              Выйти из аккаунта
+            </button>
           </nav>
           <div key={tab} className="min-w-0" style={{ animation: "vpFadeUp .3s ease both" }}>{body}</div>
         </div>
