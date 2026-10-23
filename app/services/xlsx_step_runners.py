@@ -1026,6 +1026,7 @@ async def run_img_pr_xlsx(
     # Этап 2 (C.2): чекпоинт привязан к входу шага — кадры (uuid+закадр),
     # карточки, мастер-промпт+хинт, стиль, контракт, модель. Смена любого
     # компонента (например правка мастер-промпта) сбрасывает done_uuids.
+    from app.generation_options import hollow_prompts_allowed
     from app.services.input_hash import (
         compute_input_hash,
         contract_fingerprint,
@@ -1049,6 +1050,9 @@ async def run_img_pr_xlsx(
             "general_plan": general_plan,
             "style_id": style_id,
             "plastilin": plastilin,
+            # Ops, принятые с IMAGES_ALLOW_HOLLOW_PROMPTS=true (заглушки), после
+            # выключения флага из чекпоинта не применяются.
+            "allow_hollow": hollow_prompts_allowed(),
         },
         fingerprint=contract_fingerprint("vp_img_pr"),
         prompt_hash=prompt_version_hash(master_text, hints=[img_pr_hint]),

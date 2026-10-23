@@ -308,6 +308,12 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                 good_ops = filter_ops_for_node(list(e.apply_ops), node_kind="img_pr")
                 if good_ops:
                     await _apply_img_pr_ops_once(project.id, good_ops)
+                    # Промты уже в базе — чекпоинт своё отработал. Иначе кадр, который
+                    # человек потом очистил, при повторе получил бы промт из чекпоинта
+                    # вместо новой генерации.
+                    from app.services import img_pr_batches as ipb
+
+                    ipb.clear_checkpoint(project.data_dir)
                     logger.info(
                         "[#{}] generate_image_prompts: no-source, applied ready ops={}",
                         project.id,

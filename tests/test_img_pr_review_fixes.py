@@ -244,12 +244,16 @@ def test_error_code_and_plain_text() -> None:
 # --- шаг: 2-я попытка только если есть пропущенные кадры --------------------------------------
 
 
-async def _run_step(monkeypatch, answer, *, prerun_runner: bool = False):
+async def _run_step(monkeypatch, answer, *, prerun_runner: bool = False,
+                    prerun_allow_hollow: bool = False, clear_and_rerun: int | None = None):
     """Настоящий раннер img_pr + настоящий шаг; GPT подменён, база — SQLite.
 
     ``answer(frame_number, call_no)`` → текст промта или None (кадр пропущен).
     ``prerun_runner`` — сначала отдельный прогон раннера (чекпоинт есть, база
     пуста): так шаг видит рестарт из чекпоинта.
+    ``prerun_allow_hollow`` — то же, но с IMAGES_ALLOW_HOLLOW_PROMPTS=true (раннер
+    принимает заглушки), шаг потом идёт с выключенным флагом.
+    ``clear_and_rerun`` — после шага человек стирает промт этого кадра, шаг снова.
     """
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -336,8 +340,22 @@ async def _run_step(monkeypatch, answer, *, prerun_runner: bool = False):
                     with pytest.raises(ipb.ImgPrNoSourceData):
                         await xsr.run_img_pr_xlsx(project, n_frames=3, project_id=2)
                     assert sorted(ipb.load_checkpoint(data).get("done_uuids") or []) == [f"{7:024x}"]
+                if prerun_allow_hollow:
+                    monkeypatch.setitem(settings.__dict__, "images_allow_hollow_prompts", True)
+                    await xsr.run_img_pr_xlsx(project, n_frames=3, project_id=2)
+                    assert len(ipb.load_checkpoint(data).get("done_uuids") or []) == 3
+                    monkeypatch.setitem(settings.__dict__, "images_allow_hollow_prompts", False)
                 with pytest.raises(Exception) as err:
                     await generate_image_prompts.run(session, project, SimpleNamespace())
+                if clear_and_rerun is not None:
+                    async with sessions() as s:
+                        fr = (await s.scalars(select(Frame).where(Frame.number == clear_and_rerun))).one()
+                        fr.image_prompt = None
+                        await s.commit()
+                    project.status = ProjectStatus.generating_image_prompts
+                    await session.commit()
+                    with pytest.raises(Exception) as err:
+                        await generate_image_prompts.run(session, project, SimpleNamespace())
             async with sessions() as s:
                 filled = {fr.number: (fr.image_prompt or "").strip()
                           for fr in (await s.scalars(select(Frame))).all()}
@@ -386,3 +404,31 @@ async def test_step_reasks_only_omitted_frame(monkeypatch) -> None:
     assert all(c == [7] for c in calls[1:]), calls
     assert isinstance(err, ipb.ImgPrNoSourceData) and err.frame_numbers == [5, 6]
     assert filled[7] == REAL[0]
+
+
+@pytest.mark.asyncio
+async def test_step_rerun_regenerates_frame_cleared_after_no_source_stop(monkeypatch) -> None:
+    """7 записан, человек его стёр: повтор шага пишет 7 заново, а не старый промт из чекпоинта."""
+
+    def answer(n: int, call_no: int) -> str | None:
+        if n in (5, 6):
+            return "Нет исходных данных для заполнения"
+        return REAL[0] if call_no == 1 else REAL[1]
+
+    calls, err, filled = await _run_step(monkeypatch, answer, clear_and_rerun=7)
+    assert calls == [[5, 6, 7], [5, 6, 7]], calls
+    assert isinstance(err, ipb.ImgPrNoSourceData) and err.frame_numbers == [5, 6]
+    assert filled[7] == REAL[1]
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_from_allow_hollow_run_is_not_applied_after_flag_off(monkeypatch) -> None:
+    """Чекпоинт с заглушками, принятыми при IMAGES_ALLOW_HOLLOW_PROMPTS=true, — не вход без флага."""
+
+    def answer(n: int, _call_no: int) -> str | None:
+        return HOLLOW_REAL[0] if n in (5, 6) else REAL[0]
+
+    calls, err, filled = await _run_step(monkeypatch, answer, prerun_allow_hollow=True)
+    assert calls == [[5, 6, 7], [5, 6, 7]], calls
+    assert isinstance(err, ipb.ImgPrNoSourceData) and err.frame_numbers == [5, 6]
+    assert filled[5] == "" and filled[6] == "" and filled[7] == REAL[0]
