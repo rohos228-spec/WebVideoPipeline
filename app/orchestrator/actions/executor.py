@@ -617,6 +617,13 @@ async def settings_diff(name: str, params: dict | None) -> dict | None:
     return await diff(dict(params or {}))
 
 
+async def launch_blockers(name: str, params: dict | None) -> dict | None:
+    """Массовый запуск: проекты, которые упрутся в условие запуска, и почему (по одному)."""
+    from app.services.action_layer.launch_split import launch_blockers as probe
+
+    return await probe(str(name), dict(params or {}))
+
+
 def plan_required(name: str) -> bool:
     from app.services import orch_bridge
 

@@ -437,6 +437,8 @@ class Supervisor:
         self._settings_skipped: dict[int, str] = {}
         # Запуск нескольких проектов участником: окно параллели не меняем, строка на карточке.
         self._launch_note: dict[int, str] = {}
+        # Массовый запуск: кого не поставили (жёсткое условие запуска) — первой строкой карточки.
+        self._launch_skipped: dict[int, str] = {}
         self._unknown_step: dict[int, dict[str, Any]] = {}
         self._appr_seq: dict[int, int] = {}
         self._appr_open: dict[int, str | None] = {}
@@ -2698,6 +2700,7 @@ class Supervisor:
             tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions)) for step in resolved
         ]
         plan, nothing = await self._drop_unchanged_settings(task_id, plan, goal)
+        plan = await self._drop_blocked_launches(task_id, plan, session_id)
         if nothing:
             # «В проекте #5 модель картинок уже GPT Image 2, менять нечего»: ответ без карточки.
             await write_on_loop(self._save_plan, task_id, [])
@@ -2790,17 +2793,119 @@ class Supervisor:
         return name not in member_hidden_actions()
 
     def _settings_card_note(self, task_id: int, body: dict[str, Any]) -> None:
-        """«Окно параллели меняет только админ», «Пропущено 4 проекта, менять там нечего» — первыми
-        строками предупреждений карточки."""
+        """«Не поставлены в очередь: #10 — …», «Окно параллели меняет только админ», «Пропущено
+        4 проекта, менять там нечего» — первыми строками предупреждений карточки."""
         notes = [
             note
-            for note in (self._launch_note.get(int(task_id)), self._settings_skipped.get(int(task_id)))
+            for note in (
+                self._launch_skipped.get(int(task_id)),
+                self._launch_note.get(int(task_id)),
+                self._settings_skipped.get(int(task_id)),
+            )
             if note
         ]
         if not notes:
             return
         warnings = [w for w in body.get("warnings") or [] if w not in notes]
         body["warnings"] = [*notes, *warnings]
+
+    async def _launch_blocked(
+        self, probe: Any, task_id: int, step: PlanStep, session_id: str | None = None
+    ) -> dict[int, str]:
+        from app.services.orch_tenancy import session_tenant
+        from app.services.tenant import current_tenant, tenant_scope
+
+        # Проверка — под арендатором сессии чата: условия запуска видят только свои проекты.
+        tenant = session_tenant(session_id) if session_id else current_tenant()
+        try:
+            with tenant_scope(tenant):
+                found = await probe(step.action, dict(step.params))
+        except Exception:
+            logger.exception("orch launch blockers failed for task {}", task_id)
+            return {}
+        out: dict[int, str] = {}
+        items = found.get("blocked") if isinstance(found, dict) else None
+        for item in items if isinstance(items, list) else []:
+            pid = item.get("project_id") if isinstance(item, dict) else None
+            if isinstance(pid, int) and not isinstance(pid, bool):
+                out[pid] = str(item.get("reason_ru") or item.get("reason") or "условие запуска не выполнено")
+        return out
+
+    async def _drop_blocked_launches(
+        self, task_id: int, plan: list[PlanStep], session_id: str | None = None
+    ) -> list[PlanStep]:
+        """Массовый запуск без проектов, которые упрутся в жёсткое условие запуска.
+
+        «Запусти проекты 3..12»: проект без данных сцены не держит девять готовых — его номер
+        уходит из шага до карточки, карточка первой строкой говорит, кого и почему не
+        поставили и как запустить потом. Карточка и executor проверяют оставшихся как обычно,
+        подтверждение человека остаётся. Если не проходит ни один проект или проект один —
+        план не трогаем: карточка покажет отказ, как раньше.
+        """
+        self._launch_skipped.pop(task_id, None)
+        probe = getattr(self.actions, "launch_blockers", None)
+        if not callable(probe):
+            return plan
+        out = list(plan)
+        notes: list[str] = []
+        for at, step in enumerate(out):
+            if step.action != "queue.enqueue_many":
+                continue
+            ids = [
+                pid
+                for pid in step.params.get("project_ids") or []
+                if isinstance(pid, int) and not isinstance(pid, bool)
+            ]
+            if len(ids) < 2:
+                continue
+            blocked = await self._launch_blocked(probe, task_id, step, session_id)
+            dropped = [(pid, blocked[pid]) for pid in ids if pid in blocked]
+            kept = [pid for pid in ids if pid not in blocked]
+            if not dropped or not kept:
+                continue
+            out[at] = step.model_copy(update={"params": {**step.params, "project_ids": kept}})
+            notes.append(
+                _blocked_launch_text(
+                    "Не поставлены в очередь",
+                    dropped,
+                    len(kept),
+                    ("ставится в очередь как обычно", "ставятся в очередь как обычно"),
+                )
+            )
+        runs = [step for step in out if step.action == "step.run_step"]
+        others = [step for step in out if step.action != "step.run_step"]
+        projects = [_step_project(step) for step in runs]
+        # Шаг на проект: только когда кроме запусков в плане одни чтения (сверка состояния).
+        if (
+            len(runs) >= 2
+            and None not in projects
+            and len(set(projects)) == len(runs)
+            and all(not step.mutating and not step.paid for step in others)
+        ):
+            dropped_runs: list[tuple[int, str]] = []
+            gone: set[int] = set()
+            for at, step in enumerate(out):
+                pid = _step_project(step)
+                if step.action != "step.run_step" or pid is None:
+                    continue
+                reason = (await self._launch_blocked(probe, task_id, step, session_id)).get(pid)
+                if reason:
+                    dropped_runs.append((pid, reason))
+                    gone.add(at)
+            if dropped_runs and len(gone) < len(runs):
+                out = [step for at, step in enumerate(out) if at not in gone]
+                notes.append(
+                    _blocked_launch_text(
+                        "Не запущены",
+                        dropped_runs,
+                        len(runs) - len(gone),
+                        ("запускается как обычно", "запускаются как обычно"),
+                    )
+                )
+        if notes:
+            self._launch_skipped[task_id] = " ".join(notes)
+            logger.info("orch task {} launch: dropped blocked projects: {}", task_id, notes)
+        return out
 
     def _with_defaults(self, step: PlanStep) -> PlanStep:
         fill = getattr(self.actions, "plan_defaults", None)
@@ -5922,6 +6027,21 @@ def _same_of(skipped: list[tuple[int | None, str]]) -> str:
     """Общая для всех пропущенных фраза «модель картинок уже GPT Image 2», иначе пусто."""
     texts = [text for _, text in skipped]
     return texts[0] if texts and texts[0] and all(text == texts[0] for text in texts) else ""
+
+
+def _blocked_launch_text(head: str, dropped: list[tuple[int, str]], kept: int, goes: tuple[str, str]) -> str:
+    """«Не поставлены в очередь: #10 — кадры без данных сцены, …» и как запустить их потом."""
+    why = ". ".join(f"#{pid} — {reason.rstrip('.')}" for pid, reason in dropped)
+    one = len(dropped) == 1
+    ids = ", ".join(str(pid) for pid, _ in dropped)
+    rest = (
+        f"Остальные {kept} {_projects_word(kept)} {goes[1]}." if kept > 1 else f"Остальной проект {goes[0]}."
+    )
+    later = (
+        f"Когда причина будет устранена, {'проект' if one else 'эти проекты'} можно запустить "
+        f"отдельно: «запусти {'проект' if one else 'проекты'} {ids}»."
+    )
+    return f"{head}: {why}. {rest} {later}"
 
 
 def _skipped_text(skipped: list[tuple[int | None, str]]) -> str:

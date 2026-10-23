@@ -539,6 +539,18 @@ def _who_fills(meta: Any, keys: list[str]) -> str:
     return f"{head} {_gpt_nodes_ru(meta, keys)}"
 
 
+def no_scene_short(meta: Any, node_runs: Iterable[dict] | None) -> str:
+    """Коротко для списка «не поставлены в очередь»: «кадры без данных сцены, сначала запустите ноду …»."""
+    from app.services.action_layer.builtin_group import node_label_ru
+
+    idle, jumped = _idle_fillers(meta, node_runs)
+    keys = jumped or idle or scene_nodes_before_img_pr(meta)
+    if not keys:
+        return "кадры без данных сцены, сначала запустите ноду «Работа с GPT», которая заполняет сцены"
+    names = ", ".join(f"«{node_label_ru(meta, k)}»" for k in keys)
+    return f"кадры без данных сцены, сначала запустите {'ноду' if len(keys) == 1 else 'ноды'} {names}"
+
+
 def no_scene_text(pid: int, empty: list[int], total: int, meta: Any, node_runs: Iterable[dict] | None) -> str:
     idle, jumped = _idle_fillers(meta, node_runs)
     keys = idle or scene_nodes_before_img_pr(meta)
