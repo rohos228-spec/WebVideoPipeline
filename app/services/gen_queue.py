@@ -95,6 +95,27 @@ def project_gated_by_gen_queue(project_id: int) -> bool:
     return bool(queue) and project_id not in queue
 
 
+async def project_gated_by_own_gen_queue(session: AsyncSession, project: Project) -> bool:
+    """Gate очереди для автопродвижения — только по номерам того же владельца, что у проекта.
+
+    Файл очереди один на студию. Номер в очереди клиента А не должен
+    останавливать автопродвижение проектов клиента Б (и владельца): гейт
+    срабатывает, только если в очереди есть номера того же арендатора, что у
+    проекта, а самого проекта среди них нет. Без арендаторов (SQLite, режим
+    владельца) всё ничьё — ровно прежний ``project_gated_by_gen_queue``.
+    """
+    if not project_gated_by_gen_queue(project.id):
+        return False
+    queue = get_gen_queue()
+    if not queue:
+        return False
+    raw_owner = getattr(project, "tenant_id", None)
+    owner = None if raw_owner is None else str(raw_owner)
+    rows = (await session.execute(select(Project.id, Project.tenant_id).where(Project.id.in_(queue)))).all()
+    same = {int(pid) for pid, tid in rows if (None if tid is None else str(tid)) == owner}
+    return bool(same) and project.id not in same
+
+
 def enrich_ready_bypasses_gen_queue(project: Project) -> bool:
     """enrich_N_ready + на канвасе есть следующий незавершённый excel_gpt.
 

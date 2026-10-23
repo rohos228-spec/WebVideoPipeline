@@ -1408,9 +1408,9 @@ async def maybe_auto_advance(
         )
         return False
 
-    from app.services.gen_queue import project_gated_by_gen_queue
+    from app.services.gen_queue import project_gated_by_own_gen_queue
 
-    if project_gated_by_gen_queue(project.id):
+    if await project_gated_by_own_gen_queue(session, project):
         from app.services.gen_queue import enrich_ready_bypasses_gen_queue
 
         if enrich_ready_bypasses_gen_queue(project):

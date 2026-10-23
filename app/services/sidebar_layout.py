@@ -118,13 +118,39 @@ def _dedupe_incoming_folders(
         fid = str(rec.get("id") or "")
         if not fid or fid in foreign or fid in seen:
             new_id = _new_folder_id(taken | seen | set(remap.values()))
-            if fid:
+            # Раскладка идёт за первой копией номера: чужой номер — в первую
+            # свежую, а повтор своего номера в той же правке её не перетягивает
+            # (иначе первая папка осталась бы пустой).
+            if fid and fid in foreign:
                 remap.setdefault(fid, new_id)
             rec["id"] = new_id
             fid = new_id
         seen.add(fid)
         out.append(rec)
     return out, remap
+
+
+def _own_folder_ref(data: dict[str, Any], tenant: str | None, folder_id: Any) -> str | None:
+    """Номер папки из запроса арендатора — только его собственной.
+
+    Номер приходит от клиента (``PUT project_layout``, ``POST /projects``). Чужой
+    номер (папка владельца, общая папка до разделения, папка другого арендатора)
+    иначе попал бы в раскладку, а чтение копировало бы общую папку с её именем.
+    Номер общей папки, которую арендатор уже получил копией (старая вкладка),
+    ведёт в эту копию; любой другой чужой — в корень. Владелец — без проверки.
+    """
+    if not folder_id:
+        return None
+    fid = str(folder_id)
+    if tenant is None:
+        return fid
+    mine = _folders_of(data, tenant)
+    if any(str(f.get("id")) == fid for f in mine):
+        return fid
+    for f in mine:
+        if str(f.get("adopted_from") or "") == fid:
+            return str(f.get("id"))
+    return None
 
 
 def _set_folders(data: dict[str, Any], tenant: str | None, folders: list[dict[str, Any]]) -> None:
@@ -385,6 +411,7 @@ def ensure_project_layout(project_id: int, *, folder_id: str | None = None) -> N
     key = str(project_id)
     if key in layout:
         return
+    folder_id = _own_folder_ref(data, _tenant_now(), folder_id)
     siblings = [
         _project_layout_entry(layout, int(k))
         for k in layout
@@ -421,8 +448,8 @@ def update_layout(
     чужие места в сайдбаре и чужие номера очереди остаются как были.
     ``folders`` — папки того, кто правит (арендатора или владельца), см. ``_folders_of``."""
     data = load_layout()
+    tenant = _tenant_now()
     if folders is not None:
-        tenant = _tenant_now()
         clean, remap = _dedupe_incoming_folders(data, tenant, [f for f in folders if isinstance(f, dict)])
         _set_folders(data, tenant, clean)
         if remap and project_layout is not None:
@@ -434,6 +461,16 @@ def update_layout(
                 )
                 for k, v in project_layout.items()
             }
+    if project_layout is not None and tenant is not None:
+        # Место арендатора — только в его папке (см. ``_own_folder_ref``).
+        project_layout = {
+            k: (
+                {**v, "folder_id": _own_folder_ref(data, tenant, v.get("folder_id"))}
+                if isinstance(v, dict) and v.get("folder_id")
+                else v
+            )
+            for k, v in project_layout.items()
+        }
     if project_layout is not None:
         if own_ids is None:
             data["project_layout"] = project_layout
@@ -505,13 +542,21 @@ def _adopt_legacy_folders(data: dict[str, Any], tenant: str, project_ids: set[in
     mine = _folders_of(data, tenant)
     known = {str(f.get("id")) for f in mine}
     layout: dict[str, Any] = dict(data.get("project_layout") or {})
+    # Общая папка, уже скопированная арендатору, второй копии не получает:
+    # место, позже указавшее на её прежний номер, идёт в ту же копию.
+    adopted = {str(f.get("adopted_from")): str(f.get("id")) for f in mine if f.get("adopted_from")}
     remap: dict[str, str] = {}
+    changed = False
     taken = _all_folder_ids(data)
     for key, val in layout.items():
         if not (str(key).lstrip("-").isdigit() and int(key) in project_ids) or not isinstance(val, dict):
             continue
         fid = str(val.get("folder_id") or "")
         if not fid or fid in known or fid not in legacy:
+            continue
+        if fid in adopted:
+            layout[key] = {**val, "folder_id": adopted[fid]}
+            changed = True
             continue
         if fid not in remap:
             new_id = _new_folder_id(taken)
@@ -528,9 +573,10 @@ def _adopt_legacy_folders(data: dict[str, Any], tenant: str, project_ids: set[in
                 }
             )
         layout[key] = {**val, "folder_id": remap[fid]}
-    if not remap:
+    if not remap and not changed:
         return False
-    _set_folders(data, tenant, mine)
+    if remap:
+        _set_folders(data, tenant, mine)
     data["project_layout"] = layout
     return True
 

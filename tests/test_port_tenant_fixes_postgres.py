@@ -483,9 +483,9 @@ async def test_worker_serve_check_remembers_no_for_same_candidates(pg, monkeypat
     calls: list = []
     real = wr._tenant_needs_tick
 
-    async def _counted(factory, tenant, waiting_ids, new_ids):
+    async def _counted(factory, tenant, *ids):
         calls.append(tenant)
-        return await real(factory, tenant, waiting_ids, new_ids)
+        return await real(factory, tenant, *ids)
 
     monkeypatch.setattr(wr, "_tenant_needs_tick", _counted)
     running = [st.value for st in WORKER_ACTIVE_STATUSES]
@@ -506,3 +506,171 @@ async def test_worker_serve_check_remembers_no_for_same_candidates(pg, monkeypat
     await _set(pg, a, pid, status=ProjectStatus.script_ready, auto_mode=True)
     assert a in await _tick()
     assert calls.count(a) == 2
+
+
+# ── раунд 4: флаги без смены статуса, сон после ошибок, чужая очередь ────────
+
+
+async def _tick_no_reset(pg):  # noqa: F811
+    from app.orchestrator.node_registry import WORKER_ACTIVE_STATUSES
+    from app.services import work_routing as wr
+    from app.services.tenant import tenant_scope
+
+    with tenant_scope(None):
+        async with pg["factory"]() as s:
+            return await wr.tenants_to_serve(
+                s,
+                [st.value for st in WORKER_ACTIVE_STATUSES],
+                [],
+                waiting=wr.waiting_statuses(),
+                session_factory=pg["factory"],
+            )
+
+
+async def _orm_edit(pg, tenant, pid, fn) -> None:  # noqa: F811
+    """Правка проекта через ORM и коммит — как в ручках (⏹ снят, «ждём ▶» снят, семья снята)."""
+    from app.models import Project
+    from app.services.tenant import tenant_scope
+
+    with tenant_scope(tenant):
+        async with pg["factory"]() as s:
+            p = await s.get(Project, pid)
+            fn(p)
+            await s.commit()
+
+
+async def test_worker_serves_next_tick_after_flag_cleared_without_status_change(pg) -> None:  # noqa: F811
+    from app.models import ProjectStatus
+    from app.services import work_routing as wr
+    from app.services.project_control import (
+        MASS_FAMILY_HALTED_KEY,
+        clear_auto_await_manual_start,
+        clear_mass_family_halt,
+        clear_user_stop_gate,
+    )
+
+    a = pg["a"].user_id
+    # P1: ⏹ снят, статус тот же.
+    stopped = await _project_of(
+        pg, a, title="A ⏹", status=ProjectStatus.script_ready, meta={"user_stop": True}
+    )
+    wr.reset_serve_cache()
+    assert a not in await _tick_no_reset(pg)
+    assert a not in await _tick_no_reset(pg)  # память: тот же ответ без проверки
+    await _orm_edit(pg, a, stopped, clear_user_stop_gate)
+    assert a in await _tick_no_reset(pg)
+
+    # P2: «ждём ручной ▶» снят, статус тот же.
+    await _orm_edit(pg, a, stopped, lambda p: setattr(p, "status", ProjectStatus.published))
+    waiting = await _project_of(
+        pg, a, title="A ждёт ▶", status=ProjectStatus.plan_ready, meta={"auto_await_manual_start": True}
+    )
+    wr.reset_serve_cache()
+    assert a not in await _tick_no_reset(pg)
+    await _orm_edit(pg, a, waiting, clear_auto_await_manual_start)
+    assert a in await _tick_no_reset(pg)
+
+    # P3: семья снята со стопа, полосы остаются в `new`.
+    await _orm_edit(pg, a, waiting, lambda p: setattr(p, "status", ProjectStatus.published))
+    parent = await _project_of(
+        pg, a, title="A родитель", status=ProjectStatus.published, meta={MASS_FAMILY_HALTED_KEY: True}
+    )
+    await _project_of(pg, a, title="A полоса", meta={"mass_parent_id": parent, "mass_lane_position": 1})
+    wr.reset_serve_cache()
+    assert a not in await _tick_no_reset(pg)
+    await _orm_edit(pg, a, parent, clear_mass_family_halt)
+    assert a in await _tick_no_reset(pg)
+    wr.reset_serve_cache()
+
+
+async def test_worker_serves_tenant_whose_error_sleep_expired(pg) -> None:  # noqa: F811
+    from datetime import UTC, datetime, timedelta
+
+    from app.models import ProjectStatus
+    from app.services import work_routing as wr
+
+    a, b = pg["a"].user_id, pg["b"].user_id
+    fs = {"last_running": ProjectStatus.scripting.value}
+    past = (datetime.now(UTC) - timedelta(seconds=5)).isoformat()
+    future = (datetime.now(UTC) + timedelta(seconds=8)).isoformat()
+    await _project_of(
+        pg,
+        a,
+        title="A спит, срок вышел",
+        status=ProjectStatus.paused,
+        meta={"step_failure": {**fs, "sleep_until": past}},
+    )
+    await _project_of(
+        pg,
+        b,
+        title="B спит ещё",
+        status=ProjectStatus.paused,
+        meta={"step_failure": {**fs, "sleep_until": future}},
+    )
+    wr.reset_serve_cache()
+    served = await _tick_no_reset(pg)
+    # Автоповтор после сна — только в проходе арендатора: А его получает, Б пока нет.
+    assert a in served and b not in served
+    # «Не нужен» для Б помнится не дольше, чем до его пробуждения.
+    import time
+
+    _sig, until = wr._negative_cache[str(b)]
+    assert until - time.monotonic() <= 8.5
+    wr.reset_serve_cache()
+
+
+async def test_worker_skips_mass_lane_without_auto_mode(pg) -> None:  # noqa: F811
+    from app.models import ProjectStatus
+
+    a = pg["a"].user_id
+    parent = await _project_of(pg, a, title="A родитель", status=ProjectStatus.published)
+    lane = await _project_of(pg, a, title="A полоса без auto", meta={"mass_parent_id": parent})
+    await _set(pg, a, lane, auto_mode=False)
+    assert a not in await _serve(pg)
+
+
+async def test_other_tenant_queue_does_not_gate_auto_advance(pg, monkeypatch) -> None:  # noqa: F811
+    from app.models import Project, ProjectStatus
+    from app.services import gen_queue as gq
+    from app.services.tenant import tenant_scope
+
+    a, b = pg["a"].user_id, pg["b"].user_id
+    queued_a = await _project_of(pg, a, title="A в очереди")
+    other_a = await _project_of(pg, a, title="A вне очереди", status=ProjectStatus.plan_ready)
+    pid_b = await _project_of(pg, b, title="B ждёт автопродвижения", status=ProjectStatus.plan_ready)
+    monkeypatch.setattr(gq, "get_gen_queue", lambda: [queued_a])
+    with tenant_scope(b):
+        async with pg["factory"]() as s:
+            assert await gq.project_gated_by_own_gen_queue(s, await s.get(Project, pid_b)) is False
+    with tenant_scope(a):
+        async with pg["factory"]() as s:
+            # Своя очередь держит, как прежде.
+            assert await gq.project_gated_by_own_gen_queue(s, await s.get(Project, other_a)) is True
+    with tenant_scope(None):
+        async with pg["factory"]() as s:
+            owner_pid = await _owner_project(s)
+            try:
+                assert await gq.project_gated_by_own_gen_queue(s, await s.get(Project, owner_pid)) is False
+            finally:
+                # База между тестами не чистится: проект владельца другим тестам не оставляем.
+                await s.delete(await s.get(Project, owner_pid))
+                await s.commit()
+
+
+async def _owner_project(s) -> int:
+    import uuid as _uuid
+
+    from app.models import Project, ProjectStatus
+
+    p = Project(
+        slug=f"own-{_uuid.uuid4().hex[:8]}",
+        title="владелец",
+        topic="t",
+        status=ProjectStatus.plan_ready,
+        hero_mode="no_hero",
+        auto_mode=True,
+        meta={},
+    )
+    s.add(p)
+    await s.commit()
+    return p.id
