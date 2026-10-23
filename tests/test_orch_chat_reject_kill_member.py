@@ -64,7 +64,7 @@ async def env(tmp_path, monkeypatch):
     a = await ah.make_account(factory, email="rk-a@studio.local")
     b = await ah.make_account(factory, email="rk-b@studio.local")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        yield {"client": client, "runtime": runtime, "a": a, "b": b}
+        yield {"client": client, "runtime": runtime, "a": a, "b": b, "factory": factory}
     set_identity(None)
     await runtime.queue.drain(timeout=5.0)
     set_runtime(None)
@@ -101,3 +101,30 @@ async def test_member_reaches_the_chat_notice_feed(env) -> None:
     assert res.json()["notices"] == []
     missing = await env["client"].post("/api/chat-notices/999999/read", headers=env["a"].auth)
     assert missing.status_code == 404
+
+
+async def test_chat_notice_feed_hides_money_from_member_only(env, monkeypatch, tmp_path) -> None:
+    """Список и «прочитано» ленты уведомлений: участнику — без сумм, админу — как есть."""
+    from app.services import chat_notice
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "sqlite_path", tmp_path / "notices-state.db")
+    chat_notice.reset()
+    _status, made = await chat_notice.send(None, "warn", "Потолок", "Потрачено 48.20 USD из $50", kind="spend_cap")
+    assert made is not None
+    client = env["client"]
+    member = await client.get("/api/chat-notices", headers=env["a"].auth)
+    assert member.status_code == 200, member.text
+    assert "48.20" not in member.text and "$50" not in member.text
+    read = await client.post(f"/api/chat-notices/{made['id']}/read", headers=env["a"].auth)
+    assert read.status_code == 200 and "48.20" not in read.text
+    admin = await client.get("/api/chat-notices", headers=await _admin_headers(env))
+    assert "48.20 USD" in admin.text
+
+
+async def _admin_headers(env) -> dict:
+    from tests import accounts_harness as ah
+
+    if "admin" not in env:
+        env["admin"] = await ah.make_admin(env["factory"], email="rk-admin@studio.local")
+    return env["admin"].auth
