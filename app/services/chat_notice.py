@@ -666,6 +666,17 @@ async def step_failure(project: Any, action: str, error: BaseException | None = 
             suggested_actions=actions,
         )
     if action == "pause_infra":
+        if err_code == "img_pr_no_scene_data":
+            # last_error уже готовый текст: каким кадрам и какой шаг запустить.
+            return await notice(
+                pid,
+                "error",
+                f"Проект на паузе: шаг «{name}»",
+                f"Причина: {reason}" if reason else "Причина: у сцен нет исходных данных.",
+                kind="step_failure_pause_no_source",
+                dedup_key=f"step_failure_pause_no_source:{pid}:{running}",
+                dedup_window_s=600,
+            )
         if err_code in {"gpt_credits", "media_credits"}:
             why = "у провайдера закончились деньги на балансе"
         elif err_code == "infra_db_locked":
@@ -678,7 +689,7 @@ async def step_failure(project: Any, action: str, error: BaseException | None = 
             f"Проект на паузе: шаг «{name}»",
             f"Причина: {why}. {detail} Исправьте причину и продолжите проект вручную.",
             kind="step_failure_pause_infra",
-            dedup_key=f"step_failure_pause:{pid}:{running}",
+            dedup_key=f"step_failure_pause_infra:{err_code or 'other'}:{pid}:{running}",
             dedup_window_s=600,
         )
     return None

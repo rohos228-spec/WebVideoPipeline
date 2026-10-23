@@ -85,6 +85,69 @@ async def _reload_frames(session: AsyncSession, project_id: int) -> list[Frame]:
     )
 
 
+async def _scene_fingerprint(
+    session: AsyncSession, frames: list[Frame], numbers: set[int]
+) -> str:
+    """Слепок входа сцен для кадров ``numbers`` (поля кадра + их строки Scene)."""
+    from app.models import Scene
+    from app.services import img_pr_batches as ipb
+
+    picked = [fr for fr in frames if fr.number in numbers]
+    scene_ids = {fr.scene_id for fr in picked if fr.scene_id}
+    scenes: list = []
+    if scene_ids:
+        scenes = list(
+            (await session.execute(select(Scene).where(Scene.id.in_(scene_ids))))
+            .scalars()
+            .all()
+        )
+    return ipb.scene_input_fingerprint(picked, scenes)
+
+
+async def _raise_if_no_source_unchanged(
+    session: AsyncSession, project: Project, frames: list[Frame], need: list[Frame]
+) -> None:
+    """Прошлый запуск встал на «нет исходных данных», а данные сцен те же — модель не зовём.
+
+    Повтор того же входа даёт тот же ответ (платный вызов впустую). Шаг сразу
+    сообщает ту же причину, политика отказов снова ставит проект на паузу.
+    """
+    from app.services import img_pr_batches as ipb
+
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    fs = meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {}
+    guard = fs.get(ipb.NO_SOURCE_GUARD_KEY)
+    if not isinstance(guard, dict):
+        return
+    if not guard.get("fingerprint"):
+        logger.warning(
+            "[#{}] img_pr: пауза «нет исходных данных» (кадры {}) без слепка данных сцен — "
+            "проверка до вызова модели отключена, шаг пойдёт в модель",
+            project.id,
+            guard.get("frame_numbers"),
+        )
+        return
+    try:
+        nums = {int(n) for n in guard.get("frame_numbers") or []}
+    except (TypeError, ValueError):
+        return
+    if not nums or not nums <= {fr.number for fr in need}:
+        return
+    fp = await _scene_fingerprint(session, frames, nums)
+    if fp != guard.get("fingerprint"):
+        logger.info(
+            "[#{}] img_pr: данные сцен изменились после паузы «нет исходных данных» — запускаю",
+            project.id,
+        )
+        return
+    logger.warning(
+        "[#{}] img_pr: данные сцен кадров {} не менялись с паузы — без вызова модели",
+        project.id,
+        sorted(nums),
+    )
+    raise ipb.ImgPrNoSourceData(sorted(nums), scene_fingerprint=fp)
+
+
 async def _finish_success(session: AsyncSession, project: Project, frames: list[Frame]) -> None:
     filled = _frames_with_image_prompt(frames)
     still_missing = _frames_needing_image_prompt(frames)
@@ -211,6 +274,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             bare[:12],
         )
 
+    # До любого вызова модели: пауза «нет исходных данных» и вход сцен не менялся.
+    await _raise_if_no_source_unchanged(session, project, frames, need)
+
     uuid_map = "\n".join(f"кадр {fr.number} = {fr.uuid}" for fr in need if fr.uuid)
     if not uuid_map.strip():
         raise RuntimeError("у кадров нет uuid — backfill не сработал")
@@ -223,6 +289,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
 
     cancelled = False
     last_err: Exception | None = None
+    # Кадры «нет данных сцены» с 1-й попытки: во 2-ю их не шлём (тот же вход — тот же
+    # ответ, лишний платный батч); пауза потом называет их вместе с остальными.
+    no_source_skip: set[int] = set()
     # Отпустить write-txn на время GPT — иначе SQLite lock / UI 500.
     await session.commit()
     for attempt in range(1, 3):
@@ -235,11 +304,15 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         try:
             from app.services import xlsx_step_runners as xsr
 
+            run_kwargs: dict = {}
+            if no_source_skip:
+                run_kwargs["skip_frame_numbers"] = set(no_source_skip)
             result = await xsr.run_img_pr_xlsx(
                 project,
                 n_frames=len(need),
                 project_id=project.id,
                 uuid_map_text=uuid_map,
+                **run_kwargs,
             )
             ops = list(result.apply_ops or [])
             if ops:
@@ -282,6 +355,10 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             if not need:
                 break
             missing = [fr.number for fr in need]
+            if no_source_skip and set(missing) <= no_source_skip:
+                from app.services.img_pr_batches import ImgPrNoSourceData
+
+                raise ImgPrNoSourceData(sorted(set(missing)))
             raise RuntimeError(
                 f"после apply-ops промты не заполнены (попытка {attempt}): "
                 f"кадры {missing[:20]}{'…' if len(missing) > 20 else ''} "
@@ -298,6 +375,10 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             from app.services.img_pr_batches import ImgPrNoSourceData
 
             no_source = isinstance(e, ImgPrNoSourceData)
+            if no_source and no_source_skip and not no_source_skip <= set(e.frame_numbers):
+                # 2-я попытка: свои «нет данных» + пропущенные с 1-й — одна пауза на все.
+                e = ImgPrNoSourceData(sorted(set(e.frame_numbers) | no_source_skip), apply_ops=e.apply_ops)
+                last_err = e
             only_no_source = False
             if no_source and e.apply_ops:
                 # Готовые промты остальных кадров (прогон + чекпоинт) — в базу до
@@ -332,10 +413,25 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                         project.id,
                         reload_err,
                     )
+            if no_source and not only_no_source:
+                no_source_skip |= set(e.frame_numbers)
             if attempt >= 2 or only_no_source:
                 if no_source:
                     # Свой код ошибки (error_catalog: img_pr_no_scene_data) и
                     # короткий текст для человека — без обёртки с именами шагов.
+                    # Слепок входа сцен: по нему следующий запуск не зовёт модель зря.
+                    try:
+                        e.context["scene_fingerprint"] = await _scene_fingerprint(
+                            session,
+                            await _reload_frames(session, project.id),
+                            set(e.frame_numbers),
+                        )
+                    except Exception as fp_err:  # noqa: BLE001
+                        logger.warning(
+                            "[#{}] img_pr: слепок данных сцен не снят: {}",
+                            project.id,
+                            fp_err,
+                        )
                     raise e
                 raise RuntimeError(f"generate_image_prompts: не удалось получить промты: {e}") from e
 

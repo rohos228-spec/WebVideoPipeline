@@ -11,6 +11,7 @@ import math
 import re
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, TypeVar
 
 from loguru import logger
@@ -591,13 +592,106 @@ class ImgPrNoSourceData(RuntimeError):
     # Код в app/services/error_catalog.py (ERROR_CATALOG / describe_error).
     ERROR_CODE = "img_pr_no_scene_data"
 
-    def __init__(self, frame_numbers: Sequence[int], *, apply_ops: Sequence[dict] | None = None) -> None:
+    def __init__(
+        self,
+        frame_numbers: Sequence[int],
+        *,
+        apply_ops: Sequence[dict] | None = None,
+        scene_fingerprint: str | None = None,
+    ) -> None:
         self.frame_numbers = sorted({int(n) for n in frame_numbers})
         # Готовые промты остальных кадров (этот прогон + чекпоинт): шаг пишет их
         # в базу до того, как сообщить об ошибке, иначе они живут только в чекпоинте.
         self.apply_ops = [op for op in (apply_ops or []) if isinstance(op, dict)]
         self.context = {"error_kind": self.ERROR_CODE, "frame_numbers": list(self.frame_numbers)}
+        if scene_fingerprint:
+            # Слепок входа сцен: пока он тот же, шаг не зовёт модель (step_failure_policy).
+            self.context["scene_fingerprint"] = scene_fingerprint
         super().__init__(no_scene_data_text(self.frame_numbers))
+
+
+# Ключ в meta.step_failure: кадры без данных сцены и слепок их входа на момент паузы.
+NO_SOURCE_GUARD_KEY = "img_pr_no_source"
+_FALLBACK_SCENE_STEP_RU = "Работа с GPT"
+
+
+def _fp_attrs(attrs: Any) -> Any:
+    """attrs без полей промтов: их пишет сам img_pr, это не вход сцены."""
+    if not isinstance(attrs, dict):
+        return attrs
+    return {
+        str(k): v
+        for k, v in attrs.items()
+        if "промт" not in str(k).lower() and "prompt" not in str(k).lower()
+    }
+
+
+def scene_input_fingerprint(frames: Sequence[Any], scenes: Sequence[Any] = ()) -> str:
+    """Слепок того, что модель видит как «данные сцены» у этих кадров.
+
+    Если его не поменяли (не перезапустили «Работу с GPT», не поправили сцену),
+    повтор даст тот же ответ «нет исходных данных» — платный вызов не нужен.
+    """
+    import hashlib
+
+    rows = [
+        [
+            int(getattr(fr, "number", 0) or 0),
+            getattr(fr, "voiceover_text", None),
+            getattr(fr, "meaning", None),
+            getattr(fr, "transition_from", None),
+            getattr(fr, "transition_to", None),
+            getattr(fr, "scene_id", None),
+            _fp_attrs(getattr(fr, "attrs", None)),
+        ]
+        for fr in sorted(frames, key=lambda f: int(getattr(f, "number", 0) or 0))
+    ]
+    sc = [
+        [
+            getattr(s, "id", None),
+            getattr(s, "title", None),
+            getattr(s, "place", None),
+            getattr(s, "meaning", None),
+            getattr(s, "scene_type", None),
+            _fp_attrs(getattr(s, "attrs", None)),
+        ]
+        for s in sorted(scenes, key=lambda x: int(getattr(x, "id", 0) or 0))
+    ]
+    raw = json.dumps([rows, sc], ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def upstream_scene_step_ru(meta: Any) -> str:
+    """Шаг, который заполняет место/фон/действие: ближняя «Работа с GPT» выше промтов картинок.
+
+    Берётся с канваса проекта (стрелки к ноде image_prompts). Нет канваса — общее имя.
+    """
+    try:
+        from app.services.action_layer.builtin_group import node_label_ru
+        from app.services.canvas_graph import find_canvas_node_key_by_type
+        from app.services.excel_gpt_node import overflow_excel_gpt_predecessors
+
+        meta = meta if isinstance(meta, dict) else {}
+        img_key = find_canvas_node_key_by_type(meta, "image_prompts")
+        if img_key:
+            preds = overflow_excel_gpt_predecessors(SimpleNamespace(meta=meta), img_key)
+            if preds:
+                return node_label_ru(meta, preds[0]) or _FALLBACK_SCENE_STEP_RU
+    except Exception as e:  # noqa: BLE001
+        logger.warning("img_pr: не нашёл шаг сцен на канвасе: {}", e)
+    return _FALLBACK_SCENE_STEP_RU
+
+
+def no_scene_data_pause_text(frame_numbers: Sequence[int], upstream: str) -> str:
+    """Причина паузы для человека и чата оркестратора."""
+    nums = sorted({int(n) for n in frame_numbers})
+    shown = ", ".join(str(n) for n in nums[:12]) + ("…" if len(nums) > 12 else "")
+    word = "кадр" if len(nums) == 1 else "кадры"
+    return (
+        f"у сцен нет исходных данных ({word} {shown}, нет места, фона и действия). "
+        f"Сначала запустите шаг «{upstream}», потом продолжите проект. "
+        "Пока данные сцен те же, промты картинок модель заново не спрашивает."
+    )
 
 
 def no_scene_data_text(frame_numbers: Sequence[int]) -> str:
