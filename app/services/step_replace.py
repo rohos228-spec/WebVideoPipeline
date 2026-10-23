@@ -48,8 +48,26 @@ async def replace_step_outputs_on_enter(
     step_code = step_code_for_running_status(running_status)
     if not step_code:
         return {}
+    # Ключ активной excel_gpt — не выход шага, а «какую ноду входим»: его только что
+    # поставил auto_advance._pin_excel_gpt_key_after_ready. Wipe слота его снимает, и
+    # шаг брал ключ заново — бывало, ноду прошлого слота (enriching_2 «пропускал GPT»).
+    pinned_key = None
+    if step_code == "excel_gpt" and isinstance(project.meta, dict):
+        pinned_key = str(project.meta.get("active_excel_gpt_node_key") or "").strip() or None
+        from app.services.excel_gpt_node import (
+            active_key_belongs_to_other_slot,
+            slot_from_running_status,
+        )
+
+        slot = slot_from_running_status(running_status)
+        if slot is None or active_key_belongs_to_other_slot(project, pinned_key, slot):
+            pinned_key = None
     try:
         summary = await clear_step_outputs_for_rerun(session, project, step_code, force_wipe=True)
+        if pinned_key:
+            from app.services.project_meta import set_meta_fields
+
+            set_meta_fields(project, active_excel_gpt_node_key=pinned_key)
     except Exception:  # noqa: BLE001
         logger.exception(
             "[#{}] replace_step_outputs_on_enter: wipe {} failed",

@@ -137,6 +137,13 @@ ERROR_CATALOG: dict[str, ErrorSpec] = {
         "Для excel_gpt нужен node_key.",
     ),
     "pipeline_cancelled": ErrorSpec("pipeline_cancelled", "Остановлено пользователем", "Шаг снят через ⏹."),
+    # img_pr: модель ответила «нет исходных данных» — у кадров нет полей сцены.
+    # Повтор того же входа даёт тот же ответ (img_pr_batches.ImgPrNoSourceData).
+    "img_pr_no_scene_data": ErrorSpec(
+        "img_pr_no_scene_data",
+        "Промты картинок: у кадров нет данных сцены",
+        "Сначала нужна работа с GPT (место, фон, действие), потом промты картинок.",
+    ),
     # ── Инфраструктура ──
     "infra_db_locked": ErrorSpec("infra_db_locked", "БД занята", "Параллельная запись — повтор."),
     # Этап 3: бюджет LLM прогона исчерпан — paused с meta.pause_reason.
@@ -171,6 +178,8 @@ def _match_code(exc: Exception) -> str:  # noqa: C901
     ctx = getattr(exc, "context", None)
     if isinstance(ctx, dict):
         kind = str(ctx.get("error_kind") or "")
+        if kind == "img_pr_no_scene_data":
+            return "img_pr_no_scene_data"
         status = ctx.get("status_code")
         pcode = ctx.get("provider_code")
         media = _is_media_error(exc, ctx)
@@ -232,6 +241,9 @@ def describe_error(exc: Exception) -> tuple[str, str]:
     code = _match_code(exc)
     spec = ERROR_CATALOG.get(code, ERROR_CATALOG["unknown"])
     detail = str(exc).replace("\n", " ").strip()
+    if code == "img_pr_no_scene_data":
+        # Уже короткий текст для человека (кадры + что сделать), без имён кода.
+        return code, detail[:300] or spec.hint
     if code == "unknown":
         return code, (detail[:300] or spec.title)
     return code, f"{spec.title}: {detail[:200]}"

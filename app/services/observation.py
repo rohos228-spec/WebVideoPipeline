@@ -1314,7 +1314,15 @@ def effective_text_provider(model: str | None = None) -> str:
 
 
 def _track_api_cost(
-    *, model, usage, duration_sec, project_id=None, status_code=200, error_message="", provider: str = "kie"
+    *,
+    model,
+    usage,
+    duration_sec,
+    project_id=None,
+    status_code=200,
+    error_message="",
+    provider: str = "kie",
+    request_id: str | None = None,
 ):
     try:
         if project_id is None:
@@ -1347,6 +1355,8 @@ def _track_api_cost(
             if media_spend.TEST_FORCE or media_spend.ledger_target_ok():
                 from app.services import spend_guard
 
+                # ref = id модельного вызова из журнала наблюдения (model_start/model_end),
+                # как у orch_llm (ref=call_id); request_id в ledger остаётся id корреляции такта.
                 spend_guard.schedule_actual(
                     project_id=project_id,
                     provider=provider,
@@ -1359,6 +1369,7 @@ def _track_api_cost(
                         cached_tok=cached_tokens,
                         provider=provider,
                     ),
+                    ref=str(request_id or ""),
                 )
             else:
                 media_spend._count_skip(provider, "ledger_target_mismatch")
@@ -1522,6 +1533,7 @@ def observe_model(function):
                 duration_sec=time.monotonic() - start,
                 project_id=getattr(ctx.scope, "project_id", None),
                 provider=provider,
+                request_id=request_id,
             )
             cost_tracked = True
             if ctx.scope.mode == "managed" and (
@@ -1571,6 +1583,7 @@ def observe_model(function):
                     project_id=getattr(ctx.scope, "project_id", None),
                     status_code=(context.get("status_code") if isinstance(context, dict) else None) or 0,
                     error_message=f"{type(exc).__name__}: {exc}",
+                    request_id=request_id,
                 )
             if ctx.scope.mode == "managed" and (
                 type(exc).__name__ in _UNCERTAIN_ERROR_TYPES | {"ConnectTimeout"}

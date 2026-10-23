@@ -30,13 +30,14 @@ def _is_scene_prompt_hollow(prompt: str, *, min_placeholders: int = 3) -> bool:
 
 
 def _image_prompt_missing(prompt: str | None) -> bool:
-    """Промта нет: пусто или одни заглушки (если заглушки не разрешены настройкой)."""
-    from app.settings import settings
+    """Промта нет: пусто или одни заглушки (если заглушки не разрешены настройкой).
 
-    text = (prompt or "").strip()
-    if not text:
-        return True
-    return not getattr(settings, "images_allow_hollow_prompts", False) and _is_scene_prompt_hollow(text)
+    Один детектор заглушек на img_pr, картинки и чат: generation_options.image_prompt_missing
+    (img_pr_guard.prompt_is_hollow по разделам Фон/Действие/…).
+    """
+    from app.generation_options import image_prompt_missing
+
+    return image_prompt_missing(prompt)
 
 
 def _frames_needing_image_prompt(frames: list[Frame]) -> list[Frame]:
@@ -294,7 +295,28 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                 attempt,
                 e,
             )
-            if attempt >= 2:
+            from app.services.img_pr_batches import ImgPrNoSourceData
+
+            no_source = isinstance(e, ImgPrNoSourceData)
+            only_no_source = False
+            if no_source:
+                # 2-ю попытку пропускаем, только если ВСЕ недостающие кадры — «нет
+                # данных сцены»; пропущенные моделью кадры переспрашиваются как раньше.
+                try:
+                    await session.refresh(project)
+                    still = _frames_needing_image_prompt(await _reload_frames(session, project.id))
+                    only_no_source = {fr.number for fr in still} <= set(e.frame_numbers)
+                except Exception as reload_err:  # noqa: BLE001
+                    logger.warning(
+                        "[#{}] img_pr: reload after no-source failed: {}",
+                        project.id,
+                        reload_err,
+                    )
+            if attempt >= 2 or only_no_source:
+                if no_source:
+                    # Свой код ошибки (error_catalog: img_pr_no_scene_data) и
+                    # короткий текст для человека — без обёртки с именами шагов.
+                    raise e
                 raise RuntimeError(f"generate_image_prompts: не удалось получить промты: {e}") from e
 
     if cancelled:

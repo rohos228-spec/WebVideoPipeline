@@ -110,9 +110,19 @@ _PLACEHOLDER_RES = tuple(
         r"(?:отсутству|не\s+предоставлен|не\s+задан|не\s+указан|\bнет\b)",
         r"\bисходн\w*\s+[\w/, ]{1,60}?\s(?:отсутству|не\s+предоставлен|не\s+задан|не\s+указан)",
         r"\bданн\w*\s+(?:о|об|для|по)\b.{0,90}?\bнет\b",
-        r"\b(?:не\s+задан\w*|не\s+указан\w*|не\s+предоставлен\w*|отсутству\w*)\s*(?:,|$)",
-        r"^\s*(?:нет|без)\s+данн",
-        r"\bнет\s*$",
+        # Отсутствие именно ВХОДНЫХ сведений (данных/информации/описания), а не предмета сцены:
+        # «тень отсутствует», «людей нет», «источник не указан, мягкий» — это содержание.
+        r"\b(?:данн\w*|информаци\w*|описани\w*|сведени\w*)\b.{0,90}?"
+        r"(?:отсутству|не\s+задан|не\s+указан|не\s+предоставлен|\bнет\b)",
+        r"\b(?:нет|без)\s+(?:\S+\s+){0,2}(?:данн|информаци|описани|сведени)",
+        # «Свет: источник, направление и характер света не указаны[; не добавлять …]»: параметры
+        # раздела не заданы и дальше нет описания. «источник не указан, мягкий рассеянный» —
+        # за «не указан» идёт описание, это содержание. («отсутствует» здесь не берём:
+        # «тень отсутствует» — предмет сцены.)
+        r"\b(?:не\s+задан\w*|не\s+указан\w*|не\s+предоставлен\w*)\s*"
+        r"(?:$|,\s*(?:не\b|без\b|сохран|остав))",
+        # Раздел из одного слова-отсутствия: «Свет: не задан.», «Фон: отсутствует.»
+        r"^\s*(?:не\s+задан\w*|не\s+указан\w*|не\s+предоставлен\w*|отсутству\w*|нет)\s*$",
     )
 )
 # Разделы не про сцену: референс героя, запреты, стиль.
@@ -126,6 +136,30 @@ _NEGATIVE_RE = re.compile(r"^\s*(?:не|без|no|do not|never)\b", re.IGNORECAS
 def _is_placeholder(text: str) -> bool:
     flat = " ".join(str(text or "").split())
     return any(r.search(flat) for r in _PLACEHOLDER_RES)
+
+
+# «нет исходных данных о фоне, но лиса бежит по снегу»: после «но/однако/зато» идёт сцена.
+# С запятой и без: «…данных о фоне но лиса бежит» — то же самое.
+_CONTRAST_RE = re.compile(r"(?:,\s*|\s+)(?:но|однако|зато)\s+", re.IGNORECASE)
+# После «но» указание про стиль / «сохранить нейтральный фон» / «оставить пустым» —
+# не сцена: «нет исходных данных, но сохранить нейтральный фон» остаётся заглушкой.
+_NOT_SCENE_REST_RE = re.compile(
+    r"\bстил|^(?:сохран|остав|держ|следова|соблюд|использ|придерж)|нейтральн|\bпуст",
+    re.IGNORECASE,
+)
+
+
+def _content_after_contrast(clause: str) -> bool:
+    parts = _CONTRAST_RE.split(clause, maxsplit=1)
+    if len(parts) < 2:
+        return False
+    rest = parts[1].strip()
+    return (
+        bool(rest)
+        and not _is_placeholder(rest)
+        and not _NEGATIVE_RE.match(rest)
+        and not _NOT_SCENE_REST_RE.search(rest)
+    )
 
 
 def _sections(body: str) -> list[tuple[str, str]]:
@@ -165,7 +199,9 @@ def prompt_is_hollow(prompt: str | None) -> bool:
         if _NOT_SCENE_LABEL_RE.search(label):
             continue
         first = _CLAUSE_END_RE.split(part, maxsplit=1)[0]
-        if _is_placeholder(first):
+        if _is_placeholder(first) and _content_after_contrast(first):
+            content += 1
+        elif _is_placeholder(first):
             placeholders += 1
         elif first.strip() and not _NEGATIVE_RE.match(first):
             content += 1

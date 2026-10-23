@@ -573,6 +573,20 @@ def active_node_key(project: Project) -> str | None:
     return str(key) if key else None
 
 
+def active_key_belongs_to_other_slot(project: Project, node_key: str | None, slot: int) -> bool:
+    """True — active key указывает на ноду ДРУГОГО линейного слота.
+
+    Пример (#10/#12/#14, 2026-10-21): в enriching_2 остался ключ
+    n_excel_gpt_1 (slotIndex=1, уже в completed_keys) — шаг «пропускал GPT
+    как leftover tick» и ставил enrich_2_ready, второе обогащение не шло.
+    Overflow/sd-ноды (slot 0) и ключи вне канваса не трогаем.
+    """
+    if not node_key:
+        return False
+    key_slot = slot_for_excel_gpt_node_key(project, node_key)
+    return bool(key_slot) and int(key_slot) != int(slot)
+
+
 def node_config(project: Project, node_key: str) -> dict[str, Any]:
     """Конфиг «Работы с GPT»: ``node.data.config.excelGpt``, иначе ``meta``.
 

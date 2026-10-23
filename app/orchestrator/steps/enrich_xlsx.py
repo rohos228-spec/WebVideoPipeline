@@ -1758,6 +1758,16 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     from app.services.excel_gpt_node import resolve_excel_gpt_node_key_for_slot
 
     node_key = active_node_key(project)
+    from app.services.excel_gpt_node import active_key_belongs_to_other_slot
+
+    if active_key_belongs_to_other_slot(project, node_key, slot_idx):
+        logger.warning(
+            "[#{}] enrich_xlsx slot={}: active key {} из другого слота — re-resolve",
+            project.id,
+            slot_idx,
+            node_key,
+        )
+        node_key = None
     if not node_key:
         node_key = resolve_excel_gpt_node_key_for_slot(project, slot_idx)
     if not node_key:

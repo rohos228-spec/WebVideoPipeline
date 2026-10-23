@@ -360,9 +360,9 @@ async def test_hollow_prompts_after_img_pr_are_not_success(env, studio) -> None:
     assert "шаг формально готов, но промты пустые у кадров 1, 2 (2 из 3)" in state.error
     assert ("У этих кадров нет данных сцены: сначала нужна нода «Работа с GPT» «Сцены» (n_gpt2)"
             in state.error)
-    # Студия считает эти заглушки готовыми промтами: простой повтор шага их не тронет.
-    assert ("Повторный запуск промтов картинок кадры 1, 2 не перепишет: Студия считает их "
-            "промты готовыми. Сотрите у них промт картинки в разделе «База»") in state.error
+    # Единый детектор: Студия тоже считает эти заглушки пустыми, повтор шага их перепишет.
+    assert "не перепишет" not in state.error and "Сотрите" not in state.error
+    assert "Потом запустите промты картинок заново" in state.error
 
 
 async def test_hollow_prompts_studio_redoes_need_no_erasing(env, studio) -> None:
@@ -372,7 +372,9 @@ async def test_hollow_prompts_studio_redoes_need_no_erasing(env, studio) -> None
     state = await bl._poll_any_step(_Ctx(pid, status="image_prompts_ready"),
                                     {"project_id": pid, "step_code": "img_pr"}, _started())
     assert "промты пустые у кадров 1, 2 (2 из 2)" in state.error
-    assert "кадры 2 не перепишет" in state.error and "нет данных сцены" not in state.error
+    # Студия теперь считает пустыми те же промты, что и проверка (единый детектор
+    # prompt_is_hollow), поэтому повторный запуск перепишет и кадр 2 — оговорки нет.
+    assert "не перепишет" not in state.error and "нет данных сцены" not in state.error
     only_exact = await _seed(env, [{"number": 1, "uuid": "b1", "image_prompt": HOLLOW_EXACT}])
     state = await bl._poll_any_step(_Ctx(only_exact, status="image_prompts_ready"),
                                     {"project_id": only_exact, "step_code": "img_pr"}, _started())

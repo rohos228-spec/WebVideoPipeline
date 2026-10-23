@@ -1226,6 +1226,16 @@ async def run_img_pr_xlsx(
             )
             if batch_ops:
                 break
+            batch_uuid_set = {(fr.uuid or "").strip() for fr in batch if (fr.uuid or "").strip()}
+            if ipb.no_source_uuids_in_reply(last_reply or "") & batch_uuid_set:
+                # «Нет исходных данных»: повтор того же входа даст тот же ответ — не платим за него.
+                logger.warning(
+                    "img_pr_db: batch {}/{} attempt {}: модель ответила «нет исходных данных» — без повтора",
+                    bi,
+                    batch_n,
+                    attempt,
+                )
+                break
             # Текст ошибки контракта — фидбек следующей попытке.
             try:
                 IMG_PR.parse(last_reply or "")
@@ -1255,6 +1265,11 @@ async def run_img_pr_xlsx(
             if attempt < ipb._GPT_ATTEMPTS:
                 await sleep_cancellable(delay, project_id or project.id)
         return batch_ops, last_reply or ""
+
+    # «Нет исходных данных» — детерминированный ответ модели на кадр без полей сцены:
+    # дробление и повтор дают то же самое (380 вызовов 2026-10-22, int/chat-v1 fx/data).
+    # Такие кадры не переспрашиваем; остальные идут прежним путём.
+    no_source_frames: set[int] = set()
 
     async def _run_batches() -> None:
         nonlocal done_uuids, all_ops, done_set, api_batches
@@ -1312,6 +1327,43 @@ async def run_img_pr_xlsx(
                     continue
                 bi, batch, level, batch_ops, last_reply = item
                 replies.append(last_reply)
+                batch_uuids = {(fr.uuid or "").strip() for fr in batch if (fr.uuid or "").strip()}
+                no_source = (
+                    ipb.no_source_uuids_in_reply(last_reply or "")
+                    | ipb.no_source_data_uuids(batch_ops, respect_allow=True)
+                ) & batch_uuids
+                if no_source:
+                    no_source_frames.update(fr.number for fr in batch if (fr.uuid or "").strip() in no_source)
+                    logger.warning(
+                        "img_pr_db: batch {} L{} модель: нет исходных данных для {} кадров — без дробления",
+                        bi,
+                        level,
+                        len(no_source),
+                    )
+                    batch_ops = [op for op in batch_ops if ipb.uuid_of_op(op) not in no_source]
+                    batch = [fr for fr in batch if (fr.uuid or "").strip() not in no_source]
+                    if not batch:
+                        continue
+                    if not batch_ops:
+                        # Остались кадры, которые модель просто пропустила: повтор ответа
+                        # «нет данных» внутри _ask_batch_ops мы сняли, поэтому переспрашиваем
+                        # их здесь, как половинки батча (без кадров «нет данных»).
+                        nxt = next_split_level(level)
+                        if nxt is not None:
+                            for part in split_in_half(batch) if len(batch) >= 2 else [batch]:
+                                work.append((part, nxt))
+                            logger.warning(
+                                "img_pr_db: batch {} L{} пропущено {} кадров → повтор L{}",
+                                bi,
+                                level,
+                                len(batch),
+                                nxt,
+                            )
+                        else:
+                            failed_notes.append(
+                                f"batch {bi} L{level}: пропущено {len(batch)} кадров, split исчерпан"
+                            )
+                        continue
                 if not batch_ops:
                     nxt = next_split_level(level)
                     if nxt is not None and len(batch) >= 4:
@@ -1381,10 +1433,20 @@ async def run_img_pr_xlsx(
                 ops=all_ops,
                 input_hash=step_hash,
             )
-            if not any_ok and not work and not all_ops:
+            if not any_ok and not work and not all_ops and not no_source_frames:
                 raise RuntimeError("img_pr: все параллельные батчи провалились без ops")
 
     await xgf.run_under_xlsx_lock(project.id, "img_pr", _run_batches)
+
+    if no_source_frames:
+        # Не хватает только кадров «нет данных сцены» — свой код ошибки и короткий текст
+        # (error_catalog: img_pr_no_scene_data). Готовые промты остальных кадров — в чекпоинте,
+        # повтор шага после «Работы с GPT» доберёт только недостающее.
+        no_source_uuids = {(fr.uuid or "").strip() for fr in frames if fr.number in no_source_frames}
+        expected_now = {(fr.uuid or "").strip() for fr in frames if (fr.uuid or "").strip()}
+        if not failed_notes and not (expected_now - done_set - no_source_uuids):
+            raise ipb.ImgPrNoSourceData(sorted(no_source_frames))
+        failed_notes.append(ipb.no_scene_data_text(sorted(no_source_frames)))
 
     if not all_ops:
         raise RuntimeError(

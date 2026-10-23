@@ -502,14 +502,33 @@ def is_scene_prompt_hollow(prompt: str, *, min_placeholders: int = 3) -> bool:
     return placeholder_count(prompt) >= min_placeholders
 
 
-def image_prompt_missing(prompt: str | None) -> bool:
-    """img_pr должен (пере)сделать промт: пусто или одни заглушки, которые шаг картинок не примет."""
+def hollow_prompts_allowed() -> bool:
+    """IMAGES_ALLOW_HOLLOW_PROMPTS=true: промт-заглушку принимаем везде (img_pr и картинки)."""
     from app.settings import settings
 
+    return bool(getattr(settings, "images_allow_hollow_prompts", False))
+
+
+def is_no_source_data_prompt(prompt: str | None) -> bool:
+    """Непустой промт, в котором вместо сцены заглушки («нет исходных данных…»).
+
+    Единый детектор — img_pr_guard.prompt_is_hollow (по разделам Фон/Действие/…):
+    «Нет исходных данных для заполнения. STYLE: …» (#14 кадры 5–8), «Фон: данных
+    о фоне нет…» (#14 9–13), «Референс: … Фон: исходные данные … отсутствуют» (#12).
+    Пустая строка — не «заглушка», а просто нет промта (см. image_prompt_missing).
+    """
+    from app.services.action_layer.img_pr_guard import prompt_is_hollow
+
+    body = strip_prompt_id_lines((prompt or "").strip())
+    return bool(body) and prompt_is_hollow(body)
+
+
+def image_prompt_missing(prompt: str | None) -> bool:
+    """img_pr должен (пере)сделать промт: пусто или одни заглушки, которые шаг картинок не примет."""
     text = (prompt or "").strip()
     if not text:
         return True
-    return not getattr(settings, "images_allow_hollow_prompts", False) and is_scene_prompt_hollow(text)
+    return not hollow_prompts_allowed() and is_no_source_data_prompt(text)
 
 
 def is_skippable_empty_prompt(prompt: str) -> bool:

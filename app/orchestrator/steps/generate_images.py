@@ -644,23 +644,20 @@ def _frame_rejected_by_human(fr: Frame) -> bool:
 
 
 def _hollow_prompt_frames(frames: list[Frame]) -> list[int]:
-    """Кадры-VO-родители с «пустым» промтом-заглушкой (int/chat-v1 30921a90).
+    """Кадры-VO-родители с «пустым» промтом-заглушкой (int/chat-v1 30921a90, fx/data).
 
-    Хелпер ``is_scene_prompt_hollow`` переносится вместе с generate_image_prompts;
-    пока его нет в ``app.generation_options`` — проверка не включается.
+    Тот же детектор, что у img_pr (img_pr_guard.prompt_is_hollow): раньше нужно было
+    ≥3 точных фраз, и «Нет исходных данных для заполнения. STYLE: …» шёл в платную генерацию.
     """
-    from app import generation_options as _go
+    from app.generation_options import is_no_source_data_prompt
     from app.services.vo_shot_expand import is_shot_child
 
-    is_hollow = getattr(_go, "is_scene_prompt_hollow", None)
-    if is_hollow is None:
-        return []
     return [
         fr.number
         for fr in frames
         if not is_shot_child(fr)
         and not frame_hidden_from_paid_generation(fr)
-        and is_hollow(fr.image_prompt or "")
+        and is_no_source_data_prompt(fr.image_prompt or "")
     ]
 
 
@@ -708,7 +705,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         raise RuntimeError("нет кадров в БД — сначала шаг «Разбивка на блоки» (split).")
 
     # Платная генерация не стартует на промтах-заглушках «нет исходных данных».
-    if not getattr(settings, "images_allow_hollow_prompts", False):
+    from app.generation_options import hollow_prompts_allowed
+
+    if not hollow_prompts_allowed():
         hollow = _hollow_prompt_frames(frames)
         if hollow:
             raise RuntimeError(

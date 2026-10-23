@@ -670,12 +670,14 @@ async def resolve_intent(
 _tasks: set = set()
 
 
-def schedule_actual(*, project_id: int | None, usd: float, provider: str, reported: bool = False) -> None:
+def schedule_actual(
+    *, project_id: int | None, usd: float, provider: str, reported: bool = False, ref: str = ""
+) -> None:
     try:
         pending = _pending.get()
         _pending.set(None)
         loop = asyncio.get_running_loop()
-        corr = {"run_id": _ctx_run_id(), "request_id": _ctx_request_id()}
+        corr = {"run_id": _ctx_run_id(), "request_id": _ctx_request_id(), "ref": str(ref or "")}
         if project_id is None:
             from app.services.request_context import get_project_id
 
@@ -728,6 +730,7 @@ async def _write_actual(pending, project_id, usd, provider, reported=False, corr
                     provider=provider or pending.provider,
                     basis="reported" if reported else "estimate",
                     request_id=corr.get("request_id"),
+                    ref=corr.get("ref", ""),
                 )
             else:
                 await record_actual(
@@ -739,6 +742,7 @@ async def _write_actual(pending, project_id, usd, provider, reported=False, corr
                     note=_price_note(provider, reported),
                     run_id=corr.get("run_id", ""),
                     request_id=corr.get("request_id"),
+                    ref=corr.get("ref", ""),
                 )
             await s.commit()
     except Exception:

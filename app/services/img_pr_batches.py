@@ -335,6 +335,28 @@ def filter_prompt_ops(ops: list[Any]) -> list[dict]:
     return clean
 
 
+def no_source_uuids_in_reply(reply: str, *, respect_allow: bool = True) -> set[str]:
+    """То же по сырому ответу: здесь короткий «Нет исходных данных…» отбрасывает уже
+    ``filter_prompt_ops`` (вырожденный промт короче MIN_IMAGE_PROMPT_CHARS), и в ops его не видно."""
+    from app.generation_options import hollow_prompts_allowed
+
+    if respect_allow and hollow_prompts_allowed():
+        return set()
+    data = extract_apply_ops_json(reply or "")
+    raw = list((data or {}).get("ops") or []) if isinstance(data, dict) else []
+    out: set[str] = set()
+    for op in raw:
+        if not isinstance(op, dict):
+            continue
+        fields = op.get("fields") if isinstance(op.get("fields"), dict) else {}
+        merged = {**{k: op[k] for k in _PROMPT_FIELD_KEYS if k in op}, **fields}
+        if _op_is_no_source_data(_shot1_prompt_of(merged), _shot2_prompt_of(merged), respect_allow=False):
+            uid = uuid_of_op(op)
+            if uid:
+                out.add(uid)
+    return out
+
+
 def _read_json_string(text: str, start: int) -> tuple[str, int] | None:
     """Прочитать JSON-строку начиная с start (символ сразу после открывающей \")."""
     if start < 0 or start > len(text):
@@ -549,5 +571,62 @@ def writeable_img_pr_ops(ops: list[Any]) -> list[dict]:
                 len(shot2),
             )
             continue
+        if _op_is_no_source_data(shot1, shot2):
+            logger.warning(
+                "img_pr: модель ответила «нет исходных данных», кадр {} не записан",
+                op.get("frame_uuid") or op.get("uuid") or "?",
+            )
+            continue
         kept.append(op)
     return kept
+
+
+class ImgPrNoSourceData(RuntimeError):
+    """Модель ответила «нет исходных данных»: у кадров нет входа для сцены.
+
+    Повтор/дробление батча того же входа даёт тот же ответ (детерминированный
+    отказ), поэтому шаг сообщает причину, а не перезапрашивает.
+    """
+
+    # Код в app/services/error_catalog.py (ERROR_CATALOG / describe_error).
+    ERROR_CODE = "img_pr_no_scene_data"
+
+    def __init__(self, frame_numbers: Sequence[int]) -> None:
+        self.frame_numbers = sorted({int(n) for n in frame_numbers})
+        self.context = {"error_kind": self.ERROR_CODE, "frame_numbers": list(self.frame_numbers)}
+        super().__init__(no_scene_data_text(self.frame_numbers))
+
+
+def no_scene_data_text(frame_numbers: Sequence[int]) -> str:
+    """Короткий текст для человека: каким кадрам не хватает данных сцены."""
+    nums = sorted({int(n) for n in frame_numbers})
+    shown = ", ".join(str(n) for n in nums[:12]) + ("…" if len(nums) > 12 else "")
+    word = "кадра" if len(nums) == 1 else "кадров"
+    return (
+        f"У {word} {shown} нет данных сцены (место, фон, действие) — "
+        "сначала нужна работа с GPT, потом промты картинок."
+    )
+
+
+def _op_is_no_source_data(shot1: str, shot2: str, *, respect_allow: bool = True) -> bool:
+    """respect_allow: при IMAGES_ALLOW_HOLLOW_PROMPTS=true заглушку пишем (как и картинки)."""
+    from app.generation_options import hollow_prompts_allowed, is_no_source_data_prompt
+
+    if respect_allow and hollow_prompts_allowed():
+        return False
+    slots = [s for s in (shot1, shot2) if (s or "").strip()]
+    return bool(slots) and all(is_no_source_data_prompt(s) for s in slots)
+
+
+def no_source_data_uuids(ops: list[Any], *, respect_allow: bool = False) -> set[str]:
+    """uuid кадров, на которые модель ответила только «нет исходных данных»."""
+    out: set[str] = set()
+    for op in filter_prompt_ops(ops):
+        fields = op.get("fields") or {}
+        if _op_is_no_source_data(
+            _shot1_prompt_of(fields), _shot2_prompt_of(fields), respect_allow=respect_allow
+        ):
+            uid = uuid_of_op(op)
+            if uid:
+                out.add(uid)
+    return out

@@ -700,6 +700,17 @@ async def _prepare_node_run_for_status(
             pass
         meta = dict(project.meta) if isinstance(project.meta, dict) else {}
         node_key = str(meta.get("active_excel_gpt_node_key") or "").strip() or None
+        from app.services.excel_gpt_node import active_key_belongs_to_other_slot
+
+        if active_key_belongs_to_other_slot(project, node_key, slot):
+            logger.warning(
+                "auto_advance: #{} active_excel_gpt_node_key={} не из слота {} ({}) — re-resolve",
+                project.id,
+                node_key,
+                slot,
+                running_status.value,
+            )
+            node_key = None
         # Stale active: уже done → иначе снова крутим ноду ДО hero.
         # НО: ▶ overflow (slot 0) живёт в enriching_1. Если шаг уже running
         # с этим active_key, re-resolve(slot=1) стартует чужую линейную ноду
