@@ -83,7 +83,12 @@ def member_safe(value: Any, *, chat: bool = False) -> Any:
         out: dict[str, Any] = {}
         for key, item in value.items():
             if key in _NEVER_MASK:
-                out[key] = item
+                # Чат: в params шага плана планировщик кладёт и estimated_cost в $ — его участнику
+                # не отдаём; остальные параметры (и всё в слое действий / каталоге) как есть.
+                if chat and key == "params" and isinstance(item, dict):
+                    out[key] = {k: v for k, v in item.items() if not is_money_key(k, chat=True)}
+                else:
+                    out[key] = item
                 continue
             if chat and key == "cost_text":
                 out[key] = MEMBER_COST_TEXT

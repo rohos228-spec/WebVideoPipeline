@@ -84,3 +84,22 @@ def test_member_fixture_of_the_ui_e2e_matches_the_real_mask() -> None:
                       .read_text(encoding="utf-8"))
     for name, full in data["full"].items():
         assert member_safe(full) == data["member"][name], name
+
+
+def test_chat_plan_step_params_lose_usd_estimates_only() -> None:
+    """Чекпоинт и события чата с планом: estimated_cost / *_usd внутри params шага — нет;
+    прочие параметры и params слоя действий — как есть."""
+    from app.web.member_money import member_event_payload
+
+    step = {"action": "step.run_step", "estimated_cost": 0.42,
+            "params": {"project_id": 13, "step_code": "images", "estimated_cost": 0.42, "ceiling_usd": 1.0,
+                       "ceiling_credits": 40, "_cost_unknown": False}}
+    out = member_event_payload("checkpoint", {"position": 0, "plan": [step], "spend": {"internal": 1.0}})
+    params = out["plan"][0]["params"]
+    assert params == {"project_id": 13, "step_code": "images", "ceiling_credits": 40, "_cost_unknown": False}
+    assert "estimated_cost" not in out["plan"][0] and "spend" not in out
+    plan_event = member_event_payload("plan", {"steps": [step]})
+    assert "estimated_cost" not in plan_event["steps"][0]["params"]
+    # Слой действий (chat=False): params не трогаются.
+    assert member_safe({"params": dict(step["params"])})["params"] == step["params"]
+
