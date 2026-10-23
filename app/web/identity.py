@@ -99,6 +99,7 @@ PROTECTED_PREFIXES: tuple[str, ...] = ("/api/", "/ws/")
 #: ли отсюда, сколько система тратит на стороне.
 TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/me",
+    "/api/profile",
     "/api/auth/logout",
     "/api/auth/password",
     "/api/billing/",

@@ -45,7 +45,6 @@ OWNER_UI_PREFIXES: tuple[str, ...] = (
     # владельца (role=admin, см. app/web/identity.py).
     "/api/auth/operator-token",
     "/api/node-reviews",
-    "/api/profile",
     "/api/ratings",
     "/api/storage",
     "/api/admin",  # админка пользователей и доступов
