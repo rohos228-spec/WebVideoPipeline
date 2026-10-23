@@ -73,9 +73,10 @@ def clear_user_stop_gate(project: Project, *, by_human: bool = True) -> list[str
         meta[USER_STOP_CLEARED_AT_KEY] = now
     # Любой явный старт (даже без снятого стопа: шаг ещё шёл) — метка для повторной проверки.
     meta[STOP_GATE_CLEARED_AT_KEY] = now
+    # Новый dict: изменение колонки видно и без flag_modified (метка времени новая всегда).
     project.meta = meta
-    flag_modified(project, "meta")
     if cleared:
+        flag_modified(project, "meta")
         logger.info("[#{}] cleared {}", project.id, ", ".join(cleared))
     return cleared
 
