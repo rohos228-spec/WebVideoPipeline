@@ -1143,7 +1143,21 @@ function ProjectRow({
             <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
           </>
         ) : null}
-        <div className="absolute top-1.5 left-1.5 z-[1] max-w-[calc(100%-100px)]">{stepChip}</div>
+        <div className="absolute top-1.5 left-1.5 z-[1] flex items-center gap-1.5 max-w-[calc(100%-80px)]">
+          {stepChip}
+          <span
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[11px] font-semibold font-mono",
+              showCover ? "bg-black/65" : "bg-[#1d1d22]",
+              project.pipeline_mode === "v2"
+                ? "text-violet-300 border border-violet-500/30"
+                : "text-cyan-300 border border-cyan-500/30",
+            )}
+            title={project.pipeline_mode === "v2" ? "Режиссёрский монтаж (v2)" : "Классический пайплайн (v1)"}
+          >
+            {project.pipeline_mode === "v2" ? "🎬 v2" : "🔹 v1"}
+          </span>
+        </div>
         <div className="absolute inset-x-0 bottom-0 z-[1] flex items-end justify-between gap-2 px-2.5 pb-2.5">
           <div className="min-w-0 flex-1">
             <div className="flex items-end gap-1">{titleNode}</div>
