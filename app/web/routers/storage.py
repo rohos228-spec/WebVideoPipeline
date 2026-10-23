@@ -229,11 +229,11 @@ async def get_cache_info() -> dict[str, Any]:
     logs_bytes = 0
     logs_cnt = 0
     now_ts = time.time()
-    for f in data_dir.glob("backend-*.log"):
+    for log_file in data_dir.glob("backend-*.log"):
         try:
-            mtime = f.stat().st_mtime
+            mtime = log_file.stat().st_mtime
             if now_ts - mtime > 900:  # старше 15 минут
-                logs_bytes += f.stat().st_size
+                logs_bytes += log_file.stat().st_size
                 logs_cnt += 1
         except OSError:
             continue
@@ -320,12 +320,12 @@ async def clear_cache() -> dict[str, Any]:
 
     # 4. Старые backend-*.log
     now_ts = time.time()
-    for f in data_dir.glob("backend-*.log"):
+    for log_file in data_dir.glob("backend-*.log"):
         try:
-            mtime = f.stat().st_mtime
+            mtime = log_file.stat().st_mtime
             if now_ts - mtime > 900:
-                sz = f.stat().st_size
-                f.unlink()
+                sz = log_file.stat().st_size
+                log_file.unlink()
                 freed_bytes += sz
                 deleted_files += 1
         except OSError:

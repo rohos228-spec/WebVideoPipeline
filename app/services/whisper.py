@@ -29,7 +29,7 @@ def _patch_pyav_metadata_errors() -> None:
                 return _orig_av_open(*args, **kwargs)
 
             av.open = _safe_av_open
-            av._metadata_errors_patched = True
+            av._metadata_errors_patched = True  # type: ignore[attr-defined]
     except Exception:
         pass
 
