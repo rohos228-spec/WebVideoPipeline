@@ -18,6 +18,7 @@ from app.models import Project, ProjectStatus
 from app.orchestrator.auto_advance import TRANSITIONS
 from app.orchestrator.graph.planner import load_graph_for_project
 from app.services.gen_queue_run import (
+    CHAT_OWNER_KEY,
     gen_queue_slot_skipped,
     is_gen_queue_run_complete,
     is_gen_queue_timeline_complete,
@@ -102,6 +103,158 @@ async def on_project_removed_from_gen_queue(
         project.id,
         project.status.value,
     )
+
+
+def chat_queue_owner(project: Project) -> str | bool | None:
+    """Кто из чата ставил номер в очередь: id сессии чата, ``True`` (старая метка без сессии) или None."""
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    run = meta.get("gen_queue_run")
+    raw = run.get(CHAT_OWNER_KEY) if isinstance(run, dict) else None
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    if raw is True:
+        return True
+    return None
+
+
+def queued_by_chat(project: Project, session_id: str | None = None) -> bool:
+    """Номер в очереди ставил чат (а не человек кнопкой очереди).
+
+    С ``session_id`` — именно эта сессия чата. Старая метка ``True`` не принадлежит
+    ни одной сессии: аварийный стоп её не трогает.
+    """
+    owner = chat_queue_owner(project)
+    if session_id is None:
+        return owner is not None
+    return isinstance(owner, str) and owner == str(session_id)
+
+
+def _live_work(project_id: int) -> bool:
+    """В проекте идёт живая работа этого процесса (не просто stop-файл)."""
+    from app.services.montage_board_montage_job import is_montage_job_live
+    from app.services.step_cancel import is_advance_active
+    from app.services.xlsx_flow_locks import is_any_xlsx_flow_active
+
+    try:
+        return bool(
+            is_advance_active(project_id)
+            or is_montage_job_live(project_id)
+            or is_any_xlsx_flow_active(project_id)
+        )
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def dequeue_chat_projects(
+    session: AsyncSession,
+    project_ids: list[int],
+    *,
+    session_id: str,
+) -> dict[str, list[int]]:
+    """Аварийный стоп чата: убрать из очереди генерации проекты, которые туда ставил чат этой сессии.
+
+    * ``removed`` — все убранные из очереди;
+    * ``stopping`` — из них те, у кого шаг уже идёт или статус «running»: им
+      вызывающий ставит stop-ключ, воркер откатывает шаг и ставит user_stop,
+      дальше проект сам не пойдёт;
+    * ``kept_user`` — номер в очереди ставил человек или другая сессия чата: не трогаем.
+
+    Ждущим ставится user_stop (как кнопка очереди): auto_advance не двинет
+    их до ручного ▶. Метка сохраняется в БД раньше, чем номер снимается с
+    очереди: тик очереди, читающий файл очереди, уже не увидит проект без
+    метки. Общий стоп очереди не включаем.
+    """
+    from app.services.gen_queue_run import clear_gen_queue_run
+    from app.services.project_control import _set_user_stop_gate
+    from app.services.sidebar_layout import set_gen_queue
+
+    queue = get_gen_queue()
+    wanted: list[int] = []
+    for raw in project_ids:
+        try:
+            pid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if pid in queue and pid not in wanted:
+            wanted.append(pid)
+    out: dict[str, list[int]] = {"removed": [], "stopping": [], "kept_user": []}
+    for pid in wanted:
+        project = await _load_project(session, pid)
+        if project is None:
+            continue
+        if not queued_by_chat(project, session_id):
+            out["kept_user"].append(pid)
+            continue
+        if project.status in GEN_QUEUE_BUSY_STATUSES or _live_work(pid):
+            # user_stop здесь не ставим: воркер пропускает user_stop-проекты
+            # и не снял бы шаг; stop-ключ он снимет сам и сам поставит user_stop.
+            out["stopping"].append(pid)
+        else:
+            _set_user_stop_gate(project)
+        await clear_gen_queue_run(session, project)
+        out["removed"].append(pid)
+    if out["removed"]:
+        await session.commit()
+        current = get_gen_queue()
+        set_gen_queue([p for p in current if p not in out["removed"]])
+        logger.info(
+            "gen_queue: аварийный стоп чата — из очереди убраны {} (шаг идёт у {})",
+            out["removed"],
+            out["stopping"],
+        )
+    return out
+
+
+async def recheck_dequeued(
+    session: AsyncSession,
+    project_ids: list[int],
+    *,
+    session_id: str | None = None,
+    since: float | None = None,
+) -> list[int]:
+    """После стопа: проект, который тик очереди всё же успел стартовать, снова под стоп.
+
+    Метка user_stop возвращается, если чужая запись её затёрла. Возвращает
+    проекты, у которых шаг идёт, — им нужен stop-ключ.
+
+    Проект, который после стопа взял человек, не трогаем: он снова в очереди и
+    номер не этой сессии чата, или стоп снят позже ``since`` (ручной ▶,
+    «Продолжить», повторная постановка в очередь — от человека или от чата).
+    """
+    from app.services.project_control import (
+        STOP_GATE_CLEARED_AT_KEY,
+        USER_STOP_CLEARED_AT_KEY,
+        _set_user_stop_gate,
+    )
+
+    queue = get_gen_queue()
+    busy: list[int] = []
+    changed = False
+    for raw in project_ids:
+        project = await _load_project(session, int(raw))
+        if project is None:
+            continue
+        await session.refresh(project)
+        if project.id in queue and not (session_id and queued_by_chat(project, session_id)):
+            continue
+        meta = project.meta if isinstance(project.meta, dict) else {}
+        cleared_at = 0.0
+        for key in (USER_STOP_CLEARED_AT_KEY, STOP_GATE_CLEARED_AT_KEY):
+            try:
+                cleared_at = max(cleared_at, float(meta.get(key) or 0))
+            except (TypeError, ValueError):
+                continue
+        if since is not None and cleared_at > since:
+            continue
+        if project.status in GEN_QUEUE_BUSY_STATUSES or _live_work(project.id):
+            busy.append(project.id)
+            continue
+        if not _user_stop_blocks_queue(project):
+            _set_user_stop_gate(project)
+            changed = True
+    if changed:
+        await session.commit()
+    return busy
 
 
 def _user_stop_blocks_queue(project: Project) -> bool:
@@ -327,8 +480,23 @@ async def _rollback_running(
     return await rollback_running_for_queue(session, project, reason=reason)
 
 
+def _step_really_running(project_id: int) -> bool:
+    """Шаг проекта сейчас реально выполняется (идёт платная работа)."""
+    from app.services.step_cancel import is_generation_active
+
+    try:
+        return bool(is_generation_active(project_id))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def gen_queue_reconcile(session: AsyncSession) -> int:
-    """Сбросить running вне top-N окна; внутри окна — rollback blocked слотов."""
+    """Сбросить running вне top-N окна; внутри окна — rollback blocked слотов.
+
+    Шаг, который уже реально выполняется, не сбрасываем: после уменьшения
+    параллели он доигрывает, а новые старты ждут (см. gen_queue_tick).
+    Сбрасывается только статус «running», за которым нет живого шага.
+    """
     queue = get_gen_queue()
     if not queue:
         return 0
@@ -350,6 +518,12 @@ async def gen_queue_reconcile(session: AsyncSession) -> int:
             continue
         project = loaded
         if project.status not in GEN_QUEUE_BUSY_STATUSES:
+            continue
+        if _step_really_running(project.id):
+            logger.info(
+                "gen_queue: #{} вне окна, но шаг уже идёт — доигрывает, не сбрасываем",
+                project.id,
+            )
             continue
         if await _rollback_running(session, project, reason="out-of-window"):
             rolled += 1
@@ -415,6 +589,21 @@ async def gen_queue_blocks_project(session: AsyncSession, project_id: int) -> in
     return await gen_queue_incomplete_earlier(session, project_id)
 
 
+async def _still_queued_and_free(session: AsyncSession, project: Project) -> bool:
+    """Прямо перед стартом: проект ещё в очереди и без user_stop (стоп мог прийти во время тика)."""
+    if project.id not in get_gen_queue():
+        logger.info("gen_queue: #{} уже снят с очереди — не стартуем", project.id)
+        return False
+    try:
+        await session.refresh(project, ["meta", "status"])
+    except Exception:  # noqa: BLE001
+        return True
+    if _slot_blocked(project) or project.status in GEN_QUEUE_BUSY_STATUSES:
+        logger.info("gen_queue: #{} остановлен во время тика — не стартуем", project.id)
+        return False
+    return True
+
+
 async def gen_queue_tick(session: AsyncSession) -> int:
     """Заполнить top-N окно: стартовать/продвинуть до N проектов."""
     queue = get_gen_queue()
@@ -430,6 +619,18 @@ async def gen_queue_tick(session: AsyncSession) -> int:
 
     n = worker_max_parallel()
     logger.debug("gen_queue tick: порядок {} (max_parallel={})", queue, n)
+
+    # Сколько проектов очереди уже идут (в окне и доигрывающие вне окна после
+    # уменьшения параллели). Новые старты — только пока идущих меньше N.
+    busy_total = 0
+    for pid in queue:
+        project = await _load_project(session, pid)
+        if project is None or is_mass_factory_child(project):
+            continue
+        if _slot_closed(project) or _slot_blocked(project):
+            continue
+        if project.status in GEN_QUEUE_BUSY_STATUSES:
+            busy_total += 1
 
     started_total = 0
     window_filled = 0
@@ -473,9 +674,22 @@ async def gen_queue_tick(session: AsyncSession) -> int:
             window_filled += 1
             continue
 
+        if busy_total >= n:
+            logger.info(
+                "gen_queue: #{} ждёт — уже идут {} при лимите {} (доигрывают)",
+                project.id,
+                busy_total,
+                n,
+            )
+            return started_total
+
+        if not await _still_queued_and_free(session, project):
+            continue
+
         started = await _start_or_advance_project(session, project, queue_pos=idx + 1)
         if started:
             started_total += started
+            busy_total += 1
             window_filled += 1
             continue
 

@@ -765,6 +765,40 @@ async def _queue_warnings(ctx, params) -> list[str]:
     return out
 
 
+from app.services.action_layer.chat_caller import TASK_OPERATOR_RE as _TASK_OPERATOR_RE  # noqa: E402
+
+
+async def _plan_creator(ctx) -> str:
+    """Кто создал план шага (``ActionPlan.operator``): у чата это ``orchestrator:task-N``.
+
+    Шаг с подтверждением человек одобряет сам, и исполнитель идёт от его имени, так что
+    ``ctx.operator`` — человек; задачу чата видно только по создателю плана.
+    """
+    from app.services.action_layer.chat_caller import plan_creator
+
+    return await plan_creator(getattr(ctx, "plan_id", None))
+
+
+async def _chat_session_of(ctx) -> str | bool:
+    """Сессия чата, чья задача ставит номер (оператор или создатель плана ``orchestrator:task-N``);
+    иначе ``True``."""
+    import re
+
+    for who in (str(getattr(ctx, "operator", "") or ""), await _plan_creator(ctx)):
+        found = re.fullmatch(_TASK_OPERATOR_RE, who)
+        if not found:
+            continue
+        try:
+            from app.orchestrator.agents.task_store import TaskStore
+
+            session_id = (TaskStore().get(int(found.group(1))) or {}).get("session_id")
+        except Exception:  # noqa: BLE001
+            session_id = None
+        if session_id:
+            return str(session_id)
+    return True
+
+
 async def _enqueue_many(ctx, params):
     want_auto = bool(params.get("enable_auto_mode"))
     body_base = {"mode": params.get("mode", "full")}
@@ -772,6 +806,7 @@ async def _enqueue_many(ctx, params):
         if params.get(key):
             body_base[key] = params[key]
     done: list[dict] = []
+    owner = await _chat_session_of(ctx)
     for pid in params["project_ids"]:
         body = dict(body_base)
         try:
@@ -784,8 +819,11 @@ async def _enqueue_many(ctx, params):
                     got = await ctx.call("PATCH", f"/projects/{pid}", json={"auto_mode": True})
                     if not bool((got or {}).get("auto_mode")):
                         raise ActionCallError(409, f"у проекта #{pid} автопродвижение не включилось")
+            # by_chat: аварийный стоп чата потом снимет с очереди только номера своей сессии
             data = await ctx.call(
-                "POST", "/sidebar-layout/gen-queue/enqueue", json={"project_id": pid, **body}
+                "POST",
+                "/sidebar-layout/gen-queue/enqueue",
+                json={"project_id": pid, **body, "by_chat": owner},
             )
         except ActionCallError as exc:
             ok = ", ".join(f"#{d['project_id']}" for d in done) or "ни один"
@@ -795,7 +833,13 @@ async def _enqueue_many(ctx, params):
                 f"{len(params['project_ids'])} ({ok}); на проекте "
                 f"#{pid} ошибка: {exc.detail}",
             ) from exc
-        done.append({"project_id": pid, "position": (data or {}).get("position")})
+        done.append(
+            {
+                "project_id": pid,
+                "position": (data or {}).get("position"),
+                "already_queued": bool((data or {}).get("already_queued")),
+            }
+        )
     return {"count": len(done), "enqueued": done, "mode": body_base["mode"]}
 
 
@@ -827,12 +871,26 @@ async def _dequeue_many(ctx, params):
     return {"count": len(removed), "removed": removed}
 
 
+PARALLEL_LOWER_NOTE = "Уже идущие доиграют, новые будут ждать."
+
+
 async def _set_parallel(ctx, params):
+    # Уменьшение числа не прерывает уже идущие шаги: они доигрывают, лимит действует
+    # только на новые старты (см. gen_queue_reconcile / gen_queue_tick).
+    before = None
+    try:
+        before = ((await ctx.call("GET", "/runtime-streams")) or {}).get("worker_max_parallel")
+    except ActionCallError:
+        before = None
     data = await ctx.call("PATCH", "/runtime-streams", json={"worker_max_parallel": params["workers"]})
     got = (data or {}).get("worker_max_parallel")
     if got != params["workers"]:
         raise ActionCallError(409, f"параллель не изменилась (сейчас {got})")
-    return {"worker_max_parallel": got, "worker_busy": (data or {}).get("worker_busy")}
+    out = {"worker_max_parallel": got, "worker_busy": (data or {}).get("worker_busy"), "before": before}
+    if isinstance(before, int) and isinstance(got, int) and got < before:
+        out["lowered"] = True
+        out["text_ru"] = PARALLEL_LOWER_NOTE
+    return out
 
 
 def _specs() -> list[ActionSpec]:
@@ -1070,7 +1128,8 @@ def _specs() -> list[ActionSpec]:
             id="queue.set_parallel",
             title_ru="Сколько проектов очереди идут одновременно",
             description_ru=f"Окно параллели очереди генерации: от 1 до {MAX_PARALLEL} проектов "
-            "одновременно (общая настройка). Сама ничего не запускает.",
+            "одновременно (общая настройка). Сама ничего не запускает. Если число "
+            "уменьшить, уже идущие шаги не прерываются: доигрывают, а новые ждут.",
             params_schema=_obj(
                 {"workers": {"type": "integer", "minimum": 1, "maximum": MAX_PARALLEL}},
                 ["workers"],

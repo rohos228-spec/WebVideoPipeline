@@ -873,8 +873,13 @@ async def run_harness_verify(
     include_http: bool = False,
     http_base_url: str = HARNESS_HTTP_BASE,
     step: str | None = None,
+    keep_chat_owner: bool = True,
 ) -> HarnessReport:
-    """Verify + optional soft repair (POST step run via project_steps)."""
+    """Verify + optional soft repair (POST step run via project_steps).
+
+    ``keep_chat_owner``: починку запустил не человек (воркер, чат) — номер очереди чата
+    остаётся за чатом. HTTP-ручка человека передаёт False.
+    """
     data_dir = Path(project.data_dir)
     status = str(getattr(project.status, "value", project.status) or "")
     try:
@@ -938,6 +943,7 @@ async def run_harness_verify(
                     code,
                     require_node_fsm=False,
                     explicit_ui_start=True,
+                    keep_chat_owner=keep_chat_owner,
                 )
                 report.next_action = f"repaired:{code}"
             except Exception as e:  # noqa: BLE001

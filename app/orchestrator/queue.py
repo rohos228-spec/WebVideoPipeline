@@ -639,11 +639,18 @@ class MessageQueue:
         if decided.kill_switch:
             idle = self.supervisor.active_task(session_id) is None
             job = self.supervisor.request_kill(session_id)
-            if job is not None:
-                await job
+            payload = await job if job is not None else None
+            body = payload if isinstance(payload, dict) else {}
+            removed, stopped = body.get("queue_removed"), body.get("queue_stopped")
+            note = queue_removed_note(
+                removed if isinstance(removed, list) else [], stopped if isinstance(stopped, list) else []
+            )
             if idle:
                 # Без задачи итоговой сводки не будет: ответить сразу, иначе чат молчит.
-                await self._reply(session_id, stop_reply("", "", False), "stop")
+                text = note or stop_reply("", "", False)
+                await self._reply(session_id, text, "stop")
+            elif note:
+                await self._reply(session_id, note, "stop")
             return
         if decided.mode is MessageMode.interrupt:
             await self._interrupt(session_id)
@@ -867,6 +874,27 @@ STEER_IDLE_TEXT = (
     "Сейчас нет задачи, к которой это относится, поэтому я ничего не менял. "
     "Напишите просьбу целиком, например «запусти картинки в проекте 6»."
 )
+
+
+def queue_removed_note(project_ids: list[Any], stopped_ids: list[Any] | None = None) -> str:
+    """Сколько проектов, поставленных чатом, аварийный стоп убрал из очереди генерации."""
+    from app.services.action_layer.card_text import projects_ru
+
+    def _ints(items: list[Any] | None) -> list[int]:
+        return [int(item) for item in items or [] if isinstance(item, int) and not isinstance(item, bool)]
+
+    ids = _ints(project_ids)
+    if not ids:
+        return ""
+    stopped = [pid for pid in _ints(stopped_ids) if pid in ids]
+    listed = ", ".join(f"#{pid}" for pid in ids)
+    text = f"Из очереди генерации убрал {projects_ru(len(ids))}, которые ставил чат: {listed}. "
+    if stopped:
+        text += (
+            f"У {', '.join(f'#{pid}' for pid in stopped)} шаг уже шёл - он останавливается, "
+            "дальше эти проекты не пойдут. "
+        )
+    return text + "Сами они не стартуют, запустить снова можно кнопкой ▶ или просьбой в чате."
 
 
 def stop_reply(goal: str, status: str, active: bool) -> str:

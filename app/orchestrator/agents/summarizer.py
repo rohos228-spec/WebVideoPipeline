@@ -288,7 +288,11 @@ def _parallel_text(body: dict[str, Any]) -> str:
     got = body.get("worker_max_parallel")
     if not isinstance(got, int) or isinstance(got, bool):
         return ""
-    return f"Теперь одновременно идут до {got} {_plural(got, 'проекта', 'проектов', 'проектов')}."
+    text = f"Теперь одновременно идут до {got} {_plural(got, 'проекта', 'проектов', 'проектов')}."
+    if body.get("lowered"):
+        # Уменьшение не прерывает идущие шаги: человек должен знать, что они доиграют.
+        text += " Уже идущие доиграют, новые будут ждать."
+    return text
 
 
 def _model_text(body: dict[str, Any]) -> str:

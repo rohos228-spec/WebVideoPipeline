@@ -318,6 +318,33 @@ class TaskStore:
             conn.close()
         return [dict(row) for row in rows]
 
+    def session_steps(self, session_id: str, action_name: str) -> list[dict[str, Any]]:
+        """Шаги ``action_name`` всех задач этой сессии чата (и закрытых), по порядку.
+
+        Внутреннее имя сессии несёт арендатора (``orch_tenancy.scoped_session``), а
+        строки закрыты RLS: читать под арендатором этой сессии.
+        """
+        conn = connect()
+        try:
+            rows = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT s.* FROM orch_steps AS s
+                        JOIN orch_tasks AS t ON t.id = s.task_id
+                        WHERE t.session_id = :session_id AND s.action_name = :action
+                        ORDER BY s.task_id ASC, s.position ASC
+                        """
+                    ),
+                    {"session_id": session_id, "action": action_name},
+                )
+                .mappings()
+                .fetchall()
+            )
+        finally:
+            conn.close()
+        return [dict(row) for row in rows]
+
     def list_steps(self, task_id: int) -> list[dict[str, Any]]:
         conn = connect()
         try:

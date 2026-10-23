@@ -12,6 +12,7 @@ from app.services import step_cancel
 from app.services.action_layer import approval, executor, service
 from app.services.action_layer.spec import JobState
 from tests.action_layer_support import env, fresh_registry, make_spec  # noqa: F401
+from datetime import UTC
 
 OP = approval.OperatorIdentity("web_operator:slots")
 PROJ_SCHEMA = {"type": "object", "properties": {"project_id": {"type": "integer", "minimum": 1}},
@@ -310,7 +311,7 @@ def test_worker_reason_decides_what_is_a_queue(monkeypatch, slots2) -> None:
     step_cancel.keep_worker_waits([5])
     assert step_cancel.worker_wait_reason(6) is None
     assert step_cancel.worker_wait_reason(5) == "queue_predecessor"
-    later = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    later = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
     for meta in ({"user_stop": True}, {"step_failure": {"sleep_until": later}}):
         assert executor.project_waits_for_slot(7, {"status": _running_status(), "meta": meta}) is None
 

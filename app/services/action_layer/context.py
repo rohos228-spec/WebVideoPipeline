@@ -429,6 +429,10 @@ class ActionContext:
         bearer = await _studio_bearer(normalize_operator(self.operator))
         if bearer:
             headers["Authorization"] = f"Bearer {bearer}"
+        if self.plan_id:
+            from app.services.action_layer.chat_caller import PLAN_HEADER
+
+            headers[PLAN_HEADER] = normalize_operator(self.plan_id)
         fingerprint = None
         if self.idempotency_key and method != "GET":
             fingerprint = await self._claim(method, path, params, json, multipart)

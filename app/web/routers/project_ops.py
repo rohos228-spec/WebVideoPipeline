@@ -6,7 +6,7 @@ import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
 from sqlalchemy import select
@@ -63,12 +63,22 @@ async def resume_project(project_id: int, session: AsyncSession = Depends(get_se
 
 
 @router.post("/{project_id}/continue")
-async def continue_project(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
-    """Снять stop/паузу и продвинуть проект на следующий шаг (если *_ready)."""
+async def continue_project(
+    project_id: int,
+    action_operator: str | None = Header(default=None, alias="X-Action-Layer-Operator"),
+    action_plan: str | None = Header(default=None, alias="X-Action-Layer-Plan"),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Снять stop/паузу и продвинуть проект на следующий шаг (если *_ready).
+
+    «Продолжить» от задачи чата номер очереди чата не забирает; от человека — забирает.
+    """
     from app.orchestrator.auto_advance import continue_project_pipeline
+    from app.services.action_layer.chat_caller import is_chat_caller
 
     p = _project_or_404(await session.get(Project, project_id))
-    info = await continue_project_pipeline(session, p, bot=None)
+    by_chat = await is_chat_caller(action_operator, action_plan)
+    info = await continue_project_pipeline(session, p, bot=None, by_human=not by_chat)
     await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(
@@ -2577,9 +2587,12 @@ async def harness_verify(
     project_id: int,
     allow_repair: bool = Query(False),
     include_http: bool = Query(True),
+    action_operator: str | None = Header(default=None, alias="X-Action-Layer-Operator"),
+    action_plan: str | None = Header(default=None, alias="X-Action-Layer-Plan"),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Проверить disk/R48/node_runs + HTTP artifacts/assets/xlsx; опц. soft-start одного шага."""
+    from app.services.action_layer.chat_caller import is_chat_caller
     from app.services.agent_harness import HARNESS_FORBIDDEN_STEPS, run_harness_verify
 
     p = _project_or_404(await session.get(Project, project_id))
@@ -2591,6 +2604,8 @@ async def harness_verify(
         p,
         allow_repair=allow_repair,
         include_http=include_http,
+        # Починку запросил человек — номер очереди чата переходит к нему; задача чата — нет.
+        keep_chat_owner=await is_chat_caller(action_operator, action_plan),
     )
     await commit_with_retry(session)
     await session.refresh(p)

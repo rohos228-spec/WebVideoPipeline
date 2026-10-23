@@ -1233,20 +1233,25 @@ async def advance_after_gpt_verdict(
 
 
 async def continue_project_pipeline(
-    session: AsyncSession, project: Project, *, bot: Any = None
+    session: AsyncSession,
+    project: Project,
+    *,
+    bot: Any = None,
+    by_human: bool = True,
 ) -> dict[str, object]:
-    """Продолжить пайплайн: снять stop/паузу и продвинуть *_ready → running."""
+    """Продолжить пайплайн: снять stop/паузу и продвинуть *_ready → running.
+
+    ``by_human=False`` — «Продолжить» дала задача чата: номер очереди чата остаётся
+    за ним, метка «человек снял стоп» не ставится.
+    """
+    from app.services.project_control import clear_user_stop_gate
     from app.services.project_control import resume_project as resume_project_svc
     from app.services.step_cancel import clear_stop
 
     clear_stop(project.id)
-    meta = dict(project.meta or {})
-    cleared: list[str] = []
-    for key in ("user_stop", "mass_lane_user_stop"):
-        if meta.pop(key, None) is not None:
-            cleared.append(key)
-    if cleared:
-        project.meta = meta
+    # Тот же помощник, что ▶ и постановка в очередь: метка «стоп снят» и номер очереди
+    # чата переходит к человеку (аварийный стоп чата его больше не снимет).
+    cleared = [k for k in clear_user_stop_gate(project, by_human=by_human) if k != "chat_queue_owner"]
 
     if project.status is ProjectStatus.paused:
         new_status = await resume_project_svc(session, project)

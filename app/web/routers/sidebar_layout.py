@@ -45,6 +45,9 @@ class GenQueueEnqueue(BaseModel):
     mode: Literal["full", "until_node"] = "full"
     target_node_key: str | None = None
     target_node_type: str | None = None
+    # Ставит чат (action layer): id сессии чата. Аварийный стоп чата снимает с очереди
+    # только номера своей сессии. ``True`` — старая метка без сессии: стоп её не трогает.
+    by_chat: bool | str = False
 
 
 @router.get("")
@@ -195,7 +198,25 @@ async def enqueue_gen_queue(body: GenQueueEnqueue) -> dict:
                 status_code=400,
                 detail="Включите auto_mode (режим ИИ) для проекта перед добавлением в очередь",
             )
+        from app.services.gen_queue import CHAT_OWNER_KEY, chat_queue_owner
+
+        already_queued = body.project_id in layout_svc.get_gen_queue()
+        prev_owner = chat_queue_owner(project) if already_queued else None
         clear_user_stop_gate(project)
+        if isinstance(body.by_chat, str):
+            from app.services.orch_tenancy import owns_session
+
+            wanted_owner: str | bool | None = body.by_chat.strip() or None
+            # Метка — внутреннее имя сессии чата, в нём арендатор: сессию другого
+            # арендатора хозяином номера не ставим (номер тогда — человека).
+            if isinstance(wanted_owner, str) and not owns_session(wanted_owner):
+                wanted_owner = None
+        else:
+            wanted_owner = True if body.by_chat else None
+        # Чат повторно ставит номер, который уже стоит в очереди, — хозяин номера не
+        # меняется (человек или та сессия чата, что ставила первой). Человек ставит
+        # сам — номер его, даже если раньше ставил чат.
+        chat_owned = (prev_owner if already_queued else wanted_owner) if wanted_owner else None
         try:
             await set_gen_queue_run(
                 session,
@@ -206,6 +227,12 @@ async def enqueue_gen_queue(body: GenQueueEnqueue) -> dict:
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+        if chat_owned:
+            meta = dict(project.meta or {})
+            run = dict(meta.get("gen_queue_run") or {})
+            run[CHAT_OWNER_KEY] = chat_owned
+            meta["gen_queue_run"] = run
+            project.meta = meta
         run_meta = (
             dict(project.meta.get("gen_queue_run") or {})
             if isinstance(project.meta, dict) and isinstance(project.meta.get("gen_queue_run"), dict)
@@ -224,4 +251,5 @@ async def enqueue_gen_queue(body: GenQueueEnqueue) -> dict:
         "gen_queue_positions": positions,
         "position": positions.get(body.project_id),
         "gen_queue_run": run_meta,
+        "already_queued": already_queued,
     }

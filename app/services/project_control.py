@@ -37,17 +37,45 @@ def _set_user_stop_gate(project: Project) -> None:
     flag_modified(project, "meta")
 
 
-def clear_user_stop_gate(project: Project) -> list[str]:
-    """Снять user_stop (например при постановке в gen_queue / ручной ▶)."""
+# Когда человек последний раз снял стоп (▶ / постановка в очередь): повторная
+# проверка после аварийного стопа чата не возвращает стоп, снятый позже стопа.
+USER_STOP_CLEARED_AT_KEY = "user_stop_cleared_at"
+# Когда стоп последний раз снимал кто угодно (▶ / «Продолжить» / очередь — и человек, и
+# чат): повторная проверка после аварийного стопа не трогает проект, запущенный позже стопа.
+STOP_GATE_CLEARED_AT_KEY = "stop_gate_cleared_at"
+
+
+def clear_user_stop_gate(project: Project, *, by_human: bool = True) -> list[str]:
+    """Снять user_stop (например при постановке в gen_queue / ручной ▶).
+
+    Номер очереди, который ставил чат, переходит к человеку: аварийный стоп чата
+    его больше не снимает. ``by_human=False`` — стоп снимает сам чат (его ▶ через
+    слой действий): номер остаётся за чатом, метка «человек снял стоп» не ставится.
+    """
+    import time
+
+    from app.services.gen_queue_run import CHAT_OWNER_KEY
+
     meta = dict(project.meta or {})
     cleared: list[str] = []
     if meta.pop("user_stop", None) is not None:
         cleared.append("user_stop")
     if meta.pop("mass_lane_user_stop", None) is not None:
         cleared.append("mass_lane_user_stop")
+    run = meta.get("gen_queue_run")
+    if by_human and isinstance(run, dict) and CHAT_OWNER_KEY in run:
+        run = dict(run)
+        run.pop(CHAT_OWNER_KEY, None)
+        meta["gen_queue_run"] = run
+        cleared.append("chat_queue_owner")
+    now = time.time()
+    if cleared and by_human:
+        meta[USER_STOP_CLEARED_AT_KEY] = now
+    # Любой явный старт (даже без снятого стопа: шаг ещё шёл) — метка для повторной проверки.
+    meta[STOP_GATE_CLEARED_AT_KEY] = now
+    project.meta = meta
+    flag_modified(project, "meta")
     if cleared:
-        project.meta = meta
-        flag_modified(project, "meta")
         logger.info("[#{}] cleared {}", project.id, ", ".join(cleared))
     return cleared
 

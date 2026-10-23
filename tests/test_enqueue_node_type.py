@@ -19,8 +19,15 @@ class _Ctx:
 async def test_node_key_brings_its_type_into_queue_request() -> None:
     ctx = _Ctx()
     await bl._enqueue_many(ctx, {"project_ids": [10], "mode": "until_node", "target_node_key": "n_videos"})
-    assert ctx.posts == [{"project_id": 10, "mode": "until_node", "target_node_key": "n_videos",
-                          "target_node_type": "videos"}]
+    assert ctx.posts == [
+        {
+            "project_id": 10,
+            "mode": "until_node",
+            "target_node_key": "n_videos",
+            "target_node_type": "videos",
+            "by_chat": True,
+        }
+    ]
 
 
 async def test_graph_type_beats_planner_guess() -> None:
@@ -44,3 +51,20 @@ async def test_remove_many_skips_projects_not_in_queue() -> None:
             return {"gen_queue": []}
 
     assert await bl._dequeue_many(Ctx(), {"project_ids": [6, 7]}) == {"count": 1, "removed": [6]}
+
+
+async def test_enqueue_marks_number_with_chat_session(monkeypatch) -> None:
+    """Задача чата ставит номер с id своей сессии; без задачи — старая метка без сессии."""
+    from app.orchestrator.agents import task_store
+
+    monkeypatch.setattr(
+        task_store.TaskStore, "get", lambda self, tid: {"session_id": "sess-7"} if tid == 7 else None
+    )
+    ctx = _Ctx()
+    ctx.operator = "orchestrator:task-7"
+    await bl._enqueue_many(ctx, {"project_ids": [10], "mode": "full"})
+    assert ctx.posts[0]["by_chat"] == "sess-7"
+    ctx = _Ctx()
+    ctx.operator = "orchestrator:task-8"
+    await bl._enqueue_many(ctx, {"project_ids": [10], "mode": "full"})
+    assert ctx.posts[0]["by_chat"] is True

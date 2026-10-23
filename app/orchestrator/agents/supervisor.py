@@ -54,6 +54,7 @@ import hashlib
 import inspect
 import json
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -227,6 +228,36 @@ def _router_visible_cost(owner: Any) -> float:
         if inner is not None and inner is not item:
             pending.append(inner)
     return best
+
+
+async def _dequeue_chat_from_queue(project_ids: list[int], session_id: str) -> dict[str, list[int]]:
+    """Снять с очереди генерации проекты, которые туда ставил чат этой сессии (аварийный стоп)."""
+    from app.db import session_scope
+    from app.services.gen_queue import dequeue_chat_projects
+    from app.services.orch_tenancy import session_tenant
+    from app.services.tenant import tenant_scope
+
+    # Под арендатором сессии (RLS): чужой проект не загрузится и не будет снят,
+    # даже если его номер попал в параметры шага.
+    with tenant_scope(session_tenant(session_id)):
+        async with session_scope() as session:
+            return await dequeue_chat_projects(session, project_ids, session_id=session_id)
+
+
+async def _recheck_dequeued_in_db(project_ids: list[int], session_id: str, since: float) -> list[int]:
+    """Проекты, снятые стопом, которые тик очереди всё же успел стартовать (человек их не брал)."""
+    from app.db import session_scope
+    from app.services.gen_queue import recheck_dequeued
+    from app.services.orch_tenancy import session_tenant
+    from app.services.tenant import tenant_scope
+
+    with tenant_scope(session_tenant(session_id)):
+        async with session_scope() as session:
+            return await recheck_dequeued(session, project_ids, session_id=session_id, since=since)
+
+
+# Повторная проверка после стопа: тик очереди, начатый до стопа, мог стартовать проект позже.
+QUEUE_RECHECK_DELAY_SEC = 3.0
 
 
 def _holders_path(project_id: int) -> Any:
@@ -2332,7 +2363,7 @@ class Supervisor:
         for session_id, task_id in pending_paid:
             self._spawn(self._mark_paid_outcome_unknown(session_id, task_id))
 
-    async def _publish_kill(self, session_id: str, task_id: int | None) -> None:
+    async def _publish_kill(self, session_id: str, task_id: int | None) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "stop_key_set": False,
             "stop_key": "pending",
@@ -2353,7 +2384,99 @@ class Supervisor:
             payload["stop_key"] = stop_flag_path(projects[0]).name
             if len(projects) > 1:
                 payload["stop_keys"] = [stop_flag_path(project_id).name for project_id in projects]
+        queue = await self._dequeue_session_queue(session_id, task_id)
+        payload["queue_removed"] = queue["removed"]
+        payload["queue_stopped"] = queue["stopping"]
+        payload["queue_removed_count"] = len(queue["removed"])
         await self.bus.publish(session_id, "kill_switch", payload, task_id=task_id)
+        return payload
+
+    def _session_queue_projects(self, session_id: str) -> list[int]:
+        """Проекты, которые задачи этой сессии ставили в очередь (шаги ``queue.enqueue_many``).
+
+        Берутся все задачи сессии, и закрытые, и после рестарта: kill идёт после
+        другой задачи, а проекты первой всё ещё ждут в очереди. Это только кандидаты:
+        снимаются лишь номера с меткой этой сессии (см. ``dequeue_chat_projects``),
+        так что шаг, который не прошёл или упал на середине, лишнего не снимет.
+        """
+        from app.services.orch_tenancy import session_tenant
+        from app.services.tenant import tenant_scope
+
+        found: list[int] = []
+        try:
+            with tenant_scope(session_tenant(session_id)):
+                rows = self.tasks.session_steps(session_id, "queue.enqueue_many")
+        except Exception:
+            logger.exception("orch kill: queue steps of session {} not read", session_id)
+            rows = []
+        for row in rows:
+            try:
+                params = json.loads(row.get("params_json") or "{}")
+            except (TypeError, ValueError):
+                params = {}
+            raw = params.get("project_ids") if isinstance(params, dict) else None
+            for item in raw if isinstance(raw, list) else []:
+                try:
+                    value = int(item)
+                except (TypeError, ValueError):
+                    continue
+                if value > 0 and value not in found:
+                    found.append(value)
+        return found
+
+    async def _dequeue_session_queue(self, session_id: str, task_id: int | None) -> dict[str, list[int]]:
+        """Kill: проекты, которые чат этой сессии ставил в очередь генерации, оттуда убираются.
+
+        Иначе они стартовали бы позже, уже после «аварийного стопа». Ждущие получают
+        user_stop; у тех, где шаг уже идёт, ставится stop-ключ kill: воркер снимет шаг и
+        дальше проект не пойдёт. Номер, который поставил человек, ручной стоп человека,
+        чужие сессии и общий стоп очереди не трогаются.
+        """
+        empty: dict[str, list[int]] = {"removed": [], "stopping": []}
+        projects = self._session_queue_projects(session_id)
+        if not projects:
+            return empty
+        since = time.time()
+        try:
+            got = await _dequeue_chat_from_queue(projects, session_id)
+        except Exception:
+            logger.exception("orch kill: queue of session {} not cleared", session_id)
+            return empty
+        removed = [int(item) for item in (got or {}).get("removed") or []]
+        stopping = [int(item) for item in (got or {}).get("stopping") or [] if int(item) in removed]
+        for project_id in stopping:
+            self._hold_queue_stop(project_id, task_id)
+        waiting = [project_id for project_id in removed if project_id not in stopping]
+        if waiting:
+            stopping.extend(await self._recheck_queue_stop(waiting, task_id, 0.0, session_id, since))
+            self._spawn(
+                self._recheck_queue_stop(waiting, task_id, QUEUE_RECHECK_DELAY_SEC, session_id, since)
+            )
+        return {"removed": removed, "stopping": stopping}
+
+    def _hold_queue_stop(self, project_id: int, task_id: int | None) -> None:
+        self._note_kill_stop(project_id, task_id)
+        if task_id is not None:
+            self._kill_stopped.setdefault(int(task_id), set()).add(int(project_id))
+
+    async def _recheck_queue_stop(
+        self, project_ids: list[int], task_id: int | None, delay: float, session_id: str, since: float
+    ) -> list[int]:
+        """Снятый стопом проект всё же стартовал (тик очереди шёл в тот же момент): stop-ключ.
+
+        Проект, который человек после стопа снова поставил в очередь или запустил ▶, не трогаем.
+        """
+        if delay > 0:
+            await asyncio.sleep(delay)
+        try:
+            busy = [int(item) for item in await _recheck_dequeued_in_db(project_ids, session_id, since) or []]
+        except Exception:
+            logger.exception("orch kill: queue recheck of {} failed", project_ids)
+            return []
+        for project_id in busy:
+            logger.warning("orch kill: #{} стартовал во время стопа — ставим stop-ключ", project_id)
+            self._hold_queue_stop(project_id, task_id)
+        return busy
 
     def _kill_projects(self, task_id: int) -> list[int]:
         """Проект задачи и проекты её шагов, которые ещё идут (запуск сразу в нескольких проектах).

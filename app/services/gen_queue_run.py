@@ -125,6 +125,10 @@ def is_user_stopped(project: Project) -> bool:
     return bool(meta.get("user_stop") or meta.get("mass_lane_user_stop"))
 
 
+# Метка в gen_queue_run: номер ставил чат; значение — id сессии чата (старое ``True`` — без сессии).
+CHAT_OWNER_KEY = "by_chat"
+
+
 async def set_gen_queue_run(
     session: AsyncSession,
     project: Project,
