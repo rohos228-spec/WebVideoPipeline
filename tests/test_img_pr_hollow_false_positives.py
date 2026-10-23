@@ -40,3 +40,63 @@ def test_absent_scene_object_is_content(text: str) -> None:
 @pytest.mark.parametrize("text", HOLLOW)
 def test_missing_source_data_is_hollow(text: str) -> None:
     assert prompt_is_hollow(text) is True
+
+
+# --- таблица ревью: формы, которые раньше проходили в оплату, и сцены, которые должны остаться ---
+
+LOCK = (" STYLE: Archival Noir Watercolor Grunge Dossier Poster Illustration, dark watercolor wash, "
+        "distressed printmaking, halftone dots, charcoal shadow masses.") * 4
+
+# (текст, пустой ли промт). Каждая строка проверяется и без стиля, и со стилевым замком.
+TABLE = [
+    # пустые
+    ("Недостаточно исходных данных для заполнения.", True),
+    ("No source data available to fill this frame.", True),
+    ("Insufficient input data for this frame.", True),
+    ("Фон: —. Действие: —. Свет: —.", True),
+    ("Фон: н/д. Действие: н/д. Персонажи: н/д.", True),
+    ("Фон: неизвестно. Действие: неизвестно.", True),
+    ("Фон: . Действие: .", True),
+    ("Фон: . Действие: . Свет: .", True),
+    ("", True),  # только стилевой замок
+    ("Нет исходных данных для заполнения, но кадр должен быть атмосферным.", True),
+    ("Нет исходных данных, но STYLE LOCK обязательный, акварель.", True),
+    # сцена
+    ("Пустой ночной перрон, людей нет.", False),
+    ("Фон: заброшенный цех, окон нет. Действие: людей нет. Свет: электричества нет.", False),
+    ("Свет: источник не указан, мягкий рассеянный.", False),
+    ("Фон: пустыня, тень отсутствует, жара.", False),
+    ("нет исходных данных о фоне, но лиса бежит по снегу", False),
+    ("Фон: —. Действие: лиса бежит по снегу.", False),
+    ("Неизвестный путник идёт по ночной дороге.", False),
+    ("No source data for the background, but a fox runs over the snow.", False),
+]
+
+
+def _case_id(row: tuple[str, bool]) -> str:
+    return ("hollow:" if row[1] else "scene:") + (row[0][:40] or "<style only>")
+
+
+@pytest.mark.parametrize("row", TABLE, ids=_case_id)
+@pytest.mark.parametrize("with_style", [False, True], ids=["plain", "style"])
+def test_review_table(row: tuple[str, bool], with_style: bool) -> None:
+    from types import SimpleNamespace
+
+    from app.generation_options import image_prompt_missing, is_no_source_data_prompt
+    from app.orchestrator.steps.generate_images import _hollow_prompt_frames
+    from app.services import img_pr_batches as ipb
+
+    text, hollow = row
+    if not text and not with_style:
+        pytest.skip("пустая строка без стиля — не заглушка, а просто нет промта")
+    prompt = (text + LOCK).strip() if with_style else text
+    assert prompt_is_hollow(prompt) is hollow
+    assert image_prompt_missing(prompt) is hollow
+    assert is_no_source_data_prompt(prompt) is hollow
+    # Платный гейт картинок: кадр с пустым промтом не идёт в генерацию.
+    frame = SimpleNamespace(number=1, image_prompt=prompt, attrs={}, meta={}, status=None)
+    assert _hollow_prompt_frames([frame]) == ([1] if hollow else [])
+    if with_style:
+        # Запись img_pr: пустой промт не пишется, сцена (длинная, со стилем) пишется.
+        ops = [{"frame_uuid": "a" * 24, "fields": {"промт_картинки": prompt}}]
+        assert bool(ipb.writeable_img_pr_ops(ops)) is (not hollow)
