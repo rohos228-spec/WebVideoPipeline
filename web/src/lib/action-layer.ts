@@ -599,6 +599,7 @@ export const PARAM_RU: Record<string, ParamInfo> = {
   branches: { label: "Ветки ок / не ок" },
   reasoning_effort: { label: "Уровень рассуждений модели", hint: "low — низкий, medium — средний, high — высокий" },
   edits: { label: "Замены в тексте промта" },
+  append: { label: "Дописать в промт", hint: "текст, который добавится в конец промта" },
   allow_auto_chain: { label: "Запускать следующие шаги автоматически", hint: "после этого шага цепочка пойдёт дальше сама" },
   stop_after_node_key: { label: "Остановиться после ноды", hint: "цепочка нод GPT дальше этой ноды не пойдёт" },
   enable_auto_mode: { label: "Включить автоматический режим проекта" },
