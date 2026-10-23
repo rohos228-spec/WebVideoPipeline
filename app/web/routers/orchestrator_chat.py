@@ -4,6 +4,8 @@ POST ``/api/orchestrator/chat/{session}/message``
 GET  ``/api/orchestrator/chat/{session}/status``
 GET  ``/api/orchestrator/chat/{session}/stream``  (Last-Event-ID)
 POST ``/api/orchestrator/chat/{session_id}/approve``
+POST ``/api/orchestrator/chat/{session}/reject``   (отказ по карточке: задача отменена, план отозван)
+POST ``/api/orchestrator/chat/{session}/kill``     (стоп задачи чата и её проекта)
 GET  ``/api/orchestrator/chat/{session}/partial-changes``
 
 Чат открыт каждому клиенту студии. Имя сессии из пути — внешнее; внутрь
@@ -86,6 +88,31 @@ class ApproveIn(BaseModel):
     retry_grant: bool = False
 
 
+class RejectIn(BaseModel):
+    """Тело ``POST .../reject``: какую карточку отклонить."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    change_id: str | None = Field(default=None, max_length=200)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class KillIn(BaseModel):
+    """Тело ``POST .../kill``. Проект — тот, что открыт в чате (иначе проект задачи)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, max_length=500)
+    project_id: StrictInt | None = Field(default=None, ge=1)
+
+
+KILL_DETAIL = (
+    "Задача этого чата остановлена: неплатные шаги отменены, новые действия задачи не "
+    "запускаются. Платный шаг, который уже идёт, остановится на границе. Аварийный стоп "
+    "всей студии этой кнопкой не включается."
+)
+
+
 def _check_session(session: str) -> str:
     """Проверить внешнее имя и вернуть внутреннее — с арендатором запроса."""
     if not _SESSION_RE.fullmatch(session):
@@ -127,10 +154,65 @@ def remember_seq(cursor: int, seq: int) -> tuple[int, bool]:
     return seq, True
 
 
+#: Поля событий чата с себестоимостью в $ (оценка шага, траты провайдеров, прогноз).
+_MONEY_KEYS = frozenset(
+    {
+        "cost_estimate",
+        "estimated_cost",
+        "cost",
+        "forecast_usd",
+        "cost_usd",
+        "spent_usd",
+        "usd",
+        "high_usd",
+        "low_usd",
+        "credits_low",
+        "credits_high",
+        "held_usd",
+        "amount_usd",
+        "total_usd",
+        "actual_usd",
+    }
+)
+MEMBER_COST_TEXT = "цена видна админу студии"
+_MONEY_RE = re.compile(r"\$\s?\d[\d.,]*")
+
+
+def member_safe(value: Any) -> Any:
+    """Участнику — без сумм в $: поля себестоимости убраны, суммы в тексте скрыты.
+
+    Тот же принцип, что ``plan.member_view`` в отчётах: себестоимость вызовов из общей
+    кассы провайдеров участнику не показывается. Логика задачи (одобрения, риск)
+    работает на исходных данных — меняется только то, что уходит в браузер.
+    """
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in _MONEY_KEYS:
+                continue
+            out[key] = MEMBER_COST_TEXT if key == "cost_text" else member_safe(item)
+        return out
+    if isinstance(value, list):
+        return [member_safe(item) for item in value]
+    if isinstance(value, str) and "$" in value:
+        return _MONEY_RE.sub("(сумма видна админу)", value)
+    return value
+
+
+def _for_viewer(payload: Any) -> Any:
+    from app.services.action_layer.plan import member_view
+
+    return member_safe(payload) if member_view() else payload
+
+
 def _sse(event: OrchEvent) -> dict[str, str]:
-    """Событие в SSE. Клиент видит своё внешнее имя сессии, без арендатора."""
+    """Событие в SSE. Клиент видит своё внешнее имя сессии, без арендатора; участник — без $."""
     if event.session_id:
         event = event.model_copy(update={"session_id": public_session(event.session_id)})
+    from app.services.action_layer.plan import member_view
+
+    if member_view():
+        event = event.model_copy(update={"payload": member_safe(event.payload)})
     return {
         "event": event.type,
         "id": str(event.seq),
@@ -283,7 +365,68 @@ async def post_approve(session_id: str, body: ApproveIn, request: Request):
         if isinstance(failure, JSONResponse):
             return failure
         raise failure from None
-    return _approval_result(runtime.supervisor, internal, body, result)
+    return _for_viewer(_approval_result(runtime.supervisor, internal, body, result))
+
+
+@router.post("/{session}/reject")
+async def post_reject(session: str, body: RejectIn, request: Request):
+    """Отказ человека по карточке: задача отменяется без исполнения, план слоя действий отозван.
+
+    Сессия — внутренняя, с арендатором: чужая карточка здесь не найдётся (404).
+    """
+    internal = _check_session(session)
+    runtime = get_runtime()
+    try:
+        result = await runtime.supervisor.reject_approval(internal, change_id=body.change_id)
+    except DECISION_ERRORS as exc:
+        failure = decision_failure(exc, missing="approval not found")
+        if isinstance(failure, JSONResponse):
+            return failure
+        raise failure from None
+    plan_id = await orch_bridge.bound_plan_any(body.change_id)
+    if plan_id:
+        await orch_bridge.revoke(plan_id, body.change_id, orch_bridge.actor_of(request.scope))
+    return {
+        **_public(result),
+        "ok": True,
+        "approval_id": body.change_id,
+        "decision": "reject",
+        "matched": True,
+    }
+
+
+@router.post("/{session}/kill")
+async def post_kill(session: str, body: KillIn, request: Request) -> dict[str, object]:
+    """Стоп задачи этого чата и её проекта (проект — только видимый арендатору)."""
+    internal = _check_session(session)
+    await _assert_project_visible(body.project_id)
+    runtime = get_runtime()
+    task_id = runtime.supervisor._session_task.get(internal)
+    project_id = body.project_id or orch_bridge.session_project(runtime, internal)
+    job = runtime.supervisor.request_kill(internal)
+    if job is not None:
+        await job
+    detail = KILL_DETAIL
+    project: dict | None = None
+    if project_id is not None:
+        project = await orch_bridge.stop_session_project(request.app, project_id, task_id)
+        if not project["ok"]:
+            detail += f" Проект #{project_id} остановить не удалось: {project['message'] or 'нет ответа'}"
+        elif project["stopped"]:
+            detail += f" Проект #{project_id} остановлен."
+        else:
+            detail += f" В проекте #{project_id} ничего не шло."
+    return {
+        "ok": True,
+        "status": "cancelled",
+        "stop_key_set": True,
+        "scope": "session",
+        "session_id": session,
+        "task_id": task_id,
+        "project_id": project_id,
+        "project_stopped": bool(project and project["stopped"]),
+        "detail": detail,
+    }
 
 
 @router.post("/{session}/resume")
@@ -318,7 +461,7 @@ async def post_resume(session: str) -> dict[str, object]:
 async def get_session_status(session: str) -> dict[str, object]:
     """Снимок задачи сессии. ``resume_allowed`` совпадает с последним ``agent_status``."""
     internal = _check_session(session)
-    return _public(get_runtime().supervisor.session_snapshot(internal))
+    return _for_viewer(_public(get_runtime().supervisor.session_snapshot(internal)))
 
 
 @router.get("/{session}/partial-changes")

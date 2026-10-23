@@ -111,6 +111,8 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/orchestrator/chat/",
     "/api/action-layer/",
     "/api/change-control/",
+    # Лента уведомлений под чатом: строки арендатора (RLS, ORCH_RAW_TENANT_TABLES).
+    "/api/chat-notices",
     # Промты УЧАСТНИКА: пишут в его область с изоляцией по tenant_id, читают его
     # переопределение.
     "/api/my-prompts",

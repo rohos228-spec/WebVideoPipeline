@@ -517,6 +517,10 @@ def create_app() -> FastAPI:
 
     app.include_router(action_layer_router, prefix=API_PREFIX)
     app.include_router(change_control_router, prefix=API_PREFIX)
+    # Лента уведомлений чата оркестратора (таблица арендатора, RLS).
+    from app.web.routers import chat_notices as chat_notices_router
+
+    app.include_router(chat_notices_router.router, prefix=API_PREFIX)
     app_ref.bind(app)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
