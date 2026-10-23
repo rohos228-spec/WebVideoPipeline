@@ -383,6 +383,8 @@ export function PromptFilesPanel({
           onOpenSettings={catalogPanel.onOpenSettings}
           onClose={catalogPanel.onClose}
           embedded={!!catalogPanel.embedded}
+          stepCode={stepCode}
+          projectId={projectId}
           downloadUrl={(id) => api.downloadPromptFileUrl(stepCode, id)}
           onUpload={async (id, file) => {
             try {
