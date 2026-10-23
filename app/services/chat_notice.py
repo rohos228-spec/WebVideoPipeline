@@ -725,6 +725,22 @@ def unknown_outcome_soon(provider: str, project_id: int | None, key: str | None)
 _INCIDENT_ACTIONS = {"uncertain_request": "media.list_unknown_outcomes"}
 
 
+def owner_scope(tenant_id: Any):
+    """Писать уведомление от имени клиента, чья это строка (инцидент, выполнение).
+
+    Фоновые проходы (сторож, диагностика) идут без арендатора: без этой обёртки
+    уведомление о проекте клиента записалось бы строкой владельца (RLS спрятал бы
+    её от клиента) и не ушло бы ему живым событием. Уже стоящий арендатор не меняется.
+    """
+    import contextlib
+
+    from app.services.tenant import current_tenant, tenant_scope
+
+    if tenant_id is None or current_tenant() is not None:
+        return contextlib.nullcontext()
+    return tenant_scope(str(tenant_id))
+
+
 async def incident(row: Any, text: str) -> str:
     d = row.details or {}
     severity = str(getattr(row, "severity", "") or d.get("severity") or "error")
@@ -734,17 +750,18 @@ async def incident(row: Any, text: str) -> str:
     act_id = _INCIDENT_ACTIONS.get(str(row.type))
     if act_id and row.project_id is not None:
         actions.append(_act(act_id, "Показать блокировки", project_id=int(row.project_id)))
-    status, _ = await send(
-        row.project_id,
-        level,
-        title,
-        text,
-        kind="incident",
-        dedup_key="incident:" + str(row.incident_id),
-        dedup_window_s=FOREVER_S,
-        suggested_actions=actions,
-        run_id=getattr(row, "execution_id", None),
-    )
+    with owner_scope(getattr(row, "tenant_id", None)):
+        status, _ = await send(
+            row.project_id,
+            level,
+            title,
+            text,
+            kind="incident",
+            dedup_key="incident:" + str(row.incident_id),
+            dedup_window_s=FOREVER_S,
+            suggested_actions=actions,
+            run_id=getattr(row, "execution_id", None),
+        )
     return status
 
 

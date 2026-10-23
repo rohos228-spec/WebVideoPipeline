@@ -978,8 +978,15 @@ class Observer:
 
     async def _diagnose(self):
         from app.services.diagnosis import get_diagnoser
+        from app.services.orch_tenancy import for_each_tenant
 
-        await get_diagnoser(self).catch_up()
+        # Как у остальных фоновых проходов: владелец, потом каждый арендатор. Под RLS проход
+        # без арендатора видит только строки владельца — инциденты клиента не доходили бы до него.
+        async def _one() -> list:
+            await get_diagnoser(self).catch_up()
+            return []
+
+        await for_each_tenant(_one, what="diagnosis")
 
     async def _reconcile(self):
         from app.services.actions_recovery import reconcile
@@ -987,9 +994,19 @@ class Observer:
         await reconcile(self)
 
     async def _watchdog(self):
+        from app.services.orch_tenancy import for_each_tenant
         from app.services.watchdog import get_watchdog
 
-        await get_watchdog(self).tick()
+        watchdog = get_watchdog(self)
+        if not watchdog.due():
+            return
+
+        # Владелец и каждый арендатор: зависшее выполнение клиента видно только под его RLS,
+        # и уведомление «зависла работа в проекте #N» пишется от его имени.
+        async def _one() -> list:
+            return await watchdog.tick(force=True)
+
+        await for_each_tenant(_one, what="watchdog")
 
     async def _decide(self):
         from app.services.decision_v1 import get_decider

@@ -23,6 +23,12 @@ class Watchdog:
         self._last_run = 0.0
         self._lock = asyncio.Lock()
 
+    def due(self) -> bool:
+        """Пора ли следующему проходу (тот же интервал, что у ``tick``)."""
+        from app.settings import settings
+
+        return time.monotonic() - self._last_run >= max(1.0, float(settings.watchdog_interval_s))
+
     async def tick(self, *, force: bool = False) -> list[dict]:
         from app.settings import settings
 
@@ -404,6 +410,8 @@ class Watchdog:
             "incident_id": identity,
             "execution_id": scope.execution_id,
             "project_id": scope.project_id,
+            # Чей проект: уведомление уйдёт этому клиенту (chat_notice.owner_scope).
+            "tenant_id": getattr(scope, "tenant_id", None),
             "node_key": node_key,
             "stall": stall,
         }
@@ -420,17 +428,19 @@ class Watchdog:
         except Exception as exc:
             logger.warning("watchdog notification failed: {}", type(exc).__name__)
         try:
+            from app.services.chat_notice import owner_scope
             from app.services.supervisor_heartbeat import _send
 
             for item in created:
                 kind = (item.get("stall") or {}).get("kind", "stalled")
                 node = item.get("node_key") or "выполнение группы"
-                await _send(
-                    f"Сторож: зависла работа в проекте #{item['project_id']} "
-                    f"({node}, {kind}). Нужно решение человека.",
-                    "watchdog_stalled",
-                    project_id=item.get("project_id"),
-                )
+                with owner_scope(item.get("tenant_id")):
+                    await _send(
+                        f"Сторож: зависла работа в проекте #{item['project_id']} "
+                        f"({node}, {kind}). Нужно решение человека.",
+                        "watchdog_stalled",
+                        project_id=item.get("project_id"),
+                    )
         except Exception as exc:
             logger.warning("watchdog telegram alarm failed: {}", type(exc).__name__)
 
