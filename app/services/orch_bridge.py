@@ -39,7 +39,17 @@ _OWN_EXECUTORS = frozenset(
     }
 )
 _NO_RUN_REASONS = frozenset({"paid_outcome_unknown", "paid_unknown_outcome", "partial_write"})
-_BOUND: dict[str, str] = {}
+#: Карточка → одобренный план. Ключ несёт арендатора: память процесса общая для всех
+#: клиентов студии, и id карточки другого клиента не должен находить (и снимать) чужую привязку.
+_BOUND: dict[tuple[str | None, str], str] = {}
+
+
+def _bound_key(change_id: str) -> tuple[str | None, str]:
+    from app.services.tenant import current_tenant
+
+    return current_tenant(), str(change_id)
+
+
 _RELAYS: dict[tuple[int, str, int], dict] = {}
 _SEEN: dict[str, set[int]] = {}
 _SEEN_LOCKS: dict[str, asyncio.Lock] = {}
@@ -210,7 +220,7 @@ async def _reusable(plan_id: str | None, name: str, params: dict) -> bool:
 
 
 async def bind_approved(change_id: str, plan_id: str, *, action: str, task_id: Any, actor: str) -> None:
-    _BOUND[change_id] = plan_id
+    _BOUND[_bound_key(change_id)] = plan_id
     async with store.sessions()() as s:
         store.append_history(
             s,
@@ -227,8 +237,8 @@ async def bind_approved(change_id: str, plan_id: str, *, action: str, task_id: A
 async def bound_plan(change_id: str | None, action: str) -> str | None:
     if not change_id:
         return None
-    if change_id in _BOUND:
-        return _BOUND[change_id]
+    if _bound_key(change_id) in _BOUND:
+        return _BOUND[_bound_key(change_id)]
     async with store.sessions()() as s:
         rows = (
             await s.scalars(
@@ -245,8 +255,8 @@ async def bound_plan(change_id: str | None, action: str) -> str | None:
 
 
 async def revoke(plan_id: str, change_id: str | None, actor: str) -> None:
-    if change_id and _BOUND.get(change_id) == plan_id:
-        _BOUND.pop(change_id, None)
+    if change_id and _BOUND.get(_bound_key(change_id)) == plan_id:
+        _BOUND.pop(_bound_key(change_id), None)
     now = datetime.utcnow()
     async with store.sessions()() as s:
         await s.execute(
@@ -600,8 +610,8 @@ def human_verified():
 async def bound_plan_any(change_id: str | None) -> str | None:
     if not change_id:
         return None
-    if change_id in _BOUND:
-        return _BOUND[change_id]
+    if _bound_key(change_id) in _BOUND:
+        return _BOUND[_bound_key(change_id)]
     async with store.sessions()() as s:
         rows = (
             await s.scalars(

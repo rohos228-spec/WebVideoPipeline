@@ -128,3 +128,57 @@ async def _admin_headers(env) -> dict:
     if "admin" not in env:
         env["admin"] = await ah.make_admin(env["factory"], email="rk-admin@studio.local")
     return env["admin"].auth
+
+
+def test_card_binding_is_per_tenant() -> None:
+    """Привязка карточка → план в памяти процесса: id карточки другого клиента её не находит."""
+    from app.services import orch_bridge
+    from app.services.tenant import tenant_scope
+
+    a, b = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
+    with tenant_scope(a):
+        orch_bridge._BOUND[orch_bridge._bound_key("orch-501-1")] = "plan-a"
+    try:
+        with tenant_scope(b):
+            assert orch_bridge._bound_key("orch-501-1") not in orch_bridge._BOUND
+        with tenant_scope(a):
+            assert orch_bridge._BOUND[orch_bridge._bound_key("orch-501-1")] == "plan-a"
+    finally:
+        orch_bridge._BOUND.clear()
+
+
+async def test_stale_reject_revokes_the_server_card_not_the_client_id(env, monkeypatch) -> None:
+    """Протухшая карточка B: reject закрывает карточку B (её id решает сервер), а не id из тела.
+
+    Раньше revoke брал change_id клиента: B, прислав id карточки A, снимал привязку A и
+    писал отзыв с планом A.
+    """
+    from app.orchestrator.agents.supervisor import _appr_key
+    from app.services import orch_bridge
+    from app.services.tenant import tenant_scope
+
+    runtime, client = env["runtime"], env["client"]
+    a_id, b_id = env["a"].user_id, env["b"].user_id
+    with tenant_scope(a_id):
+        orch_bridge._BOUND[orch_bridge._bound_key("orch-777-1")] = "plan-of-a"
+    internal_b = scoped_session("stale", b_id)
+    task_b = runtime.tasks.insert(internal_b, "цель B", TaskStatus.waiting_approval.value)
+    runtime.supervisor._session_task[internal_b] = task_b
+    runtime.supervisor._stale_cards.add(task_b)
+    runtime.supervisor._appr_open[_appr_key(task_b)] = f"orch-{task_b}-1"
+    revoked: list[tuple[str, str | None]] = []
+
+    async def _revoke(plan_id, change_id, actor):
+        revoked.append((plan_id, change_id))
+
+    monkeypatch.setattr(orch_bridge, "revoke", _revoke)
+    try:
+        res = await client.post("/api/orchestrator/chat/stale/reject", json={"change_id": "orch-777-1"},
+                                headers=env["b"].auth)
+        assert res.status_code == 200, res.text
+        assert res.json()["approval_id"] == f"orch-{task_b}-1"
+        assert revoked == []  # у карточки B плана нет; план A не тронут
+        with tenant_scope(a_id):
+            assert orch_bridge._BOUND[orch_bridge._bound_key("orch-777-1")] == "plan-of-a"
+    finally:
+        orch_bridge._BOUND.clear()

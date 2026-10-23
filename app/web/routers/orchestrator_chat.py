@@ -339,13 +339,16 @@ async def post_reject(session: str, body: RejectIn, request: Request):
         if isinstance(failure, JSONResponse):
             return failure
         raise failure from None
-    plan_id = await orch_bridge.bound_plan_any(body.change_id)
+    # Какая карточка закрыта, решает сервер (supervisor), а не тело запроса: на пути
+    # протухшей карточки reject_approval не сверяет change_id клиента.
+    decided = result.get("change_id") if isinstance(result, dict) else None
+    plan_id = await orch_bridge.bound_plan_any(decided) if decided else None
     if plan_id:
-        await orch_bridge.revoke(plan_id, body.change_id, orch_bridge.actor_of(request.scope))
+        await orch_bridge.revoke(plan_id, decided, orch_bridge.actor_of(request.scope))
     return {
         **_public(result),
         "ok": True,
-        "approval_id": body.change_id,
+        "approval_id": decided or body.change_id,
         "decision": "reject",
         "matched": True,
     }
