@@ -19,7 +19,6 @@ from app.orchestrator.agents.llm_call import router_call
 from app.orchestrator.agents.planner import NullRetriever
 from app.orchestrator.agents.retrieve import retrieve, rules_block
 from app.orchestrator.contracts import (
-    RUN_NODE_ACTIONS,
     STATE_READ_ACTIONS,
     AgentRole,
     BudgetScope,
@@ -96,31 +95,91 @@ def confirmation_only(reason: str) -> bool:
 
 # «Нужно (повторно) прочитать актуальное состояние проекта перед запуском»: задача 334 гоняла
 # такой revise по кругу, хотя project.status уже стоял первым шагом плана.
-_READ_STATE = re.compile(r"прочит|чтени|статус|состояни", re.IGNORECASE)
-# Замечание о чём-то ещё (траты, удаление, модель, правило, другой проект) — оставляем revise.
-_OTHER_ISSUE = re.compile(
-    r"удал|лимит|трат|стоим|бюджет|модел|правил|кадр|сцен|подтвержд|согласи|параметр|промт|"
-    r"не\s+тот|друг\w*\s+проект|лишн|запрещ",
+_READ_STATE = re.compile(
+    r"прочит|перечит|чтени|статус|состояни|project\.status|node\.describe|verify_code_state", re.IGNORECASE
+)
+# Белый список: причина целиком из слов «прочитай актуальное состояние проекта перед запуском».
+# Любое другое слово (цена, дорого, сотрёт, клиент, тенант, цепочка, английский текст) —
+# возможно настоящее замечание, revise остаётся. Чёрный список таких слов всегда неполон.
+_READ_WORDS = re.compile(
+    r"(?<!\w)(?:\w*прочит\w*|\w*перечит\w*|чтени\w*|читать|читай|статус\w*|состояни\w*|"
+    r"актуальн\w*|текущ\w*|свеж\w*|последн\w*|живо\w*|повторн\w*|снова|заново|ещё|еще|раз|сначала|"
+    r"перед|прежде|чем|до|непосредственно|сразу|запуск\w*|продолж\w*|возобнов\w*|выполн\w*|"
+    r"исполн\w*|следующ\w*|смен\w*|изменени\w*|шаг\w*|проект\w*|нод\w*|план\w*|конвейер\w*|пайплайн\w*|"
+    r"нужн\w*|необходим\w*|требует\w*|требуе\w*|следует|надо|долж\w*|сделай|добав\w*|получ\w*|"
+    r"провер\w*|убед\w*|узна\w*|и|в|во|на|по|для|с|со|к|у|о|об|его|её|ее|это\w*|эт\w*|"
+    r"не|был\w*|бы|чтобы|как)(?!\w)",
     re.IGNORECASE,
 )
+# Имена шагов чтения, которые критик может назвать в причине.
+_READ_NAMES = frozenset({*STATE_READ_ACTIONS, "verify_code_state", "read_pipeline_code", "get_node"})
+_LATIN = re.compile(r"[A-Za-z_][\w.]*")
+_NUMBER = re.compile(r"\d+")
+# Чтение проекта: только эти действия. node.output / node.get_config — не «состояние проекта».
+_PROJECT_READS = frozenset({"project.status"})
+_NODE_READS = frozenset({"node.describe"})
+# Ключи, через которые шаг может указать другой проект, тенанта или цепочку.
+_SCOPE_KEYS = re.compile(r"project|tenant|owner|client|until|stop_after|chain|all|many", re.IGNORECASE)
 
 
 def _changes_state(step: PlanStep) -> bool:
-    return bool(step.mutating or step.paid or step.action in RUN_NODE_ACTIONS)
+    """Всё, что не чтение по имени действия, считаем изменением: флаги планировщика не доверяем."""
+    return bool(step.mutating or step.paid or step.action not in STATE_READ_ACTIONS)
+
+
+def _same_id(a: Any, b: Any) -> bool:
+    return a not in (None, "") and b not in (None, "") and str(a).strip() == str(b).strip()
+
+
+def _plain_read(read: PlanStep) -> bool:
+    """Чтение без флагов изменения и без ключей другого проекта, кроме project_id/node_key."""
+    if read.mutating or read.paid:
+        return False
+    extra = set(read.params or {}) - {"project_id", "node_key"}
+    return not any(_SCOPE_KEYS.search(str(key)) for key in extra)
 
 
 def _read_covers(read: PlanStep, step: PlanStep) -> bool:
-    if read.action not in STATE_READ_ACTIONS:
+    if read.action not in STATE_READ_ACTIONS or not _plain_read(read):
         return False
     params, wanted = read.params or {}, step.params or {}
-    pid = wanted.get("project_id")
-    if pid not in (None, "") and params.get("project_id") not in (None, pid):
+    # Чтение без project_id не покрывает ничего: чей проект прочитан — неизвестно.
+    if not _same_id(params.get("project_id"), wanted.get("project_id")):
         return False
     node = wanted.get("node_key")
     if step.action.startswith("node.") and node:
         # Смена модели или настроек ноды: правило — node.describe этой же ноды.
-        return read.action == "node.describe" and params.get("node_key") == node
-    return True
+        return read.action in _NODE_READS and _same_id(params.get("node_key"), node)
+    if read.action in _PROJECT_READS:
+        return True
+    # node.describe покрывает только запуск этой же ноды.
+    stop = wanted.get("stop_after_node_key") or node
+    return read.action in _NODE_READS and _same_id(params.get("node_key"), stop)
+
+
+def _plan_tokens(plan: list[PlanStep]) -> tuple[set[str], set[str]]:
+    names = {name.lower() for name in _READ_NAMES} | {step.action.lower() for step in plan}
+    numbers: set[str] = set()
+    for step in plan:
+        for key in ("project_id", "node_key"):
+            value = (step.params or {}).get(key)
+            if value not in (None, ""):
+                (numbers if key == "project_id" else names).add(str(value).strip().lower())
+    return names, numbers
+
+
+def _only_read_words(text: str, plan: list[PlanStep]) -> bool:
+    names, numbers = _plan_tokens(plan)
+    for token in _LATIN.findall(text):
+        if token.strip(".").lower() not in names:
+            return False
+    rest = _LATIN.sub(" ", text)
+    if any(number not in numbers for number in _NUMBER.findall(rest)):
+        return False
+    rest = _NUMBER.sub(" ", rest)
+    rest = _READ_WORDS.sub(" ", rest)
+    # Остались только знаки препинания: «:», «—», «(», «»».
+    return not re.search(r"[^\W_]|\$|%|€|₽", rest)
 
 
 def read_state_satisfied(plan: list[PlanStep], reason: str) -> bool:
@@ -129,14 +188,33 @@ def read_state_satisfied(plan: list[PlanStep], reason: str) -> bool:
     Шаги плана идут по порядку: чтение раньше изменения и есть «актуальное состояние перед
     запуском». Условия запуска изменяющего шага ещё раз проверяют живое состояние в момент
     исполнения, а подтверждение человека спрашивает карточка: риск шагов не снижается.
+    Причина должна быть целиком из слов про чтение состояния, номера — только проектов плана.
     """
     text = " ".join((reason or "").split())
-    if not text or not _READ_STATE.search(text) or _OTHER_ISSUE.search(text):
+    if not text or not _READ_STATE.search(text) or not _only_read_words(text, plan):
         return False
     changing = [i for i, step in enumerate(plan) if _changes_state(step)]
     if not changing:
         return False
     return all(any(_read_covers(read, plan[i]) for read in plan[:i]) for i in changing)
+
+
+def deterministic_verdict(plan: list[PlanStep]) -> tuple[str, str] | None:
+    """Проверки критика без модели: удаления, чтение перед запуском, потолок и прогноз трат.
+
+    Супервизор, одобряя план без круга критика, обязан сначала спросить эти проверки:
+    иначе «прогноз трат выше лимита» терялся и карточка шла без предупреждения.
+    """
+    if plan_deletions(plan):
+        return "reject", "план удаляет кадры или сцены"
+    if plan_missing_verify(plan):
+        return "revise", "перед запуском шага нет чтения состояния"
+    limit = server_forecast_limit()
+    if ceiling_blocks(limit) or forecast_unknown(plan):
+        return "reject", "стоимость плана неизвестна или потолок не даёт запуск"
+    if forecast_cost(plan) > limit:
+        return "revise", "прогноз трат выше лимита"
+    return None
 
 
 class PlanCritic:
@@ -162,15 +240,9 @@ class PlanCritic:
         # Сброс после await: критик общий, сосед мог выставить свои last_* за время retrieve.
         self.last_response = None
         self.last_reason = ""
-        if plan_deletions(plan):
-            return self._decided("reject", "план удаляет кадры или сцены")
-        if plan_missing_verify(plan):
-            return self._decided("revise", "перед запуском шага нет чтения состояния")
-        limit = server_forecast_limit()
-        if ceiling_blocks(limit) or forecast_unknown(plan):
-            return self._decided("reject", "стоимость плана неизвестна или потолок не даёт запуск")
-        if forecast_cost(plan) > limit:
-            return self._decided("revise", "прогноз трат выше лимита")
+        found = deterministic_verdict(plan)
+        if found is not None:
+            return self._decided(*found)
         if self.router is None:
             return self._decided("reject", "проверяющая модель не подключена")
         response = await router_call(

@@ -106,13 +106,18 @@ _UNKNOWN_MODEL = re.compile(
     r"модел\w*[^.;]{0,80}?(?:нет\b|отсутству|недоступ|не\s+найден|не\s+существу|не\s+поддерж)",
     re.IGNORECASE,
 )
-_QUOTED_MODEL = re.compile(r"[«`\"']\s*([A-Za-z][\w.\-]*\d[\w.\-]*|[A-Za-z][\w.\-]{1,40})\s*[»`\"']")
+_QUOTED_MODEL = re.compile(r"[«`\"']\s*([A-Za-z][\w.\-]{1,40})\s*[»`\"']")
 _GOAL_MODEL = re.compile(r"(?:на|в|модель)\s+[«`\"']?([A-Za-z][\w.\-]{1,40})[»`\"']?\s*$", re.IGNORECASE)
+# Ключ ноды («n_12», «n_excel_gpt_1»), а не модель: у моделей каталога подчёркиваний нет.
+_NODE_KEY = re.compile(r"^n_|_")
+# Догадка о виде ноды по словам, только когда настоящий вид ноды прочитать не удалось.
+# «Работа с GPT» — текстовая нода, даже если описывает картинки: её проверяем первой.
 _KIND_WORDS = (
+    ("text", re.compile(r"работ\w*\s+с\s+(?:gpt|гпт)|excel_gpt|текст|сценари|нод\w*\s+«?работа", re.IGNORECASE)),
     ("image", re.compile(r"картин|изображен|image|фото", re.IGNORECASE)),
     ("video", re.compile(r"видео|ролик|анимац|video", re.IGNORECASE)),
-    ("text", re.compile(r"работ\w*\s+с\s+(?:gpt|гпт)|excel_gpt|текст|сценари|нод\w*\s+«?работа", re.IGNORECASE)),
 )
+MODEL_KINDS = ("text", "image", "video")
 UNKNOWN_MODEL_SHOWN = 5
 
 
@@ -132,45 +137,77 @@ def _model_score(want: str, model: dict) -> tuple:
     return (family, prefix, ratio)
 
 
+def _model_like(name: str) -> bool:
+    return bool(name) and not _NODE_KEY.search(name)
+
+
 def unknown_model_name(reason: str, goal: str = "") -> str:
-    """Имя модели, которой нет у ноды, из причины планировщика или из конца просьбы; пусто — не о том."""
+    """Имя модели, которой нет у ноды; пусто — не о том.
+
+    Имя из причины планировщика берём, только если оно похоже на модель (не ключ ноды) и есть
+    в просьбе человека: иначе первое слово в кавычках («n_12») выдавалось за модель.
+    """
     text = reason or ""
     if not _UNKNOWN_MODEL.search(text):
         return ""
-    found = _QUOTED_MODEL.search(text)
-    if found:
-        return found.group(1).strip()
+    said = " ".join((goal or "").split()).lower()
+    for found in _QUOTED_MODEL.finditer(text):
+        name = found.group(1).strip()
+        if _model_like(name) and (not said or name.lower() in said):
+            return name
     tail = _GOAL_MODEL.search(" ".join((goal or "").split()))
-    return tail.group(1).strip() if tail else ""
+    name = tail.group(1).strip() if tail else ""
+    return name if _model_like(name) else ""
 
 
-def unknown_model_text(reason: str, goal: str = "", *, models_of=None) -> str:
+def guess_model_kind(reason: str, goal: str = "") -> str:
+    both = f"{reason} {goal}"
+    return next((k for k, rx in _KIND_WORDS if rx.search(both)), "")
+
+
+def _catalog(models_of, kind: str) -> list[dict]:
+    return [m for m in models_of(kind) or [] if isinstance(m, dict) and m.get("id")]
+
+
+def _has_model(pool: list[dict], want: str) -> bool:
+    return any(want in {str(m.get("id") or "").lower(), str(m.get("label") or "").lower()} for m in pool)
+
+
+def unknown_model_text(reason: str, goal: str = "", *, kind: str | None = None, models_of=None) -> str:
     """«Модели gpt-5 для этой ноды нет. Есть: gpt-5.6-sol, … Какую поставить?»; пусто — причина о другом.
 
-    ``models_of(kind)`` — каталог моделей ноды этого вида (по умолчанию ``node_edit.allowed_models``).
+    ``kind`` — настоящий вид ноды из её состояния (text/image/video). Без него вид угадывается
+    по словам; не угадан — список не показываем (модели разных видов не смешиваем). При догадке
+    модель, которая есть в каталоге любого вида, не называем отсутствующей.
+    ``models_of(kind)`` — каталог моделей вида (по умолчанию ``node_edit.allowed_models``).
+    Причина и ответ проходят ``redact_text``.
     """
+    from app.services.redact import redact_text
+
+    reason = redact_text(str(reason or ""))
     name = unknown_model_name(reason, goal)
-    if not name:
+    if not name or redact_text(name) != name:
         return ""
     if models_of is None:
         from app.services.node_edit import allowed_models as models_of
-    both = f"{reason} {goal}"
-    kind = next((k for k, rx in _KIND_WORDS if rx.search(both)), "")
-    kinds = [kind] if kind else ["text", "image", "video"]
-    pool: list[dict] = []
-    for item in kinds:
-        try:
-            pool.extend(m for m in models_of(item) or [] if isinstance(m, dict) and m.get("id"))
-        except Exception:  # noqa: BLE001 — без каталога ответ остаётся обычным
-            return ""
-    if not pool:
-        return ""
+    real = kind in MODEL_KINDS
+    use = kind if real else guess_model_kind(reason, goal)
     want = name.lower()
-    if any(want in {str(m.get("id") or "").lower(), str(m.get("label") or "").lower()} for m in pool):
+    try:
+        pool = _catalog(models_of, use) if use else []
+        if not real and any(_has_model(_catalog(models_of, k), want) for k in MODEL_KINDS):
+            return ""  # модель в каталоге есть, вид ноды лишь угадан: не утверждаем, что её нет
+    except Exception:  # noqa: BLE001 — без каталога ответ остаётся обычным
+        return ""
+    if _has_model(pool, want):
         return ""  # такая модель есть: причина о чём-то другом
+    if not pool:
+        if real or use:
+            return ""
+        return redact_text(f"Модели {name} для этой ноды нет. Какую модель поставить?")
     ranked = sorted(pool, key=lambda m: _model_score(want, m), reverse=True)
     shown = [str(m["id"]) for m in ranked[:UNKNOWN_MODEL_SHOWN]]
-    return f"Модели {name} для этой ноды нет. Есть: {', '.join(shown)}. Какую поставить?"
+    return redact_text(f"Модели {name} для этой ноды нет. Есть: {', '.join(shown)}. Какую поставить?")
 
 
 # «[Скачать отчёт]( /api/projects/…)»: модель ставит пробел после скобки, ссылка показывалась текстом.

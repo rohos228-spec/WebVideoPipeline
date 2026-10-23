@@ -2799,7 +2799,8 @@ class Supervisor:
         logger.info("orch task {} planner: {} steps", task_id, len(plan))
         if not plan:
             self._trace_plan(task_id, "empty_plan", plan, self._planner_reason(task_id))
-            self._note_empty_reason(task_id, from_code=from_code)
+            kind = await self._unknown_model_kind(task_id)
+            self._note_empty_reason(task_id, from_code=from_code, model_kind=kind)
         if await self._absorb_budget(task_id, session_id, self._planner_last(task_id, "last_response")):
             return None
         return plan
@@ -3065,7 +3066,34 @@ class Supervisor:
             return False
         return bool(_ASKS_APPROVAL_RE.search(self._planner_reason(task_id)))
 
-    def _note_empty_reason(self, task_id: int, *, from_code: bool = False) -> None:
+    async def _unknown_model_kind(self, task_id: int) -> str | None:
+        """Настоящий вид ноды (text/image/video) из её состояния, когда планировщик пишет «модели нет».
+
+        Ключ ноды берётся из причины планировщика, иначе — единственная нода, которую называет
+        просьба. Не прочитали — ``None``: ответ не смешивает модели разных видов.
+        """
+        from app.services.redact import redact_text
+
+        reason = redact_text(str(self._planner_last(task_id, "last_reason") or ""))
+        goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
+        if not task_summary.unknown_model_name(reason, goal):
+            return None
+        project_id = self._task_project_id(task_id)
+        if project_id is None:
+            found = _REASON_PROJECT.search(f"{reason} {goal}")
+            project_id = int(found.group(1)) if found else None
+        if project_id is None:
+            return None
+        try:
+            meta = await asyncio.wait_for(_load_node_meta(project_id), timeout=_NODE_META_TIMEOUT_S)
+        except Exception:  # noqa: BLE001 — без состояния ноды вид угадывается по словам
+            logger.exception("orch task {} node kind for unknown model not read", task_id)
+            return None
+        return _node_model_kind(meta, reason, goal)
+
+    def _note_empty_reason(
+        self, task_id: int, *, from_code: bool = False, model_kind: str | None = None
+    ) -> None:
         if from_code:
             from app.services.plain_ru import plain_ru
             from app.services.redact import redact_text
@@ -3078,6 +3106,8 @@ class Supervisor:
                 self._fail_detail[task_id] = why.rstrip(".") + "."
                 self._code_answers.add(task_id)
                 return
+        from app.services.redact import redact_text
+
         why = self._planner_reason(task_id)
         goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
         # «Создай 5 проектов из файла»: файла в чате нет — спрашиваем темы, а не «не понял».
@@ -3088,7 +3118,9 @@ class Supervisor:
             return
         # «Модели gpt-5 нет у ноды»: просьбу поняли — спрашиваем, какую из моделей ноды поставить.
         unknown = task_summary.unknown_model_text(
-            " ".join(str(self._planner_last(task_id, "last_reason") or "").split()) or why, goal
+            " ".join(redact_text(str(self._planner_last(task_id, "last_reason") or "")).split()) or why,
+            goal,
+            kind=model_kind,
         )
         if unknown:
             self._fail_detail[task_id] = unknown
@@ -3174,13 +3206,13 @@ class Supervisor:
             return None
         if _free_read_plan(plan, self.actions):
             return "approve"
-        if _resume_after_read_plan(plan, self.actions):
+        if _resume_after_read_plan(plan, self.actions) and _critic_checks_clear(plan):
             # «Продолжи проект 10»: [project.status, project.continue_pipeline]. Критик дважды
             # просил «прочитать состояние», хотя чтение уже стоит первым шагом, и гонял планировщик
             # по кругу >150 с. Продолжение само перепроверяет состояние условиями запуска в момент
             # исполнения, а риск high всё равно идёт карточкой человеку.
             return "approve"
-        if _queue_launch_plan(plan, self.actions):
+        if _queue_launch_plan(plan, self.actions) and _critic_checks_clear(plan):
             # «Запусти проекты 5 6 7 параллельно»: очередь и число параллельных идут только через
             # карточку человека. Критик просил «сначала прочитай статус» и гонял планировщик по
             # кругу: карточка появлялась через 2+ минуты. Проверку делает человек кнопкой.
@@ -6339,6 +6371,38 @@ def _monotonic() -> float:
     return time.monotonic()
 
 
+_REASON_PROJECT = re.compile(r"проект\w*\s*(?:№|#)?\s*(\d+)", re.IGNORECASE)
+_REASON_NODE_KEY = re.compile(r"(?<![\w.])(n_[A-Za-z0-9_]+)")
+_NODE_META_TIMEOUT_S = 5.0
+
+
+async def _load_node_meta(project_id: int) -> Any:
+    from app.orchestrator.agents.project_nodes import load_meta
+
+    return await load_meta(int(project_id))
+
+
+def _node_model_kind(meta: Any, reason: str, goal: str) -> str | None:
+    """Вид модели ноды по её типу на холсте: ключ из причины, иначе одна нода из просьбы."""
+    from app.orchestrator.agents.project_nodes import match_nodes, roster
+    from app.services import node_edit
+
+    if not isinstance(meta, dict):
+        return None
+    keys = list(dict.fromkeys(_REASON_NODE_KEY.findall(reason or "")))
+    if not keys:
+        keys = match_nodes(roster(meta), goal or "")
+    kinds = set()
+    for key in keys:
+        node = node_edit.find_node(meta, key)
+        if node is None:
+            continue
+        kind = node_edit.model_kind_for_type(node_edit.node_type(node))
+        if kind:
+            kinds.add(kind)
+    return kinds.pop() if len(kinds) == 1 else None
+
+
 # Продолжение проекта: условия запуска (проект есть, на паузе или шаг готов, монтаж не идёт)
 # перечитывают живое состояние в момент исполнения, карточка подтверждения обязательна.
 RESUME_ACTIONS: frozenset[str] = frozenset({"project.continue_pipeline", "project.resume"})
@@ -6348,25 +6412,47 @@ def _step_project(step: PlanStep) -> Any:
     return (step.params or {}).get("project_id")
 
 
+def _critic_checks_clear(plan: list[PlanStep]) -> bool:
+    """Проверки критика без модели (удаления, потолок, прогноз трат выше лимита) молчат.
+
+    Одобрение плана без круга критика их не пропускает: если хоть одна сработала, план идёт
+    к критику, и человек увидит «прогноз трат выше лимита», а не простую карточку.
+    """
+    from app.orchestrator.agents.critic import deterministic_verdict
+
+    try:
+        return deterministic_verdict(plan) is None
+    except Exception:  # noqa: BLE001 — неизвестный прогноз: судит критик
+        logger.exception("orch critic checks failed before pre-approval")
+        return False
+
+
+def _same_project(a: Any, b: Any) -> bool:
+    return a not in (None, "") and b not in (None, "") and str(a).strip() == str(b).strip()
+
+
 def _resume_after_read_plan(plan: list[PlanStep], actions: Any) -> bool:
-    """План «бесплатные чтения → одно продолжение проекта» того же проекта: критику проверять нечего.
+    """План «project.status → одно продолжение проекта» того же проекта: критику проверять нечего.
 
     Чтение состояния этого проекта (project.status) уже стоит перед продолжением, а условия
-    запуска продолжения ещё раз проверяют живое состояние при исполнении. Без чтения или без
-    карточки (риск ниже порога) — критик остаётся.
+    запуска продолжения ещё раз проверяют живое состояние при исполнении. Без чтения, без
+    карточки (риск ниже порога), с лишними параметрами (другие проекты, тенант, «до отчёта»)
+    или с чтением чужого проекта под другим ключом — критик остаётся.
     """
     resumes = [step for step in plan if step.action in RESUME_ACTIONS]
     if len(resumes) != 1 or plan[-1] is not resumes[0]:
         return False
     target = _step_project(resumes[0])
-    if target in (None, "") or effective_risk(actions, resumes[0]) not in APPROVAL_RISKS:
+    if set(resumes[0].params or {}) != {"project_id"} or target in (None, ""):
+        return False
+    if effective_risk(actions, resumes[0]) not in APPROVAL_RISKS:
         return False
     for step in plan[:-1]:
-        if not _free_read_step(step, actions):
+        if step.action != "project.status" or not _free_read_step(step, actions):
             return False
-        if _step_project(step) not in (None, target):
+        if set(step.params or {}) != {"project_id"} or not _same_project(_step_project(step), target):
             return False
-    return any(step.action == "project.status" and _step_project(step) == target for step in plan[:-1])
+    return len(plan) > 1
 
 
 # Шаги постановки в очередь: исполняются только после «Подтвердить» на карточке.
