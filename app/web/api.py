@@ -441,6 +441,11 @@ def create_app() -> FastAPI:
     # CORS-заголовка, и кросс-доменный фронт ложился бы целиком, ещё не
     # успев отправить токен. Проверено `test_cors_preflight_is_not_refused`.
     # В режиме владельца слой не делает ничего (`settings.accounts_enabled`).
+    # Участнику — без денег в JSON чата, слоя действий и уведомлений. Добавлен ДО
+    # IdentityMiddleware, значит стоит внутри неё и видит личность запроса.
+    from app.web.member_money import MemberMoneyMiddleware
+
+    app.add_middleware(MemberMoneyMiddleware)
     app.add_middleware(IdentityMiddleware)
 
     # Локальный фронт ходит с localhost:3000 в dev — открываем CORS.

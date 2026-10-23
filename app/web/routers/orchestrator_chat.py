@@ -40,6 +40,7 @@ from app.services.action_layer import planner as al_planner
 from app.services.orch_tenancy import public_session, scoped_session
 from app.services.plain_ru import plain_ru
 from app.web.engine_access import require_engine_member
+from app.web.member_money import MEMBER_COST_TEXT, member_event_payload, member_safe  # noqa: F401
 
 router = APIRouter(
     prefix="/orchestrator/chat",
@@ -154,51 +155,6 @@ def remember_seq(cursor: int, seq: int) -> tuple[int, bool]:
     return seq, True
 
 
-#: Поля событий чата с себестоимостью в $ (оценка шага, траты провайдеров, прогноз).
-_MONEY_KEYS = frozenset(
-    {
-        "cost_estimate",
-        "estimated_cost",
-        "cost",
-        "forecast_usd",
-        "cost_usd",
-        "spent_usd",
-        "usd",
-        "high_usd",
-        "low_usd",
-        "credits_low",
-        "credits_high",
-        "held_usd",
-        "amount_usd",
-        "total_usd",
-        "actual_usd",
-    }
-)
-MEMBER_COST_TEXT = "цена видна админу студии"
-_MONEY_RE = re.compile(r"\$\s?\d[\d.,]*")
-
-
-def member_safe(value: Any) -> Any:
-    """Участнику — без сумм в $: поля себестоимости убраны, суммы в тексте скрыты.
-
-    Тот же принцип, что ``plan.member_view`` в отчётах: себестоимость вызовов из общей
-    кассы провайдеров участнику не показывается. Логика задачи (одобрения, риск)
-    работает на исходных данных — меняется только то, что уходит в браузер.
-    """
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for key, item in value.items():
-            if key in _MONEY_KEYS:
-                continue
-            out[key] = MEMBER_COST_TEXT if key == "cost_text" else member_safe(item)
-        return out
-    if isinstance(value, list):
-        return [member_safe(item) for item in value]
-    if isinstance(value, str) and "$" in value:
-        return _MONEY_RE.sub("(сумма видна админу)", value)
-    return value
-
-
 def _for_viewer(payload: Any) -> Any:
     from app.services.action_layer.plan import member_view
 
@@ -212,7 +168,7 @@ def _sse(event: OrchEvent) -> dict[str, str]:
     from app.services.action_layer.plan import member_view
 
     if member_view():
-        event = event.model_copy(update={"payload": member_safe(event.payload)})
+        event = event.model_copy(update={"payload": member_event_payload(event.type, event.payload)})
     return {
         "event": event.type,
         "id": str(event.seq),
