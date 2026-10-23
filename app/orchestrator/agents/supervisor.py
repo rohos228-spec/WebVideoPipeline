@@ -2377,11 +2377,18 @@ class Supervisor:
         Ключ стопа — файл и отмена задач процесса, RLS его не закрывает: номер
         проекта в параметрах шага мог указывать на чужой проект. Владелец
         (арендатора нет) — прежнее поведение. Сбой чтения — проект самой
-        задачи остаётся, номера из шагов отбрасываются.
+        задачи остаётся, номера из шагов отбрасываются. Строку задачи не видно
+        (чужой арендатор) — тоже только проект самой задачи.
         """
         if not project_ids:
             return project_ids
-        row = self.tasks.get(task_id) or {}
+        try:
+            row = self.tasks.get(task_id)
+        except Exception:
+            logger.exception("orch kill: task {} not read", task_id)
+            row = None
+        if row is None:
+            return [p for p in project_ids if p == keep]
         tenant = row.get("tenant_id")
         if tenant is None or str(tenant).strip() == "":
             return project_ids

@@ -61,6 +61,17 @@ TABLE = [
     ("", True),  # только стилевой замок
     ("Нет исходных данных для заполнения, но кадр должен быть атмосферным.", True),
     ("Нет исходных данных, но STYLE LOCK обязательный, акварель.", True),
+    ("Background: not specified. Action: not specified.", True),
+    ("Фон: не определено.", True),
+    ("Исходные данные недоступны.", True),
+    ("Фон: пусто.", True),
+    ("Фон: ничего.", True),
+    ("Фон: см. выше.", True),
+    ("Фон: [фон]. Действие: [действие].", True),
+    ("[фон], [описание действия], [свет]", True),
+    ("Background: {background}. Action: <action>.", True),
+    ("Lorem ipsum dolor sit amet, consectetur adipiscing elit.", True),
+    ("Фон: lorem ipsum dolor sit amet. Действие: lorem ipsum.", True),
     # сцена
     ("Пустой ночной перрон, людей нет.", False),
     ("Фон: заброшенный цех, окон нет. Действие: людей нет. Свет: электричества нет.", False),
@@ -70,6 +81,12 @@ TABLE = [
     ("Фон: —. Действие: лиса бежит по снегу.", False),
     ("Неизвестный путник идёт по ночной дороге.", False),
     ("No source data for the background, but a fox runs over the snow.", False),
+    ("Background: empty platform, no people.", False),
+    ("Фон: [заброшенный цех с ржавыми трубами]. Действие: кот спит.", False),
+    ("Фон: вывеска <OPEN> над дверью кафе, дождь.", False),
+    ("Фон: —. Тени длинные, снег искрится.", False),
+    ("Фон: ничего лишнего, белая стена и стул.", False),
+    ("Фон: пустой зал, эхо.", False),
 ]
 
 
