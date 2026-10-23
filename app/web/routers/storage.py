@@ -247,9 +247,14 @@ async def get_cache_info() -> dict[str, Any]:
         {"path": f"Архивные логи сервера ({logs_cnt} шт., data/backend-*.log)", "bytes": logs_bytes},
     ]
 
+    global _cached_usage
+    data_total = _cached_usage.data.get("total_bytes", 0) if _cached_usage else 0
+    pct = round((total_bytes / data_total) * 100, 1) if data_total > 0 else 0.0
+
     return {
         "total_bytes": total_bytes,
         "dirs": dirs,
+        "percent_of_data": pct,
     }
 
 
