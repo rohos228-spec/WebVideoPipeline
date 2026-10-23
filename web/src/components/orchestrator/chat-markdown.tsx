@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { MD_LINK, safeHref } from "@/lib/chat-links";
+
 type Block =
   | { kind: "code"; lang: string; text: string }
   | { kind: "heading"; level: number; text: string }
@@ -182,19 +184,7 @@ export function parseMarkdownBlocks(source: string): Block[] {
   return blocks;
 }
 
-const REPORT_HREF = /^\/api\/projects\/\d+\/reports\/[A-Za-z0-9][A-Za-z0-9_.-]*\.(xlsx|md|json|csv|html)$/;
-
-export function safeHref(raw: string): string | null {
-  const url = raw.trim();
-  if (REPORT_HREF.test(url) && !url.includes("..")) return url;
-  if (!/^https?:\/\/[^\s]+$/i.test(url)) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
-  } catch {
-    return null;
-  }
-}
+export { safeHref };
 
 type InlineRule = {
   re: RegExp;
@@ -222,7 +212,7 @@ const INLINE_RULES: InlineRule[] = [
     ),
   },
   {
-    re: /\[([^\]\n]+)\]\(([^()\s]+)\)/,
+    re: MD_LINK,
     render: (m, key) => link(safeHref(m[2]), renderInline(m[1], `${key}l`), key),
   },
   {
