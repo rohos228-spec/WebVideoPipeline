@@ -6,6 +6,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Copy,
   Download,
   FileSpreadsheet,
@@ -14,6 +15,8 @@ import {
   Maximize2,
   Replace,
   Save,
+  ScrollText,
+  Sparkles,
   Upload,
   Volume2,
 } from "lucide-react";
@@ -28,7 +31,6 @@ import { cn } from "@/lib/utils";
 import { MediaFrameGallery } from "@/components/hitl/media-frame-gallery";
 import { TopicEditor } from "@/components/inspector/topic-editor";
 import {
-  pickGeneralPlanSheet,
   ROW_VOICEOVER_V8,
   SHEET_PLAN_V8,
 } from "@/lib/xlsx-sheets";
@@ -47,9 +49,10 @@ export function NodeResultViewBody({
   onHeroReplaced?: () => void;
 }) {
   switch (snapshot.viewMode) {
+    case "director_plan":
     case "xlsx_general_plan":
       return (
-        <GeneralPlanSheetView
+        <DirectorPlanView
           projectId={projectId}
           nodeKey={nodeKey}
           nodeType={nodeType}
@@ -229,7 +232,7 @@ function XlsxUploadBar({
   );
 }
 
-function GeneralPlanSheetView({
+function DirectorPlanView({
   projectId,
   nodeKey,
   nodeType,
@@ -245,27 +248,6 @@ function GeneralPlanSheetView({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId),
   });
-  const meta = useQuery({
-    queryKey: ["xlsx-sheets", projectId, nodeKey ?? "live"],
-    queryFn: () =>
-      api.previewProjectXlsx(projectId, {
-        maxRows: 1,
-        nodeKey: nodeKey ?? undefined,
-      }),
-  });
-  const sheet = pickGeneralPlanSheet(meta.data?.sheets ?? []);
-  const grid = useQuery({
-    queryKey: ["xlsx-general-plan", projectId, nodeKey ?? "live", sheet],
-    queryFn: () =>
-      api.previewProjectXlsx(projectId, {
-        sheet,
-        raw: true,
-        maxRows: 200,
-        maxCols: 30,
-        nodeKey: nodeKey ?? undefined,
-      }),
-    enabled: Boolean(sheet),
-  });
 
   const rawPlanText =
     project.data?.general_plan?.trim() ||
@@ -274,7 +256,7 @@ function GeneralPlanSheetView({
   const [text, setText] = useState(rawPlanText);
   const [dirty, setDirty] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<"text" | "table">("text");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!dirty && rawPlanText) {
@@ -290,11 +272,24 @@ function GeneralPlanSheetView({
       setText(saved);
       setDirty(false);
       qc.setQueryData(["project", projectId], updated);
-      qc.invalidateQueries({ queryKey: ["xlsx-general-plan"] });
-      toast.success("Сценарий сохранён");
+      toast.success("Сценарий успешно сохранён");
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
+
+  // Hotkey Ctrl+S / Cmd+S
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        if (dirty && !save.isPending) {
+          save.mutate(text);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [dirty, text, save]);
 
   const handleCopy = async () => {
     if (!text) return;
@@ -308,160 +303,187 @@ function GeneralPlanSheetView({
     }
   };
 
+  const handleDownloadTxt = () => {
+    if (!text) return;
+    const topic = project.data?.topic?.slice(0, 30)?.trim() || "plan";
+    const filename = `${topic.replace(/[^a-zA-Zа-яА-Я0-9_-]/g, "_")}_script.txt`;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Скачан файл ${filename}`);
+  };
+
+  const handleDownloadMd = () => {
+    if (!text) return;
+    const topic = project.data?.topic?.trim() || "Режиссёрский сценарий";
+    const filename = `${topic.slice(0, 30).replace(/[^a-zA-Zа-яА-Я0-9_-]/g, "_")}_script.md`;
+    const mdContent = `# Режиссёрский сценарий: ${topic}\n\n${text}`;
+    const blob = new Blob([mdContent], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Скачан файл ${filename}`);
+  };
+
   if (project.isLoading && !rawPlanText) return <LoadingBlock />;
 
   const charCount = text.length;
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
-  const snapLabel = grid.data?.xlsx_snapshot || meta.data?.xlsx_snapshot;
+  // Estimated reading / voiceover duration (~14 chars/sec or ~2.5 words/sec)
+  const estSeconds = Math.round(wordCount / 2.5) || Math.round(charCount / 14);
+  const estMin = Math.floor(estSeconds / 60);
+  const estSecRem = estSeconds % 60;
+  const estDuration = estMin > 0 ? `${estMin} мин ${estSecRem} сек` : `${estSecRem} сек`;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2">
-        <div className="flex items-center gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className={cn(
-              "h-8 gap-1.5 rounded-lg px-3 text-xs font-medium transition-all",
-              activeTab === "text"
-                ? "bg-zinc-800 text-zinc-100 border border-zinc-700 shadow-sm"
-                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50",
-            )}
-            onClick={() => setActiveTab("text")}
-          >
-            <FileText className="h-3.5 w-3.5 text-teal-400" />
-            Сценарий (текст)
-            {charCount > 0 && (
-              <span className="ml-1 rounded bg-zinc-700/60 px-1.5 py-0.5 text-[10px] text-zinc-300">
-                {charCount.toLocaleString("ru-RU")} симв.
-              </span>
-            )}
-          </Button>
+      {/* Top Director Bar */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 rounded-lg bg-teal-500/10 border border-teal-500/30 px-3 py-1.5 text-xs font-semibold text-teal-300">
+            <ScrollText className="h-4 w-4 text-teal-400" />
+            <span>Режиссёрский сценарий</span>
+          </div>
 
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className={cn(
-              "h-8 gap-1.5 rounded-lg px-3 text-xs font-medium transition-all",
-              activeTab === "table"
-                ? "bg-zinc-800 text-zinc-100 border border-zinc-700 shadow-sm"
-                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50",
-            )}
-            onClick={() => setActiveTab("table")}
-          >
-            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
-            Таблица Excel
-            {sheet && (
-              <span className="ml-1 rounded bg-zinc-700/60 px-1.5 py-0.5 text-[10px] text-zinc-300">
-                {sheet}
-              </span>
-            )}
-          </Button>
-        </div>
-
-        {activeTab === "text" && text && (
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-zinc-400">
-              {wordCount} слов
+          {dirty ? (
+            <span className="flex items-center gap-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-medium text-amber-300 animate-pulse">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+              Не сохранено (Ctrl+S)
             </span>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs gap-1"
-              onClick={handleCopy}
-            >
-              {copied ? (
-                <Check className="h-3 w-3 text-emerald-400" />
-              ) : (
-                <Copy className="h-3 w-3" />
-              )}
-              {copied ? "Скопировано" : "Копировать"}
-            </Button>
-            {dirty && (
-              <Button
-                size="sm"
-                className="h-7 text-xs gap-1 bg-teal-600 hover:bg-teal-500 text-white"
-                disabled={save.isPending}
-                onClick={() => save.mutate(text)}
-              >
-                {save.isPending ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Replace className="h-3 w-3" />
-                )}
-                Сохранить
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {activeTab === "text" ? (
-        text ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-2">
-            <Textarea
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                setDirty(true);
-              }}
-              className="min-h-[420px] flex-1 resize-none rounded-lg border border-white/10 bg-black/40 p-4 font-mono text-xs leading-relaxed text-zinc-200 focus-visible:ring-1 focus-visible:ring-teal-500"
-              placeholder="Сценарий ролика..."
-            />
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-16 text-center text-zinc-400">
-            <FileText className="mb-2 h-8 w-8 text-zinc-600" />
-            <p className="text-sm font-medium">Сценарий ещё не сгенерирован</p>
-            <p className="text-xs text-zinc-500 mt-1">
-              Запустите ноду «Сценарий» для создания плана ролика
-            </p>
-          </div>
-        )
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <XlsxUploadBar projectId={projectId} nodeKey={nodeKey} nodeType={nodeType} />
-          {snapLabel ? (
-            <p className="mb-1 text-[10px] text-muted-foreground">
-              Снимок ноды: {snapLabel}
-            </p>
+          ) : charCount > 0 ? (
+            <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[11px] font-medium text-emerald-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Синхронизировано
+            </span>
           ) : null}
-          {grid.isLoading ? (
-            <LoadingBlock />
-          ) : !sheet || !grid.data?.rows?.length ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Лист «Общий план» пуст или Excel ещё не загружен.
-            </p>
-          ) : (
-            <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-white/10 bg-black/20">
-              <table className="min-w-max border-collapse text-left text-xs">
-                <tbody>
-                  {grid.data.rows.map((row, ri) => (
-                    <tr key={ri} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="sticky left-0 z-10 border-r border-white/10 bg-card/95 px-2 py-1.5 text-[10px] text-muted-foreground">
-                        {ri + 1}
-                      </td>
-                      {row.map((cell, ci) => (
-                        <td
-                          key={ci}
-                          className="max-w-[320px] min-w-[80px] whitespace-pre-wrap border-r border-white/5 px-2 py-1.5 align-top"
-                        >
-                          {cell || "\u00a0"}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+
+          {charCount > 0 && (
+            <div className="hidden sm:flex items-center gap-2 rounded-lg bg-zinc-900/80 border border-white/5 px-2.5 py-1 text-xs text-zinc-400">
+              <span className="text-zinc-200 font-mono font-medium">{charCount.toLocaleString("ru-RU")}</span>
+              <span className="text-[11px] text-zinc-500">симв.</span>
+              <span className="text-zinc-600">·</span>
+              <span className="text-zinc-200 font-mono font-medium">{wordCount}</span>
+              <span className="text-[11px] text-zinc-500">слов</span>
+              <span className="text-zinc-600">·</span>
+              <Clock className="h-3 w-3 text-zinc-400" />
+              <span className="text-zinc-300 font-medium">≈ {estDuration}</span>
             </div>
           )}
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            className={cn(
+              "h-8 gap-1.5 text-xs font-medium transition-all",
+              dirty
+                ? "bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white shadow-md shadow-teal-500/20 border-0"
+                : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-white/10"
+            )}
+            disabled={save.isPending || !dirty}
+            onClick={() => save.mutate(text)}
+            title="Сохранить сценарий в проект (Ctrl+S)"
+          >
+            {save.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            Сохранить
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800"
+            onClick={handleCopy}
+            disabled={!text}
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-emerald-400" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+            {copied ? "Скопировано" : "Копировать"}
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800"
+            onClick={handleDownloadTxt}
+            disabled={!text}
+            title="Скачать сценарий в текстовом формате .txt"
+          >
+            <Download className="h-3.5 w-3.5 text-zinc-400" />
+            .txt
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800"
+            onClick={handleDownloadMd}
+            disabled={!text}
+            title="Скачать сценарий в формате Markdown .md"
+          >
+            <Download className="h-3.5 w-3.5 text-zinc-400" />
+            .md
+          </Button>
+        </div>
+      </div>
+
+      {/* Editor & Content */}
+      {text || dirty ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+          <Textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setDirty(true);
+            }}
+            className="min-h-[55vh] flex-1 resize-none rounded-xl border border-white/10 bg-zinc-950/80 p-5 font-mono text-xs sm:text-[13px] leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-1 focus-visible:ring-teal-500/50 focus-visible:border-teal-500/50 shadow-inner"
+            placeholder="Введите или отредактируйте режиссёрский сценарий ролика...&#10;&#10;Структура:&#10;1. Главная тема и хук&#10;2. Драматургическая идея&#10;3. Развитие сюжета и тезисы&#10;4. Кульминация и финал"
+          />
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-black/30 py-20 px-4 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-500/10 border border-teal-500/20 text-teal-400 mb-4 shadow-lg shadow-teal-500/10">
+            <ScrollText className="h-7 w-7" />
+          </div>
+          <p className="text-base font-semibold text-zinc-200">Режиссёрский сценарий ещё не сгенерирован</p>
+          <p className="mt-1.5 max-w-md text-xs text-zinc-400 leading-normal">
+            Запустите шаг «Сценарий» на канвасе для генерации через ИИ или начните писать план ролика вручную.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-5 h-8 gap-1.5 text-xs text-teal-300 border-teal-500/30 hover:bg-teal-500/10"
+            onClick={() => {
+              setText(" ");
+              setDirty(true);
+              setTimeout(() => textareaRef.current?.focus(), 50);
+            }}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Написать сценарий вручную
+          </Button>
         </div>
       )}
     </div>
   );
 }
+
+const GeneralPlanSheetView = DirectorPlanView;
 
 function VoiceoverWideView({
   projectId,

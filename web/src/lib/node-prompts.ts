@@ -21,6 +21,7 @@ export interface NodePromptSlot {
 
 const NO_EXCEL_NODE_TYPES = new Set([
   "topic",
+  "plan",
   "excel_feed",
   "excel_gpt",
   "storage",
@@ -35,7 +36,6 @@ const BASE: Record<string, NodePromptSlot[]> = {
   style_extract: [],
   hitl_style: [],
   plan: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "plan" },
     { id: "main", title: "Промт сценария", kind: "gpt", stepCode: "plan" },
   ],
   script: [

@@ -3,7 +3,6 @@ import type { ArtifactDTO, FrameDTO, NodeRunStatus, ProjectDetail } from "@/lib/
 import { MIN_GENERAL_PLAN_CHARS } from "@/lib/node-run-status";
 import { isEnrichNode } from "@/lib/node-prompts";
 import {
-  pickGeneralPlanSheet,
   projectHasXlsx,
   ROW_VOICEOVER_V8,
   SHEET_PLAN_V8,
@@ -34,6 +33,7 @@ export type NodeResultReplaceMode = "text" | "xlsx" | "assets" | "studio" | "non
 
 export type NodeResultViewMode =
   | "default"
+  | "director_plan"
   | "xlsx_general_plan"
   | "voiceover_wide"
   | "xlsx_split_row"
@@ -300,23 +300,19 @@ function computeNodeResult(
     case "hitl_gate": {
       const planText = meaningfulGeneralPlan(project);
       if (planText) {
-        const items: NodeResultItem[] = [
-          { id: "general_plan", label: "Сценарий (текст)", kind: "text", content: planText },
-        ];
-        if (projectHasXlsx(ctx.assets)) {
-          items.push({ id: "xlsx_general", label: "Сценарий (Excel)", kind: "xlsx" });
-        }
         return {
           hasResult: true,
-          itemCount: items.length,
-          summary: `Сценарий готов (${planText.length} симв.)`,
-          items,
+          itemCount: 1,
+          summary: `Режиссёрский сценарий готов (${planText.length.toLocaleString("ru-RU")} симв.)`,
+          items: [
+            { id: "general_plan", label: "Режиссёрский сценарий", kind: "text", content: planText },
+          ],
           replaceMode: "text",
-          viewMode: "xlsx_general_plan",
+          viewMode: "director_plan",
           textField: "general_plan",
         };
       }
-      return empty("Сценарий ещё не сгенерирован", "text", "xlsx_general_plan");
+      return empty("Сценарий ещё не сгенерирован", "text", "director_plan");
     }
 
     case "script": {
