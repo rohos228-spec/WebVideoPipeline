@@ -65,19 +65,27 @@ async def test_watchdog_stall_notice_goes_out_as_the_project_tenant(notices_db) 
     assert "зависла работа в проекте #21" in event["notice"]["text"]
 
 
-async def test_observer_watchdog_and_diagnosis_pass_per_tenant(monkeypatch) -> None:
+async def test_observer_passes_serve_only_tenants_with_work_and_diagnosis_is_throttled(monkeypatch) -> None:
+    """Наблюдатель: владелец и живые арендаторы с активным выполнением; диагностика не чаще
+    DIAGNOSIS_INTERVAL. Арендатор без работы пропускается до поиска личности."""
     from app.services import orch_tenancy
     from app.services.observation import Observer
 
-    async def _tenants():
-        return [None, A]
+    B = "22222222-2222-2222-2222-222222222222"
+    asked: list[bool] = []
+
+    async def _tenants(*, active_only: bool = False):
+        asked.append(active_only)
+        return [None, A, B]
 
     monkeypatch.setattr(orch_tenancy, "tenants_to_serve", _tenants)
+    identities: list[str] = []
 
-    async def _no_identity(_tenant):
+    async def _identity(tenant):
+        identities.append(tenant)
         return None
 
-    monkeypatch.setattr(orch_tenancy, "_identity_for", _no_identity)
+    monkeypatch.setattr(orch_tenancy, "_identity_for", _identity)
     seen: dict[str, list] = {"watchdog": [], "diagnosis": []}
 
     class _Wd:
@@ -95,7 +103,15 @@ async def test_observer_watchdog_and_diagnosis_pass_per_tenant(monkeypatch) -> N
     observer = Observer.__new__(Observer)
     observer.watchdog = _Wd()
     observer.diagnoser = _Dg()
+
+    async def _has_work() -> bool:
+        return current_tenant() in (None, A)  # у B активных выполнений нет
+
+    observer._has_active_execution = _has_work
     await observer._watchdog()
     await observer._diagnose()
+    await observer._diagnose()  # сразу снова — внутри интервала, прохода нет
     assert seen["watchdog"] == [(None, True), (A, True)]
     assert seen["diagnosis"] == [None, A]
+    assert identities == [A, A] and B not in identities
+    assert asked and all(asked)

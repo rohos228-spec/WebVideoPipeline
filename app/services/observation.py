@@ -976,17 +976,35 @@ class Observer:
                 await self._run_stage("maintenance", self.maintain)
             await asyncio.sleep(self.LOOP_INTERVAL)
 
+    #: Диагностика по арендаторам — не каждую секунду цикла, а с этим шагом.
+    DIAGNOSIS_INTERVAL = 5.0
+
+    async def _has_active_execution(self) -> bool:
+        """Одна дешёвая проверка под RLS текущего арендатора: есть ли что наблюдать."""
+        async with self.master() as session:
+            found = await session.scalar(
+                select(ExecutionControl.execution_id)
+                .where(ExecutionControl.observer_state.in_(["active", "degraded"]))
+                .limit(1)
+            )
+        return found is not None
+
     async def _diagnose(self):
         from app.services.diagnosis import get_diagnoser
-        from app.services.orch_tenancy import for_each_tenant
+        from app.services.orch_tenancy import for_each_tenant_with_work
 
-        # Как у остальных фоновых проходов: владелец, потом каждый арендатор. Под RLS проход
-        # без арендатора видит только строки владельца — инциденты клиента не доходили бы до него.
+        now = time.monotonic()
+        if now - getattr(self, "_diagnosis_last", 0.0) < self.DIAGNOSIS_INTERVAL:
+            return
+        self._diagnosis_last = now
+
+        # Владелец и живые арендаторы с активным выполнением: под RLS проход без арендатора
+        # видит только строки владельца — инциденты клиента не доходили бы до него.
         async def _one() -> list:
             await get_diagnoser(self).catch_up()
             return []
 
-        await for_each_tenant(_one, what="diagnosis")
+        await for_each_tenant_with_work(self._has_active_execution, _one, what="diagnosis")
 
     async def _reconcile(self):
         from app.services.actions_recovery import reconcile
@@ -994,7 +1012,7 @@ class Observer:
         await reconcile(self)
 
     async def _watchdog(self):
-        from app.services.orch_tenancy import for_each_tenant
+        from app.services.orch_tenancy import for_each_tenant_with_work
         from app.services.watchdog import get_watchdog
 
         watchdog = get_watchdog(self)
@@ -1006,7 +1024,7 @@ class Observer:
         async def _one() -> list:
             return await watchdog.tick(force=True)
 
-        await for_each_tenant(_one, what="watchdog")
+        await for_each_tenant_with_work(self._has_active_execution, _one, what="watchdog")
 
     async def _decide(self):
         from app.services.decision_v1 import get_decider

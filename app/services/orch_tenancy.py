@@ -57,7 +57,7 @@ def owns_session(internal: str) -> bool:
     return session_tenant(internal) == current_tenant()
 
 
-async def tenants_to_serve() -> list[str | None]:
+async def tenants_to_serve(*, active_only: bool = False) -> list[str | None]:
     """Кому служит фоновый проход движка: владелец и каждый арендатор.
 
     SQLite — всегда ``[None]``: многоарендной работы там нет. На Postgres
@@ -73,9 +73,12 @@ async def tenants_to_serve() -> list[str | None]:
     from app.db import SessionLocal
     from app.models import StudioUser
 
+    query = select(StudioUser.id).order_by(StudioUser.id)
+    if active_only:
+        query = query.where(StudioUser.is_active.is_(True))
     with tenant_scope(None):
         async with SessionLocal() as session:
-            ids = (await session.scalars(select(StudioUser.id).order_by(StudioUser.id))).all()
+            ids = (await session.scalars(query)).all()
     return [None, *[str(i) for i in ids]]
 
 
@@ -113,6 +116,36 @@ async def for_each_tenant(job: Callable[[], Awaitable[list[T]]], *, what: str) -
         previous = current_identity()
         try:
             with tenant_scope(tenant):
+                set_identity(await _identity_for(tenant) if tenant is not None else None)
+                out.extend(await job())
+        except Exception:  # noqa: BLE001
+            logger.exception("orch {}: проход арендатора {} не выполнен", what, tenant or "владелец")
+        finally:
+            set_identity(previous)
+    return out
+
+
+async def for_each_tenant_with_work(
+    has_work: Callable[[], Awaitable[bool]],
+    job: Callable[[], Awaitable[list[T]]],
+    *,
+    what: str,
+) -> list[T]:
+    """Как ``for_each_tenant``, но только живые учётки и только те, у кого есть работа.
+
+    ``has_work`` — дешёвая проверка под RLS арендатора (например, «есть активное
+    выполнение»): арендатор без работы пропускается до поиска личности и полного прохода.
+    Частые проходы (наблюдатель) так не платят за каждую учётку студии на каждом такте.
+    """
+    from app.services.studio_auth import current_identity, set_identity
+
+    out: list[T] = []
+    for tenant in await tenants_to_serve(active_only=True):
+        previous = current_identity()
+        try:
+            with tenant_scope(tenant):
+                if not await has_work():
+                    continue
                 set_identity(await _identity_for(tenant) if tenant is not None else None)
                 out.extend(await job())
         except Exception:  # noqa: BLE001
