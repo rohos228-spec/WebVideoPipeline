@@ -136,6 +136,10 @@ async def node_catalog() -> dict:
 @router.get("", response_model=list[WorkflowSummary])
 async def list_workflows(session: AsyncSession = Depends(get_session)) -> list[Workflow]:
     rows = (await session.execute(select(Workflow).order_by(Workflow.id.desc()))).scalars().all()
+    if not rows:
+        from app.web.settings_default import seed_default_workflow
+        await seed_default_workflow(session)
+        rows = (await session.execute(select(Workflow).order_by(Workflow.id.desc()))).scalars().all()
     return list(rows)
 
 

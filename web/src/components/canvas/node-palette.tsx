@@ -103,8 +103,7 @@ export function NodePalette({
 
   const addNode = (type: string) => {
     onAddNode(type);
-    const spec = getNodeSpec(type);
-    toast.success(`Нода «${spec.label}» добавлена на канвас`);
+    setOpen(false);
   };
 
   const insertGroup = async (groupId: string) => {

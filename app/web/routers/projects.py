@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
 from app.db import commit_with_retry
-from app.models import ArtifactKind, BatchProject, Frame, Project, ProjectStatus
+from app.models import ArtifactKind, BatchProject, Frame, Project, ProjectStatus, WorkflowRun
 from app.services.default_project import default_auto_mode_for_new_project
 from app.services.event_bus import publish_project_event
 from app.services.mass_factory import mass_parent_id
@@ -31,7 +31,7 @@ from app.services.sidebar_layout import (
 from app.storage import ProjectSheet
 from app.web.deps import get_session
 from app.web.project_dto import project_to_detail, project_to_summary
-from app.web.schemas import CreateProjectRequest, ProjectDetail, ProjectSummary
+from app.web.schemas import CreateProjectRequest, ProjectDetail, ProjectSummary, WorkflowRunDetail
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -206,6 +206,25 @@ async def get_project(project_id: int, session: AsyncSession = Depends(get_sessi
     await commit_with_retry(session)
     await session.refresh(p)
     return project_to_detail(p)
+
+
+@router.get("/{project_id}/run", response_model=WorkflowRunDetail)
+async def get_project_run(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> WorkflowRun:
+    """Возвращает последний WorkflowRun проекта (snapshot нод и рёбер)."""
+    run = (
+        await session.execute(
+            select(WorkflowRun)
+            .where(WorkflowRun.project_id == project_id)
+            .order_by(WorkflowRun.id.desc())
+            .options(selectinload(WorkflowRun.node_runs))
+        )
+    ).scalars().first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return run
 
 
 @router.post("", response_model=ProjectDetail, status_code=status.HTTP_201_CREATED)
