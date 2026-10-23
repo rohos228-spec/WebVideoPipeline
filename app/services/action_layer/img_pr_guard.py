@@ -107,8 +107,10 @@ _PLACEHOLDER_RES = tuple(
     for p in (
         r"\bнет\s+(?:\S+\s+){0,2}исходн\w*\s+(?:\S+\s+){0,2}данн",
         r"\bисходн\w*\s+(?:\S+\s+){0,3}данн\w*.{0,90}?"
-        r"(?:отсутству|не\s+предоставлен|не\s+задан|не\s+указан|\bнет\b)",
+        r"(?:отсутству|не\s+предоставлен|не\s+задан|не\s+указан|недоступн|не\s+определ|\bнет\b)",
         r"\bисходн\w*\s+[\w/, ]{1,60}?\s(?:отсутству|не\s+предоставлен|не\s+задан|не\s+указан)",
+        # Текст-рыба шаблона вместо сцены.
+        r"\blorem\s+ipsum\b",
         r"\bданн\w*\s+(?:о|об|для|по)\b.{0,90}?\bнет\b",
         # Отсутствие именно ВХОДНЫХ сведений (данных/информации/описания), а не предмета сцены:
         # «тень отсутствует», «людей нет», «источник не указан, мягкий» — это содержание.
@@ -135,7 +137,21 @@ _PLACEHOLDER_RES = tuple(
 )
 # Значение раздела вместо сцены: прочерк, «н/д», «неизвестно» («Фон: —. Действие: н/д.»).
 # Только всё значение раздела с меткой: «неизвестный путник идёт» — содержание.
-_EMPTY_VALUE_RE = re.compile(r"^\s*(?:[-—–…]+|н/д|n/?a|неизвестн\w*|unknown|none|tbd|\?+)\s*$", re.IGNORECASE)
+# Тоже целиком: «не определено», «пусто», «ничего», «см. выше», «not specified».
+_EMPTY_VALUE_RE = re.compile(
+    r"^\s*(?:[-—–…]+|н/д|n/?a|неизвестн\w*|unknown|none|tbd|\?+|пусто|ничего|nothing|empty|"
+    r"не\s+определен\w*|не\s+определ[её]н\w*|undefined|unspecified|"
+    r"not\s+(?:specified|provided|given|defined|set|available|known)|"
+    r"см\.?\s*(?:выше|ниже|ранее)|как\s+выше|аналогично(?:\s+выше)?|see\s+above|same\s+as\s+above)\s*$",
+    re.IGNORECASE,
+)
+# Слот шаблона в скобках вместо текста: «[фон]», «[описание действия]», «{scene}», «<background>».
+_STUB_SLOT = (
+    r"\s*(?:описани\w*\s+)?(?:фон\w*|действи\w*|свет\w*|мест\w*|локаци\w*|сцен\w*|персонаж\w*|"
+    r"кадр\w*|детал\w*|текст\w*|background|action|light\w*|scene|setting|location|characters?|"
+    r"description|text|placeholder|insert[^\]\}>\n]{0,30}|вставить[^\]\}>\n]{0,30}|todo|tbd|…|\.\.\.)\s*"
+)
+_STUB_RE = re.compile(rf"\[{_STUB_SLOT}\]|\{{{_STUB_SLOT}\}}|<{_STUB_SLOT}>", re.IGNORECASE)
 # Разделы сцены, которые бывают и после STYLE: тогда промт без текста до STYLE не пуст.
 _SCENE_LABEL_RE = re.compile(
     r"(?:^|[.!?\n]\s*)(?:фон|действие|сцена|место|персонаж\w*|композиц\w*|"
@@ -211,6 +227,8 @@ def prompt_is_hollow(prompt: str | None) -> bool:
     if is_scene_prompt_hollow(text):
         return True
     body, *after_style = _STYLE_RE.split(text, maxsplit=1)
+    # «[фон]» и подобные слоты шаблона — не текст сцены.
+    body = _STUB_RE.sub(" ", body)
     if not re.search(r"\w", body):
         # До STYLE ни слова: промт — один стилевой замок, если и после него нет раздела сцены.
         return not _SCENE_LABEL_RE.search(after_style[0] if after_style else "")
@@ -222,9 +240,11 @@ def prompt_is_hollow(prompt: str | None) -> bool:
         if _NOT_SCENE_LABEL_RE.search(label):
             continue
         clauses = [c for c in _CLAUSE_END_RE.split(part) if c.strip()]
-        first = clauses[0] if clauses else ""
-        if label and (not first.strip() or _EMPTY_VALUE_RE.match(first)):
-            # «Фон: .», «Фон: —», «Фон: н/д», «Фон: неизвестно» — раздел без сцены.
+        # «Фон: —. Тени длинные» — решает первое предложение после прочерка.
+        filled = [c for c in clauses if not _EMPTY_VALUE_RE.match(c)] if label else clauses
+        first = filled[0] if filled else ""
+        if label and (not filled or _EMPTY_VALUE_RE.match(part.strip().rstrip(".;!?"))):
+            # «Фон: .», «Фон: —», «Фон: н/д», «Фон: см. выше» — раздел без сцены.
             placeholders += 1
         elif _is_placeholder(first) and _content_after_contrast(first):
             content += 1
