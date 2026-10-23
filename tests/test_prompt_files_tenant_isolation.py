@@ -132,3 +132,38 @@ async def test_uploaded_prompt_is_isolated_to_tenant(env) -> None:
     assert del_a.status_code == 200
     list_a_deleted = (await client_a.get("/api/prompt-files/plan")).json()
     assert not any(f["name"] == "fallout_v2" for f in list_a_deleted)
+
+
+async def test_is_shared_flag_follows_tenant_scope(env) -> None:
+    """Флаг «общий/личный» из ИИ-агента промтов (PR #87) считается по арендатору.
+
+    Правка default участником A делает его личным только для A; у B тот же
+    default остаётся общим. Загруженный A файл — личный для A и не виден B.
+    """
+    client_a = env["client_a"]
+    client_b = env["client_b"]
+
+    def _flag(rows, name):
+        return next(f["is_shared"] for f in rows if f["name"] == name)
+
+    list_a = (await client_a.get("/api/prompt-files/plan")).json()
+    assert _flag(list_a, "default") is True
+
+    save_res = await client_a.put(
+        "/api/prompt-files/plan/default", json={"content": "личный план Алисы"}
+    )
+    assert save_res.status_code == 200
+
+    list_a = (await client_a.get("/api/prompt-files/plan")).json()
+    list_b = (await client_b.get("/api/prompt-files/plan")).json()
+    assert _flag(list_a, "default") is False
+    assert _flag(list_b, "default") is True
+
+    files = {"file": ("alice_only.md", io.BytesIO(b"# alice"), "text/markdown")}
+    up = await client_a.post("/api/prompt-files/plan/upload", files=files)
+    assert up.status_code == 200
+    assert up.json()["is_shared"] is False
+    list_a = (await client_a.get("/api/prompt-files/plan")).json()
+    list_b = (await client_b.get("/api/prompt-files/plan")).json()
+    assert _flag(list_a, "alice_only") is False
+    assert not any(f["name"] == "alice_only" for f in list_b)
