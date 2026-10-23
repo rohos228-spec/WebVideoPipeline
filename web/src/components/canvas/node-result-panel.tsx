@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { NodeResultViewBody } from "./node-result-views";
 
 const WIDE_MODES = new Set([
+  "director_plan",
   "xlsx_general_plan",
   "voiceover_wide",
   "xlsx_split_row",

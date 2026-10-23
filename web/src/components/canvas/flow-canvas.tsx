@@ -149,7 +149,7 @@ export function FlowCanvas({
     queryFn: api.listWorkflows,
   });
   const defaultWorkflow = useMemo(
-    () => (workflows.data ?? []).find((w) => w.is_default) ?? null,
+    () => (workflows.data ?? []).find((w) => w.is_default) ?? (workflows.data ?? [])[0] ?? null,
     [workflows.data]
   );
   const workflow = useQuery({
@@ -290,6 +290,11 @@ export function FlowCanvas({
       ) as Node<PipelineNodeData>[],
     );
     setEdges(baseEdges);
+    if (switched && !canvasGraph?.saved_at && baseNodes.length > 0) {
+      window.requestAnimationFrame(() => {
+        reactFlowRef.current?.fitView({ padding: 0.12, maxZoom: 0.85, minZoom: 0.2 });
+      });
+    }
   }, [
     graphSource,
     baseNodes,
@@ -535,7 +540,7 @@ export function FlowCanvas({
   }, [projectId]);
 
   const persistWorkflow = useCallback(async () => {
-    if (!workflow.data) return;
+    if (!workflow.data && !projectId) return;
     if (persistInFlightRef.current) {
       persistQueuedRef.current = true;
       return;
@@ -620,8 +625,9 @@ export function FlowCanvas({
           ? (prevMeta.mass_excel_topics as string[])
           : [];
         const bindings = buildExcelLaneBindings(currentNodes, currentEdges, topics);
+        const wfId = workflow.data?.id ?? defaultWorkflow?.id ?? 1;
         const meta: Record<string, unknown> = {
-          canvas_graph: buildCanvasGraph(workflow.data.id, wfNodes, wfEdges),
+          canvas_graph: buildCanvasGraph(wfId, wfNodes, wfEdges),
           ai_control: true,
         };
         if (bindings.length) {
@@ -630,7 +636,7 @@ export function FlowCanvas({
         if (persistProjectIdRef.current !== projectId) return;
         await api.patchProject(projectId, { meta });
         await qc.invalidateQueries({ queryKey: ["project", projectId] });
-      } else {
+      } else if (workflow.data) {
         await api.saveWorkflow(workflow.data.id, {
           nodes: wfNodes,
           edges: wfEdges,
@@ -982,7 +988,6 @@ export function FlowCanvas({
 
   const addNode = useCallback(
     (type: string) => {
-      if (!workflow.data) return;
       const id = `n_${type}_${Date.now()}`;
       const spec = getNodeSpec(type);
       // scene-агенты (sdAgent) слоты enrich не занимают — не считаем их.
@@ -1028,9 +1033,10 @@ export function FlowCanvas({
         targetPosition: Position.Left,
       };
       setNodes((prev) => [...prev, newNode]);
+      scheduleSaveWorkflow();
       toast.message(`Добавлена нода: ${spec.label}`);
     },
-    [workflow.data, nodes, setNodes],
+    [nodes, setNodes, scheduleSaveWorkflow],
   );
 
   const onNodesDelete = useCallback(
@@ -1271,6 +1277,7 @@ export function FlowCanvas({
               targetPosition: Position.Left,
             } as Node<PipelineNodeData>,
           ]);
+          scheduleSaveWorkflow();
           toast.success("Нода Excel добавлена слева — загрузите topics.xlsx");
         }}
         onDuplicateBelow={() => {
@@ -1331,6 +1338,7 @@ export function FlowCanvas({
           }
           setNodes((prev) => [...prev, ...clones]);
           setEdges((prev) => [...prev, ...cloneEdges, ...excelEdges]);
+          scheduleSaveWorkflow();
           toast.success(
             excelEdges.length
               ? `Граф продублирован (${excelEdges.length} связей от Excel)`

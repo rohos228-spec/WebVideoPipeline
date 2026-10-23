@@ -12,10 +12,11 @@
 import type React from "react";
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Copy, Download, ExternalLink, ImageOff, Search, Upload, X } from "lucide-react";
+import { ChevronDown, Copy, Download, ExternalLink, ImageOff, Search, Upload, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { StarRating } from "@/components/ui/star-rating";
 import type { NodeResultItem as BaseItem } from "@/lib/node-result-resolver";
+import { MetaPromptDialog } from "@/components/studio/meta-prompt-dialog";
 
 export type NodeResultItem = BaseItem & { category?: string; description?: string };
 import { cn } from "@/lib/utils";
@@ -54,11 +55,17 @@ export function PromptDetailModal({
   onClose,
   onPrev,
   onNext,
+  stepCode,
+  projectId,
+  onActivate,
 }: {
   item: NodeResultItem;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
+  stepCode?: string;
+  projectId?: number;
+  onActivate?: (id: string) => void;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -146,13 +153,36 @@ export function PromptDetailModal({
               <div className="text-[13px] font-semibold uppercase tracking-wider text-white/45">
                 Промт · {content.length} симв.
               </div>
-              <button
-                type="button"
-                onClick={() => void copyText(content)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#22d3ee] px-3 py-1.5 text-[13px] font-semibold text-black hover:brightness-110"
-              >
-                <Copy className="h-3.5 w-3.5" /> Копировать
-              </button>
+              <div className="flex items-center gap-2">
+                {stepCode ? (
+                  <MetaPromptDialog
+                    stepCode={stepCode}
+                    projectId={projectId}
+                    initialIntent={content}
+                    initialPresetName={`${item.id}_remix`}
+                    onSaved={(fileName) => {
+                      const base = fileName.replace(/\.md$/, "");
+                      onActivate?.(base);
+                      onClose();
+                    }}
+                    trigger={
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-[13px] font-semibold text-cyan-300 hover:bg-cyan-500/20 transition-all cursor-pointer"
+                      >
+                        <Wand2 className="h-3.5 w-3.5" /> Улучшить с ИИ
+                      </button>
+                    }
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void copyText(content)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#22d3ee] px-3 py-1.5 text-[13px] font-semibold text-black hover:brightness-110"
+                >
+                  <Copy className="h-3.5 w-3.5" /> Копировать
+                </button>
+              </div>
             </div>
             <pre className="whitespace-pre-wrap break-words rounded-lg border border-white/10 bg-[#16161d] p-3 font-mono text-[14px] leading-relaxed text-white/85 select-text">
               {content || "—"}
@@ -251,6 +281,8 @@ export function NodeCatalogPanel({
   downloadUrl,
   onUpload,
   embedded = false,
+  stepCode,
+  projectId,
 }: {
   embedded?: boolean;
   nodeKey: string;
@@ -261,7 +293,10 @@ export function NodeCatalogPanel({
   onClose: () => void;
   downloadUrl?: (id: string) => string;
   onUpload?: (id: string, file: File) => Promise<void>;
+  stepCode?: string;
+  projectId?: number;
 }) {
+  const resolvedStepCode = stepCode || stepCodeForNodeKey(nodeKey);
   const [detail, setDetail] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [q, setQ] = useState("");
@@ -370,8 +405,8 @@ export function NodeCatalogPanel({
 
   const catalogBody = (
     <>
-        <div className="relative grid shrink-0 grid-cols-[1fr_auto]" style={{ gap: 1 }}>
-          <label className="flex h-9 items-center gap-2 bg-[#141417] px-3">
+        <div className="relative flex shrink-0 items-stretch" style={{ gap: 1 }}>
+          <label className="flex h-9 flex-1 items-center gap-2 bg-[#141417] px-3">
             <Search className="h-3.5 w-3.5 text-zinc-500" />
             <input
               value={q}
@@ -388,6 +423,26 @@ export function NodeCatalogPanel({
             {cat === "Все" ? "Категории" : cat}
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
+          {resolvedStepCode ? (
+            <MetaPromptDialog
+              stepCode={resolvedStepCode}
+              projectId={projectId}
+              onSaved={(fileName) => {
+                const base = fileName.replace(/\.md$/, "");
+                onActivate(base);
+              }}
+              trigger={
+                <button
+                  type="button"
+                  title="Создать или настроить промпт с помощью ИИ-Агента"
+                  className="flex h-9 items-center gap-1.5 bg-[#141417] px-3 text-[13px] font-semibold text-cyan-400 hover:bg-[#1b1b1f] hover:text-cyan-300 transition-colors select-none cursor-pointer"
+                >
+                  <Wand2 className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>ИИ-агент</span>
+                </button>
+              }
+            />
+          ) : null}
           {catOpen ? (
             <div className="absolute top-full right-0 z-10 flex min-w-[180px] flex-col bg-[#2e2e34]" style={{ gap: 1, padding: 1 }}>
               {cats.map(([c, n]) => (
@@ -627,6 +682,9 @@ export function NodeCatalogPanel({
           onClose={() => setPreview(null)}
           onPrev={preview > 0 ? () => setPreview(preview - 1) : undefined}
           onNext={preview < items.length - 1 ? () => setPreview(preview + 1) : undefined}
+          stepCode={resolvedStepCode}
+          projectId={projectId}
+          onActivate={onActivate}
         />
       ) : null}
     </>,

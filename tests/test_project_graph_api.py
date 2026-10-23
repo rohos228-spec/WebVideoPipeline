@@ -200,3 +200,29 @@ async def test_models_of_unknown_kind_are_not_offered(client, monkeypatch) -> No
     )
     g = (await client.get("/api/projects/1/graph")).json()
     assert [m["id"] for m in g["models"]["text"]] == ["t"] and g["models"]["image"] == []
+
+
+async def test_get_project_run_returns_run_and_nodes(client) -> None:
+    from app.services.run_sync import ensure_run_for_project
+    from app.web.settings_default import seed_default_workflow
+
+    async with client.factory() as s:  # type: ignore[attr-defined]
+        await seed_default_workflow(s)
+        await ensure_run_for_project(1, 1, session=s)
+        await s.commit()
+
+    res = await client.get("/api/projects/1/run")
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["project_id"] == 1
+    assert isinstance(data.get("nodes_snapshot"), list)
+    assert len(data["nodes_snapshot"]) > 0
+
+
+async def test_list_workflows_autoseeds_when_empty(client) -> None:
+    res = await client.get("/api/workflows")
+    assert res.status_code == 200, res.text
+    wfs = res.json()
+    assert isinstance(wfs, list)
+    assert len(wfs) > 0
+    assert any(w["is_default"] for w in wfs)
