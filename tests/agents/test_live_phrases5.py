@@ -24,8 +24,13 @@ def _system(router: ScriptedRouter) -> str:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("goal", ["смени модель на gpt в проекте 5 и запусти его",
-                                  "во всех проектах поменяй модель картинок на дефолтную"])
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "смени модель картинок на gpt в проекте 5 и запусти его",
+        "во всех проектах поменяй модель картинок на дефолтную",
+    ],
+)
 async def test_planner_sees_image_models_default_and_gpt_word(goal: str) -> None:
     """#112, #113: планировщик не знал, что «gpt» и «дефолтная» — это gpt_image_2_vip, и возвращал пустой план."""
     router = ScriptedRouter()
@@ -64,8 +69,9 @@ async def test_model_change_then_launch_plan_reaches_a_card(token: str) -> None:
     )
     set_runtime(rt)
     try:
-        task_id = await rt.supervisor.start_task("ph5-model", "смени модель на gpt в проекте 5 и запусти его",
-                                                 project_id=None)
+        task_id = await rt.supervisor.start_task(
+            "ph5-model", "смени модель картинок на gpt в проекте 5 и запусти его", project_id=None
+        )
         await rt.supervisor.wait(task_id, timeout=5)
         events = list(rt.bus.replay("ph5-model", 0))
         texts = [e.payload.get("text") or "" for e in events if e.type == "message"]

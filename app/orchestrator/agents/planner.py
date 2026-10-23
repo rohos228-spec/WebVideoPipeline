@@ -63,6 +63,16 @@ class RouterPlanner:
     ) -> list[PlanStep]:
         # Поля last_* общего планировщика выставляются все вместе после последнего await
         # своей ветки: иначе сосед, ответивший между ними, оставит свои значения в чужом вызове.
+        from app.orchestrator.agents.summarizer import gpt_model_clarify_text
+
+        ask = gpt_model_clarify_text(goal)
+        if ask:
+            # «Смени модель на gpt»: картинки или ноды GPT — вопрос кодом, модель не нужна.
+            self.last_from_code = True
+            self.last_response = None
+            self.last_reason = ask
+            self.last_parse_failed = False
+            return []
         undo = await self._undo_plan(goal, task_id)
         if undo is not None:
             # «Верни как было»: последняя правка чата известна из журнала, модель не нужна.

@@ -593,8 +593,14 @@ def plan_defaults(name: str, params: dict | None) -> dict:
 
 
 async def plan_resolve(name: str, params: dict | None) -> dict:
-    """step.run_step картинок/видео: count, генератор и разрешение из данных проекта, если не названы."""
+    """step.run_step картинок/видео: count, генератор и разрешение из данных проекта, если не названы.
+
+    Правка настроек проекта: без ключей, значение которых в проекте уже такое же."""
     params = dict(params or {})
+    if str(name) in ("project.patch_settings", "project.patch_settings_costly"):
+        from app.services.action_layer.builtin_wave5 import changed_settings_only
+
+        return await changed_settings_only(params)
     if str(name) != "step.run_step":
         return params
     from app.services.action_layer.builtin_wave5 import declared_media_values

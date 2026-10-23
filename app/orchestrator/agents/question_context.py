@@ -12,7 +12,7 @@ _TIMEOUT_S = 20.0
 _FACT_LIMIT = 2500
 # Обзор — это список: под общим пределом он резался посреди строки, и ответ
 # говорил «по остальным данных нет». До 30 строк по ~180 знаков влезают целиком.
-_FACT_LIMITS = {"projects.overview": 6000}
+_FACT_LIMITS = {"projects.overview": 6000, "node.describe": 4500}
 _TOTAL_LIMIT = 12000
 _LOG_LINES = 15
 _NODE_RE = re.compile(r"\bn_[a-z0-9_]{2,60}\b")
@@ -154,6 +154,30 @@ _TITLES = {
 }
 
 ReadRunner = Callable[[str, dict[str, Any], Any], Awaitable[Any]]
+
+# «Сколько проектов может идти одновременно»: ответ «в данных не указано», хотя число известно.
+_PARALLEL = ("одновремен", "параллел", "сразу несколько", "за раз", "очеред", "потоков", "поток")
+QUEUE_TITLE = "Очередь генерации"
+
+
+def queue_capacity_text() -> str:
+    """Сколько проектов очереди идут одновременно (настройка студии), сколько ждут, где предел."""
+    from app.services.gen_queue import worker_max_parallel
+    from app.services.orch_tenancy import own_projects
+    from app.services.runtime_streams import WORKER_MAX, WORKER_MIN
+    from app.services.sidebar_layout import get_gen_queue
+    from app.services.tenant import current_tenant
+
+    limit = int(worker_max_parallel())
+    # Файл очереди общий для студии: номера и число — только своих проектов (чужие
+    # номера в ответе были бы утечкой).
+    queue = [pid for pid, _title in own_projects(current_tenant(), list(get_gen_queue()))]
+    return (
+        f"Сколько проектов очереди генерации может идти одновременно (настройка студии): {limit}. "
+        f"Её можно поменять от {WORKER_MIN} до {WORKER_MAX} просьбой в чате, например «поставь "
+        f"одновременно 3 проекта». Ваших проектов в очереди сейчас: {len(queue)}"
+        + (f" ({', '.join(f'#{pid}' for pid in queue[:20])})." if queue else ".")
+    )
 
 
 @dataclass(frozen=True)
@@ -387,11 +411,13 @@ class QuestionContext:
         timeout_s: float = _TIMEOUT_S,
         nodes: Any | None = None,
         done_of: Callable[[int | None, str | None], Awaitable[list[str]]] | None = None,
+        queue_of: Callable[[], str] | None = None,
     ) -> None:
         self._runner = runner or run_read_action
         self.timeout_s = timeout_s
         self._nodes = nodes
         self._done_of = done_of or _today_changes
+        self._queue_of = queue_of or queue_capacity_text
 
     async def _one(self, action: str, params: dict[str, Any], app: Any) -> Fact:
         title = _TITLES.get(action, action)
@@ -432,6 +458,19 @@ class QuestionContext:
         words = glossary_text(text)
         if words:
             head.append(Fact("glossary", GLOSSARY_TITLE, words))
+        if _has(_norm(text), _PARALLEL):
+            try:
+                from app.services.orch_tenancy import session_tenant
+                from app.services.tenant import current_tenant, tenant_scope
+
+                # Под арендатором сессии чата (внутреннее имя несёт арендатора).
+                tenant = (session_tenant(session_id) if session_id else None) or current_tenant()
+                with tenant_scope(tenant):
+                    capacity = str(self._queue_of() or "")
+                head.append(Fact("queue.capacity", QUEUE_TITLE, capacity))
+            except Exception as exc:
+                logger.warning("orch question queue capacity failed: {}", type(exc).__name__)
+                head.append(Fact("queue.capacity", QUEUE_TITLE, "", ok=False))
         if rows:
             head.append(Fact("nodes.roster", "Ноды проекта", _clip(roster_text(rows), _FACT_LIMIT)))
             known = {params.get("node_key") for action, params in reads if action == "node.output"}

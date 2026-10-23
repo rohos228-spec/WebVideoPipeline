@@ -65,6 +65,7 @@ from app.orchestrator.agents import approval_steps
 from app.orchestrator.agents import summarizer as task_summary
 from app.orchestrator.agents.executor import effective_risk, run_many, step_is_paid, tighten_paid_step
 from app.orchestrator.agents.planner import PlanSchemaError
+from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
     ActionBackedExecutor,
     StubCritic,
@@ -2662,6 +2663,8 @@ class Supervisor:
             _LLM_TASK.reset(token)
         if drafted is None:
             return None
+        # Правка настроек проекта — только названные ключи, до сверки с текущими значениями.
+        drafted = scope_settings(list(drafted), goal)
         resolved = _chain_from_queue(
             [await self._resolved(self._with_defaults(step)) for step in drafted], goal
         )
@@ -2846,6 +2849,11 @@ class Supervisor:
             await self._settle_stopped(task_id, session_id)
             return None
         if _free_read_plan(plan, self.actions):
+            return "approve"
+        if _queue_launch_plan(plan, self.actions):
+            # «Запусти проекты 5 6 7 параллельно»: очередь и число параллельных идут только через
+            # карточку человека. Критик просил «сначала прочитай статус» и гонял планировщик по
+            # кругу: карточка появлялась через 2+ минуты. Проверку делает человек кнопкой.
             return "approve"
         if self._code_plans.get(task_id) == _plan_fingerprint(plan):
             # План отката собран кодом из журнала, а не моделью: критику нечего проверять,
@@ -5892,3 +5900,24 @@ def _free_read_step(step: PlanStep, actions: Any) -> bool:
 
 def _free_read_plan(plan: list[PlanStep], actions: Any) -> bool:
     return bool(plan) and all(_free_read_step(step, actions) for step in plan)
+
+
+# Шаги постановки в очередь: исполняются только после «Подтвердить» на карточке.
+QUEUE_LAUNCH_ACTIONS: frozenset[str] = frozenset({"queue.enqueue_many", "queue.set_parallel"})
+
+
+def _queue_launch_plan(plan: list[PlanStep], actions: Any) -> bool:
+    """План только из очереди генерации и бесплатных чтений; каждый шаг очереди идёт карточкой.
+
+    Такой план критику проверять нечего: проекты и режим человек видит на карточке и
+    подтверждает сам, а платные шаги потом запускает воркер по своей проверке.
+    """
+    if not any(step.action in QUEUE_LAUNCH_ACTIONS for step in plan):
+        return False
+    for step in plan:
+        if step.action in QUEUE_LAUNCH_ACTIONS:
+            if step.paid or effective_risk(actions, step) not in APPROVAL_RISKS:
+                return False
+        elif not _free_read_step(step, actions):
+            return False
+    return True

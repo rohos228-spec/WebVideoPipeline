@@ -586,6 +586,45 @@ _SETTINGS_KEYS = (
 )
 
 
+def _same_setting(key: str, current: Any, wanted: Any) -> bool:
+    if current is None or wanted is None:
+        return False
+    if key == "aspect_ratio":
+        aid = pgs.aspect_id(wanted)
+        return aid is not None and aid == pgs.aspect_id(current)
+    return " ".join(str(current).split()) == " ".join(str(wanted).split())
+
+
+def unchanged_settings(project: Any, params: dict) -> list[str]:
+    """Ключи правки настроек, у которых значение уже такое же, как в проекте."""
+    if not isinstance(project, dict):
+        return []
+    return [k for k in _SETTINGS_KEYS if k in params and _same_setting(k, project.get(k), params[k])]
+
+
+async def changed_settings_only(params: dict) -> dict:
+    """План правки настроек: без ключей, которые и так совпадают с проектом.
+
+    Карточка «поменяются title, topic, …» перечисляла и то, что не менялось. Если совпадает
+    всё, шаг остаётся как есть: пустую правку проверка отклонит понятным текстом."""
+    out = dict(params)
+    if out.get("project_id") is None:
+        return out
+    from app.orchestrator import app_ref
+
+    try:
+        ctx = ActionContext(app=app_ref.current(), operator="system", read_only=True)
+        project = await _get_project(ctx, out["project_id"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("settings plan: project #{} not read: {}", out.get("project_id"), exc)
+        return out
+    same = unchanged_settings(project, out)
+    present = [k for k in _SETTINGS_KEYS if k in out]
+    if not same or len(same) == len(present):
+        return out
+    return {k: v for k, v in out.items() if k not in same}
+
+
 async def _settings_given(ctx, params):
     if not any(k in params for k in _SETTINGS_KEYS):
         return f"укажите хотя бы одну настройку: {', '.join(_SETTINGS_KEYS)}"

@@ -116,6 +116,28 @@ _HELP = frozenset(
     }
 )
 _POLITE = _HELLO | _THANKS | _OK
+# «Спасибо, все», «на этом все, спасибо»: конец разговора, а не «останови все».
+# Только рядом со «спасибо»: одно «все» без него остаётся просьбой.
+_CLOSING = frozenset(
+    {
+        "все",
+        "на",
+        "этом",
+        "это",
+        "пока",
+        "до",
+        "свидания",
+        "всего",
+        "доброго",
+        "больше",
+        "ничего",
+        "не",
+        "надо",
+        "нужно",
+        "большое",
+        "огромное",
+    }
+)
 _FILLER = re.compile(r"(?<![а-яa-z])(?:пожалуйста|пж|плиз|please|мне|а|ну|эй|бот)(?![а-яa-z])")
 _NOISE = re.compile(r"[^а-яa-z0-9 ]+")
 _PUNCT = re.compile(r"[\s?!.,:;…\-]+")
@@ -124,6 +146,14 @@ _PUNCT = re.compile(r"[\s?!.,:;…\-]+")
 def _norm(text: str) -> str:
     low = (text or "").lower().replace("ё", "е")
     return " ".join(_FILLER.sub(" ", _NOISE.sub(" ", low)).split())
+
+
+_DECLINE = frozenset({"не", "ничего"})
+
+
+def is_decline(text: str) -> bool:
+    """«Спасибо, не надо», «спасибо, ничего»: при открытой карточке похоже на отказ от неё."""
+    return any(word in _DECLINE for word in _norm(text).split())
 
 
 def small_talk_reply(text: str) -> str | None:
@@ -143,6 +173,12 @@ def small_talk_reply(text: str) -> str | None:
         return HELLO_TEXT if norm in _HELLO else THANKS_TEXT if norm in _THANKS else OK_TEXT
     # «ок спасибо», «привет спасибо»: только вежливые слова подряд.
     words = norm.split()
+    if (
+        len(words) <= 6
+        and any(word in _THANKS for word in words)
+        and all(word in _POLITE or word in _CLOSING for word in words)
+    ):
+        return THANKS_TEXT
     if len(words) <= 3 and all(word in _POLITE for word in words):
         if any(word in _THANKS for word in words):
             return THANKS_TEXT

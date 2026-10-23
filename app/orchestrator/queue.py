@@ -28,7 +28,7 @@ from app.orchestrator.contracts import (
 from app.orchestrator.db.migrations import connect, utc_now
 from app.orchestrator.events import EventBus
 from app.orchestrator.safety_gate import Refusal, refusal_for
-from app.orchestrator.small_talk import CARD_WAITING_TEXT, OK_TEXT, small_talk_reply
+from app.orchestrator.small_talk import CARD_WAITING_TEXT, OK_TEXT, THANKS_TEXT, is_decline, small_talk_reply
 
 _TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
 _STOP_TOKENS = frozenset(
@@ -468,7 +468,10 @@ class MessageQueue:
             if not kill_switch and mode in (None, MessageMode.task):
                 # Явный append (API) остаётся вопросом к модели: готовый ответ только для реплик из чата.
                 reply = small_talk_reply(text)
-                if reply == OK_TEXT and self._card_waiting(session_id):
+                # «Спасибо, не надо» при открытой карточке — не отказ: кнопка «Отклонить» на карточке.
+                if (reply == OK_TEXT or (reply == THANKS_TEXT and is_decline(text))) and self._card_waiting(
+                    session_id
+                ):
                     reply = CARD_WAITING_TEXT
                 if reply is not None:
                     published = True
@@ -800,12 +803,16 @@ class MessageQueue:
             logger.warning("orch answer failed for session {}: {}", session_id, type(exc).__name__)
             await self.explain_failure(session_id, exc, task_id)
             return
+        from app.orchestrator.agents.summarizer import normalize_links
+
         parts = deltas or _token_pieces(response.text)
+        # Сохранённый и итоговый текст — со ссылками без пробела после «(»: иначе они видны как текст.
+        answer = normalize_links(str(response.text or ""))
         message_id = await asyncio.to_thread(
             _insert_message,
             session_id,
             "assistant",
-            response.text,
+            answer,
             task_id=task_id,
             mode=MessageMode.append.value,
         )
@@ -839,7 +846,7 @@ class MessageQueue:
         await self.bus.publish(
             session_id,
             "message",
-            {"role": "assistant", "text": response.text},
+            {"role": "assistant", "text": answer},
             task_id=task_id,
         )
 

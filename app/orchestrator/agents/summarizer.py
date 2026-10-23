@@ -71,6 +71,44 @@ FILE_CLARIFY = (
 )
 
 
+# «Смени модель на gpt»: у студии GPT — и модель картинок проекта (GPT Image), и текстовая модель
+# нод «Работа с GPT». Без слов о картинках, видео или нодах не угадываем, а спрашиваем.
+_GPT_WORD = re.compile(r"(?<![a-zа-я])(?:gpt|гпт|джипити|чатгпт|chatgpt)", re.IGNORECASE)
+_MODEL_WORD = re.compile(r"модел|нейросет|генератор", re.IGNORECASE)
+_MODEL_TARGET = re.compile(
+    r"картин|изображ|image|img|кадр|фото|видео|ролик|анимац|video|нод|текст|сценар|работ|агент|"
+    r"промт|промпт|озвуч|голос|имидж|"
+    # Текстовые модели GPT названы явно: «gpt 5.6 sol», «gpt-5.6-luna».
+    r"(?<![a-zа-я])(?:sol|terra|luna|astra|сол|терра|луна|астра)(?![a-zа-я])|\d\.\d",
+    re.IGNORECASE,
+)
+_PROJECT_NUMBER = re.compile(r"проект\w*\s+(?:№\s*)?#?(\d{1,5})", re.IGNORECASE)
+
+
+def gpt_model_clarify_text(goal: str) -> str:
+    """«Смени модель на gpt в проекте 5»: что именно менять — картинки или ноды GPT; пусто — понятно."""
+    text = " ".join((goal or "").lower().replace("ё", "е").split())
+    if not _GPT_WORD.search(text) or not _MODEL_WORD.search(text) or _MODEL_TARGET.search(text):
+        return ""
+    number = _PROJECT_NUMBER.search(text)
+    where = f" в проекте {number.group(1)}" if number else ""
+    return (
+        "Какую модель поменять на GPT? Это может быть модель картинок проекта (GPT Image) или "
+        "текстовая модель нод «Работа с GPT». Напишите точнее, например "
+        f"«смени модель картинок на gpt{where}» или «какие модели можно поставить на работу с "
+        f"GPT{where}». Ничего не меняю и не запускаю, пока не уточните."
+    )
+
+
+# «[Скачать отчёт]( /api/projects/…)»: модель ставит пробел после скобки, ссылка показывалась текстом.
+_LINK_SPACES = re.compile(r"\]\(\s*([^\s()]+)\s*\)")
+
+
+def normalize_links(text: str) -> str:
+    """Markdown-ссылки без пробелов вокруг адреса в круглых скобках."""
+    return _LINK_SPACES.sub(r"](\1)", text or "")
+
+
 def file_clarify_text(goal: str) -> str:
     """Просьба создать проекты «из файла»: конкретный вопрос вместо «не понял»; пусто — не о том."""
     text = goal or ""
@@ -849,6 +887,7 @@ class TaskSummarizer:
         if getattr(response, "approval", None) is not None:
             return fallback
         text = str(getattr(response, "text", "") or "").strip()
+        text = normalize_links(text)
         cleaned = drop_echo(text, facts.goal)
         if cleaned != text:
             logger.info("orch summary echoed the request, kept {} of {} chars", len(cleaned), len(text))

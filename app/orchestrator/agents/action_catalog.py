@@ -66,12 +66,6 @@ def wants_mass(text: str) -> bool:
     return bool(_MASS_RE.search((text or "").lower().replace("ё", "е")))
 
 
-def _norm_tenant(value: Any) -> str | None:
-    """UUID арендатора в одном виде: Postgres отдаёт с дефисами, SQLite хранит 32 hex."""
-    text_value = str(value or "").strip().lower().replace("-", "")
-    return text_value or None
-
-
 def _task_tenant(task_id: Any) -> str | None:
     """Арендатор задачи (строка orch_tasks), без задачи — текущий арендатор."""
     from app.services.tenant import current_tenant
@@ -92,21 +86,12 @@ def _studio_projects(task_id: Any = None) -> list[tuple[int, str]]:
     """Id и названия проектов арендатора задачи, только чтение.
 
     Список уходит планировщику для «во всех проектах»: чужие проекты в нём — утечка
-    номеров и названий и повод поставить шаг на чужой проект. Читаем под арендатором
-    задачи (на Postgres это RLS) и ещё раз сверяем арендатора строки: на SQLite
-    политик нет. Владелец (арендатора нет) видит только строки владельца.
+    номеров и названий и повод поставить шаг на чужой проект
+    (``orch_tenancy.own_projects``: RLS на Postgres и сверка арендатора строки).
     """
-    from sqlalchemy import text as sql_text
+    from app.services.orch_tenancy import own_projects
 
-    from app.orchestrator.db.engine import get_engine
-    from app.services.tenant import tenant_scope
-
-    tenant = _task_tenant(task_id)
-    want = _norm_tenant(tenant)
-    query = sql_text("SELECT id, COALESCE(title, topic, '') AS title, tenant_id FROM projects ORDER BY id")
-    with tenant_scope(tenant), get_engine().connect() as conn:
-        rows = conn.execute(query).fetchall()
-    return [(int(pid), str(title or "")) for pid, title, owner in rows if _norm_tenant(owner) == want]
+    return own_projects(_task_tenant(task_id))
 
 
 def _projects_line(projects: Callable[[], list[tuple[int, str]]]) -> str:
@@ -227,13 +212,15 @@ def media_hints() -> list[str]:
     if gpt:
         lines.append(
             f"«gpt», «гпт», «GPT Image» как модель картинок — image_generator={gpt[0]}. «Смени модель "
-            "на gpt в проекте N» без названия ноды — модель картинок проекта (project.patch_settings), "
-            "а не ноды «Работа с GPT»: они и так идут на GPT."
+            "картинок на gpt в проекте N» — модель картинок проекта (project.patch_settings), а не "
+            "ноды «Работа с GPT»."
         )
     lines.append(
         "Смена модели проекта в нескольких или во всех проектах — по шагу project.patch_settings "
         "(или project.patch_settings_costly) на каждый проект из списка «Проекты Студии», у каждого "
-        "свой project_id; id не из списка не подставляй. «И запусти» после смены модели — затем project.status и шаг запуска того же "
+        "свой project_id; id не из списка не подставляй. В params только то, что просили "
+        "поменять: для модели картинок — один image_generator, без названия, темы, формата, героя, "
+        "разрешения и модели видео. «И запусти» после смены модели — затем project.status и шаг запуска того же "
         "проекта, как в обычной просьбе о запуске."
     )
     return lines
