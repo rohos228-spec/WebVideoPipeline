@@ -754,14 +754,24 @@ async def _queue_warnings(ctx, params) -> list[str]:
             "У проектов включится автопродвижение (воркер сам пойдёт по платной цепочке): "
             f"{', '.join(auto_on)}."
         )
+    from app.services.action_layer.plan import member_view
+    from app.services.runtime_streams import get_worker_max_parallel
+
+    # Число — прямо из настройки (GET /runtime-streams по дороге сбрасывает слоты
+    # очереди). Менять его может только админ: участнику это не предлагаем.
     try:
-        streams = await ctx.call("GET", "/runtime-streams")
+        limit = int(get_worker_max_parallel())
+    except Exception:  # noqa: BLE001
+        limit = None
+    if limit is not None:
         out.append(
-            f"Одновременно идут не больше {streams.get('worker_max_parallel')} проектов "
-            "очереди; это число можно поменять просьбой в чате."
+            f"Одновременно идут не больше {limit} проектов очереди"
+            + (
+                "; это общая настройка студии, её меняет админ."
+                if member_view()
+                else "; это число можно поменять просьбой в чате."
+            )
         )
-    except ActionCallError:
-        pass
     return out
 
 
@@ -877,10 +887,17 @@ PARALLEL_LOWER_NOTE = "Уже идущие доиграют, новые буду
 async def _set_parallel(ctx, params):
     # Уменьшение числа не прерывает уже идущие шаги: они доигрывают, лимит действует
     # только на новые старты (см. gen_queue_reconcile / gen_queue_tick).
-    before = None
+    from app.services.action_layer.plan import refuse_admin_only
+    from app.services.runtime_streams import get_worker_max_parallel
+
+    # Настройка одна на всю студию: участнику — отказ, каким бы путём ни пришёл вызов.
+    refuse_admin_only("queue.set_parallel", params)
+    # Прежнее число — прямо из настройки. GET /runtime-streams считает занятых и
+    # по дороге сбрасывает слоты очереди (gen_queue_reconcile): чтению побочный
+    # эффект ни к чему.
     try:
-        before = ((await ctx.call("GET", "/runtime-streams")) or {}).get("worker_max_parallel")
-    except ActionCallError:
+        before = int(get_worker_max_parallel())
+    except Exception:  # noqa: BLE001
         before = None
     data = await ctx.call("PATCH", "/runtime-streams", json={"worker_max_parallel": params["workers"]})
     got = (data or {}).get("worker_max_parallel")

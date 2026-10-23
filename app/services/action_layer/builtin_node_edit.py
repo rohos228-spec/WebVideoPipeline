@@ -325,6 +325,9 @@ async def _prompt_excerpt(ctx: ActionContext, params: dict) -> str:
     cut = body[:PROMPT_SHOWN_CHARS].rstrip()
     name = str(base.get("variant") or "").strip()
     head = f"Текст промта «{name}»" if name else "Текст промта"
+    # Правка клиента или проекта поверх системного текста: говорим, чей текст показан.
+    if base.get("text_level") in ("project", "tenant", "brand") and base.get("text_level_ru"):
+        head += f" ({base['text_level_ru']})"
     tail = f"\n(показаны первые {len(cut)} из {total} знаков)" if len(cut) < total else ""
     return f"{head}:\n{cut}{tail}"
 

@@ -252,6 +252,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         StepCancelledError,
         clear_worker_wait,
         is_generation_active,
+        keep_worker_wait_tenants,
         keep_worker_waits,
         note_worker_wait,
         register_advance_task,
@@ -423,10 +424,18 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         """
         if not _settings.is_postgres:
             return [None]
-        from app.services.work_routing import tenants_with_active_work
+        from app.orchestrator.auto_advance import TRANSITIONS
+        from app.services.sidebar_layout import get_gen_queue
+        from app.services.work_routing import tenants_to_serve
 
+        # Рабочие статусы — шаги, которые воркер ведёт сам; ждущие (`*_ready`)
+        # и номера очереди — то, что двигает `gen_queue_tick` и автопродвижение
+        # внутри прохода арендатора. Без них арендатор с одной очередью ждущих
+        # проектов прохода не получал, и очередь не стартовала никогда.
+        wanted = [st.value for st in statuses]
+        wanted.extend(getattr(st, "value", str(st)) for st in TRANSITIONS)
         async with session_scope() as s:
-            return await tenants_with_active_work(s, [st.value for st in statuses])
+            return await tenants_to_serve(s, dict.fromkeys(wanted), get_gen_queue())
 
     async def _tick_for_current_tenant(mass_paused: bool) -> None:
         """Один проход воркера от имени текущего арендатора.
@@ -735,6 +744,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         except Exception:  # noqa: BLE001
             logger.exception("worker: не удалось получить список арендаторов")
             serve = [None]
+        keep_worker_wait_tenants(serve)
         for _tenant in serve:
             with tenant_scope(_tenant):
                 await _tick_for_current_tenant(mass_paused)

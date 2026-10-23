@@ -103,7 +103,15 @@ def plan_hash(plan: Plan, registry: ActionRegistry) -> str:
 #:   по проекту. Себестоимость участнику не показывается вовсе — та же
 #:   ловушка, что `/api/llm-costs` (`app/web/identity.py`); свои списания он
 #:   видит в оплате.
-ADMIN_ONLY_ACTIONS: frozenset[str] = frozenset({"kill_switch.engage", "spend.summary"})
+#: * `queue.set_parallel` — окно параллели очереди генерации одно на всю студию
+#:   (`data/runtime_streams.json`): участник, поставивший «одновременно 4»,
+#:   менял бы скорость и нагрузку всем клиентам.
+ADMIN_ONLY_ACTIONS: frozenset[str] = frozenset({"kill_switch.engage", "spend.summary", "queue.set_parallel"})
+
+#: Действия всей студии, которые участнику планировщик даже не предлагает: шаг
+#: всё равно был бы отклонён, а план с ним не дошёл бы до шагов, ради которых
+#: человек писал (постановка в очередь без смены параллели работает и так).
+ADMIN_ONLY_HIDDEN_FROM_MEMBERS: frozenset[str] = frozenset({"queue.set_parallel"})
 
 #: Действия, которые без проекта читают общие ресурсы студии. С проектом —
 #: только строки этого проекта (проект проверен под RLS), без проекта —
@@ -113,6 +121,10 @@ ADMIN_ONLY_WITHOUT_PROJECT: frozenset[str] = frozenset({"logs.tail"})
 
 ADMIN_ONLY_MESSAGE = "действие меняет всю студию и доступно только админу"
 ADMIN_ONLY_READ_MESSAGE = "сведения всей студии доступны только админу"
+PARALLEL_ADMIN_ONLY_MESSAGE = (
+    "сколько проектов идут одновременно — общая настройка студии, её меняет только админ; "
+    "ваши проекты в очереди пойдут в пределах текущего числа"
+)
 
 
 def member_view() -> bool:
@@ -154,6 +166,8 @@ def admin_only_message(action_id: str) -> str:
     """Текст отказа: меняющее действие или чтение сведений всей студии."""
     if action_id == "kill_switch.engage":
         return ADMIN_ONLY_MESSAGE
+    if action_id == "queue.set_parallel":
+        return PARALLEL_ADMIN_ONLY_MESSAGE
     return ADMIN_ONLY_READ_MESSAGE
 
 

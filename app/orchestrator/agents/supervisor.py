@@ -87,6 +87,7 @@ from app.orchestrator.contracts import (
     ApprovalReason,
     BudgetScope,
     CheckpointData,
+    PlanResolveRefused,
     PlanStep,
     Risk,
     SpendSnapshot,
@@ -2665,9 +2666,20 @@ class Supervisor:
             return None
         # Правка настроек проекта — только названные ключи, до сверки с текущими значениями.
         drafted = scope_settings(list(drafted), goal)
-        resolved = _chain_from_queue(
-            [await self._resolved(self._with_defaults(step)) for step in drafted], goal
-        )
+        try:
+            resolved = _chain_from_queue(
+                [await self._resolved(self._with_defaults(step)) for step in drafted], goal
+            )
+        except PlanResolveRefused as exc:
+            # Шаг нельзя достроить без чтения данных: плана нет, человеку — текст отказа.
+            logger.warning("orch task {} plan refused: {}", task_id, exc)
+            await write_on_loop(self._save_plan, task_id, [])
+            self._code_plans.pop(task_id, None)
+            self._from_code.pop(task_id, False)
+            self._trace_plan(task_id, "plan_refused", [], str(exc))
+            self._fail_detail[task_id] = str(exc)
+            self._code_answers.add(task_id)
+            return []
         plan = [
             tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions)) for step in resolved
         ]
@@ -2704,6 +2716,8 @@ class Supervisor:
             return step
         try:
             params = await fill(step.action, dict(step.params))
+        except PlanResolveRefused:
+            raise
         except Exception:
             logger.exception("orch plan resolve failed for {}", step.action)
             return step

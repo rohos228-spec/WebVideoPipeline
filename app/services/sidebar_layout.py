@@ -30,6 +30,7 @@ def _empty_layout() -> dict[str, Any]:
         "project_layout": {},
         "gen_queue": [],
         "gen_queue_halted": False,
+        "gen_queue_halted_tenants": [],
     }
 
 
@@ -52,23 +53,57 @@ def load_layout() -> dict[str, Any]:
         "project_layout": project_layout if isinstance(project_layout, dict) else {},
         "gen_queue": gen_queue if isinstance(gen_queue, list) else [],
         "gen_queue_halted": bool(data.get("gen_queue_halted")),
+        "gen_queue_halted_tenants": _tenant_list(data.get("gen_queue_halted_tenants")),
     }
 
 
+def _tenant_list(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return sorted({str(t) for t in raw if t})
+
+
+def _tenant_now() -> str | None:
+    from app.services.tenant import current_tenant
+
+    return current_tenant()
+
+
 def is_gen_queue_halted() -> bool:
-    return bool(load_layout().get("gen_queue_halted"))
+    """Стоп очереди после ⏹ — свой у каждого арендатора.
+
+    Файл очереди общий для студии, а ⏹ клиента А не должен останавливать
+    очередь клиента Б (и снимать стоп Б при постановке А). Без арендатора
+    (режим владельца, проекты владельца) — прежний общий флаг.
+    """
+    data = load_layout()
+    tenant = _tenant_now()
+    if tenant is None:
+        return bool(data.get("gen_queue_halted"))
+    return str(tenant) in data.get("gen_queue_halted_tenants", [])
 
 
 def set_gen_queue_halted(halted: bool, *, reason: str = "") -> None:
-    """Глобальный стоп очереди: после ⏹ следующий слот сам не стартует."""
+    """Стоп очереди арендатора: после ⏹ его следующий слот сам не стартует."""
     data = load_layout()
-    prev = bool(data.get("gen_queue_halted"))
-    data["gen_queue_halted"] = bool(halted)
+    tenant = _tenant_now()
+    if tenant is None:
+        prev = bool(data.get("gen_queue_halted"))
+        data["gen_queue_halted"] = bool(halted)
+    else:
+        tenants = set(data.get("gen_queue_halted_tenants") or [])
+        prev = str(tenant) in tenants
+        if halted:
+            tenants.add(str(tenant))
+        else:
+            tenants.discard(str(tenant))
+        data["gen_queue_halted_tenants"] = sorted(tenants)
     save_layout(data)
     if prev != bool(halted):
         logger.info(
-            "gen_queue_halted={}{}",
+            "gen_queue_halted={}{}{}",
             bool(halted),
+            f" tenant={tenant}" if tenant is not None else "",
             f" ({reason})" if reason else "",
         )
 
@@ -135,6 +170,49 @@ def set_gen_queue(queue: list[int]) -> list[int]:
     data["gen_queue"] = _normalize_gen_queue(queue)
     save_layout(data)
     return data["gen_queue"]
+
+
+def merge_own_queue(current: list[int], own_ids: set[int] | None, wanted: list[int]) -> list[int]:
+    """Очередь после правки арендатора: меняются только его номера.
+
+    Файл очереди один на студию. Правка клиента (порядок, массовая постановка)
+    раньше записывала его список целиком — и выбрасывала номера других
+    клиентов. Здесь чужие номера стоят на своих местах и в прежнем порядке;
+    места, где стояли свои номера, по порядку занимают свои из ``wanted``;
+    лишние свои — в конец. Чужой номер в ``wanted`` не попадает в очередь.
+    ``own_ids=None`` — видно всё (режим владельца): ``wanted`` и есть очередь.
+    """
+    wanted_n = _normalize_gen_queue(wanted)
+    if own_ids is None:
+        return wanted_n
+    mine = [pid for pid in wanted_n if pid in own_ids]
+    out: list[int] = []
+    it = iter(mine)
+    for pid in _normalize_gen_queue(current):
+        if pid in own_ids:
+            nxt = next(it, None)
+            if nxt is not None:
+                out.append(nxt)
+        else:
+            out.append(pid)
+    out.extend(it)
+    return out
+
+
+def set_own_gen_queue(wanted: list[int], own_ids: set[int] | None) -> list[int]:
+    """Записать свою часть общей очереди (см. ``merge_own_queue``). Возвращает очередь целиком."""
+    data = load_layout()
+    data["gen_queue"] = merge_own_queue(data.get("gen_queue") or [], own_ids, wanted)
+    save_layout(data)
+    return data["gen_queue"]
+
+
+def own_queue_view(queue: list[int], own_ids: set[int] | None) -> dict[str, Any]:
+    """Очередь для ответа клиенту: только его номера, места — среди его номеров."""
+    mine = _normalize_gen_queue(queue)
+    if own_ids is not None:
+        mine = [pid for pid in mine if pid in own_ids]
+    return {"gen_queue": mine, "gen_queue_positions": {pid: idx + 1 for idx, pid in enumerate(mine)}}
 
 
 def create_folder(name: str) -> dict[str, Any]:
@@ -248,14 +326,28 @@ def update_layout(
     folders: list[dict[str, Any]] | None = None,
     project_layout: dict[str, Any] | None = None,
     gen_queue: list[int] | None = None,
+    own_ids: set[int] | None = None,
 ) -> dict[str, Any]:
+    """``own_ids`` — проекты, видимые автору правки. Задан — правка трогает только их:
+    чужие места в сайдбаре и чужие номера очереди остаются как были."""
     data = load_layout()
     if folders is not None:
         data["folders"] = folders
     if project_layout is not None:
-        data["project_layout"] = project_layout
+        if own_ids is None:
+            data["project_layout"] = project_layout
+        else:
+            kept = {
+                k: v
+                for k, v in dict(data.get("project_layout") or {}).items()
+                if not (str(k).lstrip("-").isdigit() and int(k) in own_ids)
+            }
+            for k, v in project_layout.items():
+                if str(k).lstrip("-").isdigit() and int(k) in own_ids:
+                    kept[str(k)] = v
+            data["project_layout"] = kept
     if gen_queue is not None:
-        data["gen_queue"] = _normalize_gen_queue(gen_queue)
+        data["gen_queue"] = merge_own_queue(data.get("gen_queue") or [], own_ids, gen_queue)
     save_layout(data)
     return data
 

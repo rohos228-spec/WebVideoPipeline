@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.models import ProjectRoute
 
@@ -47,6 +47,44 @@ async def tenants_with_active_work(session, statuses: Iterable[str]) -> list[str
                 select(ProjectRoute.tenant_id).where(ProjectRoute.status_value.in_(wanted)).distinct()
             )
         )
+        .scalars()
+        .all()
+    )
+    return _ordered(rows)
+
+
+async def tenants_to_serve(
+    session, statuses: Iterable[str], project_ids: Iterable[int] = ()
+) -> list[str | None]:
+    """Кому воркер служит в этом тике: рабочий статус ИЛИ номер в очереди генерации.
+
+    Одних рабочих статусов мало. Проект, поставленный в очередь генерации
+    (чат «queue.enqueue_many», кнопка очереди), стоит в `new` или `*_ready` —
+    не в рабочем статусе. Стартует его `gen_queue_tick`, а он идёт только
+    внутри прохода арендатора. Арендатор, у которого в работе ничего нет, а
+    в очереди только ждущие проекты, не получал прохода вовсе: очередь
+    отвечала «поставлено» и ничего не запускалось.
+
+    То же для автопродвижения: проект в `*_ready` с `auto_mode` двигает
+    проход арендатора. Флага `auto_mode` в маршрутной таблице нет (там только
+    номер, арендатор и статус), поэтому ждущие статусы передаются в
+    `statuses` вызывающим — лишний проход арендатора дешевле молчаливо
+    стоящего проекта.
+
+    Номера очереди — из общего файла очереди: чьи они, знает только
+    маршрутная таблица, и читается она здесь же, без арендатора.
+    """
+    wanted = [str(s) for s in statuses]
+    ids = sorted({int(pid) for pid in project_ids})
+    cond = []
+    if wanted:
+        cond.append(ProjectRoute.status_value.in_(wanted))
+    if ids:
+        cond.append(ProjectRoute.project_id.in_(ids))
+    if not cond:
+        return []
+    rows = (
+        (await session.execute(select(ProjectRoute.tenant_id).where(or_(*cond)).distinct()))
         .scalars()
         .all()
     )

@@ -316,10 +316,34 @@ def _generation_active(project_id: int | None) -> bool:
 
 # План -> когда его проект встал ждать места (по порядку прихода, для «N из M»).
 _SLOT_WAITERS: dict[str, float] = {}
+# План -> арендатор, от имени которого он ждёт. Место в очереди («2 из 3») считается
+# только среди планов того же арендатора: чужие ожидающие планы — чужие сведения.
+# Занято и предел (общая параллель студии) остаются общими.
+_SLOT_WAITER_TENANTS: dict[str, str | None] = {}
+
+
+def _tenant_now() -> str | None:
+    from app.services.tenant import current_tenant
+
+    return current_tenant()
+
+
+def _note_slot_waiter(plan_id: str, now: float) -> None:
+    _SLOT_WAITERS.setdefault(plan_id, now)
+    _SLOT_WAITER_TENANTS.setdefault(plan_id, _tenant_now())
+
+
+def _drop_slot_waiter(plan_id: str) -> None:
+    _SLOT_WAITERS.pop(plan_id, None)
+    _SLOT_WAITER_TENANTS.pop(plan_id, None)
 
 
 def slot_wait_text(plan_id: str, total: int, reason: str = "parallel_slots_full") -> str:
-    order = sorted(_SLOT_WAITERS, key=lambda pid: _SLOT_WAITERS[pid])
+    tenant = _SLOT_WAITER_TENANTS.get(plan_id, _tenant_now())
+    order = sorted(
+        (pid for pid in _SLOT_WAITERS if _SLOT_WAITER_TENANTS.get(pid) == tenant),
+        key=lambda pid: _SLOT_WAITERS[pid],
+    )
     place = order.index(plan_id) + 1 if plan_id in order else len(order) + 1
     waiting = max(len(order), place)
     why = (
@@ -1260,14 +1284,14 @@ async def _execute(
             if slot is not None:
                 if queued_since is None:
                     queued_since = now
-                    _SLOT_WAITERS.setdefault(plan_id, now)
+                    _note_slot_waiter(plan_id, now)
                 cur["slot_wait"] = {"busy": slot[0], "max_parallel": slot[1], "reason": slot[2]}
                 await ctx.progress(state.progress, slot_wait_text(plan_id, slot[1], slot[2]))
             else:
                 if queued_since is not None:
                     queued_s += now - queued_since
                     queued_since = None
-                    _SLOT_WAITERS.pop(plan_id, None)
+                    _drop_slot_waiter(plan_id)
                     cur.pop("slot_wait", None)
                 if state.progress is not None or state.note:
                     await ctx.progress(state.progress, state.note)
@@ -1297,7 +1321,7 @@ async def _execute(
                     raise _Stalled(watch.idle_s())
             await asyncio.sleep(spec.poll_interval_s)
     finally:
-        _SLOT_WAITERS.pop(plan_id, None)
+        _drop_slot_waiter(plan_id)
 
 
 async def _job_guards(plan_id: str, spec: ActionSpec, ctx: ActionContext, cur: dict) -> None:

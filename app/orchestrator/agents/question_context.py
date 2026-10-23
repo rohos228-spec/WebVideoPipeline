@@ -162,6 +162,7 @@ QUEUE_TITLE = "Очередь генерации"
 
 def queue_capacity_text() -> str:
     """Сколько проектов очереди идут одновременно (настройка студии), сколько ждут, где предел."""
+    from app.services.action_layer.plan import member_view
     from app.services.gen_queue import worker_max_parallel
     from app.services.orch_tenancy import own_projects
     from app.services.runtime_streams import WORKER_MAX, WORKER_MIN
@@ -172,10 +173,16 @@ def queue_capacity_text() -> str:
     # Файл очереди общий для студии: номера и число — только своих проектов (чужие
     # номера в ответе были бы утечкой).
     queue = [pid for pid, _title in own_projects(current_tenant(), list(get_gen_queue()))]
+    # Число общее для студии: менять его может только админ, участнику это не предлагаем.
+    how = (
+        "Её меняет только админ студии."
+        if member_view()
+        else f"Её можно поменять от {WORKER_MIN} до {WORKER_MAX} просьбой в чате, например «поставь "
+        "одновременно 3 проекта»."
+    )
     return (
         f"Сколько проектов очереди генерации может идти одновременно (настройка студии): {limit}. "
-        f"Её можно поменять от {WORKER_MIN} до {WORKER_MAX} просьбой в чате, например «поставь "
-        f"одновременно 3 проекта». Ваших проектов в очереди сейчас: {len(queue)}"
+        f"{how} Ваших проектов в очереди сейчас: {len(queue)}"
         + (f" ({', '.join(f'#{pid}' for pid in queue[:20])})." if queue else ".")
     )
 

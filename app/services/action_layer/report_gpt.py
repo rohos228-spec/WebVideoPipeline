@@ -859,6 +859,21 @@ async def _project_row_report(ctx: ActionContext, pid: int, row: Any, counts: di
     }
 
 
+_SPENT_ROW_KEYS = ("spent_usd", "spent_by_source", "attributed_usd")
+_SPENT_NODE_KEYS = ("cost_usd", "cost_how")
+
+
+def _member_row(row: dict) -> dict:
+    """Строка проекта для участника: без сумм в $ (себестоимость из общей кассы)."""
+    out = {k: v for k, v in row.items() if k not in _SPENT_ROW_KEYS}
+    if isinstance(out.get("gpt_nodes"), list):
+        out["gpt_nodes"] = [
+            {k: v for k, v in n.items() if k not in _SPENT_NODE_KEYS} if isinstance(n, dict) else n
+            for n in out["gpt_nodes"]
+        ]
+    return out
+
+
 MEMBER_NO_FILE_TEXT = (
     "Файл отчёта по проектам здесь не создаётся: общие файлы отчётов студии скачивает админ. "
     "Вся таблица — ниже в чате."
@@ -911,8 +926,12 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         except SQLAlchemyError:
             row = None
         rows.append(await _project_row_report(ctx, pid, row, counts))
+    if not show_spent:
+        # Участнику — без трат у самого источника: строки уходят и в kind="json"
+        # (ответ шага, журнал действий), а не только в отрисованную таблицу.
+        rows = [_member_row(r) for r in rows]
     found = [r for r in rows if r.get("found")]
-    spent = sum(r["spent_usd"] or 0.0 for r in found)
+    spent = sum(r.get("spent_usd") or 0.0 for r in found)
     missing = [r["project_id"] for r in rows if not r.get("found")]
     # Номера и названия в первой строке: без них ответ на «отчёт по проекту 6» говорил,
     # что не может подтвердить, что это проект #6.
@@ -939,6 +958,8 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         "videos": sum(r["videos"] for r in found),
         "spent_usd_estimate": round(spent, 4) if show_spent else None,
     }
+    if not show_spent:
+        summary.pop("spent_usd_estimate")
     out: dict[str, Any] = {"format": fmt, "project_ids": pids, "summary": summary}
     if fmt == "json":
         out.update(rows=rows, text_ru=head)

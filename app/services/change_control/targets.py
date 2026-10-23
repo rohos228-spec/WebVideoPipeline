@@ -122,13 +122,34 @@ class PromptHandler:
             path = pl.prompt_path(nctx.step, name)
         return name, source, path
 
+    @staticmethod
+    def _running_text(nctx: NodeCtx, name: str, path: Path) -> tuple[str | None, str]:
+        """Текст варианта, который реально уйдёт в шаг, и его уровень.
+
+        Порядок — как у `prompt_library.read_prompt`: сначала база
+        (`prompt_store`: проект → арендатор → бренд → системный, арендатор —
+        текущий), потом файл на диске. Раньше здесь читался только файл, и
+        «какой промт стоит у ноды» показывал не то, что работает: у клиента
+        SaaS правка живёт в базе, а на диске — системный текст.
+        ``None`` — варианта нет ни в базе, ни на диске.
+        """
+        from app.services import prompt_store
+
+        try:
+            from_db, level = prompt_store.resolve_with_source(nctx.step, name)
+        except Exception:  # noqa: BLE001 — база недоступна: как read_prompt, остаётся диск
+            from_db, level = None, "disk"
+        if from_db is not None:
+            return from_db, level
+        try:
+            return path.read_text(encoding="utf-8"), "disk"
+        except OSError:
+            return None, "disk"
+
     def _effective(self, nctx: NodeCtx) -> tuple[str, Path, str]:
         name, _source, path = self._resolve(nctx)
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
-            text = ""
-        return name, path, text
+        text, _level = self._running_text(nctx, name, path)
+        return name, path, text or ""
 
     _SOURCE_NAMES = {
         "slot": "slot",
@@ -148,16 +169,16 @@ class PromptHandler:
             "truncated": False,
             "base_text_sha256": "",
         }
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            reason = (
-                "файл варианта не найден"
-                if isinstance(exc, FileNotFoundError)
-                else "файл варианта не читается"
-            )
+        text, level = self._running_text(nctx, name, path)
+        if text is None:
+            reason = "файл варианта не найден" if not path.exists() else "файл варианта не читается"
             out.update(source="missing", missing_reason=f"{reason}: вариант «{name}»")
             return out
+        from app.services.prompt_store import LEVEL_NAMES
+
+        # Откуда взят текст: «мои», «этот проект», «системный», «файл на диске».
+        out["text_level"] = level
+        out["text_level_ru"] = LEVEL_NAMES.get(level, level)
         out["base_text_sha256"] = sha(text)
         out["text_chars"] = len(text)
         if len(text) > tiers.PROMPT_MAX_CHARS:
@@ -216,7 +237,15 @@ class PromptHandler:
 
     def _variant_text(self, nctx: NodeCtx, variant: str) -> str | None:
         from app.services import prompt_library as pl
+        from app.services import prompt_store
 
+        # Как read_prompt: вариант из базы (арендатора, системный) — тот, что пойдёт в шаг.
+        try:
+            from_db = prompt_store.resolve(nctx.step, variant) if variant else None
+        except Exception:  # noqa: BLE001
+            from_db = None
+        if from_db is not None:
+            return from_db
         if nctx.is_excel:
             if not pl.excel_gpt_prompt_exists(variant):
                 return None

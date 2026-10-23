@@ -119,6 +119,18 @@ def keep_worker_waits(project_ids) -> None:
         _worker_waits.pop(pid, None)
 
 
+def keep_worker_wait_tenants(tenants) -> None:
+    """Начало тика воркера: записи арендаторов, которым тик не служит, ничего не значат.
+
+    `keep_worker_waits` чистит только арендатора текущего прохода. Арендатор,
+    выпавший из списка тика (работа кончилась, проекты сняты с очереди), прохода
+    больше не получает, и его прежние «ждёт места» висели бы в ответах чата вечно.
+    """
+    served = set(tenants)
+    for pid in [pid for pid, (owner, _r) in _worker_waits.items() if owner not in served]:
+        _worker_waits.pop(pid, None)
+
+
 def worker_wait_reason(project_id: int) -> str | None:
     got = _worker_waits.get(int(project_id))
     return got[1] if got else None

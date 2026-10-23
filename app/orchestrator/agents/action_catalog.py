@@ -120,7 +120,24 @@ def _allowed_specs() -> list[Any]:
 
     ensure_builtin_actions()
     allowed = set(whitelist())
+    allowed -= _hidden_for_identity()
     return [spec for spec in registry.list() if spec.id in allowed]
+
+
+def _hidden_for_identity() -> set[str]:
+    """Действия всей студии, которых участнику в каталоге планировщика нет.
+
+    Исполнитель такой шаг участнику всё равно отклонит
+    (`app/services/action_layer/plan.py::ADMIN_ONLY_ACTIONS`); каталог лишь не
+    даёт планировщику вставить его в план, где он сорвал бы остальные шаги.
+    """
+    from app.services.action_layer.plan import ADMIN_ONLY_HIDDEN_FROM_MEMBERS, member_view
+
+    try:
+        return set(ADMIN_ONLY_HIDDEN_FROM_MEMBERS) if member_view() else set()
+    except Exception:
+        logger.exception("orch planner catalog: identity check failed")
+        return set(ADMIN_ONLY_HIDDEN_FROM_MEMBERS)
 
 
 def _contract_flags(spec: Any) -> tuple[str, bool]:
