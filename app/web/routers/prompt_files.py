@@ -72,6 +72,7 @@ class PromptFileInfo(BaseModel):
     size: int
     modified: float | None
     is_default: bool
+    is_shared: bool = True
 
 
 class PromptFileContent(BaseModel):
@@ -340,6 +341,8 @@ async def list_prompt_files(step_code: str) -> list[PromptFileInfo]:
     if DEFAULT_NAME in names:
         names.remove(DEFAULT_NAME)
         names.insert(0, DEFAULT_NAME)
+    from app.services.tenant import current_tenant
+    tenant = current_tenant()
     out: list[PromptFileInfo] = []
     for name in names:
         try:
@@ -351,6 +354,11 @@ async def list_prompt_files(step_code: str) -> list[PromptFileInfo]:
             if is_excel_gpt_prompt_step(step_code)
             else prompt_path(step_code, name)
         )
+        _, source = prompt_store.resolve_with_source(step_code, name)
+        if tenant is not None:
+            is_shared = source not in ("project", "tenant")
+        else:
+            is_shared = source in ("system", "disk", "brand") and (name in ("default", "neutral_voiceover_script"))
         out.append(
             PromptFileInfo(
                 name=name,
@@ -358,6 +366,7 @@ async def list_prompt_files(step_code: str) -> list[PromptFileInfo]:
                 size=len(body.encode("utf-8")),
                 modified=_prompt_modified(step_code, name, p),
                 is_default=(name == DEFAULT_NAME),
+                is_shared=is_shared,
             )
         )
     return out
@@ -693,4 +702,5 @@ async def upload_prompt_file(
         size=saved.size,
         modified=saved.modified,
         is_default=(raw_name == DEFAULT_NAME),
+        is_shared=False,
     )
