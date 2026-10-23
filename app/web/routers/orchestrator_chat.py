@@ -158,7 +158,7 @@ def remember_seq(cursor: int, seq: int) -> tuple[int, bool]:
 def _for_viewer(payload: Any) -> Any:
     from app.services.action_layer.plan import member_view
 
-    return member_safe(payload) if member_view() else payload
+    return member_safe(payload, chat=True) if member_view() else payload
 
 
 def _sse(event: OrchEvent) -> dict[str, str]:

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { OPERATOR_TOKEN, stubStudioApi, stubStudioSockets, type StudioStubOptions } from "./studio-stubs";
+import memberActionLayer from "./member-action-layer.json" with { type: "json" };
 
 const SHOTS =
   process.env.ORCH_E2E_SHOTS_DIR ??
@@ -163,6 +164,60 @@ test.describe("чат оркестратора в студии", () => {
     const cost = card.getByTestId("orch-approval-cost");
     await expect(cost).toHaveAttribute("data-hidden", "true");
     await expect(cost).toHaveText("цена видна админу студии");
+    await expect(card).not.toContainText("$");
+  });
+
+  // Слой действий у участника: ответы в формах после серверной маски (member-action-layer.json,
+  // её сверяет tests/test_member_money_overmask.py). Кредиты — его, они видны; $ — нет.
+  async function openMemberActions(page: Page, { running }: { running: boolean }) {
+    const m = memberActionLayer.member;
+    await page.addInitScript(() => localStorage.setItem("vp.token", "member-session-token"));
+    await openStudio(page, {
+      project: 13,
+      handle: async (route: Route, url: URL) => {
+        const reply = (body: unknown) =>
+          route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+        const p = url.pathname;
+        if (p === "/api/auth/status") return reply({ auth_required: true, accounts: true }).then(() => true);
+        if (p === "/api/me") {
+          return reply({ sso_enabled: false, tenant_id: "t-1", email: "member@studio.local", brand: "",
+                         balance_micro: 0, balance_credits: "0", provisioned_now: false, role: "member" }).then(() => true);
+        }
+        if (p === "/api/action-layer/plans" && url.searchParams.get("status") === "running") {
+          return reply(running ? m.running : { items: [] }).then(() => true);
+        }
+        if (p === "/api/action-layer/plans/pl-run") return reply(m.plan).then(() => true);
+        if (p === "/api/action-layer/history") return reply(m.history).then(() => true);
+        if (p === "/api/action-layer/plans/from-text") return reply(m.preview).then(() => true);
+        if (p === "/api/action-layer/macros") return reply({ macros: [] }).then(() => true);
+        return false;
+      },
+    });
+    await page.getByTestId("orch-dock-tab-registrar").click();
+    const sections = page.getByTestId("registrar-sections");
+    // Участнику — без блока резервов (инструмент студии).
+    await expect(sections.locator("[data-testid^='registrar-toggle-']")).toHaveCount(2);
+    await sections.getByTestId("registrar-toggle-actions").click();
+    return sections.getByTestId("action-layer-panel");
+  }
+
+  test("участник: план, история и ход выполнения — кредиты видны, $ нет", async ({ page }) => {
+    const panel = await openMemberActions(page, { running: true });
+    const run = panel.getByTestId("action-run-progress");
+    await expect(run).toContainText("фактически 22 кр.");
+    await panel.getByTestId("action-history").locator("summary").click();
+    await expect(panel.getByTestId("action-history")).toContainText("оценка 10–30 кр.");
+    await expect(panel).not.toContainText("$");
+  });
+
+  test("участник: карточка плана из текста — цена в кредитах, без $", async ({ page }) => {
+    const panel = await openMemberActions(page, { running: false });
+    await panel.getByPlaceholder(/что сделать\?/).fill("перегенерируй кадр 3");
+    await panel.getByPlaceholder(/что сделать\?/).press("Enter");
+    const card = panel.getByTestId("action-plan-card");
+    await expect(card).toContainText("Стоимость всего плана: 12–40 кр.");
+    await expect(card).toContainText("потолок 100 кр., осталось 60 кр.");
+    await expect(card).toContainText("(сумма видна админу)");
     await expect(card).not.toContainText("$");
   });
 

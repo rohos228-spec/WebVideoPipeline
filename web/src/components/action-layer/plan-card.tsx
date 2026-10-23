@@ -107,7 +107,7 @@ function PlanCardInner({plan, preview, busyElsewhere, onStarted, onDismiss}: Pro
   const total = formatTotalCost(preview);
   const warnings = previewWarnings(preview);
   const erasures = previewErasures(preview);
-  const unknownCost = preview.cost.unknown_steps > 0;
+  const unknownCost = (preview.cost?.unknown_steps ?? 0) > 0;
 
   return (
     <section aria-label="Предпросмотр плана" data-testid="action-plan-card" className="space-y-2 rounded border border-white/10 p-2 text-xs">

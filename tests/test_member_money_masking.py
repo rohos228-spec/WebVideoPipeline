@@ -122,13 +122,17 @@ def test_amounts_masked_on_either_side(text) -> None:
     assert not _CURRENCY_NEAR_NUMBER.search(out), out
 
 
-def test_money_keys_by_pattern() -> None:
-    for key in ("daily_spent_usd", "budget_usd", "remaining_usd", "cap_usd", "cost", "spend", "price_ru",
-                "credits_high", "forecast_usd", "pipeline_scope_spent_usd", "internal_cap_usd"):
+def test_money_keys_are_usd_named_plus_chat_set() -> None:
+    for key in ("daily_spent_usd", "budget_usd", "remaining_usd", "cap_usd", "forecast_usd", "usd",
+                "pipeline_scope_spent_usd", "internal_cap_usd", "high_usd", "usd_total"):
         assert is_money_key(key), key
-    for key in ("name", "pass", "blocking", "title", "future_spend", "paid", "risk"):
+    assert is_money_key("cost_estimate", chat=True) and is_money_key("estimated_cost", chat=True)
+    # Не деньги в $: кредиты участника, лимиты в штуках, флаги.
+    for key in ("name", "pass", "blocking", "title", "future_spend", "paid", "risk", "cost", "cost_estimate",
+                "cap", "caps", "max_cap", "remaining", "remaining_steps", "free_credits", "balance_credits",
+                "unknown_cost", "cost_known", "step_cost_declared", "amount_frames", "budget_exhausted",
+                "has_cost", "credits_high", "ceiling_credits", "sound_credits", "cost_recorded"):
         assert not is_money_key(key), key
-    assert member_safe({"future_spend": ["шаг потратит деньги позже"]}) == {"future_spend": ["шаг потратит деньги позже"]}
 
 
 async def test_action_layer_error_detail_is_masked_for_member(member) -> None:

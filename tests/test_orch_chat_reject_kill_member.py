@@ -22,8 +22,8 @@ def test_member_safe_drops_money_fields_and_masks_amounts() -> None:
         "steps": [{"title": "Картинки", "estimated_cost": 0.42, "paid": True}],
         "text": "Готово: картинки. Потрачено $0.42.",
     }
-    safe = member_safe(card)
-    assert "cost_estimate" not in safe and "cost" not in safe
+    safe = member_safe(card, chat=True)
+    assert "cost_estimate" not in safe and safe["cost"] == {"known": True}
     assert safe["cost_text"] == MEMBER_COST_TEXT
     assert safe["steps"] == [{"title": "Картинки", "paid": True}]
     assert "$" not in safe["text"] and "Готово: картинки." in safe["text"]

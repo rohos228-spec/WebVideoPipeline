@@ -93,10 +93,10 @@ export function RunProgress({planId, onFinished}: Props) {
                 {s.progress_note && <p className="text-white/45">{s.progress_note}</p>}
               </div>
             )}
-            {(s.cost.actual != null || s.cost.high != null) && (
+            {(s.cost?.actual != null || s.cost?.high != null) && (
               <p className="text-white/45">
-                Стоимость: оценка {formatCredits(s.cost.low, s.cost.high, s.cost.low != null && s.cost.high != null)}
-                {s.cost.actual != null ? ` · фактически ${formatCredits(s.cost.actual, s.cost.actual)}` : " · факт пока неизвестен"}
+                Стоимость: оценка {formatCredits(s.cost?.low, s.cost?.high, s.cost?.low != null && s.cost?.high != null)}
+                {s.cost?.actual != null ? ` · фактически ${formatCredits(s.cost.actual, s.cost.actual)}` : " · факт пока неизвестен"}
               </p>
             )}
             {s.error && (s.status === "cancelled"

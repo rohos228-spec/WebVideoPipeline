@@ -49,9 +49,9 @@ export function HistoryList({refreshKey}: {refreshKey: number}) {
             </p>
             <p className="text-white/45">{when(h.created_at)} · {h.actor}{h.outcome ? ` · итог: ${outcomeRu(h.outcome)}` : ""}</p>
             {h.request_text && <p className="text-white/45">Запрос: {h.request_text}</p>}
-            {(h.cost_estimate.high != null || h.cost_recorded != null) && (
+            {(h.cost_estimate?.high != null || h.cost_recorded != null) && (
               <p className="text-white/45">
-                Стоимость: оценка {formatCredits(h.cost_estimate.low, h.cost_estimate.high, h.cost_estimate.low != null && h.cost_estimate.high != null)}
+                Стоимость: оценка {formatCredits(h.cost_estimate?.low, h.cost_estimate?.high, h.cost_estimate?.low != null && h.cost_estimate?.high != null)}
                 {" · "}факт {h.cost_recorded != null ? formatCredits(h.cost_recorded, h.cost_recorded) : "неизвестно"}
               </p>
             )}

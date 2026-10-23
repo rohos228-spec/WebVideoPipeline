@@ -454,10 +454,13 @@ export function formatStepCost(step: PreviewStep): string {
 }
 
 export function formatTotalCost(preview: PlanPreview): string {
-  const base = formatCredits(preview.cost.low, preview.cost.high, true);
-  if (preview.cost.unknown_steps > 0) {
-    const n = preview.cost.unknown_steps;
-    return preview.cost.low === 0 && preview.cost.high === 0
+  // Ответ сервера может прийти без cost (старый сервер, урезанный ответ): не падать.
+  const cost = preview.cost;
+  if (!cost) return "неизвестно";
+  const base = formatCredits(cost.low, cost.high, true);
+  if ((cost.unknown_steps ?? 0) > 0) {
+    const n = cost.unknown_steps;
+    return cost.low === 0 && cost.high === 0
       ? `неизвестно (шагов без оценки: ${n})`
       : `${base} и ещё неизвестно (шагов без оценки: ${n})`;
   }
