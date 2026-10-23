@@ -51,7 +51,7 @@ import type {
 } from "@/lib/types";
 import { getNodeSpec } from "@/lib/node-catalog";
 import { stepCodeForNodeType } from "@/lib/node-step-map";
-import { formatNodeKeyLabel, formatRunStatus, formatStepCode } from "@/lib/format-labels";
+import { formatNodeKeyLabel, formatRunLine, formatRunStatus, formatStepCode } from "@/lib/format-labels";
 import { buildExcelLaneBindings } from "@/lib/excel-lane-bindings";
 import {
   inferNodeStatusFromProject,
@@ -1734,10 +1734,8 @@ function RunOverlay({
       {/* Верхняя компактная панель управления процессом */}
       <div className="pointer-events-none absolute right-4 top-[5.5rem] z-30 flex max-w-[min(100%,640px)] flex-wrap items-center justify-end gap-2">
         <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm">
-          <span className="text-muted-foreground">Run:</span>
-          <span className="font-medium">
-            {run ? `#${run.id} · ${formatRunStatus(run.status)}` : "не запущен"}
-          </span>
+          <span className="text-muted-foreground">Запуск:</span>
+          <span className="font-medium">{formatRunLine(projectId, run)}</span>
         </div>
 
         {isRunning ? (

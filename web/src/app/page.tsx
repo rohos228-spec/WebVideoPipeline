@@ -15,7 +15,7 @@ import { FleetTransferBanner } from "@/components/fleet/fleet-transfer-banner";
 import { OutseeCreateWorkspace } from "@/components/outsee/outsee-create-workspace";
 import { GptWorkspace } from "@/components/gpt/gpt-workspace";
 import { BazaWorkspace } from "@/components/baza/baza-workspace";
-import { OrchestratorPanel } from "@/components/orchestrator/orchestrator-panel";
+import { OPEN_ORCHESTRATOR_CHAT, OrchestratorDock } from "@/components/orchestrator/orchestrator-dock";
 import { Button } from "@/components/ui/button";
 import { useGlobalEvents } from "@/hooks/use-bus";
 import {
@@ -102,6 +102,16 @@ function StudioHome() {
       router.replace(`?project=${persistedProjectId}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // «Агент» с другой страницы ведёт на /?chat=open: открыть док чата оркестратора.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("chat") !== "open") return;
+    const timer = window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent(OPEN_ORCHESTRATOR_CHAT, { detail: { tab: "chat" } }));
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -222,7 +232,7 @@ function StudioHome() {
             }
             onDismiss={dismiss}
           />
-          <OrchestratorPanel projectId={canvasProjectId} />
+          <OrchestratorDock projectId={canvasProjectId} />
         </main>
         <FleetPanelSheet
           open={fleetOpen}

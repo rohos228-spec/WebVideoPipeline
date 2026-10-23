@@ -149,7 +149,9 @@ export interface LibraryConfigDTO {
   created_at: string;
 }
 
-async function http<T>(
+// Экспорт для модулей чата оркестратора (action-layer, change-control, журнал): тот же
+// http с токеном студии, что у всего api.
+export async function http<T>(
   path: string,
   options: RequestInit = {},
   timeoutMs = 30_000,
@@ -974,6 +976,8 @@ export const api = {
       pipelineMode ? `/api/projects?pipeline_mode=${encodeURIComponent(pipelineMode)}` : `/api/projects`,
     ),
   getProject: (id: number) => http<ProjectDetail>(`/api/projects/${id}`),
+  getProjectRun: (projectId: number) =>
+    http<WorkflowRunDetail>(`/api/projects/${projectId}/run`),
   createProject: (body: {
     title: string;
     topic?: string;

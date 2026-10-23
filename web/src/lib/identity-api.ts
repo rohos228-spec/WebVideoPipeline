@@ -31,6 +31,8 @@ export interface Me {
   balance_micro: number;
   balance_credits: string;
   provisioned_now: boolean;
+  /** Роль в студии (``admin`` / ``member``); в режиме владельца пусто. */
+  role?: string;
 }
 
 export interface FreeTier {

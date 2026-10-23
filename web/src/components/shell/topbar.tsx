@@ -2,7 +2,7 @@
 
 import { useState, useEffect, createContext, useContext } from "react";
 import { useSearchParams } from "next/navigation";
-import { Bot, CircleDollarSign, Database, Film, LogOut } from "lucide-react";
+import { Bot, CircleDollarSign, Database, Film, LogOut, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { CostsPanelSheet } from "@/components/costs/costs-panel-sheet";
@@ -142,6 +142,17 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
             <Button
               variant="outline"
               size="sm"
+              onClick={openOrchestratorChat}
+              className="gap-2 text-xs"
+              title="Чат оркестратора: статус, ошибки, запуск шагов"
+              data-testid="rail-orchestrator"
+            >
+              <Workflow className="h-3.5 w-3.5" />
+              Агент
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => window.dispatchEvent(new CustomEvent("studio-open-baza"))}
               className="gap-2 text-xs"
               title="Визуализация базы данных: карточки кадров, связи, версии промтов"
@@ -205,4 +216,13 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
       </div>
     </UiContext.Provider>
   );
+}
+
+/** Открыть чат оркестратора: на главной — док снизу, на других страницах — главная с открытым чатом. */
+function openOrchestratorChat() {
+  if (window.location.pathname === "/" || window.location.pathname === "") {
+    window.dispatchEvent(new CustomEvent("studio-open-orchestrator-chat", { detail: { tab: "chat" } }));
+    return;
+  }
+  window.location.href = "/?chat=open";
 }

@@ -25,6 +25,8 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   projectId: number | null;
+  /** Вкладка «Старый чат» дока оркестратора: без своей рамки снизу и кнопок размера, всегда открыт. */
+  chatOnly?: boolean;
 }
 
 interface PendingConfirm {
@@ -48,7 +50,7 @@ interface ChatMsg {
   confirm?: PendingConfirm;
 }
 
-export function OrchestratorPanel({ projectId }: Props) {
+export function OrchestratorPanel({ projectId, chatOnly = false }: Props) {
   // По умолчанию — полоска внизу: раскрытая панель закрывает канвас целиком,
   // и в свежем браузере схема выглядела бы «некликабельной».
   const [open, setOpen] = usePersistedState("vp-orchestrator-open", false);
@@ -421,11 +423,17 @@ export function OrchestratorPanel({ projectId }: Props) {
     [projectId, busy, setChatLog, withConfirmResolved],
   );
 
+  const showBody = chatOnly || open;
   return (
     <div
+      data-testid={chatOnly ? "legacy-chat" : undefined}
       className={cn(
-        "absolute z-40 flex flex-col border border-white/[0.1] bg-[#0c0c0c]/97 shadow-2xl backdrop-blur transition-all duration-200",
-        open && expanded
+        chatOnly
+          ? "flex h-full min-h-0 flex-col"
+          : "absolute z-40 flex flex-col border border-white/[0.1] bg-[#0c0c0c]/97 shadow-2xl backdrop-blur transition-all duration-200",
+        chatOnly
+          ? ""
+          : open && expanded
           ? "inset-x-0 bottom-0 top-[158px] rounded-t-xl border-x-0 border-b-0"
           : open
             ? "inset-x-0 bottom-0 h-64 rounded-none border-x-0 border-b-0"
@@ -435,7 +443,7 @@ export function OrchestratorPanel({ projectId }: Props) {
       <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-white/[0.08] px-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 px-1 text-[11px] text-white/60">
           <Bot className="h-4 w-4 shrink-0 text-primary" />
-          <span className="shrink-0 font-semibold text-white/85">Оркестратор</span>
+          <span className="shrink-0 font-semibold text-white/85">{chatOnly ? "Старый чат (архив)" : "Оркестратор"}</span>
           <span className="truncate text-white/35">
             {projectId == null
               ? "открой проект"
@@ -462,6 +470,8 @@ export function OrchestratorPanel({ projectId }: Props) {
           </Button>
         ) : null}
 
+        {chatOnly ? null : (
+        <>
         <Button
           type="button"
           size="sm"
@@ -487,13 +497,15 @@ export function OrchestratorPanel({ projectId }: Props) {
         >
           {open ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
         </Button>
+        </>
+        )}
       </div>
 
-      {open ? (
+      {showBody ? (
         <div
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            expanded ? "min-h-0" : "h-52",
+            chatOnly || expanded ? "min-h-0" : "h-52",
           )}
         >
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">

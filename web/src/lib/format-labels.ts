@@ -122,7 +122,8 @@ export function formatNodeType(type: string): string {
   return NODE_TYPE_LABELS[type] ?? humanizeSlug(type);
 }
 
-export function formatRunStatus(status: string): string {
+export function formatRunStatus(status: string | null | undefined): string {
+  if (typeof status !== "string" || status.length === 0) return "";
   return RUN_STATUS[status] ?? humanizeSlug(status);
 }
 
@@ -164,7 +165,8 @@ export function formatStepCode(code: string): string {
 }
 
 /** Заменяет _ на пробелы, убирает лишние технические префиксы. */
-export function humanizeSlug(value: string): string {
+export function humanizeSlug(value: string | null | undefined): string {
+  if (typeof value !== "string") return "";
   return value
     .replace(/^n_/, "")
     .replace(/_/g, " ")
@@ -188,4 +190,37 @@ export function formatStylePresetLabel(preset: { id: string; label?: string }): 
     return preset.label;
   }
   return STYLE_PRESET_RU[preset.id] ?? humanizeSlug(preset.id);
+}
+
+/**
+ * Подпись строки Run в оверлее канваса (перенос из video-pipeline int/chat-v1).
+ * null — пустой ответ (`[]`, null) или объект без status-slug: оверлей
+ * показывает «не запущен», а не вызывает humanizeSlug(undefined).
+ */
+export function formatRunOverlayLabel(run: unknown): string | null {
+  if (run == null || typeof run !== "object" || Array.isArray(run)) return null;
+  const rec = run as { id?: unknown; status?: unknown };
+  if (typeof rec.status !== "string" || rec.status.trim() === "") return null;
+  if (typeof rec.id !== "number" && typeof rec.id !== "string") return null;
+  const label = formatRunStatus(rec.status);
+  if (!label) return null;
+  return `#${rec.id} · ${label}`;
+}
+
+/**
+ * Строка запуска над канвасом: номер выбранного проекта и состояние его прогона.
+ * Номер прогона не показываем: «Run: #1» при выбранном #2 читался как другой проект.
+ */
+export function formatRunLine(projectId: number, run: unknown): string {
+  const status =
+    run != null && typeof run === "object" && !Array.isArray(run) ? (run as { status?: unknown }).status : null;
+  const label = typeof status === "string" ? formatRunStatus(status) : "";
+  return `проект #${projectId} · ${label || "не запущен"}`;
+}
+
+/** node_runs из ответа /run. Пустой или кривой payload → пустой список, без throw. */
+export function nodeRunsFromPayload<T>(run: unknown): T[] {
+  if (run == null || typeof run !== "object" || Array.isArray(run)) return [];
+  const rows = (run as { node_runs?: unknown }).node_runs;
+  return Array.isArray(rows) ? (rows as T[]) : [];
 }
