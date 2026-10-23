@@ -401,6 +401,8 @@ def _frame_row(fr: Any) -> dict:
         "voiceover_text": fr.voiceover_text or "",
         "place": str(attrs.get("место") or attrs.get("place") or ""),
         "attrs": attrs,
+        "image_prompt": str(getattr(fr, "image_prompt", None) or ""),
+        "animation_prompt": str(getattr(fr, "animation_prompt", None) or ""),
     }
 
 
@@ -557,6 +559,49 @@ def gpt_frame_rows(nodes: list[dict]) -> list[dict]:
     return sorted(
         rows, key=lambda r: (order.get(r["label"], 0), (isinstance(r["frame"], str), r["frame"]), r["field"])
     )
+
+
+def overwrite_text(nodes: list[dict]) -> str:
+    """По-русски, кто чьи поля перезаписал: нода в порядке канваса, поле кадра, которое до неё
+    записала другая нода «Работа с GPT». Тот же расчёт, что колонка «Перезаписано» в html."""
+    if not nodes:
+        return ""
+    # Ноды сравниваем по ключу, а не по названию: две ноды «Работа с GPT» с одним названием
+    # тоже перезаписывают друг друга, как в колонке html.
+    last: dict[tuple[str, str], tuple[str, str]] = {}
+    lines = ["Кто чьи поля перезаписал (работа с GPT по порядку на канвасе):"]
+    for n in nodes:
+        me = str(n.get("node_key") or n["label"])
+        frames = n.get("frames") or {}
+        if not frames:
+            lines.append(f"- {n['label']}: пока ничего не записала в кадры, поэтому ничего не перезаписала.")
+            continue
+        over: dict[str, dict[str, set[str]]] = {}
+        for frame, names in frames.items():
+            for name in names:
+                prev = last.get((str(frame), name))
+                if prev and prev[0] != me:
+                    who = f"«{prev[1]}»" + (
+                        " (другая нода с тем же названием)" if prev[1] == n["label"] else ""
+                    )
+                    over.setdefault(who, {}).setdefault(name, set()).add(str(frame))
+        if not over:
+            lines.append(
+                f"- {n['label']}: записала {_labels_ru(list(n.get('fields') or []))} "
+                f"в кадрах {len(frames)}, чужих полей не перезаписала."
+            )
+        else:
+            parts = []
+            for prev, fields in over.items():
+                named = ", ".join(
+                    f"{tpl.field_label(name)} (кадров {len(fr)})" for name, fr in fields.items()
+                )
+                parts.append(f"записанные {prev}: {named}")
+            lines.append(f"- {n['label']} перезаписала поля, " + "; ".join(parts) + ".")
+        for frame, names in frames.items():
+            for name in names:
+                last[(str(frame), name)] = (me, n["label"])
+    return "\n".join(lines)
 
 
 def gpt_list_rows(nodes: list[dict]) -> list[dict]:
@@ -824,6 +869,22 @@ def _without_spent(columns: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str
     return tuple(col for col in columns if col[0] not in ("spent_usd", "cost_usd"))
 
 
+def _project_line(r: dict, *, show_spent: bool = True) -> str:
+    """Строка проекта для чата. Участнику — без трат (суммы в $ видит только админ)."""
+    from app.services.action_layer import builtin_insight as bi
+
+    pid = r["project_id"]
+    if not r.get("found"):
+        return f"- #{pid}: проект не найден."
+    spent = r.get("spent_usd")
+    money = f"траты {bi._usd_text(spent)} (оценка)" if spent is not None else "траты: нет данных"
+    return (
+        f"- #{pid} «{r.get('title')}»: {r.get('status_ru') or 'статус неизвестен'}, шагов готово "
+        f"{r.get('steps')}, кадров {r.get('frames')}, картинок {r.get('images')}, видео {r.get('videos')}"
+        + (f", {money}." if show_spent else ".")
+    )
+
+
 def with_no_data(rows: list[dict], keys: tuple[str, ...]) -> list[dict]:
     """Для файла и чата: пустая стоимость — «нет данных», не пустая ячейка и не 0.
     Нода, которая не запускалась, ничего не тратила: у неё прочерк."""
@@ -909,7 +970,8 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         gpt_text_md = ("\n\n" + tpl.GPT_SECTION_TITLE + ":\n" + "\n".join(gpt_lines)) if gpt_lines else ""
         out.update(rows=len(rows), file_format=None)
         out["markdown"] = f"## {tpl.PROJECTS_TITLE}\n\n{head}\n\n{table}{gpt_text_md}"
-        out["text_ru"] = head + " " + MEMBER_NO_FILE_TEXT
+        per = [_project_line(r, show_spent=False) for r in rows[: tpl.CHAT_ROWS]]
+        out["text_ru"] = head + " " + MEMBER_NO_FILE_TEXT + ("\n" + "\n".join(per) if per else "")
         return bi._safe(out)
     from app.web.routers.project_reports import SHARED_PREFIX, shared_report_url
 
@@ -956,5 +1018,7 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
     ]
     gpt_text_md = ("\n\n" + tpl.GPT_SECTION_TITLE + ":\n" + "\n".join(gpt_lines)) if gpt_lines else ""
     out["markdown"] = f"## {tpl.PROJECTS_TITLE}\n\n{head}\n\n{table}{tail}{gpt_text_md}"
-    out["text_ru"] = head + f" Файл отчёта готов: {link}"
+    # По строке на проект: без них «сравни проекты 5 и 7» видел только общие суммы.
+    per = [_project_line(r) for r in rows[: tpl.CHAT_ROWS]]
+    out["text_ru"] = head + f" Файл отчёта готов: {link}" + ("\n" + "\n".join(per) if per else "")
     return bi._safe(out)

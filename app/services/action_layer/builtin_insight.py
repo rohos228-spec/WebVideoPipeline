@@ -1540,6 +1540,7 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
         "gpt_nodes": len(gpt),
         "frames": len(index.frames),
         "archived_frames": len(index.archived_numbers),
+        "image_prompts": sum(1 for f in index.frames if f.get("image_prompt")),
         **extra,
     }
     status_text = ", ".join(f"{k} {v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1]))
@@ -1555,6 +1556,10 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
     intro = head + (f"\n{gpt_text}" if gpt_text else "")
     # Трат нет (участник студии, `_node_costs`) — нет и колонки с ними.
     columns = _REPORT_COLUMNS if spent is not None else _without_cost(_REPORT_COLUMNS)
+    # «Какие поля перезаписала вторая работа с GPT» — ответ из того же расчёта, что колонка html.
+    over_text = rg.overwrite_text(gpt) if len(gpt) > 1 else ""
+    if over_text:
+        intro += f"\n{over_text}"
     out: dict[str, Any] = {"project_id": pid, "format": fmt, "summary": summary, "gpt": gpt}
     if fmt == "json":
         out["rows"] = rows
@@ -1637,7 +1642,9 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
     )
     link = f"Файл отчёта готов: [Скачать отчёт (html)]({html_url}) · [Скачать отчёт (xlsx)]({xlsx_url})"
     # Ссылка сразу после первой строки: длинный текст в чате обрезается с конца.
-    out["text_ru"] = f"{head} {link}" + (f"\n{gpt_text}" if gpt_text else "")
+    out["text_ru"] = (
+        f"{head} {link}" + (f"\n{gpt_text}" if gpt_text else "") + (f"\n{over_text}" if over_text else "")
+    )
     if fmt in ("xlsx", "html"):
         return _safe(out)
     short_cols = (

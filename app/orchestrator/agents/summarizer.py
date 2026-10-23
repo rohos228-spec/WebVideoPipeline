@@ -59,6 +59,28 @@ def missing_action_text(reason: str, goal: str = "") -> str:
     return NOT_SUPPORTED
 
 
+# «Из файла / по файлу / в файле»: прикрепить файл к сообщению чата оркестратора нельзя.
+_FROM_FILE = re.compile(
+    r"(?:из|по|в|с)\s+(?:\w+\s+)?(?:файл|таблиц|excel|экселя?|xlsx|списка\s+в\s+файле)", re.IGNORECASE
+)
+_MANY_PROJECTS = re.compile(r"проект", re.IGNORECASE)
+FILE_CLARIFY = (
+    "Из какого файла взять темы? Прикрепить файл к сообщению в этом чате пока нельзя. "
+    "Напишите темы списком, например «создай проекты: лисы, совы, киты, пчёлы, волки и "
+    "запусти» — создам проекты и поставлю их в очередь."
+)
+
+
+def file_clarify_text(goal: str) -> str:
+    """Просьба создать проекты «из файла»: конкретный вопрос вместо «не понял»; пусто — не о том."""
+    text = goal or ""
+    if not _FROM_FILE.search(text) or not _MANY_PROJECTS.search(text):
+        return ""
+    if not re.search(r"созда|сдела|завед|нов", text, re.IGNORECASE):
+        return ""
+    return FILE_CLARIFY
+
+
 _REASON_RU: dict[str, tuple[str, str]] = {
     "validator_blocked": (
         "проверка плана отклонила шаги, план не исполнялся",
@@ -631,7 +653,10 @@ def deterministic_text(facts: TaskFacts) -> str:
                 )
         else:
             found = [note for note in done if note.text]
-            if found:
+            if len(found) == 1 and found[0].known:
+                # Отчёт и подобные шаги сами пишут итог с числами и ссылками: его и показываем.
+                lines.append(found[0].text)
+            elif found:
                 lines.append("Вот что нашёл:")
                 lines.extend(f"• {note.title}: {note.text}" for note in found)
             else:
@@ -699,9 +724,69 @@ def deterministic_text(facts: TaskFacts) -> str:
     return "\n".join(lines)
 
 
+# Повтор просьбы повелительным глаголом («Скачай Excel-отчёт…», «Откати промт в проекте 7.»)
+# вместо итога: такие предложения из ответа модели убираем.
+_IMPERATIVE = re.compile(
+    r"^[\s*_>#•\-–—]*(?:скачай|покажи|откати|сформируй|выгрузи|сделай|создай|запусти|сравни|верни|поменяй|смени"
+    r"|поставь|дай|пришли|выведи|собери|подготовь|проверь|найди|посчитай|составь|построй|отчитайся"
+    r"|расскажи|напиши|открой|экспортируй|выдай|скинь|отправь|обнови|останови|продолжи|откатись"
+    r"|сгенерируй|прогони|перезапусти)(?![а-яё])",
+    re.IGNORECASE,
+)
+_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=\S)")
+_LINK_LINE = re.compile(r"^\s*\[[^\]]+\]\([^)]+\)\s*$")
+
+
+def _first_word(text: str) -> str:
+    # Начало в кавычках («запусти …») — готовая команда для чата, а не пересказ просьбы.
+    match = re.match(r"[\s*_>#•\-–—]*([а-яёa-z-]+)", (text or "").lower().replace("ё", "е"))
+    return match.group(1) if match else ""
+
+
+# Совет о следующем шаге («Запусти его, когда будешь готов: напиши «запусти проект 15».»,
+# «Открой отчёт по ссылке выше.») — не пересказ просьбы, его оставляем.
+_ADVICE = re.compile(
+    r"«[^»]{3,}»|(?<![а-яё])(?:когда|если|чтобы|потом|затем|после\s+этого)(?![а-яё])"
+    r"|по\s+ссылк|ссылк\w*\s+(?:выше|ниже)|(?<![а-яё])(?:выше|ниже)(?![а-яё])",
+    re.IGNORECASE,
+)
+
+
+def _echo_sentence(sentence: str, goal: str) -> bool:
+    if _ADVICE.search(sentence):
+        return False
+    if _IMPERATIVE.match(sentence):
+        return True
+    word, asked = _first_word(sentence), _first_word(goal)
+    # «Выгрузи HTML-отчёт…» на просьбу «выгрузи в html…»: тот же повелительный глагол, что в просьбе.
+    return bool(word) and word == asked and asked.endswith(("й", "и", "ь"))
+
+
+def drop_echo(text: str, goal: str) -> str:
+    """Убирает предложения, которые пересказывают просьбу как приказ; пусто — итога не осталось."""
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        if _LINK_LINE.match(line) or line.lstrip().startswith("|") or "](" in line:
+            out.append(line)
+            continue
+        kept = [part for part in _SENTENCE.split(line) if not _echo_sentence(part, goal)]
+        if kept or not line.strip():
+            out.append(" ".join(kept))
+    body = "\n".join(out).strip()
+    body = re.sub(r"\n{3,}", "\n\n", body)
+    # Строка только со ссылками («Скачать отчёт: [HTML](…)») — не итог: без итога берём текст кода.
+    meaningful = [line for line in body.splitlines() if line.strip() and "](" not in line]
+    return body if meaningful else ""
+
+
 def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
     rules = list(ANSWER_RULES)
     rules.append("Это итог задачи из чата: перескажи найденное по фактам и ответь на просьбу пользователя.")
+    rules.append(
+        "Пиши итог тем, что сделано и что получилось, в прошедшем времени и с числами, например "
+        "«Отчёт по проекту #5 готов: 18 нод, 3 готовы». Просьбу пользователя не повторяй и не "
+        "начинай с повелительного глагола («скачай», «покажи», «сформируй»)."
+    )
     used = 0
     lines = ["Факты, прочитанные шагами задачи:"]
     for note in facts.steps[:_STEP_LIMIT]:
@@ -764,6 +849,10 @@ class TaskSummarizer:
         if getattr(response, "approval", None) is not None:
             return fallback
         text = str(getattr(response, "text", "") or "").strip()
+        cleaned = drop_echo(text, facts.goal)
+        if cleaned != text:
+            logger.info("orch summary echoed the request, kept {} of {} chars", len(cleaned), len(text))
+        text = cleaned
         if not text:
             return fallback
         # Модель могла уже вставить ссылку со своей подписью: сравниваем по адресу, не по строке.

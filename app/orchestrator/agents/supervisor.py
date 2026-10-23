@@ -2760,10 +2760,15 @@ class Supervisor:
                 self._code_answers.add(task_id)
                 return
         why = self._planner_reason(task_id)
+        goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
+        # «Создай 5 проектов из файла»: файла в чате нет — спрашиваем темы, а не «не понял».
+        ask = task_summary.file_clarify_text(goal)
+        if ask:
+            self._fail_detail[task_id] = ask
+            self._code_answers.add(task_id)
+            return
         # «В каталоге нет действия для удаления проекта»: просьбу поняли, но чат так не умеет.
-        missing = task_summary.missing_action_text(
-            why, str((self.tasks.get(task_id) or {}).get("goal") or "")
-        )
+        missing = task_summary.missing_action_text(why, goal)
         if missing:
             self._fail_detail[task_id] = missing
             self._code_answers.add(task_id)
