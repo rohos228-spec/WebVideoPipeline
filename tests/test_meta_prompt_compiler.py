@@ -8,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.services.meta_prompt_compiler import (
     compile_meta_prompt,
+    normalize_step_code,
     sanitize_compiled_prompt,
 )
 from app.services.prompt_library import step_dir
@@ -30,9 +31,25 @@ def test_sanitize_compiled_prompt() -> None:
     assert sanitize_compiled_prompt(raw3) == "System prompt without fences"
 
 
+def test_normalize_step_code() -> None:
+    assert normalize_step_code("02_script") == "script"
+    assert normalize_step_code("script") == "script"
+    assert normalize_step_code("03_razbivka") == "split"
+    assert normalize_step_code("split") == "split"
+    assert normalize_step_code("05_excel_gpt") == "excel_gpt"
+    assert normalize_step_code("enrich_1") == "excel_gpt"
+    assert normalize_step_code("04_hero_style") == "hero_style"
+    assert normalize_step_code("04_hero") == "hero"
+    assert normalize_step_code("04b_items") == "items"
+    assert normalize_step_code("07_animation") == "anim_pr"
+    assert normalize_step_code("10_music") == "music"
+    assert normalize_step_code("01_plan") == "plan"
+
+
 @pytest.mark.asyncio
 async def test_compile_meta_prompt_mocked() -> None:
-    fake_reply = """# EXCEL GPT MOOD ANALYZER
+    fake_reply = """<!-- slug: mood_analyzer -->
+# EXCEL GPT MOOD ANALYZER
 ## Role
 Analyze mood of each frame.
 
@@ -50,10 +67,10 @@ Analyze mood of each frame.
 
     with patch("app.services.meta_prompt_compiler.get_gpt_client", return_value=mock_gpt):
         result = await compile_meta_prompt(
-            step_code="excel_gpt",
+            step_code="05_excel_gpt",
             user_intent="Анализируй настроение каждого кадра и цветовую палитру",
             project_topic="Киберпанк 2050",
-            target_name="mood_analyzer",
+            target_name="",
         )
 
         assert result["step_code"] == "excel_gpt"
@@ -61,6 +78,44 @@ Analyze mood of each frame.
         assert "EXCEL GPT MOOD ANALYZER" in result["compiled_prompt"]
         assert result["stats"]["has_schema"] is True
         assert result["stats"]["has_guards"] is True
+
+
+@pytest.mark.asyncio
+async def test_compile_meta_prompt_script_contract() -> None:
+    fake_reply = """<!-- slug: house_voiceover -->
+# SYSTEM PROMPT: 02_script
+## РОЛЬ И ЦЕЛЬ
+Автор дикторского закадрового текста.
+
+## КОНТРАКТ ВЫХОДА
+<<<VOICEOVER>>>
+Первый этаж готов. Остались стены, свет и характер. Сто восемьдесят квадратных метров стекла и бетона.
+<<<END>>>
+
+## ЗАПРЕТЫ
+- Числа только прописью!
+- Никаких JSON схем и ремарок.
+"""
+    mock_gpt = AsyncMock()
+    mock_gpt.ask_fresh.return_value = fake_reply
+
+    with patch("app.services.meta_prompt_compiler.get_gpt_client", return_value=mock_gpt):
+        result = await compile_meta_prompt(
+            step_code="02_script",
+            user_intent="Напиши дикторский текст про постройку дома",
+            project_topic="Строительство",
+        )
+
+        assert result["step_code"] == "script"
+        assert result["name"] == "house_voiceover"
+        assert "<<<VOICEOVER>>>" in result["compiled_prompt"]
+        assert result["stats"]["has_guards"] is True
+
+        # Проверяем, что в запрос к GPT ушла именно специфика закадрового текста
+        sent_query = mock_gpt.ask_fresh.call_args[0][0]
+        assert "02_script" in sent_query
+        assert "<<<VOICEOVER>>>" in sent_query
+        assert "ЧИСЛА, ДАТЫ, ГОДЫ, ПРОЦЕНТЫ, СУММЫ — ТОЛЬКО СЛОВАМИ (ПРОПИСЬЮ)" in sent_query
 
 
 @pytest_asyncio.fixture
