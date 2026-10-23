@@ -203,8 +203,8 @@ async def test_models_of_unknown_kind_are_not_offered(client, monkeypatch) -> No
 
 
 async def test_get_project_run_returns_run_and_nodes(client) -> None:
-    from app.web.settings_default import seed_default_workflow
     from app.services.run_sync import ensure_run_for_project
+    from app.web.settings_default import seed_default_workflow
 
     async with client.factory() as s:  # type: ignore[attr-defined]
         await seed_default_workflow(s)
