@@ -45,8 +45,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import asynccontextmanager, nullcontext, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -279,23 +280,33 @@ async def _step_billing_impl(
 
     try:
         yield bill
-    except BaseException:
-        async with session_scope() as session:
-            await release_hold(session, hold_id, memo=f"шаг {step_code} не завершён")
+    except BaseException as exc:
+        exc_name = type(exc).__name__
+
+        async def _do_release() -> None:
+            async with session_scope() as session:
+                await release_hold(session, hold_id, memo=f"шаг {step_code} не завершён ({exc_name})")
+
+        with suppress(Exception):
+            await asyncio.shield(_do_release())
         logger.info("касса: #{} шаг {} упал — резерв снят целиком", project_id, step_code)
         raise
 
     await _flush_ledgers()
     cost, refs = await _spent(project_id, mark, media_rows, llm_rows)
-    async with session_scope() as session:
-        result = await settle_hold(
-            session,
-            hold_id,
-            cost_usd=cost,
-            ref_table="llm_calls+media_calls",
-            ref_ids=refs,
-            memo=f"шаг {step_code}",
-        )
+
+    async def _do_settle() -> Any:
+        async with session_scope() as session:
+            return await settle_hold(
+                session,
+                hold_id,
+                cost_usd=cost,
+                ref_table="llm_calls+media_calls",
+                ref_ids=refs,
+                memo=f"шаг {step_code}",
+            )
+
+    result = await asyncio.shield(_do_settle())
     bill.charged_micro = result.charged_micro
     bill.cost_usd = cost
     logger.info(
@@ -389,9 +400,8 @@ async def _spent_since(session: Any, project_id: int, mark: _Mark) -> tuple[floa
             model.project_id == project_id,
             model.id > floor,
             model.created_at >= mark.at,
+            model.result == "ok",
         )
-        if model is MediaCall:
-            stmt = stmt.where(MediaCall.result == "ok")
         for row_id, cost in (await session.execute(stmt)).all():
             total += float(cost or 0.0)
             refs.append(int(row_id))

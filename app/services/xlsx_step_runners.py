@@ -1203,18 +1203,37 @@ async def run_img_pr_xlsx(
             )
             from app.contracts import IMG_PR
             from app.contracts import LlmContractError as _LCE
+            from app.services.step_cancel import StepCancelledError
 
-            with llm_ledger.bind_prompt_hash(ledger_prompt_hash):
-                last_reply = await gpt_local.ask_with_files(
-                    chat_msg,
-                    attach,
-                    project_id=project_id or project.id,
-                    expect_file_download=False,
-                    history=None,
-                    treat_txt_as_prompt=True,
-                    auto_pack=False,
-                    response_schema=IMG_PR.response_schema(),
+            try:
+                with llm_ledger.bind_prompt_hash(ledger_prompt_hash):
+                    last_reply = await gpt_local.ask_with_files(
+                        chat_msg,
+                        attach,
+                        project_id=project_id or project.id,
+                        expect_file_download=False,
+                        history=None,
+                        treat_txt_as_prompt=True,
+                        auto_pack=False,
+                        response_schema=IMG_PR.response_schema(),
+                    )
+            except (asyncio.CancelledError, StepCancelledError):
+                raise
+            except Exception as e:
+                last_error_text = f"Сетевой сбой / ошибка API: {type(e).__name__}: {e}"
+                delay = _EMPTY_OPS_BACKOFF_S[min(attempt - 1, len(_EMPTY_OPS_BACKOFF_S) - 1)]
+                logger.warning(
+                    "img_pr_db: batch {}/{} attempt {} network/api error: {} — retry in {:.0f}s",
+                    bi,
+                    batch_n,
+                    attempt,
+                    e,
+                    delay,
                 )
+                if attempt < ipb._GPT_ATTEMPTS:
+                    await sleep_cancellable(delay, project_id or project.id)
+                    continue
+                raise
             batch_ops = ipb.parse_img_pr_ops(
                 last_reply or "",
                 wrap_style=not plastilin,

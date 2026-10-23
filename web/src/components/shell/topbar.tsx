@@ -31,6 +31,20 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
   const togglePanel = (k: "Хранилище" | "Оплата" | "Выплаты") => setRailPanel((v) => (v === k ? null : k));
   const [framesOpen, setFramesOpen] = useState(false);
   const [framesProjectId, setFramesProjectId] = useState<number | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/admin/access")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { is_admin?: boolean } | null) => {
+        if (alive && d?.is_admin) setIsAdmin(true);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const openFrames = (id: number) => {
     setFramesProjectId(id);
@@ -55,8 +69,15 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         <RailBtn icon={<FolderOpen className="h-[18px] w-[18px]" />} label="Проекты" title="Показать / скрыть панель проектов" onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))} />
         <RailBtn icon={<Bot className="h-[18px] w-[18px]" />} label="Чат" title="Чат GPT" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))} />
         <BugReportButton />
-        <RailBtn icon={<HardDrive className="h-[18px] w-[18px]" />} label="Хранилище" active={railPanel === "Хранилище"} onClick={() => togglePanel("Хранилище")} />
-        <AdminRailLink />
+        {isAdmin ? (
+          <RailBtn
+            icon={<HardDrive className="h-[18px] w-[18px]" />}
+            label="Хранилище"
+            active={railPanel === "Хранилище"}
+            onClick={() => togglePanel("Хранилище")}
+          />
+        ) : null}
+        {isAdmin ? <AdminRailLink /> : null}
         <div className="flex-1" />
         <RailBtn icon={<CreditCard className="h-[18px] w-[18px]" />} label="Оплата" active={railPanel === "Оплата"} onClick={() => togglePanel("Оплата")} />
         <RailBtn icon={<Wallet className="h-[18px] w-[18px]" />} label="Выплаты" active={railPanel === "Выплаты"} onClick={() => togglePanel("Выплаты")} />
@@ -117,22 +138,8 @@ function RailBtn({ icon, label, title, onClick, active }: { icon: React.ReactNod
   );
 }
 
-/** Вход в /admin — только если сервер подтвердил права администратора. */
+/** Вход в /admin — только для администратора. */
 function AdminRailLink() {
-  const [isAdmin, setIsAdmin] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/admin/access")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { is_admin?: boolean } | null) => {
-        if (alive && d?.is_admin) setIsAdmin(true);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-  if (!isAdmin) return null;
   return (
     <RailBtn
       icon={<ShieldCheck className="h-[18px] w-[18px]" />}

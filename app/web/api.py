@@ -126,6 +126,9 @@ from app.web.routers import (
     stages as stages_router,
 )
 from app.web.routers import (
+    storage as storage_router,
+)
+from app.web.routers import (
     studio_chat as studio_chat_router,
 )
 from app.web.routers import (
@@ -415,6 +418,7 @@ def create_app() -> FastAPI:
     app.include_router(stages_router.router, prefix=API_PREFIX)
     app.include_router(meta_agent_router.router, prefix=API_PREFIX)
     app.include_router(project_graph_router.router, prefix=API_PREFIX)
+    app.include_router(storage_router.router, prefix=API_PREFIX)
     app.include_router(voices_router.router, prefix=API_PREFIX)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])

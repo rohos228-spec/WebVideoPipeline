@@ -246,9 +246,28 @@ export function StoragePanel({ onClose }: { onClose: () => void }) {
       <div className="space-y-2 border-t border-white/[0.06] px-4 py-3">
         {cacheAsk ? (
           <div data-cache-confirm className="rounded-[12px] bg-white/[0.04] p-3 text-sm text-zinc-300">
-            Удалить временные файлы на <b className="text-white">{fmt(cacheAsk.total_bytes)}</b>? Результаты проектов не трогаются.
-            <div className="mt-1 max-h-[72px] overflow-y-auto text-sm text-zinc-500">{cacheAsk.dirs.map((d) => <div key={d.path} className="truncate">{d.path} — {fmt(d.bytes)}</div>)}</div>
-            <div className="mt-2 flex gap-2">
+            {cacheAsk.total_bytes > 0 ? (
+              <>
+                Удалить временные файлы на <b className="text-white">{fmt(cacheAsk.total_bytes)}</b>
+                {total > 0 ? (
+                  <span className="text-[#5eead4]"> (освободит {Math.min(100, (cacheAsk.total_bytes / total) * 100).toFixed(1)}% занятого места)</span>
+                ) : null}
+                ? Результаты проектов не трогаются.
+              </>
+            ) : (
+              <span>Временных файлов и кэша нет (0 Б). Очистка не требуется.</span>
+            )}
+            <div className="mt-1.5 max-h-[80px] overflow-y-auto space-y-0.5 text-sm text-zinc-500">
+              {cacheAsk.dirs.map((d) => (
+                <div key={d.path} className="truncate">
+                  {d.path} — <span className="text-zinc-300">{fmt(d.bytes)}</span>
+                  {cacheAsk.total_bytes > 0 && d.bytes > 0 ? (
+                    <span className="text-zinc-500"> ({((d.bytes / cacheAsk.total_bytes) * 100).toFixed(0)}%)</span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            <div className="mt-2.5 flex gap-2">
               <button type="button" disabled={busy === "cache" || cacheAsk.total_bytes === 0} onClick={clearCache} className="h-8 flex-1 rounded-[10px] bg-[rgba(45,212,191,0.16)] text-sm text-[#5eead4] hover:bg-[rgba(45,212,191,0.24)] disabled:opacity-40">Очистить</button>
               <button type="button" onClick={() => setCacheAsk(null)} className="h-8 flex-1 rounded-[10px] bg-white/[0.05] text-sm text-zinc-300 hover:bg-white/[0.09]">Отмена</button>
             </div>
