@@ -539,6 +539,7 @@ async def record_step_failure(
     if total >= MAX_TOTAL_FAILS:
         fs["abandoned_at"] = datetime.now(UTC).isoformat()
         fs["recovery_cycles"] = MAX_CYCLES
+        _remember_place_before_failed_step(project, running)
         project.status = ProjectStatus.paused
         _save_failure_state(project, fs)
         from app.services.run_sync import mark_running_node_failed
@@ -620,6 +621,85 @@ async def record_step_failure(
         fs["last_error"],
     )
     return "retry"
+
+
+def ready_status_before(project: Project | None, running: ProjectStatus) -> ProjectStatus | None:
+    """Готовность перед running-шагом (с учётом числа enrich-слотов проекта).
+
+    ``new`` - у шага нет требования (сценарий). None - статус не running-шаг.
+    """
+    step = step_by_running_status(running)
+    if step is None:
+        return None
+    requires = step.requires
+    try:
+        from app.orchestrator.pipeline_steps import steps_for
+
+        for sd in steps_for(project):
+            if sd.code == step.code:
+                requires = sd.requires
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    return requires if requires is not None else ProjectStatus.new
+
+
+def _remember_place_before_failed_step(project: Project, running: ProjectStatus) -> None:
+    """Сдача после ошибок: «снять паузу» вернёт проект на готовность перед упавшим
+    шагом, а не на сам шаг (тот сразу запустился бы снова и тратил бы деньги) и не в new.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    place = ready_status_before(project, running)
+    if place is None:
+        return
+    meta = _meta(project)
+    meta["paused_from_status"] = place.value
+    project.meta = meta
+    flag_modified(project, "meta")
+
+
+_NOT_A_PLACE = frozenset({ProjectStatus.paused, ProjectStatus.failed, ProjectStatus.new})
+
+
+def resume_place_without_origin(project: Project) -> ProjectStatus | None:
+    """Куда снять паузу, если ``paused_from_status`` не записан (старые сдачи шага).
+
+    Порядок: готовность перед шагом, на котором остановили ошибки (есть след сбоя), затем
+    готовность, на которой проект ждал ▶ после перезапуска, затем готовность перед
+    последним упавшим шагом без следа сбоя. None - места не знаем.
+    """
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    fs = meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {}
+    totals = fs.get("total_fails") if isinstance(fs.get("total_fails"), dict) else {}
+
+    def _running(raw: Any) -> ProjectStatus | None:
+        try:
+            st = ProjectStatus(str(raw))
+        except ValueError:
+            return None
+        return None if st in _NOT_A_PLACE else st
+
+    last = _running(fs.get("last_running")) if fs.get("last_running") else None
+    if last is None:
+        last = _running_status_to_resume(fs)
+    evidence = bool(
+        fs.get("abandoned_at")
+        or fs.get("sleep_until")
+        or (last is not None and int(totals.get(last.value) or 0) > 0)
+    )
+    if last is not None and evidence:
+        place = ready_status_before(project, last)
+        if place is not None:
+            return place
+    blocked = meta.get("startup_blocked_ready_status")
+    if blocked:
+        st = _running(blocked)
+        if st is not None and step_by_running_status(st) is None:
+            return st
+    if last is not None:
+        return ready_status_before(project, last)
+    return None
 
 
 def clear_failure_on_success(project: Project, running: ProjectStatus) -> None:

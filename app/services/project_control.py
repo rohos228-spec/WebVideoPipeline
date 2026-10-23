@@ -394,9 +394,16 @@ async def resume_project(session: AsyncSession, project: Project) -> str:
     from_status = meta.pop("paused_from_status", None)
     project.meta = meta
     try:
-        project.status = ProjectStatus(from_status) if from_status else ProjectStatus.new
+        target = ProjectStatus(from_status) if from_status else None
     except ValueError:
-        project.status = ProjectStatus.new
+        target = None
+    if target is None or target is ProjectStatus.paused:
+        # Старые сдачи шага после ошибок ставили paused без paused_from_status:
+        # место берём из следа сбоя, а не откатываем проект в new.
+        from app.services.step_failure_policy import resume_place_without_origin
+
+        target = resume_place_without_origin(project) or ProjectStatus.new
+    project.status = target
     project.updated_at = datetime.utcnow()
     await session.flush()
     return project.status.value

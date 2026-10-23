@@ -456,3 +456,16 @@ def test_continue_pipeline_spec_carries_the_precondition() -> None:
     assert "img_pr_scene_input" in {p.id for p in spec.preconditions}
     assert "ceiling_chain" in {p.id for p in spec.preconditions}
     assert spec.risk == "destructive"
+
+
+def test_continue_guard_after_abandon_with_recorded_ready_place() -> None:
+    # Сдача шага теперь пишет готовность перед промтами (3 слота - enrich_3_ready).
+    skipped = _runs(n_gpt1="done", n_gpt2="skipped", n_img_pr="pending")
+    paused = {**META, **_ABANDONED, "paused_from_status": "enrich_3_ready"}
+    assert ipg.continue_skips_scene(paused, skipped, status="paused", auto_mode=False,
+                                    enrich_slots=3)
+    assert ipg.continue_skips_scene(META, skipped, status="enrich_3_ready", auto_mode=False,
+                                    enrich_slots=3)
+    # При 5 слотах enrich_3_ready ведёт в следующий слот, не к промтам.
+    assert not ipg.continue_skips_scene(META, skipped, status="enrich_3_ready",
+                                        auto_mode=False, enrich_slots=5)

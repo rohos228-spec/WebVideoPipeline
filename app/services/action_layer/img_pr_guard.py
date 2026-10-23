@@ -495,8 +495,24 @@ def _continue_place(meta: Any, status: str | None) -> str:
     return str(m.get("paused_from_status") or fs.get("last_running") or "")
 
 
+def _into_img_pr(enrich_slots: Any) -> frozenset[str]:
+    """Места, откуда следующий шаг - промты картинок: сам шаг и готовность последнего
+    включённого слота «Доп работа с EXCEL» (сдача шага после ошибок пишет её в
+    ``paused_from_status``)."""
+    try:
+        n = int(enrich_slots or 0)
+    except (TypeError, ValueError):
+        n = 0
+    return _CONTINUE_INTO_IMG_PR | ({f"enrich_{n}_ready"} if 1 <= n <= 5 else set())
+
+
 def continue_skips_scene(
-    meta: Any, node_runs: Iterable[dict] | None, *, status: str | None, auto_mode: bool
+    meta: Any,
+    node_runs: Iterable[dict] | None,
+    *,
+    status: str | None,
+    auto_mode: bool,
+    enrich_slots: int | None = None,
 ) -> bool:
     """«Продолжить конвейер» дойдёт до промтов картинок, а ни одна нода сцены перед ними не
     запустится.
@@ -509,7 +525,7 @@ def continue_skips_scene(
         return False
     if auto_mode or jumped_scene_nodes(meta, node_runs):
         return True
-    return _continue_place(meta, status) in _CONTINUE_INTO_IMG_PR
+    return _continue_place(meta, status) in _into_img_pr(enrich_slots)
 
 
 def _target_at_or_after(nodes, outs, img_keys, target_key, target_type) -> bool:
