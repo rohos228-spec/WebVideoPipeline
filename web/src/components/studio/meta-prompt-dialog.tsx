@@ -118,8 +118,8 @@ export function MetaPromptDialog({
       </DialogTrigger>
 
       <DialogContent
-        overlayClassName="z-[200] backdrop-blur-none bg-black/80"
-        className="z-[210] w-[94vw] max-w-5xl max-h-[88vh] overflow-y-auto overflow-x-hidden border border-zinc-800 bg-zinc-950 p-6 shadow-2xl backdrop-blur-none"
+        overlayClassName="z-[200] bg-black/85"
+        className="z-[210] w-[94vw] max-w-5xl max-h-[88vh] overflow-y-auto overflow-x-hidden border border-zinc-800 bg-zinc-950 p-6 shadow-2xl [contain:paint]"
       >
         <DialogHeader className="space-y-1">
           <div className="flex items-center gap-2.5">
