@@ -38,6 +38,14 @@ def shared_report_url(path: str | Path) -> str:
     return f"/api/projects/{REPORTS_DIR}/{Path(str(path)).name}"
 
 
+def _headers(path: Path) -> dict[str, str]:
+    headers = {"Cache-Control": "private, no-store"}
+    if path.suffix.lower() == ".html":
+        # HTML-отчёт только смотрят: без скриптов и доступа к API студии, даже если открыт по ссылке.
+        headers["Content-Security-Policy"] = "sandbox"
+    return headers
+
+
 def report_file(data_dir: str | Path, name: str) -> Path:
     if not _NAME.fullmatch(name or "") or ".." in name:
         raise HTTPException(status_code=404, detail="Отчёт не найден")
@@ -56,10 +64,7 @@ async def download_shared_report(name: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="Отчёт не найден")
     path = report_file(settings.data_dir, name)
     return FileResponse(
-        path,
-        media_type=_MEDIA[path.suffix.lstrip(".").lower()],
-        filename=path.name,
-        headers={"Cache-Control": "private, no-store"},
+        path, media_type=_MEDIA[path.suffix.lstrip(".").lower()], filename=path.name, headers=_headers(path)
     )
 
 
@@ -72,8 +77,5 @@ async def download_report(
         raise HTTPException(status_code=404, detail="Проект не найден")
     path = report_file(project.data_dir, name)
     return FileResponse(
-        path,
-        media_type=_MEDIA[path.suffix.lstrip(".").lower()],
-        filename=path.name,
-        headers={"Cache-Control": "private, no-store"},
+        path, media_type=_MEDIA[path.suffix.lstrip(".").lower()], filename=path.name, headers=_headers(path)
     )

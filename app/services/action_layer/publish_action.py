@@ -79,8 +79,12 @@ def account_text(platforms: list[str] | None = None) -> str:
     return f"профиль MoreLogin …{pid[-4:]} (под ним выполнен вход в аккаунты площадок)"
 
 
+def _titles(platforms) -> str:
+    return ", ".join(PLATFORM_TITLES.get(p, p) for p in platforms)
+
+
 def effects_text(params: dict) -> str:
-    names = ", ".join(PLATFORM_TITLES.get(p, p) for p in params.get("platforms") or [])
+    names = _titles(params.get("platforms") or [])
     facts = _FACTS.get(params.get("project_id")) or {}
     caption = params.get("caption", "")
     csha = facts.get("caption_sha256") or hashlib.sha256(str(caption).encode("utf-8")).hexdigest()
@@ -92,7 +96,8 @@ def effects_text(params: dict) -> str:
         "Опубликованное нельзя отозвать из студии; если сбой случится после нажатия «Опубликовать», "
         "автоповтора не будет и итог нужно проверить на площадке вручную. "
         "Клик возможен только после отдельного подтверждения человека на каждую площадку в панели "
-        "«Публикации» для этого файла и этой подписи."
+        "«Публикации» для этого файла и этой подписи: шаг попросит подтверждение для всех площадок "
+        f"без публикации, а опубликует только там, где его дадут - подтвердите только {names}."
     )
 
 
@@ -162,13 +167,31 @@ def _pending_platforms(project: dict) -> list[str]:
     return [p for p in registry_platforms() if p not in done]
 
 
+async def _approved_platforms(ctx: ActionContext, params: dict) -> set[str]:
+    facts = await ctx.call("GET", f"/projects/{params['project_id']}/publications")
+    items = (facts or {}).get("platforms") if isinstance(facts, dict) else None
+    return {str(i.get("platform")) for i in items or [] if isinstance(i, dict) and i.get("approved")}
+
+
 async def _platforms_expected(ctx: ActionContext, params: dict) -> str | None:
-    want = _pending_platforms(await _project(ctx, params))
+    """Шаг сам площадки не выбирает: жмёт там, где нет публикации и есть подтверждение человека."""
+    pending = _pending_platforms(await _project(ctx, params))
     got = list(params.get("platforms") or [])
-    if sorted(got) != sorted(want):
+    done = [p for p in got if p not in pending]
+    if done:
         return (
-            "шаг публикации обходит все площадки, где публикации ещё нет: "
-            f"{', '.join(want) or 'таких нет'}; в плане указано {', '.join(got) or 'пусто'}"
+            f"на площадках {_titles(done)} ролик уже опубликован; публикации ещё нет на: "
+            f"{_titles(pending) or 'таких нет'}"
+        )
+    try:
+        approved = await _approved_platforms(ctx, params)
+    except ActionCallError as exc:
+        return f"не удалось прочитать подтверждения публикаций ({exc.detail})"
+    extra = [p for p in pending if p in approved and p not in got]
+    if extra:
+        return (
+            f"в панели «Публикации» уже подтверждена площадка {_titles(extra)}: шаг опубликует и туда. "
+            "Назовите её в просьбе тоже или снимите там подтверждение"
         )
     return None
 
@@ -179,7 +202,11 @@ PRECONDITIONS = (
     Precondition("publish_enabled", "Автопубликация включена в настройках", _publish_enabled),
     Precondition("project_assembled", "Ролик собран и ждёт публикации", _assembled),
     Precondition("caption_matches", "Подпись совпадает с темой проекта", _caption_matches),
-    Precondition("platforms_expected", "Площадки совпадают с тем, что опубликует шаг", _platforms_expected),
+    Precondition(
+        "platforms_expected",
+        "Площадки ещё без публикации, других подтверждённых площадок нет",
+        _platforms_expected,
+    ),
 )
 
 
@@ -202,9 +229,31 @@ async def _publish_poll(ctx: ActionContext, params: dict, started: dict) -> JobS
     meta = proj.get("meta") if isinstance(proj.get("meta"), dict) else {}
     published = meta.get("published_platforms") if isinstance(meta.get("published_platforms"), dict) else {}
     unconfirmed = meta.get("publish_unconfirmed") if isinstance(meta.get("publish_unconfirmed"), dict) else {}
-    result = {"final_status": status, "published": sorted(published), "unconfirmed": sorted(unconfirmed)}
-    if status == "published":
-        return JobState(done=True, ok=True, note="все площадки подтвердили публикацию", result=result)
+    awaiting = (
+        meta.get("publish_awaiting_approval")
+        if isinstance(meta.get("publish_awaiting_approval"), dict)
+        else {}
+    )
+    waiting = [p for p in awaiting.get("platforms") or [] if p not in published]
+    result = {
+        "final_status": status,
+        "published": sorted(published),
+        "unconfirmed": sorted(unconfirmed),
+        "awaiting_approval": waiting,
+    }
+    asked = list(params.get("platforms") or [])
+    if status == "published" or (asked and all(p in published for p in asked)):
+        result["text_ru"] = (
+            f"Ролик опубликован: {_titles(p for p in asked if p in published) or _titles(published)}."
+        )
+        return JobState(done=True, ok=True, note="площадки подтвердили публикацию", result=result)
+    if waiting and not unconfirmed and not meta.get("publish_needs_human"):
+        mine = [p for p in asked if p in waiting] or waiting
+        result["text_ru"] = (
+            f"Публикация ждёт вашего подтверждения в панели «Публикации»: {_titles(mine)}. "
+            "После подтверждения шаг опубликует ролик сам."
+        )
+        return JobState(done=True, ok=True, note="ждёт подтверждения человека", result=result)
     return JobState(
         done=True,
         ok=False,

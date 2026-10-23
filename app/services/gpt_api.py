@@ -87,6 +87,11 @@ _XLSX_PINNED_PLAN_ROWS: tuple[int, ...] = (15, 45, 46, 48, 49, 50, 64)
 _REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 
 
+def is_anthropic_model(model_name: str | None) -> bool:
+    """Модель Anthropic (``claude-*``): уровень рассуждений с ноды ей не передаётся."""
+    return bool(model_name and str(model_name).strip().lower().startswith("claude"))
+
+
 def _responses_reasoning_block(effort_override: str | None = None) -> dict[str, str] | None:
     """``reasoning.effort`` для Codex/Responses (kie gpt-5-6-sol)."""
     from app.services.llm_override import current_override
@@ -2085,7 +2090,14 @@ async def _chat_completions_nostream(
     timeout: float,
     use_model: str,
 ) -> GptChatResult:
-    """Один non-stream POST — когда SSE пришёл пустым или без ``data:``."""
+    """Один non-stream POST — когда SSE пришёл пустым или без ``data:``.
+
+    Повторный запрос уходит уже после начала стрима: рубильник могли включить
+    за это время, поэтому проверяем его заново перед отправкой.
+    """
+    from app.services.api_tracker_hook import check_api_allowed
+
+    check_api_allowed(provider="gpt", model=use_model)
     nostream = {**body, "stream": False}
     async with _async_client(timeout=_http_timeout(timeout)) as client:
         resp = await client.post(url, headers=headers, json=nostream)

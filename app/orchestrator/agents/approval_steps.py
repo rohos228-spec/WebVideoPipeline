@@ -48,6 +48,9 @@ _NODE_TITLES = {
     "node.set_params": "Изменить настройки ноды «{node}» (без роста расходов)",
     "node.set_params_costly": "Изменить настройки ноды «{node}» с подтверждением",
     "node.revert_params": "Вернуть прежние настройки ноды «{node}»",
+    "node.upload_check_agent": "Загрузить агента проверки в ноду «{node}»",
+    "node.clear_check_agent": "Убрать загруженного агента проверки с ноды «{node}»",
+    "node.revert_check_agent": "Вернуть прежнего агента проверки ноды «{node}»",
     "prompt.edit_text": "Предложить правку промта ноды «{node}» (этот проект)",
 }
 _ID_KEYS = ("node_key", "model_id", "variant")
@@ -291,3 +294,104 @@ def enrich(
     if not body.get("risk"):
         body["risk"] = plan_risk(views)
     return body
+
+
+def projects_ru(count: int) -> str:
+    tail = count % 100
+    if 11 <= tail <= 14:
+        word = "проектов"
+    elif count % 10 == 1:
+        word = "проект"
+    elif 2 <= count % 10 <= 4:
+        word = "проекта"
+    else:
+        word = "проектов"
+    return f"{count} {word}"
+
+
+def _tagged(project: int | None, texts: Any) -> list[str]:
+    out: list[str] = []
+    for item in texts if isinstance(texts, list) else []:
+        text = " ".join(str(item or "").split())
+        if text:
+            out.append(f"проект #{project}: {text}" if project else text)
+    return out
+
+
+def _group_cost(
+    steps: list[PlanStep],
+    views: list[dict[str, Any]],
+    previews: list[dict[str, Any]],
+) -> tuple[float | None, str]:
+    """Сумма по шагам группы. Хоть одна цена неизвестна — неизвестна и сумма."""
+    total = 0.0
+    paid_any = False
+    for step, view, preview in zip(steps, views, previews, strict=True):
+        if not view.get("paid"):
+            continue
+        paid_any = True
+        cost = preview.get("cost")
+        if isinstance(cost, dict):
+            usd = preview.get("cost_estimate") if cost.get("known") else None
+        else:
+            usd = _step_usd(step, _spec(step.action))
+        if not isinstance(usd, (int, float)) or isinstance(usd, bool) or not math.isfinite(usd) or usd < 0:
+            return None, UNKNOWN_COST_TEXT
+        total += float(usd)
+    if not paid_any:
+        return 0.0, "бесплатно: платных шагов нет"
+    return round(total, 4), f"около ${round(total, 2)} за {projects_ru(len(steps))}"
+
+
+def group_card(
+    steps: list[PlanStep],
+    positions: list[int],
+    views: list[dict[str, Any]],
+    previews: list[dict[str, Any]],
+    fingerprint: str,
+) -> dict[str, Any]:
+    """Одна карточка на однотипные шаги разных проектов: сумма, список проектов, общий отпечаток.
+
+    Предупреждения и последствия каждого шага остаются в карточке с номером проекта.
+    Шаги исполняются по-прежнему каждый со своими проверками.
+    """
+    projects = [step.params.get("project_id") for step in steps]
+    count = len(steps)
+    spec = _spec(steps[0].action)
+    base = str(getattr(spec, "title_ru", "") or "").strip() or views[0]["title"]
+    cost, cost_text = _group_cost(steps, views, previews)
+    warnings: list[str] = []
+    effects: list[str] = []
+    future: list[str] = []
+    errors: list[str] = []
+    plan_ids: dict[str, str] = {}
+    for at, project, preview in zip(positions, projects, previews, strict=True):
+        warnings += _tagged(project, preview.get("warnings"))
+        effects += _tagged(project, preview.get("destructive_effects"))
+        future += _tagged(project, preview.get("future_spend"))
+        errors += _tagged(project, preview.get("preview_errors"))
+        if isinstance(preview.get("plan_id"), str):
+            plan_ids[str(at)] = preview["plan_id"]
+    card: dict[str, Any] = {
+        "title": f"{base}: {projects_ru(count)} одним подтверждением",
+        "steps": views,
+        "cost_text": cost_text,
+        "cost": {"known": cost is not None, "high_usd": cost, "low_usd": cost},
+        "risk": plan_risk(views),
+        "warnings": list(dict.fromkeys(warnings)),
+        "destructive_effects": list(dict.fromkeys(effects)),
+        "future_spend": list(dict.fromkeys(future)),
+        "group": {
+            "positions": list(positions),
+            "projects": projects,
+            "fingerprint": fingerprint,
+            "plan_ids": plan_ids,
+        },
+    }
+    if cost is not None and cost > 0:
+        card["cost_estimate"] = cost
+    if errors:
+        card["preview_errors"] = errors[:20]
+    if any(preview.get("blocked") for preview in previews):
+        card["blocked"] = True
+    return card

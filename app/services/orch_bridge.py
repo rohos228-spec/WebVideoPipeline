@@ -392,6 +392,7 @@ async def _undo(plan_id: str) -> dict | None:
     return {"action": "history.rollback", "snapshot_ids": [int(i) for i in ids]}
 
 
+_NAMES_FAILURE = re.compile(r"\bне выполнен[аы]?:")
 _FAIL_RU = {
     store.STEP_UNKNOWN: "результат неизвестен",
     store.STEP_CANCELLED: "остановлено",
@@ -422,11 +423,13 @@ async def _outcome(plan_id: str, spec) -> dict:
         }
     error = str(step.get("error") or view.get("error") or "").strip()
     head = _FAIL_RU.get(status, "шаг не выполнен")
+    if status not in _FAIL_RU and _NAMES_FAILURE.search(error):
+        head = ""  # итог шага уже говорит «не выполнен» с именем проекта и шага
     return {
         "status": "failed",
         "plan_id": plan_id,
         "outcome": status or "failed",
-        "error": f"{head}: {error}" if error else head,
+        "error": f"{head}: {error}" if error and head else (error or head),
         "cost": to_usd(actual) or 0.0,
         "cost_source": "actual" if actual is not None else "none",
     }
@@ -663,6 +666,64 @@ async def _pending_step(runtime: Any, task_id: int | None, action: str | None, c
     return data.plan[position]
 
 
+async def _group_steps(
+    runtime: Any, task_id: int | None, change_id: str | None
+) -> list[tuple[int, Any]] | None:
+    """Шаги групповой карточки из чекпоинта. None — карточка не групповая."""
+    probe = getattr(runtime.supervisor, "card_group", None)
+    if task_id is None or not change_id or not callable(probe):
+        return None
+    data = await asyncio.to_thread(runtime.checkpoints.load_latest, int(task_id))
+    if data is None:
+        return None
+    plan = list(data.plan)
+    positions = probe(int(task_id), change_id, plan)
+    if positions is None:
+        return None
+    return [(at, plan[at]) for at in positions]
+
+
+async def _approve_group(
+    app: Any,
+    *,
+    change_id: str,
+    task_id: Any,
+    steps: list[tuple[int, Any]],
+    card: dict,
+    operator: approval.OperatorIdentity,
+    goal: str = "",
+) -> list[tuple[str, str]]:
+    """Одно нажатие — подтверждение ядра каждому шагу группы, у каждого свой план и хэш.
+    Отказ любого шага отзывает уже выпущенные этим вызовом: группа одобряется целиком или никак."""
+    group = card.get("group") if isinstance(card.get("group"), dict) else {}
+    plan_ids = group.get("plan_ids") if isinstance(group.get("plan_ids"), dict) else {}
+    issued: list[tuple[str, str]] = []
+    from app.orchestrator.agents.supervisor import group_step_change_id
+
+    try:
+        for at, step in steps:
+            if not plan_required(step.action):
+                continue
+            own = group_step_change_id(change_id, at)
+            plan_id, fresh = await _approve_card(
+                app,
+                change_id=own,
+                task_id=task_id,
+                action=step.action,
+                params=dict(step.params),
+                card_plan_id=plan_ids.get(str(at)),
+                operator=operator,
+                goal=goal,
+            )
+            if fresh:
+                issued.append((plan_id, own))
+    except BaseException:
+        for plan_id, own in issued:
+            await revoke(plan_id, own, operator.id)
+        raise
+    return issued
+
+
 _APPROVE_LOCKS: dict[str, asyncio.Lock] = {}
 
 
@@ -715,8 +776,26 @@ async def _approve_locked(
     )
     plan_id = None
     fresh = False
+    issued: list[tuple[str, str]] = []
     bridge_on = callable(getattr(supervisor.actions, "prepare_card", None))
-    if runs and card is not None and bridge_on and change_id:
+    group = (
+        await _group_steps(runtime, task_id, change_id) if runs and card is not None and bridge_on else None
+    )
+    if group is not None:
+        if supervisor._appr_open.get(int(task_id)) != change_id and not retry_grant:
+            raise DecisionError(409, "change_id is not current")
+        goal = str((runtime.tasks.get(int(task_id)) or {}).get("goal") or "")
+        with human_verified():
+            issued = await _approve_group(
+                app,
+                change_id=change_id,
+                task_id=task_id,
+                steps=group,
+                card=card,
+                operator=operator,
+                goal=goal,
+            )
+    elif runs and card is not None and bridge_on and change_id:
         step = await _pending_step(runtime, task_id, card.get("action"), change_id)
         if step is not None and plan_required(step.action):
             if supervisor._appr_open.get(int(task_id)) != change_id and not retry_grant:
@@ -741,6 +820,8 @@ async def _approve_locked(
         # Отзывается только подтверждение этого вызова: прежнее живое ждёт свой шаг.
         if plan_id and fresh:
             await revoke(plan_id, change_id, operator.id)
+        for own_plan, own in issued:
+            await revoke(own_plan, own, operator.id)
         raise
     if plan_id and retry_grant and isinstance(result, dict) and not result.get("executed"):
         await revoke(plan_id, change_id, operator.id)

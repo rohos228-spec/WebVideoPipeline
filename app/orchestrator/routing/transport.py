@@ -502,6 +502,7 @@ class HttpxTransport:
             what=GATE_WHAT,
             estimate_usd=max(float(request.estimate_usd or 0.0), GATE_MIN_ESTIMATE_USD),
             run_id=str(request.run_id or ""),
+            control=spend_guard.chat_control_active(),
         )
         try:
             return await self._send(request, cfg, url, key)

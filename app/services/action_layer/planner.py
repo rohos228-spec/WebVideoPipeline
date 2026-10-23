@@ -581,7 +581,7 @@ def validate_reply(
             changed = [k for k in params if params.get(k) != before.get(k)]
             if changed:
                 notes = [n for n in notes if not any(n.startswith(k + "=") for k in changed)]
-            if action_id == "project.patch_settings":
+            if action_id in ("project.patch_settings", "project.patch_settings_costly"):
                 params, gone = planner_rules.drop_unnamed_settings(params, request_text)
                 unnamed += gone
                 if gone and not set(params) - {"project_id"}:

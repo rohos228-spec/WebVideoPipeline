@@ -1,12 +1,15 @@
 """Отчёты по данным нод «Работа с GPT» и сводный отчёт по нескольким проектам.
 
-Цифры собирает код (без модели). Вид таблиц и подписи — в report_template.py.
-Что нода записала, берём из её сохранённого ответа (excel_gpt_uploads/<нода>/gpt_reply.txt):
-тот же разбор apply-ops, что применяет ответ к базе, но без записи.
+Цифры собирает код (без модели). Вид таблиц и подписи — в report_template.py, HTML — в report_html.py.
+Что нода записала, берём из всех пачек её последнего прогона (node_trace/<нода>/<прогон>/call_*):
+ответ GPT и итоговые ops после правок кода (ops_final.json). Нет дневника прогона — из сохранённого
+ответа excel_gpt_uploads/<нода>/gpt_reply.txt. Разбор тот же, что применяет ответ к базе, но без записи.
+Архивные кадры (attrs.archived) в отчёт не попадают.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,6 +22,8 @@ from app.services.action_layer.context import ActionCallError, ActionContext
 _REPLY_NAME = "gpt_reply.txt"
 _REPLY_MAX_BYTES = 4 * 1024 * 1024
 _CHAT_LINE_MAX = 220
+# Больше в одну ячейку xlsx Excel не пускает (32767); длинное значение идёт продолжением в следующих строках.
+XLSX_CELL_MAX = 32000
 
 
 # ── Общие помощники рендера ──
@@ -50,6 +55,24 @@ def xlsx_value(value: Any) -> Any:
     return value
 
 
+def _xlsx_lines(values: list[Any]) -> list[list[Any]]:
+    """Строка таблицы → строки листа: длинный текст режется на куски, ничего не теряется."""
+    parts = [
+        [v[i : i + XLSX_CELL_MAX] for i in range(0, len(v), XLSX_CELL_MAX)]
+        if isinstance(v, str) and len(v) > XLSX_CELL_MAX
+        else [v]
+        for v in values
+    ]
+    extra = max(len(p) for p in parts) if parts else 1
+    lines = [[p[0] for p in parts]]
+    for i in range(1, extra):
+        line = [p[i] if i < len(p) else None for p in parts]
+        if line[0] is None:
+            line[0] = f"{values[0]} (продолжение)"
+        lines.append(line)
+    return lines
+
+
 def write_workbook(
     path: Path,
     sheets: list[tuple[str, tuple[tuple[str, str], ...], list[dict]]],
@@ -72,7 +95,8 @@ def write_workbook(
         for cell in ws[1]:
             cell.font = Font(bold=True)
         for r in rows:
-            ws.append([xlsx_value(r.get(k)) for k, _l in columns])
+            for line in _xlsx_lines([xlsx_value(r.get(k)) for k, _l in columns]):
+                ws.append(line)
         fixed = (widths or {}).get(name) or {}
         for i, (key, label) in enumerate(columns, start=1):
             letter = get_column_letter(i)
@@ -113,11 +137,102 @@ def read_reply(data_dir: str | Path, node_key: str) -> str | None:
         return None
 
 
+def _read_text(path: Path) -> str | None:
+    try:
+        if not path.is_file() or path.stat().st_size > _REPLY_MAX_BYTES:
+            return None
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _read_json(path: Path) -> Any:
+    import json
+
+    text = _read_text(path)
+    if text is None:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
+def _call_order(path: Path) -> tuple[int, str]:
+    parts = path.name.split("_")
+    return (int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0, path.name)
+
+
+def read_batches(data_dir: str | Path, node_key: str) -> dict:
+    """Все пачки последнего прогона ноды с вызовами GPT; только внутри node_trace проекта."""
+    from app.services.node_trace import _safe_name, read_run, trace_root
+
+    root = trace_root(data_dir).resolve()
+    node_dir = (root / _safe_name(str(node_key))).resolve()
+    empty: dict[str, Any] = {"run": {}, "calls": []}
+    if node_dir.parent != root or not node_dir.is_dir():
+        return empty
+    try:
+        runs = sorted(
+            p
+            for p in node_dir.iterdir()
+            if p.is_dir() and not p.name.endswith(".del") and any(p.glob("call_*"))
+        )
+    except OSError:
+        return empty
+    if not runs:
+        return empty
+    run_dir = runs[-1]
+    calls = []
+    for call_dir in sorted((p for p in run_dir.glob("call_*") if p.is_dir()), key=_call_order):
+        ops_final = _read_json(call_dir / "ops_final.json")
+        calls.append(
+            {
+                "name": call_dir.name,
+                "reply": _read_text(call_dir / "reply.txt"),
+                "ops_final": ops_final if isinstance(ops_final, list) else None,
+                "error": (_read_text(call_dir / "error.txt") or "").strip(),
+            }
+        )
+    return {"run": read_run(run_dir), "calls": calls}
+
+
 def _canon_field(raw: Any) -> str:
     from app.services.db_apply import FIELD_ALIASES
 
     key = str(raw).strip()
     return FIELD_ALIASES.get(key.lower().replace(" ", "_")) or key
+
+
+@dataclass
+class FrameIndex:
+    """Кадры проекта для отчёта: живые (uuid → номер) и архивные (их в отчёт не берём)."""
+
+    num_by_uuid: dict[str, int] = field(default_factory=dict)
+    archived_uuids: set[str] = field(default_factory=set)
+    archived_numbers: set[int] = field(default_factory=set)
+    frames: list[dict] = field(default_factory=list)
+
+    def is_archived(self, ref: Any) -> bool:
+        text = str(ref if ref is not None else "").strip()
+        if text in self.archived_uuids:
+            return True
+        if text.isdigit():
+            n = int(text)
+            return n >= ARCHIVE_NUMBER_FROM or (
+                n in self.archived_numbers and n not in self.num_by_uuid.values()
+            )
+        return False
+
+
+# Парковочный номер архивного кадра (db_v2.frame_is_archived).
+ARCHIVE_NUMBER_FROM = 1_000_000
+
+
+def _index(index: FrameIndex | dict[str, int] | None) -> FrameIndex:
+    if isinstance(index, FrameIndex):
+        return index
+    return FrameIndex(num_by_uuid=dict(index or {}))
 
 
 def _frame_number(ref: Any, num_by_uuid: dict[str, int]) -> int | str:
@@ -136,32 +251,39 @@ def _card_name(card: Any, *keys: str) -> str:
     return " — ".join(dict.fromkeys(parts)) or "без названия"
 
 
-def writes_from_reply(text: str | None, num_by_uuid: dict[str, int]) -> dict:
-    """Разбор ответа: кадр → поля, поля проекта, персонажи, сцены. Ничего не пишет."""
-    out: dict[str, Any] = {
+def cell_text(value: Any) -> str:
+    """Значение поля целиком: текст как есть, список и словарь — JSON без сокращений."""
+    import json
+
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _empty_writes() -> dict[str, Any]:
+    return {
         "parsed": False,
         "frames": {},
+        "values": {},
         "project_fields": [],
         "replace_frames": None,
         "characters": [],
         "scenes": [],
         "partial": False,
+        "archived_skipped": 0,
     }
-    if not text:
-        return out
-    from app.services.db_apply import extract_apply_ops_json
 
-    try:
-        data = extract_apply_ops_json(text)
-    except Exception:  # noqa: BLE001 - кривой ответ не роняет отчёт
-        data = None
-    if not isinstance(data, dict):
-        return out
+
+def _apply_data(out: dict[str, Any], data: dict, index: FrameIndex) -> None:
+    """Одна пачка ответа поверх уже собранного: поздняя пачка перезаписывает то же поле кадра."""
     out["parsed"] = True
-    out["partial"] = bool(data.get("_salvaged_partial"))
+    out["partial"] = out["partial"] or bool(data.get("_salvaged_partial"))
     ops = data.get("ops") if isinstance(data.get("ops"), list) else data.get("actions")
-    frames: dict[Any, list[str]] = {}
-    values: dict[Any, dict[str, str]] = {}
     for op in ops if isinstance(ops, list) else []:
         if not isinstance(op, dict):
             continue
@@ -169,24 +291,78 @@ def writes_from_reply(text: str | None, num_by_uuid: dict[str, int]) -> dict:
         fields = op.get("fields") if isinstance(op.get("fields"), dict) else {}
         names = [_canon_field(k) for k in fields]
         if target == "frame":
-            num = _frame_number(op.get("frame_uuid") or op.get("frame_number") or op.get("кадр"), num_by_uuid)
-            known = frames.setdefault(num, [])
+            ref = op.get("frame_uuid") or op.get("frame_number") or op.get("кадр")
+            if index.is_archived(ref):
+                out["archived_skipped"] += 1
+                continue
+            num = _frame_number(ref, index.num_by_uuid)
+            known = out["frames"].setdefault(num, [])
             known.extend(n for n in names if n not in known)
-            slot = values.setdefault(num, {})
+            slot = out["values"].setdefault(num, {})
             for raw, value in fields.items():
-                slot[_canon_field(raw)] = "" if value is None else str(value)
+                slot[_canon_field(raw)] = cell_text(value)
         elif target == "project":
             out["project_fields"].extend(n for n in names if n not in out["project_fields"])
         elif target == "replace_frames":
             specs = op.get("frames") or op.get("кадры") or []
-            out["replace_frames"] = len(specs) if isinstance(specs, list) else 0
-    out["frames"] = dict(sorted(frames.items(), key=lambda kv: (isinstance(kv[0], str), kv[0])))
-    out["values"] = values
+            out["replace_frames"] = (out["replace_frames"] or 0) + (
+                len(specs) if isinstance(specs, list) else 0
+            )
     chars = data.get("characters") if isinstance(data.get("characters"), list) else []
-    out["characters"] = [_card_name(c, "id", "code", "имя", "name") for c in chars]
+    for c in chars:
+        name = _card_name(c, "id", "code", "имя", "name")
+        if name not in out["characters"]:
+            out["characters"].append(name)
     scenes = data.get("scenes") if isinstance(data.get("scenes"), list) else []
-    out["scenes"] = [_card_name(s, "id_scene", "id", "scene_id", "место", "place", "title") for s in scenes]
+    for sc in scenes:
+        name = _card_name(sc, "id_scene", "id", "scene_id", "место", "place", "title")
+        if name not in out["scenes"]:
+            out["scenes"].append(name)
+
+
+def _parse(text: str | None) -> dict | None:
+    if not text:
+        return None
+    from app.services.db_apply import extract_apply_ops_json
+
+    try:
+        data = extract_apply_ops_json(text)
+    except Exception:  # noqa: BLE001 - кривой ответ не роняет отчёт
+        data = None
+    return data if isinstance(data, dict) else None
+
+
+def _sorted_frames(out: dict[str, Any]) -> dict[str, Any]:
+    out["frames"] = dict(sorted(out["frames"].items(), key=lambda kv: (isinstance(kv[0], str), kv[0])))
     return out
+
+
+def writes_from_reply(text: str | None, num_by_uuid: FrameIndex | dict[str, int] | None) -> dict:
+    """Разбор одного ответа: кадр → поля, поля проекта, персонажи, сцены. Ничего не пишет."""
+    out = _empty_writes()
+    data = _parse(text)
+    if data is not None:
+        _apply_data(out, data, _index(num_by_uuid))
+    return _sorted_frames(out)
+
+
+def writes_from_batches(batches: dict, index: FrameIndex | dict[str, int] | None) -> dict:
+    """Все пачки прогона по порядку. Итоговые ops (после правок кода) важнее сырого ответа GPT."""
+    out = _empty_writes()
+    idx = _index(index)
+    calls = batches.get("calls") or []
+    out.update(batches=len(calls), batches_unparsed=0, batch_errors=0)
+    for call in calls:
+        data = _parse(call.get("reply"))
+        if isinstance(call.get("ops_final"), list):
+            data = {**(data or {}), "ops": call["ops_final"]}
+        if call.get("error"):
+            out["batch_errors"] += 1
+        if data is None:
+            out["batches_unparsed"] += 1
+            continue
+        _apply_data(out, data, idx)
+    return _sorted_frames(out)
 
 
 def _labels_ru(names: list[str]) -> str:
@@ -209,18 +385,41 @@ def prompt_title(variant: str | None) -> str:
     return f"{title} ({variant})"
 
 
-async def frame_numbers(pid: int) -> dict[str, int]:
+def _frame_row(fr: Any) -> dict:
+    attrs = fr.attrs if isinstance(fr.attrs, dict) else {}
+    return {
+        "number": int(fr.number),
+        "uuid": str(fr.uuid or ""),
+        "voiceover_text": fr.voiceover_text or "",
+        "place": str(attrs.get("место") or attrs.get("place") or ""),
+        "attrs": attrs,
+    }
+
+
+async def frame_index(pid: int, data_dir: str | Path | None = None) -> FrameIndex:
+    """Кадры проекта из единой базы (``data_dir`` — для совместимости вызова, project.db на этой линии нет)."""
     from sqlalchemy import select
 
     from app.models import Frame
     from app.services.action_layer import builtin_insight as bi
+    from app.services.db_v2 import frame_is_archived
 
     try:
         async with bi._sessions()() as s:
-            rows = (await s.execute(select(Frame.uuid, Frame.number).where(Frame.project_id == pid))).all()
+            rows = (await s.scalars(select(Frame).where(Frame.project_id == pid))).all()
     except SQLAlchemyError:
-        return {}
-    return {str(u): int(n) for u, n in rows if u}
+        rows = []
+    out = FrameIndex()
+    for fr in sorted(rows, key=lambda f: int(f.number or 0)):
+        if frame_is_archived(fr):
+            if fr.uuid:
+                out.archived_uuids.add(str(fr.uuid))
+            out.archived_numbers.add(int(fr.number or 0))
+            continue
+        if fr.uuid:
+            out.num_by_uuid[str(fr.uuid)] = int(fr.number)
+        out.frames.append(_frame_row(fr))
+    return out
 
 
 def is_gpt_node(node: dict | None, node_type: str = "") -> bool:
@@ -230,7 +429,45 @@ def is_gpt_node(node: dict | None, node_type: str = "") -> bool:
     return is_excel_gpt_node_type(raw)
 
 
-def gpt_nodes(project: Any, detail: dict, cards: dict[str, dict], num_by_uuid: dict[str, int]) -> list[dict]:
+def node_writes(data_dir: str | Path, node_key: str, index: FrameIndex | dict[str, int] | None) -> dict:
+    """Что записала нода: все пачки прогона из node_trace, без него — сохранённый ответ."""
+    batches = read_batches(data_dir, node_key)
+    if batches["calls"]:
+        writes = writes_from_batches(batches, index)
+        writes["run"] = batches["run"]
+        writes["source"] = f"пачек прогона: {len(batches['calls'])}"
+        return writes
+    writes = writes_from_reply(read_reply(data_dir, node_key), index)
+    writes.update(run={}, source="последний ответ" if writes["parsed"] else "")
+    return writes
+
+
+def _writes_note(writes: dict, status_ru: str) -> str:
+    notes: list[str] = []
+    if not writes["parsed"]:
+        if status_ru != "не запускалась":
+            notes.append("сохранённого ответа с данными нет")
+    elif writes["partial"]:
+        notes.append("ответ был обрезан, разобрана целая часть")
+    if writes.get("batches_unparsed"):
+        notes.append(f"пачек без разбора: {writes['batches_unparsed']}")
+    if writes.get("batch_errors"):
+        notes.append(f"пачек с ошибкой: {writes['batch_errors']}")
+    skipped = (writes.get("run") or {}).get("skipped") or []
+    if skipped:
+        notes.append(f"пачек не записано: {len(skipped)}")
+    if writes.get("archived_skipped"):
+        notes.append(f"записей в архивные кадры (не показаны): {writes['archived_skipped']}")
+    if writes["project_fields"]:
+        notes.append("проект: " + _labels_ru(writes["project_fields"]))
+    if writes["replace_frames"] is not None:
+        notes.append(f"пересобрала кадры: {writes['replace_frames']}")
+    return "; ".join(notes)
+
+
+def gpt_nodes(
+    project: Any, detail: dict, cards: dict[str, dict], index: FrameIndex | dict[str, int] | None
+) -> list[dict]:
     """Строки по нодам «Работа с GPT» в порядке канваса."""
     from app.services.action_layer import builtin_insight as bi
     from app.services.action_layer.builtin_group import node_label_ru
@@ -246,19 +483,12 @@ def gpt_nodes(project: Any, detail: dict, cards: dict[str, dict], num_by_uuid: d
         if not card:
             raw, eff = bi._node_types(node)
             variant = (bi._prompt_for(detail, key, raw, eff) or {}).get("variant")
-        writes = writes_from_reply(read_reply(project.data_dir, key), num_by_uuid)
+        status_ru = card.get("status_ru") or "не запускалась"
+        writes = node_writes(project.data_dir, key, index)
         fields: list[str] = []
         for names in writes["frames"].values():
             fields.extend(n for n in names if n not in fields)
-        note = ""
-        if not writes["parsed"]:
-            note = "сохранённого ответа с данными нет" if card.get("status_ru") != "не запускалась" else ""
-        elif writes["partial"]:
-            note = "ответ был обрезан, разобрана целая часть"
-        if writes["project_fields"]:
-            note = "; ".join(x for x in (note, "проект: " + _labels_ru(writes["project_fields"])) if x)
-        if writes["replace_frames"] is not None:
-            note = "; ".join(x for x in (note, f"пересобрала кадры: {writes['replace_frames']}") if x)
+        run = writes.get("run") or {}
         out.append(
             {
                 "node_key": key,
@@ -266,7 +496,7 @@ def gpt_nodes(project: Any, detail: dict, cards: dict[str, dict], num_by_uuid: d
                 "prompt_variant": variant or "",
                 "prompt_title": prompt_title(variant),
                 "model": card.get("model") or "",
-                "status_ru": card.get("status_ru") or "не запускалась",
+                "status_ru": status_ru,
                 "frames_written": len(writes["frames"]),
                 "fields": fields,
                 "fields_ru": _labels_ru(fields),
@@ -277,7 +507,17 @@ def gpt_nodes(project: Any, detail: dict, cards: dict[str, dict], num_by_uuid: d
                 "scenes": writes["scenes"],
                 "scenes_count": len(writes["scenes"]),
                 "project_fields": writes["project_fields"],
-                "note": note,
+                "note": _writes_note(writes, status_ru),
+                "source": writes.get("source") or "",
+                "batches": int(writes.get("batches") or 0),
+                "archived_skipped": int(writes.get("archived_skipped") or 0),
+                "run_when": run.get("finished") or run.get("started") or "",
+                "run_status": run.get("status") or "",
+                "run_calls": run.get("calls"),
+                "run_counts": run.get("counts") or {},
+                "run_dir": run.get("dir") or "",
+                "cost_usd": card.get("cost_usd"),
+                "cost_how": card.get("cost_how") or "",
             }
         )
     return out
@@ -393,10 +633,13 @@ async def _project_ids(params: dict) -> tuple[list[int], int]:
 
 
 async def _grouped(pids: list[int]) -> dict[str, dict[int, float]]:
+    from types import SimpleNamespace
+
     from sqlalchemy import func, select, text
 
     from app.models import Artifact, ArtifactKind, Frame
     from app.services.action_layer import builtin_insight as bi
+    from app.services.db_v2 import frame_is_archived
 
     out: dict[str, dict[int, float]] = {"frames": {}, "images": {}, "videos": {}, "spent": {}}
     if not pids:
@@ -405,14 +648,17 @@ async def _grouped(pids: list[int]) -> dict[str, dict[int, float]]:
 
     async def count(s, ids: list[int]) -> None:
         # Счёт по проектам из единой базы; max — на случай повторного прохода по тем же id.
-        for pid, n in (
+        # Архивные кадры (attrs.archived, парковочный номер) не считаем.
+        live: dict[int, int] = {}
+        for pid, number, attrs in (
             await s.execute(
-                select(Frame.project_id, func.count(Frame.id))
-                .where(Frame.project_id.in_(ids))
-                .group_by(Frame.project_id)
+                select(Frame.project_id, Frame.number, Frame.attrs).where(Frame.project_id.in_(ids))
             )
         ).all():
-            out["frames"][int(pid)] = max(out["frames"].get(int(pid), 0), int(n))
+            if not frame_is_archived(SimpleNamespace(number=number, attrs=attrs)):
+                live[int(pid)] = live.get(int(pid), 0) + 1
+        for pid, n in live.items():
+            out["frames"][pid] = max(out["frames"].get(pid, 0), n)
         for pid, kind, n in (
             await s.execute(
                 select(Artifact.project_id, Artifact.kind, func.count(Artifact.id))
@@ -477,8 +723,26 @@ async def _project_detail(ctx: ActionContext, pid: int, row: Any) -> dict:
     }
 
 
+_PROJECT_GPT_KEYS = (
+    "node_key",
+    "label",
+    "prompt_variant",
+    "prompt_title",
+    "model",
+    "status_ru",
+    "frames_written",
+    "characters_count",
+    "scenes_count",
+    "cost_usd",
+    "cost_how",
+    "note",
+)
+
+
 async def _project_row_report(ctx: ActionContext, pid: int, row: Any, counts: dict) -> dict:
     from app.services.action_layer import builtin_insight as bi
+    from app.services.action_layer import report_costs
+    from app.services.action_layer.builtin_group import node_label_ru
 
     if row is None:
         return {
@@ -496,16 +760,28 @@ async def _project_row_report(ctx: ActionContext, pid: int, row: Any, counts: di
     runs = {str(nr.get("node_key")): nr for nr in await bi._node_runs(ctx, pid)}
     by_key = {str(n["id"]): n for n in bi._canvas_nodes(meta)}
     project = bi._transient(pid, detail, row)
+    split = await report_costs.node_costs(
+        pid, node_runs=list(runs.values()), step_nodes=report_costs.step_nodes_of(list(by_key.values()))
+    )
     cards: dict[str, dict] = {}
     for key, node in by_key.items():
         if is_gpt_node(node):
             cards[key] = bi._node_card(
-                project, detail, key, node, runs.get(key), checks=[], cost=None, detailed=False
+                project,
+                detail,
+                key,
+                node,
+                runs.get(key),
+                checks=[],
+                cost=split.by_node.get(key),
+                detailed=False,
             )
-    nodes = gpt_nodes(project, detail, cards, await frame_numbers(pid))
+            cards[key]["cost_how"] = ", ".join(split.how.get(key) or [])
+    nodes = gpt_nodes(project, detail, cards, await frame_index(pid, project.data_dir))
     gpt = "; ".join(
         f"{n['label']}: {n['prompt_title'] or 'промт по умолчанию'} ({n['status_ru']})" for n in nodes
     )
+    trace_runs, _diary = bi._trace_runs(project.data_dir)
     spent = counts["spent"].get(pid)
     return {
         "project_id": pid,
@@ -517,37 +793,35 @@ async def _project_row_report(ctx: ActionContext, pid: int, row: Any, counts: di
         "steps_done": done,
         "steps_total": len(steps),
         "gpt": gpt or "нет",
-        "gpt_nodes": [
-            {
-                k: n[k]
-                for k in (
-                    "node_key",
-                    "label",
-                    "prompt_variant",
-                    "prompt_title",
-                    "status_ru",
-                    "frames_written",
-                    "characters_count",
-                    "scenes_count",
-                )
-            }
-            for n in nodes
-        ],
+        "gpt_nodes": [{k: n.get(k) for k in _PROJECT_GPT_KEYS} for n in nodes],
         "frames": int(counts["frames"].get(pid, 0)),
         "images": int(counts["images"].get(pid, 0)),
         "videos": int(counts["videos"].get(pid, 0)),
         "spent_usd": None if spent is None else round(spent, 4),
+        "spent_by_source": {k: round(v, 4) for k, v in split.by_source.items()},
+        "attributed_usd": round(split.attributed, 4),
+        "runs": trace_runs,
+        "labels": {key: node_label_ru(meta, key) for key in by_key},
         "updated_at": bi._iso(getattr(row, "updated_at", None)),
     }
 
 
 def _without_spent(columns: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
-    return tuple(col for col in columns if col[0] != "spent_usd")
+    return tuple(col for col in columns if col[0] not in ("spent_usd", "cost_usd"))
+
+
+def with_no_data(rows: list[dict], keys: tuple[str, ...]) -> list[dict]:
+    """Для файла и чата: пустая стоимость — «нет данных», не пустая ячейка и не 0.
+    Нода, которая не запускалась, ничего не тратила: у неё прочерк."""
+    from app.services.action_layer.report_costs import empty_cost
+
+    return [{**r, **{k: empty_cost(r.get("status_ru")) for k in keys if r.get(k) is None}} for r in rows]
 
 
 async def report_projects(ctx: ActionContext, params: dict) -> dict:
     from app.models import Project
     from app.services.action_layer import builtin_insight as bi
+    from app.services.action_layer import report_html
     from app.services.action_layer.plan import member_view
 
     fmt = params.get("kind", "chat")
@@ -594,7 +868,7 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         ("Отчёт", tpl.PROJECTS_TITLE),
         ("Сформирован", datetime.now().isoformat(timespec="seconds")),
         ("Проектов", len(found)),
-        ("Кадров", summary["frames"]),
+        ("Кадров (без архивных)", summary["frames"]),
         ("Картинок", summary["images"]),
         ("Видео", summary["videos"]),
     ]
@@ -606,11 +880,42 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         pairs.append(("Не найдены", ", ".join(f"#{p}" for p in missing)))
     from app.web.routers.project_reports import SHARED_PREFIX, shared_report_url
 
-    path = shared_reports_dir() / f"{SHARED_PREFIX}{_stamp()}.xlsx"
-    write_workbook(path, [(tpl.PROJECTS_SHEET, columns, rows)], pairs)
-    url = shared_report_url(path)
-    out.update(path=str(path), download_url=url, file_name=path.name, rows=len(rows), file_format="xlsx")
-    shown = rows[: tpl.CHAT_ROWS]
+    base = shared_reports_dir() / f"{SHARED_PREFIX}{_stamp()}"
+    xlsx_path, html_path = base.with_suffix(".xlsx"), base.with_suffix(".html")
+    gpt_rows = [{**n, "project_id": r["project_id"]} for r in found for n in r["gpt_nodes"]]
+    sheets = [(tpl.PROJECTS_SHEET, columns, with_no_data(rows, ("spent_usd",)))]
+    if gpt_rows:
+        gpt_columns = tpl.PROJECTS_GPT_COLUMNS if show_spent else _without_spent(tpl.PROJECTS_GPT_COLUMNS)
+        sheets.append((tpl.GPT_SHEET, gpt_columns, with_no_data(gpt_rows, ("cost_usd",))))
+    write_workbook(xlsx_path, sheets, pairs)
+    html_path.write_text(
+        report_html.render_projects_html(
+            bi._safe(
+                {
+                    "rows": rows,
+                    "summary": summary,
+                    "stamp": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                    # Участнику — без колонок трат, как в xlsx и чате.
+                    "show_costs": show_spent,
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+    html_url, xlsx_url = shared_report_url(html_path), shared_report_url(xlsx_path)
+    primary = xlsx_path if fmt == "xlsx" else html_path
+    out.update(
+        path=str(primary),
+        download_url=shared_report_url(primary),
+        file_name=primary.name,
+        rows=len(rows),
+        file_format=primary.suffix.lstrip("."),
+        html_path=str(html_path),
+        xlsx_path=str(xlsx_path),
+        downloads=[{"url": html_url, "file_format": "html"}, {"url": xlsx_url, "file_format": "xlsx"}],
+    )
+    link = f"[Скачать отчёт (html)]({html_url}) · [Скачать отчёт (xlsx)]({xlsx_url})"
+    shown = with_no_data(rows[: tpl.CHAT_ROWS], ("spent_usd",))
     table = markdown_table(shown, chat_columns)
     tail = f"\n\nЕщё проектов: {len(rows) - len(shown)} (все в файле)." if len(rows) > len(shown) else ""
     gpt_lines = [
@@ -618,5 +923,5 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
     ]
     gpt_text_md = ("\n\n" + tpl.GPT_SECTION_TITLE + ":\n" + "\n".join(gpt_lines)) if gpt_lines else ""
     out["markdown"] = f"## {tpl.PROJECTS_TITLE}\n\n{head}\n\n{table}{tail}{gpt_text_md}"
-    out["text_ru"] = head + f" Файл отчёта готов: [Скачать отчёт (xlsx)]({url})"
+    out["text_ru"] = head + f" Файл отчёта готов: {link}"
     return bi._safe(out)

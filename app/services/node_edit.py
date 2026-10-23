@@ -11,6 +11,8 @@ SERVER_OWNED_META_KEYS = (PINS_KEY, HISTORY_KEY)
 HISTORY_LIMIT = 20
 
 MODEL_FIELD = "modelId"
+EFFORT_FIELD = "reasoningEffort"
+PIN_NODE_FIELDS = (MODEL_FIELD, EFFORT_FIELD)
 KIND_TEXT, KIND_IMAGE, KIND_VIDEO = "text", "image", "video"
 
 TEXT_MODEL_NODE_TYPES = frozenset(
@@ -54,7 +56,26 @@ CHECK_CFG_KEYS = ("checkMode", "checkFix", "emitKinds", "outputMode", "checkProm
 RETRY_PROFILES = ("safe", "fast")
 EDGE_KINDS = ("after", "pass", "fail", "gate")
 SAFE_EDGE_SWITCHES = frozenset({("after", "pass"), ("after", "gate"), ("pass", "gate"), ("gate", "pass")})
-PARAM_NAMES = ("disabled", "check_mode", "check_fix", "prompt_variant", "retry_profile", "branches")
+PARAM_NAMES = (
+    "disabled",
+    "check_mode",
+    "check_fix",
+    "prompt_variant",
+    "retry_profile",
+    "branches",
+    "reasoning_effort",
+)
+# Уровень рассуждений: в чате три значения; на ноде пишется в виде пикера холста (low/med/high).
+REASONING_EFFORTS = ("low", "medium", "high")
+EFFORT_TO_CANVAS = {"low": "low", "medium": "med", "high": "high"}
+EFFORT_RANK = {"low": 0, "medium": 1, "high": 2, "xhigh": 3}
+EFFORT_RU = {
+    "low": "низкий (быстрее и дешевле)",
+    "medium": "средний",
+    "high": "высокий (по умолчанию)",
+    "xhigh": "максимальный",
+}
+EFFORT_PROVIDERS = frozenset({"vibecode", "kie"})
 
 KIND_RU = {KIND_TEXT: "текстовая модель", KIND_IMAGE: "модель картинок", KIND_VIDEO: "модель видео"}
 TYPE_RU = {
@@ -94,6 +115,7 @@ PARAM_TITLE_RU = {
     "prompt_variant": "вариант промта",
     "retry_profile": "повторы при сбое (для всего проекта)",
     "branches": "ветки ок / не ок",
+    "reasoning_effort": "уровень рассуждений модели",
 }
 RETRY_RU = {
     "safe": "обычные: 3 цикла по 3 попытки, пауза 30 минут",
@@ -311,6 +333,46 @@ def model_applies(meta: dict | None, node: dict) -> tuple[bool, str]:
     return False, (f"шаг берёт модель с первой ноды этого типа («{name}»), эта нода модель шага не меняет")
 
 
+def node_effort(node: dict) -> str:
+    from app.services.vibecode_catalog import read_node_reasoning_effort
+
+    return read_node_reasoning_effort(node) or "high"
+
+
+def _effort_raw(node: dict | None) -> str | None:
+    data = (node or {}).get("data") if isinstance((node or {}).get("data"), dict) else {}
+    raw = str(data.get(EFFORT_FIELD) or data.get("reasoning_effort") or "").strip()
+    return raw or None
+
+
+def effort_applies(meta: dict | None, node: dict) -> tuple[bool, str]:
+    """Доходит ли уровень рассуждений с ноды до запроса (vibecode chat или kie Responses)."""
+    from app.services.gpt_api import is_anthropic_model
+    from app.services.pay52_routes import resolve_text
+
+    key = str(node.get("id") or "")
+    if model_kind_for_type(node_type(node)) != KIND_TEXT:
+        return False, "у этой ноды нет текстовой модели"
+    if is_forced_vibecode(meta, key):
+        return False, (
+            "у нод группы «Кадры» уровень рассуждений задан кодом (высокий), настройка на ноде не учитывается"
+        )
+    applies, note = model_applies(meta, node)
+    if not applies:
+        return False, note
+    model, _ = effective_model(node)
+    if not isinstance(model, dict):
+        return False, "модели ноды нет в каталоге"
+    api_model = str(model.get("api_model") or model.get("id") or "")
+    if str(model.get("provider") or "") not in EFFORT_PROVIDERS or is_anthropic_model(api_model):
+        return False, f"модель «{model_title(model)}» не принимает уровень рассуждений с ноды"
+    if resolve_text(api_model) is not None:
+        return False, (
+            f"запросы модели «{model_title(model)}» идут через 52pay, уровень с ноды там не используется"
+        )
+    return True, ""
+
+
 def model_state(meta: dict | None, node_key: str) -> dict:
     node = require_node(meta, node_key)
     typ = node_type(node)
@@ -477,6 +539,31 @@ def last_history(meta: dict | None, node_key: str, kind: str) -> dict | None:
     return None
 
 
+def revert_target(meta: dict | None, node_key: str, kind: str) -> dict | None:
+    """Правка вида kind, которую вернёт следующий откат: история читается как стек.
+
+    Каждый откат (запись с revert_of) снимает со стека верхнюю правку, поэтому откаты
+    подряд идут вглубь, пока есть история. Старые записи, где откат отменял прошлый
+    откат, возвращают снятую правку обратно на стек.
+    """
+    hist = (meta or {}).get(HISTORY_KEY) if isinstance(meta, dict) else None
+    items = (hist or {}).get(node_key) if isinstance(hist, dict) else None
+    stack: list[dict] = []
+    undone: list[tuple[dict, dict]] = []
+    for entry in items or []:
+        if not isinstance(entry, dict) or entry.get("kind") != kind:
+            continue
+        ref = entry.get("revert_of")
+        if not ref:
+            stack.append(entry)
+            undone.clear()
+        elif stack and stack[-1].get("at") == ref:
+            undone.append((entry, stack.pop()))
+        elif undone and undone[-1][0].get("at") == ref:
+            stack.append(undone.pop()[1])
+    return stack[-1] if stack else None
+
+
 def apply_model_change(
     meta: dict, node_key: str, model_id: str | None, *, actor: str = "", revert_of: str | None = None
 ) -> tuple[dict, dict]:
@@ -501,10 +588,12 @@ def apply_model_change(
 
 def plan_model_revert(meta: dict | None, node_key: str) -> dict:
     node = require_node(meta, node_key)
-    entry = last_history(meta, node_key, "model")
+    entry = revert_target(meta, node_key, "model")
     if entry is None:
         raise NodeEditError(
-            "nothing_to_revert", f"У ноды «{node_label(node)}» нет сохранённой прежней модели."
+            "nothing_to_revert",
+            f"У ноды «{node_label(node)}» нет сохранённой прежней модели: "
+            "все смены модели из истории уже возвращены.",
         )
     current = canonical_model_id(explicit_model_id(node))
     if current != canonical_model_id((entry.get("after") or {}).get("model_id")):
@@ -535,20 +624,29 @@ def reconcile_canvas_pins(base: dict | None, merged: dict) -> dict:
             out_pins["nodes"].pop(key, None)
             continue
         for field, pin in list(fields.items()):
-            if field != MODEL_FIELD or not isinstance(pin, dict):
+            if field not in PIN_NODE_FIELDS or not isinstance(pin, dict):
                 fields.pop(field, None)
                 continue
-            incoming = canonical_model_id(explicit_model_id(node))
+            incoming = (
+                canonical_model_id(explicit_model_id(node)) if field == MODEL_FIELD else _effort_raw(node)
+            )
             if incoming == pin.get("value"):
                 fields.pop(field, None)
             elif incoming == pin.get("prev"):
                 data = dict(node.get("data") or {})
-                data.pop("model_id", None)
-                if pin.get("value") is None:
-                    data.pop(MODEL_FIELD, None)
+                if field == MODEL_FIELD:
+                    data.pop("model_id", None)
+                    if pin.get("value") is None:
+                        data.pop(MODEL_FIELD, None)
+                    else:
+                        data[MODEL_FIELD] = pin["value"]
+                        data["modelChannel"] = "stable"
                 else:
-                    data[MODEL_FIELD] = pin["value"]
-                    data["modelChannel"] = "stable"
+                    data.pop("reasoning_effort", None)
+                    if pin.get("value") is None:
+                        data.pop(EFFORT_FIELD, None)
+                    else:
+                        data[EFFORT_FIELD] = pin["value"]
                 node["data"] = data
             else:
                 fields.pop(field, None)
@@ -674,6 +772,8 @@ def read_params(state: dict, node_key: str) -> dict:
         out.update(
             check_mode=bool(cfg.get("checkMode")), check_fix=bool(cfg.get("checkFix")), role=cfg.get("role")
         )
+    if model_kind_for_type(typ) == KIND_TEXT:
+        out["reasoning_effort"] = node_effort(node)
     prompt = resolve_prompt(state, node)
     if prompt is not None:
         out["prompt_variant"] = prompt.get("variant")
@@ -698,6 +798,8 @@ def _raw(meta: dict, node_key: str, param: str, branches: list[str] | None = Non
         return node_slots.get("main")
     if param == "retry_profile":
         return meta.get("step_failure_profile")
+    if param == "reasoning_effort":
+        return _effort_raw(find_node(meta, node_key))
     if param == "branches":
         want = set(branches or [])
         return {
@@ -706,6 +808,32 @@ def _raw(meta: dict, node_key: str, param: str, branches: list[str] | None = Non
             if isinstance(e, dict) and str(e.get("id") or "") in want
         }
     raise KeyError(param)
+
+
+def raw_param_name(param: str) -> str:
+    """Ключ, под которым настройка лежит в истории: проверка и «чинить» хранятся вместе."""
+    return "check_mode" if param == "check_fix" else param
+
+
+def raw_params(meta: dict, node_key: str, params: list[str], branches: list[str] | None = None) -> dict:
+    """Сырые значения настроек ноды в том виде, в каком их пишет история правок."""
+    return {param: _raw(meta, node_key, param, branches) for param in params}
+
+
+def params_entry_restores(entry: dict | None, before: dict | None) -> bool:
+    """Откат записи entry вернёт ровно значения before (все её настройки есть в before)."""
+    if not isinstance(entry, dict) or not isinstance(before, dict):
+        return False
+    for param, value in (entry.get("before") or {}).items():
+        if param not in before:
+            return False
+        if param == "branches":
+            have = before.get("branches") or {}
+            if any(have.get(eid) != kind for eid, kind in (value or {}).items()):
+                return False
+        elif before[param] != value:
+            return False
+    return True
 
 
 def _write_raw(meta: dict, node_key: str, param: str, value: Any) -> None:
@@ -747,6 +875,19 @@ def _write_raw(meta: dict, node_key: str, param: str, value: Any) -> None:
             meta.pop("step_failure_profile", None)
         else:
             meta["step_failure_profile"] = value
+    elif param == "reasoning_effort":
+        for n in meta["canvas_graph"]["nodes"]:
+            if isinstance(n, dict) and str(n.get("id") or "") == node_key:
+                prev = _effort_raw(n)
+                data = dict(n.get("data") or {})
+                data.pop("reasoning_effort", None)
+                if value is None:
+                    data.pop(EFFORT_FIELD, None)
+                else:
+                    data[EFFORT_FIELD] = value
+                n["data"] = data
+                _pin(meta, "nodes", node_key, EFFORT_FIELD, value, prev)
+                return
     elif param == "branches":
         cg = meta["canvas_graph"]
         edges = []
@@ -936,6 +1077,36 @@ def plan_params_change(state: dict, node_key: str, changes: dict) -> dict:
     if changes.get("branches"):
         _plan_branches(meta, node, changes["branches"], add, raw_before, raw_after, new_meta)
 
+    if changes.get("reasoning_effort") is not None:
+        want = str(changes["reasoning_effort"]).strip().lower()
+        if want not in REASONING_EFFORTS:
+            raise NodeEditError(
+                "bad_value", "Уровень рассуждений: low (низкий), medium (средний) или high (высокий)."
+            )
+        ok, why = effort_applies(meta, node)
+        if not ok:
+            raise NodeEditError(
+                "no_effect", (f"Уровень рассуждений ноды «{label}» ни на что не повлияет: {why}.")
+            )
+        cur_effort = node_effort(node)
+        if cur_effort == want:
+            raise NodeEditError(
+                "same_value", f"У ноды «{label}» уже стоит уровень рассуждений «{EFFORT_RU[want]}»."
+            )
+        more = EFFORT_RANK[want] > EFFORT_RANK.get(cur_effort, EFFORT_RANK["high"])
+        add(
+            "reasoning_effort",
+            EFFORT_RU.get(cur_effort, cur_effort),
+            EFFORT_RU[want],
+            more,
+            "больше рассуждений: больше токенов, запуски ноды дороже и дольше"
+            if more
+            else "ответы будут короче и могут стать менее тщательными",
+        )
+        raw_before["reasoning_effort"] = _raw(meta, node_key, "reasoning_effort")
+        raw_after["reasoning_effort"] = EFFORT_TO_CANVAS[want]
+        _write_raw(new_meta, node_key, "reasoning_effort", EFFORT_TO_CANVAS[want])
+
     if not items:
         raise NodeEditError("same_value", f"У ноды «{label}» уже такие настройки.")
     return {
@@ -1046,10 +1217,12 @@ def apply_params_change(
 def revert_params(state: dict, node_key: str, *, actor: str = "") -> tuple[dict, dict]:
     meta = state.get("meta") or {}
     node = require_node(meta, node_key)
-    entry = last_history(meta, node_key, "params")
+    entry = revert_target(meta, node_key, "params")
     if entry is None:
         raise NodeEditError(
-            "nothing_to_revert", f"У ноды «{node_label(node)}» нет сохранённых прежних настроек."
+            "nothing_to_revert",
+            f"У ноды «{node_label(node)}» нет сохранённых прежних настроек: "
+            "все правки настроек из истории уже возвращены.",
         )
     after = entry.get("after") or {}
     before = entry.get("before") or {}
@@ -1087,6 +1260,80 @@ def revert_params(state: dict, node_key: str, *, actor: str = "") -> tuple[dict,
     return new_meta, {"node_key": node_key, "node_label": node_label(node), "items": items}
 
 
+RAW_PARAM_NAMES = ("disabled", "check_mode", "prompt_variant", "retry_profile", "branches")
+
+
+def _check_raw_values(meta: dict, node: dict, values: dict) -> None:
+    label = node_label(node)
+    unknown = sorted(set(values) - set(RAW_PARAM_NAMES))
+    if unknown or not values:
+        raise NodeEditError("bad_param", f"Неизвестные настройки в снимке: {', '.join(unknown) or 'пусто'}.")
+    disabled = values.get("disabled", [])
+    if not isinstance(disabled, list) or not all(isinstance(x, str) for x in disabled):
+        raise NodeEditError("bad_param", "Снимок отключённых нод повреждён.")
+    check = values.get("check_mode", {})
+    if not isinstance(check, dict) or set(check) - set(CHECK_CFG_KEYS):
+        raise NodeEditError("bad_param", f"Снимок проверки ноды «{label}» повреждён.")
+    variant = values.get("prompt_variant")
+    if variant is not None and not isinstance(variant, str):
+        raise NodeEditError("bad_param", f"Снимок варианта промта ноды «{label}» повреждён.")
+    if values.get("retry_profile") not in (None, "safe", "fast"):
+        raise NodeEditError("bad_param", "Снимок повторов при сбое повреждён.")
+    branches = values.get("branches", {})
+    if not isinstance(branches, dict):
+        raise NodeEditError("bad_param", f"Снимок веток ноды «{label}» повреждён.")
+    own = {
+        str(e.get("id") or "")
+        for e in (_graph(meta) or {}).get("edges") or []
+        if isinstance(e, dict) and str(e.get("source") or "") == str(node.get("id"))
+    }
+    for eid, kind in branches.items():
+        if eid not in own:
+            raise NodeEditError("edge_not_found", f"Связи {eid} у ноды «{label}» больше нет.")
+        if kind not in EDGE_KIND_RU:
+            raise NodeEditError("bad_param", f"Снимок ветки {eid} повреждён.")
+
+
+def restore_params(
+    state: dict, node_key: str, values: dict, *, expected: dict | None = None, actor: str = ""
+) -> tuple[dict, dict]:
+    """Ставит сырые значения настроек из снимка журнала (откат не по порядку истории ноды).
+
+    Пишет обычную запись истории, поэтому «верни прежние настройки» вернёт и это.
+    """
+    meta = state.get("meta") or {}
+    node = require_node(meta, node_key)
+    _check_raw_values(meta, node, values)
+    names = list(values)
+    current = raw_params(meta, node_key, names, list((values.get("branches") or {}).keys()))
+    if expected is not None and current != {k: expected.get(k) for k in names}:
+        raise NodeEditError(
+            "changed_since",
+            (
+                f"Настройки ноды «{node_label(node)}» уже поменяли после правки: возврат "
+                "перезаписал бы чужое изменение."
+            ),
+            http=409,
+        )
+    new_meta = copy.deepcopy(meta)
+    items = []
+    for param in names:
+        _write_raw(new_meta, node_key, param, values[param] if param != "branches" else values[param] or {})
+        items.append({"param": param, "title_ru": PARAM_TITLE_RU.get(param, param)})
+    _push_history(
+        new_meta,
+        node_key,
+        {
+            "kind": "params",
+            "before": current,
+            "after": copy.deepcopy(values),
+            "at": _now(),
+            "by": actor[:120],
+        },
+    )
+    return new_meta, {"node_key": node_key, "node_label": node_label(node), "items": items}
+
+
 def describe_node(state: dict, node_key: str) -> dict:
     meta = state.get("meta") or {}
     node = require_node(meta, node_key)
@@ -1110,6 +1357,13 @@ def describe_node(state: dict, node_key: str) -> dict:
     else:
         lines.append("Модели у этой ноды нет.")
     params = read_params(state, node_key)
+    if "reasoning_effort" in params:
+        ok, why = effort_applies(meta, node)
+        effort = params["reasoning_effort"]
+        lines.append(
+            f"Уровень рассуждений: {EFFORT_RU.get(effort, effort)}"
+            + ("." if ok else f" (не действует: {why}).")
+        )
     lines.append("Состояние: " + ("отключена, шаг пропускается." if params["disabled"] else "включена."))
     if "role" in params:
         lines.append(
@@ -1148,13 +1402,13 @@ def describe_node(state: dict, node_key: str) -> dict:
         f"Повторы при сбое (общие для проекта): "
         f"{RETRY_RU.get(params['retry_profile'], params['retry_profile'])}."
     )
-    last = last_history(meta, node_key, "model")
+    last = revert_target(meta, node_key, "model")
     if last:
         b = model_title(find_catalog_model((last.get("before") or {}).get("model_id")), "по умолчанию")
         a = model_title(find_catalog_model((last.get("after") or {}).get("model_id")), "по умолчанию")
-        lines.append(f"Последняя смена модели: «{b}» → «{a}», можно вернуть.")
-    if last_history(meta, node_key, "params"):
-        lines.append("Последнюю правку настроек можно вернуть.")
+        lines.append(f"Смену модели «{b}» → «{a}» можно вернуть.")
+    if revert_target(meta, node_key, "params"):
+        lines.append("Правку настроек из истории ноды можно вернуть.")
     return {
         "node_key": node_key,
         "node_type": typ,

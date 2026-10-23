@@ -126,6 +126,10 @@ class _Stopped(Exception):
     pass
 
 
+class JobFailed(RuntimeError):
+    """Фоновая задача завершилась ошибкой; текст ошибки — готовый итог для чата."""
+
+
 class _KillSwitchStopped(Exception):
     pass
 
@@ -881,17 +885,10 @@ async def _run_step(app: Any, plan_id: str, step_id: int, operator: str, registr
                 plan_id, step, spec, cur, project_id, reserved, t0, operator, est_pair, force=False
             )
         actual = await _settle_if_done(plan_id, step, spec, reserved, t0, confirmed)
-        await _close_step(
-            plan_id,
-            step,
-            store.STEP_FAILED,
-            f"{type(exc).__name__}: {exc}",
-            "step_failed",
-            operator,
-            est_pair,
-            actual,
-        )
-        return f"{type(exc).__name__}: {exc}"[:300]
+        # Итог задачи уже написан по-русски: имя класса исключения в чате лишнее.
+        text = str(exc) if isinstance(exc, JobFailed) else f"{type(exc).__name__}: {exc}"
+        await _close_step(plan_id, step, store.STEP_FAILED, text, "step_failed", operator, est_pair, actual)
+        return text[:300]
     finally:
         _CURRENT.pop(plan_id, None)
 
@@ -1052,7 +1049,7 @@ async def _execute(
                 return {**start, **(state.result or {})}, _credits(state.credits_spent)
             if await _stop_requested(plan_id):
                 raise _Stopped()
-            raise RuntimeError(state.error or "фоновая задача завершилась ошибкой")
+            raise JobFailed(state.error or "фоновая задача завершилась ошибкой")
         if await _stop_requested(plan_id):
             await _call_stop(plan_id, cur)
         if await _kill_switch_on():

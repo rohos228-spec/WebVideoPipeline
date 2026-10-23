@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from app.orchestrator.agents.question_context import ANSWER_RULES, fact_text
+from app.orchestrator.agents.question_context import ANSWER_RULES, fact_limit, fact_text
 
 _TIMEOUT_S = 90.0
 _FACT_LIMIT = 1200
@@ -70,8 +70,8 @@ _REASON_RU: dict[str, tuple[str, str]] = {
         "внутренняя ошибка при составлении или выполнении плана",
         "Повторите просьбу чуть позже.",
     ),
-    "step_failed": ("шаг упал с ошибкой", "Посмотрите ошибку ниже и повторите после исправления."),
-    "action_rejected": ("действие отказалось выполняться", "Посмотрите причину ниже."),
+    "step_failed": ("шаг упал с ошибкой", "Устраните ошибку, указанную выше, и повторите."),
+    "action_rejected": ("действие отказалось выполняться", "Устраните причину, указанную выше, и повторите."),
     "missing_run_id": ("внутренняя ошибка учёта запуска", "Повторите просьбу."),
     "parallel_risk": ("в параллельной группе оказался изменяющий шаг", "Повторите просьбу."),
     "plan_stopped": ("план остановлен", "Повторите просьбу, если нужно продолжить."),
@@ -172,7 +172,7 @@ def note_from_result(action: str, result: Any, *, readonly: bool) -> StepNote:
         action,
         title,
         ok=status == "ok",
-        text=text[:_FACT_LIMIT],
+        text=text[: max(_FACT_LIMIT, fact_limit(action))],
         error=error[:400],
         readonly=readonly,
         undo=undo,
@@ -273,10 +273,19 @@ _KNOWN_TEXT = {
     "node.set_model_costly": _model_text,
     "node.set_params": _own_text,
     "node.set_params_costly": _own_text,
+    "project.patch_settings": _own_text,
+    "project.patch_settings_costly": _own_text,
     "prompt.edit_text": _own_text,
     "node.set_prompt_variant": _own_text,
+    "node.set_model_many": _own_text,
+    "node.set_prompt_variant_many": _own_text,
+    "node.revert_model_many": _own_text,
     "project.resume": _resume_text,
     "node.revert_model": _own_text,
+    "node.revert_params": _own_text,
+    "node.upload_check_agent": _own_text,
+    "node.clear_check_agent": _own_text,
+    "node.revert_check_agent": _own_text,
     "media.list_unknown_outcomes": _own_text,
     "media.release_unknown": _own_text,
     "history.rollback": _own_text,
@@ -285,6 +294,7 @@ _KNOWN_TEXT = {
     "report.projects": _own_text,
     "group.shots_report": _own_text,
     "step.run_step": _own_text,
+    "publish.send": _own_text,
     "project.create": _own_text,
     "hitl.approve": _own_text,
     "hitl.reject": _own_text,
@@ -305,14 +315,28 @@ def known_text(action: str, body: dict[str, Any]) -> str:
 _REPORT_URL = re.compile(r"^/api/projects/(?:\d+/)?reports/[A-Za-z0-9][A-Za-z0-9_.\-]{0,150}$")
 
 
-def download_links(body: dict[str, Any]) -> list[str]:
-    url = body.get("download_url")
+def _download_link(url: Any, kind: str) -> str:
     if not isinstance(url, str) or not url.startswith("/api/projects/"):
-        return []
+        return ""
     if "/reports/" in url and (not _REPORT_URL.fullmatch(url) or ".." in url):
-        return []
-    kind = str(body.get("file_format") or body.get("format") or "файл")
-    return [f"[Скачать отчёт ({kind})]({url})"]
+        return ""
+    return f"[Скачать отчёт ({kind})]({url})"
+
+
+def download_links(body: dict[str, Any]) -> list[str]:
+    """Ссылки на файлы отчёта: все из downloads (html и xlsx), иначе одна download_url."""
+    files = body.get("downloads")
+    if isinstance(files, list) and files:
+        links = [
+            _download_link(f.get("url"), str(f.get("file_format") or "файл"))
+            for f in files
+            if isinstance(f, dict)
+        ]
+        return list(dict.fromkeys(link for link in links if link))
+    link = _download_link(
+        body.get("download_url"), str(body.get("file_format") or body.get("format") or "файл")
+    )
+    return [link] if link else []
 
 
 def _change_line(note: StepNote) -> str:
@@ -544,8 +568,10 @@ def deterministic_text(facts: TaskFacts) -> str:
         lines.append(facts.detail)
     for note in failed:
         lines.append(f"Шаг «{note.title}»: {note.error or 'ошибка без пояснения'}.")
-    if done:
-        lines.append("Успели выполнить: " + ", ".join(f"«{note.title}»" for note in done) + ".")
+    # Чтения состояния перед шагом ничего не меняли: в «успели» только правки.
+    changed = [note for note in done if not note.readonly]
+    if changed:
+        lines.append("Успели выполнить: " + ", ".join(f"«{note.title}»" for note in changed) + ".")
     lines.append("Что можно сделать: " + todo)
     return "\n".join(lines)
 

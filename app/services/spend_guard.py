@@ -7,7 +7,8 @@ import math
 import os
 import re
 import time
-from contextlib import asynccontextmanager
+from collections.abc import Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -839,6 +840,90 @@ def unknown_row_estimate_usd() -> float:
     return _env_float("PAID_GATE_UNKNOWN_ROW_USD", UNKNOWN_ROW_ESTIMATE_USD)
 
 
+# Малый суточный резерв для LLM чата, когда человек просит остановить, поставить
+# на паузу или спрашивает статус. Без него потолок трат глушит и сам чат:
+# «останови все» не доходит до планёра. Платные шаги резерв не получают.
+CHAT_CONTROL_RESERVE_USD = 0.50
+_chat_control: contextvars.ContextVar[bool] = contextvars.ContextVar("spend_chat_control", default=False)
+_control_used: dict[str, float] = {}
+
+
+def chat_control_reserve_usd() -> float:
+    return _env_float("PAID_GATE_CHAT_CONTROL_RESERVE_USD", CHAT_CONTROL_RESERVE_USD)
+
+
+def chat_control_active() -> bool:
+    return _chat_control.get()
+
+
+@contextmanager
+def chat_control(enabled: bool = True) -> Iterator[bool]:
+    """Помечает ход чата как стоп/пауза/статус: его LLM может взять резерв сверх потолка."""
+    token = _chat_control.set(bool(enabled) or _chat_control.get())
+    try:
+        yield _chat_control.get()
+    finally:
+        _chat_control.reset(token)
+
+
+def chat_control_used_usd(day: str | None = None) -> float:
+    return _control_used.get(day or _today(), 0.0)
+
+
+# Потолок цепочки, запущенной из чата (ceiling_credits при allow_auto_chain).
+# Эндпоинт запуска шага кладёт его в meta проекта, воркер на каждом такте
+# берёт отсюда run_id цепочки и потолок: все такты пишут траты в один запуск,
+# и окно spend_cap_run останавливает цепочку на превышении.
+CHAIN_BUDGET_META = "chat_run_budget"
+CHAIN_RUN_PREFIX = "chain:"
+_run_cap: contextvars.ContextVar[tuple[str, float] | None] = contextvars.ContextVar(
+    "spend_run_cap", default=None
+)
+
+
+def chain_budget_meta(project_id: int, ceiling_credits: float, tag: str) -> dict:
+    from app.services.kie_catalog import CREDIT_USD
+
+    credits = float(ceiling_credits)
+    return {
+        "run_id": f"{CHAIN_RUN_PREFIX}{int(project_id)}:{tag}"[:80],
+        "ceiling_credits": credits,
+        "cap_usd": round(credits * CREDIT_USD, 6),
+        "started_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+
+
+def chain_budget(meta) -> tuple[str, float] | None:
+    raw = (meta or {}).get(CHAIN_BUDGET_META) if isinstance(meta, dict) else None
+    if not isinstance(raw, dict):
+        return None
+    run_id = str(raw.get("run_id") or "")[:80]
+    try:
+        cap = float(raw.get("cap_usd"))
+    except (TypeError, ValueError):
+        return None
+    if not run_id.startswith(CHAIN_RUN_PREFIX) or not math.isfinite(cap) or cap <= 0:
+        return None
+    return run_id, cap
+
+
+@contextmanager
+def chain_budget_scope(meta) -> Iterator[tuple[str, float] | None]:
+    """Такт воркера внутри цепочки из чата: run_id цепочки и её потолок."""
+    budget = chain_budget(meta)
+    if budget is None:
+        yield None
+        return
+    from app.services import request_context
+
+    token = _run_cap.set(budget)
+    try:
+        with request_context.request_scope(run_id=budget[0]):
+            yield budget
+    finally:
+        _run_cap.reset(token)
+
+
 def _sessions():
     from app.db import SessionLocal
 
@@ -875,6 +960,7 @@ def inflight_usd(*, project_id: int | None = None, run_id: str = "", day: str | 
 def reset_inflight() -> None:
     _inflight.clear()
     _block_event_stamp.clear()
+    _control_used.clear()
 
 
 _live_attempts: set[str] = set()
@@ -1049,14 +1135,17 @@ async def paid_gate(
     project_id: int | None = None,
     run_id: str = "",
     register: bool = True,
+    control: bool = False,
 ) -> PaidTicket:
+    """``control=True`` передаёт только транспорт LLM чата: при сработавшем потолке
+    ход стоп/пауза/статус берёт малый суточный резерв. Рубильник и диск не обходятся."""
     pid = _resolve_project(project_id)
     try:
         run_id = run_id or _ctx_run_id()
     except Exception:
         run_id = ""
     try:
-        return await _paid_gate(provider, what, estimate_usd, pid, run_id, register)
+        return await _paid_gate(provider, what, estimate_usd, pid, run_id, register, control)
     except PaidCallBlocked as blocked:
         logger.warning("paid gate BLOCKED {} {}: {} ({})", provider, what, blocked.code, blocked.message_ru)
         await _record_block(blocked.code, provider, what, pid)
@@ -1076,7 +1165,7 @@ async def paid_gate(
         raise blocked from exc
 
 
-async def _paid_gate(provider, what, estimate_usd, pid, run_id, register) -> PaidTicket:
+async def _paid_gate(provider, what, estimate_usd, pid, run_id, register, control=False) -> PaidTicket:
     from app.services import kill_switch
 
     try:
@@ -1104,6 +1193,11 @@ async def _paid_gate(provider, what, estimate_usd, pid, run_id, register) -> Pai
     usd = _default_estimate(estimate_usd)
     c = caps()
     run_id = (run_id or "")[:80]
+    labels = dict(_CAP_LABEL_RU)
+    bound = _run_cap.get()
+    if bound is not None and run_id == bound[0]:
+        c = {**c, "run": bound[1] if c["run"] <= 0 else min(c["run"], bound[1])}
+        labels["spend_cap_run"] = "цепочки, запущенной из чата"
     windows = (
         ("spend_cap_run", "run", bool(run_id)),
         ("spend_cap_project", "project", pid is not None),
@@ -1115,19 +1209,37 @@ async def _paid_gate(provider, what, estimate_usd, pid, run_id, register) -> Pai
             async with _sessions()() as session:
                 sums = await conservative_sums(session, project_id=pid, run_id=run_id)
         fly = inflight_usd(project_id=pid, run_id=run_id)
-        for code, key, applies in windows:
+        over = [
+            (code, key)
+            for code, key, applies in windows
+            if applies and c[key] > 0 and sums[key] + fly[key] + usd > c[key] + 1e-9
+        ]
+        day = _today()
+        if over and control and chat_control_used_usd(day) + usd <= chat_control_reserve_usd() + 1e-9:
+            if register:
+                _control_used[day] = chat_control_used_usd(day) + usd
+            logger.warning(
+                "paid gate: chat control {} {} over {} from reserve ({:.2f} of {:.2f} USD used)",
+                provider,
+                what,
+                ",".join(code for code, _key in over),
+                chat_control_used_usd(day),
+                chat_control_reserve_usd(),
+            )
+            over = []
+        if over:
+            code, key = over[0]
             cap = c[key]
             spent = sums[key] + fly[key]
-            if applies and cap > 0 and spent + usd > cap + 1e-9:
-                raise PaidCallBlocked(
-                    code,
-                    f"Платный вызов {provider} не отправлен: потолок трат {_CAP_LABEL_RU[code]} "
-                    f"({cap:.2f} USD) был бы превышен (учтено {spent:.2f} USD с открытыми резервами "
-                    f"и оценками, этот вызов {usd:.2f} USD). Запрос не отправлялся.",
-                    provider=provider,
-                    what=what,
-                    detail={"spent": round(spent, 6), "cap": cap, "estimate": usd, "source": what},
-                )
+            raise PaidCallBlocked(
+                code,
+                f"Платный вызов {provider} не отправлен: потолок трат {labels[code]} "
+                f"({cap:.2f} USD) был бы превышен (учтено {spent:.2f} USD с открытыми резервами "
+                f"и оценками, этот вызов {usd:.2f} USD). Запрос не отправлялся.",
+                provider=provider,
+                what=what,
+                detail={"spent": round(spent, 6), "cap": cap, "estimate": usd, "source": what},
+            )
         if not register:
             return PaidTicket(None, usd)
         entry = _InFlight(usd, pid, run_id, _today(), provider, what)
@@ -1200,7 +1312,7 @@ async def paid_precheck(
 
 UNIFIED_KINDS = ("estimated", "reserved", "actual", "gap", "event")
 _NOT_A_FACT_MARKS = ("uncalibrated", "cost_unknown", "basis=computed", "basis=estimate")
-_RUN_PREFIXES = ("plan:", "native:", "regen:", "queue:")
+_RUN_PREFIXES = ("plan:", "native:", "regen:", "queue:", CHAIN_RUN_PREFIX)
 
 
 def unified_kind(kind: str | None, source: str | None = "", note: str | None = "") -> str:
@@ -1345,7 +1457,6 @@ async def correlation_chain(session, request_id: str) -> list[dict]:
 # === compat: лёгкий pocket-бюджет из линейки WS3 (guard_paid_spend / note_paid_spend и т.д.)
 # Определяет пять мелких функций pocket-бюджета. Большая R0b-система выше работает независимо.
 
-from collections.abc import Iterator
 from contextlib import contextmanager
 
 from app.services.style_agent.budget import LlmBudget

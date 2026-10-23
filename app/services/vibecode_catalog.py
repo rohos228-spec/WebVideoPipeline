@@ -559,6 +559,22 @@ def resolve_node_choice(
     return found
 
 
+def read_node_reasoning_effort(node: dict[str, Any] | None) -> str | None:
+    """Уровень рассуждений, который уйдёт в запрос текстовой модели этой ноды.
+
+    На ноде задан — он (``llm_override`` берёт его из выбора ноды, ``gpt_api``
+    нормализует так же). Не задан — общий активный уровень студии
+    (``text_llm_catalog.resolve_active_reasoning_effort``): именно его получит запрос.
+    """
+    from app.services.text_llm_catalog import normalize_reasoning_effort, resolve_active_reasoning_effort
+
+    data = _node_data_dict(node)
+    raw = str(data.get("reasoningEffort") or data.get("reasoning_effort") or "").strip().lower()
+    if not raw:
+        return resolve_active_reasoning_effort() or None
+    return normalize_reasoning_effort({"med": "medium", "ultra": "xhigh"}.get(raw, raw)) or None
+
+
 def resolve_image_generator_id(
     project: Any,
     *,

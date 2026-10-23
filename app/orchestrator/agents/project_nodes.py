@@ -108,7 +108,41 @@ MODEL_RULE = (
     "node.set_model_costly. Не используй ссылки на результаты других шагов (вида $steps[...]) "
     "в params: только конкретные значения из списка."
 )
+MANY_RULE = (
+    "Одна модель или один промт для ноды во всех этих проектах — один шаг node.set_model_many или "
+    "node.set_prompt_variant_many с project_ids всех этих проектов, а не шаг на каждый проект; "
+    "model_id и variant бери из списков ниже. Вернуть прежнюю модель ноды во всех этих проектах — "
+    "один шаг node.revert_model_many."
+)
+FINISH_RULE = (
+    "Путь до готового ролика - вторая половина графа, каждый шаг отдельным step.run_step: озвучка "
+    "(step_code=audio), музыка (music), план звуков (sfx_plan), звуки (sfx_gen), сборка (assemble); "
+    "готовый mp4 - статус assembled. Запускай по одному шагу, следующий бери из строки «следующий "
+    "шаг по графу», а не весь путь сразу. Цену шага сначала узнай step.get_run_cost_basis: озвучка и "
+    "звуки - sound_credits оттуда, музыка - нужен потолок ceiling_credits не ниже цены трека. Своя "
+    "озвучка или музыка с компьютера - montage.upload_voice / montage.upload_music, тогда шаг их не "
+    "генерирует. Пересобрать собранный ролик без новых генераций - montage.run_montage, настройки "
+    "сборки (громкость музыки, субтитры) - montage.set_assemble_params. Публикация - только "
+    "publish.send и только после статуса assembled."
+)
+_FINISH_WORDS = (
+    "озвуч",
+    "музык",
+    "звук",
+    "собер",
+    "сборк",
+    "смонтир",
+    "монтаж",
+    "финальн",
+    "mp4",
+    "до конца",
+    "до готов",
+    "довед",
+    "опублик",
+    "публикац",
+)
 _MAX_MODEL_NODES = 2
+_MAX_CHAIN_NODES = 2
 _MAX_OPTIONS = 20
 _COST_RU = {"cheaper": "дешевле", "same": "так же", "costlier": "дороже", "unknown": "цена неизвестна"}
 _SET_ACTION = {"cheaper": "node.set_model", "same": "node.set_model"}
@@ -154,6 +188,7 @@ def roster(meta: Any) -> list[dict[str, Any]]:
     from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
     from app.services import node_edit as ne
     from app.services.action_layer import builtin_insight as bi
+    from app.services.action_layer.builtin_group import prompt_step_for
 
     if not isinstance(meta, dict):
         return []
@@ -176,6 +211,7 @@ def roster(meta: Any) -> list[dict[str, Any]]:
                 "label": label,
                 "model": model,
                 "step_code": NODE_TYPE_TO_STEP_CODE.get(typ, ""),
+                "prompt_step": prompt_step_for(raw) or "",
             }
         )
     return rows
@@ -217,32 +253,86 @@ def roster_text(rows: list[dict[str, Any]]) -> str:
 
 
 _PROMPT_WORDS = ("промт", "промпт", "prompt")
-_VARIANT_OK = re.compile(r"^[A-Za-z0-9_.\-]+$")
 _MAX_VARIANTS = 30
 _MAX_PROMPT_NODES = 4
 PROMPT_RULE = (
     "Чтобы поставить ноде другой промт, используй node.set_prompt_variant: variant бери "
-    "только из списка вариантов этой ноды ниже (до двоеточия), человек называет промт по названию. "
-    "slot_id не указывай: нода читает промт из слота main."
+    "только из списка вариантов этой ноды ниже (до двоеточия) и пиши имя точно как там, с "
+    "пробелами, кириллицей и .txt, если они есть; человек называет промт по названию. "
+    "slot_id не указывай: нода читает промт из слота main. Стиль персонажа ноды героя — "
+    "отдельный список, для него slot_id=style."
 )
 
 
-def prompt_variants_text(row: dict[str, Any]) -> str:
-    from app.services import prompt_library as pl
+def chains_text(meta: Any, rows: list[dict[str, Any]], keys: list[str], text: str) -> list[str]:
+    """Цепочка нод GPT, которую Студия пройдёт сама после запущенной: из неё stop_after_node_key."""
+    from app.orchestrator.agents.action_catalog import wants_launch
+    from app.services.action_layer.builtin_launch import gpt_chain
 
-    step = str(row.get("step_code") or row.get("type") or "")
+    if not wants_launch(text):
+        return []
+    labels = {str(row["key"]): str(row.get("label") or row.get("type_ru") or "") for row in rows}
+    gpt = [key for key in keys if any(row["key"] == key and row["type"] == "excel_gpt" for row in rows)]
+    out: list[str] = []
+    for key in gpt[:_MAX_CHAIN_NODES]:
+        chain = gpt_chain(meta, key)
+        path = " → ".join(f"{node} «{labels.get(node, node)}»" for node in chain)
+        out.append(
+            f"После запуска {key} Студия сама пройдёт по стрелкам: {path}; дальше цепочка нод GPT "
+            "встаёт. Остановиться раньше — stop_after_node_key."
+        )
+    return out
+
+
+def _variants_lines(meta: Any, key: str, step: str, head: str, sd_first: bool = False) -> list[str]:
+    from app.services import prompt_library as pl
+    from app.services.action_layer.builtin_group import library_names
+
     try:
-        names = [n for n in pl.list_prompts(step) if _VARIANT_OK.match(n)]
-        meta = pl.load_file_meta(step)
+        names = [
+            n
+            for n in library_names(meta if isinstance(meta, dict) else {}, key, step)
+            if pl.is_valid_prompt_name(n)
+        ]
+        titles = pl.load_file_meta(step)
     except Exception:
-        return ""
+        logger.exception("orch prompt variants failed for step {}", step)
+        return []
+    if sd_first:
+        # Агент дизайна сцен — нода «Работа с GPT» с меткой: свои промты sd_* показываем первыми.
+        names.sort(key=lambda n: not n.startswith("sd_"))
     if not names:
-        return ""
-    lines = [f"Варианты промта для ноды {row['key']} («{row.get('label') or row.get('type_ru')}»):"]
+        return []
+    lines = [head]
     for name in names[:_MAX_VARIANTS]:
-        info = meta.get(name) if isinstance(meta.get(name), dict) else {}
+        info = titles.get(name) if isinstance(titles.get(name), dict) else {}
         title = " ".join(str(info.get("title") or "").split())
         lines.append(f"- {name}: {title}" if title else f"- {name}")
+    if len(names) > _MAX_VARIANTS:
+        lines.append(f"(и ещё {len(names) - _MAX_VARIANTS})")
+    return lines
+
+
+def prompt_variants_text(row: dict[str, Any], meta: Any = None) -> str:
+    from app.services.action_layer.builtin_group import HERO_STYLE_SLOT, prompt_step_for
+
+    step = str(row.get("prompt_step") or "")
+    if not step:
+        return ""
+    name = row.get("label") or row.get("type_ru")
+    key = row["key"]
+    lines = _variants_lines(
+        meta,
+        key,
+        step,
+        f"Варианты промта для ноды {key} («{name}»):",
+        sd_first=row.get("type") in _SCENE_AGENT_TYPES,
+    )
+    style = prompt_step_for(str(row.get("type") or ""), HERO_STYLE_SLOT)
+    if style and style != step:
+        lines += _variants_lines(
+            meta, key, style, f"Стили персонажа для ноды {key} («{name}», slot_id={HERO_STYLE_SLOT}):"
+        )
     return "\n".join(lines)
 
 
@@ -377,7 +467,10 @@ _UNDO_WORDS = ("откат", "откати", "верни прежн", "верн�
 _MAX_SNAPSHOTS = 10
 SNAPSHOTS_HEAD = (
     "Снимки правок проекта, самый свежий первым (для history.rollback бери snapshot_id только "
-    "отсюда; промт ноды — вид prompt_slot, модель ноды возвращает node.revert_model):"
+    "отсюда; промт ноды — вид prompt_slot, модель ноды — node_model, настройки ноды — "
+    "node_params, настройки проекта (в том числе модель и разрешение картинок и видео) — "
+    "project_settings, агент проверки ноды — check_agent, его возвращает "
+    "node.revert_check_agent):"
 )
 
 
@@ -397,12 +490,101 @@ def snapshots_text(items: list[dict[str, Any]]) -> str:
     for item in items[:_MAX_SNAPSHOTS]:
         target = item.get("target") if isinstance(item.get("target"), dict) else {}
         where = target.get("node_key") or target.get("step_code") or ""
-        before = "по умолчанию" if item.get("before") is None else str(item.get("before"))[:60]
+        if item.get("kind") == "check_agent":
+            from app.services.action_layer.builtin_wave5_history import agent_state_ru
+
+            before, after = agent_state_ru(item.get("before")), agent_state_ru(item.get("after"))
+        else:
+            before = "по умолчанию" if item.get("before") is None else str(item.get("before"))[:60]
+            after = str(item.get("after"))[:60]
         lines.append(
             f"- snapshot_id={item.get('snapshot_id')}: {item.get('kind')} {where}, "
-            f"было «{before}», стало «{str(item.get('after'))[:60]}»"
+            f"было «{before}», стало «{after}»"
         )
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+_SCENE_AGENT_TYPES = frozenset({"sd_agent", "sd_assemble"})
+_AGENT_WORDS = ("агент", "проверк", "проверяющ", "вердикт", "мышлен", "рассужд", "effort", "reasoning")
+_MAX_AGENT_NODES = 8
+AGENTS_RULE = (
+    "Агенты нод и как их менять. Агент проверки ноды «Работа с GPT»: поставить новый — "
+    "node.upload_check_agent, нужен прикреплённый файл .txt или .md (файла нет — спроси, какой "
+    "прикрепить, текст агента в params не пиши); вернуть встроенного — node.clear_check_agent; "
+    "вернуть прежнего после смены — node.revert_check_agent; включить или выключить проверку и "
+    "режим «чинить» — node.set_params (check_mode, check_fix). Роль ноды (проверка, сравнение, "
+    "шлагбаум) — node.set_config role. Агент дизайна сцен — это вариант промта его ноды: "
+    "node.set_prompt_variant, variant из списка вариантов этой ноды. Уровень рассуждений "
+    "текстовой модели (low, medium, high): понизить — node.set_params reasoning_effort, повысить — "
+    "node.set_params_costly, вернуть — node.revert_params; если ниже сказано «не действует», такой "
+    "шаг не планируй. Шаблон GPT-проверки «Вердикт» у шага выбирается только в Студии, из чата он "
+    "не меняется — так и ответь."
+)
+
+
+def _agent_line(meta: dict, row: dict[str, Any]) -> str:
+    from app.services import node_edit as ne
+    from app.services.excel_gpt_node import sd_agent_marker
+
+    key = str(row["key"])
+    node = ne.find_node(meta, key)
+    if node is None:
+        return ""
+    name = row.get("label") or row.get("type_ru") or key
+    parts: list[str] = []
+    typ = str(row.get("type") or "")
+    if typ in _SCENE_AGENT_TYPES:
+        marker = sd_agent_marker(node) or "agent"
+        slots = meta.get("prompt_slot_variants") if isinstance(meta.get("prompt_slot_variants"), dict) else {}
+        slot = slots.get(key) if isinstance(slots.get(key), dict) else {}
+        variant = str(slot.get("main") or "").strip()
+        parts.append(
+            f"агент дизайна сцен «{marker}», промт "
+            + (f"«{variant}»" if variant else f"по умолчанию (sd_{marker})")
+        )
+    elif typ == "excel_gpt":
+        cfg = ne._operator_cfg(meta, key)
+        own = str(cfg.get("checkAgentFileName") or "").strip()
+        parts.append(
+            "агент проверки "
+            + (f"свой «{own}»" if own else "встроенный")
+            + (", проверка включена" if cfg.get("checkMode") else ", проверка выключена")
+            + f", роль {cfg.get('role') or 'assist'}"
+        )
+    if ne.model_kind_for_type(typ) == ne.KIND_TEXT:
+        ok, why = ne.effort_applies(meta, node)
+        effort = ne.node_effort(node)
+        parts.append(
+            f"уровень рассуждений {ne.EFFORT_RU.get(effort, effort)}"
+            + ("" if ok else f" (не действует: {why})")
+        )
+    if not parts:
+        return ""
+    return f"- {key} («{name}»): " + "; ".join(parts) + "."
+
+
+def agents_text(meta: Any, rows: list[dict[str, Any]], hits: set[str]) -> list[str]:
+    """Какие агенты стоят на нодах и что из них меняется из чата."""
+    if not isinstance(meta, dict):
+        return []
+    picked = [row for row in rows if row["key"] in hits] or [
+        row for row in rows if row.get("type") in (*_SCENE_AGENT_TYPES, "excel_gpt")
+    ]
+    lines: list[str] = []
+    for row in picked[:_MAX_AGENT_NODES]:
+        try:
+            line = _agent_line(meta, row)
+        except Exception:
+            logger.exception("orch agent line failed for node {}", row.get("key"))
+            continue
+        if line:
+            lines.append(line)
+    if not lines:
+        return []
+    out = [AGENTS_RULE, "Агенты и уровень рассуждений нод:", *lines]
+    scene = [row for row in picked if row.get("type") in _SCENE_AGENT_TYPES][:_MAX_PROMPT_NODES]
+    out.extend(item for item in (prompt_variants_text(row, meta) for row in scene) if item)
+    return out
 
 
 async def load_frames(project_id: int) -> Any:
@@ -475,17 +657,25 @@ def named_projects(items: list[dict[str, Any]], text: str) -> list[dict[str, Any
     return [item for item in found if len(item["title"]) == longest]
 
 
-_NUMBERED_RE = re.compile(r"проект\w*\s+((?:№?#?\d{1,5}(?:\s*(?:,|и)\s*)?)+)")
+# Диапазон: «10-14» или «с 10 по 14»; голое «12 до 20» - это не проекты («в проекте 5 до 10 кадров»).
+_NUMBERED_RE = re.compile(
+    r"проект\w*\s+((?:(?:с\s+№?#?\d{1,5}\s*(?:по|до)\s*№?#?\d{1,5}"
+    r"|№?#?\d{1,5}(?:\s*[-–—]\s*№?#?\d{1,5})?)(?:\s*(?:,|и)\s*)?)+)"
+)
+_RANGE_RE = re.compile(r"(\d{1,5})\s*(?:-|–|—|по|до)\s*№?#?(\d{1,5})|(\d{1,5})")
+_MAX_RANGE = 50
 
 
 def numbered_projects(items: list[dict[str, Any]], text: str) -> list[int]:
-    """«в проектах 10, 11 и 12» → [10, 11, 12]; только числа сразу после слова «проект»."""
+    """«в проектах 10, 11 и 12», «10-14», «с 10 по 14» → номера; только сразу после слова «проект»."""
     known = {int(item["id"]) for item in items}
     out: list[int] = []
     for group in _NUMBERED_RE.findall(_norm(text)):
-        for raw in re.findall(r"\d{1,5}", group):
-            if int(raw) in known and int(raw) not in out:
-                out.append(int(raw))
+        for first, last, single in _RANGE_RE.findall(group):
+            lo, hi = (int(first), int(last)) if first else (int(single), int(single))
+            if not lo <= hi <= lo + _MAX_RANGE:
+                hi = lo  # «в проектах 12–10» - не диапазон проектов
+            out.extend(pid for pid in range(lo, hi + 1) if pid in known and pid not in out)
     return out
 
 
@@ -498,6 +688,22 @@ def projects_text(items: list[dict[str, Any]], text: str) -> str:
     if len(named) == 1:
         lines.append(f"В запросе назван проект «{named[0]['title']}»: это project_id={named[0]['id']}.")
     return "\n".join(lines)
+
+
+def finish_words(text: str) -> bool:
+    low = _norm(text)
+    return any(word in low for word in _FINISH_WORDS)
+
+
+async def load_status(project_id: int) -> str:
+    from sqlalchemy import select
+
+    from app.models import Project
+    from app.services.action_layer.builtin_insight import _sessions
+
+    async with _sessions()() as session:
+        status = await session.scalar(select(Project.status).where(Project.id == int(project_id)))
+    return getattr(status, "value", str(status or ""))
 
 
 def _task_project(task_id: Any) -> int | None:
@@ -517,7 +723,9 @@ class ProjectNodes:
         projects_of: ProjectsLoader | None = None,
         blocked_of: ProposalsLoader | None = None,
         snapshots_of: ProposalsLoader | None = None,
+        status_of: Callable[[int], Awaitable[str]] | None = None,
     ) -> None:
+        self._status_of = status_of or load_status
         self._projects_of = projects_of or load_projects
         self._blocked_of = blocked_of or load_blocked
         self._snapshots_of = snapshots_of or load_snapshots
@@ -560,14 +768,28 @@ class ProjectNodes:
             nodes = await self.project_block(ids[0], text)
             note = (
                 f"Ноды и варианты промтов ниже — проекта {ids[0]}; у проектов {', '.join(map(str, ids))} "
-                "граф одинаковый, ключи нод и variant те же."
+                "граф одинаковый, ключи нод и variant те же. " + MANY_RULE
                 if len(ids) > 1
                 else ""
             )
             status_of = {int(item["id"]): str(item.get("status") or "") for item in items}
             nexts = [await self.next_step(pid, status_of.get(pid, "")) for pid in ids]
             return "\n".join(part for part in (head, note, nodes, *nexts) if part)
-        return await self.project_block(project_id, text)
+        block = await self.project_block(project_id, text)
+        if _NUMBERED_RE.search(_norm(text)):
+            ids = numbered_projects(await self.project_items(), text)
+            if len(ids) > 1:
+                many = f"В запросе проекты {', '.join(map(str, ids))}, граф у них тот же. " + MANY_RULE
+                block = "\n".join(part for part in (block, many) if part)
+        if not finish_words(text):
+            return block
+        try:
+            status = await self._status_of(int(project_id))
+        except Exception:
+            logger.exception("orch project status failed for project {}", project_id)
+            status = ""
+        nxt = await self.next_step(project_id, str(status or ""))
+        return "\n".join(part for part in (block, nxt) if part)
 
     async def next_step(self, project_id: int, status: str) -> str:
         """Следующий шаг по графу проекта: step.run_step берёт этот step_code, а не линейное меню."""
@@ -603,6 +825,9 @@ class ProjectNodes:
             if hits:
                 found = ", ".join(f"{row['key']} ({row['type_ru']})" for row in rows if row["key"] in hits)
                 lines.append(f"По словам запроса подходит: {found}.")
+                lines.extend(
+                    chains_text(meta, rows, [row["key"] for row in rows if row["key"] in hits], text)
+                )
                 keys = [row["key"] for row in rows if row["key"] in hits][:_MAX_MODEL_NODES]
                 models = [item for item in (model_options_text(meta, key) for key in keys) if item]
                 if models:
@@ -611,10 +836,14 @@ class ProjectNodes:
                 if any(word in _norm(text) for word in _PROMPT_WORDS):
                     words, stems = set(_WORD.findall(_norm(text))), _stems(text)
                     named = [row for row in rows if _score(row, words, stems) > 0][:_MAX_PROMPT_NODES]
-                    variants = [item for item in (prompt_variants_text(row) for row in named) if item]
+                    variants = [item for item in (prompt_variants_text(row, meta) for row in named) if item]
                     if variants:
                         lines.append(PROMPT_RULE)
                         lines.extend(variants)
+            if any(word in _norm(text) for word in _AGENT_WORDS):
+                lines.extend(agents_text(meta, rows, hits))
+        if finish_words(text):
+            lines.append(FINISH_RULE)
         if await self.frames(project_id) == 0:
             lines.append(NO_FRAMES_RULE)
         pending = await self.proposals(project_id, text)

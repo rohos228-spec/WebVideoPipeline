@@ -52,6 +52,11 @@ _PARAM_PROPS = {
     "prompt_variant": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": r"^[^/\\:*?\"<>|]+$"},
     "retry_profile": {"type": "string", "enum": ["safe", "fast"]},
     "branches": _BRANCHES,
+    "reasoning_effort": {
+        "type": "string",
+        "enum": ["low", "medium", "high"],
+        "description": "уровень рассуждений текстовой модели ноды (vibecode, kie)",
+    },
 }
 _EDIT = {
     "type": "object",
@@ -472,6 +477,353 @@ async def _prompt_edit(ctx: ActionContext, params: dict) -> dict:
     }
 
 
+_MANY_LIMIT = 20
+_PIDS = {
+    "type": "array",
+    "minItems": 1,
+    "maxItems": _MANY_LIMIT,
+    "items": {"type": "integer", "minimum": 1},
+    "description": "ID проектов",
+}
+_VARIANT = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 120,
+    "pattern": r"^[A-Za-z0-9_.\-]+$",
+    "description": "имя варианта промта из библиотеки",
+}
+
+
+def _ids_ru(ids: list[int]) -> str:
+    return ", ".join(f"#{pid}" for pid in ids)
+
+
+def _reason_ru(why: object) -> str:
+    return " ".join(str(why).split()).rstrip(".")
+
+
+def _error_ru(exc: Exception) -> str:
+    from app.services.action_layer.context import ActionCallError
+
+    detail = exc.detail if isinstance(exc, ActionCallError) else str(exc)
+    if isinstance(detail, dict):
+        detail = detail.get("message") or detail.get("code") or detail
+    return _reason_ru(detail)
+
+
+async def _model_one_check(ctx: ActionContext, one: dict) -> str | None:
+    from app.services.action_layer.builtin_group import _project_idle
+
+    return await _project_idle(ctx, one) or await _pre_model_ok(ctx, one)
+
+
+async def _variant_one_check(ctx: ActionContext, one: dict) -> str | None:
+    from app.services.action_layer.builtin_group import _project_idle
+
+    # Проверка node_edit по графу проекта: вариант есть в библиотеке, нода его читает, он не стоит уже.
+    return await _project_idle(ctx, one) or await _pre_params_ok(
+        ctx, {"project_id": one["project_id"], "node_key": one["node_key"], "prompt_variant": one["variant"]}
+    )
+
+
+def _one(params: dict, pid: int, field: str) -> dict:
+    return {"project_id": pid, "node_key": params["node_key"], field: params.get(field)}
+
+
+async def _skips(ctx: ActionContext, params: dict, field: str, check) -> dict[int, str]:
+    """Почему проект пропускается: занят, нет ноды, правка неприменима или уже стоит."""
+    out: dict[int, str] = {}
+    for pid in params["project_ids"]:
+        try:
+            why = await check(ctx, _one(params, pid, field))
+        except RuntimeError as exc:
+            why = _error_ru(exc)
+        if why:
+            out[pid] = _reason_ru(why)
+    return out
+
+
+def _pre_any(field: str, check) -> Precondition:
+    async def run(ctx: ActionContext, params: dict) -> str | None:
+        skips = await _skips(ctx, params, field, check)
+        if len(skips) < len(params["project_ids"]):
+            return None
+        return "ни в одном проекте правку сделать нельзя: " + "; ".join(
+            f"#{pid} - {why}" for pid, why in skips.items()
+        )
+
+    return Precondition("some_project_fits", "Хотя бы в одном проекте правку можно сделать", run)
+
+
+async def _model_warnings(ctx: ActionContext, params: dict) -> list[str]:
+    from app.services import node_edit as ne
+
+    skips = await _skips(ctx, params, "model_id", _model_one_check)
+    out = [f"Проект #{pid} будет пропущен: {why}." for pid, why in skips.items()]
+    dearer: list[int] = []
+    for pid in params["project_ids"]:
+        if pid in skips:
+            continue
+        try:
+            if (await _model_plan(ctx, _one(params, pid, "model_id")))["needs_confirmation"]:
+                dearer.append(pid)
+        except (RuntimeError, ne.NodeEditError):
+            continue
+    if dearer:
+        out.append(f"Новая модель дороже текущей или её цена неизвестна в проектах {_ids_ru(dearer)}.")
+    return out
+
+
+async def _variant_warnings(ctx: ActionContext, params: dict) -> list[str]:
+    skips = await _skips(ctx, params, "variant", _variant_one_check)
+    return [f"Проект #{pid} будет пропущен: {why}." for pid, why in skips.items()]
+
+
+async def _run_many(ctx: ActionContext, params: dict, field: str, check, apply) -> dict:
+    """Правка по проектам по очереди: отказ одного проекта не останавливает остальные."""
+    changed: list[dict] = []
+    skipped: list[dict] = []
+    for pid in params["project_ids"]:
+        one = _one(params, pid, field)
+        try:
+            why = await check(ctx, one)
+            if not why:
+                changed.append({"project_id": pid, **await apply(ctx, one)})
+                continue
+        except RuntimeError as exc:
+            why = _error_ru(exc)
+        skipped.append({"project_id": pid, "reason": _reason_ru(why)})
+    return {
+        "node_key": params["node_key"],
+        field: params.get(field),
+        "count": len(changed),
+        "changed": changed,
+        "skipped": skipped,
+    }
+
+
+def _projects_ru(n: int) -> str:
+    return f"{n} " + ("проекте" if n % 10 == 1 and n % 100 != 11 else "проектах")
+
+
+def _skipped_ru(skipped: list[dict]) -> list[str]:
+    if not skipped:
+        return []
+    return ["Не менял: " + "; ".join(f"#{s['project_id']} - {s['reason']}" for s in skipped) + "."]
+
+
+async def _model_apply(ctx: ActionContext, one: dict) -> dict:
+    out = await _set_model(ctx, one, costly=True)
+    return {
+        k: out.get(k)
+        for k in (
+            "node_label",
+            "before_label",
+            "after_label",
+            "after_model_id",
+            "cost",
+            "applies",
+            "applies_note",
+        )
+    }
+
+
+async def _set_model_many(ctx: ActionContext, params: dict) -> dict:
+    out = await _run_many(ctx, params, "model_id", _model_one_check, _model_apply)
+    changed = out["changed"]
+    lines: list[str] = []
+    if changed:
+        first = changed[0]
+        was = [
+            f"#{c['project_id']}"
+            + (
+                f" (была «{c['before_label']}»)"
+                if c.get("before_label") not in (None, c.get("after_label"))
+                else ""
+            )
+            for c in changed
+        ]
+        lines.append(
+            f"На ноде «{first.get('node_label') or params['node_key']}» поставил модель "
+            f"«{first.get('after_label')}» в {_projects_ru(len(changed))}: " + ", ".join(was) + "."
+        )
+        idle = [c for c in changed if c.get("applies") is False]
+        if idle:
+            lines.append(
+                f"Внимание, {_ids_ru([c['project_id'] for c in idle])}: {idle[0].get('applies_note')}."
+            )
+        ids = ", ".join(str(c["project_id"]) for c in changed)
+        lines.append(
+            f"Прежняя модель каждого проекта сохранена, вернуть все разом: «в проектах "
+            f"{ids} верни прежнюю модель на ноде {first.get('node_label') or params['node_key']}»."
+        )
+    else:
+        lines.append("Модель ни в одном проекте не поменял.")
+    lines += _skipped_ru(out["skipped"])
+    return {**out, "text_ru": "\n".join(lines)}
+
+
+async def _variant_apply(ctx: ActionContext, one: dict) -> dict:
+    from app.services.action_layer.builtin_group import _node_set_prompt_variant
+    from app.services.action_layer.builtin_wave5_history import HANDLERS, _wrap_executor
+
+    # Как у одиночного выбора промта: снимок прежнего варианта, откат history.rollback.
+    run = _wrap_executor(
+        "node.set_prompt_variant", HANDLERS["node.set_prompt_variant"], _node_set_prompt_variant
+    )
+    out = await run(
+        ctx, {"project_id": one["project_id"], "node_key": one["node_key"], "variant": one["variant"]}
+    )
+    return {k: out.get(k) for k in ("text_ru", "snapshot_id", "rollback_possible")}
+
+
+async def _set_prompt_variant_many(ctx: ActionContext, params: dict) -> dict:
+    out = await _run_many(ctx, params, "variant", _variant_one_check, _variant_apply)
+    changed = out["changed"]
+    lines: list[str] = []
+    if changed:
+        lines.append(f"Поменял промт ноды в {_projects_ru(len(changed))}:")
+        lines += [f"- **#{c['project_id']}** — {c.get('text_ru') or 'промт поставлен.'}" for c in changed]
+        lines.append(
+            "Прежний промт каждого проекта сохранён снимком, вернуть: «откати правку промта в проекте N»."
+        )
+    else:
+        lines.append("Промт ни в одном проекте не поменял.")
+    lines += _skipped_ru(out["skipped"])
+    return {**out, "text_ru": "\n".join(lines)}
+
+
+async def _revert_one_check(ctx: ActionContext, one: dict) -> str | None:
+    from app.services.action_layer.builtin_group import _project_idle
+
+    return await _project_idle(ctx, one) or await _pre_model_revert(ctx, one)
+
+
+async def _revert_apply(ctx: ActionContext, one: dict) -> dict:
+    out = await _revert_model(ctx, one)
+    return {k: out.get(k) for k in ("before_model_id", "after_model_id", "text_ru")}
+
+
+async def _revert_warnings(ctx: ActionContext, params: dict) -> list[str]:
+    skips = await _skips(ctx, params, "", _revert_one_check)
+    return [f"Проект #{pid} будет пропущен: {why}." for pid, why in skips.items()]
+
+
+async def _revert_model_many(ctx: ActionContext, params: dict) -> dict:
+    out = await _run_many(ctx, params, "", _revert_one_check, _revert_apply)
+    out.pop("", None)
+    changed = out["changed"]
+    lines: list[str] = []
+    if changed:
+        lines.append(f"Вернул прежнюю модель в {_projects_ru(len(changed))}:")
+        lines += [f"- **#{c['project_id']}** — {c.get('text_ru') or 'модель возвращена.'}" for c in changed]
+    else:
+        lines.append("Модель ни в одном проекте не вернул.")
+    lines += _skipped_ru(out["skipped"])
+    return {**out, "text_ru": "\n".join(lines)}
+
+
+def _model_many_effects(params: dict) -> str:
+    from app.services import node_edit as ne
+
+    mid = params.get("model_id")
+    found = ne.find_catalog_model(mid) if mid else None
+    name = ne.model_title(found, mid) if mid else "модель по умолчанию"
+    price = ne.price_ru(found) if found else "цена неизвестна"
+    return (
+        f"В проектах {_ids_ru(params['project_ids'])} на ноде {params['node_key']} будет "
+        f"поставлена модель «{name}» ({price}): следующие запуски ноды пойдут на ней и могут "
+        "стоить больше. Занятые проекты и проекты, где правка невозможна, пропускаются. "
+        "Прежняя модель каждого проекта сохраняется: «Вернуть прежнюю модель ноды»."
+    )
+
+
+def _variant_many_effects(params: dict) -> str:
+    return (
+        f"В проектах {_ids_ru(params['project_ids'])} нода {params['node_key']} будет читать "
+        f"промт «{params['variant']}», сам файл промта не меняется. Занятые проекты и проекты, "
+        "где правка невозможна, пропускаются. Прежний промт каждого проекта сохраняется "
+        "снимком: «Откатить правку по журналу»."
+    )
+
+
+def _many_specs() -> list[ActionSpec]:
+    from app.services.action_layer.builtin_launch import _uniq_ints
+
+    model_many = _schema(
+        {"project_ids": _PIDS, "node_key": _NODE_KEY, "model_id": _MODEL_ID},
+        ["project_ids", "node_key", "model_id"],
+    )
+    variant_many = _schema(
+        {"project_ids": _PIDS, "node_key": _NODE_KEY, "variant": _VARIANT},
+        ["project_ids", "node_key", "variant"],
+    )
+    revert_many = _schema({"project_ids": _PIDS, "node_key": _NODE_KEY}, ["project_ids", "node_key"])
+    return [
+        ActionSpec(
+            id="node.set_model_many",
+            title_ru="Сменить модель ноды сразу в нескольких проектах",
+            description_ru="Одна нода в нескольких проектах (до 20) получает одну модель, одно "
+            "подтверждение на все. Каждый проект меняется как одиночной сменой "
+            "модели; занятый проект или проект, где правка невозможна, пропускается, "
+            "остальные меняются. Прежняя модель каждого проекта: node.revert_model.",
+            params_schema=model_many,
+            executor=_set_model_many,
+            risk=RISK_DESTRUCTIVE,
+            destructive=True,
+            reversible=True,
+            idempotent=True,
+            estimator=_FREE,
+            scope="global",
+            destructive_effects=_model_many_effects,
+            warnings=_model_warnings,
+            future_spend_note="Следующие запуски ноды в этих проектах пойдут на новой модели.",
+            preconditions=(_uniq_ints("project_ids"), _pre_any("model_id", _model_one_check)),
+            tags=("node", "model", "batch"),
+        ),
+        ActionSpec(
+            id="node.set_prompt_variant_many",
+            title_ru="Поставить промт ноды сразу в нескольких проектах",
+            description_ru="Одна нода в нескольких проектах (до 20) получает один вариант промта из "
+            "библиотеки, одно подтверждение на все. Каждый проект меняется как "
+            "одиночным выбором промта; занятый проект или проект, где правка "
+            "невозможна, пропускается, остальные меняются. Прежний вариант каждого "
+            "проекта сохраняется снимком: history.rollback.",
+            params_schema=variant_many,
+            executor=_set_prompt_variant_many,
+            risk=RISK_DESTRUCTIVE,
+            destructive=True,
+            reversible=True,
+            idempotent=True,
+            estimator=_FREE,
+            scope="global",
+            destructive_effects=_variant_many_effects,
+            warnings=_variant_warnings,
+            future_spend_note="Следующие запуски ноды в этих проектах пойдут с другим промтом.",
+            preconditions=(_uniq_ints("project_ids"), _pre_any("variant", _variant_one_check)),
+            tags=("node", "prompt", "batch"),
+        ),
+        ActionSpec(
+            id="node.revert_model_many",
+            title_ru="Вернуть прежнюю модель ноды сразу в нескольких проектах",
+            description_ru="Одна нода в нескольких проектах (до 20) возвращает модель, стоявшую до "
+            "последней смены, одно подтверждение на все. Каждый проект как "
+            "node.revert_model; занятый проект или проект без прежней модели "
+            "пропускается, остальные возвращаются.",
+            params_schema=revert_many,
+            executor=_revert_model_many,
+            risk=RISK_LOCAL_SAFE,
+            idempotent=False,
+            reversible=True,
+            scope="global",
+            warnings=_revert_warnings,
+            future_spend_note="Следующие запуски ноды в этих проектах пойдут на прежней модели.",
+            preconditions=(_uniq_ints("project_ids"), _pre_any("", _revert_one_check)),
+            tags=("node", "model", "rollback", "batch"),
+        ),
+    ]
+
+
 def _specs() -> list[ActionSpec]:
     node_only = _schema({"project_id": _PID, "node_key": _NODE_KEY}, ["project_id", "node_key"])
     model_schema = _schema(
@@ -559,7 +911,8 @@ def _specs() -> list[ActionSpec]:
             id="node.revert_model",
             title_ru="Вернуть прежнюю модель ноды",
             description_ru="Возвращает модель, которая стояла на ноде до последней смены. "
-            "Отказ, если модель после этого уже меняли.",
+            "Повторный возврат идёт на шаг глубже по истории ноды. Отказ, если "
+            "модель после этого уже меняли.",
             params_schema=node_only,
             executor=_revert_model,
             risk=RISK_LOCAL_SAFE,
@@ -583,7 +936,9 @@ def _specs() -> list[ActionSpec]:
             title_ru="Изменить настройки ноды (без роста расходов)",
             description_ru="Точечно: отключить ноду, выключить проверку или режим «чинить», "
             "выбрать вариант промта ноды, короткие повторы при сбое (для всего "
-            "проекта), ветки ок / не ок у проверяющих нод «Работа с GPT». Только "
+            "проекта), ветки ок / не ок у проверяющих нод «Работа с GPT», понизить "
+            "уровень рассуждений (reasoning_effort: low, medium, high) текстовой "
+            "модели ноды на vibecode или kie. Только "
             "то, что код реально читает, и только если расходы не растут; иначе "
             "«Изменить настройки ноды с подтверждением». Откат: node.revert_params.",
             params_schema=params_schema,
@@ -605,7 +960,8 @@ def _specs() -> list[ActionSpec]:
             title_ru="Изменить настройки ноды с подтверждением",
             description_ru="Те же настройки, что «Изменить настройки ноды», когда изменение может "
             "увеличить расходы (включить проверку или ноду, длинные повторы, ветка "
-            "«не ок» или связь без условия) или затронуть другие ноды. Только после "
+            "«не ок» или связь без условия, повысить уровень рассуждений) или "
+            "затронуть другие ноды. Только после "
             "подтверждения человека. Откат: node.revert_params.",
             params_schema=params_schema,
             executor=_set_params_costly,
@@ -622,7 +978,8 @@ def _specs() -> list[ActionSpec]:
             id="node.revert_params",
             title_ru="Вернуть прежние настройки ноды",
             description_ru="Возвращает значения, которые были до последней правки настроек "
-            "ноды. Отказ, если их уже меняли после этого.",
+            "ноды. Повторный возврат идёт на шаг глубже по истории ноды. Отказ, "
+            "если их уже меняли после этого.",
             params_schema=node_only,
             executor=_revert_params,
             risk=RISK_LOCAL_SAFE,
@@ -681,4 +1038,8 @@ def _specs() -> list[ActionSpec]:
 
 
 def register_node_edit_actions(registry: ActionRegistry) -> None:
-    registry.register_many(_specs())
+    from app.services.action_layer import builtin_wave5_history as hist
+
+    registry.register_many([*_specs(), *_many_specs()])
+    # Смена модели и настроек тоже пишет снимок: «откати последнее изменение» их видит.
+    hist.wrap_catalog(registry)

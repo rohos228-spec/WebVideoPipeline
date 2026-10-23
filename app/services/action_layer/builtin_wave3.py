@@ -202,6 +202,19 @@ async def _upload_node_file(ctx, params):
     }
 
 
+async def _node_label(ctx, params) -> str:
+    from app.services.action_layer.builtin_group import node_label_ru
+
+    try:
+        meta = (await _get_project(ctx, params["project_id"])).get("meta")
+    except Exception:  # noqa: BLE001
+        meta = None
+    return node_label_ru(meta, params["node_key"])
+
+
+_AGENT_UNDO_RU = "Прежний агент сохранён: вернуть можно фразой «верни прежнего агента проверки»."
+
+
 async def _upload_check_agent(ctx, params):
     data, info = await _post_file(
         ctx,
@@ -209,14 +222,31 @@ async def _upload_check_agent(ctx, params):
         f"/projects/{params['project_id']}/gpt-operator/{params['node_key']}/check-agent",
         params,
     )
-    return {"ok": bool(data.get("ok")), "file_name": data.get("fileName"), "chars": data.get("chars"), **info}
+    label = await _node_label(ctx, params)
+    return {
+        "ok": bool(data.get("ok")),
+        "file_name": data.get("fileName"),
+        "chars": data.get("chars"),
+        **info,
+        "text_ru": (
+            f"На ноду «{label}» загрузил агента проверки «{data.get('fileName')}» "
+            f"({data.get('chars')} символов), режим проверки включён. " + _AGENT_UNDO_RU
+        ),
+    }
 
 
 async def _clear_check_agent(ctx, params):
     data = await ctx.call(
         "DELETE", f"/projects/{params['project_id']}/gpt-operator/{params['node_key']}/check-agent"
     )
-    return {"ok": bool((data or {}).get("ok"))}
+    label = await _node_label(ctx, params)
+    return {
+        "ok": bool((data or {}).get("ok")),
+        "text_ru": (
+            f"На ноде «{label}» убрал загруженного агента проверки: дальше "
+            "работает встроенный агент. " + _AGENT_UNDO_RU
+        ),
+    }
 
 
 async def _project_paused(ctx, params):
@@ -750,7 +780,8 @@ def _specs() -> list[ActionSpec]:
             id="node.upload_check_agent",
             title_ru="Загрузить агента проверки в ноду",
             description_ru="Сохраняет .txt/.md агента проверки ноды, включает режим проверки и "
-            "источник «агент». Прежний агент ноды перезаписывается.",
+            "источник «агент». Прежний агент ноды сохраняется копией, вернуть его: "
+            "node.revert_check_agent.",
             params_schema=_obj({**node_props, **_SRC_PROPS}, ["node_key"]),
             executor=_upload_check_agent,
             risk=RISK_DESTRUCTIVE,
@@ -759,7 +790,9 @@ def _specs() -> list[ActionSpec]:
             idempotent=False,
             destructive_effects=lambda p: (
                 f"Агент проверки ноды {p['node_key']} будет заменён, "
-                "режим проверки включён; прежний текст агента теряется."
+                "режим проверки включён; прежний агент сохраняется "
+                "копией, вернуть: «Вернуть прежнего агента проверки "
+                "ноды»."
             ),
             preconditions=(
                 _PRE_PROJECT,
@@ -773,7 +806,9 @@ def _specs() -> list[ActionSpec]:
         S(
             id="node.clear_check_agent",
             title_ru="Сбросить загруженного агента проверки",
-            description_ru="Удаляет загруженные файлы агента проверки ноды: дальше берётся встроенный агент.",
+            description_ru="Удаляет загруженные файлы агента проверки ноды: дальше берётся "
+            "встроенный агент. Прежний агент сохраняется копией, вернуть его: "
+            "node.revert_check_agent.",
             params_schema=_obj({**node_props}, ["node_key"]),
             executor=_clear_check_agent,
             risk=RISK_DESTRUCTIVE,
@@ -781,7 +816,9 @@ def _specs() -> list[ActionSpec]:
             reversible=False,
             idempotent=True,
             destructive_effects=lambda p: (
-                f"Загруженный агент проверки ноды {p['node_key']} будет удалён с диска."
+                f"Загруженный агент проверки ноды {p['node_key']} "
+                "будет удалён с диска; копия сохраняется, вернуть: "
+                "«Вернуть прежнего агента проверки ноды»."
             ),
             preconditions=(_PRE_PROJECT, _PRE_IDLE, _PRE_NODE, _PRE_NODE_KEY_SAFE),
             tags=("node", "check"),

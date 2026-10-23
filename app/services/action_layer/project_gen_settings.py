@@ -157,3 +157,161 @@ async def sync_prompt_aspect(ctx, pid: Any, current_overrides: Any, aid: str) ->
         f"/projects/{pid}",
         json={"prompt_overrides": prompt_overrides_with_aspect(current_overrides, aid)},
     )
+
+
+MEDIA_KINDS: dict[str, tuple[str, str]] = {
+    "image": ("image_generator", "image_resolution"),
+    "video": ("video_generator", "video_resolution"),
+}
+_KIND_RU = {"image": "Картинки", "video": "Видео"}
+_COST_RU = {
+    "cheaper": "дешевле",
+    "same": "по той же цене",
+    "costlier": "дороже",
+    "unknown": "цена неизвестна",
+}
+# Шаги, которые берут модель картинок или видео с ноды своего типа (resolve_node_media_settings).
+_MEDIA_NODE_TYPES = {"image": ("images", "hero", "items"), "video": ("videos",)}
+
+
+def _catalog_model(kind: str, gen_id: str | None) -> dict | None:
+    """Модель каталога нод с тем же генератором: те же цены, что у node.set_model."""
+    from app.services import node_edit as ne
+
+    field = MEDIA_KINDS[kind][0]
+    for m in ne.allowed_models(kind):
+        if gen_id and m.get(field) == gen_id:
+            return m
+    return None
+
+
+def _real_resolution(kind: str, gen_id: str, res_id: Any) -> str:
+    """Разрешение, с которым модель реально пойдёт (сервер клампит его по модели)."""
+    from app.generation_options import clamp_image_resolution_id, effective_video_resolution_id
+
+    if kind == "image":
+        return str(clamp_image_resolution_id(gen_id, res_id) or "")
+    return str(effective_video_resolution_id(gen_id, res_id) or "")
+
+
+def _res_cost(kind: str, before: str, after: str) -> str:
+    from app.generation_options import IMAGE_RESOLUTIONS, VIDEO_RESOLUTIONS
+
+    order = [r.id for r in (IMAGE_RESOLUTIONS if kind == "image" else VIDEO_RESOLUTIONS)]
+    if before == after:
+        return "same"
+    if before not in order or after not in order:
+        return "unknown"
+    return "costlier" if order.index(after) > order.index(before) else "cheaper"
+
+
+def _worst(*costs: str) -> str:
+    for cost in ("unknown", "costlier", "cheaper"):
+        if cost in costs:
+            return cost
+    return "same"
+
+
+def media_changes(current: dict, params: dict) -> list[dict]:
+    """Смена модели или разрешения картинок и видео проекта: было, станет и цена.
+
+    current - ответ GET /projects/{id}; пустое поле проекта = дефолт Studio. Цена модели - из
+    того же каталога, что у смены модели ноды; разрешение выше прежнего считается дороже.
+    """
+    from app.services import node_edit as ne
+
+    defaults = default_settings()
+    out: list[dict] = []
+    for kind, (gen_key, res_key) in MEDIA_KINDS.items():
+        if gen_key not in params and res_key not in params:
+            continue
+        before_gen = str(current.get(gen_key) or defaults[gen_key])
+        after_gen = str(params.get(gen_key) or before_gen)
+        before_res = _real_resolution(kind, before_gen, current.get(res_key) or defaults[res_key])
+        after_res = _real_resolution(
+            kind,
+            after_gen,
+            str(params[res_key]).lower()
+            if params.get(res_key)
+            else current.get(res_key) or defaults[res_key],
+        )
+        if before_gen == after_gen and before_res == after_res:
+            continue
+        old, new = _catalog_model(kind, before_gen), _catalog_model(kind, after_gen)
+        model_cost = "same" if before_gen == after_gen else ne.compare_cost(old, new)
+        cost = _worst(model_cost, _res_cost(kind, before_res, after_res))
+        out.append(
+            {
+                "kind": kind,
+                "before_generator": before_gen,
+                "after_generator": after_gen,
+                "before_resolution": before_res,
+                "after_resolution": after_res,
+                "before_label": ne.model_title(old, before_gen),
+                "after_label": ne.model_title(new, after_gen),
+                "before_price_ru": ne.price_ru(old),
+                "after_price_ru": ne.price_ru(new),
+                "cost": cost,
+                "needs_confirmation": cost not in ("cheaper", "same"),
+            }
+        )
+    return out
+
+
+def media_change_text(change: dict) -> str:
+    if change["before_generator"] == change["after_generator"]:
+        return (
+            f"{_KIND_RU[change['kind']]} проекта: «{change['after_label']}», разрешение "
+            f"{change['before_resolution'].upper()} → {change['after_resolution'].upper()} "
+            f"({_COST_RU[change['cost']]})."
+        )
+    return (
+        f"{_KIND_RU[change['kind']]} проекта: «{change['before_label']}» "
+        f"{change['before_resolution'].upper()} → «{change['after_label']}» "
+        f"{change['after_resolution'].upper()} ({_COST_RU[change['cost']]}; было "
+        f"{change['before_price_ru']}, станет {change['after_price_ru']})."
+    )
+
+
+def node_overrides(meta: Any, project: dict) -> list[str]:
+    """Шаги, где модель с ноды перекрывает модель проекта (то же правило, что у шагов).
+
+    Шаги картинок, героя и предметов берут модель с ноды своего типа, видео - с ноды видео,
+    если на ней явно выбрана модель (vibecode_catalog.resolve_*_generator_id).
+    """
+    from types import SimpleNamespace
+
+    from app.services import node_edit as ne
+    from app.services import vibecode_catalog as vc
+
+    proj = SimpleNamespace(
+        meta=meta if isinstance(meta, dict) else {},
+        image_generator=project.get("image_generator"),
+        video_generator=project.get("video_generator"),
+    )
+    notes: list[str] = []
+    for kind, types in _MEDIA_NODE_TYPES.items():
+        gen_key = MEDIA_KINDS[kind][0]
+        want = str(project.get(gen_key) or "")
+        if not want:
+            continue
+        for typ in types:
+            node = vc.find_canvas_node(proj.meta, node_type=typ)
+            if node is None:
+                continue
+            if kind == "image":
+                got = vc.effective_image_generator_id(proj, node_type=typ)
+                want_real = "gpt_image_2_vip" if want == "gpt_image_2" else want
+            else:
+                got, want_real = vc.effective_video_generator_id(proj, node_type=typ), want
+            if got == want_real:
+                continue
+            explicit = ne.explicit_model_id(node)
+            model = ne.find_catalog_model(explicit) if explicit else ne.effective_model(node)[0]
+            how = "на ней выбрана" if explicit else "по умолчанию на ней"
+            notes.append(
+                f"Шаг ноды «{ne.node_label(node)}» берёт модель с ноды ({how} "
+                f"«{ne.model_title(model, got)}»), модель проекта на него не действует. "
+                "Поменять модель этого шага можно сменой модели ноды."
+            )
+    return notes

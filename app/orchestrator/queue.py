@@ -135,6 +135,31 @@ _IMPERATIVE_WORDS = (
     "дополни",
     "пусть",
 )
+_STATUS_PHRASES = (
+    "статус",
+    "как дела",
+    "как там",
+    "как идет",
+    "что с ",
+    "что там",
+    "что сейчас",
+    "что происходит",
+    "где сейчас",
+    "на каком",
+    "прогресс",
+    "сколько потрат",
+    "сколько потрач",
+    "сколько осталось",
+    "готов ли",
+    "готово ли",
+    "готовы ли",
+    "идет ли",
+    "закончил",
+    "закончилась",
+    "доделал",
+)
+# Глаголы запуска, которых нет в _IMPERATIVE_WORDS: «прогони», «пусти», «запускай».
+_RUN_VERBS_RE = re.compile(r"(?<![а-я])(?:прогони|прогоняй|пусти|запускай|гони|продолжай)(?:те)?(?![а-я])")
 _IMPERATIVES = frozenset(_IMPERATIVE_WORDS + tuple(word + "те" for word in _IMPERATIVE_WORDS))
 _NEGATIONS = frozenset({"не", "ни"})
 
@@ -145,6 +170,15 @@ def has_imperative(text: str) -> bool:
         token in _IMPERATIVES and (index == 0 or tokens[index - 1] not in _NEGATIONS)
         for index, token in enumerate(tokens)
     )
+
+
+def is_status_question(text: str) -> bool:
+    """Вопрос о ходе дел без просьбы что-то сделать: отвечается сразу, задачей не ставится."""
+    norm = " ".join((text or "").lower().replace("ё", "е").split()) + " "
+    if has_imperative(norm) or _RUN_VERBS_RE.search(norm):
+        # «прогони дальше, что с лимитом?» - просьба с вопросом, это задача.
+        return False
+    return any(phrase in norm for phrase in _STATUS_PHRASES)
 
 
 def classify_deterministic(text: str) -> ClassifyResult | None:
@@ -279,6 +313,25 @@ class MessageQueue:
         *,
         kill_switch: bool = False,
     ) -> None:
+        from app.orchestrator.routing.classifier import is_control_request
+        from app.services import spend_guard
+
+        with spend_guard.chat_control(kill_switch or is_control_request(text)):
+            await self._classify_turn(
+                session_id, text, run_id, mode, project_id, message_id, kill_switch=kill_switch
+            )
+
+    async def _classify_turn(
+        self,
+        session_id: str,
+        text: str,
+        run_id: str,
+        mode: MessageMode | None,
+        project_id: int | None,
+        message_id: int | None,
+        *,
+        kill_switch: bool,
+    ) -> None:
         published = False
         try:
             if not kill_switch and mode is not MessageMode.interrupt:
@@ -306,8 +359,16 @@ class MessageQueue:
                 )
             else:
                 decided = forced
+                task_id = self.supervisor.active_task(session_id)
+                if decided is None and task_id is not None and is_status_question(text):
+                    # Пока идёт задача, вопрос «как там проект» иначе встал бы в очередь за ней.
+                    decided = ClassifyResult(
+                        tier="fast",
+                        mode=MessageMode.append,
+                        deterministic=True,
+                        confidence=1.0,
+                    )
                 if decided is None:
-                    task_id = self.supervisor.active_task(session_id)
                     decided = await self.router.classify(
                         text,
                         run_id=run_id,

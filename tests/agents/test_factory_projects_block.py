@@ -147,3 +147,36 @@ def test_group_request_gets_catalog_with_kadry_alias() -> None:
     text = groups_text("в проект 6 вставь группу нод Кадры")
     assert "- script_frames_qc:" in text and "«Кадры»" in text
     assert groups_text("запусти картинки") == ""
+
+
+def test_numbered_projects_take_ranges() -> None:
+    from app.orchestrator.agents.project_nodes import numbered_projects
+
+    items = [{"id": i, "title": f"t{i}"} for i in range(8, 16)]
+    assert numbered_projects(items, "во всех проектах 10-14 поставь модель") == [10, 11, 12, 13, 14]
+    assert numbered_projects(items, "в проектах с 9 по 11 и 15") == [9, 10, 11, 15]
+    assert numbered_projects(items, "в проектах 12–10") == [12]
+    assert numbered_projects(items, "в проекте 12 до 2 кадров") == [12]
+    assert numbered_projects(items, "в проекте 9 до 12 кадров") == [9]
+    assert numbered_projects(items, "в проекте 9 по 12 кадров на сцену") == [9]
+
+
+async def test_several_projects_get_the_batch_edit_rule() -> None:
+    meta = {"canvas_graph": {"nodes": [{"id": "n_script", "type": "script", "data": {"label": "Закадр"}}]}}
+
+    async def items():
+        return [{"id": i, "title": f"t{i}", "status": "new"} for i in (10, 11, 12)]
+
+    async def meta_of(_pid):
+        return meta
+
+    async def frames_of(_pid):
+        return 5
+
+    free = ProjectNodes(project_of=lambda _t: None, projects_of=items, meta_of=meta_of, frames_of=frames_of)
+    text = await free("во всех проектах 10-12 поставь модель GPT 5.6 Luna на ноду закадр", 1)
+    assert "node.set_model_many" in text and "у проектов 10, 11, 12" in text
+    bound = ProjectNodes(project_of=lambda _t: 10, projects_of=items, meta_of=meta_of, frames_of=frames_of)
+    text = await bound("в проектах 10-12 поставь модель GPT 5.6 Luna на ноду закадр", 1)
+    assert "В запросе проекты 10, 11, 12" in text and "node.set_prompt_variant_many" in text
+    assert "node.set_model_many" not in await bound("поставь модель GPT 5.6 Luna на ноду закадр", 1)

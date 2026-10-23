@@ -459,6 +459,10 @@ def create_app() -> FastAPI:
 
     app.include_router(project_reports_router.router, prefix=API_PREFIX)
     app.include_router(projects_router.router, prefix=API_PREFIX)
+    # Правка нод (модель, параметры, откат) — те же /api/projects/{id}/..., что у projects.
+    from app.web.routers import node_edit as node_edit_router
+
+    app.include_router(node_edit_router.router, prefix=API_PREFIX)
     app.include_router(project_ops_router.router, prefix=API_PREFIX)
     app.include_router(generation_options_router.router, prefix=API_PREFIX)
     app.include_router(config_presets_router.router, prefix=API_PREFIX)

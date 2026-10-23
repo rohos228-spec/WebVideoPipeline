@@ -157,6 +157,16 @@ def _synth(kind: str, duration: float, *, seed: int = 42) -> list[float]:
 # ── ElevenLabs SFX API (опционально) ──────────────────────────────────────
 
 
+#: Сколько POST уходит в ElevenLabs на один звук в худшем случае (повторы на 429/5xx).
+#: Цена шага звуков в чате (`action_layer/sound_cost.py`) считает именно до стольких оплат.
+SFX_MAX_POSTS = 3
+
+
+def sfx_billed_seconds(duration: float) -> float:
+    """Длительность, которая уходит в запрос ElevenLabs (API принимает 0.5-22 с)."""
+    return min(max(float(duration), 0.5), 22.0)
+
+
 async def _elevenlabs_sfx(prompt: str, duration: float, out_path: Path) -> Path:
     import asyncio
 
@@ -168,7 +178,7 @@ async def _elevenlabs_sfx(prompt: str, duration: float, out_path: Path) -> Path:
     if not key:
         raise RuntimeError("no elevenlabs key")
 
-    max_retries = 3
+    max_retries = SFX_MAX_POSTS
     last_err: Exception | None = None
 
     for attempt in range(1, max_retries + 1):
@@ -181,7 +191,7 @@ async def _elevenlabs_sfx(prompt: str, duration: float, out_path: Path) -> Path:
                     headers={"xi-api-key": key},
                     json={
                         "text": prompt[:450],
-                        "duration_seconds": min(max(duration, 0.5), 22.0),
+                        "duration_seconds": sfx_billed_seconds(duration),
                         "prompt_influence": 0.5,
                     },
                 )

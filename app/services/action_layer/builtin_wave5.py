@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from typing import Any
 
@@ -7,12 +8,14 @@ from loguru import logger
 
 from app.services.action_layer import node_run_cost as nrc
 from app.services.action_layer import project_gen_settings as pgs
+from app.services.action_layer import step_outcome as so
 from app.services.action_layer.builtin_group import (
     _NODE_KEY,
     _PRE_IDLE,
     _PRE_NO_MONTAGE,
     _PRE_NODE,
     _PRE_NOT_MANAGED,
+    _effective_project,
     _get_project,
     _stop_project,
 )
@@ -161,13 +164,31 @@ async def _step_basis(ctx: ActionContext, params: dict) -> dict:
 async def declared_media_values(params: dict) -> dict:
     """Недостающие count / генератор / разрешение шага картинок или видео — по данным проекта.
 
-    Те же значения проверяет _verify_step_cost; названное человеком не трогаем."""
+    Озвучке и звукам так же подставляется sound_credits, если цена по коду известна целиком.
+    Те же значения проверяют _verify_step_cost и sound_cost.cost_reason; названное человеком не трогаем."""
+    from app.services.action_layer import sound_cost as sc
+
     out = dict(params)
-    if nrc.media_step_kind(str(out.get("step_code") or "")) not in ("image", "video"):
+    code = str(out.get("step_code") or "")
+    if code not in sc.SOUND_STEPS:
+        out.pop("sound_credits", None)
+    if nrc.media_step_kind(code) not in ("image", "video"):
         # Текстовому шагу (сценарий, разбивка…) генераторы и число кадров не нужны: планировщик
         # иногда их придумывает, на карточке это вводит в заблуждение.
         for key in ("count", "image_generator", "image_resolution", "video_generator", "video_resolution"):
             out.pop(key, None)
+        if code in sc.SOUND_STEPS and out.get("project_id") is not None:
+            try:
+                basis = await sc.load_basis(out["project_id"], code)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("step plan: sound price for #{} not read: {}", out.get("project_id"), exc)
+                return out
+            if not basis.priced:
+                # Цену музыки код целиком не знает: придуманный планировщиком sound_credits сорвал бы
+                # план, нужен только потолок ceiling_credits.
+                out.pop("sound_credits", None)
+            elif out.get("sound_credits") is None and not basis.missing:
+                out["sound_credits"] = basis.credits
         return out
     if out.get("project_id") is None:
         return out
@@ -352,32 +373,21 @@ async def _run_media_step(ctx, params):
     reason = await _verify_step_cost(ctx, params)
     if reason:
         raise RuntimeError(f"оценка стоимости не совпадает с проектом: {reason}")
-    await ctx.call(
+    before = await _get_project(ctx, params["project_id"])
+    launched_at = time.time()
+    after = await ctx.call(
         "POST", f"/projects/{params['project_id']}/steps/{params['step_code']}/run", params={"mode": "resume"}
     )
-    return {"started": True, "step_code": params["step_code"]}
+    return {
+        "started": True,
+        "step_code": params["step_code"],
+        **so.launch_marks(params["step_code"], before, after, launched_at),
+    }
 
 
 async def _poll_step(ctx, params, started):
     state = await _poll_project_idle(ctx, params, started)
-    if not state.done:
-        return state
-    final = str((state.result or {}).get("final_status"))
-    if final == "failed":
-        return replace(
-            state,
-            ok=False,
-            error="шаг завершился с ошибкой (статус проекта failed)"
-            + await _stop_reason(ctx, params["project_id"]),
-        )
-    if final == "paused":
-        return replace(
-            state,
-            ok=False,
-            error="шаг не завершён: проект поставлен на паузу"
-            + await _stop_reason(ctx, params["project_id"]),
-        )
-    return state
+    return await so.honest_state(ctx, params, started, state)
 
 
 async def _stop_reason(ctx, project_id) -> str:
@@ -386,9 +396,7 @@ async def _stop_reason(ctx, project_id) -> str:
         meta = (await _get_project(ctx, project_id)).get("meta") or {}
     except Exception:  # noqa: BLE001
         return ""
-    fs = meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {}
-    why = " ".join(str(fs.get("last_error") or meta.get("auto_paused_reason") or "").split())
-    return f". Причина: {why[:400]}" if why else ""
+    return so.stop_reason(meta)
 
 
 def _step_effects(params: dict) -> str:
@@ -591,6 +599,33 @@ async def _aspect_valid(ctx, params):
     return pgs.validation_error({"aspect_ratio": params["aspect_ratio"]})
 
 
+async def _media_plan(ctx, params) -> list[dict]:
+    if not any(k in params for kind in pgs.MEDIA_KINDS.values() for k in kind):
+        return []
+    return pgs.media_changes(await _get_project(ctx, params["project_id"]), params)
+
+
+async def _media_valid(ctx, params):
+    """Генераторы из списков Studio: иначе цену не сравнить, а сервер всё равно откажет."""
+    return pgs.validation_error(
+        {k: params[k] for k in ("image_generator", "video_generator") if params.get(k) is not None}
+    )
+
+
+async def _media_not_costlier(ctx, params):
+    bad = await _media_valid(ctx, params)
+    if bad:
+        return bad
+    costly = [c for c in await _media_plan(ctx, params) if c["needs_confirmation"]]
+    if not costly:
+        return None
+    return (
+        " ".join(pgs.media_change_text(c) for c in costly) + " Модель или разрешение дороже "
+        "текущих или цена неизвестна: используйте «Изменить модель или разрешение проекта "
+        "(дороже или цена неизвестна)» (нужно подтверждение)."
+    )
+
+
 async def _patch_settings(ctx, params):
     body = {k: params[k] for k in _SETTINGS_KEYS if k in params}
     aid = None
@@ -600,6 +635,7 @@ async def _patch_settings(ctx, params):
             raise ActionCallError(400, pgs.validation_error({"aspect_ratio": body["aspect_ratio"]}))
         body["aspect_ratio"] = aid
     pid = params["project_id"]
+    media = await _media_plan(ctx, params)
     data = await ctx.call("PATCH", f"/projects/{pid}", json=body)
     data = data if isinstance(data, dict) else {}
     changed = {
@@ -610,11 +646,27 @@ async def _patch_settings(ctx, params):
     if changed:
         raise ActionCallError(409, f"сервер сохранил другие значения: {changed}")
     out: dict = {"updated": sorted(body)}
+    lines: list[str] = []
     if aid is not None:
         # Промты картинок/анимации берут формат из ASPECT_RATIO_VIDEO, шаги - из aspect_ratio.
         await pgs.sync_prompt_aspect(ctx, pid, data.get("prompt_overrides"), aid)
         out["aspect_ratio"] = aid
-        out["text_ru"] = f"Формат кадра проекта #{pid}: {pgs.aspect_slug(aid)}."
+        lines.append(f"Формат кадра проекта #{pid}: {pgs.aspect_slug(aid)}.")
+    if media:
+        out["media"] = media
+        lines.extend(pgs.media_change_text(c) for c in media)
+    if any(k in body for k in ("image_generator", "video_generator")):
+        try:
+            meta = (await _effective_project(ctx, pid)).get("meta")
+            notes = pgs.node_overrides(meta, data)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("patch_settings #{}: node override check failed: {}", pid, exc)
+            notes = []
+        if notes:
+            out["node_overrides"] = notes
+            lines.extend(notes)
+    if lines:
+        out["text_ru"] = " ".join(lines)
     return out
 
 
@@ -675,6 +727,16 @@ async def _storage_clear(ctx, params):
     return {"ok": bool((data or {}).get("ok")), "removed": (data or {}).get("removed")}
 
 
+def _settings_effects(params: dict) -> str:
+    names = ", ".join(k for k in _SETTINGS_KEYS if k in params) or "настройки"
+    return (
+        f"В проекте #{params['project_id']} поменяются {names}. Новая модель или разрешение "
+        "дороже текущих или их цена неизвестна: следующие генерации картинок и видео могут "
+        "стоить больше. Прежние значения сохраняются снимком, вернуть их можно откатом "
+        "(history.rollback)."
+    )
+
+
 def _specs() -> list[ActionSpec]:
     S = ActionSpec
     step_props = {
@@ -691,6 +753,26 @@ def _specs() -> list[ActionSpec]:
         "video_resolution": _VID_RES,
         "ceiling_credits": _CEILING,
     }
+    settings_schema = _obj(
+        {
+            "title": _TITLE,
+            "topic": _TOPIC,
+            "hero_mode": {"type": "string", "enum": _HERO_MODES},
+            "image_generator": _GEN,
+            "image_resolution": _IMG_RES,
+            "video_generator": _GEN,
+            "video_resolution": _VID_RES,
+            "aspect_ratio": pgs.ASPECT_SCHEMA,
+        },
+        [],
+    )
+    settings_pre = (
+        _PRE_PROJECT,
+        _PRE_NOT_MANAGED,
+        _PRE_IDLE,
+        Precondition("settings_given", "Указана хотя бы одна настройка", _settings_given),
+        Precondition("aspect_valid", "Формат кадра из списка Studio", _aspect_valid),
+    )
     return [
         S(
             id="step.get_run_cost_basis",
@@ -875,32 +957,44 @@ def _specs() -> list[ActionSpec]:
             id="project.patch_settings",
             title_ru="Изменить настройки проекта",
             description_ru="Название, тема, режим героя, модель и разрешение картинок и видео, формат "
-            "кадра. Меняет цену будущих генераций, но сам ничего не запускает. Проверяет, "
-            "что сервер сохранил именно эти значения. Автопродвижение, мета и промты "
-            "здесь не меняются.",
-            params_schema=_obj(
-                {
-                    "title": _TITLE,
-                    "topic": _TOPIC,
-                    "hero_mode": {"type": "string", "enum": _HERO_MODES},
-                    "image_generator": _GEN,
-                    "image_resolution": _IMG_RES,
-                    "video_generator": _GEN,
-                    "video_resolution": _VID_RES,
-                    "aspect_ratio": pgs.ASPECT_SCHEMA,
-                },
-                [],
-            ),
+            "кадра. Модель и разрешение - только если не дороже текущих; иначе "
+            "«Изменить модель или разрешение проекта (дороже или цена неизвестна)». "
+            "Сам ничего не запускает. Проверяет, что сервер сохранил именно эти "
+            "значения, и предупреждает, если модель с ноды перекрывает модель проекта. "
+            "Автопродвижение, мета и промты здесь не меняются.",
+            params_schema=settings_schema,
             executor=_patch_settings,
             risk=RISK_LOCAL_SAFE,
             idempotent=True,
+            reversible=True,
             future_spend_note="Меняет модель и разрешение, то есть цену будущих генераций проекта.",
             preconditions=(
-                _PRE_PROJECT,
-                _PRE_NOT_MANAGED,
-                _PRE_IDLE,
-                Precondition("settings_given", "Указана хотя бы одна настройка", _settings_given),
-                Precondition("aspect_valid", "Формат кадра из списка Studio", _aspect_valid),
+                *settings_pre,
+                Precondition(
+                    "media_not_costlier",
+                    "Модель и разрешение из списков Studio и не дороже текущих",
+                    _media_not_costlier,
+                ),
+            ),
+            tags=("project", "settings"),
+        ),
+        S(
+            id="project.patch_settings_costly",
+            title_ru="Изменить модель или разрешение проекта (дороже или цена неизвестна)",
+            description_ru="То же, что «Изменить настройки проекта», но модель или разрешение "
+            "картинок и видео дороже текущих или их цена неизвестна: только после "
+            "подтверждения человека. Сам ничего не запускает.",
+            params_schema=settings_schema,
+            executor=_patch_settings,
+            risk=RISK_DESTRUCTIVE,
+            destructive=True,
+            reversible=True,
+            idempotent=True,
+            destructive_effects=_settings_effects,
+            future_spend_note="Следующие генерации картинок и видео проекта могут стоить дороже.",
+            preconditions=(
+                *settings_pre,
+                Precondition("media_valid", "Модели картинок и видео из списков Studio", _media_valid),
             ),
             tags=("project", "settings"),
         ),
@@ -1059,5 +1153,5 @@ def register_wave5(registry: ActionRegistry) -> None:
         if spec is not None:
             registry.unregister(action_id)
             registry.register(_with_ceiling(spec))
-    hist.wrap_catalog(registry)
     registry.register_many([*_specs(), *hist.history_specs()])
+    hist.wrap_catalog(registry)

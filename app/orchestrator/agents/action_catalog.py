@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -16,6 +17,10 @@ BASE_READ_IDS: tuple[str, ...] = (
     "report.nodes",
     "node.describe",
 )
+# «Запусти / прогони / дальше» — запуск шага в каталоге всегда: иначе отбор по словам
+# отдаёт место нодам и группам из той же просьбы, и планировщик отказывает «нет запуска шага».
+LAUNCH_IDS: tuple[str, ...] = ("step.run_step",)
+_LAUNCH_RE = re.compile(r"(?<![a-zа-я0-9_])(?:(?:пере)?запуст|прогон|прогна|стартуй|пусти|дальше)")
 _DESC_LIMIT = 140
 
 
@@ -139,7 +144,13 @@ def select_ids(text: str, specs: list[Any], max_catalog: int) -> list[str]:
     view = _AllowedView(specs)
     picked = select_catalog(text or "", None, view, max_catalog).ids
     base = [key for key in BASE_READ_IDS if view.find(key) is not None]
+    if wants_launch(text):
+        base += [key for key in LAUNCH_IDS if view.find(key) is not None]
     return sorted({*picked, *base})
+
+
+def wants_launch(text: str) -> bool:
+    return bool(_LAUNCH_RE.search((text or "").lower().replace("ё", "е")))
 
 
 class ActionCatalog:

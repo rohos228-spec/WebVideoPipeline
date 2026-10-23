@@ -464,11 +464,14 @@ async def _node_set_prompt_variant(ctx: ActionContext, params: dict) -> dict:
     from app.orchestrator.node_store.meta_book import VersionConflict, checked_meta_version
 
     proj = await _get_project(ctx, params["project_id"])
+    slot_id = params.get("slot_id", "main")
+    # Файл есть и шаг его прочитает — это проверило предусловие variant_exists; здесь только
+    # имя «как назвал человек» становится именем файла в библиотеке.
+    step, variant, _problem = _library_choice(proj, params["node_key"], slot_id, params["variant"])
     book = _meta_book(proj)
     from app.orchestrator.actions.contracts import guard_stale_edit
 
     guard_stale_edit(params, book.version)
-    slot_id = params.get("slot_id", "main")
     before = (((proj.get("meta") or {}).get("prompt_slot_variants") or {}).get(params["node_key"]) or {}).get(
         slot_id
     )
@@ -476,7 +479,7 @@ async def _node_set_prompt_variant(ctx: ActionContext, params: dict) -> dict:
         book.set_prompt_variant(
             node_key=params["node_key"],
             slot_id=slot_id,
-            variant=params["variant"],
+            variant=variant,
             version=checked_meta_version(params, book),
         )
     except VersionConflict as exc:
@@ -486,7 +489,7 @@ async def _node_set_prompt_variant(ctx: ActionContext, params: dict) -> dict:
         f"/projects/{params['project_id']}",
         json={
             "meta": {
-                "prompt_slot_variants": {params["node_key"]: {slot_id: params["variant"]}},
+                "prompt_slot_variants": {params["node_key"]: {slot_id: variant}},
                 "meta_version": book.version,
             }
         },
@@ -494,32 +497,163 @@ async def _node_set_prompt_variant(ctx: ActionContext, params: dict) -> dict:
     return {
         "node_key": params["node_key"],
         "slot_id": slot_id,
-        "variant": params["variant"],
-        "text_ru": _prompt_variant_ru(proj.get("meta"), params["node_key"], params["variant"], before),
+        "variant": variant,
+        "text_ru": _prompt_variant_ru(proj.get("meta"), params["node_key"], step, variant, before),
     }
 
 
-async def _variant_exists(ctx: ActionContext, params: dict) -> str | None:
-    """Несуществующий вариант нода не прочитает и упадёт на запуске — отказываем сразу."""
+HERO_STYLE_SLOT = "style"
+
+
+def prompt_step_for(node_type: str, slot_id: str = "main") -> str | None:
+    """Папка библиотеки промтов слота ноды — как в Node Studio (node-step-map.ts, node-prompts.ts).
+
+    «Работа с GPT» и enrich_* читают 05_excel_gpt, слот style ноды героя — 04_hero_style.
+    None — у ноды нет библиотеки промтов (картинки, видео, озвучка, сборка).
+    """
+    from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
+    from app.services import prompt_library as pl
+    from app.services.excel_gpt_node import EXCEL_GPT_STEP_CODE, is_excel_gpt_node_type
+
+    if is_excel_gpt_node_type(node_type):
+        step = EXCEL_GPT_STEP_CODE
+    elif node_type == "hero" and slot_id == HERO_STYLE_SLOT:
+        step = "hero_style"
+    else:
+        step = NODE_TYPE_TO_STEP_CODE.get(node_type, "")
+    return step if step in pl.STEP_FOLDERS else None
+
+
+def _norm_variant(name: str) -> str:
+    low = " ".join(name.lower().replace("ё", "е").split())
+    return low[:-4].rstrip() if low.endswith(".txt") else low
+
+
+def library_variant(names: list[str], raw: str) -> str | None:
+    """Имя файла из библиотеки, которое назвал человек: с .md/.txt или без, регистр не важен."""
+    from app.services import prompt_library as pl
+
+    if raw in names:
+        return raw
+    clean = pl._clean_variant_name(raw)
+    if clean in names:
+        return clean
+    hits = [name for name in names if _norm_variant(name) == _norm_variant(clean)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def library_names(meta: dict | None, node_key: str, step: str) -> list[str]:
+    """Список файлов, который Студия показывает слоту: у нод группы script_frames_qc — промты группы."""
+    from types import SimpleNamespace
+
+    from app.services import prompt_library as pl
+
+    if pl.is_excel_gpt_prompt_step(step):
+        group = pl._group_id_from_canvas_node(SimpleNamespace(meta=meta), node_key)
+        owned = pl.list_group_owned_prompts(group)
+        if owned is not None:
+            return owned
+    return pl.list_prompts(step)
+
+
+def _library_choice(proj: dict, node_key: str, slot_id: str, raw: str) -> tuple[str | None, str, str | None]:
+    """(шаг, имя файла в библиотеке, причина отказа). Причина None — шаг прочитает этот файл."""
     from app.services import prompt_library as pl
     from app.services.action_layer import builtin_insight as bi
 
-    meta = (await _get_project(ctx, params["project_id"])).get("meta")
-    node = (
-        next((n for n in bi._canvas_nodes(meta) if str(n["id"]) == params["node_key"]), None)
-        if isinstance(meta, dict)
-        else None
-    )
-    step = str((node or {}).get("type") or "")
+    meta = proj.get("meta") if isinstance(proj.get("meta"), dict) else {}
+    label = node_label_ru(meta, node_key)
+    node = next((n for n in bi._canvas_nodes(meta) if str(n["id"]) == node_key), None)
+    step = prompt_step_for(str((node or {}).get("type") or ""), slot_id)
+    if step is None:
+        return None, raw, f"у ноды «{label}» нет библиотеки промтов для слота {slot_id}"
     try:
-        names = pl.list_prompts(step)
-    except Exception:  # noqa: BLE001
+        names = library_names(meta, node_key, step)
+    except Exception as exc:  # noqa: BLE001
+        return (
+            step,
+            raw,
+            (f"библиотеку промтов ноды «{label}» не удалось прочитать ({exc}), проверить вариант нельзя"),
+        )
+    variant = library_variant(names, raw)
+    if variant is None:
+        hint = ""
+        if step == "hero":
+            style = library_variant(pl.list_prompts("hero_style"), raw)
+            if style:
+                hint = f": «{style}» — это стиль персонажа, его ставят в слот style"
+        return step, raw, f"промта «{raw}» для ноды «{label}» в библиотеке нет{hint}"
+    return step, variant, _unread_reason(proj, node_key, slot_id, step, variant)
+
+
+def _unread_reason(proj: dict, node_key: str, slot_id: str, step: str, variant: str) -> str | None:
+    """Прогоняет выбор через тот же резолвер, что и запуск шага: иначе слот запишется, а шаг
+    возьмёт другой файл (выбор шага в проекте, подмена героя, сборка из блоков)."""
+    import copy
+
+    from app.services import prompt_library as pl
+
+    if step in ("scene_d", "scene_asm"):
+        # Агенты сцен читают свои файлы по имени агента, не через выбор шага.
         return None
-    if params["variant"] in names:
+    overrides = proj.get("prompt_overrides") if isinstance(proj.get("prompt_overrides"), dict) else {}
+    meta = copy.deepcopy(proj.get("meta")) if isinstance(proj.get("meta"), dict) else {}
+    slots = meta.get("prompt_slot_variants") if isinstance(meta.get("prompt_slot_variants"), dict) else {}
+    node_slots = slots.get(node_key) if isinstance(slots.get(node_key), dict) else {}
+    meta["prompt_slot_variants"] = {**slots, node_key: {**node_slots, slot_id: variant}}
+    if pl.is_excel_gpt_prompt_step(step):
+        where = {"node_key": node_key, "slot_id": slot_id}
+    elif step == "hero_style":
+        where = {"node_key": node_key, "slot_id": HERO_STYLE_SLOT}
+    else:
+        where = {}
+    name, source = pl.resolve_project_prompt_with_source(overrides, step, meta=meta, **where)
+    if name == variant:
+        return _blocks_reason(overrides, step, variant)
+    if source == "override":
+        return (
+            f"шаг всё равно возьмёт «{name}»: этот промт выбран для шага в самом проекте, "
+            "такой выбор важнее слота ноды. Поменяй промт на ноде в Студии, там меняются "
+            "оба выбора сразу"
+        )
+    if step == "hero":
+        return f"файл «{variant}» не похож на лист персонажа, шаг героя возьмёт «{name}»"
+    if step == "hero_style":
+        return f"файл «{variant}» не похож на стиль персонажа, шаг героя возьмёт «{name}»"
+    return f"шаг возьмёт «{name}» ({pl.PROMPT_SOURCE_LABELS.get(source, source)}), а не выбранный файл"
+
+
+def _blocks_reason(overrides: dict, step: str, variant: str) -> str | None:
+    """Сборка из блоков (use_blocks_v2) подменяет файл шаблоном шага, как в get_project_prompt."""
+    from app.services import prompt_library as pl
+    from app.services.prompt_composer import STEP_CODE_TO_COMPOSE, project_uses_blocks_v2, read_step_template
+    from app.services.prompt_step_presets import resolve_prompt_preset
+
+    step_id = STEP_CODE_TO_COMPOSE.get(step)
+    if step in pl.ENRICH_STEP_CODES or not step_id or not project_uses_blocks_v2(overrides):
+        return None
+    preset = resolve_prompt_preset(step, variant)
+    if isinstance(preset, dict) and preset.get("compose") == "file":
+        return None
+    try:
+        read_step_template(step_id)
+    except FileNotFoundError:
         return None
     return (
-        f"промта «{params['variant']}» для ноды «{node_label_ru(meta, params['node_key'])}» в библиотеке нет"
+        "в проекте промт этого шага собирается из блоков, файл варианта шаг не читает. "
+        "Выключи сборку из блоков в Студии, тогда выбор заработает"
     )
+
+
+async def _variant_exists(ctx: ActionContext, params: dict) -> str | None:
+    """Варианта нет в библиотеке или шаг его не прочитает — отказываем до записи."""
+    proj = await _get_project(ctx, params["project_id"])
+    return _library_choice(
+        proj if isinstance(proj, dict) else {},
+        params["node_key"],
+        params.get("slot_id", "main"),
+        params["variant"],
+    )[2]
 
 
 def node_label_ru(meta: dict | None, node_key: str) -> str:
@@ -535,15 +669,14 @@ def node_label_ru(meta: dict | None, node_key: str) -> str:
     return label.strip()
 
 
-def _prompt_variant_ru(meta: dict | None, node_key: str, variant: str, before: str | None) -> str:
+def _prompt_variant_ru(
+    meta: dict | None, node_key: str, step: str | None, variant: str, before: str | None
+) -> str:
     from app.services import prompt_library as pl
-    from app.services.action_layer import builtin_insight as bi
 
-    nodes = bi._canvas_nodes(meta) if isinstance(meta, dict) else []
     label = node_label_ru(meta, node_key)
-    step = next((str(n.get("type") or "") for n in nodes if str(n["id"]) == node_key), "")
     try:
-        titles = pl.load_file_meta(pl.EXCEL_GPT_UNIFIED_STEP if step == "excel_gpt" else step)
+        titles = pl.load_file_meta(step) if step else {}
     except Exception:  # noqa: BLE001
         titles = {}
 
@@ -948,8 +1081,11 @@ def _specs() -> list[ActionSpec]:
         ActionSpec(
             id="node.set_prompt_variant",
             title_ru="Выбрать вариант промта слота ноды",
-            description_ru="Привязывает файл промта к слоту ноды в этом проекте (meta). Сам файл "
-            "промта не меняется. Существование файла на сервере не проверяется.",
+            description_ru="Привязывает файл промта из библиотеки к слоту ноды в этом проекте (meta). "
+            "Сам файл промта не меняется. variant — имя файла как в библиотеке "
+            "(кириллица, пробелы, .txt в имени допустимы, .md на конце можно не писать). "
+            "Стиль персонажа у ноды героя — slot_id=style. Отказ, если файла нет "
+            "в библиотеке шага или шаг при запуске прочитает другой файл.",
             params_schema=_schema(
                 {
                     "project_id": _PID,
@@ -963,8 +1099,8 @@ def _specs() -> list[ActionSpec]:
                     "variant": {
                         "type": "string",
                         "minLength": 1,
-                        "maxLength": 120,
-                        "pattern": r"^[A-Za-z0-9_.\-]+$",
+                        "maxLength": 200,
+                        "pattern": r'^[^/\\:*?"<>|]+$',
                     },
                 },
                 ["project_id", "node_key", "variant"],
@@ -976,7 +1112,11 @@ def _specs() -> list[ActionSpec]:
                 _PRE_PROJECT,
                 _PRE_IDLE,
                 _PRE_NODE,
-                Precondition("variant_exists", "Такой вариант промта есть в библиотеке", _variant_exists),
+                Precondition(
+                    "variant_exists",
+                    "Такой вариант промта есть в библиотеке и шаг его прочитает",
+                    _variant_exists,
+                ),
             ),
             tags=("node", "prompt", "edit"),
         ),

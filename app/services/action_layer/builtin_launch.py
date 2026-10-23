@@ -1,17 +1,26 @@
 from __future__ import annotations
 
+import contextlib
+import re
+import time
+import uuid
 from dataclasses import replace
 from typing import Any
 
 from app.services import launch_inputs as li
 from app.services import launch_risks as lr
 from app.services.action_layer import builtin_wave5 as w5
+from app.services.action_layer import chain_stop as cs
+from app.services.action_layer import img_pr_guard as ipg
 from app.services.action_layer import node_run_cost as nrc
 from app.services.action_layer import project_gen_settings as pgs
+from app.services.action_layer import sound_cost as sc
+from app.services.action_layer import step_outcome as so
 from app.services.action_layer.builtin_group import (
     _NODE_KEY,
     _PRE_NO_MONTAGE,
     _PRE_NOT_MANAGED,
+    _effective_project,
     _get_project,
     _is_running,
     _node_exists,
@@ -31,6 +40,7 @@ from app.services.action_layer.spec import (
     ActionRegistry,
     ActionSpec,
     CostEstimate,
+    JobState,
     Precondition,
 )
 from app.services.runtime_streams import WORKER_MAX
@@ -44,13 +54,14 @@ LAUNCH_IDS: tuple[str, ...] = (
 LAUNCH_CHANGED_IDS: tuple[str, ...] = ("step.run_step", "step.get_run_cost_basis")
 EXCLUDED_STEPS: tuple[str, ...] = ("publish",)
 NODE_KEY_STEPS: tuple[str, ...] = ("excel_gpt", "scene_d", "scene_asm")
+STOP_META_KEY = "excel_gpt_stop_after_key"
+_CHAIN_LIMIT = 40
 MAX_BATCH = 20
 MAX_PARALLEL = WORKER_MAX
 
 _EXTRA_BASIS = {
     "hero": "картинки героев: число генераций и модель из кода не определены",
     "items": "картинки предметов: число генераций и модель из кода не определены",
-    "sfx_gen": "звуковые эффекты: число и цена генераций из кода не определены",
 }
 _LLM_BASIS = "текстовый шаг: число и размер запросов к модели из кода не определены"
 _CHAIN_BASIS = (
@@ -80,6 +91,7 @@ def with_default_ceiling(params: dict) -> dict:
         or params.get("allow_auto_chain")
         or (kind and kind != "llm")
         or code in _EXTRA_BASIS
+        or code in sc.SOUND_STEPS
         or code not in launch_step_codes()
     ):
         return params
@@ -91,6 +103,8 @@ def estimate_any_step(params: dict) -> CostEstimate:
     ceiling = params.get("ceiling_credits")
     if params.get("allow_auto_chain"):
         return nrc.apply_ceiling(CostEstimate.unknown(_CHAIN_BASIS), ceiling)
+    if code in sc.SOUND_STEPS:
+        return sc.estimate(params)
     if nrc.media_step_kind(code):
         return w5._estimate_step(params)
     return nrc.apply_ceiling(CostEstimate.unknown(unpriced_basis(code)), ceiling)
@@ -98,7 +112,11 @@ def estimate_any_step(params: dict) -> CostEstimate:
 
 async def _verify_any_cost(ctx: ActionContext, params: dict) -> str | None:
     code = params["step_code"]
-    if nrc.media_step_kind(code):
+    if code in sc.SOUND_STEPS:
+        reason = sc.cost_reason(await sc.load_basis(params["project_id"], code), params)
+        if reason:
+            return reason
+    elif nrc.media_step_kind(code):
         reason = await w5._verify_step_cost(ctx, params)
         if reason:
             return reason
@@ -133,6 +151,90 @@ async def _pre_runnable(ctx, params):
         if missing:
             return missing
     return await w5._pre_step_runnable(ctx, params)
+
+
+async def _pre_sound_inputs(ctx, params):
+    """Озвучка, музыка и звуки: то, без чего шаг упадёт сразу (текст, план, ключ провайдера)."""
+    if params["step_code"] not in sc.SOUND_STEPS:
+        return None
+    return (await sc.load_basis(params["project_id"], params["step_code"])).missing
+
+
+def gpt_chain(meta: dict | None, start_key: str) -> list[str]:
+    """Ноды «Работа с GPT», которые Студия пройдёт сама после ``start_key`` по стрелкам.
+
+    Тот же переход, что у воркера после ноды: первый рабочий узел по стрелкам; цепочка
+    идёт, пока он excel_gpt. Первый элемент - сама ``start_key``.
+    """
+    from types import SimpleNamespace
+
+    from app.services.excel_gpt_node import first_work_successor_along_edges, is_excel_gpt_node_type
+
+    project = SimpleNamespace(meta=meta if isinstance(meta, dict) else {})
+    chain = [start_key]
+    while len(chain) < _CHAIN_LIMIT:
+        succ = first_work_successor_along_edges(project, chain[-1])
+        if succ is None or not is_excel_gpt_node_type(succ[1]) or succ[0] in chain:
+            break
+        chain.append(succ[0])
+    return chain
+
+
+def _chain_ru(meta: dict | None, keys: list[str]) -> str:
+    return " → ".join(f"«{node_label_ru(meta, key)}» ({key})" for key in keys)
+
+
+async def _pre_stop_point(ctx, params):
+    stop = params.get("stop_after_node_key")
+    if not stop:
+        return None
+    if params.get("step_code") != "excel_gpt" or not params.get("node_key"):
+        return (
+            "точка остановки цепочки задаётся только для запуска ноды «Работа с GPT» (excel_gpt с node_key)"
+        )
+    meta = (await _effective_project(ctx, params["project_id"])).get("meta")
+    chain = gpt_chain(meta, params["node_key"])
+    if stop not in chain:
+        return (
+            f"нода {stop!r} не идёт по стрелкам после ноды {params['node_key']!r}; Студия сама "
+            f"пройдёт: {_chain_ru(meta, chain)}"
+        )
+    return None
+
+
+async def _arm_stop_point(ctx, params) -> None:
+    """Стоп-ключ Студии (как ▶ «только эта нода»): цепочка нод встанет после выбранной.
+
+    Без точки остановки снимаем ключ, оставшийся от прежнего запуска, если цепочка до него
+    не дошла: иначе новая цепочка оборвалась бы на чужой ноде.
+    """
+    if params.get("step_code") != "excel_gpt":
+        return
+    stop = params.get("stop_after_node_key")
+    if not stop:
+        meta = (await _get_project(ctx, params["project_id"])).get("meta")
+        if not (isinstance(meta, dict) and meta.get(STOP_META_KEY)):
+            return
+    await ctx.call("PATCH", f"/projects/{params['project_id']}", json={"meta": {STOP_META_KEY: stop or None}})
+
+
+async def _disarm_stop_point(ctx, params) -> bool:
+    """После цепочки: True, если стоп-ключ остался - цепочка встала раньше ноды-остановки.
+
+    Ключ снимает только сама нода-остановка. Оставшийся снимаем здесь: иначе следующий
+    запуск из Студии оборвался бы на этой ноде.
+    """
+    stop = params.get("stop_after_node_key")
+    if not stop:
+        return False
+    try:
+        meta = (await _get_project(ctx, params["project_id"])).get("meta")
+    except ActionCallError:
+        return False
+    if not (isinstance(meta, dict) and meta.get(STOP_META_KEY) == stop):
+        return False
+    await ctx.call("PATCH", f"/projects/{params['project_id']}", json={"meta": {STOP_META_KEY: None}})
+    return True
 
 
 async def _pre_idle_or_preempt(ctx, params):
@@ -184,6 +286,42 @@ async def _pre_frames(ctx, params):
     return None
 
 
+async def _pre_img_pr_scenes(ctx, params):
+    """Промты картинок не запускаем по кадрам без данных сцены: модель вернёт заглушки за деньги."""
+    if params["step_code"] != ipg.STEP_CODE and not params.get("allow_auto_chain"):
+        return None
+    pid = params["project_id"]
+    meta = (await _get_project(ctx, pid)).get("meta")
+    runs = await _node_runs(ctx, pid)
+    if not ipg.launch_skips_scene(
+        meta,
+        params["step_code"],
+        params.get("node_key"),
+        runs,
+        auto_chain=bool(params.get("allow_auto_chain")),
+    ):
+        return None
+    return await ipg.scene_gap(pid, meta, runs)
+
+
+async def _img_pr_hollow(ctx, params, started, state):
+    """После промтов картинок: пустые промты («нет исходных данных») - не успех."""
+    code = params["step_code"]
+    if code != ipg.STEP_CODE:
+        if not params.get("allow_auto_chain"):
+            return state
+        ready = so._order("image_prompts_ready")
+        before = so._order(str((started or {}).get("status_before") or ""))
+        final = so._order(str((state.result or {}).get("final_status") or ""))
+        if ready is None or final is None or final < ready or (before is not None and before >= ready):
+            return state
+    pid = params["project_id"]
+    hollow = await ipg.hollow_outcome(pid, (await _get_project(ctx, pid)).get("meta"))
+    if not hollow:
+        return state
+    return await _named_failure(ctx, params, replace(state, ok=False, error=hollow))
+
+
 async def step_risks(ctx, params) -> list[dict]:
     proj = await _get_project(ctx, params["project_id"])
     return lr.launch_risks(
@@ -197,7 +335,19 @@ async def step_risks(ctx, params) -> list[dict]:
 
 
 async def _step_warnings(ctx, params) -> list[str]:
-    return [r["text"] for r in await step_risks(ctx, params)]
+    out = [r["text"] for r in await step_risks(ctx, params)]
+    if params["step_code"] in sc.SOUND_STEPS:
+        notice = (await sc.load_basis(params["project_id"], params["step_code"])).notice
+        if notice:
+            out.append(notice)
+    return out
+
+
+def _chain_tag(ctx) -> str:
+    tag = re.sub(r"[^A-Za-z0-9_-]", "", str(ctx.plan_id or ""))[:32]
+    if ctx.step_index is not None:
+        tag = f"{tag}-{ctx.step_index}"
+    return tag or uuid.uuid4().hex[:16]
 
 
 async def _run_any_step(ctx, params):
@@ -207,37 +357,190 @@ async def _run_any_step(ctx, params):
     query: dict[str, Any] = {"mode": "resume"}
     if params.get("node_key"):
         query["node_key"] = params["node_key"]
-    await ctx.call("POST", f"/projects/{params['project_id']}/steps/{params['step_code']}/run", params=query)
-    out = {"started": True, "step_code": params["step_code"]}
+    await _arm_stop_point(ctx, params)
+    if params.get("allow_auto_chain") and (params.get("ceiling_credits") or 0) > 0:
+        # Потолок на всю цепочку доходит до воркера, а не только до резерва плана.
+        query["run_cap_credits"] = params["ceiling_credits"]
+        query["run_tag"] = _chain_tag(ctx)
+    before = await _get_project(ctx, params["project_id"])
+    launched_at = time.time()
+    after = await ctx.call(
+        "POST", f"/projects/{params['project_id']}/steps/{params['step_code']}/run", params=query
+    )
+    out = {
+        "started": True,
+        "step_code": params["step_code"],
+        **so.launch_marks(params["step_code"], before, after, launched_at),
+    }
     if params.get("node_key"):
         out["node_key"] = params["node_key"]
+    if params.get("stop_after_node_key"):
+        out["stop_after_node_key"] = params["stop_after_node_key"]
     return out
+
+
+async def _guard_stop_point(ctx, params, started) -> JobState | None:
+    """Точка остановки в коде: Студия пошла дальше готовой ноды-остановки - стоп проекта.
+
+    Стоп-ключ Студии - главный механизм; это страховка на случай, если ключ потерялся или
+    после ноды-остановки что-то запустило следующую работу. None - всё идёт как надо.
+    """
+    stop = params.get("stop_after_node_key")
+    if not stop:
+        return None
+    try:
+        proj = await _get_project(ctx, params["project_id"])
+    except ActionCallError:
+        return None
+    proj = proj if isinstance(proj, dict) else {}
+    runs = await _node_runs(ctx, params["project_id"])
+    cs.observe(started, runs)
+    ran = cs.overrun_node(stop, runs, started, proj.get("status"), proj.get("meta"))
+    if not ran:
+        return None
+    try:
+        stopped = bool((await _stop_project(ctx, params)).get("stopped"))
+    except ActionCallError:
+        stopped = False
+    with contextlib.suppress(ActionCallError):
+        await _disarm_stop_point(ctx, params)
+    cs.forget(started)
+    where, what = await _step_names(ctx, params)
+    tail = cs.overrun_text(proj.get("meta"), stop, ran, stopped)
+    if not stopped:
+        return JobState(done=True, ok=False, error=f"{where}: {what} завершена, но {tail}.")
+    try:
+        final = str((await _get_project(ctx, params["project_id"])).get("status") or "")
+    except ActionCallError:
+        final = ""
+    result = {
+        "final_status": final,
+        "overrun_node_key": ran,
+        "project_stopped": True,
+        "text_ru": f"{where}: {what} завершена. {tail}.",
+    }
+    return JobState(done=True, ok=True, result=result)
+
+
+async def _chain_outcome(ctx, params, started, state: JobState, early: bool) -> tuple[JobState, str]:
+    """Цепочка нод встала раньше или упала: какая нода готова последней, на какой встали, почему.
+
+    Возвращает итог опроса (упавшая в этом запуске нода цепочки делает его ошибкой) и текст
+    места остановки для «до ноды … не дошла».
+    """
+    if not state.done or params.get("step_code") != "excel_gpt" or not params.get("node_key"):
+        return state, ""
+    try:
+        proj = await _get_project(ctx, params["project_id"])
+    except ActionCallError:
+        return state, ""
+    meta = (proj if isinstance(proj, dict) else {}).get("meta")
+    scope = cs.chain_scope(gpt_chain(meta, params["node_key"]), params.get("stop_after_node_key"))
+    if len(scope) < 2:
+        return state, ""
+    runs = await _node_runs(ctx, params["project_id"])
+    if state.ok and not early:
+        if not cs.failed_in_scope(scope, runs, started):
+            return state, ""
+        state = replace(state, ok=False, error="")
+    if state.ok:
+        return state, cs.early_text(scope, runs, started, meta)
+    error = state.error or ""
+    for head in so.NOT_DONE_HEADS:
+        if error.startswith(head):
+            error = error[len(head) :]
+    text = cs.failure_text(scope, runs, started, meta, error)
+    if text is None:
+        return (state if state.error else replace(state, error="нода цепочки завершилась с ошибкой")), ""
+    return replace(state, error=so.NOT_DONE_HEADS[0] + text), ""
 
 
 async def _poll_any_step(ctx, params, started):
     if params["step_code"] == "excel_gpt" and params.get("node_key"):
-        state = await _node_run_poll(ctx, params, started)
+        overrun = await _guard_stop_point(ctx, params, started)
+        if overrun is not None:
+            return overrun
+        state = await so.honest_state(ctx, params, started, await _node_run_poll(ctx, params, started))
+        skipped = await so.gpt_skipped(ctx, params, started) if state.done and state.ok else None
+        if skipped:
+            state = replace(state, ok=False, error=skipped)
     else:
         state = await w5._poll_step(ctx, params, started)
+    early = state.done and await _disarm_stop_point(ctx, params)
+    state, stuck = await _chain_outcome(ctx, params, started, state, early)
+    if state.done:
+        cs.forget(started)
     if not (state.done and state.ok):
+        return await _named_failure(ctx, params, state)
+    state = await _img_pr_hollow(ctx, params, started, state)
+    if not state.ok:
         return state
     from app.services.action_layer.builtin_insight import _status_ru
 
     result = dict(state.result or {})
+    where, what = await _step_names(ctx, params)
+    text = f"{where}: " + (f"{what} завершена" if params.get("node_key") else f"{what} завершён")
+    if early:
+        stop = params["stop_after_node_key"]
+        try:
+            meta = (await _get_project(ctx, params["project_id"])).get("meta")
+        except ActionCallError:
+            meta = None
+        text += f", но до ноды «{node_label_ru(meta, stop)}» цепочка не дошла"
+        if stuck:
+            text += f": {stuck}"
+        result["stopped_early"] = True
+    if result.get("final_status"):
+        text += f", статус проекта: {_status_ru(str(result['final_status']))}"
+    text += "."
+    if params["step_code"] in ("sfx_gen", "assemble"):
+        # Звуки могли молча уйти в локальный синтез: человек должен это услышать от чата.
+        try:
+            proj = await _get_project(ctx, params["project_id"])
+        except ActionCallError:
+            proj = {}
+        proj = proj if isinstance(proj, dict) else {}
+        meta = proj.get("meta") if isinstance(proj.get("meta"), dict) else {}
+        sfx = sc.sfx_outcome_text(meta)
+        if sfx and (params["step_code"] == "sfx_gen" or meta.get("sfx_degraded") or meta.get("sfx_skipped")):
+            text += " " + sfx
+            result["sfx_provider"] = meta.get("sfx_provider")
+    result["text_ru"] = text
+    return replace(state, result=result)
+
+
+async def _step_names(ctx, params) -> tuple[str, str]:
+    """Проект и шаг для строки итога: «#12 «Название»» и «Шаг «…»» или «Нода «…»»."""
     what = f"Шаг «{lr.step_title(params['step_code'])}»"
     try:
         proj = await _get_project(ctx, params["project_id"])
     except ActionCallError:
         proj = {}
+    proj = proj if isinstance(proj, dict) else {}
+    stop = params.get("stop_after_node_key")
     if params.get("node_key"):
         what = f"Нода «{node_label_ru(proj.get('meta'), params['node_key'])}»"
+    if stop and stop != params.get("node_key"):
+        what = (
+            f"Цепочка нод от «{node_label_ru(proj.get('meta'), params['node_key'])}» "
+            f"до «{node_label_ru(proj.get('meta'), stop)}»"
+        )
     # Несколько проектов в одной задаче: без имени проекта строки ответа одинаковые.
     where = f"#{params['project_id']}" + (f" «{proj.get('title')}»" if proj.get("title") else "")
-    text = f"{where}: " + (f"{what} завершена" if params.get("node_key") else f"{what} завершён")
-    if result.get("final_status"):
-        text += f", статус проекта: {_status_ru(str(result['final_status']))}"
-    result["text_ru"] = text + "."
-    return replace(state, result=result)
+    return where, what
+
+
+async def _named_failure(ctx, params, state):
+    """Ошибка шага с проектом и шагом впереди: в одном плане бывает несколько проектов."""
+    if not state.done or state.ok:
+        return state
+    where, what = await _step_names(ctx, params)
+    error = state.error or "шаг завершился с ошибкой"
+    for head in so.NOT_DONE_HEADS:
+        if error.startswith(head):
+            done_word = "не выполнена" if params.get("node_key") else "не выполнен"
+            return replace(state, error=f"{where}: {what} {done_word}: {error[len(head) :]}")
+    return replace(state, error=f"{where}: {what}: {error}")
 
 
 def _any_step_effects(params: dict) -> str:
@@ -253,6 +556,8 @@ def _any_step_effects(params: dict) -> str:
 
 async def _any_basis(ctx, params):
     code = params["step_code"]
+    if code in sc.SOUND_STEPS:
+        return sc.basis_json(await sc.load_basis(params["project_id"], code))
     if nrc.media_step_kind(code):
         return await w5._get_step_cost_basis(ctx, params)
     return {
@@ -411,6 +716,26 @@ async def _pre_queue(ctx, params):
     return None
 
 
+async def _pre_queue_img_pr_scenes(ctx, params):
+    """Очередь не должна дойти до промтов картинок мимо ноды сцены (её она не повторяет)."""
+    mode = params.get("mode", "full")
+    for proj in await _load_projects(ctx, params["project_ids"]):
+        pid = proj.get("id")
+        meta = proj.get("meta")
+        target_type = params.get("target_node_type")
+        if params.get("target_node_key"):
+            target_type = _node_type_of(proj, params["target_node_key"])
+        runs = await _node_runs(ctx, pid)
+        if not ipg.queue_skips_scene(
+            meta, runs, mode=mode, target_key=params.get("target_node_key"), target_type=target_type
+        ):
+            continue
+        reason = await ipg.scene_gap(pid, meta, runs)
+        if reason:
+            return reason
+    return None
+
+
 async def _queue_warnings(ctx, params) -> list[str]:
     out: list[str] = []
     stopped, auto_on = [], []
@@ -523,12 +848,19 @@ def _specs() -> list[ActionSpec]:
         "image_resolution": _IMG_RES,
         "video_generator": _GEN,
         "video_resolution": _VID_RES,
+        "sound_credits": sc.SOUND_CREDITS,
         "ceiling_credits": w5._CEILING,
         "node_key": _NODE_KEY,
         "preempt_running": {"type": "boolean", "description": "Разрешить прервать идущий в проекте шаг"},
         "allow_auto_chain": {
             "type": "boolean",
             "description": "Разрешить запуск при включённом автопродвижении (потолок - на всю цепочку)",
+        },
+        "stop_after_node_key": {
+            **_NODE_KEY,
+            "description": "Для excel_gpt: после этой ноды цепочка нод «Работа с "
+            "GPT» по стрелкам останавливается («до отчёта», «до "
+            "ноды X»; равна node_key - только эта нода)",
         },
     }
     batch_props = {
@@ -575,10 +907,14 @@ def _specs() -> list[ActionSpec]:
             title_ru="Оценка стоимости запуска шага конвейера",
             description_ru="Для любого шага конвейера (кроме публикации): для картинок и видео - "
             "сколько генераций по доске, какие значения заявить в step.run_step и "
-            "верхняя оценка в кредитах по каталогу Kie; сборка бесплатна; для "
-            "текстовых шагов (план, сценарий, разбивка, агенты сцен, работа с GPT и "
-            "др.), озвучки, музыки, героев, предметов и звуков оценки по коду нет - "
-            "нужен потолок ceiling_credits. Оценка не откалибрована по балансу.",
+            "верхняя оценка в кредитах по каталогу Kie; озвучка - по символам "
+            "ElevenLabs, звуки - по секундам плана (заявить sound_credits), музыка - "
+            "трек Suno по каталогу Kie плюс запрос к модели (нужен потолок не ниже "
+            "цены трека); готовая озвучка или музыка на диске и локальный синтез "
+            "звуков бесплатны; сборка бесплатна; для текстовых шагов, героев и "
+            "предметов оценки по коду нет - нужен потолок ceiling_credits. Говорит, "
+            "чего не хватает шагу и будут ли звуки локальным синтезом. Оценка не "
+            "откалибрована по балансу.",
             params_schema=_obj({"step_code": run_props["step_code"]}, ["step_code"]),
             executor=_any_basis,
             risk=RISK_READ,
@@ -594,11 +930,14 @@ def _specs() -> list[ActionSpec]:
             "Excel и GPT (нужен node_key), промты, картинки, видео, озвучка, музыка, "
             "звуки, сборка. Убивает активную генерацию проекта и перезаписывает "
             "результат шага; план, сценарий и разбивка сбрасывают готовые ноды ниже. "
-            "Картинки и видео оцениваются по каталогу Kie, для остальных платных "
-            "шагов нужен потолок ceiling_credits; потолок и заявленные значения входят "
+            "Картинки и видео оцениваются по каталогу Kie, озвучка и звуки - по "
+            "sound_credits из step.get_run_cost_basis, для остальных платных шагов "
+            "нужен потолок ceiling_credits; потолок и заявленные значения входят "
             "в хэш подтверждения. Идущий шаг прерывается только с preempt_running, "
             "при автопродвижении запуск только с allow_auto_chain и потолком на всю "
-            "цепочку. Только с подтверждением человека.",
+            "цепочку. После ноды «Работа с GPT» Студия сама идёт по стрелкам дальше "
+            "по нодам GPT; stop_after_node_key - где остановиться. Только с "
+            "подтверждением человека.",
             params_schema=_obj(run_props, ["step_code"]),
             executor=_run_any_step,
             poll=_poll_any_step,
@@ -628,6 +967,21 @@ def _specs() -> list[ActionSpec]:
                     _pre_chain,
                 ),
                 Precondition("step_runnable", "Шаг доступен при статусе проекта", _pre_runnable),
+                Precondition(
+                    "sound_inputs",
+                    "Для озвучки, музыки и звуков есть текст, план и провайдер",
+                    _pre_sound_inputs,
+                ),
+                Precondition(
+                    "stop_point_in_chain",
+                    "Точка остановки стоит в цепочке нод после запускаемой",
+                    _pre_stop_point,
+                ),
+                Precondition(
+                    "img_pr_scene_input",
+                    "У кадров для промтов картинок есть данные сцены от ноды «Работа с GPT»",
+                    _pre_img_pr_scenes,
+                ),
                 Precondition(
                     "step_cost_declared",
                     "Заявленные число, модель и потолок покрывают расчёт по проекту",
@@ -686,6 +1040,11 @@ def _specs() -> list[ActionSpec]:
                     "Проекты существуют, не под Actions-v1, не "
                     "дети фабрики, автопродвижение есть или будет включено",
                     _pre_queue,
+                ),
+                Precondition(
+                    "img_pr_scene_input",
+                    "Очередь не дойдёт до промтов картинок по кадрам без данных сцены",
+                    _pre_queue_img_pr_scenes,
                 ),
             ),
             tags=("queue", "run", "batch"),

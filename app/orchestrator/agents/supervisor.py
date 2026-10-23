@@ -4,9 +4,12 @@ R3: planner → dry-run валидаторов → critic (≤2 revise, зате
 waiting_approval reason=critic_escalation) → executor только через
 actions.execute. Read-only одной parallel_group идут параллельно,
 мутации — последовательно. Исключение — подряд идущие платные запуски
-``PARALLEL_RUN_ACTIONS`` одной parallel_group в разных проектах: каждый
-сначала одобряется своей карточкой (чекпоинт на начале группы), затем все
-идут одновременно, каждый со своими валидаторами и записью трат. Чекпоинт после каждой мутации. Approval —
+``PARALLEL_RUN_ACTIONS`` одной parallel_group в разных проектах: все
+сначала одобряются одной карточкой с суммой и списком проектов (чекпоинт на
+начале группы), затем идут одновременно, каждый со своими валидаторами и
+записью трат. Подряд идущие шаги одного действия в разных проектах (кроме
+долгих платных без группы) тоже спрашиваются одной карточкой; её grant
+одобряет ровно эти шаги, пока их отпечаток совпадает с планом. Чекпоинт после каждой мутации. Approval —
 по max(риск реестра, подсказка плана): план не понижает риск.
 Paid-retry guard не даёт
 повторно оплатить тот же шаг. Interrupt отменяет неплатный ход,
@@ -47,6 +50,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import hashlib
 import inspect
 import json
 import re
@@ -166,6 +170,21 @@ _PLAN_BOUND_CARDS = frozenset({*approval_steps.PLAN_CARD_REASONS, "destructive"}
 _CRITIC_NO_REASON = "Критик не объяснил причину, поэтому план не отклонён: проверьте шаги и решите сами."
 _CRITIC_REJECTED = "Проверяющая модель против этого плана: {why}"
 _CRITIC_REVISED = "Проверяющая модель трижды просила переделать план, последнее замечание: {why}"
+# Планировщик иногда отдаёт пустой план «нужно отдельное подтверждение человека»: подтверждение
+# спрашивает карточка после плана, так что такой отказ - не причина ничего не делать.
+_ASKS_APPROVAL_RE = re.compile(
+    r"(?:требу|нужн|необходим|сначала|отдельн)\w*\W+(?:\w+\W+){0,3}(?:подтвержд|одобрени|согласи|разрешени)",
+    re.IGNORECASE,
+)
+_APPROVAL_NOTE = (
+    "Подтверждение человека для платных и изменяющих шагов спросит карточка после плана. "
+    "Не отказывай из-за подтверждения: составь план из действий каталога."
+)
+_ASKED_APPROVAL = (
+    "Причина: план не составился - планировщик решил, что сначала нужно ваше подтверждение. "
+    "Подтверждение я спрашиваю сам, карточкой перед запуском. Напишите просьбу ещё раз и назовите "
+    "шаг или ноду прямо, например «в проекте 10 запусти шаг предметы»."
+)
 _HUMAN_PLAN_BLOCKED = (
     "Вы подтвердили план, но он снова не прошёл обязательную проверку ({why}). "
     "Подтверждение эту проверку не снимает, поэтому я план не выполнял."
@@ -317,6 +336,7 @@ class Supervisor:
         self._orphan_failed: set[int] = set()
         self._grant_target: dict[int, tuple[int, str]] = {}
         self._step_grant: dict[tuple[int, int], tuple[str | None, str | None]] = {}
+        self._group_cards: dict[str, tuple[tuple[int, ...], str]] = {}
         self._paid_outcome_hold: set[int] = set()
         self._paid_unknown_marking: set[int] = set()
         self._pending_paid_unknown: list[tuple[str, int]] = []
@@ -758,6 +778,10 @@ class Supervisor:
                     ApprovalReason.budget_exhausted.value,
                 )
                 return
+        elif position < len(plan) and (group := self.card_group(task_id, decided_card, plan)) is not None:
+            self._grant_target.pop(task_id, None)
+            if not escalated and decided_card:
+                self._grant_group(task_id, decided_card, plan, group)
         elif position < len(plan):
             target = self._granted_position(task_id, plan, position, decided_card)
             if not (escalated and self._step_needs_separate_approval(plan[target])):
@@ -2224,6 +2248,14 @@ class Supervisor:
         await self.bus.publish(session_id, "kill_switch", payload, task_id=task_id)
 
     async def _drive(self, task_id: int, session_id: str, goal: str) -> None:
+        from app.orchestrator.routing.classifier import is_control_request
+        from app.services import spend_guard
+
+        # Стоп, пауза и статус доходят до планёра и при сработавшем потолке трат.
+        with spend_guard.chat_control(is_control_request(goal)):
+            await self._drive_task(task_id, session_id, goal)
+
+    async def _drive_task(self, task_id: int, session_id: str, goal: str) -> None:
         try:
             plan = await self._plan_and_review(task_id, session_id, goal, self._context.get(task_id, ""))
             if plan is None:
@@ -2312,6 +2344,11 @@ class Supervisor:
         token = _LLM_TASK.set(int(task_id))
         try:
             drafted = await self._draft_plan(task_id, session_id, goal, context)
+            if drafted == [] and self._asks_approval():
+                self._trace_plan(task_id, "asked_approval", [], self._planner_reason())
+                drafted = await self._draft_plan(
+                    task_id, session_id, goal, (context + "\n" + _APPROVAL_NOTE).strip()
+                )
         finally:
             _LLM_TASK.reset(token)
         if drafted is None:
@@ -2364,9 +2401,16 @@ class Supervisor:
         raw = str(getattr(self.planner, "last_reason", "") or "")
         return " ".join(plain_ru(redact_text(raw)).split())[:300]
 
+    def _asks_approval(self) -> bool:
+        if budget_exhausted_response(getattr(self.planner, "last_response", None)):
+            return False
+        return bool(_ASKS_APPROVAL_RE.search(self._planner_reason()))
+
     def _note_empty_reason(self, task_id: int) -> None:
         why = self._planner_reason()
-        if why:
+        if why and _ASKS_APPROVAL_RE.search(why):
+            self._fail_detail[task_id] = _ASKED_APPROVAL
+        elif why:
             self._fail_detail[task_id] = "Причина: " + why.rstrip(".") + "."
 
     async def _draft_plan(
@@ -2798,6 +2842,8 @@ class Supervisor:
                 await self._hold_paid_unknown(task_id, session_id, step)
                 return
 
+            if await self._gate_group(task_id, session_id, plan, index, batch, goal, concurrent=concurrent):
+                return
             gated = list(enumerate(batch)) if concurrent else [(0, step)]
             for offset, item in gated:
                 if await self._gate_step(task_id, session_id, plan, index + offset, item, goal, anchor=index):
@@ -3107,16 +3153,8 @@ class Supervisor:
         но чекпоинт стоит на начале группы: после grant группа собирается снова
         и уже одобренные соседи не теряются. Грант ложится на ключ самого шага.
         """
-        risk = effective_risk(self.actions, step)
-        rule = escalation_for(step.action, step.params)
-        if rule is not None:
-            risk = max_risk(risk, coerce_risk(getattr(rule, "risk", "high")))
+        risk, gate = self._step_gate(step)
         granted = self._risk_grant_key(task_id, index, step) in self._risk_granted
-        gate = metadata_call_gate(step.action, self.actions)
-        if rule is not None and bool(getattr(rule, "destructive", False)) and gate is None:
-            gate = "destructive"
-        elif rule is not None and bool(getattr(rule, "paid", False)) and gate is None:
-            gate = "paid"
         if granted or (risk not in APPROVAL_RISKS and not gate):
             return False
         await self._checkpoint(task_id, session_id, plan, anchor)
@@ -3146,6 +3184,149 @@ class Supervisor:
         await self._escalate(task_id, session_id, reason, extra=extra)
         self._aim_grant(task_id, index, anchor)
         return True
+
+    def _step_gate(self, step: PlanStep) -> tuple[Risk, str | None]:
+        """Риск шага (реестр, план, правило эскалации) и ворота ядра: paid / destructive / unknown."""
+        risk = effective_risk(self.actions, step)
+        rule = escalation_for(step.action, step.params)
+        if rule is not None:
+            risk = max_risk(risk, coerce_risk(getattr(rule, "risk", "high")))
+        gate = metadata_call_gate(step.action, self.actions)
+        if rule is not None and bool(getattr(rule, "destructive", False)) and gate is None:
+            gate = "destructive"
+        elif rule is not None and bool(getattr(rule, "paid", False)) and gate is None:
+            gate = "paid"
+        return risk, gate
+
+    def _same_action_run(self, plan: list[PlanStep], index: int) -> list[int]:
+        """Подряд идущие шаги того же действия и той же parallel_group, каждый в своём проекте."""
+        step = plan[index]
+        if _step_project(step) is None or _long_core_step(step.action):
+            return [index]
+        if frame_soft_delete_state(step.action, self.actions) is not None:
+            return [index]
+        seen = {_step_project(step)}
+        found = [index]
+        cursor = index + 1
+        while cursor < len(plan):
+            nxt = plan[cursor]
+            project = _step_project(nxt)
+            if nxt.action != step.action or nxt.parallel_group != step.parallel_group:
+                break
+            if project is None or project in seen:
+                break
+            seen.add(project)
+            found.append(cursor)
+            cursor += 1
+        return found
+
+    def _approval_group(
+        self,
+        task_id: int,
+        plan: list[PlanStep],
+        index: int,
+        batch: list[PlanStep],
+        concurrent: bool,
+    ) -> list[int]:
+        """Позиции шагов, которые спросит одна карточка. Меньше двух — карточки по одной.
+
+        Группа — шаги одного действия в разных проектах с одной причиной карточки:
+        запуски одной parallel_group или подряд идущие шаги без долгого платного
+        хода. Уже одобренный или не требующий карточки шаг в неё не входит.
+        """
+        candidates = (
+            list(range(index, index + len(batch))) if concurrent else self._same_action_run(plan, index)
+        )
+        found: list[int] = []
+        kind: tuple[str, str] | None = None
+        for at in candidates:
+            step = plan[at]
+            risk, gate = self._step_gate(step)
+            needs = self._risk_grant_key(task_id, at, step) not in self._risk_granted and (
+                risk in APPROVAL_RISKS or bool(gate)
+            )
+            if not needs:
+                if concurrent:
+                    continue
+                break
+            if gate == "unknown":
+                return []
+            mark = (step.action, _card_reason(risk, gate))
+            if kind is None:
+                kind = mark
+            elif mark != kind:
+                if concurrent:
+                    return []
+                break
+            found.append(at)
+        if not concurrent and found[:1] != [index]:
+            return []
+        return found if len(found) > 1 else []
+
+    async def _gate_group(
+        self,
+        task_id: int,
+        session_id: str,
+        plan: list[PlanStep],
+        index: int,
+        batch: list[PlanStep],
+        goal: str,
+        *,
+        concurrent: bool,
+    ) -> bool:
+        """Одна карточка на однотипные шаги разных проектов. True — карточка открыта.
+
+        Grant этой карточки одобряет ровно шаги из её списка, и только пока их
+        отпечаток совпадает с планом. Валидаторы, бюджет и запись трат идут
+        у каждого шага отдельно, как без группы.
+        """
+        positions = self._approval_group(task_id, plan, index, batch, concurrent)
+        if not positions:
+            return False
+        steps = [plan[at] for at in positions]
+        gates = [self._step_gate(step) for step in steps]
+        risk = max_risk(*(item[0] for item in gates))
+        gate = gates[0][1]
+        reason = _card_reason(gates[0][0], gate)
+        await self._checkpoint(task_id, session_id, plan, index)
+        self._grant_target.pop(task_id, None)
+        labels = await self._card_labels(task_id)
+        views = [approval_steps.step_view(step, self.actions, labels) for step in steps]
+        previews = [await self._card_extra(task_id, step, goal) for step in steps]
+        mark = group_fingerprint(plan, positions)
+        card = approval_steps.group_card(steps, positions, views, previews, mark)
+        card["risk"] = max_risk(risk, card["risk"]).value
+        extra = {**card, "action": steps[0].action, "plan_risk": steps[0].risk}
+        if reason != "risk":
+            extra["gate"] = gate
+            self._block_reason[task_id] = reason
+        await self._escalate(task_id, session_id, reason, extra=extra)
+        opened = self._appr_open.get(_appr_key(task_id))
+        if opened:
+            self._group_cards[opened] = (tuple(positions), mark)
+        return True
+
+    def card_group(self, task_id: int, card: str | None, plan: list[PlanStep]) -> list[int] | None:
+        """Позиции групповой карточки ``card``. None — карточка не групповая.
+
+        Пустой список — план уже не тот, что показан человеку: одобрять нечего,
+        шаги спросят новой карточкой.
+        """
+        found = self._group_cards.get(card or "")
+        if found is None or self._appr_owner.get(card or "", (None,))[0] != int(task_id):
+            return None
+        positions, mark = found
+        if any(not 0 <= at < len(plan) for at in positions):
+            return []
+        if group_fingerprint(plan, list(positions)) != mark:
+            return []
+        return list(positions)
+
+    def _grant_group(self, task_id: int, card: str, plan: list[PlanStep], positions: list[int]) -> None:
+        """Грант каждому шагу группы со своим id одобрения: мост привязал к нему план ядра шага."""
+        for at in positions:
+            self._risk_granted.add(self._risk_grant_key(task_id, at, plan[at]))
+            self._step_grant[(task_id, at)] = (group_step_change_id(card, at), None)
 
     def _aim_grant(self, task_id: int, index: int, anchor: int) -> None:
         """Карточка шага группы: grant этой карточки ляжет на ``index``, не на чекпоинт."""
@@ -4554,6 +4735,7 @@ class Supervisor:
                 action = payload.get("action")
                 if isinstance(action, str) and action:
                     self._card_action[change_id] = action
+                self._absorb_group_card(change_id, payload.get("group"))
                 reason = payload.get("reason")
                 if key and reason == "paid_outcome_unknown" and key not in self._block_reason:
                     self._block_reason[key] = "paid_outcome_unknown"
@@ -4571,6 +4753,18 @@ class Supervisor:
             ):
                 self._appr_open[key] = None
         return found
+
+    def _absorb_group_card(self, change_id: str, group: Any) -> None:
+        """Групповая карточка из журнала событий: после рестарта grant одобряет те же шаги."""
+        if not isinstance(group, dict):
+            return
+        positions = group.get("positions")
+        mark = group.get("fingerprint")
+        if not isinstance(mark, str) or not mark or not isinstance(positions, list):
+            return
+        if not positions or not all(isinstance(at, int) and not isinstance(at, bool) for at in positions):
+            return
+        self._group_cards[change_id] = (tuple(positions), mark)
 
     def _note_appr_seq(self, key: int, change_id: str) -> None:
         match = _APPR_ID.fullmatch(change_id)
@@ -4604,6 +4798,7 @@ class Supervisor:
                 self._appr_owner.pop(change_id, None)
                 self._appr_decided.pop(change_id, None)
                 self._card_action.pop(change_id, None)
+                self._group_cards.pop(change_id, None)
         for pair in list(self._cc_change_id):
             if pair[0] == key:
                 self._cc_change_id.pop(pair, None)
@@ -5231,6 +5426,37 @@ def _parallel_runs_ok(batch: list[PlanStep], actions: Any) -> bool:
             return False
         seen.add(project)
     return True
+
+
+def group_fingerprint(plan: list[PlanStep], positions: list[int]) -> str:
+    """Отпечаток шагов групповой карточки: позиция, действие, публичные params, группа."""
+    payload = [
+        [at, paid_step_identity(plan[at].action, plan[at].params), plan[at].parallel_group]
+        for at in positions
+    ]
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def group_step_change_id(card: str, position: int) -> str:
+    """Id одобрения шага групповой карточки: мост привязывает к нему план ядра этого шага."""
+    return f"{card}-p{int(position)}"
+
+
+def _card_reason(risk: Risk, gate: str | None) -> str:
+    if risk in APPROVAL_RISKS:
+        return "risk"
+    return "paid" if gate == "paid" else "destructive"
+
+
+def _long_core_step(action: str) -> bool:
+    """Долгий шаг с подтверждением ядра. Подтверждение живёт ограниченное время:
+    цепочка таких шагов по очереди пережила бы его, поэтому заранее их не одобряем."""
+    spec = approval_steps._spec(action)
+    return (
+        spec is not None
+        and bool(getattr(spec, "needs_approval", False))
+        and getattr(spec, "poll", None) is not None
+    )
 
 
 def _meta_flag(meta: Any, key: str) -> Any:

@@ -149,9 +149,10 @@ _REPORT_COLUMNS = (
     ("checks", "Проверки"),
     ("result", "Результат"),
     ("cost_usd", "Стоимость, $ (оценка)"),
+    ("cost_how", "Как посчитана стоимость"),
     ("errors", "Ошибки"),
 )
-_OVERVIEW_GROUPS = ("running", "attention")
+_OVERVIEW_GROUPS = ("running", "attention", "queue")
 
 
 def _schema(props: dict, required: list[str]) -> dict:
@@ -643,35 +644,24 @@ def _trace(project, key: str) -> dict | None:
     }
 
 
-async def _node_costs(pid: int) -> tuple[dict[str, float], float | None]:
-    """Траты проекта и по нодам из общей кассы провайдеров.
+async def _node_costs(
+    pid: int, *, node_runs: list[dict] | None = None, canvas: list[dict] | None = None
+) -> tuple[dict[str, float], float | None]:
+    """Траты по нодам (только по связи, см. report_costs) и всего по проекту.
 
-    Участнику — ничего: это себестоимость вызовов, а не его списания
-    (`app/services/action_layer/plan.py::member_view`). Пустой ответ здесь
-    убирает траты из карточки ноды и отчётов одним местом.
+    Участнику — ничего: это себестоимость вызовов из общей кассы провайдеров, а не
+    его списания (`app/services/action_layer/plan.py::member_view`). Пустой ответ
+    здесь убирает траты из карточки ноды и отчётов одним местом.
     """
-    from sqlalchemy import text
-
+    from app.services.action_layer import report_costs
     from app.services.action_layer.plan import member_view
 
     if member_view():
         return {}, None
-
-    per = (
-        "SELECT e.node_key, SUM(s.usd) FROM spend_ledger s JOIN (SELECT DISTINCT node_key, "
-        "request_id FROM observation_events WHERE project_id = :p AND node_key IS NOT NULL "
-        "AND request_id IS NOT NULL AND request_id != '') e ON s.request_id = e.request_id "
-        "WHERE s.project_id = :p GROUP BY e.node_key"
+    split = await report_costs.node_costs(
+        pid, node_runs=node_runs, step_nodes=report_costs.step_nodes_of(canvas or [])
     )
-    try:
-        async with _sessions()() as s:
-            rows = (await s.execute(text(per), {"p": pid})).all()
-            total = await s.scalar(
-                text("SELECT SUM(usd) FROM spend_ledger WHERE project_id = :p"), {"p": pid}
-            )
-    except SQLAlchemyError:
-        return {}, None
-    return {str(r[0]): float(r[1] or 0.0) for r in rows}, float(total or 0.0)
+    return split.by_node, split.total
 
 
 def _node_card(
@@ -782,6 +772,44 @@ async def _frame_count(factory, pid: int) -> int | None:
         return None
 
 
+def _failure_reason(fs: dict | None) -> str:
+    if not fs or not fs.get("error"):
+        return ""
+    step = str(fs.get("step") or "").removeprefix("идёт шаг: ")
+    head = f"шаг «{step}» упал" if step else "ошибка шага"
+    return _clip(f"{head}: {fs['error']}", 300)
+
+
+def _pause_info(status: str, meta: dict) -> dict:
+    """Пауза и её причина по meta проекта (одна база: отдельного project.db нет).
+
+    Порядок: записанная причина, ошибка шага, остановка пользователем, ожидание
+    ручного запуска. Причина при статусе не на паузе — старая отметка, её отдаём отдельно.
+    """
+    paused = status in ("paused", "failed")
+    fs = _step_failure(meta)
+    recorded = meta.get("auto_paused_reason")
+    stop = bool(meta.get("user_stop") or meta.get("mass_lane_user_stop"))
+    await_start = bool(meta.get("auto_await_manual_start"))
+    reason = None
+    if paused:
+        causes = [
+            _clip(recorded, 300),
+            _failure_reason(fs),
+            "остановлен пользователем" if stop else "",
+            "ждёт ручного запуска" if await_start else "",
+        ]
+        reason = next((c for c in causes if c), "причина не записана")
+    return {
+        "paused": paused,
+        "reason": reason,
+        "user_stop": stop,
+        "await_manual_start": await_start,
+        "stale_reason": _clip(recorded, 160) if recorded and not paused else None,
+        "sleep_until": (fs or {}).get("sleep_until"),
+    }
+
+
 async def _status_sources(pid: int, row, recomputed: str) -> dict:
     listed = _row_status(row)
     out = {
@@ -807,6 +835,19 @@ def _mismatch_text(src: dict) -> str:
     return text + " Здесь показан статус, как в списке; сам статус я не меняю."
 
 
+def _pause_lines(pause: dict, fs: dict | None) -> list[str]:
+    lines = []
+    if pause["reason"]:
+        lines.append(f"Причина паузы: {pause['reason']}.")
+    if pause["user_stop"]:
+        lines.append("Остановлен пользователем.")
+    if pause["stale_reason"]:
+        lines.append(f"Сейчас проект не на паузе, осталась старая отметка паузы: {pause['stale_reason']}.")
+    if fs and fs.get("error") and fs["error"] not in (pause["reason"] or ""):
+        lines.append(f"Последняя ошибка шага: {fs['error']}")
+    return lines
+
+
 async def _project_status(ctx: ActionContext, params: dict) -> dict:
     pid = params["project_id"]
     detail = await _effective_project(ctx, pid)
@@ -820,13 +861,7 @@ async def _project_status(ctx: ActionContext, params: dict) -> dict:
     running = [str(nr.get("node_key")) for nr in runs if nr.get("status") == "running"]
     failed = [str(nr.get("node_key")) for nr in runs if nr.get("status") == "failed"]
     fs = _step_failure(meta)
-    reason = meta.get("auto_paused_reason")
-    pause = {
-        "paused": status == "paused",
-        "reason": _clip(reason, 300) or None,
-        "user_stop": bool(meta.get("user_stop")),
-        "sleep_until": (fs or {}).get("sleep_until"),
-    }
+    pause = _pause_info(status, meta)
     managed = await _managed(pid)
     _items, open_incidents = await _incidents(pid, limit=1)
     labels = _labels(meta)
@@ -861,12 +896,7 @@ async def _project_status(ctx: ActionContext, params: dict) -> dict:
     if nxt:
         lines.append(f"Следующий шаг: {nxt['title']}.")
     lines.append(f"Готово шагов: {done} из {len(steps)}.")
-    if pause["reason"]:
-        lines.append(f"Причина паузы: {pause['reason']}.")
-    if pause["user_stop"]:
-        lines.append("Остановлен пользователем.")
-    if fs and fs.get("error"):
-        lines.append(f"Последняя ошибка шага: {fs['error']}")
+    lines += _pause_lines(pause, fs)
     if out["generation_active"] or running:
         lines.append("Идёт генерация" + (f": {', '.join(out['running_nodes'])}." if running else "."))
     if failed:
@@ -895,7 +925,7 @@ async def _node_output(ctx: ActionContext, params: dict) -> dict:
         }
     project = _transient(pid, detail, await _project_row(pid))
     checks, tel = _harness_checks(meta)
-    costs, _total = await _node_costs(pid)
+    costs, _total = await _node_costs(pid, node_runs=list(runs.values()), canvas=list(nodes.values()))
     card = _node_card(project, detail, key, node, nr, checks=checks, cost=costs.get(key), detailed=True)
     incidents, _n = await _incidents(pid, node_key=key, limit=5, labels=_labels(meta))
     card.update(found=True, incidents=incidents, harness_at=_iso(tel.get("updated_at")))
@@ -1216,21 +1246,24 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
     return _safe(out)
 
 
-def _project_brief(row, managed: set[int]) -> dict:
+async def _project_brief(row, managed: set[int], queue: list[int]) -> dict:
     meta = row.meta if isinstance(row.meta, dict) else {}
-    status = row.status.value if hasattr(row.status, "value") else str(row.status or "")
+    status = _row_status(row)
     fs = _step_failure(meta)
+    pause = _pause_info(status, meta)
     steps = _pipeline(status, meta)
     cur, _nxt = _current_next(steps, status)
+    # Название целиком: в таблице чата обрезанное «3 факта…» не узнать.
     return {
         "id": row.id,
-        "title": _clip(row.title or row.topic, 60),
+        "title": _clip(row.title or row.topic, 300),
         "status": status,
         "status_ru": _status_ru(status),
         "step": cur["title"] if cur else None,
-        "pause_reason": _clip(meta.get("auto_paused_reason"), 160) or None,
-        "user_stop": bool(meta.get("user_stop")),
+        "pause_reason": _clip(pause["reason"], 160) or None,
+        "user_stop": pause["user_stop"],
         "error": _clip((fs or {}).get("error"), 160) or None,
+        "queue_position": queue.index(row.id) + 1 if row.id in queue else None,
         "auto_mode": bool(row.auto_mode),
         "managed": row.id in managed,
         "updated_at": _iso(row.updated_at),
@@ -1238,28 +1271,44 @@ def _project_brief(row, managed: set[int]) -> dict:
 
 
 def _needs_attention(item: dict) -> bool:
-    return item["status"] in ("paused", "failed") or bool(item["error"] or item["pause_reason"])
+    return item["status"] in ("paused", "failed") or bool(item["pause_reason"])
+
+
+def _overview_keep(item: dict, want: str | None) -> bool:
+    if not want:
+        return True
+    if want == "running":
+        return _is_running(item["status"])
+    if want == "attention":
+        return _needs_attention(item)
+    if want == "queue":
+        return item["queue_position"] is not None
+    return item["status"] == want
+
+
+def _brief_line(item: dict, in_queue: bool) -> str:
+    extra = item["pause_reason"] or item["error"] or ""
+    place = f"{item['queue_position']}. " if in_queue else ""
+    return (
+        f"{place}#{item['id']} «{item['title']}»: {item['status_ru']}"
+        + (f" — {_clip(extra, 100)}" if extra else "")
+        + "."
+    )
 
 
 async def _projects_overview(ctx: ActionContext, params: dict) -> dict:
     from sqlalchemy import select
 
-    from app.models import Project, ProjectStatus
-    from app.services.project_state import running_statuses
+    from app.models import Project
+    from app.services.gen_queue import worker_max_parallel
+    from app.services.sidebar_layout import get_gen_queue
 
     want = params.get("status")
     limit = int(params.get("limit", 30))
-    from sqlalchemy import func
-
-    conds = []
-    if want == "running":
-        conds.append(Project.status.in_(list(running_statuses())))
-    elif want and want not in _OVERVIEW_GROUPS:
-        conds.append(Project.status == ProjectStatus(want))
+    queue = get_gen_queue()
     q = select(Project).order_by(Project.updated_at.desc(), Project.id.desc())
-    count_q = select(func.count(Project.id))
-    for cond in conds:
-        q, count_q = q.where(cond), count_q.where(cond)
+    if want == "queue":
+        q = q.where(Project.id.in_(queue or [-1]))
     managed: set[int] = set()
     async with _sessions()() as s:
         try:
@@ -1277,23 +1326,26 @@ async def _projects_overview(ctx: ActionContext, params: dict) -> dict:
         except SQLAlchemyError:
             await s.rollback()
             managed = set()
-        total = int(await s.scalar(count_q) or 0)
-        rows = (await s.scalars(q.limit(2000 if want == "attention" else limit))).all()
-        items = [_project_brief(r, managed) for r in rows]
-    if want == "attention":
-        items = [i for i in items if _needs_attention(i)]
-        total = len(items)
+        rows = (await s.scalars(q.limit(2000))).all()
+    items = [i for i in [await _project_brief(r, managed, queue) for r in rows] if _overview_keep(i, want)]
+    if want == "queue":
+        items.sort(key=lambda i: i["queue_position"])
+    total = len(items)
     items = items[:limit]
     attention = sum(1 for i in items if _needs_attention(i))
     running = sum(1 for i in items if _is_running(i["status"]))
     head = f"Проектов: {total}" + (f" (фильтр: {want})" if want else "")
     lines = [f"{head}; показано {len(items)}, идут сейчас {running}, требуют внимания {attention}."]
-    for i in items[:10]:
-        extra = i["pause_reason"] or i["error"] or ""
+    if want == "queue":
         lines.append(
-            f"#{i['id']} «{i['title']}»: {i['status_ru']}" + (f" — {_clip(extra, 80)}" if extra else "") + "."
+            f"В очереди генерации {len(queue)}, одновременно идут не больше {worker_max_parallel()}."
         )
+    # Строк ровно столько, сколько «показано»: срез короче шапки давал ответ
+    # «данных по остальным нет» про проекты, которые в выборке были.
+    lines += [_brief_line(i, want == "queue") for i in items]
     out = {"filter": want, "total": total, "shown": len(items), "projects": items, "text_ru": " ".join(lines)}
+    if want == "queue":
+        out["queue"] = {"size": len(queue), "max_parallel": worker_max_parallel()}
     return _safe(out)
 
 
@@ -1316,6 +1368,7 @@ def _row_for(card: dict) -> dict:
         "checks": _checks_text(card),
         "result": _result_text(card),
         "cost_usd": card["cost_usd"],
+        "cost_how": card.get("cost_how") or "",
         "errors": " | ".join(card["errors"][:2]),
     }
 
@@ -1337,12 +1390,13 @@ _NODES_WIDTHS = {
     "H": 26,
     "I": 40,
     "J": 14,
-    "K": 60,
+    "K": 20,
+    "L": 60,
 }
 
 
 def _without_cost(columns: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
-    return tuple(col for col in columns if col[0] != "cost_usd")
+    return tuple(col for col in columns if col[0] not in ("cost_usd", "cost_how"))
 
 
 def _write_xlsx(
@@ -1355,10 +1409,10 @@ def _write_xlsx(
     from app.services.action_layer import report_gpt as rg
     from app.services.action_layer import report_template as tpl
 
-    sheets = [("Ноды", columns, rows)]
+    sheets = [("Ноды", columns, rg.with_no_data(rows, ("cost_usd",)))]
     if gpt:
         sheets += [
-            (tpl.GPT_SHEET, tpl.GPT_NODE_COLUMNS, gpt),
+            (tpl.GPT_SHEET, tpl.GPT_NODE_COLUMNS, rg.with_no_data(gpt, ("cost_usd",))),
             (tpl.GPT_FRAMES_SHEET, tpl.GPT_FRAME_COLUMNS, rg.gpt_frame_rows(gpt)),
         ]
         lists = rg.gpt_list_rows(gpt)
@@ -1382,7 +1436,31 @@ def _gpt_markdown(gpt: list[dict], *, full: bool) -> str:
     return out
 
 
+def _trace_runs(data_dir: Any) -> tuple[list[dict], list[dict]]:
+    """Прогоны нод из node_trace и дневник правок программы последнего прогона каждой ноды."""
+    from app.services.node_trace import latest_diary, list_runs
+
+    try:
+        runs = list_runs(data_dir)
+    except OSError:
+        runs = []
+    try:
+        diary = latest_diary(data_dir)
+    except (OSError, ValueError):
+        diary = []
+    return runs, diary
+
+
+def _has_frames_group(canvas: list[dict]) -> bool:
+    """На канвасе есть группа нод «Кадры» (n_excel_gpt_fw_*): в отчёт идут её схема и правила."""
+    from app.services.node_rules import NODE_FLOW, node_local_key
+
+    group = {f.key for f in NODE_FLOW}
+    return any(node_local_key(str(n["id"])) in group and str(n["id"]) not in group for n in canvas)
+
+
 async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
+    from app.services.action_layer import report_costs, report_html
     from app.services.action_layer import report_gpt as rg
 
     pid = params["project_id"]
@@ -1393,32 +1471,30 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
     canvas = _canvas_nodes(meta)
     runs = {str(nr.get("node_key")): nr for nr in await _node_runs(ctx, pid)}
     checks, tel = _harness_checks(meta)
-    costs, spent = await _node_costs(pid)
+    # report_costs.node_costs сам отдаёт участнику пусто (total=None): колонки трат уйдут ниже.
+    split = await report_costs.node_costs(
+        pid, node_runs=list(runs.values()), step_nodes=report_costs.step_nodes_of(canvas)
+    )
+    costs, spent = split.by_node, split.total
     keys = [str(n["id"]) for n in canvas] + [k for k in runs if k not in {str(n["id"]) for n in canvas}]
     by_key = {str(n["id"]): n for n in canvas}
-    cards = _safe(
-        [
-            _node_card(
-                project,
-                detail,
-                k,
-                by_key.get(k),
-                runs.get(k),
-                checks=checks,
-                cost=costs.get(k),
-                detailed=False,
-            )
-            for k in keys
-        ]
-    )
+    cards = []
+    for k in keys:
+        card = _node_card(
+            project, detail, k, by_key.get(k), runs.get(k), checks=checks, cost=costs.get(k), detailed=False
+        )
+        card["cost_how"] = ", ".join(split.how.get(k) or [])
+        cards.append(card)
+    cards = _safe(cards)
     rows = [_row_for(c) for c in cards]
-    gpt = _safe(rg.gpt_nodes(project, detail, {c["node_key"]: c for c in cards}, await rg.frame_numbers(pid)))
+    index = await rg.frame_index(pid, project.data_dir)
+    gpt = _safe(rg.gpt_nodes(project, detail, {c["node_key"]: c for c in cards}, index))
     gpt_text = rg.gpt_text(gpt)
     extra = await rg.project_counts(pid, meta)
     counts: dict[str, int] = {}
     for c in cards:
         counts[c["status_ru"]] = counts.get(c["status_ru"], 0) + 1
-    attributed = sum(costs.values())
+    attributed = split.attributed
     title = _clip(detail.get("title") or detail.get("topic"), 80)
     summary = {
         "nodes": len(cards),
@@ -1428,8 +1504,13 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
         "spent_usd_estimate": _money(spent),
         "attributed_usd_estimate": _money(attributed),
         "unattributed_usd_estimate": _money(None if spent is None else max(spent - attributed, 0.0)),
+        "nodes_without_cost_link": sum(
+            1 for c in cards if c["cost_usd"] is None and c["status_ru"] not in report_costs.IDLE_STATUSES
+        ),
         "harness_at": _iso(tel.get("updated_at")),
         "gpt_nodes": len(gpt),
+        "frames": len(index.frames),
+        "archived_frames": len(index.archived_numbers),
         **extra,
     }
     status_text = ", ".join(f"{k} {v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1]))
@@ -1453,13 +1534,14 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
     if fmt == "md":
         out["markdown"] = (
             f"## Отчёт по нодам проекта #{pid} «{title}»\n\n{intro}\n\n"
-            + _markdown(rows, columns)
+            + _markdown(rg.with_no_data(rows, ("cost_usd",)), columns)
             + _gpt_markdown(gpt, full=True)
         )
         out["text_ru"] = intro
         return _safe(out)
-    # chat и xlsx: файл пишется всегда, чтобы из чата можно было скачать полный отчёт.
-    path = Path(project.data_dir) / "reports" / f"nodes_report_{pid}_{rg._stamp()}.xlsx"
+    # chat, html и xlsx: оба файла пишутся всегда, чтобы из чата можно было скачать полный отчёт.
+    base = Path(project.data_dir) / "reports" / f"nodes_report_{pid}_{rg._stamp()}"
+    xlsx_path, html_path = base.with_suffix(".xlsx"), base.with_suffix(".html")
     pairs = [
         ("Проект", f"#{pid} {title}"),
         ("Сформирован", datetime.now().isoformat(timespec="seconds")),
@@ -1468,7 +1550,10 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
         ("Проверок не пройдено", summary["checks_failed"]),
         ("Траты проекта, $ (оценка)", summary["spent_usd_estimate"]),
         ("Из них по нодам, $ (оценка)", summary["attributed_usd_estimate"]),
+        ("Не разнесено по нодам, $ (оценка)", summary["unattributed_usd_estimate"]),
         ("Нод «Работа с GPT»", len(gpt)),
+        ("Ячеек (без архивных)", summary["frames"]),
+        ("Архивных ячеек не показано", summary["archived_frames"]),
         ("Персонажей в проекте", extra["characters_in_project"]),
         ("Сцен в реестре", extra["scenes_in_registry"]),
     ]
@@ -1477,15 +1562,54 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
     pairs += [(f"Статус: {k}", v) for k, v in counts.items()]
     if gpt_text:
         pairs.append(("Кратко", gpt_text))
-    _write_xlsx(path, rows, pairs, gpt, columns)
+    _write_xlsx(xlsx_path, rows, pairs, gpt, columns)
+    trace_runs, diary = _trace_runs(project.data_dir)
+    html_text = report_html.render_nodes_html(
+        _safe(
+            {
+                "project_id": pid,
+                "title": title,
+                "slug": project.slug,
+                "stamp": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                "rows": rows,
+                "gpt": gpt,
+                "frames": index.frames,
+                "archived_frames": summary["archived_frames"],
+                "runs": trace_runs,
+                "diary": diary,
+                "with_rules": _has_frames_group(canvas),
+                # Участнику трат нет (`_node_costs`): ни колонок, ни раздела.
+                "show_costs": spent is not None,
+                "costs": {
+                    "total": spent,
+                    "attributed": attributed,
+                    "unattributed": summary["unattributed_usd_estimate"],
+                    "by_source": split.by_source,
+                }
+                if spent is not None
+                else {},
+            }
+        )
+    )
+    html_path.write_text(html_text, encoding="utf-8")
     from app.web.routers.project_reports import report_url
 
-    url = report_url(pid, path)
-    out.update(path=str(path), rows=len(rows), download_url=url, file_name=path.name, file_format="xlsx")
-    link = f"Файл отчёта готов: [Скачать отчёт (xlsx)]({url})"
+    html_url, xlsx_url = report_url(pid, html_path), report_url(pid, xlsx_path)
+    primary = xlsx_path if fmt == "xlsx" else html_path
+    out.update(
+        path=str(primary),
+        rows=len(rows),
+        download_url=report_url(pid, primary),
+        file_name=primary.name,
+        file_format=primary.suffix.lstrip("."),
+        html_path=str(html_path),
+        xlsx_path=str(xlsx_path),
+        downloads=[{"url": html_url, "file_format": "html"}, {"url": xlsx_url, "file_format": "xlsx"}],
+    )
+    link = f"Файл отчёта готов: [Скачать отчёт (html)]({html_url}) · [Скачать отчёт (xlsx)]({xlsx_url})"
     # Ссылка сразу после первой строки: длинный текст в чате обрезается с конца.
     out["text_ru"] = f"{head} {link}" + (f"\n{gpt_text}" if gpt_text else "")
-    if fmt == "xlsx":
+    if fmt in ("xlsx", "html"):
         return _safe(out)
     short_cols = (
         ("title", "Нода"),
@@ -1497,7 +1621,7 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
     )
     if spent is None:
         short_cols = _without_cost(short_cols)
-    shown = rows[:_CHAT_ROWS]
+    shown = rg.with_no_data(rows[:_CHAT_ROWS], ("cost_usd",))
     table = _markdown([{**r, "title": f"{r['title']} ({r['node_key']})"} for r in shown], short_cols)
     tail = f"\n\nЕщё нод: {len(rows) - len(shown)} (полный отчёт в файле)." if len(rows) > len(shown) else ""
     errors = [f"- {c['title']}: {c['errors'][0]}" for c in cards if c["errors"]][:5]
@@ -1627,9 +1751,10 @@ def _specs() -> list[ActionSpec]:
         ActionSpec(
             id="projects.overview",
             title_ru="Список проектов со статусами",
-            description_ru="Все проекты: номер, название, статус, шаг, пауза или ошибка, когда "
-            "обновлён. Фильтр status: running (идут), attention (пауза или ошибка) "
-            "или точный статус. Только чтение.",
+            description_ru="Все проекты: номер, название, статус по базе проекта, шаг, пауза и её "
+            "причина или ошибка, место в очереди, когда обновлён. Фильтр status: "
+            "running (идут), attention (пауза, ошибка или статус расходится), queue "
+            "(пачка в очереди генерации по порядку) или точный статус. Только чтение.",
             params_schema=_schema(
                 {
                     "status": {"type": "string", "enum": _status_filter_enum()},
@@ -1646,15 +1771,21 @@ def _specs() -> list[ActionSpec]:
         ActionSpec(
             id="report.nodes",
             title_ru="Отчёт по нодам проекта",
-            description_ru="Таблица по всем нодам: тип, статус, модель, вариант промта, проверки, "
-            "результат кратко, траты (оценка), ошибки; отдельно по нодам «Работа с GPT»: "
-            "промт, модель, статус и что записала (кадры и поля, персонажи, сцены). "
-            "Цифры собирает код. kind: chat (коротко + файл xlsx для скачивания), md, "
-            "json или xlsx (файл в папке проекта reports).",
+            description_ru="Отчёт в виде отчёта «Кадры»: прогоны нод, таблица по всем нодам (тип, "
+            "статус, модель, вариант промта, проверки, результат, стоимость по нодам — "
+            "оценка, где нет связи с тратами — «нет данных»), кто пишет одно поле, по "
+            "нодам «Работа с GPT» всё, что записали все пачки (кадры и поля целиком, "
+            "персонажи, сцены), по ячейкам без архивных. Цифры собирает код. kind: chat "
+            "(коротко + файлы html и xlsx), html или xlsx (оба файла в папке проекта "
+            "reports), md или json.",
             params_schema=_schema(
                 {
                     "project_id": _PID,
-                    "kind": {"type": "string", "enum": ["chat", "md", "json", "xlsx"], "default": "chat"},
+                    "kind": {
+                        "type": "string",
+                        "enum": ["chat", "md", "json", "xlsx", "html"],
+                        "default": "chat",
+                    },
                 },
                 ["project_id"],
             ),
@@ -1667,14 +1798,15 @@ def _specs() -> list[ActionSpec]:
         ActionSpec(
             id="report.projects",
             title_ru="Отчёт по нескольким проектам",
-            description_ru="Одна таблица на несколько проектов: название, статус, сколько шагов готово, "
-            "ноды «Работа с GPT» и их промты, кадров, картинок, видео, траты (оценка). "
+            description_ru="Сводка по нескольким проектам в виде отчёта «Кадры»: название, статус, "
+            "сколько шагов готово, кадров без архивных, картинок, видео, траты (оценка); "
+            "по каждому проекту прогоны нод и ноды «Работа с GPT» с промтами и стоимостью. "
             "project_ids: номера проектов (1..20); без них последние 20 проектов. "
-            "Файл xlsx для скачивания из чата. Только чтение.",
+            "Файлы html и xlsx для скачивания из чата. Только чтение.",
             params_schema=_schema(
                 {
                     "project_ids": {"type": "array", "items": _PID, "minItems": 1, "maxItems": 20},
-                    "kind": {"type": "string", "enum": ["chat", "json", "xlsx"], "default": "chat"},
+                    "kind": {"type": "string", "enum": ["chat", "json", "xlsx", "html"], "default": "chat"},
                 },
                 [],
             ),

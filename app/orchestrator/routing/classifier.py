@@ -57,6 +57,16 @@ _KILL_RE = re.compile(
 )
 _STEER_RE = re.compile(r"(?iu)(?<![\w])(?:измени|поправь|вместо|скорректируй|steer)(?![\w])|не\s+так")
 _QUESTION_RE = re.compile(r"\?\s*$")
+# Ходы управления: стоп, пауза, вопрос о статусе. Их LLM чата идёт и при
+# сработавшем потолке трат — из малого резерва ``spend_guard.chat_control``.
+_CONTROL_RE = re.compile(
+    r"(?iu)(?<![\w])(?:"
+    r"останов\w*|стоп\w*|стой|прекрат\w*|прерв\w*|отмени\w*|отмена|хватит|"
+    r"пауз\w*|приостанов\w*|заморо\w*|"
+    r"статус\w*|прогресс\w*|как\s+дела|что\s+с(?=\s)|что\s+происходит|"
+    r"stop|cancel|abort|pause|status"
+    r")(?![\w])"
+)
 _TASK_RE = re.compile(
     r"(?iu)(?<![\w])(?:"
     r"нод\w*|кадр\w*|сцен\w*|промпт\w*|план\w*|проект\w*|"
@@ -142,6 +152,12 @@ def classify_rules(
     if _FAST_RE.search(text):
         return hit("fast", "fast-keyword")
     return hit(None, "disputed")
+
+
+def is_control_request(message: str) -> bool:
+    """Стоп, пауза, аварийный стоп или вопрос о статусе — без разбора LLM."""
+    text = message or ""
+    return bool(_KILL_RE.search(text) or _CONTROL_RE.search(text))
 
 
 def parse_classifier_output(text: str) -> ParsedClassifier:

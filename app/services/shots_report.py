@@ -25,6 +25,45 @@ from app.services.node_trace import latest_diary, list_runs
 from app.services.shot_templates import parse_scene_chain, plain_scene_vo
 from app.services.vo_shot_expand import is_shot_child
 
+# Общий вид HTML-отчётов (кадры, ноды, проекты): чёрный фон, белые карточки, жёлтый блок действия.
+REPORT_CSS = """html,body{background:#000;margin:0;color-scheme:light}
+body{font:14px/1.45 system-ui,Segoe UI,sans-serif;padding:20px;color:#111}
+h1{font-size:22px;margin:0 0 6px;color:#f2f2f2}
+h2{font-size:18px;margin:0 0 8px;color:#111}
+h3{font-size:13px;margin:14px 0 6px;color:#444}
+.meta{color:#9a9a9a;margin:0 0 12px}
+.toc{display:flex;flex-wrap:wrap;gap:8px 14px;margin:0 0 18px}
+.toc a{color:#9ecbff;text-decoration:none;font-size:13px}
+.scene{background:#fff;padding:16px 18px;margin:0 0 16px;border-radius:8px}
+.scene-action{background:#111;color:#fff;padding:14px 16px;margin:0 0 12px;border-radius:8px;border-left:6px solid #f5c518}
+.scene-action-label{font-size:13px;color:#f5c518;margin:0 0 8px;font-weight:700}
+.scene-action p{font-size:20px;line-height:1.35;margin:0;font-weight:700}
+.scene-action-chain{margin:8px 0 0;color:#cfcfcf;font-size:13px}
+.vo-full{margin:0 0 10px}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid #ddd;vertical-align:top;padding:8px 10px;background:#fff}
+th{text-align:left;background:#f4f4f4}
+th:first-child,td:first-child{width:44px;text-align:center;color:#666;font-weight:650}
+.vo-bit{color:#666;margin-top:2px}
+.rel{color:#8a4b00;font-size:12px;font-weight:700;margin:0 0 4px}
+.layout{color:#333;font-size:13px;min-width:200px}
+.plan{background:#f7f7f5;padding:8px 12px;margin:8px 0 12px;border-radius:6px;overflow-x:auto}
+.plan ul{margin:6px 0 0;padding-left:18px}
+.plan-svg{display:block;max-width:100%;height:auto}
+.plan-legend{color:#9a9a9a;margin:0 0 14px;max-width:72rem}
+.fix{color:#8a4b00} .der{color:#666}
+.runs-box{background:#fff;padding:12px 16px;margin:0 0 16px;border-radius:8px}
+.runs-box summary{cursor:pointer;font-weight:650;margin:4px 0}
+.path{font-size:11px;color:#666;word-break:break-all}
+.st-ok{color:#11772b} .st-failed{color:#b00020} .st-running{color:#8a4b00}
+.diary{margin-top:6px;font-size:12px}
+.diary summary{cursor:pointer;color:#0b57d0}
+.diary ul{margin:4px 0 0;padding-left:16px}
+.diary li{margin:0 0 6px}
+.diary .chg s{color:#999} .diary .note{color:#333} .diary .rule{color:#888;font-size:11px}
+.d-warn{color:#8a4b00} .d-stop{color:#b00020} .d-info{color:#555}
+"""
+
 
 def _esc(text: Any) -> str:
     return html.escape(" ".join(str(text or "").split()))
@@ -751,43 +790,7 @@ def render_shots_report_html(
     return f"""<!doctype html><html lang=ru><head><meta charset=utf-8>
 <title>Отчёт кадров · {html.escape(slug or "проект")}</title>
 <style>
-html,body{{background:#000;margin:0;color-scheme:light}}
-body{{font:14px/1.45 system-ui,Segoe UI,sans-serif;padding:20px;color:#111}}
-h1{{font-size:22px;margin:0 0 6px;color:#f2f2f2}}
-h2{{font-size:18px;margin:0 0 8px;color:#111}}
-h3{{font-size:13px;margin:14px 0 6px;color:#444}}
-.meta{{color:#9a9a9a;margin:0 0 12px}}
-.toc{{display:flex;flex-wrap:wrap;gap:8px 14px;margin:0 0 18px}}
-.toc a{{color:#9ecbff;text-decoration:none;font-size:13px}}
-.scene{{background:#fff;padding:16px 18px;margin:0 0 16px;border-radius:8px}}
-.scene-action{{background:#111;color:#fff;padding:14px 16px;margin:0 0 12px;border-radius:8px;border-left:6px solid #f5c518}}
-.scene-action-label{{font-size:13px;color:#f5c518;margin:0 0 8px;font-weight:700}}
-.scene-action p{{font-size:20px;line-height:1.35;margin:0;font-weight:700}}
-.scene-action-chain{{margin:8px 0 0;color:#cfcfcf;font-size:13px}}
-.vo-full{{margin:0 0 10px}}
-table{{border-collapse:collapse;width:100%}}
-th,td{{border:1px solid #ddd;vertical-align:top;padding:8px 10px;background:#fff}}
-th{{text-align:left;background:#f4f4f4}}
-th:first-child,td:first-child{{width:44px;text-align:center;color:#666;font-weight:650}}
-.vo-bit{{color:#666;margin-top:2px}}
-.rel{{color:#8a4b00;font-size:12px;font-weight:700;margin:0 0 4px}}
-.layout{{color:#333;font-size:13px;min-width:200px}}
-.plan{{background:#f7f7f5;padding:8px 12px;margin:8px 0 12px;border-radius:6px;overflow-x:auto}}
-.plan ul{{margin:6px 0 0;padding-left:18px}}
-.plan-svg{{display:block;max-width:100%;height:auto}}
-.plan-legend{{color:#9a9a9a;margin:0 0 14px;max-width:72rem}}
-.fix{{color:#8a4b00}} .der{{color:#666}}
-.runs-box{{background:#fff;padding:12px 16px;margin:0 0 16px;border-radius:8px}}
-.runs-box summary{{cursor:pointer;font-weight:650;margin:4px 0}}
-.path{{font-size:11px;color:#666;word-break:break-all}}
-.st-ok{{color:#11772b}} .st-failed{{color:#b00020}} .st-running{{color:#8a4b00}}
-.diary{{margin-top:6px;font-size:12px}}
-.diary summary{{cursor:pointer;color:#0b57d0}}
-.diary ul{{margin:4px 0 0;padding-left:16px}}
-.diary li{{margin:0 0 6px}}
-.diary .chg s{{color:#999}} .diary .note{{color:#333}} .diary .rule{{color:#888;font-size:11px}}
-.d-warn{{color:#8a4b00}} .d-stop{{color:#b00020}} .d-info{{color:#555}}
-</style></head><body>
+{REPORT_CSS}</style></head><body>
 <h1>Сцены</h1>
 <p class=meta>проект {html.escape(pid)}{html.escape(slug or "—")} · {html.escape(stamp)} · сцен {scene_n} · кадров {shot_n}. Жёлтый блок — Действие. Шаблонов T нет.</p>
 <nav class=toc>{toc}</nav>

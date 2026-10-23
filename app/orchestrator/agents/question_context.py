@@ -10,7 +10,10 @@ from loguru import logger
 
 _TIMEOUT_S = 20.0
 _FACT_LIMIT = 2500
-_TOTAL_LIMIT = 9000
+# Обзор — это список: под общим пределом он резался посреди строки, и ответ
+# говорил «по остальным данных нет». До 30 строк по ~180 знаков влезают целиком.
+_FACT_LIMITS = {"projects.overview": 6000}
+_TOTAL_LIMIT = 12000
 _LOG_LINES = 15
 _NODE_RE = re.compile(r"\bn_[a-z0-9_]{2,60}\b")
 
@@ -87,6 +90,9 @@ ANSWER_RULES = (
     "платное и удаляющее подтверждает человек.",
     "Без технических слов: вместо split — «разбивка на кадры», вместо master/project и snapshot — "
     "«две базы данных проекта» и «снимок», вместо run, node, step — «запуск», «нода», «шаг».",
+    "Оформление: чат показывает Markdown. Несколько проектов или нод — таблица, первая колонка "
+    "«№» с номером вида #12, затем название и состояние; одна строка на проект, без пропусков. "
+    "Перечисление — список «- ». Главное число или итог выделяй **жирным**. Заголовки не нужны.",
 )
 
 _TITLES = {
@@ -195,6 +201,10 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def fact_limit(action: str) -> int:
+    return _FACT_LIMITS.get(action, _FACT_LIMIT)
+
+
 def fact_text(action: str, result: Any) -> str:
     if not isinstance(result, dict):
         return _clip(str(result or ""), _FACT_LIMIT)
@@ -211,7 +221,7 @@ def fact_text(action: str, result: Any) -> str:
     from app.services.plain_ru import plain_ru
     from app.services.redact import redact_text
 
-    return plain_ru(redact_text(_clip("\n".join(part for part in parts if part), _FACT_LIMIT)))
+    return plain_ru(redact_text(_clip("\n".join(part for part in parts if part), fact_limit(action))))
 
 
 async def run_read_action(action: str, params: dict[str, Any], app: Any) -> Any:
