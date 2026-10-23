@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.orchestrator.agents.launch_scope import MAX_PARALLEL
 from app.orchestrator.agents.llm_call import router_call
 from app.orchestrator.agents.retrieve import retrieve, rules_block
 from app.orchestrator.contracts import AgentRole, BudgetScope, Chunk, PlanStep
@@ -326,7 +327,8 @@ _CATALOG_RULES = (
     "queue.enqueue_many с project_ids всех названных проектов, enable_auto_mode=true, mode=full или "
     "mode=until_node с target_node_type («до картинок» — images, «до видео» — videos); если проектов "
     "больше, чем идут одновременно, или сказано «одновременно» / «параллельно» — перед ним "
-    "queue.set_parallel с workers = числу проектов. step.run_step для этого не ставь.",
+    f"queue.set_parallel с workers = числу проектов, но не больше {MAX_PARALLEL} (больше схема не "
+    f"примет); если окно уже {MAX_PARALLEL}, queue.set_parallel не ставь. step.run_step для этого не ставь.",
     "Запуск названного шага сразу в нескольких проектах («запусти озвучку у проектов 5..9») — сначала "
     "project.status каждого проекта, затем все step.run_step подряд с одной общей parallel_group "
     '(например "launch"), у каждого свой project_id, один проект в группе один раз: такие запуски '

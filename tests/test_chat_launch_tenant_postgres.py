@@ -280,7 +280,9 @@ async def test_member_mass_launch_has_no_set_parallel(pg, acting, monkeypatch) -
     assert saved[0]["params"]["project_ids"] == ids
     assert cards, "карточки запуска нет"
     warnings = cards[-1].get("warnings") or []
-    assert warnings and "только админ" in warnings[0] and "до 2" in warnings[0], warnings
+    assert warnings and "только админ" in warnings[0], warnings
+    # Число окна — настройка всей студии: участнику не называем.
+    assert not any(ch.isdigit() for ch in warnings[0]), warnings
     assert "queue.set_parallel" not in [step.get("action") for step in cards[-1].get("steps") or []]
     assert "$" not in warnings[0]
 

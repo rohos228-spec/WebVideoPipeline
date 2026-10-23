@@ -991,8 +991,12 @@ async def report_projects(ctx: ActionContext, params: dict) -> dict:
         gpt_text_md = ("\n\n" + tpl.GPT_SECTION_TITLE + ":\n" + "\n".join(gpt_lines)) if gpt_lines else ""
         out.update(rows=len(rows), file_format=None)
         out["markdown"] = f"## {tpl.PROJECTS_TITLE}\n\n{head}\n\n{table}{gpt_text_md}"
-        per = [_project_line(r, show_spent=False) for r in rows[: tpl.CHAT_ROWS]]
-        out["text_ru"] = head + " " + MEMBER_NO_FILE_TEXT + ("\n" + "\n".join(per) if per else "")
+        # Строка на каждый проект отчёта, как у админа: при 10 строках из 14 ответ говорил
+        # «подробности о 10 из 14». Файла у участника нет — остаток назван, вся таблица выше.
+        per = [_project_line(r, show_spent=False) for r in rows[: tpl.PROJECTS_CHAT_ROWS]]
+        rest = len(rows) - len(per)
+        more = f"\nЕщё проектов: {rest}, полный список в таблице отчёта." if rest > 0 else ""
+        out["text_ru"] = head + " " + MEMBER_NO_FILE_TEXT + ("\n" + "\n".join(per) if per else "") + more
         return bi._safe(out)
     from app.web.routers.project_reports import SHARED_PREFIX, shared_report_url
 

@@ -22,9 +22,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.orchestrator.contracts import PlanStep
+from app.services.runtime_streams import WORKER_MAX
 
 MAX_PROJECTS = 20
-MAX_PARALLEL = 10
+# Потолок окна параллели — тот же, что у схемы queue.set_parallel (builtin_launch.MAX_PARALLEL):
+# больше — схема отказала бы «above N», и карточка всего массового запуска не открылась бы.
+MAX_PARALLEL = WORKER_MAX
 
 # Только повелительные формы: «запуск», «прогон», «старт» — существительные, это чтение.
 _LAUNCH = re.compile(
@@ -230,12 +233,15 @@ def _queue_step(ask: LaunchAsk, drafted: PlanStep | None) -> PlanStep:
     )
 
 
-def parallel_refused_note(limit: int | None) -> str:
-    """Участнику окно параллели не меняем: оно одно на всю студию (``plan.ADMIN_ONLY_ACTIONS``)."""
-    now = f" (сейчас одновременно идут до {limit})" if limit else ""
+def parallel_refused_note(limit: int | None = None) -> str:
+    """Участнику окно параллели не меняем: оно одно на всю студию (``plan.ADMIN_ONLY_ACTIONS``).
+
+    Само число окна участнику не называем — это настройка всей студии, как и в
+    ``plan.PARALLEL_ADMIN_ONLY_MESSAGE``; ``limit`` оставлен для совместимости вызовов."""
+    del limit
     return (
-        f"Сколько проектов идут одновременно — общая настройка студии, её меняет только админ. "
-        f"Ваши проекты встанут в очередь и пойдут в пределах текущего числа{now}."
+        "Сколько проектов идут одновременно — общая настройка студии, её меняет только админ. "
+        "Ваши проекты встанут в очередь и пойдут в пределах текущего числа."
     )
 
 
@@ -282,7 +288,9 @@ def _parallel_need(ask: LaunchAsk, count: int, limit: int | None) -> tuple[bool,
     if ask.workers is not None:
         return limit is None or ask.workers != limit, ask.workers
     workers = min(count, MAX_PARALLEL)
-    return (limit is not None and count > limit) or (limit is None and ask.parallel), workers
+    # Окно уже на потолке (или шире, чем нужно): поднять его нельзя — и шага нет, и строки
+    # участнику «меняет только админ» тоже: админ шире потолка не поставит.
+    return (limit is not None and workers > limit) or (limit is None and ask.parallel), workers
 
 
 def _parallel_step(workers: int) -> PlanStep:

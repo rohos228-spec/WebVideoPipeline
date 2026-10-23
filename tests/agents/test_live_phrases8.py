@@ -181,7 +181,7 @@ async def test_ten_projects_one_blocked_card_is_approvable_without_it(
     token: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del token
-    monkeypatch.setattr(sup, "_queue_limit", lambda: 10)
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 4)
     actions = LaunchActions({10})
     rt = _rt(actions, _queue_plan(list(range(3, 13))))
     set_runtime(rt)
@@ -204,7 +204,7 @@ async def test_ten_projects_one_blocked_card_is_approvable_without_it(
 @pytest.mark.asyncio
 async def test_all_projects_blocked_card_stays_blocked(token: str, monkeypatch: pytest.MonkeyPatch) -> None:
     del token
-    monkeypatch.setattr(sup, "_queue_limit", lambda: 10)
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 4)
     actions = LaunchActions({3, 4, 5})
     rt = _rt(actions, _queue_plan([3, 4, 5]))
     set_runtime(rt)
@@ -258,7 +258,7 @@ async def test_single_run_step_blocked_is_not_dropped(token: str) -> None:
 @pytest.mark.asyncio
 async def test_approval_enqueues_only_remaining_projects(token: str, monkeypatch: pytest.MonkeyPatch) -> None:
     del token
-    monkeypatch.setattr(sup, "_queue_limit", lambda: 10)
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 4)
     actions = LaunchActions({10})
     rt = _rt(actions, _queue_plan(list(range(3, 13))))
     set_runtime(rt)
@@ -333,14 +333,21 @@ def test_refit_parallel_follows_route_rule() -> None:
     from app.orchestrator.agents.launch_scope import refit_parallel, route_multi_launch
 
     plan = route_multi_launch(_queue_plan(list(range(3, 13))), _GOAL, 2)
-    assert [s.params.get("workers") for s in plan if s.action == "queue.set_parallel"] == [10]
-    fitted = refit_parallel(plan, _GOAL, 2, 9)
-    assert [s.params["workers"] for s in fitted if s.action == "queue.set_parallel"] == [9]
-    assert "до 9 проектов" in next(s.expected for s in fitted if s.action == "queue.set_parallel")
+    # Окно не шире потолка схемы queue.set_parallel (runtime_streams.WORKER_MAX = 4).
+    assert [s.params.get("workers") for s in plan if s.action == "queue.set_parallel"] == [4]
+    assert [
+        s.params["workers"] for s in refit_parallel(plan, _GOAL, 2, 9) if s.action == "queue.set_parallel"
+    ] == [4]
+    fitted = refit_parallel(plan, _GOAL, 2, 3)
+    assert [s.params["workers"] for s in fitted if s.action == "queue.set_parallel"] == [3]
+    assert "до 3 проектов" in next(s.expected for s in fitted if s.action == "queue.set_parallel")
     # Оставшихся не больше текущего окна — шаг окна не нужен, как в route_multi_launch.
-    plan9 = route_multi_launch(_queue_plan(list(range(3, 13))), _GOAL, 9)
-    assert any(s.action == "queue.set_parallel" for s in plan9)
-    assert not any(s.action == "queue.set_parallel" for s in refit_parallel(plan9, _GOAL, 9, 9))
+    plan3 = route_multi_launch(_queue_plan(list(range(3, 13))), _GOAL, 3)
+    assert any(s.action == "queue.set_parallel" for s in plan3)
+    assert not any(s.action == "queue.set_parallel" for s in refit_parallel(plan3, _GOAL, 3, 3))
+    # Окно уже на потолке — шага нет ни в маршруте, ни после подрезки.
+    plan4 = route_multi_launch(_queue_plan(list(range(3, 13))), _GOAL, 4)
+    assert not any(s.action == "queue.set_parallel" for s in plan4)
     # «в 2 потока» — просьба человека, не пересчитывается.
     goal2 = "запусти проекты 3,4,5,6 в 2 потока"
     plan2 = route_multi_launch(_queue_plan([3, 4, 5, 6]), goal2, 4)
@@ -353,14 +360,14 @@ def test_refit_parallel_follows_route_rule() -> None:
 async def test_dropped_project_shrinks_parallel_window(token: str, monkeypatch: pytest.MonkeyPatch) -> None:
     del token
     monkeypatch.setattr(sup, "_queue_limit", lambda: 2)
-    actions = LaunchActions({10})
+    actions = LaunchActions({6, 7, 8, 9, 10, 11, 12})
     rt = _rt(actions, _queue_plan(list(range(3, 13))))
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task("ph8b-par", _GOAL)
         await rt.supervisor.wait(task_id, timeout=5)
-        assert _queue_step(rt, task_id)["params"]["project_ids"] == [3, 4, 5, 6, 7, 8, 9, 11, 12]
-        assert [s["params"]["workers"] for s in _parallel(rt, task_id)] == [9]
+        assert _queue_step(rt, task_id)["params"]["project_ids"] == [3, 4, 5]
+        assert [s["params"]["workers"] for s in _parallel(rt, task_id)] == [3]
     finally:
         set_runtime(None)
 
@@ -370,14 +377,14 @@ async def test_dropped_project_removes_unneeded_parallel_step(
     token: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del token
-    monkeypatch.setattr(sup, "_queue_limit", lambda: 9)
-    actions = LaunchActions({10})
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 3)
+    actions = LaunchActions({6, 7, 8, 9, 10, 11, 12})
     rt = _rt(actions, _queue_plan(list(range(3, 13))))
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task("ph8b-par9", _GOAL)
         await rt.supervisor.wait(task_id, timeout=5)
-        assert _queue_step(rt, task_id)["params"]["project_ids"] == [3, 4, 5, 6, 7, 8, 9, 11, 12]
+        assert _queue_step(rt, task_id)["params"]["project_ids"] == [3, 4, 5]
         assert _parallel(rt, task_id) == []
         assert not _cards(rt, "ph8b-par9")[-1].get("blocked")
     finally:
@@ -449,7 +456,7 @@ async def test_probe_crash_keeps_all_projects_without_raw_text(
     token: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del token
-    monkeypatch.setattr(sup, "_queue_limit", lambda: 10)
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 4)
 
     class Crashing(LaunchActions):
         async def launch_blockers(self, name: str, params: dict[str, Any]) -> dict[str, Any] | None:
@@ -483,7 +490,7 @@ def test_note_dedupes_ids() -> None:
 @pytest.mark.asyncio
 async def test_duplicate_ids_in_plan_named_once(token: str, monkeypatch: pytest.MonkeyPatch) -> None:
     del token
-    monkeypatch.setattr(sup, "_queue_limit", lambda: 10)
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 4)
     actions = LaunchActions({10})
     rt = _rt(actions, _queue_plan([3, 10, 10, 11]))
     set_runtime(rt)

@@ -135,10 +135,11 @@ def test_one_after_another_keeps_parallel_window(goal: str) -> None:
 
 def test_run_steps_become_queue_with_parallel_when_limit_is_lower() -> None:
     plan = route_multi_launch(
-        _run_step_plan(list(range(3, 13))), "запусти проекты 3,4,5,6,7,8,9,10,11,12 одновременно", 5
+        _run_step_plan(list(range(3, 13))), "запусти проекты 3,4,5,6,7,8,9,10,11,12 одновременно", 2
     )
     assert [step.action for step in plan] == ["queue.set_parallel", "queue.enqueue_many"]
-    assert plan[0].params == {"workers": 10}
+    # Окно не шире потолка схемы queue.set_parallel (runtime_streams.WORKER_MAX = 4).
+    assert plan[0].params == {"workers": 4}
     assert plan[1].params == {"project_ids": list(range(3, 13)), "enable_auto_mode": True, "mode": "full"}
 
 
@@ -148,20 +149,76 @@ def test_member_launch_has_no_parallel_step_and_gets_plain_note() -> None:
     plan = route_multi_launch(
         _run_step_plan(list(range(3, 13))),
         "запусти проекты 3,4,5,6,7,8,9,10,11,12 одновременно",
-        5,
+        2,
         lambda name: name != "queue.set_parallel",
         notes,
     )
     assert [step.action for step in plan] == ["queue.enqueue_many"]
     assert plan[0].params["project_ids"] == list(range(3, 13))
-    assert len(notes) == 1 and "только админ" in notes[0] and "до 5" in notes[0]
+    assert len(notes) == 1 and "только админ" in notes[0]
+    # Число окна — настройка всей студии: участнику его не называем (как PARALLEL_ADMIN_ONLY_MESSAGE).
+    assert not any(ch.isdigit() for ch in notes[0])
     assert "$" not in notes[0] and "set_parallel" not in notes[0]
+    # Окно уже на потолке: админ шире тоже не поставит — строки «меняет только админ» нет.
+    capped: list[str] = []
+    at_max = route_multi_launch(
+        _run_step_plan(list(range(3, 13))),
+        "запусти проекты 3,4,5,6,7,8,9,10,11,12 одновременно",
+        4,
+        lambda name: name != "queue.set_parallel",
+        capped,
+    )
+    assert [step.action for step in at_max] == ["queue.enqueue_many"] and capped == []
     # Окно и так вмещает все проекты: строки нет.
     quiet: list[str] = []
     fits = route_multi_launch(
         _run_step_plan([3, 4, 5]), "запусти 3 4 5", 10, lambda name: name != "queue.set_parallel", quiet
     )
     assert [step.action for step in fits] == ["queue.enqueue_many"] and quiet == []
+
+
+@pytest.mark.parametrize(
+    ("goal", "limit"),
+    [
+        ("запусти проекты 3-12 одновременно", 2),
+        ("запусти проекты 3,4,5,6,7,8", 4),
+        ("запусти проекты 3,4,5,6,7,8", 1),
+        ("запусти 3 4 5 6 7 в 6 потоков", 2),
+        ("запусти 3 4 5 6 7 в 6 потоков", None),
+        ("прогони 3,4,5,6,7,8,9 до картинок параллельно", None),
+    ],
+)
+def test_mass_launch_plan_passes_real_action_schema(goal: str, limit: int | None) -> None:
+    """Окно параллели из маршрута проходит настоящую схему queue.set_parallel (не больше WORKER_MAX):
+    иначе plan.py кладёт «$.workers: above N» в ошибки и карточка всего массового запуска закрыта."""
+    from app.orchestrator.agents.launch_scope import MAX_PARALLEL
+    from app.services.action_layer import builtin_launch
+    from app.services.action_layer.spec import ensure_builtin_actions, registry
+    from app.services.runtime_streams import WORKER_MAX
+
+    assert MAX_PARALLEL == WORKER_MAX == builtin_launch.MAX_PARALLEL
+    ensure_builtin_actions()
+    ask = launch_ask(goal)
+    assert ask is not None
+    plan = route_multi_launch(_run_step_plan(ask.project_ids), goal, limit)
+    assert plan and plan[-1].action == "queue.enqueue_many"
+    for step in plan:
+        assert registry.validate_params(step.action, step.params) == [], (step.action, step.params)
+        if step.action == "queue.set_parallel":
+            assert 1 <= step.params["workers"] <= WORKER_MAX
+
+
+def test_window_at_cap_needs_no_parallel_step() -> None:
+    from app.orchestrator.agents.launch_scope import MAX_PARALLEL, parallel_needed
+
+    goal = "запусти проекты 3,4,5,6,7,8,9,10,11,12 одновременно"
+    plan = route_multi_launch(_run_step_plan(list(range(3, 13))), goal, MAX_PARALLEL)
+    assert [step.action for step in plan] == ["queue.enqueue_many"]
+    assert parallel_needed(goal, MAX_PARALLEL, 10) is False
+    words = "запусти 3 4 5 6 7 в 6 потоков"
+    assert [s.action for s in route_multi_launch(_run_step_plan([3, 4, 5, 6, 7]), words, MAX_PARALLEL)] == [
+        "queue.enqueue_many"
+    ]
 
 
 def test_no_parallel_step_when_limit_already_fits() -> None:
@@ -241,7 +298,7 @@ async def test_supervisor_turns_ten_run_steps_into_queue_card(
     token: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del token
-    monkeypatch.setattr(sup, "_queue_limit", lambda: 5)
+    monkeypatch.setattr(sup, "_queue_limit", lambda: 2)
     actions = MetaActions(_META)
     rt = build_runtime(
         actions=actions,
@@ -258,6 +315,7 @@ async def test_supervisor_turns_ten_run_steps_into_queue_card(
         await rt.supervisor.wait(task_id, timeout=5)
         saved = json.loads(rt.tasks.get(task_id)["plan_json"])
         assert [step["action"] for step in saved] == ["queue.set_parallel", "queue.enqueue_many"]
+        assert saved[0]["params"] == {"workers": 4}
         assert saved[1]["params"]["project_ids"] == list(range(3, 13))
         assert rt.tasks.get(task_id)["status"] == TaskStatus.waiting_approval.value
         assert [c["name"] for c in actions.calls] == []

@@ -32,3 +32,22 @@ async def test_report_projects_lists_every_project_in_chat(env, specs, prompts) 
 
 def test_project_report_chat_rows_cover_the_report_limit() -> None:
     assert tpl.PROJECTS_CHAT_ROWS >= tpl.MAX_PROJECTS
+
+
+async def test_member_report_projects_lists_every_project_in_chat(env, specs, prompts, monkeypatch) -> None:  # noqa: F811
+    """Ветка участника (без файла и трат) — тоже строка на каждый проект, а не первые 10."""
+    from app.services.action_layer import plan as plan_mod
+
+    monkeypatch.setattr(plan_mod, "member_view", lambda: True)
+    meta = _meta()
+    first, slug = await _seed(env, title="Первый", meta=meta)
+    ids = [first] + [
+        (await _seed(env, title=f"Проект {n}", meta={}, frames=1, status="new"))[0] for n in range(13)
+    ]
+    ctx = FakeCtx(_routes(first, slug, meta, RUNS))
+    out = await specs.get("report.projects").executor(ctx, {"project_ids": ids, "kind": "html"})
+    assert out.get("file_format") is None  # участник: файл не пишется
+    lines = [line for line in out["text_ru"].splitlines() if line.startswith("- #")]
+    assert [int(line[3:].split()[0]) for line in lines] == ids
+    assert "Ещё проектов" not in out["text_ru"]
+    assert "$" not in out["text_ru"]
