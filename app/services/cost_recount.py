@@ -89,7 +89,10 @@ async def facts_for_rows(session: Any, row_ids: list[int]) -> FactTotals:
     totals = FactTotals()
     media_rows = (
         await session.execute(
-            select(MediaCall.id, MediaCall.cost_usd, MediaCall.unpriced).where(MediaCall.id.in_(ids))
+            select(MediaCall.id, MediaCall.cost_usd, MediaCall.unpriced).where(
+                MediaCall.id.in_(ids),
+                MediaCall.result == "ok",
+            )
         )
     ).all()
     for row_id, cost, unpriced in media_rows:
@@ -101,7 +104,12 @@ async def facts_for_rows(session: Any, row_ids: list[int]) -> FactTotals:
         else:
             totals.priced_calls += 1
     llm_rows = (
-        await session.execute(select(LlmCall.id, LlmCall.cost_usd).where(LlmCall.id.in_(ids)))
+        await session.execute(
+            select(LlmCall.id, LlmCall.cost_usd).where(
+                LlmCall.id.in_(ids),
+                LlmCall.result == "ok",
+            )
+        )
     ).all()
     for row_id, cost in llm_rows:
         totals.calls += 1

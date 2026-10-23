@@ -291,7 +291,8 @@ async def record(
     }
 
     if project_id and is_stop_requested(project_id):
-        _unpersisted_spent[project_id] += cost
+        if result == "ok" and cost > 0:
+            _unpersisted_spent[project_id] += cost
         _queue_pending(row_dict)
         return None
 
@@ -304,10 +305,12 @@ async def record(
         if row_id:
             for collector in _collectors.get():
                 collector.append(int(row_id))
-        _bump_spent(project_id, cost)
+        if result == "ok" and cost > 0:
+            _bump_spent(project_id, cost)
     except Exception as e:  # noqa: BLE001 — учёт не валит платный вызов
         _failed_inserts += 1
-        _unpersisted_spent[project_id] += cost
+        if result == "ok" and cost > 0:
+            _unpersisted_spent[project_id] += cost
         _queue_pending(row_dict)
         logger.warning(
             "llm_ledger: INSERT llm_calls упал (#{} всего): {} — unpersisted_spent[{}]={:.4f}$, "
@@ -423,7 +426,10 @@ async def _sum_spent_db(project_id: int) -> float:
     async with session_scope() as session:
         total = (
             await session.execute(
-                select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(LlmCall.project_id == project_id)
+                select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(
+                    LlmCall.project_id == project_id,
+                    LlmCall.result == "ok",
+                )
             )
         ).scalar_one()
     return float(total or 0.0)
