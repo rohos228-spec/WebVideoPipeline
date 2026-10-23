@@ -819,12 +819,29 @@ def drop_echo(text: str, goal: str) -> str:
 
 # «Текст промта «X» (системный):\n…\n(показаны первые 1500 из 5647 знаков)» из node.describe.
 _PROMPT_HEAD = re.compile(r"^(Текст промта[^\n]*):[ \t]*\n", re.MULTILINE)
-_PROMPT_TAIL = re.compile(r"\n\(показаны первые \d+ из \d+ знаков\)\s*$")
+_PROMPT_TAIL = re.compile(r"\n\(показаны первые (\d+) из (\d+) знаков\)\s*$")
 _PROMPT_PROBE = 60
+# Сколько разных промтов ответ цитирует и сколько знаков каждого: остальные - «спросите отдельно».
+_PROMPT_QUOTES_MAX = 2
+_PROMPT_QUOTE_CHARS = 1500
 PROMPT_QUOTE_RULE = (
-    "В фактах есть текст промта ноды («Текст промта …»). Покажи его цитатой дословно, каждую строку "
-    "с «> », не пересказывай и не сокращай показанный текст. Если показана только часть, скажи, "
-    "сколько знаков показано из скольких."
+    "Пользователь просил показать промт, и в фактах есть его текст («Текст промта …»). Покажи его "
+    "цитатой дословно, каждую строку с «> », не пересказывай и не сокращай показанный текст. "
+    f"Цитируй не больше {_PROMPT_QUOTES_MAX} разных промтов, не длиннее {_PROMPT_QUOTE_CHARS} знаков "
+    "каждый, одинаковый текст - один раз. Если показана только часть, скажи, сколько знаков показано "
+    "из скольких. Если промтов больше, про остальные напиши «ещё N промтов — спросите отдельно»."
+)
+# Просьба показать промт, а не поменять что-то в ноде.
+_PROMPT_WORD = re.compile(r"промп?т|prompt", re.IGNORECASE)
+_SHOW_WORDS = re.compile(
+    r"покаж|показа|выведи|вывест|прочитай|прочти|процитир|цитат|скинь|пришли|открой|посмотр|глян"
+    r"|каки[ей]|каков|что\s+(?:за|в|у|написан|стоит)|текст|\bshow\b",
+    re.IGNORECASE,
+)
+_CHANGE_WORDS = re.compile(
+    r"смени|поменя|замени|измени|постав|установ|переключ|исправ|перепиш|отредактир|правь|убери|удали"
+    r"|добав|запуст",
+    re.IGNORECASE,
 )
 
 
@@ -835,21 +852,81 @@ class PromptExcerpt:
     tail: str
 
 
-def prompt_excerpts(facts: TaskFacts) -> list[PromptExcerpt]:
-    """Тексты промтов, которые прочитал node.describe: их ответ показывает, а не пересказывает."""
-    out: list[PromptExcerpt] = []
+def wants_prompt_text(facts: TaskFacts) -> bool:
+    """Ответ цитирует промт, только если просили его показать.
+
+    Смена модели или параметров ноды тоже читает ноду через node.describe, и текст промта
+    попадает в факты; задача, которая что-то меняла, промт не цитирует. Без слова «промт» в
+    просьбе - тоже нет. Просьба со словом «покажи/какой/текст» - да; без такого слова - только
+    если вся задача состояла из node.describe и в просьбе нет слов правки.
+    """
+    if any(note.ok and not note.readonly and not note.skipped for note in facts.steps):
+        return False
+    goal = str(facts.goal or "")
+    if not _PROMPT_WORD.search(goal):
+        return False
+    if _SHOW_WORDS.search(goal):
+        return True
+    if _CHANGE_WORDS.search(goal):
+        return False
+    done = [note for note in facts.steps if note.ok and not note.skipped]
+    return bool(done) and all(note.action == "node.describe" for note in done)
+
+
+def _parse_prompt(text: str) -> tuple[str, str, str, int] | None:
+    """(заголовок, текст, хвост «показаны первые …», всего знаков) из ответа node.describe."""
+    found = _PROMPT_HEAD.search(text or "")
+    if found is None:
+        return None
+    rest = text[found.end() :]
+    tail = _PROMPT_TAIL.search(rest)
+    body = (rest[: tail.start()] if tail else rest).strip()
+    if not body:
+        return None
+    total = int(tail.group(2)) if tail else len(body)
+    return found.group(1), body, tail.group(0).strip() if tail else "", total
+
+
+def _clip_excerpt(head: str, body: str, tail: str, total: int) -> PromptExcerpt:
+    if len(body) <= _PROMPT_QUOTE_CHARS:
+        return PromptExcerpt(head, body, tail)
+    cut = body[:_PROMPT_QUOTE_CHARS]
+    line_end = cut.rfind("\n")
+    if line_end >= _PROMPT_QUOTE_CHARS // 2:
+        cut = cut[:line_end]
+    cut = cut.rstrip()
+    return PromptExcerpt(head, cut, f"(показаны первые {len(cut)} из {max(total, len(body))} знаков)")
+
+
+def prompt_quotes(facts: TaskFacts) -> tuple[list[PromptExcerpt], int]:
+    """Промты, которые ответ покажет цитатой, и сколько разных промтов осталось за кадром.
+
+    Одинаковые тексты идут один раз, не больше ``_PROMPT_QUOTES_MAX`` промтов и не больше
+    ``_PROMPT_QUOTE_CHARS`` знаков каждого.
+    """
+    if not wants_prompt_text(facts):
+        return [], 0
+    distinct: list[tuple[str, str, str, int]] = []
+    seen: set[str] = set()
     for note in facts.steps:
         if note.action != "node.describe" or not note.ok or not note.text:
             continue
-        found = _PROMPT_HEAD.search(note.text)
-        if found is None:
+        parsed = _parse_prompt(note.text)
+        if parsed is None or parsed[1] in seen:
             continue
-        rest = note.text[found.end() :]
-        tail = _PROMPT_TAIL.search(rest)
-        body = (rest[: tail.start()] if tail else rest).strip()
-        if body:
-            out.append(PromptExcerpt(found.group(1), body, tail.group(0).strip() if tail else ""))
-    return out
+        seen.add(parsed[1])
+        distinct.append(parsed)
+    shown = [_clip_excerpt(*item) for item in distinct[:_PROMPT_QUOTES_MAX]]
+    return shown, max(0, len(distinct) - _PROMPT_QUOTES_MAX)
+
+
+def prompt_excerpts(facts: TaskFacts) -> list[PromptExcerpt]:
+    """Тексты промтов, которые ответ показывает цитатой, а не пересказывает (см. ``prompt_quotes``)."""
+    return prompt_quotes(facts)[0]
+
+
+def more_prompts_note(more: int) -> str:
+    return f"Ещё {more} {_plural(more, 'промт', 'промта', 'промтов')} — спросите отдельно."
 
 
 def _squash(text: str) -> str:
@@ -858,21 +935,47 @@ def _squash(text: str) -> str:
 
 def ensure_prompt_quoted(text: str, facts: TaskFacts) -> str:
     """Модель пересказала промт вместо цитаты: дописываем показанный текст цитатой сами."""
+    items, more = prompt_quotes(facts)
     flat = _squash(text)
     extra: list[str] = []
-    for item in prompt_excerpts(facts):
+    for item in items:
         probe = _squash(item.body)[:_PROMPT_PROBE]
         if probe and probe in flat:
             continue
         quoted = "\n".join("> " + line if line.strip() else ">" for line in item.body.splitlines())
         extra.append("\n".join(part for part in (f"{item.head}:", quoted, item.tail) if part))
+    if more and "спросите отдельно" not in text.lower():
+        extra.append(more_prompts_note(more))
     return "\n\n".join([text, *extra]) if extra else text
+
+
+def _fact_text(note: StepNote, quotes: list[PromptExcerpt], shown: set[str]) -> str:
+    """Текст шага для модели: промт - только тот, что ответ цитирует, и один раз."""
+    if note.action != "node.describe" or not note.ok or not note.text:
+        return note.text
+    found = _PROMPT_HEAD.search(note.text)
+    parsed = _parse_prompt(note.text)
+    if found is None or parsed is None:
+        return note.text
+    head, body = parsed[0], parsed[1]
+    item = next((q for q in quotes if body.startswith(q.body)), None)
+    before = note.text[: found.start()]
+    if item is None:
+        return f"{before}{head}: текст не показан{'' if quotes else ' (о нём не спрашивали)'}"
+    if item.body in shown:
+        return f"{before}{head}: тот же текст, что выше"
+    shown.add(item.body)
+    return "\n".join(part for part in (f"{before}{head}:", item.body, item.tail) if part)
 
 
 def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
     rules = list(ANSWER_RULES)
-    if prompt_excerpts(facts):
+    quotes, more = prompt_quotes(facts)
+    if quotes:
         rules.append(PROMPT_QUOTE_RULE)
+    if more:
+        rules.append(f"Не все промты вошли в цитату: в конце ответа напиши «{more_prompts_note(more)}».")
+    shown: set[str] = set()
     rules.append("Это итог задачи из чата: перескажи найденное по фактам и ответь на просьбу пользователя.")
     rules.append(
         "Пиши итог тем, что сделано и что получилось, в прошедшем времени и с числами, например "
@@ -883,7 +986,7 @@ def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
     lines = ["Факты, прочитанные шагами задачи:"]
     for note in facts.steps[:_STEP_LIMIT]:
         body = (
-            note.text
+            _fact_text(note, quotes, shown)
             if note.ok and note.text
             else ("прочитать не удалось: " + note.error if note.error else "пусто")
         )

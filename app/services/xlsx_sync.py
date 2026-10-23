@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Frame, Project
 from app.services.content_locks import is_ui_locked
+from app.services.xlsx_preview_log import log_info
 from app.storage.project_sheet import (
     ROW_FRAME_LOGIC,
     ROW_HEADER,
@@ -89,7 +90,7 @@ async def reload_from_xlsx(session: AsyncSession, project: Project, xlsx_path: P
             if value != (current or None):
                 setattr(project, field, value)
                 summary["project_fields_changed"].append(field)
-                logger.info(
+                log_info(
                     "[#{}] xlsx→DB: project.{} обновлено ({} симв)",
                     project.id,
                     field,
@@ -132,7 +133,7 @@ async def reload_from_xlsx(session: AsyncSession, project: Project, xlsx_path: P
             session.add(new_fr)
             by_number[fnum] = new_fr
             summary["frames_created"].append(fnum)
-            logger.info(
+            log_info(
                 "[#{}] xlsx→DB: создан Frame {} ('{}…')",
                 project.id,
                 fnum,
@@ -167,7 +168,7 @@ async def reload_from_xlsx(session: AsyncSession, project: Project, xlsx_path: P
                 changed = True
             if changed:
                 summary["frames_changed"].append(fnum)
-                logger.info("[#{}] xlsx→DB: кадр {} обновлён", project.id, fnum)
+                log_info("[#{}] xlsx→DB: кадр {} обновлён", project.id, fnum)
 
     await session.flush()
 

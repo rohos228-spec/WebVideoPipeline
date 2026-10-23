@@ -83,38 +83,138 @@ async def load_live_frames(pid: int) -> list[SimpleNamespace] | None:
     """
     from sqlalchemy import select
 
-    from app.models import Frame
-    from app.services.action_layer import builtin_insight as bi
-    from app.services.db_v2 import frame_is_archived
-
-    try:
-        async with bi._sessions()() as s:
-            rows = (await s.scalars(select(Frame).where(Frame.project_id == pid))).all()
-            frames = [_snapshot(fr) for fr in rows if not frame_is_archived(fr)]
-    except Exception:  # noqa: BLE001 - база не читается: проверку не делаем
-        return None
-    if not frames:
-        # Кадров в базе нет, а project.xlsx есть: так выглядит проект, перенесённый с линии,
-        # где кадры жили в project.db. Доска монтажа и шаги заведут их из xlsx при первом
-        # обращении, и промты картинок пойдут по ним же. Решаем по тем же кадрам.
-        frames = await xlsx_frames_preview(pid) or []
-    return sorted(frames, key=lambda f: int(f.number or 0))
-
-
-async def xlsx_frames_preview(pid: int) -> list[SimpleNamespace] | None:
-    """Кадры, которые появятся в базе после импорта project.xlsx (как у доски монтажа).
-
-    Импорт идёт в отдельной сессии и всегда откатывается: в базу ничего не пишется,
-    событий не шлётся. None - xlsx нет, он не читается или импорт не удался.
-    """
-    from sqlalchemy import select
-
     from app.models import Frame, Project
     from app.services.action_layer import builtin_insight as bi
     from app.services.db_v2 import frame_is_archived
 
+    xlsx: Any = None
     try:
         async with bi._sessions()() as s:
+            rows = (await s.scalars(select(Frame).where(Frame.project_id == pid))).all()
+            frames = [_snapshot(fr) for fr in rows if not frame_is_archived(fr)]
+            if not rows:
+                project = await s.get(Project, pid)
+                xlsx = project.data_dir / "project.xlsx" if project is not None else None
+    except Exception:  # noqa: BLE001 - база не читается: проверку не делаем
+        return None
+    if not rows and xlsx is not None:
+        # В базе у проекта нет ни одной строки кадра (и архивной тоже), а project.xlsx есть:
+        # так выглядит проект, перенесённый с линии, где кадры жили в project.db. Доска
+        # монтажа и шаги заведут их из xlsx при первом обращении, и промты картинок пойдут
+        # по ним же. Решаем по тем же кадрам. Все кадры в архиве - это решение человека,
+        # xlsx их не воскрешает: живых кадров нет.
+        frames = await xlsx_frames_preview(pid, xlsx) or []
+    return sorted(frames, key=lambda f: int(f.number or 0))
+
+
+# Превью кадров из xlsx на процесс: (проект, путь, mtime, размер) → кадры. Файл не менялся -
+# повторная проверка в том же ходе чата (и в следующих) xlsx заново не разбирает.
+_PREVIEW_CACHE: dict[tuple[int, str, int, int], tuple[SimpleNamespace, ...] | None] = {}
+_PREVIEW_CACHE_MAX = 32
+_PREVIEW_LOCKS: dict[tuple[int, str, int, int], Any] = {}
+
+
+def _preview_key(pid: int, xlsx: Any) -> tuple[int, str, int, int] | None:
+    try:
+        if not xlsx.is_file():
+            return None
+        st = xlsx.stat()
+    except OSError:
+        return None
+    return int(pid), str(xlsx), int(getattr(st, "st_mtime_ns", 0) or 0), int(getattr(st, "st_size", 0) or 0)
+
+
+def clear_preview_cache() -> None:
+    _PREVIEW_CACHE.clear()
+    _PREVIEW_LOCKS.clear()
+
+
+async def xlsx_frames_preview(pid: int, xlsx: Any = None) -> list[SimpleNamespace] | None:
+    """Кадры, которые появятся в базе после импорта project.xlsx (как у доски монтажа).
+
+    Импорт идёт в отдельной сессии и всегда откатывается: в базу ничего не пишется,
+    событий не шлётся. Разбор xlsx (openpyxl) идёт в отдельном потоке со своим циклом
+    событий, чтобы не держать чат; результат кэшируется по (проект, путь, mtime, размер).
+    None - xlsx нет, он не читается или импорт не удался.
+    """
+    import asyncio
+
+    if xlsx is None:
+        xlsx = await _project_xlsx(pid)
+        if xlsx is None:
+            return None
+    key = _preview_key(pid, xlsx)
+    if key is None:
+        return None
+    if key in _PREVIEW_CACHE:
+        cached = _PREVIEW_CACHE[key]
+        return list(cached) if cached is not None else None
+    lock = _PREVIEW_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        if key not in _PREVIEW_CACHE:
+            frames = await asyncio.to_thread(_preview_in_thread, pid)
+            while len(_PREVIEW_CACHE) >= _PREVIEW_CACHE_MAX:
+                _PREVIEW_CACHE.pop(next(iter(_PREVIEW_CACHE)))
+            _PREVIEW_CACHE[key] = tuple(frames) if frames is not None else None
+    _PREVIEW_LOCKS.pop(key, None)
+    cached = _PREVIEW_CACHE.get(key)
+    return list(cached) if cached is not None else None
+
+
+async def _project_xlsx(pid: int) -> Any:
+    from app.models import Project
+    from app.services.action_layer import builtin_insight as bi
+
+    try:
+        async with bi._sessions()() as s:
+            project = await s.get(Project, pid)
+            return project.data_dir / "project.xlsx" if project is not None else None
+    except Exception:  # noqa: BLE001 - база не читается: проверку не делаем
+        return None
+
+
+def _preview_in_thread(pid: int) -> list[SimpleNamespace] | None:
+    """Поток превью: свой цикл событий, логи импорта помечены превью и опущены до DEBUG."""
+    import asyncio
+
+    from app.services.xlsx_preview_log import preview_logs
+
+    with preview_logs():
+        return asyncio.run(_preview_rolled_back(pid))
+
+
+def _thread_sessions() -> tuple[Any, Any]:
+    """Фабрика сессий для потока превью и движок, который потом закрыть (или None).
+
+    Пул соединений Postgres привязан к главному циклу: в потоке свой движок без пула.
+    SQLite и так без пула (NullPool), подмена из тестов - как есть.
+    """
+    from app.services.action_layer import builtin_insight as bi
+
+    factory = bi._sessions()
+    try:
+        from app import db
+        from app.settings import settings
+    except Exception:  # noqa: BLE001
+        return factory, None
+    if factory is not db.SessionLocal or not settings.is_postgres:
+        return factory, None
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    engine = create_async_engine(settings.db_url, future=True, poolclass=NullPool)
+    return async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession), engine
+
+
+async def _preview_rolled_back(pid: int) -> list[SimpleNamespace] | None:
+    from sqlalchemy import select
+
+    from app.models import Frame, Project
+    from app.services.db_v2 import frame_is_archived
+
+    factory, engine = _thread_sessions()
+    try:
+        async with factory() as s:
             try:
                 project = await s.get(Project, pid)
                 if project is None:
@@ -131,6 +231,9 @@ async def xlsx_frames_preview(pid: int) -> list[SimpleNamespace] | None:
     except Exception:  # noqa: BLE001 - xlsx или база не читаются: проверку не делаем
         logger.opt(exception=True).debug("img_pr guard: xlsx frames preview failed for #{}", pid)
         return None
+    finally:
+        if engine is not None:
+            await engine.dispose()
 
 
 async def _import_xlsx_rolled_back(session: Any, project: Any, xlsx: Any) -> bool:
@@ -598,30 +701,70 @@ def continue_skips_scene(
 _ENRICH_READY_RE = re.compile(r"^enrich_([1-5])_ready$")
 
 
+def _explicit_slot(node: dict) -> int | None:
+    """Номер слота, записанный в ноде (slotIndex или старый тип enrich_N); без номера - None.
+
+    ``slot_index_from_node`` считает ноду без номера первым слотом: для проверки продолжения
+    это догадка, по ней не блокируем.
+    """
+    from app.services.excel_gpt_node import MAX_EXCEL_GPT_SLOTS, legacy_enrich_slot_from_type
+
+    data = node.get("data") if isinstance(node.get("data"), dict) else {}
+    raw = data.get("slotIndex")
+    if isinstance(raw, int) and not isinstance(raw, bool) and 1 <= raw <= MAX_EXCEL_GPT_SLOTS:
+        return raw
+    return legacy_enrich_slot_from_type(str(node.get("type") or ""))
+
+
+def _ready_slot_node(meta: Any, nodes: dict[str, dict], slot: int) -> str | None:
+    """Нода «Работа с GPT», на чью готовность указывает ``enrich_N_ready``; None - не понять.
+
+    Сначала нода, которую воркер закрепил (``active_excel_gpt_node_key``), если номер её слота
+    совпадает. Иначе единственная нода с этим номером, и только когда на холсте нет
+    «Работ с GPT» без номера: такая нода считается первым слотом, и какая из них готова,
+    по холсту не сказать.
+    """
+    from app.services.excel_gpt_node import is_excel_gpt_node_type, sd_agent_marker
+
+    gpt = {
+        k: n
+        for k, n in nodes.items()
+        if (is_excel_gpt_node_type(_type(n)) or is_excel_gpt_node_type(str(n.get("type") or "")))
+        and not sd_agent_marker(n)
+        and not (isinstance(n.get("data"), dict) and n["data"].get("slotOverflow"))
+    }
+    m = meta if isinstance(meta, dict) else {}
+    active = str(m.get("active_excel_gpt_node_key") or "").strip()
+    if active in gpt and _explicit_slot(gpt[active]) == slot:
+        return active
+    if any(_explicit_slot(n) is None for n in gpt.values()):
+        return None
+    numbered = [k for k, n in gpt.items() if _explicit_slot(n) == slot]
+    return numbered[0] if len(numbered) == 1 else None
+
+
 def _ready_slot_leads_to_img_pr(meta: Any, place: str) -> bool:
     """С готовности «Работы с GPT» слота N следующим шагом идут промты картинок.
 
     Воркер с ``enrich_N_ready`` идёт по стрелкам холста, а не по числу слотов в настройках:
-    в #6 слотов три, на холсте две «Работы с GPT», и от второй стрелка ведёт прямо в
-    промты картинок, так что «Продолжить» с ``enrich_2_ready`` запустит именно их.
-    Служебные ноды (проходные) по пути пропускаем, любая другая рабочая нода - не промты.
+    слотов в настройках может быть три, а на холсте две «Работы с GPT», и от второй стрелка
+    ведёт прямо в промты картинок, так что «Продолжить» с ``enrich_2_ready`` запустит именно их.
+    Стрелки читаем только от той ноды, на которую указывает статус; если её не определить
+    (слоты без номеров, два одинаковых номера), это правило не блокирует - остальные
+    проверки остаются. Служебные ноды (проходные) по пути пропускаем, любая другая рабочая
+    нода - не промты.
     """
     from app.orchestrator.graph.planner import is_passthrough_node_type
-    from app.services.excel_gpt_node import is_excel_gpt_node_type, slot_index_from_node
 
     m = _ENRICH_READY_RE.match(str(place or ""))
     if not m:
         return False
-    slot = int(m.group(1))
     nodes, outs, _ins = _graph(meta)
-    starts = [
-        k
-        for k, n in nodes.items()
-        if (is_excel_gpt_node_type(_type(n)) or is_excel_gpt_node_type(str(n.get("type") or "")))
-        and slot_index_from_node(n) == slot
-    ]
+    start = _ready_slot_node(meta, nodes, int(m.group(1)))
+    if start is None:
+        return False
     seen: set[str] = set()
-    queue: deque[str] = deque(t for k in starts for t in outs.get(k, []))
+    queue: deque[str] = deque(outs.get(start, []))
     while queue:
         key = queue.popleft()
         if key in seen:

@@ -174,6 +174,10 @@ _PLAN_BOUND_CARDS = frozenset({*approval_steps.PLAN_CARD_REASONS, "destructive"}
 _CRITIC_NO_REASON = "Критик не объяснил причину, поэтому план не отклонён: проверьте шаги и решите сами."
 _CRITIC_REJECTED = "Проверяющая модель против этого плана: {why}"
 _CRITIC_REVISED = "Проверяющая модель трижды просила переделать план, последнее замечание: {why}"
+_OTHER_GATED_STEPS = (
+    "Это не весь план: в нём есть и другие шаги с оплатой или подтверждением (ещё {n}), "
+    "у каждого будет своя карточка."
+)
 # Планировщик иногда отдаёт пустой план «нужно отдельное подтверждение человека»: подтверждение
 # спрашивает карточка после плана, так что такой отказ - не причина ничего не делать.
 _ASKS_APPROVAL_RE = re.compile(
@@ -1816,8 +1820,13 @@ class Supervisor:
         Если условие шага уже не выполнено (у кадров нет данных сцены и т.п.), подтверждать
         нечего: сразу показываем карточку шага с причиной, кнопка «Подтвердить» на ней
         недоступна. Замечание критика остаётся в предупреждениях. True — карточка открыта.
+
+        Карточку шага не удалось собрать (сбой оценки в мосте, ``preview_failed``) — это не
+        отказ условий: остаётся карточка критика. Если в плане есть и другие шаги со своим
+        подтверждением, карточка говорит, что они идут дальше, каждый со своей карточкой.
         """
         goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
+        gated = [step for step in plan if self._step_needs_separate_approval(step)]
         for at, step in enumerate(plan):
             if not self._step_needs_separate_approval(step):
                 continue
@@ -1826,14 +1835,22 @@ class Supervisor:
             except Exception:  # noqa: BLE001 - карточку шага не собрать: остаётся карточка критика
                 logger.opt(exception=True).warning("orch task {} blocked-step probe failed", task_id)
                 return False
+            if card.get("preview_failed"):
+                logger.info("orch task {} step {} card failed to build: critic card kept", task_id, step.action)
+                return False
             if not card.get("blocked") or not card.get("preview_errors"):
                 continue
             risk, gate = self._step_gate(step)
             await self._checkpoint(task_id, session_id, plan, at)
             self._grant_target.pop(task_id, None)
             extra = {**card, "action": step.action, "risk": risk.value, "plan_risk": step.risk}
+            warnings = [*(card.get("warnings") or [])]
             if note:
-                extra["warnings"] = [*(card.get("warnings") or []), note]
+                warnings.append(note)
+            if len(gated) > 1:
+                warnings.append(_OTHER_GATED_STEPS.format(n=len(gated) - 1))
+            if warnings:
+                extra["warnings"] = warnings
             if risk in APPROVAL_RISKS:
                 reason = "risk"
             else:

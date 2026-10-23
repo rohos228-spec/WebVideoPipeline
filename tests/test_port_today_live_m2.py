@@ -91,10 +91,19 @@ class _Session:
 
 class _Dir:
     def __truediv__(self, name: str) -> Any:
-        return SimpleNamespace(is_file=lambda: True, name=name)
+        return SimpleNamespace(
+            is_file=lambda: True, name=name, stat=lambda: SimpleNamespace(st_mtime_ns=1, st_size=1)
+        )
 
 
 _DIR = _Dir()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_preview_cache() -> Any:
+    ipg.clear_preview_cache()
+    yield
+    ipg.clear_preview_cache()
 
 
 def _frame(number: int, **kw: Any) -> SimpleNamespace:

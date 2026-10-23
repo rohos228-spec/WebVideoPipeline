@@ -67,13 +67,14 @@ def _generator_label(kind: str, gen_id: str) -> str:
 
 
 _ID_WORDS = {"gpt": "GPT", "vip": "VIP", "hd": "HD", "ai": "AI", "sd": "SD", "xl": "XL", "pro": "Pro"}
+_UNKNOWN_ID_MAX = 60
 
 
 def unknown_model_ru(gen_id: str) -> str:
     """Модели нет в каталоге этой Студии: id в карточку сырым не идёт.
 
     ``gpt_image_2_vip`` → «GPT Image 2 VIP (нет в каталоге)». Человек видит, что модель
-    у проекта стоит старая или чужая, и правка её заменит.
+    у проекта стоит старая или чужая, и правка её заменит. Длинное имя режется до 60 знаков.
     """
     raw = " ".join(str(gen_id or "").split())
     if not raw:
@@ -92,7 +93,11 @@ def unknown_model_ru(gen_id: str) -> str:
             nice.append(word.capitalize())
         else:
             nice.append(word)
-    return f"{' '.join(nice)} (нет в каталоге)"
+    name = " ".join(nice)
+    if len(name) > _UNKNOWN_ID_MAX:
+        # Как у остальных значений карточки: не длиннее 60 знаков.
+        name = name[: _UNKNOWN_ID_MAX - 1].rstrip() + "…"
+    return f"{name} (нет в каталоге)"
 
 
 def value_ru(key: str, value: Any) -> str:
