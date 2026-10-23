@@ -415,3 +415,179 @@ async def test_changed_settings_only_refuses_on_unauthorized_read(as_identity, m
     as_identity(_member())
     with pytest.raises(PlanResolveRefused):
         await w5.changed_settings_only({"project_id": 5, "title": "x"})
+
+
+# ── вторая волна ревью: места очереди, папки, каталог, воркер ────────────────
+
+
+def test_planner_select_catalog_hides_set_parallel_from_member(as_identity) -> None:
+    from app.services.action_layer.planner import build_prompt
+    from app.services.action_layer.planner_catalog import select_catalog
+    from app.services.action_layer.spec import ensure_builtin_actions, registry
+
+    ensure_builtin_actions()
+    if registry.find("queue.set_parallel") is None:
+        pytest.skip("queue.set_parallel не зарегистрирован")
+    text = "поставь одновременно 3 проекта в очереди, параллель очереди"
+    total = len(registry.list())
+    as_identity(_admin())
+    assert "queue.set_parallel" in select_catalog(text, None, registry, 12).ids
+    # Каталог шире выборки — отдаётся всё; участнику и тогда без действия всей студии.
+    assert "queue.set_parallel" in select_catalog(text, None, registry, total + 5).ids
+    as_identity(_member())
+    for max_catalog in (12, total + 5):
+        assert "queue.set_parallel" not in select_catalog(text, None, registry, max_catalog).ids
+    _messages, info = build_prompt(text, {"facts": {}}, registry, 4, max_catalog=total + 5)
+    assert "queue.set_parallel" not in info["offered"]
+
+
+def test_folders_are_per_tenant_and_owner_keeps_legacy_list() -> None:
+    sl.save_layout(
+        {
+            "folders": [{"id": "own0", "name": "Старая папка владельца", "order": 0}],
+            "project_layout": {
+                "1": {"folder_id": "own0", "order": 0},
+                "2": {"folder_id": None, "order": 0},
+                "3": {"folder_id": None, "order": 1},
+            },
+            "gen_queue": [],
+        }
+    )
+    with tenant_scope(A):
+        fa = sl.create_folder("Папка А")
+        # Чужие папки (владельца) клиенту не видны и не правятся.
+        assert [f["name"] for f in sl.layout_for_api({2})["folders"]] == ["Папка А"]
+        with pytest.raises(KeyError):
+            sl.rename_folder("own0", "взлом")
+        assert sl.delete_folder("own0") is False
+    with tenant_scope(B):
+        assert sl.layout_for_api({3})["folders"] == []
+        with pytest.raises(KeyError):
+            sl.rename_folder(fa["id"], "взлом")
+        assert sl.delete_folder(fa["id"]) is False
+        # Свой проект, положенный в номер чужой папки, — в корне у себя.
+        sl.update_layout(project_layout={"3": {"folder_id": fa["id"], "order": 0}}, own_ids={3})
+        assert sl.layout_for_api({3})["project_layout"]["3"]["folder_id"] is None
+        # PUT папок от Б пишет только папки Б.
+        sl.update_layout(folders=[{"id": "fb", "name": "Папка Б", "order": 0}], own_ids={3})
+        assert [f["name"] for f in sl.layout_for_api({3})["folders"]] == ["Папка Б"]
+    # Владелец: прежний общий список, без папок клиентов.
+    owner = sl.layout_for_api({1, 2, 3})
+    assert [f["name"] for f in owner["folders"]] == ["Старая папка владельца"]
+    assert owner["project_layout"]["1"]["folder_id"] == "own0"
+    with tenant_scope(A):
+        sl.update_layout(project_layout={"2": {"folder_id": fa["id"], "order": 0}}, own_ids={2})
+        assert sl.rename_folder(fa["id"], "А2")["name"] == "А2"
+        assert sl.layout_for_api({2})["project_layout"]["2"]["folder_id"] == fa["id"]
+        assert sl.delete_folder(fa["id"]) is True
+        assert sl.layout_for_api({2})["project_layout"]["2"]["folder_id"] is None
+    # Папки переживают запись другой части файла.
+    sl.update_layout(gen_queue=[1])
+    data = sl.load_layout()
+    assert data["tenant_folders"] == {A: [], B: [{"id": "fb", "name": "Папка Б", "order": 0}]}
+    assert [f["id"] for f in data["folders"]] == ["own0"]
+
+
+async def _seed_tenant_projects(ids_tenants: dict[int, str | None]) -> None:
+    from app.db import session_scope
+    from app.models import Project, ProjectStatus
+
+    async with session_scope() as s:
+        for pid, tenant in ids_tenants.items():
+            s.add(
+                Project(
+                    id=pid,
+                    slug=f"q-{pid}-{uuid.uuid4().hex[:6]}",
+                    title=f"P{pid}",
+                    topic="t",
+                    status=ProjectStatus.new,
+                    hero_mode="no_hero",
+                    auto_mode=True,
+                    tenant_id=tenant,
+                )
+            )
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_queue_positions_and_size_count_only_own_projects(monkeypatch) -> None:
+    from app.db import session_scope
+    from app.services.action_layer import builtin_insight as bi
+    from app.services.gen_queue import get_gen_queue_idle_info, own_gen_queue
+    from app.settings import settings
+
+    # SQLite без политик: арендатор — только сверкой tenant_id строки (как в _own_ids).
+    monkeypatch.setattr(settings, "allow_unisolated_tenants", True)
+    await _seed_tenant_projects({901: B, 902: A, 903: B, 904: A, 905: None})
+    sl.set_gen_queue([901, 902, 903, 904, 905])
+    async with session_scope() as s:
+        assert await own_gen_queue(s) == [901, 902, 903, 904, 905]  # владелец — вся очередь
+        with tenant_scope(A):
+            assert await own_gen_queue(s) == [902, 904]
+            idle = await get_gen_queue_idle_info(s)
+    # Место простоя очереди — среди своих: #902 первый у А, хотя в общей очереди второй.
+    assert idle is not None and idle["project_id"] == 902 and idle["position"] == 1
+
+    with tenant_scope(A):
+        out = await bi._projects_overview(None, {"status": "queue", "limit": 30})
+    assert {p["id"]: p["queue_position"] for p in out["projects"]} == {902: 1, 904: 2}
+    assert out["queue"]["size"] == 2
+    assert "В очереди генерации 2," in out["text_ru"]
+    out = await bi._projects_overview(None, {"status": "queue", "limit": 30})
+    assert out["queue"]["size"] == 5
+
+
+def test_worker_fallback_round_keeps_tenant_waits(monkeypatch) -> None:
+    """Список «кому служим» не получен: запасной проход владельцу ожидания арендаторов не стирает."""
+    import asyncio
+
+    from app.main import _run_worker_loop
+    from app.services import step_cancel as sc
+    from app.services import work_routing
+    from app.services.noop_bot import get_worker_bot
+    from app.settings import Settings
+
+    asked: list[int] = []
+
+    async def _boom(*a, **kw):
+        asked.append(1)
+        raise RuntimeError("routes unavailable")
+
+    import app.main as main_mod
+
+    class _QuietLogger:
+        # Трассировка исключения в лог форматируется долго — тик не успевал дойти до чистки.
+        def exception(self, *a, **kw) -> None:
+            return None
+
+        def __getattr__(self, name):
+            return getattr(real_logger, name)
+
+    real_logger = main_mod.logger
+    monkeypatch.setattr(main_mod, "logger", _QuietLogger())
+    monkeypatch.setattr(Settings, "is_postgres", property(lambda self: True))
+    monkeypatch.setattr(work_routing, "tenants_to_serve", _boom)
+    sc._worker_waits.clear()
+
+    async def _run() -> None:
+        with tenant_scope(A):
+            sc.note_worker_wait(77, "parallel_slots_full")
+        task = asyncio.create_task(_run_worker_loop(get_worker_bot(None)))
+        for _ in range(40):
+            await asyncio.sleep(0.1)
+            if asked:
+                break
+        # Проход владельцу после сбоя — в пределах того же тика; следующий тик через 5 с.
+        await asyncio.sleep(1.0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    try:
+        asyncio.run(_run())
+        assert asked, "петля не дошла до списка арендаторов"
+        assert sc.worker_wait_reason(77) == "parallel_slots_full"
+    finally:
+        sc._worker_waits.clear()

@@ -1329,17 +1329,19 @@ async def _projects_overview(ctx: ActionContext, params: dict) -> dict:
     from sqlalchemy import select
 
     from app.models import Project
-    from app.services.gen_queue import worker_max_parallel
+    from app.services.gen_queue import own_gen_queue, worker_max_parallel
     from app.services.sidebar_layout import get_gen_queue
 
     want = params.get("status")
     limit = int(params.get("limit", 30))
-    queue = get_gen_queue()
-    q = select(Project).order_by(Project.updated_at.desc(), Project.id.desc())
-    if want == "queue":
-        q = q.where(Project.id.in_(queue or [-1]))
     managed: set[int] = set()
     async with _sessions()() as s:
+        # Файл очереди общий для студии: места и размер очереди — только среди своих
+        # проектов арендатора (владелец видит всю очередь).
+        queue = await own_gen_queue(s, get_gen_queue())
+        q = select(Project).order_by(Project.updated_at.desc(), Project.id.desc())
+        if want == "queue":
+            q = q.where(Project.id.in_(queue or [-1]))
         try:
             from app.services.actions_v1 import ActionExecutionControl
 

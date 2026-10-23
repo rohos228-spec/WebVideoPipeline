@@ -224,3 +224,131 @@ async def test_only_admin_changes_studio_parallel(pg) -> None:  # noqa: F811
     res = await client.patch("/api/runtime-streams", json={"worker_max_parallel": 3}, headers=pg["admin"].auth)
     assert res.status_code == 200, res.text
     assert get_worker_max_parallel() == 3
+
+
+# ── вторая волна ревью ───────────────────────────────────────────────────────
+
+
+async def test_queue_positions_are_counted_among_own_projects(pg) -> None:  # noqa: F811
+    from app.services import sidebar_layout as sl
+    from app.services.action_layer import builtin_insight as bi
+    from app.services.tenant import tenant_scope
+
+    a, b = pg["a"].user_id, pg["b"].user_id
+    b1 = await _project_of(pg, b, title="B1")
+    a1 = await _project_of(pg, a, title="A1")
+    b2 = await _project_of(pg, b, title="B2")
+    a2 = await _project_of(pg, a, title="A2")
+    sl.set_gen_queue([b1, a1, b2, a2])
+    client = pg["client"]
+
+    # GET /projects: место среди своих — #a1 первый, #a2 второй (в общей очереди 2 и 4).
+    res = await client.get("/api/projects", headers=pg["a"].auth)
+    assert res.status_code == 200, res.text
+    pos = {row["id"]: row["gen_queue_position"] for row in res.json()}
+    assert pos[a1] == 1 and pos[a2] == 2 and b1 not in pos
+
+    # GET /sidebar-layout: простой очереди — тоже место среди своих.
+    res = await client.get("/api/sidebar-layout", headers=pg["a"].auth)
+    assert res.status_code == 200, res.text
+    idle = res.json()["gen_queue_idle"]
+    assert idle is not None and idle["project_id"] == a1 and idle["position"] == 1
+    res = await client.get("/api/sidebar-layout", headers=pg["b"].auth)
+    idle = res.json()["gen_queue_idle"]
+    assert idle["project_id"] == b1 and idle["position"] == 1
+
+    # Чат «что в очереди»: места и размер очереди — только свои.
+    with tenant_scope(a):
+        out = await bi._projects_overview(None, {"status": "queue", "limit": 30})
+    assert {p["id"]: p["queue_position"] for p in out["projects"]} == {a1: 1, a2: 2}
+    assert out["queue"]["size"] == 2 and "В очереди генерации 2," in out["text_ru"]
+
+
+async def test_sidebar_folders_are_per_tenant(pg) -> None:  # noqa: F811
+    from app.services import sidebar_layout as sl
+
+    a, b = pg["a"].user_id, pg["b"].user_id
+    a1 = await _project_of(pg, a, title="A1")
+    b1 = await _project_of(pg, b, title="B1")
+    # Старые общие папки остаются у владельца.
+    data = sl.load_layout()
+    data["folders"] = [{"id": "legacy1", "name": "Папка владельца", "order": 0}]
+    sl.save_layout(data)
+    client = pg["client"]
+
+    res = await client.post("/api/sidebar-layout/folders", json={"name": "Клиент А"}, headers=pg["a"].auth)
+    assert res.status_code == 200, res.text
+    fa = res.json()["id"]
+    res = await client.get("/api/sidebar-layout", headers=pg["a"].auth)
+    assert [f["name"] for f in res.json()["folders"]] == ["Клиент А"]
+    res = await client.get("/api/sidebar-layout", headers=pg["b"].auth)
+    assert res.json()["folders"] == [] and "Клиент А" not in res.text and "Папка владельца" not in res.text
+
+    # Чужую папку не переименовать и не удалить.
+    res = await client.patch(f"/api/sidebar-layout/folders/{fa}", json={"name": "взлом"}, headers=pg["b"].auth)
+    assert res.status_code == 404, res.text
+    res = await client.delete(f"/api/sidebar-layout/folders/{fa}", headers=pg["b"].auth)
+    assert res.status_code == 404, res.text
+    res = await client.delete("/api/sidebar-layout/folders/legacy1", headers=pg["a"].auth)
+    assert res.status_code == 404, res.text
+
+    # PUT папок от Б пишет только папки Б: папки А и владельца на месте.
+    res = await client.put(
+        "/api/sidebar-layout",
+        json={
+            "folders": [{"id": "fb1", "name": "Клиент Б", "order": 0}],
+            "project_layout": {str(b1): {"folder_id": fa, "order": 0}},
+        },
+        headers=pg["b"].auth,
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert [f["name"] for f in body["folders"]] == ["Клиент Б"]
+    # Номер чужой папки — проект Б в корне у себя.
+    assert body["project_layout"][str(b1)]["folder_id"] is None
+    res = await client.get("/api/projects", headers=pg["b"].auth)
+    row = next(r for r in res.json() if r["id"] == b1)
+    assert row["sidebar_folder_id"] is None
+
+    res = await client.put(
+        "/api/sidebar-layout", json={"project_layout": {str(a1): {"folder_id": fa, "order": 0}}}, headers=pg["a"].auth
+    )
+    assert res.status_code == 200, res.text
+    res = await client.get("/api/sidebar-layout", headers=pg["a"].auth)
+    assert [f["name"] for f in res.json()["folders"]] == ["Клиент А"]
+    assert res.json()["project_layout"][str(a1)]["folder_id"] == fa
+    data = sl.load_layout()
+    assert [f["id"] for f in data["folders"]] == ["legacy1"]
+    assert [f["name"] for f in data["tenant_folders"][str(b)]] == ["Клиент Б"]
+    assert [f["id"] for f in data["tenant_folders"][str(a)]] == [fa]
+
+
+async def test_worker_serves_waiting_only_with_auto_mode_and_not_terminal(pg) -> None:  # noqa: F811
+    from sqlalchemy import update
+
+    from app.models import Project, ProjectStatus
+    from app.orchestrator.node_registry import WORKER_ACTIVE_STATUSES
+    from app.services.tenant import tenant_scope
+    from app.services.work_routing import tenants_to_serve, waiting_statuses
+
+    a, b = pg["a"].user_id, pg["b"].user_id
+    pid_a = await _project_of(pg, a, title="A ждёт, auto выключен", status=ProjectStatus.plan_ready)
+    with tenant_scope(a):
+        async with pg["factory"]() as s:
+            await s.execute(update(Project).where(Project.id == pid_a).values(auto_mode=False))
+            await s.commit()
+    await _project_of(pg, a, title="A собран", status=ProjectStatus.assembled)  # auto_mode=True, финал
+    pid_b = await _project_of(pg, b, title="B ждёт с auto", status=ProjectStatus.images_ready)
+    running = [s.value for s in WORKER_ACTIVE_STATUSES]
+    waiting = waiting_statuses()
+    assert "assembled" not in waiting and "plan_ready" in waiting
+
+    with tenant_scope(None):
+        async with pg["factory"]() as s:
+            served = await tenants_to_serve(s, running, [], waiting=waiting, session_factory=pg["factory"])
+            queued = await tenants_to_serve(s, running, [pid_a], waiting=waiting, session_factory=pg["factory"])
+    # А: ждущий без auto_mode и собранный — прохода нет; Б: ждущий с auto_mode — есть.
+    assert b in served and a not in served
+    # Номер в очереди — проход есть всегда (очередь стартует его сама).
+    assert a in queued and b in queued
+    assert pid_b  # noqa: S101

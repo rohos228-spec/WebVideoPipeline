@@ -54,16 +54,12 @@ async def _own_ids(session) -> set[int] | None:
     """Проекты автора запроса, если запрос идёт от арендатора; ``None`` — режим владельца.
 
     Файл очереди и раскладки сайдбара общий для студии. Под арендатором правка
-    трогает только его номера, ответ показывает только их; номера видны под RLS
-    (Postgres) и ещё раз сверяются с арендатором строки (SQLite в тестах).
+    трогает только его номера, ответ показывает только их (см.
+    ``gen_queue.own_project_ids``).
     """
-    from app.services.tenant import current_tenant
+    from app.services.gen_queue import own_project_ids
 
-    tenant = current_tenant()
-    if tenant is None:
-        return None
-    rows = (await session.execute(select(Project.id, Project.tenant_id))).all()
-    return {int(pid) for pid, owner in rows if owner is not None and str(owner) == str(tenant)}
+    return await own_project_ids(session)
 
 
 @router.get("")

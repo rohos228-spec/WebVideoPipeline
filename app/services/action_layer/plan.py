@@ -150,6 +150,22 @@ def member_view() -> bool:
     return not ident.is_admin
 
 
+def member_hidden_actions() -> frozenset[str]:
+    """Действия всей студии, которых участнику в каталоге планировщика нет.
+
+    Исполнитель такой шаг участнику всё равно отклонит (``ADMIN_ONLY_ACTIONS``);
+    каталог лишь не даёт планировщику вставить его в план. Сбой проверки
+    личности — прячем (лишний отказ дешевле предложенного действия всей студии).
+    """
+    try:
+        return ADMIN_ONLY_HIDDEN_FROM_MEMBERS if member_view() else frozenset()
+    except Exception:  # noqa: BLE001
+        from loguru import logger
+
+        logger.exception("planner catalog: identity check failed")
+        return ADMIN_ONLY_HIDDEN_FROM_MEMBERS
+
+
 def admin_only_refused(action_id: str, params: dict | None = None) -> bool:
     """Шаг запрещён текущей личности: участнику — действия всей студии.
 

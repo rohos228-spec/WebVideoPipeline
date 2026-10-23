@@ -415,7 +415,44 @@ def _context_tokens(facts: dict | None, norm_text: str) -> list[str]:
     return extra
 
 
+class _WithoutHidden:
+    """Каталог без скрытых действий: ``list``/``find`` их не отдают."""
+
+    def __init__(self, registry: Any, hidden: frozenset[str]) -> None:
+        self._registry = registry
+        self._hidden = hidden
+
+    def list(self, *args: Any, **kwargs: Any) -> list[Any]:
+        return [s for s in self._registry.list(*args, **kwargs) if s.id not in self._hidden]
+
+    def find(self, action_id: str) -> Any:
+        return None if action_id in self._hidden else self._registry.find(action_id)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._registry, name)
+
+
 def select_catalog(
+    text: str, facts: dict | None, registry: ActionRegistry, max_catalog: int, macros: Any = None
+) -> CatalogSelection:
+    """Действия для каталога планировщика.
+
+    Участнику студии действия всей студии (``plan.member_hidden_actions``, например
+    ``queue.set_parallel``) не предлагаются ни в одном варианте выборки:
+    исполнитель отказал бы, а план из-за этого шага сорвался бы целиком.
+    """
+    from app.services.action_layer.plan import member_hidden_actions
+
+    hidden = member_hidden_actions()
+    if hidden:
+        registry = _WithoutHidden(registry, hidden)  # type: ignore[assignment]
+    sel = _select_catalog(text, facts, registry, max_catalog, macros)
+    if hidden:
+        sel.ids = [a for a in sel.ids if a not in hidden]
+    return sel
+
+
+def _select_catalog(
     text: str, facts: dict | None, registry: ActionRegistry, max_catalog: int, macros: Any = None
 ) -> CatalogSelection:
     all_ids = [s.id for s in registry.list()]

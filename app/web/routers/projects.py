@@ -154,7 +154,11 @@ async def list_projects(
     # Позиции очереди — по полной gen_queue (включая дочерние mass/manual).
     # layout_for_api(sidebar_project_ids) выкидывает children из queue_map,
     # из‑за этого круг в сайдбаре оставался без цифры при живом toast.
-    queue_pos = {pid: idx + 1 for idx, pid in enumerate(get_gen_queue())}
+    # Файл очереди общий для студии: место считается среди своих проектов
+    # арендатора (как в GET /sidebar-layout), иначе номер выдавал бы чужие.
+    from app.services.gen_queue import own_gen_queue
+
+    queue_pos = {pid: idx + 1 for idx, pid in enumerate(await own_gen_queue(session, get_gen_queue()))}
     out: list[ProjectSummary] = []
     for p in rows:
         qpos = queue_pos.get(p.id)

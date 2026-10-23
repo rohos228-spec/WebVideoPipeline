@@ -373,7 +373,6 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
             prev = fail_counts.get(key, 0)
             fail_counts[key] = prev + 1
             try:
-
                 async with session_scope() as s:
                     p = await s.get(Project, project_id)
                     if p is None:
@@ -424,18 +423,23 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         """
         if not _settings.is_postgres:
             return [None]
-        from app.orchestrator.auto_advance import TRANSITIONS
         from app.services.sidebar_layout import get_gen_queue
-        from app.services.work_routing import tenants_to_serve
+        from app.services.work_routing import tenants_to_serve, waiting_statuses
 
-        # Рабочие статусы — шаги, которые воркер ведёт сам; ждущие (`*_ready`)
-        # и номера очереди — то, что двигает `gen_queue_tick` и автопродвижение
-        # внутри прохода арендатора. Без них арендатор с одной очередью ждущих
-        # проектов прохода не получал, и очередь не стартовала никогда.
-        wanted = [st.value for st in statuses]
-        wanted.extend(getattr(st, "value", str(st)) for st in TRANSITIONS)
+        # Рабочие статусы — шаги, которые воркер ведёт сам; номера очереди и
+        # ждущие (`*_ready`, кроме финальных) проекты с `auto_mode` — то, что
+        # двигает `gen_queue_tick` и автопродвижение внутри прохода арендатора.
+        # Без них арендатор с одной очередью ждущих проектов прохода не получал,
+        # и очередь не стартовала никогда. Ждущим без `auto_mode` и финальным
+        # статусам (`assembled`) проход не нужен: двигать там нечего.
         async with session_scope() as s:
-            return await tenants_to_serve(s, dict.fromkeys(wanted), get_gen_queue())
+            return await tenants_to_serve(
+                s,
+                [st.value for st in statuses],
+                get_gen_queue(),
+                waiting=waiting_statuses(),
+                session_factory=session_scope,
+            )
 
     async def _tick_for_current_tenant(mass_paused: bool) -> None:
         """Один проход воркера от имени текущего арендатора.
@@ -742,9 +746,12 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         try:
             serve = await _tenants_to_serve(active)
         except Exception:  # noqa: BLE001
+            # Запасной проход только владельцу. Ожидания арендаторов не трогаем:
+            # список «кому служим» не получен, а не пуст — стирать их нечем оправдать.
             logger.exception("worker: не удалось получить список арендаторов")
             serve = [None]
-        keep_worker_wait_tenants(serve)
+        else:
+            keep_worker_wait_tenants(serve)
         for _tenant in serve:
             with tenant_scope(_tenant):
                 await _tick_for_current_tenant(mass_paused)

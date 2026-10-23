@@ -50,6 +50,41 @@ def worker_max_parallel() -> int:
     return get_worker_max_parallel()
 
 
+async def own_project_ids(session: AsyncSession, ids: list[int] | None = None) -> set[int] | None:
+    """Проекты арендатора запроса; ``None`` — режим владельца (видно всё).
+
+    Файл очереди один на студию. Номера и места, которые видит клиент, считаются
+    только среди его проектов: место в общей очереди выдавало бы, сколько чужих
+    проектов стоит перед ним. Строки видны под RLS (Postgres) и ещё раз
+    сверяются с арендатором строки (на SQLite политик нет). ``ids`` — проверить
+    только эти номера.
+    """
+    from app.services.tenant import current_tenant
+
+    tenant = current_tenant()
+    if tenant is None:
+        return None
+    q = select(Project.id, Project.tenant_id)
+    if ids is not None:
+        if not ids:
+            return set()
+        q = q.where(Project.id.in_(sorted({int(i) for i in ids})))
+    rows = (await session.execute(q)).all()
+    return {int(pid) for pid, owner in rows if owner is not None and str(owner) == str(tenant)}
+
+
+async def own_gen_queue(session: AsyncSession, queue: list[int] | None = None) -> list[int]:
+    """Очередь, какой её видит автор запроса: только свои номера, в общем порядке.
+
+    Место проекта для клиента — ``index + 1`` в этом списке. Владелец видит всю очередь.
+    """
+    full = list(get_gen_queue() if queue is None else queue)
+    own = await own_project_ids(session, full)
+    if own is None:
+        return full
+    return [pid for pid in full if pid in own]
+
+
 def gen_queue_is_active() -> bool:
     return bool(get_gen_queue())
 
@@ -410,8 +445,11 @@ def _idle_reason_for_project(project: Project, *, position: int) -> dict[str, An
 
 
 async def get_gen_queue_idle_info(session: AsyncSession) -> dict[str, Any] | None:
-    """Почему очередь стоит (для API/UI). None — очередь пуста или идёт работа."""
-    queue = get_gen_queue()
+    """Почему очередь стоит (для API/UI). None — очередь пуста или идёт работа.
+
+    ``position`` — место среди своих проектов арендатора (владелец — по всей очереди).
+    """
+    queue = await own_gen_queue(session)
     if not queue:
         return None
     if await gen_queue_busy_count(session) > 0:
