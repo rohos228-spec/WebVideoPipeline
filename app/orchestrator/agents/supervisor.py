@@ -1767,9 +1767,7 @@ class Supervisor:
                 return
             revises += 1
             if revises > 2:
-                await self._escalate_plan(
-                    task_id, session_id, plan, self._critic_note(task_id, _CRITIC_REVISED)
-                )
+                await self._critic_revised_out(task_id, session_id, plan)
                 return
             context = (context + "\n" + self._critic_feedback(task_id, verdict)).strip()
             self._context[task_id] = context
@@ -1790,13 +1788,66 @@ class Supervisor:
 
     async def _critic_block(self, task_id: int, session_id: str, plan: list[PlanStep], verdict: str) -> None:
         if verdict == "escalate":
+            if await self._blocked_step_card(task_id, session_id, plan, _CRITIC_NO_REASON):
+                return
             await self._escalate_plan(task_id, session_id, plan, _CRITIC_NO_REASON)
             return
-        await self._checkpoint(task_id, session_id, plan, 0)
         note = self._critic_note(task_id, _CRITIC_REJECTED)
+        if await self._blocked_step_card(task_id, session_id, plan, note):
+            return
+        await self._checkpoint(task_id, session_id, plan, 0)
         await self._apply_block(
             task_id, session_id, "critic_reject", extra={"warnings": [note]} if note else None
         )
+
+    async def _critic_revised_out(self, task_id: int, session_id: str, plan: list[PlanStep]) -> None:
+        note = self._critic_note(task_id, _CRITIC_REVISED)
+        if await self._blocked_step_card(task_id, session_id, plan, note):
+            return
+        await self._escalate_plan(task_id, session_id, plan, note)
+
+    async def _blocked_step_card(
+        self, task_id: int, session_id: str, plan: list[PlanStep], note: str | None
+    ) -> bool:
+        """Шаг плана, который условия запуска уже не пустят: его карточка вместо карточки критика.
+
+        Карточка «Проверяющая модель против этого плана» подтверждаема: человек одобряет план
+        поверх возражения, и только потом шаг спрашивает свою карточку с условиями запуска.
+        Если условие шага уже не выполнено (у кадров нет данных сцены и т.п.), подтверждать
+        нечего: сразу показываем карточку шага с причиной, кнопка «Подтвердить» на ней
+        недоступна. Замечание критика остаётся в предупреждениях. True — карточка открыта.
+        """
+        goal = str((self.tasks.get(task_id) or {}).get("goal") or "")
+        for at, step in enumerate(plan):
+            if not self._step_needs_separate_approval(step):
+                continue
+            try:
+                card = await self._card_extra(task_id, step, goal)
+            except Exception:  # noqa: BLE001 - карточку шага не собрать: остаётся карточка критика
+                logger.opt(exception=True).warning("orch task {} blocked-step probe failed", task_id)
+                return False
+            if not card.get("blocked") or not card.get("preview_errors"):
+                continue
+            risk, gate = self._step_gate(step)
+            await self._checkpoint(task_id, session_id, plan, at)
+            self._grant_target.pop(task_id, None)
+            extra = {**card, "action": step.action, "risk": risk.value, "plan_risk": step.risk}
+            if note:
+                extra["warnings"] = [*(card.get("warnings") or []), note]
+            if risk in APPROVAL_RISKS:
+                reason = "risk"
+            else:
+                reason = "paid" if gate == "paid" else "destructive"
+                extra["gate"] = gate
+                self._block_reason[task_id] = reason
+            logger.info(
+                "orch task {} step {} blocked by its preconditions: card shown instead of critic's",
+                task_id,
+                step.action,
+            )
+            await self._escalate(task_id, session_id, reason, extra=extra)
+            return True
+        return False
 
     def _spawn_drive(self, task_id: int, session_id: str, goal: str) -> None:
         self._cancel.discard(session_id)
@@ -2638,9 +2689,7 @@ class Supervisor:
                 return None
             revises += 1
             if revises > 2:
-                await self._escalate_plan(
-                    task_id, session_id, plan, self._critic_note(task_id, _CRITIC_REVISED)
-                )
+                await self._critic_revised_out(task_id, session_id, plan)
                 return None
             context = (context + "\n" + self._critic_feedback(task_id, verdict)).strip()
             self._context[task_id] = context

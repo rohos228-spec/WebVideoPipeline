@@ -591,7 +591,48 @@ def continue_skips_scene(
         return False
     if auto_mode or jumped_scene_nodes(meta, node_runs):
         return True
-    return _continue_place(meta, status) in _into_img_pr(enrich_slots)
+    place = _continue_place(meta, status)
+    return place in _into_img_pr(enrich_slots) or _ready_slot_leads_to_img_pr(meta, place)
+
+
+_ENRICH_READY_RE = re.compile(r"^enrich_([1-5])_ready$")
+
+
+def _ready_slot_leads_to_img_pr(meta: Any, place: str) -> bool:
+    """С готовности «Работы с GPT» слота N следующим шагом идут промты картинок.
+
+    Воркер с ``enrich_N_ready`` идёт по стрелкам холста, а не по числу слотов в настройках:
+    в #6 слотов три, на холсте две «Работы с GPT», и от второй стрелка ведёт прямо в
+    промты картинок, так что «Продолжить» с ``enrich_2_ready`` запустит именно их.
+    Служебные ноды (проходные) по пути пропускаем, любая другая рабочая нода - не промты.
+    """
+    from app.orchestrator.graph.planner import is_passthrough_node_type
+    from app.services.excel_gpt_node import is_excel_gpt_node_type, slot_index_from_node
+
+    m = _ENRICH_READY_RE.match(str(place or ""))
+    if not m:
+        return False
+    slot = int(m.group(1))
+    nodes, outs, _ins = _graph(meta)
+    starts = [
+        k
+        for k, n in nodes.items()
+        if (is_excel_gpt_node_type(_type(n)) or is_excel_gpt_node_type(str(n.get("type") or "")))
+        and slot_index_from_node(n) == slot
+    ]
+    seen: set[str] = set()
+    queue: deque[str] = deque(t for k in starts for t in outs.get(k, []))
+    while queue:
+        key = queue.popleft()
+        if key in seen:
+            continue
+        seen.add(key)
+        typ = _type(nodes.get(key))
+        if typ == IMG_PR_NODE_TYPE:
+            return True
+        if is_passthrough_node_type(typ):
+            queue.extend(outs.get(key, []))
+    return False
 
 
 def _target_at_or_after(nodes, outs, img_keys, target_key, target_type) -> bool:
