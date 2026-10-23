@@ -278,6 +278,22 @@ async def _continue(ctx, params):
     }
 
 
+async def _pre_continue_img_pr_scenes(ctx, params):
+    """«Продолжить» не ведём к промтам картинок мимо ноды сцены: модель вернёт заглушки за деньги."""
+    from app.services.action_layer import builtin_launch as bl
+    from app.services.action_layer import img_pr_guard as ipg
+
+    pid = params["project_id"]
+    proj = await _get_project(ctx, pid)
+    meta = proj.get("meta")
+    runs = await bl._node_runs(ctx, pid)
+    if not ipg.continue_skips_scene(
+        meta, runs, status=proj.get("status"), auto_mode=bool(proj.get("auto_mode"))
+    ):
+        return None
+    return await ipg.scene_gap(pid, meta, runs)
+
+
 async def _auto_mode_enable_safe(ctx, params):
     if not params.get("enabled"):
         return None
@@ -889,7 +905,17 @@ def _specs() -> list[ActionSpec]:
                 "Ручной стоп проекта снимается, следующий шаг "
                 "запускается воркером и может перезаписать результаты."
             ),
-            preconditions=(_PRE_PROJECT, _PRE_NOT_MANAGED, _PRE_IDLE, _PRE_NO_MONTAGE),
+            preconditions=(
+                _PRE_PROJECT,
+                _PRE_NOT_MANAGED,
+                _PRE_IDLE,
+                _PRE_NO_MONTAGE,
+                Precondition(
+                    "img_pr_scene_input",
+                    "Продолжение не дойдёт до промтов картинок по кадрам без данных сцены",
+                    _pre_continue_img_pr_scenes,
+                ),
+            ),
             tags=("project", "run"),
         ),
         S(

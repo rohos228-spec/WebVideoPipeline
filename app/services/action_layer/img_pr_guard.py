@@ -481,6 +481,37 @@ def queue_skips_scene(
     return all(k in idle for k in scene_nodes_before_img_pr(meta))
 
 
+# Статусы, с которых «Продолжить» без автопродвижения следующим шагом запустит промты картинок:
+# сам шаг (пауза или сбой на нём) и готовность прямо перед ним.
+_CONTINUE_INTO_IMG_PR = frozenset({"generating_image_prompts", "enrich_5_ready"})
+
+
+def _continue_place(meta: Any, status: str | None) -> str:
+    """Откуда «Продолжить» поведёт проект: с паузы - шаг до паузы или шаг, на котором упал."""
+    if str(status or "") != "paused":
+        return str(status or "")
+    m = meta if isinstance(meta, dict) else {}
+    fs = m.get("step_failure") if isinstance(m.get("step_failure"), dict) else {}
+    return str(m.get("paused_from_status") or fs.get("last_running") or "")
+
+
+def continue_skips_scene(
+    meta: Any, node_runs: Iterable[dict] | None, *, status: str | None, auto_mode: bool
+) -> bool:
+    """«Продолжить конвейер» дойдёт до промтов картинок, а ни одна нода сцены перед ними не
+    запустится.
+
+    Так было в #10: «Работа с GPT 2» ждёт, промты картинок уже падали после неё, и
+    продолжение идёт с места проекта - снова к промтам. С автопродвижением цепочка дойдёт до
+    промтов сама; без него - только если промты и есть следующий шаг.
+    """
+    if not queue_skips_scene(meta, node_runs):
+        return False
+    if auto_mode or jumped_scene_nodes(meta, node_runs):
+        return True
+    return _continue_place(meta, status) in _CONTINUE_INTO_IMG_PR
+
+
 def _target_at_or_after(nodes, outs, img_keys, target_key, target_type) -> bool:
     seen: set[str] = set()
     queue: deque[str] = deque(img_keys)

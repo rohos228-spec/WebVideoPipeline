@@ -400,3 +400,59 @@ async def test_auto_chain_through_img_pr_reports_hollow_prompts(env, studio) -> 
     # Цепочка не дошла до промтов картинок - старые промты не её итог.
     early = await bl._poll_any_step(_Ctx(pid, status="hero_ready"), params, started)
     assert early.ok
+
+
+# --- «Продолжить конвейер» (#10: «запусти проект 10») ------------------------------------------
+
+_ABANDONED = {"step_failure": {"last_running": "generating_image_prompts",
+                               "abandoned_reason": "retries_exhausted"}}
+
+
+def test_continue_into_img_pr_past_waiting_scene_node_is_checked() -> None:
+    # Как в #10: «Работа с GPT 2» ждёт, промты картинок уже падали - продолжение идёт к ним.
+    meta = {**INCIDENT, **_ABANDONED}
+    assert ipg.continue_skips_scene(meta, INCIDENT_RUNS, status="paused", auto_mode=False)
+    # Промты ещё не шли - ждущая нода сцены отработает первой.
+    fresh = [r if r["node_key"] != "n_image_prompts" else {**r, "status": "pending"}
+             for r in INCIDENT_RUNS]
+    assert not ipg.continue_skips_scene(meta, fresh, status="paused", auto_mode=True)
+
+
+def test_continue_checked_only_when_img_pr_comes_next_or_chain_runs() -> None:
+    skipped = _runs(n_gpt1="done", n_gpt2="skipped", n_img_pr="pending")
+    assert ipg.continue_skips_scene(META, skipped, status="enrich_5_ready", auto_mode=False)
+    assert ipg.continue_skips_scene(META, skipped, status="hero_ready", auto_mode=True)
+    assert not ipg.continue_skips_scene(META, skipped, status="hero_ready", auto_mode=False)
+    paused = {**META, "paused_from_status": "generating_image_prompts"}
+    assert ipg.continue_skips_scene(paused, skipped, status="paused", auto_mode=False)
+    assert not ipg.continue_skips_scene({**META, "paused_from_status": "generating_hero"},
+                                        skipped, status="paused", auto_mode=False)
+    # Нода сцен ещё пойдёт - не блокируем.
+    pending = _runs(n_gpt1="done", n_gpt2="pending", n_img_pr="pending")
+    assert not ipg.continue_skips_scene(META, pending, status="enrich_5_ready", auto_mode=True)
+
+
+async def test_continue_pipeline_refuses_project_10_without_scene_data(env) -> None:
+    from app.services.action_layer import builtin_wave3 as w3
+
+    meta = {**INCIDENT, **_ABANDONED}
+    pid = await _seed(env, VO_ONLY, meta)
+    ctx = _Ctx(pid, status="paused", node_runs=INCIDENT_RUNS, meta=meta)
+    reason = await w3._pre_continue_img_pr_scenes(ctx, {"project_id": pid})
+    assert reason.startswith(f"у проекта #{pid} кадры 1, 2")
+    assert "«Работа с GPT 2» (n_excel_gpt_2)" in reason and "проходят мимо неё" in reason
+    assert reason.endswith("Сначала запустите эту ноду «Работа с GPT» отдельно, потом промты картинок")
+    # Кадры со сценой - продолжать можно.
+    good = await _seed(env, [{"number": 1, "uuid": "g1", "attrs": {"place": "лес"}}], meta)
+    ok = _Ctx(good, status="paused", node_runs=INCIDENT_RUNS, meta=meta)
+    assert await w3._pre_continue_img_pr_scenes(ok, {"project_id": good}) is None
+
+
+def test_continue_pipeline_spec_carries_the_precondition() -> None:
+    from app.services.action_layer.spec import ensure_builtin_actions, registry
+
+    ensure_builtin_actions()
+    spec = registry.find("project.continue_pipeline")
+    assert "img_pr_scene_input" in {p.id for p in spec.preconditions}
+    assert "ceiling_chain" in {p.id for p in spec.preconditions}
+    assert spec.risk == "destructive"
