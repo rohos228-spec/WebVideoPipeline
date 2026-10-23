@@ -339,8 +339,16 @@ def _rate_ok(project_id: int | None, kind: str) -> bool:
 
 async def publish(notice_dict: dict) -> None:
     from app.services.event_bus import get_bus
+    from app.services.tenant import current_tenant
 
-    evt = {"type": EVENT_TYPE, "project_id": notice_dict.get("project_id"), "notice": notice_dict}
+    # Метка арендатора: WebSocket (`member_money.ws_event_for_viewer`) не шлёт уведомление
+    # чужому клиенту из общего канала `global` и маскирует суммы участнику.
+    evt = {
+        "type": EVENT_TYPE,
+        "project_id": notice_dict.get("project_id"),
+        "notice": notice_dict,
+        "tenant_id": current_tenant(),
+    }
     bus = get_bus()
     if notice_dict.get("project_id") is not None:
         await bus.publish(f"projects.{notice_dict['project_id']}", evt)

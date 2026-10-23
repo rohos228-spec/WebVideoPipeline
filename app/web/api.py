@@ -584,6 +584,12 @@ def create_app() -> FastAPI:
                             evt = get_event_task.result()
                         except Exception:  # noqa: BLE001
                             break
+                        # Уведомления чата: только своему арендатору, участнику — без сумм.
+                        from app.web.member_money import ws_event_for_viewer
+
+                        evt = ws_event_for_viewer(evt)
+                        if evt is None:
+                            continue
                         await ws.send_text(json.dumps(evt, default=str))
                     if recv_task in done:
                         # Игнорируем содержимое (пока что), но обработка нужна

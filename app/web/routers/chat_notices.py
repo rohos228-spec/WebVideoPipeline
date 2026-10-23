@@ -40,8 +40,14 @@ async def read_chat_notice(notice_id: int) -> dict:
         raise HTTPException(404, "Уведомление не найдено")
     try:
         from app.services.event_bus import get_bus
+        from app.services.tenant import current_tenant
 
-        evt = {"type": "chat_notice_read", "project_id": item["project_id"], "notice_id": item["id"]}
+        evt = {
+            "type": "chat_notice_read",
+            "project_id": item["project_id"],
+            "notice_id": item["id"],
+            "tenant_id": current_tenant(),
+        }
         if item["project_id"] is not None:
             await get_bus().publish(f"projects.{item['project_id']}", evt)
         await get_bus().publish("global", evt)

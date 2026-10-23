@@ -150,3 +150,27 @@ class MemberMoneyMiddleware:
             await send(message)
 
         await self.app(scope, receive, _send)
+
+
+#: События шины, которые несут уведомления чата: их WebSocket режет по арендатору и маскирует.
+NOTICE_EVENTS = frozenset({"chat_notice", "chat_notice_read"})
+
+
+def ws_event_for_viewer(event: Any) -> Any | None:
+    """Событие шины для WebSocket текущего зрителя. ``None`` — этому зрителю не слать.
+
+    Уведомления чата идут и в общий канал ``global``: чужому арендатору они не
+    отправляются (метка ``tenant_id`` ставится при публикации), участнику — без сумм.
+    Метка арендатора наружу не уходит. Прочие события шины не трогаются.
+    """
+    if not isinstance(event, dict) or event.get("type") not in NOTICE_EVENTS:
+        return event
+    from app.services.action_layer.plan import member_view
+    from app.services.tenant import current_tenant
+
+    owner = event.get("tenant_id")
+    viewer = current_tenant()
+    if viewer is not None and owner != viewer:
+        return None
+    out = {k: v for k, v in event.items() if k != "tenant_id"}
+    return member_safe(out) if member_view() else out
