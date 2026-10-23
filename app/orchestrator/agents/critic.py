@@ -52,10 +52,11 @@ class PlanCritic:
         budget_scope: str | None = None,
         reasoning_effort: str | None = None,
     ) -> str:
-        self.last_response = None
-        self.last_reason = ""
         block = rules_block(self.rag)
         rules = await retrieve(self.rag, context or "critic", ["rules"], 8)
+        # Сброс после await: критик общий, сосед мог выставить свои last_* за время retrieve.
+        self.last_response = None
+        self.last_reason = ""
         if plan_deletions(plan):
             return self._decided("reject", "план удаляет кадры или сцены")
         if plan_missing_verify(plan):

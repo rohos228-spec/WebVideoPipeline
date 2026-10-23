@@ -221,16 +221,59 @@ def _router_visible_cost(owner: Any) -> float:
                 value = 0.0
             if value > best:
                 best = value
-        response = getattr(item, "last_response", None)
-        if response is not None and response is not item:
-            pending.append(response)
+        # ``last_response`` общего планировщика или критика — ответ прошлого вызова, часто
+        # соседней задачи: отменённый вызов свой ответ туда ещё не положил. Его не читаем.
         inner = getattr(item, "inner", None)
         if inner is not None and inner is not item:
             pending.append(inner)
     return best
 
 
+def _holders_path(project_id: int) -> Any:
+    from app.services.step_cancel import holder_path
+
+    return holder_path(project_id)
+
+
+def _read_stop_holders(project_id: int) -> tuple[str | None, set[int]]:
+    """Метка ключа, который поставил kill, и задачи-держатели (запись переживает рестарт)."""
+    path = _holders_path(project_id)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except FileNotFoundError:
+        return None, set()
+    except (OSError, ValueError, TypeError):
+        logger.exception("orch stop holders of project {} not read", project_id)
+        return None, set()
+    if not isinstance(data, dict) or not data.get("token"):
+        return None, set()
+    try:
+        tasks = {int(item) for item in data.get("tasks") or []}
+    except (TypeError, ValueError):
+        tasks = set()
+    return str(data["token"]), tasks
+
+
+def _write_stop_holders(project_id: int, token: str | None, holders: set[int]) -> None:
+    """Атомарно: временный файл и os.replace. Пустые держатели — запись удаляется."""
+    import os
+
+    path = _holders_path(project_id)
+    try:
+        if not token or not holders:
+            path.unlink(missing_ok=True)
+            return
+        tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+        tmp.write_text(
+            json.dumps({"token": token, "tasks": sorted(int(item) for item in holders)}), encoding="utf-8"
+        )
+        os.replace(tmp, path)
+    except OSError:
+        logger.exception("orch stop holders of project {} not written", project_id)
+
+
 _TRACE_RAW = 500
+_AGENT_LAST_FIELDS = ("last_response", "last_reason", "last_from_code", "last_parse_failed")
 _TRACE_REASON = 300
 _APPROVED_MARK = "\n\x1eorchfp:"
 _UNKNOWN_MARK = "\n\x1eorchun:"
@@ -348,6 +391,10 @@ class Supervisor:
         self._approved: dict[int, str] = {}
         # Планы, собранные кодом без модели (откат «верни как было»): отпечаток плана задачи.
         self._from_code: dict[int, bool] = {}
+        # Снимок last_* планировщика и критика на задачу: объекты общие для всех чатов,
+        # а между ответом и чтением супервизора сосед успевает их перезаписать.
+        self._planner_meta: dict[int, dict[str, Any]] = {}
+        self._critic_meta: dict[int, dict[str, Any]] = {}
         self._code_plans: dict[int, str] = {}
         # Пустой план с готовым ответом («возвращать нечего», «этого чат пока не умеет»): не «не понял».
         self._code_answers: set[int] = set()
@@ -366,7 +413,10 @@ class Supervisor:
         self._mutating_result: dict[int, str] = {}
         self._partial_announced: set[tuple[int, int]] = set()
         self._stop_holders: dict[int, set[int]] = {}
+        # Проекты, которым kill задачи поставил stop-ключ (задача на несколько проектов).
+        self._kill_stopped: dict[int, set[int]] = {}
         self._stop_external: set[int] = set()
+        self._stop_tokens: dict[int, str] = {}
         self.summarizer: Any = task_summary.TaskSummarizer()
         self._notes: dict[int, list[task_summary.StepNote]] = {}
         self._fail_detail: dict[int, str] = {}
@@ -1069,38 +1119,84 @@ class Supervisor:
         """Снять stop только если его поставил kill этой задачи и держателей больше нет.
 
         ``user_stop``, stop другой сессии и файл, который уже был до нашего
-        kill, остаются.
+        kill, остаются. Задача на несколько проектов снимает ключ каждого из них.
         """
-        project_id = self._task_project_id(task_id)
-        if project_id is None or project_id in self._stop_external:
-            return
+        projects = set(self._kill_stopped.pop(int(task_id), set()))
+        own = self._task_project_id(task_id)
+        if own is not None:
+            projects.add(own)
+        # После рестарта памяти нет: проекты берём из шагов задачи, а держателя — из файла рядом
+        # с ключом. Чужой ключ (нет нашей записи или он новее неё) не снимается.
+        projects.update(self._step_projects(task_id, running_only=False))
+        for project_id in sorted(projects):
+            self._clear_one_project_stop(task_id, project_id)
+
+    def _own_stop(self, project_id: int) -> tuple[str, set[int]] | None:
+        """Метка и держатели, если ТЕКУЩИЙ ключ проекта поставил kill чата, иначе None.
+
+        Ключ сверяется по содержимому (метке kill), не по времени файлов: ключ, который
+        воркер снял, а человек поставил заново, — чужой, даже если запись держателей есть.
+        """
+        from app.services.step_cancel import stop_token
+
+        current = stop_token(project_id)
+        token = self._stop_tokens.get(project_id)
         holders = self._stop_holders.get(project_id)
-        if not holders or int(task_id) not in holders:
+        if token is None:
+            token, holders = _read_stop_holders(project_id)
+        if current is None or token is None or current != token:
+            # Ключа нет или он чужой: наша запись о нём устарела. Чужой ключ не трогаем.
+            self._stop_tokens.pop(project_id, None)
+            self._stop_holders.pop(project_id, None)
+            if token is not None:
+                _write_stop_holders(project_id, None, set())
+            return None
+        holders = set(holders or set())
+        self._stop_tokens[project_id] = token
+        self._stop_holders[project_id] = holders
+        return token, holders
+
+    def _clear_one_project_stop(self, task_id: int, project_id: int) -> None:
+        own = self._own_stop(project_id)
+        if own is None:
+            return
+        token, holders = own
+        if int(task_id) not in holders:
             return
         holders.discard(int(task_id))
         if holders:
+            self._stop_holders[project_id] = holders
+            _write_stop_holders(project_id, token, holders)
             return
         self._stop_holders.pop(project_id, None)
+        self._stop_tokens.pop(project_id, None)
         from app.services.step_cancel import clear_stop
 
         clear_stop(project_id)
 
     def _note_kill_stop(self, project_id: int, task_id: int | None) -> None:
-        """Записать, что kill этой задачи поставил stop, либо что stop чужой."""
+        """Записать, что kill этой задачи поставил stop, либо что stop чужой (тогда не держим)."""
+        import uuid
+
         from app.services.step_cancel import is_stop_requested, request_stop
 
-        if project_id in self._stop_external and is_stop_requested(project_id):
-            return
-        self._stop_external.discard(project_id)
-        holders = self._stop_holders.setdefault(project_id, set())
-        if not holders and is_stop_requested(project_id):
-            self._stop_external.add(project_id)
-            self._stop_holders.pop(project_id, None)
-            return
-        if not is_stop_requested(project_id):
-            request_stop(project_id, reason="orchestrator_kill")
+        own = self._own_stop(project_id)
+        if own is None:
+            if is_stop_requested(project_id):
+                # Ключ человека или другого процесса: kill его не присваивает.
+                self._stop_external.add(project_id)
+                return
+            self._stop_external.discard(project_id)
+            token = f"orchestrator_kill:{uuid.uuid4().hex}"
+            request_stop(project_id, reason="orchestrator_kill", token=token)
+            holders: set[int] = set()
+        else:
+            token, holders = own
         if task_id is not None:
             holders.add(int(task_id))
+        self._stop_tokens[project_id] = token
+        self._stop_holders[project_id] = holders
+        _write_stop_holders(project_id, token, holders)
 
     def _restore_block(self, task_id: int, raw: str) -> None:
         reason = _unpack_block(raw)
@@ -1630,23 +1726,25 @@ class Supervisor:
                 return
             revises += 1
             if revises > 2:
-                await self._escalate_plan(task_id, session_id, plan, self._critic_note(_CRITIC_REVISED))
+                await self._escalate_plan(
+                    task_id, session_id, plan, self._critic_note(task_id, _CRITIC_REVISED)
+                )
                 return
-            context = (context + "\n" + self._critic_feedback(verdict)).strip()
+            context = (context + "\n" + self._critic_feedback(task_id, verdict)).strip()
             self._context[task_id] = context
             plan = await self._make_plan(task_id, session_id, goal, context)
             if plan is None:
                 return
 
-    def _critic_reason(self) -> str:
-        return " ".join(str(getattr(self.critic, "last_reason", "") or "").split())
+    def _critic_reason(self, task_id: int) -> str:
+        return " ".join(str(self._critic_last(task_id, "last_reason") or "").split())
 
-    def _critic_note(self, pattern: str) -> str | None:
-        why = approval_steps.humanize_reason(self._critic_reason())
+    def _critic_note(self, task_id: int, pattern: str) -> str | None:
+        why = approval_steps.humanize_reason(self._critic_reason(task_id))
         return pattern.format(why=why) if why else None
 
-    def _critic_feedback(self, verdict: str) -> str:
-        why = self._critic_reason()
+    def _critic_feedback(self, task_id: int, verdict: str) -> str:
+        why = self._critic_reason(task_id)
         return f"critic: {verdict}" + (f" — {why}" if why else "")
 
     async def _critic_block(self, task_id: int, session_id: str, plan: list[PlanStep], verdict: str) -> None:
@@ -1654,7 +1752,7 @@ class Supervisor:
             await self._escalate_plan(task_id, session_id, plan, _CRITIC_NO_REASON)
             return
         await self._checkpoint(task_id, session_id, plan, 0)
-        note = self._critic_note(_CRITIC_REJECTED)
+        note = self._critic_note(task_id, _CRITIC_REJECTED)
         await self._apply_block(
             task_id, session_id, "critic_reject", extra={"warnings": [note]} if note else None
         )
@@ -2241,14 +2339,59 @@ class Supervisor:
             "only_node": True,
             "task_id": task_id,
         }
-        project_id = self._task_project_id(task_id) if task_id is not None else None
-        if project_id is not None:
+        projects = self._kill_projects(task_id) if task_id is not None else []
+        if projects:
             from app.services.step_cancel import is_stop_requested, stop_flag_path
 
-            self._note_kill_stop(project_id, task_id)
-            payload["stop_key_set"] = is_stop_requested(project_id)
-            payload["stop_key"] = stop_flag_path(project_id).name
+            for project_id in projects:
+                self._note_kill_stop(project_id, task_id)
+            own = self._task_project_id(task_id) if task_id is not None else None
+            foreign = {project_id for project_id in projects if project_id != own}
+            if foreign and task_id is not None:
+                self._kill_stopped.setdefault(int(task_id), set()).update(foreign)
+            payload["stop_key_set"] = all(is_stop_requested(project_id) for project_id in projects)
+            payload["stop_key"] = stop_flag_path(projects[0]).name
+            if len(projects) > 1:
+                payload["stop_keys"] = [stop_flag_path(project_id).name for project_id in projects]
         await self.bus.publish(session_id, "kill_switch", payload, task_id=task_id)
+
+    def _kill_projects(self, task_id: int) -> list[int]:
+        """Проект задачи и проекты её шагов, которые ещё идут (запуск сразу в нескольких проектах).
+
+        Без них kill задачи «запусти проекты 5..10» не ставил ни одного stop-ключа:
+        у такой задачи нет одного ``project_id``, и генерация во всех шести шла дальше.
+        Проекты шагов, которые ещё не стартовали, не трогаем: kill их и так не запустит.
+        """
+        found: list[int] = []
+        own = self._task_project_id(task_id)
+        if own is not None:
+            found.append(own)
+        for value in self._step_projects(task_id, running_only=True):
+            if value not in found:
+                found.append(value)
+        return found
+
+    def _step_projects(self, task_id: int, *, running_only: bool) -> list[int]:
+        """Проекты платных или изменяющих шагов задачи (только идущих, если ``running_only``)."""
+        found: list[int] = []
+        try:
+            rows = self.tasks.list_steps(task_id)
+        except Exception:
+            logger.exception("orch kill: steps of task {} not read", task_id)
+            rows = []
+        for row in rows:
+            if not (row.get("paid") or row.get("mutating")):
+                continue
+            if running_only and str(row.get("status")) != "running":
+                continue
+            try:
+                params = json.loads(row.get("params_json") or "{}")
+                value = int(params.get("project_id") or 0) if isinstance(params, dict) else 0
+            except (TypeError, ValueError):
+                value = 0
+            if value > 0 and value not in found:
+                found.append(value)
+        return found
 
     async def _drive(self, task_id: int, session_id: str, goal: str) -> None:
         from app.orchestrator.routing.classifier import is_control_request
@@ -2317,16 +2460,18 @@ class Supervisor:
                 self._approved[task_id] = _plan_fingerprint(plan)
                 return plan
             self._trace_plan(
-                task_id, f"critic_{verdict}", plan, str(getattr(self.critic, "last_reason", "") or "")
+                task_id, f"critic_{verdict}", plan, str(self._critic_last(task_id, "last_reason") or "")
             )
             if verdict in {"reject", "escalate"}:
                 await self._critic_block(task_id, session_id, plan, verdict)
                 return None
             revises += 1
             if revises > 2:
-                await self._escalate_plan(task_id, session_id, plan, self._critic_note(_CRITIC_REVISED))
+                await self._escalate_plan(
+                    task_id, session_id, plan, self._critic_note(task_id, _CRITIC_REVISED)
+                )
                 return None
-            context = (context + "\n" + self._critic_feedback(verdict)).strip()
+            context = (context + "\n" + self._critic_feedback(task_id, verdict)).strip()
             self._context[task_id] = context
             plan = await self._make_plan(task_id, session_id, goal, context)
             if plan is None:
@@ -2347,8 +2492,8 @@ class Supervisor:
         token = _LLM_TASK.set(int(task_id))
         try:
             drafted = await self._draft_plan(task_id, session_id, goal, context)
-            if drafted == [] and self._asks_approval():
-                self._trace_plan(task_id, "asked_approval", [], self._planner_reason())
+            if drafted == [] and self._asks_approval(task_id):
+                self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))
                 drafted = await self._draft_plan(
                     task_id, session_id, goal, (context + "\n" + _APPROVAL_NOTE).strip()
                 )
@@ -2370,9 +2515,9 @@ class Supervisor:
             self._code_plans.pop(task_id, None)
         logger.info("orch task {} planner: {} steps", task_id, len(plan))
         if not plan:
-            self._trace_plan(task_id, "empty_plan", plan, self._planner_reason())
+            self._trace_plan(task_id, "empty_plan", plan, self._planner_reason(task_id))
             self._note_empty_reason(task_id, from_code=from_code)
-        if await self._absorb_budget(task_id, session_id, getattr(self.planner, "last_response", None)):
+        if await self._absorb_budget(task_id, session_id, self._planner_last(task_id, "last_response")):
             return None
         return plan
 
@@ -2402,17 +2547,43 @@ class Supervisor:
             return step
         return step.model_copy(update={"params": params})
 
-    def _planner_reason(self) -> str:
+    def _planner_last(self, task_id: int, name: str) -> Any:
+        """``last_*`` планировщика этой задачи: снимок, а не общий объект."""
+        meta = self._planner_meta.get(task_id)
+        if meta is None:
+            return getattr(self.planner, name, None)
+        return meta.get(name)
+
+    def _critic_last(self, task_id: int, name: str) -> Any:
+        meta = self._critic_meta.get(task_id)
+        if meta is None:
+            return getattr(self.critic, name, None)
+        return meta.get(name)
+
+    async def _snapshot_agent(
+        self,
+        store: dict[int, dict[str, Any]],
+        agent: Any,
+        task_id: int,
+        awaitable: Any,
+    ) -> Any:
+        """``last_*`` агента снимаются в той же задаче asyncio, что получила ответ, без переключения."""
+        try:
+            return await awaitable
+        finally:
+            store[task_id] = {name: getattr(agent, name, None) for name in _AGENT_LAST_FIELDS}
+
+    def _planner_reason(self, task_id: int) -> str:
         from app.services.plain_ru import plain_ru
         from app.services.redact import redact_text
 
-        raw = str(getattr(self.planner, "last_reason", "") or "")
+        raw = str(self._planner_last(task_id, "last_reason") or "")
         return " ".join(plain_ru(redact_text(raw)).split())[:300]
 
-    def _asks_approval(self) -> bool:
-        if budget_exhausted_response(getattr(self.planner, "last_response", None)):
+    def _asks_approval(self, task_id: int) -> bool:
+        if budget_exhausted_response(self._planner_last(task_id, "last_response")):
             return False
-        return bool(_ASKS_APPROVAL_RE.search(self._planner_reason()))
+        return bool(_ASKS_APPROVAL_RE.search(self._planner_reason(task_id)))
 
     def _note_empty_reason(self, task_id: int, *, from_code: bool = False) -> None:
         if from_code:
@@ -2420,12 +2591,14 @@ class Supervisor:
             from app.services.redact import redact_text
 
             # «Возвращать нечего», «какую правку вернуть?»: текст собран кодом, целиком и без «не понял».
-            why = " ".join(plain_ru(redact_text(str(getattr(self.planner, "last_reason", "") or ""))).split())
+            why = " ".join(
+                plain_ru(redact_text(str(self._planner_last(task_id, "last_reason") or ""))).split()
+            )
             if why and not task_summary.raw_reason(why):
                 self._fail_detail[task_id] = why.rstrip(".") + "."
                 self._code_answers.add(task_id)
                 return
-        why = self._planner_reason()
+        why = self._planner_reason(task_id)
         # «В каталоге нет действия для удаления проекта»: просьбу поняли, но чат так не умеет.
         missing = task_summary.missing_action_text(
             why, str((self.tasks.get(task_id) or {}).get("goal") or "")
@@ -2450,20 +2623,25 @@ class Supervisor:
             try:
                 drafted = await self._cancellable(
                     session_id,
-                    self.planner.make_plan(
-                        goal,
-                        context=context,
-                        **self._llm_kwargs(task_id, AgentRole.planner.value),
+                    self._snapshot_agent(
+                        self._planner_meta,
+                        self.planner,
+                        task_id,
+                        self.planner.make_plan(
+                            goal,
+                            context=context,
+                            **self._llm_kwargs(task_id, AgentRole.planner.value),
+                        ),
                     ),
                 )
-                # Флаг читаем сразу после ответа, без await: планировщик общий для задач.
-                self._from_code[task_id] = bool(getattr(self.planner, "last_from_code", False))
+                # Флаг из снимка задачи: общий планировщик сосед уже мог перезаписать.
+                self._from_code[task_id] = bool(self._planner_last(task_id, "last_from_code"))
                 return drafted
             except PlanSchemaError as exc:
                 why = str(exc)
                 self._trace_plan(task_id, "schema_rejected", [], why)
                 if await self._absorb_budget(
-                    task_id, session_id, getattr(self.planner, "last_response", None)
+                    task_id, session_id, self._planner_last(task_id, "last_response")
                 ):
                     return None
                 used = self._schema_redo.get(task_id, 0)
@@ -2477,7 +2655,7 @@ class Supervisor:
     def _trace_plan(self, task_id: int, stage: str, plan: list[PlanStep], reason: str = "") -> None:
         from app.services.redact import redact_text
 
-        response = getattr(self.planner, "last_response", None)
+        response = self._planner_last(task_id, "last_response")
         raw = " ".join(redact_text(str(getattr(response, "text", "") or "")).split())
         why = " ".join(redact_text(str(reason or "")).split())
         actions = ",".join(step.action for step in plan[:10])
@@ -2512,16 +2690,21 @@ class Supervisor:
             verdict = str(
                 await self._cancellable(
                     session_id,
-                    self.critic.review(
-                        plan,
-                        context=context,
-                        **self._llm_kwargs(task_id, AgentRole.critic.value),
+                    self._snapshot_agent(
+                        self._critic_meta,
+                        self.critic,
+                        task_id,
+                        self.critic.review(
+                            plan,
+                            context=context,
+                            **self._llm_kwargs(task_id, AgentRole.critic.value),
+                        ),
                     ),
                 )
             )
         finally:
             _LLM_TASK.reset(token)
-        if await self._absorb_budget(task_id, session_id, getattr(self.critic, "last_response", None)):
+        if await self._absorb_budget(task_id, session_id, self._critic_last(task_id, "last_response")):
             return None
         return verdict
 
@@ -2627,7 +2810,7 @@ class Supervisor:
         """
         if not plan:
             await self._mention_waiting_card(task_id, session_id)
-            if getattr(self.planner, "last_parse_failed", False) is True:
+            if self._planner_last(task_id, "last_parse_failed") is True:
                 # Пустой или обрезанный ответ модели — сбой, а не «не понял»: человек не виноват.
                 await self._apply_block(task_id, session_id, "plan_unreadable")
                 return True
@@ -3522,7 +3705,9 @@ class Supervisor:
             return None
         if verdict != "approve":
             await self._checkpoint(task_id, session_id, revised, 0)
-            note = _CRITIC_NO_REASON if verdict == "escalate" else self._critic_note(_CRITIC_REJECTED)
+            note = (
+                _CRITIC_NO_REASON if verdict == "escalate" else self._critic_note(task_id, _CRITIC_REJECTED)
+            )
             await self._apply_block(
                 task_id, session_id, "steer_not_approved", extra={"warnings": [note]} if note else None
             )
@@ -5047,6 +5232,9 @@ class Supervisor:
                 except Exception:
                     logger.exception("orch result message failed for task {}", task_id)
                 finally:
+                    self._planner_meta.pop(task_id, None)
+                    self._critic_meta.pop(task_id, None)
+                    self._kill_stopped.pop(task_id, None)
                     await self._start_queued(session_id, task_id)
         return task_id
 

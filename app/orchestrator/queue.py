@@ -306,6 +306,60 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
     return None
 
 
+# «Останови проект 7 и запусти 8»: смешанная просьба идёт обычной задачей.
+_STOP_VERB = r"(?:останови(?:те)?|стоп|прекрати(?:те)?|прерви(?:те)?)"
+_PROJECT_REF = r"(?:№\s*|#)?\d{1,9}"
+_PROJECT_LIST = _PROJECT_REF + r"(?:\s*(?:,|и|,\s*и)\s*" + _PROJECT_REF + r")*"
+# Вся реплика — только «стоп-глагол + номера проектов». Всё прочее («кроме», «не трогай»,
+# «стоп-кадр», вопрос, второе действие, «через 10 минут») идёт обычной задачей.
+_TARGETED_STOP_RE = re.compile(
+    r"(?:пожалуйста\s*,?\s*)?"
+    + _STOP_VERB
+    + r"\s+(?:(?:проект|проекты|проекта|проектов)\s+"
+    + _PROJECT_LIST
+    + r"|(?:№\s*|#)\d{1,9}(?:\s*(?:,|и|,\s*и)\s*(?:№\s*|#)\d{1,9})*)"
+    + r"(?:\s*,?\s*пожалуйста)?[.!]*"
+)
+
+
+_TARGETED_STOP_MAX = 10
+
+
+def targeted_stop_projects(text: str) -> list[int] | None:
+    """«Останови проект 7», «стоп проекты 7 и 9», «останови #7, #8»: номера, иначе None.
+
+    Только когда реплика целиком — стоп названных проектов. Пока в чате идёт задача,
+    такая реплика не встаёт в очередь за ней: там она дождалась бы конца всех генераций.
+    """
+    norm = " ".join((text or "").lower().split()).replace("ё", "е")
+    if not _TARGETED_STOP_RE.fullmatch(norm):
+        return None
+    found: list[int] = []
+    for raw in re.findall(r"\d+", norm):
+        value = int(raw)
+        if value <= 0:
+            return None
+        if value not in found:
+            found.append(value)
+    if len(found) > _TARGETED_STOP_MAX:
+        # Длинный список — обычной задачей, а не молча первые десять.
+        return None
+    return found or None
+
+
+def _stop_outcome(result: Any) -> tuple[bool, str]:
+    if result is None:
+        return False, ""
+    if isinstance(result, dict):
+        ok = bool(result.get("ok")) if "ok" in result else result.get("status") == "ok"
+        error = result.get("error")
+    else:
+        ok = bool(getattr(result, "ok", False))
+        data = getattr(result, "data", None)
+        error = data.get("error") if isinstance(data, dict) else None
+    return ok, str(error or "").strip()
+
+
 class MessageQueue:
     def __init__(self, bus: EventBus, router: Any, supervisor: Any, context: Any | None = None) -> None:
         self.bus = bus
@@ -601,10 +655,77 @@ class MessageQueue:
             self.supervisor.request_steer(session_id, text)
             return
         if decided.mode is MessageMode.task:
+            targets = targeted_stop_projects(text)
+            if targets and self.supervisor.active_task(session_id) is not None:
+                await self._stop_projects_now(session_id, targets)
+                return
             await self.supervisor.submit_task(session_id, text, project_id=project_id)
             return
         self.supervisor.note_context(session_id, text)
         await self._stream_fast(session_id, text, decided.tier or "fast", project_id)
+
+    async def _stop_projects_now(self, session_id: str, project_ids: list[int]) -> None:
+        """Стоп названных проектов сразу, мимо очереди задач: задача чата и другие проекты идут дальше."""
+        task_id = self.supervisor.active_task(session_id)
+        actions = getattr(self.supervisor, "actions", None)
+        app = self.app if self.app is not None else getattr(self.supervisor, "app", None)
+        if app is None:
+            from app.orchestrator import app_ref
+
+            app = app_ref.current()
+        lines: list[str] = []
+        for project in project_ids:
+            result: Any = None
+            if actions is not None:
+                ctx = {
+                    "task_id": task_id,
+                    "session_id": session_id,
+                    "app": app,
+                    "bus": self.bus,
+                    "operator": f"orchestrator:task-{task_id}" if task_id is not None else "orchestrator",
+                }
+                try:
+                    result = await actions.execute("project.stop", {"project_id": int(project)}, ctx)
+                except Exception:
+                    logger.exception("orch targeted stop of project {} failed", project)
+            ok, error = _stop_outcome(result)
+            if ok:
+                lines.append(f"Проект #{project}: стоп отправлен.")
+            else:
+                lines.append(
+                    f"Проект #{project} остановить не удалось" + (f": {error}" if error else "") + "."
+                )
+        lines.extend(self._stop_task_note(task_id, project_ids))
+        await self._reply(session_id, " ".join(lines), "stop")
+
+    def _stop_task_note(self, task_id: int | None, project_ids: list[int]) -> list[str]:
+        """Что будет с задачей чата: соседи идут дальше, только этот проект или проект не из задачи."""
+        if task_id is None:
+            return []
+        mine: set[int] = set()
+        stored = getattr(self.supervisor, "_stored_plan", None)
+        try:
+            for step in stored(task_id) if callable(stored) else []:
+                raw = (step.params or {}).get("project_id")
+                if raw is not None and int(raw) > 0:
+                    mine.add(int(raw))
+        except Exception:
+            logger.exception("orch targeted stop: plan of task {} not read", task_id)
+        stopped = set(project_ids)
+        outside = sorted(stopped - mine) if mine else []
+        notes: list[str] = []
+        if outside:
+            listed = ", ".join(f"#{pid}" for pid in outside)
+            notes.append(f"Задача чата {listed} не запускала, она идёт как шла.")
+        rest = sorted(mine - stopped)
+        if mine & stopped:
+            if rest:
+                notes.append(
+                    "Остальные проекты задачи идут дальше: " + ", ".join(f"#{pid}" for pid in rest) + "."
+                )
+            else:
+                notes.append("Других проектов у задачи нет: она закончится, когда шаг остановится.")
+        return notes
 
     async def _question_messages(
         self,

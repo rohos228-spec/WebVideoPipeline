@@ -61,12 +61,15 @@ class RouterPlanner:
         budget_scope: str | None = None,
         reasoning_effort: str | None = None,
     ) -> list[PlanStep]:
+        # Поля last_* общего планировщика выставляются все вместе после последнего await
+        # своей ветки: иначе сосед, ответивший между ними, оставит свои значения в чужом вызове.
         undo = await self._undo_plan(goal, task_id)
-        self.last_from_code = undo is not None
         if undo is not None:
             # «Верни как было»: последняя правка чата известна из журнала, модель не нужна.
+            self.last_from_code = True
             self.last_response = None
             self.last_reason = undo[1]
+            self.last_parse_failed = False
             return undo[0]
         block = rules_block(self.rag)
         rules = await retrieve(self.rag, goal or context or "plan", ["rules"], 8)
@@ -88,6 +91,7 @@ class RouterPlanner:
             budget_scope=budget_scope or BudgetScope.internal.value,
             reasoning_effort=reasoning_effort,
         )
+        self.last_from_code = False
         self.last_response = response
         text = getattr(response, "text", "") or ""
         self.last_reason = plan_reason(text)

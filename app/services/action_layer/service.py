@@ -207,7 +207,10 @@ async def _prepare_run(
                 bad = await executor.verify_attachments(st.params or {})
                 if bad:
                     raise RunRefused("attachment_changed", bad)
-        if row.project_id is not None:
+        # Стоп проекта — не второй запуск: «останови проект 7» проходит, пока в #7 идёт другой
+        # план, и не забирает у него захват проекта (иначе стоп из чата получал project_busy).
+        stop_only = bool(steps) and all(st.action_id in executor.KILL_EXEMPT_ACTIONS for st in steps)
+        if row.project_id is not None and not stop_only:
             orphan = executor.orphan_busy(row.project_id)
             if orphan is not None and orphan["plan_id"] != plan_id:
                 raise RunRefused(
