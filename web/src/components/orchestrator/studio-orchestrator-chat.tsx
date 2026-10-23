@@ -305,6 +305,7 @@ function AccessNotice({ chat }: { chat: ReturnType<typeof useOrchestratorChat> }
         {showToken ? (
           <div className="flex gap-2">
             <Input
+              type="password"
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="токен оркестратора"

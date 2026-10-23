@@ -74,6 +74,9 @@ export function setToken(token: string): void {
 export function clearToken(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(TOKEN_KEY);
+  // Отдельный токен чата оркестратора (orchestratorToken.ORCH_TOKEN_STORAGE_KEY) — тоже:
+  // после выхода следующий человек в этом браузере не должен писать в чат от прошлого имени.
+  window.localStorage.removeItem("vp-orch-api-token");
   window.dispatchEvent(new Event("auth-token-cleared"));
 }
 

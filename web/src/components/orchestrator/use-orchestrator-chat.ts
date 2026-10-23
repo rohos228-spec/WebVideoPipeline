@@ -20,6 +20,7 @@ import {
 } from "@/lib/orchestratorApi";
 import { loadOperatorToken } from "@/lib/api-operator-token";
 import { getToken } from "@/lib/identity-api";
+import { chooseChatToken } from "@/lib/orchestratorToken";
 import {
   currentTask,
   initialOrchScreen,
@@ -76,9 +77,9 @@ export function useOrchestratorChat(options?: OrchestratorChatOptions) {
 
   useEffect(() => {
     let alive = true;
-    // Эта линия: движок пускает по входу в студию (IdentityMiddleware), отдельного
-    // ORCH-токена нет. Свой токен чата (тесты, мок) важнее, иначе — токен входа.
-    setToken(readOrchToken() || getToken() || "");
+    // Эта линия: движок пускает по входу в студию. Вошли — только токен входа; отдельный
+    // токен чата — лишь без входа (владелец, мок). См. orchestratorToken.chooseChatToken.
+    setToken(chooseChatToken(getToken(), readOrchToken()));
     void loadOperatorToken().then((value) => {
       if (!alive) return;
       setOperatorToken(value ?? "");

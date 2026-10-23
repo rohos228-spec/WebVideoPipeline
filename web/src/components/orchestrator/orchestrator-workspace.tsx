@@ -203,7 +203,8 @@ export function OrchestratorWorkspace() {
             size="sm"
             className="gap-1.5 text-xs"
             onClick={() => {
-              setTokenDraft(chat.token);
+              // Не подставлять текущий токен (это токен входа студии): поле пустое.
+              setTokenDraft("");
               setTokenOpen(true);
             }}
           >
@@ -219,9 +220,9 @@ export function OrchestratorWorkspace() {
       {chat.needsToken ? (
         <TokenGate
           error={chat.authError}
-          value={tokenDraft || chat.token}
+          value={tokenDraft}
           onChange={setTokenDraft}
-          onSubmit={() => chat.submitToken(tokenDraft || chat.token)}
+          onSubmit={() => chat.submitToken(tokenDraft)}
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -262,6 +263,7 @@ export function OrchestratorWorkspace() {
             </DialogDescription>
           </DialogHeader>
           <Input
+            type="password"
             value={tokenDraft}
             onChange={(event) => setTokenDraft(event.target.value)}
             placeholder="токен"
@@ -1108,6 +1110,7 @@ function TokenGate({
           ) : null}
           <Input
             data-testid="orch-token-input"
+            type="password"
             value={value}
             onChange={(event) => onChange(event.target.value)}
             placeholder="токен оркестратора"

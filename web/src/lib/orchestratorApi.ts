@@ -24,7 +24,9 @@ import type {
 } from "./orchestratorTypes";
 import { humanErrorText, humanOrchError } from "./orchestratorHuman";
 
-export const ORCH_TOKEN_STORAGE_KEY = "vp-orch-api-token";
+import { ORCH_TOKEN_STORAGE_KEY } from "./orchestratorToken";
+
+export { ORCH_TOKEN_STORAGE_KEY };
 
 export class OrchApiError extends Error {
   readonly status: number;
