@@ -268,9 +268,9 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     norm = _norm(text)
     nodes = list(dict.fromkeys(_NODE_RE.findall(norm)))[:2]
     cost_q = bool(_cost_step(norm)) and (_has(norm, _SPEND) or _has(norm, ("сколько",)))
-    if not nodes and not _has(norm, _ABOUT) and not _has(norm, _BLOCKED) and not cost_q:
-        if not wants_data_report(text):
-            return []
+    asked = nodes or _has(norm, _ABOUT) or _has(norm, _BLOCKED) or cost_q
+    if not asked and not wants_data_report(text):
+        return []
     logs = _has(norm, _LOGS) or _has(norm, _FAILURE)
     reads: list[tuple[str, dict[str, Any]]] = []
     if project_id is not None:

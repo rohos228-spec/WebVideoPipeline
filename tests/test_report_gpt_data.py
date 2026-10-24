@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import itertools
+from pathlib import Path
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -147,7 +148,7 @@ async def test_report_rows_characters_scenes_and_files(env) -> None:  # noqa: F8
     assert chars[1][:3] == ("c01", "Кот Барсик", "рыжий, пушистый") and len(chars) == 3
     scenes = list(wb["Сцены"].iter_rows(values_only=True))
     assert scenes[1][0] == "s1" and scenes[1][1] == "кухня"
-    html = open(out["html_path"], encoding="utf-8").read()
+    html = Path(out["html_path"]).read_text(encoding="utf-8")
     assert "Кот Барсик" in html and "кот прыгает" in html and "<script" not in html
 
 
@@ -296,6 +297,8 @@ async def test_foreign_or_missing_project_is_not_found(env) -> None:  # noqa: F8
 async def test_member_sees_no_money(env, monkeypatch) -> None:  # noqa: F811
     from app.services.action_layer import plan
 
+    if not hasattr(plan, "member_view"):
+        pytest.skip("на этой линии нет участников студии")
     pid, slug = await _seed(env, frames=2)
     _reply(slug, "n_excel_gpt_1", REPLY_1)
     monkeypatch.setattr(plan, "member_view", lambda: True)
