@@ -151,6 +151,7 @@ async def test_full_flow_propose_apply_tail_rollback_tail(ccenv) -> None:
     rolled = await _run(env, _as_step(step))
     assert r21_result_problem({"status": "ok", "result": rolled}) is None
     assert "Откатил правку промта ноды «Работа с GPT»" in rolled["text_ru"]
+    assert "убрано «Пиши коротко.»" in rolled["text_ru"] and "уберётся" not in rolled["text_ru"]
     assert await _prompt(env, pid) == original
 
     # Откат тоже обратим: «верни как было» снова применяет правку, а применённая версия не текущая.
@@ -159,6 +160,7 @@ async def test_full_flow_propose_apply_tail_rollback_tail(ccenv) -> None:
     assert again["expected"].startswith("Снова применить отменённую правку промта")
     redone = await _run(env, _as_step(again))
     assert "Снова применил правку промта" in redone["text_ru"]
+    assert "добавлено «Пиши коротко.»" in redone["text_ru"]
     assert (await _prompt(env, pid)).rstrip().endswith("Пиши коротко.")
 
 

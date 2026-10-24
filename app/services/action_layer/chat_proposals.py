@@ -180,8 +180,8 @@ class Change:
         """«правку промта ноды «Работа с GPT 1» в проекте #7»"""
         return f"правку {'промта' if self.group == 'prompt' else 'настроек'}{self.where}"
 
-    def change_ru(self, *, undo: bool = False) -> str:
-        """Что добавится и что уберётся; ``undo`` — то же наоборот (для отката)."""
+    def change_ru(self, *, undo: bool = False, done: bool = False) -> str:
+        """Что добавится и что уберётся; ``undo`` — то же наоборот (для отката), ``done`` — в прошедшем времени."""
         added, removed = (self.removed, self.added) if undo else (self.added, self.removed)
         if self.kind == "prompt_variant" and self.variant:
             from app.orchestrator.agents.approval_steps import variant_title
@@ -189,9 +189,12 @@ class Change:
             return f"нода будет читать промт {variant_title(self.variant)}"
         parts = []
         if added:
-            parts.append(("добавится " if not undo else "вернётся ") + _quoted(added))
+            if done:
+                parts.append(("добавлено " if not undo else "вернулось ") + _quoted(added))
+            else:
+                parts.append(("добавится " if not undo else "вернётся ") + _quoted(added))
         if removed:
-            parts.append("уберётся " + _quoted(removed))
+            parts.append(("убрано " if done else "уберётся ") + _quoted(removed))
         return ", ".join(parts)
 
 
@@ -342,13 +345,13 @@ async def rolled_back_text(out: dict) -> str:
     from app.services.change_control import store as cs
 
     if undone is not None and undone.kind == cs.VK_ROLLBACK:
-        change = found.change_ru()
+        change = found.change_ru(done=True)
         return (
             f"Снова применил {found.subject}"
             + (f": {change}." if change else ".")
             + f" Если передумаете, напишите «{ROLLBACK_PHRASE}»."
         )
-    change = found.change_ru(undo=True)
+    change = found.change_ru(undo=True, done=True)
     return (
         f"Откатил {found.subject}: {found.what} снова такой, как до правки"
         + (f" ({change})." if change else ".")
