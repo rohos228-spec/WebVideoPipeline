@@ -100,6 +100,8 @@ PROTECTED_PREFIXES: tuple[str, ...] = ("/api/", "/ws/")
 TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/me",
     "/api/profile",
+    "/api/ratings",
+    "/api/node-reviews",
     "/api/auth/logout",
     "/api/auth/password",
     "/api/billing/",
