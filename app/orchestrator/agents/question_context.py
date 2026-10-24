@@ -12,7 +12,12 @@ _TIMEOUT_S = 20.0
 _FACT_LIMIT = 2500
 # Обзор — это список: под общим пределом он резался посреди строки, и ответ
 # говорил «по остальным данных нет». До 30 строк по ~180 знаков влезают целиком.
-_FACT_LIMITS = {"projects.overview": 6000, "node.describe": 4500, "report.projects": 6000}
+_FACT_LIMITS = {
+    "projects.overview": 6000,
+    "node.describe": 4500,
+    "report.projects": 6000,
+    "report.gpt_data": 7000,
+}
 _TOTAL_LIMIT = 12000
 _LOG_LINES = 15
 _NODE_RE = re.compile(r"\bn_[a-z0-9_]{2,60}\b")
@@ -149,6 +154,7 @@ _TITLES = {
     "spend.summary": "Траты",
     "projects.overview": "Проекты",
     "report.nodes": "Отчёт по нодам",
+    "report.gpt_data": "Данные работы с GPT",
     "media.list_unknown_outcomes": "Заблокированные платные запросы",
     "step.get_run_cost_basis": "Оценка стоимости шага",
 }
@@ -257,10 +263,13 @@ def _cost_step(norm: str) -> str:
 
 
 def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, Any]]]:
+    from app.orchestrator.agents.data_report import report_params, wants_data_report
+
     norm = _norm(text)
     nodes = list(dict.fromkeys(_NODE_RE.findall(norm)))[:2]
     cost_q = bool(_cost_step(norm)) and (_has(norm, _SPEND) or _has(norm, ("сколько",)))
-    if not nodes and not _has(norm, _ABOUT) and not _has(norm, _BLOCKED) and not cost_q:
+    asked = nodes or _has(norm, _ABOUT) or _has(norm, _BLOCKED) or cost_q
+    if not asked and not wants_data_report(text):
         return []
     logs = _has(norm, _LOGS) or _has(norm, _FAILURE)
     reads: list[tuple[str, dict[str, Any]]] = []
@@ -273,7 +282,11 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
             reads.append(("logs.tail", {"project_id": pid, "kind": "errors", "limit": 20}))
         if _has(norm, _SPEND):
             reads.append(("spend.summary", {"project_id": pid}))
-        if _has(norm, _REPORT):
+        data_report = report_params(text, pid)
+        if data_report is not None:
+            # «Какие персонажи / сцены в проекте»: данные работы с GPT, а не статус нод.
+            reads.append(("report.gpt_data", data_report))
+        elif _has(norm, _REPORT):
             reads.append(("report.nodes", {"project_id": pid, "kind": "chat"}))
         elif _has(norm, _GPT_WRITES) or (_has(norm, _GPT) and _has(norm, ("пол", "запис"))):
             # Вопрос о перезаписи полей — ответ текстом, без html и xlsx на диске (kind md файлов не пишет).
@@ -286,6 +299,9 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
             reads.append(("step.get_run_cost_basis", {"project_id": pid, "step_code": _cost_step(norm)}))
         return _allowed(reads)
     reads.append(("projects.overview", {"limit": 15}))
+    data_report = report_params(text, None)
+    if data_report is not None:
+        reads.append(("report.gpt_data", data_report))
     if logs:
         reads.append(("logs.tail", {"kind": "errors", "limit": 20}))
     if _has(norm, _SPEND):

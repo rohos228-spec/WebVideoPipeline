@@ -407,6 +407,7 @@ _CHAT_V1_ROWS: tuple[tuple[str, RiskName, bool, bool, bool], ...] = (
     ("projects.overview", "none", True, False, False),
     ("report.nodes", "none", True, False, False),
     ("report.projects", "none", True, False, False),
+    ("report.gpt_data", "none", True, False, False),
     ("node.describe", "none", True, False, False),
     ("node.list_models", "none", True, False, False),
     ("project.create_batch", "medium", False, False, False),

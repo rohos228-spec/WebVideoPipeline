@@ -505,7 +505,6 @@ async def test_model_options_list(env) -> None:
 
 
 
-@pytest.mark.xfail(strict=True, reason='merge line: int/chat-v1 baseline test, model catalog / prompt library / meta agent of main differ')
 async def test_cc_t2_now_covers_image_prompt_nodes(cc, prompts_root) -> None:
     (prompts_root / "05_image_prompts").mkdir(parents=True, exist_ok=True)
     (prompts_root / "05_image_prompts" / "default.md").write_text(
@@ -541,7 +540,6 @@ async def ccenv_nodes(env, prompts_root):
     return env
 
 
-@pytest.mark.xfail(strict=True, reason='merge line: int/chat-v1 baseline test, model catalog / prompt library / meta agent of main differ')
 async def test_prompt_edit_text_creates_a_proposal_only(ccenv_nodes, prompts_root) -> None:
     env = ccenv_nodes
     before = (prompts_root / "01_plan" / "default.md").read_bytes()
@@ -569,7 +567,6 @@ async def test_prompt_edit_text_creates_a_proposal_only(ccenv_nodes, prompts_roo
     assert meta["prompt_slot_variants"]["n_plan"]["main"].startswith("cc-")
 
 
-@pytest.mark.xfail(strict=True, reason='merge line: int/chat-v1 baseline test, model catalog / prompt library / meta agent of main differ')
 async def test_prompt_edit_text_append_adds_requirement_at_the_end(ccenv_nodes, prompts_root) -> None:
     from app.services.action_layer.spec import ensure_builtin_actions, registry
     env = ccenv_nodes
@@ -594,6 +591,35 @@ async def test_prompt_edit_text_append_adds_requirement_at_the_end(ccenv_nodes, 
     assert registry.find("change.apply").needs_approval is True
     applied = await _run(env, [res["apply_step"]], approve=True)
     assert applied["status"] == "succeeded", applied
+
+
+async def test_prompt_append_real_lint_path_apply_and_secret_refusal(ccenv_nodes, prompts_root) -> None:
+    """prompt.edit_text -> change_control propose/validate -> lints (no mocks) -> change.apply.
+
+    Live stand crashed here with ImportError in lints.new_secret_hits; the two tests above were
+    hidden behind a strict xfail, so nothing caught it. This one has no xfail and asserts both that
+    the real lint runs (a credential-like append is refused by it) and that a plain append applies.
+    """
+    from app.services.change_control import lints
+
+    assert lints.new_secret_hits("Пиши коротко.", "") == []
+    assert lints.new_secret_hits("api_key=abcdefgh12345678", "") != []
+    env = ccenv_nodes
+    base = {"project_id": env.pid, "node_key": "n_plan", "rationale": "короче"}
+    secret = dict(base, append="token: abcdefgh12345678abcdefgh")
+    r = await _plan(env, [{"action_id": "prompt.edit_text", "params": secret}])
+    assert r.status_code == 422, r.text
+    assert "credential-like" in r.text and "ImportError" not in r.text
+    plan = await _run(env, [{"action_id": "prompt.edit_text", "params": dict(base, append="Пиши коротко.")}])
+    assert plan["status"] == "succeeded", plan
+    res = plan["steps"][0]["result"]
+    assert res["added_lines"] == ["Пиши коротко."]
+    applied = await _run(env, [res["apply_step"]], approve=True)
+    assert applied["status"] == "succeeded", applied
+    variant = (await _meta_of(env, env.pid))["prompt_slot_variants"]["n_plan"]["main"]
+    assert variant.startswith("cc-")
+    files = list((prompts_root / "01_plan").glob(f"{variant}*.md"))
+    assert files and files[0].read_text(encoding="utf-8").rstrip().endswith("Пиши коротко.")
 
 
 def test_prompt_edit_summary_lines() -> None:

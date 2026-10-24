@@ -21,6 +21,7 @@ INSIGHT_IDS: tuple[str, ...] = (
     "projects.overview",
     "report.nodes",
     "report.projects",
+    "report.gpt_data",
 )
 
 _STEP_RU = {
@@ -262,10 +263,22 @@ def _step_code(raw: str, eff: str) -> str:
 
 
 def _labels(meta: dict) -> dict[str, str]:
-    out: dict[str, str] = {}
+    """Подписи нод канваса; одинаковые («Работа с GPT» дважды) различаются номером из ключа.
+
+    Без номера две ноды n_excel_gpt_1 и n_excel_gpt_2 в ответе чата выглядели одной
+    строкой два раза («Работа с GPT», «Работа с GPT»).
+    """
+    raw: dict[str, str] = {}
     for n in _canvas_nodes(meta):
         _raw, eff = _node_types(n)
-        out[str(n["id"])] = _node_title(n, eff)
+        raw[str(n["id"])] = _node_title(n, eff)
+    counts: dict[str, int] = {}
+    for title in raw.values():
+        counts[title] = counts.get(title, 0) + 1
+    out: dict[str, str] = {}
+    for key, title in raw.items():
+        number = "".join(ch for ch in key if ch.isdigit())
+        out[key] = f"{title} {number}" if counts[title] > 1 and number else title
     return out
 
 
@@ -704,7 +717,7 @@ def _node_card(
     arts = _artifacts(project, key, sample=10 if detailed else 3)
     card = {
         "node_key": key,
-        "title": _node_title(node, eff),
+        "title": _labels(meta).get(key) or _node_title(node, eff),
         "type": eff or raw,
         "type_ru": _type_ru(eff or raw),
         "step": step,
@@ -1668,6 +1681,12 @@ async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
     return _safe(out)
 
 
+async def _report_gpt_data(ctx: ActionContext, params: dict) -> dict:
+    from app.services.action_layer.report_gpt_data import report_gpt_data
+
+    return await report_gpt_data(ctx, params)
+
+
 async def _report_projects(ctx: ActionContext, params: dict) -> dict:
     from app.services.action_layer.report_gpt import report_projects
 
@@ -1868,5 +1887,52 @@ def _specs() -> list[ActionSpec]:
     ]
 
 
+def _gpt_data_spec() -> ActionSpec:
+    from app.services.action_layer import report_data_format as fmt
+
+    return ActionSpec(
+        id="report.gpt_data",
+        title_ru="Отчёт по данным работы с GPT",
+        description_ru="Что записали ноды «Работа с GPT» проекта: по кадрам (№, закадр, сцена, место, "
+        "персонажи, действие, промты картинок и видео), список персонажей и сцен. node_key — одна "
+        "нода (n_excel_gpt_1), иначе все. preset: standard (по умолчанию), scenes_characters "
+        "(«только сцены и персонажи»), image_prompts («с промтами картинок»), animation_prompts, "
+        "full; columns — свои колонки. Таблица в чате и файлы xlsx и html. Только чтение, бесплатно.",
+        params_schema=_schema(
+            {
+                "project_id": _PID,
+                "node_key": _NODE_KEY,
+                "preset": {"type": "string", "enum": list(fmt.PRESETS), "default": fmt.DEFAULT_PRESET},
+                "columns": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": list(fmt.FRAME_COLUMNS)},
+                    "maxItems": len(fmt.FRAME_COLUMNS),
+                },
+                "kind": {"type": "string", "enum": ["chat", "json", "xlsx", "html"], "default": "chat"},
+            },
+            ["project_id"],
+        ),
+        executor=_report_gpt_data,
+        risk=RISK_READ,
+        idempotent=True,
+        preconditions=(_PRE_PROJECT,),
+        tags=(
+            "report",
+            "gpt",
+            "гпт",
+            "отчёт",
+            "отчет",
+            "данные",
+            "сцены",
+            "персонажи",
+            "герои",
+            "кадры",
+            "промты",
+            "выгрузка",
+            "xlsx",
+        ),
+    )
+
+
 def register_insight(registry: ActionRegistry) -> None:
-    registry.register_many(_specs())
+    registry.register_many([*_specs(), _gpt_data_spec()])

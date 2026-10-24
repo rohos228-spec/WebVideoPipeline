@@ -158,7 +158,14 @@ _APPLY_WORDS = ("примен", "предлож", "правк", "внес", "н�
 _MAX_PROPOSALS = 5
 PROPOSALS_HEAD = (
     "Ожидающие предложения изменений проекта, самое свежее первым (для change.apply бери "
-    "proposal_id и expected_digest только отсюда):"
+    "proposal_id и expected_digest только отсюда; отменить неприменённое — change.reject с тем же "
+    "proposal_id):"
+)
+ALL_PROPOSALS_HEAD = (
+    "Ожидающие предложения изменений этого чата (или всей студии, если своих нет), самое свежее "
+    "первым. Для change.apply бери proposal_id и expected_digest только отсюда; одно предложение — "
+    "его и применяй, несколько и человек не назвал проект или ноду — пустой steps и в reason "
+    "вопрос, какое (нода и проект каждого); отменить неприменённое — change.reject:"
 )
 
 
@@ -445,21 +452,27 @@ async def load_meta(project_id: int) -> Any:
     return meta if isinstance(meta, dict) else None
 
 
-async def load_proposals(project_id: int) -> Any:
+async def load_proposals(project_id: int | None, operators: list[str] | None = None) -> Any:
+    """Ожидающие применения предложения проекта; без проекта — этой беседы, иначе все."""
     from app.services.change_control import service
 
+    if project_id is None:
+        from app.services.action_layer.chat_proposals import pending
+
+        return (await pending(operators))[:_MAX_PROPOSALS]
     data = await service.list_proposals(project_id=int(project_id), status="proposed", limit=_MAX_PROPOSALS)
     return [item for item in data.get("items") or [] if isinstance(item, dict) and item.get("can_apply")]
 
 
-def proposals_text(items: list[dict[str, Any]]) -> str:
-    lines = [PROPOSALS_HEAD]
+def proposals_text(items: list[dict[str, Any]], head: str = PROPOSALS_HEAD) -> str:
+    lines = [head]
     for item in items[:_MAX_PROPOSALS]:
         what = "промт ноды" if item.get("kind") == "prompt_text" else "настройка ноды"
         node = item.get("node_key") or ""
+        where = f", проект {item['project_id']}" if item.get("project_id") else ""
         when = str(item.get("created_at") or "")[:16].replace("T", " ")
         lines.append(
-            f"- proposal_id={item.get('id')}, expected_digest={item.get('digest')}: {what} {node}"
+            f"- proposal_id={item.get('id')}, expected_digest={item.get('digest')}: {what} {node}{where}"
             + (f", создано {when}" if when else "")
         )
     return "\n".join(lines) if len(lines) > 1 else ""
@@ -727,6 +740,21 @@ async def load_status(project_id: int) -> str:
     return getattr(status, "value", str(status or ""))
 
 
+async def _task_operators(task_id: Any) -> list[str] | None:
+    """Задачи беседы, к которой относится задача: их предложения — «свои»."""
+    import asyncio
+
+    from app.services.action_layer.chat_undo import task_operators
+
+    if task_id is None:
+        return None
+    try:
+        return await asyncio.to_thread(task_operators, task_id)
+    except Exception:
+        logger.exception("orch project proposals: chat operators not read")
+        return None
+
+
 def _task_project(task_id: Any) -> int | None:
     from app.orchestrator.agents.action_catalog import _task_project as lookup
 
@@ -785,7 +813,9 @@ class ProjectNodes:
             named = named_projects(items, text)
             ids = [int(named[0]["id"])] if len(named) == 1 else numbered_projects(items, text)
             if not ids:
-                return head
+                # «Примени правку промта» без номера проекта: ожидающие правки беседы и студии.
+                pending = await self.proposals(None, text, task_id)
+                return "\n".join(part for part in (head, pending) if part)
             nodes = await self.project_block(ids[0], text)
             note = (
                 f"Ноды и варианты промтов ниже — проекта {ids[0]}; у проектов {', '.join(map(str, ids))} "
@@ -906,15 +936,24 @@ class ProjectNodes:
             return []
         return [item for item in items or [] if isinstance(item, dict)]
 
-    async def proposals(self, project_id: int, text: str) -> str:
+    async def proposals(self, project_id: int | None, text: str, task_id: Any = None) -> str:
         if not any(stem in _norm(text) for stem in _APPLY_WORDS):
             return ""
         try:
-            items = await self._proposals_of(int(project_id))
+            if project_id is None:
+                own = self._proposals_of is load_proposals
+                items = await (
+                    self._proposals_of(None, await _task_operators(task_id))
+                    if own
+                    else self._proposals_of(None)
+                )
+            else:
+                items = await self._proposals_of(int(project_id))
         except Exception:
             logger.exception("orch project proposals failed for project {}", project_id)
             return ""
-        return proposals_text([item for item in items or [] if isinstance(item, dict)])
+        head = ALL_PROPOSALS_HEAD if project_id is None else PROPOSALS_HEAD
+        return proposals_text([item for item in items or [] if isinstance(item, dict)], head)
 
     async def __call__(self, text: str, task_id: Any = None) -> str:
         block = await self.block(text, task_id)

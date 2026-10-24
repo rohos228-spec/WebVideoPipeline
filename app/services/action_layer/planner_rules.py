@@ -1241,6 +1241,7 @@ ACTION_NOTES: dict[str, str] = {
     "провайдера или ключа - вопрос.",
     "change.apply": "«предложение N» = proposals n=N: его id и digest.",
     "change.rollback": "target и v из versions (свежая цель нужного вида); нет данных - вопрос.",
+    "change.reject": "Только неприменённое: proposal_id из proposals; применённое возвращает change.rollback.",
     "change.get": "target из versions (свежая цель нужного вида) или proposal_id.",
     "change.propose": "Нужно содержимое (candidate); без него - вопрос.",
     "prompt.get_master": "step_code: из слов запроса («шага script»), иначе где есть названный вариант; "
@@ -1268,6 +1269,7 @@ ACTION_NOTES: dict[str, str] = {
     "montage.apply_status": "Идёт ли очередь правок или уже закончилась: без параметров. Сборка/монтаж ролика - montage_status.",
     "montage.montage_status": "Идёт ли сборка (монтаж) ролика или уже закончилась: без параметров.",
     "report.projects": "Несколько проектов одной таблицей: project_ids = названные номера («5,6,7»), до 20; «по всем проектам» - опусти. Не дроби на report.nodes (он - один проект).",
+    "report.gpt_data": "Данные работы с GPT по кадрам, сцены, персонажи, промты: node_key только если нода названа (n_excel_gpt_1 = «гпт 1» / «первая»). «Только сцены и персонажи» - preset=scenes_characters; «с промтами картинок» - preset=image_prompts; «все поля» - full; иначе опусти. Не node.output.",
     "montage.unlink_ref": "«Убери из ячейки/кадра персонажа или предмет <id>» (hero_1, item_2): kind character|item, ref_id из запроса; shot.edit_field не нужен.",
     "montage.delete_manual_ref": "«Ручной реф <id> у кадра N»: kind всегда manual, тип не спрашивай.",
     "montage.link_ref": "file и frame_number из запроса; list_ref_assets не нужен.",
@@ -1625,6 +1627,7 @@ GUARD_HINTS: dict[str, tuple[str, ...]] = {
     ),
     "change.apply": ("примен", "apply", "внес", "внеси", "примени", "прмен", "накат", "активир"),
     "change.rollback": ("откат", "откач", "верни", "вернуть", "назад", "отмен", "прежн"),
+    "change.reject": ("отмен", "отклон", "не примен", "выкин", "предлож"),
     "project.set_auto_mode": (
         "автопродвиж",
         "автореж",

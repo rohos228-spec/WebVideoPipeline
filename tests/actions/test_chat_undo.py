@@ -373,6 +373,14 @@ async def test_undo_phrases_quoted_in_code_are_understood() -> None:
     found = {m for path in root.rglob("*.py") for m in _QUOTED_UNDO.findall(path.read_text(encoding="utf-8"))}
     # «верни только JSON, не Excel» — фраза промта main, не просьба об откате.
     found -= {"верни JSON", "верни файл", "верни только JSON, не Excel"}
+    # «Отмени предложение правки» — отказ от неприменённой правки (change.reject), не откат:
+    # его разбирает chat_proposals раньше отката, и это такая же задача для чата.
+    from app.services.action_layer import chat_proposals
+
+    rejects = {text for text in found if chat_proposals.reject_phrase(text)}
+    assert rejects == {chat_proposals.REJECT_PHRASE}
+    assert all(classify_deterministic(text).mode is MessageMode.task for text in rejects)
+    found -= rejects
     assert found
     assert [text for text in sorted(found) if not chat_undo.undo_phrase(text)] == []
     for text in sorted(found):

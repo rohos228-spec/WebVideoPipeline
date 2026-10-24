@@ -38,6 +38,60 @@ def raw_reason(text: str) -> bool:
     return bool(_RAW_REASON.search(text or ""))
 
 
+# Уточняющий вопрос планировщика: «Уточните, нужно ли отменить…», «Какую правку вернуть?».
+_CLARIFY = re.compile(
+    r"уточни|нужно\s+ли|\?|(?<![а-я])(?:какую|какой|какое|какие|какая|напишите|выберите|скажите)(?![а-я])",
+    re.IGNORECASE,
+)
+_SENTENCES = re.compile(r"(?<=[.!?…])\s+")
+# Служебное в причине: id и суммы, ключи нод, поля плана, «в каталоге / журнале / контексте».
+_JARGON = (
+    (re.compile(r"\s*\((?:[^()]*[a-z_][^()]*)\)"), ""),
+    (re.compile(r"(?:№|#)?\b[0-9a-f]{8,}\b(?:\.\.\.)?", re.IGNORECASE), ""),
+    (re.compile(r"\b(?:вида\s+)?[a-z][a-z0-9]*(?:[._][a-z0-9]+)+\b", re.IGNORECASE), ""),
+    (re.compile(r"\b(?:proposal|digest|snapshot|target|version|id)\b", re.IGNORECASE), ""),
+    (re.compile(r"\b(?:в|из)\s+(?:доступном\s+)?(?:контексте|журнале|каталоге|списке)\b", re.IGNORECASE), ""),
+)
+
+
+# Часть фразы, которая просит у человека служебное поле («передайте proposal_id», «предоставьте
+# snapshot_id»), выкидывается целиком: человек его не знает и знать не должен.
+_TECH_ASK = re.compile(r"(?:proposal|digest|snapshot|target|version)\w*|(?<![a-z])id(?![a-z])", re.IGNORECASE)
+_CLAUSE = re.compile(r"(?<=[,;:])\s+|\s+(?=или\s)")
+
+
+def _scrub(sentence: str) -> str:
+    end = sentence[-1] if sentence[-1:] in ".!?…" else ""
+    clauses = [part for part in _CLAUSE.split(sentence.rstrip(".!?…")) if not _TECH_ASK.search(part)]
+    out = " ".join(clauses).rstrip(",;: ") + end if clauses else ""
+    out = re.sub(r"\s*(?:№|#)\s?\d+\b", "", out)
+    for pattern, repl in _JARGON:
+        out = pattern.sub(repl, out)
+    out = re.sub(r"\s+([,.:;!?])", r"\1", " ".join(out.split()))
+    out = re.sub(r"([,:;])(?:\s*[,:;])+", r"\1", out)
+    return re.sub(r"^[,:;\s]+", "", out).strip()
+
+
+def clarify_text(reason: str) -> str:
+    """Уточнение планировщика человеческими словами; пусто — показать его нельзя.
+
+    Пустой план с понятной причиной («правка ещё ожидает применения. Уточните, нужно ли
+    отменить…») — не «Не понял»: человеку нужен сам вопрос, без id и служебных имён.
+    """
+    from app.services.plain_ru import plain_ru
+    from app.services.redact import redact_text
+
+    text = " ".join(plain_ru(redact_text(str(reason or ""))).split())
+    sentences = [_scrub(part) for part in _SENTENCES.split(text) if part.strip()]
+    sentences = [part for part in sentences if len(part) >= 8 and not raw_reason(part)]
+    asks = [part for part in sentences if _CLARIFY.search(part)]
+    if not asks:
+        return ""
+    picked = [part for part in sentences if part in asks or part == sentences[0]][:3]
+    out = " ".join(part if part.endswith((".", "?", "!", "…")) else part + "." for part in picked)
+    return out[:400]
+
+
 # Планировщик понял просьбу, но такого действия у чата нет: «в каталоге нет действия для удаления проекта».
 _MISSING_ACTION = re.compile(
     r"в\s+каталоге\s+нет|нет\s+в\s+каталоге|нет\s+(?:такого\s+|подходящего\s+|нужного\s+|отдельного\s+)?действи"
@@ -498,6 +552,9 @@ _KNOWN_TEXT = {
     "project.patch_settings": _own_text,
     "project.patch_settings_costly": _own_text,
     "prompt.edit_text": _own_text,
+    "change.apply": _own_text,
+    "change.rollback": _own_text,
+    "change.reject": _own_text,
     "node.set_prompt_variant": _own_text,
     "node.set_model_many": _own_text,
     "node.set_prompt_variant_many": _own_text,
@@ -514,6 +571,7 @@ _KNOWN_TEXT = {
     "project.stop": _own_text,
     "report.nodes": _own_text,
     "report.projects": _own_text,
+    "report.gpt_data": _own_text,
     "group.shots_report": _own_text,
     "step.run_step": _own_text,
     "publish.send": _own_text,
@@ -533,6 +591,9 @@ def known_text(action: str, body: dict[str, Any]) -> str:
     except Exception:
         return ""
 
+
+# Ответ — текст шага как есть, без пересказа моделью (таблица, ссылки на файлы).
+VERBATIM_ACTIONS = frozenset({"report.gpt_data"})
 
 _REPORT_URL = re.compile(r"^/api/projects/(?:\d+/)?reports/[A-Za-z0-9][A-Za-z0-9_.\-]{0,150}$")
 
@@ -778,8 +839,15 @@ def _project_tally(facts: TaskFacts) -> list[str]:
     return [line + "."]
 
 
+def _superseded(notes: list[StepNote]) -> list[StepNote]:
+    """Правку промта подготовили и тут же применили: итог — применение, без «промт пока не изменён»."""
+    if not any(note.action == "change.apply" and note.ok for note in notes):
+        return notes
+    return [note for note in notes if not (note.action == "prompt.edit_text" and note.ok)]
+
+
 def deterministic_text(facts: TaskFacts) -> str:
-    done = [note for note in facts.steps if note.ok and not note.skipped]
+    done = _superseded([note for note in facts.steps if note.ok and not note.skipped])
     failed = [note for note in facts.steps if not note.ok and not note.skipped]
     many = _many_projects(facts)
     lines: list[str] = []
@@ -929,7 +997,7 @@ def drop_echo(text: str, goal: str) -> str:
 
 # «Текст промта «X» (системный):\n…\n(показаны первые 1500 из 5647 знаков)» из node.describe.
 _PROMPT_HEAD = re.compile(r"^(Текст промта[^\n]*):[ \t]*\n", re.MULTILINE)
-_PROMPT_TAIL = re.compile(r"\n\(показаны первые (\d+) из (\d+) знаков\)\s*$")
+_PROMPT_TAIL = re.compile(r"\n\(показаны (?:первые|последние) (\d+) из (\d+) знаков\)\s*$")
 _PROMPT_PROBE = 60
 # Сколько разных промтов ответ цитирует и сколько знаков каждого: остальные - «спросите отдельно».
 _PROMPT_QUOTES_MAX = 2
@@ -1000,6 +1068,14 @@ def _parse_prompt(text: str) -> tuple[str, str, str, int] | None:
 def _clip_excerpt(head: str, body: str, tail: str, total: int) -> PromptExcerpt:
     if len(body) <= _PROMPT_QUOTE_CHARS:
         return PromptExcerpt(head, body, tail)
+    if "последние" in tail:
+        # «Покажи конец промта»: режем с начала, конец остаётся.
+        cut = body[-_PROMPT_QUOTE_CHARS:]
+        line_start = cut.find("\n")
+        if 0 <= line_start < _PROMPT_QUOTE_CHARS // 2:
+            cut = cut[line_start + 1 :]
+        cut = cut.strip()
+        return PromptExcerpt(head, cut, f"(показаны последние {len(cut)} из {max(total, len(body))} знаков)")
     cut = body[:_PROMPT_QUOTE_CHARS]
     line_end = cut.rfind("\n")
     if line_end >= _PROMPT_QUOTE_CHARS // 2:
@@ -1068,7 +1144,7 @@ def _fact_text(note: StepNote, quotes: list[PromptExcerpt], shown: set[str]) -> 
     if found is None or parsed is None:
         return note.text
     head, body = parsed[0], parsed[1]
-    item = next((q for q in quotes if body.startswith(q.body)), None)
+    item = next((q for q in quotes if body.startswith(q.body) or body.endswith(q.body)), None)
     before = note.text[: found.start()]
     if item is None:
         return f"{before}{head}: текст не показан{'' if quotes else ' (о нём не спрашивали)'}"
@@ -1119,6 +1195,10 @@ class TaskSummarizer:
 
     def _wants_model(self, facts: TaskFacts) -> bool:
         if self.router is None or facts.status != "done":
+            return False
+        done = [note for note in facts.steps if note.ok and not note.skipped]
+        if done and all(note.action in VERBATIM_ACTIONS and note.known for note in done):
+            # Таблицу отчёта код уже собрал: модель её пересказывала или повторяла просьбу.
             return False
         if any(not note.readonly for note in facts.steps if note.ok):
             return False

@@ -211,6 +211,69 @@ def test_llm_call_insert_is_idempotent_and_finds_project(orch_db: str) -> None:
     assert rows[0]["task_id"] == str(task)
 
 
+def test_llm_call_keeps_the_real_provider(orch_db: str) -> None:
+    """vibecode писался как «52pay»: журнал вызовов врал, через кого шёл запрос."""
+    from app.orchestrator.db.migrations import connect
+    from app.orchestrator.routing.accounting import insert_call
+
+    insert_call(_call(call_id="p-vibe", provider="vibecode"))
+    insert_call(_call(call_id="p-kie", provider="KIE"))
+    insert_call(_call(call_id="p-pay", provider="52pay"))
+    insert_call(_call(call_id="p-odd", provider="someone-else"))
+    insert_call(_call(call_id="p-none", provider=""))
+    conn = connect()
+    try:
+        rows = dict(conn.execute(text("SELECT call_id, provider FROM orch_llm_calls WHERE call_id LIKE 'p-%'"))
+                    .fetchall())
+    finally:
+        conn.close()
+    assert rows == {"p-vibe": "vibecode", "p-kie": "kie", "p-pay": "52pay", "p-odd": "unknown",
+                    "p-none": "unknown"}
+
+
+def test_provider_migration_keeps_rows_of_an_existing_db(tmp_path: Path) -> None:
+    """База стенда: 001–010 уже накатаны, в журнале вызовов строки, CHECK знает только 52pay|kie."""
+    from app.orchestrator.db import migrations as mig
+
+    cols = (
+        "call_id, agent_role, requested_tier, tier, model, provider, status, deterministic_flag, "
+        "latency_ms, prompt_tokens, completion_tokens, reasoning_tokens, cost_usd, budget_scope, "
+        "router_impl, created_at, tenant_id"
+    )
+
+    def row(call_id: str, provider: str) -> str:
+        return (f"INSERT INTO orch_llm_calls ({cols}) VALUES ('{call_id}', 'planner', 'auto', 'strong', 'm', "
+                f"'{provider}', 'ok', 1, 5, 1, 1, 0, 0.5, 'internal', 'live', 't', NULL)")
+
+    db = tmp_path / "stand.db"
+    raw = sqlite3.connect(db)
+    try:
+        raw.execute(mig.JOURNAL_DDL)
+        for path in sorted(mig._MIGRATIONS_DIR.glob("*.sql")):
+            if path.name >= "011":
+                continue
+            raw.executescript(path.read_text(encoding="utf-8"))
+            raw.execute("INSERT INTO orch_schema_migrations VALUES (?, 't')", (path.name,))
+        raw.execute(row("old-1", "kie"))
+        raw.commit()
+        with pytest.raises(sqlite3.IntegrityError):
+            raw.execute(row("v-0", "vibecode"))
+        raw.rollback()
+        assert mig.apply_migrations(raw) == ["011_orch_llm_calls_provider.sql"]
+        raw.execute(row("v-1", "vibecode"))
+        raw.commit()
+        rows = raw.execute("SELECT call_id, provider, cost_usd FROM orch_llm_calls ORDER BY id").fetchall()
+        indexes = {r[0] for r in raw.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='orch_llm_calls' AND sql IS NOT NULL")}
+        with pytest.raises(sqlite3.IntegrityError):
+            raw.execute(row("x-1", "openai"))
+    finally:
+        raw.close()
+    assert rows == [("old-1", "kie", 0.5), ("v-1", "vibecode", 0.5)]
+    assert indexes == {"ix_orch_llm_calls_task_created", "ix_orch_llm_calls_budget_scope",
+                       "ix_orch_llm_calls_tenant_id"}
+
+
 # --- уведомления в чат и журнал ----------------------------------------------
 
 
@@ -364,8 +427,8 @@ def test_alembic_builds_the_runner_schema_on_sqlite(tmp_path: Path) -> None:
         assert apply_migrations(con) == []
     finally:
         con.close()
-    # 0018 накатывает ORCH_SQL_FILES, 0020 — колонку арендатора (010).
-    assert journal == set(ORCH_SQL_FILES) | {"010_orch_tenant.sql"}
+    # 0018 накатывает ORCH_SQL_FILES, 0020 — колонку арендатора (010), 0021 — провайдера (011).
+    assert journal == set(ORCH_SQL_FILES) | {"010_orch_tenant.sql", "011_orch_llm_calls_provider.sql"}
     assert {"chat_notices", "notification_log"} <= tables
 
 

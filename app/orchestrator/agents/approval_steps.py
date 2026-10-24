@@ -51,7 +51,8 @@ _NODE_TITLES = {
     "node.upload_check_agent": "Загрузить агента проверки в ноду «{node}»",
     "node.clear_check_agent": "Убрать загруженного агента проверки с ноды «{node}»",
     "node.revert_check_agent": "Вернуть прежнего агента проверки ноды «{node}»",
-    "prompt.edit_text": "Предложить правку промта ноды «{node}» (этот проект)",
+    # Чат студии (фабрика) — не чат проекта: «этот проект» там ни о чём, называем номер.
+    "prompt.edit_text": "Предложить правку промта ноды «{node}» (только проект {project})",
 }
 _ID_KEYS = ("node_key", "model_id", "variant")
 # Параметры, где значение - ключ ноды (n_images): в карточке вместо ключа название ноды.
@@ -88,7 +89,11 @@ def node_title(action: str, params: dict[str, Any], labels: dict[str, str] | Non
     variant = variant_title(_text_value(params, "variant"))
     if "{variant}" in pattern and not variant:
         return ""
-    return pattern.format(node=label, model=model, variant=variant)
+    pid = params.get("project_id")
+    project = f"#{pid}" if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 else ""
+    if "{project}" in pattern and not project:
+        return ""
+    return pattern.format(node=label, model=model, variant=variant, project=project)
 
 
 def variant_title(name: str) -> str:
@@ -291,11 +296,21 @@ def plan_risk(views: list[dict[str, Any]]) -> str:
 def _rollback_titles(views: list[dict[str, Any]], plan: list[PlanStep], payload: dict[str, Any]) -> None:
     """Шаг отката в карточке называет, что вернётся, а не номер снимка."""
     known = payload.get("rollback")
-    if not isinstance(known, dict) or not str(known.get("title") or "").strip():
+    if isinstance(known, dict) and str(known.get("title") or "").strip():
+        for step, view in zip(plan, views, strict=True):
+            if step.action == "history.rollback" and step.params.get("snapshot_id") == known.get(
+                "snapshot_id"
+            ):
+                view["title"] = str(known["title"]).strip()
+                view["params_text"] = ""
+                view["text"] = view["title"]
+    # Применить, откатить или отменить правку промта: нода и проект словами, без id и сумм.
+    named = payload.get("card_step")
+    if not isinstance(named, dict) or not str(named.get("title") or "").strip():
         return
     for step, view in zip(plan, views, strict=True):
-        if step.action == "history.rollback" and step.params.get("snapshot_id") == known.get("snapshot_id"):
-            view["title"] = str(known["title"]).strip()
+        if step.action == named.get("action") and dict(step.params) == dict(named.get("params") or {}):
+            view["title"] = str(named["title"]).strip()
             view["params_text"] = ""
             view["text"] = view["title"]
 

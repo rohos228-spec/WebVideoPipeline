@@ -302,6 +302,7 @@ class ModelTier(StrEnum):
 class LLMProvider(StrEnum):
     pay52 = "52pay"
     kie = "kie"
+    vibecode = "vibecode"
 
 
 class LLMCallStatus(StrEnum):
@@ -2260,7 +2261,7 @@ ORCH_LLM_CALLS = TableSpec(
         ColumnSpec("requested_tier", "TEXT", nullable=False, check="fast|strong|auto"),
         ColumnSpec("tier", "TEXT", nullable=False, check="fast|strong|auto"),
         ColumnSpec("model", "TEXT", nullable=False),
-        ColumnSpec("provider", "TEXT", nullable=False, check="52pay|kie"),
+        ColumnSpec("provider", "TEXT", nullable=False, check="52pay|kie|vibecode|unknown"),
         ColumnSpec("reasoning_effort", "TEXT", nullable=True),
         ColumnSpec("fallback_index", "INTEGER", nullable=False, default="0", note="0 = основная модель"),
         ColumnSpec("attempt", "INTEGER", nullable=False, default="1"),

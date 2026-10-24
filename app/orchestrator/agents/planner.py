@@ -82,6 +82,14 @@ class RouterPlanner:
             self.last_reason = undo[1]
             self.last_parse_failed = False
             return undo[0]
+        report = self._data_report_plan(goal, task_id)
+        if report is not None:
+            # «Отчёт по данным работы с GPT / какие персонажи»: одно чтение, модель не нужна.
+            self.last_from_code = True
+            self.last_response = None
+            self.last_reason = ""
+            self.last_parse_failed = False
+            return report
         block = rules_block(self.rag)
         rules = await retrieve(self.rag, goal or context or "plan", ["rules"], 8)
         catalog = self._catalog_block(goal, context, task_id)
@@ -117,6 +125,18 @@ class RouterPlanner:
             return str(self.catalog(text, task_id) or "")
         except Exception:
             return ""
+
+    def _data_report_plan(self, goal: str, task_id: Any) -> list[PlanStep] | None:
+        from app.orchestrator.agents.data_report import report_step
+
+        try:
+            project_of = getattr(self.catalog, "_project_of", None)
+            if project_of is None:
+                from app.orchestrator.agents.action_catalog import _task_project as project_of
+            step = report_step(goal, project_of(task_id))
+        except Exception:
+            return None
+        return [PlanStep.model_validate(step)] if step is not None else None
 
     async def _undo_plan(self, goal: str, task_id: Any) -> tuple[list[PlanStep], str] | None:
         if self.undo is None:
@@ -179,6 +199,27 @@ def _group(value: Any) -> Any:
     return None
 
 
+_TEXT_SOURCES = ("text", "edits", "append")
+
+
+def _blank(value: Any) -> bool:
+    if isinstance(value, str):
+        return not value.strip()
+    return value is None or (isinstance(value, (list, dict)) and not value)
+
+
+def _one_text_source(params: dict) -> dict:
+    """prompt.edit_text: пустые ``edits: []`` / ``text: ""`` рядом с заполненным полем — не правка.
+
+    Модель заполняла все три поля (задача 348: append + пустые edits и text), схема отклоняла
+    шаг, а подсказка проверки уходила дальше критику. Пустые поля убираем, только если есть
+    заполненное: план без единого поля по-прежнему отклоняет сервер.
+    """
+    if not any(not _blank(params.get(key)) for key in _TEXT_SOURCES if key in params):
+        return params
+    return {k: v for k, v in params.items() if not (k in _TEXT_SOURCES and _blank(v))}
+
+
 def _tolerant(item: Any) -> Any:
     if not isinstance(item, dict):
         return item
@@ -191,6 +232,8 @@ def _tolerant(item: Any) -> Any:
 
         if params.get("step_code") not in NODE_KEY_STEPS:
             out["params"] = {k: v for k, v in params.items() if k != "node_key"}
+    if out.get("action") == "prompt.edit_text" and isinstance(params, dict):
+        out["params"] = _one_text_source(params)
     for name in ("paid", "mutating"):
         if name in out:
             flag = _flag(out[name])
@@ -344,13 +387,21 @@ _CATALOG_RULES = (
     "Подтверждение человека для платных и изменяющих шагов спрашивает карточка после плана: из-за него "
     "план не отменяй и пустой steps не возвращай.",
     "Правка текста промта ноды (дописать требование, заменить фразу, новый текст) — только prompt.edit_text: "
-    "append — дописать в конец, edits — замены фрагментов, text — весь новый текст. change.propose для "
-    "промтов не используй.",
+    "append — дописать в конец, edits — замены фрагментов, text — весь новый текст: только одно из трёх "
+    "полей, остальные не пиши. change.propose для промтов не используй.",
+    "Данные, которые записали ноды «Работа с GPT» (сцены, персонажи, промты картинок и видео по кадрам), "
+    "отчёт или выгрузка по ним — report.gpt_data, а не node.output и не report.nodes: один шаг на проект; "
+    "node_key — только если названа одна нода, несколько нод одного проекта — один шаг без node_key. "
+    "node.output — статус, модель и промт ноды.",
+    "«Покажи промт ноды» — node.describe этой ноды; «покажи конец / последние строки / хвост промта» — "
+    "node.describe с prompt_part=end.",
     "«Подтверди / одобри сценарий (персонажей, картинки, видео, ролик)» — hitl.approve с kind "
     "(approve_plan, approve_hero, approve_images, approve_videos, approve_final), «отклони …» — "
     "hitl.reject так же; hitl_id ставь, только если человек назвал номер запроса.",
     "«Примени правку промта» — change.apply с proposal_id и expected_digest из списка ожидающих предложений "
-    "проекта (самое свежее, если человек не назвал другое).",
+    "проекта (самое свежее, если человек не назвал другое). «Отмени предложение правки» (ещё не "
+    "применённой) — change.reject с proposal_id оттуда же. Откатить уже применённую правку промта — "
+    "change.rollback, не history.rollback.",
     "ceiling_credits ставь, только если человек назвал лимит: в кредитах — как есть, в долларах — "
     "умножь на 200 (1 кредит = $0.005, «лимит $1» = 200). Иначе опусти: для текстовых шагов "
     "сервер подставит потолок по умолчанию и покажет его на карточке подтверждения.",
