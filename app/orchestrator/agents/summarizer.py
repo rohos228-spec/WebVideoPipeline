@@ -167,7 +167,10 @@ _NODE_KEY = re.compile(r"^n_|_")
 # Догадка о виде ноды по словам, только когда настоящий вид ноды прочитать не удалось.
 # «Работа с GPT» — текстовая нода, даже если описывает картинки: её проверяем первой.
 _KIND_WORDS = (
-    ("text", re.compile(r"работ\w*\s+с\s+(?:gpt|гпт)|excel_gpt|текст|сценари|нод\w*\s+«?работа", re.IGNORECASE)),
+    (
+        "text",
+        re.compile(r"работ\w*\s+с\s+(?:gpt|гпт)|excel_gpt|текст|сценари|нод\w*\s+«?работа", re.IGNORECASE),
+    ),
     ("image", re.compile(r"картин|изображен|image|фото", re.IGNORECASE)),
     ("video", re.compile(r"видео|ролик|анимац|video", re.IGNORECASE)),
 )
@@ -548,7 +551,11 @@ def _overview_text(body: dict[str, Any]) -> str:
         )
     for item in items:
         extra = item.get("pause_reason") or item.get("error") or ""
-        place = f"{item['queue_position']}. " if body.get("filter") == "queue" and item.get("queue_position") else ""
+        place = (
+            f"{item['queue_position']}. "
+            if body.get("filter") == "queue" and item.get("queue_position")
+            else ""
+        )
         lines.append(
             f"• {place}#{item.get('id')} «{item.get('title') or ''}»: {item.get('status_ru') or item.get('status') or ''}"
             + (f" — {extra}" if extra else "")
@@ -631,6 +638,7 @@ def _simple_read(goal: str, action: str) -> bool:
     except Exception:
         return False
     return step is not None and step["action"] == action
+
 
 _REPORT_URL = re.compile(r"^/api/projects/(?:\d+/)?reports/[A-Za-z0-9][A-Za-z0-9_.\-]{0,150}$")
 

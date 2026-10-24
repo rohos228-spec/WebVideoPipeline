@@ -301,7 +301,9 @@ class PlanCritic:
             logger.info("critic revise about reading state ignored: read precedes the step: {}", reason)
             verdict, reason = "approve", "чтение состояния уже стоит перед шагом"
         elif verdict == "revise" and catalog_params_only(reason):
-            logger.info("critic revise about catalog ids/params ignored: server checked the schema: {}", reason)
+            logger.info(
+                "critic revise about catalog ids/params ignored: server checked the schema: {}", reason
+            )
             verdict, reason = "approve", "имена и параметры действий проверил сервер"
         if verdict == "approve":
             self.last_reason = reason

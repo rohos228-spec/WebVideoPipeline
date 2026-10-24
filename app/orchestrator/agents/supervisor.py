@@ -218,6 +218,8 @@ def _critic_context(context: str) -> str:
     """Контекст критику без подсказок проверки плана: они о прошлом, уже отклонённом плане."""
     lines = (context or "").split("\n")
     return "\n".join(line for line in lines if not line.lstrip().startswith(_SCREEN_NOTE_PREFIX)).strip()
+
+
 _CHECK_RU = {
     "plan_sanity": "перед запуском шага нет чтения состояния",
     "unknown_cost": "стоимость шага неизвестна",
@@ -1855,7 +1857,9 @@ class Supervisor:
                 logger.opt(exception=True).warning("orch task {} blocked-step probe failed", task_id)
                 return False
             if card.get("preview_failed"):
-                logger.info("orch task {} step {} card failed to build: critic card kept", task_id, step.action)
+                logger.info(
+                    "orch task {} step {} card failed to build: critic card kept", task_id, step.action
+                )
                 return False
             if not card.get("blocked") or not card.get("preview_errors"):
                 continue
@@ -2729,8 +2733,11 @@ class Supervisor:
                 await self._critic_revised_out(task_id, session_id, plan)
                 return None
             if _monotonic() - started > REVISE_TIME_BUDGET_S:
-                logger.info("orch task {} critic revise after {:.0f}s: card instead of a new round",
-                            task_id, _monotonic() - started)
+                logger.info(
+                    "orch task {} critic revise after {:.0f}s: card instead of a new round",
+                    task_id,
+                    _monotonic() - started,
+                )
                 await self._critic_revised_out(task_id, session_id, plan, slow=True)
                 return None
             context = (context + "\n" + self._critic_feedback(task_id, verdict)).strip()
@@ -6054,9 +6061,7 @@ def _follow_up_steps(
     """``change.apply`` для каждой только что подготовленной правки промта, которой нет в плане."""
     if _NO_APPLY_RE.search(goal or ""):
         return []
-    planned = {
-        str(step.params.get("proposal_id") or "") for step in plan if step.action == "change.apply"
-    }
+    planned = {str(step.params.get("proposal_id") or "") for step in plan if step.action == "change.apply"}
     out: list[PlanStep] = []
     for (step, _step_id), result in zip(started, results, strict=False):
         if step.action != "prompt.edit_text" or envelope_status(result) != "ok":

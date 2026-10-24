@@ -4,9 +4,7 @@
 ``app/orchestrator/contracts.py`` из PR #346 (ветка ``cursor/ws3-agents-core-r1-3c7d``)
 один к одному. Модуль WS3 в этой ветке не импортируется: файла ещё нет в ``main``.
 
-``FixtureMiss`` — один класс на проект, владелец routing (WS5, PR #345).
-Пока модуля нет в ``main``, ниже локальный фолбэк.
-TODO(WS5): убрать фолбэк после мёржа #345.
+``FixtureMiss`` — один класс на проект, владелец routing (WS5).
 
 ``Chunk.metadata`` в #346 — закрытая модель из четырёх полей. Для нод сюда
 дополнительно кладутся поля утверждённого ``NodeDef`` (``source``, ``version``,
@@ -131,19 +129,7 @@ class LLMResponse:
         )
 
 
-try:
-    from app.orchestrator.routing.types import FixtureMiss as FixtureMiss
-except ImportError:  # #345 ещё не в main
-    # TODO(WS5): убрать этот класс после мёржа #345 и оставить импорт из routing.
-
-    class FixtureMiss(LookupError):  # type: ignore[no-redef]
-        """Нет LLM-фикстуры на ключ. Живой вызов запрещён (контур A / D7)."""
-
-        label = "fixture-miss"
-
-        def __init__(self, fixture_key: str) -> None:
-            self.fixture_key = fixture_key
-            super().__init__(f"fixture-miss: {fixture_key}")
+from app.orchestrator.routing.types import FixtureMiss as FixtureMiss  # noqa: E402
 
 
 @dataclass
