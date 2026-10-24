@@ -360,12 +360,19 @@ def _anthropic_route(use_model: str) -> bool:
 
 
 def _headers() -> dict[str, str]:
+    from app.services.provider_keys import resolve
+
     vibe_ov = _node_vibecode_override()
     if vibe_ov:
         # Не подставлять kie GPT_API_KEY: иначе 401 на vibecode /v1/chat/completions.
-        key = (settings.vibecode_api_key or "").strip()
+        purpose = "relay" if _hitting_vps_relay() else "text"
+        creds = resolve("vibecode", purpose)
+        key = creds["api_key"]
+        headers = dict(creds["headers"]) if key else {}
     else:
-        key = settings.gpt_api_effective_key
+        creds = resolve("gpt", "text")
+        key = creds["api_key"]
+        headers = dict(creds["headers"]) if key else {}
     if not key:
         if vibe_ov or settings.text_llm_is_vibecode:
             raise GptApiError(
@@ -381,15 +388,15 @@ def _headers() -> dict[str, str]:
             "GPT_API_KEY пуст — задай ключ в .env",
             context={"error_kind": "no_key", "provider": "kie"},
         )
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-    }
-    # Relay-токен только когда реально бьём в VPS (kie или vibecode через relay).
-    if _hitting_vps_relay():
-        relay = (getattr(settings, "gpt_relay_token", None) or "").strip()
-        if relay:
-            headers["X-VP-Relay-Token"] = relay
+    if "Authorization" not in headers:
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        }
+        if _hitting_vps_relay():
+            relay = (getattr(settings, "gpt_relay_token", None) or "").strip()
+            if relay:
+                headers["X-VP-Relay-Token"] = relay
     return headers
 
 
@@ -2973,16 +2980,19 @@ async def _chat_unscoped(
 
             if anthropic_route:
                 from app.services import anthropic_messages
+                from app.services.provider_keys import resolve as _resolve_keys
 
                 structured = response_schema is not None and _structured_outputs_active(url)
+                _anth_creds = _resolve_keys("vibecode", "text")
+                _anth_base = (
+                    _override_vibecode_base_url()
+                    if _node_vibecode_override()
+                    else settings.gpt_api_effective_base_url
+                )
                 result = await _record_transport_call(
                     lambda: anthropic_messages.chat_messages(
-                        base_url=(
-                            _override_vibecode_base_url()
-                            if _node_vibecode_override()
-                            else settings.gpt_api_effective_base_url
-                        ),
-                        api_key=(settings.vibecode_api_key or "").strip(),
+                        base_url=_anth_base,
+                        api_key=_anth_creds["api_key"],
                         body=body,
                         timeout=use_timeout,
                         use_model=use_model,

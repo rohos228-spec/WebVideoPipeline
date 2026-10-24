@@ -117,11 +117,12 @@ class _Cfg:
 
 
 def _cfg() -> _Cfg:
-    from app.settings import settings
+    from app.services.provider_keys import resolve
 
+    creds = resolve("minimax")
     return _Cfg(
-        key=(settings.minimax_api_key or "").strip(),
-        base=(settings.minimax_base_url or _DEFAULT_BASE).rstrip("/"),
+        key=creds["api_key"],
+        base=(creds["base_url"] or _DEFAULT_BASE).rstrip("/"),
     )
 
 
