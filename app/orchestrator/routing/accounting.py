@@ -14,7 +14,9 @@ from app.orchestrator.routing.types import LlmCallRecord
 LEDGER_SOURCE = "orch_llm"
 _ROLES = frozenset({"supervisor", "planner", "critic", "executor", "classifier", "summarizer"})
 _TIERS = frozenset({"fast", "strong", "auto"})
-_PROVIDERS = frozenset({"52pay", "kie"})
+# Провайдеры маршрута (routing/config.py: 52pay | kie | vibecode). Незнакомое имя — «unknown»,
+# а не «52pay»: иначе журнал вызовов приписывал vibecode чужому провайдеру (CHECK — миграция 011).
+_PROVIDERS = frozenset({"52pay", "kie", "vibecode"})
 _STATUSES = frozenset({"ok", "timeout", "error", "fixture_miss"})
 _IMPLS = frozenset({"live", "replay", "scripted"})
 _tasks: set[asyncio.Task[Any]] = set()
@@ -72,7 +74,7 @@ def insert_call(row: LlmCallRecord) -> int | None:
                 "requested_tier": _pick(row.requested_tier, _TIERS, "auto"),
                 "tier": _pick(row.tier, _TIERS, "strong"),
                 "model": str(row.model or "unknown"),
-                "provider": _pick(row.provider, _PROVIDERS, "52pay"),
+                "provider": _pick(row.provider, _PROVIDERS, "unknown"),
                 "reasoning_effort": row.reasoning_effort,
                 "fallback_index": int(row.fallback_index or 0),
                 "attempt": int(row.attempt or 1),

@@ -2,7 +2,7 @@
 
 Скрипт: ``{"contains": "...", "text": "..."}`` или ``{"regex": "...", "text": "..."}``.
 Нет совпадения — ``RouterError("scripted-miss")``, не живой вызов.
-``router_impl`` в логе — ``scripted``. Поле provider остаётся ``52pay|kie``
+``router_impl`` в логе — ``scripted``. Поле provider — ``52pay|kie|vibecode``
 (по умолчанию 52pay): это не реальный расход, его отличает ``router_impl``.
 """
 
