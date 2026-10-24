@@ -179,6 +179,27 @@ def _group(value: Any) -> Any:
     return None
 
 
+_TEXT_SOURCES = ("text", "edits", "append")
+
+
+def _blank(value: Any) -> bool:
+    if isinstance(value, str):
+        return not value.strip()
+    return value is None or (isinstance(value, (list, dict)) and not value)
+
+
+def _one_text_source(params: dict) -> dict:
+    """prompt.edit_text: пустые ``edits: []`` / ``text: ""`` рядом с заполненным полем — не правка.
+
+    Модель заполняла все три поля (задача 348: append + пустые edits и text), схема отклоняла
+    шаг, а подсказка проверки уходила дальше критику. Пустые поля убираем, только если есть
+    заполненное: план без единого поля по-прежнему отклоняет сервер.
+    """
+    if not any(not _blank(params.get(key)) for key in _TEXT_SOURCES if key in params):
+        return params
+    return {k: v for k, v in params.items() if not (k in _TEXT_SOURCES and _blank(v))}
+
+
 def _tolerant(item: Any) -> Any:
     if not isinstance(item, dict):
         return item
@@ -191,6 +212,8 @@ def _tolerant(item: Any) -> Any:
 
         if params.get("step_code") not in NODE_KEY_STEPS:
             out["params"] = {k: v for k, v in params.items() if k != "node_key"}
+    if out.get("action") == "prompt.edit_text" and isinstance(params, dict):
+        out["params"] = _one_text_source(params)
     for name in ("paid", "mutating"):
         if name in out:
             flag = _flag(out[name])
@@ -344,8 +367,10 @@ _CATALOG_RULES = (
     "Подтверждение человека для платных и изменяющих шагов спрашивает карточка после плана: из-за него "
     "план не отменяй и пустой steps не возвращай.",
     "Правка текста промта ноды (дописать требование, заменить фразу, новый текст) — только prompt.edit_text: "
-    "append — дописать в конец, edits — замены фрагментов, text — весь новый текст. change.propose для "
-    "промтов не используй.",
+    "append — дописать в конец, edits — замены фрагментов, text — весь новый текст: только одно из трёх "
+    "полей, остальные не пиши. change.propose для промтов не используй.",
+    "«Покажи промт ноды» — node.describe этой ноды; «покажи конец / последние строки / хвост промта» — "
+    "node.describe с prompt_part=end.",
     "«Подтверди / одобри сценарий (персонажей, картинки, видео, ролик)» — hitl.approve с kind "
     "(approve_plan, approve_hero, approve_images, approve_videos, approve_final), «отклони …» — "
     "hitl.reject так же; hitl_id ставь, только если человек назвал номер запроса.",

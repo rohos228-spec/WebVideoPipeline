@@ -929,7 +929,7 @@ def drop_echo(text: str, goal: str) -> str:
 
 # «Текст промта «X» (системный):\n…\n(показаны первые 1500 из 5647 знаков)» из node.describe.
 _PROMPT_HEAD = re.compile(r"^(Текст промта[^\n]*):[ \t]*\n", re.MULTILINE)
-_PROMPT_TAIL = re.compile(r"\n\(показаны первые (\d+) из (\d+) знаков\)\s*$")
+_PROMPT_TAIL = re.compile(r"\n\(показаны (?:первые|последние) (\d+) из (\d+) знаков\)\s*$")
 _PROMPT_PROBE = 60
 # Сколько разных промтов ответ цитирует и сколько знаков каждого: остальные - «спросите отдельно».
 _PROMPT_QUOTES_MAX = 2
@@ -1000,6 +1000,14 @@ def _parse_prompt(text: str) -> tuple[str, str, str, int] | None:
 def _clip_excerpt(head: str, body: str, tail: str, total: int) -> PromptExcerpt:
     if len(body) <= _PROMPT_QUOTE_CHARS:
         return PromptExcerpt(head, body, tail)
+    if "последние" in tail:
+        # «Покажи конец промта»: режем с начала, конец остаётся.
+        cut = body[-_PROMPT_QUOTE_CHARS:]
+        line_start = cut.find("\n")
+        if 0 <= line_start < _PROMPT_QUOTE_CHARS // 2:
+            cut = cut[line_start + 1 :]
+        cut = cut.strip()
+        return PromptExcerpt(head, cut, f"(показаны последние {len(cut)} из {max(total, len(body))} знаков)")
     cut = body[:_PROMPT_QUOTE_CHARS]
     line_end = cut.rfind("\n")
     if line_end >= _PROMPT_QUOTE_CHARS // 2:
@@ -1068,7 +1076,7 @@ def _fact_text(note: StepNote, quotes: list[PromptExcerpt], shown: set[str]) -> 
     if found is None or parsed is None:
         return note.text
     head, body = parsed[0], parsed[1]
-    item = next((q for q in quotes if body.startswith(q.body)), None)
+    item = next((q for q in quotes if body.startswith(q.body) or body.endswith(q.body)), None)
     before = note.text[: found.start()]
     if item is None:
         return f"{before}{head}: текст не показан{'' if quotes else ' (о нём не спрашивали)'}"

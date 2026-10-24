@@ -287,6 +287,11 @@ async def _revert_params(ctx: ActionContext, params: dict) -> dict:
 
 
 PROMPT_SHOWN_CHARS = 1500
+_PROMPT_PART = {
+    "type": "string",
+    "enum": ["start", "end"],
+    "description": "какую часть промта показать: start — начало (по умолчанию), end — конец, последние строки",
+}
 
 
 async def _describe(ctx: ActionContext, params: dict) -> dict:
@@ -322,14 +327,28 @@ async def _prompt_excerpt(ctx: ActionContext, params: dict) -> str:
     if not body:
         return ""
     total = int(base.get("text_chars") or len(body))
-    cut = body[:PROMPT_SHOWN_CHARS].rstrip()
+    # «Покажи конец промта»: последние строки. Обрезанный сервером текст — не настоящий конец.
+    end = params.get("prompt_part") == "end" and not base.get("truncated")
+    cut = _tail_cut(body) if end else body[:PROMPT_SHOWN_CHARS].rstrip()
     name = str(base.get("variant") or "").strip()
     head = f"Текст промта «{name}»" if name else "Текст промта"
     # Правка клиента или проекта поверх системного текста: говорим, чей текст показан.
     if base.get("text_level") in ("project", "tenant", "brand") and base.get("text_level_ru"):
         head += f" ({base['text_level_ru']})"
-    tail = f"\n(показаны первые {len(cut)} из {total} знаков)" if len(cut) < total else ""
+    which = "последние" if end else "первые"
+    tail = f"\n(показаны {which} {len(cut)} из {total} знаков)" if len(cut) < total else ""
     return f"{head}:\n{cut}{tail}"
+
+
+def _tail_cut(body: str) -> str:
+    """Конец промта до PROMPT_SHOWN_CHARS знаков, с начала строки, а не с середины слова."""
+    if len(body) <= PROMPT_SHOWN_CHARS:
+        return body
+    cut = body[-PROMPT_SHOWN_CHARS:]
+    line = cut.find("\n")
+    if 0 <= line < PROMPT_SHOWN_CHARS // 2:
+        cut = cut[line + 1 :]
+    return cut.strip()
 
 
 _COST_RU = {"cheaper": "дешевле", "same": "так же", "costlier": "дороже", "unknown": "цена неизвестна"}
@@ -471,10 +490,17 @@ def _lines_ru(head: str, mark: str, lines: list[str]) -> list[str]:
 
 
 def prompt_edit_text_ru(
-    node: str, before_chars: object, after_chars: int, added: list[str], removed: list[str]
+    node: str,
+    before_chars: object,
+    after_chars: int,
+    added: list[str],
+    removed: list[str],
+    project_id: object = None,
 ) -> str:
+    # Ответ читают и в чате студии, где «этот проект» ни о чём: называем номер, когда он есть.
+    where = f"проекта #{project_id}" if isinstance(project_id, int) and project_id > 0 else "этого проекта"
     lines = [
-        f"Подготовил правку промта ноды {node} только для этого проекта, общий промт не меняется.",
+        f"Подготовил правку промта ноды {node} только для {where}, общий промт не меняется.",
         f"Было: {before_chars} символов, стало: {after_chars}.",
     ]
     lines += _lines_ru("Добавлено:", "+", added)
@@ -515,7 +541,9 @@ async def _prompt_edit(ctx: ActionContext, params: dict) -> dict:
             "action_id": "change.apply",
             "params": {"proposal_id": view["id"], "expected_digest": view["digest"]},
         },
-        "text_ru": prompt_edit_text_ru(params["node_key"], base.get("text_chars"), len(text), added, removed),
+        "text_ru": prompt_edit_text_ru(
+            params["node_key"], base.get("text_chars"), len(text), added, removed, params.get("project_id")
+        ),
     }
 
 
@@ -896,9 +924,13 @@ def _specs() -> list[ActionSpec]:
             title_ru="Показать настройки ноды",
             description_ru="Текущие настройки ноды по-русски: модель и цена, действует ли модель "
             "на шаг, вариант промта и откуда он, включена ли нода, проверка, "
-            "ветки ок / не ок, повторы при сбое, что можно вернуть. Ничего не "
-            "меняет.",
-            params_schema=node_only,
+            "ветки ок / не ок, повторы при сбое, что можно вернуть, и текст промта: "
+            "начало, а для «покажи конец / последние строки / хвост промта» — "
+            "prompt_part=end. Ничего не меняет.",
+            params_schema=_schema(
+                {"project_id": _PID, "node_key": _NODE_KEY, "prompt_part": _PROMPT_PART},
+                ["project_id", "node_key"],
+            ),
             executor=_describe,
             risk=RISK_READ,
             idempotent=True,
@@ -1051,7 +1083,7 @@ def _specs() -> list[ActionSpec]:
         ),
         ActionSpec(
             id="prompt.edit_text",
-            title_ru="Предложить правку текста промта ноды (этот проект)",
+            title_ru="Предложить правку текста промта ноды (только в одном проекте)",
             description_ru="Готовит правку текста промта одной ноды только для этого проекта: "
             "append - дописать требование в конец, edits - замены фрагментов, text - "
             "полный новый текст. Проходит проверки (метки, "

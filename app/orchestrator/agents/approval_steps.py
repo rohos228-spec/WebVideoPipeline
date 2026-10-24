@@ -51,7 +51,8 @@ _NODE_TITLES = {
     "node.upload_check_agent": "Загрузить агента проверки в ноду «{node}»",
     "node.clear_check_agent": "Убрать загруженного агента проверки с ноды «{node}»",
     "node.revert_check_agent": "Вернуть прежнего агента проверки ноды «{node}»",
-    "prompt.edit_text": "Предложить правку промта ноды «{node}» (этот проект)",
+    # Чат студии (фабрика) — не чат проекта: «этот проект» там ни о чём, называем номер.
+    "prompt.edit_text": "Предложить правку промта ноды «{node}» (только проект {project})",
 }
 _ID_KEYS = ("node_key", "model_id", "variant")
 # Параметры, где значение - ключ ноды (n_images): в карточке вместо ключа название ноды.
@@ -88,7 +89,11 @@ def node_title(action: str, params: dict[str, Any], labels: dict[str, str] | Non
     variant = variant_title(_text_value(params, "variant"))
     if "{variant}" in pattern and not variant:
         return ""
-    return pattern.format(node=label, model=model, variant=variant)
+    pid = params.get("project_id")
+    project = f"#{pid}" if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 else ""
+    if "{project}" in pattern and not project:
+        return ""
+    return pattern.format(node=label, model=model, variant=variant, project=project)
 
 
 def variant_title(name: str) -> str:

@@ -199,6 +199,34 @@ def read_state_satisfied(plan: list[PlanStep], reason: str) -> bool:
     return all(any(_read_covers(read, plan[i]) for read in plan[:i]) for i in changing)
 
 
+# «В плане отсутствуют подтверждённые каталогом id и значения параметров из поля v» (задача 348):
+# критик пересказал подсказку проверки плана для планировщика. Имена действий и параметры к
+# этому моменту уже проверил сервер по схеме (dry-run до критика), а модель их не видит.
+_CATALOG_HINT = re.compile(r"каталог|пол[ея]\s+[«\"']?v\b|\bid\b|идентификатор|параметр|схем", re.IGNORECASE)
+_CATALOG_WORDS = re.compile(
+    r"(?<!\w)(?:\w*каталог\w*|пол[еяю]|v|id|ид|идентификатор\w*|параметр\w*|значени\w*|схем\w*|"
+    r"действи\w*|имен\w*|им[яю]|подтвержд\w*|провер\w*|указан\w*|допустим\w*|верн\w*|корректн\w*|"
+    r"правильн\w*|отсутству\w*|нет|не|без|только|все|всех|их|ему|его|её|ее|шаг\w*|плане|план\w*|"
+    r"нужн\w*|необходим\w*|требует\w*|следует|долж\w*|исправ\w*|использ\w*|бер\w*|взят\w*|"
+    r"из|в|во|на|по|для|с|со|к|у|о|и|или|а|но|это\w*|эт\w*|ключ\w*|точн\w*|явн\w*)(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def catalog_params_only(reason: str) -> bool:
+    """Revise только про «id из каталога / значения из поля v / имена параметров».
+
+    Такие ошибки ловит сервер: план приходит к критику только после проверки схемы
+    действий (dry-run). Причина должна быть целиком из этих слов: любое другое замечание
+    (проект, цена, удаление, номер, английское имя ключа) оставляет revise.
+    """
+    text = " ".join((reason or "").split())
+    if not text or not _CATALOG_HINT.search(text):
+        return False
+    rest = _CATALOG_WORDS.sub(" ", text)
+    return not re.search(r"[^\W_]|\$|%|€|₽", rest)
+
+
 def deterministic_verdict(plan: list[PlanStep]) -> tuple[str, str] | None:
     """Проверки критика без модели: удаления, чтение перед запуском, потолок и прогноз трат.
 
@@ -272,6 +300,9 @@ class PlanCritic:
         elif verdict == "revise" and read_state_satisfied(plan, reason):
             logger.info("critic revise about reading state ignored: read precedes the step: {}", reason)
             verdict, reason = "approve", "чтение состояния уже стоит перед шагом"
+        elif verdict == "revise" and catalog_params_only(reason):
+            logger.info("critic revise about catalog ids/params ignored: server checked the schema: {}", reason)
+            verdict, reason = "approve", "имена и параметры действий проверил сервер"
         if verdict == "approve":
             self.last_reason = reason
             return verdict
